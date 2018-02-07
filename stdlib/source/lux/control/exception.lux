@@ -1,9 +1,11 @@
 (.module: {#.doc "Exception-handling functionality built on top of the Error type."}
   lux
-  (lux (control monad)
+  (lux (control [monad #+ do]
+                ["p" parser])
        (data ["e" error]
              [maybe]
-             [text "text/" Monoid<Text>])
+             [text "text/" Monoid<Text>]
+             (coll [list "list/" Functor<List>]))
        [macro]
        (macro [code]
               ["s" syntax #+ syntax: Syntax]
@@ -12,28 +14,29 @@
                               ["csw" writer])))))
 
 ## [Types]
-(type: #export Exception
+(type: #export (Exception a)
   {#.doc "An exception provides a way to decorate error messages."}
-  (-> Text Text))
+  {#label Text
+   #constructor (-> a Text)})
 
 ## [Values]
 (def: #export (match? exception error)
-  (-> Exception Text Bool)
-  (text.starts-with? (exception "") error))
+  (All [e] (-> (Exception e) Text Bool))
+  (text.starts-with? (get@ #label exception) error))
 
 (def: #export (catch exception then try)
   {#.doc "If a particular exception is detected on a possibly-erroneous value, handle it.
 
           If no exception was detected, or a different one from the one being checked, then pass along the original value."}
-  (All [a]
-    (-> Exception (-> Text a) (e.Error a)
+  (All [e a]
+    (-> (Exception e) (-> Text a) (e.Error a)
         (e.Error a)))
   (case try
     (#e.Success output)
     (#e.Success output)
 
     (#e.Error error)
-    (let [reference (exception "")]
+    (let [reference (get@ #label exception)]
       (if (text.starts-with? reference error)
         (#e.Success (|> error
                         (text.clip (text.size reference) (text.size error))
@@ -57,19 +60,42 @@
   (All [a] (-> a (e.Error a)))
   (#e.Success value))
 
+(def: #export (construct exception message)
+  {#.doc "Constructs an exception."}
+  (All [e] (-> (Exception e) e Text))
+  ((get@ #constructor exception) message))
+
 (def: #export (throw exception message)
   {#.doc "Decorate an error message with an Exception and lift it into the error-handling context."}
-  (All [a] (-> Exception Text (e.Error a)))
-  (#e.Error (exception message)))
+  (All [e] (-> (Exception e) e e.Error))
+  (#e.Error (construct exception message)))
 
-(syntax: #export (exception: [_ex-lev csr.export] [name s.local-symbol])
+(syntax: #export (exception: [export csr.export]
+                   [t-vars (p.default (list) csr.type-variables)]
+                   [[name inputs] (p.either (p.seq s.local-symbol (wrap (list)))
+                                            (s.form (p.seq s.local-symbol (p.some csr.typed-input))))]
+                   [body (p.maybe s.any)])
   {#.doc (doc "Define a new exception type."
               "It moslty just serves as a way to tag error messages for later catching."
-              (exception: #export Some-Exception))}
-  (do @
-    [current-module macro.current-module-name
-     #let [descriptor ($_ text/compose "{" current-module "." name "}" "\n")
-           g!message (code.symbol ["" "message"])]]
-    (wrap (list (` (def: (~+ (csw.export _ex-lev)) ((~ (code.symbol ["" name])) (~ g!message))
-                     Exception
-                     ((~! text/compose) (~ (code.text descriptor)) (~ g!message))))))))
+              ""
+              "Simple case:"
+              (exception: #export Some-Exception)
+              ""
+              "Complex case:"
+              (exception: #export [optional type-vars] (Some-Exception [optional Text] {arguments Int})
+                optional-body))}
+  (macro.with-gensyms [g!descriptor]
+    (do @
+      [current-module macro.current-module-name
+       #let [descriptor ($_ text/compose "{" current-module "." name "}" "\n")
+             g!self (code.local-symbol name)]]
+      (wrap (list (` (def: (~+ (csw.export export))
+                       (~ g!self)
+                       (All (~ (csw.type-variables t-vars))
+                         (..Exception [(~+ (list/map (get@ #cs.input-type) inputs))]))
+                       (let [(~ g!descriptor) (~ (code.text descriptor))]
+                         {#..label (~ g!descriptor)
+                          #..constructor (function (~ g!self) [[(~+ (list/map (get@ #cs.input-binding) inputs))]]
+                                           ((~! text/compose) (~ g!descriptor)
+                                            (~ (maybe.default (' "") body))))})))))
+      )))

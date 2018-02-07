@@ -14,12 +14,25 @@
        (lang [type "type/" Eq<Type>])
        ))
 
-(exception: #export Unknown-Type-Var)
-(exception: #export Unbound-Type-Var)
-(exception: #export Improper-Ring)
-(exception: #export Invalid-Type-Application)
-(exception: #export Cannot-Rebind-Var)
-(exception: #export Type-Check-Failed)
+(exception: #export (Unknown-Type-Var {id Nat})
+  (nat/encode id))
+
+(exception: #export (Unbound-Type-Var {id Nat})
+  (nat/encode id))
+
+(exception: #export (Invalid-Type-Application {funcT Type} {argT Type})
+  (type.to-text (#.Apply argT funcT)))
+
+(exception: #export (Cannot-Rebind-Var {id Nat} {type Type} {bound Type})
+  ($_ text/compose
+      "         Var: " (nat/encode id) "\n"
+      " Wanted Type: " (type.to-text type) "\n"
+      "Current Type: " (type.to-text bound)))
+
+(exception: #export (Type-Check-Failed {expected Type} {actual Type})
+  ($_ text/compose
+      "Expected: " (type.to-text expected) "\n\n"
+      "  Actual: " (type.to-text actual)))
 
 (type: #export Var Nat)
 
@@ -141,7 +154,7 @@
     (#e.Success output)))
 
 (def: #export (throw exception message)
-  (All [a] (-> ex.Exception Text (Check a)))
+  (All [e a] (-> (ex.Exception e) e (Check a)))
   (function [context]
     (ex.throw exception message)))
 
@@ -166,7 +179,7 @@
          (#e.Success [context <succeed>])
 
          #.None
-         (ex.throw Unknown-Type-Var (nat/encode id)))))]
+         (ex.throw Unknown-Type-Var id))))]
 
   [bound? Bool false true]
   [read (Maybe Type) #.None (#.Some bound)]
@@ -180,28 +193,24 @@
       (#e.Success [context bound])
 
       (#.Some #.None)
-      (ex.throw Unbound-Type-Var (nat/encode id))
+      (ex.throw Unbound-Type-Var id)
 
       #.None
-      (ex.throw Unknown-Type-Var (nat/encode id)))))
+      (ex.throw Unknown-Type-Var id))))
 
 (def: #export (write type id)
   (-> Type Var (Check Unit))
   (function [context]
     (case (|> context (get@ #.var-bindings) (var::get id))
       (#.Some (#.Some bound))
-      (ex.throw Cannot-Rebind-Var
-                ($_ text/compose
-                    "         Var: " (nat/encode id) "\n"
-                    " Wanted Type: " (type.to-text type) "\n"
-                    "Current Type: " (type.to-text bound)))
+      (ex.throw Cannot-Rebind-Var [id type bound])
       
       (#.Some #.None)
       (#e.Success [(update@ #.var-bindings (var::put id (#.Some type)) context)
                    []])
 
       #.None
-      (ex.throw Unknown-Type-Var (nat/encode id)))))
+      (ex.throw Unknown-Type-Var id))))
 
 (def: (update type id)
   (-> Type Var (Check Unit))
@@ -212,7 +221,7 @@
                    []])
       
       #.None
-      (ex.throw Unknown-Type-Var (nat/encode id)))))
+      (ex.throw Unknown-Type-Var id))))
 
 (def: #export var
   (Check [Var Type])
@@ -243,7 +252,7 @@
       [?funcT' (read func-id)]
       (case ?funcT'
         #.None
-        (throw Invalid-Type-Application (type.to-text (#.Apply argT funcT)))
+        (throw Invalid-Type-Application [funcT argT])
 
         (#.Some funcT')
         (apply-type! funcT' argT)))
@@ -252,7 +261,7 @@
     (function [context]
       (case (type.apply (list argT) funcT)
         #.None
-        (ex.throw Invalid-Type-Application (type.to-text (#.Apply argT funcT)))
+        (ex.throw Invalid-Type-Application [funcT argT])
 
         (#.Some output)
         (#e.Success [context output])))))
@@ -281,7 +290,7 @@
         (#e.Success [context output])
         
         #.None
-        (ex.throw Unknown-Type-Var (nat/encode current))))))
+        (ex.throw Unknown-Type-Var current)))))
 
 (def: #export fresh-context
   Type-Context
@@ -510,10 +519,7 @@
   (if (is expected actual)
     (check/wrap assumptions)
     (with-error-stack
-      (function [_] (Type-Check-Failed
-                     ($_ text/compose
-                         "Expected: " (type.to-text expected) "\n\n"
-                         "  Actual: " (type.to-text actual))))
+      (function [_] (ex.construct Type-Check-Failed [expected actual]))
       (case [expected actual]
         [(#.Var idE) (#.Var idA)]
         (check-vars check' assumptions idE idA)
