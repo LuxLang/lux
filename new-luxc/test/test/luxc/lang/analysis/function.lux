@@ -52,13 +52,13 @@
     [analysis (list)]))
 
 (def: (check-apply expectedT num-args analysis)
-  (-> Type Nat (Meta [Type la.Analysis]) Bool)
+  (-> Type Nat (Meta la.Analysis) Bool)
   (|> analysis
+      (&.with-type expectedT)
       (macro.run (init-compiler []))
-      (case> (#e.Success [applyT applyA])
+      (case> (#e.Success applyA)
              (let [[funcA argsA] (flatten-apply applyA)]
-               (and (type/= expectedT applyT)
-                    (n/= num-args (list.size argsA))))
+               (n/= num-args (list.size argsA)))
 
              (#e.Error error)
              false)))
@@ -69,35 +69,30 @@
         [func-name (r.text +5)
          arg-name (|> (r.text +5) (r.filter (|>> (text/= func-name) not)))
          [outputT outputC] gen-primitive
-         [inputT _] gen-primitive]
+         [inputT _] gen-primitive
+         #let [g!arg (code.local-symbol arg-name)]]
         ($_ seq
             (test "Can analyse function."
-                  (|> (&.with-type (type (All [a] (-> a outputT)))
-                        (@.analyse-function analyse func-name arg-name outputC))
-                      (macro.run (init-compiler []))
-                      succeeds?))
+                  (and (|> (&.with-type (All [a] (-> a outputT))
+                             (@.analyse-function analyse func-name arg-name outputC))
+                           (macro.run (init-compiler []))
+                           succeeds?)
+                       (|> (&.with-type (All [a] (-> a a))
+                             (@.analyse-function analyse func-name arg-name g!arg))
+                           (macro.run (init-compiler []))
+                           succeeds?)))
             (test "Generic functions can always be specialized."
                   (and (|> (&.with-type (-> inputT outputT)
                              (@.analyse-function analyse func-name arg-name outputC))
                            (macro.run (init-compiler []))
                            succeeds?)
                        (|> (&.with-type (-> inputT inputT)
-                             (@.analyse-function analyse func-name arg-name (code.symbol ["" arg-name])))
+                             (@.analyse-function analyse func-name arg-name g!arg))
                            (macro.run (init-compiler []))
                            succeeds?)))
-            (test "Can infer function (constant output and unused input)."
-                  (|> (@common.with-unknown-type
-                        (@.analyse-function analyse func-name arg-name outputC))
-                      (macro.run (init-compiler []))
-                      (check-type (type (All [a] (-> a outputT))))))
-            (test "Can infer function (output = input)."
-                  (|> (@common.with-unknown-type
-                        (@.analyse-function analyse func-name arg-name (code.symbol ["" arg-name])))
-                      (macro.run (init-compiler []))
-                      (check-type (type (All [a] (-> a a))))))
             (test "The function's name is bound to the function's type."
-                  (|> (&.with-type (type (Rec self (-> inputT self)))
-                        (@.analyse-function analyse func-name arg-name (code.symbol ["" func-name])))
+                  (|> (&.with-type (Rec self (-> inputT self))
+                        (@.analyse-function analyse func-name arg-name (code.local-symbol func-name)))
                       (macro.run (init-compiler []))
                       succeeds?))
             ))))
@@ -129,26 +124,18 @@
                                   varT)]]
         ($_ seq
             (test "Can analyse monomorphic type application."
-                  (|> (@common.with-unknown-type
-                        (@.analyse-apply analyse funcT (' []) inputsC))
+                  (|> (@.analyse-apply analyse funcT (' []) inputsC)
                       (check-apply outputT full-args)))
             (test "Can partially apply functions."
-                  (|> (@common.with-unknown-type
-                        (@.analyse-apply analyse funcT (' [])
-                                         (list.take partial-args inputsC)))
+                  (|> (@.analyse-apply analyse funcT (' []) (list.take partial-args inputsC))
                       (check-apply partialT partial-args)))
             (test "Can apply polymorphic functions."
-                  (|> (@common.with-unknown-type
-                        (@.analyse-apply analyse polyT (' []) inputsC))
+                  (|> (@.analyse-apply analyse polyT (' []) inputsC)
                       (check-apply poly-inputT full-args)))
             (test "Polymorphic partial application propagates found type-vars."
-                  (|> (@common.with-unknown-type
-                        (@.analyse-apply analyse polyT (' [])
-                                         (list.take (n/inc var-idx) inputsC)))
+                  (|> (@.analyse-apply analyse polyT (' []) (list.take (n/inc var-idx) inputsC))
                       (check-apply partial-polyT1 (n/inc var-idx))))
             (test "Polymorphic partial application preserves quantification for type-vars."
-                  (|> (@common.with-unknown-type
-                        (@.analyse-apply analyse polyT (' [])
-                                         (list.take var-idx inputsC)))
+                  (|> (@.analyse-apply analyse polyT (' []) (list.take var-idx inputsC))
                       (check-apply partial-polyT2 var-idx)))
             ))))
