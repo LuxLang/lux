@@ -424,6 +424,35 @@
     _
     (&.throw @.Wrong-Syntax (@.wrong-syntax proc inputs))))
 
+(def: (object//cast proc translate inputs)
+  (-> Text @.Proc)
+  (case inputs
+    (^ (list [_ (#.Text from)] [_ (#.Text to)] valueS))
+    (do macro.Monad<Meta>
+      [valueI (translate valueS)]
+      (case [from to]
+        ## Wrap
+        (^template [<primitive> <object> <type>]
+          [<primitive> <object>]
+          (wrap (|>> valueI ($i.wrap <type>)))
+
+          [<object> <primitive>]
+          (wrap (|>> valueI ($i.unwrap <type>))))
+        (["boolean" "java.lang.Boolean"   #$.Boolean]
+         ["byte"    "java.lang.Byte"      #$.Byte]
+         ["short"   "java.lang.Short"     #$.Short]
+         ["int"     "java.lang.Integer"   #$.Int]
+         ["long"    "java.lang.Long"      #$.Long]
+         ["float"   "java.lang.Float"     #$.Float]
+         ["double"  "java.lang.Double"    #$.Double]
+         ["char"    "java.lang.Character" #$.Char])
+        
+        _
+        (wrap valueI)))
+
+    _
+    (&.throw @.Wrong-Syntax (@.wrong-syntax proc inputs))))
+
 (def: object-procs
   @.Bundle
   (<| (@.prefix "object")
@@ -434,6 +463,7 @@
           (@.install "throw" (@.unary object//throw))
           (@.install "class" object//class)
           (@.install "instance?" object//instance?)
+          (@.install "cast" object//cast)
           )))
 
 (def: primitives
@@ -607,36 +637,15 @@
     (#e.Success type)
     (macro/wrap type)))
 
-(def: (prepare-input inputT inputI)
-  (-> $.Type $.Inst $.Inst)
-  (case inputT
-    (#$.Primitive primitive)
-    (|>> inputI ($i.unwrap primitive))
-
-    (#$.Generic generic)
-    (case generic
-      (^or (#$.Var _) (#$.Wildcard _))
-      (|>> inputI ($i.CHECKCAST "java.lang.Object"))
-      
-      (#$.Class class-name _)
-      (|>> inputI ($i.CHECKCAST class-name)))
-
-    _
-    (|>> inputI ($i.CHECKCAST ($t.descriptor inputT)))))
-
-(def: (translate-args translate argsS)
-  (-> (-> ls.Synthesis (Meta $.Inst)) (List ls.Synthesis)
-      (Meta (List [$.Type $.Inst])))
-  (case argsS
-    #.Nil
-    (macro/wrap #.Nil)
-
-    (^ (list& [_ (#.Tuple (list [_ (#.Text argD)] argS))] tail))
+(def: (translate-arg translate argS)
+  (-> (-> ls.Synthesis (Meta $.Inst)) ls.Synthesis
+      (Meta [$.Type $.Inst]))
+  (case argS
+    (^ [_ (#.Tuple (list [_ (#.Text argD)] argS))])
     (do macro.Monad<Meta>
       [argT (translate-type argD)
-       argI (:: @ map (prepare-input argT) (translate argS))
-       =tail (translate-args translate tail)]
-      (wrap (list& [argT argI] =tail)))
+       argI (translate argS)]
+      (wrap [argT argI]))
 
     _
     (&.throw Invalid-Syntax-For-Argument-Generation "")))
@@ -650,34 +659,18 @@
     _
     (macro/map (|>> #.Some) (translate-type description))))
 
-(def: (prepare-return returnT returnI)
-  (-> (Maybe $.Type) $.Inst $.Inst)
-  (case returnT
-    #.None
-    (|>> returnI
-         ($i.string hostL.unit))
-
-    (#.Some type)
-    (case type
-      (#$.Primitive primitive)
-      (|>> returnI ($i.wrap primitive))
-
-      _
-      returnI)))
-
 (def: (invoke//static proc translate inputs)
   (-> Text @.Proc)
   (case inputs
     (^ (list& [_ (#.Text class)] [_ (#.Text method)]
               [_ (#.Text unboxed)] argsS))
     (do macro.Monad<Meta>
-      [argsTI (translate-args translate argsS)
-       returnT (method-return-type unboxed)
-       #let [callI (|>> ($i.fuse (list/map product.right argsTI))
-                        ($i.INVOKESTATIC class method
-                                         ($t.method (list/map product.left argsTI) returnT (list))
-                                         false))]]
-      (wrap (prepare-return returnT callI)))
+      [argsTI (monad.map @ (translate-arg translate) argsS)
+       returnT (method-return-type unboxed)]
+      (wrap (|>> ($i.fuse (list/map product.right argsTI))
+                 ($i.INVOKESTATIC class method
+                                  ($t.method (list/map product.left argsTI) returnT (list))
+                                  false))))
 
     _
     (&.throw @.Wrong-Syntax (@.wrong-syntax proc inputs))))
@@ -690,15 +683,14 @@
                  [_ (#.Text unboxed)] objectS argsS))
        (do macro.Monad<Meta>
          [objectI (translate objectS)
-          argsTI (translate-args translate argsS)
-          returnT (method-return-type unboxed)
-          #let [callI (|>> objectI
-                           ($i.CHECKCAST class)
-                           ($i.fuse (list/map product.right argsTI))
-                           (<invoke> class method
-                                     ($t.method (list/map product.left argsTI) returnT (list))
-                                     <interface?>))]]
-         (wrap (prepare-return returnT callI)))
+          argsTI (monad.map @ (translate-arg translate) argsS)
+          returnT (method-return-type unboxed)]
+         (wrap (|>> objectI
+                    ($i.CHECKCAST class)
+                    ($i.fuse (list/map product.right argsTI))
+                    (<invoke> class method
+                              ($t.method (list/map product.left argsTI) returnT (list))
+                              <interface?>))))
 
        _
        (&.throw @.Wrong-Syntax (@.wrong-syntax proc inputs))))]
@@ -713,7 +705,7 @@
   (case inputs
     (^ (list& [_ (#.Text class)] argsS))
     (do macro.Monad<Meta>
-      [argsTI (translate-args translate argsS)]
+      [argsTI (monad.map @ (translate-arg translate) argsS)]
       (wrap (|>> ($i.NEW class)
                  $i.DUP
                  ($i.fuse (list/map product.right argsTI))

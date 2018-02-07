@@ -58,10 +58,6 @@
 (exception: #export Too-Many-Candidates)
 
 (exception: #export Cannot-Cast)
-(def: (cannot-cast to from)
-  (-> Type Type Text)
-  (format "From: " (%type from) "\n"
-          "  To: " (%type to)))
 
 (exception: #export Cannot-Possibly-Be-Instance)
 
@@ -71,8 +67,6 @@
 (exception: #export Unknown-Type-Var)
 (exception: #export Type-Parameter-Mismatch)
 (exception: #export Cannot-Correspond-Type-With-Class)
-
-(def: #export null-class Text "#Null")
 
 (do-template [<name> <class>]
   [(def: #export <name> Type (#.Primitive <class> (list)))]
@@ -348,7 +342,7 @@
           (@.install "write" array-write)
           )))
 
-(def: (object-null proc)
+(def: (object//null proc)
   (-> Text ///.Analysis)
   (function [analyse eval args]
     (case args
@@ -361,7 +355,7 @@
       _
       (&.throw @.Incorrect-Procedure-Arity (@.wrong-arity proc +0 (list.size args))))))
 
-(def: (object-null? proc)
+(def: (object//null? proc)
   (-> Text ///.Analysis)
   (function [analyse eval args]
     (case args
@@ -376,7 +370,7 @@
       _
       (&.throw @.Incorrect-Procedure-Arity (@.wrong-arity proc +1 (list.size args))))))
 
-(def: (object-synchronized proc)
+(def: (object//synchronized proc)
   (-> Text ///.Analysis)
   (function [analyse eval args]
     (case args
@@ -471,7 +465,7 @@
      sub (load-class sub)]
     (wrap (Class::isAssignableFrom [sub] super))))
 
-(def: (object-throw proc)
+(def: (object//throw proc)
   (-> Text ///.Analysis)
   (function [analyse eval args]
     (case args
@@ -491,7 +485,7 @@
       _
       (&.throw @.Incorrect-Procedure-Arity (@.wrong-arity proc +1 (list.size args))))))
 
-(def: (object-class proc)
+(def: (object//class proc)
   (-> Text ///.Analysis)
   (function [analyse eval args]
     (case args
@@ -509,7 +503,7 @@
       _
       (&.throw @.Incorrect-Procedure-Arity (@.wrong-arity proc +1 (list.size args))))))
 
-(def: (object-instance? proc)
+(def: (object//instance? proc)
   (-> Text ///.Analysis)
   (function [analyse eval args]
     (case args
@@ -531,18 +525,6 @@
 
       _
       (&.throw @.Incorrect-Procedure-Arity (@.wrong-arity proc +2 (list.size args))))))
-
-(def: object-procs
-  @.Bundle
-  (<| (@.prefix "object")
-      (|> (dict.new text.Hash<Text>)
-          (@.install "null" object-null)
-          (@.install "null?" object-null?)
-          (@.install "synchronized" object-synchronized)
-          (@.install "throw" object-throw)
-          (@.install "class" object-class)
-          (@.install "instance?" object-instance?)
-          )))
 
 (def: type-descriptor
   (-> java/lang/reflect/Type Text)
@@ -622,16 +604,6 @@
         ## else
         (&.throw Cannot-Convert-To-Lux-Type (type-descriptor java-type))))
 
-(type: Direction
-  #In
-  #Out)
-
-(def: (choose direction to from)
-  (-> Direction Text Text Text)
-  (case direction
-    #In to
-    #Out from))
-
 (def: (correspond-type-params class type)
   (-> (Class Object) Type (Meta Mappings))
   (case type
@@ -661,64 +633,97 @@
     _
     (&.throw Non-JVM-Type (%type type))))
 
-(def: (cast direction to from)
-  (-> Direction Type Type (Meta [Text Type]))
-  (do macro.Monad<Meta>
-    [to-name (check-jvm to)
-     from-name (check-jvm from)]
-    (cond (dict.contains? to-name boxes)
-          (let [box (maybe.assume (dict.get to-name boxes))]
-            (if (text/= box from-name)
-              (wrap [(choose direction to-name from-name) (#.Primitive to-name (list))])
-              (&.throw Cannot-Cast (cannot-cast to from))))
+(def: (object//cast proc)
+  (-> Text ///.Analysis)
+  (function [analyse eval args]
+    (case args
+      (^ (list valueC))
+      (do macro.Monad<Meta>
+        [toT macro.expected-type
+         to-name (check-jvm toT)
+         [valueT valueA] (&common.with-unknown-type
+                           (analyse valueC))
+         from-name (check-jvm valueT)
+         can-cast? (: (Meta Bool)
+                      (case [from-name to-name]
+                        (^template [<primitive> <object>]
+                          (^or [<primitive> <object>]
+                               [<object> <primitive>])
+                          (do @
+                            [_ (&.infer (#.Primitive to-name (list)))]
+                            (wrap true)))
+                        (["boolean" "java.lang.Boolean"]
+                         ["byte"    "java.lang.Byte"]
+                         ["short"   "java.lang.Short"]
+                         ["int"     "java.lang.Integer"]
+                         ["long"    "java.lang.Long"]
+                         ["float"   "java.lang.Float"]
+                         ["double"  "java.lang.Double"]
+                         ["char"    "java.lang.Character"])
 
-          (dict.contains? from-name boxes)
-          (let [box (maybe.assume (dict.get from-name boxes))]
-            (do @
-              [[_ castT] (cast direction to (#.Primitive box (list)))]
-              (wrap [(choose direction to-name from-name) castT])))
+                        _
+                        (do @
+                          [_ (&.assert Primitives-Are-Not-Objects from-name
+                                       (not (dict.contains? from-name boxes)))
+                           _ (&.assert Primitives-Are-Not-Objects to-name
+                                       (not (dict.contains? to-name boxes)))
+                           to-class (load-class to-name)]
+                          (loop [[current-name currentT] [from-name valueT]]
+                            (if (text/= to-name current-name)
+                              (do @
+                                [_ (&.infer toT)]
+                                (wrap true))
+                              (do @
+                                [current-class (load-class current-name)
+                                 _ (&.assert Cannot-Cast (format "From class/primitive: " current-name "\n"
+                                                                 "  To class/primitive: " to-name "\n"
+                                                                 "           For value: " (%code valueC) "\n")
+                                             (Class::isAssignableFrom [current-class] to-class))
+                                 candiate-parents (monad.map @
+                                                             (function [java-type]
+                                                               (do @
+                                                                 [class-name (java-type-to-class java-type)
+                                                                  class (load-class class-name)]
+                                                                 (wrap [[class-name java-type] (Class::isAssignableFrom [class] to-class)])))
+                                                             (list& (Class::getGenericSuperclass [] current-class)
+                                                                    (array.to-list (Class::getGenericInterfaces [] current-class))))]
+                                (case (|> candiate-parents
+                                          (list.filter product.right)
+                                          (list/map product.left))
+                                  (#.Cons [next-name nextJT] _)
+                                  (do @
+                                    [mapping (correspond-type-params current-class currentT)
+                                     nextT (java-type-to-lux-type mapping nextJT)]
+                                    (recur [next-name nextT]))
 
-          (text/= to-name from-name)
-          (wrap [(choose direction to-name from-name) from])
+                                  #.Nil
+                                  (&.throw Cannot-Cast (format "From class/primitive: " from-name "\n"
+                                                               "  To class/primitive: " to-name "\n"
+                                                               "           For value: " (%code valueC) "\n")))
+                                ))))))]
+        (if can-cast?
+          (wrap (la.procedure proc (list (code.text from-name)
+                                         (code.text to-name)
+                                         valueA)))
+          (&.throw Cannot-Cast (format "From class/primitive: " from-name "\n"
+                                       "  To class/primitive: " to-name "\n"
+                                       "           For value: " (%code valueC) "\n"))))
 
-          (text/= null-class from-name)
-          (wrap [(choose direction to-name from-name) to])
+      _
+      (&.throw Wrong-Syntax (wrong-syntax proc args)))))
 
-          ## else
-          (do @
-            [to-class (load-class to-name)
-             from-class (load-class from-name)
-             _ (&.assert Cannot-Cast (cannot-cast to from)
-                         (Class::isAssignableFrom [from-class] to-class))
-             candiate-parents (monad.map @
-                                         (function [java-type]
-                                           (do @
-                                             [class-name (java-type-to-class java-type)
-                                              class (load-class class-name)]
-                                             (wrap [java-type (Class::isAssignableFrom [class] to-class)])))
-                                         (list& (Class::getGenericSuperclass [] from-class)
-                                                (array.to-list (Class::getGenericInterfaces [] from-class))))]
-            (case (|> candiate-parents
-                      (list.filter product.right)
-                      (list/map product.left))
-              (#.Cons parent _)
-              (do @
-                [mapping (correspond-type-params from-class from)
-                 parentT (java-type-to-lux-type mapping parent)
-                 [_ castT] (cast direction to parentT)]
-                (wrap [(choose direction to-name from-name) castT]))
-
-              #.Nil
-              (&.throw Cannot-Cast (cannot-cast to from)))))))
-
-(def: (infer-out outputT)
-  (-> Type (Meta [Text Type]))
-  (do macro.Monad<Meta>
-    [expectedT macro.expected-type
-     [unboxed castT] (cast #Out expectedT outputT)
-     _ (&.with-type-env
-         (tc.check expectedT castT))]
-    (wrap [unboxed castT])))
+(def: object-procs
+  @.Bundle
+  (<| (@.prefix "object")
+      (|> (dict.new text.Hash<Text>)
+          (@.install "null" object//null)
+          (@.install "null?" object//null?)
+          (@.install "synchronized" object//synchronized)
+          (@.install "throw" object//throw)
+          (@.install "class" object//class)
+          (@.install "instance?" object//instance?)
+          (@.install "cast" object//cast)
+          )))
 
 (def: (find-field class-name field-name)
   (-> Text Text (Meta [(Class Object) Field]))
@@ -782,29 +787,7 @@
         (wrap [fieldT (Modifier::isFinal [modifiers])]))
       (&.throw Not-Virtual-Field (format class-name "#" field-name)))))
 
-(def: (analyse-object class analyse sourceC)
-  (-> Text &.Analyser Code (Meta [Type la.Analysis]))
-  (do macro.Monad<Meta>
-    [target-class (load-class class)
-     targetT (java-type-to-lux-type fresh-mappings
-                                    (:! java/lang/reflect/Type
-                                        target-class))
-     [sourceT sourceA] (&common.with-unknown-type
-                         (analyse sourceC))
-     [unboxed castT] (cast #Out targetT sourceT)
-     _ (&.assert Cannot-Cast (cannot-cast targetT sourceT)
-                 (not (dict.contains? unboxed boxes)))]
-    (wrap [castT sourceA])))
-
-(def: (analyse-input analyse targetT sourceC)
-  (-> &.Analyser Type Code (Meta [Type Text la.Analysis]))
-  (do macro.Monad<Meta>
-    [[sourceT sourceA] (&common.with-unknown-type
-                         (analyse sourceC))
-     [unboxed castT] (cast #In targetT sourceT)]
-    (wrap [castT unboxed sourceA])))
-
-(def: (static-get proc)
+(def: (static//get proc)
   (-> Text ///.Analysis)
   (function [analyse eval args]
     (case args
@@ -812,10 +795,8 @@
       (case [classC fieldC]
         [[_ (#.Text class)] [_ (#.Text field)]]
         (do macro.Monad<Meta>
-          [[fieldT final?] (static-field class field)
-           [unboxed castT] (infer-out fieldT)]
-          (wrap (la.procedure proc (list (code.text class) (code.text field)
-                                         (code.text unboxed)))))
+          [[fieldT final?] (static-field class field)]
+          (wrap (la.procedure proc (list (code.text class) (code.text field)))))
 
         _
         (&.throw Wrong-Syntax (wrong-syntax proc args)))
@@ -823,7 +804,7 @@
       _
       (&.throw @.Incorrect-Procedure-Arity (@.wrong-arity proc +2 (list.size args))))))
 
-(def: (static-put proc)
+(def: (static//put proc)
   (-> Text ///.Analysis)
   (function [analyse eval args]
     (case args
@@ -835,11 +816,9 @@
            [fieldT final?] (static-field class field)
            _ (&.assert Cannot-Set-Final-Field (format class "#" field)
                        (not final?))
-           [valueT unboxed valueA] (analyse-input analyse fieldT valueC)
-           _ (&.with-type-env
-               (tc.check fieldT valueT))]
-          (wrap (la.procedure proc (list (code.text class) (code.text field)
-                                         (code.text unboxed) valueA))))
+           valueA (&.with-type fieldT
+                    (analyse valueC))]
+          (wrap (la.procedure proc (list (code.text class) (code.text field) valueA))))
 
         _
         (&.throw Wrong-Syntax (wrong-syntax proc args)))
@@ -847,7 +826,7 @@
       _
       (&.throw @.Incorrect-Procedure-Arity (@.wrong-arity proc +3 (list.size args))))))
 
-(def: (virtual-get proc)
+(def: (virtual//get proc)
   (-> Text ///.Analysis)
   (function [analyse eval args]
     (case args
@@ -855,11 +834,10 @@
       (case [classC fieldC]
         [[_ (#.Text class)] [_ (#.Text field)]]
         (do macro.Monad<Meta>
-          [[objectT objectA] (analyse-object class analyse objectC)
-           [fieldT final?] (virtual-field class field objectT)
-           [unboxed castT] (infer-out fieldT)]
-          (wrap (la.procedure proc (list (code.text class) (code.text field)
-                                         (code.text unboxed) objectA))))
+          [[objectT objectA] (&common.with-unknown-type
+                               (analyse objectC))
+           [fieldT final?] (virtual-field class field objectT)]
+          (wrap (la.procedure proc (list (code.text class) (code.text field) objectA))))
 
         _
         (&.throw Wrong-Syntax (wrong-syntax proc args)))
@@ -867,7 +845,7 @@
       _
       (&.throw @.Incorrect-Procedure-Arity (@.wrong-arity proc +3 (list.size args))))))
 
-(def: (virtual-put proc)
+(def: (virtual//put proc)
   (-> Text ///.Analysis)
   (function [analyse eval args]
     (case args
@@ -875,13 +853,15 @@
       (case [classC fieldC]
         [[_ (#.Text class)] [_ (#.Text field)]]
         (do macro.Monad<Meta>
-          [[objectT objectA] (analyse-object class analyse objectC)
+          [[objectT objectA] (&common.with-unknown-type
+                               (analyse objectC))
            _ (&.infer objectT)
            [fieldT final?] (virtual-field class field objectT)
            _ (&.assert Cannot-Set-Final-Field (format class "#" field)
                        (not final?))
-           [valueT unboxed valueA] (analyse-input analyse fieldT valueC)]
-          (wrap (la.procedure proc (list (code.text class) (code.text field) (code.text unboxed) valueA objectA))))
+           valueA (&.with-type fieldT
+                    (analyse valueC))]
+          (wrap (la.procedure proc (list (code.text class) (code.text field) valueA objectA))))
 
         _
         (&.throw Wrong-Syntax (wrong-syntax proc args)))
@@ -1101,16 +1081,6 @@
       (list/map (function [[type value]]
                   (la.product (list type value))))))
 
-(def: (sub-type-analyser analyse)
-  (-> &.Analyser &.Analyser)
-  (function [argC]
-    (do macro.Monad<Meta>
-      [[argT argA] (&common.with-unknown-type
-                     (analyse argC))
-       expectedT macro.expected-type
-       [unboxed castT] (cast #In expectedT argT)]
-      (wrap argA))))
-
 (def: (invoke//static proc)
   (-> Text ///.Analysis)
   (function [analyse eval args]
@@ -1120,10 +1090,10 @@
       (do macro.Monad<Meta>
         [#let [argsT (list/map product.left argsTC)]
          [methodT exceptionsT] (methods class method #Static argsT)
-         [outputT argsA] (inferenceA.general (sub-type-analyser analyse) methodT (list/map product.right argsTC))
-         [unboxed castT] (infer-out outputT)]
+         [outputT argsA] (inferenceA.general analyse methodT (list/map product.right argsTC))
+         outputJC (check-jvm outputT)]
         (wrap (la.procedure proc (list& (code.text class) (code.text method)
-                                        (code.text unboxed) (decorate-inputs argsT argsA)))))
+                                        (code.text outputJC) (decorate-inputs argsT argsA)))))
 
       _
       (&.throw Wrong-Syntax (wrong-syntax proc args)))))
@@ -1137,16 +1107,16 @@
       (do macro.Monad<Meta>
         [#let [argsT (list/map product.left argsTC)]
          [methodT exceptionsT] (methods class method #Virtual argsT)
-         [outputT allA] (inferenceA.general (sub-type-analyser analyse) methodT (list& objectC (list/map product.right argsTC)))
+         [outputT allA] (inferenceA.general analyse methodT (list& objectC (list/map product.right argsTC)))
          #let [[objectA argsA] (case allA
                                  (#.Cons objectA argsA)
                                  [objectA argsA]
 
                                  _
                                  (undefined))]
-         [unboxed castT] (infer-out outputT)]
+         outputJC (check-jvm outputT)]
         (wrap (la.procedure proc (list& (code.text class) (code.text method)
-                                        (code.text unboxed) objectA (decorate-inputs argsT argsA)))))
+                                        (code.text outputJC) objectA (decorate-inputs argsT argsA)))))
 
       _
       (&.throw Wrong-Syntax (wrong-syntax proc args)))))
@@ -1160,10 +1130,10 @@
       (do macro.Monad<Meta>
         [#let [argsT (list/map product.left argsTC)]
          [methodT exceptionsT] (methods class method #Special argsT)
-         [outputT argsA] (inferenceA.general (sub-type-analyser analyse) methodT (list& objectC (list/map product.right argsTC)))
-         [unboxed castT] (infer-out outputT)]
+         [outputT argsA] (inferenceA.general analyse methodT (list& objectC (list/map product.right argsTC)))
+         outputJC (check-jvm outputT)]
         (wrap (la.procedure proc (list& (code.text class) (code.text method)
-                                        (code.text unboxed) (decorate-inputs argsT argsA)))))
+                                        (code.text outputJC) (decorate-inputs argsT argsA)))))
 
       _
       (&.throw Wrong-Syntax (wrong-syntax proc args)))))
@@ -1180,10 +1150,10 @@
          _ (&.assert Non-Interface class-name
                      (Modifier::isInterface [(Class::getModifiers [] class)]))
          [methodT exceptionsT] (methods class-name method #Interface argsT)
-         [outputT argsA] (inferenceA.general (sub-type-analyser analyse) methodT (list& objectC (list/map product.right argsTC)))
-         [unboxed castT] (infer-out outputT)]
+         [outputT argsA] (inferenceA.general analyse methodT (list& objectC (list/map product.right argsTC)))
+         outputJC (check-jvm outputT)]
         (wrap (la.procedure proc
-                            (list& (code.text class-name) (code.text method) (code.text unboxed)
+                            (list& (code.text class-name) (code.text method) (code.text outputJC)
                                    (decorate-inputs argsT argsA)))))
 
       _
@@ -1198,8 +1168,7 @@
       (do macro.Monad<Meta>
         [#let [argsT (list/map product.left argsTC)]
          [methodT exceptionsT] (constructor-methods class argsT)
-         [outputT argsA] (inferenceA.general (sub-type-analyser analyse) methodT (list/map product.right argsTC))
-         [unboxed castT] (infer-out outputT)]
+         [outputT argsA] (inferenceA.general analyse methodT (list/map product.right argsTC))]
         (wrap (la.procedure proc (list& (code.text class) (decorate-inputs argsT argsA)))))
 
       _
@@ -1211,12 +1180,12 @@
       (|> (dict.new text.Hash<Text>)
           (dict.merge (<| (@.prefix "static")
                           (|> (dict.new text.Hash<Text>)
-                              (@.install "get" static-get)
-                              (@.install "put" static-put))))
+                              (@.install "get" static//get)
+                              (@.install "put" static//put))))
           (dict.merge (<| (@.prefix "virtual")
                           (|> (dict.new text.Hash<Text>)
-                              (@.install "get" virtual-get)
-                              (@.install "put" virtual-put))))
+                              (@.install "get" virtual//get)
+                              (@.install "put" virtual//put))))
           (dict.merge (<| (@.prefix "invoke")
                           (|> (dict.new text.Hash<Text>)
                               (@.install "static" invoke//static)

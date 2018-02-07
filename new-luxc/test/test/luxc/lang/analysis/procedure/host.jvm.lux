@@ -50,6 +50,26 @@
   [failure false true]
   )
 
+(do-template [<name> <success> <failure>]
+  [(def: (<name> syntax output-type)
+     (-> Code Type Bool)
+     (|> (do Monad<Meta>
+           [runtime-bytecode @runtime.translate]
+           (&.with-scope
+             (&.with-type output-type
+               (expressionA.analyser evalL.eval syntax))))
+         (&.with-current-module "")
+         (macro.run (init-compiler []))
+         (case> (#e.Success _)
+                <success>
+
+                (#e.Error error)
+                <failure>)))]
+
+  [success' true false]
+  [failure' false true]
+  )
+
 (context: "Conversions [double + float]."
   (with-expansions [<conversions> (do-template [<procedure> <from> <to>]
                                     [(test (format <procedure> " SUCCESS")
@@ -286,9 +306,9 @@
                            (list arrayC)
                            Nat))
             (test "jvm array read"
-                  (success "jvm array read"
-                           (list arrayC (code.nat idx))
-                           boxedT))
+                  (success' (` ("jvm object cast"
+                                ("jvm array read" (~ arrayC) (~ (code.nat idx)))))
+                            boxedT))
             (test "jvm array write"
                   (success "jvm array write"
                            (list arrayC (code.nat idx) (`' ("lux coerce" (~ boxedTC) [])))
@@ -407,8 +427,9 @@
             (success "jvm member static put"
                      (list (code.text "java.awt.datatransfer.DataFlavor")
                            (code.text "allHtmlFlavor")
-                           (`' ("lux check" (+0 "javax.activation.ActivationDataFlavor" (+0))
-                                ("jvm object null"))))
+                           (`' ("jvm object cast"
+                                ("lux check" (+0 "javax.activation.ActivationDataFlavor" (+0))
+                                 ("jvm object null")))))
                      Unit))
       ))
 
@@ -450,8 +471,9 @@
             (success "jvm member virtual put"
                      (list (code.text "java.awt.GridBagConstraints")
                            (code.text "insets")
-                           (`' ("lux check" (+0 "javax.swing.plaf.InsetsUIResource" (+0))
-                                ("jvm object null")))
+                           (`' ("jvm object cast"
+                                ("lux check" (+0 "javax.swing.plaf.InsetsUIResource" (+0))
+                                 ("jvm object null"))))
                            (`' ("lux check" (+0 "java.awt.GridBagConstraints" (+0))
                                 ("jvm object null"))))
                      (primitive "java.awt.GridBagConstraints")))
@@ -475,8 +497,9 @@
             (success "jvm member virtual put"
                      (list (code.text "javax.accessibility.AccessibleAttributeSequence")
                            (code.text "startIndex")
-                           (`' ("lux check" (+0 "java.lang.Integer" (+0))
-                                ("jvm object null")))
+                           (`' ("jvm object cast"
+                                ("lux check" (+0 "java.lang.Integer" (+0))
+                                 ("jvm object null"))))
                            (`' ("lux check" (+0 "javax.accessibility.AccessibleAttributeSequence" (+0))
                                 ("jvm object null"))))
                      (primitive "javax.accessibility.AccessibleAttributeSequence")))
@@ -486,45 +509,38 @@
   (let [longC (' ("lux coerce" (+0 "java.lang.Long" (+0))
                   +123))
         intC (`' ("jvm convert long-to-int" (~ longC)))
+        stringC (' ("lux coerce" (+0 "java.lang.String" (+0))
+                    "YOLO"))
         objectC (`' ("lux check" (+0 "java.util.ArrayList" (+1 (+0 "java.lang.Long" (+0)) (+0)))
                      ("jvm member invoke constructor" "java.util.ArrayList"
-                      ["int" (~ intC)])))]
+                      ["int" ("jvm object cast" (~ intC))])))]
     ($_ seq
         (test "jvm member invoke static"
-              (success "jvm member invoke static"
-                       (list (code.text "java.lang.Long")
-                             (code.text "decode")
-                             (code.tuple (list (' "java.lang.String")
-                                               (' ("lux coerce" (+0 "java.lang.String" (+0))
-                                                   "YOLO")))))
-                       (#.Primitive "java.lang.Long" (list))))
+              (success' (` ("jvm member invoke static"
+                            "java.lang.Long" "decode"
+                            ["java.lang.String" (~ stringC)]))
+                        (#.Primitive "java.lang.Long" (list))))
         (test "jvm member invoke virtual"
-              (success "jvm member invoke virtual"
-                       (list (code.text "java.lang.Object")
-                             (code.text "equals")
-                             longC
-                             (code.tuple (list (' "java.lang.Object")
-                                               longC)))
-                       (#.Primitive "java.lang.Boolean" (list))))
+              (success' (` ("jvm object cast"
+                            ("jvm member invoke virtual"
+                             "java.lang.Object" "equals"
+                             ("jvm object cast" (~ longC)) ["java.lang.Object" ("jvm object cast" (~ longC))])))
+                        (#.Primitive "java.lang.Boolean" (list))))
         (test "jvm member invoke special"
-              (success "jvm member invoke special"
-                       (list (code.text "java.lang.Long")
-                             (code.text "equals")
-                             longC
-                             (code.tuple (list (' "java.lang.Object")
-                                               longC)))
-                       (#.Primitive "java.lang.Boolean" (list))))
+              (success' (` ("jvm object cast"
+                            ("jvm member invoke special"
+                             "java.lang.Long" "equals"
+                             ("jvm object cast" (~ longC)) ["java.lang.Object" ("jvm object cast" (~ longC))])))
+                        (#.Primitive "java.lang.Boolean" (list))))
         (test "jvm member invoke interface"
-              (success "jvm member invoke interface"
-                       (list (code.text "java.util.Collection")
-                             (code.text "add")
-                             objectC
-                             (code.tuple (list (' "java.lang.Object")
-                                               longC)))
-                       (#.Primitive "java.lang.Boolean" (list))))
+              (success' (` ("jvm object cast"
+                            ("jvm member invoke interface"
+                             "java.util.Collection" "add"
+                             ("jvm object cast" (~ objectC)) ["java.lang.Object" ("jvm object cast" (~ longC))])))
+                        (#.Primitive "java.lang.Boolean" (list))))
         (test "jvm member invoke constructor"
-              (success "jvm member invoke constructor"
-                       (list (code.text "java.util.ArrayList")
-                             (code.tuple (list (' "int") intC)))
-                       (All [a] (#.Primitive "java.util.ArrayList" (list a)))))
+              (success' (` ("jvm member invoke constructor"
+                            "java.util.ArrayList"
+                            ["int" ("jvm object cast" (~ intC))]))
+                        (All [a] (#.Primitive "java.util.ArrayList" (list a)))))
         )))
