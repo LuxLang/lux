@@ -371,14 +371,16 @@
     _
     (&/T [type &/$Nil])))
 
-(defn ^:private unravel-app [fun-type]
-  (|case fun-type
-    (&/$Apply ?arg ?func)
-    (|let [[?fun-type ?args] (unravel-app ?func)]
-      (&/T [?fun-type (&/$Cons ?arg ?args)]))
+(defn ^:private unravel-app
+  ([fun-type tail]
+     (|case fun-type
+       (&/$Apply ?arg ?func)
+       (unravel-app ?func (&/$Cons ?arg tail))
 
-    _
-    (&/T [fun-type &/$Nil])))
+       _
+       (&/T [fun-type tail])))
+  ([fun-type]
+     (unravel-app fun-type &/$Nil)))
 
 (do-template [<tag> <flatten> <at> <desc>]
   (do (defn <flatten> [type]
