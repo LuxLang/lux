@@ -1,0 +1,84 @@
+(.module:
+  lux
+  (lux (control ["p" parser]
+                [monad #+ do])
+       (data (coll [list "list/" Functor<List>]))
+       [macro "meta/" Monad<Meta>]
+       (macro [code]
+              ["s" syntax #+ syntax:]
+              (syntax ["cs" common]
+                      (common ["csr" reader]
+                              ["csw" writer])))))
+
+(type: #export (Simple i o)
+  (All [r] [i (-> o r)]))
+
+(type: #export (Message i o)
+  (Simple i o o))
+
+(def: #export (message input)
+  (All [i o] (-> i (Message i o)))
+  [input id])
+
+(type: #export (Method s p)
+  (All [r] (-> (p r) s [r s])))
+
+(type: #export (Object p)
+  (All [r] (-> (p r) [r (Object p)])))
+
+(def: #export (object method init)
+  (All [s p] (-> (Method s p) s (Object p)))
+  (loop [state init]
+    (function [input]
+      (let [[output state'] (method input state)]
+        [output (recur state')]))))
+
+(type: Method-Syntax
+  {#type-variables (List Text)
+   #name Text
+   #input Code
+   #output Code})
+
+(def: method|r
+  (s.Syntax Method-Syntax)
+  (s.form ($_ p.seq
+              (p.default (list) csr.type-variables)
+              s.local-symbol
+              s.any
+              s.any)))
+
+(def: (method|w g!return method)
+  (-> Code Method-Syntax Code)
+  (` ((~ (code.local-tag (get@ #name method)))
+      (All [(~+ (csw.type-variables (get@ #type-variables method)))]
+        [(~ (get@ #input method))
+         (-> (~ (get@ #output method)) (~ g!return))]))))
+
+(def: (method-constructor export protocol method)
+  (-> Bool cs.Declaration Method-Syntax (Meta Code))
+  (let [methodC (code.local-symbol (get@ #name method))
+        tagC (code.local-tag (get@ #name method))
+        protocolC (code.local-symbol (get@ #cs.declaration-name protocol))
+        protocol-varsC+ (csw.type-variables (get@ #cs.declaration-args protocol))
+        method-varsC+ (csw.type-variables (get@ #type-variables method))
+        method-inputC (get@ #input method)
+        method-outputC (get@ #output method)]
+    (macro.with-gensyms [g!input g!return]
+      (meta/wrap (` (def: (~+ (csw.export export)) ((~ methodC) (~ g!input))
+                      (All [(~+ protocol-varsC+) (~+ method-varsC+)]
+                        (-> (~ method-inputC)
+                            ((~ protocolC) (~+ protocol-varsC+) (~ method-outputC))))
+                      ((~ tagC) [(~ g!input) .id])))))))
+
+(syntax: #export (protocol: [export csr.export]
+                   [declaration csr.declaration]
+                   [methods (p.many method|r)])
+  (macro.with-gensyms [g!return]
+    (do @
+      [constructors (monad.map @ (method-constructor export declaration) methods)
+       #let [protocolC (code.local-symbol (get@ #cs.declaration-name declaration))
+             varsC+ (csw.type-variables (get@ #cs.declaration-args declaration))]]
+      (wrap (list& (` (type: (~+ (csw.export export))
+                        ((~ protocolC) (~+ varsC+) (~ g!return))
+                        (~+ (list/map (method|w g!return) methods))))
+                   constructors)))))
