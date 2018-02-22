@@ -2,6 +2,7 @@
   lux
   (lux (control ["ex" exception #+ exception:])
        (data [bit]
+             [maybe]
              ["e" error #+ Error]
              text/format
              (coll [array]))
@@ -60,7 +61,22 @@
     _
     #.None))
 
-(def: (array element-parser js-object)
+(def: (variant lux-object js-object)
+  (-> (-> Object (Error Top)) ScriptObjectMirror (Maybe Top))
+  (case [(JSObject::getMember [//.variant-tag-field] js-object)
+         (JSObject::getMember [//.variant-flag-field] js-object)
+         (JSObject::getMember [//.variant-value-field] js-object)]
+    (^multi [(#.Some tag) ?flag (#.Some value)]
+            (host.instance? Number tag)
+            [[(Number::intValue [] (:! Number tag))
+              (lux-object value)]
+             [tag (#.Some value)]])
+    (#.Some [tag (maybe.default (host.null) ?flag) value])
+
+    _
+    #.None))
+
+(def: (array lux-object js-object)
   (-> (-> Object (Error Top)) ScriptObjectMirror (Maybe (Array Object)))
   (if (JSObject::isArray [] js-object)
     (let [init-num-keys (int-to-nat (ScriptObjectMirror::size [] js-object))]
@@ -72,7 +88,7 @@
           (let [idx-key (|> idx nat-to-int %i)]
             (case (JSObject::getMember idx-key js-object)
               (#.Some member)
-              (case (element-parser member)
+              (case (lux-object member)
                 (#e.Success parsed-member)
                 (recur num-keys (n/inc idx) (array.write idx (:! Object parsed-member) output))
 
@@ -107,7 +123,7 @@
                    (ex.return (<method> [] (:! <interface> js-object)))]
                   
                   [StructureValue StructureValue::getValue]
-                  [IntValue IntValue::getValue]))
+                  [IntValue       IntValue::getValue]))
             
             (host.instance? ScriptObjectMirror js-object)
             (let [js-object (:! ScriptObjectMirror js-object)]
@@ -116,16 +132,21 @@
                 (ex.return value)
 
                 #.None
-                (case (array lux-object js-object)
+                (case (variant lux-object js-object)
                   (#.Some value)
                   (ex.return value)
 
                   #.None
-                  ## (JSObject::isFunction [] js-object)
-                  ## js-object
+                  (case (array lux-object js-object)
+                    (#.Some value)
+                    (ex.return value)
 
-                  ## else
-                  (ex.throw Unknown-Kind-Of-JS-Object (Object::toString [] (:! Object js-object))))))
+                    #.None
+                    ## (JSObject::isFunction [] js-object)
+                    ## js-object
+
+                    ## else
+                    (ex.throw Unknown-Kind-Of-JS-Object (Object::toString [] (:! Object js-object)))))))
             
             ## else
             (ex.throw Unknown-Kind-Of-JS-Object (Object::toString [] (:! Object js-object))))))
