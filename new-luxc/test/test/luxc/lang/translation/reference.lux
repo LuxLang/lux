@@ -1,0 +1,113 @@
+(.module:
+  lux
+  (lux [io #+ IO]
+       (control [monad #+ do]
+                pipe)
+       (data ["e" error]
+             [text])
+       ["r" math/random]
+       [macro]
+       (macro [code])
+       test)
+  (luxc [lang]
+        (lang ["_." module]
+              ["ls" synthesis]
+              (translation (jvm [".T_jvm" statement]
+                                [".T_jvm" eval]
+                                [".T_jvm" expression]
+                                [".T_jvm" case]
+                                [".T_jvm" runtime])
+                           (js [".T_js" statement]
+                               [".T_js" eval]
+                               [".T_js" expression]
+                               [".T_js" case]
+                               [".T_js" runtime]))))
+  (test/luxc common))
+
+(def: upper-alpha-ascii
+  (r.Random Nat)
+  (|> r.nat (:: r.Functor<Random> map (|>> (n/% +91) (n/max +65)))))
+
+(def: ident-part
+  (r.Random Text)
+  (|> (r.text' upper-alpha-ascii +5)
+      (r.filter (function [sample]
+                  (not (or (text.contains? "/" sample)
+                           (text.contains? "[" sample)
+                           (text.contains? "]" sample)))))))
+
+(def: (definitions-spec translate-expression eval translate-runtime init
+                        translate-def)
+  (All [a]
+    (-> (-> ls.Synthesis (Meta a)) (-> a (Meta Top)) (Meta Top) (IO Compiler)
+        (-> Text Type a Code (Meta Unit))
+        Test))
+  (do r.Monad<Random>
+    [module-name ident-part
+     def-name ident-part
+     def-value r.int]
+    ($_ seq
+        (test "Can refer to definitions."
+              (|> (do macro.Monad<Meta>
+                    [_ translate-runtime
+                     valueO (translate-expression (code.int def-value))
+                     _ (_module.with-module +0 module-name
+                         (translate-def def-name Int valueO (' {})))
+                     sampleO (translate-expression (code.symbol [module-name def-name]))]
+                    (eval sampleO))
+                  (lang.with-current-module "")
+                  (macro.run (io.run init))
+                  (case> (#e.Success valueT)
+                         (i/= def-value (:! Int valueT))
+
+                         (#e.Error error)
+                         false)))
+        )))
+
+(def: (variables-spec translate-expression eval translate-runtime init
+                      translate-let)
+  (All [a]
+    (-> (-> ls.Synthesis (Meta a)) (-> a (Meta Top)) (Meta Top) (IO Compiler)
+        (-> (-> ls.Synthesis (Meta a)) Nat ls.Synthesis ls.Synthesis (Meta a))
+        Test))
+  (do r.Monad<Random>
+    [module-name (|> (r.text +5) (r.filter (|>> (text.contains? "/") not)))
+     register (|> r.nat (:: @ map (n/% +100)))
+     value r.int]
+    ($_ seq
+        (test "Can refer to local variables/registers."
+              (|> (do macro.Monad<Meta>
+                    [_ translate-runtime
+                     sampleO (translate-let translate-expression
+                                            register
+                                            (code.int value)
+                                            (` ((~ (code.int (nat-to-int register))))))]
+                    (eval sampleO))
+                  (lang.with-current-module "")
+                  (macro.run (io.run init))
+                  (case> (#e.Success outputT)
+                         (i/= value (:! Int outputT))
+
+                         (#e.Error error)
+                         false)))
+        )))
+
+(context: "[JVM] Definitions."
+  (<| (times +100)
+      (definitions-spec expressionT_jvm.translate evalT_jvm.eval runtimeT_jvm.translate init-jvm
+                        statementT_jvm.translate-def)))
+
+(context: "[JVM] Variables."
+  (<| (times +100)
+      (variables-spec expressionT_jvm.translate evalT_jvm.eval runtimeT_jvm.translate init-jvm
+                      caseT_jvm.translate-let)))
+
+(context: "[JS] Definitions."
+  (<| (times +100)
+      (definitions-spec expressionT_js.translate evalT_js.eval runtimeT_js.translate init-js
+                        statementT_js.translate-def)))
+
+(context: "[JS] Variables."
+  (<| (times +100)
+      (variables-spec expressionT_js.translate evalT_js.eval runtimeT_js.translate init-js
+                      caseT_js.translate-let)))

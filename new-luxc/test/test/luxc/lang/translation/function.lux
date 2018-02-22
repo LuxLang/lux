@@ -1,0 +1,116 @@
+(.module:
+  lux
+  (lux [io #+ IO]
+       (control [monad #+ do]
+                pipe)
+       (data [product]
+             [maybe]
+             ["e" error]
+             (coll ["a" array]
+                   [list "list/" Functor<List>]))
+       ["r" math/random "r/" Monad<Random>]
+       [macro]
+       (macro [code])
+       [host]
+       test)
+  (luxc [lang]
+        (lang ["ls" synthesis]
+              (translation (jvm [".T_jvm" eval]
+                                [".T_jvm" expression]
+                                [".T_jvm" runtime])
+                           (js [".T_js" eval]
+                               [".T_js" expression]
+                               [".T_js" runtime]))))
+  (test/luxc common))
+
+(def: arity-limit Nat +10)
+
+(def: arity
+  (r.Random ls.Arity)
+  (|> r.nat (r/map (|>> (n/% arity-limit) (n/max +1)))))
+
+(def: gen-function
+  (r.Random [ls.Arity Nat ls.Synthesis])
+  (do r.Monad<Random>
+    [arity arity
+     arg (|> r.nat (:: @ map (n/% arity)))
+     #let [functionS (` ("lux function" (~ (code.nat arity)) []
+                         ((~ (code.int (nat-to-int (n/inc arg)))))))]]
+    (wrap [arity arg functionS])))
+
+(def: (function-spec translate-expression eval translate-runtime init)
+  (All [a]
+    (-> (-> ls.Synthesis (Meta a)) (-> a (Meta Top)) (Meta Top) (IO Compiler)
+        Test))
+  (do r.Monad<Random>
+    [[arity arg functionS] gen-function
+     cut-off (|> r.nat (:: @ map (n/% arity)))
+     args (r.list arity r.nat)
+     #let [arg-value (maybe.assume (list.nth arg args))
+           argsS (list/map code.nat args)
+           last-arg (n/dec arity)
+           cut-off (|> cut-off (n/min (n/dec last-arg)))]]
+    ($_ seq
+        (test "Can read arguments."
+              (|> (do macro.Monad<Meta>
+                    [_ translate-runtime
+                     sampleO (translate-expression (` ("lux call" (~ functionS) (~+ argsS))))]
+                    (eval sampleO))
+                  (lang.with-current-module "")
+                  (macro.run (io.run init))
+                  (case> (#e.Success valueT)
+                         (n/= arg-value (:! Nat valueT))
+
+                         (#e.Error error)
+                         false)))
+        (test "Can partially apply functions."
+              (or (n/= +1 arity)
+                  (|> (do macro.Monad<Meta>
+                        [#let [partial-arity (n/inc cut-off)
+                               preS (list.take partial-arity argsS)
+                               postS (list.drop partial-arity argsS)]
+                         _ translate-runtime
+                         sampleO (translate-expression (` ("lux call"
+                                                           ("lux call" (~ functionS) (~+ preS))
+                                                           (~+ postS))))]
+                        (eval sampleO))
+                      (lang.with-current-module "")
+                      (macro.run (io.run init))
+                      (case> (#e.Success valueT)
+                             (n/= arg-value (:! Nat valueT))
+
+                             (#e.Error error)
+                             false))))
+        (test "Can read environment."
+              (or (n/= +1 arity)
+                  (|> (do macro.Monad<Meta>
+                        [#let [env (|> (list.n/range +0 cut-off)
+                                       (list/map (|>> n/inc nat-to-int)))
+                               super-arity (n/inc cut-off)
+                               arg-var (if (n/<= cut-off arg)
+                                         (|> arg n/inc nat-to-int (i/* -1))
+                                         (|> arg n/inc (n/- super-arity) nat-to-int))
+                               sub-arity (|> arity (n/- super-arity))
+                               functionS (` ("lux function" (~ (code.nat super-arity)) []
+                                             ("lux function" (~ (code.nat sub-arity)) [(~+ (list/map code.int env))]
+                                              ((~ (code.int arg-var))))))]
+                         _ translate-runtime
+                         sampleO (translate-expression (` ("lux call" (~ functionS) (~+ argsS))))]
+                        (eval sampleO))
+                      (lang.with-current-module "")
+                      (macro.run (io.run init))
+                      (case> (#e.Success valueT)
+                             (n/= arg-value (:! Nat valueT))
+
+                             (#e.Error error)
+                             (exec (log! error)
+                               false)))))
+        )))
+
+(context: "[JVM] Function."
+  (<| (times +100)
+      (function-spec expressionT_jvm.translate evalT_jvm.eval runtimeT_jvm.translate init-jvm)))
+
+(context: "[JS] Function."
+  (<| (times +100)
+      (function-spec expressionT_js.translate evalT_js.eval runtimeT_js.translate init-js)))
