@@ -17,7 +17,7 @@
        [host]
        test)
   (luxc [lang]
-        (lang ["ls" synthesis]
+        (lang [synthesis #+ Synthesis]
               (translation (jvm [".T_jvm" eval]
                                 [".T_jvm" expression]
                                 [".T_jvm" runtime])
@@ -28,7 +28,7 @@
 
 (def: (bit-spec translate-expression eval translate-runtime init)
   (All [a]
-    (-> (-> ls.Synthesis (Meta a)) (-> a (Meta Top)) (Meta Top) (IO Compiler)
+    (-> (-> Synthesis (Meta a)) (-> a (Meta Top)) (Meta Top) (IO Compiler)
         Test))
   (do r.Monad<Random>
     [param r.nat
@@ -90,7 +90,7 @@
 
 (def: (nat-spec translate-expression eval translate-runtime init)
   (All [a]
-    (-> (-> ls.Synthesis (Meta a)) (-> a (Meta Top)) (Meta Top) (IO Compiler)
+    (-> (-> Synthesis (Meta a)) (-> a (Meta Top)) (Meta Top) (IO Compiler)
         Test))
   (do r.Monad<Random>
     [param (|> r.nat (r.filter (|>> (n/= +0) not)))
@@ -157,7 +157,7 @@
 
 (def: (int-spec translate-expression eval translate-runtime init)
   (All [a]
-    (-> (-> ls.Synthesis (Meta a)) (-> a (Meta Top)) (Meta Top) (IO Compiler)
+    (-> (-> Synthesis (Meta a)) (-> a (Meta Top)) (Meta Top) (IO Compiler)
         Test))
   (do r.Monad<Random>
     [param (|> r.int (r.filter (|>> (i/= 0) not)))
@@ -226,7 +226,7 @@
 
 (def: (frac-spec|0 translate-expression eval translate-runtime init)
   (All [a]
-    (-> (-> ls.Synthesis (Meta a)) (-> a (Meta Top)) (Meta Top) (IO Compiler)
+    (-> (-> Synthesis (Meta a)) (-> a (Meta Top)) (Meta Top) (IO Compiler)
         Test))
   (do r.Monad<Random>
     [param (|> r.frac (r.filter (|>> (f/= 0.0) not)))
@@ -259,7 +259,7 @@
 
 (def: (frac-spec|1 translate-expression eval translate-runtime init)
   (All [a]
-    (-> (-> ls.Synthesis (Meta a)) (-> a (Meta Top)) (Meta Top) (IO Compiler)
+    (-> (-> Synthesis (Meta a)) (-> a (Meta Top)) (Meta Top) (IO Compiler)
         Test))
   (do r.Monad<Random>
     [param (|> r.frac (r.filter (|>> (f/= 0.0) not)))
@@ -321,7 +321,7 @@
 
 (def: (frac-spec translate-expression eval translate-runtime init)
   (All [a]
-    (-> (-> ls.Synthesis (Meta a)) (-> a (Meta Top)) (Meta Top) (IO Compiler)
+    (-> (-> Synthesis (Meta a)) (-> a (Meta Top)) (Meta Top) (IO Compiler)
         Test))
   ($_ seq
       (frac-spec|0 translate-expression eval translate-runtime init)
@@ -346,7 +346,7 @@
 
 (def: (deg-spec translate-expression eval translate-runtime init)
   (All [a]
-    (-> (-> ls.Synthesis (Meta a)) (-> a (Meta Top)) (Meta Top) (IO Compiler)
+    (-> (-> Synthesis (Meta a)) (-> a (Meta Top)) (Meta Top) (IO Compiler)
         Test))
   (do r.Monad<Random>
     [param (|> r.deg (:: @ map above-threshold))
@@ -427,6 +427,387 @@
                   ))
             ))))
 
+(def: lower-alpha
+  (r.Random Nat)
+  (|> r.nat (:: r.Functor<Random> map (|>> (n/% +26) (n/+ +97)))))
+
+(def: upper-alpha
+  (r.Random Nat)
+  (|> r.nat (:: r.Functor<Random> map (|>> (n/% +26) (n/+ +65)))))
+
+(def: alpha
+  (r.Random Nat)
+  (r.either lower-alpha
+            upper-alpha))
+
+(def: (text-spec run)
+  (-> (-> Synthesis (e.Error Top)) Test)
+  (do r.Monad<Random>
+    [sample-size (|> r.nat (:: @ map (|>> (n/% +10) (n/max +1))))
+     sample0 (r.text' lower-alpha sample-size)
+     sample1 (r.text' upper-alpha sample-size)
+     sample2 (|> (r.text' alpha sample-size)
+                 (r.filter (|>> (text/= sample1) not)))
+     char-idx (|> r.nat (:: @ map (n/% sample-size)))
+     #let [sample0S (code.text sample0)
+           sample1S (code.text sample1)
+           sample2S (code.text sample2)
+           concatenatedS (` ("lux text concat" (~ sample0S) (~ sample1S)))
+           pre-rep-once (format sample0 sample1)
+           post-rep-once (format sample0 sample2)
+           pre-rep-all (|> (list.repeat sample-size sample0) (text.join-with sample1))
+           post-rep-all (|> (list.repeat sample-size sample0) (text.join-with sample2))]]
+    ($_ seq
+        (test "Can compare texts for equality."
+              (and (|> (run (` ("lux text =" (~ sample0S) (~ sample0S))))
+                       (case> (#e.Success valueV)
+                              (:! Bool valueV)
+
+                              _
+                              false))
+                   (|> (run (` ("lux text =" (~ sample0S) (~ sample1S))))
+                       (case> (#e.Success valueV)
+                              (not (:! Bool valueV))
+
+                              _
+                              false))))
+        (test "Can compare texts for order."
+              (|> (run (` ("lux text <" (~ sample1S) (~ sample0S))))
+                  (case> (#e.Success valueV)
+                         (:! Bool valueV)
+
+                         _
+                         false)))
+        (test "Can change case of text."
+              (and (|> (run (` ("lux text =" (~ sample0S) ("lux text upper" (~ sample0S)))))
+                       (case> (#e.Success valueV)
+                              (not (:! Bool valueV))
+
+                              _
+                              false))
+                   (|> (run (` ("lux text =" (~ sample0S) ("lux text lower" ("lux text upper" (~ sample0S))))))
+                       (case> (#e.Success valueV)
+                              (:! Bool valueV)
+
+                              _
+                              false))))
+        (test "Can get length of text."
+              (|> (run (` ("lux text size" (~ sample0S))))
+                  (case> (#e.Success valueV)
+                         (n/= sample-size (:! Nat valueV))
+
+                         _
+                         false)))
+        (test "Can concatenate text."
+              (|> (run (` ("lux text size" (~ concatenatedS))))
+                  (case> (#e.Success valueV)
+                         (n/= (n/* +2 sample-size) (:! Nat valueV))
+
+                         _
+                         false)))
+        (test "Can find index of sub-text."
+              (and (|> (run (` ("lux text index" (~ concatenatedS) (~ sample0S) +0)))
+                       (case> (^multi (#e.Success valueV)
+                                      [(:! (Maybe Nat) valueV) (#.Some valueV)])
+                              (n/= +0 valueV)
+
+                              _
+                              false))
+                   (|> (run (` ("lux text index" (~ concatenatedS) (~ sample1S) +0)))
+                       (case> (^multi (#e.Success valueV)
+                                      [(:! (Maybe Nat) valueV) (#.Some valueV)])
+                              (n/= sample-size valueV)
+
+                              _
+                              false))))
+        (test "Text hashing is consistent."
+              (|> (run (` ("lux nat =" ("lux text hash" (~ sample0S)) ("lux text hash" (~ sample0S)))))
+                  (case> (#e.Success valueV)
+                         (:! Bool valueV)
+                         
+                         _
+                         false)))
+        (test "Can replace sub-text once."
+              (|> (run (` ("lux text ="
+                           (~ (code.text post-rep-once))
+                           ("lux text replace-once"
+                            (~ (code.text pre-rep-once))
+                            (~ sample1S)
+                            (~ sample2S)))))
+                  (case> (#e.Success valueV)
+                         (:! Bool valueV)
+                         
+                         _
+                         false)))
+        (test "Can replace sub-text all times."
+              (|> (run (` ("lux text ="
+                           (~ (code.text post-rep-all))
+                           ("lux text replace-all"
+                            (~ (code.text pre-rep-all))
+                            (~ sample1S)
+                            (~ sample2S)))))
+                  (case> (#e.Success valueV)
+                         (:! Bool valueV)
+                         
+                         _
+                         false)))
+        (let [test-clip (function [from to expected]
+                          (|> (run (` ("lux text clip"
+                                       (~ concatenatedS)
+                                       (~ (code.nat from))
+                                       (~ (code.nat to)))))
+                              (case> (^multi (#e.Success valueV)
+                                             [(:! (Maybe Text) valueV) (#.Some valueV)])
+                                     (text/= expected valueV)
+
+                                     _
+                                     false)))]
+          (test "Can clip text to extract sub-text."
+                (and (test-clip +0 sample-size sample0)
+                     (test-clip sample-size (n/* +2 sample-size) sample1))))
+        (test "Can extract individual characters from text."
+              (|> (run (` ("lux text char"
+                           (~ sample0S)
+                           (~ (code.nat char-idx)))))
+                  (case> (^multi (#e.Success valueV)
+                                 [(:! (Maybe Nat) valueV) (#.Some valueV)])
+                         (text.contains? ("lux nat char" valueV)
+                                         sample0)
+
+                         _
+                         false)))
+        )))
+
+(def: (array-spec run)
+  (-> (-> Synthesis (e.Error Top)) Test)
+  (do r.Monad<Random>
+    [size (|> r.nat (:: @ map (|>> (n/% +10) (n/max +1))))
+     idx (|> r.nat (:: @ map (n/% size)))
+     value r.nat
+     #let [array0S (` ("lux array new" (~ (code.nat size))))
+           array1S (` ("lux array put" (~ array0S) (~ (code.nat idx)) (~ (code.nat value))))]]
+    ($_ seq
+        (test "Can get size of array."
+              (|> (run (` ("lux array size" (~ array0S))))
+                  (case> (#e.Success valueV)
+                         (n/= size (:! Nat valueV))
+
+                         _
+                         false)))
+        (test "Can get element from array (if it exists)."
+              (and (|> (run (` ("lux array get" (~ array0S) (~ (code.nat idx)))))
+                       (case> (^multi (#e.Success valueV)
+                                      [(:! (Maybe Nat) valueV) #.None])
+                              true
+
+                              _
+                              false))
+                   (|> (run (` ("lux array get" (~ array1S) (~ (code.nat idx)))))
+                       (case> (^multi (#e.Success valueV)
+                                      [(:! (Maybe Nat) valueV) (#.Some valueV)])
+                              (n/= value valueV)
+
+                              _
+                              false))))
+        (test "Can remove element from array."
+              (|> (run (` ("lux array get"
+                           ("lux array remove" (~ array1S)
+                            (~ (code.nat idx)))
+                           (~ (code.nat idx)))))
+                  (case> (^multi (#e.Success valueV)
+                                 [(:! (Maybe Nat) valueV) #.None])
+                         true
+
+                         _
+                         false)))
+        )))
+
+(def: (math-spec run)
+  (-> (-> Synthesis (e.Error Top)) Test)
+  (do r.Monad<Random>
+    [subject r.frac
+     param r.frac]
+    (`` ($_ seq
+            (~~ (do-template [<name>]
+                  [(test (format "Can apply '" <name> "' procedure.")
+                         (|> (run (` (<name> (~ (code.frac subject)))))
+                             (case> (#e.Success valueV)
+                                    true
+
+                                    (#e.Error error)
+                                    false)))]
+
+                  ["lux math cos"]
+                  ["lux math sin"]
+                  ["lux math tan"]
+                  ["lux math acos"]
+                  ["lux math asin"]
+                  ["lux math atan"]
+                  ["lux math cosh"]
+                  ["lux math sinh"]
+                  ["lux math tanh"]
+                  ["lux math exp"]
+                  ["lux math log"]
+                  ["lux math root2"]
+                  ["lux math root3"]
+                  ["lux math ceil"]
+                  ["lux math floor"]
+                  ["lux math round"]))
+            (~~ (do-template [<name>]
+                  [(test (format "Can apply '" <name> "' procedure.")
+                         (|> (run (` (<name> (~ (code.frac subject)) (~ (code.frac param)))))
+                             (case> (#e.Success valueV)
+                                    true
+
+                                    (#e.Error error)
+                                    false)))]
+
+                  ["lux math atan2"]
+                  ["lux math pow"]))
+            ))))
+
+(def: (io-spec run)
+  (-> (-> Synthesis (e.Error Top)) Test)
+  (do r.Monad<Random>
+    [message (r.text +5)]
+    ($_ seq
+        (test "Can log messages."
+              (|> (run (` ("lux io log" (~ (code.text (format "LOG: " message))))))
+                  (case> (#e.Success valueV)
+                         true
+
+                         (#e.Error error)
+                         false)))
+        (test "Can throw runtime errors."
+              (and (|> (run (` ("lux try" ("lux function" +1 []
+                                           ("lux io error" (~ (code.text message)))))))
+                       (case> (^multi (#e.Success valueV)
+                                      [(:! (e.Error Text) valueV) (#e.Error error)])
+                              (text.contains? message error)
+
+                              _
+                              false))
+                   (|> (run (` ("lux try" ("lux function" +1 []
+                                           (~ (code.text message))))))
+                       (case> (^multi (#e.Success valueV)
+                                      [(:! (e.Error Text) valueV) (#e.Success valueV)])
+                              (text/= message valueV)
+
+                              _
+                              false))))
+        (test "Can obtain current time in milli-seconds."
+              (|> (run (` [("lux io current-time") ("lux io current-time")]))
+                  (case> (#e.Success valueV)
+                         (let [[pre post] (:! [Nat Nat] valueV)]
+                           (n/>= pre post))
+
+                         (#e.Error error)
+                         false)))
+        )))
+
+(def: (atom-spec run)
+  (-> (-> Synthesis (e.Error Top)) Test)
+  (do r.Monad<Random>
+    [pre r.nat
+     post (|> r.nat (r.filter (|>> (n/= pre) not)))
+     #let [preS (code.nat pre)
+           postS (code.nat post)
+           atomS (` ("lux atom new" (~ preS)))]]
+    ($_ seq
+        (test "Can read atoms."
+              (|> (run (` ("lux atom read" (~ atomS))))
+                  (case> (#e.Success valueV)
+                         (n/= pre (:! Nat valueV))
+
+                         (#e.Error error)
+                         false)))
+        (test "Can compare-and-swap atoms."
+              (and (|> (run (` ("lux let" +0 (~ preS)
+                                ("lux let" +1 ("lux atom new" (0))
+                                 [("lux atom compare-and-swap" (1) (0) (~ postS))
+                                  ("lux atom read" (1))]))))
+                       (case> (#e.Success valueV)
+                              (let [[swapped? current-value] (:! [Bool Nat] valueV)]
+                                (and swapped?
+                                     (n/= post current-value)))
+
+                              (#e.Error error)
+                              false))
+                   (|> (run (` ("lux let" +0 (~ preS)
+                                ("lux let" +1 ("lux atom new" (0))
+                                 [("lux atom compare-and-swap" (1) (~ postS) (~ postS))
+                                  ("lux atom read" (1))]))))
+                       (case> (#e.Success valueV)
+                              (let [[swapped? current-value] (:! [Bool Nat] valueV)]
+                                (and (not swapped?)
+                                     (n/= pre current-value)))
+
+                              (#e.Error error)
+                              false))))
+        )))
+
+(def: (box-spec run)
+  (-> (-> Synthesis (e.Error Top)) Test)
+  (do r.Monad<Random>
+    [pre r.nat
+     post (|> r.nat (r.filter (|>> (n/= pre) not)))
+     #let [preS (code.nat pre)
+           postS (code.nat post)
+           boxS (` ("lux box new" (~ preS)))]]
+    ($_ seq
+        (test "Can read boxes."
+              (|> (run (` ("lux box read" (~ boxS))))
+                  (case> (#e.Success valueV)
+                         (n/= pre (:! Nat valueV))
+
+                         (#e.Error error)
+                         false)))
+        (test "Can write boxes."
+              (|> (run (` ("lux let" +0 (~ boxS)
+                           ("lux let" +1 ("lux box write" (~ postS) (0))
+                            ("lux box read" (0))))))
+                  (case> (#e.Success valueV)
+                         (n/= post (:! Nat valueV))
+
+                         (#e.Error error)
+                         false)))
+        )))
+
+(def: (process-spec run)
+  (-> (-> Synthesis (e.Error Top)) Test)
+  ($_ seq
+      (test "Can query the concurrency level of the machine."
+            (|> (run (` ("lux process concurrency-level")))
+                (case> (#e.Success valueV)
+                       (n/>= +1 (:! Nat valueV))
+
+                       (#e.Error error)
+                       false)))
+      (do r.Monad<Random>
+        [delay (|> r.nat (:: @ map (n/% +10)))
+         message (r.text +5)]
+        ($_ seq
+            (test "Can execute I/O operations in parallel."
+                  (|> (run (` ("lux process future"
+                               ("lux function" +1 []
+                                ("lux io log" (~ (code.text (format "EXECUTE: " message))))))))
+                      (case> (#e.Success valueV)
+                             true
+
+                             (#e.Error error)
+                             false)))
+            (test "Can schedule I/O operations for future execution."
+                  (|> (run (` ("lux process schedule"
+                               (~ (code.nat delay))
+                               ("lux function" +1 []
+                                ("lux io log" (~ (code.text (format "SCHEDULE: " message))))))))
+                      (case> (#e.Success valueV)
+                             true
+
+                             (#e.Error error)
+                             false)))
+            ))))
+
 ## Bit
 (context: "[JVM] Bit procedures"
   (<| (times +100)
@@ -454,6 +835,15 @@
   (<| (times +100)
       (int-spec expressionT_js.translate evalT_js.eval runtimeT_js.translate init-js)))
 
+## Deg
+(context: "[JVM] Deg procedures"
+  (<| (times +100)
+      (deg-spec expressionT_jvm.translate evalT_jvm.eval runtimeT_jvm.translate init-jvm)))
+
+(context: "[JS] Deg procedures"
+  (<| (times +100)
+      (deg-spec expressionT_js.translate evalT_js.eval runtimeT_js.translate init-js)))
+
 ## Frac
 (context: "[JVM] Frac procedures"
   (<| (times +100)
@@ -463,11 +853,66 @@
   (<| (times +100)
       (frac-spec expressionT_js.translate evalT_js.eval runtimeT_js.translate init-js)))
 
-## Deg
-(context: "[JVM] Deg procedures"
-  (<| (times +100)
-      (deg-spec expressionT_jvm.translate evalT_jvm.eval runtimeT_jvm.translate init-jvm)))
+## Text
+(context: "[JVM] Text procedures"
+  (<| (seed +4439612689198907401)
+      ## (times +100)
+      (text-spec run-jvm)))
 
-(context: "[JS] Deg procedures"
+(context: "[JS] Text procedures"
   (<| (times +100)
-      (deg-spec expressionT_js.translate evalT_js.eval runtimeT_js.translate init-js)))
+      (text-spec run-js)))
+
+## Array
+(context: "[JVM] Array procedures"
+  (<| (times +100)
+      (array-spec run-jvm)))
+
+(context: "[JS] Array procedures"
+  (<| (times +100)
+      (array-spec run-js)))
+
+## Math
+(context: "[JVM] Math procedures"
+  (<| (times +100)
+      (math-spec run-jvm)))
+
+(context: "[JS] Math procedures"
+  (<| (times +100)
+      (math-spec run-js)))
+
+## I/O
+(context: "[JVM] I/O procedures"
+  (<| (times +100)
+      (io-spec run-jvm)))
+
+(context: "[JS] I/O procedures"
+  (<| (times +100)
+      (io-spec run-js)))
+
+## Atom
+(context: "[JVM] Atom procedures"
+  (<| (times +100)
+      (atom-spec run-jvm)))
+
+(context: "[JS] Atom procedures"
+  (<| (times +100)
+      (atom-spec run-js)))
+
+## Box
+(context: "[JVM] Box procedures"
+  (<| (times +100)
+      (box-spec run-jvm)))
+
+(context: "[JS] Box procedures"
+  (<| (times +100)
+      (box-spec run-js)))
+
+## Process
+(context: "[JVM] Process procedures"
+  (<| (times +100)
+      (process-spec run-jvm)))
+
+(context: "[JS] Process procedures"
+  (<| (times +100)
+      (process-spec run-js)))

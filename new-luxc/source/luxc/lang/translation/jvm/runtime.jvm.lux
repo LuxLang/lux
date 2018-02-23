@@ -26,6 +26,8 @@
 (def: #export $Datum $.Type $Object)
 (def: #export $Function $.Type ($t.class hostL.function-class (list)))
 (def: $Throwable $.Type ($t.class "java.lang.Throwable" (list)))
+(def: $Runtime $.Type ($t.class "java.lang.Runtime" (list)))
+(def: $Runnable $.Type ($t.class "java.lang.Runnable" (list)))
 
 (def: #export logI
   $.Inst
@@ -549,6 +551,69 @@
                              $i.ARETURN)))
          )))
 
+(def: process-methods
+  $.Def
+  (let [executor-class "java.util.concurrent.ScheduledThreadPoolExecutor"
+        executorT ($t.class executor-class (list))
+        executor-field "executor"
+        endI (|>> ($i.string hostL.unit)
+                  $i.ARETURN)
+        runnableI (: (-> $.Inst $.Inst)
+                     (function [functionI]
+                       (|>> ($i.NEW hostL.runnable-class)
+                            $i.DUP
+                            functionI
+                            ($i.INVOKESPECIAL hostL.runnable-class "<init>" ($t.method (list $Function) #.None (list)) false))))
+        threadI (: (-> $.Inst $.Inst)
+                   (function [runnableI]
+                     (|>> ($i.NEW "java.lang.Thread")
+                          $i.DUP
+                          runnableI
+                          ($i.INVOKESPECIAL "java.lang.Thread" "<init>" ($t.method (list $Runnable) #.None (list)) false))))]
+    (|>> ($d.field #$.Public ($.++F $.finalF $.staticF) executor-field executorT)
+         ($d.method #$.Public $.staticM "<clinit>" ($t.method (list) #.None (list))
+                    (let [concurrency-levelI (|>> ($i.INVOKESTATIC "java.lang.Runtime" "getRuntime" ($t.method (list) (#.Some $Runtime) (list)) false)
+                                                  ($i.INVOKEVIRTUAL "java.lang.Runtime" "availableProcessors" ($t.method (list) (#.Some $t.int) (list)) false))
+                          executorI (|>> ($i.NEW executor-class)
+                                         $i.DUP
+                                         concurrency-levelI
+                                         ($i.INVOKESPECIAL executor-class "<init>" ($t.method (list $t.int) #.None (list)) false))]
+                      (|>> executorI
+                           ($i.PUTSTATIC hostL.runtime-class executor-field executorT)
+                           $i.RETURN)))
+         ($d.method #$.Public $.staticM "future"
+                    ($t.method (list $Function) (#.Some $Object) (list))
+                    (|>> (threadI (runnableI ($i.ALOAD +0)))
+                         ($i.INVOKEVIRTUAL "java.lang.Thread" "start" ($t.method (list) #.None (list)) false)
+                         endI))
+         ($d.method #$.Public $.staticM "schedule"
+                    ($t.method (list $t.long $Function) (#.Some $Object) (list))
+                    (let [delayI ($i.LLOAD +0)
+                          immediacy-checkI (|>> delayI
+                                                ($i.long 0)
+                                                $i.LCMP)
+                          time-unit-class "java.util.concurrent.TimeUnit"
+                          time-unitT ($t.class time-unit-class (list))
+                          futureT ($t.class "java.util.concurrent.ScheduledFuture" (list))
+                          executorI ($i.GETSTATIC hostL.runtime-class executor-field executorT)
+                          schedule-laterI (|>> executorI
+                                               (runnableI ($i.ALOAD +2))
+                                               delayI
+                                               ($i.GETSTATIC time-unit-class "MILLISECONDS" time-unitT)
+                                               ($i.INVOKEVIRTUAL executor-class "schedule" ($t.method (list $Runnable $t.long time-unitT) (#.Some futureT) (list)) false))
+                          schedule-immediatelyI (|>> executorI
+                                                     (runnableI ($i.ALOAD +2))
+                                                     ($i.INVOKEVIRTUAL executor-class "execute" ($t.method (list $Runnable) #.None (list)) false))]
+                      (<| $i.with-label (function [@immediately])
+                          (|>> immediacy-checkI
+                               ($i.IFEQ @immediately)
+                               schedule-laterI
+                               endI
+                               ($i.label @immediately)
+                               schedule-immediatelyI
+                               endI))))
+         )))
+
 (def: translate-runtime
   (Meta commonT.Bytecode)
   (do macro.Monad<Meta>
@@ -560,7 +625,8 @@
                                    deg-methods
                                    text-methods
                                    pm-methods
-                                   io-methods))]
+                                   io-methods
+                                   process-methods))]
      _ (commonT.store-class hostL.runtime-class bytecode)]
     (wrap bytecode)))
 
@@ -595,9 +661,34 @@
      _ (commonT.store-class hostL.function-class bytecode)]
     (wrap bytecode)))
 
+(def: translate-runnable
+  (Meta commonT.Bytecode)
+  (do macro.Monad<Meta>
+    [_ (wrap [])
+     #let [procedure-field "procedure"
+           bytecode ($d.class #$.V1_6 #$.Public $.finalC hostL.runnable-class (list) ["java.lang.Object" (list)] (list ["java.lang.Runnable" (list)])
+                              (|>> ($d.field #$.Public $.finalF procedure-field $Function)
+                                   ($d.method #$.Public $.noneM "<init>" ($t.method (list $Function) #.None (list))
+                                              (|>> ($i.ALOAD +0)
+                                                   ($i.INVOKESPECIAL "java.lang.Object" "<init>" ($t.method (list) #.None (list)) false)
+                                                   ($i.ALOAD +0)
+                                                   ($i.ALOAD +1)
+                                                   ($i.PUTFIELD hostL.runnable-class procedure-field $Function)
+                                                   $i.RETURN))
+                                   ($d.method #$.Public $.noneM "run" ($t.method (list) #.None (list))
+                                              (|>> ($i.ALOAD +0)
+                                                   ($i.GETFIELD hostL.runnable-class procedure-field $Function)
+                                                   $i.NULL
+                                                   ($i.INVOKEVIRTUAL hostL.function-class apply-method (apply-signature +1) false)
+                                                   $i.RETURN))
+                                   ))]
+     _ (commonT.store-class hostL.runnable-class bytecode)]
+    (wrap bytecode)))
+
 (def: #export translate
-  (Meta [commonT.Bytecode commonT.Bytecode])
+  (Meta [commonT.Bytecode commonT.Bytecode commonT.Bytecode])
   (do macro.Monad<Meta>
     [runtime-bc translate-runtime
-     function-bc translate-function]
-    (wrap [runtime-bc function-bc])))
+     function-bc translate-function
+     runnable-bc translate-runnable]
+    (wrap [runtime-bc function-bc runnable-bc])))
