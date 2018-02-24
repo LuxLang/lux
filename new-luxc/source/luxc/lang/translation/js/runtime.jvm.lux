@@ -6,54 +6,53 @@
        (macro [code]
               ["s" syntax #+ syntax:])
        [io #+ Process])
-  [//])
+  [//]
+  (luxc (lang (host [js #+ JS Expression Statement]))))
 
 (def: prefix Text "LuxRuntime")
 
-(def: #export unit //.Expression (%t //.unit))
+(def: #export unit Expression (%t //.unit))
 
 (def: (flag value)
-  (-> Bool //.JS)
+  (-> Bool JS)
   (if value
     (%t "")
     "null"))
 
-(def: (variant-js tag last? value)
-  (-> //.Expression //.Expression //.Expression //.Expression)
-  (format "{"
-          //.variant-tag-field ": " tag ","
-          //.variant-flag-field ": " last? ","
-          //.variant-value-field ": " value
-          "}"))
+(def: (variant' tag last? value)
+  (-> Expression Expression Expression Expression)
+  (js.object (list [//.variant-tag-field tag]
+                   [//.variant-flag-field last?]
+                   [//.variant-value-field value])))
 
 (def: #export (variant tag last? value)
-  (-> Nat Bool //.Expression //.Expression)
-  (variant-js (%i (nat-to-int tag)) (flag last?) value))
+  (-> Nat Bool Expression Expression)
+  (variant' (%i (nat-to-int tag)) (flag last?) value))
 
 (def: none
-  //.Expression
+  Expression
   (variant +0 false unit))
 
 (def: some
-  (-> //.Expression //.Expression)
+  (-> Expression Expression)
   (variant +1 true))
 
 (def: left
-  (-> //.Expression //.Expression)
+  (-> Expression Expression)
   (variant +0 false))
 
 (def: right
-  (-> //.Expression //.Expression)
+  (-> Expression Expression)
   (variant +1 true))
 
-(type: Runtime //.JS)
+(type: Runtime JS)
 
 (def: (runtime-name name)
   (-> Text Text)
   (format prefix "$" name))
 
 (def: (feature name definition)
-  (-> Text (-> Text //.Expression) //.Statement)
+  (-> Text (-> Text Expression) Statement)
   (format "var " name " = " (definition name) ";\n"))
 
 (syntax: (runtime-implementation-name [runtime-name s.local-symbol])
@@ -68,16 +67,16 @@
                    <js-definition>)))))
 
 (def: #export (int value)
-  (-> Int //.Expression)
+  (-> Int Expression)
   (format "({"
           //.int-high-field " : " (|> value int-to-nat //.high nat-to-int %i)
           ", "
           //.int-low-field " : " (|> value int-to-nat //.low nat-to-int %i)
           "})"))
 
-(def: #export (frac value)
-  (-> Frac //.Expression)
-  (%f value))
+(def: #export frac
+  (-> Frac Expression)
+  js.number)
 
 (runtime: lux//try "runTry"
   (format "(function " @ "(op) {"
@@ -157,7 +156,7 @@
             "}"
             (format "else if(wantedTag > " sum-tag ") {" test-recursion "}")
             (format "else if(wantedTag < " sum-tag " && wantsLast === '') {"
-                    (let [updated-sum (variant-js (format "(" sum-tag " - wantedTag)") sum-flag sum-value)]
+                    (let [updated-sum (variant' (format "(" sum-tag " - wantedTag)") sum-flag sum-value)]
                       (format "return " updated-sum ";"))
                     "}")
             "else { " no-match " }"
@@ -265,6 +264,9 @@
                   "return " int//+ "(" bit//not "(i64)," int//one ");"
                   "}")
           "})"))
+
+(runtime: int//-one "NEG_ONE"
+  (js.apply int//negate (list int//one)))
 
 (runtime: int//from-number "fromNumberI64"
   (format "(function " @ "(num) {"
@@ -449,90 +451,115 @@
           "return (" int//- "(l,r).H < 0);"
           "})"))
 
+(def: (<I param subject)
+  (-> Expression Expression Expression)
+  (js.apply int//< (list subject param)))
+
+(def: (<=I param subject)
+  (-> Expression Expression Expression)
+  (js.or (js.apply int//< (list subject param))
+         (js.apply int//= (list subject param))))
+
+(def: (>I param subject)
+  (-> Expression Expression Expression)
+  (js.apply int//< (list param subject)))
+
+(def: (>=I param subject)
+  (-> Expression Expression Expression)
+  (js.or (js.apply int//< (list param subject))
+         (js.apply int//= (list subject param))))
+
+(def: (=I reference sample)
+  (-> Expression Expression Expression)
+  (js.apply int//= (list sample reference)))
+
 (runtime: int/// "divI64"
-  (format "(function " @ "(l,r) {"
-          (format "if((r.H === 0) && (r.L === 0)) {"
-                  ## Special case: R = 0
-                  "throw new Error('Cannot divide by zero!');"
-                  "}"
-                  "else if((l.H === 0) && (l.L === 0)) {"
-                  ## Special case: L = 0
-                  "return l;"
-                  "}")
-          (format "if(" int//= "(l," int//min ")) {"
-                  ## Special case: L = MIN
-                  (format "if(" int//= "(r," int//one ") || " int//= "(r, " int//negate "(" int//one "))) {"
-                          ## Special case: L = MIN, R = 1|-1
-                          "return " int//min ";"
-                          "}"
-                          ## Special case: L = R = MIN
-                          "else if(" int//= "(r," int//min ")) {"
-                          "return " int//one ";"
-                          "}"
-                          ## Special case: L = MIN
-                          "else {"
-                          "var halfL = " bit//signed-shift-right "(l,1);"
-                          "var approx = " bit//shift-left "(" @ "(halfL,r),1);"
-                          (format "if((approx.H === 0) && (approx.L === 0)) {"
-                                  (format "if(r.H < 0) {"
-                                          "return " int//one ";"
-                                          "}"
-                                          "else {"
-                                          "return  " int//negate "(" int//one ");"
-                                          "}")
-                                  "}"
-                                  "else {"
-                                  "var rem = " int//- "(l," int//* "(r,approx));"
-                                  "return " int//+ "(approx," @ "(rem,r));"
-                                  "}")
-                          "}")
-                  "}"
-                  "else if(" int//= "(r," int//min ")) {"
-                  ## Special case: R = MIN
-                  "return " int//new "(0,0);"
-                  "}")
-          ## Special case: negatives
-          (format "if(l.H < 0) {"
-                  (format "if(r.H < 0) {"
-                          ## Both are negative
-                          "return " @ "( " int//negate "(l), " int//negate "(r));"
-                          "}"
-                          "else {"
-                          ## Only L is negative
-                          "return  " int//negate "(" @ "( " int//negate "(l),r));"
-                          "}")
-                  "}"
-                  "else if(r.H < 0) {"
-                  ## R is negative
-                  "return  " int//negate "(" @ "(l, " int//negate "(r)));"
-                  "}")
-          ## Common case
-          (format "var res = " int//zero ";"
-                  "var rem = l;"
-                  (format "while(" int//< "(r,rem) || " int//= "(r,rem)) {"
-                          "var approx = Math.max(1, Math.floor(" int//to-number "(rem) / " int//to-number "(r)));"
-                          "var log2 = Math.ceil(Math.log(approx) / Math.LN2);"
-                          "var delta = (log2 <= 48) ? 1 : Math.pow(2, log2 - 48);"
-                          "var approxRes = " int//from-number "(approx);"
-                          "var approxRem = " int//* "(approxRes,r);"
-                          (format "while((approxRem.H < 0) || " int//< "(rem,approxRem)) {"
-                                  "approx -= delta;"
-                                  "approxRes = " int//from-number "(approx);"
-                                  "approxRem = " int//* "(approxRes,r);"
-                                  "}")
-                          (format "if((approxRes.H === 0) && (approxRes.L === 0)) {"
-                                  "approxRes = " int//one ";"
-                                  "}")
-                          "res = " int//+ "(res,approxRes);"
-                          "rem = " int//- "(rem,approxRem);"
-                          "}")
-                  "return res;")
-          "})"))
+  (let [negate (|>> (list) (js.apply int//negate))
+        negative? (function [value]
+                    (js.apply int//< (list value int//zero)))
+        valid-division-check [(=I int//zero "parameter")
+                              (js.throw! (js.string "Cannot divide by zero!"))]
+        short-circuit-check [(=I int//zero "subject")
+                             (js.return! int//zero)]
+        recur (function [subject parameter]
+                (js.apply @ (list subject parameter)))]
+    (js.function @ (list "subject" "parameter")
+      (list (js.cond! (list valid-division-check
+                            short-circuit-check
+
+                            [(=I int//min "subject")
+                             (js.cond! (list [(js.or (=I int//one "parameter")
+                                                     (=I int//-one "parameter"))
+                                              (js.return! int//min)]
+                                             [(=I int//min "parameter")
+                                              (js.return! int//one)])
+                                       (js.block! (list (js.var! "approximation"
+                                                                 (#.Some (js.apply bit//shift-left
+                                                                                   (list (recur (js.apply bit//signed-shift-right
+                                                                                                          (list "subject" (js.number 1.0)))
+                                                                                                "parameter")
+                                                                                         (js.number 1.0)))))
+                                                        (js.if! (=I int//zero "approximation")
+                                                                (js.return! (js.? (negative? "parameter")
+                                                                                  int//one
+                                                                                  int//-one))
+                                                                (let [remainder (js.apply int//- (list "subject"
+                                                                                                       (js.apply int//* (list "parameter"
+                                                                                                                              "approximation"))))
+                                                                      result (js.apply int//+ (list "approximation"
+                                                                                                    (recur remainder
+                                                                                                           "parameter")))]
+                                                                  (js.return! result))))))]
+                            [(=I int//min "parameter")
+                             (js.return! int//zero)]
+
+                            [(negative? "subject")
+                             (js.return! (js.? (negative? "parameter")
+                                               (recur (negate "subject")
+                                                      (negate "parameter"))
+                                               (negate (recur (negate "subject")
+                                                              "parameter"))))]
+
+                            [(negative? "parameter")
+                             (js.return! (negate (recur "subject" (negate "parameter"))))])
+                      (js.block! (list (js.var! "result" (#.Some int//zero))
+                                       (js.var! "remainder" (#.Some "subject"))
+                                       (js.while! (>=I "parameter" "remainder")
+                                                  (let [rough-estimate (js.apply "Math.floor" (list (js./ (js.apply int//to-number (list "parameter"))
+                                                                                                          (js.apply int//to-number (list "remainder")))))
+                                                        log2 (js./ "Math.LN2"
+                                                                   (js.apply "Math.log" (list "approximate")))
+                                                        approx-result (js.apply int//from-number (list "approximate"))
+                                                        approx-remainder (js.apply int//* (list "approximate_result" "parameter"))]
+                                                    (list (js.var! "approximate" (#.Some (js.apply "Math.max" (list (js.number 1.0)
+                                                                                                                    rough-estimate))))
+                                                          (js.var! "log2" (#.Some (js.apply "Math.ceil" (list log2))))
+                                                          (js.var! "delta" (#.Some (js.? (js.<= (js.number 48.0) "log2")
+                                                                                         (js.number 1.0)
+                                                                                         (js.apply "Math.pow" (list (js.number 2.0)
+                                                                                                                    (js.- (js.number 48.0)
+                                                                                                                          "log2"))))))
+                                                          (js.var! "approximate_result" (#.Some approx-result))
+                                                          (js.var! "approximate_remainder" (#.Some approx-remainder))
+                                                          (js.while! (js.or (negative? "approximate_remainder")
+                                                                            (>I "remainder"
+                                                                                "approximate_remainder"))
+                                                                     (list (js.set! "approximate" (js.- "delta" "approximate"))
+                                                                           (js.set! "approximate_result" approx-result)
+                                                                           (js.set! "approximate_remainder" approx-remainder)))
+                                                          (js.block! (list (js.set! "result" (js.apply int//+ (list "result"
+                                                                                                                    (js.? (=I int//zero "approximate_result")
+                                                                                                                          int//one
+                                                                                                                          "approximate_result"))))
+                                                                           (js.set! "remainder" (js.apply int//- (list "remainder" "approximate_remainder"))))))))
+                                       (js.return! "result")))
+                      )))))
 
 (runtime: int//% "remI64"
-  (format "(function " @ "(l,r) {"
-          "return " int//- "(l," int//* "(" int/// "(l,r),r));"
-          "})"))
+  (js.function @ (list "subject" "parameter")
+    (list (let [flat (js.apply int//* (list (js.apply int/// (list "subject" "parameter"))
+                                            "parameter"))]
+            (js.return! (js.apply int//- (list "subject" flat)))))))
 
 (def: runtime//int
   Runtime
