@@ -383,8 +383,6 @@
   ^:private analyse-math-tanh "tanh"
   ^:private analyse-math-exp "exp"
   ^:private analyse-math-log "log"
-  ^:private analyse-math-root2 "root2"
-  ^:private analyse-math-root3 "root3"
   ^:private analyse-math-ceil "ceil"
   ^:private analyse-math-floor "floor"
   ^:private analyse-math-round "round"
@@ -602,8 +600,6 @@
          "lux math tanh" (analyse-math-tanh analyse exo-type ?values)
          "lux math exp" (analyse-math-exp analyse exo-type ?values)
          "lux math log" (analyse-math-log analyse exo-type ?values)
-         "lux math root2" (analyse-math-root2 analyse exo-type ?values)
-         "lux math root3" (analyse-math-root3 analyse exo-type ?values)
          "lux math ceil" (analyse-math-ceil analyse exo-type ?values)
          "lux math floor" (analyse-math-floor analyse exo-type ?values)
          "lux math round" (analyse-math-round analyse exo-type ?values)
