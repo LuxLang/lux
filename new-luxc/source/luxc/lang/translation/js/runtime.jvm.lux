@@ -585,359 +585,95 @@
           __int//%))
 
 (runtime: nat//< "ltN64"
-  (format "(function " @ "(l,r) {"
-          "var li = " int//+ "(l," int//min ");"
-          "var ri = " int//+ "(r," int//min ");"
-          "return " int//< "(li,ri);"
-          "})"))
+  (let [high (function [i64] (format "(" i64 "." //.int-high-field ")"))
+        low (function [i64] (format "(" i64 "." //.int-low-field ")"))
+        i32 (function [word] (format "(" word " >>> 0)"))]
+    (js.function @ (list "subject" "parameter")
+      (list (js.return! (js.or (js.> (i32 (high "subject"))
+                                     (i32 (high "parameter")))
+                               (js.and (js.= (high "subject")
+                                             (high "parameter"))
+                                       (js.> (i32 (low "subject"))
+                                             (i32 (low "parameter"))))))))))
 
-(runtime: nat//div-word "divWord"
-  (format "(function " @ "(result, n, d) {"
-          "var dLong = " int//new "(0,d);"
-          (format "if (" int//= "(dLong," int//one ")) {"
-                  (format "result[0] = n.L;"
-                          "result[1] = 0;"
-                          "return")
-                  "}"
-                  "else {"
-                  ## Approximate the quotient and remainder
-                  (format "var q = " int/// "(" bit//shift-right "(n,1)," bit//shift-right "(dLong,1));"
-                          "var r = " int//- "(n," int//* "(q,dLong));"
-                          ## Correct the approximation
-                          (format "while(" int//< "(r," int//zero ")) {"
-                                  "r = " int//+ "(r,dLong);"
-                                  "q = " int//- "(q," int//one ");"
-                                  "}")
-                          (format "while(" int//< "(dLong,r) || " int//= "(dLong,r)) {"
-                                  "r = " int//- "(r,dLong);"
-                                  "q = " int//+ "(q," int//one ");"
-                                  "}")
-                          "result[0] = q.L;"
-                          "result[1] = r.L;"
-                          )
-                  "}")
-          "})"))
+(def: (<N param subject)
+  (-> Expression Expression Expression)
+  (js.apply nat//< (list subject param)))
 
-(runtime: nat//shift-left|primitive "primitiveShiftLeftBigInt"
-  (format "(function " @ "(input,shift) {"
-          "var output = input.slice();"
-          "var shift2 = 32 - shift;"
-          (format "for(var i = 0, c = output[i], m = (i + (input.length - 1)); i < m; i++) {"
-                  "var b = c;"
-                  "c = output[i+1];"
-                  "output[i] = (b << shift) | (c >>> shift2);"
-                  "}")
-          "output[(input.length - 1)] <<= shift;"
-          "return output;"
-          "})"))
+(def: (<=N param subject)
+  (-> Expression Expression Expression)
+  (js.or (js.apply nat//< (list subject param))
+         (js.apply int//= (list subject param))))
 
-(runtime: nat//shift-right|primitive "primitiveShiftRightBigInt"
-  (format "(function " @ "(input,shift) {"
-          "var output = input.slice();"
-          "var shift2 = 32 - shift;"
-          (format "for(var i = (input.length - 1), c = output[i]; i > 0; i--) {"
-                  "var b = c;"
-                  "c = output[i-1];"
-                  "output[i] = (c << shift2) | (b >>> shift);"
-                  "}")
-          "output[0] >>>= shift;"
-          "return output;"
-          "})"))
+(def: (>N param subject)
+  (-> Expression Expression Expression)
+  (js.apply nat//< (list param subject)))
 
-(runtime: nat//shift-left "shiftLeftBigInt"
-  (format "(function " @ "(input,shift) {"
-          "var shiftInts = shift >>> 5;"
-          "var shiftBits = shift & 0x1F;"
-          "var bitsInHighWord = " bit//count "(" int//new "(input[0],0));"
-          (format "if(shift <= (32 - bitsInHighWord)) {"
-                  "var shifted = " bit//shift-left "(" int//new "(input[0],input[1]),shiftBits);"
-                  "return [shifted.H,shifted.L];"
-                  "}")
-          "var inputLen = input[0] === 0 ? 1 : 2;"
-          "var newLen = inputLen + shiftInts + 1;"
-          (format "if(shiftBits <= (32 - bitsInHighWord)) {"
-                  "newLen--;"
-                  "}")
-          (format "if(input.length < newLen) {"
-                  ## The array must grow
-                  "input = [0|0,input[0],input[1]];"
-                  "}")
-          (format "if(nBits == 0) {"
-                  "return input;"
-                  "}")
-          (format "if(shiftBits <= (32 - bitsInHighWord)) {"
-                  "return " nat//shift-left|primitive "(input,shiftBits);"
-                  "}"
-                  "else {"
-                  "return " nat//shift-right|primitive "(input,(32 - shiftBits));"
-                  "}")
-          "})"))
-
-(runtime: nat//shift-right "shiftRightBigInt"
-  (format "(function " @ "(input,shift) {"
-          "var shiftInts = shift >>> 5;"
-          "var shiftBits = shift & 0x1F;"
-          "if(shiftBits === 0) { return input; }"
-          "var bitsInHighWord = " bit//count "(" int//new "(input[0],0));"
-          (format "if(shiftBits >= bitsInHighWord) {"
-                  "return " nat//shift-left|primitive "(input,(32-shiftBits));"
-                  "}"
-                  "else {"
-                  "return " nat//shift-right|primitive "(input,shiftBits);"
-                  "}")
-          "})"))
-
-(runtime: nat//mul-sub "mulsubBigInt"
-  (format "(function " @ "(q, a, x, len, offset) {"
-          "var xLong = " int//new "(0,x);"
-          "var carry = " int//zero ";"
-          "offset += len;"
-          (format "for (var j = len-1; j >= 0; j--) {"
-                  "var product = " int//+ "(" int//* "(" int//new "(0,a[j]),xLong),carry);"
-                  "var difference = " int//- "(" int//new "(0,q[offset]),product);"
-                  "carry = " int//+ "(" bit//shift-right "(product,32),((difference.L > ~product.L) ? " int//one " : " int//zero "));"
-                  "}")
-          "return carry.L;"
-          "})"))
-
-(runtime: nat//div-add "divadd"
-  (format "(function " @ "(a, result, offset) {"
-          "var carry = " int//zero ";"
-          (format "for (var j = a.length - 1; j >= 0; j--) {"
-                  "var sum = " int//+ "(" int//+ "(" int//new "(0,a[j])," int//new "(0,result[j+offset])),carry);"
-                  "result[j+offset] = sum.L;"
-                  "carry = " bit//shift-right "(sum,32);"
-                  "}")
-          "return carry.L;"
-          "})"))
-
-(runtime: nat//normalize "normalizeBigInt"
-  (format "(function " @ "(input) {"
-          (format "if(input[0] !== 0) {"
-                  "return " int//new "(input[0],input[1]);"
-                  "}"
-                  "else {"
-                  (format "var numZeros = 0;"
-                          (format "do {"
-                                  "numZeros++;"
-                                  "} while(numZeros < input.length && input[numZeros] == 0);")
-                          "var tempInput = input.slice(input.length-Math.max(2,input.length-numZeros));"
-                          "return " int//new "(tempInput[0],tempInput[1]);")
-                  "}")
-          "})"))
-
-(runtime: nat//divide-one-word "divideOneWord"
-  (format "(function " @ "(subject,param) {"
-          (format "var divLong = " int//new "(0,param);"
-                  ## Special case of one word dividend
-                  (format "if(subject.H === 0) {"
-                          (format "var remValue = " int//new "(0,subject.L);"
-                                  "var quotient = " int/// "(remValue,divLong);"
-                                  "var remainder = " int//- "(remValue," int//* "(quotient.L,divLong));"
-                                  "return [quotient,remainder];")
-                          "}")
-                  "var quotient = [0|0,0|0];"
-                  ## Normalize the divisor
-                  "var shift = 32 - " bit//count "(" int//new "(0,param));"
-                  "var rem = subject.H;"
-                  "var remLong = " int//new "(0,rem);"
-                  (format "if(" int//< "(remLong,divLong)) {"
-                          "quotient[0] = 0|0;"
-                          "}"
-                          "else {"
-                          "quotient[0] = " int/// "(remLong,divLong).L;"
-                          "rem = " int//- "(remLong," int//* "(quotient[0],divLong)).L;"
-                          "remLong = " int//new "(0,rem);"
-                          "}")
-                  "var remBI = [subject.H,subject.L];"
-                  "var xlen = 2;"
-                  "var qWord = [0|0,0|0];"
-                  (format "while(--xlen > 0) {"
-                          "var dividendEstimate = " bit//or "(" bit//shift-left "(remLong,32)," int//new "(0,remBI[2 - xlen]));"
-                          (format "if(dividendEstimate >= 0) {"
-                                  "var highWord = " int/// "(dividendEstimate,divLong);"
-                                  "qWord[0] = highWord.L;"
-                                  "qWord[1] = " int//- "(dividendEstimate," int//* "(highWord,divLong)).L;"
-                                  "}"
-                                  "else {"
-                                  "" nat//div-word "(qWord, dividendEstimate, param);"
-                                  "}")
-                          "quotient[2 - xlen] = qWord[0];"
-                          "rem = qWord[1];"
-                          "remLong = " int//new "(0,rem);"
-                          "}")
-                  ## Unnormalize
-                  (format "if(shift > 0) {"
-                          "rem %= divisor;"
-                          "remBI[0] = rem;"
-                          "}"
-                          "else {"
-                          "remBI[0] = rem;"
-                          "}")
-                  "var quotI64 = " nat//normalize "(quotient);"
-                  "var remI64 = " int//new "(remBI[0],remBI[1]);"
-                  "return [quotI64,remI64];")
-          "})"))
-
-(runtime: nat//div-mod "divmodBigInt"
-  (format "(function " @ "(subject,param) {"
-          (format "if(" int//= "(param," int//zero ")) {"
-                  "throw new Error('Cannot divide by zero!');"
-                  "}")
-          (format "if(" int//= "(subject," int//zero ")) {"
-                  "return [" int//zero ", " int//zero "];"
-                  "}")
-          (format "if(" nat//< "(subject,param)) {"
-                  "return [" int//zero ", subject];"
-                  "}")
-          (format "if(" int//= "(subject,param)) {"
-                  "return [" int//one ", " int//zero "];"
-                  "}")
-          #####################################
-          (format "if (param.H === 0) {"
-                  "return " nat//divide-one-word "(subject,param.L);"
-                  "}")
-          #####################################
-          "var divisor = param;"
-          "var remainder = subject.H === 0 ? [0|0,subject.L] : [0|0,subject.H,subject.L];"
-          "var paramLength = param.H === 0 ? 1 : 2;"
-          "var subjLength = subject.H === 0 ? 1 : 2;"
-          "var limit = subjLength - paramLength + 1;"
-          "var quotient = (limit === 1) ? [0|0] : [0|0,0|0];"
-          ## Normalize the divisor
-          "var shift = 32 - " bit//count "(" int//new "(divisor.H,0));"
-          (format "if(shift > 0) {"
-                  "divisor = " bit//shift-left "(divisor,shift);"
-                  "remainder = " nat//shift-left "(remainder,shift);"
-                  "}")
-          (format "if((remainder.length-1) === subjLength) {"
-                  "remainder[0] = 0;"
-                  "}")
-          "var dh = divisor.H;"
-          "var dhLong = " int//new "(0,dh);"
-          "var dl = divisor.L;"
-          "var qWord = [0|0,0|0];"
-          ## D2 Initialize j
-          (format "for(var j = 0; j < limit; j++) {"
-                  ## D3 Calculate qhat
-                  ## estimate qhat
-                  "var qhat = 0;"
-                  "var qrem = 0;"
-                  "var skipCorrection = false;"
-                  "var nh = remainder[j];"
-                  "var nh2 = nh + 0x80000000;"
-                  "var nm = remainder[j+1];"
-                  (format "if(nh == dh) {"
-                          (format "qhat = ~0;"
-                                  "qrem = nh + nm;"
-                                  "skipCorrection = (qrem + 0x80000000) < nh2;")
-                          "}"
-                          "else {"
-                          (format "var nChunk = " bit//or "(" bit//shift-left "(" int//from-number "(nh),32)," int//from-number "(nm));")
-                          (format "if(" int//< "(" int//zero ",nChunk) || " int//= "(" int//zero ",nChunk)) {"
-                                  (format "qhat = " int/// "(nChunk,dhLong).L;"
-                                          "qrem = " int//- "(nChunk," int//* "(qhat, dhLong)).L;")
-                                  "}"
-                                  "else {"
-                                  (format "" nat//div-word "(qWord, nChunk, dh);"
-                                          "qhat = qWord[0];"
-                                          "qrem = qWord[1];"
-                                          )
-                                  "}")
-                          "if(qhat == 0) { continue; }"
-                          (format "if(!skipCorrection) {"
-                                  ## Correct qhat
-                                  (format "var qremLong = " int//new "(0,qrem);"
-                                          "var dlLong = " int//new "(0,dl);"
-                                          "var nl = " int//new "(0,remainder[j+2]);"
-                                          "var rs = " bit//or "(" bit//shift-left "(qremLong,32),nl);"
-                                          "var estProduct = " int//* "(dlLong," int//new "(0,qhat));"
-                                          (format "if(" nat//< "(rs,estProduct)) {"
-                                                  (format "qhat--;"
-                                                          "qrem = " int//+ "(qremLong,dhLong).L;"
-                                                          "qremLong = " int//new "(0,qrem);"
-                                                          (format "if(" int//< "(dhLong,qremLong) || " int//= "(dhLong,qremLong)) {"
-                                                                  (format "estProduct = " int//* "(dlLong," int//new "(0,qhat));"
-                                                                          "rs = " bit//or "(" bit//shift-left "(qremLong,32),nl);"
-                                                                          "if(" nat//< "(rs,estProduct)) { qhat--; }")
-                                                                  "}"))
-                                                  "}")
-                                          )
-                                  "}")
-                          ## D4 Multiply and subtract
-                          "remainder[j] = 0;"
-                          "var borrow = " nat//mul-sub "(remainder, divisor, qhat, paramLength, j);"
-                          ## D5 Test remainder
-                          (format "if((borrow + 0x80000000) > nh2) {"
-                                  ## D6 Add back
-                                  nat//div-add "(divisor, remainder, j+1);"
-                                  "qhat--;"
-                                  "}")
-                          ## Store the quotient digit
-                          "quotient[j] = qhat;"
-                          "}")
-                  "}") ## D7 loop on j
-          ## D8 Unnormalize
-          "if(shift > 0) { remainder = " nat//shift-right "(remainder,shift); }"
-          "return [" nat//normalize "(quotient), " nat//normalize "(remainder)];"
-          "})"))
+(def: (>=N param subject)
+  (-> Expression Expression Expression)
+  (js.or (js.apply nat//< (list param subject))
+         (js.apply int//= (list subject param))))
 
 (runtime: nat/// "divN64"
-  (format "(function " @ "(l,r) {"
-          (format "if(" int//< "(r," int//zero ")) {"
-                  (format "if(" nat//< "(l,r)) {"
-                          "return " int//zero ";"
-                          "}"
-                          "else {"
-                          "return " int//one ";"
-                          "}")
-                  "}"
-                  "else if(" int//< "(" int//zero ",l)) {"
-                  "return " int/// "(l,r);"
-                  "}"
-                  "else {"
-                  (format "if(" int//= "(" int//zero ",r)) {"
-                          "throw new Error('Cannot divide by zero!');"
-                          "}"
-                          "else {"
-                          (format "if(" int//< "(l,r)) {"
-                                  "return " int//zero ";"
-                                  "}"
-                                  "else {"
-                                  "return " nat//div-mod "(l,r)[0];"
-                                  "}")
-                          "}")
-                  "}")
-          "})"))
+  (let [negative? (function [value]
+                    (js.apply int//< (list value int//zero)))
+        valid-division-check [(=I int//zero "parameter")
+                              (js.throw! (js.string "Cannot divide by zero!"))]
+        short-circuit-check [(=I int//zero "subject")
+                             (js.return! int//zero)]]
+    (js.function @ (list "subject" "parameter")
+      (list (js.cond! (list valid-division-check
+                            short-circuit-check
+
+                            [(>N "subject" "parameter")
+                             (js.return! int//zero)]
+
+                            [(>N (js.apply bit//shift-right
+                                           (list "subject" (js.number 1.0)))
+                                 "parameter")
+                             (js.return! int//one)])
+                      (js.block! (list (js.var! "result" (#.Some int//zero))
+                                       (js.var! "remainder" (#.Some "subject"))
+                                       (js.while! (>=N "parameter" "remainder")
+                                                  (let [rough-estimate (js.apply "Math.floor" (list (js./ (js.apply int//to-number (list "parameter"))
+                                                                                                          (js.apply int//to-number (list "remainder")))))
+                                                        log2 (js./ "Math.LN2"
+                                                                   (js.apply "Math.log" (list "approximate")))
+                                                        approx-result (js.apply int//from-number (list "approximate"))
+                                                        approx-remainder (js.apply int//* (list "approximate_result" "parameter"))]
+                                                    (list (js.var! "approximate" (#.Some (js.apply "Math.max" (list (js.number 1.0)
+                                                                                                                    rough-estimate))))
+                                                          (js.var! "log2" (#.Some (js.apply "Math.ceil" (list log2))))
+                                                          (js.var! "delta" (#.Some (js.? (js.<= (js.number 48.0) "log2")
+                                                                                         (js.number 1.0)
+                                                                                         (js.apply "Math.pow" (list (js.number 2.0)
+                                                                                                                    (js.- (js.number 48.0)
+                                                                                                                          "log2"))))))
+                                                          (js.var! "approximate_result" (#.Some approx-result))
+                                                          (js.var! "approximate_remainder" (#.Some approx-remainder))
+                                                          (js.while! (js.or (negative? "approximate_remainder")
+                                                                            (>N "remainder"
+                                                                                "approximate_remainder"))
+                                                                     (list (js.set! "approximate" (js.- "delta" "approximate"))
+                                                                           (js.set! "approximate_result" approx-result)
+                                                                           (js.set! "approximate_remainder" approx-remainder)))
+                                                          (js.block! (list (js.set! "result" (js.apply int//+ (list "result"
+                                                                                                                    (js.? (=I int//zero "approximate_result")
+                                                                                                                          int//one
+                                                                                                                          "approximate_result"))))
+                                                                           (js.set! "remainder" (js.apply int//- (list "remainder" "approximate_remainder"))))))))
+                                       (js.return! "result")))
+                      )))))
 
 (runtime: nat//% "remN64"
-  (format "(function " @ "(l,r) {"
-          (format "if(" int//< "(l," int//zero ") || " int//< "(r," int//zero ")) {"
-                  (format "if(" nat//< "(l,r)) {"
-                          "return l;"
-                          "}"
-                          "else {"
-                          "return " nat//div-mod "(l,r)[1];"
-                          "}")
-                  "}"
-                  "else {"
-                  "return " int//% "(l,r);"
-                  "}")
-          "})"))
+  (js.function @ (list "subject" "parameter")
+    (list (let [flat (js.apply int//* (list (js.apply nat/// (list "subject" "parameter"))
+                                            "parameter"))]
+            (js.return! (js.apply int//- (list "subject" flat)))))))
 
 (def: runtime//nat
   Runtime
   (format __nat//<
-          __nat//div-word
-          __nat//shift-left|primitive
-          __nat//shift-right|primitive
-          __nat//shift-left
-          __nat//shift-right
-          __nat//mul-sub
-          __nat//div-add
-          __nat//normalize
-          __nat//divide-one-word
-          __nat//div-mod
           __nat///
           __nat//%))
 
