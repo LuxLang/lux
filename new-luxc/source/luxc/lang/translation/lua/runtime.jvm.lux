@@ -1,0 +1,499 @@
+(.module:
+  lux
+  (lux (control ["p" parser "p/" Monad<Parser>]
+                [monad #+ do])
+       (data text/format
+             (coll [list "list/" Monad<List>]))
+       [macro]
+       (macro [code]
+              ["s" syntax #+ syntax:])
+       [io #+ Process])
+  [//]
+  (luxc [lang]
+        (lang (host [lua #+ Lua Expression Statement]))))
+
+(def: prefix Text "LuxRuntime")
+
+(def: #export unit Expression (%t //.unit))
+
+(def: (flag value)
+  (-> Bool Lua)
+  (if value
+    (%t "")
+    "null"))
+
+(def: (variant' tag last? value)
+  (-> Expression Expression Expression Expression)
+  (lua.table (list [//.variant-tag-field tag]
+                   [//.variant-flag-field last?]
+                   [//.variant-value-field value])))
+
+(def: #export (variant tag last? value)
+  (-> Nat Bool Expression Expression)
+  (variant' (%i (nat-to-int tag)) (flag last?) value))
+
+(def: none
+  Expression
+  (variant +0 false unit))
+
+(def: some
+  (-> Expression Expression)
+  (variant +1 true))
+
+(def: left
+  (-> Expression Expression)
+  (variant +0 false))
+
+(def: right
+  (-> Expression Expression)
+  (variant +1 true))
+
+(type: Runtime Lua)
+
+(def: declaration
+  (s.Syntax [Text (List Text)])
+  (p.either (p.seq s.local-symbol (p/wrap (list)))
+            (s.form (p.seq s.local-symbol (p.some s.local-symbol)))))
+
+(syntax: (runtime: [[name args] declaration]
+           definition)
+  (let [implementation (code.local-symbol (format "@@" name))
+        runtime (code.text (format "__" prefix "__" (lang.normalize-name name)))
+        argsC+ (list/map code.local-symbol args)
+        argsLC+ (list/map (|>> lang.normalize-name code.text) args)
+        declaration (` ((~ (code.local-symbol name))
+                        (~+ argsC+)))
+        type (` (-> (~+ (list.repeat (list.size argsC+) (` lua.Lua)))
+                    lua.Lua))]
+    (wrap (list (` (def: #export (~ declaration)
+                     (~ type)
+                     (lua.apply (~ runtime) (list (~+ argsC+)))))
+                (` (def: (~ implementation)
+                     Lua
+                     (~ (case argsC+
+                          #.Nil
+                          (` (lua.global! (~ runtime) (#.Some (~ definition))))
+
+                          _
+                          (` (let [(~' @) (~ runtime)
+                                   (~+ (|> (list.zip2 argsC+ argsLC+)
+                                           (list/map (function [[left right]] (list left right)))
+                                           list/join))]
+                               (lua.function! (~ runtime) (list (~+ argsLC+))
+                                              (~ definition))))))))))))
+
+(runtime: (array//copy array)
+  (lua.block! (list (lua.local! "temp" (#.Some (lua.array (list))))
+                    (lua.for-step! "idx" (lua.int 1) (lua.length array) (lua.int 1)
+                                   (lua.apply "table.insert" (list "temp" (lua.nth "idx" array))))
+                    (lua.return! "temp"))))
+
+(runtime: (array//sub array from to)
+  (lua.block! (list (lua.local! "temp" (#.Some (lua.array (list))))
+                    (lua.for-step! "idx" from to (lua.int 1)
+                                   (lua.apply "table.insert" (list "temp" (lua.nth "idx" array))))
+                    (lua.return! "temp"))))
+
+(runtime: (array//concat left right)
+  (let [copy! (function [input output]
+                (lua.for-step! "idx" (lua.int 1) (format input ".n") (lua.int 1)
+                               (lua.apply "table.insert" (list output (lua.nth "idx" input)))))]
+    (lua.block! (list (lua.local! "temp" (#.Some (lua.array (list))))
+                      (copy! left "temp")
+                      (copy! right "temp")
+                      (lua.return! "temp")))))
+
+(runtime: (lux//try op)
+  (lua.block! (list (format "local success, value = " (lua.apply "pcall" (list (lua.function (list) (lua.return! (lua.apply op (list unit)))))) ";")
+                    (lua.if! "success"
+                             (lua.return! (right "value"))
+                             (lua.return! (left "value"))))))
+
+(runtime: (lux//program-args program-args)
+  (lua.block! (list (lua.local! "inputs" (#.Some none))
+                    (lua.for-step! "idx" (lua.int 1) (lua.length program-args) (lua.int 1)
+                                   (lua.set! "inputs" (some (lua.array (list (lua.nth "idx" program-args)
+                                                                             "inputs")))))
+                    (lua.return! "inputs"))))
+
+(def: runtime//lux
+  Runtime
+  (format @@lux//try
+          @@lux//program-args))
+
+(runtime: (product//left product index)
+  (lua.block! (list (lua.local! "index_min_length" (#.Some (lua.+ (lua.int 1) index)))
+                    (lua.if! (lua.>= "index_min_length" (lua.length product))
+                             ## No need for recursion
+                             (lua.return! (lua.nth "index_min_length" product))
+                             ## Needs recursion
+                             (lua.return! (product//left (lua.nth (lua.length product)
+                                                                  product)
+                                                         (lua.- (lua.length product)
+                                                                "index_min_length")))))))
+
+(runtime: (product//right product index)
+  (lua.block! (list (lua.local! "index_min_length" (#.Some (lua.+ (lua.int 1) index)))
+                    (lua.cond! (list [(lua.= "index_min_length" (lua.length product))
+                                      ## Last element.
+                                      (lua.return! (lua.nth "index_min_length" product))]
+                                     [(lua.< "index_min_length" (lua.length product))
+                                      ## Needs recursion
+                                      (lua.return! (product//right (lua.nth (lua.length product)
+                                                                            product)
+                                                                   (lua.- (lua.length product)
+                                                                          "index_min_length")))])
+                               ## Must slice
+                               (lua.return! (array//sub product "index_min_length" (lua.length product)))))))
+
+(runtime: (sum//get sum wantedTag wantsLast)
+  (let [no-match! (lua.return! lua.nil)
+        sum-tag (format "sum." //.variant-tag-field)
+        sum-flag (format "sum." //.variant-flag-field)
+        sum-value (format "sum." //.variant-value-field)
+        is-last? (lua.= (lua.string "") sum-flag)
+        test-recursion! (lua.if! is-last?
+                                 ## Must recurse.
+                                 (lua.return! (sum//get sum-value (lua.- sum-tag wantedTag) wantsLast))
+                                 no-match!)]
+    (lua.cond! (list [(lua.= sum-tag wantedTag)
+                      (lua.if! (lua.= wantsLast sum-flag)
+                               (lua.return! sum-value)
+                               test-recursion!)]
+
+                     [(lua.> sum-tag wantedTag)
+                      test-recursion!]
+
+                     [(lua.and (lua.< sum-tag wantedTag)
+                               (lua.= (lua.string "") wantsLast))
+                      (lua.return! (variant' (lua.- wantedTag sum-tag) sum-flag sum-value))])
+
+               no-match!)))
+
+(def: runtime//adt
+  Runtime
+  (format @@product//left
+          @@product//right
+          @@sum//get))
+
+(runtime: (bit//shift-right param subject)
+  (let [mask (|> (lua.int 1)
+                 (lua.bit-shl (lua.- param (lua.int 64)))
+                 (lua.- (lua.int 1)))]
+    (lua.return! (|> subject
+                     (lua.bit-shr param)
+                     (lua.bit-and mask)))))
+
+(runtime: (bit//count subject)
+  (lua.block! (list (lua.local! "count" (#.Some (lua.int 0)))
+                    (lua.while! (lua.> (lua.int 0) subject)
+                                (lua.block! (list (lua.set! "count" (lua.+ (lua.% (lua.int 2) subject)
+                                                                           "count"))
+                                                  (lua.set! subject (lua.// (lua.int 2) subject)))))
+                    (lua.return! "count"))))
+
+(def: runtime//bit
+  Runtime
+  (format @@bit//count
+          @@bit//shift-right))
+
+(runtime: (nat//< param subject)
+  (lua.return! (lua.apply "math.ult" (list subject param))))
+
+(runtime: (nat/// param subject)
+  (lua.if! (lua.< (lua.int 0) param)
+           (lua.if! (nat//< param subject)
+                    (lua.return! (lua.int 0))
+                    (lua.return! (lua.int 1)))
+           (lua.block! (list (lua.local! "quotient" (#.Some (|> subject
+                                                                (lua.bit-shr (lua.int 1))
+                                                                (lua.// param)
+                                                                (lua.bit-shl (lua.int 1)))))
+                             (lua.local! "remainder" (#.Some (lua.- (lua.* param "quotient")
+                                                                    subject)))
+                             (lua.if! (lua.not (nat//< param "remainder"))
+                                      (lua.return! (lua.+ (lua.int 1) "quotient"))
+                                      (lua.return! "quotient"))))))
+
+(runtime: (nat//% param subject)
+  (let [flat (|> subject
+                 (nat/// param)
+                 (lua.* param))]
+    (lua.return! (lua.- flat subject))))
+
+(def: runtime//nat
+  Runtime
+  (format @@nat//<
+          @@nat///
+          @@nat//%))
+
+(runtime: deg//low-mask
+  (|> (lua.int 1)
+      (lua.bit-shl (lua.int 32))
+      (lua.- (lua.int 1))))
+
+(runtime: (deg//* param subject)
+  (lua.block! (list (lua.local! "sL" (#.Some (lua.bit-and deg//low-mask subject)))
+                    (lua.local! "sH" (#.Some (bit//shift-right (lua.int 32) subject)))
+                    (lua.local! "pL" (#.Some (lua.bit-and deg//low-mask param)))
+                    (lua.local! "pH" (#.Some (bit//shift-right (lua.int 32) param)))
+                    (lua.local! "bottom" (#.Some (bit//shift-right (lua.int 32)
+                                                                   (lua.* "pL" "sL"))))
+                    (lua.local! "middle" (#.Some (lua.+ (lua.* "pL" "sH")
+                                                        (lua.* "pH" "sL"))))
+                    (lua.local! "top" (#.Some (lua.* "pH" "sH")))
+                    (lua.return! (|> "bottom"
+                                     (lua.+ "middle")
+                                     (bit//shift-right (lua.int 32))
+                                     (lua.+ "top"))))))
+
+(runtime: (deg//leading-zeroes input)
+  (lua.block! (list (lua.local! "zeroes" (#.Some (lua.int 64)))
+                    (lua.while! (lua.not (lua.= (lua.int 0) input))
+                                (lua.block! (list (lua.set! "zeroes" (lua.- (lua.int 1) "zeroes"))
+                                                  (lua.set! input (bit//shift-right (lua.int 1) input)))))
+                    (lua.return! "zeroes"))))
+
+(runtime: (deg/// param subject)
+  (lua.if! (lua.= param subject)
+           (lua.return! (lua.int -1))
+           (lua.block! (list (lua.local! "min_shift" (#.Some (lua.apply "math.min" (list (deg//leading-zeroes param)
+                                                                                         (deg//leading-zeroes subject)))))
+                             (lua.return! (|> (lua.bit-shl "min_shift" subject)
+                                              (lua.// (|> (lua.bit-shl "min_shift" param)
+                                                          (lua.bit-and deg//low-mask)))
+                                              (lua.bit-shl (lua.int 32))))))))
+
+(runtime: (deg//from-frac input)
+  (let [->int (|>> (list) (lua.apply "math.floor"))]
+    (lua.block! (list (lua.local! "two32" (#.Some (lua.apply "math.pow" (list (lua.float 2.0) (lua.float 32.0)))))
+                      (lua.local! "shifted" (#.Some (|> input
+                                                        (lua.% (lua.float 1.0))
+                                                        (lua.* "two32"))))
+                      (lua.local! "low" (#.Some (|> "shifted"
+                                                    (lua.% (lua.float 1.0))
+                                                    (lua.* "two32")
+                                                    ->int)))
+                      (lua.local! "high" (#.Some (|> "shifted" ->int)))
+                      (lua.return! (lua.+ (lua.bit-shl (lua.int 32) "high")
+                                          "low"))))))
+
+(def: runtime//deg
+  Runtime
+  (format @@deg//low-mask
+          @@deg//*
+          @@deg//leading-zeroes
+          @@deg///
+          @@deg//from-frac))
+
+(runtime: (text//index subject param start)
+  (lua.block! (list (lua.local! "idx" (#.Some (lua.apply "string.find" (list subject param start (lua.bool true)))))
+                    (lua.if! (lua.= lua.nil "idx")
+                             (lua.return! none)
+                             (lua.return! (some "idx"))))))
+
+(runtime: (text//clip text from to)
+  (lua.block! (list (lua.local! "size" (#.Some (lua.apply "string.len" (list text))))
+                    (lua.if! (lua.or (lua.> "size" from)
+                                     (lua.> "size" to))
+                             (lua.return! none)
+                             (lua.return! (some (lua.apply "string.sub" (list text from to))))))))
+
+(runtime: (text//replace-once text to-find replacement)
+  (let [find-index (lua.apply "string.find" (list text to-find (lua.int 1) (lua.bool true)))]
+    (lua.block! (list (lua.local! "findSize" (#.Some (lua.apply "string.len" (list to-find))))
+                      (lua.local! "parts" (#.Some (lua.array (list))))
+                      (lua.local! "idx" (#.Some find-index))
+                      (lua.when! (lua.not (lua.= lua.nil "idx"))
+                                 (let [find-pre (lua.apply "string.sub" (list text (lua.int 1) "idx"))
+                                       find-post (lua.apply "string.sub" (list text "idx" (lua.+ "idx" "findSize")))]
+                                   (lua.block! (list (lua.apply "table.insert" (list "parts" find-pre))
+                                                     (lua.apply "table.insert" (list "parts" replacement))
+                                                     (lua.set! text find-post)))))
+                      (lua.apply "table.insert" (list "parts" text))
+                      (lua.return! (lua.apply "table.concat" (list "parts")))))))
+
+(runtime: (text//replace-all text to-find replacement)
+  (let [find-index (lua.apply "string.find" (list text to-find (lua.int 1) (lua.bool true)))]
+    (lua.block! (list (lua.local! "findSize" (#.Some (lua.apply "string.len" (list to-find))))
+                      (lua.local! "parts" (#.Some (lua.array (list))))
+                      (lua.local! "idx" (#.Some find-index))
+                      (lua.while! (lua.not (lua.= lua.nil "idx"))
+                                  (let [find-pre (lua.apply "string.sub" (list text (lua.int 1) (lua.- (lua.int 1) "idx")))
+                                        find-post (lua.apply "string.sub" (list text (lua.+ "findSize" "idx")))]
+                                    (lua.block! (list (lua.apply "table.insert" (list "parts" find-pre))
+                                                      (lua.apply "table.insert" (list "parts" replacement))
+                                                      (lua.set! text find-post)
+                                                      (lua.set! "idx" find-index)))))
+                      (lua.apply "table.insert" (list "parts" text))
+                      (lua.return! (lua.apply "table.concat" (list "parts")))))))
+
+(runtime: (text//char text idx)
+  (lua.block! (list (lua.local! "char" (#.Some (lua.apply "string.byte" (list text idx))))
+                    (lua.if! (lua.= lua.nil "char")
+                             (lua.return! none)
+                             (lua.return! (some "char"))))))
+
+(runtime: (text//hash input)
+  (lua.block! (list (lua.local! "hash" (#.Some (lua.int 0)))
+                    (lua.for-step! "idx" (lua.int 1) (lua.apply "string.len" (list input)) (lua.int 1)
+                                   (lua.set! "hash" (|> "hash"
+                                                        (lua.bit-shl (lua.int 5))
+                                                        (lua.- "hash")
+                                                        (lua.+ (lua.apply "string.byte" (list input "idx"))))))
+                    (lua.return! "hash"))))
+
+(def: runtime//text
+  Runtime
+  (format @@text//index
+          @@text//clip
+          @@text//replace-once
+          @@text//replace-all
+          @@text//char
+          @@text//hash))
+
+(def: (check-index-out-of-bounds array idx body!)
+  (-> Expression Expression Statement Statement)
+  (lua.if! (lua.<= (lua.length array)
+                   idx)
+           body!
+           (lua.error (lua.string "Array index out of bounds!"))))
+
+(runtime: (array//new size)
+  (lua.block! (list (lua.local! "output" (#.Some (lua.array (list))))
+                    (lua.for-step! "idx" (lua.int 1) size (lua.int 1)
+                                   (lua.apply "table.insert" (list "output" unit)))
+                    (lua.return! "output"))))
+
+(runtime: (array//get array idx)
+  (<| (check-index-out-of-bounds array idx)
+      (lua.block! (list (lua.local! "temp" (#.Some (lua.nth idx array)))
+                        (lua.if! (lua.or (lua.= lua.nil "temp")
+                                         (lua.= unit "temp"))
+                                 (lua.return! none)
+                                 (lua.return! (some "temp")))))))
+
+(runtime: (array//put array idx value)
+  (<| (check-index-out-of-bounds array idx)
+      (lua.block! (list (lua.set! (lua.nth idx array) value)
+                        (lua.return! array)))))
+
+(runtime: (array//remove array idx)
+  (array//put array idx unit))
+
+(def: runtime//array
+  Runtime
+  (format @@array//sub
+          @@array//concat
+          @@array//copy
+          @@array//get
+          @@array//put
+          @@array//remove
+          ))
+
+(def: #export atom//field Text "_lux_atom")
+
+(runtime: (atom//compare-and-swap atom old new)
+  (let [atom//field (lua.string atom//field)]
+    (lua.if! (lua.= old (lua.nth atom//field atom))
+             (lua.block! (list (lua.set! (lua.nth atom//field atom) new)
+                               (lua.return! (lua.bool true))))
+             (lua.return! (lua.bool false)))))
+
+(def: runtime//atom
+  Runtime
+  (format @@atom//compare-and-swap))
+
+(runtime: (box//write value box)
+  (lua.block! (list (lua.set! (lua.nth (lua.int 0) box)
+                              value)
+                    (lua.return! unit))))
+
+(def: runtime//box
+  Runtime
+  (format @@box//write))
+
+(def: process//incoming
+  Text
+  (lang.normalize-name "process//incoming"))
+
+(runtime: (process//loop _)
+  (let [migrate-incoming! (lua.block! (list (lua.for-step! "idx" (lua.int 1) (lua.length process//incoming) (lua.int 1)
+                                                           (lua.apply "table.insert" (list "queue" (lua.nth "idx" process//incoming))))
+                                            (lua.set! process//incoming (lua.array (list)))))
+        consume-queue! (lua.block! (list (lua.local! "survivors" (#.Some (lua.array (list))))
+                                         (lua.local! "active_processes" (#.Some (lua.length "queue")))
+                                         (lua.for-step! "idx" (lua.int 1) "active_processes" (lua.int 1)
+                                                        (lua.block! (list (lua.local! "process" (#.Some (lua.nth "idx" "queue")))
+                                                                          (lua.when! (lua.apply "coroutine.resume" (list "process"))
+                                                                                     (lua.apply "table.insert" (list "survivors" "process"))))))
+                                         (lua.set! "queue" "survivors")))]
+    (lua.block! (list (lua.local! "queue" (#.Some (lua.array (list))))
+                      migrate-incoming!
+                      consume-queue!
+                      (lua.when! (lua.> (lua.int 0)
+                                        (lua.length "queue"))
+                                 (process//loop unit))))))
+
+(runtime: (process//future procedure)
+  (lua.block! (list (lua.apply "table.insert" (list process//incoming
+                                                    (lua.function (list)
+                                                      (lua.return! (lua.apply procedure (list unit))))))
+                    (lua.return! unit))))
+
+(runtime: (process//schedule milli-seconds procedure)
+  (let [now (lua.apply "os.time" (list))]
+    (lua.block! (list (lua.local! "start" (#.Some now))
+                      (lua.local! "seconds" (#.Some (lua.// (lua.int 1_000)
+                                                            milli-seconds)))
+                      (lua.apply "table.insert" (list process//incoming
+                                                      (lua.function (list)
+                                                        (lua.block! (list (lua.while! (lua.< "seconds" (lua.- "start" now))
+                                                                                      (lua.apply "coroutine.yield" (list)))
+                                                                          (lua.return! (lua.apply procedure (list unit))))))))
+                      (lua.return! unit)))))
+
+(def: runtime//process
+  Runtime
+  (format (lua.global! process//incoming (#.Some (lua.array (list))))
+          @@process//loop
+          @@process//future
+          @@process//schedule))
+
+(runtime: (lua//get object field)
+  (lua.block! (list (lua.local! "value" (#.Some (lua.nth field object)))
+                    (lua.if! (lua.= lua.nil "value")
+                             (lua.return! none)
+                             (lua.return! (some "value"))))))
+
+(runtime: (lua//set object field value)
+  (lua.block! (list (lua.set! (lua.nth field object) value)
+                    (lua.return! object))))
+
+(def: runtime//lua
+  Runtime
+  (format @@lua//get
+          @@lua//set))
+
+(def: runtime
+  Runtime
+  (format runtime//lux
+          runtime//adt
+          runtime//bit
+          runtime//nat
+          runtime//deg
+          runtime//text
+          runtime//array
+          runtime//atom
+          runtime//box
+          runtime//process
+          runtime//lua))
+
+(def: #export artifact Text (format prefix ".lua"))
+
+(def: #export translate
+  (Meta (Process Unit))
+  (do macro.Monad<Meta>
+    [_ //.init-module-buffer
+     _ (//.save runtime)]
+    (//.save-module! artifact)))

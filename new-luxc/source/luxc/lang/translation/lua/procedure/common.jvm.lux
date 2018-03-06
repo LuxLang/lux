@@ -15,7 +15,7 @@
   (luxc ["&" lang]
         (lang ["la" analysis]
               ["ls" synthesis]
-              (host [js #+ JS Expression Statement])))
+              (host [lua #+ Lua Expression Statement])))
   [///]
   (/// [".T" runtime]
        [".T" case]
@@ -94,31 +94,23 @@
         [inputsI (monad.map @ translate inputsS)]
         (wrap (proc inputsI))))))
 
-(def: (self-contained content)
-  (-> Expression Expression)
-  (format "(" content ")"))
-
-(def: (void action)
-  (-> Expression Expression)
-  (format "(" action "," runtimeT.unit ")"))
-
 ## [Procedures]
 ## [[Lux]]
-(def: (lux//is [leftJS rightJS])
+(def: (lux//is [leftO rightO])
   Binary
-  (self-contained (format leftJS " === " rightJS)))
+  (lua.= leftO rightO))
 
-(def: (lux//if [testJS thenJS elseJS])
+(def: (lux//if [testO thenO elseO])
   Trinary
-  (caseT.translate-if testJS thenJS elseJS))
+  (caseT.translate-if testO thenO elseO))
 
-(def: (lux//try riskyJS)
+(def: (lux//try riskyO)
   Unary
-  (format runtimeT.lux//try "(" riskyJS ")"))
+  (runtimeT.lux//try riskyO))
 
-(def: (lux//noop valueJS)
+(def: (lux//noop valueO)
   Unary
-  valueJS)
+  valueO)
 
 (exception: #export Wrong-Syntax)
 (def: #export (wrong-syntax procedure args)
@@ -146,56 +138,51 @@
 
 ## [[Bits]]
 (do-template [<name> <op>]
-  [(def: (<name> [subjectJS paramJS])
+  [(def: (<name> [subjectO paramO])
      Binary
-     (format <op> "(" subjectJS "," paramJS ")"))]
+     (<op> paramO subjectO))]
 
-  [bit//and                  runtimeT.bit//and]
-  [bit//or                   runtimeT.bit//or]
-  [bit//xor                  runtimeT.bit//xor]
+  [bit//and lua.bit-and]
+  [bit//or  lua.bit-or]
+  [bit//xor lua.bit-xor]
   )
 
 (do-template [<name> <op>]
-  [(def: (<name> [subjectJS paramJS])
+  [(def: (<name> [subjectO paramO])
      Binary
-     (let [simple-param (format runtimeT.int//to-number "(" paramJS ")")]
-       (format <op> "(" subjectJS "," simple-param ")")))]
+     (<op> paramO subjectO))]
 
-  [bit//shift-left           runtimeT.bit//shift-left]
-  [bit//shift-right          runtimeT.bit//signed-shift-right]
+  [bit//shift-left           lua.bit-shl]
+  [bit//shift-right          lua.bit-shr]
   [bit//unsigned-shift-right runtimeT.bit//shift-right]
   )
 
-(def: (bit//count subjectJS)
+(def: bit//count
   Unary
-  (format runtimeT.bit//count "(" subjectJS ")"))
+  runtimeT.bit//count)
 
 ## [[Arrays]]
-(def: (array//new sizeJS)
+(def: (array//new sizeO)
   Unary
-  (self-contained (format "new Array(" runtimeT.int//to-number "(" sizeJS ")" ")")))
+  (runtimeT.array//new sizeO))
 
-(def: (array//get [arrayJS idxJS])
+(def: (array//get [arrayO idxO])
   Binary
-  (format runtimeT.array//get "(" arrayJS "," idxJS ")"))
+  (runtimeT.array//get arrayO idxO))
 
-(def: (array//put [arrayJS idxJS elemJS])
+(def: (array//put [arrayO idxO elemO])
   Trinary
-  (format runtimeT.array//put "(" arrayJS "," idxJS "," elemJS ")"))
+  (runtimeT.array//put arrayO idxO elemO))
 
-(def: (array//remove [arrayJS idxJS])
+(def: (array//remove [arrayO idxO])
   Binary
-  (format runtimeT.array//remove "(" arrayJS "," idxJS ")"))
+  (runtimeT.array//remove arrayO idxO))
 
-(def: (array//size arrayJS)
+(def: array//size
   Unary
-  (format arrayJS ".length"))
+  lua.length)
 
 ## [[Numbers]]
-(host.import java/lang/Long
-  (#static MIN_VALUE Long)
-  (#static MAX_VALUE Long))
-
 (host.import java/lang/Double
   (#static MIN_VALUE Double)
   (#static MAX_VALUE Double)
@@ -208,252 +195,255 @@
      Nullary
      (<encode> <const>))]
 
-  [nat//min                 0                           runtimeT.int]
-  [nat//max                -1                           runtimeT.int]
+  [nat//min                 0                           lua.int]
+  [nat//max                -1                           lua.int]
 
-  [int//min                Long::MIN_VALUE              runtimeT.int]
-  [int//max                Long::MAX_VALUE              runtimeT.int]
+  [frac//smallest          Double::MIN_VALUE            lua.float]
+  [frac//min               (f/* -1.0 Double::MAX_VALUE) lua.float]
+  [frac//max               Double::MAX_VALUE            lua.float]
   
-  [frac//smallest          Double::MIN_VALUE            runtimeT.frac]
-  [frac//min               (f/* -1.0 Double::MAX_VALUE) runtimeT.frac]
-  [frac//max               Double::MAX_VALUE            runtimeT.frac]
-  [frac//not-a-number      Double::NaN                  runtimeT.frac]
-  [frac//positive-infinity Double::POSITIVE_INFINITY    runtimeT.frac]
-  [frac//negative-infinity Double::NEGATIVE_INFINITY    runtimeT.frac]
+  [deg//min                 0                           lua.int]
+  [deg//max                -1                           lua.int]
+  )
 
-  [deg//min                 0                           runtimeT.int]
-  [deg//max                -1                           runtimeT.int]
+(do-template [<name> <expression>]
+  [(def: (<name> _)
+     Nullary
+     <expression>)]
+
+  [int//min "math.mininteger"]
+  [int//max "math.maxinteger"]
+  )
+
+(do-template [<name> <expression>]
+  [(def: (<name> _)
+     Nullary
+     <expression>)]
+
+  [frac//not-a-number      (lua./ (lua.int 0) (lua.int 0))]
+  [frac//positive-infinity "math.huge"]
+  [frac//negative-infinity (lua.* (lua.int -1) "math.huge")]
   )
 
 (do-template [<name> <op>]
-  [(def: (<name> [subjectJS paramJS])
+  [(def: (<name> [subjectO paramO])
      Binary
-     (format <op> "(" subjectJS "," paramJS ")"))]
+     (<op> paramO subjectO))]
 
-  [int//add        runtimeT.int//+]
-  [int//sub        runtimeT.int//-]
-  [int//mul        runtimeT.int//*]
-  [int//div        runtimeT.int///]
-  [int//rem        runtimeT.int//%]
+  [int//add        lua.+]
+  [int//sub        lua.-]
+  [int//mul        lua.*]
+  [int//div        lua.//]
+  [int//rem        lua.%]
   
-  [nat//add        runtimeT.int//+]
-  [nat//sub        runtimeT.int//-]
-  [nat//mul        runtimeT.int//*]
+  [nat//add        lua.+]
+  [nat//sub        lua.-]
+  [nat//mul        lua.*]
   [nat//div        runtimeT.nat///]
   [nat//rem        runtimeT.nat//%]
 
-  [deg//add        runtimeT.int//+]
-  [deg//sub        runtimeT.int//-]
+  [deg//add        lua.+]
+  [deg//sub        lua.-]
   [deg//mul        runtimeT.deg//*]
   [deg//div        runtimeT.deg///]
-  [deg//rem        runtimeT.int//-]
-  [deg//scale      runtimeT.int//*]
-  [deg//reciprocal runtimeT.int///]
+  [deg//rem        lua.-]
+  [deg//scale      lua.*]
+  [deg//reciprocal lua.//]
   )
 
 (do-template [<name> <op>]
-  [(def: (<name> [subjectJS paramJS])
+  [(def: (<name> [subjectO paramO])
      Binary
-     (self-contained (format subjectJS " " <op> " " paramJS)))]
+     (<op> paramO subjectO))]
 
-  [frac//add "+"]
-  [frac//sub "-"]
-  [frac//mul "*"]
-  [frac//div "/"]
-  [frac//rem "%"]
-  [frac//=   "==="]
-  [frac//<   "<"]
+  [frac//add lua.+]
+  [frac//sub lua.-]
+  [frac//mul lua.*]
+  [frac//div lua./]
+  [frac//rem lua.%]
+  [frac//=   lua.=]
+  [frac//<   lua.<]
 
-  [text//=   "==="]
-  [text//<   "<"]
+  [text//=   lua.=]
+  [text//<   lua.<]
   )
 
 (do-template [<name> <cmp>]
-  [(def: (<name> [subjectJS paramJS])
+  [(def: (<name> [subjectO paramO])
      Binary
-     (format <cmp> "(" subjectJS "," paramJS ")"))]
+     (<cmp> paramO subjectO))]
 
-  [nat//= runtimeT.int//=]
+  [nat//= lua.=]
   [nat//< runtimeT.nat//<]
-  [int//= runtimeT.int//=]
-  [int//< runtimeT.int//<]
-  [deg//= runtimeT.int//=]
+  [int//= lua.=]
+  [int//< lua.<]
+  [deg//= lua.=]
   [deg//< runtimeT.nat//<]
   )
 
 (do-template [<name>]
-  [(def: (<name> inputJS)
+  [(def: (<name> inputO)
      Unary
-     inputJS)]
+     inputO)]
 
   [nat//to-int]
   [int//to-nat]
   )
 
-(def: (frac//encode inputJS)
+(def: frac//encode
   Unary
-  (format (self-contained inputJS) ".toString()"))
+  (|>> (list) (lua.apply "tostring")))
 
-(def: (frac//decode inputJS)
+(def: (frac//decode inputO)
   Unary
-  (let [decoding (format "parseFloat(" inputJS ")")
-        thunk (self-contained (format "function () { return " decoding "; }"))]
-    (lux//try thunk)))
+  (lux//try (lua.function (list)
+              (lua.return! (lua.apply "tonumber" (list inputO))))))
+
+(do-template [<name> <divisor>]
+  [(def: (<name> inputO)
+     Unary
+     (lua./ <divisor> inputO))]
+
+  [int//to-frac (lua.float 1.0)]
+  [deg//to-frac (lua.bit-shl (lua.int 32) (lua.int 1))]
+  )
 
 (do-template [<name> <transform>]
-  [(def: (<name> inputJS)
+  [(def: (<name> inputO)
      Unary
-     (format <transform> "(" inputJS ")"))]
+     (|> inputO <transform>))]
 
-  [int//to-frac runtimeT.int//to-number]
-  [frac//to-int runtimeT.int//from-number]
+  [frac//to-int (<| (lua.apply "math.floor") (list))]
   [frac//to-deg runtimeT.deg//from-frac]
-  [deg//to-frac runtimeT.deg//to-frac]
   [text//hash   runtimeT.text//hash]
   )
 
-(def: (nat//char inputJS)
+(def: nat//char
   Unary
-  (format "String.fromCharCode" "(" (int//to-frac inputJS) ")"))
+  (|>> (list) (lua.apply "string.char")))
 
 ## [[Text]]
 (do-template [<name> <op>]
-  [(def: (<name> inputJS)
+  [(def: <name>
      Unary
-     (format inputJS <op>))]
+     (|>> (list) (lua.apply <op>)))]
 
-  [text//size  ".length"]
-  [text//trim  ".trim()"]
-  [text//upper ".toUpperCase()"]
-  [text//lower ".toLowerCase()"]
+  [text//size  "string.len"]
+  [text//upper "string.upper"]
+  [text//lower "string.lower"]
   )
 
-(do-template [<name> <method>]
-  [(def: (<name> [subjectJS paramJS])
-     Binary
-     (format subjectJS "." <method> "(" paramJS ")"))]
+(def: (text//trim inputO)
+  Unary
+  (lua.apply "string.match" (list inputO "^%s*(.-)%s*$")))
 
-  [text//concat    "concat"]
-  [text//contains? "includes"]
-  )
-
-(def: (text//char [subjectJS paramJS])
+(def: (text//concat [subjectO paramO])
   Binary
-  (format runtimeT.text//char "(" subjectJS "," paramJS ")"))
+  (format "(" subjectO " .. " paramO ")"))
+
+(def: (text//contains? [subjectO paramO])
+  Binary
+  (|> (lua.apply "string.find" (list subjectO paramO (lua.int 1) (lua.bool true)))
+      (lua.= lua.nil)
+      lua.not))
+
+(def: (text//char [subjectO paramO])
+  Binary
+  (runtimeT.text//char subjectO paramO))
 
 (do-template [<name> <runtime>]
-  [(def: (<name> [subjectJS paramJS extraJS])
+  [(def: (<name> [subjectO paramO extraO])
      Trinary
-     (format <runtime> "(" subjectJS "," paramJS "," extraJS ")"))]
+     (<runtime> subjectO paramO extraO))]
 
   [text//clip        runtimeT.text//clip]
   [text//replace-all runtimeT.text//replace-all]
+  [text//replace-once runtimeT.text//replace-once]
   )
 
-(def: (text//replace-once [subjectJS paramJS extraJS])
+(def: (text//index [textO partO startO])
   Trinary
-  (format subjectJS ".replace(" paramJS "," extraJS ")"))
-
-(def: (text//index [textJS partJS startJS])
-  Trinary
-  (format runtimeT.text//index "(" textJS "," partJS "," startJS ")"))
+  (runtimeT.text//index textO partO startO))
 
 ## [[Math]]
 (do-template [<name> <method>]
-  [(def: (<name> inputJS)
+  [(def: (<name> inputO)
      Unary
-     (format "Math." <method> "(" inputJS ")"))]
+     (lua.apply <method> (list inputO)))]
 
-  [math//cos "cos"]
-  [math//sin "sin"]
-  [math//tan "tan"]
-  [math//acos "acos"]
-  [math//asin "asin"]
-  [math//atan "atan"]
-  [math//cosh "cosh"]
-  [math//sinh "sinh"]
-  [math//tanh "tanh"]
-  [math//exp "exp"]
-  [math//log "log"]
-  [math//ceil "ceil"]
-  [math//floor "floor"]
-  [math//round "round"]
+  [math//cos "math.cos"]
+  [math//sin "math.sin"]
+  [math//tan "math.tan"]
+  [math//acos "math.acos"]
+  [math//asin "math.asin"]
+  [math//atan "math.atan"]
+  [math//exp "math.exp"]
+  [math//log "math.log"]
+  [math//ceil "math.ceil"]
+  [math//floor "math.floor"]
   )
 
-(do-template [<name> <method>]
-  [(def: (<name> [inputJS paramJS])
-     Binary
-     (format "Math." <method> "(" inputJS "," paramJS ")"))]
-
-  [math//atan2 "atan2"]
-  [math//pow   "pow"]
-  )
+(def: (math//pow [inputO paramO])
+  Binary
+  (lua.apply "math.pow" (list inputO paramO)))
 
 ## [[IO]]
-(def: (io//log messageJS)
+(def: (io//log messageO)
   Unary
-  (void (format runtimeT.io//log "(" messageJS ")")))
+  (lua.or (lua.apply "print" (list messageO))
+          runtimeT.unit))
 
-(def: (io//error messageJS)
+(def: io//error
   Unary
-  (format runtimeT.io//error "(" messageJS ")"))
+  lua.error)
 
-(def: (io//exit codeJS)
+(def: io//exit
   Unary
-  (format "("
-          (format "(!((typeof process) === \"undefined\") && process.exit && process.exit(" (int//to-frac codeJS) "))")
-          " || "
-          "window.close()"
-          " || "
-          "location.reload()"
-          ")"))
+  (|>> (list) (lua.apply "os.exit")))
 
 (def: (io//current-time [])
   Nullary
-  (frac//to-int "(new Date()).getTime()"))
+  (|> (lua.apply "os.time" (list))
+      (lua.* (lua.int 1_000))))
 
 ## [[Atoms]]
-(def: (atom//new initJS)
+(def: atom//new
   Unary
-  (format "{" runtimeT.atom-field ":" initJS "}"))
+  (|>> [runtimeT.atom//field] (list) lua.table))
 
-(def: (atom//read atomJS)
+(def: atom//read
   Unary
-  (format (self-contained atomJS) "." runtimeT.atom-field))
+  (lua.nth (lua.string runtimeT.atom//field)))
 
-(def: (atom//compare-and-swap [atomJS oldJS newJS])
+(def: (atom//compare-and-swap [atomO oldO newO])
   Trinary
-  (format runtimeT.atom//compare-and-swap "(" atomJS "," oldJS "," newJS ")"))
+  (runtimeT.atom//compare-and-swap atomO oldO newO))
 
 ## [[Box]]
-(def: (box//new initJS)
+(def: box//new
   Unary
-  (format "[" initJS "]"))
+  (|>> (list) lua.array))
 
-(def: (box//read boxJS)
+(def: box//read
   Unary
-  (format "(" boxJS ")[0]"))
+  (lua.nth (lua.int 1)))
 
-(def: (box//write [valueJS boxJS])
+(def: (box//write [valueO boxO])
   Binary
-  (void (format (box//read boxJS) " = " valueJS)))
+  (runtimeT.box//write valueO boxO))
 
 ## [[Processes]]
 (def: (process//concurrency-level [])
   Nullary
-  (frac//to-int "1"))
+  (lua.int 1))
 
-(def: (process//future procedureJS)
+(def: process//future
   Unary
-  (format "setTimeout("
-          "function() {" procedureJS "(null)" "}"
-          ",0)"))
+  runtimeT.process//future)
 
-(def: (process//schedule [milli-secondsJS procedureJS])
+(def: (process//schedule [milli-secondsO procedureO])
   Binary
-  (format "setTimeout("
-          "function() {" procedureJS "(null)" "}"
-          "," (int//to-frac milli-secondsJS) ")"))
+  (runtimeT.process//schedule milli-secondsO procedureO))
 
 ## [Bundles]
 (def: lux-procs
@@ -590,15 +580,10 @@
           (install "acos" (unary math//acos))
           (install "asin" (unary math//asin))
           (install "atan" (unary math//atan))
-          (install "cosh" (unary math//cosh))
-          (install "sinh" (unary math//sinh))
-          (install "tanh" (unary math//tanh))
           (install "exp" (unary math//exp))
           (install "log" (unary math//log))
           (install "ceil" (unary math//ceil))
           (install "floor" (unary math//floor))
-          (install "round" (unary math//round))
-          (install "atan2" (binary math//atan2))
           (install "pow" (binary math//pow))
           )))
 

@@ -17,30 +17,28 @@
        test)
   (luxc [lang]
         (lang [".L" host]
-              ["ls" synthesis]
-              (translation (jvm [".T_jvm" expression]
-                                [".T_jvm" runtime]
-                                [".T_jvm" eval])
-                           (js [".T_js" expression]
-                               [".T_js" runtime]
-                               [".T_js" eval]))))
+              [synthesis #+ Synthesis]))
   (test/luxc common))
 
 (host.import java/lang/Integer)
 (host.import java/lang/Long)
 
+(def: upper-alpha
+  (r.Random Nat)
+  (|> r.nat (:: r.Functor<Random> map (|>> (n/% +91) (n/max +65)))))
+
 (def: gen-primitive
-  (r.Random ls.Synthesis)
+  (r.Random Synthesis)
   (r.either (r.either (r.either (r/wrap (' []))
                                 (r/map code.bool r.bool))
                       (r.either (r/map code.nat r.nat)
                                 (r/map code.int r.int)))
             (r.either (r.either (r/map code.deg r.deg)
                                 (r/map code.frac r.frac))
-                      (r/map code.text (r.text +5)))))
+                      (r/map code.text (r.text' upper-alpha +5)))))
 
 (def: (corresponds? [prediction sample])
-  (-> [ls.Synthesis Top] Bool)
+  (-> [Synthesis Top] Bool)
   (case prediction
     [_ (#.Tuple #.Nil)]
     (text/= hostL.unit (:! Text sample))
@@ -64,50 +62,31 @@
     false
     ))
 
-(def: (tuples-spec translate-expression eval translate-runtime init)
-  (All [a]
-    (-> (-> ls.Synthesis (Meta a))
-        (-> a (Meta Top))
-        (Meta Top)
-        (IO Compiler)
-        Test))
+(def: (tuples-spec run)
+  (-> (-> Synthesis (e.Error Top)) Test)
   (do r.Monad<Random>
     [size (|> r.nat (:: @ map (|>> (n/% +10) (n/max +2))))
      members (r.list size gen-primitive)]
     (test "Can translate tuple."
-          (|> (do macro.Monad<Meta>
-                [_ translate-runtime
-                 sampleO (translate-expression (code.tuple members))]
-                (eval sampleO))
-              (lang.with-current-module "")
-              (macro.run (io.run init))
+          (|> (run (code.tuple members))
               (case> (#e.Success valueT)
                      (let [valueT (:! (Array Top) valueT)]
                        (and (n/= size (array.size valueT))
                             (list.every? corresponds? (list.zip2 members (array.to-list valueT)))))
 
                      (#e.Error error)
-                     false)))))
+                     (exec (log! error)
+                       false))))))
 
-(def: (variants-spec translate-expression eval translate-runtime init)
-  (All [a]
-    (-> (-> ls.Synthesis (Meta a))
-        (-> a (Meta Top))
-        (Meta Top)
-        (IO Compiler)
-        Test))
+(def: (variants-spec run)
+  (-> (-> Synthesis (e.Error Top)) Test)
   (do r.Monad<Random>
     [num-tags (|> r.nat (:: @ map (|>> (n/% +10) (n/max +2))))
      tag (|> r.nat (:: @ map (n/% num-tags)))
      #let [last? (n/= (n/dec num-tags) tag)]
      member gen-primitive]
     (test "Can translate variant."
-          (|> (do macro.Monad<Meta>
-                [_ translate-runtime
-                 sampleO (translate-expression (` ((~ (code.nat tag)) (~ (code.bool last?)) (~ member))))]
-                (eval sampleO))
-              (lang.with-current-module "")
-              (macro.run (io.run init))
+          (|> (run (` ((~ (code.nat tag)) (~ (code.bool last?)) (~ member))))
               (case> (#e.Success valueT)
                      (let [valueT (:! (Array Top) valueT)]
                        (and (n/= +3 (array.size valueT))
@@ -124,20 +103,29 @@
                                    (corresponds? [member _value])))))
 
                      (#e.Error error)
-                     false)))))
+                     (exec (log! error)
+                       false))))))
 
 (context: "[JVM] Tuples."
   (<| (times +100)
-      (tuples-spec expressionT_jvm.translate evalT_jvm.eval runtimeT_jvm.translate init-jvm)))
+      (tuples-spec run-jvm)))
 
 (context: "[JVM] Variants."
   (<| (times +100)
-      (variants-spec expressionT_jvm.translate evalT_jvm.eval runtimeT_jvm.translate init-jvm)))
+      (variants-spec run-jvm)))
 
 (context: "[JS] Tuples."
   (<| (times +100)
-      (tuples-spec expressionT_js.translate evalT_js.eval runtimeT_js.translate init-js)))
+      (tuples-spec run-js)))
 
 (context: "[JS] Variants."
   (<| (times +100)
-      (variants-spec expressionT_js.translate evalT_js.eval runtimeT_js.translate init-js)))
+      (variants-spec run-js)))
+
+(context: "[Lua] Tuples."
+  (<| (times +100)
+      (tuples-spec run-lua)))
+
+(context: "[Lua] Variants."
+  (<| (times +100)
+      (variants-spec run-lua)))

@@ -1,0 +1,82 @@
+(.module:
+  lux
+  (lux (control [monad #+ do])
+       (data [product]
+             [text]
+             text/format
+             (coll [list "list/" Functor<List>]))
+       [macro])
+  (luxc ["&" lang]
+        (lang ["ls" synthesis]
+              [".L" variable #+ Variable]
+              (host [lua #+ Lua Expression Statement])))
+  [//]
+  (// [".T" reference]
+      [".T" loop]
+      [".T" runtime]))
+
+(def: #export (translate-apply translate functionS argsS+)
+  (-> (-> ls.Synthesis (Meta Expression)) ls.Synthesis (List ls.Synthesis) (Meta Expression))
+  (do macro.Monad<Meta>
+    [functionO (translate functionS)
+     argsO+ (monad.map @ translate argsS+)]
+    (wrap (lua.apply functionO argsO+))))
+
+(def: (input-declaration register)
+  (lua.local! (referenceT.variable (n/inc register))
+              (#.Some (lua.nth (|> register n/inc nat-to-int %i) "curried"))))
+
+(def: (with-closure function-name inits function-definition)
+  (-> Text (List Expression) Statement (Meta Expression))
+  (let [closure-name (format function-name "___CLOSURE")]
+    (case inits
+      #.Nil
+      (do macro.Monad<Meta>
+        [_ (//.save function-definition)]
+        (wrap function-name))
+
+      _
+      (do macro.Monad<Meta>
+        [_ (//.save (lua.function! closure-name
+                                   (|> (list.enumerate inits)
+                                       (list/map (|>> product.left referenceT.closure)))
+                                   (lua.block! (list function-definition
+                                                     (lua.return! function-name)))))]
+        (wrap (lua.apply closure-name inits))))))
+
+(def: #export (translate-function translate env arity bodyS)
+  (-> (-> ls.Synthesis (Meta Expression))
+      (List Variable) ls.Arity ls.Synthesis
+      (Meta Expression))
+  (do macro.Monad<Meta>
+    [[function-name bodyO] (//.with-sub-context
+                             (do @
+                               [function-name //.context]
+                               (//.with-anchor [function-name +1]
+                                 (translate bodyS))))
+     closureO+ (monad.map @ referenceT.translate-variable env)
+     #let [args-initsO+ (|> (list.n/range +0 (n/dec arity))
+                            (list/map input-declaration))
+           selfO (lua.local! (referenceT.variable +0) (#.Some function-name))
+           arityO (|> arity nat-to-int %i)
+           pack (|>> (list) (lua.apply "table.pack"))]]
+    (with-closure function-name closureO+
+      (lua.function! function-name (list "...")
+                     (lua.block! (list (lua.local! "curried" (#.Some (pack "...")))
+                                       (lua.local! "num_args" (#.Some (lua.length "curried")))
+                                       (lua.if! (lua.= arityO "num_args")
+                                                (lua.block! (list selfO
+                                                                  (lua.block! args-initsO+)
+                                                                  (lua.while! (lua.bool true)
+                                                                              (lua.return! bodyO))))
+                                                (let [unpack (|>> (list) (lua.apply "table.unpack"))
+                                                      recur (|>> (list) (lua.apply function-name))]
+                                                  (lua.if! (lua.> arityO "num_args")
+                                                           (let [slice (function [from to]
+                                                                         (runtimeT.array//sub "curried" from to))
+                                                                 arity-args (unpack (slice (lua.int 1) arityO))
+                                                                 output-func-args (unpack (slice (lua.+ (lua.int 1) arityO) "num_args"))]
+                                                             (lua.return! (lua.apply (recur arity-args)
+                                                                                     (list output-func-args))))
+                                                           (lua.return! (lua.function (list "...")
+                                                                          (lua.return! (recur (unpack (runtimeT.array//concat "curried" (pack "..."))))))))))))))))
