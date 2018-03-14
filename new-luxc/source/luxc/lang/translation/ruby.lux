@@ -1,0 +1,192 @@
+(.module:
+  lux
+  (lux (control ["ex" exception #+ exception:]
+                pipe
+                [monad #+ do])
+       (data [bit]
+             [maybe]
+             ["e" error #+ Error]
+             [text "text/" Eq<Text>]
+             text/format
+             (coll [array]))
+       [macro]
+       [io #+ IO Process io]
+       [host #+ class: interface: object]
+       (world [file #+ File]))
+  (luxc [lang]
+        (lang [".L" variable #+ Register]
+              (host [ruby #+ Ruby Expression Statement]))
+        [".C" io]))
+
+(host.import java/lang/Object)
+
+(host.import java/lang/String
+  (getBytes [String] #try (Array byte)))
+
+(host.import java/lang/CharSequence)
+
+(host.import java/lang/Appendable
+  (append [CharSequence] Appendable))
+
+(host.import java/lang/StringBuilder
+  (new [])
+  (toString [] String))
+
+(host.import org/jruby/embed/ScriptingContainer
+  (new [])
+  (runScriptlet [String] #? Object))
+
+(type: #export Anchor [Text Register])
+
+(type: #export Host
+  {#context [Text Nat]
+   #anchor (Maybe Anchor)
+   #interpreter (-> Text (Error Top))
+   #module-buffer (Maybe StringBuilder)
+   #program-buffer StringBuilder})
+
+(def: #export init
+  (IO Host)
+  (io {#context ["" +0]
+       #anchor #.None
+       #interpreter (let [interpreter (ScriptingContainer::new [])]
+                      (function [code]
+                        ("lux try" (io (: Top (maybe.default [] (ScriptingContainer::runScriptlet [code] interpreter)))))))
+       #module-buffer #.None
+       #program-buffer (StringBuilder::new [])}))
+
+(def: #export ruby-module-name Text "module.rb")
+
+(def: #export init-module-buffer
+  (Meta Unit)
+  (function [compiler]
+    (#e.Success [(update@ #.host
+                          (|>> (:! Host)
+                               (set@ #module-buffer (#.Some (StringBuilder::new [])))
+                               (:! Void))
+                          compiler)
+                 []])))
+
+(exception: #export No-Active-Module-Buffer)
+(exception: #export Cannot-Execute)
+
+(def: #export (with-sub-context expr)
+  (All [a] (-> (Meta a) (Meta [Text a])))
+  (function [compiler]
+    (let [old (:! Host (get@ #.host compiler))
+          [old-name old-sub] (get@ #context old)
+          new-name (format old-name "___" (%i (nat-to-int old-sub)))]
+      (case (expr (set@ #.host
+                        (:! Void (set@ #context [new-name +0] old))
+                        compiler))
+        (#e.Success [compiler' output])
+        (#e.Success [(update@ #.host
+                              (|>> (:! Host)
+                                   (set@ #context [old-name (n/inc old-sub)])
+                                   (:! Void))
+                              compiler')
+                     [new-name output]])
+
+        (#e.Error error)
+        (#e.Error error)))))
+
+(def: #export context
+  (Meta Text)
+  (function [compiler]
+    (#e.Success [compiler
+                 (|> (get@ #.host compiler)
+                     (:! Host)
+                     (get@ #context)
+                     (let> [name sub]
+                           name))])))
+
+(def: #export (with-anchor anchor expr)
+  (All [a] (-> Anchor (Meta a) (Meta a)))
+  (function [compiler]
+    (let [old (:! Host (get@ #.host compiler))]
+      (case (expr (set@ #.host
+                        (:! Void (set@ #anchor (#.Some anchor) old))
+                        compiler))
+        (#e.Success [compiler' output])
+        (#e.Success [(update@ #.host
+                              (|>> (:! Host)
+                                   (set@ #anchor (get@ #anchor old))
+                                   (:! Void))
+                              compiler')
+                     output])
+
+        (#e.Error error)
+        (#e.Error error)))))
+
+(exception: #export No-Anchor)
+
+(def: #export anchor
+  (Meta Anchor)
+  (function [compiler]
+    (case (|> compiler (get@ #.host) (:! Host) (get@ #anchor))
+      (#.Some anchor)
+      (#e.Success [compiler anchor])
+
+      #.None
+      ((lang.throw No-Anchor "") compiler))))
+
+(def: #export module-buffer
+  (Meta StringBuilder)
+  (function [compiler]
+    (case (|> compiler (get@ #.host) (:! Host) (get@ #module-buffer))
+      #.None
+      ((lang.fail (No-Active-Module-Buffer "")) compiler)
+      
+      (#.Some module-buffer)
+      (#e.Success [compiler module-buffer]))))
+
+(def: #export program-buffer
+  (Meta StringBuilder)
+  (function [compiler]
+    (#e.Success [compiler (|> compiler (get@ #.host) (:! Host) (get@ #program-buffer))])))
+
+(def: (execute code)
+  (-> Expression (Meta Unit))
+  (function [compiler]
+    (let [interpreter (|> compiler (get@ #.host) (:! Host) (get@ #interpreter))]
+      (case (interpreter code)
+        (#e.Error error)
+        ((lang.fail (Cannot-Execute error)) compiler)
+        
+        (#e.Success _)
+        (#e.Success [compiler []])))))
+
+(exception: #export Unknown-Member)
+
+(def: #export variant-tag-field "_lux_tag")
+(def: #export variant-flag-field "_lux_flag")
+(def: #export variant-value-field "_lux_value")
+
+(def: #export unit Text "\u0000")
+
+(def: #export (definition-name [module name])
+  (-> Ident Text)
+  (lang.normalize-name (format module "$" name)))
+
+(def: #export (save code)
+  (-> Ruby (Meta Unit))
+  (do macro.Monad<Meta>
+    [module-buffer module-buffer
+     #let [_ (Appendable::append [(:! CharSequence code)]
+                                 module-buffer)]]
+    (execute code)))
+
+(def: #export (save-module! target)
+  (-> File (Meta (Process Unit)))
+  (do macro.Monad<Meta>
+    [module macro.current-module-name
+     module-buffer module-buffer
+     program-buffer program-buffer
+     #let [module-code (StringBuilder::toString [] module-buffer)
+           _ (Appendable::append [(:! CharSequence (format module-code "\n"))]
+                                 program-buffer)]]
+    (wrap (ioC.write target
+                     (format (lang.normalize-name module) "/" ruby-module-name)
+                     (|> module-code
+                         (String::getBytes ["UTF-8"])
+                         e.assume)))))

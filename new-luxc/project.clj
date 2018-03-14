@@ -19,7 +19,8 @@
   :dependencies [[org.ow2.asm/asm-all "5.0.3"]
                  [net.sandius.rembulan/rembulan-runtime "0.1-SNAPSHOT"]
                  [net.sandius.rembulan/rembulan-stdlib "0.1-SNAPSHOT"]
-                 [net.sandius.rembulan/rembulan-compiler "0.1-SNAPSHOT"]]
+                 [net.sandius.rembulan/rembulan-compiler "0.1-SNAPSHOT"]
+                 [org.jruby/jruby-complete "9.1.16.0"]]
   
   :source-paths ["source"]
   :test-paths ["test"]

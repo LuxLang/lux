@@ -1,0 +1,79 @@
+(.module:
+  lux
+  (lux (control [monad #+ do])
+       (data [product]
+             [text]
+             text/format
+             (coll [list "list/" Functor<List>]))
+       [macro])
+  (luxc ["&" lang]
+        (lang ["ls" synthesis]
+              [".L" variable #+ Variable Register]
+              (host [ruby #+ Ruby Expression Statement])))
+  [//]
+  (// [".T" reference]
+      [".T" runtime]))
+
+(def: #export (translate-apply translate functionS argsS+)
+  (-> (-> ls.Synthesis (Meta Expression)) ls.Synthesis (List ls.Synthesis) (Meta Expression))
+  (do macro.Monad<Meta>
+    [functionO (translate functionS)
+     argsO+ (monad.map @ translate argsS+)]
+    (wrap (ruby.call argsO+ functionO))))
+
+(def: (input-declaration registers)
+  (-> (List Register) Statement)
+  (ruby.set! (list.concat (list (list/map (|>> n/inc referenceT.variable) registers)
+                                (list "_")))
+             "curried"))
+
+(def: (with-closure inits function-definition)
+  (-> (List Expression) Statement Expression)
+  (case inits
+    #.Nil
+    function-definition
+
+    _
+    (ruby.call inits
+               (ruby.lambda #.None
+                       (|> (list.enumerate inits)
+                           (list/map (|>> product.left referenceT.closure)))
+                       (ruby.return! function-definition)))))
+
+(def: #export (translate-function translate env arity bodyS)
+  (-> (-> ls.Synthesis (Meta Expression))
+      (List Variable) ls.Arity ls.Synthesis
+      (Meta Expression))
+  (do macro.Monad<Meta>
+    [[function-name bodyO] (//.with-sub-context
+                             (do @
+                               [function-name //.context]
+                               (//.with-anchor [function-name +1]
+                                 (translate bodyS))))
+     closureO+ (monad.map @ referenceT.translate-variable env)
+     #let [args-initsO+ (input-declaration (list.n/range +0 (n/dec arity)))
+           selfO (ruby.set! (list (referenceT.variable +0)) function-name)
+           arityO (|> arity nat-to-int %i)
+           limitO (|> arity n/dec nat-to-int %i)]]
+    (wrap (with-closure closureO+
+            (ruby.lambda (#.Some function-name)
+                    (list (ruby.splat "curried"))
+                    (ruby.block! (list (ruby.set! (list "num_args") (ruby.length "curried"))
+                                       (ruby.if! (ruby.= arityO "num_args")
+                                                 (ruby.block! (list selfO
+                                                                    args-initsO+
+                                                                    (ruby.while! (ruby.bool true)
+                                                                                 (ruby.return! bodyO))))
+                                                 (ruby.return! (let [recur (function [args] (ruby.call (list args) function-name))]
+                                                                 (ruby.? (ruby.> arityO "num_args")
+                                                                         (let [slice (function [from to]
+                                                                                       (ruby.array-range from to "curried"))
+                                                                               arity-args (ruby.splat (slice (ruby.int 0) limitO))
+                                                                               output-func-args (ruby.splat (slice arityO "num_args"))]
+                                                                           (ruby.call (list output-func-args)
+                                                                                      (recur arity-args)))
+                                                                         (ruby.lambda #.None
+                                                                                 (list (ruby.splat "extra"))
+                                                                                 (recur (ruby.splat (|> (ruby.array (list))
+                                                                                                        (ruby.send "concat" (list "curried"))
+                                                                                                        (ruby.send "concat" (list "extra")))))))))))))))))

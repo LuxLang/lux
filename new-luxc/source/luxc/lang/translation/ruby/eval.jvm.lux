@@ -1,0 +1,121 @@
+(.module:
+  lux
+  (lux (control ["ex" exception #+ exception:])
+       (data [bit]
+             [maybe]
+             ["e" error #+ Error]
+             text/format
+             (coll [array]))
+       [host])
+  (luxc [lang]
+        (lang (host [ruby #+ Ruby Expression Statement])))
+  [//])
+
+(host.import java/lang/Object
+  (toString [] String)
+  (getClass [] (Class Object)))
+
+(host.import java/lang/Long
+  (intValue [] Integer))
+
+(host.import org/jruby/RubyArray
+  (getLength [] int)
+  (get [int] #? Object))
+
+(host.import org/jruby/RubyHash
+  (get [Object] #? Object))
+
+(def: (tuple lux-object host-object)
+  (-> (-> Object (Error Top)) RubyArray (Error Top))
+  (let [size (:! Nat (RubyArray::getLength [] host-object))]
+    (loop [idx +0
+           output (:! (Array Top) (array.new size))]
+      (if (n/< size idx)
+        (case (RubyArray::get [(:! Int idx)] host-object)
+          #.None
+          (recur (n/inc idx) output)
+          
+          (#.Some value)
+          (case (lux-object value)
+            (#e.Error error)
+            (#e.Error error)
+
+            (#e.Success lux-value)
+            (recur (n/inc idx) (array.write idx lux-value output))))
+        (#e.Success output)))))
+
+(exception: #export Not-A-Variant)
+
+(def: (variant lux-object host-object)
+  (-> (-> Object (Error Top)) RubyHash (Error Top))
+  (case [(RubyHash::get [(:! Object //.variant-tag-field)] host-object)
+         (RubyHash::get [(:! Object //.variant-flag-field)] host-object)
+         (RubyHash::get [(:! Object //.variant-value-field)] host-object)]
+    (^multi [(#.Some tag) ?flag (#.Some value)]
+            [(lux-object value)
+             (#.Some value)])
+    (#e.Success [(Long::intValue [] (:! Long tag))
+                 (: Top (case ?flag (#.Some _) "" #.None (host.null)))
+                 value])
+
+    _
+    (ex.throw Not-A-Variant "")))
+
+(exception: #export Unknown-Kind-Of-Host-Object)
+(exception: #export Null-Has-No-Lux-Representation)
+
+(def: (lux-object host-object)
+  (-> Object (Error Top))
+  (`` (cond (host.null? host-object)
+            (ex.throw Null-Has-No-Lux-Representation "")
+
+            (or (host.instance? java/lang/Boolean host-object)
+                (host.instance? java/lang/Long host-object)
+                (host.instance? java/lang/Double host-object)
+                (host.instance? java/lang/String host-object))
+            (ex.return host-object)
+
+            (host.instance? org/jruby/RubyArray host-object)
+            (tuple lux-object (:! RubyArray host-object))
+
+            (host.instance? org/jruby/RubyHash host-object)
+            (case (variant lux-object (:! RubyHash host-object))
+              (#e.Success value)
+              (#e.Success value)
+
+              _
+              (let [object-class (:! Text (Object::toString [] (Object::getClass [] (:! Object host-object))))
+                    text-representation (:! Text (Object::toString [] (:! Object host-object)))]
+                (ex.throw Unknown-Kind-Of-Host-Object (format object-class " --- " text-representation))))
+
+            ## else
+            (let [object-class (:! Text (Object::toString [] (Object::getClass [] (:! Object host-object))))
+                  text-representation (:! Text (Object::toString [] (:! Object host-object)))]
+              (ex.throw Unknown-Kind-Of-Host-Object (format object-class " --- " text-representation)))
+            )))
+
+(exception: #export Cannot-Evaluate)
+
+(def: #export (eval code)
+  (-> Expression (Meta Top))
+  (function [compiler]
+    (let [interpreter (|> compiler (get@ #.host) (:! //.Host) (get@ #//.interpreter))]
+      (case (interpreter code)
+        (#e.Error error)
+        (exec (log! (format "eval #e.Error\n"
+                            "<< " code "\n"
+                            error))
+          ((lang.throw Cannot-Evaluate error) compiler))
+
+        (#e.Success output)
+        (case (lux-object (:! Object output))
+          (#e.Success parsed-output)
+          (exec ## (log! (format "eval #e.Success\n"
+                ##               "<< " code))
+            (#e.Success [compiler parsed-output]))
+
+          (#e.Error error)
+          (exec (log! (format "eval #e.Error\n"
+                              "<< " code "\n"
+                              error))
+            ((lang.throw Cannot-Evaluate error) compiler)))))))

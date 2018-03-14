@@ -1,0 +1,385 @@
+(.module:
+  lux
+  (lux (control ["p" parser "p/" Monad<Parser>]
+                [monad #+ do])
+       (data text/format
+             (coll [list "list/" Monad<List>]))
+       [macro]
+       (macro [code]
+              ["s" syntax #+ syntax:])
+       [io #+ Process])
+  [//]
+  (luxc [lang]
+        (lang (host [ruby #+ Ruby Expression Statement]))))
+
+(def: prefix Text "LuxRuntime")
+
+(def: #export unit Expression (%t //.unit))
+
+(def: (flag value)
+  (-> Bool Ruby)
+  (if value
+    (ruby.string "")
+    ruby.nil))
+
+(def: (variant' tag last? value)
+  (-> Expression Expression Expression Expression)
+  (ruby.dictionary (list [(ruby.string //.variant-tag-field) tag]
+                         [(ruby.string //.variant-flag-field) last?]
+                         [(ruby.string //.variant-value-field) value])))
+
+(def: #export (variant tag last? value)
+  (-> Nat Bool Expression Expression)
+  (variant' (%i (nat-to-int tag)) (flag last?) value))
+
+(def: #export none
+  Expression
+  (variant +0 false unit))
+
+(def: #export some
+  (-> Expression Expression)
+  (variant +1 true))
+
+(def: #export left
+  (-> Expression Expression)
+  (variant +0 false))
+
+(def: #export right
+  (-> Expression Expression)
+  (variant +1 true))
+
+(type: Runtime Ruby)
+
+(def: declaration
+  (s.Syntax [Text (List Text)])
+  (p.either (p.seq s.local-symbol (p/wrap (list)))
+            (s.form (p.seq s.local-symbol (p.some s.local-symbol)))))
+
+(syntax: (runtime: [[name args] declaration]
+           definition)
+  (let [implementation (code.local-symbol (format "@@" name))
+        runtime (code.text (format "__" prefix "__" (lang.normalize-name name)))
+        argsC+ (list/map code.local-symbol args)
+        argsLC+ (list/map (|>> lang.normalize-name code.text) args)
+        declaration (` ((~ (code.local-symbol name))
+                        (~+ argsC+)))
+        type (` (-> (~+ (list.repeat (list.size argsC+) (` ruby.Ruby)))
+                    ruby.Ruby))]
+    (wrap (list (` (def: #export (~ declaration)
+                     (~ type)
+                     (ruby.apply (~ runtime) (list (~+ argsC+)))))
+                (` (def: (~ implementation)
+                     Ruby
+                     (~ (case argsC+
+                          #.Nil
+                          (` (ruby.set! (list (~ runtime)) (~ definition)))
+
+                          _
+                          (` (let [(~' @) (~ runtime)
+                                   (~+ (|> (list.zip2 argsC+ argsLC+)
+                                           (list/map (function [[left right]] (list left right)))
+                                           list/join))]
+                               (ruby.function! (~ runtime)
+                                               (list (~+ argsLC+))
+                                               (~ definition))))))))))))
+
+(runtime: (lux//try op)
+  (ruby.begin! (ruby.block! (list (ruby.set! (list "value") (ruby.call (list unit) op))
+                                  (ruby.return! (right "value"))))
+               (list [(list) "error"
+                      (ruby.return! (left (ruby.field "message" "error")))])))
+
+(runtime: (lux//program-args program-args)
+  (ruby.block! (list (ruby.set! (list "inputs") none)
+                     (ruby.for-in! "value" program-args
+                                   (ruby.set! (list "inputs") (some (ruby.array (list "value" "inputs")))))
+                     (ruby.return! "inputs"))))
+
+(def: runtime//lux
+  Runtime
+  (format @@lux//try "\n"
+          @@lux//program-args "\n"))
+
+(runtime: (product//left product index)
+  (ruby.block! (list (ruby.set! (list "index_min_length") (ruby.+ (ruby.int 1) index))
+                     (ruby.if! (ruby.> "index_min_length" (ruby.length product))
+                               ## No need for recursion
+                               (ruby.return! (ruby.nth index product))
+                               ## Needs recursion
+                               (ruby.return! (product//left (ruby.nth (ruby.- (ruby.int 1)
+                                                                              (ruby.length product))
+                                                                      product)
+                                                            (ruby.- (ruby.length product)
+                                                                    "index_min_length")))))))
+
+(runtime: (product//right product index)
+  (ruby.block! (list (ruby.set! (list "index_min_length") (ruby.+ (ruby.int 1) index))
+                     (ruby.cond! (list [(ruby.= "index_min_length" (ruby.length product))
+                                        ## Last element.
+                                        (ruby.return! (ruby.nth index product))]
+                                       [(ruby.< "index_min_length" (ruby.length product))
+                                        ## Needs recursion
+                                        (ruby.return! (product//right (ruby.nth (ruby.- (ruby.int 1)
+                                                                                        (ruby.length product))
+                                                                                product)
+                                                                      (ruby.- (ruby.length product)
+                                                                              "index_min_length")))])
+                                 ## Must slice
+                                 (ruby.return! (ruby.array-range index (ruby.length product) product))))))
+
+(runtime: (sum//get sum wantedTag wantsLast)
+  (let [no-match! (ruby.return! ruby.nil)
+        sum-tag (ruby.nth (ruby.string //.variant-tag-field) sum)
+        sum-flag (ruby.nth (ruby.string //.variant-flag-field) sum)
+        sum-value (ruby.nth (ruby.string //.variant-value-field) sum)
+        is-last? (ruby.= (ruby.string "") sum-flag)
+        test-recursion! (ruby.if! is-last?
+                                  ## Must recurse.
+                                  (ruby.return! (sum//get sum-value (ruby.- sum-tag wantedTag) wantsLast))
+                                  no-match!)]
+    (ruby.cond! (list [(ruby.= sum-tag wantedTag)
+                       (ruby.if! (ruby.= wantsLast sum-flag)
+                                 (ruby.return! sum-value)
+                                 test-recursion!)]
+
+                      [(ruby.> sum-tag wantedTag)
+                       test-recursion!]
+
+                      [(ruby.and (ruby.< sum-tag wantedTag)
+                                 (ruby.= (ruby.string "") wantsLast))
+                       (ruby.return! (variant' (ruby.- wantedTag sum-tag) sum-flag sum-value))])
+
+                no-match!)))
+
+(def: runtime//adt
+  Runtime
+  (format @@product//left "\n"
+          @@product//right "\n"
+          @@sum//get "\n"))
+
+(runtime: (bit//count subject)
+  (ruby.block! (list (ruby.set! (list "count") (ruby.int 0))
+                     (ruby.while! (ruby.> (ruby.int 0) subject)
+                                  (ruby.block! (list (ruby.set! (list "count") (ruby.+ (ruby.% (ruby.int 2) subject)
+                                                                                       "count"))
+                                                     (ruby.set! (list subject) (ruby./ (ruby.int 2) subject)))))
+                     (ruby.return! "count"))))
+
+(runtime: (bit//shift-right param subject)
+  (let [mask (|> (ruby.int 1)
+                 (ruby.bit-shl (ruby.- param (ruby.int 64)))
+                 (ruby.- (ruby.int 1)))]
+    (ruby.return! (|> subject
+                      (ruby.bit-shr param)
+                      (ruby.bit-and mask)))))
+
+(def: runtime//bit
+  Runtime
+  (format @@bit//count
+          @@bit//shift-right))
+
+(def: high (-> Expression Expression) (bit//shift-right (ruby.int 32)))
+(def: low  (-> Expression Expression) (ruby.bit-and "0xFFFFFFFF"))
+
+(runtime: (nat//< param subject)
+  (ruby.block! (list (ruby.set! (list "ph") (high param))
+                     (ruby.set! (list "sh") (high subject))
+                     (ruby.return! (ruby.or (ruby.< "ph" "sh")
+                                            (ruby.and (ruby.= "ph" "sh")
+                                                      (ruby.< (low param) (low subject))))))))
+
+(runtime: (nat/// param subject)
+  (ruby.if! (ruby.< (ruby.int 0) param)
+            (ruby.if! (nat//< param subject)
+                      (ruby.return! (ruby.int 0))
+                      (ruby.return! (ruby.int 1)))
+            (ruby.block! (list (ruby.set! (list "quotient") (|> subject
+                                                                (ruby.bit-shr (ruby.int 1))
+                                                                (ruby./ param)
+                                                                (ruby.bit-shl (ruby.int 1))))
+                               (ruby.set! (list "remainder") (ruby.- (ruby.* param "quotient")
+                                                                     subject))
+                               (ruby.if! (ruby.not (nat//< param "remainder"))
+                                         (ruby.return! (ruby.+ (ruby.int 1) "quotient"))
+                                         (ruby.return! "quotient"))))))
+
+(runtime: (nat//% param subject)
+  (let [flat (|> subject
+                 (nat/// param)
+                 (ruby.* param))]
+    (ruby.return! (ruby.- flat subject))))
+
+(def: runtime//nat
+  Runtime
+  (format @@nat//<
+          @@nat///
+          @@nat//%))
+
+(runtime: (deg//* param subject)
+  (ruby.block! (list (ruby.set! (list "sL") (low subject))
+                     (ruby.set! (list "sH") (high subject))
+                     (ruby.set! (list "pL") (low param))
+                     (ruby.set! (list "pH") (high param))
+                     (ruby.set! (list "bottom") (bit//shift-right (ruby.int 32)
+                                                                  (ruby.* "pL" "sL")))
+                     (ruby.set! (list "middle") (ruby.+ (ruby.* "pL" "sH")
+                                                        (ruby.* "pH" "sL")))
+                     (ruby.set! (list "top") (ruby.* "pH" "sH"))
+                     (ruby.return! (|> "bottom"
+                                       (ruby.+ "middle")
+                                       high
+                                       (ruby.+ "top"))))))
+
+(runtime: (deg//leading-zeroes input)
+  (ruby.block! (list (ruby.set! (list "zeroes") (ruby.int 64))
+                     (ruby.while! (ruby.not (ruby.= (ruby.int 0) input))
+                                  (ruby.block! (list (ruby.set! (list "zeroes") (ruby.- (ruby.int 1) "zeroes"))
+                                                     (ruby.set! (list input) (bit//shift-right (ruby.int 1) input)))))
+                     (ruby.return! "zeroes"))))
+
+(runtime: (deg/// param subject)
+  (ruby.if! (ruby.= param subject)
+            (ruby.return! (ruby.int -1))
+            (ruby.block! (list (ruby.set! (list "min_shift")
+                                          (ruby.send "min" (list)
+                                                     (ruby.array (list (deg//leading-zeroes param)
+                                                                       (deg//leading-zeroes subject)))))
+                               (ruby.return! (|> (ruby.bit-shl "min_shift" subject)
+                                                 (ruby./ (|> param (ruby.bit-shl "min_shift") low))
+                                                 (ruby.bit-shl (ruby.int 32))))))))
+
+(runtime: (deg//from-frac input)
+  (let [->int (ruby.send "floor" (list))]
+    (ruby.block! (list (ruby.set! (list "two32") (ruby.pow (ruby.float 32.0) (ruby.float 2.0)))
+                       (ruby.set! (list "shifted") (|> input
+                                                       (ruby.% (ruby.float 1.0))
+                                                       (ruby.* "two32")))
+                       (ruby.set! (list "low") (|> "shifted"
+                                                   (ruby.% (ruby.float 1.0))
+                                                   (ruby.* "two32")
+                                                   ->int))
+                       (ruby.set! (list "high") (|> "shifted" ->int))
+                       (ruby.return! (ruby.+ (ruby.bit-shl (ruby.int 32) "high")
+                                             "low"))))))
+
+(def: runtime//deg
+  Runtime
+  (format @@deg//*
+          @@deg//leading-zeroes
+          @@deg///
+          @@deg//from-frac))
+
+(runtime: (text//index subject param start)
+  (ruby.block! (list (ruby.set! (list "idx") (ruby.send "index" (list param start) subject))
+                     (ruby.if! (ruby.= ruby.nil "idx")
+                               (ruby.return! none)
+                               (ruby.return! (some "idx"))))))
+
+(runtime: (text//clip text from to)
+  (ruby.if! ($_ ruby.and
+                (ruby.>= (ruby.int 0) from)
+                (ruby.< (ruby.send "length" (list) text) from)
+                (ruby.>= (ruby.int 0) to)
+                (ruby.< (ruby.send "length" (list) text) to)
+                (ruby.<= to from))
+            (ruby.return! (some (ruby.array-range from to text)))
+            (ruby.return! none)))
+
+(runtime: (text//char text idx)
+  (ruby.if! (ruby.and (ruby.>= (ruby.int 0) idx)
+                      (ruby.< (ruby.send "length" (list) text) idx))
+            (ruby.return! (some (ruby.send "ord" (list)
+                                           (ruby.array-range idx idx text))))
+            (ruby.return! none)))
+
+(def: runtime//text
+  Runtime
+  (format @@text//index
+          @@text//clip
+          @@text//char))
+
+(def: (check-index-out-of-bounds array idx body!)
+  (-> Expression Expression Statement Statement)
+  (ruby.if! (ruby.<= (ruby.length array)
+                     idx)
+            body!
+            (ruby.raise (ruby.string "Array index out of bounds!"))))
+
+(runtime: (array//get array idx)
+  (<| (check-index-out-of-bounds array idx)
+      (ruby.block! (list (ruby.set! (list "temp") (ruby.nth idx array))
+                         (ruby.if! (ruby.= ruby.nil "temp")
+                                   (ruby.return! none)
+                                   (ruby.return! (some "temp")))))))
+
+(runtime: (array//put array idx value)
+  (<| (check-index-out-of-bounds array idx)
+      (ruby.block! (list (ruby.set-nth! idx value array)
+                         (ruby.return! array)))))
+
+(def: runtime//array
+  Runtime
+  (format @@array//get
+          @@array//put))
+
+(def: #export atom//field Text "_lux_atom")
+
+(runtime: (atom//compare-and-swap atom old new)
+  (let [atom//field (ruby.string atom//field)]
+    (ruby.if! (ruby.= old (ruby.nth atom//field atom))
+              (ruby.block! (list (ruby.set-nth! atom//field new atom)
+                                 (ruby.return! (ruby.bool true))))
+              (ruby.return! (ruby.bool false)))))
+
+(def: runtime//atom
+  Runtime
+  (format @@atom//compare-and-swap "\n"))
+
+(runtime: (box//write value box)
+  (ruby.block! (list (ruby.set-nth! (ruby.int 0) value box)
+                     (ruby.return! ..unit))))
+
+(def: runtime//box
+  Runtime
+  (format @@box//write))
+
+(runtime: (process//future procedure)
+  (ruby.and (format "(Thread.new {"
+                    (ruby.statement (ruby.call (list ..unit) procedure))
+                    "})")
+            ..unit))
+
+(runtime: (process//schedule milli-seconds procedure)
+  (ruby.and (format "(Thread.new {"
+                    (ruby.statement (ruby.apply "sleep" (list (ruby./ (ruby.float 1_000.0) milli-seconds))))
+                    (ruby.statement (ruby.call (list ..unit) procedure))
+                    "})")
+            ..unit))
+
+(def: runtime//process
+  Runtime
+  (format @@process//future
+          @@process//schedule))
+
+(def: runtime
+  Runtime
+  (format runtime//lux "\n"
+          runtime//adt "\n"
+          runtime//bit "\n"
+          runtime//nat "\n"
+          runtime//deg "\n"
+          runtime//text "\n"
+          runtime//array "\n"
+          runtime//atom "\n"
+          runtime//box "\n"
+          runtime//process "\n"
+          ))
+
+(def: #export artifact Text (format prefix ".rb"))
+
+(def: #export translate
+  (Meta (Process Unit))
+  (do macro.Monad<Meta>
+    [_ //.init-module-buffer
+     _ (//.save runtime)]
+    (//.save-module! artifact)))
