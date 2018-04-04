@@ -1,0 +1,146 @@
+(.module:
+  lux
+  (lux (control ["ex" exception #+ exception:])
+       (data [bit]
+             [maybe]
+             ["e" error #+ Error]
+             text/format
+             (coll [array]))
+       [host])
+  (luxc [lang]
+        (lang (host [python #+ Expression Statement])))
+  [//])
+
+(host.import java/lang/Object
+  (toString [] String)
+  (getClass [] (Class Object)))
+
+(host.import java/lang/Long
+  (intValue [] Integer))
+
+(host.import org/python/core/PyType
+  (getName [] String))
+
+(host.import org/python/core/PyString
+  (new [String]))
+
+(host.import org/python/core/PyObject
+  (asLong [] long)
+  (asDouble [] double)
+  (asString [] String)
+  (__nonzero__ [] boolean)
+  (__getitem__ [int] #try PyObject)
+  (__getitem__ #as __getitem__dict [PyObject] #try PyObject)
+  (__len__ [] int)
+  (getType [] PyType))
+
+(def: (tuple lux-object host-object)
+  (-> (-> PyObject (Error Top)) PyObject (Error Top))
+  (let [size (:! Nat (PyObject::__len__ [] host-object))]
+    (loop [idx +0
+           output (:! (Array Top) (array.new size))]
+      (if (n/< size idx)
+        (case (PyObject::__getitem__ [(:! Int idx)] host-object)
+          (#e.Error error)
+          (#e.Error error)
+          
+          (#e.Success value)
+          (case (lux-object value)
+            (#e.Error error)
+            (#e.Error error)
+
+            (#e.Success lux-value)
+            (recur (n/inc idx) (array.write idx lux-value output))))
+        (#e.Success output)))))
+
+(def: python-type
+  (-> PyObject Text)
+  (|>> (PyObject::getType []) (PyType::getName []) (:! Text)))
+
+(exception: #export Not-A-Variant)
+
+(def: tag-field (PyString::new [//.variant-tag-field]))
+(def: flag-field (PyString::new [//.variant-flag-field]))
+(def: value-field (PyString::new [//.variant-value-field]))
+
+(def: (variant lux-object host-object)
+  (-> (-> PyObject (Error Top)) PyObject (Error Top))
+  (case [(PyObject::__getitem__dict [tag-field] host-object)
+         (PyObject::__getitem__dict [flag-field] host-object)
+         (PyObject::__getitem__dict [value-field] host-object)]
+    (^or [(#e.Error error) _ _] [_ (#e.Error error) _] [_ _ (#e.Error error)])
+    (#e.Error error)
+    
+    (^multi [(#e.Success tag) (#e.Success flag) (#e.Success value)]
+            [(lux-object tag)
+             (#e.Success tag)]
+            [(lux-object value)
+             (#e.Success value)])
+    (#e.Success [(Long::intValue [] (:! Long tag))
+                 (: Top
+                    (case (python-type (:! PyObject flag))
+                      "NoneType"
+                      (host.null)
+
+                      _
+                      ""))
+                 value])
+
+    _
+    (ex.throw Not-A-Variant (Object::toString [] host-object))))
+
+(exception: #export Unknown-Kind-Of-Host-Object)
+(exception: #export Null-Has-No-Lux-Representation)
+
+(def: (lux-object host-object)
+  (-> PyObject (Error Top))
+  (case (python-type host-object)
+    "str"
+    (#e.Success (PyObject::asString [] host-object))
+    
+    "bool"
+    (#e.Success (PyObject::__nonzero__ [] host-object))
+
+    "float"
+    (#e.Success (PyObject::asDouble [] host-object))
+
+    (^or "int" "long")
+    (#e.Success (PyObject::asLong [] host-object))
+
+    "tuple"
+    (tuple lux-object host-object)
+
+    "dict"
+    (variant lux-object host-object)
+
+    "NoneType"
+    (#e.Success [])
+    
+    type
+    (ex.throw Unknown-Kind-Of-Host-Object (format type " " (Object::toString [] host-object)))))
+
+(exception: #export Cannot-Evaluate)
+
+(def: #export (eval code)
+  (-> Expression (Meta Top))
+  (function [compiler]
+    (let [interpreter (|> compiler (get@ #.host) (:! //.Host) (get@ #//.interpreter))]
+      (case (interpreter code)
+        (#e.Error error)
+        (exec (log! (format "eval #e.Error\n"
+                            "<< " (python.expression code) "\n"
+                            error))
+          ((lang.throw Cannot-Evaluate error) compiler))
+
+        (#e.Success output)
+        (case (lux-object output)
+          (#e.Success parsed-output)
+          (exec ## (log! (format "eval #e.Success\n"
+                ##               "<< " (python.expression code)))
+            (#e.Success [compiler parsed-output]))
+
+          (#e.Error error)
+          (exec (log! (format "eval #e.Error\n"
+                              "<< " (python.expression code) "\n"
+                              error))
+            ((lang.throw Cannot-Evaluate error) compiler)))))))

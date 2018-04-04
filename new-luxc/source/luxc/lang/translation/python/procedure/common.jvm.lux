@@ -1,0 +1,572 @@
+(.module:
+  lux
+  (lux (control [monad #+ do]
+                ["ex" exception #+ exception:]
+                ["p" parser])
+       (data ["e" error]
+             [text]
+             text/format
+             [number]
+             (coll [list "list/" Functor<List>]
+                   [dict #+ Dict]))
+       [macro #+ with-gensyms]
+       (macro [code]
+              ["s" syntax #+ syntax:])
+       [host])
+  (luxc ["&" lang]
+        (lang ["la" analysis]
+              ["ls" synthesis]
+              (host [python #+ Expression Statement])))
+  [///]
+  (/// [".T" runtime]
+       [".T" case]
+       [".T" function]
+       [".T" loop]))
+
+## [Types]
+(type: #export Translator
+  (-> ls.Synthesis (Meta Expression)))
+
+(type: #export Proc
+  (-> Translator (List ls.Synthesis) (Meta Expression)))
+
+(type: #export Bundle
+  (Dict Text Proc))
+
+(syntax: (Vector [size s.nat] elemT)
+  (wrap (list (` [(~+ (list.repeat size elemT))]))))
+
+(type: #export Nullary (-> (Vector +0 Expression) Expression))
+(type: #export Unary   (-> (Vector +1 Expression) Expression))
+(type: #export Binary  (-> (Vector +2 Expression) Expression))
+(type: #export Trinary (-> (Vector +3 Expression) Expression))
+(type: #export Variadic (-> (List Expression) Expression))
+
+## [Utils]
+(def: #export (install name unnamed)
+  (-> Text (-> Text Proc)
+      (-> Bundle Bundle))
+  (dict.put name (unnamed name)))
+
+(def: #export (prefix prefix bundle)
+  (-> Text Bundle Bundle)
+  (|> bundle
+      dict.entries
+      (list/map (function [[key val]] [(format prefix " " key) val]))
+      (dict.from-list text.Hash<Text>)))
+
+(def: (wrong-arity proc expected actual)
+  (-> Text Nat Nat Text)
+  (format "Wrong number of arguments for " (%t proc) "\n"
+          "Expected: " (|> expected nat-to-int %i) "\n"
+          "  Actual: " (|> actual nat-to-int %i)))
+
+(syntax: (arity: [name s.local-symbol] [arity s.nat])
+  (with-gensyms [g!proc g!name g!translate g!inputs]
+    (do @
+      [g!input+ (monad.seq @ (list.repeat arity (macro.gensym "input")))]
+      (wrap (list (` (def: #export ((~ (code.local-symbol name)) (~ g!proc))
+                       (-> (-> (..Vector (~ (code.nat arity)) Expression) Expression)
+                           (-> Text ..Proc))
+                       (function [(~ g!name)]
+                         (function [(~ g!translate) (~ g!inputs)]
+                           (case (~ g!inputs)
+                             (^ (list (~+ g!input+)))
+                             (do macro.Monad<Meta>
+                               [(~+ (|> g!input+
+                                        (list/map (function [g!input]
+                                                    (list g!input (` ((~ g!translate) (~ g!input))))))
+                                        list.concat))]
+                               ((~' wrap) ((~ g!proc) [(~+ g!input+)])))
+
+                             (~' _)
+                             (macro.fail (wrong-arity (~ g!name) +1 (list.size (~ g!inputs))))))))))))))
+
+(arity: nullary +0)
+(arity: unary +1)
+(arity: binary +2)
+(arity: trinary +3)
+
+(def: #export (variadic proc)
+  (-> Variadic (-> Text Proc))
+  (function [proc-name]
+    (function [translate inputsS]
+      (do macro.Monad<Meta>
+        [inputsI (monad.map @ translate inputsS)]
+        (wrap (proc inputsI))))))
+
+## [Procedures]
+## [[Lux]]
+(def: (lux//is [leftO rightO])
+  Binary
+  (python.is leftO rightO))
+
+(def: (lux//if [testO thenO elseO])
+  Trinary
+  (caseT.translate-if testO thenO elseO))
+
+(def: (lux//try riskyO)
+  Unary
+  (runtimeT.lux//try riskyO))
+
+(def: (lux//noop valueO)
+  Unary
+  valueO)
+
+(exception: #export Wrong-Syntax)
+(def: #export (wrong-syntax procedure args)
+  (-> Text (List ls.Synthesis) Text)
+  (format "Procedure: " procedure "\n"
+          "Arguments: " (%code (code.tuple args))))
+
+(def: lux//loop
+  (-> Text Proc)
+  (function [proc-name]
+    (function [translate inputsS]
+      (case (s.run inputsS ($_ p.seq s.nat (s.tuple (p.many s.any)) s.any))
+        (#e.Success [offset initsS+ bodyS])
+        (loopT.translate-loop translate offset initsS+ bodyS)
+
+        (#e.Error error)
+        (&.throw Wrong-Syntax (wrong-syntax proc-name inputsS)))
+      )))
+
+(def: lux//recur
+  (-> Text Proc)
+  (function [proc-name]
+    (function [translate inputsS]
+      (loopT.translate-recur translate inputsS))))
+
+(def: lux-procs
+  Bundle
+  (|> (dict.new text.Hash<Text>)
+      (install "noop" (unary lux//noop))
+      (install "is" (binary lux//is))
+      (install "try" (unary lux//try))
+      (install "if" (trinary lux//if))
+      (install "loop" lux//loop)
+      (install "recur" lux//recur)
+      ))
+
+## [[Bits]]
+(do-template [<name> <op>]
+  [(def: (<name> [subjectO paramO])
+     Binary
+     (<op> paramO subjectO))]
+
+  [bit//and python.bit-and]
+  [bit//or  python.bit-or]
+  [bit//xor python.bit-xor]
+  )
+
+(def: (bit//shift-left [subjectO paramO])
+  Binary
+  (|> (python.bit-shl paramO subjectO)
+      runtimeT.bit//64))
+
+(do-template [<name> <op>]
+  [(def: (<name> [subjectO paramO])
+     Binary
+     (<op> paramO subjectO))]
+
+  [bit//shift-right          python.bit-shr]
+  [bit//unsigned-shift-right runtimeT.bit//shift-right]
+  )
+
+(def: bit-procs
+  Bundle
+  (<| (prefix "bit")
+      (|> (dict.new text.Hash<Text>)
+          (install "count" (unary runtimeT.bit//count))
+          (install "and" (binary bit//and))
+          (install "or" (binary bit//or))
+          (install "xor" (binary bit//xor))
+          (install "shift-left" (binary bit//shift-left))
+          (install "unsigned-shift-right" (binary bit//unsigned-shift-right))
+          (install "shift-right" (binary bit//shift-right))
+          )))
+
+## [[Arrays]]
+(def: (array//new sizeO)
+  Unary
+  (|> python.none
+      list python.list
+      (python.* sizeO)))
+
+(def: (array//get [arrayO idxO])
+  Binary
+  (runtimeT.array//get arrayO idxO))
+
+(def: (array//put [arrayO idxO elemO])
+  Trinary
+  (runtimeT.array//put arrayO idxO elemO))
+
+(def: (array//remove [arrayO idxO])
+  Binary
+  (runtimeT.array//put arrayO idxO python.none))
+
+(def: array-procs
+  Bundle
+  (<| (prefix "array")
+      (|> (dict.new text.Hash<Text>)
+          (install "new" (unary array//new))
+          (install "get" (binary array//get))
+          (install "put" (trinary array//put))
+          (install "remove" (binary array//remove))
+          (install "size" (unary python.length))
+          )))
+
+## [[Numbers]]
+(host.import java/lang/Double
+  (#static MIN_VALUE Double)
+  (#static MAX_VALUE Double))
+
+(do-template [<name> <const> <encode>]
+  [(def: (<name> _)
+     Nullary
+     (<encode> <const>))]
+
+  [nat//min                 0                           python.int]
+  [nat//max                -1                           python.int]
+
+  [frac//smallest          Double::MIN_VALUE            python.float]
+  [frac//min               (f/* -1.0 Double::MAX_VALUE) python.float]
+  [frac//max               Double::MAX_VALUE            python.float]
+
+  [deg//min                 0                           python.int]
+  [deg//max                -1                           python.int]
+  )
+
+(do-template [<name> <expression>]
+  [(def: (<name> _)
+     Nullary
+     <expression>)]
+
+  [int//min (|> (python.int -2) (python.** (python.int 63)))]
+  [int//max (|> (python.int 2) (python.** (python.int 63)) (python.- (python.int 1)))]
+  )
+
+(do-template [<name> <label>]
+  [(def: (<name> _)
+     Nullary
+     (python.apply (list (python.string <label>)) (python.global "float")))]
+
+  [frac//not-a-number      "nan"]
+  [frac//positive-infinity "inf"]
+  [frac//negative-infinity "-inf"]
+  )
+
+(do-template [<name> <op>]
+  [(def: (<name> [subjectO paramO])
+     Binary
+     (|> subjectO
+         (<op> paramO)
+         runtimeT.bit//64))]
+
+  [int//add        python.+]
+  [int//sub        python.-]
+  [int//mul        python.*]
+
+  [nat//add        python.+]
+  [nat//sub        python.-]
+  [nat//mul        python.*]
+
+  [deg//add        python.+]
+  [deg//sub        python.-]
+  [deg//rem        python.-]
+  [deg//scale      python.*]
+  )
+
+(do-template [<name> <op>]
+  [(def: (<name> [subjectO paramO])
+     Binary
+     (|> subjectO
+         (<op> paramO)))]
+
+  [int//div        python./]
+  [int//rem        python.%]
+  
+  [nat//div        runtimeT.nat///]
+  [nat//rem        runtimeT.nat//%]
+
+  [deg//mul        runtimeT.deg//*]
+  [deg//div        runtimeT.deg///]
+  [deg//reciprocal python./]
+  )
+
+(do-template [<name> <op>]
+  [(def: (<name> [subjectO paramO])
+     Binary
+     (<op> paramO subjectO))]
+
+  [frac//add python.+]
+  [frac//sub python.-]
+  [frac//mul python.*]
+  [frac//div python./]
+  [frac//rem python.%]
+  [frac//=   python.=]
+  [frac//<   python.<]
+
+  [text//=   python.=]
+  [text//<   python.<]
+  )
+
+(do-template [<name> <cmp>]
+  [(def: (<name> [subjectO paramO])
+     Binary
+     (<cmp> paramO subjectO))]
+
+  [nat//= python.=]
+  [nat//< runtimeT.nat//<]
+
+  [int//= python.=]
+  [int//< python.<]
+
+  [deg//= python.=]
+  [deg//< runtimeT.nat//<]
+  )
+
+(def: (apply1 func)
+  (-> Expression (-> Expression Expression))
+  (function [value]
+    (python.apply (list value) func)))
+
+(def: (send0 method)
+  (-> Text (-> Expression Expression))
+  (function [object]
+    (python.send (list) method object)))
+
+(do-template [<name> <divisor>]
+  [(def: (<name> inputO)
+     Unary
+     (|> inputO (python./ <divisor>)))]
+
+  [deg//to-frac (python.apply (list (|> (python.int 1) (python.bit-shl (python.int 32))))
+                              (python.global "float"))]
+  )
+
+(def: nat-procs
+  Bundle
+  (<| (prefix "nat")
+      (|> (dict.new text.Hash<Text>)
+          (install "+" (binary nat//add))
+          (install "-" (binary nat//sub))
+          (install "*" (binary nat//mul))
+          (install "/" (binary nat//div))
+          (install "%" (binary nat//rem))
+          (install "=" (binary nat//=))
+          (install "<" (binary nat//<))
+          (install "min" (nullary nat//min))
+          (install "max" (nullary nat//max))
+          (install "to-int" (unary id))
+          (install "char" (unary (apply1 (python.global "chr")))))))
+
+(def: int-procs
+  Bundle
+  (<| (prefix "int")
+      (|> (dict.new text.Hash<Text>)
+          (install "+" (binary int//add))
+          (install "-" (binary int//sub))
+          (install "*" (binary int//mul))
+          (install "/" (binary int//div))
+          (install "%" (binary int//rem))
+          (install "=" (binary int//=))
+          (install "<" (binary int//<))
+          (install "min" (nullary int//min))
+          (install "max" (nullary int//max))
+          (install "to-nat" (unary id))
+          (install "to-frac" (unary (apply1 (python.global "float")))))))
+
+(def: deg-procs
+  Bundle
+  (<| (prefix "deg")
+      (|> (dict.new text.Hash<Text>)
+          (install "+" (binary deg//add))
+          (install "-" (binary deg//sub))
+          (install "*" (binary deg//mul))
+          (install "/" (binary deg//div))
+          (install "%" (binary deg//rem))
+          (install "=" (binary deg//=))
+          (install "<" (binary deg//<))
+          (install "scale" (binary deg//scale))
+          (install "reciprocal" (binary deg//reciprocal))
+          (install "min" (nullary deg//min))
+          (install "max" (nullary deg//max))
+          (install "to-frac" (unary deg//to-frac)))))
+
+(def: frac-procs
+  Bundle
+  (<| (prefix "frac")
+      (|> (dict.new text.Hash<Text>)
+          (install "+" (binary frac//add))
+          (install "-" (binary frac//sub))
+          (install "*" (binary frac//mul))
+          (install "/" (binary frac//div))
+          (install "%" (binary frac//rem))
+          (install "=" (binary frac//=))
+          (install "<" (binary frac//<))
+          (install "smallest" (nullary frac//smallest))
+          (install "min" (nullary frac//min))
+          (install "max" (nullary frac//max))
+          (install "not-a-number" (nullary frac//not-a-number))
+          (install "positive-infinity" (nullary frac//positive-infinity))
+          (install "negative-infinity" (nullary frac//negative-infinity))
+          (install "to-deg" (unary runtimeT.deg//from-frac))
+          (install "to-int" (unary (apply1 (python.global "int"))))
+          (install "encode" (unary (apply1 (python.global "repr"))))
+          (install "decode" (unary runtimeT.frac//decode)))))
+
+## [[Text]]
+(def: (text//concat [subjectO paramO])
+  Binary
+  (|> subjectO (python.+ paramO)))
+
+(def: (text//char [subjectO paramO])
+  Binary
+  (runtimeT.text//char subjectO paramO))
+
+(def: (text//replace-all [subjectO paramO extraO])
+  Trinary
+  (python.send (list paramO extraO) "replace" subjectO))
+
+(def: (text//replace-once [subjectO paramO extraO])
+  Trinary
+  (python.send (list paramO extraO (python.int 1)) "replace" subjectO))
+
+(def: (text//clip [subjectO paramO extraO])
+  Trinary
+  (runtimeT.text//clip subjectO paramO extraO))
+
+(def: (text//index [textO partO startO])
+  Trinary
+  (runtimeT.text//index textO partO startO))
+
+(def: text-procs
+  Bundle
+  (<| (prefix "text")
+      (|> (dict.new text.Hash<Text>)
+          (install "=" (binary text//=))
+          (install "<" (binary text//<))
+          (install "concat" (binary text//concat))
+          (install "index" (trinary text//index))
+          (install "size" (unary (apply1 (python.global "len"))))
+          (install "hash" (unary (apply1 (python.global "hash"))))
+          (install "replace-once" (trinary text//replace-once))
+          (install "replace-all" (trinary text//replace-all))
+          (install "char" (binary text//char))
+          (install "clip" (trinary text//clip))
+          (install "upper" (unary (send0 "upper")))
+          (install "lower" (unary (send0 "lower")))
+          )))
+
+## [[Math]]
+(def: (math//pow [subject param])
+  Binary
+  (|> subject (python.** param)))
+
+(def: math-procs
+  Bundle
+  (<| (prefix "math")
+      (|> (dict.new text.Hash<Text>)
+          (install "cos" (unary runtimeT.math//cos))
+          (install "sin" (unary runtimeT.math//sin))
+          (install "tan" (unary runtimeT.math//tan))
+          (install "acos" (unary runtimeT.math//acos))
+          (install "asin" (unary runtimeT.math//asin))
+          (install "atan" (unary runtimeT.math//atan))
+          (install "exp" (unary runtimeT.math//exp))
+          (install "log" (unary runtimeT.math//log))
+          (install "ceil" (unary runtimeT.math//ceil))
+          (install "floor" (unary runtimeT.math//floor))
+          (install "pow" (binary math//pow))
+          )))
+
+## [[IO]]
+(def: io-procs
+  Bundle
+  (<| (prefix "io")
+      (|> (dict.new text.Hash<Text>)
+          (install "log" (unary runtimeT.io//log!))
+          (install "error" (unary runtimeT.io//throw!))
+          (install "exit" (unary runtimeT.io//exit!))
+          (install "current-time" (nullary (function [_]
+                                             (runtimeT.io//current-time! runtimeT.unit)))))))
+
+## [[Atoms]]
+(def: atom//new
+  Unary
+  (|>> [(python.string runtimeT.atom//field)] (list) python.dict))
+
+(def: atom//read
+  Unary
+  (python.nth (python.string runtimeT.atom//field)))
+
+(def: (atom//compare-and-swap [atomO oldO newO])
+  Trinary
+  (runtimeT.atom//compare-and-swap atomO oldO newO))
+
+(def: atom-procs
+  Bundle
+  (<| (prefix "atom")
+      (|> (dict.new text.Hash<Text>)
+          (install "new" (unary atom//new))
+          (install "read" (unary atom//read))
+          (install "compare-and-swap" (trinary atom//compare-and-swap)))))
+
+## [[Box]]
+(def: box//new
+  Unary
+  (|>> (list) python.list))
+
+(def: box//read
+  Unary
+  (python.nth (python.int 0)))
+
+(def: (box//write [valueO boxO])
+  Binary
+  (runtimeT.box//write valueO boxO))
+
+(def: box-procs
+  Bundle
+  (<| (prefix "box")
+      (|> (dict.new text.Hash<Text>)
+          (install "new" (unary box//new))
+          (install "read" (unary box//read))
+          (install "write" (binary box//write)))))
+
+## [[Processes]]
+(def: (process//concurrency-level [])
+  Nullary
+  (python.int 1))
+
+(def: (process//schedule [milli-secondsO procedureO])
+  Binary
+  (runtimeT.process//schedule milli-secondsO procedureO))
+
+(def: process-procs
+  Bundle
+  (<| (prefix "process")
+      (|> (dict.new text.Hash<Text>)
+          (install "concurrency-level" (nullary process//concurrency-level))
+          (install "future" (unary runtimeT.process//future))
+          (install "schedule" (binary process//schedule))
+          )))
+
+## [Bundles]
+(def: #export procedures
+  Bundle
+  (<| (prefix "lux")
+      (|> lux-procs
+          (dict.merge bit-procs)
+          (dict.merge nat-procs)
+          (dict.merge int-procs)
+          (dict.merge deg-procs)
+          (dict.merge frac-procs)
+          (dict.merge text-procs)
+          (dict.merge array-procs)
+          (dict.merge math-procs)
+          (dict.merge io-procs)
+          (dict.merge atom-procs)
+          (dict.merge box-procs)
+          (dict.merge process-procs)
+          )))

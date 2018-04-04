@@ -1,0 +1,583 @@
+(.module:
+  lux
+  (lux (control ["p" parser "p/" Monad<Parser>]
+                [monad #+ do])
+       (data text/format
+             (coll [list "list/" Monad<List>]))
+       [macro]
+       (macro [code]
+              ["s" syntax #+ syntax:])
+       [io #+ Process])
+  [//]
+  (luxc [lang]
+        (lang (host [python #+ Expression Statement @@]))))
+
+(def: prefix Text "LuxRuntime")
+
+(def: #export unit Expression (python.string //.unit))
+
+(def: (flag value)
+  (-> Bool Expression)
+  (if value
+    (python.string "")
+    python.none))
+
+(def: (variant' tag last? value)
+  (-> Expression Expression Expression Expression)
+  (python.dict (list [(python.string //.variant-tag-field) tag]
+                     [(python.string //.variant-flag-field) last?]
+                     [(python.string //.variant-value-field) value])))
+
+(def: #export (variant tag last? value)
+  (-> Nat Bool Expression Expression)
+  (variant' (python.int (nat-to-int tag))
+            (flag last?)
+            value))
+
+(def: #export none
+  Expression
+  (variant +0 false unit))
+
+(def: #export some
+  (-> Expression Expression)
+  (variant +1 true))
+
+(def: #export left
+  (-> Expression Expression)
+  (variant +0 false))
+
+(def: #export right
+  (-> Expression Expression)
+  (variant +1 true))
+
+(type: Runtime Statement)
+
+(def: declaration
+  (s.Syntax [Text (List Text)])
+  (p.either (p.seq s.local-symbol (p/wrap (list)))
+            (s.form (p.seq s.local-symbol (p.some s.local-symbol)))))
+
+(syntax: (runtime: [[name args] declaration]
+           definition)
+  (let [implementation (code.local-symbol (format "@@" name))
+        runtime (format "__" prefix "__" (lang.normalize-name name))
+        $runtime (` (python.var (~ (code.text runtime))))
+        @runtime (` (@@ (~ $runtime)))
+        argsC+ (list/map code.local-symbol args)
+        argsLC+ (list/map (|>> lang.normalize-name code.text (~) (python.var) (`))
+                          args)
+        declaration (` ((~ (code.local-symbol name))
+                        (~+ argsC+)))
+        type (` (-> (~+ (list.repeat (list.size argsC+) (` python.Expression)))
+                    python.Expression))]
+    (wrap (list (` (def: (~' #export) (~ declaration)
+                     (~ type)
+                     (python.apply (list (~+ argsC+)) (~ @runtime))))
+                (` (def: (~ implementation)
+                     python.Statement
+                     (~ (case argsC+
+                          #.Nil
+                          (` (python.set! (list (~ $runtime)) (~ definition)))
+
+                          _
+                          (` (let [(~+ (|> (list.zip2 argsC+ argsLC+)
+                                           (list/map (function [[left right]]
+                                                       (list left (` (@@ (~ right))))))
+                                           list/join))]
+                               (python.def! (~ $runtime)
+                                            (list (~+ argsLC+))
+                                            (~ definition))))))))))))
+
+(syntax: (with-vars [vars (s.tuple (p.many s.local-symbol))]
+           body)
+  (wrap (list (` (let [(~+ (|> vars
+                               (list/map (function [var]
+                                           (list (code.local-symbol var)
+                                                 (` (python.var (~ (code.text (lang.normalize-name var))))))))
+                               list/join))]
+                   (~ body))))))
+
+(runtime: (lux//try op)
+  (let [$error (python.var "error")
+        $value (python.var "value")]
+    (python.try! ($_ python.then!
+                     (python.set! (list $value) (python.apply (list unit) op))
+                     (python.return! (right (@@ $value))))
+                 (list [(list "Exception") $error
+                        (python.return! (left (python.apply (list (@@ $error)) (python.global "str"))))]))))
+
+(runtime: (lux//program-args program-args)
+  (let [$inputs (python.var "inputs")
+        $value (python.var "value")]
+    ($_ python.then!
+        (python.set! (list $inputs) none)
+        (<| (python.for-in! $value program-args)
+            (python.set! (list $inputs)
+                         (some (python.tuple (list (@@ $value) (@@ $inputs))))))
+        (python.return! (@@ $inputs)))))
+
+(def: runtime//lux
+  Runtime
+  ($_ python.then!
+      @@lux//try
+      @@lux//program-args))
+
+(runtime: (io//log! message)
+  ($_ python.then!
+      (python.print! message)
+      (python.return! ..unit)))
+
+(def: (exception message)
+  (-> Expression Expression)
+  (python.apply (list message) (python.global "Exception")))
+
+(runtime: (io//throw! message)
+  ($_ python.then!
+      (python.raise! (exception message))
+      (python.return! ..unit)))
+
+(runtime: (io//exit! code)
+  ($_ python.then!
+      (python.import! "sys")
+      (python.do! (|> (python.global "sys") (python.send (list code) "exit")))
+      (python.return! ..unit)))
+
+(runtime: (io//current-time! _)
+  ($_ python.then!
+      (python.import! "time")
+      (python.return! (let [time (|> (python.global "time")
+                                     (python.send (list) "time")
+                                     (python.* (python.int 1_000)))]
+                        (python.apply (list time) (python.global "int"))))))
+
+(def: runtime//io
+  Runtime
+  ($_ python.then!
+      @@io//log!
+      @@io//throw!
+      @@io//exit!
+      @@io//current-time!))
+
+(runtime: (product//left product index)
+  (let [$index_min_length (python.var "index_min_length")]
+    ($_ python.then!
+        (python.set! (list $index_min_length) (python.+ (python.int 1) index))
+        (python.if! (python.> (@@ $index_min_length) (python.length product))
+                    ## No need for recursion
+                    (python.return! (python.nth index product))
+                    ## Needs recursion
+                    (python.return! (product//left (python.nth (python.- (python.int 1)
+                                                                         (python.length product))
+                                                               product)
+                                                   (python.- (python.length product)
+                                                             (@@ $index_min_length))))))))
+
+(runtime: (product//right product index)
+  (let [$index_min_length (python.var "index_min_length")]
+    ($_ python.then!
+        (python.set! (list $index_min_length) (python.+ (python.int 1) index))
+        (python.cond! (list [(python.= (@@ $index_min_length) (python.length product))
+                             ## Last element.
+                             (python.return! (python.nth index product))]
+                            [(python.< (@@ $index_min_length) (python.length product))
+                             ## Needs recursion
+                             (python.return! (product//right (python.nth (python.- (python.int 1)
+                                                                                   (python.length product))
+                                                                         product)
+                                                             (python.- (python.length product)
+                                                                       (@@ $index_min_length))))])
+                      ## Must slice
+                      (python.return! (python.slice-from index product))))))
+
+(runtime: (sum//get sum wantedTag wantsLast)
+  (let [no-match! (python.return! python.none)
+        sum-tag (python.nth (python.string //.variant-tag-field) sum)
+        sum-flag (python.nth (python.string //.variant-flag-field) sum)
+        sum-value (python.nth (python.string //.variant-value-field) sum)
+        is-last? (python.= (python.string "") sum-flag)
+        test-recursion! (python.if! is-last?
+                                    ## Must recurse.
+                                    (python.return! (sum//get sum-value (python.- sum-tag wantedTag) wantsLast))
+                                    no-match!)]
+    (python.cond! (list [(python.= sum-tag wantedTag)
+                         (python.if! (python.= wantsLast sum-flag)
+                                     (python.return! sum-value)
+                                     test-recursion!)]
+
+                        [(python.> sum-tag wantedTag)
+                         test-recursion!]
+
+                        [(python.and (python.< sum-tag wantedTag)
+                                     (python.= (python.string "") wantsLast))
+                         (python.return! (variant' (python.- wantedTag sum-tag) sum-flag sum-value))])
+
+                  no-match!)))
+
+(def: runtime//adt
+  Runtime
+  ($_ python.then!
+      @@product//left
+      @@product//right
+      @@sum//get))
+
+(def: full-32-bits (python.code "0xFFFFFFFF"))
+
+(runtime: (bit//32 input)
+  (with-vars [capped]
+    (python.cond! (list [(|> input (python.> full-32-bits))
+                         (python.return! (|> input (python.bit-and full-32-bits) bit//32))]
+                        [(|> input (python.> (python.code "0x7FFFFFFF")))
+                         ($_ python.then!
+                             (python.set! (list capped)
+                                          (python.apply (list (|> (python.code "0x100000000")
+                                                                  (python.- input)))
+                                                        (python.global "int")))
+                             (python.if! (|> (@@ capped) (python.<= (python.int 2147483647)))
+                                         (python.return! (|> (@@ capped) (python.* (python.int -1))))
+                                         (python.return! (python.int -2147483648))))])
+                  (python.return! input))))
+
+(def: full-64-bits (python.code "0xFFFFFFFFFFFFFFFF"))
+
+(runtime: (bit//64 input)
+  (with-vars [capped]
+    (python.cond! (list [(|> input (python.> full-64-bits))
+                         (python.return! (|> input (python.bit-and full-64-bits) bit//64))]
+                        [(|> input (python.> (python.code "0x7FFFFFFFFFFFFFFF")))
+                         ($_ python.then!
+                             (python.set! (list capped)
+                                          (python.apply (list (|> (python.code "0x10000000000000000")
+                                                                  (python.- input)))
+                                                        (python.global "int")))
+                             (python.if! (|> (@@ capped) (python.<= (python.code "9223372036854775807L")))
+                                         (python.return! (|> (@@ capped) (python.* (python.int -1))))
+                                         (python.return! (python.code "-9223372036854775808L"))))])
+                  (python.return! input))))
+
+(runtime: (bit//count subject)
+  (with-vars [count remaining]
+    ($_ python.then!
+        (python.set! (list count) (python.int 0))
+        (python.set! (list remaining) subject)
+        (python.while! (|> (@@ remaining) (python.> (python.int 0)))
+                       ($_ python.then!
+                           (let [last-bit (|> (@@ remaining) (python.% (python.int 2)))]
+                             (python.set! (list count) (|> (@@ count) (python.+ last-bit))))
+                           (python.set! (list remaining) (|> (@@ remaining) (python./ (python.int 2))))))
+        (python.return! (@@ count)))))
+
+(runtime: (bit//shift-right param subject)
+  (let [mask (|> (python.int 1)
+                 (python.bit-shl (python.- param (python.int 64)))
+                 (python.- (python.int 1)))]
+    (python.return! (|> subject
+                        (python.bit-shr param)
+                        (python.bit-and mask)))))
+
+(def: runtime//bit
+  Runtime
+  ($_ python.then!
+      @@bit//32
+      @@bit//64
+      @@bit//count
+      @@bit//shift-right))
+
+(def: high (-> Expression Expression) (bit//shift-right (python.int 32)))
+(def: low  (-> Expression Expression) (python.bit-and full-32-bits))
+
+(runtime: (nat//< param subject)
+  (with-vars [ph sh]
+    ($_ python.then!
+        (python.set! (list ph) (..high param))
+        (python.set! (list sh) (..high subject))
+        (python.return! (python.or (python.< (@@ ph) (@@ sh))
+                                   (python.and (python.= (@@ ph) (@@ sh))
+                                               (python.< (low param) (low subject))))))))
+
+(runtime: (nat/// param subject)
+  (with-vars [quotient remainder]
+    (python.if! (python.< (python.int 0) param)
+                (python.if! (nat//< param subject)
+                            (python.return! (python.int 0))
+                            (python.return! (python.int 1)))
+                ($_ python.then!
+                    (python.set! (list quotient) (|> subject
+                                                     (python.bit-shr (python.int 1))
+                                                     (python./ param)
+                                                     (python.bit-shl (python.int 1))))
+                    (let [remainder (python.- (python.* param (@@ quotient))
+                                              subject)]
+                      (python.if! (python.not (nat//< param remainder))
+                                  (python.return! (python.+ (python.int 1) (@@ quotient)))
+                                  (python.return! (@@ quotient))))))))
+
+(runtime: (nat//% param subject)
+  (let [flat (|> subject
+                 (nat/// param)
+                 (python.* param))]
+    (python.return! (|> subject (python.- flat)))))
+
+(def: runtime//nat
+  Runtime
+  ($_ python.then!
+      @@nat//<
+      @@nat///
+      @@nat//%))
+
+(runtime: (deg//* param subject)
+  (with-vars [$sL $sH $pL $pH $bottom $middle $top]
+    ($_ python.then!
+        (python.set! (list $sL) (..low subject))
+        (python.set! (list $sH) (high subject))
+        (python.set! (list $pL) (..low param))
+        (python.set! (list $pH) (high param))
+        (python.set! (list $bottom) (bit//shift-right (python.int 32)
+                                                      (python.* (@@ $pL) (@@ $sL))))
+        (python.set! (list $middle) (python.+ (python.* (@@ $pL) (@@ $sH))
+                                              (python.* (@@ $pH) (@@ $sL))))
+        (python.set! (list $top) (python.* (@@ $pH) (@@ $sH)))
+        (python.return! (|> (@@ $bottom)
+                            (python.+ (@@ $middle))
+                            high
+                            (python.+ (@@ $top)))))))
+
+(runtime: (deg//leading-zeroes input)
+  (with-vars [zeroes remaining]
+    ($_ python.then!
+        (python.set! (list zeroes) (python.int 64))
+        (python.set! (list remaining) input)
+        (python.while! (python.not (python.= (python.int 0) (@@ remaining)))
+                       ($_ python.then!
+                           (python.set! (list zeroes) (python.- (python.int 1) (@@ zeroes)))
+                           (python.set! (list remaining) (bit//shift-right (python.int 1) (@@ remaining)))))
+        (python.return! (@@ zeroes)))))
+
+(runtime: (deg/// param subject)
+  (with-vars [min-shift]
+    (python.if! (python.= param subject)
+                (python.return! (python.int -1))
+                ($_ python.then!
+                    (python.set! (list min-shift)
+                                 (python.apply (list (deg//leading-zeroes param)
+                                                     (deg//leading-zeroes subject))
+                                               (python.global "min")))
+                    (python.return! (|> (python.bit-shl (@@ min-shift) subject)
+                                        (python./ (|> param (python.bit-shl (@@ min-shift)) ..low))
+                                        (python.bit-shl (python.int 32))))))))
+
+(def: (float-to-int float)
+  (-> Expression Expression)
+  (python.apply (list float) (python.global "int")))
+
+(runtime: (deg//from-frac input)
+  (with-vars [two32 shifted]
+    ($_ python.then!
+        (python.set! (list two32) (|> (python.float 2.0)
+                                      (python.** (python.float 32.0))))
+        (python.set! (list shifted) (|> input
+                                        (python.% (python.float 1.0))
+                                        (python.* (@@ two32))))
+        (let [low (|> (@@ shifted)
+                      (python.% (python.float 1.0))
+                      (python.* (@@ two32))
+                      float-to-int)
+              high (|> (@@ shifted) float-to-int (python.bit-shl (python.int 32)))]
+          (python.return! (|> low (python.+ high)))))))
+
+(def: runtime//deg
+  Runtime
+  ($_ python.then!
+      @@deg//*
+      @@deg//leading-zeroes
+      @@deg///
+      @@deg//from-frac))
+
+(runtime: (frac//decode input)
+  (let [$ex (python.var "ex")]
+    (python.try!
+     (python.return! (..some (python.apply (list input) (python.global "float"))))
+     (list [(list "Exception") $ex
+            (python.return! ..none)]))))
+
+(def: runtime//frac
+  Runtime
+  ($_ python.then!
+      @@frac//decode))
+
+(runtime: (text//index subject param start)
+  (with-vars [idx]
+    ($_ python.then!
+        (python.set! (list idx) (python.send (list param start) "find" subject))
+        (python.if! (python.= (python.int -1) (@@ idx))
+                    (python.return! ..none)
+                    (python.return! (..some (@@ idx)))))))
+
+(def: inc (|>> (python.+ (python.int 1))))
+
+(do-template [<name> <top-cmp>]
+  [(def: (<name> top value)
+     (-> Expression Expression Expression)
+     (python.and (|> value (python.>= (python.int 0)))
+                 (|> value (<top-cmp> top))))]
+
+  [within? python.<]
+  [up-to?  python.<=]
+  )
+
+(runtime: (text//clip @text @from @to)
+  (with-vars [length]
+    ($_ python.then!
+        (python.set! (list length) (python.length @text))
+        (python.if! ($_ python.and
+                        (|> @to (within? (@@ length)))
+                        (|> @from (up-to? @to)))
+                    (python.return! (..some (|> @text (python.slice @from (inc @to)))))
+                    (python.return! ..none)))))
+
+(runtime: (text//char text idx)
+  (python.if! (|> idx (within? (python.length text)))
+              (python.return! (..some (python.apply (list (|> text (python.slice idx (inc idx))))
+                                                    (python.global "ord"))))
+              (python.return! ..none)))
+
+(def: runtime//text
+  Runtime
+  ($_ python.then!
+      @@text//index
+      @@text//clip
+      @@text//char))
+
+(def: (check-index-out-of-bounds array idx body!)
+  (-> Expression Expression Statement Statement)
+  (python.if! (|> idx (python.<= (python.length array)))
+              body!
+              (python.raise! (exception (python.string "Array index out of bounds!")))))
+
+(runtime: (array//get array idx)
+  (with-vars [temp]
+    (<| (check-index-out-of-bounds array idx)
+        ($_ python.then!
+            (python.set! (list temp) (python.nth idx array))
+            (python.if! (python.= python.none (@@ temp))
+                        (python.return! ..none)
+                        (python.return! (..some (@@ temp))))))))
+
+(runtime: (array//put array idx value)
+  (<| (check-index-out-of-bounds array idx)
+      ($_ python.then!
+          (python.set-nth! idx value array)
+          (python.return! array))))
+
+(def: runtime//array
+  Runtime
+  ($_ python.then!
+      @@array//get
+      @@array//put))
+
+(def: #export atom//field Text "_lux_atom")
+
+(runtime: (atom//compare-and-swap atom old new)
+  (let [atom//field (python.string atom//field)]
+    (python.if! (python.= old (python.nth atom//field atom))
+                ($_ python.then!
+                    (python.set-nth! atom//field new atom)
+                    (python.return! (python.bool true)))
+                (python.return! (python.bool false)))))
+
+(def: runtime//atom
+  Runtime
+  ($_ python.then!
+      @@atom//compare-and-swap))
+
+(runtime: (box//write value box)
+  ($_ python.then!
+      (python.set-nth! (python.int 0) value box)
+      (python.return! ..unit)))
+
+(def: runtime//box
+  Runtime
+  ($_ python.then!
+      @@box//write))
+
+(runtime: (process//future procedure)
+  ($_ python.then!
+      (python.import! "threading")
+      (let [params (python.dict (list [(python.string "target") procedure]))]
+        (python.do! (|> (python.global "threading")
+                        (python.send-keyword (list) params "Thread")
+                        (python.send (list) "start"))))
+      (python.return! ..unit)))
+
+(runtime: (process//schedule milli-seconds procedure)
+  ($_ python.then!
+      (python.import! "threading")
+      (let [seconds (|> milli-seconds (python./ (python.float 1_000.0)))]
+        (python.do! (|> (python.global "threading")
+                        (python.send (list seconds procedure) "Timer")
+                        (python.send (list) "start"))))
+      (python.return! ..unit)))
+
+(def: runtime//process
+  Runtime
+  ($_ python.then!
+      @@process//future
+      @@process//schedule))
+
+(do-template [<name> <method>]
+  [(runtime: (<name> input)
+     ($_ python.then!
+         (python.import! "math")
+         (python.return! (|> (python.global "math") (python.send (list input) <method>)))))]
+
+  [math//cos  "cos"]
+  [math//sin  "sin"]
+  [math//tan  "tan"]
+  [math//acos "acos"]
+  [math//asin "asin"]
+  [math//atan "atan"]
+  [math//exp  "exp"]
+  [math//log  "log"]
+  [math//ceil "ceil"]
+  [math//floor "floor"]
+  )
+
+(def: runtime//math
+  Runtime
+  ($_ python.then!
+      @@math//cos
+      @@math//sin
+      @@math//tan
+      @@math//acos
+      @@math//asin
+      @@math//atan
+      @@math//exp
+      @@math//log
+      @@math//ceil
+      @@math//floor))
+
+(def: runtime
+  Runtime
+  ($_ python.then!
+      runtime//lux
+      runtime//adt
+      runtime//bit
+      runtime//nat
+      runtime//deg
+      runtime//frac
+      runtime//text
+      runtime//array
+      runtime//atom
+      runtime//box
+      runtime//io
+      runtime//process
+      runtime//math
+      ))
+
+(def: #export artifact Text (format prefix ".py"))
+
+(def: #export translate
+  (Meta (Process Unit))
+  (do macro.Monad<Meta>
+    [_ //.init-module-buffer
+     _ (//.save runtime)]
+    (//.save-module! artifact)))

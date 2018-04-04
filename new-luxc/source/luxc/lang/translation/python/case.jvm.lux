@@ -1,0 +1,265 @@
+(.module:
+  lux
+  (lux (control [monad #+ do]
+                ["ex" exception #+ exception:])
+       (data [number]
+             [text]
+             text/format
+             (coll [list "list/" Functor<List> Fold<List>]
+                   [set #+ Set]))
+       [macro #+ "meta/" Monad<Meta>]
+       (macro [code]))
+  (luxc [lang]
+        (lang [".L" variable #+ Register Variable]
+              ["ls" synthesis #+ Synthesis Path]
+              (host [python #+ Expression Statement Except SVar @@])))
+  [//]
+  (// [".T" runtime]
+      [".T" primitive]
+      [".T" reference]))
+
+(def: #export (translate-let translate register valueS bodyS)
+  (-> (-> Synthesis (Meta Expression)) Register Synthesis Synthesis
+      (Meta Expression))
+  (do macro.Monad<Meta>
+    [valueO (translate valueS)
+     bodyO (translate bodyS)
+     #let [$register (referenceT.variable register)]]
+    (wrap (|> bodyO
+              (python.lambda (list $register))
+              (python.apply (list valueO))))))
+
+(def: #export (translate-record-get translate valueS pathP)
+  (-> (-> Synthesis (Meta Expression)) Synthesis (List [Nat Bool])
+      (Meta Expression))
+  (do macro.Monad<Meta>
+    [valueO (translate valueS)]
+    (wrap (list/fold (function [[idx tail?] source]
+                       (let [method (if tail?
+                                      runtimeT.product//right
+                                      runtimeT.product//left)]
+                         (method source (python.int (:! Int idx)))))
+                     valueO
+                     pathP))))
+
+(def: #export (translate-if testO thenO elseO)
+  (-> Expression Expression Expression Expression)
+  (python.if testO thenO elseO))
+
+(def: $savepoint (python.var "pm_cursor_savepoint"))
+(def: $cursor (python.var "pm_cursor"))
+
+(def: (push-cursor! value)
+  (-> Expression Statement)
+  (python.do!
+   (python.send (list value)
+                "append" (@@ $cursor))))
+
+(def: save-cursor!
+  Statement
+  (python.do!
+   (python.send (list (python.slice-from (python.int 0) (@@ $cursor)))
+                "append" (@@ $savepoint))))
+
+(def: restore-cursor!
+  Statement
+  (python.set! (list $cursor)
+               (python.send (list) "pop" (@@ $savepoint))))
+
+(def: cursor-top
+  Expression
+  (python.nth (python.int -1) (@@ $cursor)))
+
+(def: pop-cursor!
+  Statement
+  (python.do!
+   (python.send (list) "pop" (@@ $cursor))))
+
+(def: pm-error (python.string "PM-ERROR"))
+
+(def: (new-Exception error)
+  (-> Expression Expression)
+  (python.apply (list pm-error) (python.global "Exception")))
+
+(def: fail-pm! (python.raise! (new-Exception pm-error)))
+
+(def: $temp (python.var "temp"))
+
+(exception: #export Unrecognized-Path)
+
+(def: $alt_error (python.var "alt_error"))
+
+(def: (pm-catch! handler!)
+  (-> Statement Except)
+  [(list "Exception") $alt_error
+   (python.if! (python.= pm-error (python.apply (list (@@ $alt_error)) (python.global "str")))
+               handler!
+               (python.raise! (@@ $alt_error)))])
+
+(def: (translate-pattern-matching' translate pathP)
+  (-> (-> Synthesis (Meta Expression)) Path (Meta Statement))
+  (case pathP
+    (^code ("lux case exec" (~ bodyS)))
+    (do macro.Monad<Meta>
+      [bodyO (translate bodyS)]
+      (wrap (python.return! bodyO)))
+
+    (^code ("lux case pop"))
+    (meta/wrap pop-cursor!)
+
+    (^code ("lux case bind" (~ [_ (#.Nat register)])))
+    (meta/wrap (python.set! (list (referenceT.variable register)) cursor-top))
+
+    (^template [<tag> <format>]
+      [_ (<tag> value)]
+      (meta/wrap (python.when! (python.not (python.= (|> value <format>) cursor-top))
+                               fail-pm!)))
+    ([#.Nat  (<| python.int (:! Int))]
+     [#.Int  python.int]
+     [#.Deg  (<| python.int (:! Int))]
+     [#.Bool python.bool]
+     [#.Frac python.float]
+     [#.Text python.string])
+
+    (^template [<pm> <getter>]
+      (^code (<pm> (~ [_ (#.Nat idx)])))
+      (meta/wrap (push-cursor! (<getter> cursor-top (python.int (:! Int idx))))))
+    (["lux case tuple left" runtimeT.product//left]
+     ["lux case tuple right" runtimeT.product//right])
+
+    (^template [<pm> <flag>]
+      (^code (<pm> (~ [_ (#.Nat idx)])))
+      (meta/wrap ($_ python.then!
+                     (python.set! (list $temp) (runtimeT.sum//get cursor-top (python.int (:! Int idx)) <flag>))
+                     (python.if! (python.not (python.= python.none (@@ $temp)))
+                                 (push-cursor! (@@ $temp))
+                                 fail-pm!))))
+    (["lux case variant left" python.none]
+     ["lux case variant right" (python.string "")])
+
+    (^code ("lux case seq" (~ leftP) (~ rightP)))
+    (do macro.Monad<Meta>
+      [leftO (translate-pattern-matching' translate leftP)
+       rightO (translate-pattern-matching' translate rightP)]
+      (wrap ($_ python.then!
+                leftO
+                rightO)))
+
+    (^code ("lux case alt" (~ leftP) (~ rightP)))
+    (do macro.Monad<Meta>
+      [leftO (translate-pattern-matching' translate leftP)
+       rightO (translate-pattern-matching' translate rightP)]
+      (wrap (python.try! ($_ python.then!
+                             save-cursor!
+                             leftO)
+                         (list (pm-catch!
+                                ($_ python.then!
+                                    restore-cursor!
+                                    rightO))))))
+
+    _
+    (lang.throw Unrecognized-Path (%code pathP))
+    ))
+
+(def: (translate-pattern-matching translate pathP)
+  (-> (-> Synthesis (Meta Expression)) Path (Meta Statement))
+  (do macro.Monad<Meta>
+    [pattern-matching (translate-pattern-matching' translate pathP)]
+    (wrap (python.try! pattern-matching
+                       (list (pm-catch!
+                              (python.raise! (new-Exception (python.string "Invalid expression for pattern-matching.")))))))))
+
+(def: (initialize-pattern-matching! stack-init)
+  (-> Expression Statement)
+  ($_ python.then!
+      (python.set! (list $cursor) (python.list (list stack-init)))
+      (python.set! (list $savepoint) (python.list (list)))))
+
+(def: empty (Set Variable) (set.new number.Hash<Int>))
+
+(type: Storage
+  {#bindings (Set Variable)
+   #dependencies (Set Variable)})
+
+(def: (path-variables pathP)
+  (-> Path Storage)
+  (loop [pathP pathP
+         outer-variables {#bindings empty
+                          #dependencies empty}]
+    ## TODO: Remove (let [outer recur]) once loops can have names.
+    (let [outer recur]
+      (case pathP
+        (^code ("lux case bind" (~ [_ (#.Nat register)])))
+        (update@ #bindings (set.add (nat-to-int register))
+                 outer-variables)
+
+        (^or (^code ("lux case seq" (~ leftP) (~ rightP)))
+             (^code ("lux case alt" (~ leftP) (~ rightP))))
+        (list/fold outer outer-variables (list leftP rightP))
+
+        (^code ("lux case exec" (~ bodyS)))
+        (loop [bodyS bodyS
+               inner-variables outer-variables]
+          ## TODO: Remove (let [inner recur]) once loops can have names.
+          (let [inner recur]
+            (case bodyS
+              (^code ((~ [_ (#.Nat tag)]) (~ [_ (#.Bool last?)]) (~ valueS)))
+              (inner valueS inner-variables)
+
+              (^code [(~+ members)])
+              (list/fold inner inner-variables members)
+
+              (^ [_ (#.Form (list [_ (#.Int var)]))])
+              (if (set.member? (get@ #bindings inner-variables) var)
+                inner-variables
+                (update@ #dependencies (set.add var) inner-variables))
+
+              (^code ("lux call" (~ functionS) (~+ argsS)))
+              (list/fold inner inner-variables (#.Cons functionS argsS))
+
+              (^code ("lux function" (~ [_ (#.Nat arity)]) [(~+ environment)] (~ bodyS)))
+              (|> environment
+                  (list/map (|>> (list) code.form))
+                  (list/fold inner inner-variables))
+
+              (^code ("lux let" (~ [_ (#.Nat register)]) (~ inputS) (~ exprS)))
+              (list/fold inner (update@ #bindings (set.add (nat-to-int register))
+                                        inner-variables)
+                         (list inputS exprS))
+
+              (^code ("lux case" (~ inputS) (~ pathPS)))
+              (|> inner-variables (inner inputS) (outer pathPS))
+
+              (^code ((~ [_ (#.Text procedure)]) (~+ argsS)))
+              (list/fold inner inner-variables argsS)
+
+              _
+              inner-variables)))
+
+        _
+        outer-variables))))
+
+(def: generated-name
+  (-> Text (Meta SVar))
+  (|>> macro.gensym
+       (:: macro.Monad<Meta> map (|>> %code
+                                      lang.normalize-name
+                                      python.var))))
+
+(def: #export (translate-case translate valueS pathP)
+  (-> (-> Synthesis (Meta Expression)) Synthesis Path (Meta Expression))
+  (do macro.Monad<Meta>
+    [valueO (translate valueS)
+     $case (generated-name "case")
+     $value (generated-name "value")
+     #let [$dependencies+ (|> (path-variables pathP)
+                              (get@ #dependencies)
+                              set.to-list
+                              (list/map referenceT.local))
+           @dependencies+ (list/map @@ $dependencies+)]
+     pattern-matching! (translate-pattern-matching translate pathP)
+     _ (//.save (python.def! $case (list& $value $dependencies+)
+                             ($_ python.then!
+                                 (initialize-pattern-matching! (@@ $value))
+                                 pattern-matching!)))]
+    (wrap (python.apply (list& valueO @dependencies+) (@@ $case)))))

@@ -12,27 +12,11 @@
   (luxc [lang]
         (lang ["_." module]
               ["ls" synthesis]
-              (translation (jvm [".T_jvm" statement]
-                                [".T_jvm" eval]
-                                [".T_jvm" expression]
-                                [".T_jvm" case]
-                                [".T_jvm" runtime])
-                           (js [".T_js" statement]
-                               [".T_js" eval]
-                               [".T_js" expression]
-                               [".T_js" case]
-                               [".T_js" runtime])
-                           (lua [".T_lua" statement]
-                                [".T_lua" eval]
-                                [".T_lua" expression]
-                                [".T_lua" case]
-                                [".T_lua" runtime])
-                           (ruby [".T_ruby" statement]
-                                 [".T_ruby" eval]
-                                 [".T_ruby" expression]
-                                 [".T_ruby" case]
-                                 [".T_ruby" runtime])
-                           )))
+              (translation (jvm [".T_jvm" statement])
+                           (js [".T_js" statement])
+                           (lua [".T_lua" statement])
+                           (ruby [".T_ruby" statement])
+                           (python [".T_python" statement]))))
   (test/luxc common))
 
 (def: upper-alpha-ascii
@@ -47,94 +31,56 @@
                            (text.contains? "[" sample)
                            (text.contains? "]" sample)))))))
 
-(def: (definitions-spec translate-expression eval translate-runtime init
-                        translate-def)
-  (All [a]
-    (-> (-> ls.Synthesis (Meta a)) (-> a (Meta Top)) (Meta Top) (IO Compiler)
-        (-> Text Type a Code (Meta Unit))
-        Test))
+(def: (definitions-spec define)
+  (-> Definer Test)
   (do r.Monad<Random>
-    [module-name ident-part
-     def-name ident-part
+    [def-name (r.seq ident-part ident-part)
      def-value r.int]
-    ($_ seq
-        (test "Can refer to definitions."
-              (|> (do macro.Monad<Meta>
-                    [_ translate-runtime
-                     valueO (translate-expression (code.int def-value))
-                     _ (_module.with-module +0 module-name
-                         (translate-def def-name Int valueO (' {})))
-                     sampleO (translate-expression (code.symbol [module-name def-name]))]
-                    (eval sampleO))
-                  (lang.with-current-module "")
-                  (macro.run (io.run init))
-                  (case> (#e.Success valueT)
-                         (i/= def-value (:! Int valueT))
+    (test "Can refer to definitions."
+          (|> (define def-name (code.int def-value))
+              (case> (#e.Success valueT)
+                     (i/= def-value (:! Int valueT))
 
-                         (#e.Error error)
-                         false)))
-        )))
+                     (#e.Error error)
+                     false)))))
 
-(def: (variables-spec translate-expression eval translate-runtime init
-                      translate-let)
-  (All [a]
-    (-> (-> ls.Synthesis (Meta a)) (-> a (Meta Top)) (Meta Top) (IO Compiler)
-        (-> (-> ls.Synthesis (Meta a)) Nat ls.Synthesis ls.Synthesis (Meta a))
-        Test))
+(def: (variables-spec run)
+  (-> Runner Test)
   (do r.Monad<Random>
     [module-name (|> (r.text +5) (r.filter (|>> (text.contains? "/") not)))
      register (|> r.nat (:: @ map (n/% +100)))
      value r.int]
-    ($_ seq
-        (test "Can refer to local variables/registers."
-              (|> (do macro.Monad<Meta>
-                    [_ translate-runtime
-                     sampleO (translate-let translate-expression
-                                            register
-                                            (code.int value)
-                                            (` ((~ (code.int (nat-to-int register))))))]
-                    (eval sampleO))
-                  (lang.with-current-module "")
-                  (macro.run (io.run init))
-                  (case> (#e.Success outputT)
-                         (i/= value (:! Int outputT))
+    (test "Can refer to local variables/registers."
+          (|> (run (` ("lux let" (~ (code.nat register)) (~ (code.int value))
+                       ((~ (code.int (nat-to-int register)))))))
+              (case> (#e.Success outputT)
+                     (i/= value (:! Int outputT))
 
-                         (#e.Error error)
-                         false)))
-        )))
+                     (#e.Error error)
+                     (exec (log! error)
+                       false))))))
 
-(def: (references-spec translate-expression eval translate-runtime init
-                       translate-def translate-let)
-  (All [a]
-    (-> (-> ls.Synthesis (Meta a)) (-> a (Meta Top)) (Meta Top) (IO Compiler)
-        (-> Text Type a Code (Meta Unit))
-        (-> (-> ls.Synthesis (Meta a)) Nat ls.Synthesis ls.Synthesis (Meta a))
-        Test))
-  (seq (definitions-spec translate-expression eval translate-runtime init
-                         translate-def)
-       (variables-spec translate-expression eval translate-runtime init
-                       translate-let)))
+(def: (references-spec run define)
+  (-> Runner Definer Test)
+  (seq (definitions-spec define)
+       (variables-spec run)))
 
 (context: "[JVM] References."
   (<| (times +100)
-      (references-spec expressionT_jvm.translate evalT_jvm.eval runtimeT_jvm.translate init-jvm
-                       statementT_jvm.translate-def
-                       caseT_jvm.translate-let)))
+      (references-spec run-jvm def-jvm)))
 
 (context: "[JS] References."
   (<| (times +100)
-      (references-spec expressionT_js.translate evalT_js.eval runtimeT_js.translate init-js
-                       statementT_js.translate-def
-                       caseT_js.translate-let)))
+      (references-spec run-js def-js)))
 
 (context: "[Lua] References."
   (<| (times +100)
-      (references-spec expressionT_lua.translate evalT_lua.eval runtimeT_lua.translate init-lua
-                       statementT_lua.translate-def
-                       caseT_lua.translate-let)))
+      (references-spec run-lua def-lua)))
 
 (context: "[Ruby] References."
   (<| (times +100)
-      (references-spec expressionT_ruby.translate evalT_ruby.eval runtimeT_ruby.translate init-ruby
-                       statementT_ruby.translate-def
-                       caseT_ruby.translate-let)))
+      (references-spec run-ruby def-ruby)))
+
+(context: "[Python] References."
+  (<| (times +100)
+      (references-spec run-python def-python)))

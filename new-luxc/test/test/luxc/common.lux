@@ -3,27 +3,40 @@
   (lux (control [monad #+ do])
        [io #+ IO]
        (data ["e" error])
-       [macro])
+       [macro]
+       (macro [code]))
   (luxc [lang]
         (lang ["&." host]
               [".L" init]
+              [".L" module]
               [synthesis #+ Synthesis]
               (translation (jvm [".T_jvm" expression]
                                 [".T_jvm" eval]
-                                [".T_jvm" runtime])
+                                [".T_jvm" runtime]
+                                [".T_jvm" statement])
                            [js]
                            (js [".T_js" expression]
                                [".T_js" eval]
-                               [".T_js" runtime])
+                               [".T_js" runtime]
+                               [".T_js" statement])
                            [lua]
                            (lua [".T_lua" expression]
                                 [".T_lua" eval]
-                                [".T_lua" runtime])
-
+                                [".T_lua" runtime]
+                                [".T_lua" statement])
                            [ruby]
                            (ruby [".T_ruby" expression]
-                                [".T_ruby" eval]
-                                [".T_ruby" runtime])))))
+                                 [".T_ruby" eval]
+                                 [".T_ruby" runtime]
+                                 [".T_ruby" statement])
+                           [python]
+                           (python [".T_python" expression]
+                                   [".T_python" eval]
+                                   [".T_python" runtime]
+                                   [".T_python" statement])))))
+
+(type: #export Runner (-> Synthesis (e.Error Top)))
+(type: #export Definer (-> Ident Synthesis (e.Error Top)))
 
 (do-template [<name> <host>]
   [(def: #export <name>
@@ -36,11 +49,12 @@
   [init-js  js.init]
   [init-lua lua.init]
   [init-ruby ruby.init]
+  [init-python python.init]
   )
 
-(def: (run-synthesis translate-runtime translate-expression eval init)
+(def: (runner translate-runtime translate-expression eval init)
   (All [a] (-> (Meta Top) (-> Synthesis (Meta a)) (-> a (Meta Top)) (IO Compiler)
-               (-> Synthesis (e.Error Top))))
+               Runner))
   (function [synthesis]
     (|> (do macro.Monad<Meta>
           [_ translate-runtime
@@ -49,10 +63,32 @@
         (lang.with-current-module "")
         (macro.run (io.run init)))))
 
-(def: #export run-jvm (run-synthesis runtimeT_jvm.translate expressionT_jvm.translate evalT_jvm.eval init-jvm))
+(def: (definer translate-runtime translate-expression eval init translate-def)
+  (All [a] (-> (Meta Top) (-> Synthesis (Meta a)) (-> a (Meta Top)) (IO Compiler)
+               (-> Text Type a Code (Meta Top))
+               Definer))
+  (function [[module-name def-name] synthesis]
+    (|> (do macro.Monad<Meta>
+          [_ translate-runtime
+           valueO (translate-expression synthesis)
+           _ (moduleL.with-module +0 module-name
+               (translate-def def-name Top valueO (' {})))
+           sampleO (translate-expression (code.symbol [module-name def-name]))]
+          (eval sampleO))
+        (lang.with-current-module "")
+        (macro.run (io.run init)))))
 
-(def: #export run-js (run-synthesis runtimeT_js.translate expressionT_js.translate evalT_js.eval init-js))
+(def: #export run-jvm (runner runtimeT_jvm.translate expressionT_jvm.translate evalT_jvm.eval init-jvm))
+(def: #export def-jvm (definer runtimeT_jvm.translate expressionT_jvm.translate evalT_jvm.eval init-jvm statementT_jvm.translate-def))
 
-(def: #export run-lua (run-synthesis runtimeT_lua.translate expressionT_lua.translate evalT_lua.eval init-lua))
+(def: #export run-js (runner runtimeT_js.translate expressionT_js.translate evalT_js.eval init-js))
+(def: #export def-js (definer runtimeT_js.translate expressionT_js.translate evalT_js.eval init-js statementT_js.translate-def))
 
-(def: #export run-ruby (run-synthesis runtimeT_ruby.translate expressionT_ruby.translate evalT_ruby.eval init-ruby))
+(def: #export run-lua (runner runtimeT_lua.translate expressionT_lua.translate evalT_lua.eval init-lua))
+(def: #export def-lua (definer runtimeT_lua.translate expressionT_lua.translate evalT_lua.eval init-lua statementT_lua.translate-def))
+
+(def: #export run-ruby (runner runtimeT_ruby.translate expressionT_ruby.translate evalT_ruby.eval init-ruby))
+(def: #export def-ruby (definer runtimeT_ruby.translate expressionT_ruby.translate evalT_ruby.eval init-ruby statementT_ruby.translate-def))
+
+(def: #export run-python (runner runtimeT_python.translate expressionT_python.translate evalT_python.eval init-python))
+(def: #export def-python (definer runtimeT_python.translate expressionT_python.translate evalT_python.eval init-python statementT_python.translate-def))
