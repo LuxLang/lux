@@ -684,9 +684,6 @@
   ^:private compile-math-acos "acos"
   ^:private compile-math-asin "asin"
   ^:private compile-math-atan "atan"
-  ^:private compile-math-cosh "cosh"
-  ^:private compile-math-sinh "sinh"
-  ^:private compile-math-tanh "tanh"
   ^:private compile-math-exp "exp"
   ^:private compile-math-log "log"
   ^:private compile-math-ceil "ceil"
@@ -708,20 +705,8 @@
                     &&/wrap-double)]]
       (return nil)))
 
-  ^:private compile-math-atan2 "atan2"
   ^:private compile-math-pow "pow"
   )
-
-(defn ^:private compile-math-round [compile ?values special-args]
-  (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
-        ^MethodVisitor *writer* &/get-writer
-        _ (compile ?input)
-        :let [_ (doto *writer*
-                  &&/unwrap-double
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Math" "round" "(D)J")
-                  (.visitInsn Opcodes/L2D)
-                  &&/wrap-double)]]
-    (return nil)))
 
 (defn ^:private compile-atom-new [compile ?values special-args]
   (|do [:let [(&/$Cons ?init (&/$Nil)) ?values]
@@ -954,15 +939,10 @@
       "acos" (compile-math-acos compile ?values special-args)
       "asin" (compile-math-asin compile ?values special-args)
       "atan" (compile-math-atan compile ?values special-args)
-      "cosh" (compile-math-cosh compile ?values special-args)
-      "sinh" (compile-math-sinh compile ?values special-args)
-      "tanh" (compile-math-tanh compile ?values special-args)
       "exp" (compile-math-exp compile ?values special-args)
       "log" (compile-math-log compile ?values special-args)
       "ceil" (compile-math-ceil compile ?values special-args)
       "floor" (compile-math-floor compile ?values special-args)
-      "round" (compile-math-round compile ?values special-args)
-      "atan2" (compile-math-atan2 compile ?values special-args)
       "pow" (compile-math-pow compile ?values special-args)
       )
 

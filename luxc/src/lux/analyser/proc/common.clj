@@ -378,14 +378,10 @@
   ^:private analyse-math-acos "acos"
   ^:private analyse-math-asin "asin"
   ^:private analyse-math-atan "atan"
-  ^:private analyse-math-cosh "cosh"
-  ^:private analyse-math-sinh "sinh"
-  ^:private analyse-math-tanh "tanh"
   ^:private analyse-math-exp "exp"
   ^:private analyse-math-log "log"
   ^:private analyse-math-ceil "ceil"
   ^:private analyse-math-floor "floor"
-  ^:private analyse-math-round "round"
   )
 
 (do-template [<name> <proc>]
@@ -398,7 +394,6 @@
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T ["math" <proc>]) (&/|list =input =param) (&/|list)))))))
 
-  ^:private analyse-math-atan2 "atan2"
   ^:private analyse-math-pow "pow"
   )
 
@@ -595,15 +590,10 @@
          "lux math acos" (analyse-math-acos analyse exo-type ?values)
          "lux math asin" (analyse-math-asin analyse exo-type ?values)
          "lux math atan" (analyse-math-atan analyse exo-type ?values)
-         "lux math cosh" (analyse-math-cosh analyse exo-type ?values)
-         "lux math sinh" (analyse-math-sinh analyse exo-type ?values)
-         "lux math tanh" (analyse-math-tanh analyse exo-type ?values)
          "lux math exp" (analyse-math-exp analyse exo-type ?values)
          "lux math log" (analyse-math-log analyse exo-type ?values)
          "lux math ceil" (analyse-math-ceil analyse exo-type ?values)
          "lux math floor" (analyse-math-floor analyse exo-type ?values)
-         "lux math round" (analyse-math-round analyse exo-type ?values)
-         "lux math atan2" (analyse-math-atan2 analyse exo-type ?values)
          "lux math pow" (analyse-math-pow analyse exo-type ?values)
          
          "lux atom new" (analyse-atom-new analyse exo-type ?values)
