@@ -2003,7 +2003,7 @@
                 (text$ "## Hygienic quasi-quotation as a macro. Unquote (~) and unquote-splice (~+) must also be used as forms.
                         ## All unprefixed macros will receive their parent module's prefix if imported; otherwise will receive the prefix of the module on which the quasi-quote is being used.
                         (` (def: (~ name)
-                             (function [(~+ args)]
+                             (function ((~' _) (~+ args))
                                (~ body))))")])
          ("lux case" tokens
           {(#Cons template #Nil)
@@ -2021,7 +2021,7 @@
          (list [(tag$ ["lux" "doc"])
                 (text$ "## Unhygienic quasi-quotation as a macro. Unquote (~) and unquote-splice (~+) must also be used as forms.
                         (`' (def: (~ name)
-                              (function [(~+ args)]
+                              (function (_ (~+ args))
                                 (~ body))))")])
          ("lux case" tokens
           {(#Cons template #Nil)
@@ -3034,23 +3034,20 @@
                 (text$ "## Syntax for creating functions.
                         ## Allows for giving the function itself a name, for the sake of recursion.
                         (: (All [a b] (-> a b a))
-                           (function [x y] x))
+                           (function (_ x y) x))
 
                         (: (All [a b] (-> a b a))
-                           (function const [x y] x))")])
-         (case (: (Maybe [Ident Code (List Code) Code])
+                           (function (const x y) x))")])
+         (case (: (Maybe [Text Code (List Code) Code])
                   (case tokens
-                    (^ (list [_ (#Tuple (#Cons head tail))] body))
-                    (#Some ["" ""] head tail body)
-
-                    (^ (list [_ (#Symbol ["" name])] [_ (#Tuple (#Cons head tail))] body))
-                    (#Some ["" name] head tail body)
+                    (^ (list [_ (#Form (list& [_ (#Symbol ["" name])] head tail))] body))
+                    (#Some name head tail body)
                     
                     _
                     #None))
            (#Some g!name head tail body)
            (let [g!blank (symbol$ ["" ""])
-                 g!name (symbol$ g!name)
+                 g!name (symbol$ ["" g!name])
                  body+ (list/fold (: (-> Code Code Code)
                                      (function' [arg body']
                                                 (if (symbol? arg)
@@ -3102,7 +3099,7 @@
          [_ (#Record kvs)]
          (|> kvs
              (list/map (: (-> [Code Code] Code)
-                          (function [[k v]]
+                          (function (_ [k v])
                             (` [(~ (process-def-meta-value k))
                                 (~ (process-def-meta-value v))]))))
              untemplate-list
@@ -3112,7 +3109,7 @@
 (def:' (process-def-meta kvs)
        (-> (List [Code Code]) Code)
        (untemplate-list (list/map (: (-> [Code Code] Code)
-                                     (function [[k v]]
+                                     (function (_ [k v])
                                        (` [(~ (process-def-meta-value k))
                                            (~ (process-def-meta-value v))])))
                                   kvs)))
@@ -3125,14 +3122,14 @@
 
          _
          (` (#.Cons [[(~ cursor-code) (#.Tag ["lux" "func-args"])]
-                     [(~ cursor-code) (#.Tuple (.list (~+ (list/map (function [arg]
+                     [(~ cursor-code) (#.Tuple (.list (~+ (list/map (function (_ arg)
                                                                       (` [(~ cursor-code) (#.Text (~ (text$ (code-to-text arg))))]))
                                                                     args))))]]
                     (~ meta)))))
 
 (def:' (with-type-args args)
        (-> (List Code) Code)
-       (` {#.type-args [(~+ (list/map (function [arg] (text$ (code-to-text arg)))
+       (` {#.type-args [(~+ (list/map (function (_ arg) (text$ (code-to-text arg)))
                                       args))]}))
 
 (def:' (export^ tokens)
@@ -3197,7 +3194,7 @@
                           body
 
                           _
-                          (` (function (~ name) [(~+ args)] (~ body))))
+                          (` (function ((~ name) (~+ args)) (~ body))))
                    body (case ?type
                           (#Some type)
                           (` (: (~ type) (~ body)))
@@ -3320,7 +3317,7 @@
          members (: (Meta (List [Text Code]))
                     (monad/map Monad<Meta>
                                (: (-> Code (Meta [Text Code]))
-                                  (function [token]
+                                  (function (_ token)
                                     (case token
                                       (^ [_ (#Form (list [_ (#Text "lux check")] type [_ (#Symbol ["" name])]))])
                                       (wrap [name type])
@@ -3331,7 +3328,7 @@
          #let [[_module _name] name+
                def-name (symbol$ name)
                sig-type (record$ (list/map (: (-> [Text Code] [Code Code])
-                                              (function [[m-name m-type]]
+                                              (function (_ [m-name m-type])
                                                 [(tag$ ["" m-name]) m-type]))
                                            members))
                sig-meta (meta-code-merge (` {#.sig? true})
@@ -3368,7 +3365,7 @@
      (case (list/reverse tokens)
        (^ (list& last init))
        (return (list (list/fold (: (-> Code Code Code)
-                                   (function [pre post] (` <form>)))
+                                   (function (_ pre post) (` <form>)))
                                 last
                                 init)))
        
@@ -3579,7 +3576,7 @@
 
 (def: (find-module name)
   (-> Text (Meta Module))
-  (function [state]
+  (function (_ state)
     (let [{#info info #source    source  #current-module _ #modules modules
            #scopes scopes #type-context types    #host    host
            #seed seed #expected  expected #cursor  cursor #extensions extensions
@@ -3642,7 +3639,7 @@
 
 (def: get-expected-type
   (Meta Type)
-  (function [state]
+  (function (_ state)
     (let [{#info info #source    source  #current-module _ #modules modules
            #scopes scopes #type-context types    #host    host
            #seed seed #expected  expected #cursor  cursor #extensions extensions
@@ -3668,11 +3665,11 @@
                _
                (fail "No tags available for type.")))
      #let [tag-mappings (: (List [Text Code])
-                           (list/map (function [tag] [(second tag) (tag$ tag)])
+                           (list/map (function (_ tag) [(second tag) (tag$ tag)])
                                      tags))]
      members (monad/map Monad<Meta>
                         (: (-> Code (Meta [Code Code]))
-                           (function [token]
+                           (function (_ token)
                              (case token
                                (^ [_ (#Form (list [_ (#Text "lux def")] [_ (#Symbol "" tag-name)] value meta))])
                                (case (get tag-name tag-mappings)
@@ -3730,7 +3727,7 @@
                 (^ [_ (#Form (list& [_ (#Symbol [_ sig-name])] sig-args))])
                 (case (: (Maybe (List Text))
                          (monad/map Monad<Maybe>
-                                    (function [sa]
+                                    (function (_ sa)
                                       (case sa
                                         [_ (#Symbol [_ arg-name])]
                                         (#Some arg-name)
@@ -3881,7 +3878,7 @@
   (-> (List Code) (Meta (List Text)))
   (monad/map Monad<Meta>
              (: (-> Code (Meta Text))
-                (function [def]
+                (function (_ def)
                   (case def
                     [_ (#Symbol ["" name])]
                     (return name)
@@ -3977,16 +3974,16 @@
     (^ (list& [_ (#Tag "" "open")] [_ (#Form parts)] tokens'))
     (if (|> parts
             (list/map (: (-> Code Bool)
-                         (function [part]
+                         (function (_ part)
                            (case part
                              (^or [_ (#Text _)] [_ (#Symbol _)])
                              true
 
                              _
                              false))))
-            (list/fold (function [r l] (and l r)) true))
+            (list/fold (function (_ r l) (and l r)) true))
       (let [openings (list/fold (: (-> Code (List Openings) (List Openings))
-                                   (function [part openings]
+                                   (function (_ part openings)
                                      (case part
                                        [_ (#Text prefix)]
                                        (list& [prefix (list)] openings)
@@ -4013,16 +4010,16 @@
   (-> (List Code) (Meta [(List Openings) (List Code)]))
   (if (|> parts
           (list/map (: (-> Code Bool)
-                       (function [part]
+                       (function (_ part)
                          (case part
                            (^or [_ (#Text _)] [_ (#Symbol _)])
                            true
 
                            _
                            false))))
-          (list/fold (function [r l] (and l r)) true))
+          (list/fold (function (_ r l) (and l r)) true))
     (let [openings (list/fold (: (-> Code (List Openings) (List Openings))
-                                 (function [part openings]
+                                 (function (_ part openings)
                                    (case part
                                      [_ (#Text prefix)]
                                      (list& [prefix (list)] openings)
@@ -4045,7 +4042,7 @@
 (def: (decorate-sub-importations super-name)
   (-> Text (List Importation) (List Importation))
   (list/map (: (-> Importation Importation)
-               (function [importation]
+               (function (_ importation)
                  (let [{#import-name _name
                         #import-alias _alias
                         #import-refer {#refer-defs _referrals
@@ -4109,7 +4106,7 @@
   (do Monad<Meta>
     [imports' (monad/map Monad<Meta>
                          (: (-> Code (Meta (List Importation)))
-                            (function [token]
+                            (function (_ token)
                               (case token
                                 [_ (#Symbol "" m-name)]
                                 (do Monad<Meta>
@@ -4179,7 +4176,7 @@
       (#Some =module)
       (let [to-alias (list/map (: (-> [Text Definition]
                                       (List Text))
-                                  (function [[name [def-type def-meta def-value]]]
+                                  (function (_ [name [def-type def-meta def-value]])
                                     (case (get-meta ["lux" "export?"] def-meta)
                                       (#Some [_ (#Bool true)])
                                       (list name)
@@ -4207,7 +4204,7 @@
 
 (def: (is-member? cases name)
   (-> (List Text) Text Bool)
-  (let [output (list/fold (function [case prev]
+  (let [output (list/fold (function (_ case prev)
                             (or prev
                                 (text/= case name)))
                           false
@@ -4229,14 +4226,14 @@
      #seed seed #expected  expected #cursor  cursor #extensions extensions
      #scope-type-vars scope-type-vars}
     (find (: (-> Scope (Maybe Type))
-             (function [env]
+             (function (_ env)
                (case env
                  {#name _
                   #inner _
                   #locals {#counter _ #mappings locals}
                   #captured {#counter _ #mappings closure}}
                  (try-both (find (: (-> [Text [Type Top]] (Maybe Type))
-                                    (function [[bname [type _]]]
+                                    (function (_ [bname [type _]])
                                       (if (text/= name bname)
                                         (#Some type)
                                         #None))))
@@ -4298,7 +4295,7 @@
   (do Monad<Meta>
     [#let [[module name] ident]
      current-module current-module-name]
-    (function [compiler]
+    (function (_ compiler)
       (let [temp (if (text/= "" module)
                    (case (find-in-env name compiler)
                      (#Some struct-type)
@@ -4429,14 +4426,14 @@
         (#Some tags&members)
         (do Monad<Meta>
           [full-body ((: (-> Ident [(List Ident) (List Type)] Code (Meta Code))
-                         (function recur [source [tags members] target]
-                           (let [pattern (record$ (list/map (function [[t-module t-name]]
+                         (function (recur source [tags members] target)
+                           (let [pattern (record$ (list/map (function (_ [t-module t-name])
                                                               [(tag$ [t-module t-name])
                                                                (symbol$ ["" (text/compose prefix t-name)])])
                                                             tags))]
                              (do Monad<Meta>
                                [enhanced-target (monad/fold Monad<Meta>
-                                                            (function [[[_ m-name] m-type] enhanced-target]
+                                                            (function (_ [[_ m-name] m-type] enhanced-target)
                                                               (do Monad<Meta>
                                                                 [m-structure (resolve-type-tags m-type)]
                                                                 (case m-structure
@@ -4467,7 +4464,7 @@
     (case (list/reverse tokens)
       (^ (list& else branches'))
       (return (list (list/fold (: (-> [Code Code] Code Code)
-                                  (function [branch else]
+                                  (function (_ branch else)
                                     (let [[right left] branch]
                                       (` (if (~ left) (~ right) (~ else))))))
                                else
@@ -4511,7 +4508,7 @@
       (case (resolve-struct-type type)
         (#Some members)
         (let [pattern (record$ (list/map (: (-> [Ident [Nat Type]] [Code Code])
-                                            (function [[[r-prefix r-name] [r-idx r-type]]]
+                                            (function (_ [[r-prefix r-name] [r-idx r-type]])
                                               [(tag$ [r-prefix r-name])
                                                (if (n/= idx r-idx)
                                                  g!output
@@ -4524,15 +4521,16 @@
 
     (^ (list [_ (#Tuple slots)] record))
     (return (list (list/fold (: (-> Code Code Code)
-                                (function [slot inner]
+                                (function (_ slot inner)
                                   (` (..get@ (~ slot) (~ inner)))))
                              record
                              slots)))
 
     (^ (list selector))
     (do Monad<Meta>
-      [g!record (gensym "record")]
-      (wrap (list (` (function [(~ g!record)] (..get@ (~ selector) (~ g!record)))))))
+      [g!_ (gensym "_")
+       g!record (gensym "record")]
+      (wrap (list (` (function ((~ g!_) (~ g!record)) (..get@ (~ selector) (~ g!record)))))))
     
     _
     (fail "Wrong syntax for get@")))
@@ -4547,7 +4545,7 @@
       (do Monad<Meta>
         [decls' (monad/map Monad<Meta>
                            (: (-> [Ident Type] (Meta (List Code)))
-                              (function [[sname stype]] (open-field prefix sname source+ stype)))
+                              (function (_ [sname stype]) (open-field prefix sname source+ stype)))
                            (zip2 tags members))]
         (return (list/join decls')))
 
@@ -4581,7 +4579,7 @@
         (#Some [tags members])
         (do Monad<Meta>
           [decls' (monad/map Monad<Meta> (: (-> [Ident Type] (Meta (List Code)))
-                                            (function [[sname stype]] (open-field prefix sname source stype)))
+                                            (function (_ [sname stype]) (open-field prefix sname source stype)))
                              (zip2 tags members))]
           (return (list/join decls')))
 
@@ -4595,25 +4593,27 @@
   {#.doc "## Similar to the piping macro, but rather than taking an initial object to work on, creates a function for taking it.
           (|>> (list/map int/encode) (interpose \" \") (fold text/compose \"\"))
           ## =>
-          (function [<arg>]
+          (function (_ <arg>)
             (fold text/compose \"\"
                   (interpose \" \"
                              (list/map int/encode <arg>))))"}
   (do Monad<Meta>
-    [g!arg (gensym "arg")]
-    (return (list (` (function [(~ g!arg)] (|> (~ g!arg) (~+ tokens))))))))
+    [g!_ (gensym "_")
+     g!arg (gensym "arg")]
+    (return (list (` (function ((~ g!_) (~ g!arg)) (|> (~ g!arg) (~+ tokens))))))))
 
 (macro: #export (<<| tokens)
   {#.doc "## Similar to the piping macro, but rather than taking an initial object to work on, creates a function for taking it.
           (<<| (fold text/compose \"\") (interpose \" \") (list/map int/encode))
           ## =>
-          (function [<arg>]
+          (function (_ <arg>)
             (fold text/compose \"\"
                   (interpose \" \"
                              (list/map int/encode <arg>))))"}
   (do Monad<Meta>
-    [g!arg (gensym "arg")]
-    (return (list (` (function [(~ g!arg)] (<| (~+ tokens) (~ g!arg))))))))
+    [g!_ (gensym "_")
+     g!arg (gensym "arg")]
+    (return (list (` (function ((~ g!_) (~ g!arg)) (<| (~+ tokens) (~ g!arg))))))))
 
 (def: (imported-by? import-name module-name)
   (-> Text Text (Meta Bool))
@@ -4631,10 +4631,10 @@
      #let [[openings options] openings+options]
      current-module current-module-name
      #let [test-referrals (: (-> Text (List Text) (List Text) (Meta (List Unit)))
-                             (function [module-name all-defs referred-defs]
+                             (function (_ module-name all-defs referred-defs)
                                (monad/map Monad<Meta>
                                           (: (-> Text (Meta Unit))
-                                             (function [_def]
+                                             (function (_ _def)
                                                (if (is-member? all-defs _def)
                                                  (return [])
                                                  (fail ($_ text/compose _def " is not defined in module " module-name " @ " current-module)))))
@@ -4656,10 +4656,10 @@
   (do Monad<Meta>
     [current-module current-module-name
      #let [test-referrals (: (-> Text (List Text) (List Text) (Meta (List Unit)))
-                             (function [module-name all-defs referred-defs]
+                             (function (_ module-name all-defs referred-defs)
                                (monad/map Monad<Meta>
                                           (: (-> Text (Meta Unit))
-                                             (function [_def]
+                                             (function (_ _def)
                                                (if (is-member? all-defs _def)
                                                  (return [])
                                                  (fail ($_ text/compose _def " is not defined in module " module-name " @ " current-module)))))
@@ -4683,7 +4683,7 @@
              #Nothing
              (wrap (list)))
      #let [defs (list/map (: (-> Text Code)
-                             (function [def]
+                             (function (_ def)
                                (` ("lux def" (~ (symbol$ ["" def]))
                                    (~ (symbol$ [module-name def]))
                                    [(~ cursor-code)
@@ -4692,8 +4692,8 @@
                                                      #Nil))]))))
                           defs')
            openings (join-map (: (-> Openings (List Code))
-                                 (function [[prefix structs]]
-                                   (list/map (function [[_ name]] (` (open (~ (symbol$ [module-name name])) (~ (text$ prefix)))))
+                                 (function (_ [prefix structs])
+                                   (list/map (function (_ [_ name]) (` (open (~ (symbol$ [module-name name])) (~ (text$ prefix)))))
                                              structs)))
                               r-opens)]]
     (wrap (list/compose defs openings))
@@ -4726,7 +4726,7 @@
                    
                    #Nothing
                    (list)))
-        =opens (join-map (function [[prefix structs]]
+        =opens (join-map (function (_ [prefix structs])
                            (list& (text$ prefix) (list/map symbol$ structs)))
                          r-opens)]
     (` (..refer (~ (text$ module-name))
@@ -4771,11 +4771,11 @@
      current-module current-module-name
      imports (parse-imports current-module _imports)
      #let [=imports (list/map (: (-> Importation Code)
-                                 (function [[m-name m-alias =refer]]
+                                 (function (_ [m-name m-alias =refer])
                                    (` [(~ (text$ m-name)) (~ (text$ (default "" m-alias)))])))
                               imports)
            =refers (list/map (: (-> Importation Code)
-                                (function [[m-name m-alias =refer]]
+                                (function (_ [m-name m-alias =refer])
                                   (refer-to-code m-name =refer)))
                              imports)
            =meta (process-def-meta (list& [(` #.imports) (` [(~+ =imports)])]
@@ -4825,18 +4825,18 @@
         (do Monad<Meta>
           [pattern' (monad/map Monad<Meta>
                                (: (-> [Ident [Nat Type]] (Meta [Ident Nat Code]))
-                                  (function [[r-slot-name [r-idx r-type]]]
+                                  (function (_ [r-slot-name [r-idx r-type]])
                                     (do Monad<Meta>
                                       [g!slot (gensym "")]
                                       (return [r-slot-name r-idx g!slot]))))
                                (zip2 tags (enumerate members)))]
           (let [pattern (record$ (list/map (: (-> [Ident Nat Code] [Code Code])
-                                              (function [[r-slot-name r-idx r-var]]
+                                              (function (_ [r-slot-name r-idx r-var])
                                                 [(tag$ r-slot-name)
                                                  r-var]))
                                            pattern'))
                 output (record$ (list/map (: (-> [Ident Nat Code] [Code Code])
-                                             (function [[r-slot-name r-idx r-var]]
+                                             (function (_ [r-slot-name r-idx r-var])
                                                [(tag$ r-slot-name)
                                                 (if (n/= idx r-idx)
                                                   value
@@ -4856,16 +4856,16 @@
       (do Monad<Meta>
         [bindings (monad/map Monad<Meta>
                              (: (-> Code (Meta Code))
-                                (function [_] (gensym "temp")))
+                                (function (_ _) (gensym "temp")))
                              slots)
          #let [pairs (zip2 slots bindings)
                update-expr (list/fold (: (-> [Code Code] Code Code)
-                                         (function [[s b] v]
+                                         (function (_ [s b] v)
                                            (` (..set@ (~ s) (~ v) (~ b)))))
                                       value
                                       (list/reverse pairs))
                [_ accesses'] (list/fold (: (-> [Code Code] [Code (List (List Code))] [Code (List (List Code))])
-                                           (function [[new-slot new-binding] [old-record accesses']]
+                                           (function (_ [new-slot new-binding] [old-record accesses'])
                                              [(` (get@ (~ new-slot) (~ new-binding)))
                                               (#Cons (list new-binding old-record) accesses')]))
                                         [record (: (List (List Code)) #Nil)]
@@ -4876,14 +4876,16 @@
     
     (^ (list selector value))
     (do Monad<Meta>
-      [g!record (gensym "record")]
-      (wrap (list (` (function [(~ g!record)] (..set@ (~ selector) (~ value) (~ g!record)))))))
+      [g!_ (gensym "_")
+       g!record (gensym "record")]
+      (wrap (list (` (function ((~ g!_) (~ g!record)) (..set@ (~ selector) (~ value) (~ g!record)))))))
 
     (^ (list selector))
     (do Monad<Meta>
-      [g!value (gensym "value")
+      [g!_ (gensym "_")
+       g!value (gensym "value")
        g!record (gensym "record")]
-      (wrap (list (` (function [(~ g!value) (~ g!record)] (..set@ (~ selector) (~ g!value) (~ g!record)))))))
+      (wrap (list (` (function ((~ g!_) (~ g!value) (~ g!record)) (..set@ (~ selector) (~ g!value) (~ g!record)))))))
 
     _
     (fail "Wrong syntax for set@")))
@@ -4913,18 +4915,18 @@
         (do Monad<Meta>
           [pattern' (monad/map Monad<Meta>
                                (: (-> [Ident [Nat Type]] (Meta [Ident Nat Code]))
-                                  (function [[r-slot-name [r-idx r-type]]]
+                                  (function (_ [r-slot-name [r-idx r-type]])
                                     (do Monad<Meta>
                                       [g!slot (gensym "")]
                                       (return [r-slot-name r-idx g!slot]))))
                                (zip2 tags (enumerate members)))]
           (let [pattern (record$ (list/map (: (-> [Ident Nat Code] [Code Code])
-                                              (function [[r-slot-name r-idx r-var]]
+                                              (function (_ [r-slot-name r-idx r-var])
                                                 [(tag$ r-slot-name)
                                                  r-var]))
                                            pattern'))
                 output (record$ (list/map (: (-> [Ident Nat Code] [Code Code])
-                                             (function [[r-slot-name r-idx r-var]]
+                                             (function (_ [r-slot-name r-idx r-var])
                                                [(tag$ r-slot-name)
                                                 (if (n/= idx r-idx)
                                                   (` ((~ fun) (~ r-var)))
@@ -4950,14 +4952,16 @@
 
     (^ (list selector fun))
     (do Monad<Meta>
-      [g!record (gensym "record")]
-      (wrap (list (` (function [(~ g!record)] (..update@ (~ selector) (~ fun) (~ g!record)))))))
+      [g!_ (gensym "_")
+       g!record (gensym "record")]
+      (wrap (list (` (function ((~ g!_) (~ g!record)) (..update@ (~ selector) (~ fun) (~ g!record)))))))
 
     (^ (list selector))
     (do Monad<Meta>
-      [g!fun (gensym "fun")
+      [g!_ (gensym "_")
+       g!fun (gensym "fun")
        g!record (gensym "record")]
-      (wrap (list (` (function [(~ g!fun) (~ g!record)] (..update@ (~ selector) (~ g!fun) (~ g!record)))))))
+      (wrap (list (` (function ((~ g!_) (~ g!fun) (~ g!record)) (..update@ (~ selector) (~ g!fun) (~ g!record)))))))
     
     _
     (fail "Wrong syntax for update@")))
@@ -5008,7 +5012,7 @@
                 data' (monad/map Monad<Maybe> tuple->list data)]
                (if (every? (n/= (list/size bindings')) (list/map list/size data'))
                  (let [apply (: (-> RepEnv (List Code))
-                                (function [env] (list/map (apply-template env) templates)))]
+                                (function (_ env) (list/map (apply-template env) templates)))]
                    (|> data'
                        (join-map (compose apply (make-env bindings')))
                        wrap))
@@ -5164,7 +5168,7 @@
 
     (^template [<tag> <open> <close> <prep>]
       [group-cursor (<tag> parts)]
-      (let [[group-cursor' parts-text] (list/fold (function [part [last-cursor text-accum]]
+      (let [[group-cursor' parts-text] (list/fold (function (_ part [last-cursor text-accum])
                                                     (let [[part-cursor part-text] (doc-example->Text last-cursor baseline part)]
                                                       [part-cursor (text/compose text-accum part-text)]))
                                                   [(delim-update-cursor group-cursor) ""]
@@ -5192,7 +5196,7 @@
     (#Doc-Comment comment)
     (|> comment
         (text/split "\n")
-        (list/map (function [line] ($_ text/compose "## " line "\n")))
+        (list/map (function (_ line) ($_ text/compose "## " line "\n")))
         text/join)
 
     (#Doc-Example example)
@@ -5299,13 +5303,13 @@
            expected get-expected-type]
           (return (list (` (("lux check" (-> (~+ (list/map type-to-code init-types))
                                              (~ (type-to-code expected)))
-                             (function (~ (symbol$ ["" "recur"])) [(~+ vars)]
+                             (function ((~ (symbol$ ["" "recur"])) (~+ vars))
                                (~ body)))
                             (~+ inits))))))
         (do Monad<Meta>
           [aliases (monad/map Monad<Meta>
                               (: (-> Code (Meta Code))
-                                 (function [_] (gensym "")))
+                                 (function (_ _) (gensym "")))
                               inits)]
           (return (list (` (let [(~+ (interleave aliases inits))]
                              (.loop [(~+ (interleave vars aliases))]
@@ -5340,10 +5344,10 @@
        g!_ (gensym "_")
        #let [[idx tags exported? type] output
              slot-pairings (list/map (: (-> Ident [Text Code])
-                                        (function [[module name]] [name (symbol$ ["" name])]))
+                                        (function (_ [module name]) [name (symbol$ ["" name])]))
                                      (list& hslot tslots))
              pattern (record$ (list/map (: (-> Ident [Code Code])
-                                           (function [[module name]]
+                                           (function (_ [module name])
                                              (let [tag (tag$ [module name])]
                                                (case (get name slot-pairings)
                                                  (#Some binding) [tag binding]
@@ -5378,7 +5382,7 @@
     (do Monad<Maybe>
       [=pairs (monad/map Monad<Maybe>
                          (: (-> [Code Code] (Maybe [Code Code]))
-                            (function [[slot value]]
+                            (function (_ [slot value])
                               (do Monad<Maybe>
                                 [slot' (place-tokens label tokens slot)
                                  value' (place-tokens label tokens value)]
@@ -5499,7 +5503,7 @@
     (do Monad<Meta>
       [=pairs (monad/map Monad<Meta>
                          (: (-> [Code Code] (Meta [Code Code]))
-                            (function [[slot value]]
+                            (function (_ [slot value])
                               (do Monad<Meta>
                                 [=value (anti-quote value)]
                                 (wrap [slot =value]))))
@@ -5564,7 +5568,7 @@
 
 (def: (multi-level-case$ g!_ [[init-pattern levels] body])
   (-> Code [Multi-Level-Case Code] (List Code))
-  (let [inner-pattern-body (list/fold (function [[calculation pattern] success]
+  (let [inner-pattern-body (list/fold (function (_ [calculation pattern] success)
                                         (` (case (~ calculation)
                                              (~ pattern)
                                              (~ success)
@@ -5702,7 +5706,7 @@
 (macro: #export (^@ tokens)
   {#.doc (doc "Allows you to simultaneously bind and de-structure a value."
               (def: (hash (^@ set [Hash<a> _]))
-                (list/fold (function [elem acc] (n/+ (:: Hash<a> hash elem) acc))
+                (list/fold (function (_ elem acc) (n/+ (:: Hash<a> hash elem) acc))
                            +0
                            (to-list set))))}
   (case tokens
@@ -5778,7 +5782,7 @@
     (^ (list& [_ (#Form (list& [_ (#Symbol ["" name])] args'))] tokens'))
     (do Monad<Meta>
       [args (monad/map Monad<Meta>
-                       (function [arg']
+                       (function (_ arg')
                          (case arg'
                            [_ (#Symbol ["" arg-name])]
                            (wrap arg-name)
@@ -5849,7 +5853,7 @@
      g!tokens (gensym "tokens")
      g!compiler (gensym "compiler")
      g!_ (gensym "_")
-     #let [rep-env (list/map (function [arg]
+     #let [rep-env (list/map (function (_ arg)
                                [arg (` ((~' ~) (~ (symbol$ ["" arg]))))])
                              args)]]
     (wrap (list (` (macro: (~+ (export export?))
@@ -5858,7 +5862,7 @@
                      (case (~ g!tokens)
                        (^ (list (~+ (list/map (|>> [""] symbol$) args))))
                        (#.Right [(~ g!compiler)
-                                 (list (~+ (list/map (function [template]
+                                 (list (~+ (list/map (function (_ template)
                                                        (` (` (~ (replace-syntax rep-env template)))))
                                                      input-templates)))])
                        
@@ -5884,7 +5888,7 @@
 
 (def: #export (when test f)
   (All [a] (-> Bool (-> a a) (-> a a)))
-  (function [value]
+  (function (_ value)
     (if test
       (f value)
       value)))
@@ -5895,7 +5899,7 @@
 
 (def: target
   (Meta Text)
-  (function [compiler]
+  (function (_ compiler)
     (#Right [compiler (get@ [#info #target] compiler)])))
 
 (def: (pick-for-target target options)
@@ -5960,7 +5964,7 @@
     [ann (#Record kvs)]
     (do Monad<Meta>
       [=kvs (monad/map Monad<Meta>
-                       (function [[key val]]
+                       (function (_ [key val])
                          (do Monad<Meta>
                            [=key (label-code key)
                             =val (label-code val)
@@ -5981,7 +5985,7 @@
       [=raw (label-code raw)
        #let [[labels labelled] =raw]]
       (wrap (list (` (with-expansions [(~+ (|> labels
-                                               (list/map (function [[label expansion]] (list label expansion)))
+                                               (list/map (function (_ [label expansion]) (list label expansion)))
                                                list/join))]
                        (~ labelled))))))
 
@@ -6022,7 +6026,7 @@
     [_ (#Record fields)]
     (do Monad<Meta>
       [=fields (monad/map Monad<Meta>
-                          (function [[key value]]
+                          (function (_ [key value])
                             (do Monad<Meta>
                               [=key (untemplate-pattern key)
                                =value (untemplate-pattern value)]

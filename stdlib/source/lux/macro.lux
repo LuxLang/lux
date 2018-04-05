@@ -18,7 +18,7 @@
 
 (struct: #export _ (Functor Meta)
   (def: (map f fa)
-    (function [compiler]
+    (function (_ compiler)
       (case (fa compiler)
         (#e.Error msg)
         (#e.Error msg)
@@ -30,11 +30,11 @@
   (def: functor Functor<Meta>)
 
   (def: (wrap x)
-    (function [compiler]
+    (function (_ compiler)
       (#e.Success [compiler x])))
 
   (def: (apply ff fa)
-    (function [compiler]
+    (function (_ compiler)
       (case (ff compiler)
         (#e.Success [compiler' f])
         (case (fa compiler')
@@ -51,7 +51,7 @@
   (def: applicative Applicative<Meta>)
   
   (def: (join mma)
-    (function [compiler]
+    (function (_ compiler)
       (case (mma compiler)
         (#e.Error msg)
         (#e.Error msg)
@@ -87,7 +87,7 @@
 (def: #export (either left right)
   {#.doc "Pick whichever computation succeeds."}
   (All [a] (-> (Meta a) (Meta a) (Meta a)))
-  (function [compiler]
+  (function (_ compiler)
     (case (left compiler)
       (#e.Error error)
       (right compiler)
@@ -98,7 +98,7 @@
 (def: #export (assert message test)
   {#.doc "Fails with the given message if the test is false."}
   (-> Text Bool (Meta Unit))
-  (function [compiler]
+  (function (_ compiler)
     (if test
       (#e.Success [compiler []])
       (#e.Error message))))
@@ -107,12 +107,12 @@
   {#.doc "Fails with the given message."}
   (All [a]
     (-> Text (Meta a)))
-  (function [_]
+  (function (_ _)
     (#e.Error msg)))
 
 (def: #export (find-module name)
   (-> Text (Meta Module))
-  (function [compiler]
+  (function (_ compiler)
     (case (get name (get@ #.modules compiler))
       (#.Some module)
       (#e.Success [compiler module])
@@ -122,7 +122,7 @@
 
 (def: #export current-module-name
   (Meta Text)
-  (function [compiler]
+  (function (_ compiler)
     (case (get@ #.current-module compiler)
       (#.Some current-module)
       (#e.Success [compiler current-module])
@@ -280,7 +280,7 @@
      this-module current-module-name]
     (let [[module name] ident]
       (: (Meta (Maybe Macro))
-         (function [compiler]
+         (function (_ compiler)
            (#e.Success [compiler (find-macro' (get@ #.modules compiler) this-module module name)]))))))
 
 (def: #export (expand-once syntax)
@@ -362,7 +362,7 @@
 
           A prefix can be given (or just be empty text \"\") to better identify the code for debugging purposes."}
   (-> Text (Meta Code))
-  (function [compiler]
+  (function (_ compiler)
     (#e.Success [(update@ #.seed n/inc compiler)
                  (code.symbol ["" ($_ text/compose "__gensym__" prefix (:: number.Codec<Text,Nat> encode (get@ #.seed compiler)))])])))
 
@@ -390,7 +390,7 @@
     (do Monad<Meta>
       [symbol-names (monad.map @ get-local-symbol symbols)
        #let [symbol-defs (list/join (list/map (: (-> Text (List Code))
-                                                 (function [name] (list (code.symbol ["" name]) (` (gensym (~ (code.text name)))))))
+                                                 (function (_ name) (list (code.symbol ["" name]) (` (gensym (~ (code.text name)))))))
                                               symbol-names))]]
       (wrap (list (` ((~! do) (~! Monad<Meta>)
                        [(~+ symbol-defs)]
@@ -413,7 +413,7 @@
 
 (def: #export (module-exists? module)
   (-> Text (Meta Bool))
-  (function [compiler]
+  (function (_ compiler)
     (#e.Success [compiler (case (get module (get@ #.modules compiler))
                             (#.Some _)
                             true
@@ -443,7 +443,7 @@
   (-> Type (Meta Type))
   (case type
     (#.Var var)
-    (function [compiler]
+    (function (_ compiler)
       (case (|> compiler
                 (get@ [#.type-context #.var-bindings])
                 (find-type-var var))
@@ -459,11 +459,11 @@
 (def: #export (find-var-type name)
   {#.doc "Looks-up the type of a local variable somewhere in the environment."}
   (-> Text (Meta Type))
-  (function [compiler]
+  (function (_ compiler)
     (let [test (: (-> [Text [Type Top]] Bool)
                   (|>> product.left (text/= name)))]
       (case (do maybe.Monad<Maybe>
-              [scope (list.find (function [env]
+              [scope (list.find (function (_ env)
                                   (or (list.any? test (: (List [Text [Type Top]])
                                                          (get@ [#.locals #.mappings] env)))
                                       (list.any? test (: (List [Text [Type Top]])
@@ -486,7 +486,7 @@
   (-> Ident (Meta Definition))
   (do Monad<Meta>
     [name (normalize name)]
-    (function [compiler]
+    (function (_ compiler)
       (case (: (Maybe Definition)
                (do maybe.Monad<Maybe>
                  [#let [[v-prefix v-name] name]
@@ -504,7 +504,7 @@
                           (#.Some this-module)
                           ($_ text/compose
                               "           Imports: " (|> this-module (get@ #.imports) (text.join-with ", ")) "\n"
-                              "           Aliases: " (|> this-module (get@ #.module-aliases) (list/map (function [[alias real]] ($_ text/compose alias " => " real))) (text.join-with ", ")) "\n")
+                              "           Aliases: " (|> this-module (get@ #.module-aliases) (list/map (function (_ [alias real]) ($_ text/compose alias " => " real))) (text.join-with ", ")) "\n")
 
                           _
                           "")
@@ -540,7 +540,7 @@
 (def: #export (definitions module-name)
   {#.doc "The entire list of definitions in a module (including the unexported/private ones)."}
   (-> Text (Meta (List [Text Definition])))
-  (function [compiler]
+  (function (_ compiler)
     (case (get module-name (get@ #.modules compiler))
       #.None          (#e.Error ($_ text/compose "Unknown module: " module-name))
       (#.Some module) (#e.Success [compiler (get@ #.definitions module)])
@@ -551,14 +551,14 @@
   (-> Text (Meta (List [Text Definition])))
   (do Monad<Meta>
     [definitions (definitions module-name)]
-    (wrap (list.filter (function [[name [def-type def-anns def-value]]]
+    (wrap (list.filter (function (_ [name [def-type def-anns def-value]])
                          (export? def-anns))
                        definitions))))
 
 (def: #export modules
   {#.doc "All the available modules (including the current one)."}
   (Meta (List [Text Module]))
-  (function [compiler]
+  (function (_ compiler)
     (|> compiler
         (get@ #.modules)
         [compiler]
@@ -580,13 +580,13 @@
 (def: #export cursor
   {#.doc "The cursor of the current expression being analyzed."}
   (Meta Cursor)
-  (function [compiler]
+  (function (_ compiler)
     (#e.Success [compiler (get@ #.cursor compiler)])))
 
 (def: #export expected-type
   {#.doc "The expected type of the current expression being analyzed."}
   (Meta Type)
-  (function [compiler]
+  (function (_ compiler)
     (case (get@ #.expected compiler)
       (#.Some type)
       (#e.Success [compiler type])
@@ -625,16 +625,16 @@
     [=module (find-module module)
      this-module-name current-module-name]
     (wrap (|> (get@ #.types =module)
-              (list.filter (function [[type-name [tag-list exported? type]]]
+              (list.filter (function (_ [type-name [tag-list exported? type]])
                              (or exported?
                                  (text/= this-module-name module))))
-              (list/map (function [[type-name [tag-list exported? type]]]
+              (list/map (function (_ [type-name [tag-list exported? type]])
                           [tag-list type]))))))
 
 (def: #export locals
   {#.doc "All the local variables currently in scope, separated in different scopes."}
   (Meta (List (List [Text Type])))
-  (function [compiler]
+  (function (_ compiler)
     (case (list.inits (get@ #.scopes compiler))
       #.None
       (#e.Error "No local environment")
@@ -642,7 +642,7 @@
       (#.Some scopes)
       (#e.Success [compiler
                    (list/map (|>> (get@ [#.locals #.mappings])
-                                  (list/map (function [[name [type _]]]
+                                  (list/map (function (_ [name [type _]])
                                               [name type])))
                              scopes)]))))
 
@@ -661,12 +661,12 @@
 (def: #export get-compiler
   {#.doc "Obtains the current state of the compiler."}
   (Meta Compiler)
-  (function [compiler]
+  (function (_ compiler)
     (#e.Success [compiler compiler])))
 
 (def: #export type-context
   (Meta Type-Context)
-  (function [compiler]
+  (function (_ compiler)
     (#e.Success [compiler (get@ #.type-context compiler)])))
 
 (do-template [<macro> <func> <desc>]

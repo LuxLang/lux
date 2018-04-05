@@ -36,7 +36,7 @@
   (All [a] (-> (-> (-> a JSON)
                    (-> a JSON))
                (-> a JSON)))
-  (function [input]
+  (function (_ input)
     (non-rec (rec-encode non-rec) input)))
 
 (def: low-mask Nat (|> +1 (bit.shift-left +32) n/dec))
@@ -65,7 +65,7 @@
 (def: (nullable writer)
   {#.doc "Builds a JSON generator for potentially inexistent values."}
   (All [a] (-> (-> a JSON) (-> (Maybe a) JSON)))
-  (function [elem]
+  (function (_ elem)
     (case elem
       #.None         #//.Null
       (#.Some value) (writer value))))
@@ -81,11 +81,12 @@
   (with-expansions
     [<basic> (do-template [<type> <matcher> <encoder>]
                [(do @
-                  [_ <matcher>]
+                  [#let [g!_ (code.local-symbol "_______")]
+                   _ <matcher>]
                   (wrap (` (: (~ (@JSON//encode inputT))
                               <encoder>))))]
 
-               [Unit poly.unit (function [(~ (code.symbol ["" "0"]))] #//.Null)]
+               [Unit poly.unit (function ((~ g!_) (~ (code.symbol ["" "0"]))) #//.Null)]
                [Bool poly.bool (|>> #//.Boolean)]
                [Nat  poly.nat  (:: (~! ..Codec<JSON,Nat>) (~' encode))]
                [Int  poly.int  (:: (~! ..Codec<JSON,Int>) (~' encode))]
@@ -105,7 +106,7 @@
     (do @
       [*env* poly.env
        #let [@JSON//encode (: (-> Type Code)
-                              (function [type]
+                              (function (_ type)
                                 (` (-> (~ (poly.to-code *env* type)) //.JSON))))]
        inputT poly.peek]
       ($_ p.either
@@ -117,15 +118,16 @@
             (wrap (` (: (~ (@JSON//encode inputT))
                         (:: (~! Codec<JSON,Qty>) (~' encode))))))
           (do @
-            [#let [g!key (code.local-symbol "\u0000key")
-                   g!val (code.local-symbol "\u0000val")]
+            [#let [g!_ (code.local-symbol "_______")
+                   g!key (code.local-symbol "_______key")
+                   g!val (code.local-symbol "_______val")]
              [_ _ =val=] (poly.apply ($_ p.seq
                                          (poly.this d.Dict)
                                          poly.text
                                          Codec<JSON,?>//encode))]
             (wrap (` (: (~ (@JSON//encode inputT))
                         (|>> d.entries
-                             ((~! list/map) (function [[(~ g!key) (~ g!val)]]
+                             ((~! list/map) (function ((~ g!_) [(~ g!key) (~ g!val)])
                                               [(~ g!key) ((~ =val=) (~ g!val))]))
                              (d.from-list text.Hash<Text>)
                              #//.Object)))))
@@ -142,31 +144,34 @@
             (wrap (` (: (~ (@JSON//encode inputT))
                         (|>> ((~! list/map) (~ =sub=)) sequence.from-list #//.Array)))))
           (do @
-            [#let [g!input (code.local-symbol "\u0000input")]
+            [#let [g!_ (code.local-symbol "_______")
+                   g!input (code.local-symbol "_______input")]
              members (poly.variant (p.many Codec<JSON,?>//encode))]
             (wrap (` (: (~ (@JSON//encode inputT))
-                        (function [(~ g!input)]
+                        (function ((~ g!_) (~ g!input))
                           (case (~ g!input)
-                            (~+ (list/join (list/map (function [[tag g!encode]]
+                            (~+ (list/join (list/map (function (_ [tag g!encode])
                                                        (list (` ((~ (code.nat tag)) (~ g!input)))
                                                              (` (//.json [(~ (code.frac (..tag tag)))
                                                                           ((~ g!encode) (~ g!input))]))))
                                                      (list.enumerate members))))))))))
           (do @
             [g!encoders (poly.tuple (p.many Codec<JSON,?>//encode))
-             #let [g!members (|> (list.size g!encoders) n/dec
+             #let [g!_ (code.local-symbol "_______")
+                   g!members (|> (list.size g!encoders) n/dec
                                  (list.n/range +0)
                                  (list/map (|>> nat/encode code.local-symbol)))]]
             (wrap (` (: (~ (@JSON//encode inputT))
-                        (function [[(~+ g!members)]]
-                          (//.json [(~+ (list/map (function [[g!member g!encode]]
+                        (function ((~ g!_) [(~+ g!members)])
+                          (//.json [(~+ (list/map (function (_ [g!member g!encode])
                                                     (` ((~ g!encode) (~ g!member))))
                                                   (list.zip2 g!members g!encoders)))]))))))
           ## Type recursion
           (do @
-            [[selfC non-recC] (poly.recursive Codec<JSON,?>//encode)]
+            [[selfC non-recC] (poly.recursive Codec<JSON,?>//encode)
+             #let [g! (code.local-symbol "____________")]]
             (wrap (` (: (~ (@JSON//encode inputT))
-                        ((~! ..rec-encode) (.function [(~ selfC)]
+                        ((~! ..rec-encode) (.function ((~ g!) (~ selfC))
                                              (~ non-recC)))))))
           poly.recursive-self
           ## Type applications
@@ -177,11 +182,11 @@
           (do @
             [[funcC varsC bodyC] (poly.polymorphic Codec<JSON,?>//encode)]
             (wrap (` (: (All [(~+ varsC)]
-                          (-> (~+ (list/map (function [varC] (` (->  (~ varC) //.JSON)))
+                          (-> (~+ (list/map (function (_ varC) (` (->  (~ varC) //.JSON)))
                                             varsC))
                               (-> ((~ (poly.to-code *env* inputT)) (~+ varsC))
                                   //.JSON)))
-                        (function (~ funcC) [(~+ varsC)]
+                        (function ((~ funcC) (~+ varsC))
                           (~ bodyC))))))
           poly.bound
           poly.recursive-call
@@ -217,7 +222,7 @@
     (do @
       [*env* poly.env
        #let [@JSON//decode (: (-> Type Code)
-                              (function [type]
+                              (function (_ type)
                                 (` (//.Reader (~ (poly.to-code *env* type))))))]
        inputT poly.peek]
       ($_ p.either
@@ -249,7 +254,7 @@
             [members (poly.variant (p.many Codec<JSON,?>//decode))]
             (wrap (` (: (~ (@JSON//decode inputT))
                         ($_ p.alt
-                            (~+ (list/map (function [[tag memberC]]
+                            (~+ (list/map (function (_ [tag memberC])
                                             (` (|> (~ memberC)
                                                    (p.after (//.number! (~ (code.frac (..tag tag)))))
                                                    //.array)))
@@ -260,9 +265,10 @@
                         (//.array ($_ p.seq (~+ g!decoders)))))))
           ## Type recursion
           (do @
-            [[selfC bodyC] (poly.recursive Codec<JSON,?>//decode)]
+            [[selfC bodyC] (poly.recursive Codec<JSON,?>//decode)
+             #let [g! (code.local-symbol "____________")]]
             (wrap (` (: (~ (@JSON//decode inputT))
-                        (p.rec (.function [(~ selfC)]
+                        (p.rec (.function ((~ g!) (~ selfC))
                                  (~ bodyC)))))))
           poly.recursive-self
           ## Type applications
@@ -275,7 +281,7 @@
             (wrap (` (: (All [(~+ varsC)]
                           (-> (~+ (list/map (|>> (~) //.Reader (`)) varsC))
                               (//.Reader ((~ (poly.to-code *env* inputT)) (~+ varsC)))))
-                        (function (~ funcC) [(~+ varsC)]
+                        (function ((~ funcC) (~+ varsC))
                           (~ bodyC))))))
           poly.bound
           poly.recursive-call

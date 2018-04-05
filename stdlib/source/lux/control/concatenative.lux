@@ -43,7 +43,7 @@
 
 (def: (stack-fold tops bottom)
   (-> (List Code) Code Code)
-  (list/fold (function [top bottom]
+  (list/fold (function (_ top bottom)
                (` [(~ bottom) (~ top)]))
              bottom
              tops))
@@ -63,8 +63,8 @@
 (syntax: #export (=> [aliases aliases^]
                      [inputs stack^]
                      [outputs stack^])
-  (let [de-alias (function [aliased]
-                   (list/fold (function [[from to] pre]
+  (let [de-alias (function (_ aliased)
+                   (list/fold (function (_ [from to] pre)
                                 (code.replace (code.local-symbol from) to pre))
                               aliased
                               aliases))]
@@ -90,7 +90,7 @@
 
 (def: end!
   (All [a] (-> [Unit a] a))
-  (function [[_ top]]
+  (function (_ [_ top])
     top))
 
 (def: (prepare command)
@@ -122,14 +122,14 @@
                    (|>> (~+ (list/map prepare commands))))))))
 
 (syntax: #export (apply [arity (|> s.nat (p.filter (.n/> +0)))])
-  (with-gensyms [g!func g!stack g!output]
+  (with-gensyms [g! g!func g!stack g!output]
     (monad.do @
       [g!inputs (|> (macro.gensym "input") (list.repeat arity) (monad.seq @))]
       (wrap (list (` (: (All [(~+ g!inputs) (~ g!output)]
                           (-> (-> (~+ g!inputs) (~ g!output))
                               (=> [(~+ g!inputs)] [(~ g!output)])))
-                        (function [(~ g!func)]
-                          (function [(~ (stack-fold g!inputs g!stack))]
+                        (function ((~ g!) (~ g!func))
+                          (function ((~ g!) (~ (stack-fold g!inputs g!stack)))
                             [(~ g!stack) ((~ g!func) (~+ g!inputs))])))))))))
 
 ## [Primitives]
@@ -144,58 +144,58 @@
 
 (def: #export (push x)
   (All [a] (-> a (=> [] [a])))
-  (function [stack]
+  (function (_ stack)
     [stack x]))
 
 (def: #export drop
   (All [t] (=> [t] []))
-  (function [[stack top]]
+  (function (_ [stack top])
     stack))
 
 (def: #export nip
   (All [_ a] (=> [_ a] [a]))
-  (function [[[stack _] top]]
+  (function (_ [[stack _] top])
     [stack top]))
 
 (def: #export dup
   (All [a] (=> [a] [a a]))
-  (function [[stack top]]
+  (function (_ [stack top])
     [[stack top] top]))
 
 (def: #export swap
   (All [a b] (=> [a b] [b a]))
-  (function [[[stack l] r]]
+  (function (_ [[stack l] r])
     [[stack r] l]))
 
 (def: #export rotL
   (All [a b c] (=> [a b c] [b c a]))
-  (function [[[[stack a] b] c]]
+  (function (_ [[[stack a] b] c])
     [[[stack b] c] a]))
 
 (def: #export rotR
   (All [a b c] (=> [a b c] [c a b]))
-  (function [[[[stack a] b] c]]
+  (function (_ [[[stack a] b] c])
     [[[stack c] a] b]))
 
 (def: #export &&
   (All [a b] (=> [a b] [(& a b)]))
-  (function [[[stack l] r]]
+  (function (_ [[stack l] r])
     [stack [l r]]))
 
 (def: #export ||L
   (All [a b] (=> [a] [(| a b)]))
-  (function [[stack l]]
+  (function (_ [stack l])
     [stack (+0 l)]))
 
 (def: #export ||R
   (All [a b] (=> [b] [(| a b)]))
-  (function [[stack r]]
+  (function (_ [stack r])
     [stack (+1 r)]))
 
 (do-template [<input> <output> <word> <func>]
   [(def: #export <word>
      (=> [<input> <input>] [<output>])
-     (function [[[stack subject] param]]
+     (function (_ [[stack subject] param])
        [stack (<func> param subject)]))]
 
   [Nat Nat  n/+  .n/+]
@@ -248,7 +248,7 @@
     (=> {then (=> __a __b)
          else (=> __a __b)}
         __a [Bool then else] __b))
-  (function [[[[stack test] then] else]]
+  (function (_ [[[stack test] then] else])
     (.if test
       (then stack)
       (else stack))))
@@ -257,14 +257,14 @@
   (All [__a __b]
     (=> {quote (=> __a __b)}
         __a [quote] __b))
-  (function [[stack block]]
+  (function (_ [stack block])
     (block stack)))
 
 (def: #export loop
   (All [___]
     (=> {test (=> ___ ___ [Bool])}
         ___ [test] ___))
-  (function loop [[stack pred]]
+  (function (loop [stack pred])
     (let [[stack' verdict] (pred stack)]
       (.if verdict
         (loop [stack' pred])
@@ -274,14 +274,14 @@
   (All [___ a]
     (=> ___ [a (=> ___ ___)]
         ___ [a]))
-  (function [[[stack a] quote]]
+  (function (_ [[stack a] quote])
     [(quote stack) a]))
 
 (def: #export dip2
   (All [___ a b]
     (=> ___ [a b (=> ___ ___)]
         ___ [a b]))
-  (function [[[[stack a] b] quote]]
+  (function (_ [[[stack a] b] quote])
     [[(quote stack) a] b]))
 
 (def: #export do
@@ -290,7 +290,7 @@
          body (=> __b __a)}
         __b [pred body]
         __a [pred body]))
-  (function [[[stack pred] body]]
+  (function (_ [[stack pred] body])
     [[(body stack) pred] body]))
 
 (def: #export while
@@ -299,7 +299,7 @@
          body (=> __b __a)}
         __a [pred body]
         __b))
-  (function while [[[stack pred] body]]
+  (function (while [[stack pred] body])
     (let [[stack' verdict] (pred stack)]
       (.if verdict
         (while [[(body stack') pred] body])
@@ -309,14 +309,14 @@
   (All [__a __b __c]
     (=> [(=> __a __b) (=> __b __c)]
         [(=> __a __c)]))
-  (function [[[stack f] g]]
+  (function (_ [[stack f] g])
     [stack (|>> f g)]))
 
 (def: #export curry
   (All [__a __b a]
     (=> __a [a (=> __a [a] __b)]
         __a [(=> __a __b)]))
-  (function [[[stack arg] quote]]
+  (function (_ [[stack arg] quote])
     [stack (|>> (push arg) quote)]))
 
 ## [Words]
