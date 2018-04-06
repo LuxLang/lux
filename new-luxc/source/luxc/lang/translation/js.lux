@@ -18,6 +18,18 @@
               (host [js #+ JS Expression Statement]))
         [".C" io]))
 
+(do-template [<name>]
+  [(exception: #export (<name> {message Text})
+     message)]
+
+  [No-Active-Module-Buffer]
+  [Cannot-Execute]
+
+  [No-Anchor]
+  
+  [Unknown-Member]
+  )
+
 (host.import java/lang/Object
   (toString [] String))
 
@@ -79,7 +91,7 @@
 
 (def: #export init-module-buffer
   (Meta Unit)
-  (function [compiler]
+  (function (_ compiler)
     (#e.Success [(update@ #.host
                           (|>> (:! Host)
                                (set@ #module-buffer (#.Some (StringBuilder::new [])))
@@ -87,12 +99,9 @@
                           compiler)
                  []])))
 
-(exception: #export No-Active-Module-Buffer)
-(exception: #export Cannot-Execute)
-
 (def: #export (with-sub-context expr)
   (All [a] (-> (Meta a) (Meta [Text a])))
-  (function [compiler]
+  (function (_ compiler)
     (let [old (:! Host (get@ #.host compiler))
           [old-name old-sub] (get@ #context old)
           new-name (format old-name "$" (%i (nat-to-int old-sub)))]
@@ -112,7 +121,7 @@
 
 (def: #export context
   (Meta Text)
-  (function [compiler]
+  (function (_ compiler)
     (#e.Success [compiler
                  (|> (get@ #.host compiler)
                      (:! Host)
@@ -122,7 +131,7 @@
 
 (def: #export (with-anchor anchor expr)
   (All [a] (-> Anchor (Meta a) (Meta a)))
-  (function [compiler]
+  (function (_ compiler)
     (let [old (:! Host (get@ #.host compiler))]
       (case (expr (set@ #.host
                         (:! Void (set@ #anchor (#.Some anchor) old))
@@ -138,11 +147,9 @@
         (#e.Error error)
         (#e.Error error)))))
 
-(exception: #export No-Anchor)
-
 (def: #export anchor
   (Meta Anchor)
-  (function [compiler]
+  (function (_ compiler)
     (case (|> compiler (get@ #.host) (:! Host) (get@ #anchor))
       (#.Some anchor)
       (#e.Success [compiler anchor])
@@ -152,29 +159,29 @@
 
 (def: #export module-buffer
   (Meta StringBuilder)
-  (function [compiler]
+  (function (_ compiler)
     (case (|> compiler (get@ #.host) (:! Host) (get@ #module-buffer))
       #.None
-      ((lang.fail (No-Active-Module-Buffer "")) compiler)
+      ((lang.throw No-Active-Module-Buffer "") compiler)
       
       (#.Some module-buffer)
       (#e.Success [compiler module-buffer]))))
 
 (def: #export program-buffer
   (Meta StringBuilder)
-  (function [compiler]
+  (function (_ compiler)
     (#e.Success [compiler (|> compiler (get@ #.host) (:! Host) (get@ #program-buffer))])))
 
 (def: (execute code)
   (-> Expression (Meta Unit))
-  (function [compiler]
+  (function (_ compiler)
     (case (|> compiler
               (get@ #.host)
               (:! Host)
               (get@ #interpreter)
               (ScriptEngine::eval [code]))
       (#e.Error error)
-      ((lang.fail (Cannot-Execute error)) compiler)
+      ((lang.throw Cannot-Execute error) compiler)
       
       (#e.Success _)
       (#e.Success [compiler []]))))
@@ -201,8 +208,6 @@
                                                            (|> args (array.read +0) maybe.assume (:! Int))
                                                            (nat-to-int (array.size value))]))))
     ))
-
-(exception: #export Unknown-Member)
 
 (def: #export int-high-field Text "H")
 (def: #export int-low-field Text "L")
@@ -242,8 +247,9 @@
                             (|> value int-to-nat low jvm-int)
                             
                             ## else
-                            (error! (Unknown-Member (format "     member = " member "\n"
-                                                            "object(int) = " (%i value) "\n")))))))
+                            (error! (ex.construct Unknown-Member
+                                                  (format "     member = " member "\n"
+                                                          "object(int) = " (%i value) "\n")))))))
 
 (interface: StructureValue
   (getValue [] (Array Object)))
@@ -281,8 +287,8 @@
                                   (::slice js-object value)))
                             
                             ## else
-                            (error! (Unknown-Member (format "           member = " (:! Text member) "\n"
-                                                            "object(structure) = " (Object::toString [] (:! Object value)) "\n")))))
+                            (error! (ex.construct Unknown-Member (format "           member = " (:! Text member) "\n"
+                                                                         "object(structure) = " (Object::toString [] (:! Object value)) "\n")))))
     (AbstractJSObject (getSlot [idx int]) Object
                       (|> value
                           (array.read (|> idx (Integer::longValue []) (:! Nat)))

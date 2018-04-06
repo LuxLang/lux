@@ -48,16 +48,21 @@
    #store Class-Store
    #artifacts Artifacts})
 
-(exception: #export Unknown-Class)
-(exception: #export Class-Already-Stored)
-(exception: #export No-Function-Being-Compiled)
-(exception: #export Cannot-Overwrite-Artifact)
-(exception: #export Cannot-Load-Definition)
-(exception: #export Invalid-Definition-Value)
+(do-template [<name>]
+  [(exception: #export (<name> {message Text})
+     message)]
+
+  [Unknown-Class]
+  [Class-Already-Stored]
+  [No-Function-Being-Compiled]
+  [Cannot-Overwrite-Artifact]
+  [Cannot-Load-Definition]
+  [Invalid-Definition-Value]
+  )
 
 (def: #export (with-artifacts action)
   (All [a] (-> (Meta a) (Meta [Artifacts a])))
-  (function [compiler]
+  (function (_ compiler)
     (case (action (update@ #.host
                            (|>> (:! Host)
                                 (set@ #artifacts (dict.new text.Hash<Text>))
@@ -77,7 +82,7 @@
 
 (def: #export (record-artifact name content)
   (-> Text Blob (Meta Unit))
-  (function [compiler]
+  (function (_ compiler)
     (if (|> compiler (get@ #.host) (:! Host) (get@ #artifacts) (dict.contains? name))
       (ex.throw Cannot-Overwrite-Artifact name)
       (#e.Success [(update@ #.host
@@ -89,18 +94,18 @@
 
 (def: #export (store-class name byte-code)
   (-> Text Bytecode (Meta Unit))
-  (function [compiler]
+  (function (_ compiler)
     (let [store (|> (get@ #.host compiler)
                     (:! Host)
                     (get@ #store))]
       (if (dict.contains? name (|> store atom.read io.run))
         (ex.throw Class-Already-Stored name)
-        (#e.Success [compiler (io.run (atom.update (dict.put name byte-code) store))])
-        ))))
+        (exec (io.run (atom.update (dict.put name byte-code) store))
+          (#e.Success [compiler []]))))))
 
 (def: #export (load-class name)
   (-> Text (Meta (Class Object)))
-  (function [compiler]
+  (function (_ compiler)
     (let [host (:! Host (get@ #.host compiler))
           store (|> host (get@ #store) atom.read io.run)]
       (if (dict.contains? name store)
@@ -113,7 +118,7 @@
 (def: #export (load-definition compiler)
   (-> Compiler
       (-> Ident Blob (Error Top)))
-  (function [(^@ def-ident [def-module def-name]) def-bytecode]
+  (function (_ (^@ def-ident [def-module def-name]) def-bytecode)
     (let [normal-name (format (lang.normalize-name def-name) (%n (text/hash def-name)))
           class-name (format (text.replace-all "/" "." def-module) "." normal-name)]
       (<| (macro.run compiler)

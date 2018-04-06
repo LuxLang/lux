@@ -12,14 +12,19 @@
   (luxc ["&" lang]
         (lang ["&." scope])))
 
-(exception: #export Unknown-Module)
-(exception: #export Cannot-Declare-Tag-Twice)
-(exception: #export Cannot-Declare-Tags-For-Unnamed-Type)
-(exception: #export Cannot-Declare-Tags-For-Foreign-Type)
-(exception: #export Cannot-Define-More-Than-Once)
-(exception: #export Cannot-Define-In-Unknown-Module)
-(exception: #export Can-Only-Change-State-Of-Active-Module)
-(exception: #export Cannot-Set-Module-Annotations-More-Than-Once)
+(do-template [<name>]
+  [(exception: #export (<name> {message Text})
+     message)]
+
+  [Unknown-Module]
+  [Cannot-Declare-Tag-Twice]
+  [Cannot-Declare-Tags-For-Unnamed-Type]
+  [Cannot-Declare-Tags-For-Foreign-Type]
+  [Cannot-Define-More-Than-Once]
+  [Cannot-Define-In-Unknown-Module]
+  [Can-Only-Change-State-Of-Active-Module]
+  [Cannot-Set-Module-Annotations-More-Than-Once]
+  )
 
 (def: (new-module hash)
   (-> Nat Module)
@@ -39,23 +44,23 @@
      self macro.current-module]
     (case (get@ #.module-annotations self)
       #.None
-      (function [compiler]
+      (function (_ compiler)
         (#e.Success [(update@ #.modules
                               (&.pl-put self-name (set@ #.module-annotations (#.Some annotations) self))
                               compiler)
                      []]))
       
       (#.Some old)
-      (macro.fail (Cannot-Set-Module-Annotations-More-Than-Once
-                   (format "         Module: " self-name "\n"
-                           "Old annotations: " (%code old) "\n"
-                           "New annotations: " (%code annotations) "\n"))))))
+      (&.throw Cannot-Set-Module-Annotations-More-Than-Once
+               (format "         Module: " self-name "\n"
+                       "Old annotations: " (%code old) "\n"
+                       "New annotations: " (%code annotations) "\n")))))
 
 (def: #export (import module)
   (-> Text (Meta Unit))
   (do macro.Monad<Meta>
     [self macro.current-module-name]
-    (function [compiler]
+    (function (_ compiler)
       (#e.Success [(update@ #.modules
                             (&.pl-update self (update@ #.imports (|>> (#.Cons module))))
                             compiler)
@@ -65,7 +70,7 @@
   (-> Text Text (Meta Unit))
   (do macro.Monad<Meta>
     [self macro.current-module-name]
-    (function [compiler]
+    (function (_ compiler)
       (#e.Success [(update@ #.modules
                             (&.pl-update self (update@ #.module-aliases (: (-> (List [Text Text]) (List [Text Text]))
                                                                            (|>> (#.Cons [alias module])))))
@@ -74,7 +79,7 @@
 
 (def: #export (exists? module)
   (-> Text (Meta Bool))
-  (function [compiler]
+  (function (_ compiler)
     (|> (get@ #.modules compiler)
         (&.pl-get module)
         (case> (#.Some _) true #.None false)
@@ -83,7 +88,7 @@
 (def: #export (define (^@ full-name [module-name def-name])
                       definition)
   (-> Ident Definition (Meta Unit))
-  (function [compiler]
+  (function (_ compiler)
     (case (&.pl-get module-name (get@ #.modules compiler))
       (#.Some module)
       (case (&.pl-get def-name (get@ #.definitions module))
@@ -105,7 +110,7 @@
 
 (def: #export (create hash name)
   (-> Nat Text (Meta Module))
-  (function [compiler]
+  (function (_ compiler)
     (let [module (new-module hash)]
       (#e.Success [(update@ #.modules
                             (&.pl-put name module)
@@ -124,7 +129,7 @@
 (do-template [<flagger> <asker> <tag> <description>]
   [(def: #export (<flagger> module-name)
      (-> Text (Meta Unit))
-     (function [compiler]
+     (function (_ compiler)
        (case (|> compiler (get@ #.modules) (&.pl-get module-name))
          (#.Some module)
          (let [active? (case (get@ #.module-state module)
@@ -144,7 +149,7 @@
          ((&.throw Unknown-Module module-name) compiler))))
    (def: #export (<asker> module-name)
      (-> Text (Meta Bool))
-     (function [compiler]
+     (function (_ compiler)
        (case (|> compiler (get@ #.modules) (&.pl-get module-name))
          (#.Some module)
          (#e.Success [compiler
@@ -164,7 +169,7 @@
 (do-template [<name> <tag> <type>]
   [(def: (<name> module-name)
      (-> Text (Meta <type>))
-     (function [compiler]
+     (function (_ compiler)
        (case (|> compiler (get@ #.modules) (&.pl-get module-name))
          (#.Some module)
          (#e.Success [compiler (get@ <tag> module)])
@@ -183,7 +188,7 @@
   (do macro.Monad<Meta>
     [bindings (tags-by-module module-name)
      _ (monad.map @
-                  (function [tag]
+                  (function (_ tag)
                     (case (&.pl-get tag bindings)
                       #.None
                       (wrap [])
@@ -211,14 +216,14 @@
                  (format "Tags: " (|> tags (list/map code.text) code.tuple %code) "\n"
                          "Type: " (%type type))
                  (text/= current-module type-module))]
-    (function [compiler]
+    (function (_ compiler)
       (case (|> compiler (get@ #.modules) (&.pl-get current-module))
         (#.Some module)
         (let [namespaced-tags (list/map (|>> [current-module]) tags)]
           (#e.Success [(update@ #.modules
                                 (&.pl-update current-module
-                                             (|>> (update@ #.tags (function [tag-bindings]
-                                                                    (list/fold (function [[idx tag] table]
+                                             (|>> (update@ #.tags (function (_ tag-bindings)
+                                                                    (list/fold (function (_ [idx tag] table)
                                                                                  (&.pl-put tag [idx namespaced-tags exported? type] table))
                                                                                tag-bindings
                                                                                (list.enumerate tags))))

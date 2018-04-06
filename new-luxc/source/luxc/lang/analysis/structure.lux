@@ -21,27 +21,34 @@
                         [".A" primitive]
                         ["&." inference]))))
 
-(exception: #export Invalid-Variant-Type)
-(exception: #export Invalid-Tuple-Type)
-(exception: #export Not-Quantified-Type)
+(do-template [<name>]
+  [(exception: #export (<name> {message Text})
+     message)]
 
-(exception: #export Cannot-Analyse-Variant)
-(exception: #export Cannot-Analyse-Tuple)
+  [Invalid-Variant-Type]
+  [Invalid-Tuple-Type]
+  [Not-Quantified-Type]
 
-(exception: #export Cannot-Infer-Numeric-Tag)
-(exception: #export Record-Keys-Must-Be-Tags)
-(exception: #export Cannot-Repeat-Tag)
-(exception: #export Tag-Does-Not-Belong-To-Record)
-(exception: #export Record-Size-Mismatch)
+  [Cannot-Analyse-Variant]
+  [Cannot-Analyse-Tuple]
+
+  [Cannot-Infer-Numeric-Tag]
+  [Record-Keys-Must-Be-Tags]
+  [Cannot-Repeat-Tag]
+  [Tag-Does-Not-Belong-To-Record]
+  [Record-Size-Mismatch]
+  )
 
 (def: #export (analyse-sum analyse tag valueC)
   (-> &.Analyser Nat Code (Meta la.Analysis))
   (do macro.Monad<Meta>
     [expectedT macro.expected-type]
     (&.with-stacked-errors
-      (function [_] (Cannot-Analyse-Variant (format "      Type: " (%type expectedT) "\n"
-                                                    "       Tag: " (%n tag) "\n"
-                                                    "Expression: " (%code  valueC))))
+      (function (_ _)
+        (ex.construct Cannot-Analyse-Variant
+                      (format "      Type: " (%type expectedT) "\n"
+                              "       Tag: " (%n tag) "\n"
+                              "Expression: " (%code  valueC))))
       (case expectedT
         (#.Sum _)
         (let [flat (type.flatten-variant expectedT)
@@ -74,9 +81,10 @@
             ## Cannot do inference when the tag is numeric.
             ## This is because there is no way of knowing how many
             ## cases the inferred sum type would have.
-            (&.throw Cannot-Infer-Numeric-Tag (format "      Type: " (%type expectedT) "\n"
-                                                      "       Tag: " (%n tag) "\n"
-                                                      "Expression: " (%code  valueC)))
+            (&.throw Cannot-Infer-Numeric-Tag
+                     (format "      Type: " (%type expectedT) "\n"
+                             "       Tag: " (%n tag) "\n"
+                             "Expression: " (%code  valueC)))
             ))
 
         (^template [<tag> <instancer>]
@@ -169,8 +177,10 @@
   (do macro.Monad<Meta>
     [expectedT macro.expected-type]
     (&.with-stacked-errors
-      (function [_] (Cannot-Analyse-Tuple (format "      Type: " (%type expectedT) "\n"
-                                                  "Expression: " (%code (` [(~+ membersC)])))))
+      (function (_ _)
+        (ex.construct Cannot-Analyse-Tuple
+                      (format "      Type: " (%type expectedT) "\n"
+                              "Expression: " (%code (` [(~+ membersC)])))))
       (case expectedT
         (#.Product _)
         (analyse-typed-product analyse membersC)
@@ -218,8 +228,9 @@
                 (analyse-product analyse membersC))
 
               _
-              (&.throw Invalid-Tuple-Type (format "      Type: " (%type expectedT) "\n"
-                                                  "Expression: " (%code (` [(~+ membersC)]))))))
+              (&.throw Invalid-Tuple-Type
+                       (format "      Type: " (%type expectedT) "\n"
+                               "Expression: " (%code (` [(~+ membersC)]))))))
 
           _
           (case (type.apply (list inputT) funT)
@@ -231,8 +242,9 @@
               (analyse-product analyse membersC))))
         
         _
-        (&.throw Invalid-Tuple-Type (format "      Type: " (%type expectedT) "\n"
-                                            "Expression: " (%code (` [(~+ membersC)]))))
+        (&.throw Invalid-Tuple-Type
+                 (format "      Type: " (%type expectedT) "\n"
+                         "Expression: " (%code (` [(~+ membersC)]))))
         ))))
 
 (def: #export (analyse-tagged-sum analyse tag valueC)
@@ -260,7 +272,7 @@
 (def: #export (normalize record)
   (-> (List [Code Code]) (Meta (List [Ident Code])))
   (monad.map macro.Monad<Meta>
-             (function [[key val]]
+             (function (_ [key val])
                (case key
                  [_ (#.Tag key)]
                  (do macro.Monad<Meta>
@@ -268,8 +280,9 @@
                    (wrap [key val]))
 
                  _
-                 (&.throw Record-Keys-Must-Be-Tags (format "   Key: " (%code key) "\n"
-                                                           "Record: " (%code (code.record record))))))
+                 (&.throw Record-Keys-Must-Be-Tags
+                          (format "   Key: " (%code key) "\n"
+                                  "Record: " (%code (code.record record))))))
              record))
 
 ## Lux already possesses the means to analyse tuples, so
@@ -295,13 +308,13 @@
                             "    Actual: " (|> size-record nat-to-int %i) "\n"
                             "      Type: " (%type recordT) "\n"
                             "Expression: " (%code (|> record
-                                                      (list/map (function [[keyI valueC]]
+                                                      (list/map (function (_ [keyI valueC])
                                                                   [(code.tag keyI) valueC]))
                                                       code.record)))))
        #let [tuple-range (list.n/range +0 (n/dec size-ts))
              tag->idx (dict.from-list ident.Hash<Ident> (list.zip2 tag-set tuple-range))]
        idx->val (monad.fold @
-                            (function [[key val] idx->val]
+                            (function (_ [key val] idx->val)
                               (do @
                                 [key (macro.normalize key)]
                                 (case (dict.get key tag->idx)
@@ -314,14 +327,14 @@
                                   (if (dict.contains? idx idx->val)
                                     (&.throw Cannot-Repeat-Tag
                                              (format "   Tag: " (%code (code.tag key)) "\n"
-                                                     "Record: " (%code (code.record (list/map (function [[keyI valC]]
+                                                     "Record: " (%code (code.record (list/map (function (_ [keyI valC])
                                                                                                 [(code.tag keyI) valC])
                                                                                               record)))))
                                     (wrap (dict.put idx val idx->val))))))
                             (: (Dict Nat Code)
                                (dict.new number.Hash<Nat>))
                             record)
-       #let [ordered-tuple (list/map (function [idx] (maybe.assume (dict.get idx idx->val)))
+       #let [ordered-tuple (list/map (function (_ idx) (maybe.assume (dict.get idx idx->val)))
                                      tuple-range)]]
       (wrap [ordered-tuple recordT]))
     ))
