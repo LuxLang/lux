@@ -1,0 +1,1023 @@
+(.module:
+  lux
+  (lux (control ["p" parser "p/" Monad<Parser>]
+                [monad #+ do])
+       (data [bit]
+             [number #+ hex]
+             text/format
+             (coll [list "list/" Monad<List>]))
+       [macro]
+       (macro [code]
+              ["s" syntax #+ syntax:])
+       [io #+ Process])
+  [//]
+  (luxc [lang]
+        (lang (host [r #+ SVar Expression Statement @@]))))
+
+(def: prefix Text "LuxRuntime")
+
+(def: #export unit Expression (r.string //.unit))
+
+(def: high (|>> int-to-nat (bit.shift-right +32) nat-to-int))
+(def: low (|>> int-to-nat (bit.and (hex "+FFFFFFFF")) nat-to-int))
+
+(def: #export (int value)
+  (-> Int Expression)
+  (r.named-list (list [//.int-high-field (r.int (high value))]
+                      [//.int-low-field (r.int (low value))])))
+
+(def: (flag value)
+  (-> Bool Expression)
+  (if value
+    (r.string "")
+    r.null))
+
+(def: (variant' tag last? value)
+  (-> Expression Expression Expression Expression)
+  (r.named-list (list [//.variant-tag-field tag]
+                      [//.variant-flag-field last?]
+                      [//.variant-value-field value])))
+
+(def: #export (variant tag last? value)
+  (-> Nat Bool Expression Expression)
+  (variant' (r.int (nat-to-int tag))
+            (flag last?)
+            value))
+
+(def: #export none
+  Expression
+  (variant +0 false unit))
+
+(def: #export some
+  (-> Expression Expression)
+  (variant +1 true))
+
+(def: #export left
+  (-> Expression Expression)
+  (variant +0 false))
+
+(def: #export right
+  (-> Expression Expression)
+  (variant +1 true))
+
+(type: Runtime Statement)
+
+(def: declaration
+  (s.Syntax [Text (List Text)])
+  (p.either (p.seq s.local-symbol (p/wrap (list)))
+            (s.form (p.seq s.local-symbol (p.some s.local-symbol)))))
+
+(syntax: (runtime: [[name args] declaration]
+           definition)
+  (let [implementation (code.local-symbol (format "@@" name))
+        runtime (format prefix "__" (lang.normalize-name name))
+        $runtime (` (r.var (~ (code.text runtime))))
+        @runtime (` (@@ (~ $runtime)))
+        argsC+ (list/map code.local-symbol args)
+        argsLC+ (list/map (|>> lang.normalize-name code.text (~) (r.var) (`))
+                          args)
+        declaration (` ((~ (code.local-symbol name))
+                        (~+ argsC+)))
+        type (` (-> (~+ (list.repeat (list.size argsC+) (` r.Expression)))
+                    r.Expression))]
+    (wrap (list (` (def: (~' #export) (~ declaration)
+                     (~ type)
+                     (r.apply (list (~+ argsC+)) (~ @runtime))))
+                (` (def: (~ implementation)
+                     r.Statement
+                     (~ (case argsC+
+                          #.Nil
+                          (` (r.set! (~ $runtime) (~ definition)))
+
+                          _
+                          (` (let [(~+ (|> (list.zip2 argsC+ argsLC+)
+                                           (list/map (function (_ [left right])
+                                                       (list left right)))
+                                           list/join))]
+                               (r.set! (~ $runtime)
+                                       (r.function (list (~+ argsLC+))
+                                         (~ definition)))))))))))))
+
+(syntax: #export (with-vars [vars (s.tuple (p.many s.local-symbol))]
+                   body)
+  (wrap (list (` (let [(~+ (|> vars
+                               (list/map (function (_ var)
+                                           (list (code.local-symbol var)
+                                                 (` (r.var (~ (code.text (format "LRV__" (lang.normalize-name var)))))))))
+                               list/join))]
+                   (~ body))))))
+
+(def: high-shift (r.bit-shl (r.int 32)))
+
+(def: f2^32 (|> (r.int 1) high-shift))
+(def: f2^63 (|> (r.int 1) (r.bit-shl (r.int 63))))
+
+(def: (as-integer value)
+  (-> Expression Expression)
+  (r.apply (list value) (r.global "as.integer")))
+
+(runtime: (int//unsigned-low input)
+  (with-vars [low]
+    ($_ r.then!
+        (r.set! low (|> (@@ input) (r.nth (r.string //.int-low-field))))
+        (r.do!
+         (r.if (|> (@@ low) (r.>= (r.int 0)))
+           (@@ low)
+           (|> (@@ low) (r.+ f2^32)))))))
+
+(runtime: (int//to-float input)
+  (let [high (|> (@@ input)
+                 (r.nth (r.string //.int-high-field))
+                 high-shift)
+        low (|> (@@ input)
+                int//unsigned-low)]
+    (r.do! (|> high (r.+ low)))))
+
+(runtime: (int//new high low)
+  (r.do!
+   (r.named-list (list [//.int-high-field (as-integer (@@ high))]
+                       [//.int-low-field (as-integer (@@ low))]))))
+
+(do-template [<name> <high> <low>]
+  [(runtime: <name>
+     (int//new (r.int <high>) (r.int <low>)))]
+
+  [int//zero 0 0]
+  [int//one 0 1]
+  [int//min (hex "80000000") 0]
+  [int//max (hex "7FFFFFFF") (hex "FFFFFFFF")]
+  )
+
+(def: int64-high (r.nth (r.string //.int-high-field)))
+(def: int64-low (r.nth (r.string //.int-low-field)))
+
+(runtime: (bit//not input)
+  (r.do! (int//new (|> (@@ input) int64-high r.bit-not)
+                   (|> (@@ input) int64-low r.bit-not))))
+
+(runtime: (int//+ param subject)
+  (with-vars [sH sL pH pL
+              x00 x16 x32 x48]
+    ($_ r.then!
+        (r.set! sH (|> (@@ subject) int64-high))
+        (r.set! sL (|> (@@ subject) int64-low))
+        (r.set! pH (|> (@@ param) int64-high))
+        (r.set! pL (|> (@@ param) int64-low))
+        (let [bits16 (r.code "0xFFFF")
+              move-top-16 (r.bit-shl (r.int 16))
+              top-16 (r.bit-ushr (r.int 16))
+              bottom-16 (r.bit-and bits16)
+              split-16 (function (_ source)
+                         [(|> source top-16)
+                          (|> source bottom-16)])
+              split-int (function (_ high low)
+                          [(split-16 high)
+                           (split-16 low)])
+              
+              [[s48 s32] [s16 s00]] (split-int (@@ sH) (@@ sL))
+              [[p48 p32] [p16 p00]] (split-int (@@ pH) (@@ pL))
+              new-half (function (_ top bottom)
+                         (|> top bottom-16 move-top-16
+                             (r.bit-or (bottom-16 bottom))))]
+          ($_ r.then!
+              (r.set! x00 (|> s00 (r.+ p00)))
+              (r.set! x16 (|> (@@ x00) top-16 (r.+ s16) (r.+ p16)))
+              (r.set! x32 (|> (@@ x16) top-16 (r.+ s32) (r.+ p32)))
+              (r.set! x48 (|> (@@ x32) top-16 (r.+ s48) (r.+ p48)))
+              (r.do! (int//new (new-half (@@ x48) (@@ x32))
+                               (new-half (@@ x16) (@@ x00)))))))))
+
+(runtime: (int//= reference sample)
+  (let [comparison (: (-> (-> Expression Expression) Expression)
+                      (function (_ field)
+                        (|> (field (@@ sample)) (r.= (field (@@ reference))))))]
+    (r.do! (|> (comparison int64-high)
+               (r.and (comparison int64-low))))))
+
+(runtime: (int//negate input)
+  (r.do!
+   (r.if (|> (@@ input) (int//= int//min))
+     int//min
+     (|> (@@ input) bit//not (int//+ int//one)))))
+
+(runtime: int//-one
+  (int//negate int//one))
+
+(runtime: (int//- param subject)
+  (r.do! (int//+ (int//negate (@@ param)) (@@ subject))))
+
+(runtime: (int//< reference sample)
+  (with-vars [r-? s-?]
+    ($_ r.then!
+        (r.set! s-? (|> (@@ sample) int64-high (r.< (r.int 0))))
+        (r.set! r-? (|> (@@ reference) int64-high (r.< (r.int 0))))
+        (r.do! (|> (|> (@@ s-?) (r.and (r.not (@@ r-?))))
+                   (r.or (|> (r.not (@@ s-?)) (r.and (@@ r-?)) r.not))
+                   (r.or (|> (@@ sample)
+                             (int//- (@@ reference))
+                             int64-high
+                             (r.< (r.int 0)))))))))
+
+(runtime: (int//from-float input)
+  (r.do!
+   (r.cond (list [(r.apply (list (@@ input)) (r.global "is.nan"))
+                  int//zero]
+                 [(|> (@@ input) (r.<= (r.negate f2^63)))
+                  int//min]
+                 [(|> (@@ input) (r.+ (r.float 1.0)) (r.>= f2^63))
+                  int//max]
+                 [(|> (@@ input) (r.< (r.float 0.0)))
+                  (|> (@@ input) r.negate int//from-float int//negate)])
+           (int//new (|> (@@ input) (r./ f2^32))
+                     (|> (@@ input) (r.%% f2^32))))))
+
+(runtime: (int//* param subject)
+  (with-vars [sH sL pH pL
+              x00 x16 x32 x48]
+    ($_ r.then!
+        (r.set! sH (|> (@@ subject) int64-high))
+        (r.set! pH (|> (@@ param) int64-high))
+        (let [negative-subject? (|> (@@ sH) (r.< (r.int 0)))
+              negative-param? (|> (@@ pH) (r.< (r.int 0)))]
+          (r.cond! (list [negative-subject?
+                          (r.if! negative-param?
+                                 (r.do! (int//* (int//negate (@@ param))
+                                                (int//negate (@@ subject))))
+                                 (r.do! (int//negate (int//* (@@ param)
+                                                             (int//negate (@@ subject))))))]
+
+                         [negative-param?
+                          (r.do! (int//negate (int//* (int//negate (@@ param))
+                                                      (@@ subject))))])
+                   ($_ r.then!
+                       (r.set! sL (|> (@@ subject) int64-low))
+                       (r.set! pL (|> (@@ param) int64-low))
+                       (let [bits16 (r.code "0xFFFF")
+                             move-top-16 (r.bit-shl (r.int 16))
+                             top-16 (r.bit-ushr (r.int 16))
+                             bottom-16 (r.bit-and bits16)
+                             split-16 (function (_ source)
+                                        [(|> source top-16)
+                                         (|> source bottom-16)])
+                             split-int (function (_ high low)
+                                         [(split-16 high)
+                                          (split-16 low)])
+                             new-half (function (_ top bottom)
+                                        (|> top bottom-16 move-top-16
+                                            (r.bit-or (bottom-16 bottom))))
+                             
+                             [[_s48 _s32] [_s16 _s00]] (split-int (@@ sH) (@@ sL))
+                             [[_p48 _p32] [_p16 _p00]] (split-int (@@ pH) (@@ pL))
+                             x16-top (|> (@@ x16) top-16)
+                             x32-top (|> (@@ x32) top-16)]
+                         (with-vars [s48 s32 s16 s00
+                                     p48 p32 p16 p00]
+                           ($_ r.then!
+                               (r.set! s48 _s48) (r.set! s32 _s32) (r.set! s16 _s16) (r.set! s00 _s00)
+                               (r.set! p48 _p48) (r.set! p32 _p32) (r.set! p16 _p16) (r.set! p00 _p00)
+                               (r.set! x00 (|> (@@ s00) (r.* (@@ p00))))
+                               (r.set! x16 (|> (@@ x00) top-16 (r.+ (|> (@@ s16) (r.* (@@ p00))))))
+                               (r.set! x32 x16-top)
+                               (r.set! x16 (|> (@@ x16) bottom-16 (r.+ (|> (@@ s00) (r.* (@@ p16))))))
+                               (r.set! x32 (|> (@@ x32) (r.+ x16-top) (r.+ (|> (@@ s32) (r.* (@@ p00))))))
+                               (r.set! x48 x32-top)
+                               (r.set! x32 (|> (@@ x32) bottom-16 (r.+ (|> (@@ s16) (r.* (@@ p16))))))
+                               (r.set! x48 (|> (@@ x48) (r.+ x32-top)))
+                               (r.set! x32 (|> (@@ x32) bottom-16 (r.+ (|> (@@ s00) (r.* (@@ p32))))))
+                               (r.set! x48 (|> (@@ x48) (r.+ x32-top)
+                                               (r.+ (|> (@@ s48) (r.* (@@ p00))))
+                                               (r.+ (|> (@@ s32) (r.* (@@ p16))))
+                                               (r.+ (|> (@@ s16) (r.* (@@ p32))))
+                                               (r.+ (|> (@@ s00) (r.* (@@ p48))))))
+                               (r.do! (int//new (new-half (@@ x48) (@@ x32))
+                                                (new-half (@@ x16) (@@ x00))))))
+                         )))))))
+
+(def: (limit-shift! shift)
+  (-> SVar Statement)
+  (r.set! shift (|> (@@ shift) (r.bit-and (r.int 63)))))
+
+(def: (no-shift-clause shift input)
+  (-> SVar SVar [Expression Statement])
+  [(|> (@@ shift) (r.= (r.int 0)))
+   (r.do! (@@ input))])
+
+(runtime: (bit//shift-left shift input)
+  ($_ r.then!
+      (limit-shift! shift)
+      (r.cond! (list (no-shift-clause shift input)
+                     [(|> (@@ shift) (r.< (r.int 32)))
+                      (let [mid (|> (int64-low (@@ input)) (r.bit-ushr (|> (r.int 32) (r.- (@@ shift)))))
+                            high (|> (int64-high (@@ input))
+                                     (r.bit-shl (@@ shift))
+                                     (r.bit-or mid))
+                            low (|> (int64-low (@@ input))
+                                    (r.bit-shl (@@ shift)))]
+                        (r.do! (int//new high low)))])
+               (let [high (|> (int64-high (@@ input))
+                              (r.bit-shl (|> (@@ shift) (r.- (r.int 32)))))]
+                 (r.do! (int//new high (r.int 0)))))))
+
+(runtime: (bit//signed-shift-right-32 shift input)
+  (let [top-bit (|> (@@ input) (r.bit-and (r.int (hex "80000000"))))]
+    (r.do! (|> (@@ input)
+               (r.bit-ushr (@@ shift))
+               (r.bit-or top-bit)))))
+
+(runtime: (bit//signed-shift-right shift input)
+  ($_ r.then!
+      (limit-shift! shift)
+      (r.cond! (list (no-shift-clause shift input)
+                     [(|> (@@ shift) (r.< (r.int 32)))
+                      (let [mid (|> (int64-high (@@ input)) (r.bit-shl (|> (r.int 32) (r.- (@@ shift)))))
+                            high (|> (int64-high (@@ input))
+                                     (bit//signed-shift-right-32 (@@ shift)))
+                            low (|> (int64-low (@@ input))
+                                    (r.bit-ushr (@@ shift))
+                                    (r.bit-or mid))]
+                        (r.do! (int//new high low)))])
+               (let [low (|> (int64-high (@@ input))
+                             (bit//signed-shift-right-32 (|> (@@ shift) (r.- (r.int 32)))))
+                     high (r.if (|> (int64-high (@@ input)) (r.>= (r.int 0)))
+                            (r.int 0)
+                            (r.int -1))]
+                 (r.do! (int//new high low))))))
+
+(runtime: (int/// param subject)
+  (let [negative? (|>> (int//< int//zero))
+        valid-division-check [(|> (@@ param) (int//= int//zero))
+                              (r.stop! (r.string "Cannot divide by zero!"))]
+        short-circuit-check [(|> (@@ subject) (int//= int//zero))
+                             (r.do! int//zero)]]
+    (r.cond! (list valid-division-check
+                   short-circuit-check
+
+                   [(|> (@@ subject) (int//= int//min))
+                    (r.cond! (list [(|> (|> (@@ param) (int//= int//one))
+                                        (r.or (|> (@@ param) (int//= int//-one))))
+                                    (r.do! int//min)]
+                                   [(|> (@@ param) (int//= int//min))
+                                    (r.do! int//one)])
+                             (with-vars [approximation]
+                               ($_ r.then!
+                                   (r.set! approximation
+                                           (|> (@@ subject)
+                                               (bit//signed-shift-right (r.int 1))
+                                               (int/// (@@ param))
+                                               (bit//shift-left (r.int 1))))
+                                   (r.if! (|> (@@ approximation) (int//= int//zero))
+                                          (r.do! (r.if (negative? (@@ param))
+                                                   int//one
+                                                   int//-one))
+                                          (let [remainder (int//- (int//* (@@ param) (@@ approximation))
+                                                                  (@@ subject))]
+                                            (r.do! (|> remainder
+                                                       (int/// (@@ param))
+                                                       (int//+ (@@ approximation)))))))))]
+                   [(|> (@@ param) (int//= int//min))
+                    (r.do! int//zero)]
+
+                   [(negative? (@@ subject))
+                    (r.do! (r.if (negative? (@@ param))
+                             (|> (int//negate (@@ subject))
+                                 (int/// (int//negate (@@ param))))
+                             (|> (int//negate (@@ subject))
+                                 (int/// (@@ param))
+                                 int//negate)))]
+
+                   [(negative? (@@ param))
+                    (r.do! (|> (@@ param)
+                               int//negate
+                               (int/// (@@ subject))
+                               int//negate))])
+             (with-vars [result remainder approximate approximate-result log2 approximate-remainder]
+               ($_ r.then!
+                   (r.set! result int//zero)
+                   (r.set! remainder (@@ subject))
+                   (r.while! (|> (|> (@@ remainder) (int//< (@@ param)))
+                                 (r.or (|> (@@ remainder) (int//= (@@ param)))))
+                             (let [calc-rough-estimate (r.apply (list (|> (int//to-float (@@ remainder)) (r./ (int//to-float (@@ param)))))
+                                                                (r.global "floor"))
+                                   calc-approximate-result (int//from-float (@@ approximate))
+                                   calc-approximate-remainder (|> (@@ approximate-result) (int//* (@@ param)))
+                                   delta (r.if (|> (r.float 48.0) (r.<= (@@ log2)))
+                                           (r.float 1.0)
+                                           (r.** (|> (@@ log2) (r.- (r.float 48.0)))
+                                                 (r.float 2.0)))]
+                               ($_ r.then!
+                                   (r.set! approximate (r.apply (list (r.float 1.0) calc-rough-estimate)
+                                                                (r.global "max")))
+                                   (r.set! log2 (let [log (function (_ input)
+                                                            (r.apply (list input) (r.global "log")))]
+                                                  (r.apply (list (|> (log (r.int 2))
+                                                                     (r./ (log (@@ approximate)))))
+                                                           (r.global "ceil"))))
+                                   (r.set! approximate-result calc-approximate-result)
+                                   (r.set! approximate-remainder calc-approximate-remainder)
+                                   (r.while! (|> (negative? (@@ approximate-remainder))
+                                                 (r.or (|> (@@ approximate-remainder) (int//< (@@ remainder)))))
+                                             ($_ r.then!
+                                                 (r.set! approximate (|> delta (r.- (@@ approximate))))
+                                                 (r.set! approximate-result calc-approximate-result)
+                                                 (r.set! approximate-remainder calc-approximate-remainder)))
+                                   (r.set! result (|> (r.if (|> (@@ approximate-result) (int//= int//zero))
+                                                        int//one
+                                                        (@@ approximate-result))
+                                                      (int//+ (@@ result))))
+                                   (r.set! remainder (|> (@@ remainder) (int//- (@@ approximate-remainder)))))))
+                   (r.do! (@@ result))))
+             )))
+
+(runtime: (int//% param subject)
+  (let [flat (|> (@@ subject) (int/// (@@ param)) (int//* (@@ param)))]
+    (r.do! (|> (@@ subject) (int//- flat)))))
+
+(def: runtime//int
+  Runtime
+  ($_ r.then!
+      @@int//unsigned-low
+      @@int//to-float
+      @@int//new
+      @@int//zero
+      @@int//one
+      @@int//min
+      @@int//max
+      @@int//=
+      @@int//<
+      @@int//+
+      @@int//-
+      @@int//*
+      @@int///
+      @@int//%
+      @@int//negate
+      @@int//from-float))
+
+(runtime: (lux//try op)
+  (with-vars [error value]
+    (r.do! (r.try ($_ r.then!
+                      (r.set! value (r.apply (list ..unit) (@@ op)))
+                      (r.do! (..right (@@ value))))
+                  #.None
+                  (#.Some (r.function (list error)
+                            (r.do! (..left (@@ error)))))
+                  #.None))))
+
+(runtime: (lux//program-args program-args)
+  (with-vars [inputs value]
+    ($_ r.then!
+        (r.set! inputs ..none)
+        (<| (r.for-in! value (@@ program-args))
+            (r.set! inputs (..some (r.list (list (@@ value) (@@ inputs))))))
+        (r.do! (@@ inputs)))))
+
+(def: runtime//lux
+  Runtime
+  ($_ r.then!
+      @@lux//try
+      @@lux//program-args))
+
+(def: current-time-float
+  Expression
+  (let [raw-time (r.apply (list) (r.global "Sys.time"))]
+    (r.apply (list raw-time) (r.global "as.numeric"))))
+
+(runtime: (io//current-time! _)
+  (r.do! (|> current-time-float
+             (r.* (r.float 1_000.0))
+             int//from-float)))
+
+(def: runtime//io
+  Runtime
+  ($_ r.then!
+      @@io//current-time!))
+
+(def: minimum-index-length
+  (-> SVar Expression)
+  (|>> @@ (r.+ (r.int 1))))
+
+(def: (product-element product index)
+  (-> Expression Expression Expression)
+  (|> product (r.nth (|> index (r.+ (r.int 1))))))
+
+(def: (product-tail product)
+  (-> SVar Expression)
+  (|> (@@ product) (r.nth (r.length (@@ product)))))
+
+(def: (updated-index min-length product)
+  (-> Expression Expression Expression)
+  (|> min-length (r.- (r.length product))))
+
+(runtime: (product//left product index)
+  (let [$index_min_length (r.var "index_min_length")]
+    ($_ r.then!
+        (r.set! $index_min_length (minimum-index-length index))
+        (r.do! (r.if (|> (r.length (@@ product)) (r.> (@@ $index_min_length)))
+                 ## No need for recursion
+                 (product-element (@@ product) (@@ index))
+                 ## Needs recursion
+                 (product//left (product-tail product)
+                                (updated-index (@@ $index_min_length) (@@ product))))))))
+
+(runtime: (product//right product index)
+  (let [$index_min_length (r.var "index_min_length")]
+    ($_ r.then!
+        (r.set! $index_min_length (minimum-index-length index))
+        (r.do! (r.cond (list [## Last element.
+                              (|> (r.length (@@ product)) (r.= (@@ $index_min_length)))
+                              (product-element (@@ product) (@@ index))]
+                             [## Needs recursion
+                              (|> (r.length (@@ product)) (r.< (@@ $index_min_length)))
+                              (product//right (product-tail product)
+                                              (updated-index (@@ $index_min_length) (@@ product)))])
+                       ## Must slice
+                       (|> (@@ product) (r.slice-from (@@ index))))))))
+
+(runtime: (sum//get sum wanted_tag wants_last)
+  (let [no-match r.null
+        sum-tag (|> (@@ sum) (r.nth (r.string //.variant-tag-field)))
+        sum-flag (|> (@@ sum) (r.nth (r.string //.variant-flag-field)))
+        sum-value (|> (@@ sum) (r.nth (r.string //.variant-value-field)))
+        is-last? (|> sum-flag (r.= (r.string "")))
+        test-recursion (r.if is-last?
+                         ## Must recurse.
+                         (sum//get sum-value
+                                   (|> (@@ wanted_tag) (r.- sum-tag))
+                                   (@@ wants_last))
+                         no-match)]
+    (r.do! (r.cond (list [(r.= sum-tag (@@ wanted_tag))
+                          (r.if (r.= (@@ wants_last) sum-flag)
+                            sum-value
+                            test-recursion)]
+
+                         [(|> (@@ wanted_tag) (r.> sum-tag))
+                          test-recursion]
+
+                         [(|> (|> (@@ wants_last) (r.= (r.string "")))
+                              (r.and (|> (@@ wanted_tag) (r.< sum-tag))))
+                          (variant' (|> sum-tag (r.- (@@ wanted_tag))) sum-flag sum-value)])
+
+                   no-match))))
+
+(def: runtime//adt
+  Runtime
+  ($_ r.then!
+      @@product//left
+      @@product//right
+      @@sum//get
+      ))
+
+(do-template [<name> <op>]
+  [(runtime: (<name> mask input)
+     (r.do! (int//new (<op> (int64-high (@@ mask))
+                            (int64-high (@@ input)))
+                      (<op> (int64-low (@@ mask))
+                            (int64-low (@@ input))))))]
+
+  [bit//and r.bit-and]
+  [bit//or  r.bit-or]
+  [bit//xor r.bit-xor]
+  )
+
+(runtime: (bit//count-32 input)
+  (with-vars [count]
+    ($_ r.then!
+        (r.set! count (r.int 0))
+        (let [last-input-bit (|> (@@ input) (r.bit-and (r.int 1)))
+              update-count! (r.set! count (|> (@@ count) (r.+ last-input-bit)))
+              consume-input! (r.set! input (|> (@@ input) (r.bit-ushr (r.int 1))))
+              input-remaining? (|> (@@ input) (r.= (r.int 0)))]
+          (r.while! input-remaining?
+                    ($_ r.then!
+                        update-count!
+                        consume-input!)))
+        (r.do! (@@ count)))))
+
+(runtime: (bit//count input)
+  (r.do! (int//from-float (r.+ (int64-high (@@ input))
+                               (int64-low (@@ input))))))
+
+(runtime: (bit//shift-right shift input)
+  ($_ r.then!
+      (limit-shift! shift)
+      (r.cond! (list (no-shift-clause shift input)
+                     [(|> (@@ shift) (r.< (r.int 32)))
+                      (let [mid (|> (int64-high (@@ input)) (r.bit-shl (|> (r.int 32) (r.- (@@ shift)))))
+                            high (|> (int64-high (@@ input)) (r.bit-ushr (@@ shift)))
+                            low (|> (int64-low (@@ input))
+                                    (r.bit-ushr (@@ shift))
+                                    (r.bit-or mid))]
+                        (r.do! (int//new high low)))]
+                     [(|> (@@ shift) (r.= (r.int 32)))
+                      (let [high (int64-high (@@ input))]
+                        (r.do! (int//new (r.int 0) high)))])
+               (let [low (|> (int64-high (@@ input)) (r.bit-ushr (|> (@@ shift) (r.- (r.int 32)))))]
+                 (r.do! (int//new (r.int 0) low))))))
+
+(def: runtime//bit
+  Runtime
+  ($_ r.then!
+      @@bit//and
+      @@bit//or
+      @@bit//xor
+      @@bit//not
+      @@bit//count-32
+      @@bit//count
+      @@bit//shift-left
+      @@bit//signed-shift-right-32
+      @@bit//signed-shift-right
+      @@bit//shift-right
+      ))
+
+(runtime: (nat//< param subject)
+  (with-vars [pH sH]
+    ($_ r.then!
+        (r.set! pH (..int64-high (@@ param)))
+        (r.set! sH (..int64-high (@@ subject)))
+        (let [lesser-high? (|> (@@ sH) (r.< (@@ pH)))
+              equal-high? (|> (@@ sH) (r.= (@@ pH)))
+              lesser-low? (|> (..int64-low (@@ subject)) (r.< (..int64-low (@@ param))))]
+          (r.do! (|> lesser-high?
+                     (r.or (|> equal-high?
+                               (r.and lesser-low?)))))))))
+
+(runtime: (nat/// parameter subject)
+  (let [negative? (int//< int//zero)
+        valid-division-check [(|> (@@ parameter) (int//= int//zero))
+                              (r.stop! (r.string "Cannot divide by zero!"))]
+        short-circuit-check [(|> (@@ subject) (nat//< (@@ parameter)))
+                             (r.do! int//zero)]]
+    (r.cond! (list valid-division-check
+                   short-circuit-check
+
+                   [(|> (@@ parameter)
+                        (nat//< (|> (@@ subject) (bit//shift-right (r.int 1)))))
+                    (r.do! int//one)])
+             (with-vars [result remainder approximate log2 approximate-result approximate-remainder delta]
+               ($_ r.then!
+                   (r.set! result int//zero)
+                   (r.set! remainder (@@ subject))
+                   (r.while! (|> (|> (@@ remainder) (nat//< (@@ parameter)))
+                                 (r.or (|> (@@ remainder) (int//= (@@ parameter)))))
+                             (let [rough-estimate (r.apply (list (|> (int//to-float (@@ parameter)) (r./ (int//to-float (@@ remainder)))))
+                                                           (r.global "floor"))
+                                   calculate-approximate-result (int//from-float (@@ approximate))
+                                   calculate-approximate-remainder (int//* (@@ parameter) (@@ approximate-result))
+                                   delta (r.if (|> (r.float 48.0) (r.<= (@@ log2)))
+                                           (r.float 1.0)
+                                           (r.** (|> (r.float 48.0) (r.- (@@ log2)))
+                                                 (r.float 2.0)))
+                                   update-approximates! ($_ r.then!
+                                                            (r.set! approximate-result calculate-approximate-result)
+                                                            (r.set! approximate-remainder calculate-approximate-remainder))]
+                               ($_ r.then!
+                                   (r.set! approximate (r.apply (list (r.float 1.0) rough-estimate)
+                                                                (r.global "max")))
+                                   (r.set! log2 (let [log (function (_ input)
+                                                            (r.apply (list input) (r.global "log")))]
+                                                  (r.apply (list (|> (log (r.int 2))
+                                                                     (r./ (log (@@ approximate)))))
+                                                           (r.global "ceil"))))
+                                   update-approximates!
+                                   (r.while! (|> (negative? (@@ approximate-remainder))
+                                                 (r.or (|> (@@ approximate-remainder) (int//< (@@ remainder)))))
+                                             ($_ r.then!
+                                                 (r.set! approximate (|> delta (r.- (@@ approximate))))
+                                                 update-approximates!))
+                                   ($_ r.then!
+                                       (r.set! result (|> (@@ result)
+                                                          (int//+ (r.if (|> (@@ approximate-result) (int//= int//zero))
+                                                                    int//one
+                                                                    (@@ approximate-result)))))
+                                       (r.set! remainder (|> (@@ remainder) (int//- (@@ approximate-remainder))))))))
+                   (r.do! (@@ result))))
+             )))
+
+(runtime: (nat//% param subject)
+  (let [flat (|> (@@ subject)
+                 (nat/// (@@ param))
+                 (int//* (@@ param)))]
+    (r.do! (|> (@@ subject) (int//- flat)))))
+
+(def: runtime//nat
+  Runtime
+  ($_ r.then!
+      @@nat//<
+      @@nat///
+      @@nat//%))
+
+(runtime: (deg//* param subject)
+  (with-vars [sL sH pL pH bottom middle top]
+    ($_ r.then!
+        (r.set! sL (int//from-float (int64-low (@@ subject))))
+        (r.set! sH (int//from-float (int64-high (@@ subject))))
+        (r.set! pL (int//from-float (int64-low (@@ param))))
+        (r.set! pH (int//from-float (int64-high (@@ param))))
+        (let [bottom (bit//shift-right (r.int 32)
+                                       (r.* (@@ pL) (@@ sL)))
+              middle (r.+ (r.* (@@ pL) (@@ sH))
+                          (r.* (@@ pH) (@@ sL)))
+              top (r.* (@@ pH) (@@ sH))]
+          (r.do! (|> bottom
+                     (r.+ middle)
+                     (bit//shift-right (r.int 32))
+                     (r.+ top)))))))
+
+(runtime: (deg//leading-zeroes input)
+  (with-vars [zeroes remaining]
+    ($_ r.then!
+        (r.set! zeroes (r.int 64))
+        (r.set! remaining (@@ input))
+        (r.while! (|> (@@ remaining) (int//= int//zero) r.not)
+                  ($_ r.then!
+                      (r.set! zeroes (|> (@@ zeroes) (r.- (r.int 1))))
+                      (r.set! remaining (|> (@@ remaining) (bit//shift-right (r.int 1))))))
+        (r.do! (@@ zeroes)))))
+
+(runtime: (deg/// param subject)
+  (with-vars [min-shift]
+    (r.if! (|> (@@ subject) (int//= (@@ param)))
+           (r.do! int//-one)
+           ($_ r.then!
+               (r.set! min-shift
+                       (r.apply (list (deg//leading-zeroes (@@ param))
+                                      (deg//leading-zeroes (@@ subject)))
+                                (r.global "min")))
+               (let [subject' (|> (@@ subject) (bit//shift-left (@@ min-shift)))
+                     param' (|> (@@ param) (bit//shift-left (@@ min-shift)) int64-low int//from-float)]
+                 (r.do! (|> subject'
+                            (int/// param')
+                            (bit//shift-left (r.int 32)))))))))
+
+(runtime: (deg//from-frac input)
+  (with-vars [two32 shifted]
+    ($_ r.then!
+        (r.set! two32 (|> (r.float 2.0) (r.** (r.float 32.0))))
+        (r.set! shifted (|> (@@ input) (r.%% (r.float 1.0)) (r.* (@@ two32))))
+        (let [low (|> (@@ shifted) (r.%% (r.float 1.0)) (r.* (@@ two32)) as-integer)
+              high (|> (@@ shifted) as-integer)]
+          (r.do! (int//new high low))))))
+
+(runtime: (deg//to-frac input)
+  (with-vars [two32]
+    ($_ r.then!
+        (r.set! two32 f2^32)
+        (let [high (|> (int64-high (@@ input)) (r./ (@@ two32)))
+              low (|> (int64-low (@@ input)) (r./ (@@ two32)) (r./ (@@ two32)))]
+          (r.do! (|> low (r.+ high)))))))
+
+(def: runtime//deg
+  Runtime
+  ($_ r.then!
+      @@deg//*
+      @@deg//leading-zeroes
+      @@deg///
+      @@deg//from-frac
+      @@deg//to-frac))
+
+(runtime: (frac//decode input)
+  (with-vars [output]
+    ($_ r.then!
+        (r.set! output (r.apply (list (@@ input)) (r.global "as.numeric")))
+        (r.do! (r.if (|> (@@ output) (r.= r.n/a))
+                 ..none
+                 (..some (@@ output)))))))
+
+(def: runtime//frac
+  Runtime
+  ($_ r.then!
+      @@frac//decode))
+
+(def: inc (-> Expression Expression) (|>> (r.+ (r.int 1))))
+
+(do-template [<name> <top-cmp>]
+  [(def: (<name> top value)
+     (-> Expression Expression Expression)
+     (|> (|> value (r.>= (r.int 0)))
+         (r.and (|> value (<top-cmp> top)))))]
+
+  [within? r.<]
+  [up-to?  r.<=]
+  )
+
+(def: (text-clip start end text)
+  (-> Expression Expression Expression Expression)
+  (r.apply (list text start end)
+           (r.global "substr")))
+
+(def: (text-length text)
+  (-> Expression Expression)
+  (r.apply (list text) (r.global "nchar")))
+
+(runtime: (text//index subject param start)
+  (with-vars [idx startF subjectL]
+    ($_ r.then!
+        (r.set! startF (int//to-float (@@ start)))
+        (r.set! subjectL (text-length (@@ subject)))
+        (r.do!
+         (r.if (|> (@@ startF) (within? (@@ subjectL)))
+           (r.block
+            ($_ r.then!
+                (r.set! idx (|> (r.apply-kw (list (@@ param) (r.if (|> (@@ startF) (r.= (r.int 0)))
+                                                               (@@ subject)
+                                                               (text-clip (inc (@@ startF))
+                                                                          (inc (@@ subjectL))
+                                                                          (@@ subject))))
+                                            (list ["fixed" (r.bool true)])
+                                            (r.global "regexpr"))
+                                (r.nth (r.int 1))))
+                (r.do!
+                 (r.if (|> (@@ idx) (r.= (r.int -1)))
+                   ..none
+                   (..some (int//from-float (|> (@@ idx) (r.+ (@@ startF)))))))))
+           ..none)))))
+
+(runtime: (text//clip text from to)
+  (with-vars [length]
+    ($_ r.then!
+        (r.set! length (r.length (@@ text)))
+        (r.do!
+         (r.if ($_ r.and
+                   (|> (@@ to) (within? (@@ length)))
+                   (|> (@@ from) (up-to? (@@ to))))
+           (..some (text-clip (inc (@@ from)) (inc (@@ to)) (@@ text)))
+           ..none)))))
+
+(def: (char-at idx text)
+  (-> Expression Expression Expression)
+  (r.apply (list (text-clip idx idx text))
+           (r.global "utf8ToInt")))
+
+(runtime: (text//char text idx)
+  (r.if! (|> (@@ idx) (within? (r.length (@@ text))))
+         ($_ r.then!
+             (r.set! idx (inc (@@ idx)))
+             (r.do! (..some (int//from-float (char-at (@@ idx) (@@ text))))))
+         (r.do! ..none)))
+
+(runtime: (text//hash input)
+  (let [bits-32 (r.code "0xFFFFFFFF")]
+    (with-vars [idx hash]
+      ($_ r.then!
+          (r.set! hash (r.int 0))
+          (r.for-in! idx (r.range (r.int 1) (text-length (@@ input)))
+                     (r.set! hash (|> (@@ hash)
+                                      (r.bit-shl (r.int 5))
+                                      (r.- (@@ hash))
+                                      (r.+ (char-at (@@ idx) (@@ input)))
+                                      (r.bit-and bits-32))))
+          (r.do! (int//from-float (@@ hash)))))))
+
+(def: runtime//text
+  Runtime
+  ($_ r.then!
+      @@text//index
+      @@text//clip
+      @@text//char
+      @@text//hash))
+
+(def: (check-index-out-of-bounds array idx body!)
+  (-> Expression Expression Statement Statement)
+  (r.if! (|> idx (r.<= (r.length array)))
+         body!
+         (r.stop! (r.string "Array index out of bounds!"))))
+
+(runtime: (array//new size)
+  (with-vars [output]
+    ($_ r.then!
+        (r.set! output (r.list (list)))
+        (r.set-nth! (|> (@@ size) (r.+ (r.int 1)))
+                    r.null
+                    output)
+        (r.do! (@@ output)))))
+
+(runtime: (array//get array idx)
+  (with-vars [temp]
+    (<| (check-index-out-of-bounds (@@ array) (@@ idx))
+        ($_ r.then!
+            (r.set! temp (|> (@@ array) (r.nth (@@ idx))))
+            (r.if! (|> (@@ temp) (r.= r.null))
+                   (r.do! ..none)
+                   (r.do! (..some (@@ temp))))))))
+
+(runtime: (array//put array idx value)
+  (<| (check-index-out-of-bounds (@@ array) (@@ idx))
+      ($_ r.then!
+          (r.set-nth! (@@ idx) (@@ value) array)
+          (r.do! (@@ array)))))
+
+(def: runtime//array
+  Runtime
+  ($_ r.then!
+      @@array//new
+      @@array//get
+      @@array//put))
+
+(def: #export atom//field Text "lux_atom")
+
+(runtime: (atom//compare-and-swap atom old new)
+  (let [atom//field (r.string atom//field)]
+    (r.do!
+     (r.if (|> (@@ atom) (r.nth atom//field) (r.= (@@ old)))
+       (r.block
+        ($_ r.then!
+            (r.set-nth! atom//field (@@ new) atom)
+            (r.do! (r.bool true))))
+       (r.bool false)))))
+
+(def: runtime//atom
+  Runtime
+  ($_ r.then!
+      @@atom//compare-and-swap))
+
+(runtime: (box//write value box)
+  ($_ r.then!
+      (r.set-nth! (r.int 1) (@@ value) box)
+      (r.do! ..unit)))
+
+(def: runtime//box
+  Runtime
+  ($_ r.then!
+      @@box//write))
+
+(def: process//incoming
+  SVar
+  (r.var (lang.normalize-name "process//incoming")))
+
+(def: (list-append! value rlist)
+  (-> Expression SVar Statement)
+  (r.set-nth! (r.length (@@ rlist)) value rlist))
+
+(runtime: (process//loop _)
+  (let [empty (r.list (list))]
+    (with-vars [queue process]
+      (let [migrate-incoming! ($_ r.then!
+                                  (r.set! queue empty)
+                                  (<| (r.for-in! process (@@ process//incoming))
+                                      (list-append! (@@ process) queue))
+                                  (r.set! process//incoming empty))
+            consume-queue! (<| (r.for-in! process (@@ queue))
+                               (r.do! (r.apply (list ..unit) (@@ process))))]
+        ($_ r.then!
+            migrate-incoming!
+            consume-queue!
+            (r.when! (|> (r.length (@@ queue)) (r.> (r.int 0)))
+                     (r.do! (process//loop ..unit))))))))
+
+(runtime: (process//future procedure)
+  ($_ r.then!
+      (list-append! (@@ procedure) process//incoming)
+      (r.do! ..unit)))
+
+(runtime: (process//schedule milli-seconds procedure)
+  (let [to-seconds (|>> (r./ (r.float 1_000.0)))
+        to-millis (|>> (r.* (r.float 1_000.0)))]
+    (with-vars [start now seconds _arg elapsed-time]
+      ($_ r.then!
+          (r.set! start current-time-float)
+          (r.set! seconds (to-seconds (@@ milli-seconds)))
+          (list-append! (r.function (list _arg)
+                          ($_ r.then!
+                              (r.set! now current-time-float)
+                              (r.set! elapsed-time (|> (@@ now) (r.- (@@ start))))
+                              (r.if! (|> (@@ elapsed-time) (r.>= (@@ seconds)))
+                                     (r.do! (@@ procedure))
+                                     (r.do! (process//schedule (to-millis (@@ elapsed-time))
+                                                               (@@ procedure))))))
+                        process//incoming)
+          (r.do! ..unit)))))
+
+(def: runtime//process
+  Runtime
+  ($_ r.then!
+      (r.set! process//incoming (r.list (list)))
+      @@process//loop
+      @@process//future
+      @@process//schedule
+      ))
+
+(def: runtime
+  Runtime
+  ($_ r.then!
+      runtime//int
+      runtime//lux
+      runtime//adt
+      runtime//bit
+      runtime//nat
+      runtime//deg
+      runtime//frac
+      runtime//text
+      runtime//array
+      runtime//atom
+      runtime//box
+      runtime//io
+      runtime//process
+      ))
+
+(def: #export artifact Text (format prefix ".r"))
+
+(def: #export translate
+  (Meta (Process Unit))
+  (do macro.Monad<Meta>
+    [_ //.init-module-buffer
+     _ (//.save runtime)]
+    (//.save-module! artifact)))

@@ -12,7 +12,8 @@
                               [:name "Eduardo Julian"]
                               [:url "https://github.com/eduardoejp"]]]
   :repositories [["snapshots" "https://oss.sonatype.org/content/repositories/snapshots/"]
-                 ["releases" "https://oss.sonatype.org/service/local/staging/deploy/maven2/"]]
+                 ["releases" "https://oss.sonatype.org/service/local/staging/deploy/maven2/"]
+                 ["bedatadriven" "https://nexus.bedatadriven.com/content/groups/public/"]]
   :scm {:name "git"
         :url "https://github.com/LuxLang/lux.git"}
 
@@ -21,7 +22,9 @@
                  [net.sandius.rembulan/rembulan-stdlib "0.1-SNAPSHOT"]
                  [net.sandius.rembulan/rembulan-compiler "0.1-SNAPSHOT"]
                  [org.jruby/jruby-complete "9.1.16.0"]
-                 [org.python/jython-standalone "2.7.1"]]
+                 [org.python/jython-standalone "2.7.1"]
+                 [org.renjin/renjin-script-engine "0.8.2527"]
+                 ]
   
   :source-paths ["source"]
   :test-paths ["test"]

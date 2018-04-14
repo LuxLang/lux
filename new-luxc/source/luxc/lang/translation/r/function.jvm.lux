@@ -1,0 +1,101 @@
+(.module:
+  lux
+  (lux (control [monad #+ do]
+                pipe)
+       (data [product]
+             [text]
+             text/format
+             (coll [list "list/" Functor<List> Fold<List>]))
+       [macro])
+  (luxc ["&" lang]
+        (lang ["ls" synthesis]
+              [".L" variable #+ Variable]
+              (host [r #+ Expression Statement @@])))
+  [//]
+  (// [".T" reference]))
+
+(def: #export (translate-apply translate functionS argsS+)
+  (-> (-> ls.Synthesis (Meta Expression)) ls.Synthesis (List ls.Synthesis) (Meta Expression))
+  (do macro.Monad<Meta>
+    [functionO (translate functionS)
+     argsO+ (monad.map @ translate argsS+)]
+    (wrap (r.apply argsO+ functionO))))
+
+(def: $curried (r.var "curried"))
+
+(def: (input-declaration register)
+  (r.set! (referenceT.variable (n/inc register))
+          (|> (@@ $curried) (r.nth (|> register n/inc nat-to-int r.int)))))
+
+(def: (with-closure function-name inits function-definition)
+  (-> Text (List Expression) Statement (Meta Expression))
+  (let [$closure (r.var (format function-name "___CLOSURE"))]
+    (case inits
+      #.Nil
+      (do macro.Monad<Meta>
+        [_ (//.save function-definition)]
+        (wrap (r.global function-name)))
+
+      _
+      (do macro.Monad<Meta>
+        [_ (//.save (r.set! $closure
+                            (r.function (|> (list.enumerate inits)
+                                            (list/map (|>> product.left referenceT.closure)))
+                              ($_ r.then!
+                                  function-definition
+                                  (r.do! (r.global function-name))))))]
+        (wrap (r.apply inits (@@ $closure)))))))
+
+(def: #export (translate-function translate env arity bodyS)
+  (-> (-> ls.Synthesis (Meta Expression))
+      (List Variable) ls.Arity ls.Synthesis
+      (Meta Expression))
+  (do macro.Monad<Meta>
+    [[function-name bodyO] (//.with-sub-context
+                             (do @
+                               [function-name //.context]
+                               (//.with-anchor [function-name +1]
+                                 (translate bodyS))))
+     closureO+ (monad.map @ referenceT.translate-variable env)
+     #let [args-inits! (|> (list.n/range +0 (n/dec arity))
+                           (list/map input-declaration)
+                           (case> #.Nil
+                                  r.no-op!
+
+                                  (#.Cons head tail)
+                                  (list/fold r.then! head tail)))
+           arityO (|> arity nat-to-int r.int)
+           $num_args (r.var "num_args")
+           $function (r.var function-name)
+           apply-poly (function (_ args func)
+                        (r.apply (list func args) (r.global "do.call")))]]
+    (with-closure function-name closureO+
+      (r.set! $function
+              (r.function (list r.var-args)
+                ($_ r.then!
+                    ## (r.set! $curried (r.apply (list (@@ r.var-args)) (r.global "list")))
+                    (r.set! $curried (@@ r.var-args))
+                    (r.set! $num_args (r.length (@@ $curried)))
+                    (r.do!
+                     (r.cond (list [(|> (@@ $num_args) (r.= arityO))
+                                    (r.block
+                                     ($_ r.then!
+                                         (r.set! (referenceT.variable +0) (@@ $function))
+                                         args-inits!
+                                         (r.do! bodyO)))]
+                                   [(|> (@@ $num_args) (r.> arityO))
+                                    (let [arity-args (r.slice (r.int 1) arityO (@@ $curried))
+                                          output-func-args (r.slice arityO (@@ $num_args) (@@ $curried))]
+                                      (|> (@@ $function)
+                                          (apply-poly arity-args)
+                                          (apply-poly output-func-args)))])
+                             ## (|> (@@ $num_args) (r.< arityO))
+                             (let [$missing (r.var "missing")]
+                               (r.function (list r.var-args)
+                                 ($_ r.then!
+                                     ## (r.set! $missing (r.apply (list (@@ r.var-args)) (r.global "list")))
+                                     (r.set! $missing (@@ r.var-args))
+                                     (r.do! (|> (@@ $function)
+                                                (apply-poly (r.apply (list (@@ $curried) (@@ $missing))
+                                                                     (r.global "append"))))))))))))))
+    ))

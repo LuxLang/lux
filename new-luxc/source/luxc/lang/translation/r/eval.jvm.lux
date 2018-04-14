@@ -1,0 +1,162 @@
+(.module:
+  lux
+  (lux (control ["ex" exception #+ exception:]
+                [monad #+ do])
+       (data [bit]
+             [maybe]
+             ["e" error #+ Error]
+             text/format
+             (coll [array]))
+       [host])
+  (luxc [lang]
+        (lang (host [r #+ Expression Statement])))
+  [//])
+
+(do-template [<name>]
+  [(exception: #export (<name> {message Text})
+     message)]
+
+  [Unknown-Kind-Of-Host-Object]
+  [Null-Has-No-Lux-Representation]
+  [Cannot-Evaluate]
+  )
+
+(host.import java/lang/Object
+  (toString [] String)
+  (getClass [] (Class Object)))
+
+(host.import java/lang/Long
+  (intValue [] Integer))
+
+(host.import org/renjin/sexp/SEXP)
+
+(host.import org/renjin/sexp/StringArrayVector
+  (getElementAsString [int] String))
+
+(host.import org/renjin/sexp/LogicalArrayVector
+  (getElementAsRawLogical [int] int))
+
+(host.import org/renjin/sexp/IntArrayVector
+  (getElementAsInt [int] int))
+
+(host.import org/renjin/sexp/DoubleArrayVector
+  (getElementAsDouble [int] double))
+
+(host.import org/renjin/sexp/ListVector
+  (length [] int)
+  (getElementAsSEXP [int] #try SEXP)
+  (getElementAsSEXP #as get-field-sexp [String] #try SEXP))
+
+(host.import org/renjin/sexp/Null) 
+
+(def: (parse-tuple lux-object host-object)
+  (-> (-> Object (Error Top)) ListVector (Error Top))
+  (let [size (:! Nat (ListVector::length [] host-object))]
+    (loop [idx +0
+           output (:! (Array Top) (array.new size))]
+      (if (n/< size idx)
+        (case (ListVector::getElementAsSEXP [(:! Int idx)] host-object)
+          (#e.Error error)
+          (#e.Error error)
+          
+          (#e.Success value)
+          (case (lux-object (:! Object value))
+            (#e.Error error)
+            (#e.Error error)
+
+            (#e.Success lux-value)
+            (recur (n/inc idx) (array.write idx (:! Top lux-value) output))))
+        (#e.Success output)))))
+
+(def: (parse-variant lux-object host-object)
+  (-> (-> Object (Error Top)) ListVector (Error Top))
+  (do e.Monad<Error>
+    [tag (ListVector::get-field-sexp [//.variant-tag-field] host-object)
+     flag (ListVector::get-field-sexp [//.variant-flag-field] host-object)
+     value (ListVector::get-field-sexp [//.variant-value-field] host-object)
+     value (lux-object (:! Object value))]
+    (wrap [(|> tag
+               (:! IntArrayVector)
+               (IntArrayVector::getElementAsInt [0])
+               (Long::intValue []))
+           (: Top
+              (if (host.instance? Null flag)
+                host.null
+                //.unit))
+           value])))
+
+(def: (parse-int host-object)
+  (-> ListVector (Error Int))
+  (do e.Monad<Error>
+    [high (ListVector::get-field-sexp [//.int-high-field] host-object)
+     low (ListVector::get-field-sexp [//.int-low-field] host-object)
+     #let [high (:! Nat (IntArrayVector::getElementAsInt [0] (:! IntArrayVector high)))
+           low (:! Nat (IntArrayVector::getElementAsInt [0] (:! IntArrayVector low)))]]
+    (wrap (|> high (bit.shift-left +32) (n/+ low) nat-to-int))))
+
+(def: (lux-object host-object)
+  (-> Object (Error Top))
+  (cond (host.instance? StringArrayVector host-object)
+        (#e.Success (StringArrayVector::getElementAsString [0] (:! StringArrayVector host-object)))
+
+        (host.instance? LogicalArrayVector host-object)
+        (#e.Success (i/= 1 (LogicalArrayVector::getElementAsRawLogical [0] (:! LogicalArrayVector host-object))))
+
+        (host.instance? IntArrayVector host-object)
+        (#e.Success (IntArrayVector::getElementAsInt [0] (:! IntArrayVector host-object)))
+
+        (host.instance? DoubleArrayVector host-object)
+        (#e.Success (DoubleArrayVector::getElementAsDouble [0] (:! DoubleArrayVector host-object)))
+
+        (host.instance? ListVector host-object)
+        (case (parse-int (:! ListVector host-object))
+          (#e.Error error)
+          (case (parse-variant lux-object (:! ListVector host-object))
+            (#e.Error error)
+            (parse-tuple lux-object (:! ListVector host-object))
+
+            output
+            output)
+
+          output
+          output)
+
+        ## else
+        (let [object-class (:! Text (Object::toString [] (Object::getClass [] (:! Object host-object))))
+              text-representation (:! Text (Object::toString [] (:! Object host-object)))]
+          (ex.throw Unknown-Kind-Of-Host-Object (format object-class " --- " text-representation))))
+  ## (case (python-type host-object)
+  ##   "tuple"
+  ##   (tuple lux-object host-object)
+
+  ##   "dict"
+  ##   (variant lux-object host-object)
+
+  ##   "NoneType"
+  ##   (#e.Success [])
+  
+  ##   type
+  ##   (ex.throw Unknown-Kind-Of-Host-Object (format type " " (Object::toString [] host-object))))
+  )
+
+(def: #export (eval code)
+  (-> Expression (Meta Top))
+  (function (_ compiler)
+    (let [interpreter (|> compiler (get@ #.host) (:! //.Host) (get@ #//.interpreter))]
+      (case (interpreter code)
+        (#e.Error error)
+        (exec (log! (format "eval #e.Error\n"
+                            "<< " (r.expression code) "\n"
+                            error))
+          ((lang.throw Cannot-Evaluate error) compiler))
+
+        (#e.Success output)
+        (case (lux-object output)
+          (#e.Success parsed-output)
+          (#e.Success [compiler parsed-output])
+
+          (#e.Error error)
+          (exec (log! (format "eval #e.Error\n"
+                              "<< " (r.expression code) "\n"
+                              error))
+            ((lang.throw Cannot-Evaluate error) compiler)))))))
