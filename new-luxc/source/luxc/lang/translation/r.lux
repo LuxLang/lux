@@ -15,7 +15,7 @@
        (world [file #+ File]))
   (luxc [lang]
         (lang [".L" variable #+ Register]
-              (host [r #+ Expression Statement]))
+              (host [r #+ Expression]))
         [".C" io]))
 
 (do-template [<name>]
@@ -56,7 +56,7 @@
 (type: #export Host
   {#context [Text Nat]
    #anchor (Maybe Anchor)
-   #loader (-> Statement (Error Unit))
+   #loader (-> Expression (Error Unit))
    #interpreter (-> Expression (Error Object))
    #module-buffer (Maybe StringBuilder)
    #program-buffer StringBuilder})
@@ -69,7 +69,7 @@
          #anchor #.None
          #loader (function (_ code)
                    (do e.Monad<Error>
-                     [_ (ScriptEngine::eval [(r.statement code)] interpreter)]
+                     [_ (ScriptEngine::eval [(r.expression code)] interpreter)]
                      (wrap [])))
          #interpreter (function (_ code)
                         (do e.Monad<Error>
@@ -164,21 +164,20 @@
   (function (_ compiler)
     (#e.Success [compiler (|> compiler (get@ #.host) (:! Host) (get@ #program-buffer))])))
 
-(do-template [<name> <field> <inputT> <outputT> <unwrap>]
+(do-template [<name> <field> <outputT>]
   [(def: (<name> code)
-     (-> <inputT> (Meta <outputT>))
+     (-> Expression (Meta <outputT>))
      (function (_ compiler)
        (let [runner (|> compiler (get@ #.host) (:! Host) (get@ <field>))]
          (case (runner code)
            (#e.Error error)
-           (exec ## (log! (<unwrap> code))
-             ((lang.throw Cannot-Execute error) compiler))
+           ((lang.throw Cannot-Execute error) compiler)
            
            (#e.Success output)
            (#e.Success [compiler output])))))]
 
-  [load!     #loader      Statement  Unit r.statement]
-  [interpret #interpreter Expression Object r.expression]
+  [load!     #loader      Unit]
+  [interpret #interpreter Object]
   )
 
 (def: #export variant-tag-field "luxVT")
@@ -194,18 +193,15 @@
   (-> Ident Text)
   (lang.normalize-name (format module "$" name)))
 
-(do-template [<name> <eval> <un-wrap> <inputT> <outputT>]
-  [(def: #export (<name> code)
-     (-> <inputT> (Meta <outputT>))
-     (do macro.Monad<Meta>
-       [module-buffer module-buffer
-        #let [_ (Appendable::append [(:! CharSequence (<un-wrap> code))]
-                                    module-buffer)]]
-       (<eval> code)))]
+(def: #export (save code)
+  (-> Expression (Meta Unit))
+  (do macro.Monad<Meta>
+    [module-buffer module-buffer
+     #let [_ (Appendable::append [(:! CharSequence (r.expression code))]
+                                 module-buffer)]]
+    (load! code)))
 
-  [save load!     r.statement  Statement  Unit]
-  [run  interpret r.expression Expression Object]
-  )
+(def: #export run interpret)
 
 (def: #export (save-module! target)
   (-> File (Meta (Process Unit)))

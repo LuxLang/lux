@@ -1,7 +1,8 @@
 (.module:
-  [lux #- not or and list if function cond]
+  [lux #- not or and list if function cond when]
   (lux (control pipe)
-       (data [text]
+       (data [maybe "maybe/" Functor<Maybe>]
+             [text]
              text/format
              [number]
              (coll [list "list/" Functor<List> Fold<List>]))
@@ -34,16 +35,26 @@
   (def: #export code (-> Text Expression) (|>> @abstraction))
 
   (def: (self-contained code)
+    (-> Text Expression)
+    (@abstraction
+     (format "(" code ")")))
+
+  (def: nest
     (-> Text Text)
-    (format "(" code ")"))
+    (|>> (format "\n")
+         (text.replace-all "\n" "\n  ")))
+
+  (def: (block expression)
+    (-> Text Text)
+    (format "{" (nest expression) "\n" "}"))
 
   (def: #export null
     Expression
-    (|> "NULL" self-contained @abstraction))
+    (|> "NULL" self-contained))
 
   (def: #export n/a
     Expression
-    (|> "NA" self-contained @abstraction))
+    (|> "NA" self-contained))
 
   (def: #export not-available Expression n/a)
   (def: #export not-applicable Expression n/a)
@@ -53,14 +64,12 @@
     (-> Bool Expression)
     (|>> (case> true "TRUE"
                 false "FALSE")
-         self-contained
-         @abstraction))
+         self-contained))
 
   (def: #export (int value)
     (-> Int Expression)
-    (@abstraction
-     (self-contained
-      (format "as.integer(" (%i value) ")"))))
+    (self-contained
+     (format "as.integer(" (%i value) ")")))
 
   (def: #export float
     (-> Frac Expression)
@@ -75,22 +84,20 @@
                 
                 ## else
                 [%f])
-         self-contained
-         @abstraction))
+         self-contained))
 
   (def: #export string
     (-> Text Expression)
-    (|>> %t self-contained @abstraction))
+    (|>> %t self-contained))
 
   (def: (composite-literal left-delimiter right-delimiter entry-serializer)
     (All [a] (-> Text Text (-> a Text)
                  (-> (List a) Expression)))
     (.function (_ entries)
-      (@abstraction
-       (self-contained
-        (format left-delimiter
-                (|> entries (list/map entry-serializer) (text.join-with ","))
-                right-delimiter)))))
+      (self-contained
+       (format left-delimiter
+               (|> entries (list/map entry-serializer) (text.join-with ","))
+               right-delimiter))))
 
   (def: #export named-list
     (-> (List [Text Expression]) Expression)
@@ -108,49 +115,50 @@
   
   (def: #export (slice from to list)
     (-> Expression Expression Expression Expression)
-    (@abstraction
-     (self-contained
-      (format (@representation list)
-              "[" (@representation from) ":" (@representation to) "]"))))
+    (self-contained
+     (format (@representation list)
+             "[" (@representation from) ":" (@representation to) "]")))
 
   (def: #export (slice-from from list)
     (-> Expression Expression Expression)
-    (@abstraction
-     (self-contained
-      (format (@representation list)
-              "[-1"  ":-" (@representation from) "]"))))
+    (self-contained
+     (format (@representation list)
+             "[-1"  ":-" (@representation from) "]")))
 
   (def: #export (apply args func)
     (-> (List Expression) Expression Expression)
-    (@abstraction
-     (self-contained
-      (format (@representation func) "(" (text.join-with "," (list/map expression args)) ")"))))
+    (self-contained
+     (format (@representation func) "(" (text.join-with "," (list/map expression args)) ")")))
 
   (def: #export (apply-kw args kw-args func)
     (-> (List Expression) (List [Text Expression]) Expression Expression)
-    (@abstraction
-     (self-contained
-      (format (@representation func)
-              (format "("
-                      (text.join-with "," (list/map expression args))
-                      (text.join-with "," (list/map (.function (_ [key val])
-                                                      (format key "=" (expression val)))
-                                                    kw-args))
-                      ")")))))
+    (self-contained
+     (format (@representation func)
+             (format "("
+                     (text.join-with "," (list/map expression args))
+                     (text.join-with "," (list/map (.function (_ [key val])
+                                                     (format key "=" (expression val)))
+                                                   kw-args))
+                     ")"))))
 
   (def: #export (nth idx list)
     (-> Expression Expression Expression)
-    (@abstraction
-     (self-contained
-      (format (@representation list) "[[" (@representation idx) "]]"))))
+    (self-contained
+     (format (@representation list) "[[" (@representation idx) "]]")))
 
   (def: #export (if test then else)
     (-> Expression Expression Expression Expression)
-    (@abstraction
-     (self-contained
-      (format "if(" (@representation test) ")"
-              " " (@representation then)
-              " else " (@representation else)))))
+    (self-contained
+     (format "if(" (@representation test) ")"
+             " " (block (@representation then))
+             " else " (block (@representation else)))))
+
+  (def: #export (when test then)
+    (-> Expression Expression Expression)
+    (self-contained
+     (format "if(" (@representation test) ") {"
+             (block (@representation then))
+             "\n" "}")))
 
   (def: #export (cond clauses else)
     (-> (List [Expression Expression]) Expression Expression)
@@ -162,11 +170,10 @@
   (do-template [<name> <op>]
     [(def: #export (<name> param subject)
        (-> Expression Expression Expression)
-       (@abstraction
-        (self-contained
-         (format (@representation subject)
-                 " " <op> " "
-                 (@representation param)))))]
+       (self-contained
+        (format (@representation subject)
+                " " <op> " "
+                (@representation param))))]
 
     [=       "=="]
     [<       "<"]
@@ -185,7 +192,7 @@
 
   (def: #export @@
     (All [k] (-> (Var k) Expression))
-    (|>> ..name self-contained @abstraction))
+    (|>> ..name self-contained))
 
   (def: #export global
     (-> Text Expression)
@@ -210,7 +217,7 @@
   (do-template [<name> <op>]
     [(def: #export <name>
        (-> Expression Expression)
-       (|>> @representation (format <op>) self-contained @abstraction))]
+       (|>> @representation (format <op>) self-contained))]
 
     [not    "!"]
     [negate "-"]
@@ -222,126 +229,66 @@
 
   (def: #export (range from to)
     (-> Expression Expression Expression)
-    (@abstraction
-     (self-contained
-      (format (@representation from) ":" (@representation to)))))
-  )
+    (self-contained
+     (format (@representation from) ":" (@representation to))))
 
-(abstract: #export Statement
-  {}
-  
-  Text
+  (def: #export (function inputs body)
+    (-> (List (Ex [k] (Var k))) Expression Expression)
+    (let [args (|> inputs (list/map ..name) (text.join-with ", "))]
+      (self-contained
+       (format "function(" args ") "
+               (..block (@representation body))))))
 
-  (def: #export statement (-> Statement Text) (|>> @representation))
+  (def: #export (try body warning error finally)
+    (-> Expression (Maybe Expression) (Maybe Expression) (Maybe Expression) Expression)
+    (let [optional (: (-> Text (Maybe Expression) (-> Text Text) Text)
+                      (.function (_ parameter value preparation)
+                        (|> value
+                            (maybe/map (|>> @representation preparation (format ", " parameter " = ")))
+                            (maybe.default ""))))]
+      (self-contained
+       (format "tryCatch("
+               (..block (@representation body))
+               (optional "warning" warning id)
+               (optional "error" error id)
+               (optional "finally" finally ..block)
+               ")"))))
 
-  (def: nest
-    (-> Statement Text)
-    (|>> @representation
-         (format "\n")
-         (text.replace-all "\n" "\n  ")))
+  (def: #export (while test body)
+    (-> Expression Expression Expression)
+    (self-contained
+     (format "while (" (@representation test) ") "
+             (..block (@representation body)))))
 
-  (def: #export (set-nth! idx value list)
-    (-> Expression Expression SVar Statement)
-    (@abstraction (format (..name list) "[" (expression idx) "] <- " (expression value))))
-
-  (def: #export (set! var value)
-    (-> (Var Single) Expression Statement)
-    (@abstraction
-     (format (..name var) " <- " (expression value))))
-
-  (def: #export (if! test then! else!)
-    (-> Expression Statement Statement Statement)
-    (@abstraction
-     (format "if(" (expression test) ") {"
-             (nest then!)
-             "\n" "} else {"
-             (nest else!)
-             "\n" "}")))
-
-  (def: #export (when! test then!)
-    (-> Expression Statement Statement)
-    (@abstraction
-     (format "if(" (expression test) ") {"
-             (nest then!)
-             "\n" "}")))
-
-  (def: #export (cond! clauses else!)
-    (-> (List [Expression Statement]) Statement Statement)
-    (list/fold (.function (_ [test then!] next!)
-                 (if! test then! next!))
-               else!
-               (list.reverse clauses)))
-
-  (def: #export (then! pre! post!)
-    (-> Statement Statement Statement)
-    (@abstraction
-     (format (@representation pre!)
-             "\n"
-             (@representation post!))))
-
-  (def: #export (while! test body!)
-    (-> Expression Statement Statement)
-    (@abstraction
-     (format "while (" (expression test) ") {"
-             (nest body!)
-             "\n" "}")))
-
-  (def: #export (do! expression)
-    (-> Expression Statement)
-    (@abstraction (..expression expression)))
-
-  (def: #export no-op!
-    Statement
-    (@abstraction "\n"))
+  (def: #export (for-in var inputs body)
+    (-> SVar Expression Expression Expression)
+    (self-contained
+     (format "for (" (..name var) " in " (..expression inputs) ")"
+             (..block (@representation body)))))
 
   (do-template [<name> <keyword>]
     [(def: #export (<name> message)
-       (-> Expression Statement)
-       (@abstraction
-        (format <keyword> "(" (expression message) ")")))]
+       (-> Expression Expression)
+       (..apply (.list message) (..global <keyword>)))]
 
-    [stop!   "stop"]
-    [print!  "print"]
+    [stop  "stop"]
+    [print "print"]
     )
 
-  (def: #export (block statement)
-    (-> Statement Expression)
-    (..code (format "{"
-                    (nest statement)
-                    "\n" "}")))
+  (def: #export (set! var value)
+    (-> (Var Single) Expression Expression)
+    (self-contained
+     (format (..name var) " <- " (@representation value))))
 
-  (def: #export (for-in! var inputs body!)
-    (-> SVar Expression Statement Statement)
+  (def: #export (set-nth! idx value list)
+    (-> Expression Expression SVar Expression)
+    (self-contained
+     (format (..name list) "[" (@representation idx) "] <- " (@representation value))))
+
+  (def: #export (then pre post)
+    (-> Expression Expression Expression)
     (@abstraction
-     (format "for (" (..name var) " in " (..expression inputs) ")"
-             (..expression (..block body!)))))
+     (format (@representation pre)
+             "\n"
+             (@representation post))))
   )
-
-(def: #export (function inputs body!)
-  (-> (List (Ex [k] (Var k))) Statement Expression)
-  (let [args (|> inputs (list/map ..name) (text.join-with ", "))]
-    (..code (format "function(" args ")" (..expression (..block body!))))))
-
-(def: #export (try body! warning error finally!)
-  (-> Statement (Maybe Expression) (Maybe Expression) (Maybe Statement) Expression)
-  (..code (format "(tryCatch("
-                  (..expression (..block body!))
-                  (case warning
-                    (#.Some warning)
-                    (format ", warning = " (..expression warning))
-                    
-                    #.None
-                    "")
-                  (case error
-                    (#.Some error)
-                    (format ", error = " (..expression error))
-                    
-                    #.None
-                    "")
-                  (case finally!
-                    (#.Some finally!)
-                    (format ", finally = " (..expression (..block finally!)))
-                    
-                    #.None
-                    "")
-                  "))")))

@@ -12,7 +12,7 @@
   (luxc [lang]
         (lang [".L" variable #+ Register Variable]
               ["ls" synthesis #+ Synthesis Path]
-              (host [r #+ Expression Statement SVar @@])))
+              (host [r #+ Expression SVar @@])))
   [//]
   (// [".T" runtime]
       [".T" primitive]
@@ -25,9 +25,9 @@
     [valueO (translate valueS)
      bodyO (translate bodyS)
      #let [$register (referenceT.variable register)]]
-    (wrap (r.block ($_ r.then!
-                       (r.set! $register valueO)
-                       (r.do! bodyO))))))
+    (wrap ($_ r.then
+              (r.set! $register valueO)
+              bodyO))))
 
 (def: #export (translate-record-get translate valueS pathP)
   (-> (-> Synthesis (Meta Expression)) Synthesis (List [Nat Bool])
@@ -52,23 +52,23 @@
 (def: top r.length)
 (def: next (|>> r.length (r.+ (r.int 1))))
 (def: (push! value var)
-  (-> Expression SVar Statement)
+  (-> Expression SVar Expression)
   (r.set-nth! (next (@@ var)) value var))
 (def: (pop! var)
-  (-> SVar Statement)
+  (-> SVar Expression)
   (r.set-nth! (top (@@ var)) r.null var))
 
 (def: (push-cursor! value)
-  (-> Expression Statement)
+  (-> Expression Expression)
   (push! value $cursor))
 
 (def: save-cursor!
-  Statement
+  Expression
   (push! (r.slice (r.float 1.0) (r.length (@@ $cursor)) (@@ $cursor))
          $savepoint))
 
 (def: restore-cursor!
-  Statement
+  Expression
   (r.set! $cursor (r.nth (top (@@ $savepoint)) (@@ $savepoint))))
 
 (def: cursor-top
@@ -76,12 +76,12 @@
   (top (@@ $cursor)))
 
 (def: pop-cursor!
-  Statement
+  Expression
   (pop! $cursor))
 
 (def: pm-error (r.string "PM-ERROR"))
 
-(def: fail-pm! (r.stop! pm-error))
+(def: fail-pm! (r.stop pm-error))
 
 (def: $temp (r.var "lux_pm_temp"))
 
@@ -90,20 +90,20 @@
 
 (def: $alt_error (r.var "alt_error"))
 
-(def: (pm-catch handler!)
-  (-> Statement Expression)
+(def: (pm-catch handler)
+  (-> Expression Expression)
   (r.function (list $alt_error)
-    (r.if! (|> (@@ $alt_error) (r.= pm-error))
-           handler!
-           (r.stop! (@@ $alt_error)))))
+    (r.if (|> (@@ $alt_error) (r.= pm-error))
+      handler
+      (r.stop (@@ $alt_error)))))
 
 (def: (translate-pattern-matching' translate pathP)
-  (-> (-> Synthesis (Meta Expression)) Path (Meta Statement))
+  (-> (-> Synthesis (Meta Expression)) Path (Meta Expression))
   (case pathP
     (^code ("lux case exec" (~ bodyS)))
     (do macro.Monad<Meta>
       [bodyO (translate bodyS)]
-      (wrap (r.do! bodyO)))
+      (wrap bodyO))
 
     (^code ("lux case pop"))
     (meta/wrap pop-cursor!)
@@ -113,8 +113,8 @@
 
     (^template [<tag> <format>]
       [_ (<tag> value)]
-      (meta/wrap (r.when! (r.not (r.= (|> value <format>) cursor-top))
-                          fail-pm!)))
+      (meta/wrap (r.when (r.not (r.= (|> value <format>) cursor-top))
+                         fail-pm!)))
     ([#.Nat  (<| runtimeT.int (:! Int))]
      [#.Int  runtimeT.int]
      [#.Deg  (<| runtimeT.int (:! Int))]
@@ -130,11 +130,11 @@
 
     (^template [<pm> <flag>]
       (^code (<pm> (~ [_ (#.Nat idx)])))
-      (meta/wrap ($_ r.then!
+      (meta/wrap ($_ r.then
                      (r.set! $temp (runtimeT.sum//get cursor-top (r.int (:! Int idx)) <flag>))
-                     (r.if! (r.not (r.= r.null (@@ $temp)))
-                            (push-cursor! (@@ $temp))
-                            fail-pm!))))
+                     (r.if (r.not (r.= r.null (@@ $temp)))
+                       (push-cursor! (@@ $temp))
+                       fail-pm!))))
     (["lux case variant left" r.null]
      ["lux case variant right" (r.string "")])
 
@@ -142,7 +142,7 @@
     (do macro.Monad<Meta>
       [leftO (translate-pattern-matching' translate leftP)
        rightO (translate-pattern-matching' translate rightP)]
-      (wrap ($_ r.then!
+      (wrap ($_ r.then
                 leftO
                 rightO)))
 
@@ -150,31 +150,31 @@
     (do macro.Monad<Meta>
       [leftO (translate-pattern-matching' translate leftP)
        rightO (translate-pattern-matching' translate rightP)]
-      (wrap (r.do! (r.try ($_ r.then!
-                              save-cursor!
-                              leftO)
-                          #.None
-                          (#.Some (pm-catch ($_ r.then!
-                                                restore-cursor!
-                                                rightO)))
-                          #.None))))
+      (wrap (r.try ($_ r.then
+                       save-cursor!
+                       leftO)
+                   #.None
+                   (#.Some (pm-catch ($_ r.then
+                                         restore-cursor!
+                                         rightO)))
+                   #.None)))
 
     _
     (lang.throw Unrecognized-Path (%code pathP))
     ))
 
 (def: (translate-pattern-matching translate pathP)
-  (-> (-> Synthesis (Meta Expression)) Path (Meta Statement))
+  (-> (-> Synthesis (Meta Expression)) Path (Meta Expression))
   (do macro.Monad<Meta>
     [pattern-matching! (translate-pattern-matching' translate pathP)]
-    (wrap (r.do! (r.try pattern-matching!
-                        #.None
-                        (#.Some (pm-catch (r.stop! (r.string "Invalid expression for pattern-matching."))))
-                        #.None)))))
+    (wrap (r.try pattern-matching!
+                 #.None
+                 (#.Some (pm-catch (r.stop (r.string "Invalid expression for pattern-matching."))))
+                 #.None))))
 
 (def: (initialize-pattern-matching! stack-init)
-  (-> Expression Statement)
-  ($_ r.then!
+  (-> Expression Expression)
+  ($_ r.then
       (r.set! $cursor (r.list (list stack-init)))
       (r.set! $savepoint (r.list (list)))))
 
@@ -183,6 +183,6 @@
   (do macro.Monad<Meta>
     [valueO (translate valueS)
      pattern-matching! (translate-pattern-matching translate pathP)]
-    (wrap (r.block ($_ r.then!
-                       (initialize-pattern-matching! valueO)
-                       pattern-matching!)))))
+    (wrap ($_ r.then
+              (initialize-pattern-matching! valueO)
+              pattern-matching!))))
