@@ -109,9 +109,12 @@
                                                           (re-find pattern entry-name))]
                                            (when matches?
                                              (let [os (new ByteArrayOutputStream 1024)
-                                                   [_data _entry] (get @!all-jar-files entry-name [(byte-array 0) nil])
-                                                   _ (write os (fuse (read (new ByteArrayInputStream _data))
-                                                                     (read (new ByteArrayInputStream entry-data))))]
+                                                   no-data (byte-array 0)
+                                                   [_data _entry] (get @!all-jar-files entry-name [no-data nil])
+                                                   _ (if (= no-data _data)
+                                                       (write os (read (new ByteArrayInputStream entry-data)))
+                                                       (write os (fuse (read (new ByteArrayInputStream _data))
+                                                                       (read (new ByteArrayInputStream entry-data)))))]
                                                (.toByteArray os)))))
                                        (eval (get project :uberjar-merge-with)))
                                  entry-data)]
