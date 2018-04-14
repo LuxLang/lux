@@ -152,12 +152,9 @@ There is also the special **^or** macro, which introduces *or patterns*:
 
 ### Is there a community for this?
 
-Come join the discussion group at: https://groups.google.com/forum/#!forum/lux-programming-language
+Come join the forum at: http://luxlang.freeforums.net/
 
 If you want to communicate with me directly, just email me at luxlisp@gmail.com
-
-Also, you can chat with us on Gitter:
-[![Join the chat at https://gitter.im/LuxLang/lux](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/LuxLang/lux?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 ### How can I edit Lux code?
 
@@ -171,8 +168,6 @@ It will always be up-to-date with the latest stable version of the language.
 
 Also, you can check out the documentation for the currently available modules: https://luxlang.github.io/lux/
 
-Finally, you can check out the Lux DevLog, where I talk about different topics related to Lux and post tutorials: http://luxlang.blogspot.com/
-
 ### How can I contribute?
 
 For starters, you can check out the Trello board for Lux development: https://trello.com/b/VRQhvXjs/lux-jvm-compiler
@@ -180,7 +175,5 @@ For starters, you can check out the Trello board for Lux development: https://tr
 I'll be putting there tasks that people can contribute to; both in the compiler and outside (like plugins for editors).
 
 Writing libraries in Lux will also help a lot in making this a more practical language for day to day use.
-
-Communication is done over Gitter and the Google group.
 
 ##### Copyright (c) 2014-2018 Eduardo Julian. All rights reserved.
