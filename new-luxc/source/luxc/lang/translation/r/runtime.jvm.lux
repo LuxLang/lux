@@ -18,13 +18,31 @@
 
 (def: #export unit Expression (r.string //.unit))
 
-(def: high (|>> int-to-nat (bit.shift-right +32) nat-to-int))
-(def: low (|>> int-to-nat (bit.and (hex "+FFFFFFFF")) nat-to-int))
+(def: full-32 (hex "+FFFFFFFF"))
+(def: half-32 (hex "+7FFFFFFF"))
+(def: post-32 (hex "+100000000"))
+
+(def: (cap-32 input)
+  (-> Nat Int)
+  (cond (n/> full-32 input)
+        (|> input (bit.and full-32) cap-32)
+        
+        (n/> half-32 input)
+        (|> post-32 (n/- input) nat-to-int (i/* -1))
+        
+        ## else
+        (nat-to-int input)))
+
+(def: high-32 (bit.shift-right +32))
+(def: low-32 (|>> (bit.and (hex "+FFFFFFFF"))))
 
 (def: #export (int value)
   (-> Int Expression)
-  (r.named-list (list [//.int-high-field (r.int (high value))]
-                      [//.int-low-field (r.int (low value))])))
+  (let [value (int-to-nat value)
+        high (|> value ..high-32 cap-32)
+        low (|> value ..low-32 cap-32)]
+    (r.named-list (list [//.int-high-field (r.int high)]
+                        [//.int-low-field (r.int low)]))))
 
 (def: (flag value)
   (-> Bool Expression)
@@ -74,7 +92,7 @@
         $runtime (` (r.var (~ (code.text runtime))))
         @runtime (` (@@ (~ $runtime)))
         argsC+ (list/map code.local-symbol args)
-        argsLC+ (list/map (|>> lang.normalize-name code.text (~) (r.var) (`))
+        argsLC+ (list/map (|>> lang.normalize-name (format "LRV__") code.text (~) (r.var) (`))
                           args)
         declaration (` ((~ (code.local-symbol name))
                         (~+ argsC+)))
@@ -82,7 +100,12 @@
                     r.Expression))]
     (wrap (list (` (def: (~' #export) (~ declaration)
                      (~ type)
-                     (r.apply (list (~+ argsC+)) (~ @runtime))))
+                     (~ (case argsC+
+                          #.Nil
+                          @runtime
+
+                          _
+                          (` (r.apply (list (~+ argsC+)) (~ @runtime)))))))
                 (` (def: (~ implementation)
                      r.Expression
                      (~ (case argsC+
@@ -109,8 +132,12 @@
 
 (def: high-shift (r.bit-shl (r.int 32)))
 
-(def: f2^32 (|> (r.int 1) high-shift))
-(def: f2^63 (|> (r.int 1) (r.bit-shl (r.int 63))))
+(runtime: f2^32 (|> (r.int 2) (r.** (r.int 32))))
+(runtime: f2^63 (|> (r.int 2) (r.** (r.int 63))))
+
+(def: (as-double value)
+  (-> Expression Expression)
+  (r.apply (list value) (r.global "as.double")))
 
 (def: (as-integer value)
   (-> Expression Expression)
@@ -130,24 +157,24 @@
                  high-shift)
         low (|> (@@ input)
                 int//unsigned-low)]
-    (|> high (r.+ low))))
+    (|> high (r.+ low) as-double)))
 
 (runtime: (int//new high low)
   (r.named-list (list [//.int-high-field (as-integer (@@ high))]
                       [//.int-low-field (as-integer (@@ low))])))
 
-(do-template [<name> <high> <low>]
+(do-template [<name> <value>]
   [(runtime: <name>
-     (int//new (r.int <high>) (r.int <low>)))]
+     (..int <value>))]
 
-  [int//zero 0 0]
-  [int//one 0 1]
-  [int//min (hex "80000000") 0]
-  [int//max (hex "7FFFFFFF") (hex "FFFFFFFF")]
+  [int//zero 0]
+  [int//one 1]
+  [int//min ("lux int min")]
+  [int//max ("lux int max")]
   )
 
-(def: int64-high (r.nth (r.string //.int-high-field)))
-(def: int64-low (r.nth (r.string //.int-low-field)))
+(def: #export int64-high (r.nth (r.string //.int-high-field)))
+(def: #export int64-low (r.nth (r.string //.int-low-field)))
 
 (runtime: (bit//not input)
   (int//new (|> (@@ input) int64-high r.bit-not)
@@ -186,11 +213,18 @@
                         (new-half (@@ x16) (@@ x00))))))))
 
 (runtime: (int//= reference sample)
-  (let [comparison (: (-> (-> Expression Expression) Expression)
+  (let [n/a? (function (_ value)
+               (r.apply (list value) (r.global "is.na")))
+        isTRUE? (function (_ value)
+                  (r.apply (list value) (r.global "isTRUE")))
+        comparison (: (-> (-> Expression Expression) Expression)
                       (function (_ field)
-                        (|> (field (@@ sample)) (r.= (field (@@ reference))))))]
+                        (|> (|> (field (@@ sample)) (r.= (field (@@ reference))))
+                            (r.or (|> (n/a? (field (@@ sample)))
+                                      (r.and (n/a? (field (@@ reference)))))))))]
     (|> (comparison int64-high)
-        (r.and (comparison int64-low)))))
+        (r.and (comparison int64-low))
+        isTRUE?)))
 
 (runtime: (int//negate input)
   (r.if (|> (@@ input) (int//= int//min))
@@ -432,9 +466,6 @@
 (def: runtime//int
   Runtime
   ($_ r.then
-      @@int//unsigned-low
-      @@int//to-float
-      @@int//new
       @@int//zero
       @@int//one
       @@int//min
@@ -443,11 +474,13 @@
       @@int//<
       @@int//+
       @@int//-
+      @@int//negate
+      @@int//-one
+      @@int//unsigned-low
+      @@int//to-float
       @@int//*
       @@int///
-      @@int//%
-      @@int//negate
-      @@int//from-float))
+      @@int//%))
 
 (runtime: (lux//try op)
   (with-vars [error value]
@@ -456,7 +489,8 @@
                (..right (@@ value)))
            #.None
            (#.Some (r.function (list error)
-                     (..left (@@ error))))
+                     (..left (r.nth (r.string "message")
+                                    (@@ error)))))
            #.None)))
 
 (runtime: (lux//program-args program-args)
@@ -590,20 +624,25 @@
         (@@ count))))
 
 (runtime: (bit//count input)
-  (int//from-float (r.+ (int64-high (@@ input))
-                        (int64-low (@@ input)))))
+  (int//from-float (r.+ (bit//count-32 (int64-high (@@ input)))
+                        (bit//count-32 (int64-low (@@ input))))))
 
 (runtime: (bit//shift-right shift input)
   ($_ r.then
       (limit-shift! shift)
       (r.cond (list (no-shift-clause shift input)
                     [(|> (@@ shift) (r.< (r.int 32)))
-                     (let [mid (|> (int64-high (@@ input)) (r.bit-shl (|> (r.int 32) (r.- (@@ shift)))))
-                           high (|> (int64-high (@@ input)) (r.bit-ushr (@@ shift)))
-                           low (|> (int64-low (@@ input))
-                                   (r.bit-ushr (@@ shift))
-                                   (r.bit-or mid))]
-                       (int//new high low))]
+                     (with-vars [$mid]
+                       (let [mid (|> (int64-high (@@ input)) (r.bit-shl (|> (r.int 32) (r.- (@@ shift)))))
+                             high (|> (int64-high (@@ input)) (r.bit-ushr (@@ shift)))
+                             low (|> (int64-low (@@ input))
+                                     (r.bit-ushr (@@ shift))
+                                     (r.bit-or (r.if (r.apply (list (@@ $mid)) (r.global "is.na"))
+                                                 (r.int 0)
+                                                 (@@ $mid))))]
+                         ($_ r.then
+                             (r.set! $mid mid)
+                             (int//new high low))))]
                     [(|> (@@ shift) (r.= (r.int 32)))
                      (let [high (int64-high (@@ input))]
                        (int//new (r.int 0) high))])
@@ -710,14 +749,14 @@
         (r.set! pL (int//from-float (int64-low (@@ param))))
         (r.set! pH (int//from-float (int64-high (@@ param))))
         (let [bottom (bit//shift-right (r.int 32)
-                                       (r.* (@@ pL) (@@ sL)))
-              middle (r.+ (r.* (@@ pL) (@@ sH))
-                          (r.* (@@ pH) (@@ sL)))
-              top (r.* (@@ pH) (@@ sH))]
+                                       (int//* (@@ pL) (@@ sL)))
+              middle (int//+ (int//* (@@ pL) (@@ sH))
+                             (int//* (@@ pH) (@@ sL)))
+              top (int//* (@@ pH) (@@ sH))]
           (|> bottom
-              (r.+ middle)
+              (int//+ middle)
               (bit//shift-right (r.int 32))
-              (r.+ top))))))
+              (int//+ top))))))
 
 (runtime: (deg//leading-zeroes input)
   (with-vars [zeroes remaining]
@@ -740,7 +779,7 @@
                                  (deg//leading-zeroes (@@ subject)))
                            (r.global "min")))
           (let [subject' (|> (@@ subject) (bit//shift-left (@@ min-shift)))
-                param' (|> (@@ param) (bit//shift-left (@@ min-shift)) int64-low int//from-float)]
+                param' (|> (@@ param) (bit//shift-left (@@ min-shift)) int64-high int//from-float)]
             (|> subject'
                 (int/// param')
                 (bit//shift-left (r.int 32))))))))
@@ -755,12 +794,9 @@
           (int//new high low)))))
 
 (runtime: (deg//to-frac input)
-  (with-vars [two32]
-    ($_ r.then
-        (r.set! two32 f2^32)
-        (let [high (|> (int64-high (@@ input)) (r./ (@@ two32)))
-              low (|> (int64-low (@@ input)) (r./ (@@ two32)) (r./ (@@ two32)))]
-          (|> low (r.+ high))))))
+  (let [high (|> (int64-high (@@ input)) (r./ f2^32))
+        low (|> (int64-low (@@ input)) (r./ f2^32) (r./ f2^32))]
+    (|> low (r.+ high))))
 
 (def: runtime//deg
   Runtime
@@ -936,7 +972,9 @@
 
 (def: (list-append! value rlist)
   (-> Expression SVar Expression)
-  (r.set-nth! (r.length (@@ rlist)) value rlist))
+  (r.set-nth! (|> (@@ rlist) r.length (r.+ (r.int 1)))
+              value
+              rlist))
 
 (runtime: (process//loop _)
   (let [empty (r.list (list))]
@@ -965,7 +1003,7 @@
     (with-vars [start now seconds _arg elapsed-time]
       ($_ r.then
           (r.set! start current-time-float)
-          (r.set! seconds (to-seconds (@@ milli-seconds)))
+          (r.set! seconds (to-seconds (int//to-float (@@ milli-seconds))))
           (list-append! (r.function (list _arg)
                           ($_ r.then
                               (r.set! now current-time-float)
@@ -989,10 +1027,14 @@
 (def: runtime
   Runtime
   ($_ r.then
-      runtime//int
       runtime//lux
-      runtime//adt
+      @@f2^32
+      @@f2^63
+      @@int//new
+      @@int//from-float
       runtime//bit
+      runtime//int
+      runtime//adt
       runtime//nat
       runtime//deg
       runtime//frac
