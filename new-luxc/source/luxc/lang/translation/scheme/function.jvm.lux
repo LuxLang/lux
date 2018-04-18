@@ -1,0 +1,87 @@
+(.module:
+  lux
+  (lux (control [monad #+ do]
+                pipe)
+       (data [product]
+             [text]
+             text/format
+             (coll [list "list/" Functor<List> Fold<List>]))
+       [macro])
+  (luxc ["&" lang]
+        (lang ["ls" synthesis]
+              [".L" variable #+ Variable]
+              (host ["_" scheme #+ Expression @@])))
+  [//]
+  (// [".T" reference]
+      [".T" runtime]))
+
+(def: #export (translate-apply translate functionS argsS+)
+  (-> (-> ls.Synthesis (Meta Expression)) ls.Synthesis (List ls.Synthesis) (Meta Expression))
+  (do macro.Monad<Meta>
+    [functionO (translate functionS)
+     argsO+ (monad.map @ translate argsS+)]
+    (wrap (_.apply functionO argsO+))))
+
+(def: $curried (_.var "curried"))
+(def: $missing (_.var "missing"))
+
+(def: input-declaration
+  (|>> n/inc referenceT.variable))
+
+(def: (with-closure function-name inits function-definition)
+  (-> Text (List Expression) Expression (Meta Expression))
+  (let [$closure (_.var (format function-name "___CLOSURE"))]
+    (do macro.Monad<Meta>
+      []
+      (case inits
+        #.Nil
+        (wrap function-definition)
+
+        _
+        (wrap (_.letrec (list [$closure
+                               (_.lambda (|> (list.enumerate inits)
+                                        (list/map (|>> product.left referenceT.closure))
+                                        _.poly)
+                                    function-definition)])
+                        (_.apply (@@ $closure) inits)))))))
+
+(def: #export (translate-function translate env arity bodyS)
+  (-> (-> ls.Synthesis (Meta Expression))
+      (List Variable) ls.Arity ls.Synthesis
+      (Meta Expression))
+  (do macro.Monad<Meta>
+    [[function-name bodyO] (//.with-sub-context
+                             (do @
+                               [function-name //.context]
+                               (//.with-anchor [function-name +1]
+                                 (translate bodyS))))
+     closureO+ (monad.map @ referenceT.translate-variable env)
+     #let [arityO (|> arity nat-to-int _.int)
+           $num_args (_.var "num_args")
+           $function (_.var function-name)
+           apply-poly (function (_ args func)
+                        (_.apply (_.global "apply") (list func args)))]]
+    (with-closure function-name closureO+
+      (_.letrec (list [$function (_.lambda $curried
+                                      (_.let (list [$num_args (_.length (@@ $curried))])
+                                        (<| (_.if (|> (@@ $num_args) (_.= arityO))
+                                              (_.let (list [(referenceT.variable +0) (@@ $function)])
+                                                (_.let-values (list [(|> (list.n/range +0 (n/dec arity))
+                                                                         (list/map input-declaration)
+                                                                         _.poly)
+                                                                     (_.apply (_.global "apply") (list (_.global "values") (@@ $curried)))])
+                                                              bodyO)))
+                                            (_.if (|> (@@ $num_args) (_.> arityO))
+                                              (let [arity-args (runtimeT.list-slice (_.int 0) arityO (@@ $curried))
+                                                    output-func-args (runtimeT.list-slice arityO
+                                                                                          (|> (@@ $num_args) (_.- arityO))
+                                                                                          (@@ $curried))]
+                                                (|> (@@ $function)
+                                                    (apply-poly arity-args)
+                                                    (apply-poly output-func-args))))
+                                            ## (|> (@@ $num_args) (_.< arityO))
+                                            (_.lambda $missing
+                                                 (|> (@@ $function)
+                                                     (apply-poly (_.append (@@ $curried) (@@ $missing))))))))])
+                (@@ $function)))
+    ))

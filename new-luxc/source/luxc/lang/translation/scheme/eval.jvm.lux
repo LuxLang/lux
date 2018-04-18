@@ -1,0 +1,154 @@
+(.module:
+  lux
+  (lux (control ["ex" exception #+ exception:]
+                [monad #+ do])
+       (data [bit]
+             [maybe]
+             ["e" error #+ Error]
+             [text "text/" Eq<Text>]
+             text/format
+             (coll [array]))
+       [host])
+  (luxc [lang]
+        (lang (host [scheme #+ Expression])))
+  [//])
+
+(do-template [<name>]
+  [(exception: #export (<name> {message Text})
+     message)]
+
+  [Unknown-Kind-Of-Host-Object]
+  [Null-Has-No-Lux-Representation]
+  [Cannot-Evaluate]
+  [invalid-variant]
+  )
+
+(host.import java/lang/Object
+  (toString [] String)
+  (getClass [] (Class Object)))
+
+(host.import java/lang/Long
+  (intValue [] Integer))
+
+(host.import java/lang/Boolean)
+(host.import java/lang/String)
+
+(host.import gnu/math/IntNum
+  (longValue [] long))
+
+(host.import gnu/math/DFloNum
+  (doubleValue [] double))
+
+(host.import (gnu/lists/FVector E)
+  (getBufferLength [] int)
+  (get [int] E))
+
+(host.import gnu/lists/EmptyList)
+
+(host.import gnu/lists/FString
+  (toString [] String))
+
+(host.import gnu/lists/Pair
+  (getCar [] Object)
+  (getCdr [] Object)
+  (get [int] Object))
+
+(host.import gnu/mapping/Symbol
+  (getName [] String))
+
+(host.import gnu/mapping/SimpleSymbol)
+
+(def: (parse-tuple lux-object host-object)
+  (-> (-> Object (Error Top)) (FVector Object) (Error Top))
+  (let [size (:! Nat (FVector::getBufferLength [] host-object))]
+    (loop [idx +0
+           output (:! (Array Top) (array.new size))]
+      (if (n/< size idx)
+        (case (lux-object (FVector::get [(:! Int idx)] host-object))
+          (#e.Error error)
+          (#e.Error error)
+
+          (#e.Success lux-value)
+          (recur (n/inc idx) (array.write idx (:! Top lux-value) output)))
+        (#e.Success output)))))
+
+(def: (variant tag flag value)
+  (-> Nat Bool Top Top)
+  [(Long::intValue [] (:! Long tag))
+   (: Top
+      (if flag
+        //.unit
+        (host.null)))
+   value])
+
+(def: (to-text value)
+  (-> Top Text)
+  (let [value-text (:! Text (Object::toString [] (:! Object value)))
+        class-text (:! Text (Object::toString [] (Object::getClass [] (:! Object value))))]
+    (format value-text " : " class-text)))
+
+(def: (parse-variant lux-object host-object)
+  (-> (-> Object (Error Top)) Pair (Error Top))
+  (let [variant-tag (Pair::getCar [] host-object)]
+    (if (and (host.instance? gnu/mapping/SimpleSymbol variant-tag)
+             (text/= //.variant-tag (Symbol::getName [] (:! Symbol variant-tag))))
+      (do e.Monad<Error>
+        [#let [host-object (:! Pair (Pair::getCdr [] host-object))]
+         tag (lux-object (Pair::getCar [] host-object))
+         #let [host-object (:! Pair (Pair::getCdr [] host-object))]
+         #let [flag (host.instance? java/lang/String
+                                    (Pair::getCar [] host-object))]
+         value (lux-object (Pair::getCdr [] host-object))]
+        (wrap (..variant (:! Nat tag) flag value)))
+      (ex.throw invalid-variant (:! Text (Object::toString [] (:! Object host-object)))))))
+
+(def: (lux-object host-object)
+  (-> Object (Error Top))
+  (cond (or (host.instance? java/lang/Boolean host-object)
+            (host.instance? java/lang/String host-object))
+        (#e.Success host-object)
+
+        (host.instance? gnu/math/IntNum host-object)
+        (#e.Success (IntNum::longValue [] (:! IntNum host-object)))
+
+        (host.instance? gnu/math/DFloNum host-object)
+        (#e.Success (DFloNum::doubleValue [] (:! DFloNum host-object)))
+
+        (host.instance? gnu/lists/FString host-object)
+        (#e.Success (FString::toString [] (:! FString host-object)))
+
+        (host.instance? gnu/lists/FVector host-object)
+        (parse-tuple lux-object (:! (FVector Object) host-object))
+
+        (host.instance? gnu/lists/EmptyList host-object)
+        (#e.Success //.unit)
+
+        (host.instance? gnu/lists/Pair host-object)
+        (parse-variant lux-object (:! Pair host-object))
+
+        ## else
+        (let [object-class (:! Text (Object::toString [] (Object::getClass [] (:! Object host-object))))
+              text-representation (:! Text (Object::toString [] (:! Object host-object)))]
+          (ex.throw Unknown-Kind-Of-Host-Object (format object-class " --- " text-representation)))))
+
+(def: #export (eval code)
+  (-> Expression (Meta Top))
+  (function (_ compiler)
+    (let [interpreter (|> compiler (get@ #.host) (:! //.Host) (get@ #//.interpreter))]
+      (case (interpreter code)
+        (#e.Error error)
+        (exec (log! (format "eval #e.Error\n"
+                            "<< " (scheme.expression code) "\n"
+                            error))
+          ((lang.throw Cannot-Evaluate error) compiler))
+
+        (#e.Success output)
+        (case (lux-object output)
+          (#e.Success parsed-output)
+          (#e.Success [compiler parsed-output])
+
+          (#e.Error error)
+          (exec (log! (format "eval #e.Error\n"
+                              "<< " (scheme.expression code) "\n"
+                              error))
+            ((lang.throw Cannot-Evaluate error) compiler)))))))

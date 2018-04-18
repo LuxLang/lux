@@ -1,0 +1,260 @@
+(.module:
+  [lux #- not or and list if function cond when let]
+  (lux (control pipe)
+       (data [maybe "maybe/" Functor<Maybe>]
+             [text]
+             text/format
+             [number]
+             (coll [list "list/" Functor<List> Fold<List>]))
+       (type abstract)))
+
+(abstract: #export Single {} Unit)
+(abstract: #export Poly {} Unit)
+
+(abstract: #export (Var kind)
+  {}
+
+  Text
+
+  (def: name (All [k] (-> (Var k) Text)) (|>> @representation))
+
+  (def: #export var (-> Text (Var Single)) (|>> @abstraction))
+
+  (def: #export (poly vars)
+    (-> (List (Var Single)) (Var Poly))
+    (@abstraction
+     (format "(" (|> vars (list/map ..name) (text.join-with " ")) ")")))
+
+  (def: #export (poly+ vars rest)
+    (-> (List (Var Single)) (Var Single) (Var Poly))
+    (@abstraction
+     (format "(" (|> vars (list/map ..name) (text.join-with " "))
+             " . " (..name rest)
+             ")")))
+  )
+
+(type: #export SVar (Var Single))
+(type: #export PVar (Var Poly))
+(type: #export *Var (Ex [k] (Var k)))
+
+(abstract: #export Expression
+  {}
+  
+  Text
+
+  (def: #export expression (-> Expression Text) (|>> @representation))
+
+  (def: #export code (-> Text Expression) (|>> @abstraction))
+
+  (def: #export nil
+    Expression
+    (@abstraction "'()"))
+
+  (def: #export bool
+    (-> Bool Expression)
+    (|>> (case> true "#t"
+                false "#f")
+         @abstraction))
+
+  (def: #export int
+    (-> Int Expression)
+    (|>> %i @abstraction))
+
+  (def: #export float
+    (-> Frac Expression)
+    (|>> (cond> [(f/= number.positive-infinity)]
+                [(new> "+inf.0")]
+                
+                [(f/= number.negative-infinity)]
+                [(new> "-inf.0")]
+                
+                [number.not-a-number?]
+                [(new> "+nan.0")]
+                
+                ## else
+                [%f])
+         @abstraction))
+
+  (def: #export positive-infinity Expression (..float number.positive-infinity))
+  (def: #export negative-infinity Expression (..float number.negative-infinity))
+  (def: #export not-a-number Expression (..float number.not-a-number))
+
+  (def: #export string
+    (-> Text Expression)
+    (|>> %t @abstraction))
+
+  (def: #export symbol
+    (-> Text Expression)
+    (|>> (format "'") @abstraction))
+
+  (def: #export (form elements)
+    (-> (List Expression) Expression)
+    (@abstraction
+     (format "(" (|> elements (list/map expression) (text.join-with " ")) ")")))
+
+  (def: #export @@
+    (All [k] (-> (Var k) Expression))
+    (|>> ..name @abstraction))
+
+  (def: #export global
+    (-> Text Expression)
+    (|>> var @@))
+  
+  (def: #export (apply func args)
+    (-> Expression (List Expression) Expression)
+    (form (#.Cons func args)))
+  
+  (do-template [<name> <function>]
+    [(def: #export <name>
+       (-> (List Expression) Expression)
+       (apply (..global <function>)))]
+
+    [vector "vector"]
+    [list   "list"]
+    )
+
+  (def: #export (apply1 func)
+    (-> Expression (-> Expression Expression))
+    (|>> (.list) (..apply func)))
+
+  (do-template [<lux-name> <scheme-name>]
+    [(def: #export <lux-name> (apply1 (..global <scheme-name>)))]
+
+    [length "length"]
+    [values "values"]
+    [null? "null?"]
+    [car "car"]
+    [cdr "cdr"]
+    [raise "raise"]
+    [error-object-message "error-object-message"]
+    [make-vector "make-vector"]
+    [not "not"]
+    [string-hash "string-hash"]
+    )
+  
+  (def: #export (apply2 func)
+    (-> Expression (-> Expression Expression Expression))
+    (.function (_ _0 _1)
+      (..apply func (.list _0 _1))))
+
+  (do-template [<lux-name> <scheme-name>]
+    [(def: #export <lux-name> (apply2 (..global <scheme-name>)))]
+
+    [append "append"]
+    [cons "cons"]
+    [vector-ref "vector-ref"]
+    [list-tail "list-tail"]
+    )
+
+  (def: #export (apply3 func)
+    (-> Expression (-> Expression Expression Expression Expression))
+    (.function (_ _0 _1 _2)
+      (..apply func (.list _0 _1 _2))))
+
+  (do-template [<lux-name> <scheme-name>]
+    [(def: #export <lux-name> (apply3 (..global <scheme-name>)))]
+
+    [vector-set! "vector-set!"]
+    )
+
+  (def: #export (vector-copy! _0 _1 _2 _3 _4)
+    (-> Expression Expression Expression Expression Expression
+        Expression)
+    (..apply (..global "vector-copy!")
+             (.list _0 _1 _2 _3 _4)))
+  
+  (do-template [<lux-name> <scheme-name>]
+    [(def: #export <lux-name>
+       (-> (List Expression) Expression)
+       (|>> (.list& (..global <scheme-name>)) ..form))]
+
+    [or "or"]
+    [and "and"]
+    )
+
+  (do-template [<lux-name> <scheme-name>]
+    [(def: #export (<lux-name> param subject)
+       (-> Expression Expression Expression)
+       (..form (.list (..global <scheme-name>) subject param)))]
+
+    [=   "="]
+    [eq? "eq?"]
+    [eqv? "eqv?"]
+    [<   "<"]
+    [<=  "<="]
+    [>   ">"]
+    [>=  ">="]
+    [string=? "string=?"]
+    [string<? "string<?"]
+    [+   "+"]
+    [-   "-"]
+    [/   "/"]
+    [*   "*"]
+    [expt "expt"]
+    [remainder "remainder"]
+    [quotient "quotient"]
+    [mod "mod"]
+    [arithmetic-shift "arithmetic-shift"]
+    [bit-and "bitwise-and"]
+    [bit-or "bitwise-ior"]
+    [bit-xor "bitwise-xor"]
+    )
+
+  (do-template [<lux-name> <scheme-name> <var>]
+    [(def: #export (<lux-name> bindings body)
+       (-> (List [<var> Expression]) Expression Expression)
+       (..form (.list (..global <scheme-name>)
+                      (|> bindings
+                          (list/map (.function (_ [fname fvalue])
+                                      (..form (.list (@@ fname) fvalue))))
+                          ..form)
+                      body)))]
+
+    [let        "let" SVar]
+    [let*       "let*" SVar]
+    [letrec     "letrec" SVar]
+    [let-values "let-values" PVar]
+    )
+
+  (def: #export (if test then else)
+    (-> Expression Expression Expression Expression)
+    (..form (.list (..global "if") test then else)))
+
+  (def: #export (when test then)
+    (-> Expression Expression Expression)
+    (..form (.list (..global "when") test then)))
+
+  (def: #export (cond clauses else)
+    (-> (List [Expression Expression]) Expression Expression)
+    (list/fold (.function (_ [test then] next)
+                 (if test then next))
+               else
+               (list.reverse clauses)))
+
+  (def: #export (lambda input body)
+    (-> *Var Expression Expression)
+    (..form (.list (..global "lambda") (@@ input) body)))
+
+  (def: #export (define name inputs body)
+    (-> SVar (List SVar) Expression Expression)
+    (..form (.list (..global "define")
+                   (case inputs
+                     #.Nil
+                     (@@ name)
+                     
+                     _
+                     (@@ (..poly (#.Cons name inputs))))
+                   body)))
+
+  (def: #export begin
+    (-> (List Expression) Expression)
+    (|>> (#.Cons (..global "begin")) ..form))
+
+  (def: #export (set! name value)
+    (-> SVar Expression Expression)
+    (..form (.list (..global "set!") (@@ name) value)))
+
+  (def: #export (with-exception-handler handler body)
+    (-> Expression Expression Expression)
+    (..form (.list (..global "with-exception-handler") handler body)))
+  )
