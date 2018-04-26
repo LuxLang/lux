@@ -9,7 +9,7 @@
              [text "text/" Eq<Text>]
              text/format
              (coll [array]
-                   [list]))
+                   [list "list/" Functor<List>]))
        ["r" math/random "r/" Monad<Random>]
        [macro]
        (macro [code])
@@ -22,56 +22,19 @@
 
 (host.import java/lang/Integer)
 
-(def: upper-alpha
-  (r.Random Nat)
-  (|> r.nat (:: r.Functor<Random> map (|>> (n/% +91) (n/max +65)))))
-
-(def: gen-primitive
-  (r.Random Synthesis)
-  (r.either (r.either (r.either (r/wrap (' []))
-                                (r/map code.bool r.bool))
-                      (r.either (r/map code.nat r.nat)
-                                (r/map code.int r.int)))
-            (r.either (r.either (r/map code.deg r.deg)
-                                (r/map code.frac r.frac))
-                      (r/map code.text (r.text' upper-alpha +5)))))
-
-(def: (corresponds? [prediction sample])
-  (-> [Synthesis Top] Bool)
-  (case prediction
-    [_ (#.Tuple #.Nil)]
-    (text/= hostL.unit (:! Text sample))
-
-    (^template [<tag> <type> <test>]
-      [_ (<tag> prediction')]
-      (case (host.try (<test> prediction' (:! <type> sample)))
-        (#e.Success result)
-        result
-
-        (#e.Error error)
-        false))
-    ([#.Bool Bool bool/=]
-     [#.Nat  Nat n/=]
-     [#.Int  Int i/=]
-     [#.Deg  Deg d/=]
-     [#.Frac Frac f/=]
-     [#.Text Text text/=])
-
-    _
-    false
-    ))
-
 (def: (tuples-spec run)
   (-> (-> Synthesis (e.Error Top)) Test)
   (do r.Monad<Random>
     [size (|> r.nat (:: @ map (|>> (n/% +10) (n/max +2))))
-     members (r.list size gen-primitive)]
+     tuple-in (r.list size r.int)]
     (test "Can translate tuple."
-          (|> (run (code.tuple members))
-              (case> (#e.Success valueT)
-                     (let [valueT (:! (Array Top) valueT)]
-                       (and (n/= size (array.size valueT))
-                            (list.every? corresponds? (list.zip2 members (array.to-list valueT)))))
+          (|> (run (code.tuple (list/map code.int tuple-in)))
+              (case> (#e.Success tuple-out)
+                     (let [tuple-out (:! (Array Top) tuple-out)]
+                       (and (n/= size (array.size tuple-out))
+                            (list.every? (function (_ [left right])
+                                           (i/= left (:! Int right)))
+                                         (list.zip2 tuple-in (array.to-list tuple-out)))))
 
                      (#e.Error error)
                      (exec (log! error)
@@ -81,25 +44,25 @@
   (-> (-> Synthesis (e.Error Top)) Test)
   (do r.Monad<Random>
     [num-tags (|> r.nat (:: @ map (|>> (n/% +10) (n/max +2))))
-     tag (|> r.nat (:: @ map (n/% num-tags)))
-     #let [last? (n/= (n/dec num-tags) tag)]
-     member gen-primitive]
+     tag-in (|> r.nat (:: @ map (n/% num-tags)))
+     #let [last?-in (n/= (n/dec num-tags) tag-in)]
+     value-in r.int]
     (test "Can translate variant."
-          (|> (run (` ((~ (code.nat tag)) (~ (code.bool last?)) (~ member))))
+          (|> (run (` ((~ (code.nat tag-in)) (~ (code.bool last?-in)) (~ (code.int value-in)))))
               (case> (#e.Success valueT)
                      (let [valueT (:! (Array Top) valueT)]
                        (and (n/= +3 (array.size valueT))
-                            (let [_tag (:! Integer (maybe.assume (array.read +0 valueT)))
-                                  _last? (array.read +1 valueT)
-                                  _value (:! Top (maybe.assume (array.read +2 valueT)))
-                                  same-tag? (n/= tag (|> _tag host.int-to-long (:! Nat)))
-                                  same-flag? (case _last?
-                                               (#.Some _last?')
-                                               (and last? (text/= "" (:! Text _last?')))
+                            (let [tag-out (:! Integer (maybe.assume (array.read +0 valueT)))
+                                  last?-out (array.read +1 valueT)
+                                  value-out (:! Top (maybe.assume (array.read +2 valueT)))
+                                  same-tag? (n/= tag-in (|> tag-out host.int-to-long (:! Nat)))
+                                  same-flag? (case last?-out
+                                               (#.Some last?-out')
+                                               (and last?-in (text/= "" (:! Text last?-out')))
 
                                                #.None
-                                               (not last?))
-                                  same-value? (corresponds? [member _value])]
+                                               (not last?-in))
+                                  same-value? (i/= value-in (:! Int value-out))]
                               (and same-tag?
                                    same-flag?
                                    same-value?))))
@@ -138,6 +101,10 @@
 ##   (<| (times +100)
 ##       (structure-spec run-r)))
 
-(context: "[Scheme] Structures."
+## (context: "[Scheme] Structures."
+##   (<| (times +100)
+##       (structure-spec run-scheme)))
+
+(context: "[Common Lisp] Structures."
   (<| (times +100)
-      (structure-spec run-scheme)))
+      (structure-spec run-common-lisp)))

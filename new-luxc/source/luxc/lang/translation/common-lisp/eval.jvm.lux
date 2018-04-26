@@ -1,0 +1,166 @@
+(.module:
+  lux
+  (lux (control ["ex" exception #+ exception:]
+                [monad #+ do])
+       (data [bit]
+             [maybe]
+             ["e" error #+ Error]
+             [text "text/" Eq<Text>]
+             text/format
+             (coll [array]))
+       [host])
+  (luxc [lang]
+        (lang (host ["_" common-lisp #+ Expression])))
+  [//])
+
+(host.import java/lang/Object
+  (toString [] String)
+  (getClass [] (Class Object)))
+
+(host.import java/lang/Long
+  (intValue [] Integer))
+
+(host.import (java/lang/Class ?)
+  (#static forName [String] #try (Class Object)))
+
+(def: _0
+  Unit
+  (case (Class::forName "org.armedbear.lisp.Symbol")
+    (#e.Success _)
+    (log! "LOADED")
+
+    (#e.Error error)
+    (log! error)))
+
+(do-template [<name>]
+  [(exception: #export (<name> {message Text})
+     message)]
+
+  [Null-Has-No-Lux-Representation]
+  [Cannot-Evaluate]
+  [invalid-variant]
+  )
+
+(exception: #export (Unknown-Kind-Of-Host-Object {host-object Object})
+  (let [object-class (:! Text (Object::toString [] (Object::getClass [] (:! Object host-object))))
+        text-representation (:! Text (Object::toString [] (:! Object host-object)))]
+    (format object-class " --- " text-representation)))
+
+(host.import org/armedbear/lisp/LispObject)
+
+(host.import org/armedbear/lisp/SimpleString
+  (getStringValue [] String))
+
+(host.import org/armedbear/lisp/Symbol
+  (#static T Symbol)
+  (getName [] String))
+
+(host.import org/armedbear/lisp/DoubleFloat
+  (doubleValue [] double))
+
+(host.import org/armedbear/lisp/Bignum
+  (longValue [] long))
+
+(host.import org/armedbear/lisp/Fixnum
+  (longValue [] long))
+
+(host.import org/armedbear/lisp/Nil)
+
+(host.import org/armedbear/lisp/SimpleVector
+  (length [] int)
+  (elt [int] LispObject))
+
+(def: (parse-tuple lux-object host-object)
+  (-> (-> Object (Error Top)) SimpleVector (Error Top))
+  (let [size (:! Nat (SimpleVector::length [] host-object))]
+    (loop [idx +0
+           output (:! (Array Top) (array.new size))]
+      (if (n/< size idx)
+        (case (lux-object (SimpleVector::elt [(:! Int idx)] host-object))
+          (#e.Error error)
+          (#e.Error error)
+
+          (#e.Success lux-value)
+          (recur (n/inc idx) (array.write idx (:! Top lux-value) output)))
+        (#e.Success output)))))
+
+(def: (variant tag flag value)
+  (-> Nat Bool Top Top)
+  [(Long::intValue [] (:! Long tag))
+   (: Top
+      (if flag
+        //.unit
+        (host.null)))
+   value])
+
+(host.import org/armedbear/lisp/Cons
+  (car LispObject)
+  (cdr LispObject))
+
+(def: (parse-variant lux-object host-object)
+  (-> (-> Object (Error Top)) Cons (Error Top))
+  (let [variant-tag (Cons::car host-object)]
+    (if (and (host.instance? org/armedbear/lisp/Symbol variant-tag)
+             (text/= //.variant-tag (text.lower-case (Symbol::getName [] (:! Symbol variant-tag)))))
+      (do e.Monad<Error>
+        [#let [host-object (:! Cons (Cons::cdr host-object))]
+         tag (lux-object (Cons::car host-object))
+         #let [host-object (:! Cons (Cons::cdr host-object))]
+         #let [flag (host.instance? org/armedbear/lisp/SimpleString
+                                    (Cons::car host-object))]
+         value (lux-object (Cons::cdr host-object))]
+        (wrap (..variant (:! Nat tag) flag value)))
+      (ex.throw invalid-variant (:! Text (Object::toString [] (:! Object host-object)))))))
+
+(def: (lux-object host-object)
+  (-> Object (Error Top))
+  (cond (host.instance? org/armedbear/lisp/Bignum host-object)
+        (#e.Success (Bignum::longValue [] (:! Bignum host-object)))
+
+        (host.instance? org/armedbear/lisp/Fixnum host-object)
+        (#e.Success (Fixnum::longValue [] (:! Fixnum host-object)))
+
+        (host.instance? org/armedbear/lisp/DoubleFloat host-object)
+        (#e.Success (DoubleFloat::doubleValue [] (:! DoubleFloat host-object)))
+
+        (host.instance? org/armedbear/lisp/Nil host-object)
+        (#e.Success false)
+
+        (host.instance? org/armedbear/lisp/Symbol host-object)
+        (if (is? Symbol::T (:! Symbol host-object))
+          (#e.Success true)
+          (ex.throw Unknown-Kind-Of-Host-Object (:! Object host-object)))
+
+        (host.instance? org/armedbear/lisp/SimpleString host-object)
+        (#e.Success (SimpleString::getStringValue [] (:! SimpleString host-object)))
+
+        (host.instance? org/armedbear/lisp/SimpleVector host-object)
+        (parse-tuple lux-object (:! SimpleVector host-object))
+
+        (host.instance? org/armedbear/lisp/Cons host-object)
+        (parse-variant lux-object (:! Cons host-object))
+
+        ## else
+        (ex.throw Unknown-Kind-Of-Host-Object (:! Object host-object))))
+
+(def: #export (eval code)
+  (-> Expression (Meta Top))
+  (function (_ compiler)
+    (let [interpreter (|> compiler (get@ #.host) (:! //.Host) (get@ #//.interpreter))]
+      (case (interpreter code)
+        (#e.Error error)
+        (exec (log! (format "eval #e.Error\n"
+                            "<< " (_.expression code) "\n"
+                            error))
+          ((lang.throw Cannot-Evaluate error) compiler))
+
+        (#e.Success output)
+        (case (lux-object output)
+          (#e.Success parsed-output)
+          (#e.Success [compiler parsed-output])
+
+          (#e.Error error)
+          (exec (log! (format "eval #e.Error\n"
+                              "<< " (_.expression code) "\n"
+                              error))
+            ((lang.throw Cannot-Evaluate error) compiler)))))))

@@ -1,0 +1,183 @@
+(.module:
+  lux
+  (lux (control [monad #+ do]
+                ["ex" exception #+ exception:])
+       (data [number]
+             [text]
+             text/format
+             (coll [list "list/" Functor<List> Fold<List>]
+                   [set #+ Set]))
+       [macro #+ "meta/" Monad<Meta>]
+       (macro [code]))
+  (luxc [lang]
+        (lang [".L" variable #+ Register Variable]
+              ["ls" synthesis #+ Synthesis Path]
+              (host ["_" common-lisp #+ Expression Handler SVar @@])))
+  [//]
+  (// [".T" runtime]
+      [".T" primitive]
+      [".T" reference]))
+
+(def: #export (translate-let translate register valueS bodyS)
+  (-> (-> Synthesis (Meta Expression)) Register Synthesis Synthesis
+      (Meta Expression))
+  (do macro.Monad<Meta>
+    [valueO (translate valueS)
+     bodyO (translate bodyS)
+     #let [$register (referenceT.variable register)]]
+    (wrap (_.let (list [$register valueO])
+            bodyO))))
+
+(def: #export (translate-record-get translate valueS pathP)
+  (-> (-> Synthesis (Meta Expression)) Synthesis (List [Nat Bool])
+      (Meta Expression))
+  (do macro.Monad<Meta>
+    [valueO (translate valueS)]
+    (wrap (list/fold (function (_ [idx tail?] source)
+                       (let [method (if tail?
+                                      runtimeT.product//right
+                                      runtimeT.product//left)]
+                         (method source (_.int (:! Int idx)))))
+                     valueO
+                     pathP))))
+
+(def: #export (translate-if testO thenO elseO)
+  (-> Expression Expression Expression Expression)
+  (_.if testO thenO elseO))
+
+(def: $savepoint (_.var "lux_pm_cursor_savepoint"))
+(def: $cursor (_.var "lux_pm_cursor"))
+
+(def: top _.length)
+(def: (push! value var)
+  (-> Expression SVar Expression)
+  (_.setq! var (_.cons value (@@ var))))
+(def: (pop! var)
+  (-> SVar Expression)
+  (_.setq! var (@@ var)))
+
+(def: (push-cursor! value)
+  (-> Expression Expression)
+  (push! value $cursor))
+
+(def: save-cursor!
+  Expression
+  (push! (@@ $cursor) $savepoint))
+
+(def: restore-cursor!
+  Expression
+  (_.setq! $cursor (_.car (@@ $savepoint))))
+
+(def: cursor-top
+  Expression
+  (_.car (@@ $cursor)))
+
+(def: pop-cursor!
+  Expression
+  (pop! $cursor))
+
+(def: pm-error (_.string "PM-ERROR"))
+
+(def: fail-pm! (_.error pm-error))
+
+(def: $temp (_.var "lux_pm_temp"))
+
+(exception: #export (Unrecognized-Path {message Text})
+  message)
+
+(def: $alt_error (_.var "alt_error"))
+
+(def: (pm-catch handler)
+  (-> Expression Handler)
+  [(_.bool true) $alt_error
+   (_.progn
+    (list
+     (_.setq! $alt_error (_.format/3 _.nil (_.string "~A") (@@ $alt_error)))
+     (_.if (|> (@@ $alt_error) (_.equal pm-error))
+       handler
+       (_.error (@@ $alt_error)))))])
+
+(def: (translate-pattern-matching' translate pathP)
+  (-> (-> Synthesis (Meta Expression)) Path (Meta Expression))
+  (case pathP
+    (^code ("lux case exec" (~ bodyS)))
+    (do macro.Monad<Meta>
+      [bodyO (translate bodyS)]
+      (wrap bodyO))
+
+    (^code ("lux case pop"))
+    (meta/wrap pop-cursor!)
+
+    (^code ("lux case bind" (~ [_ (#.Nat register)])))
+    (meta/wrap (_.setq! (referenceT.variable register) cursor-top))
+
+    (^template [<tag> <format> <=>]
+      [_ (<tag> value)]
+      (meta/wrap (_.when (|> value <format> (<=> cursor-top) _.not)
+                         fail-pm!)))
+    ([#.Bool _.bool _.equal]
+     [#.Nat  (<| _.int (:! Int)) _.=]
+     [#.Int  _.int _.=]
+     [#.Deg  (<| _.int (:! Int)) _.=]
+     [#.Frac _.float _.=]
+     [#.Text _.string _.equal])
+
+    (^template [<pm> <getter>]
+      (^code (<pm> (~ [_ (#.Nat idx)])))
+      (meta/wrap (push-cursor! (<getter> cursor-top (_.int (:! Int idx))))))
+    (["lux case tuple left" runtimeT.product//left]
+     ["lux case tuple right" runtimeT.product//right])
+
+    (^template [<pm> <flag>]
+      (^code (<pm> (~ [_ (#.Nat idx)])))
+      (meta/wrap (_.progn (list (_.setq! $temp (runtimeT.sum//get cursor-top (_.int (:! Int idx)) <flag>))
+                                (_.if (_.null (@@ $temp))
+                                  fail-pm!
+                                  (push-cursor! (@@ $temp)))))))
+    (["lux case variant left" _.nil]
+     ["lux case variant right" (_.string "")])
+
+    (^code ("lux case seq" (~ leftP) (~ rightP)))
+    (do macro.Monad<Meta>
+      [leftO (translate-pattern-matching' translate leftP)
+       rightO (translate-pattern-matching' translate rightP)]
+      (wrap (_.progn (list leftO
+                           rightO))))
+
+    (^code ("lux case alt" (~ leftP) (~ rightP)))
+    (do macro.Monad<Meta>
+      [leftO (translate-pattern-matching' translate leftP)
+       rightO (translate-pattern-matching' translate rightP)]
+      (wrap (runtimeT.with-vars [error]
+              (_.handler-case
+               (list (pm-catch (_.progn (list restore-cursor!
+                                              rightO))))
+               (_.progn (list save-cursor!
+                              leftO))))))
+
+    _
+    (lang.throw Unrecognized-Path (%code pathP))
+    ))
+
+(def: (translate-pattern-matching translate pathP)
+  (-> (-> Synthesis (Meta Expression)) Path (Meta Expression))
+  (do macro.Monad<Meta>
+    [pattern-matching! (translate-pattern-matching' translate pathP)]
+    (wrap (_.handler-case
+           (list (pm-catch (_.error (_.string "Invalid expression for pattern-matching."))))
+           pattern-matching!))))
+
+(def: (initialize-pattern-matching! stack-init body)
+  (-> Expression Expression Expression)
+  (_.let (list [$cursor (_.list (list stack-init))]
+               [$savepoint (_.list (list))]
+               [$temp _.nil])
+    body))
+
+(def: #export (translate-case translate valueS pathP)
+  (-> (-> Synthesis (Meta Expression)) Synthesis Path (Meta Expression))
+  (do macro.Monad<Meta>
+    [valueO (translate valueS)
+     pattern-matching! (translate-pattern-matching translate pathP)]
+    (wrap (<| (initialize-pattern-matching! valueO)
+              pattern-matching!))))

@@ -44,15 +44,6 @@
                                  ["lux bit unsigned-shift-right" bit.shift-right (n/% +64 param)]
                                  )]
       ($_ seq
-          (test "lux bit count"
-                (|> (run (` ("lux bit count" (~ (code.nat subject)))))
-                    (case> (#e.Success valueT)
-                           (n/= (bit.count subject) (:! Nat valueT))
-
-                           (#e.Error error)
-                           (exec (log! error)
-                             false))))
-
           <binary>
           (test "lux bit shift-right"
                 (|> (run (` ("lux bit shift-right"
@@ -67,59 +58,6 @@
                              false))
                     (let [param (n/% +64 param)])))
           ))))
-
-(def: (nat-spec run)
-  (-> Runner Test)
-  (do r.Monad<Random>
-    [param (|> r.nat (r.filter (|>> (n/= +0) not)))
-     subject r.nat]
-    (`` ($_ seq
-            (~~ (do-template [<name> <reference>]
-                  [(test <name>
-                         (|> (run (` (<name>)))
-                             (case> (#e.Success valueT)
-                                    (n/= <reference> (:! Nat valueT))
-
-                                    (#e.Error error)
-                                    (exec (log! error)
-                                      false))))]
-
-                  ["lux nat min" nat/bottom]
-                  ["lux nat max" nat/top]
-                  ))
-            (~~ (do-template [<name> <type> <prepare> <comp> <subject-expr>]
-                  [(test <name>
-                         (|> (run (` (<name> (~ (code.nat subject)))))
-                             (case> (#e.Success valueT)
-                                    (<comp> (<prepare> subject) (:! <type> valueT))
-
-                                    (#e.Error error)
-                                    (exec (log! error)
-                                      false))
-                             (let [subject <subject-expr>])))]
-
-                  ["lux nat to-int" Int  nat-to-int     i/=    subject]
-                  ["lux nat char"   Text text.from-code text/= (n/% (bit.shift-left +8 +1) subject)]
-                  ))
-            (~~ (do-template [<name> <reference> <outputT> <comp>]
-                  [(test <name>
-                         (|> (run (` (<name> (~ (code.nat subject)) (~ (code.nat param)))))
-                             (case> (#e.Success valueT)
-                                    (<comp> (<reference> param subject) (:! <outputT> valueT))
-
-                                    (#e.Error error)
-                                    (exec (log! error)
-                                      false))))]
-
-                  ["lux nat +" n/+ Nat  n/=]
-                  ["lux nat -" n/- Nat  n/=]
-                  ["lux nat *" n/* Nat  n/=]
-                  ["lux nat /" n// Nat  n/=]
-                  ["lux nat %" n/% Nat  n/=]
-                  ["lux nat =" n/= Bool bool/=]
-                  ["lux nat <" n/< Bool bool/=]
-                  ))
-            ))))
 
 (def: (int-spec run)
   (-> Runner Test)
@@ -142,7 +80,7 @@
                   ["lux int min" int/bottom]
                   ["lux int max" int/top]
                   ))
-            (~~ (do-template [<name> <type> <prepare> <comp>]
+            (~~ (do-template [<name> <type> <prepare> <comp> <subject-expr>]
                   [(test <name>
                          (|> (run (` (<name> (~ (code.int subject)))))
                              (case> (#e.Success valueT)
@@ -150,10 +88,14 @@
 
                                     (#e.Error error)
                                     (exec (log! error)
-                                      false))))]
+                                      false))
+                             (let [subject <subject-expr>])))]
 
-                  ["lux int to-nat"  Nat  int-to-nat  n/=]
-                  ["lux int to-frac" Frac int-to-frac f/=]
+                  ["lux int to-frac" Frac int-to-frac f/= subject]
+                  ["lux int char"    Text (|>> (:! Nat) text.from-code) text/= (|> subject
+                                                                                   (:! Nat)
+                                                                                   (n/% (bit.shift-left +8 +1))
+                                                                                   (:! Int))]
                   ))
             (~~ (do-template [<name> <reference> <outputT> <comp>]
                   [(test <name>
@@ -233,16 +175,7 @@
                                     (exec (log! error)
                                       false))))]
 
-                  ["lux frac to-int" "lux int to-frac" (f/< 1.0)]
-                  ["lux frac to-deg" "lux deg to-frac" (f/<= 0.000000001)]))
-            (test "frac encode|decode"
-                  (|> (run (` ("lux frac decode" ("lux frac encode" (~ (code.frac subject))))))
-                      (case> (^multi (#e.Success valueT)
-                                     [(:! (Maybe Frac) valueT) (#.Some value)])
-                             (f/= subject value)
-
-                             _
-                             false)))
+                  ["lux frac to-int" "lux int to-frac" (f/< 1.0)]))
             ))))
 
 (def: (frac-spec run)
@@ -250,85 +183,6 @@
   ($_ seq
       (frac-spec|0 run)
       (frac-spec|1 run)))
-
-(def: deg-threshold
-  {#.doc "~ 1/(2^30)"}
-  Deg
-  .000000001)
-
-(def: (above-threshold value)
-  (-> Deg Deg)
-  (if (d/< deg-threshold value)
-    (d/+ deg-threshold value)
-    value))
-
-(def: (deg-difference reference sample)
-  (-> Deg Deg Deg)
-  (if (d/> reference sample)
-    (d/- reference sample)
-    (d/- sample reference)))
-
-(def: (deg-spec run)
-  (-> Runner Test)
-  (do r.Monad<Random>
-    [param (|> r.deg (:: @ map above-threshold))
-     special r.nat
-     subject (|> r.deg (:: @ map above-threshold))]
-    (`` ($_ seq
-            (~~ (do-template [<name> <reference>]
-                  [(test <name>
-                         (|> (run (` (<name>)))
-                             (case> (#e.Success valueT)
-                                    (d/= <reference> (:! Deg valueT))
-
-                                    _
-                                    false)))]
-
-                  ["lux deg min" deg/bottom]
-                  ["lux deg max" deg/top]
-                  ))
-            (~~ (do-template [<forward> <backward> <type>]
-                  [(test <forward>
-                         (|> (run (` (<backward> (<forward> (~ (code.deg subject))))))
-                             (case> (#e.Success valueV)
-                                    (d/<= deg-threshold (deg-difference subject (:! <type> valueV)))
-
-                                    _
-                                    false)))]
-
-                  ["lux deg to-frac" "lux frac to-deg" Deg]
-                  ))
-            (~~ (do-template [<name> <reference> <outputT> <comp>]
-                  [(test <name>
-                         (|> (run (` (<name> (~ (code.deg subject)) (~ (code.deg param)))))
-                             (case> (#e.Success valueT)
-                                    (<comp> (<reference> param subject) (:! <outputT> valueT))
-
-                                    (#e.Error error)
-                                    (exec (log! error)
-                                      false))))]
-
-                  ["lux deg +" d/+ Deg  d/=]
-                  ["lux deg -" d/- Deg  d/=]
-                  ["lux deg *" d/* Deg  d/=]
-                  ["lux deg /" d// Deg  d/=]
-                  ["lux deg %" d/% Deg  d/=]
-                  ["lux deg =" d/= Bool bool/=]
-                  ["lux deg <" d/< Bool bool/=]
-                  ))
-            (~~ (do-template [<name> <reference> <outputT> <comp>]
-                  [(test <name>
-                         (|> (run (` (<name> (~ (code.deg subject)) (~ (code.nat special)))))
-                             (case> (#e.Success valueT)
-                                    (<comp> (<reference> special subject) (:! <outputT> valueT))
-
-                                    _
-                                    false)))]
-
-                  ["lux deg scale"      d/scale      Deg d/=]
-                  ["lux deg reciprocal" d/reciprocal Deg d/=]
-                  ))
-            ))))
 
 (def: lower-alpha
   (r.Random Nat)
@@ -424,7 +278,9 @@
                               _
                               false))))
         (test "Text hashing is consistent."
-              (|> (run (` ("lux nat =" ("lux text hash" (~ sample0S)) ("lux text hash" (~ sample0S)))))
+              (|> (run (` ("lux int ="
+                           ("lux text hash" (~ sample0S))
+                           ("lux text hash" (~ sample0S)))))
                   (case> (#e.Success valueV)
                          (:! Bool valueV)
                          
@@ -696,37 +552,24 @@
       (do r.Monad<Random>
         [delay (|> r.nat (:: @ map (n/% +10)))
          message (r.text +5)]
-        ($_ seq
-            (test "Can execute I/O operations in parallel."
-                  (|> (run (` ("lux process future"
-                               ("lux function" +1 []
-                                ("lux io log" (~ (code.text (format "EXECUTE: " message))))))))
-                      (case> (#e.Success valueV)
-                             true
+        (test "Can schedule I/O operations for future execution."
+              (|> (run (` ("lux process schedule"
+                           (~ (code.nat delay))
+                           ("lux function" +1 []
+                            ("lux io log" (~ (code.text (format "SCHEDULE: " message))))))))
+                  (case> (#e.Success valueV)
+                         true
 
-                             (#e.Error error)
-                             (exec (log! error)
-                               false))))
-            (test "Can schedule I/O operations for future execution."
-                  (|> (run (` ("lux process schedule"
-                               (~ (code.nat delay))
-                               ("lux function" +1 []
-                                ("lux io log" (~ (code.text (format "SCHEDULE: " message))))))))
-                      (case> (#e.Success valueV)
-                             true
-
-                             (#e.Error error)
-                             (exec (log! error)
-                               false))))
-            ))))
+                         (#e.Error error)
+                         (exec (log! error)
+                           false)))))
+      ))
 
 (def: (all-specs run)
   (-> Runner Test)
   ($_ seq
       (bit-spec run)
-      (nat-spec run)
       (int-spec run)
-      (deg-spec run)
       (frac-spec run)
       (text-spec run)
       (array-spec run)
@@ -761,6 +604,10 @@
 ##   (<| (times +100)
 ##       (all-specs run-r)))
 
-(context: "[Scheme] Common procedures."
+## (context: "[Scheme] Common procedures."
+##   (<| (times +100)
+##       (all-specs run-scheme)))
+
+(context: "[Common Lisp] Common procedures."
   (<| (times +100)
-      (all-specs run-scheme)))
+      (all-specs run-common-lisp)))

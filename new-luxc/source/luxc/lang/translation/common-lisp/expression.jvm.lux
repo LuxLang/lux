@@ -1,0 +1,87 @@
+(.module:
+  lux
+  (lux (control [monad #+ do]
+                ["ex" exception #+ exception:]
+                ["p" parser])
+       (data ["e" error]
+             text/format)
+       [macro]
+       (macro ["s" syntax]))
+  (luxc ["&" lang]
+        (lang [".L" variable #+ Variable Register]
+              [".L" extension]
+              ["ls" synthesis]
+              (host ["_" common-lisp #+ Expression])))
+  [//]
+  (// [".T" runtime]
+      [".T" primitive]
+      [".T" structure]
+      [".T" function]
+      [".T" reference]
+      [".T" case]
+      [".T" procedure]))
+
+(do-template [<name>]
+  [(exception: #export (<name> {message Text})
+     message)]
+
+  [Invalid-Function-Syntax]
+  [Unrecognized-Synthesis]
+  )
+
+(def: #export (translate synthesis)
+  (-> ls.Synthesis (Meta Expression))
+  (case synthesis
+    (^code [])
+    (:: macro.Monad<Meta> wrap runtimeT.unit)
+
+    (^template [<tag> <generator>]
+      [_ (<tag> value)]
+      (<generator> value))
+    ([#.Bool primitiveT.translate-bool]
+     [#.Nat  primitiveT.translate-nat]
+     [#.Int  primitiveT.translate-int]
+     [#.Deg  primitiveT.translate-deg]
+     [#.Frac primitiveT.translate-frac]
+     [#.Text primitiveT.translate-text])
+
+    (^code ((~ [_ (#.Nat tag)]) (~ [_ (#.Bool last?)]) (~ valueS)))
+    (structureT.translate-variant translate tag last? valueS)
+
+    (^code [(~ singleton)])
+    (translate singleton)
+
+    (^code [(~+ members)])
+    (structureT.translate-tuple translate members)
+
+    (^ [_ (#.Form (list [_ (#.Int var)]))])
+    (referenceT.translate-variable var)
+
+    [_ (#.Symbol definition)]
+    (referenceT.translate-definition definition)
+
+    (^code ("lux call" (~ functionS) (~+ argsS)))
+    (functionT.translate-apply translate functionS argsS)
+
+    (^code ("lux function" (~ [_ (#.Nat arity)]) [(~+ environment)] (~ bodyS)))
+    (case (s.run environment (p.some s.int))
+      (#e.Success environment)
+      (functionT.translate-function translate environment arity bodyS)
+
+      _
+      (&.throw Invalid-Function-Syntax (%code synthesis)))
+
+    (^code ("lux let" (~ [_ (#.Nat register)]) (~ inputS) (~ exprS)))
+    (caseT.translate-let translate register inputS exprS)
+
+    (^code ("lux case" (~ inputS) (~ pathPS)))
+    (caseT.translate-case translate inputS pathPS)
+
+    (^code ((~ [_ (#.Text procedure)]) (~+ argsS)))
+    (procedureT.translate-procedure translate procedure argsS)
+    ## (do macro.Monad<Meta>
+    ##   [translation (extensionL.find-translation procedure)]
+    ##   (translation argsS))
+
+    _
+    (&.throw Unrecognized-Synthesis (%code synthesis))))
