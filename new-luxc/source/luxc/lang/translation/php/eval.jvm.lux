@@ -1,0 +1,147 @@
+(.module:
+  lux
+  (lux (control [monad #+ do]
+                ["ex" exception #+ exception:])
+       (data [bit]
+             [maybe]
+             ["e" error #+ Error]
+             text/format
+             (coll [array]))
+       [host])
+  (luxc [lang]
+        (lang (host ["_" php #+ Expression Statement])))
+  [//])
+
+(do-template [<name>]
+  [(exception: #export (<name> {message Text})
+     message)]
+
+  [Not-A-Variant]
+  [Null-Has-No-Lux-Representation]
+  [Cannot-Evaluate]
+  )
+
+(host.import java/lang/Object
+  (toString [] String)
+  (getClass [] (Class Object)))
+
+(host.import java/lang/Long
+  (intValue [] Integer))
+
+(exception: #export (Unknown-Kind-Of-Host-Object {host-object Object})
+  (let [object-class (:! Text (Object::toString [] (Object::getClass [] (:! Object host-object))))
+        text-representation (:! Text (Object::toString [] (:! Object host-object)))]
+    (format object-class " --- " text-representation)))
+
+(host.import php/runtime/Memory)
+
+(host.import php/runtime/memory/NullMemory)
+
+(host.import php/runtime/memory/FalseMemory)
+(host.import php/runtime/memory/TrueMemory)
+
+(host.import php/runtime/memory/LongMemory
+  (new [long])
+  (toLong [] long))
+
+(host.import php/runtime/memory/DoubleMemory
+  (toDouble [] double))
+
+(host.import php/runtime/memory/StringMemory
+  (new [String])
+  (toString [] String))
+
+(host.import php/runtime/memory/ReferenceMemory
+  (getValue [] Memory))
+
+(host.import php/runtime/memory/ArrayMemory
+  (size [] int)
+  (isMap [] boolean)
+  (get [Memory] Memory))
+
+(def: (tuple lux-object host-object)
+  (-> (-> Object (Error Top)) ArrayMemory (Error Top))
+  (let [size (ArrayMemory::size [] host-object)]
+    (loop [idx 0
+           output (: (Array Top) (array.new (:! Nat size)))]
+      (if (i/< size idx)
+        (let [value (|> host-object
+                        (ArrayMemory::get [(LongMemory::new [idx])])
+                        (:! ReferenceMemory) (ReferenceMemory::getValue []))]
+          (if (host.instance? php/runtime/memory/NullMemory value)
+            (recur (i/inc idx)
+                   (array.write (:! Nat idx) (host.null) output))
+            (do e.Monad<Error>
+              [lux-value (lux-object value)]
+              (recur (i/inc idx)
+                     (array.write (:! Nat idx) lux-value output)))))
+        (ex.return output)))))
+
+(def: (variant lux-object host-object)
+  (-> (-> Object (Error Top)) ArrayMemory (Error Top))
+  (do e.Monad<Error>
+    [variant-tag (lux-object (ArrayMemory::get [(StringMemory::new [//.variant-tag-field])] host-object))
+     variant-value (lux-object (ArrayMemory::get [(StringMemory::new [//.variant-value-field])] host-object))]
+    (wrap (: Top
+             [(Long::intValue [] (:! Long variant-tag))
+              (: Top
+                 (if (|> host-object
+                         (ArrayMemory::get [(StringMemory::new [//.variant-flag-field])])
+                         (:! ReferenceMemory)
+                         (ReferenceMemory::getValue [])
+                         (host.instance? php/runtime/memory/NullMemory))
+                   (host.null)
+                   ""))
+              variant-value]))))
+
+(def: (lux-object host-object)
+  (-> Object (Error Top))
+  (cond (host.instance? php/runtime/memory/FalseMemory host-object)
+        (ex.return false)
+
+        (host.instance? php/runtime/memory/TrueMemory host-object)
+        (ex.return true)
+
+        (host.instance? php/runtime/memory/LongMemory host-object)
+        (ex.return (LongMemory::toLong [] (:! LongMemory host-object)))
+
+        (host.instance? php/runtime/memory/DoubleMemory host-object)
+        (ex.return (DoubleMemory::toDouble [] (:! DoubleMemory host-object)))
+
+        (host.instance? php/runtime/memory/StringMemory host-object)
+        (ex.return (StringMemory::toString [] (:! StringMemory host-object)))
+
+        (host.instance? php/runtime/memory/ReferenceMemory host-object)
+        (lux-object (ReferenceMemory::getValue [] (:! ReferenceMemory host-object)))
+
+        (host.instance? php/runtime/memory/ArrayMemory host-object)
+        (if (ArrayMemory::isMap [] (:! ArrayMemory host-object))
+          (variant lux-object (:! ArrayMemory host-object))
+          (tuple lux-object (:! ArrayMemory host-object)))
+
+        ## else
+        (ex.throw Unknown-Kind-Of-Host-Object host-object)))
+
+(def: #export (eval code)
+  (-> Expression (Meta Top))
+  (function (_ compiler)
+    (let [interpreter (|> compiler (get@ #.host) (:! //.Host) (get@ #//.interpreter))]
+      (case (interpreter code)
+        (#e.Error error)
+        (exec (log! (format "eval #e.Error\n"
+                            "<< " (_.expression code) "\n"
+                            error))
+          ((lang.throw Cannot-Evaluate error) compiler))
+
+        (#e.Success output)
+        (case (lux-object output)
+          (#e.Success parsed-output)
+          (exec ## (log! (format "eval #e.Success\n"
+            ##               "<< " (_.expression code)))
+            (#e.Success [compiler parsed-output]))
+
+          (#e.Error error)
+          (exec (log! (format "eval #e.Error\n"
+                              "<< " (_.expression code) "\n"
+                              error))
+            ((lang.throw Cannot-Evaluate error) compiler)))))))
