@@ -4460,7 +4460,7 @@
                 ## else-branch
                 \"???\")"}
   (if (n/= +0 (n/% +2 (list/size tokens)))
-    (fail "cond requires an even number of arguments.")
+    (fail "cond requires an uneven number of arguments.")
     (case (list/reverse tokens)
       (^ (list& else branches'))
       (return (list (list/fold (: (-> [Code Code] Code Code)
@@ -5287,36 +5287,53 @@
                      x init]
                 (if (< 10 count)
                   (recur (i/inc count) (f x))
-                  x)))}
-  (case tokens
-    (^ (list [_ (#Tuple bindings)] body))
-    (let [pairs (as-pairs bindings)
-          vars (list/map first pairs)
-          inits (list/map second pairs)]
-      (if (every? symbol? inits)
-        (do Monad<Meta>
-          [inits' (: (Meta (List Ident))
-                     (case (monad/map Monad<Maybe> get-ident inits)
-                       (#Some inits') (return inits')
-                       #None          (fail "Wrong syntax for loop")))
-           init-types (monad/map Monad<Meta> find-type inits')
-           expected get-expected-type]
-          (return (list (` (("lux check" (-> (~+ (list/map type-to-code init-types))
-                                             (~ (type-to-code expected)))
-                             (function ((~ (symbol$ ["" "recur"])) (~+ vars))
-                               (~ body)))
-                            (~+ inits))))))
-        (do Monad<Meta>
-          [aliases (monad/map Monad<Meta>
-                              (: (-> Code (Meta Code))
-                                 (function (_ _) (gensym "")))
-                              inits)]
-          (return (list (` (let [(~+ (interleave aliases inits))]
-                             (.loop [(~+ (interleave vars aliases))]
-                               (~ body)))))))))
+                  x))
 
-    _
-    (fail "Wrong syntax for loop")))
+              "Loops can also be given custom names."
+              (loop my-loop
+                [count 0
+                 x init]
+                (if (< 10 count)
+                  (my-loop (i/inc count) (f x))
+                  x)))}
+  (let [?params (case tokens
+                  (^ (list name [_ (#Tuple bindings)] body))
+                  (#.Some [name bindings body])
+                  
+                  (^ (list [_ (#Tuple bindings)] body))
+                  (#.Some [(symbol$ ["" "recur"]) bindings body])
+
+                  _
+                  #.None)]
+    (case ?params
+      (#.Some [name bindings body])
+      (let [pairs (as-pairs bindings)
+            vars (list/map first pairs)
+            inits (list/map second pairs)]
+        (if (every? symbol? inits)
+          (do Monad<Meta>
+            [inits' (: (Meta (List Ident))
+                       (case (monad/map Monad<Maybe> get-ident inits)
+                         (#Some inits') (return inits')
+                         #None          (fail "Wrong syntax for loop")))
+             init-types (monad/map Monad<Meta> find-type inits')
+             expected get-expected-type]
+            (return (list (` (("lux check" (-> (~+ (list/map type-to-code init-types))
+                                               (~ (type-to-code expected)))
+                               (function ((~ name) (~+ vars))
+                                 (~ body)))
+                              (~+ inits))))))
+          (do Monad<Meta>
+            [aliases (monad/map Monad<Meta>
+                                (: (-> Code (Meta Code))
+                                   (function (_ _) (gensym "")))
+                                inits)]
+            (return (list (` (let [(~+ (interleave aliases inits))]
+                               (.loop [(~+ (interleave vars aliases))]
+                                 (~ body)))))))))
+
+      #.None
+      (fail "Wrong syntax for loop"))))
 
 (macro: #export (^slots tokens)
   {#.doc (doc "Allows you to extract record members as local variables with the same names."
