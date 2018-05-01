@@ -481,12 +481,12 @@
            (map <from-translator>)
            re-join-chunks)))
 
-   (def: (<to> input)
+   (def: <to>
      (-> Text Text)
-     (|> input
-         (segment-digits +1)
-         (map <to-translator>)
-         re-join-chunks))]
+     (|>> "lux text upper"
+          (segment-digits +1)
+          (map <to-translator>)
+          re-join-chunks))]
 
   [binary-to-hex   bin-segment-to-hex   hex-to-binary   hex-segment-to-bin   +4]
   [binary-to-octal bin-segment-to-octal octal-to-binary octal-segment-to-bin +3]
@@ -537,45 +537,76 @@
   [Hex@Codec<Text,Frac>   "Invalid hexadecimal syntax: "   binary-to-hex   hex-to-binary]
   )
 
+(macro: (encoding-doc tokens state)
+  (case tokens
+    (^ (list [cursor (#.Text encoding)] example-1 example-2))
+    (let [encoding ($_ "lux text concat"
+                       "Given syntax for a "
+                       encoding
+                       " number, generates a Nat, an Int, a Deg or a Frac.")
+          underscore "Allows for the presence of underscore in the numbers."
+          description [cursor (#.Text ($_ "lux text concat"
+                                          encoding "\n"
+                                          underscore))]]
+      (#e.Success [state (list (` (doc (~ description)
+                                       (~ example-1)
+                                       (~ example-2))))]))
+
+    _
+    (#e.Error "Wrong syntax for \"encoding-doc\".")))
+
+(def: (underscore-prefixed? number)
+  (-> Text Bool)
+  (case ("lux text index" number "_" +0)
+    (#.Some +0)
+    true
+
+    _
+    false))
+
+(def: (clean-underscores number)
+  (-> Text Text)
+  ("lux text replace-all" number "_" ""))
+
 (do-template [<macro> <nat> <int> <deg> <frac> <error> <doc>]
   [(macro: #export (<macro> tokens state)
      {#.doc <doc>}
      (case tokens
-       (#.Cons [meta (#.Text repr)] #.Nil)
-       (case (:: <nat> decode repr)
-         (#e.Success value)
-         (#e.Success [state (list [meta (#.Nat value)])])
+       (#.Cons [meta (#.Text repr')] #.Nil)
+       (if (underscore-prefixed? repr')
+         (#e.Error <error>)
+         (let [repr (clean-underscores repr')]
+           (case (:: <nat> decode repr)
+             (#e.Success value)
+             (#e.Success [state (list [meta (#.Nat value)])])
 
-         (^multi (#e.Error _)
-                 [(:: <int> decode repr) (#e.Success value)])
-         (#e.Success [state (list [meta (#.Int value)])])
+             (^multi (#e.Error _)
+                     [(:: <int> decode repr) (#e.Success value)])
+             (#e.Success [state (list [meta (#.Int value)])])
 
-         (^multi (#e.Error _)
-                 [(:: <deg> decode repr) (#e.Success value)])
-         (#e.Success [state (list [meta (#.Deg value)])])
+             (^multi (#e.Error _)
+                     [(:: <deg> decode repr) (#e.Success value)])
+             (#e.Success [state (list [meta (#.Deg value)])])
 
-         (^multi (#e.Error _)
-                 [(:: <frac> decode repr) (#e.Success value)])
-         (#e.Success [state (list [meta (#.Frac value)])])
+             (^multi (#e.Error _)
+                     [(:: <frac> decode repr) (#e.Success value)])
+             (#e.Success [state (list [meta (#.Frac value)])])
 
-         _
-         (#e.Error <error>))
+             _
+             (#e.Error <error>))))
 
        _
        (#e.Error <error>)))]
 
   [bin Binary@Codec<Text,Nat> Binary@Codec<Text,Int> Binary@Codec<Text,Deg> Binary@Codec<Text,Frac>
    "Invalid binary syntax."
-   (doc "Given syntax for a binary number, generates a Nat, an Int, a Deg or a Frac."
-        (bin "11001001"))]
+   (encoding-doc "binary" (bin "11001001") (bin "11_00_10_01"))]
   [oct Octal@Codec<Text,Nat>  Octal@Codec<Text,Int>  Octal@Codec<Text,Deg>  Octal@Codec<Text,Frac>
    "Invalid octal syntax."
-   (doc "Given syntax for a octal number, generates a Nat, an Int, a Deg or a Frac."
-        (oct "615243"))]
+   (encoding-doc "octal" (oct "615243") (oct "615_243"))]
   [hex Hex@Codec<Text,Nat>    Hex@Codec<Text,Int>    Hex@Codec<Text,Deg>    Hex@Codec<Text,Frac>
    "Invalid hexadecimal syntax."
-   (doc "Given syntax for a hexadecimal number, generates a Nat, an Int, a Deg or a Frac."
-        (hex "deadBEEF"))]
+   (encoding-doc "hexadecimal" (hex "deadBEEF") (hex "dead_BEEF"))]
   )
 
 ## The following code allows one to encode/decode Deg numbers as text.
