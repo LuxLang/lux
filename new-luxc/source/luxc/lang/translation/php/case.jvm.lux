@@ -12,7 +12,7 @@
   (luxc [lang]
         (lang [".L" variable #+ Register Variable]
               ["ls" synthesis #+ Synthesis Path]
-              (host [python #+ Expression Statement Except SVar @@])))
+              (host ["_" php #+ Expression Statement Except Var])))
   [//]
   (// [".T" runtime]
       [".T" primitive]
@@ -24,10 +24,11 @@
   (do macro.Monad<Meta>
     [valueO (translate valueS)
      bodyO (translate bodyS)
-     #let [$register (referenceT.variable register)]]
+     #let [@register (referenceT.variable register)]]
     (wrap (|> bodyO
-              (python.lambda (list $register))
-              (python.apply (list valueO))))))
+              (list (_.set!' @register valueO))
+              _.array/*
+              (_.nth (_.int 1))))))
 
 (def: #export (translate-record-get translate valueS pathP)
   (-> (-> Synthesis (Meta Expression)) Synthesis (List [Nat Bool])
@@ -38,64 +39,62 @@
                        (let [method (if tail?
                                       runtimeT.product//right
                                       runtimeT.product//left)]
-                         (method source (python.int (:! Int idx)))))
+                         (method source (_.int (:! Int idx)))))
                      valueO
                      pathP))))
 
 (def: #export (translate-if testO thenO elseO)
   (-> Expression Expression Expression Expression)
-  (python.if testO thenO elseO))
+  (_.? testO thenO elseO))
 
-(def: $savepoint (python.var "pm_cursor_savepoint"))
-(def: $cursor (python.var "pm_cursor"))
+(def: @savepoint (_.var "pm_cursor_savepoint"))
+(def: @cursor (_.var "pm_cursor"))
 
 (def: (push-cursor! value)
   (-> Expression Statement)
-  (python.do!
-   (python.send (list value)
-                "append" (@@ $cursor))))
+  (_.do! (_.array-push/2 @cursor value)))
 
 (def: save-cursor!
   Statement
-  (python.do!
-   (python.send (list (python.slice-from (python.int 0) (@@ $cursor)))
-                "append" (@@ $savepoint))))
+  (_.do! (_.array-push/2 @savepoint (_.array-slice/2 @cursor (_.int 0)))))
 
 (def: restore-cursor!
   Statement
-  (python.set! (list $cursor)
-               (python.send (list) "pop" (@@ $savepoint))))
+  (_.set! @cursor (_.array-pop/1 @savepoint)))
 
 (def: cursor-top
   Expression
-  (python.nth (python.int -1) (@@ $cursor)))
+  (_.nth (|> @cursor _.count/1 (_.- (_.int 1)))
+         @cursor))
 
 (def: pop-cursor!
   Statement
-  (python.do!
-   (python.send (list) "pop" (@@ $cursor))))
+  (_.do! (_.array-pop/1 @cursor)))
 
-(def: pm-error (python.string "PM-ERROR"))
+(def: pm-error (_.string "PM-ERROR"))
+
+(def: php-exception (_.global "Exception"))
 
 (def: (new-Exception error)
   (-> Expression Expression)
-  (python.apply (list error) (python.global "Exception")))
+  (_.new php-exception (list error)))
 
-(def: fail-pm! (python.raise! (new-Exception pm-error)))
+(def: fail-pm! (_.throw! (new-Exception pm-error)))
 
-(def: $temp (python.var "temp"))
+(def: @temp (_.var "temp"))
 
 (exception: #export (Unrecognized-Path {message Text})
   message)
 
-(def: $alt_error (python.var "alt_error"))
+(def: @alt-error (_.var "alt_error"))
 
 (def: (pm-catch! handler!)
   (-> Statement Except)
-  [(list "Exception") $alt_error
-   (python.if! (python.= pm-error (python.apply (list (@@ $alt_error)) (python.global "str")))
-               handler!
-               (python.raise! (@@ $alt_error)))])
+  {#_.class php-exception
+   #_.exception @alt-error
+   #_.handler (_.if! (|> @alt-error (_.send "getMessage" (list)) (_.= pm-error))
+                     handler!
+                     (_.throw! @alt-error))})
 
 (def: (translate-pattern-matching' translate pathP)
   (-> (-> Synthesis (Meta Expression)) Path (Meta Statement))
@@ -103,60 +102,56 @@
     (^code ("lux case exec" (~ bodyS)))
     (do macro.Monad<Meta>
       [bodyO (translate bodyS)]
-      (wrap (python.return! bodyO)))
+      (wrap (_.return! bodyO)))
 
     (^code ("lux case pop"))
     (meta/wrap pop-cursor!)
 
     (^code ("lux case bind" (~ [_ (#.Nat register)])))
-    (meta/wrap (python.set! (list (referenceT.variable register)) cursor-top))
+    (meta/wrap (_.set! (referenceT.variable register) cursor-top))
 
     (^template [<tag> <format>]
       [_ (<tag> value)]
-      (meta/wrap (python.when! (python.not (python.= (|> value <format>) cursor-top))
-                               fail-pm!)))
-    ([#.Nat  (<| python.int (:! Int))]
-     [#.Int  python.int]
-     [#.Deg  (<| python.int (:! Int))]
-     [#.Bool python.bool]
-     [#.Frac python.float]
-     [#.Text python.string])
+      (meta/wrap (_.when! (_.not (_.= (|> value <format>) cursor-top))
+                          fail-pm!)))
+    ([#.Nat  (<| _.int (:! Int))]
+     [#.Int  _.int]
+     [#.Deg  (<| _.int (:! Int))]
+     [#.Bool _.bool]
+     [#.Frac _.float]
+     [#.Text _.string])
 
     (^template [<pm> <getter>]
       (^code (<pm> (~ [_ (#.Nat idx)])))
-      (meta/wrap (push-cursor! (<getter> cursor-top (python.int (:! Int idx))))))
+      (meta/wrap (push-cursor! (<getter> cursor-top (_.int (:! Int idx))))))
     (["lux case tuple left" runtimeT.product//left]
      ["lux case tuple right" runtimeT.product//right])
 
     (^template [<pm> <flag>]
       (^code (<pm> (~ [_ (#.Nat idx)])))
-      (meta/wrap ($_ python.then!
-                     (python.set! (list $temp) (runtimeT.sum//get cursor-top (python.int (:! Int idx)) <flag>))
-                     (python.if! (python.= python.none (@@ $temp))
-                                 fail-pm!
-                                 (push-cursor! (@@ $temp))))))
-    (["lux case variant left" python.none]
-     ["lux case variant right" (python.string "")])
+      (meta/wrap (|> (_.set! @temp (runtimeT.sum//get cursor-top (_.int (:! Int idx)) <flag>))
+                     (_.then! (_.if! (_.is-null/1 @temp)
+                                     fail-pm!
+                                     (push-cursor! @temp))))))
+    (["lux case variant left"  _.null]
+     ["lux case variant right" (_.string "")])
 
     (^code ("lux case seq" (~ leftP) (~ rightP)))
     (do macro.Monad<Meta>
       [leftO (translate-pattern-matching' translate leftP)
        rightO (translate-pattern-matching' translate rightP)]
-      (wrap ($_ python.then!
-                leftO
-                rightO)))
+      (wrap (|> leftO
+                (_.then! rightO))))
 
     (^code ("lux case alt" (~ leftP) (~ rightP)))
     (do macro.Monad<Meta>
       [leftO (translate-pattern-matching' translate leftP)
        rightO (translate-pattern-matching' translate rightP)]
-      (wrap (python.try! ($_ python.then!
-                             save-cursor!
-                             leftO)
-                         (list (pm-catch!
-                                ($_ python.then!
-                                    restore-cursor!
-                                    rightO))))))
+      (wrap (_.try! (|> save-cursor!
+                        (_.then! leftO))
+                    (list (pm-catch!
+                           (|> restore-cursor!
+                               (_.then! rightO)))))))
 
     _
     (lang.throw Unrecognized-Path (%code pathP))
@@ -166,15 +161,14 @@
   (-> (-> Synthesis (Meta Expression)) Path (Meta Statement))
   (do macro.Monad<Meta>
     [pattern-matching (translate-pattern-matching' translate pathP)]
-    (wrap (python.try! pattern-matching
-                       (list (pm-catch!
-                              (python.raise! (new-Exception (python.string "Invalid expression for pattern-matching.")))))))))
+    (wrap (_.try! pattern-matching
+                  (list (pm-catch!
+                         (_.throw! (new-Exception (_.string "Invalid expression for pattern-matching.")))))))))
 
 (def: (initialize-pattern-matching! stack-init)
   (-> Expression Statement)
-  ($_ python.then!
-      (python.set! (list $cursor) (python.list (list stack-init)))
-      (python.set! (list $savepoint) (python.list (list)))))
+  (|> (_.set! @cursor (_.array/* (list stack-init)))
+      (_.then! (_.set! @savepoint (_.array/* (list))))))
 
 (def: empty (Set Variable) (set.new number.Hash<Int>))
 
@@ -241,26 +235,23 @@
         outer-variables))))
 
 (def: generated-name
-  (-> Text (Meta SVar))
+  (-> Text (Meta Text))
   (|>> macro.gensym
-       (:: macro.Monad<Meta> map (|>> %code
-                                      lang.normalize-name
-                                      python.var))))
+       (:: macro.Monad<Meta> map (|>> %code lang.normalize-name))))
 
 (def: #export (translate-case translate valueS pathP)
   (-> (-> Synthesis (Meta Expression)) Synthesis Path (Meta Expression))
   (do macro.Monad<Meta>
     [valueO (translate valueS)
-     $case (generated-name "case")
-     $value (generated-name "value")
-     #let [$dependencies+ (|> (path-variables pathP)
+     @case (:: @ map _.global (generated-name "case"))
+     @value (:: @ map _.var (generated-name "value"))
+     #let [@dependencies+ (|> (path-variables pathP)
                               (get@ #dependencies)
                               set.to-list
-                              (list/map referenceT.local))
-           @dependencies+ (list/map @@ $dependencies+)]
+                              (list/map referenceT.local))]
      pattern-matching! (translate-pattern-matching translate pathP)
-     _ (//.save (python.def! $case (list& $value $dependencies+)
-                             ($_ python.then!
-                                 (initialize-pattern-matching! (@@ $value))
-                                 pattern-matching!)))]
-    (wrap (python.apply (list& valueO @dependencies+) (@@ $case)))))
+     _ (//.save (_.function! @case (|> (list& @value @dependencies+)
+                                       (list/map _.parameter))
+                             (|> (initialize-pattern-matching! @value)
+                                 (_.then! pattern-matching!))))]
+    (wrap (_.apply (list& valueO @dependencies+) @case))))

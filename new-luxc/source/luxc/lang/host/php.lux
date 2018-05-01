@@ -1,5 +1,5 @@
 (.module:
-  [lux #- not or and function]
+  [lux #- Code' Code not or and function]
   (lux (control pipe)
        (data [text]
              text/format
@@ -7,87 +7,127 @@
              (coll [list "list/" Functor<List> Fold<List>]))
        (type abstract)))
 
-(def: nest
-  (-> Text Text)
-  (|>> (format "\n")
-       (text.replace-all "\n" "\n  ")))
+(abstract: Global' {} Unit)
+(abstract: Var' {} Unit)
+(abstract: Computation' {} Unit)
+(abstract: (Expression' k) {} Unit)
+(abstract: Statement' {} Unit)
 
-(def: (block content)
-  (-> Text Text)
-  (format "{" (nest content) "\n" "}"))
-
-(abstract: #export Global {} Unit)
-(abstract: #export Var {} Unit)
-(abstract: #export Computation {} Unit)
-
-(abstract: #export (Expression' k)
+(abstract: (Code' k)
   {}
   
   Text
 
-  (type: #export Expression (Ex [k] (Expression' k)))
-  (type: #export GExpression (Expression' Global))
-  (type: #export VExpression (Expression' Var))
-  (type: #export CExpression (Expression' Computation))
+  (type: #export Code (Ex [k] (Code' k)))
+  (type: #export Expression (Code' (Ex [k] (Expression' k))))
+  (type: #export Global (Code' (Expression' Global')))
+  (type: #export Var (Code' (Expression' Var')))
+  (type: #export Argument
+    {#reference? Bool
+     #var Var})
+  (type: #export Computation (Code' (Expression' Computation')))
+  (type: #export Statement (Code' Statement'))
+  
+  (def: #export code (-> Code Text) (|>> @representation))
 
-  (def: (self-contained content)
-    (-> Text CExpression)
-    (@abstraction (format "(" content ")")))
+  (def: nest
+    (-> Text Text)
+    (|>> (format "\n")
+         (text.replace-all "\n" "\n  ")))
 
-  (def: #export expression (-> Expression Text) (|>> @representation))
+  (def: block
+    (-> Text Text)
+    (|>> nest (text.enclose ["{" "\n}"])))
+
+  (def: computation
+    (-> Text Computation)
+    (|>> (text.enclose ["(" ")"]) @abstraction))
+
+  (def: (statement code)
+    (-> Text Statement)
+    (@abstraction (format code ";")))
+
+  (def: parameters
+    (-> (List Argument) Text)
+    (|>> (list/map (.function (_ [reference? var])
+                     (if reference?
+                       (format "&" (@representation var))
+                       (@representation var))))
+         (text.join-with ", ")
+         (text.enclose ["(" ")"])))
+
+  (do-template [<name> <reference?>]
+    [(def: #export <name>
+       (-> Var Argument)
+       (|>> [<reference?>]))]
+
+    [parameter false]
+    [reference true]
+    )
 
   (def: arguments
     (-> (List Expression) Text)
-    (|>> (list/map ..expression) (text.join-with ", ")))
-
-  (def: #export code (-> Text CExpression) (|>> @abstraction))
+    (|>> (list/map ..code) (text.join-with ", ") (text.enclose ["(" ")"])))
 
   (def: #export var
-    (-> Text VExpression)
+    (-> Text Var)
     (|>> (format "$") @abstraction))
 
   (def: #export global
-    (-> Text GExpression)
+    (-> Text Global)
     (|>> @abstraction))
 
   (def: #export null
-    CExpression
+    Computation
     (@abstraction "NULL"))
 
   (def: #export bool
-    (-> Bool CExpression)
+    (-> Bool Computation)
     (|>> %b @abstraction))
 
   (def: #export int
-    (-> Int CExpression)
+    (-> Int Computation)
     (|>> %i @abstraction))
 
   (def: #export float
-    (-> Frac CExpression)
+    (-> Frac Computation)
     (|>> (cond> [(f/= number.positive-infinity)]
-                [(new> "INF" self-contained)]
+                [(new> "INF" computation)]
                 
                 [(f/= number.negative-infinity)]
-                [(new> "-INF" self-contained)]
+                [(new> "-INF" computation)]
                 
                 [(f/= number.not-a-number)]
-                [(new> "NAN" self-contained)]
+                [(new> "NAN" computation)]
                 
                 ## else
                 [%f @abstraction])))
 
   (def: #export string
-    (-> Text CExpression)
+    (-> Text Computation)
     (|>> %t @abstraction))
 
   (def: #export (apply args func)
-    (-> (List Expression) Expression CExpression)
-    (self-contained
-     (format (@representation func) "(" (..arguments args) ")")))
+    (-> (List Expression) Expression Computation)
+    (@abstraction
+     (format (@representation func) (..arguments args))))
+
+  (def: #export (function arguments uses body)
+    (-> (List Argument) (List Argument) Statement Computation)
+    (let [uses (case uses
+                 #.Nil
+                 ""
+
+                 _
+                 (format "use " (..parameters uses)))]
+      (computation
+       (format "function " (..parameters arguments)
+               " " uses " "
+               (block (@representation body))))))
 
   (do-template [<name> <function>]
     [(def: #export <name>
-       CExpression
+       Computation
        (..apply (list) (..global <function>)))]
 
     [func-num-args/0 "func_num_args"]
@@ -96,7 +136,7 @@
 
   (do-template [<name> <function>]
     [(def: #export (<name> values)
-       (-> (List Expression) CExpression)
+       (-> (List Expression) Computation)
        (..apply values (..global <function>)))]
 
     [array/* "array"]
@@ -104,15 +144,15 @@
 
   (do-template [<name> <function>]
     [(def: #export (<name> required optionals)
-       (-> Expression (List Expression) CExpression)
+       (-> Expression (List Expression) Computation)
        (..apply (list& required optionals) (..global <function>)))]
 
     [array-merge/+ "array_merge"]
     )
 
   (def: #export (array/** kvs)
-    (-> (List [Expression Expression]) CExpression)
-    (self-contained
+    (-> (List [Expression Expression]) Computation)
+    (computation
      (format "array("
              (|> kvs
                  (list/map (.function (_ [key value])
@@ -122,73 +162,63 @@
 
   (do-template [<name> <function>]
     [(def: #export (<name> input0)
-       (-> Expression CExpression)
+       (-> Expression Computation)
        (..apply (list input0) (..global <function>)))]
 
-    [count/1 "count"])
+    [is-null/1   "is_null"]
+    [empty/1     "empty"]
+    [count/1     "count"]
+    [array-pop/1 "array_pop"]
+    [floatval/1 "floatval"]
+    )
 
   (do-template [<name> <function>]
     [(def: #export (<name> input0 input1)
-       (-> Expression Expression CExpression)
+       (-> Expression Expression Computation)
        (..apply (list input0 input1) (..global <function>)))]
 
     [call-user-func-array/2 "call_user_func_array"]
-    [array-slice/2          "array_slice"])
+    [array-slice/2          "array_slice"]
+    [array-push/2           "array_push"]
+    )
 
   (do-template [<name> <function>]
     [(def: #export (<name> input0 input1 input2)
-       (-> Expression Expression Expression CExpression)
+       (-> Expression Expression Expression Computation)
        (..apply (list input0 input1 input2) (..global <function>)))]
 
     [array-slice/3 "array_slice"])
 
-  ## (def: (composite-literal left-delimiter right-delimiter entry-serializer)
-  ##   (All [a] (-> Text Text (-> a Text)
-  ##                (-> (List a) CExpression)))
-  ##   (function (_ entries)
-  ##     (@abstraction (format "(" left-delimiter
-  ##                           (|> entries (list/map entry-serializer) (text.join-with ","))
-  ##                           right-delimiter ")"))))
+  (def: #export (new constructor inputs)
+    (-> Global (List Expression) Computation)
+    (computation
+     (format "new " (@representation constructor) (arguments inputs))))
 
-  ## (def: #export (slice from to list)
-  ##   (-> CExpression CExpression CExpression CExpression)
-  ##   (@abstraction (format "(" (@representation list)
-  ##                         "[" (@representation from) ":" (@representation to) "]"
-  ##                         ")")))
-
-  ## (def: #export (slice-from from list)
-  ##   (-> CExpression CExpression CExpression)
-  ##   (@abstraction (format "(" (@representation list)
-  ##                         "[" (@representation from) ":]"
-  ##                         ")")))
-
-  ## (def: #export (field name object)
-  ##   (-> Text CExpression CExpression)
-  ##   (@abstraction (format "(" (@representation object) "." name ")")))
-
-  ## (def: #export (send args method object)
-  ##   (-> (List CExpression) Text CExpression CExpression)
-  ##   (|> object (field method) (apply args)))
+  (def: #export (send method inputs object)
+    (-> Text (List Expression) Expression Computation)
+    (computation
+     (format (@representation object) "->" method (arguments inputs))))
 
   (def: #export (nth idx array)
-    (-> Expression Expression CExpression)
-    (self-contained
+    (-> Expression Expression Computation)
+    (computation
      (format (@representation array) "[" (@representation idx) "]")))
 
   (def: #export (? test then else)
-    (-> Expression Expression Expression CExpression)
-    (self-contained
+    (-> Expression Expression Expression Computation)
+    (computation
      (format (@representation test) " ? "
              (@representation then) " : "
              (@representation else))))
 
   (do-template [<name> <op>]
     [(def: #export (<name> param subject)
-       (-> Expression Expression CExpression)
-       (@abstraction (format "(" (@representation subject)
-                             " " <op> " "
-                             (@representation param) ")")))]
+       (-> Expression Expression Computation)
+       (computation
+        (format (@representation subject) " " <op> " " (@representation param))))]
 
+    [or      "||"]
+    [and     "&&"]
     ## [is      "is"]
     [=       "=="]
     [<       "<"]
@@ -208,42 +238,36 @@
     ## [bit-shr ">>"]
     )
 
-  ## (do-template [<name> <op>]
-  ##   [(def: #export (<name> param subject)
-  ##      (-> CExpression CExpression CExpression)
-  ##      (@abstraction (format "(" (@representation param)
-  ##                            " " <op> " "
-  ##                            (@representation subject) ")")))]
+  (def: #export not
+    (-> Computation Computation)
+    (|>> @representation (format "!") @abstraction))
 
-  ##   [or      "or"]
-  ##   [and     "and"]
-  ##   )
+  (do-template [<name> <type> <constructor>]
+    [(def: #export (<name> var value)
+       (-> Var Expression <type>)
+       (<constructor> (format (@representation var) " = " (@representation value))))]
 
-  ## (def: #export (not subject)
-  ##   (-> CExpression CExpression)
-  ##   (@abstraction (format "(not " (@representation subject) ")")))
-  )
-
-(abstract: #export Statement
-  {}
+    [set!  Statement   ..statement]
+    [set!' Computation ..computation]
+    )
   
-  Text
+  (def: #export (set-nth! idx value array)
+    (-> Expression Expression Expression Statement)
+    (..statement
+     (format (@representation array) "[" (@representation idx) "] = " (@representation value))))
 
-  (def: #export statement (-> Statement Text) (|>> @representation))
+  (def: #export global!
+    (-> Var Statement)
+    (|>> @representation (format "global ") ..statement))
 
-  (def: #export (set! var value)
-    (-> VExpression Expression Statement)
-    (@abstraction
-     (format (..expression var) " = " (..expression value) ";")))
-
-  ## (def: #export (set-nth! idx value array)
-  ##   (-> CExpression CExpression CExpression Statement)
-  ##   (@abstraction (format (expression array) "[" (expression idx) "] = " (expression value))))
+  (def: #export (set-global! name value)
+    (-> Text Expression Statement)
+    (|> (..var "GLOBALS") (..set-nth! (..string name) value)))
 
   (def: #export (if! test then! else!)
     (-> Expression Statement Statement Statement)
     (@abstraction
-     (format "if (" (..expression test) ")"
+     (format "if (" (@representation test) ")"
              (block (@representation then!))
              " else "
              (block (@representation else!)))))
@@ -251,7 +275,7 @@
   (def: #export (when! test then!)
     (-> Expression Statement Statement)
     (@abstraction
-     (format "if (" (..expression test) ") "
+     (format "if (" (@representation test) ") "
              (block (@representation then!)))))
 
   (def: #export (then! post! pre!)
@@ -262,53 +286,58 @@
              (@representation post!))))
 
   ## (def: #export (while! test body!)
-  ##   (-> CExpression Statement Statement)
+  ##   (-> Computation Statement Statement)
   ##   (@abstraction
   ##    (format "while " (expression test) ":"
   ##            (nest body!))))
 
   ## (def: #export (for-in! variable inputs body!)
-  ##   (-> SVariable CExpression Statement Statement)
+  ##   (-> SVariable Computation Statement Statement)
   ##   (@abstraction
   ##    (format "for " (..name variable) " in " (expression inputs) ":"
   ##            (nest body!))))
 
-  ## (type: #export Except
-  ##   {#classes (List Text)
-  ##    #exception SVariable
-  ##    #handler Statement})
+  (type: #export Except
+    {#class Global
+     #exception Var
+     #handler Statement})
+
+  (def: (catch! except)
+    (-> Except Text)
+    (let [declaration (format "(" (@representation (get@ #class except))
+                              " " (@representation (get@ #exception except)) ")")]
+      (format "catch" declaration  " "
+              (block (@representation (get@ #handler except))))))
   
-  ## (def: #export (try! body! excepts)
-  ##   (-> Statement (List Except) Statement)
-  ##   (@abstraction
-  ##    (format "try:"
-  ##            (nest body!)
-  ##            (|> excepts
-  ##                (list/map (function (_ [classes exception catch!])
-  ##                            (format "\n" "except (" (text.join-with "," classes)
-  ##                                    ") as " (..name exception) ":"
-  ##                                    (nest catch!))))
-  ##                (text.join-with "")))))
+  (def: #export (try! body! excepts)
+    (-> Statement (List Except) Statement)
+    (@abstraction
+     (format "try " (block (@representation body!)) "\n"
+             (|> excepts (list/map catch!) (text.join-with "\n")))))
 
   (do-template [<name> <keyword>]
     [(def: #export (<name> message)
        (-> Expression Statement)
-       (@abstraction
-        (format <keyword> " " (..expression message) ";")))]
+       (statement (format <keyword> " " (@representation message))))]
 
-    ## [raise!  "raise"]
+    [throw!  "throw"]
     [return! "return"]
     [echo!   "echo"]
     )
+
+  (def: #export do!
+    (-> Expression Statement)
+    (|>> @representation statement))
+
+  (def: #export (define! name value)
+    (-> Global Expression Statement)
+    (do! (..apply (list (|> name @representation ..string)
+                        value)
+                  (..global "define"))))
   
   (def: #export (function! name args body)
-    (-> GExpression (List VExpression) Statement Statement)
+    (-> Global (List Argument) Statement Statement)
     (@abstraction
-     (format "function " (..expression name) "(" (..arguments args) ") "
-             (block (@representation body)))))
+     (format "function " (@representation name) (..parameters args)
+             " " (block (@representation body)))))
   )
-
-(def: #export (function arguments body)
-  (-> (List VExpression) Statement CExpression)
-  (self-contained
-   (format "function " "(" (..arguments arguments) ") " (block (..statement body)))))

@@ -10,12 +10,12 @@
   (luxc ["&" lang]
         (lang ["ls" synthesis #+ Synthesis Arity]
               [".L" variable #+ Register Variable]
-              (host ["_" php #+ Expression GExpression CExpression Statement])))
+              (host ["_" php #+ Expression Var Computation Statement])))
   [//]
   (// [".T" reference]))
 
 (def: #export (translate-apply translate functionS argsS+)
-  (-> //.Translator Synthesis (List Synthesis) (Meta CExpression))
+  (-> //.Translator Synthesis (List Synthesis) (Meta Computation))
   (do macro.Monad<Meta>
     [functionO (translate functionS)
      argsO+ (monad.map @ translate argsS+)]
@@ -29,53 +29,61 @@
           (_.nth (|> register nat-to-int _.int)
                  @curried)))
 
-(def: (with-closure @function inits function-definition!)
-  (-> GExpression (List Expression) Statement (Meta Expression))
-  (case inits
-    #.Nil
-    (do macro.Monad<Meta>
-      [_ (//.save function-definition!)]
-      (wrap @function))
+(def: (with-closure function-name inits function-definition!)
+  (-> Text (List Expression) (-> (List Var) Statement) (Meta Expression))
+  (let [@function (_.var function-name)]
+    (case inits
+      #.Nil
+      (do macro.Monad<Meta>
+        [_ (//.save (function-definition! (list)))]
+        (wrap @function))
 
-    _
-    (do macro.Monad<Meta>
-      []
-      (wrap (_.apply inits
-                     (_.function (|> (list.enumerate inits)
-                                     (list/map (|>> product.left referenceT.closure)))
-                       (|> function-definition!
-                           (_.then! (_.return! @function)))))))))
+      _
+      (do macro.Monad<Meta>
+        [#let [closure-name (format function-name "___CLOSURE")
+               @closure (_.global (format function-name "___CLOSURE"))
+               captured (|> (list.enumerate inits) (list/map (|>> product.left referenceT.closure)))]
+         _ (//.save (_.function! @closure (list/map _.parameter captured)
+                                 (|> (function-definition! captured)
+                                     (_.then! (_.return! @function)))))]
+        (wrap (_.apply inits @closure))))))
 
 (def: #export (translate-function translate env arity bodyS)
   (-> //.Translator (List Variable) Arity Synthesis (Meta Expression))
   (do macro.Monad<Meta>
-    [[function-name bodyO] (//.with-sub-context
-                             (do @
-                               [function-name //.context]
-                               (//.with-anchor [function-name +1]
-                                 (translate bodyS))))
+    [[base-function-name bodyO] (//.with-sub-context
+                                  (do @
+                                    [function-name //.context]
+                                    (//.with-anchor [function-name +1]
+                                      (translate bodyS))))
+     current-module-name macro.current-module-name
+     #let [function-name (format current-module-name "___" base-function-name)]
      closureO+ (monad.map @ referenceT.translate-variable env)
-     #let [@function (_.global function-name)
+     #let [@function (_.var function-name)
            self-init! (_.set! (referenceT.variable +0) @function)
            args-inits! (|> (list.n/range +0 (n/dec arity))
                            (list/map input-declaration!)
                            (list/fold _.then! self-init!))
            arityO (|> arity nat-to-int _.int)
            @num_args (_.var "num_args")]]
-    (with-closure @function closureO+
-      (_.function! @function (list)
-                   (|> (_.set! @num_args _.func-num-args/0)
-                       (_.then! (_.set! @curried _.func-get-args/0))
-                       (_.then! (_.if! (|> @num_args (_.= arityO))
-                                       (|> args-inits!
-                                           (_.then! (_.return! bodyO)))
-                                       (_.if! (|> @num_args (_.> arityO))
-                                              (let [arity-args (_.array-slice/3 @curried (_.int 0) arityO)
-                                                    output-func-args (_.array-slice/2 @curried arityO)]
-                                                (_.return! (_.call-user-func-array/2 (_.call-user-func-array/2 @function arity-args)
-                                                                                     output-func-args)))
-                                              (let [@missing (_.var "missing")]
-                                                (_.return! (_.function (list)
-                                                             (|> (_.set! @missing _.func-get-args/0)
-                                                                 (_.then! (_.return! (_.call-user-func-array/2 @function
-                                                                                                               (_.array-merge/+ @curried (list @missing)))))))))))))))))
+    (with-closure function-name closureO+
+      (function (_ captured)
+        (_.set! @function
+                (_.function (list) (|> captured
+                                       (list/map _.reference)
+                                       (list& (_.reference @function)))
+                  (|> (_.set! @num_args _.func-num-args/0)
+                      (_.then! (_.set! @curried _.func-get-args/0))
+                      (_.then! (_.if! (|> @num_args (_.= arityO))
+                                      (|> args-inits!
+                                          (_.then! (_.return! bodyO)))
+                                      (_.if! (|> @num_args (_.> arityO))
+                                             (let [arity-args (_.array-slice/3 @curried (_.int 0) arityO)
+                                                   output-func-args (_.array-slice/2 @curried arityO)]
+                                               (_.return! (_.call-user-func-array/2 (_.call-user-func-array/2 @function arity-args)
+                                                                                    output-func-args)))
+                                             (let [@missing (_.var "missing")]
+                                               (_.return! (_.function (list) (list (_.reference @function) (_.reference @curried))
+                                                            (|> (_.set! @missing _.func-get-args/0)
+                                                                (_.then! (_.return! (_.call-user-func-array/2 @function
+                                                                                                              (_.array-merge/+ @curried (list @missing)))))))))))))))))))

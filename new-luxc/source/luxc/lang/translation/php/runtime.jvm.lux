@@ -10,92 +10,91 @@
        [io #+ Process])
   [//]
   (luxc [lang]
-        (lang (host ["_" php #+ Expression CExpression Statement]))))
+        (lang (host ["_" php #+ Expression Computation Statement]))))
 
 (def: prefix Text "LuxRuntime")
 
-(def: #export unit CExpression (_.string //.unit))
+(def: #export unit Computation (_.string //.unit))
 
 (def: (flag value)
-  (-> Bool CExpression)
+  (-> Bool Computation)
   (if value
     (_.string "")
     _.null))
 
 (def: (variant' tag last? value)
-  (-> Expression Expression Expression CExpression)
+  (-> Expression Expression Expression Computation)
   (_.array/** (list [(_.string //.variant-tag-field) tag]
                     [(_.string //.variant-flag-field) last?]
                     [(_.string //.variant-value-field) value])))
 
 (def: #export (variant tag last? value)
-  (-> Nat Bool Expression CExpression)
+  (-> Nat Bool Expression Computation)
   (variant' (_.int (nat-to-int tag))
             (flag last?)
             value))
 
 (def: #export none
-  CExpression
+  Computation
   (variant +0 false unit))
 
 (def: #export some
-  (-> Expression CExpression)
+  (-> Expression Computation)
   (variant +1 true))
 
 (def: #export left
-  (-> Expression CExpression)
+  (-> Expression Computation)
   (variant +0 false))
 
 (def: #export right
-  (-> Expression CExpression)
+  (-> Expression Computation)
   (variant +1 true))
 
 (type: Runtime Statement)
 
-## (def: declaration
-##   (s.Syntax [Text (List Text)])
-##   (p.either (p.seq s.local-symbol (p/wrap (list)))
-##             (s.form (p.seq s.local-symbol (p.some s.local-symbol)))))
+(def: declaration
+  (s.Syntax [Text (List Text)])
+  (p.either (p.seq s.local-symbol (p/wrap (list)))
+            (s.form (p.seq s.local-symbol (p.some s.local-symbol)))))
 
-## (syntax: (runtime: [[name args] declaration]
-##            definition)
-##   (let [implementation (code.local-symbol (format "@@" name))
-##         runtime (format "__" prefix "__" (lang.normalize-name name))
-##         $runtime (` (_.var (~ (code.text runtime))))
-##         @runtime (` (@@ (~ $runtime)))
-##         argsC+ (list/map code.local-symbol args)
-##         argsLC+ (list/map (|>> lang.normalize-name code.text (~) (_.var) (`))
-##                           args)
-##         declaration (` ((~ (code.local-symbol name))
-##                         (~+ argsC+)))
-##         type (` (-> (~+ (list.repeat (list.size argsC+) (` _.Expression)))
-##                     _.CExpression))]
-##     (wrap (list (` (def: (~' #export) (~ declaration)
-##                      (~ type)
-##                      (_.apply (list (~+ argsC+)) (~ @runtime))))
-##                 (` (def: (~ implementation)
-##                      _.Statement
-##                      (~ (case argsC+
-##                           #.Nil
-##                           (` (_.set! (list (~ $runtime)) (~ definition)))
+(syntax: (runtime: [[name args] declaration]
+           definition)
+  (let [implementation (code.local-symbol (format "@@" name))
+        runtime (format "__" prefix "__" (lang.normalize-name name))
+        @runtime (` (_.global (~ (code.text runtime))))
+        argsC+ (list/map code.local-symbol args)
+        argsLC+ (list/map (|>> lang.normalize-name code.text (~) (_.var) (`))
+                          args)
+        declaration (` ((~ (code.local-symbol name))
+                        (~+ argsC+)))
+        type (` (-> (~+ (list.repeat (list.size argsC+) (` _.Expression)))
+                    _.Computation))]
+    (wrap (list (` (def: (~' #export) (~ declaration)
+                     (~ type)
+                     (_.apply (list (~+ argsC+)) (~ @runtime))))
+                (` (def: (~ implementation)
+                     _.Statement
+                     (~ (case argsC+
+                          #.Nil
+                          (` (_.define! (~ @runtime) (~ definition)))
 
-##                           _
-##                           (` (let [(~+ (|> (list.zip2 argsC+ argsLC+)
-##                                            (list/map (function (_ [left right])
-##                                                        (list left (` (@@ (~ right))))))
-##                                            list/join))]
-##                                (_.def! (~ $runtime)
-##                                        (list (~+ argsLC+))
-##                                        (~ definition))))))))))))
+                          _
+                          (` (let [(~+ (|> (list.zip2 argsC+ argsLC+)
+                                           (list/map (function (_ [left right])
+                                                       (list left right)))
+                                           list/join))]
+                               (_.function! (~ @runtime)
+                                            ((~! list/map) _.parameter (list (~+ argsLC+)))
+                                            (~ definition))))))))))))
 
-## (syntax: (with-vars [vars (s.tuple (p.many s.local-symbol))]
-##            body)
-##   (wrap (list (` (let [(~+ (|> vars
-##                                (list/map (function (_ var)
-##                                            (list (code.local-symbol var)
-##                                                  (` (_.var (~ (code.text (lang.normalize-name var))))))))
-##                                list/join))]
-##                    (~ body))))))
+(syntax: (with-vars [vars (s.tuple (p.many s.local-symbol))]
+           body)
+  (wrap (list (` (let [(~+ (|> vars
+                               (list/map (function (_ var)
+                                           (list (code.local-symbol var)
+                                                 (` (_.var (~ (code.text (lang.normalize-name var))))))))
+                               list/join))]
+                   (~ body))))))
 
 ## (runtime: (lux//try op)
 ##   (let [$error (_.var "error")
@@ -128,7 +127,7 @@
 ##       (_.return! ..unit)))
 
 ## (def: (exception message)
-##   (-> Expression CExpression)
+##   (-> Expression Computation)
 ##   (_.apply (list message) (_.global "Exception")))
 
 ## (runtime: (io//throw! message)
@@ -158,67 +157,64 @@
 ##       @@io//exit!
 ##       @@io//current-time!))
 
-## (runtime: (product//left product index)
-##   (let [$index_min_length (_.var "index_min_length")]
-##     ($_ _.then!
-##         (_.set! (list $index_min_length) (_.+ (_.int 1) index))
-##         (_.if! (_.> (@@ $index_min_length) (_.length product))
-##                ## No need for recursion
-##                (_.return! (_.nth index product))
-##                ## Needs recursion
-##                (_.return! (product//left (_.nth (_.- (_.int 1)
-##                                                      (_.length product))
-##                                                 product)
-##                                          (_.- (_.length product)
-##                                               (@@ $index_min_length))))))))
+(runtime: (product//left product index)
+  (let [$index_min_length (_.var "index_min_length")]
+    (|> (_.set! $index_min_length (_.+ (_.int 1) index))
+        (_.then! (_.if! (_.> $index_min_length (_.count/1 product))
+                        ## No need for recursion
+                        (_.return! (_.nth index product))
+                        ## Needs recursion
+                        (_.return! (product//left (_.nth (_.- (_.int 1)
+                                                              (_.count/1 product))
+                                                         product)
+                                                  (_.- (_.count/1 product)
+                                                       $index_min_length))))))))
 
-## (runtime: (product//right product index)
-##   (let [$index_min_length (_.var "index_min_length")]
-##     ($_ _.then!
-##         (_.set! (list $index_min_length) (_.+ (_.int 1) index))
-##         (_.cond! (list [(_.= (@@ $index_min_length) (_.length product))
-##                         ## Last element.
-##                         (_.return! (_.nth index product))]
-##                        [(_.< (@@ $index_min_length) (_.length product))
-##                         ## Needs recursion
-##                         (_.return! (product//right (_.nth (_.- (_.int 1)
-##                                                                (_.length product))
-##                                                           product)
-##                                                    (_.- (_.length product)
-##                                                         (@@ $index_min_length))))])
-##                  ## Must slice
-##                  (_.return! (_.slice-from index product))))))
+(runtime: (product//right product index)
+  (let [$index_min_length (_.var "index_min_length")]
+    (|> (_.set! $index_min_length (_.+ (_.int 1) index))
+        (_.then! (<| (_.if! (_.= $index_min_length (_.count/1 product))
+                            ## Last element.
+                            (_.return! (_.nth index product)))
+                     (_.if! (_.< $index_min_length (_.count/1 product))
+                            ## Needs recursion
+                            (_.return! (product//right (_.nth (_.- (_.int 1)
+                                                                   (_.count/1 product))
+                                                              product)
+                                                       (_.- (_.count/1 product)
+                                                            $index_min_length))))
+                     ## Must slice
+                     (_.return! (_.array-slice/2 product index)))))))
 
-## (runtime: (sum//get sum wantedTag wantsLast)
-##   (let [no-match! (_.return! _.none)
-##         sum-tag (_.nth (_.string //.variant-tag-field) sum)
-##         sum-flag (_.nth (_.string //.variant-flag-field) sum)
-##         sum-value (_.nth (_.string //.variant-value-field) sum)
-##         is-last? (_.= (_.string "") sum-flag)
-##         test-recursion! (_.if! is-last?
-##                                ## Must recurse.
-##                                (_.return! (sum//get sum-value (_.- sum-tag wantedTag) wantsLast))
-##                                no-match!)]
-##     (_.cond! (list [(_.= sum-tag wantedTag)
-##                     (_.if! (_.= wantsLast sum-flag)
-##                            (_.return! sum-value)
-##                            test-recursion!)]
+(runtime: (sum//get sum wantedTag wantsLast)
+  (let [no-match! (_.return! _.null)
+        sum-tag (_.nth (_.string //.variant-tag-field) sum)
+        sum-flag (_.nth (_.string //.variant-flag-field) sum)
+        sum-value (_.nth (_.string //.variant-value-field) sum)
+        is-last? (_.= (_.string "") sum-flag)
+        test-recursion! (_.if! is-last?
+                               ## Must recurse.
+                               (_.return! (sum//get sum-value (_.- sum-tag wantedTag) wantsLast))
+                               no-match!)]
+    (<| (_.if! (_.= sum-tag wantedTag)
+               (_.if! (|> (_.and (_.is-null/1 wantsLast) (_.is-null/1 sum-flag))
+                          (_.or (|> (_.and (_.not (_.is-null/1 wantsLast))
+                                           (_.not (_.is-null/1 sum-flag)))
+                                    (_.and (_.= wantsLast sum-flag)))))
+                      (_.return! sum-value)
+                      test-recursion!))
+        (_.if! (_.> sum-tag wantedTag)
+               test-recursion!)
+        (_.if! (|> (_.< sum-tag wantedTag)
+                   (_.and (_.not (_.is-null/1 wantsLast))))
+               (_.return! (variant' (_.- wantedTag sum-tag) sum-flag sum-value)))
+        no-match!)))
 
-##                    [(_.> sum-tag wantedTag)
-##                     test-recursion!]
-
-##                    [(_.and (_.< sum-tag wantedTag)
-##                            (_.= (_.string "") wantsLast))
-##                     (_.return! (variant' (_.- wantedTag sum-tag) sum-flag sum-value))])
-
-##              no-match!)))
-
-## (def: runtime//adt
-##   Runtime
-##   ($_ _.then!
-##       @@product//left
-##       @@product//right
-##       @@sum//get))
+(def: runtime//adt
+  Runtime
+  (|> @@product//left
+      (_.then! @@product//right)
+      (_.then! @@sum//get)))
 
 ## (def: full-32-bits (_.code "0xFFFFFFFF"))
 
@@ -292,7 +288,7 @@
 ## (runtime: (text//clip @text @from @to)
 ##   (with-vars [length]
 ##     ($_ _.then!
-##         (_.set! (list length) (_.length @text))
+##         (_.set! (list length) (_.count/1 @text))
 ##         (_.if! ($_ _.and
 ##                    (|> @to (within? (@@ length)))
 ##                    (|> @from (up-to? @to)))
@@ -300,7 +296,7 @@
 ##                (_.return! ..none)))))
 
 ## (runtime: (text//char text idx)
-##   (_.if! (|> idx (within? (_.length text)))
+##   (_.if! (|> idx (within? (_.count/1 text)))
 ##          (_.return! (..some (_.apply (list (|> text (_.slice idx (inc idx))))
 ##                                      (_.global "ord"))))
 ##          (_.return! ..none)))
@@ -314,7 +310,7 @@
 
 ## (def: (check-index-out-of-bounds array idx body!)
 ##   (-> Expression Expression Statement Statement)
-##   (_.if! (|> idx (_.<= (_.length array)))
+##   (_.if! (|> idx (_.<= (_.count/1 array)))
 ##          body!
 ##          (_.raise! (exception (_.string "Array index out of bounds!")))))
 
@@ -323,7 +319,7 @@
 ##     (<| (check-index-out-of-bounds array idx)
 ##         ($_ _.then!
 ##             (_.set! (list temp) (_.nth idx array))
-##             (_.if! (_.= _.none (@@ temp))
+##             (_.if! (_.= _.null (@@ temp))
 ##                    (_.return! ..none)
 ##                    (_.return! (..some (@@ temp))))))))
 
@@ -353,16 +349,6 @@
 ##   Runtime
 ##   ($_ _.then!
 ##       @@atom//compare-and-swap))
-
-## (runtime: (box//write value box)
-##   ($_ _.then!
-##       (_.set-nth! (_.int 0) value box)
-##       (_.return! ..unit)))
-
-## (def: runtime//box
-##   Runtime
-##   ($_ _.then!
-##       @@box//write))
 
 ## (runtime: (process//future procedure)
 ##   ($_ _.then!
@@ -420,22 +406,29 @@
 ##       @@math//ceil
 ##       @@math//floor))
 
+(def: check-necessary-conditions!
+  Statement
+  (let [condition (_.= (_.int 8)
+                       (_.global "PHP_INT_SIZE"))
+        error-message (_.string (format "Cannot run program!" "\n"
+                                        "Lux/PHP programs require 64-bit PHP builds!"))
+        ->Exception (|>> (list) (_.new (_.global "Exception")))]
+    (_.when! (_.not condition)
+             (_.throw! (->Exception error-message)))))
+
 (def: runtime
   Runtime
-  (_.echo! (_.string "Hello, world!"))
-  ## ($_ _.then!
-  ##     runtime//lux
-  ##     runtime//adt
-  ##     runtime//bit
-  ##     runtime//text
-  ##     runtime//array
-  ##     runtime//atom
-  ##     runtime//box
-  ##     runtime//io
-  ##     runtime//process
-  ##     runtime//math
-  ##     )
-  )
+  (|> check-necessary-conditions!
+      ## runtime//lux
+      (_.then! runtime//adt)
+      ## runtime//bit
+      ## runtime//text
+      ## runtime//array
+      ## runtime//atom
+      ## runtime//io
+      ## runtime//process
+      ## runtime//math
+      ))
 
 (def: #export artifact Text (format prefix //.extension))
 
