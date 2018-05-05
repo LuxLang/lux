@@ -717,32 +717,39 @@
           (return (&/T [==gret ==args])))))
     ))
 
+(defn ^:private up-cast [class parent-gvars class-loader !class! object-type]
+  (|do [[sub-class sub-params] (ensure-object object-type)
+        (&/$Primitive super-class* super-params*) (&host-type/->super-type &type/existential class-loader !class! (if (= sub-class class)
+                                                                                                                    !class!
+                                                                                                                    sub-class)
+                                                                           sub-params)]
+    (return (&/fold2 (fn [m ^TypeVariable g t] (&/$Cons (&/T [(.getName g) t]) m))
+                     (&/|table)
+                     parent-gvars
+                     super-params*))))
+
+(defn ^:private check-method! [only-interface? class method]
+  (|do [!class! (&/de-alias-class class)
+        class-loader &/loader
+        _ (try (assert! (let [=class (Class/forName !class! true class-loader)]
+                          (= only-interface? (.isInterface =class)))
+                        (if only-interface?
+                          (str "[Analyser Error] Can only invoke method \"" method "\"" " on interface.")
+                          (str "[Analyser Error] Can only invoke method \"" method "\"" " on class.")))
+            (catch Exception e
+              (&/fail-with-loc (str "[Analyser Error] Unknown class: " class))))]
+    (return (&/T [!class! class-loader]))))
+
 (let [dummy-type-param (&/$Primitive "java.lang.Object" &/$Nil)]
   (do-template [<name> <tag> <only-interface?>]
     (defn <name> [analyse exo-type class method classes ?values]
-      (|do [!class! (&/de-alias-class class)
-            :let [(&/$Cons object args) ?values]
-            class-loader &/loader
-            _ (try (assert! (let [=class (Class/forName !class! true class-loader)]
-                              (= <only-interface?> (.isInterface =class)))
-                            (if <only-interface?>
-                              (str "[Analyser Error] Can only invoke method \"" method "\"" " on interface.")
-                              (str "[Analyser Error] Can only invoke method \"" method "\"" " on class.")))
-                (catch Exception e
-                  (&/fail-with-loc (str "[Analyser Error] Unknown class: " class))))
+      (|do [:let [(&/$Cons object args) ?values]
+            [!class! class-loader] (check-method! <only-interface?> class method)
             [gret exceptions parent-gvars gvars gargs] (if (= "<init>" method)
                                                          (return (&/T [Void/TYPE &/$Nil &/$Nil &/$Nil &/$Nil]))
                                                          (&host/lookup-virtual-method class-loader !class! method classes))
             =object (&&/analyse-1+ analyse object)
-            [sub-class sub-params] (ensure-object (&&/expr-type* =object))
-            (&/$Primitive super-class* super-params*) (&host-type/->super-type &type/existential class-loader !class! (if (= sub-class class)
-                                                                                                                        !class!
-                                                                                                                        sub-class)
-                                                                               sub-params)
-            :let [gtype-env (&/fold2 (fn [m ^TypeVariable g t] (&/$Cons (&/T [(.getName g) t]) m))
-                                     (&/|table)
-                                     parent-gvars
-                                     super-params*)]
+            gtype-env (up-cast class parent-gvars class-loader !class! (&&/expr-type* =object))
             [output-type =args] (analyse-method-call-helper analyse exo-type gret gtype-env gvars gargs args)
             _cursor &/cursor]
         (return (&/|list (&&/|meta exo-type _cursor
@@ -849,6 +856,17 @@
     [name [_ (&&/$captured _ _ source)]]
     source))
 
+(defn ^:private analyse-methods [analyse class-decl all-supers methods]
+  (|do [=methods (&/map% (partial analyse-method analyse class-decl &/$Nil all-supers) methods)
+        _ (check-method-completion all-supers =methods)
+        =captured &&env/captured-vars]
+    (return (&/T [=methods =captured]))))
+
+(defn ^:private get-names []
+  (|do [module &/get-module-name
+        scope &/get-scope-name]
+    (return (&/T [module scope]))))
+
 (let [default-<init> (&/$ConstructorMethodSyntax (&/T [&/$PublicPM
                                                        false
                                                        &/$Nil
@@ -861,8 +879,7 @@
       captured-slot-type (&/$GenericClass captured-slot-class &/$Nil)]
   (defn ^:private analyse-jvm-anon-class [analyse compile-class exo-type super-class interfaces ctor-args methods]
     (&/with-closure
-      (|do [module &/get-module-name
-            scope &/get-scope-name
+      (|do [[module scope] (get-names)
             :let [name (->> scope &/|reverse &/|tail &host/location)
                   class-decl (&/T [name &/$Nil])
                   anon-class (str (string/replace module "/" ".") "." name)
@@ -875,26 +892,22 @@
             _ (->> methods
                    (&/$Cons default-<init>)
                    (&host/use-dummy-class class-decl super-class interfaces (&/$Some =ctor-args) &/$Nil))
-            :let [all-supers (&/$Cons super-class interfaces)
-                  class-env &/$Nil]
-            =methods (&/map% (partial analyse-method analyse class-decl class-env all-supers) methods)
-            _ (check-method-completion all-supers =methods)
-            =captured &&env/captured-vars
-            :let [=fields (&/|map (fn [^objects idx+capt]
-                                    (|let [[idx _] idx+capt]
-                                      (&/$VariableFieldAnalysis (str &c!base/closure-prefix idx)
-                                                                &/$PublicPM
-                                                                &/$FinalSM
-                                                                &/$Nil
-                                                                captured-slot-type)))
-                                  (&/enumerate =captured))]
-            :let [sources (&/|map captured-source =captured)]
-            _ (compile-class class-decl super-class interfaces &/$DefaultIM &/$Nil =fields =methods =captured (&/$Some =ctor-args))
+            [=methods =captured] (let [all-supers (&/$Cons super-class interfaces)]
+                                   (analyse-methods analyse class-decl all-supers methods))
+            _ (let [=fields (&/|map (fn [^objects idx+capt]
+                                      (|let [[idx _] idx+capt]
+                                        (&/$VariableFieldAnalysis (str &c!base/closure-prefix idx)
+                                                                  &/$PublicPM
+                                                                  &/$FinalSM
+                                                                  &/$Nil
+                                                                  captured-slot-type)))
+                                    (&/enumerate =captured))]
+                (compile-class class-decl super-class interfaces &/$DefaultIM &/$Nil =fields =methods =captured (&/$Some =ctor-args)))
             _ &/pop-dummy-name
             _cursor &/cursor]
-        (return (&/|list (&&/|meta anon-class-type _cursor
-                                   (&&/$proc (&/T ["jvm" "new"]) sources (&/|list anon-class (&/|repeat (&/|length sources) captured-slot-class)))
-                                   )))
+        (let [sources (&/|map captured-source =captured)]
+          (return (&/|list (&&/|meta anon-class-type _cursor
+                                     (&&/$proc (&/T ["jvm" "new"]) sources (&/|list anon-class (&/|repeat (&/|length sources) captured-slot-class)))))))
         ))))
 
 (defn analyse-host [analyse exo-type compilers proc ?values]

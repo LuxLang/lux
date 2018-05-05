@@ -614,6 +614,14 @@
   (fn [_]
     (return* compiler* compiler*)))
 
+(defn try-async-compilation [path compile-module]
+  (|do [already-compiled? (&&module/exists? path)]
+    (if (not already-compiled?)
+      (compile-module path)
+      (|do [_compiler get-compiler]
+        (return (doto (promise)
+                  (deliver (&/$Right _compiler))))))))
+
 (defn analyse-module [analyse optimize eval! compile-module ?meta]
   (|do [_ &/ensure-statement
         =anns (&&/analyse-1 analyse &type/Code ?meta)
@@ -628,22 +636,16 @@
                              (&/save-module
                               (|do [_ (&/assert! (not (= current-module path))
                                                  (&/fail-with-loc (str "[Analyser Error] Module cannot import itself: " path)))
-                                    already-compiled? (&&module/exists? path)
                                     active? (&&module/active-module? path)
                                     ;; TODO: Enrich this error-message
                                     ;; to explicitly show the cyclic dependency.
                                     _ (&/assert! (not active?)
                                                  (str "[Analyser Error] Cannot import a module that is mid-compilation { cyclic dependency }: " path " @ " current-module))
                                     _ (&&module/add-import path)
-                                    ?async (if (not already-compiled?)
-                                             (compile-module path)
-                                             (|do [_compiler get-compiler]
-                                               (return (doto (promise)
-                                                         (deliver (&/$Right _compiler))))))
                                     _ (if (= "" alias)
                                         (return nil)
                                         (&&module/alias current-module alias path))]
-                                (return ?async))))))
+                                (try-async-compilation path compile-module))))))
                         _imports)
         _compiler get-compiler
         ;; Some type-vars in the typing environment stay in

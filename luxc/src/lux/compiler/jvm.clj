@@ -167,6 +167,17 @@
           (partial &&proc-host/compile-jvm-class compile-expression*)
           &&proc-host/compile-jvm-interface])))
 
+(defn ^:private activate-module! [name file-hash]
+  (|do [_ (&&cache/delete name)
+        _ (&a-module/create-module name file-hash)]
+    (&a-module/flag-active-module name)))
+
+(defn ^:private save-module! [name file-hash class-bytes]
+  (|do [_ (&a-module/flag-compiled-module name)
+        _ (&&/save-class! &/module-class-name class-bytes)
+        module-descriptor (&&core/generate-module-descriptor file-hash)]
+    (&&core/write-module-descriptor! name module-descriptor)))
+
 (let [+field-flags+ (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC)
       +datum-sig+ "Ljava/lang/Object;"]
   (defn compile-module [source-dirs name]
@@ -178,9 +189,7 @@
                     (|do [module-exists? (&a-module/exists? name)]
                       (if module-exists?
                         (&/fail-with-loc (str "[Compiler Error] Cannot re-define a module: " name))
-                        (|do [_ (&&cache/delete name)
-                              _ (&a-module/create-module name file-hash)
-                              _ (&a-module/flag-active-module name)
+                        (|do [_ (activate-module! name file-hash)
                               :let [module-class-name (str (&host/->module-class name) "/_")
                                     =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                                              (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
@@ -198,17 +207,13 @@
                                     (&/set$ &/$source (&reader/from name file-content) state))
                               (&/$Right ?state _)
                               (&/run-state (|do [:let [_ (.visitEnd =class)]
-                                                 _ (&a-module/flag-compiled-module name)
-                                                 _ (&&/save-class! &/module-class-name (.toByteArray =class))
-                                                 module-descriptor (&&core/generate-module-descriptor file-hash)
-                                                 _ (&&core/write-module-descriptor! name module-descriptor)]
+                                                 _ (save-module! name file-hash (.toByteArray =class))]
                                              (return file-hash))
                                            ?state)
                               
                               (&/$Left ?message)
                               (&/fail* ?message))))))))
-      )
-    ))
+      )))
 
 (let [define-class (doto (.getDeclaredMethod java.lang.ClassLoader "defineClass" (into-array [String
                                                                                               (class (byte-array []))

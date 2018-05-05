@@ -12,6 +12,10 @@
 ;; [Parsers]
 (def ^:private _space_ (&reader/read-text " "))
 
+(defn ^:private with-pre-space [action]
+  (|do [_ _space_]
+    action))
+
 (defn ^:private repeat% [action]
   (fn [state]
     (|case (action state)
@@ -69,15 +73,15 @@
 (def ^:private parse-type-param
   (with-parens
     (|do [=name parse-name
-          _ _space_
-          =bounds (spaced parse-gclass)]
+          =bounds (with-pre-space
+                    (spaced parse-gclass))]
       (return (&/T [=name =bounds])))))
 
 (def ^:private parse-gclass-decl
   (with-parens
     (|do [=class-name parse-name
-          _ _space_
-          =params (spaced parse-type-param)]
+          =params (with-pre-space
+                    (spaced parse-type-param))]
       (return (&/T [=class-name =params])))))
 
 (def ^:private parse-bound-kind
@@ -101,29 +105,29 @@
 
                        (with-parens
                          (|do [class-name parse-name
-                               _ _space_
-                               =params (spaced parse-gclass)]
+                               =params (with-pre-space
+                                         (spaced parse-gclass))]
                            (return (&/$GenericClass class-name =params))))
 
                        (with-parens
                          (|do [_ (&reader/read-text "#Array")
-                               _ _space_
-                               =param parse-gclass]
+                               =param (with-pre-space
+                                        parse-gclass)]
                            (return (&/$GenericArray =param))))
                        )))
 
 (def ^:private parse-gclass-super
   (with-parens
     (|do [class-name parse-name
-          _ _space_
-          =params (spaced parse-gclass)]
+          =params (with-pre-space
+                    (spaced parse-gclass))]
       (return (&/T [class-name =params])))))
 
 (def ^:private parse-ctor-arg
   (with-brackets
     (|do [=class parse-gclass
-          _ _space_
-          (&/$Cons =term (&/$Nil)) &parser/parse]
+          (&/$Cons =term (&/$Nil)) (with-pre-space
+                                     &parser/parse)]
       (return (&/T [=class =term])))))
 
 (def ^:private parse-ann-param
@@ -154,9 +158,9 @@
 (def ^:private parse-ann
   (with-parens
     (|do [ann-name parse-name
-          _ _space_
-          =ann-params (with-braces
-                        (spaced parse-ann-param))]
+          =ann-params (with-pre-space
+                        (with-braces
+                          (spaced parse-ann-param)))]
       (return {:name ann-name
                :params =ann-params}))))
 
@@ -183,20 +187,20 @@
 (def ^:private parse-method-decl
   (with-parens
     (|do [=method-name parse-name
-          _ _space_
-          =anns (with-brackets
-                  (spaced parse-ann))
-          _ _space_
-          =gvars (with-brackets
-                   parse-gvars)
-          _ _space_
-          =exceptions (with-brackets
-                        (spaced parse-gclass))
-          _ _space_
-          =inputs (with-brackets
-                    (spaced parse-gclass))
-          _ _space_
-          =output parse-gclass]
+          =anns (with-pre-space
+                  (with-brackets
+                    (spaced parse-ann)))
+          =gvars (with-pre-space
+                   (with-brackets
+                     parse-gvars))
+          =exceptions (with-pre-space
+                        (with-brackets
+                          (spaced parse-gclass)))
+          =inputs (with-pre-space
+                    (with-brackets
+                      (spaced parse-gclass)))
+          =output (with-pre-space
+                    parse-gclass)]
       (return (&/T [=method-name =anns =gvars =exceptions =inputs =output])))))
 
 (def ^:private parse-privacy-modifier
@@ -237,156 +241,156 @@
 
 (def ^:private parse-method-init-def
   (|do [_ (&reader/read-text "init")
-        _ _space_
-        =privacy-modifier parse-privacy-modifier
-        _ _space_
-        [_ (&lexer/$Bool =strict*)] &lexer/lex-bool
+        =privacy-modifier (with-pre-space
+                            parse-privacy-modifier)
+        [_ (&lexer/$Bool =strict*)] (with-pre-space
+                                      &lexer/lex-bool)
         :let [=strict (Boolean/parseBoolean =strict*)]
-        _ _space_
-        =anns (with-brackets
-                (spaced parse-ann))
-        _ _space_
-        =gvars (with-brackets
-                 (spaced parse-type-param))
-        _ _space_
-        =exceptions (with-brackets
-                      (spaced parse-gclass))
-        _ _space_
-        =inputs (with-brackets
-                  (spaced parse-arg-decl))
-        _ _space_
-        =ctor-args (with-brackets
-                     (spaced parse-ctor-arg))
-        _ _space_
-        (&/$Cons =body (&/$Nil)) &parser/parse]
+        =anns (with-pre-space
+                (with-brackets
+                  (spaced parse-ann)))
+        =gvars (with-pre-space
+                 (with-brackets
+                   (spaced parse-type-param)))
+        =exceptions (with-pre-space
+                      (with-brackets
+                        (spaced parse-gclass)))
+        =inputs (with-pre-space
+                  (with-brackets
+                    (spaced parse-arg-decl)))
+        =ctor-args (with-pre-space
+                     (with-brackets
+                       (spaced parse-ctor-arg)))
+        (&/$Cons =body (&/$Nil)) (with-pre-space
+                                   &parser/parse)]
     (return (&/$ConstructorMethodSyntax (&/T [=privacy-modifier =strict =anns =gvars =exceptions =inputs =ctor-args =body])))))
 
 (def ^:private parse-method-virtual-def
   (|do [_ (&reader/read-text "virtual")
-        _ _space_
-        =name parse-name
-        _ _space_
-        =privacy-modifier parse-privacy-modifier
-        _ _space_
-        [_ (&lexer/$Bool =final?*)] &lexer/lex-bool
+        =name (with-pre-space
+                parse-name)
+        =privacy-modifier (with-pre-space
+                            parse-privacy-modifier)
+        [_ (&lexer/$Bool =final?*)] (with-pre-space
+                                      &lexer/lex-bool)
         :let [=final? (Boolean/parseBoolean =final?*)]
-        _ _space_
-        [_ (&lexer/$Bool =strict*)] &lexer/lex-bool
+        [_ (&lexer/$Bool =strict*)] (with-pre-space
+                                      &lexer/lex-bool)
         :let [=strict (Boolean/parseBoolean =strict*)]
-        _ _space_
-        =anns (with-brackets
-                (spaced parse-ann))
-        _ _space_
-        =gvars (with-brackets
-                 (spaced parse-type-param))
-        _ _space_
-        =exceptions (with-brackets
-                      (spaced parse-gclass))
-        _ _space_
-        =inputs (with-brackets
-                  (spaced parse-arg-decl))
-        _ _space_
-        =output parse-gclass
-        _ _space_
-        (&/$Cons =body (&/$Nil)) &parser/parse]
+        =anns (with-pre-space
+                (with-brackets
+                  (spaced parse-ann)))
+        =gvars (with-pre-space
+                 (with-brackets
+                   (spaced parse-type-param)))
+        =exceptions (with-pre-space
+                      (with-brackets
+                        (spaced parse-gclass)))
+        =inputs (with-pre-space
+                  (with-brackets
+                    (spaced parse-arg-decl)))
+        =output (with-pre-space
+                  parse-gclass)
+        (&/$Cons =body (&/$Nil)) (with-pre-space
+                                   &parser/parse)]
     (return (&/$VirtualMethodSyntax (&/T [=name =privacy-modifier =final? =strict =anns =gvars =exceptions =inputs =output =body])))))
 
 (def ^:private parse-method-override-def
   (|do [_ (&reader/read-text "override")
-        _ _space_
-        =class-decl parse-gclass-decl
-        _ _space_
-        =name parse-name
-        _ _space_
-        [_ (&lexer/$Bool =strict*)] &lexer/lex-bool
+        =class-decl (with-pre-space
+                      parse-gclass-decl)
+        =name (with-pre-space
+                parse-name)
+        [_ (&lexer/$Bool =strict*)] (with-pre-space
+                                      &lexer/lex-bool)
         :let [=strict (Boolean/parseBoolean =strict*)]
-        _ _space_
-        =anns (with-brackets
-                (spaced parse-ann))
-        _ _space_
-        =gvars (with-brackets
-                 (spaced parse-type-param))
-        _ _space_
-        =exceptions (with-brackets
-                      (spaced parse-gclass))
-        _ _space_
-        =inputs (with-brackets
-                  (spaced parse-arg-decl))
-        _ _space_
-        =output parse-gclass
-        _ _space_
-        (&/$Cons =body (&/$Nil)) &parser/parse]
+        =anns (with-pre-space
+                (with-brackets
+                  (spaced parse-ann)))
+        =gvars (with-pre-space
+                 (with-brackets
+                   (spaced parse-type-param)))
+        =exceptions (with-pre-space
+                      (with-brackets
+                        (spaced parse-gclass)))
+        =inputs (with-pre-space
+                  (with-brackets
+                    (spaced parse-arg-decl)))
+        =output (with-pre-space
+                  parse-gclass)
+        (&/$Cons =body (&/$Nil)) (with-pre-space
+                                   &parser/parse)]
     (return (&/$OverridenMethodSyntax (&/T [=class-decl =name =strict =anns =gvars =exceptions =inputs =output =body])))))
 
 (def ^:private parse-method-static-def
   (|do [_ (&reader/read-text "static")
-        _ _space_
-        =name parse-name
-        _ _space_
-        =privacy-modifier parse-privacy-modifier
-        _ _space_
-        [_ (&lexer/$Bool =strict*)] &lexer/lex-bool
+        =name (with-pre-space
+                parse-name)
+        =privacy-modifier (with-pre-space
+                            parse-privacy-modifier)
+        [_ (&lexer/$Bool =strict*)] (with-pre-space
+                                      &lexer/lex-bool)
         :let [=strict (Boolean/parseBoolean =strict*)]
-        _ _space_
-        =anns (with-brackets
-                (spaced parse-ann))
-        _ _space_
-        =gvars (with-brackets
-                 (spaced parse-type-param))
-        _ _space_
-        =exceptions (with-brackets
-                      (spaced parse-gclass))
-        _ _space_
-        =inputs (with-brackets
-                  (spaced parse-arg-decl))
-        _ _space_
-        =output parse-gclass
-        _ _space_
-        (&/$Cons =body (&/$Nil)) &parser/parse]
+        =anns (with-pre-space
+                (with-brackets
+                  (spaced parse-ann)))
+        =gvars (with-pre-space
+                 (with-brackets
+                   (spaced parse-type-param)))
+        =exceptions (with-pre-space
+                      (with-brackets
+                        (spaced parse-gclass)))
+        =inputs (with-pre-space
+                  (with-brackets
+                    (spaced parse-arg-decl)))
+        =output (with-pre-space
+                  parse-gclass)
+        (&/$Cons =body (&/$Nil)) (with-pre-space
+                                   &parser/parse)]
     (return (&/$StaticMethodSyntax (&/T [=name =privacy-modifier =strict =anns =gvars =exceptions =inputs =output =body])))))
 
 (def ^:private parse-method-abstract-def
   (|do [_ (&reader/read-text "abstract")
-        _ _space_
-        =name parse-name
-        _ _space_
-        =privacy-modifier parse-privacy-modifier
-        _ _space_
-        =anns (with-brackets
-                (spaced parse-ann))
-        _ _space_
-        =gvars (with-brackets
-                 (spaced parse-type-param))
-        _ _space_
-        =exceptions (with-brackets
-                      (spaced parse-gclass))
-        _ _space_
-        =inputs (with-brackets
-                  (spaced parse-arg-decl))
-        _ _space_
-        =output parse-gclass]
+        =name (with-pre-space
+                parse-name)
+        =privacy-modifier (with-pre-space
+                            parse-privacy-modifier)
+        =anns (with-pre-space
+                (with-brackets
+                  (spaced parse-ann)))
+        =gvars (with-pre-space
+                 (with-brackets
+                   (spaced parse-type-param)))
+        =exceptions (with-pre-space
+                      (with-brackets
+                        (spaced parse-gclass)))
+        =inputs (with-pre-space
+                  (with-brackets
+                    (spaced parse-arg-decl)))
+        =output (with-pre-space
+                  parse-gclass)]
     (return (&/$AbstractMethodSyntax (&/T [=name =privacy-modifier =anns =gvars =exceptions =inputs =output])))))
 
 (def ^:private parse-method-native-def
   (|do [_ (&reader/read-text "native")
-        _ _space_
-        =name parse-name
-        _ _space_
-        =privacy-modifier parse-privacy-modifier
-        _ _space_
-        =anns (with-brackets
-                (spaced parse-ann))
-        _ _space_
-        =gvars (with-brackets
-                 (spaced parse-type-param))
-        _ _space_
-        =exceptions (with-brackets
-                      (spaced parse-gclass))
-        _ _space_
-        =inputs (with-brackets
-                  (spaced parse-arg-decl))
-        _ _space_
-        =output parse-gclass]
+        =name (with-pre-space
+                parse-name)
+        =privacy-modifier (with-pre-space
+                            parse-privacy-modifier)
+        =anns (with-pre-space
+                (with-brackets
+                  (spaced parse-ann)))
+        =gvars (with-pre-space
+                 (with-brackets
+                   (spaced parse-type-param)))
+        =exceptions (with-pre-space
+                      (with-brackets
+                        (spaced parse-gclass)))
+        =inputs (with-pre-space
+                  (with-brackets
+                    (spaced parse-arg-decl)))
+        =output (with-pre-space
+                  parse-gclass)]
     (return (&/$NativeMethodSyntax (&/T [=name =privacy-modifier =anns =gvars =exceptions =inputs =output])))))
 
 (def ^:private parse-method-def
@@ -402,73 +406,73 @@
 (def ^:private parse-field
   (with-parens
     (&/try-all% (&/|list (|do [_ (&reader/read-text "constant")
-                               _ _space_
-                               =name parse-name
-                               _ _space_
-                               =anns (with-brackets
-                                       (spaced parse-ann))
-                               _ _space_
-                               =type parse-gclass
-                               _ _space_
-                               (&/$Cons =value (&/$Nil)) &parser/parse]
+                               =name (with-pre-space
+                                       parse-name)
+                               =anns (with-pre-space
+                                       (with-brackets
+                                         (spaced parse-ann)))
+                               =type (with-pre-space
+                                       parse-gclass)
+                               (&/$Cons =value (&/$Nil)) (with-pre-space
+                                                           &parser/parse)]
                            (return (&/$ConstantFieldSyntax =name =anns =type =value)))
 
                          (|do [_ (&reader/read-text "variable")
-                               _ _space_
-                               =name parse-name
-                               _ _space_
-                               =privacy-modifier parse-privacy-modifier
-                               _ _space_
-                               =state-modifier parse-state-modifier
-                               _ _space_
-                               =anns (with-brackets
-                                       (spaced parse-ann))
-                               _ _space_
-                               =type parse-gclass]
+                               =name (with-pre-space
+                                       parse-name)
+                               =privacy-modifier (with-pre-space
+                                                   parse-privacy-modifier)
+                               =state-modifier (with-pre-space
+                                                 parse-state-modifier)
+                               =anns (with-pre-space
+                                       (with-brackets
+                                         (spaced parse-ann)))
+                               =type (with-pre-space
+                                       parse-gclass)]
                            (return (&/$VariableFieldSyntax =name =privacy-modifier =state-modifier =anns =type)))
                          ))))
 
 (def parse-interface-def
   (|do [=gclass-decl parse-gclass-decl
-        _ _space_
-        =supers (with-brackets
-                  (spaced parse-gclass-super))
-        _ _space_
-        =anns (with-brackets
-                (spaced parse-ann))
-        _ _space_
-        =methods (spaced parse-method-decl)]
+        =supers (with-pre-space
+                  (with-brackets
+                    (spaced parse-gclass-super)))
+        =anns (with-pre-space
+                (with-brackets
+                  (spaced parse-ann)))
+        =methods (with-pre-space
+                   (spaced parse-method-decl))]
     (return (&/T [=gclass-decl =supers =anns =methods]))))
 
 (def parse-class-def
   (|do [=gclass-decl parse-gclass-decl
-        _ _space_
-        =super-class parse-gclass-super
-        _ _space_
-        =interfaces (with-brackets
-                      (spaced parse-gclass-super))
-        _ _space_
-        =inheritance-modifier parse-inheritance-modifier
-        _ _space_
-        =anns (with-brackets
-                (spaced parse-ann))
-        _ _space_
-        =fields (with-brackets
-                  (spaced parse-field))
-        _ _space_
-        =methods (with-brackets
-                   (spaced parse-method-def))]
+        =super-class (with-pre-space
+                       parse-gclass-super)
+        =interfaces (with-pre-space
+                      (with-brackets
+                        (spaced parse-gclass-super)))
+        =inheritance-modifier (with-pre-space
+                                parse-inheritance-modifier)
+        =anns (with-pre-space
+                (with-brackets
+                  (spaced parse-ann)))
+        =fields (with-pre-space
+                  (with-brackets
+                    (spaced parse-field)))
+        =methods (with-pre-space
+                   (with-brackets
+                     (spaced parse-method-def)))]
     (return (&/T [=gclass-decl =super-class =interfaces =inheritance-modifier =anns =fields =methods]))))
 
 (def parse-anon-class-def
   (|do [=super-class parse-gclass-super
-        _ _space_
-        =interfaces (with-brackets
-                      (spaced parse-gclass-super))
-        _ _space_
-        =ctor-args (with-brackets
-                     (spaced parse-ctor-arg))
-        _ _space_
-        =methods (with-brackets
-                   (spaced parse-method-def))]
+        =interfaces (with-pre-space
+                      (with-brackets
+                        (spaced parse-gclass-super)))
+        =ctor-args (with-pre-space
+                     (with-brackets
+                       (spaced parse-ctor-arg)))
+        =methods (with-pre-space
+                   (with-brackets
+                     (spaced parse-method-def)))]
     (return (&/T [=super-class =interfaces =ctor-args =methods]))))

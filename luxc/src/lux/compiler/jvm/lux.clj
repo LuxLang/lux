@@ -248,6 +248,52 @@
       (str base "\n\n" "Caused by: " (throwable->text cause))
       base)))
 
+(defn ^:private install-def! [class-loader current-class module-name ?name ?body ?meta]
+  (|do [_ (return nil)
+        :let [def-class (&&/load-class! class-loader (&host-generics/->class-name current-class))
+              def-type (&a/expr-type* ?body)
+              is-type? (|case (&a-meta/meta-get &a-meta/type?-tag ?meta)
+                         (&/$Some [_ (&/$Bool true)])
+                         true
+
+                         _
+                         false)
+              def-meta ?meta]
+        def-value (try (return (-> def-class (.getField &/value-field) (.get nil)))
+                    (catch Throwable t
+                      (&/assert! false
+                                 (str "Error during value initialization:\n"
+                                      (throwable->text t)))))
+        _ (&/without-repl-closure
+           (&a-module/define module-name ?name def-type def-meta def-value))]
+    (|case (&/T [is-type? (&a-meta/meta-get &a-meta/tags-tag def-meta)])
+      [true (&/$Some [_ (&/$Tuple tags*)])]
+      (|do [:let [was-exported? (|case (&a-meta/meta-get &a-meta/export?-tag def-meta)
+                                  (&/$Some _)
+                                  true
+
+                                  _
+                                  false)]
+            tags (&/map% (fn [tag*]
+                           (|case tag*
+                             [_ (&/$Text tag)]
+                             (return tag)
+
+                             _
+                             (&/fail-with-loc "[Compiler Error] Incorrect format for tags.")))
+                         tags*)
+            _ (&a-module/declare-tags module-name tags was-exported? def-value)]
+        (return nil))
+
+      [false (&/$Some _)]
+      (&/fail-with-loc "[Compiler Error] Cannot define tags for non-type.")
+
+      [true (&/$Some _)]
+      (&/fail-with-loc "[Compiler Error] Incorrect format for tags.")
+
+      [_ (&/$None)]
+      (return nil))))
+
 (let [class-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
       field-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC)]
   (defn compile-def [compile ?name ?body ?meta]
@@ -300,49 +346,7 @@
                         (return nil)))
                   :let [_ (.visitEnd =class)]
                   _ (&&/save-class! def-name (.toByteArray =class))
-                  :let [def-class (&&/load-class! class-loader (&host-generics/->class-name current-class))
-                        def-type (&a/expr-type* ?body)
-                        is-type? (|case (&a-meta/meta-get &a-meta/type?-tag ?meta)
-                                   (&/$Some [_ (&/$Bool true)])
-                                   true
-
-                                   _
-                                   false)
-                        def-meta ?meta]
-                  def-value (try (return (-> def-class (.getField &/value-field) (.get nil)))
-                              (catch Throwable t
-                                (&/assert! false
-                                           (str "Error during value initialization:\n"
-                                                (throwable->text t)))))
-                  _ (&/without-repl-closure
-                     (&a-module/define module-name ?name def-type def-meta def-value))
-                  _ (|case (&/T [is-type? (&a-meta/meta-get &a-meta/tags-tag def-meta)])
-                      [true (&/$Some [_ (&/$Tuple tags*)])]
-                      (|do [:let [was-exported? (|case (&a-meta/meta-get &a-meta/export?-tag def-meta)
-                                                  (&/$Some _)
-                                                  true
-
-                                                  _
-                                                  false)]
-                            tags (&/map% (fn [tag*]
-                                           (|case tag*
-                                             [_ (&/$Text tag)]
-                                             (return tag)
-
-                                             _
-                                             (&/fail-with-loc "[Compiler Error] Incorrect format for tags.")))
-                                         tags*)
-                            _ (&a-module/declare-tags module-name tags was-exported? def-value)]
-                        (return nil))
-
-                      [false (&/$Some _)]
-                      (&/fail-with-loc "[Compiler Error] Cannot define tags for non-type.")
-
-                      [true (&/$Some _)]
-                      (&/fail-with-loc "[Compiler Error] Incorrect format for tags.")
-
-                      [_ (&/$None)]
-                      (return nil))
+                  _ (install-def! class-loader current-class module-name ?name ?body ?meta)
                   :let [_ (println 'DEF (str module-name &/+name-separator+ ?name))]]
               (return nil)))
 
@@ -369,49 +373,7 @@
                       (return nil)))
                 :let [_ (.visitEnd =class)]
                 _ (&&/save-class! def-name (.toByteArray =class))
-                :let [def-class (&&/load-class! class-loader (&host-generics/->class-name current-class))
-                      def-type (&a/expr-type* ?body)
-                      is-type? (|case (&a-meta/meta-get &a-meta/type?-tag ?meta)
-                                 (&/$Some [_ (&/$Bool true)])
-                                 true
-
-                                 _
-                                 false)
-                      def-meta ?meta]
-                def-value (try (return (-> def-class (.getField &/value-field) (.get nil)))
-                            (catch Throwable t
-                              (&/assert! false
-                                         (str "Error during value initialization:\n"
-                                              (throwable->text t)))))
-                _ (&/without-repl-closure
-                   (&a-module/define module-name ?name def-type def-meta def-value))
-                _ (|case (&/T [is-type? (&a-meta/meta-get &a-meta/tags-tag def-meta)])
-                    [true (&/$Some [_ (&/$Tuple tags*)])]
-                    (|do [:let [was-exported? (|case (&a-meta/meta-get &a-meta/export?-tag def-meta)
-                                                (&/$Some _)
-                                                true
-
-                                                _
-                                                false)]
-                          tags (&/map% (fn [tag*]
-                                         (|case tag*
-                                           [_ (&/$Text tag)]
-                                           (return tag)
-
-                                           _
-                                           (&/fail-with-loc "[Compiler Error] Incorrect format for tags.")))
-                                       tags*)
-                          _ (&a-module/declare-tags module-name tags was-exported? def-value)]
-                      (return nil))
-
-                    [false (&/$Some _)]
-                    (&/fail-with-loc "[Compiler Error] Cannot define tags for non-type.")
-
-                    [true (&/$Some _)]
-                    (&/fail-with-loc "[Compiler Error] Incorrect format for tags.")
-
-                    [_ (&/$None)]
-                    (return nil))
+                _ (install-def! class-loader current-class module-name ?name ?body ?meta)
                 :let [_ (println 'DEF (str module-name &/+name-separator+ ?name))]]
             (return nil)))
         ))))
