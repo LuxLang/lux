@@ -10,7 +10,7 @@
              [text "T/" Eq<Text>]
              text/format
              (coll [list "L/" Monad<List>]
-                   ["S" set]))
+                   (set ["set" unordered])))
        ["r" math/random "r/" Monad<Random>]
        [macro #+ Monad<Meta>]
        (macro [code])
@@ -136,13 +136,14 @@
          variant-name (r.text +5)
          record-name (|> (r.text +5) (r.filter (|>> (T/= variant-name) not)))
          size (|> r.nat (:: @ map (|>> (n/% +10) (n/max +2))))
-         variant-tags (|> (r.set text.Hash<Text> size (r.text +5)) (:: @ map S.to-list))
-         record-tags (|> (r.set text.Hash<Text> size (r.text +5)) (:: @ map S.to-list))
+         variant-tags (|> (r.set text.Hash<Text> size (r.text +5)) (:: @ map set.to-list))
+         record-tags (|> (r.set text.Hash<Text> size (r.text +5)) (:: @ map set.to-list))
          primitivesTC (r.list size gen-primitive)
          #let [primitivesT (L/map product.left primitivesTC)
                primitivesC (L/map product.right primitivesTC)
-               variant-tags+ (L/map (|>> [module-name] code.tag) variant-tags)
-               record-tags+ (L/map (|>> [module-name] code.tag) record-tags)
+               code-tag (|>> [module-name] code.tag)
+               variant-tags+ (L/map code-tag variant-tags)
+               record-tags+ (L/map code-tag record-tags)
                variantTC (list.zip2 variant-tags+ primitivesC)]
          inputC (input variant-tags+ record-tags+ primitivesC)
          [outputT outputC] gen-primitive
@@ -165,63 +166,31 @@
                                                           (list (let [[_pattern _body] (maybe.assume (list.nth heterogeneous-idx exhaustive-branchesC))]
                                                                   [_pattern heterogeneousC]))
                                                           (list.drop (n/inc heterogeneous-idx) exhaustive-branchesC)))
-               ]]
+               analyse-pm (|>> (@.analyse-case analyse inputC)
+                               (&.with-type outputT)
+                               &.with-scope
+                               (do Monad<Meta>
+                                 [_ (@module.declare-tags variant-tags false
+                                                          (#.Named [module-name variant-name]
+                                                                   (type.variant primitivesT)))
+                                  _ (@module.declare-tags record-tags false
+                                                          (#.Named [module-name record-name]
+                                                                   (type.tuple primitivesT)))])
+                               (@module.with-module +0 module-name))]]
         ($_ seq
             (test "Will reject empty pattern-matching (no branches)."
-                  (|> (&.with-scope
-                        (&.with-type outputT
-                          (@.analyse-case analyse inputC (list))))
+                  (|> (analyse-pm (list))
                       check-failure))
             (test "Can analyse exhaustive pattern-matching."
-                  (|> (@module.with-module +0 module-name
-                        (do Monad<Meta>
-                          [_ (@module.declare-tags variant-tags false
-                                                   (#.Named [module-name variant-name]
-                                                            (type.variant primitivesT)))
-                           _ (@module.declare-tags record-tags false
-                                                   (#.Named [module-name record-name]
-                                                            (type.tuple primitivesT)))]
-                          (&.with-scope
-                            (&.with-type outputT
-                              (@.analyse-case analyse inputC exhaustive-branchesC)))))
+                  (|> (analyse-pm exhaustive-branchesC)
                       check-success))
             (test "Will reject non-exhaustive pattern-matching."
-                  (|> (@module.with-module +0 module-name
-                        (do Monad<Meta>
-                          [_ (@module.declare-tags variant-tags false
-                                                   (#.Named [module-name variant-name]
-                                                            (type.variant primitivesT)))
-                           _ (@module.declare-tags record-tags false
-                                                   (#.Named [module-name record-name]
-                                                            (type.tuple primitivesT)))]
-                          (&.with-scope
-                            (&.with-type outputT
-                              (@.analyse-case analyse inputC non-exhaustive-branchesC)))))
+                  (|> (analyse-pm non-exhaustive-branchesC)
                       check-failure))
             (test "Will reject redundant pattern-matching."
-                  (|> (@module.with-module +0 module-name
-                        (do Monad<Meta>
-                          [_ (@module.declare-tags variant-tags false
-                                                   (#.Named [module-name variant-name]
-                                                            (type.variant primitivesT)))
-                           _ (@module.declare-tags record-tags false
-                                                   (#.Named [module-name record-name]
-                                                            (type.tuple primitivesT)))]
-                          (&.with-scope
-                            (&.with-type outputT
-                              (@.analyse-case analyse inputC redundant-branchesC)))))
+                  (|> (analyse-pm redundant-branchesC)
                       check-failure))
             (test "Will reject pattern-matching if the bodies of the branches do not all have the same type."
-                  (|> (@module.with-module +0 module-name
-                        (do Monad<Meta>
-                          [_ (@module.declare-tags variant-tags false
-                                                   (#.Named [module-name variant-name]
-                                                            (type.variant primitivesT)))
-                           _ (@module.declare-tags record-tags false
-                                                   (#.Named [module-name record-name]
-                                                            (type.tuple primitivesT)))]
-                          (&.with-scope
-                            (&.with-type outputT
-                              (@.analyse-case analyse inputC heterogeneous-branchesC)))))
+                  (|> (analyse-pm heterogeneous-branchesC)
                       check-failure))
             ))))
