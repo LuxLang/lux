@@ -26,12 +26,6 @@
       (&/$Primitive name params)
       (str "^" name stop (serialize-list serialize-type params))
 
-      (&/$Void)
-      "0"
-
-      (&/$Unit)
-      "1"
-      
       (&/$Product left right)
       (str "*" (serialize-type left) (serialize-type right))
 
@@ -78,16 +72,9 @@
             [(&/$Cons head tail) input*]))
         ))
 
-(do-template [<name> <signal> <type>]
-  (defn <name> [^String input]
-    (when (.startsWith input <signal>)
-      [<type> (.substring input 1)]
-      ))
-
-  ^:private deserialize-void  "0" &/$Void
-  ^:private deserialize-unit  "1" &/$Unit
-  ^:private deserialize-type* "T" &type/Type
-  )
+(defn ^:private deserialize-type* [^String input]
+  (when (.startsWith input "T")
+    [&type/Type (.substring input 1)]))
 
 (do-template [<name> <signal> <type>]
   (defn <name> [^String input]
@@ -142,8 +129,6 @@
   "(-> Text Type)"
   [input]
   (or (deserialize-type* input)
-      (deserialize-void input)
-      (deserialize-unit input)
       (deserialize-sum input)
       (deserialize-prod input)
       (deserialize-lambda input)

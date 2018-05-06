@@ -194,7 +194,7 @@
       "float"   (return (&/$Primitive "java.lang.Float" &/$Nil))
       "double"  (return (&/$Primitive "java.lang.Double" &/$Nil))
       "char"    (return (&/$Primitive "java.lang.Character" &/$Nil))
-      "void"    (return &/$Unit)
+      "void"    (return &type/Top)
       ;; else
       (|do [=params (&/map% (partial generic-class->type env) params)]
         (return (&/$Primitive name =params))))
@@ -252,7 +252,7 @@
           itype (generic-class->type full-env itype*)]
       (if (double-register-gclass? itype*)
         (&&env/with-local iname itype
-          (&&env/with-local "" &/$Void
+          (&&env/with-local "" &type/Bottom
             body*))
         (&&env/with-local iname itype
           body*)))))
@@ -265,7 +265,7 @@
       (&/$ConstructorMethodSyntax =privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs ?ctor-args ?body)
       (|do [method-env (make-type-env ?gvars)
             :let [full-env (&/|++ class-env method-env)]
-            :let [output-type &/$Unit]
+            :let [output-type &type/Top]
             =ctor-args (&/map% (fn [ctor-arg]
                                  (|do [:let [[ca-type ca-term] ctor-arg]
                                        =ca-type (generic-class->type full-env ca-type)
@@ -673,7 +673,7 @@
         :let [gclass (&host-type/gtype->gclass gtype)]
         =type (&host-type/instance-param &type/existential &/$Nil gtype)
         =value (&&/analyse-1 analyse =type value)
-        :let [output-type &/$Unit]
+        :let [output-type &type/Top]
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
@@ -690,7 +690,7 @@
         :let [gclass (&host-type/gtype->gclass gtype)]
         =type (analyse-field-access-helper obj-type gvars gtype)
         =value (&&/analyse-1 analyse =type value)
-        :let [output-type &/$Unit]
+        :let [output-type &type/Top]
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
@@ -829,7 +829,7 @@
         _ (compile-interface interface-decl supers =anns =methods)
         :let [_ (println 'INTERFACE (str module "." (&/|first interface-decl)))]
         _cursor &/cursor]
-    (return (&/|list (&&/|meta &/$Unit _cursor
+    (return (&/|list (&&/|meta &type/Top _cursor
                                (&&/$tuple (&/|list)))))))
 
 (defn ^:private analyse-jvm-class [analyse compile-class class-decl super-class interfaces =inheritance-modifier =anns ?fields methods]
@@ -848,7 +848,7 @@
           _ &/pop-dummy-name
           :let [_ (println 'CLASS full-name)]
           _cursor &/cursor]
-      (return (&/|list (&&/|meta &/$Unit _cursor
+      (return (&/|list (&&/|meta &type/Top _cursor
                                  (&&/$tuple (&/|list))))))))
 
 (defn ^:private captured-source [env-entry]

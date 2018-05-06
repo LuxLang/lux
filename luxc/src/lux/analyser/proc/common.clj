@@ -289,7 +289,7 @@
   ^:private analyse-nat-to-int   &type/Nat  &type/Int    ["nat" "to-int"]
   ^:private analyse-int-to-nat   &type/Int  &type/Nat    ["int" "to-nat"]
   
-  ^:private analyse-nat-char  &type/Nat  &type/Text   ["nat" "char"]
+  ^:private analyse-nat-char     &type/Nat  &type/Text   ["nat" "char"]
   
   ^:private analyse-int-to-frac  &type/Int  &type/Frac   ["int" "to-frac"]
   ^:private analyse-frac-to-int  &type/Frac &type/Int    ["frac" "to-int"]
@@ -297,7 +297,7 @@
   ^:private analyse-deg-to-frac  &type/Deg  &type/Frac   ["deg" "to-frac"]
   ^:private analyse-frac-to-deg  &type/Frac &type/Deg    ["frac" "to-deg"]
   
-  ^:private analyse-io-log       &type/Text &/$Unit     ["io" "log"]
+  ^:private analyse-io-log       &type/Text &type/Top    ["io" "log"]
   ^:private analyse-io-error     &type/Text &type/Bottom ["io" "error"]
   ^:private analyse-io-exit      &type/Int  &type/Bottom ["io" "exit"]
   )
@@ -459,7 +459,7 @@
           (|do [:let [(&/$Cons valueC (&/$Cons boxC (&/$Nil))) ?values]
                 boxA (&&/analyse-1 analyse (&type/Box threadT valueT) boxC)
                 valueA (&&/analyse-1 analyse valueT valueC)
-                _ (&type/check exo-type &/$Unit)
+                _ (&type/check exo-type &type/Top)
                 _cursor &/cursor]
             (return (&/|list (&&/|meta exo-type _cursor
                                        (&&/$proc (&/T ["box" "write"]) (&/|list valueA boxA) (&/|list)))))))))))
@@ -474,7 +474,7 @@
 (defn ^:private analyse-process-future [analyse exo-type ?values]
   (|do [:let [(&/$Cons ?procedure (&/$Nil)) ?values]
         =procedure (&&/analyse-1 analyse (&/$Apply &type/Top &type/IO) ?procedure)
-        _ (&type/check exo-type &/$Unit)
+        _ (&type/check exo-type &type/Top)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["process" "future"]) (&/|list =procedure) (&/|list)))))))
@@ -483,7 +483,7 @@
   (|do [:let [(&/$Cons ?milliseconds (&/$Cons ?procedure (&/$Nil))) ?values]
         =milliseconds (&&/analyse-1 analyse &type/Nat ?milliseconds)
         =procedure (&&/analyse-1 analyse (&/$Apply &type/Top &type/IO) ?procedure)
-        _ (&type/check exo-type &/$Unit)
+        _ (&type/check exo-type &type/Top)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["process" "schedule"]) (&/|list =milliseconds =procedure) (&/|list)))))))

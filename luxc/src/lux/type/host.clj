@@ -8,6 +8,61 @@
                               TypeVariable
                               WildcardType)))
 
+(defn ^:private type= [x y]
+  (or (clojure.lang.Util/identical x y)
+      (let [output (|case [x y]
+                     [(&/$Named [?xmodule ?xname] ?xtype) (&/$Named [?ymodule ?yname] ?ytype)]
+                     (and (= ?xmodule ?ymodule)
+                          (= ?xname ?yname))
+
+                     [(&/$Primitive xname xparams) (&/$Primitive yname yparams)]
+                     (and (.equals ^Object xname yname)
+                          (= (&/|length xparams) (&/|length yparams))
+                          (&/fold2 #(and %1 (type= %2 %3)) true xparams yparams))
+
+                     [(&/$Product xL xR) (&/$Product yL yR)]
+                     (and (type= xL yL)
+                          (type= xR yR))
+
+                     [(&/$Sum xL xR) (&/$Sum yL yR)]
+                     (and (type= xL yL)
+                          (type= xR yR))
+
+                     [(&/$Function xinput xoutput) (&/$Function yinput youtput)]
+                     (and (type= xinput yinput)
+                          (type= xoutput youtput))
+
+                     [(&/$Var xid) (&/$Var yid)]
+                     (= xid yid)
+
+                     [(&/$Bound xidx) (&/$Bound yidx)]
+                     (= xidx yidx)
+
+                     [(&/$Ex xid) (&/$Ex yid)]
+                     (= xid yid)
+
+                     [(&/$Apply xparam xlambda) (&/$Apply yparam ylambda)]
+                     (and (type= xparam yparam) (type= xlambda ylambda))
+                     
+                     [(&/$UnivQ xenv xbody) (&/$UnivQ yenv ybody)]
+                     (type= xbody ybody)
+
+                     [(&/$Named ?xname ?xtype) _]
+                     (type= ?xtype y)
+
+                     [_ (&/$Named ?yname ?ytype)]
+                     (type= x ?ytype)
+                     
+                     [_ _]
+                     false
+                     )]
+        output)))
+
+(def ^:private Top
+  (&/$Named (&/T ["lux" "Top"])
+            (&/$ExQ (&/|list)
+                    (&/$Bound 1))))
+
 ;; [Exports]
 (def array-data-tag "#Array")
 (def null-data-tag "#Null")
@@ -82,7 +137,7 @@
         (if-let [[_ _ arr-obrackets arr-obase simple-base arr-pbrackets arr-pbase] (re-find class-name-re gclass-name)]
           (let [base (or arr-obase simple-base (jprim->lprim arr-pbase))]
             (if (.equals "void" base)
-              &/$Unit
+              Top
               (reduce (fn [inner _] (&/$Primitive array-data-tag (&/|list inner)))
                       (&/$Primitive base (try (-> (Class/forName base) .getTypeParameters
                                                   seq count (repeat (&/$Primitive "java.lang.Object" &/$Nil))
@@ -126,15 +181,15 @@
 
 (defn principal-class [refl-type]
   (cond (instance? Class refl-type)
-        (|case (class->type refl-type)
-          (&/$Primitive "#Array" (&/$Cons (&/$Primitive class-name _) (&/$Nil)))
-          (str "[" (&host-generics/->type-signature class-name))
+        (let [class-type (class->type refl-type)]
+          (if (type= Top class-type)
+            "V"
+            (|case class-type
+              (&/$Primitive "#Array" (&/$Cons (&/$Primitive class-name _) (&/$Nil)))
+              (str "[" (&host-generics/->type-signature class-name))
 
-          (&/$Primitive class-name _)
-          (&host-generics/->type-signature class-name)
-
-          (&/$Unit)
-          "V")
+              (&/$Primitive class-name _)
+              (&host-generics/->type-signature class-name))))
 
         (instance? GenericArrayType refl-type)
         (str "[" (principal-class (.getGenericComponentType ^GenericArrayType refl-type)))

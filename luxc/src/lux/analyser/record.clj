@@ -11,7 +11,7 @@
   "(-> (List (, Syntax Syntax)) (Lux (List Syntax)))"
   (|do [[tag-group tag-type] (|case pairs
                                (&/$Nil)
-                               (return (&/T [&/$Nil &/$Unit]))
+                               (return (&/T [&/$Nil &type/Top]))
                                
                                (&/$Cons [[_ (&/$Tag tag1)] _] _)
                                (|do [[module name] (&&/resolved-ident tag1)

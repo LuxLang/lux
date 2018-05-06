@@ -59,14 +59,14 @@
 (def IO
   (&/$Named (&/T ["lux/codata" "IO"])
             (&/$UnivQ empty-env
-                      (&/$Function &/$Void (&/$Bound 1)))))
+                      (&/$Function Bottom (&/$Bound 1)))))
 
 (def List
   (&/$Named (&/T ["lux" "List"])
             (&/$UnivQ empty-env
                       (&/$Sum
                        ;; lux;Nil
-                       &/$Unit
+                       Top
                        ;; lux;Cons
                        (&/$Product (&/$Bound 1)
                                    (&/$Apply (&/$Bound 1)
@@ -77,7 +77,7 @@
             (&/$UnivQ empty-env
                       (&/$Sum
                        ;; lux;None
-                       &/$Unit
+                       Top
                        ;; lux;Some
                        (&/$Bound 1))
                       )))
@@ -87,46 +87,40 @@
             (let [Type (&/$Apply (&/$Bound 1) (&/$Bound 0))
                   TypeList (&/$Apply Type List)
                   TypePair (&/$Product Type Type)]
-              (&/$Apply &/$Void
+              (&/$Apply Bottom
                         (&/$UnivQ empty-env
                                   (&/$Sum
                                    ;; Primitive
                                    (&/$Product Text TypeList)
                                    (&/$Sum
-                                    ;; Void
-                                    &/$Unit
+                                    ;; Sum
+                                    TypePair
                                     (&/$Sum
-                                     ;; Unit
-                                     &/$Unit
+                                     ;; Product
+                                     TypePair
                                      (&/$Sum
-                                      ;; Sum
+                                      ;; Function
                                       TypePair
                                       (&/$Sum
-                                       ;; Product
-                                       TypePair
+                                       ;; Bound
+                                       Nat
                                        (&/$Sum
-                                        ;; Function
-                                        TypePair
+                                        ;; Var
+                                        Nat
                                         (&/$Sum
-                                         ;; Bound
+                                         ;; Ex
                                          Nat
                                          (&/$Sum
-                                          ;; Var
-                                          Nat
+                                          ;; UnivQ
+                                          (&/$Product TypeList Type)
                                           (&/$Sum
-                                           ;; Ex
-                                           Nat
+                                           ;; ExQ
+                                           (&/$Product TypeList Type)
                                            (&/$Sum
-                                            ;; UnivQ
-                                            (&/$Product TypeList Type)
-                                            (&/$Sum
-                                             ;; ExQ
-                                             (&/$Product TypeList Type)
-                                             (&/$Sum
-                                              ;; App
-                                              TypePair
-                                              ;; Named
-                                              (&/$Product Ident Type)))))))))))))
+                                            ;; App
+                                            TypePair
+                                            ;; Named
+                                            (&/$Product Ident Type)))))))))))
                                   )))))
 
 (def Cursor
@@ -423,8 +417,8 @@
       (&/$Nil)
       <unit>))
 
-  Variant$ &/$Sum  &/$Void
-  Tuple$   &/$Product &/$Unit
+  Variant$ &/$Sum  Bottom
+  Tuple$   &/$Product Top
   )
 
 (defn show-type [^objects type]
@@ -437,12 +431,6 @@
       _
       (str "(primitive " (pr-str name) " " (->> params (&/|map show-type) (&/|interpose " ") (&/fold str "")) ")"))
 
-    (&/$Void)
-    "Void"
-    
-    (&/$Unit)
-    "Unit"
-    
     (&/$Product _)
     (str "[" (->> (flatten-prod type) (&/|map show-type) (&/|interpose " ") (&/fold str "")) "]")
 
@@ -491,12 +479,6 @@
                      (and (.equals ^Object xname yname)
                           (= (&/|length xparams) (&/|length yparams))
                           (&/fold2 #(and %1 (type= %2 %3)) true xparams yparams))
-
-                     [(&/$Void) (&/$Void)]
-                     true
-                     
-                     [(&/$Unit) (&/$Unit)]
-                     true
 
                      [(&/$Product xL xR) (&/$Product yL yR)]
                      (and (type= xL yL)
@@ -834,12 +816,6 @@
                   (return fixpoints))
                 (check-error "" expected actual)))))
 
-        [(&/$Void) (&/$Void)]
-        (return fixpoints)
-        
-        [(&/$Unit) (&/$Unit)]
-        (return fixpoints)
-
         [(&/$Function eI eO) (&/$Function aI aO)]
         (|do [fixpoints* (check* fixpoints invariant?? aI eI)]
           (check* fixpoints* invariant?? eO aO))
@@ -947,8 +923,8 @@
       (&/$Cons last prevs)
       (&/fold (fn [r l] (<plus> l r)) last prevs)))
 
-  fold-prod &/$Unit &/$Product
-  fold-sum  &/$Void &/$Sum
+  fold-prod Top &/$Product
+  fold-sum  Bottom &/$Sum
   )
 
 (def create-var+

@@ -58,9 +58,6 @@
       (&/$Function _ _)
       (return (&host-generics/->type-signature function-class))
 
-      (&/$Unit)
-      (return "V")
-
       (&/$Sum _)
       (return object-array)
 
@@ -78,7 +75,9 @@
       (return ex-type-class)
 
       _
-      (assert false (str '->java-sig " " (&type/show-type type)))
+      (if (&type/type= &type/Top type)
+        (return "V")
+        (assert false (str '->java-sig " " (&type/show-type type))))
       )))
 
 (do-template [<name> <static?>]

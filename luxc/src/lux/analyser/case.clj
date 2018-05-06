@@ -38,24 +38,26 @@
   (&/T [(&/T ["" -1 -1]) (&/$Tuple &/$Nil)]))
 
 (defn ^:private resolve-type [type]
-  (|case type
-    (&/$Var ?id)
-    (|do [type* (&/try-all% (&/|list (&type/deref ?id)
-                                     (&/fail-with-loc "##1##")))]
-      (resolve-type type*))
+  (if (&type/type= &type/Top type)
+    (return type)
+    (|case type
+      (&/$Var ?id)
+      (|do [type* (&/try-all% (&/|list (&type/deref ?id)
+                                       (&/fail-with-loc "##1##")))]
+        (resolve-type type*))
 
-    (&/$UnivQ _)
-    (|do [$var &type/existential
-          =type (&type/apply-type type $var)]
-      (&type/actual-type =type))
+      (&/$UnivQ _)
+      (|do [$var &type/existential
+            =type (&type/apply-type type $var)]
+        (&type/actual-type =type))
 
-    (&/$ExQ _ _)
-    (|do [$var &type/existential
-          =type (&type/apply-type type $var)]
-      (&type/actual-type =type))
+      (&/$ExQ _ _)
+      (|do [$var &type/existential
+            =type (&type/apply-type type $var)]
+        (&type/actual-type =type))
 
-    _
-    (&type/actual-type type)))
+      _
+      (&type/actual-type type))))
 
 (defn update-up-frame [frame]
   (|let [[_env _idx _var] frame]
@@ -239,9 +241,6 @@
     (&/$Named ?name ?type)
     (adjust-type* up ?type)
 
-    (&/$Unit)
-    (return type)
-
     _
     (&/fail-with-loc (str "[Pattern-matching Error] Cannot pattern-match against type: " (&type/show-type type)))
     ))
@@ -302,7 +301,7 @@
       (&/$Tuple ?members)
       (|case ?members
         (&/$Nil)
-        (|do [_ (&type/check value-type &/$Unit)
+        (|do [_ (&type/check value-type &type/Top)
               =kont kont]
           (return (&/T [($TupleTestAC (&/|list)) =kont])))
 
@@ -580,11 +579,8 @@
     (|case ?structs
       (&/$Nil)
       (|do [value-type* (resolve-type value-type)]
-        (|case value-type*
-          (&/$Unit)
+        (if (&type/type= &type/Top value-type*)
           (return true)
-
-          _
           (&/fail-with-loc "[Pattern-maching Error] Unit is not total.")))
       
       _

@@ -201,7 +201,7 @@
 ;; [Resources]
 (defn analyse [optimize eval! compile-module compilers]
   (|do [asts &parser/parse]
-    (&/flat-map% (partial analyse-ast optimize eval! compile-module compilers &/$Void) asts)))
+    (&/flat-map% (partial analyse-ast optimize eval! compile-module compilers &type/Bottom) asts)))
 
 (defn clean-output [?var analysis]
   (|do [:let [[[?output-type ?output-cursor] ?output-term] analysis]

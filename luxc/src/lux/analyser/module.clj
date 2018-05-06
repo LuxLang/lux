@@ -48,8 +48,9 @@
        ))
 
 (do-template [<flagger> <asker> <tag>]
-  (do (defn <flagger> [module-name]
-        "(-> Text (Lux Unit))"
+  (do (defn <flagger>
+        "(-> Text (Lux Top))"
+        [module-name]
         (fn [state]
           (let [state* (&/update$ &/$modules
                                   (fn [modules]
@@ -59,8 +60,9 @@
                                                modules))
                                   state)]
             (&/$Right (&/T [state* &/unit-tag])))))
-    (defn <asker> [module-name]
+    (defn <asker>
       "(-> Text (Lux Bool))"
+      [module-name]
       (fn [state]
         (if-let [=module (->> state (&/get$ &/$modules) (&/|get module-name))]
           (&/$Right (&/T [state (|case (&/get$ $module-state =module)
@@ -380,7 +382,7 @@
          state)))))
 
 (defn ensure-can-see-tag
-  "(-> Text Text (Lux Unit))"
+  "(-> Text Text (Lux Top))"
   [module tag-name]
   (|do [current-module &/get-module-name]
     (fn [state]
@@ -463,8 +465,8 @@
     _
     (&/fail-with-loc "[Analyser Error] No import meta-data.")))
 
-(def tag-groups
-  "(Lux (List [Text (List Text)]))"
+(def ^{:doc "(Lux (List [Text (List Text)]))"}
+  tag-groups
   (|do [module &/get-current-module]
     (return (&/|map (fn [pair]
                       (|case pair
@@ -473,5 +475,4 @@
                                              (|let [[t-prefix t-name] tag]
                                                t-name))
                                            tags)])))
-                    (&/get$ $types module)))
-    ))
+                    (&/get$ $types module)))))

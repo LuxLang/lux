@@ -10,7 +10,7 @@
     (apply prn args)))
 
 ;; [Tags]
-(def unit-tag (.intern (str (char 0) "unit" (char 0))))
+(def unit-tag (.intern ""))
 
 (defn T [elems]
   (case (count elems)
@@ -86,8 +86,6 @@
 ;; Type
 (defvariant
   ("Primitive" 2)
-  ("Void" 0)
-  ("Unit" 0)
   ("Sum" 2)
   ("Product" 2)
   ("Function" 2)
@@ -413,8 +411,9 @@
     _
     (assert false (prn-str '|map f (adt->text xs)))))
 
-(defn |empty? [xs]
+(defn |empty?
   "(All [a] (-> (List a) Bool))"
+  [xs]
   (|case xs
     ($Nil)
     true
@@ -422,8 +421,9 @@
     ($Cons _ _)
     false))
 
-(defn |filter [p xs]
+(defn |filter
   "(All [a] (-> (-> a Bool) (List a) (List a)))"
+  [p xs]
   (|case xs
     ($Nil)
     xs
@@ -433,8 +433,9 @@
       ($Cons x (|filter p xs*))
       (|filter p xs*))))
 
-(defn flat-map [f xs]
+(defn flat-map
   "(All [a b] (-> (-> a (List b)) (List a) (List b)))"
+  [f xs]
   (|case xs
     ($Nil)
     xs
@@ -656,8 +657,9 @@
         (return* state unit-tag)
         (fail* msg)))))
 
-(defn |some [f xs]
+(defn |some
   "(All [a b] (-> (-> a (Maybe b)) (List a) (Maybe b)))"
+  [f xs]
   (|case xs
     ($Nil)
     $None
@@ -782,8 +784,9 @@
 (defn with-writer [writer body]
   (with-jvm-host-slot $writer (fn [_] ($Some writer)) body))
 
-(defn with-type-env [type-env body]
+(defn with-type-env
   "(All [a] (-> TypeEnv (Lux a) (Lux a)))"
+  [type-env body]
   (with-jvm-host-slot $type-env (partial |++ type-env) body))
 
 (defn push-dummy-name [real-name store-name]
@@ -853,17 +856,17 @@
       ($Left msg)
       (fail* msg))))
 
-(defn in-eval? [mode]
-  "(-> CompilerMode Bool)"
-  (|case mode
-    ($Eval) true
-    _       false))
+(do-template [<name> <tag>]
+  (defn <name>
+    "(-> CompilerMode Bool)"
+    [mode]
+    (|case mode
+      (<tag>) true
+      _       false))
 
-(defn in-repl? [mode]
-  "(-> CompilerMode Bool)"
-  (|case mode
-    ($REPL) true
-    _       false))
+  in-eval? $Eval
+  in-repl? $REPL
+  )
 
 (defn with-eval [body]
   (fn [state]
@@ -924,16 +927,17 @@
       ($Some module-name)
       (return* state module-name))))
 
-(defn find-module [name]
+(defn find-module
   "(-> Text (Lux (Module Compiler)))"
+  [name]
   (fn [state]
     (if-let [module (|get name (get$ $modules state))]
       (return* state module)
       ((fail-with-loc (str "[Error] Unknown module: " name))
        state))))
 
-(def get-current-module
-  "(Lux (Module Compiler))"
+(def ^{:doc "(Lux (Module Compiler))"}
+  get-current-module
   (|do [module-name get-module-name]
     (find-module module-name)))
 
@@ -1009,8 +1013,9 @@
           _
           output)))))
 
-(defn with-expected-type [type body]
+(defn with-expected-type
   "(All [a] (-> Type (Lux a)))"
+  [type body]
   (fn [state]
     (let [output (body (set$ $expected ($Some type) state))]
       (|case output
@@ -1021,8 +1026,9 @@
         _
         output))))
 
-(defn with-cursor [^objects cursor body]
+(defn with-cursor
   "(All [a] (-> Cursor (Lux a)))"
+  [^objects cursor body]
   (|let [[_file-name _ _] cursor]
     (if (= "" _file-name)
       body
@@ -1036,8 +1042,9 @@
             _
             output))))))
 
-(defn with-analysis-meta [^objects cursor type body]
+(defn with-analysis-meta
   "(All [a] (-> Cursor Type (Lux a)))"
+  [^objects cursor type body]
   (|let [[_file-name _ _] cursor]
     (if (= "" _file-name)
       (fn [state]
@@ -1065,8 +1072,8 @@
             _
             output))))))
 
-(def ensure-statement
-  "(Lux Unit)"
+(def ^{:doc "(Lux Top)"}
+  ensure-statement
   (fn [state]
     (|case (get$ $expected state)
       ($None)
@@ -1297,8 +1304,9 @@
     ;; (assert false)
     ))
 
-(defn ^:private enumerate* [idx xs]
+(defn ^:private enumerate*
   "(All [a] (-> Int (List a) (List (, Int a))))"
+  [idx xs]
   (|case xs
     ($Cons x xs*)
     ($Cons (T [idx x])
@@ -1308,23 +1316,26 @@
     xs
     ))
 
-(defn enumerate [xs]
+(defn enumerate
   "(All [a] (-> (List a) (List (, Int a))))"
+  [xs]
   (enumerate* 0 xs))
 
-(def modules
-  "(Lux (List Text))"
+(def ^{:doc "(Lux (List Text))"}
+  modules
   (fn [state]
     (return* state (|keys (get$ $modules state)))))
 
-(defn when% [test body]
-  "(-> Bool (Lux Unit) (Lux Unit))"
+(defn when%
+  "(-> Bool (Lux Top) (Lux Top))"
+  [test body]
   (if test
     body
     (return unit-tag)))
 
-(defn |at [idx xs]
+(defn |at
   "(All [a] (-> Int (List a) (Maybe a)))"
+  [idx xs]
   (|case xs
     ($Cons x xs*)
     (cond (< idx 0)
@@ -1337,11 +1348,11 @@
           (|at (dec idx) xs*))
 
     ($Nil)
-    $None
-    ))
+    $None))
 
-(defn normalize [ident]
+(defn normalize
   "(-> Ident (Lux Ident))"
+  [ident]
   (|case ident
     ["" name] (|do [module get-module-name]
                 (return (T [module name])))
@@ -1367,8 +1378,9 @@
       )))
 
 (do-template [<name> <default> <op>]
-  (defn <name> [p xs]
+  (defn <name>
     "(All [a] (-> (-> a Bool) (List a) Bool))"
+    [p xs]
     (|case xs
       ($Nil)
       <default>
@@ -1379,14 +1391,16 @@
   |every? true  and
   |any?   false or)
 
-(defn m-comp [f g]
+(defn m-comp
   "(All [a b c] (-> (-> b (Lux c)) (-> a (Lux b)) (-> a (Lux c))))"
+  [f g]
   (fn [x]
     (|do [y (g x)]
       (f y))))
 
-(defn with-attempt [m-value on-error]
+(defn with-attempt
   "(All [a] (-> (Lux a) (-> Text (Lux a)) (Lux a)))"
+  [m-value on-error]
   (fn [state]
     (|case (m-value state)
       ($Left msg)

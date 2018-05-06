@@ -47,45 +47,44 @@
       double-class "java.lang.Double"
       char-class "java.lang.Character"]
   (defn prepare-return! [^MethodVisitor *writer* *type*]
-    (|case *type*
-      (&/$Unit)
+    (if (&type/type= &type/Top *type*)
       (.visitLdcInsn *writer* &/unit-tag)
+      (|case *type*
+        (&/$Primitive "boolean" (&/$Nil))
+        (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name boolean-class) "valueOf" (str "(Z)" (&host-generics/->type-signature boolean-class)))
+        
+        (&/$Primitive "byte" (&/$Nil))
+        (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name byte-class) "valueOf" (str "(B)" (&host-generics/->type-signature byte-class)))
 
-      (&/$Primitive "boolean" (&/$Nil))
-      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name boolean-class) "valueOf" (str "(Z)" (&host-generics/->type-signature boolean-class)))
-      
-      (&/$Primitive "byte" (&/$Nil))
-      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name byte-class) "valueOf" (str "(B)" (&host-generics/->type-signature byte-class)))
+        (&/$Primitive "short" (&/$Nil))
+        (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name short-class) "valueOf" (str "(S)" (&host-generics/->type-signature short-class)))
 
-      (&/$Primitive "short" (&/$Nil))
-      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name short-class) "valueOf" (str "(S)" (&host-generics/->type-signature short-class)))
+        (&/$Primitive "int" (&/$Nil))
+        (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name int-class) "valueOf" (str "(I)" (&host-generics/->type-signature int-class)))
 
-      (&/$Primitive "int" (&/$Nil))
-      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name int-class) "valueOf" (str "(I)" (&host-generics/->type-signature int-class)))
+        (&/$Primitive "long" (&/$Nil))
+        (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name long-class) "valueOf" (str "(J)" (&host-generics/->type-signature long-class)))
 
-      (&/$Primitive "long" (&/$Nil))
-      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name long-class) "valueOf" (str "(J)" (&host-generics/->type-signature long-class)))
+        (&/$Primitive "float" (&/$Nil))
+        (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name float-class) "valueOf" (str "(F)" (&host-generics/->type-signature float-class)))
 
-      (&/$Primitive "float" (&/$Nil))
-      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name float-class) "valueOf" (str "(F)" (&host-generics/->type-signature float-class)))
+        (&/$Primitive "double" (&/$Nil))
+        (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name double-class) "valueOf" (str "(D)" (&host-generics/->type-signature double-class)))
 
-      (&/$Primitive "double" (&/$Nil))
-      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name double-class) "valueOf" (str "(D)" (&host-generics/->type-signature double-class)))
+        (&/$Primitive "char" (&/$Nil))
+        (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name char-class) "valueOf" (str "(C)" (&host-generics/->type-signature char-class)))
+        
+        (&/$Primitive _ _)
+        nil
 
-      (&/$Primitive "char" (&/$Nil))
-      (.visitMethodInsn *writer* Opcodes/INVOKESTATIC (&host-generics/->bytecode-class-name char-class) "valueOf" (str "(C)" (&host-generics/->type-signature char-class)))
-      
-      (&/$Primitive _ _)
-      nil
+        (&/$Named ?name ?type)
+        (prepare-return! *writer* ?type)
 
-      (&/$Named ?name ?type)
-      (prepare-return! *writer* ?type)
+        (&/$Ex _)
+        nil
 
-      (&/$Ex _)
-      nil
-
-      _
-      (assert false (str 'prepare-return! " " (&type/show-type *type*))))
+        _
+        (assert false (str 'prepare-return! " " (&type/show-type *type*)))))
     *writer*))
 
 ;; [Resources]

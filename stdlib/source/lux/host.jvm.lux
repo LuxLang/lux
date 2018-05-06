@@ -15,7 +15,7 @@
        [macro #+ with-gensyms Functor<Meta> Monad<Meta>]
        (macro [code]
               ["s" syntax #+ syntax: Syntax])
-       (lang [type])
+       (lang [type "type/" Eq<Type>])
        ))
 
 (do-template [<name> <op> <from> <to>]
@@ -246,7 +246,7 @@
      ["float"   (primitive "java.lang.Float")]
      ["double"  (primitive "java.lang.Double")]
      ["char"    (primitive "java.lang.Character")]
-     ["void"    .Unit])
+     ["void"    .Top])
 
     _
     #.None))
@@ -264,7 +264,7 @@
      ["long"    .Int]
      ["float"   .Frac]
      ["double"  .Frac]
-     ["void"    .Unit])
+     ["void"    .Top])
 
     _
     #.None))
@@ -530,7 +530,7 @@
   (-> Text Text (Syntax Code))
   (do p.Monad<Parser>
     [#let [dotted-name (format "::" field-name)]
-     [_ _ value] (: (Syntax [Unit Unit Code])
+     [_ _ value] (: (Syntax [Top Top Code])
                     (s.form ($_ p.seq (s.this (' :=)) (s.this (code.symbol ["" dotted-name])) s.any)))]
     (wrap (`' ((~ (code.text (format "jvm putfield" ":" class-name ":" field-name))) _jvm_this (~ value))))))
 
@@ -657,7 +657,7 @@
          (s.this (' >))))
 
 (def: (assert-no-periods name)
-  (-> Text (Syntax Unit))
+  (-> Text (Syntax Top))
   (p.assert "Names in class declarations cannot contain periods."
             (not (text.contains? "." name))))
 
@@ -1809,8 +1809,8 @@
                                                 (` ((~ setter-name) (~ g!value)))
                                                 (` ((~ setter-name) (~ g!value) (~ g!obj))))
                                   setter-type (if import-field-static?
-                                                (` (All [(~+ tvar-asts)] (-> (~ typeC) (IO Unit))))
-                                                (` (All [(~+ tvar-asts)] (-> (~ typeC) (~ classC) (IO Unit)))))
+                                                (` (All [(~+ tvar-asts)] (-> (~ typeC) (IO Top))))
+                                                (` (All [(~+ tvar-asts)] (-> (~ typeC) (~ classC) (IO Top)))))
                                   setter-value (with-mode-field-set import-field-mode import-field-type g!value)
                                   setter-value (if import-field-maybe?
                                                  (` (!!! (~ setter-value)))
@@ -1942,27 +1942,25 @@
 
 (def: (type->class-name type)
   (-> Type (Meta Text))
-  (case type
-    (#.Primitive name params)
-    (:: Monad<Meta> wrap name)
-
-    (#.Apply A F)
-    (case (type.apply (list A) F)
-      #.None
-      (macro.fail (format "Cannot apply type: " (type.to-text F) " to " (type.to-text A)))
-
-      (#.Some type')
-      (type->class-name type'))
-    
-    (#.Named _ type')
-    (type->class-name type')
-
-    #.Unit
+  (if (type/= Top type)
     (:: Monad<Meta> wrap "java.lang.Object")
-    
-    (^or #.Void (#.Var _) (#.Ex _) (#.Bound _) (#.Sum _) (#.Product _) (#.Function _) (#.UnivQ _) (#.ExQ _))
-    (macro.fail (format "Cannot convert to JvmType: " (type.to-text type)))
-    ))
+    (case type
+      (#.Primitive name params)
+      (:: Monad<Meta> wrap name)
+
+      (#.Apply A F)
+      (case (type.apply (list A) F)
+        #.None
+        (macro.fail (format "Cannot apply type: " (type.to-text F) " to " (type.to-text A)))
+
+        (#.Some type')
+        (type->class-name type'))
+      
+      (#.Named _ type')
+      (type->class-name type')
+
+      _
+      (macro.fail (format "Cannot convert to JvmType: " (type.to-text type))))))
 
 (syntax: #export (array-read idx array)
   {#.doc (doc "Loads an element from an array."

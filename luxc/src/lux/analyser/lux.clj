@@ -45,7 +45,7 @@
 ;; [Exports]
 (defn analyse-unit [analyse ?exo-type]
   (|do [_cursor &/cursor
-        _ (&type/check ?exo-type &/$Unit)]
+        _ (&type/check ?exo-type &type/Top)]
     (return (&/|list (&&/|meta ?exo-type _cursor
                                (&&/$tuple (&/|list)))))))
 
@@ -690,7 +690,7 @@
     (return (&/|list (coerce ==type =value)))))
 
 (let [input-type (&/$Apply &type/Text &type/List)
-      output-type (&/$Apply &/$Unit &type/IO)]
+      output-type (&/$Apply &type/Top &type/IO)]
   (defn analyse-program [analyse optimize compile-program ?args ?body]
     (|do [_ &/ensure-statement
           =body (&/with-scope ""
