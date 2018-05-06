@@ -288,17 +288,6 @@
         =idx (compile ?idx)]
     (return (str "LuxRT$textChar(" (str =text "," =idx) ")"))))
 
-(do-template [<name> <method>]
-  (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?text (&/$Nil)) ?values]
-          =text (compile ?text)]
-      (return (str "(" =text ")." <method> "()"))))
-
-  ^:private compile-text-trim       "trim"
-  ^:private compile-text-upper "toUpperCase"
-  ^:private compile-text-lower "toLowerCase"
-  )
-
 (defn ^:private compile-char-to-text [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
         =x (compile ?x)]
@@ -446,10 +435,7 @@
       "size"                 (compile-text-size compile ?values special-args)
       "hash"                 (compile-text-hash compile ?values special-args)
       "replace-all"          (compile-text-replace-all compile ?values special-args)
-      "trim"                 (compile-text-trim compile ?values special-args)
       "char"                 (compile-text-char compile ?values special-args)
-      "upper"           (compile-text-upper compile ?values special-args)
-      "lower"           (compile-text-lower compile ?values special-args)
       "contains?"            (compile-text-contains? compile ?values special-args)
       )
     

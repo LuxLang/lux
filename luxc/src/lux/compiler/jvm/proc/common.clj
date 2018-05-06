@@ -596,20 +596,6 @@
                   &&/wrap-boolean)]]
     (return nil)))
 
-(do-template [<name> <method>]
-  (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?text (&/$Nil)) ?values]
-          ^MethodVisitor *writer* &/get-writer
-          _ (compile ?text)
-          :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String")
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" <method> "()Ljava/lang/String;"))]]
-      (return nil)))
-
-  ^:private compile-text-upper "toUpperCase"
-  ^:private compile-text-lower "toLowerCase"
-  )
-
 (defn ^:private compile-text-char [compile ?values special-args]
   (|do [:let [(&/$Cons ?text (&/$Cons ?idx (&/$Nil))) ?values]
         ^MethodVisitor *writer* &/get-writer
@@ -841,8 +827,6 @@
       "hash"                 (compile-text-hash compile ?values special-args)
       "replace-all"          (compile-text-replace-all compile ?values special-args)
       "char"                 (compile-text-char compile ?values special-args)
-      "upper"           (compile-text-upper compile ?values special-args)
-      "lower"           (compile-text-lower compile ?values special-args)
       "contains?"            (compile-text-contains? compile ?values special-args)
       )
     

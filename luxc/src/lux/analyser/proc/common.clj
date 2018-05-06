@@ -110,21 +110,6 @@
   ^:private analyse-text-hash "hash"
   )
 
-(do-template [<name> <proc>]
-  (defn <name> [analyse exo-type ?values]
-    (|do [:let [(&/$Cons text (&/$Nil)) ?values]
-          =text (&&/analyse-1 analyse &type/Text text)
-          _ (&type/check exo-type &type/Text)
-          _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor
-                                 (&&/$proc (&/T ["text" <proc>])
-                                           (&/|list =text)
-                                           (&/|list)))))))
-
-  ^:private analyse-text-upper "upper"
-  ^:private analyse-text-lower "lower"
-  )
-
 (defn ^:private analyse-text-char [analyse exo-type ?values]
   (|do [:let [(&/$Cons text (&/$Cons idx (&/$Nil))) ?values]
         =text (&&/analyse-1 analyse &type/Text text)
@@ -511,8 +496,6 @@
          "lux text hash"                 (analyse-text-hash analyse exo-type ?values)
          "lux text replace-all"          (analyse-text-replace-all analyse exo-type ?values)
          "lux text char"                 (analyse-text-char analyse exo-type ?values)
-         "lux text upper"           (analyse-text-upper analyse exo-type ?values)
-         "lux text lower"           (analyse-text-lower analyse exo-type ?values)
          "lux text contains?"            (analyse-text-contains? analyse exo-type ?values)
          
          "lux bit count"                (analyse-bit-count analyse exo-type ?values)
