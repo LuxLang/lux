@@ -33,9 +33,9 @@
           =param (compile ?param)]
       (return (str "LuxRT$" <op> "(" =input "," =param ".L)"))))
 
-  ^:private compile-bit-shift-left           "shlI64"
-  ^:private compile-bit-shift-right          "shrI64"
-  ^:private compile-bit-unsigned-shift-right "ushrI64"
+  ^:private compile-bit-left-shift           "shlI64"
+  ^:private compile-bit-arithmetic-right-shift          "shrI64"
+  ^:private compile-bit-logical-right-shift "ushrI64"
   )
 
 (defn ^:private compile-bit-count [compile ?values special-args]
@@ -445,9 +445,9 @@
       "and"                  (compile-bit-and compile ?values special-args)
       "or"                   (compile-bit-or compile ?values special-args)
       "xor"                  (compile-bit-xor compile ?values special-args)
-      "shift-left"           (compile-bit-shift-left compile ?values special-args)
-      "shift-right"          (compile-bit-shift-right compile ?values special-args)
-      "unsigned-shift-right" (compile-bit-unsigned-shift-right compile ?values special-args))
+      "left-shift"           (compile-bit-left-shift compile ?values special-args)
+      "arithmetic-right-shift" (compile-bit-arithmetic-right-shift compile ?values special-args)
+      "logical-right-shift" (compile-bit-logical-right-shift compile ?values special-args))
     
     "array"
     (case proc

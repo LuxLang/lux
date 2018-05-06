@@ -156,9 +156,9 @@
                     &&/wrap-long)]]
       (return nil)))
 
-  ^:private compile-bit-shift-left           Opcodes/LSHL
-  ^:private compile-bit-shift-right          Opcodes/LSHR
-  ^:private compile-bit-unsigned-shift-right Opcodes/LUSHR
+  ^:private compile-bit-left-shift           Opcodes/LSHL
+  ^:private compile-bit-arithmetic-right-shift          Opcodes/LSHR
+  ^:private compile-bit-logical-right-shift Opcodes/LUSHR
   )
 
 (defn ^:private compile-lux-is [compile ?values special-args]
@@ -836,9 +836,9 @@
       "and"                  (compile-bit-and compile ?values special-args)
       "or"                   (compile-bit-or compile ?values special-args)
       "xor"                  (compile-bit-xor compile ?values special-args)
-      "shift-left"           (compile-bit-shift-left compile ?values special-args)
-      "shift-right"          (compile-bit-shift-right compile ?values special-args)
-      "unsigned-shift-right" (compile-bit-unsigned-shift-right compile ?values special-args))
+      "left-shift"           (compile-bit-left-shift compile ?values special-args)
+      "arithmetic-right-shift" (compile-bit-arithmetic-right-shift compile ?values special-args)
+      "logical-right-shift" (compile-bit-logical-right-shift compile ?values special-args))
     
     "array"
     (case proc

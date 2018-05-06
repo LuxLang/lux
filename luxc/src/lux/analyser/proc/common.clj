@@ -154,9 +154,9 @@
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T ["bit" <op>]) (&/|list =input =shift) (&/|list)))))))
 
-  ^:private analyse-bit-shift-left           "shift-left"           &type/Nat
-  ^:private analyse-bit-shift-right          "shift-right"          &type/Int
-  ^:private analyse-bit-unsigned-shift-right "unsigned-shift-right" &type/Nat
+  ^:private analyse-bit-left-shift             "left-shift"             &type/Nat
+  ^:private analyse-bit-arithmetic-right-shift "arithmetic-right-shift" &type/Int
+  ^:private analyse-bit-logical-right-shift    "logical-right-shift"    &type/Nat
   )
 
 (do-template [<name> <proc> <input-type> <output-type>]
@@ -502,9 +502,9 @@
          "lux bit and"                  (analyse-bit-and analyse exo-type ?values)
          "lux bit or"                   (analyse-bit-or analyse exo-type ?values)
          "lux bit xor"                  (analyse-bit-xor analyse exo-type ?values)
-         "lux bit shift-left"           (analyse-bit-shift-left analyse exo-type ?values)
-         "lux bit shift-right"          (analyse-bit-shift-right analyse exo-type ?values)
-         "lux bit unsigned-shift-right" (analyse-bit-unsigned-shift-right analyse exo-type ?values)
+         "lux bit left-shift"           (analyse-bit-left-shift analyse exo-type ?values)
+         "lux bit arithmetic-right-shift" (analyse-bit-arithmetic-right-shift analyse exo-type ?values)
+         "lux bit logical-right-shift" (analyse-bit-logical-right-shift analyse exo-type ?values)
          
          "lux array new"    (analyse-array-new analyse exo-type ?values)
          "lux array get"    (analyse-array-get analyse exo-type ?values)
