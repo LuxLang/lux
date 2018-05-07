@@ -208,12 +208,6 @@
   ^:private compile-int-div   Opcodes/LDIV &&/unwrap-long &&/wrap-long
   ^:private compile-int-rem   Opcodes/LREM &&/unwrap-long &&/wrap-long
   
-  ^:private compile-deg-add   Opcodes/LADD &&/unwrap-long &&/wrap-long
-  ^:private compile-deg-sub   Opcodes/LSUB &&/unwrap-long &&/wrap-long
-  ^:private compile-deg-rem   Opcodes/LSUB &&/unwrap-long &&/wrap-long
-  ^:private compile-deg-scale Opcodes/LMUL &&/unwrap-long &&/wrap-long
-  ^:private compile-deg-reciprocal Opcodes/LDIV &&/unwrap-long &&/wrap-long
-
   ^:private compile-frac-add  Opcodes/DADD &&/unwrap-double &&/wrap-double
   ^:private compile-frac-sub  Opcodes/DSUB &&/unwrap-double &&/wrap-double
   ^:private compile-frac-mul  Opcodes/DMUL &&/unwrap-double &&/wrap-double
@@ -251,33 +245,6 @@
   ^:private compile-frac-lt Opcodes/DCMPG -1 &&/unwrap-double
   )
 
-(do-template [<name> <cmp-output>]
-  (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
-          ^MethodVisitor *writer* &/get-writer
-          _ (compile ?x)
-          :let [_ (doto *writer*
-                    &&/unwrap-long)]
-          _ (compile ?y)
-          :let [_ (doto *writer*
-                    &&/unwrap-long)
-                $then (new Label)
-                $end (new Label)
-                _ (doto *writer*
-                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "_compareUnsigned" "(JJ)I")
-                    (.visitLdcInsn (int <cmp-output>))
-                    (.visitJumpInsn Opcodes/IF_ICMPEQ $then)
-                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "FALSE"  (&host-generics/->type-signature "java.lang.Boolean"))
-                    (.visitJumpInsn Opcodes/GOTO $end)
-                    (.visitLabel $then)
-                    (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "TRUE" (&host-generics/->type-signature "java.lang.Boolean"))
-                    (.visitLabel $end))]]
-      (return nil)))
-
-  ^:private compile-deg-eq  0
-  ^:private compile-deg-lt -1
-  )
-
 (do-template [<name> <instr> <wrapper>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Nil) ?values]
@@ -290,9 +257,6 @@
   ^:private compile-int-min (.visitLdcInsn Long/MIN_VALUE)  &&/wrap-long
   ^:private compile-int-max (.visitLdcInsn Long/MAX_VALUE) &&/wrap-long
   
-  ^:private compile-deg-min (.visitLdcInsn 0)  &&/wrap-long
-  ^:private compile-deg-max (.visitLdcInsn -1) &&/wrap-long
-
   ^:private compile-frac-smallest (.visitLdcInsn Double/MIN_VALUE)  &&/wrap-double
   ^:private compile-frac-min (.visitLdcInsn (* -1.0 Double/MAX_VALUE))  &&/wrap-double
   ^:private compile-frac-max (.visitLdcInsn Double/MAX_VALUE) &&/wrap-double
@@ -328,41 +292,6 @@
 
   ^:private compile-int-decode  "decode_int"
   ^:private compile-frac-decode "decode_frac"
-  )
-
-(do-template [<name> <method>]
-  (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
-          ^MethodVisitor *writer* &/get-writer
-          _ (compile ?x)
-          :let [_ (doto *writer*
-                    &&/unwrap-long)]
-          _ (compile ?y)
-          :let [_ (doto *writer*
-                    &&/unwrap-long)]
-          :let [_ (doto *writer*
-                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" <method> "(JJ)J")
-                    &&/wrap-long)]]
-      (return nil)))
-
-  ^:private compile-deg-mul   "mul_deg"
-  ^:private compile-deg-div   "div_deg"
-  )
-
-(do-template [<name> <class> <method> <sig> <unwrap> <wrap>]
-  (let [+wrapper-class+ (&host-generics/->bytecode-class-name <class>)]
-    (defn <name> [compile ?values special-args]
-      (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
-            ^MethodVisitor *writer* &/get-writer
-            _ (compile ?x)
-            :let [_ (doto *writer*
-                      <unwrap>
-                      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" <method> <sig>)
-                      <wrap>)]]
-        (return nil))))
-
-  ^:private compile-deg-to-frac "java.lang.Long"   "deg-to-frac" "(J)D" &&/unwrap-long   &&/wrap-double
-  ^:private compile-frac-to-deg "java.lang.Double" "frac-to-deg" "(D)J" &&/unwrap-double &&/wrap-long
   )
 
 (defn ^:private compile-int-char [compile ?values special-args]
@@ -787,22 +716,6 @@
       "remove" (compile-array-remove compile ?values special-args)
       "size" (compile-array-size compile ?values special-args))
 
-    "deg"
-    (case proc
-      "+"         (compile-deg-add compile ?values special-args)
-      "-"         (compile-deg-sub compile ?values special-args)
-      "*"         (compile-deg-mul compile ?values special-args)
-      "/"         (compile-deg-div compile ?values special-args)
-      "%"         (compile-deg-rem compile ?values special-args)
-      "="         (compile-deg-eq compile ?values special-args)
-      "<"         (compile-deg-lt compile ?values special-args)
-      "max" (compile-deg-max compile ?values special-args)
-      "min" (compile-deg-min compile ?values special-args)
-      "to-frac"   (compile-deg-to-frac compile ?values special-args)
-      "scale"     (compile-deg-scale compile ?values special-args)
-      "reciprocal" (compile-deg-reciprocal compile ?values special-args)
-      )
-
     "int"
     (case proc
       "+"       (compile-int-add compile ?values special-args)
@@ -834,7 +747,6 @@
       "positive-infinity" (compile-frac-positive-infinity compile ?values special-args)
       "negative-infinity" (compile-frac-negative-infinity compile ?values special-args)
       "to-int"    (compile-frac-to-int compile ?values special-args)
-      "to-deg"    (compile-frac-to-deg compile ?values special-args)
       "encode"    (compile-frac-encode compile ?values special-args)
       "decode"    (compile-frac-decode compile ?values special-args)
       )

@@ -176,106 +176,9 @@
                    (|>> ($i.ALOAD +0)
                         ($i.INVOKESTATIC "java.lang.Double" "parseDouble" ($t.method (list $String) (#.Some $t.double) (list)) false)
                         ($i.wrap #$.Double))))
-       ($d.method #$.Public $.staticM "frac_to_deg" ($t.method (list $t.double) (#.Some $t.long) (list))
-                  (let [swap2 (|>> $i.DUP2_X2 $i.POP2)
-                        drop-excessI (|>> ($i.double 1.0) $i.DREM)
-                        shiftI (|>> frac-shiftI $i.DMUL)]
-                    (|>> ($i.DLOAD +0)
-                         ## Get upper half
-                         drop-excessI
-                         shiftI
-                         ## Make a copy, so the lower half can be extracted
-                         $i.DUP2
-                         ## Get lower half
-                         drop-excessI
-                         shiftI
-                         ## Turn it into a deg
-                         $i.D2L
-                         ## Turn the upper half into deg too
-                         swap2
-                         $i.D2L
-                         ## Combine both pieces
-                         $i.LADD
-                         ## FINISH
-                         $i.LRETURN
-                         )))
        ))
 
-(def: deg-bits Nat +64)
-(def: deg-method $.Method ($t.method (list $t.long $t.long) (#.Some $t.long) (list)))
 (def: clz-method $.Method ($t.method (list $t.long) (#.Some $t.int) (list)))
-
-(def: deg-methods
-  $.Def
-  (let [## "And" mask corresponding to -1 (FFFF...), on the low 32 bits.
-        low-half (|>> ($i.int -1) $i.I2L $i.LAND)
-        high-half (|>> ($i.int 32) $i.LUSHR)]
-    (|>> ($d.method #$.Public $.staticM "mul_deg" deg-method
-                    ## Based on: http://stackoverflow.com/a/31629280/6823464
-                    (let [shift-downI (|>> ($i.int 32) $i.LUSHR)
-                          low-leftI (|>> ($i.LLOAD +0) low-half)
-                          high-leftI (|>> ($i.LLOAD +0) high-half)
-                          low-rightI (|>> ($i.LLOAD +2) low-half)
-                          high-rightI (|>> ($i.LLOAD +2) high-half)
-                          bottomI (|>> low-leftI low-rightI $i.LMUL)
-                          middleLI (|>> high-leftI low-rightI $i.LMUL)
-                          middleRI (|>> low-leftI high-rightI $i.LMUL)
-                          middleI (|>> middleLI middleRI $i.LADD)
-                          topI (|>> high-leftI high-rightI $i.LMUL)]
-                      (|>> bottomI shift-downI
-                           middleI $i.LADD shift-downI
-                           topI $i.LADD
-                           $i.LRETURN)))
-         ($d.method #$.Public $.staticM "count_leading_zeros" clz-method
-                    (let [when-zeroI (function (_ @where) (|>> ($i.long 0) $i.LCMP ($i.IFEQ @where)))
-                          shift-rightI (function (_ amount) (|>> ($i.int amount) $i.LUSHR))
-                          decI (|>> ($i.int 1) $i.ISUB)]
-                      (<| $i.with-label (function (_ @start))
-                          $i.with-label (function (_ @done))
-                          (|>> ($i.int 64)
-                               ($i.label @start)
-                               ($i.LLOAD +0) (when-zeroI @done)
-                               ($i.LLOAD +0) (shift-rightI 1) ($i.LSTORE +0)
-                               decI
-                               ($i.GOTO @start)
-                               ($i.label @done)
-                               $i.IRETURN))))
-         ($d.method #$.Public $.staticM "div_deg" deg-method
-                    (<| $i.with-label (function (_ @same))
-                        (let [subjectI ($i.LLOAD +0)
-                              paramI ($i.LLOAD +2)
-                              equal?I (function (_ @where) (|>> $i.LCMP ($i.IFEQ @where)))
-                              count-leading-zerosI ($i.INVOKESTATIC hostL.runtime-class "count_leading_zeros" clz-method false)
-                              calc-max-shiftI (|>> subjectI count-leading-zerosI
-                                                   paramI count-leading-zerosI
-                                                   ($i.INVOKESTATIC "java.lang.Math" "min" ($t.method (list $t.int $t.int) (#.Some $t.int) (list)) false)
-                                                   ($i.ISTORE +4))
-                              shiftI (|>> ($i.ILOAD +4) $i.LSHL)
-                              imprecise-divisionI (|>> subjectI shiftI
-                                                       paramI shiftI high-half
-                                                       $i.LDIV)
-                              scale-downI (|>> ($i.int 32) $i.LSHL)]
-                          (|>> subjectI paramI
-                               (equal?I @same)
-                               ## Based on: http://stackoverflow.com/a/8510587/6823464
-                               ## Shifting the operands as much as possible can help
-                               ## avoid some loss of precision later.
-                               calc-max-shiftI
-                               imprecise-divisionI
-                               scale-downI
-                               $i.LRETURN
-                               ($i.label @same)
-                               ($i.long -1) ## ~= 1.0 Degrees
-                               $i.LRETURN))))
-         ($d.method #$.Public $.staticM "deg_to_frac" ($t.method (list $t.long) (#.Some $t.double) (list))
-                    (let [highI (|>> ($i.LLOAD +0) high-half $i.L2D)
-                          lowI (|>> ($i.LLOAD +0) low-half $i.L2D)
-                          scaleI (|>> frac-shiftI $i.DDIV)]
-                      (|>> highI scaleI
-                           lowI scaleI scaleI
-                           $i.DADD
-                           $i.DRETURN)))
-         )))
 
 (def: text-methods
   $.Def
@@ -533,7 +436,6 @@
      #let [bytecode ($d.class #$.V1_6 #$.Public $.finalC hostL.runtime-class (list) ["java.lang.Object" (list)] (list)
                               (|>> adt-methods
                                    frac-methods
-                                   deg-methods
                                    text-methods
                                    pm-methods
                                    io-methods

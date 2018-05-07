@@ -292,177 +292,12 @@
                (.visitEnd)))]
     nil))
 
-(defn ^:private low-4b [^MethodVisitor =method]
-  (doto =method
-    ;; Assume there is a long at the top of the stack...
-    ;; Add mask corresponding to -1 (FFFF...), on the low 32 bits.
-    (.visitLdcInsn (int -1))
-    (.visitInsn Opcodes/I2L)
-    ;; Then do a bitwise and.
-    (.visitInsn Opcodes/LAND)
-    ))
-
-(defn ^:private high-4b [^MethodVisitor =method]
-  (doto =method
-    ;; Assume there is a long at the top of the stack...
-    (.visitLdcInsn (int 32))
-    (.visitInsn Opcodes/LUSHR)
-    ))
-
-(defn ^:private swap2 [^MethodVisitor =method]
-  (doto =method
-    ;; X2, Y2
-    (.visitInsn Opcodes/DUP2_X2) ;; Y2, X2, Y2
-    (.visitInsn Opcodes/POP2) ;; Y2, X2
-    ))
-
 (defn ^:private swap2x1 [^MethodVisitor =method]
   (doto =method
     ;; X1, Y2
     (.visitInsn Opcodes/DUP2_X1) ;; Y2, X1, Y2
     (.visitInsn Opcodes/POP2) ;; Y2, X1
     ))
-
-(defn ^:private bit-set-64? [^MethodVisitor =method]
-  (doto =method
-    ;; L, I
-    (.visitLdcInsn (long 1)) ;; L, I, L
-    (.visitInsn Opcodes/DUP2_X1) ;; L, L, I, L
-    (.visitInsn Opcodes/POP2) ;; L, L, I
-    (.visitInsn Opcodes/LSHL) ;; L, L
-    (.visitInsn Opcodes/LAND) ;; L
-    (.visitLdcInsn (long 0)) ;; L, L
-    (.visitInsn Opcodes/LCMP) ;; I
-    ))
-
-(defn ^:private compile-LuxRT-deg-methods [^ClassWriter =class]
-  (|let [deg-bits 64
-         _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "mul_deg" "(JJ)J" nil nil)
-             ;; Based on: http://stackoverflow.com/a/31629280/6823464
-             (.visitCode)
-             ;; Bottom part
-             (.visitVarInsn Opcodes/LLOAD 0) low-4b
-             (.visitVarInsn Opcodes/LLOAD 2) low-4b
-             (.visitInsn Opcodes/LMUL)
-             (.visitLdcInsn (int 32))
-             (.visitInsn Opcodes/LUSHR)
-             ;; Middle part
-             (.visitVarInsn Opcodes/LLOAD 0) high-4b
-             (.visitVarInsn Opcodes/LLOAD 2) low-4b
-             (.visitInsn Opcodes/LMUL)
-             (.visitVarInsn Opcodes/LLOAD 0) low-4b
-             (.visitVarInsn Opcodes/LLOAD 2) high-4b
-             (.visitInsn Opcodes/LMUL)
-             (.visitInsn Opcodes/LADD)
-             ;; Join middle and bottom
-             (.visitInsn Opcodes/LADD)
-             (.visitLdcInsn (int 32))
-             (.visitInsn Opcodes/LUSHR)
-             ;; Top part
-             (.visitVarInsn Opcodes/LLOAD 0) high-4b
-             (.visitVarInsn Opcodes/LLOAD 2) high-4b
-             (.visitInsn Opcodes/LMUL)
-             ;; Join top with rest
-             (.visitInsn Opcodes/LADD)
-             ;; Return
-             (.visitInsn Opcodes/LRETURN)
-             (.visitMaxs 0 0)
-             (.visitEnd))
-         _ (let [$loop-start (new Label)
-                 $done (new Label)]
-             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "count_leading_zeros" "(J)I" nil nil)
-               (.visitCode)
-               (.visitLdcInsn (int 64))
-               (.visitLabel $loop-start)
-               (.visitVarInsn Opcodes/LLOAD 0)
-               (.visitLdcInsn (long 0))
-               (.visitInsn Opcodes/LCMP)
-               (.visitJumpInsn Opcodes/IFEQ $done)
-               (.visitVarInsn Opcodes/LLOAD 0)
-               (.visitLdcInsn (int 1))
-               (.visitInsn Opcodes/LUSHR)
-               (.visitVarInsn Opcodes/LSTORE 0)
-               (.visitLdcInsn (int 1))
-               (.visitInsn Opcodes/ISUB)
-               (.visitJumpInsn Opcodes/GOTO $loop-start)
-               (.visitLabel $done)
-               (.visitInsn Opcodes/IRETURN)
-               (.visitMaxs 0 0)
-               (.visitEnd)))
-         _ (let [$same (new Label)]
-             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "div_deg" "(JJ)J" nil nil)
-               (.visitCode)
-               (.visitVarInsn Opcodes/LLOAD 0)
-               (.visitVarInsn Opcodes/LLOAD 2)
-               (.visitInsn Opcodes/LCMP)
-               (.visitJumpInsn Opcodes/IFEQ $same)
-               ;; Based on: http://stackoverflow.com/a/8510587/6823464
-               ;; Shifting the operands as much as possible can help
-               ;; avoid some loss of precision later.
-               (.visitVarInsn Opcodes/LLOAD 0)
-               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "count_leading_zeros" "(J)I")
-               (.visitVarInsn Opcodes/LLOAD 2)
-               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "count_leading_zeros" "(J)I")
-               (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Math" "min" "(II)I")
-               (.visitVarInsn Opcodes/ISTORE 4)
-               (.visitVarInsn Opcodes/LLOAD 0) (.visitVarInsn Opcodes/ILOAD 4) (.visitInsn Opcodes/LSHL)
-               (.visitVarInsn Opcodes/LLOAD 2) (.visitVarInsn Opcodes/ILOAD 4) (.visitInsn Opcodes/LSHL) high-4b
-               (.visitInsn Opcodes/LDIV)
-               (.visitLdcInsn (int 32))
-               (.visitInsn Opcodes/LSHL)
-               (.visitInsn Opcodes/LRETURN)
-               (.visitLabel $same)
-               (.visitLdcInsn (long -1)) ;; ~= 1.0 DEG
-               (.visitInsn Opcodes/LRETURN)
-               (.visitMaxs 0 0)
-               (.visitEnd)))
-         _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "deg-to-frac" "(J)D" nil nil)
-             (.visitCode)
-             ;; Translate high bytes
-             (.visitVarInsn Opcodes/LLOAD 0) high-4b
-             (.visitInsn Opcodes/L2D)
-             (.visitLdcInsn (double (Math/pow 2 32)))
-             (.visitInsn Opcodes/DDIV)
-             ;; Translate low bytes
-             (.visitVarInsn Opcodes/LLOAD 0) low-4b
-             (.visitInsn Opcodes/L2D)
-             (.visitLdcInsn (double (Math/pow 2 32)))
-             (.visitInsn Opcodes/DDIV)
-             (.visitLdcInsn (double (Math/pow 2 32)))
-             (.visitInsn Opcodes/DDIV)
-             ;; Combine and return
-             (.visitInsn Opcodes/DADD)
-             (.visitInsn Opcodes/DRETURN)
-             (.visitMaxs 0 0)
-             (.visitEnd))
-         _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "frac-to-deg" "(D)J" nil nil)
-             (.visitCode)
-             ;; Drop any excess
-             (.visitVarInsn Opcodes/DLOAD 0)
-             (.visitLdcInsn (double 1.0))
-             (.visitInsn Opcodes/DREM)
-             ;; Shift upper half, but retain remaining decimals
-             (.visitLdcInsn (double (Math/pow 2 32)))
-             (.visitInsn Opcodes/DMUL)
-             ;; Make a copy, so the lower half can be extracted
-             (.visitInsn Opcodes/DUP2)
-             ;; Get that lower half
-             (.visitLdcInsn (double 1.0))
-             (.visitInsn Opcodes/DREM)
-             (.visitLdcInsn (double (Math/pow 2 32)))
-             (.visitInsn Opcodes/DMUL)
-             ;; Turn it into a deg
-             (.visitInsn Opcodes/D2L)
-             ;; Turn the upper half into deg too
-             swap2
-             (.visitInsn Opcodes/D2L)
-             ;; Combine both pieces
-             (.visitInsn Opcodes/LADD)
-             ;; FINISH
-             (.visitInsn Opcodes/LRETURN)
-             (.visitMaxs 0 0)
-             (.visitEnd))]
-    nil))
 
 (do-template [<name> <method> <class> <parse-method> <signature> <wrapper>]
   (defn <name> [^ClassWriter =class]
@@ -755,7 +590,6 @@
                   (compile-LuxRT-pm-methods)
                   (compile-LuxRT-adt-methods)
                   (compile-LuxRT-int-methods)
-                  (compile-LuxRT-deg-methods)
                   (compile-LuxRT-frac-methods)
                   (compile-LuxRT-text-methods)
                   (compile-LuxRT-process-methods))]]

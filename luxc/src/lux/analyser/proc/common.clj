@@ -177,14 +177,6 @@
   ^:private analyse-int-eq   ["int" "="]  &type/Int  &type/Bool
   ^:private analyse-int-lt   ["int" "<"]  &type/Int  &type/Bool
 
-  ^:private analyse-deg-add  ["deg" "+"]  &type/Deg  &type/Deg
-  ^:private analyse-deg-sub  ["deg" "-"]  &type/Deg  &type/Deg
-  ^:private analyse-deg-mul  ["deg" "*"]  &type/Deg  &type/Deg
-  ^:private analyse-deg-div  ["deg" "/"]  &type/Deg  &type/Deg
-  ^:private analyse-deg-rem  ["deg" "%"]  &type/Deg  &type/Deg
-  ^:private analyse-deg-eq   ["deg" "="]  &type/Deg  &type/Bool
-  ^:private analyse-deg-lt   ["deg" "<"]  &type/Deg  &type/Bool
-
   ^:private analyse-frac-add ["frac" "+"] &type/Frac &type/Frac
   ^:private analyse-frac-sub ["frac" "-"] &type/Frac &type/Frac
   ^:private analyse-frac-mul ["frac" "*"] &type/Frac &type/Frac
@@ -192,20 +184,6 @@
   ^:private analyse-frac-rem ["frac" "%"] &type/Frac &type/Frac
   ^:private analyse-frac-eq  ["frac" "="] &type/Frac &type/Bool
   ^:private analyse-frac-lt  ["frac" "<"] &type/Frac &type/Bool
-  )
-
-(do-template [<name> <proc>]
-  (defn <name> [analyse exo-type ?values]
-    (|do [:let [(&/$Cons x (&/$Cons y (&/$Nil))) ?values]
-          =x (&&/analyse-1 analyse &type/Deg x)
-          =y (&&/analyse-1 analyse &type/Nat y)
-          _ (&type/check exo-type &type/Deg)
-          _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor
-                                 (&&/$proc (&/T <proc>) (&/|list =x =y) (&/|list)))))))
-
-  ^:private analyse-deg-scale      ["deg" "scale"]
-  ^:private analyse-deg-reciprocal ["deg" "reciprocal"]
   )
 
 (do-template [<encode> <encode-op> <decode> <decode-op> <type>]
@@ -240,9 +218,6 @@
   ^:private analyse-int-min                 &type/Int  ["int"  "min"]
   ^:private analyse-int-max                 &type/Int  ["int"  "max"]
 
-  ^:private analyse-deg-min                 &type/Deg  ["deg" "min"]
-  ^:private analyse-deg-max                 &type/Deg  ["deg" "max"]
-
   ^:private analyse-frac-smallest           &type/Frac ["frac"  "smallest"]
   ^:private analyse-frac-min                &type/Frac ["frac"  "min"]
   ^:private analyse-frac-max                &type/Frac ["frac"  "max"]
@@ -265,9 +240,6 @@
   ^:private analyse-int-to-frac  &type/Int  &type/Frac   ["int" "to-frac"]
   ^:private analyse-frac-to-int  &type/Frac &type/Int    ["frac" "to-int"]
 
-  ^:private analyse-deg-to-frac  &type/Deg  &type/Frac   ["deg" "to-frac"]
-  ^:private analyse-frac-to-deg  &type/Frac &type/Deg    ["frac" "to-deg"]
-  
   ^:private analyse-io-log       &type/Text &type/Top    ["io" "log"]
   ^:private analyse-io-error     &type/Text &type/Bottom ["io" "error"]
   ^:private analyse-io-exit      &type/Int  &type/Bottom ["io" "exit"]
@@ -511,19 +483,6 @@
          "lux int to-frac" (analyse-int-to-frac analyse exo-type ?values)
          "lux int char" (analyse-int-char analyse exo-type ?values)
          
-         "lux deg +" (analyse-deg-add analyse exo-type ?values)
-         "lux deg -" (analyse-deg-sub analyse exo-type ?values)
-         "lux deg *" (analyse-deg-mul analyse exo-type ?values)
-         "lux deg /" (analyse-deg-div analyse exo-type ?values)
-         "lux deg %" (analyse-deg-rem analyse exo-type ?values)
-         "lux deg =" (analyse-deg-eq analyse exo-type ?values)
-         "lux deg <" (analyse-deg-lt analyse exo-type ?values)
-         "lux deg min" (analyse-deg-min analyse exo-type ?values)
-         "lux deg max" (analyse-deg-max analyse exo-type ?values)
-         "lux deg to-frac" (analyse-deg-to-frac analyse exo-type ?values)
-         "lux deg scale" (analyse-deg-scale analyse exo-type ?values)
-         "lux deg reciprocal" (analyse-deg-reciprocal analyse exo-type ?values)
-         
          "lux frac +" (analyse-frac-add analyse exo-type ?values)
          "lux frac -" (analyse-frac-sub analyse exo-type ?values)
          "lux frac *" (analyse-frac-mul analyse exo-type ?values)
@@ -539,7 +498,6 @@
          "lux frac not-a-number" (analyse-frac-not-a-number analyse exo-type ?values)
          "lux frac positive-infinity" (analyse-frac-positive-infinity analyse exo-type ?values)
          "lux frac negative-infinity" (analyse-frac-negative-infinity analyse exo-type ?values)
-         "lux frac to-deg" (analyse-frac-to-deg analyse exo-type ?values)
          "lux frac to-int" (analyse-frac-to-int analyse exo-type ?values)
          
          "lux math cos" (analyse-math-cos analyse exo-type ?values)
