@@ -169,14 +169,6 @@
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T <proc>) (&/|list =x =y) (&/|list)))))))
 
-  ^:private analyse-nat-add  ["nat" "+"]  &type/Nat  &type/Nat
-  ^:private analyse-nat-sub  ["nat" "-"]  &type/Nat  &type/Nat
-  ^:private analyse-nat-mul  ["nat" "*"]  &type/Nat  &type/Nat
-  ^:private analyse-nat-div  ["nat" "/"]  &type/Nat  &type/Nat
-  ^:private analyse-nat-rem  ["nat" "%"]  &type/Nat  &type/Nat
-  ^:private analyse-nat-eq   ["nat" "="]  &type/Nat  &type/Bool
-  ^:private analyse-nat-lt   ["nat" "<"]  &type/Nat  &type/Bool
-
   ^:private analyse-int-add  ["int" "+"]  &type/Int  &type/Int
   ^:private analyse-int-sub  ["int" "-"]  &type/Int  &type/Int
   ^:private analyse-int-mul  ["int" "*"]  &type/Int  &type/Int
@@ -245,21 +237,18 @@
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T <op>) (&/|list) (&/|list)))))))
 
-  ^:private analyse-nat-min                  &type/Nat  ["nat"  "min"]
-  ^:private analyse-nat-max                  &type/Nat  ["nat"  "max"]
+  ^:private analyse-int-min                 &type/Int  ["int"  "min"]
+  ^:private analyse-int-max                 &type/Int  ["int"  "max"]
 
-  ^:private analyse-int-min                  &type/Int  ["int"  "min"]
-  ^:private analyse-int-max                  &type/Int  ["int"  "max"]
+  ^:private analyse-deg-min                 &type/Deg  ["deg" "min"]
+  ^:private analyse-deg-max                 &type/Deg  ["deg" "max"]
 
-  ^:private analyse-deg-min                 &type/Deg ["deg" "min"]
-  ^:private analyse-deg-max                 &type/Deg ["deg" "max"]
-
-  ^:private analyse-frac-smallest           &type/Frac  ["frac"  "smallest"]
-  ^:private analyse-frac-min                &type/Frac  ["frac"  "min"]
-  ^:private analyse-frac-max                &type/Frac  ["frac"  "max"]
-  ^:private analyse-frac-not-a-number       &type/Frac  ["frac"  "not-a-number"]
-  ^:private analyse-frac-positive-infinity  &type/Frac  ["frac"  "positive-infinity"]
-  ^:private analyse-frac-negative-infinity  &type/Frac  ["frac"  "negative-infinity"]
+  ^:private analyse-frac-smallest           &type/Frac ["frac"  "smallest"]
+  ^:private analyse-frac-min                &type/Frac ["frac"  "min"]
+  ^:private analyse-frac-max                &type/Frac ["frac"  "max"]
+  ^:private analyse-frac-not-a-number       &type/Frac ["frac"  "not-a-number"]
+  ^:private analyse-frac-positive-infinity  &type/Frac ["frac"  "positive-infinity"]
+  ^:private analyse-frac-negative-infinity  &type/Frac ["frac"  "negative-infinity"]
   )
 
 (do-template [<name> <from-type> <to-type> <op>]
@@ -271,10 +260,7 @@
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T <op>) (&/|list =x) (&/|list)))))))
 
-  ^:private analyse-nat-to-int   &type/Nat  &type/Int    ["nat" "to-int"]
-  ^:private analyse-int-to-nat   &type/Int  &type/Nat    ["int" "to-nat"]
-  
-  ^:private analyse-nat-char     &type/Nat  &type/Text   ["nat" "char"]
+  ^:private analyse-int-char     &type/Int  &type/Text   ["int" "char"]
   
   ^:private analyse-int-to-frac  &type/Int  &type/Frac   ["int" "to-frac"]
   ^:private analyse-frac-to-int  &type/Frac &type/Int    ["frac" "to-int"]
@@ -512,17 +498,6 @@
          "lux array remove" (analyse-array-remove analyse exo-type ?values)
          "lux array size"   (analyse-array-size analyse exo-type ?values)
 
-         "lux nat +" (analyse-nat-add analyse exo-type ?values)
-         "lux nat -" (analyse-nat-sub analyse exo-type ?values)
-         "lux nat *" (analyse-nat-mul analyse exo-type ?values)
-         "lux nat /" (analyse-nat-div analyse exo-type ?values)
-         "lux nat %" (analyse-nat-rem analyse exo-type ?values)
-         "lux nat =" (analyse-nat-eq analyse exo-type ?values)
-         "lux nat <" (analyse-nat-lt analyse exo-type ?values)
-         "lux nat min" (analyse-nat-min analyse exo-type ?values)
-         "lux nat max" (analyse-nat-max analyse exo-type ?values)
-         "lux nat to-int" (analyse-nat-to-int analyse exo-type ?values)
-         "lux nat char" (analyse-nat-char analyse exo-type ?values)
          
          "lux int +" (analyse-int-add analyse exo-type ?values)
          "lux int -" (analyse-int-sub analyse exo-type ?values)
@@ -533,8 +508,8 @@
          "lux int <" (analyse-int-lt analyse exo-type ?values)
          "lux int min" (analyse-int-min analyse exo-type ?values)
          "lux int max" (analyse-int-max analyse exo-type ?values)
-         "lux int to-nat" (analyse-int-to-nat analyse exo-type ?values)
          "lux int to-frac" (analyse-int-to-frac analyse exo-type ?values)
+         "lux int char" (analyse-int-char analyse exo-type ?values)
          
          "lux deg +" (analyse-deg-add analyse exo-type ?values)
          "lux deg -" (analyse-deg-sub analyse exo-type ?values)

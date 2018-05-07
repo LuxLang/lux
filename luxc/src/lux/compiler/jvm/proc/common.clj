@@ -208,10 +208,6 @@
   ^:private compile-int-div   Opcodes/LDIV &&/unwrap-long &&/wrap-long
   ^:private compile-int-rem   Opcodes/LREM &&/unwrap-long &&/wrap-long
   
-  ^:private compile-nat-add   Opcodes/LADD &&/unwrap-long &&/wrap-long
-  ^:private compile-nat-sub   Opcodes/LSUB &&/unwrap-long &&/wrap-long
-  ^:private compile-nat-mul   Opcodes/LMUL &&/unwrap-long &&/wrap-long
-
   ^:private compile-deg-add   Opcodes/LADD &&/unwrap-long &&/wrap-long
   ^:private compile-deg-sub   Opcodes/LSUB &&/unwrap-long &&/wrap-long
   ^:private compile-deg-rem   Opcodes/LSUB &&/unwrap-long &&/wrap-long
@@ -223,25 +219,6 @@
   ^:private compile-frac-mul  Opcodes/DMUL &&/unwrap-double &&/wrap-double
   ^:private compile-frac-div  Opcodes/DDIV &&/unwrap-double &&/wrap-double
   ^:private compile-frac-rem  Opcodes/DREM &&/unwrap-double &&/wrap-double
-  )
-
-(do-template [<name> <comp-method>]
-  (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
-          ^MethodVisitor *writer* &/get-writer
-          _ (compile ?x)
-          :let [_ (doto *writer*
-                    &&/unwrap-long)]
-          _ (compile ?y)
-          :let [_ (doto *writer*
-                    &&/unwrap-long)
-                _ (doto *writer*
-                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" <comp-method> "(JJ)J")
-                    (&&/wrap-long))]]
-      (return nil)))
-
-  ^:private compile-nat-div "div_nat"
-  ^:private compile-nat-rem "rem_nat"
   )
 
 (do-template [<name> <cmpcode> <cmp-output> <unwrap>]
@@ -297,33 +274,9 @@
                     (.visitLabel $end))]]
       (return nil)))
 
-  ^:private compile-nat-eq   0
-  
   ^:private compile-deg-eq  0
   ^:private compile-deg-lt -1
   )
-
-(defn ^:private compile-nat-lt [compile ?values special-args]
-  (|do [:let [(&/$Cons ?x (&/$Cons ?y (&/$Nil))) ?values]
-        ^MethodVisitor *writer* &/get-writer
-        _ (compile ?x)
-        :let [_ (doto *writer*
-                  &&/unwrap-long)]
-        _ (compile ?y)
-        :let [_ (doto *writer*
-                  &&/unwrap-long)
-              $then (new Label)
-              $end (new Label)
-              _ (doto *writer*
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "_compareUnsigned" "(JJ)I")
-                  (.visitLdcInsn (int -1))
-                  (.visitJumpInsn Opcodes/IF_ICMPEQ $then)
-                  (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "FALSE"  (&host-generics/->type-signature "java.lang.Boolean"))
-                  (.visitJumpInsn Opcodes/GOTO $end)
-                  (.visitLabel $then)
-                  (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "TRUE" (&host-generics/->type-signature "java.lang.Boolean"))
-                  (.visitLabel $end))]]
-    (return nil)))
 
 (do-template [<name> <instr> <wrapper>]
   (defn <name> [compile ?values special-args]
@@ -333,9 +286,6 @@
                     <instr>
                     <wrapper>)]]
       (return nil)))
-
-  ^:private compile-nat-min (.visitLdcInsn 0)  &&/wrap-long
-  ^:private compile-nat-max (.visitLdcInsn -1) &&/wrap-long
 
   ^:private compile-int-min (.visitLdcInsn Long/MIN_VALUE)  &&/wrap-long
   ^:private compile-int-max (.visitLdcInsn Long/MAX_VALUE) &&/wrap-long
@@ -415,7 +365,7 @@
   ^:private compile-frac-to-deg "java.lang.Double" "frac-to-deg" "(D)J" &&/unwrap-double &&/wrap-long
   )
 
-(defn ^:private compile-nat-char [compile ?values special-args]
+(defn ^:private compile-int-char [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?x)
@@ -425,17 +375,6 @@
                   (.visitInsn Opcodes/I2C)
                   (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/String" "valueOf" "(C)Ljava/lang/String;"))]]
     (return nil)))
-
-(do-template [<name>]
-  (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
-          ^MethodVisitor *writer* &/get-writer
-          _ (compile ?x)]
-      (return nil)))
-
-  ^:private compile-nat-to-int
-  ^:private compile-int-to-nat
-  )
 
 (do-template [<name> <unwrap> <op> <wrap>]
   (defn <name> [compile ?values special-args]
@@ -848,21 +787,6 @@
       "remove" (compile-array-remove compile ?values special-args)
       "size" (compile-array-size compile ?values special-args))
 
-    "nat"
-    (case proc
-      "+"         (compile-nat-add compile ?values special-args)
-      "-"         (compile-nat-sub compile ?values special-args)
-      "*"         (compile-nat-mul compile ?values special-args)
-      "/"         (compile-nat-div compile ?values special-args)
-      "%"         (compile-nat-rem compile ?values special-args)
-      "="         (compile-nat-eq compile ?values special-args)
-      "<"         (compile-nat-lt compile ?values special-args)
-      "max" (compile-nat-max compile ?values special-args)
-      "min" (compile-nat-min compile ?values special-args)
-      "to-int"    (compile-nat-to-int compile ?values special-args)
-      "char"   (compile-nat-char compile ?values special-args)
-      )
-    
     "deg"
     (case proc
       "+"         (compile-deg-add compile ?values special-args)
@@ -881,17 +805,17 @@
 
     "int"
     (case proc
-      "+"         (compile-int-add compile ?values special-args)
-      "-"         (compile-int-sub compile ?values special-args)
-      "*"         (compile-int-mul compile ?values special-args)
-      "/"         (compile-int-div compile ?values special-args)
-      "%"         (compile-int-rem compile ?values special-args)
-      "="         (compile-int-eq compile ?values special-args)
-      "<"         (compile-int-lt compile ?values special-args)
-      "max" (compile-int-max compile ?values special-args)
-      "min" (compile-int-min compile ?values special-args)
-      "to-nat"    (compile-int-to-nat compile ?values special-args)
-      "to-frac"   (compile-int-to-frac compile ?values special-args)
+      "+"       (compile-int-add compile ?values special-args)
+      "-"       (compile-int-sub compile ?values special-args)
+      "*"       (compile-int-mul compile ?values special-args)
+      "/"       (compile-int-div compile ?values special-args)
+      "%"       (compile-int-rem compile ?values special-args)
+      "="       (compile-int-eq compile ?values special-args)
+      "<"       (compile-int-lt compile ?values special-args)
+      "max"     (compile-int-max compile ?values special-args)
+      "min"     (compile-int-min compile ?values special-args)
+      "to-frac" (compile-int-to-frac compile ?values special-args)
+      "char"    (compile-int-char compile ?values special-args)
       )
 
     "frac"
