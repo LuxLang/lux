@@ -6,9 +6,7 @@
             (lux.compiler [core :as &&core]
                           [io :as &&io]
                           [parallel :as &&parallel]
-                          [jvm :as &&jvm]
-                          [js :as &&js]
-                          )))
+                          [jvm :as &&jvm])))
 
 (defn init! [platform resources-dirs ^String target-dir]
   (do (reset! &&core/!output-dir target-dir)
@@ -16,9 +14,7 @@
     (&&io/init-libs!)
     (.mkdirs (new java.io.File target-dir))
     (case platform
-      "jvm" (&&jvm/init! resources-dirs target-dir)
-      "js" (&&js/init! resources-dirs target-dir))
-    ))
+      "jvm" (&&jvm/init! resources-dirs target-dir))))
 
 (def all-compilers
   &&jvm/all-compilers)
@@ -32,5 +28,4 @@
 (defn compile-program [platform mode program-module resources-dir source-dirs target-dir]
   (init! platform resources-dir target-dir)
   (case platform
-    "jvm" (&&jvm/compile-program mode program-module resources-dir source-dirs target-dir)
-    "js" (&&js/compile-program mode program-module resources-dir source-dirs target-dir)))
+    "jvm" (&&jvm/compile-program mode program-module resources-dir source-dirs target-dir)))
