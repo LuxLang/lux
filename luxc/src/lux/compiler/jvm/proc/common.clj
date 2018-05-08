@@ -130,17 +130,6 @@
   ^:private compile-bit-xor Opcodes/LXOR
   )
 
-(defn ^:private compile-bit-count [compile ?values special-args]
-  (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
-        ^MethodVisitor *writer* &/get-writer
-        _ (compile ?input)
-        :let [_ (&&/unwrap-long *writer*)]
-        :let [_ (doto *writer*
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Long" "bitCount" "(J)I")
-                  (.visitInsn Opcodes/I2L)
-                  &&/wrap-long)]]
-    (return nil)))
-
 (do-template [<name> <op>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?input (&/$Cons ?shift (&/$Nil))) ?values]
@@ -700,7 +689,6 @@
     
     "bit"
     (case proc
-      "count"                (compile-bit-count compile ?values special-args)
       "and"                  (compile-bit-and compile ?values special-args)
       "or"                   (compile-bit-or compile ?values special-args)
       "xor"                  (compile-bit-xor compile ?values special-args)
