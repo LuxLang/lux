@@ -29,8 +29,7 @@
   (lux (control monad
                 ["p" parser "p/" Monad<Parser>]
                 ["ex" exception #+ exception:])
-       (data [bool]
-             ["e" error]
+       (data ["e" error]
              [number]
              [product]
              [maybe]
@@ -205,10 +204,6 @@
   (l.seq l.decimal
          (l.some rich-digit)))
 
-(def: (marker^ token)
-  (-> Text (l.Lexer Text))
-  (p.after (l.this token) (p/wrap token)))
-
 (do-template [<name> <tag> <lexer> <codec>]
   [(def: #export (<name> where)
      (-> Cursor (l.Lexer [Cursor Code]))
@@ -222,10 +217,6 @@
          (wrap [(update@ #.column (n/+ (text.size chunk)) where)
                 [where (<tag> value)]]))))]
 
-  [bool #.Bool
-   (p.either (marker^ "true") (marker^ "false"))
-   bool.Codec<Text,Bool>]
-  
   [int #.Int
    (l.seq (p.default "" (l.one-of "-"))
           rich-digits^)
@@ -570,24 +561,28 @@
                   (wrap [["" first-part]
                          (text.size first-part)])))))
 
-## The only (syntactic) difference between a symbol and a tag (both
-## being identifiers), is that tags must be prefixed with a hash-sign
-## (i.e. #).
-## Semantically, though, they are very different, with symbols being
-## used to refer to module definitions and local variables, while tags
-## provide the compiler with information related to data-structure
-## construction and de-structuring (during pattern-matching).
-(do-template [<name> <tag> <lexer> <extra>]
-  [(def: #export (<name> current-module aliases where)
-     (-> Text Aliases Cursor (l.Lexer [Cursor Code]))
-     (do p.Monad<Parser>
-       [[value length] <lexer>]
-       (wrap [(update@ #.column (|>> ($_ n/+ <extra> length)) where)
-              [where (<tag> value)]])))]
+(def: #export (tag current-module aliases where)
+  (-> Text Aliases Cursor (l.Lexer [Cursor Code]))
+  (do p.Monad<Parser>
+    [[value length] (p.after (l.this "#")
+                             (ident^ current-module aliases))]
+    (wrap [(update@ #.column (|>> ($_ n/+ +1 length)) where)
+           [where (#.Tag value)]])))
 
-  [symbol #.Symbol (ident^ current-module aliases)                        +0]
-  [tag    #.Tag    (p.after (l.this "#") (ident^ current-module aliases)) +1]
-  )
+(def: #export (symbol current-module aliases where)
+  (-> Text Aliases Cursor (l.Lexer [Cursor Code]))
+  (do p.Monad<Parser>
+    [[value length] (ident^ current-module aliases)]
+    (wrap [(update@ #.column (|>> (n/+ length)) where)
+           [where (case value
+                    (^template [<name> <value>]
+                      ["" <name>]
+                      (#.Bool <value>))
+                    (["true"  true]
+                     ["false" false])
+                    
+                    _
+                    (#.Symbol value))]])))
 
 (exception: #export (end-of-file {module Text})
   module)
@@ -607,7 +602,6 @@
              (form where ast')
              (tuple where ast')
              (record where ast')
-             (bool where)
              (nat where)
              (frac where)
              (int where)
