@@ -626,23 +626,13 @@
                   (.visitLdcInsn &/unit-tag))]]
     (return nil)))
 
-(defn ^:private compile-process-concurrency-level [compile ?values special-args]
+(defn ^:private compile-process-parallelism-level [compile ?values special-args]
   (|do [:let [(&/$Nil) ?values]
         ^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
                   (.visitFieldInsn Opcodes/GETSTATIC "lux/LuxRT" "concurrency_level" "I")
                   (.visitInsn Opcodes/I2L)
                   &&/wrap-long)]]
-    (return nil)))
-
-(defn ^:private compile-process-future [compile ?values special-args]
-  (|do [:let [(&/$Cons ?procedure (&/$Nil)) ?values]
-        ^MethodVisitor *writer* &/get-writer
-        _ (compile ?procedure)
-        :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/CHECKCAST "lux/Function"))]
-        :let [_ (doto *writer*
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "future" "(Llux/Function;)Ljava/lang/Object;"))]]
     (return nil)))
 
 (defn ^:private compile-process-schedule [compile ?values special-args]
@@ -770,8 +760,7 @@
 
     "process"
     (case proc
-      "concurrency-level" (compile-process-concurrency-level compile ?values special-args)
-      "future" (compile-process-future compile ?values special-args)
+      "parallelism-level" (compile-process-parallelism-level compile ?values special-args)
       "schedule" (compile-process-schedule compile ?values special-args)
       )
     

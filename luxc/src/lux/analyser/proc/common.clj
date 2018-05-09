@@ -399,20 +399,12 @@
             (return (&/|list (&&/|meta exo-type _cursor
                                        (&&/$proc (&/T ["box" "write"]) (&/|list valueA boxA) (&/|list)))))))))))
 
-(defn ^:private analyse-process-concurrency-level [analyse exo-type ?values]
+(defn ^:private analyse-process-parallelism-level [analyse exo-type ?values]
   (|do [:let [(&/$Nil) ?values]
         _ (&type/check exo-type &type/Nat)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$proc (&/T ["process" "concurrency-level"]) (&/|list) (&/|list)))))))
-
-(defn ^:private analyse-process-future [analyse exo-type ?values]
-  (|do [:let [(&/$Cons ?procedure (&/$Nil)) ?values]
-        =procedure (&&/analyse-1 analyse (&/$Apply &type/Top &type/IO) ?procedure)
-        _ (&type/check exo-type &type/Top)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$proc (&/T ["process" "future"]) (&/|list =procedure) (&/|list)))))))
+                               (&&/$proc (&/T ["process" "parallelism-level"]) (&/|list) (&/|list)))))))
 
 (defn ^:private analyse-process-schedule [analyse exo-type ?values]
   (|do [:let [(&/$Cons ?milliseconds (&/$Cons ?procedure (&/$Nil))) ?values]
@@ -507,8 +499,7 @@
          "lux atom read" (analyse-atom-read analyse exo-type ?values)
          "lux atom compare-and-swap" (analyse-atom-compare-and-swap analyse exo-type ?values)
          
-         "lux process concurrency-level" (analyse-process-concurrency-level analyse exo-type ?values)
-         "lux process future" (analyse-process-future analyse exo-type ?values)
+         "lux process parallelism-level" (analyse-process-parallelism-level analyse exo-type ?values)
          "lux process schedule" (analyse-process-schedule analyse exo-type ?values)
          
          ;; else
