@@ -97,10 +97,10 @@
 (def: program-args^
   (Syntax Program-Args)
   (p.alt s.local-symbol
-         (s.form (p.some (p.either (do p.Monad<Parser>
-                                     [name s.local-symbol]
-                                     (wrap [(code.symbol ["" name]) (` any)]))
-                                   (s.tuple (p.seq s.any s.any)))))))
+         (s.tuple (p.some (p.either (do p.Monad<Parser>
+                                      [name s.local-symbol]
+                                      (wrap [(code.symbol ["" name]) (` any)]))
+                                    (s.record (p.seq s.any s.any)))))))
 
 (syntax: #export (program:
                    {args program-args^}
@@ -113,39 +113,42 @@
                    bar (do-something all-args)]
                   (wrap [])))
 
-              (program: (name)
+              (program: [name]
                 (io (log! (text/compose "Hello, " name))))
 
-              (program: ([config config^])
+              (program: [{config config^}]
                 (do Monad<IO>
                   [data (init-program config)]
                   (do-something data))))}
-  (case args
-    (#Raw args)
-    (wrap (list (` ("lux program" (~ (code.symbol ["" args]))
-                    ((~! do) (~! io.Monad<IO>)
-                     []
-                     (~ body))))))
-    
-    (#Parsed args)
-    (with-gensyms [g!args g!_ g!output g!message]
-      (wrap (list (` ("lux program" (~ g!args)
-                      (case ((: (~! (..CLI (io.IO .Top)))
-                                ((~! do) (~! p.Monad<Parser>)
-                                 [(~+ (|> args
-                                          (list/map (function (_ [binding parser])
-                                                      (list binding parser)))
-                                          list/join))
-                                  (~ g!_) ..end]
-                                 ((~' wrap) ((~! do) (~! io.Monad<IO>)
-                                             []
-                                             (~ body)))))
-                             (~ g!args))
-                        (#E.Success [(~ g!_) (~ g!output)])
-                        (~ g!output)
+  (with-gensyms [g!program]
+    (case args
+      (#Raw args)
+      (wrap (list (` ("lux program"
+                      (.function ((~ g!program) (~ (code.symbol ["" args])))
+                        ((~! do) (~! io.Monad<IO>)
+                         []
+                         (~ body)))))))
+      
+      (#Parsed args)
+      (with-gensyms [g!args g!_ g!output g!message]
+        (wrap (list (` ("lux program"
+                        (.function ((~ g!program) (~ g!args))
+                          (case ((: (~! (..CLI (io.IO .Top)))
+                                    ((~! do) (~! p.Monad<Parser>)
+                                     [(~+ (|> args
+                                              (list/map (function (_ [binding parser])
+                                                          (list binding parser)))
+                                              list/join))
+                                      (~ g!_) ..end]
+                                     ((~' wrap) ((~! do) (~! io.Monad<IO>)
+                                                 []
+                                                 (~ body)))))
+                                 (~ g!args))
+                            (#E.Success [(~ g!_) (~ g!output)])
+                            (~ g!output)
 
-                        (#E.Error (~ g!message))
-                        (error! (~ g!message))
-                        )))
-                  )))
-    ))
+                            (#E.Error (~ g!message))
+                            (error! (~ g!message))
+                            ))))
+                    )))
+      )))

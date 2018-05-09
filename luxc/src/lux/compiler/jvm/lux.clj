@@ -378,12 +378,14 @@
             (return nil)))
         ))))
 
-(defn compile-program [compile ?body]
+(defn compile-program [compile ?program]
   (|do [module-name &/get-module-name
         ^ClassWriter *writer* &/get-writer]
     (&/with-writer (doto (.visitMethod *writer* (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "main" "([Ljava/lang/String;)V" nil nil)
                      (.visitCode))
       (|do [^MethodVisitor main-writer &/get-writer
+            _ (compile ?program)
+            :let [_ (.visitTypeInsn main-writer Opcodes/CHECKCAST &&/function-class)]
             :let [$loop (new Label)
                   $end (new Label)
                   _ (doto main-writer
@@ -438,11 +440,9 @@
                       ;; Loop: End
                       (.visitLabel $end) ;; VI
                       (.visitInsn Opcodes/POP) ;; V
-                      (.visitVarInsn Opcodes/ASTORE (int 0)) ;;
-                      )
-                  ]
-            _ (compile ?body)
+                      )]
             :let [_ (doto main-writer
+                      (.visitMethodInsn Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature 1))
                       (.visitTypeInsn Opcodes/CHECKCAST &&/function-class)
                       (.visitInsn Opcodes/ACONST_NULL)
                       (.visitMethodInsn Opcodes/INVOKEVIRTUAL &&/function-class &&/apply-method (&&/apply-signature 1)))]

@@ -138,11 +138,9 @@
               (&&lux/analyse-def analyse optimize eval! compile-def ?name ?value ?meta)))
 
           "lux program"
-          (|let [(&/$Cons [_ (&/$Symbol "" ?args)]
-                          (&/$Cons ?body
-                                   (&/$Nil))) parameters]
+          (|let [(&/$Cons ?program (&/$Nil)) parameters]
             (&/with-cursor cursor
-              (&&lux/analyse-program analyse optimize compile-program ?args ?body)))
+              (&&lux/analyse-program analyse optimize compile-program ?program)))
 
           "lux case"
           (|let [(&/$Cons ?value (&/$Cons [_ (&/$Record ?branches)] (&/$Nil))) parameters]

@@ -675,8 +675,7 @@
   (|do [=type (&&/analyse-1 analyse &type/Type ?type)
         ==type (eval! =type)
         _ (&type/check exo-type ==type)
-        =value (&/with-expected-type ==type
-                 (&&/analyse-1 analyse ==type ?value))
+        =value (&&/analyse-1 analyse ==type ?value)
         _cursor &/cursor]
     (return (&/|list (&&/|meta ==type _cursor
                                (&&/$ann =value =type)
@@ -689,12 +688,10 @@
         =value (&&/analyse-1+ analyse ?value)]
     (return (&/|list (coerce ==type =value)))))
 
-(let [input-type (&/$Apply &type/Text &type/List)
-      output-type (&/$Apply &type/Top &type/IO)]
-  (defn analyse-program [analyse optimize compile-program ?args ?body]
+(let [program-type (&/$Function (&/$Apply &type/Text &type/List)
+                                (&/$Apply &type/Top &type/IO))]
+  (defn analyse-program [analyse optimize compile-program ?program]
     (|do [_ &/ensure-statement
-          =body (&/with-scope ""
-                  (&&env/with-local ?args input-type
-                    (&&/analyse-1 analyse output-type ?body)))
-          _ (compile-program (optimize =body))]
+          =program (&&/analyse-1 analyse program-type ?program)
+          _ (compile-program (optimize =program))]
       (return &/$Nil))))
