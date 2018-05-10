@@ -4,11 +4,13 @@
        (control [monad #+ do]
                 [pipe])
        (data [bit]
+             [number]
              ["e" error]
              (coll [list]))
-       (world ["@" blob])
+       (world ["/" blob])
        ["r" math/random])
-  lux/test)
+  lux/test
+  (test (lux (control ["_." eq]))))
 
 (def: (succeed result)
   (-> (e.Error Bool) Bool)
@@ -20,90 +22,61 @@
     output))
 
 (def: #export (blob size)
-  (-> Nat (r.Random @.Blob))
-  (let [blob (@.create size)]
-    (do r.Monad<Random>
-      []
-      (loop [idx +0]
-        (if (n/< size idx)
-          (do @
-            [byte r.nat]
-            (exec (e.assume (@.write-8 idx byte blob))
-              (recur (n/inc idx))))
-          (wrap blob))))))
+  (-> Nat (r.Random /.Blob))
+  (let [output (/.create size)]
+    (loop [idx +0]
+      (if (n/< size idx)
+        (do r.Monad<Random>
+          [byte r.nat]
+          (exec (e.assume (/.write-8 idx byte output))
+            (recur (n/inc idx))))
+        (:: r.Monad<Random> wrap output)))))
+
+(def: (bits-io bytes read write value)
+  (-> Nat (-> Nat /.Blob (e.Error Nat)) (-> Nat Nat /.Blob (e.Error Top)) Nat Bool)
+  (let [blob (/.create +8)
+        bits (n/* +8 bytes)
+        capped-value (|> +1 (bit.left-shift bits) n/dec (bit.and value))]
+    (succeed
+     (do e.Monad<Error>
+       [_ (write +0 value blob)
+        output (read +0 blob)]
+       (wrap (n/= capped-value output))))))
 
 (context: "Blob."
   (<| (times +100)
       (do @
-        [blob-size (|> r.nat (:: @ map (|>> (n/% +100) (n/max +8))))
+        [#let [gen-size (|> r.nat (:: @ map (|>> (n/% +100) (n/max +8))))]
+         blob-size gen-size
          random-blob (blob blob-size)
-         #let [clean-blob (@.create blob-size)
-               size (@.size clean-blob)]
          value r.nat
-         idx (|> r.nat (:: @ map (n/% size)))
-         [from to] (|> (r.list +2 (|> r.nat (:: @ map (n/% size))))
-                       (:: @ map
-                           (|>> (list.sort n/<)
-                                (pipe.case> (^ (list from to))
-                                            [from to]
-
-                                            _
-                                            (undefined)))))
-         #let [value-8 (n/% (bit.left-shift +8 +1) value)
-               value-16 (n/% (bit.left-shift +16 +1) value)
-               value-32 (n/% (bit.left-shift +32 +1) value)
-               value-64 value
-               slice-size (|> to (n/- from) n/inc)
-               random-slice (e.assume (@.slice from to random-blob))]]
+         #let [gen-idx (|> r.nat (:: @ map (n/% blob-size)))]
+         [from to] (r.seq gen-idx gen-idx)
+         #let [[from to] [(n/min from to) (n/max from to)]]]
         ($_ seq
-            (test "Has equality."
-                  (and (:: @.Eq<Blob> = clean-blob clean-blob)
-                       (:: @.Eq<Blob> =
-                           (e.assume (@.slice from to clean-blob))
-                           (e.assume (@.slice from to clean-blob)))))
+            ## TODO: De-comment...
+            ## (_eq.spec /.Eq<Blob> (:: @ map blob gen-size))
             (test "Can get size of blob."
-                  (n/= blob-size size))
+                  (|> random-blob /.size (n/= blob-size)))
             (test "Can read/write 8-bit values."
-                  (succeed
-                   (do e.Monad<Error>
-                     [_ (@.write-8 idx value-8 clean-blob)
-                      output-8 (@.read-8 idx clean-blob)]
-                     (wrap (n/= value-8 output-8)))))
+                  (bits-io +1 /.read-8 /.write-8 value))
             (test "Can read/write 16-bit values."
-                  (or (n/>= size (n/+ +1 idx))
-                      (succeed
-                       (do e.Monad<Error>
-                         [_ (@.write-16 idx value-16 clean-blob)
-                          output-16 (@.read-16 idx clean-blob)]
-                         (wrap (n/= value-16 output-16))))))
+                  (bits-io +2 /.read-16 /.write-16 value))
             (test "Can read/write 32-bit values."
-                  (or (n/>= size (n/+ +3 idx))
-                      (succeed
-                       (do e.Monad<Error>
-                         [_ (@.write-32 idx value-32 clean-blob)
-                          output-32 (@.read-32 idx clean-blob)]
-                         (wrap (n/= value-32 output-32))))))
+                  (bits-io +4 /.read-32 /.write-32 value))
             (test "Can read/write 64-bit values."
-                  (or (n/>= size (n/+ +7 idx))
-                      (succeed
-                       (do e.Monad<Error>
-                         [_ (@.write-64 idx value-64 clean-blob)
-                          output-64 (@.read-64 idx clean-blob)]
-                         (wrap (n/= value-64 output-64))))))
+                  (bits-io +8 /.read-64 /.write-64 value))
             (test "Can slice blobs."
-                  (and (n/= slice-size (@.size random-slice))
-                       (loop [idx +0]
-                         (let [loop-recur recur]
-                           (if (n/< slice-size idx)
-                             (and (succeed
-                                   (do e.Monad<Error>
-                                     [reference (@.read-8 (n/+ from idx) random-blob)
-                                      sample (@.read-8 idx random-slice)]
-                                     (wrap (n/= reference sample))))
-                                  (loop-recur (n/inc idx)))
-                             true)))))
-            (test "Slicing the whole blob does not change anything."
-                  (:: @.Eq<Blob> =
-                      random-blob
-                      (e.assume (@.slice +0 (n/dec blob-size) random-blob))))
+                  (let [slice-size (|> to (n/- from) n/inc)
+                        random-slice (e.assume (/.slice from to random-blob))
+                        idxs (list.n/range +0 (n/dec slice-size))
+                        reader (function (_ blob idx) (/.read-8 idx blob))]
+                    (and (n/= slice-size (/.size random-slice))
+                         (case [(monad.map e.Monad<Error> (reader random-slice) idxs)
+                                (monad.map e.Monad<Error> (|>> (n/+ from) (reader random-blob)) idxs)]
+                           [(#e.Success slice-vals) (#e.Success blob-vals)]
+                           (:: (list.Eq<List> number.Eq<Nat>) = slice-vals blob-vals)
+
+                           _
+                           false))))
             ))))
