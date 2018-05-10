@@ -49,7 +49,7 @@
        (list* module)))
 
 (defn clean [state]
-  "(-> Compiler Null)"
+  "(-> Lux Null)"
   (let [needed-modules (->> state (&/get$ &/$modules) &/|keys &/->seq set)
         output-dir-prefix (str (.getAbsolutePath (new File ^String @&&core/!output-dir)) java.io.File/separator)
         outdated? #(->> % (contains? needed-modules) not)
@@ -229,7 +229,7 @@
     (return nil)))
 
 (defn ^:private inject-module
-  "(-> Module Compiler (Lux Null))"
+  "(-> Module Lux (Lux Null))"
   [module-name module]
   (fn [compiler]
     (return* (&/update$ &/$modules

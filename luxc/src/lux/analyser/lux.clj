@@ -596,7 +596,7 @@
           old new))
 
 (defn ^:private merge-compilers
-  "(-> Text Compiler Compiler Compiler)"
+  "(-> Text Lux Lux Lux)"
   [current-module new old]
   (->> old
        (&/set$ &/$modules (merge-modules current-module

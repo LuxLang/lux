@@ -129,7 +129,6 @@
    "dummy-mappings"
    ])
 
-;; Compiler
 (defvariant
   ("Build" 0)
   ("Eval" 0)
@@ -159,7 +158,6 @@
    "extensions"
    "host"])
 
-;; Compiler
 (defvariant
   ("UpperBound" 0)
   ("LowerBound" 0))
@@ -785,7 +783,7 @@
   (with-jvm-host-slot $writer (fn [_] ($Some writer)) body))
 
 (defn with-type-env
-  "(All [a] (-> TypeEnv (Lux a) (Lux a)))"
+  "(All [a] (-> TypeEnv (Meta a) (Meta a)))"
   [type-env body]
   (with-jvm-host-slot $type-env (partial |++ type-env) body))
 
@@ -928,7 +926,7 @@
       (return* state module-name))))
 
 (defn find-module
-  "(-> Text (Lux (Module Compiler)))"
+  "(-> Text (Meta (Module Lux)))"
   [name]
   (fn [state]
     (if-let [module (|get name (get$ $modules state))]
@@ -936,7 +934,7 @@
       ((fail-with-loc (str "[Error] Unknown module: " name))
        state))))
 
-(def ^{:doc "(Lux (Module Compiler))"}
+(def ^{:doc "(Meta (Module Lux))"}
   get-current-module
   (|do [module-name get-module-name]
     (find-module module-name)))
@@ -1014,7 +1012,7 @@
           output)))))
 
 (defn with-expected-type
-  "(All [a] (-> Type (Lux a)))"
+  "(All [a] (-> Type (Meta a)))"
   [type body]
   (fn [state]
     (let [output (body (set$ $expected ($Some type) state))]
@@ -1027,7 +1025,7 @@
         output))))
 
 (defn with-cursor
-  "(All [a] (-> Cursor (Lux a)))"
+  "(All [a] (-> Cursor (Meta a)))"
   [^objects cursor body]
   (|let [[_file-name _ _] cursor]
     (if (= "" _file-name)
@@ -1043,7 +1041,7 @@
             output))))))
 
 (defn with-analysis-meta
-  "(All [a] (-> Cursor Type (Lux a)))"
+  "(All [a] (-> Cursor Type (Meta a)))"
   [^objects cursor type body]
   (|let [[_file-name _ _] cursor]
     (if (= "" _file-name)
@@ -1072,7 +1070,7 @@
             _
             output))))))
 
-(def ^{:doc "(Lux Top)"}
+(def ^{:doc "(Meta Top)"}
   ensure-statement
   (fn [state]
     (|case (get$ $expected state)
@@ -1084,7 +1082,7 @@
        state))))
 
 (def cursor
-  ;; (Lux Cursor)
+  ;; (Meta Cursor)
   (fn [state]
     (return* state (get$ $cursor state))))
 
@@ -1321,13 +1319,13 @@
   [xs]
   (enumerate* 0 xs))
 
-(def ^{:doc "(Lux (List Text))"}
+(def ^{:doc "(Meta (List Text))"}
   modules
   (fn [state]
     (return* state (|keys (get$ $modules state)))))
 
 (defn when%
-  "(-> Bool (Lux Top) (Lux Top))"
+  "(-> Bool (Meta Top) (Meta Top))"
   [test body]
   (if test
     body
@@ -1351,7 +1349,7 @@
     $None))
 
 (defn normalize
-  "(-> Ident (Lux Ident))"
+  "(-> Ident (Meta Ident))"
   [ident]
   (|case ident
     ["" name] (|do [module get-module-name]
@@ -1392,14 +1390,14 @@
   |any?   false or)
 
 (defn m-comp
-  "(All [a b c] (-> (-> b (Lux c)) (-> a (Lux b)) (-> a (Lux c))))"
+  "(All [a b c] (-> (-> b (Meta c)) (-> a (Meta b)) (-> a (Meta c))))"
   [f g]
   (fn [x]
     (|do [y (g x)]
       (f y))))
 
 (defn with-attempt
-  "(All [a] (-> (Lux a) (-> Text (Lux a)) (Lux a)))"
+  "(All [a] (-> (Meta a) (-> Text (Meta a)) (Meta a)))"
   [m-value on-error]
   (fn [state]
     (|case (m-value state)
