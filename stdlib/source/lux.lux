@@ -2463,25 +2463,28 @@
 
 (def:''' least-significant-bit-mask (list) Nat +1)
 
+(def:''' (without-trailing-zeroes count remaining)
+         (list)
+         (-> Nat Nat (#Product Nat Nat))
+         (if (|> remaining
+                 ("lux bit and" least-significant-bit-mask)
+                 ("lux coerce" Int)
+                 ("lux int =" 0))
+           (without-trailing-zeroes
+            (|> count
+                ("lux coerce" Int)
+                ("lux int +" 1)
+                ("lux coerce" Nat))
+            ("lux bit logical-right-shift" remaining +1))
+           [count remaining]))
+
 (def:''' #export (d// param subject)
          (list [(tag$ ["lux" "doc"])
                 (text$ "Deg(ree) division.")])
          (-> Deg Deg Deg)
          (if (|> param ("lux coerce" Int) ("lux int =" 0))
            ("lux io error" "Cannot divide Deg by zero!")
-           (let' [[trailing-zeroes remaining] (("lux check" (-> Nat Nat (#Product Nat Nat))
-                                                (function' recur [count remaining]
-                                                           (if (|> remaining
-                                                                   ("lux bit and" least-significant-bit-mask)
-                                                                   ("lux coerce" Int)
-                                                                   ("lux int =" 0))
-                                                             (recur (|> count
-                                                                        ("lux coerce" Int)
-                                                                        ("lux int +" 1)
-                                                                        ("lux coerce" Nat))
-                                                                    ("lux bit logical-right-shift" remaining +1))
-                                                             [count remaining])))
-                                               +0 ("lux coerce" Nat param))
+           (let' [[trailing-zeroes remaining] (without-trailing-zeroes +0 ("lux coerce" Nat param))
                   [trailing-zeroes denominator] (if (|> trailing-zeroes ("lux coerce" Int) ("lux int =" 0))
                                                   [+1 ("lux bit logical-right-shift" remaining +1)]
                                                   [trailing-zeroes remaining])
@@ -2491,11 +2494,11 @@
                           ("lux coerce" Int trailing-zeroes)))
                   numerator ("lux bit left-shift" +1 shift)]
                  ("lux coerce" Deg
-                  ("lux int /"
-                   ("lux int *"
-                    ("lux coerce" Int subject)
-                    ("lux coerce" Int numerator))
-                   ("lux coerce" Int denominator))))))
+                  ("lux int *"
+                   ("lux coerce" Int subject)
+                   ("lux int /"
+                    ("lux coerce" Int numerator)
+                    ("lux coerce" Int denominator)))))))
 
 (def:''' #export (d/% param subject)
          (list [(tag$ ["lux" "doc"])
@@ -2533,6 +2536,17 @@
           ("lux int *"
            ("lux coerce" Int subject)
            ("lux coerce" Int param))))
+
+(def:''' #export (d/reciprocal numerator)
+         (list [(tag$ ["lux" "doc"])
+                (text$ "Deg(ree) reciprocal of a Nat(ural).")])
+         (-> Nat Deg)
+         ("lux coerce" Deg
+          (let' [[trailing-zeroes remaining] (without-trailing-zeroes +0 numerator)]
+                (n// remaining
+                     ("lux case" trailing-zeroes
+                      {+0 ("lux coerce" Nat -1)
+                       _ ("lux bit left-shift" +1 (n/- trailing-zeroes +64))})))))
 
 (do-template [<name> <type> <test> <doc>]
   [(def:''' #export (<name> left right)
@@ -6315,3 +6329,41 @@
   [Nat n//% n// n/%]
   [Int i//% i// i/%]
   )
+
+(def: (to-significand value)
+  (-> Nat Frac)
+  (|> ("lux bit logical-right-shift" value +11)
+      (:! Int)
+      int-to-frac))
+
+(def: deg-denominator Frac (to-significand (:! Nat -1)))
+
+(def: #export (frac-to-deg input)
+  (-> Frac Deg)
+  (let [abs (if (f/< 0.0 input)
+              (f/* -1.0 input)
+              input)]
+    (:! Deg
+        ("lux bit left-shift"
+         (|> abs
+             (f/% 1.0)
+             (f/* deg-denominator)
+             frac-to-int
+             (:! Nat))
+         +11))))
+
+(def: #export deg-to-frac
+  (-> Deg Frac)
+  (|>> (:! Nat) to-significand (f// deg-denominator)))
+
+(macro: #export (alias: tokens)
+  (case tokens
+    (^ (list [_meta (#Symbol ["" alias])] [_meta (#Symbol aliased)]))
+    (let [alias (symbol$ ["" alias])
+          aliased (symbol$ aliased)]
+      (return (list (` (def: #export (~ alias)
+                         {#.doc (doc "Alias for:" (~ aliased))}
+                         (~ aliased))))))
+
+    _
+    (fail "Wrong syntax for alias:")))
