@@ -17,22 +17,12 @@
              [duration])
        ["r" math/random]))
 
-## [Host]
-(do-template [<name> <signal>]
-  [(def: <name>
-     (IO Bottom)
-     (io.exit <signal>))]
-
-  [exit 0]
-  [die  1]
-  )
-
 ## [Types]
 (type: #export Counters [Nat Nat])
 
 (type: #export Seed
   {#.doc "The seed value used for random testing (if that feature is used)."}
-  Nat)
+  (I64 Top))
 
 (type: #export Test
   (r.Random (Promise [Counters Text])))
@@ -74,10 +64,10 @@
                    (list/map (: (-> [Text (IO Test) Text] (Promise Counters))
                                 (function (_ [module test description])
                                   (do @
-                                    [#let [pre (io.run instant.now)
-                                           seed (int-to-nat (instant.to-millis pre))]
+                                    [#let [pre (io.run instant.now)]
                                      [counters documentation] (|> (io.run test)
-                                                                  (r.run (r.pcg-32 [pcg-32-magic-inc seed]))
+                                                                  (r.run (r.pcg-32 [pcg-32-magic-inc
+                                                                                    (instant.to-millis pre)]))
                                                                   product.right)
                                      #let [post (io.run instant.now)
                                            _ (log! (format "@ " module " "
@@ -100,6 +90,11 @@
                             test)]
       [prng result])))
 
+(def: (times-failure seed documentation)
+  (-> (I64 Top) Text Text)
+  (format "Failed with this seed: " (%n (.nat seed)) "\n"
+          documentation))
+
 (def: #export (times amount test)
   (-> Nat Test Test)
   (cond (n/= +0 amount)
@@ -110,14 +105,14 @@
 
         ## else
         (do r.Monad<Random>
-          [seed r.nat]
+          [seed r.i64]
           (function (_ prng)
             (let [[prng' instance] (r.run (r.pcg-32 [pcg-32-magic-inc seed]) test)]
               [prng' (do promise.Monad<Promise>
                        [[counters documentation] instance]
                        (if (failed? counters)
-                         (wrap [counters (format "Failed with this seed: " (%n seed) "\n" documentation)])
-                         (product.right (r.run prng' (times (n/dec amount) test)))))])))))
+                         (wrap [counters (times-failure seed documentation)])
+                         (product.right (r.run prng' (times (dec amount) test)))))])))))
 
 ## [Syntax]
 (syntax: #export (context: description test)
@@ -129,7 +124,7 @@
                                (loop [counter 0
                                       value 1]
                                  (if (i/< 3 counter)
-                                   (recur (i/inc counter) (i/* 10 value))
+                                   (recur (inc counter) (i/* 10 value))
                                    value))))
 
                     (test "Can create lists easily through macros."
@@ -213,47 +208,43 @@
               (list.filter product.left)
               (list/map product.right)))))
 
+(def: (success-message successes failures)
+  (-> Nat Nat Text)
+  (format "Test-suite finished." "\n"
+          (%i (.int successes)) " out of " (%i (.int (n/+ failures successes))) " tests passed." "\n"
+          (%i (.int failures)) " tests failed." "\n"))
+
 (syntax: #export (run)
   {#.doc (doc "Runs all the tests defined on the current module, and in all imported modules."
               (run))}
-  (with-gensyms [g!successes g!failures g!total-successes g!total-failures g!text/compose]
+  (with-gensyms [g!successes g!failures g!total-successes g!total-failures]
     (do @
       [current-module macro.current-module-name
        modules (macro.imported-modules current-module)
        tests (: (Meta (List [Text Text Text]))
-                (|> (#.Cons current-module modules)
+                (|> modules
+                    (#.Cons current-module)
                     list.reverse
                     (monad.map @ exported-tests)
-                    (:: @ map list/join)))
-       #let [tests+ (list/map (function (_ [module-name test desc])
-                                (` [(~ (code.text module-name)) (~ (code.symbol [module-name test])) (~ (code.text desc))]))
-                              tests)
-             num-tests (list.size tests+)
-             groups (list.split-all promise.parallelism-level tests+)]]
+                    (:: @ map list/join)))]
       (wrap (list (` (: (~! (IO Top))
                         ((~! io) (exec ((~! do) (~! promise.Monad<Promise>)
                                         [(~' #let) [(~ g!total-successes) +0
                                                     (~ g!total-failures) +0]
-                                         (~+ (list/join (list/map (function (_ group)
-                                                                    (list (` [(~ g!successes) (~ g!failures)]) (` ((~! run') (list (~+ group))))
-                                                                          (' #let) (` [(~ g!total-successes) (n/+ (~ g!successes) (~ g!total-successes))
-                                                                                       (~ g!total-failures) (n/+ (~ g!failures) (~ g!total-failures))])))
-                                                                  groups)))]
-                                        (exec (let [(~ g!text/compose) (:: (~! text.Monoid<Text>) (~' compose))]
-                                                (log! ($_ (~ g!text/compose)
-                                                          "Test-suite finished."
-                                                          "\n"
-                                                          ((~! %i) (nat-to-int (~ g!total-successes)))
-                                                          " out of "
-                                                          ((~! %i) (nat-to-int (n/+ (~ g!total-failures)
-                                                                                    (~ g!total-successes))))
-                                                          " tests passed."
-                                                          "\n"
-                                                          ((~! %i) (nat-to-int (~ g!total-failures))) " tests failed.")))
+                                         (~+ (|> tests
+                                                 (list/map (function (_ [module-name test desc])
+                                                             (` [(~ (code.text module-name)) (~ (code.symbol [module-name test])) (~ (code.text desc))])))
+                                                 (list.split-all promise.parallelism)
+                                                 (list/map (function (_ group)
+                                                             (list (` [(~ g!successes) (~ g!failures)]) (` ((~! run') (list (~+ group))))
+                                                                   (' #let) (` [(~ g!total-successes) (n/+ (~ g!successes) (~ g!total-successes))
+                                                                                (~ g!total-failures) (n/+ (~ g!failures) (~ g!total-failures))]))))
+                                                 list/join))]
+                                        (exec (log! ((~! success-message) (~ g!total-successes) (~ g!total-failures)))
                                           ((~! promise.future)
-                                           (if (n/> +0 (~ g!total-failures))
-                                             (~! ..die)
-                                             (~! ..exit)))))
+                                           ((~! io.exit) (if (n/> +0 (~ g!total-failures))
+                                                           1
+                                                           0)))))
                                    [])))))))))
 
 (def: #export (seq left right)

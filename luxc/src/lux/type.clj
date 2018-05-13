@@ -23,10 +23,17 @@
 
 (def empty-env &/$Nil)
 
+(def I64 (&/$Named (&/T ["lux" "I64"])
+                   (&/$UnivQ empty-env
+                             (&/$Primitive "#I64" (&/|list (&/$Bound 1))))))
+(def Nat* (&/$Primitive &&host/nat-data-tag &/$Nil))
+(def Deg* (&/$Primitive &&host/deg-data-tag &/$Nil))
+(def Int* (&/$Primitive &&host/int-data-tag &/$Nil))
+
 (def Bool (&/$Named (&/T ["lux" "Bool"]) (&/$Primitive "#Bool" &/$Nil)))
-(def Nat (&/$Named (&/T ["lux" "Nat"]) (&/$Primitive &&host/nat-data-tag &/$Nil)))
-(def Deg (&/$Named (&/T ["lux" "Deg"]) (&/$Primitive &&host/deg-data-tag &/$Nil)))
-(def Int (&/$Named (&/T ["lux" "Int"]) (&/$Primitive "#Int" &/$Nil)))
+(def Nat (&/$Named (&/T ["lux" "Nat"]) (&/$Apply Nat* I64)))
+(def Deg (&/$Named (&/T ["lux" "Deg"]) (&/$Apply Deg* I64)))
+(def Int (&/$Named (&/T ["lux" "Int"]) (&/$Apply Int* I64)))
 (def Frac (&/$Named (&/T ["lux" "Frac"]) (&/$Primitive "#Frac" &/$Nil)))
 (def Text (&/$Named (&/T ["lux" "Text"]) (&/$Primitive "#Text" &/$Nil)))
 (def Ident (&/$Named (&/T ["lux" "Ident"]) (&/$Product Text Text)))

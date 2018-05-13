@@ -66,7 +66,9 @@
 ;; [Exports]
 (def array-data-tag "#Array")
 (def null-data-tag "#Null")
+(def i64-data-tag "#I64")
 (def nat-data-tag "#Nat")
+(def int-data-tag "#Int")
 (def deg-data-tag "#Deg")
 
 ;; [Utils]
@@ -309,9 +311,8 @@
 
 (def ^:private lux-jvm-type-combos
   #{#{"java.lang.Boolean" "#Bool"}
-    #{"java.lang.Long" "#Int"}
+    #{"java.lang.Long" i64-data-tag}
     #{"java.lang.Double" "#Frac"}
-    #{"java.lang.Character" "#Char"}
     #{"java.lang.String" "#Text"}})
 
 (defn ^:private lux-type? [^String class-name]

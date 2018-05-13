@@ -125,9 +125,9 @@
                     &&/wrap-long)]]
       (return nil)))
 
-  ^:private compile-bit-and Opcodes/LAND
-  ^:private compile-bit-or  Opcodes/LOR
-  ^:private compile-bit-xor Opcodes/LXOR
+  ^:private compile-i64-and Opcodes/LAND
+  ^:private compile-i64-or  Opcodes/LOR
+  ^:private compile-i64-xor Opcodes/LXOR
   )
 
 (do-template [<name> <op>]
@@ -145,9 +145,9 @@
                     &&/wrap-long)]]
       (return nil)))
 
-  ^:private compile-bit-left-shift           Opcodes/LSHL
-  ^:private compile-bit-arithmetic-right-shift          Opcodes/LSHR
-  ^:private compile-bit-logical-right-shift Opcodes/LUSHR
+  ^:private compile-i64-left-shift           Opcodes/LSHL
+  ^:private compile-i64-arithmetic-right-shift          Opcodes/LSHR
+  ^:private compile-i64-logical-right-shift Opcodes/LUSHR
   )
 
 (defn ^:private compile-lux-is [compile ?values special-args]
@@ -191,8 +191,9 @@
                     <wrap>)]]
       (return nil)))
 
-  ^:private compile-int-add   Opcodes/LADD &&/unwrap-long &&/wrap-long
-  ^:private compile-int-sub   Opcodes/LSUB &&/unwrap-long &&/wrap-long
+  ^:private compile-i64-add   Opcodes/LADD &&/unwrap-long &&/wrap-long
+  ^:private compile-i64-sub   Opcodes/LSUB &&/unwrap-long &&/wrap-long
+  
   ^:private compile-int-mul   Opcodes/LMUL &&/unwrap-long &&/wrap-long
   ^:private compile-int-div   Opcodes/LDIV &&/unwrap-long &&/wrap-long
   ^:private compile-int-rem   Opcodes/LREM &&/unwrap-long &&/wrap-long
@@ -227,61 +228,49 @@
                     (.visitLabel $end))]]
       (return nil)))
 
-  ^:private compile-int-eq  Opcodes/LCMP   0 &&/unwrap-long
+  ^:private compile-i64-eq  Opcodes/LCMP   0 &&/unwrap-long
+  
   ^:private compile-int-lt  Opcodes/LCMP  -1 &&/unwrap-long
 
   ^:private compile-frac-eq Opcodes/DCMPG  0 &&/unwrap-double
   ^:private compile-frac-lt Opcodes/DCMPG -1 &&/unwrap-double
   )
 
-(do-template [<name> <instr> <wrapper>]
+(do-template [<name> <instr>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Nil) ?values]
           ^MethodVisitor *writer* &/get-writer
           :let [_ (doto *writer*
-                    <instr>
-                    <wrapper>)]]
+                    (.visitLdcInsn <instr>)
+                    &&/wrap-double)]]
       (return nil)))
 
-  ^:private compile-int-min (.visitLdcInsn Long/MIN_VALUE)  &&/wrap-long
-  ^:private compile-int-max (.visitLdcInsn Long/MAX_VALUE) &&/wrap-long
-  
-  ^:private compile-frac-smallest (.visitLdcInsn Double/MIN_VALUE)  &&/wrap-double
-  ^:private compile-frac-min (.visitLdcInsn (* -1.0 Double/MAX_VALUE))  &&/wrap-double
-  ^:private compile-frac-max (.visitLdcInsn Double/MAX_VALUE) &&/wrap-double
+  ^:private compile-frac-smallest Double/MIN_VALUE
+  ^:private compile-frac-min (* -1.0 Double/MAX_VALUE)
+  ^:private compile-frac-max Double/MAX_VALUE
 
-  ^:private compile-frac-not-a-number (.visitLdcInsn Double/NaN) &&/wrap-double
-  ^:private compile-frac-positive-infinity (.visitLdcInsn Double/POSITIVE_INFINITY) &&/wrap-double
-  ^:private compile-frac-negative-infinity (.visitLdcInsn Double/NEGATIVE_INFINITY) &&/wrap-double
+  ^:private compile-frac-not-a-number Double/NaN
+  ^:private compile-frac-positive-infinity Double/POSITIVE_INFINITY
+  ^:private compile-frac-negative-infinity Double/NEGATIVE_INFINITY
   )
 
-(do-template [<name> <class> <signature> <unwrap>]
-  (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
-          ^MethodVisitor *writer* &/get-writer
-          _ (compile ?input)
-          :let [_ (doto *writer*
-                    <unwrap>
-                    (.visitMethodInsn Opcodes/INVOKESTATIC <class> "toString" <signature>))]]
-      (return nil)))
+(defn ^:private compile-frac-encode [compile ?values special-args]
+  (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?input)
+        :let [_ (doto *writer*
+                  &&/unwrap-double
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Double" "toString" "(D)Ljava/lang/String;"))]]
+    (return nil)))
 
-  ^:private compile-frac-encode "java/lang/Double" "(D)Ljava/lang/String;" &&/unwrap-double
-  )
-
-
-(do-template [<name> <method>]
-  (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
-          ^MethodVisitor *writer* &/get-writer
-          _ (compile ?input)
-          :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String")
-                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" <method> "(Ljava/lang/String;)[Ljava/lang/Object;"))]]
-      (return nil)))
-
-  ^:private compile-int-decode  "decode_int"
-  ^:private compile-frac-decode "decode_frac"
-  )
+(defn ^:private compile-frac-decode [compile ?values special-args]
+  (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?input)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String")
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "decode_frac" "(Ljava/lang/String;)[Ljava/lang/Object;"))]]
+    (return nil)))
 
 (defn ^:private compile-int-char [compile ?values special-args]
   (|do [:let [(&/$Cons ?x (&/$Nil)) ?values]
@@ -305,8 +294,8 @@
                     <wrap>)]]
       (return nil)))
 
-  ^:private compile-frac-to-int &&/unwrap-double Opcodes/D2L &&/wrap-long
-  ^:private compile-int-to-frac &&/unwrap-long   Opcodes/L2D &&/wrap-double
+  ^:private compile-frac-int &&/unwrap-double Opcodes/D2L &&/wrap-long
+  ^:private compile-int-frac &&/unwrap-long   Opcodes/L2D &&/wrap-double
   )
 
 (defn ^:private compile-text-eq [compile ?values special-args]
@@ -626,7 +615,7 @@
                   (.visitLdcInsn &/unit-tag))]]
     (return nil)))
 
-(defn ^:private compile-process-parallelism-level [compile ?values special-args]
+(defn ^:private compile-process-parallelism [compile ?values special-args]
   (|do [:let [(&/$Nil) ?values]
         ^MethodVisitor *writer* &/get-writer
         :let [_ (doto *writer*
@@ -677,14 +666,17 @@
       "contains?"            (compile-text-contains? compile ?values special-args)
       )
     
-    "bit"
+    "i64"
     (case proc
-      "and"                  (compile-bit-and compile ?values special-args)
-      "or"                   (compile-bit-or compile ?values special-args)
-      "xor"                  (compile-bit-xor compile ?values special-args)
-      "left-shift"           (compile-bit-left-shift compile ?values special-args)
-      "arithmetic-right-shift" (compile-bit-arithmetic-right-shift compile ?values special-args)
-      "logical-right-shift" (compile-bit-logical-right-shift compile ?values special-args))
+      "and"                    (compile-i64-and compile ?values special-args)
+      "or"                     (compile-i64-or compile ?values special-args)
+      "xor"                    (compile-i64-xor compile ?values special-args)
+      "left-shift"             (compile-i64-left-shift compile ?values special-args)
+      "arithmetic-right-shift" (compile-i64-arithmetic-right-shift compile ?values special-args)
+      "logical-right-shift"    (compile-i64-logical-right-shift compile ?values special-args)
+      "="                      (compile-i64-eq compile ?values special-args)
+      "+"                      (compile-i64-add compile ?values special-args)
+      "-"                      (compile-i64-sub compile ?values special-args))
     
     "array"
     (case proc
@@ -696,16 +688,11 @@
 
     "int"
     (case proc
-      "+"       (compile-int-add compile ?values special-args)
-      "-"       (compile-int-sub compile ?values special-args)
       "*"       (compile-int-mul compile ?values special-args)
       "/"       (compile-int-div compile ?values special-args)
       "%"       (compile-int-rem compile ?values special-args)
-      "="       (compile-int-eq compile ?values special-args)
       "<"       (compile-int-lt compile ?values special-args)
-      "max"     (compile-int-max compile ?values special-args)
-      "min"     (compile-int-min compile ?values special-args)
-      "to-frac" (compile-int-to-frac compile ?values special-args)
+      "frac" (compile-int-frac compile ?values special-args)
       "char"    (compile-int-char compile ?values special-args)
       )
 
@@ -724,7 +711,7 @@
       "not-a-number" (compile-frac-not-a-number compile ?values special-args)
       "positive-infinity" (compile-frac-positive-infinity compile ?values special-args)
       "negative-infinity" (compile-frac-negative-infinity compile ?values special-args)
-      "to-int"    (compile-frac-to-int compile ?values special-args)
+      "int"    (compile-frac-int compile ?values special-args)
       "encode"    (compile-frac-encode compile ?values special-args)
       "decode"    (compile-frac-decode compile ?values special-args)
       )
@@ -760,7 +747,7 @@
 
     "process"
     (case proc
-      "parallelism-level" (compile-process-parallelism-level compile ?values special-args)
+      "parallelism" (compile-process-parallelism compile ?values special-args)
       "schedule" (compile-process-schedule compile ?values special-args)
       )
     

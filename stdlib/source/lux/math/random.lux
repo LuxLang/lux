@@ -1,5 +1,5 @@
 (.module: {#.doc "Pseudo-random number generation (PRNG) algorithms."}
-  [lux #- list]
+  [lux #- list i64 nat int deg]
   (lux (control [functor #+ Functor]
                 [apply #+ Apply]
                 [monad #+ do Monad]
@@ -22,7 +22,7 @@
 
 (type: #export #rec PRNG
   {#.doc "An abstract way to represent any PRNG."}
-  (-> Top [PRNG Nat]))
+  (-> Top [PRNG I64]))
 
 (type: #export (Random a)
   {#.doc "A producer of random values based on a PRNG."}
@@ -64,37 +64,36 @@
       (wrap sample)
       (filter pred gen))))
 
-(def: #export nat
-  (Random Nat)
-  (function (_ prng)
-    (let [[prng left] (prng [])
-          [prng right] (prng [])]
-      [prng (n/+ (bit.left-shift +32 left)
-                 right)])))
-
-(def: #export int
-  (Random Int)
-  (:: Monad<Random> map nat-to-int nat))
-
 (def: #export bool
   (Random Bool)
   (function (_ prng)
     (let [[prng output] (prng [])]
       [prng (|> output (bit.and +1) (n/= +1))])))
 
-(def: (bits n)
-  (-> Nat (Random Nat))
+(def: #export i64
+  (Random I64)
   (function (_ prng)
-    (let [[prng output] (prng [])]
-      [prng (bit.logical-right-shift (n/- n +64) output)])))
+    (let [[prng left] (prng [])
+          [prng right] (prng [])]
+      [prng (|> left
+                (bit.left-shift +32)
+                ("lux i64 +" right))])))
+
+(def: #export nat
+  (Random Nat)
+  (:: Monad<Random> map .nat ..i64))
+
+(def: #export int
+  (Random Int)
+  (:: Monad<Random> map .int ..i64))
+
+(def: #export deg
+  (Random Deg)
+  (:: Monad<Random> map .deg ..i64))
 
 (def: #export frac
   (Random Frac)
   (:: Monad<Random> map number.bits-to-frac nat))
-
-(def: #export deg
-  (Random Deg)
-  (:: Monad<Random> map (|>> (:! Deg)) nat))
 
 (def: #export (text' char-gen size)
   (-> (Random Nat) Nat (Random Text))
@@ -102,18 +101,18 @@
     (:: Monad<Random> wrap "")
     (do Monad<Random>
       [x char-gen
-       xs (text' char-gen (n/dec size))]
+       xs (text' char-gen (dec size))]
       (wrap (text/compose (text.from-code x) xs)))))
 
-(type: Char-Range [Nat Nat])
+(type: Region [Nat Nat])
 
 (do-template [<name> <from> <to>]
-  [(def: <name> Char-Range [(hex <from>) (hex <to>)])]
+  [(def: <name> Region [(hex <from>) (hex <to>)])]
 
-  [Thaana               "+0780" "+07BF"]
-  [Khmer-Symbols        "+19E0" "+19FF"]
+  [Thaana              "+0780" "+07BF"]
+  [Khmer-Symbols       "+19E0" "+19FF"]
   [Phonetic-Extensions "+1D00" "+1D7F"]
-  [Hangul-Syllables     "+AC00" "+D7AF"]
+  [Hangul-Syllables    "+AC00" "+D7AF"]
 
   [Cypriot-Syllabary                       "+10800" "+1083F"]
   [Tai-Xuan-Jing-Symbols                   "+1D300" "+1D35F"]
@@ -123,10 +122,11 @@
   )
 
 (def: (within? [from to] char)
-  (-> Char-Range Nat Bool)
-  (and (n/>= from char) (n/<= to char)))
+  (-> Region Nat Bool)
+  (and (n/>= from char)
+       (n/<= to char)))
 
-(def: unicode-ceiling (n/inc (product.right CJK-Compatibility-Ideographs-Supplement)))
+(def: unicode-ceiling (|> CJK-Compatibility-Ideographs-Supplement product.right inc))
 
 (def: #export unicode
   (Random Nat)
@@ -254,7 +254,7 @@
      (if (n/> +0 size)
        (do Monad<Random>
          [x value-gen
-          xs (<name> (n/dec size) value-gen)]
+          xs (<name> (dec size) value-gen)]
          (wrap (<plus> x xs)))
        (:: Monad<Random> wrap <zero>)))]
 
@@ -278,7 +278,7 @@
   (All [a] (-> (Hash a) Nat (Random a) (Random (Set a))))
   (if (n/> +0 size)
     (do Monad<Random>
-      [xs (set Hash<a> (n/dec size) value-gen)]
+      [xs (set Hash<a> (dec size) value-gen)]
       (loop [_ []]
         (do @
           [x value-gen
@@ -292,7 +292,7 @@
   (All [k v] (-> (Hash k) Nat (Random k) (Random v) (Random (Dict k v))))
   (if (n/> +0 size)
     (do Monad<Random>
-      [kv (dict Hash<a> (n/dec size) key-gen value-gen)]
+      [kv (dict Hash<a> (dec size) key-gen value-gen)]
       (loop [_ []]
         (do @
           [k key-gen
@@ -313,28 +313,30 @@
   {#.doc "An implementation of the PCG32 algorithm.
 
           For more information, please see: http://www.pcg-random.org/"}
-  (-> [Nat Nat] PRNG)
+  (-> [(I64 Top) (I64 Top)] PRNG)
   (function (_ _)
-    (let [seed' (|> seed (n/* pcg-32-magic-mult) (n/+ inc))
-          xor-shifted (|> seed (bit.logical-right-shift +18) (bit.xor seed) (bit.logical-right-shift +27))
-          rot (|> seed (bit.logical-right-shift +59))]
-      [(pcg-32 [inc seed']) (bit.rotate-right rot xor-shifted)]
-      )))
+    [(|> seed .nat (n/* pcg-32-magic-mult) ("lux i64 +" inc) [inc] pcg-32)
+     (let [rot (|> seed .i64 (bit.logical-right-shift +59))]
+       (|> seed
+           (bit.logical-right-shift +18)
+           (bit.xor seed)
+           (bit.logical-right-shift +27)
+           (bit.rotate-right rot)
+           .i64))]))
 
 (def: #export (xoroshiro-128+ [s0 s1])
   {#.doc "An implementation of the Xoroshiro128+ algorithm.
 
           For more information, please see: http://xoroshiro.di.unimi.it/"}
-  (-> [Nat Nat] PRNG)
+  (-> [(I64 Top) (I64 Top)] PRNG)
   (function (_ _)
-    (let [result (n/+ s0 s1)
-          s01 (bit.xor s0 s1)
-          s0' (|> (bit.rotate-left +55 s0)
-                  (bit.xor s01)
-                  (bit.xor (bit.left-shift +14 s01)))
-          s1' (bit.rotate-left +36 s01)]
-      [(xoroshiro-128+ [s0' s1']) result])
-    ))
+    [(let [s01 (bit.xor s0 s1)]
+       (xoroshiro-128+ [(|> s0
+                            (bit.rotate-left +55)
+                            (bit.xor s01)
+                            (bit.xor (bit.left-shift +14 s01)))
+                        (bit.rotate-left +36 s01)]))
+     ("lux i64 +" s0 s1)]))
 
 (def: (swap from to vec)
   (All [a] (-> Nat Nat (Sequence a) (Sequence a)))
@@ -352,7 +354,7 @@
                                  [rand nat]
                                  (wrap (swap idx (n/% _size rand) vec))))
                              sequence
-                             (list.n/range +0 (n/dec _size)))]
+                             (list.n/range +0 (dec _size)))]
     (|> _shuffle
         (run (pcg-32 [+123 seed]))
         product.right)))

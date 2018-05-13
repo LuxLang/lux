@@ -3,33 +3,41 @@
 (def: #export width Nat +64)
 
 ## [Values]
-(do-template [<name> <type> <op> <doc>]
+(do-template [<name> <op> <doc>]
   [(def: #export (<name> param subject)
      {#.doc <doc>}
-     (-> Nat <type> <type>)
-     (<op> subject param))]
+     (All [s] (-> (I64 s) (I64 s) (I64 s)))
+     (<op> param subject))]
 
-  [and                    Nat "lux bit and"                    "Bitwise and."]
-  [or                     Nat "lux bit or"                     "Bitwise or."]
-  [xor                    Nat "lux bit xor"                    "Bitwise xor."]
-  [left-shift             Nat "lux bit left-shift"             "Bitwise left-shift."]
-  [logical-right-shift    Nat "lux bit logical-right-shift"    "Unsigned bitwise logical-right-shift."]
-  [arithmetic-right-shift Int "lux bit arithmetic-right-shift" "Signed bitwise arithmetic-right-shift."]
+  [and "lux i64 and" "Bitwise and."]
+  [or  "lux i64 or"  "Bitwise or."]
+  [xor "lux i64 xor" "Bitwise xor."]
+  )
+
+(do-template [<name> <op> <doc>]
+  [(def: #export (<name> param subject)
+     {#.doc <doc>}
+     (All [s] (-> Nat (I64 s) (I64 s)))
+     (<op> param subject))]
+
+  [left-shift             "lux i64 left-shift"             "Bitwise left-shift."]
+  [logical-right-shift    "lux i64 logical-right-shift"    "Unsigned bitwise logical-right-shift."]
+  [arithmetic-right-shift "lux i64 arithmetic-right-shift" "Signed bitwise arithmetic-right-shift."]
   )
 
 (alias: right-shift logical-right-shift)
 
 (def: (add-shift shift value)
   (-> Nat Nat Nat)
-  (|> value (logical-right-shift shift) (n/+ value)))
+  (|> value (right-shift shift) (n/+ value)))
 
 (def: #export (count subject)
   {#.doc "Count the number of 1s in a bit-map."}
-  (-> Nat Nat)
-  (let [count' (n/- (|> subject (logical-right-shift +1) (and +6148914691236517205))
-                    subject)]
+  (-> (I64 Top) Nat)
+  (let [count' (n/- (|> subject (right-shift +1) (and +6148914691236517205) i64)
+                    (i64 subject))]
     (|> count'
-        (logical-right-shift +2) (and +3689348814741910323) (n/+ (and +3689348814741910323 count'))
+        (right-shift +2) (and +3689348814741910323) (n/+ (and +3689348814741910323 count'))
         (add-shift +4) (and +1085102592571150095)
         (add-shift +8)
         (add-shift +16)
@@ -38,43 +46,44 @@
 
 (def: #export not
   {#.doc "Bitwise negation."}
-  (-> Nat Nat)
-  (let [mask (int-to-nat -1)]
-    (xor mask)))
+  (All [s] (-> (I64 s) (I64 s)))
+  (xor (:! I64 -1)))
+
+(def: (flag idx)
+  (-> Nat I64)
+  (|> +1 (:! I64) (left-shift idx)))
 
 (def: #export (clear idx input)
   {#.doc "Clear bit at given index."}
-  (-> Nat Nat Nat)
-  (..and (..not (left-shift idx +1))
-         input))
+  (All [s] (-> Nat (I64 s) (I64 s)))
+  (|> idx flag ..not (..and input)))
 
 (do-template [<name> <op> <doc>]
   [(def: #export (<name> idx input)
      {#.doc <doc>}
-     (-> Nat Nat Nat)
-     (<op> (left-shift idx +1) input))]
+     (All [s] (-> Nat (I64 s) (I64 s)))
+     (|> idx flag (<op> input)))]
 
   [set  ..or  "Set bit at given index."]
   [flip ..xor "Flip bit at given index."]
   )
 
 (def: #export (set? idx input)
-  (-> Nat Nat Bool)
-  (|> input (..and (left-shift idx +1)) (n/= +0) .not))
+  (-> Nat (I64 Top) Bool)
+  (|> input (:! I64) (..and (flag idx)) (n/= +0) .not))
 
 (do-template [<name> <main> <comp>]
   [(def: #export (<name> distance input)
-     (-> Nat Nat Nat)
-     (..or (<main> distance input)
-           (<comp> (n/- (n/% width distance)
-                        width)
-                   input)))]
+     (All [s] (-> Nat (I64 s) (I64 s)))
+     (let [backwards-distance (n/- (n/% width distance) width)]
+       (|> input
+           (<comp> backwards-distance)
+           (..or (<main> distance input)))))]
 
-  [rotate-left  left-shift          logical-right-shift]
-  [rotate-right logical-right-shift left-shift]
+  [rotate-left  left-shift  right-shift]
+  [rotate-right right-shift left-shift]
   )
 
-(def: #export (region-mask size offset)
-  (-> Nat Nat Nat)
-  (let [pattern (|> +1 (left-shift size) n/dec)]
-    (left-shift offset pattern)))
+(def: #export (region size offset)
+  (-> Nat Nat I64)
+  (|> +1 (:! I64) (left-shift size) dec (left-shift offset)))
