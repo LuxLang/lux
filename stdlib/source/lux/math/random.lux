@@ -1,11 +1,12 @@
 (.module: {#.doc "Pseudo-random number generation (PRNG) algorithms."}
-  [lux #- list i64 nat int deg]
+  [lux #- list i64 nat int deg char]
   (lux (control [functor #+ Functor]
                 [apply #+ Apply]
                 [monad #+ do Monad]
                 hash)
        (data [bit]
              [text "text/" Monoid<Text>]
+             (text [unicode #+ Char Segment])
              [product]
              [maybe]
              [number #+ hex]
@@ -17,7 +18,8 @@
                    [queue #+ Queue]
                    (set ["set" unordered #+ Set])
                    [stack #+ Stack]
-                   [sequence #+ Sequence]))
+                   [sequence #+ Sequence]
+                   (tree [finger #+ Tree])))
        ))
 
 (type: #export #rec PRNG
@@ -95,99 +97,32 @@
   (Random Frac)
   (:: Monad<Random> map number.bits-to-frac nat))
 
-(def: #export (text' char-gen size)
-  (-> (Random Nat) Nat (Random Text))
+(def: #export (char set)
+  (-> unicode.Set (Random Char))
+  (let [summary (finger.tag set)
+        start (unicode.start summary)
+        size (unicode.size summary)
+        in-range (: (-> Char Char)
+                    (|>> (n/% size) (n/+ start)))]
+    (|> nat
+        (:: Monad<Random> map in-range)
+        (..filter (function (_ char)
+                    (finger.found? (function (_ segment)
+                                     (unicode.within? segment char))
+                                   set))))))
+
+(def: #export (text char-gen size)
+  (-> (Random Char) Nat (Random Text))
   (if (n/= +0 size)
     (:: Monad<Random> wrap "")
     (do Monad<Random>
       [x char-gen
-       xs (text' char-gen (dec size))]
+       xs (text char-gen (dec size))]
       (wrap (text/compose (text.from-code x) xs)))))
 
-(type: Region [Nat Nat])
-
-(do-template [<name> <from> <to>]
-  [(def: <name> Region [(hex <from>) (hex <to>)])]
-
-  [Thaana              "+0780" "+07BF"]
-  [Khmer-Symbols       "+19E0" "+19FF"]
-  [Phonetic-Extensions "+1D00" "+1D7F"]
-  [Hangul-Syllables    "+AC00" "+D7AF"]
-
-  [Cypriot-Syllabary                       "+10800" "+1083F"]
-  [Tai-Xuan-Jing-Symbols                   "+1D300" "+1D35F"]
-  [Mathematical-Alphanumeric-Symbols       "+1D400" "+1D7FF"]
-  [CJK-Unified-Ideographs-Extension-B      "+20000" "+2A6DF"]
-  [CJK-Compatibility-Ideographs-Supplement "+2F800" "+2FA1F"]
-  )
-
-(def: (within? [from to] char)
-  (-> Region Nat Bool)
-  (and (n/>= from char)
-       (n/<= to char)))
-
-(def: unicode-ceiling (|> CJK-Compatibility-Ideographs-Supplement product.right inc))
-
 (def: #export unicode
-  (Random Nat)
-  (|> ..nat
-      (:: Monad<Random> map (n/% unicode-ceiling))
-      (..filter (function (_ raw)
-                  ## From "Basic Latin" to "Syriac"
-                  (or (n/<= (hex "+074F") raw)
-                      (within? Thaana raw)
-                      ## From "Devanagari" to "Ethiopic"
-                      (and (n/>= (hex "+0900") raw)
-                           (n/<= (hex "+137F") raw))
-                      ## From "Cherokee" to "Mongolian"
-                      (and (n/>= (hex "+13A0") raw)
-                           (n/<= (hex "+18AF") raw))
-                      ## From "Limbu" to "Tai Le"
-                      (and (n/>= (hex "+1900") raw)
-                           (n/<= (hex "+197F") raw))
-                      (within? Khmer-Symbols raw)
-                      (within? Phonetic-Extensions raw)
-                      ## From "Latin Extended Additional" to "Miscellaneous Symbols and Arrows"
-                      (and (n/>= (hex "+1E00") raw)
-                           (n/<= (hex "+2BFF") raw))
-                      ## From "CJK Radicals Supplement" to "Kangxi Radicals"
-                      (and (n/>= (hex "+2E80") raw)
-                           (n/<= (hex "+2FDF") raw))
-                      ## From "Ideographic Description Characters" to "Bopomofo Extended"
-                      (and (n/>= (hex "+2FF0") raw)
-                           (n/<= (hex "+31BF") raw))
-                      ## From "Katakana Phonetic Extensions" to "CJK Unified Ideographs"
-                      (and (n/>= (hex "+31F0") raw)
-                           (n/<= (hex "+9FAF") raw))
-                      ## From "Yi Syllables" to "Yi Radicals"
-                      (and (n/>= (hex "+A000") raw)
-                           (n/<= (hex "+A4CF") raw))
-                      (within? Hangul-Syllables raw)
-                      ## From "CJK Compatibility Ideographs" to "Arabic Presentation Forms-A"
-                      (and (n/>= (hex "+F900") raw)
-                           (n/<= (hex "+FDFF") raw))
-                      ## From "Combining Half Marks" to "Halfwidth and Fullwidth Forms"
-                      (and (n/>= (hex "+FE20") raw)
-                           (n/<= (hex "+FFEF") raw))
-                      ## From "Linear B Syllabary" to "Aegean Numbers"
-                      (and (n/>= (hex "+10000") raw)
-                           (n/<= (hex "+1013F") raw))
-                      ## From "Old Italic" to "Osmanya"
-                      (and (n/>= (hex "+10300") raw)
-                           (n/<= (hex "+104AF") raw))
-                      (within? Cypriot-Syllabary raw)
-                      ## From "Byzantine Musical Symbols" to "Musical Symbols"
-                      (and (n/>= (hex "+1D000") raw)
-                           (n/<= (hex "+1D1FF") raw))
-                      (within? Tai-Xuan-Jing-Symbols raw)
-                      (within? Mathematical-Alphanumeric-Symbols raw)
-                      (within? CJK-Unified-Ideographs-Extension-B raw)
-                      (within? CJK-Compatibility-Ideographs-Supplement raw)
-                      )))))
-
-(def: #export (text size)
   (-> Nat (Random Text))
-  (text' unicode size))
+  (text (char unicode.full)))
 
 (do-template [<name> <type> <ctor> <gen>]
   [(def: #export <name>
