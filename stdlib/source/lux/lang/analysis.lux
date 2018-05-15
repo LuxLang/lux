@@ -1,0 +1,109 @@
+(.module:
+  lux
+  (lux [function]
+       (data (coll [list "list/" Fold<List>]))))
+
+(type: #export #rec Primitive
+  #Unit
+  (#Bool Bool)
+  (#Nat Nat)
+  (#Int Int)
+  (#Deg Deg)
+  (#Frac Frac)
+  (#Text Text))
+
+(type: #export Tag Nat)
+
+(type: #export (Composite a)
+  (#Sum (Either a a))
+  (#Product [a a]))
+
+(type: #export Register Nat)
+
+(type: #export #rec Pattern
+  (#Simple Primitive)
+  (#Complex (Composite Pattern))
+  (#Bind Register))
+
+(type: #export Variable
+  (#Local Register)
+  (#Foreign Register))
+
+(type: #export (Match p e)
+  [[p e] (List [p e])])
+
+(type: #export Environment
+  (List Variable))
+
+(type: #export (Special e)
+  [Text (List e)])
+
+(type: #export #rec Analysis
+  (#Primitive Primitive)
+  (#Structure (Composite Analysis))
+  (#Case Analysis (Match Pattern Analysis))
+  (#Function Environment Analysis)
+  (#Apply Analysis Analysis)
+  (#Variable Variable)
+  (#Constant Ident)
+  (#Special (Special Text)))
+
+## Variants get analysed as binary sum types for the sake of semantic
+## simplicity.
+## This is because you can encode a variant of any size using just
+## binary sums by nesting them.
+
+(do-template [<name> <tag>]
+  [(def: <name>
+     (-> Analysis Analysis)
+     (|>> <tag> #Sum #Structure))]
+
+  [left #.Left]
+  [right #.Right]
+  )
+
+(def: (last? size tag)
+  (-> Nat Tag Bool)
+  (n/= (dec size) tag))
+
+(def: #export (no-op value)
+  (-> Analysis Analysis)
+  (let [identity (#Function (list) (#Variable (#Local +1)))]
+    (#Apply value identity)))
+
+(def: #export (sum tag size temp value)
+  (-> Tag Nat Register Analysis Analysis)
+  (if (last? size tag)
+    (if (n/= +1 tag)
+      (..right value)
+      (list/fold (function.const ..left)
+                 (..right value)
+                 (list.n/range +0 (n/- +2 tag))))
+    (list/fold (function.const ..left)
+               (case value
+                 (#Structure (#Sum _))
+                 (no-op value)
+
+                 _
+                 value)
+               (list.n/range +0 tag))))
+
+(def: #export (tuple members)
+  (-> (List Analysis) Analysis)
+  (case (list.reverse members)
+    #.Nil
+    (#Primitive #Unit)
+
+    (#.Cons singleton #.Nil)
+    singleton
+
+    (#.Cons last prevs)
+    (list/fold (function (_ left right) (#Structure (#Product left right)))
+               last prevs)))
+
+(def: #export (apply args func)
+  (-> (List Analysis) Analysis Analysis)
+  (list/fold (function (_ arg func) (#Apply arg func)) func args))
+
+(type: #export Analyser
+  (-> Code (Meta Analysis)))

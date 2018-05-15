@@ -1,0 +1,60 @@
+(.module:
+  lux
+  (lux (control [monad #+ do])
+       (data ["e" error])
+       [macro]
+       [lang]
+       (lang (type ["tc" check]))))
+
+(def: #export (with-type expected action)
+  (All [a] (-> Type (Meta a) (Meta a)))
+  (function (_ compiler)
+    (case (action (set@ #.expected (#.Some expected) compiler))
+      (#e.Success [compiler' output])
+      (let [old-expected (get@ #.expected compiler)]
+        (#e.Success [(set@ #.expected old-expected compiler')
+                     output]))
+
+      (#e.Error error)
+      (#e.Error error))))
+
+(def: #export (with-env action)
+  (All [a] (-> (tc.Check a) (Meta a)))
+  (function (_ compiler)
+    (case (action (get@ #.type-context compiler))
+      (#e.Error error)
+      ((lang.fail error) compiler)
+
+      (#e.Success [context' output])
+      (#e.Success [(set@ #.type-context context' compiler)
+                   output]))))
+
+(def: #export (with-fresh-env action)
+  (All [a] (-> (Meta a) (Meta a)))
+  (function (_ compiler)
+    (let [old (get@ #.type-context compiler)]
+      (case (action (set@ #.type-context tc.fresh-context compiler))
+        (#e.Success [compiler' output])
+        (#e.Success [(set@ #.type-context old compiler')
+                     output])
+
+        output
+        output))))
+
+(def: #export (infer actualT)
+  (-> Type (Meta Top))
+  (do macro.Monad<Meta>
+    [expectedT macro.expected-type]
+    (with-env
+      (tc.check expectedT actualT))))
+
+(def: #export (with-inference action)
+  (All [a] (-> (Meta a) (Meta [Type a])))
+  (do macro.Monad<Meta>
+    [[_ varT] (..with-env
+                tc.var)
+     output (with-type varT
+              action)
+     knownT (..with-env
+              (tc.clean varT))]
+    (wrap [knownT output])))

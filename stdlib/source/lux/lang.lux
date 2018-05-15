@@ -1,0 +1,108 @@
+(.module:
+  lux
+  (lux (control [monad #+ do]
+                ["ex" exception #+ exception:])
+       (data [product]
+             ["e" error]
+             [text "text/" Eq<Text>]
+             text/format)
+       [macro]
+       (macro ["s" syntax #+ syntax:])))
+
+(def: #export (fail message)
+  (All [a] (-> Text (Meta a)))
+  (do macro.Monad<Meta>
+    [[file line col] macro.cursor
+     #let [location (format file
+                            "," (|> line .int %i)
+                            "," (|> col .int %i))]]
+    (macro.fail (format message "\n\n"
+                        "@ " location))))
+
+(def: #export (throw exception message)
+  (All [e a] (-> (ex.Exception e) e (Meta a)))
+  (fail (ex.construct exception message)))
+
+(syntax: #export (assert exception message test)
+  (wrap (list (` (if (~ test)
+                   (:: macro.Monad<Meta> (~' wrap) [])
+                   (..throw (~ exception) (~ message)))))))
+
+(def: #export (with-source-code source action)
+  (All [a] (-> Source (Meta a) (Meta a)))
+  (function (_ compiler)
+    (let [old-source (get@ #.source compiler)]
+      (case (action (set@ #.source source compiler))
+        (#e.Error error)
+        (#e.Error error)
+
+        (#e.Success [compiler' output])
+        (#e.Success [(set@ #.source old-source compiler')
+                     output])))))
+
+(def: #export (with-stacked-errors handler action)
+  (All [a] (-> (-> [] Text) (Meta a) (Meta a)))
+  (function (_ compiler)
+    (case (action compiler)
+      (#e.Success [compiler' output])
+      (#e.Success [compiler' output])
+
+      (#e.Error error)
+      (#e.Error (if (text/= "" error)
+                  (handler [])
+                  (format (handler []) "\n\n-----------------------------------------\n\n" error))))))
+
+(def: fresh-bindings
+  (All [k v] (Bindings k v))
+  {#.counter +0
+   #.mappings (list)})
+
+(def: fresh-scope
+  Scope
+  {#.name     (list)
+   #.inner    +0
+   #.locals   fresh-bindings
+   #.captured fresh-bindings})
+
+(def: #export (with-scope action)
+  (All [a] (-> (Meta a) (Meta [Scope a])))
+  (function (_ compiler)
+    (case (action (update@ #.scopes (|>> (#.Cons fresh-scope)) compiler))
+      (#e.Success [compiler' output])
+      (case (get@ #.scopes compiler')
+        #.Nil
+        (#e.Error "Impossible error: Drained scopes!")
+
+        (#.Cons head tail)
+        (#e.Success [(set@ #.scopes tail compiler')
+                     [head output]]))
+
+      (#e.Error error)
+      (#e.Error error))))
+
+(def: #export (with-current-module name action)
+  (All [a] (-> Text (Meta a) (Meta a)))
+  (function (_ compiler)
+    (case (action (set@ #.current-module (#.Some name) compiler))
+      (#e.Success [compiler' output])
+      (#e.Success [(set@ #.current-module
+                         (get@ #.current-module compiler)
+                         compiler')
+                   output])
+
+      (#e.Error error)
+      (#e.Error error))))
+
+(def: #export (with-cursor cursor action)
+  (All [a] (-> Cursor (Meta a) (Meta a)))
+  (if (text/= "" (product.left cursor))
+    action
+    (function (_ compiler)
+      (let [old-cursor (get@ #.cursor compiler)]
+        (case (action (set@ #.cursor cursor compiler))
+          (#e.Success [compiler' output])
+          (#e.Success [(set@ #.cursor old-cursor compiler')
+                       output])
+
+          (#e.Error error)
+          (#e.Error error))))))
