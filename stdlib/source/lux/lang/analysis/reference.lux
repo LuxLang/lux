@@ -1,0 +1,56 @@
+(.module:
+  lux
+  (lux (control monad)
+       [macro]
+       (macro [code])
+       [lang]
+       (lang (type ["tc" check])
+             [".L" scope]
+             [".L" analysis #+ Analysis]
+             (analysis [".A" type]))))
+
+## [Analysers]
+(def: (definition def-name)
+  (-> Ident (Meta Analysis))
+  (do macro.Monad<Meta>
+    [[actualT def-anns _] (macro.find-def def-name)]
+    (case (macro.get-symbol-ann (ident-for #.alias) def-anns)
+      (#.Some real-def-name)
+      (definition real-def-name)
+
+      _
+      (do @
+        [_ (typeA.infer actualT)]
+        (:: @ map (|>> #analysisL.Constant)
+            (macro.normalize def-name))))))
+
+(def: (variable var-name)
+  (-> Text (Meta (Maybe Analysis)))
+  (do macro.Monad<Meta>
+    [?var (scopeL.find var-name)]
+    (case ?var
+      (#.Some [actualT ref])
+      (do @
+        [_ (typeA.infer actualT)]
+        (wrap (#.Some (#analysisL.Variable ref))))
+
+      #.None
+      (wrap #.None))))
+
+(def: #export (reference reference)
+  (-> Ident (Meta Analysis))
+  (case reference
+    ["" simple-name]
+    (do macro.Monad<Meta>
+      [?var (variable simple-name)]
+      (case ?var
+        (#.Some varA)
+        (wrap varA)
+
+        #.None
+        (do @
+          [this-module macro.current-module-name]
+          (definition [this-module simple-name]))))
+
+    _
+    (definition reference)))

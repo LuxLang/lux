@@ -6,36 +6,36 @@
              [maybe "maybe/" Monad<Maybe>]
              [product]
              ["e" error]
-             (coll [list "list/" Functor<List> Fold<List> Monoid<List>]))
+             (coll [list "list/" Functor<List> Fold<List> Monoid<List>]
+                   (dictionary [plist])))
        [macro])
-  (luxc ["&" lang]
-        (lang [".L" variable #+ Variable])))
+  (// [analysis #+ Variable]))
 
 (type: Locals (Bindings Text [Type Nat]))
-(type: Captured (Bindings Text [Type Ref]))
+(type: Foreign (Bindings Text [Type Variable]))
 
 (def: (is-local? name scope)
   (-> Text Scope Bool)
   (|> scope
       (get@ [#.locals #.mappings])
-      (&.pl-contains? name)))
+      (plist.contains? name)))
 
 (def: (get-local name scope)
-  (-> Text Scope (Maybe [Type Ref]))
+  (-> Text Scope (Maybe [Type Variable]))
   (|> scope
       (get@ [#.locals #.mappings])
-      (&.pl-get name)
+      (plist.get name)
       (maybe/map (function (_ [type value])
-                   [type (#.Local value)]))))
+                   [type (#analysis.Local value)]))))
 
 (def: (is-captured? name scope)
   (-> Text Scope Bool)
   (|> scope
       (get@ [#.captured #.mappings])
-      (&.pl-contains? name)))
+      (plist.contains? name)))
 
 (def: (get-captured name scope)
-  (-> Text Scope (Maybe [Type Ref]))
+  (-> Text Scope (Maybe [Type Variable]))
   (loop [idx +0
          mappings (get@ [#.captured #.mappings] scope)]
     (case mappings
@@ -44,8 +44,8 @@
 
       (#.Cons [_name [_source-type _source-ref]] mappings')
       (if (text/= name _name)
-        (#.Some [_source-type (#.Captured idx)])
-        (recur (n/inc idx) mappings')))))
+        (#.Some [_source-type (#analysis.Foreign idx)])
+        (recur (inc idx) mappings')))))
 
 (def: (is-ref? name scope)
   (-> Text Scope Bool)
@@ -53,7 +53,7 @@
       (is-captured? name scope)))
 
 (def: (get-ref name scope)
-  (-> Text Scope (Maybe [Type Ref]))
+  (-> Text Scope (Maybe [Type Variable]))
   (case (get-local name scope)
     (#.Some type)
     (#.Some type)
@@ -62,7 +62,7 @@
     (get-captured name scope)))
 
 (def: #export (find name)
-  (-> Text (Meta (Maybe [Type Ref])))
+  (-> Text (Meta (Maybe [Type Variable])))
   (function (_ compiler)
     (let [[inner outer] (|> compiler
                             (get@ #.scopes)
@@ -74,13 +74,13 @@
         (#.Cons top-outer _)
         (let [[ref-type init-ref] (maybe.default (undefined)
                                                  (get-ref name top-outer))
-              [ref inner'] (list/fold (: (-> Scope [Ref (List Scope)] [Ref (List Scope)])
+              [ref inner'] (list/fold (: (-> Scope [Variable (List Scope)] [Variable (List Scope)])
                                          (function (_ scope ref+inner)
-                                           [(#.Captured (get@ [#.captured #.counter] scope))
+                                           [(#analysis.Foreign (get@ [#.captured #.counter] scope))
                                             (#.Cons (update@ #.captured
-                                                             (: (-> Captured Captured)
-                                                                (|>> (update@ #.counter n/inc)
-                                                                     (update@ #.mappings (&.pl-put name [ref-type (product.left ref+inner)]))))
+                                                             (: (-> Foreign Foreign)
+                                                                (|>> (update@ #.counter inc)
+                                                                     (update@ #.mappings (plist.put name [ref-type (product.left ref+inner)]))))
                                                              scope)
                                                     (product.right ref+inner))]))
                                       [init-ref #.Nil]
@@ -99,8 +99,8 @@
             new-var-id (get@ [#.locals #.counter] head)
             new-head (update@ #.locals
                               (: (-> Locals Locals)
-                                 (|>> (update@ #.counter n/inc)
-                                      (update@ #.mappings (&.pl-put name [type new-var-id]))))
+                                 (|>> (update@ #.counter inc)
+                                      (update@ #.mappings (plist.put name [type new-var-id]))))
                               head)]
         (case (macro.run' (set@ #.scopes (#.Cons new-head tail) compiler)
                           action)
@@ -129,7 +129,7 @@
       #.mappings (list)})]
 
   [init-locals   Nat]
-  [init-captured Ref]
+  [init-captured Variable]
   )
 
 (def: (scope parent-name child-name)
