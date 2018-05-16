@@ -7,33 +7,41 @@
              text/format
              (coll [list "list/" Functor<List>]))
        [macro "macro/" Monad<Meta>]
+       [lang]
        (lang [type]
-             (type ["tc" check])))
-  (luxc ["&" lang]
-        (lang ["la" analysis #+ Analysis]
-              (analysis ["&." common]))))
+             (type ["tc" check])
+             [analysis #+ Analysis Analyser]
+             (analysis [".A" type]))))
+
+(exception: #export (variant-tag-out-of-bounds {size Nat} {tag analysis.Tag} {type Type})
+  (ex.report ["Tag" (%n tag)]
+             ["Variant size" (%n size)]
+             ["Variant type" (%type type)]))
+
+(exception: #export (cannot-infer {type Type} {args (List Code)})
+  (ex.report ["Type" (%type type)]
+             ["Arguments" (|> args
+                              list.enumerate
+                              (list/map (function (_ [idx argC])
+                                          (format "\n  " (%n idx) " " (%code argC))))
+                              (text.join-with ""))]))
+
+(exception: #export (cannot-infer-argument {inferred Type} {argument Code})
+  (ex.report ["Inferred Type" (%type inferred)]
+             ["Argument" (%code argument)]))
+
+(exception: #export (smaller-variant-than-expected {expected Nat} {actual Nat})
+  (ex.report ["Expected" (%i (.int expected))]
+             ["Actual" (%i (.int actual))]))
 
 (do-template [<name>]
-  [(exception: #export (<name> {message Text})
-     message)]
+  [(exception: #export (<name> {type Type})
+     (%type type))]
 
-  [Cannot-Infer]
-  [Cannot-Infer-Argument]
-  [Smaller-Variant-Than-Expected]
-  [Invalid-Type-Application]
-  [Not-A-Record-Type]
-  [Not-A-Variant-Type]
+  [not-a-variant-type]
+  [not-a-record-type]
+  [invalid-type-application]
   )
-
-(def: (cannot-infer type args)
-  (-> Type (List Code) Text)
-  (format "     Type: " (%type type) "\n"
-          "Arguments:"
-          (|> args
-              list.enumerate
-              (list/map (function (_ [idx argC])
-                          (format "\n  " (%n idx) " " (%code argC))))
-              (text.join-with ""))))
 
 (def: (replace-bound bound-idx replacementT type)
   (-> Nat Type Type Type)
@@ -69,7 +77,7 @@
   (Meta Type)
   (do macro.Monad<Meta>
     [[_module _line _column] macro.cursor
-     [ex-id exT] (&.with-type-env tc.existential)]
+     [ex-id exT] (typeA.with-env tc.existential)]
     (wrap (#.Primitive (format "{New Type @ " (%t _module)
                                "," (%n _line)
                                "," (%n _column)
@@ -84,11 +92,11 @@
 ## But, so long as the type being used for the inference can be treated
 ## as a function type, this method of inference should work.
 (def: #export (general analyse inferT args)
-  (-> &.Analyser Type (List Code) (Meta [Type (List Analysis)]))
+  (-> Analyser Type (List Code) (Meta [Type (List Analysis)]))
   (case args
     #.Nil
     (do macro.Monad<Meta>
-      [_ (&.infer inferT)]
+      [_ (typeA.infer inferT)]
       (wrap [inferT (list)]))
     
     (#.Cons argC args')
@@ -98,22 +106,22 @@
 
       (#.UnivQ _)
       (do macro.Monad<Meta>
-        [[var-id varT] (&.with-type-env tc.var)]
+        [[var-id varT] (typeA.with-env tc.var)]
         (general analyse (maybe.assume (type.apply (list varT) inferT)) args))
 
       (#.ExQ _)
       (do macro.Monad<Meta>
-        [[var-id varT] (&.with-type-env tc.var)
+        [[var-id varT] (typeA.with-env tc.var)
          output (general analyse
                          (maybe.assume (type.apply (list varT) inferT))
                          args)
-         bound? (&.with-type-env
+         bound? (typeA.with-env
                   (tc.bound? var-id))
          _ (if bound?
              (wrap [])
              (do @
                [newT new-named-type]
-               (&.with-type-env
+               (typeA.with-env
                  (tc.check varT newT))))]
         (wrap output))
 
@@ -123,7 +131,7 @@
         (general analyse outputT args)
 
         #.None
-        (&.throw Invalid-Type-Application (%type inferT)))
+        (lang.throw invalid-type-application inferT))
 
       ## Arguments are inferred back-to-front because, by convention,
       ## Lux functions take the most important arguments *last*, which
@@ -135,27 +143,25 @@
       (#.Function inputT outputT)
       (do macro.Monad<Meta>
         [[outputT' args'A] (general analyse outputT args')
-         argA (&.with-stacked-errors
+         argA (lang.with-stacked-errors
                 (function (_ _)
-                  (ex.construct Cannot-Infer-Argument
-                                (format "Inferred Type: " (%type inputT) "\n"
-                                        "     Argument: " (%code argC))))
-                (&.with-type inputT
+                  (ex.construct cannot-infer-argument [inputT argC]))
+                (typeA.with-type inputT
                   (analyse argC)))]
         (wrap [outputT' (list& argA args'A)]))
 
       (#.Var infer-id)
       (do macro.Monad<Meta>
-        [?inferT' (&.with-type-env (tc.read infer-id))]
+        [?inferT' (typeA.with-env (tc.read infer-id))]
         (case ?inferT'
           (#.Some inferT')
           (general analyse inferT' args)
 
           _
-          (&.throw Cannot-Infer (cannot-infer inferT args))))
+          (lang.throw cannot-infer [inferT args])))
 
       _
-      (&.throw Cannot-Infer (cannot-infer inferT args)))
+      (lang.throw cannot-infer [inferT args]))
     ))
 
 ## Turns a record type into the kind of function type suitable for inference.
@@ -179,13 +185,13 @@
       (record outputT)
 
       #.None
-      (&.throw Invalid-Type-Application (%type inferT)))
+      (lang.throw invalid-type-application inferT))
 
     (#.Product _)
     (macro/wrap (type.function (type.flatten-tuple inferT) inferT))
 
     _
-    (&.throw Not-A-Record-Type (%type inferT))))
+    (lang.throw not-a-record-type inferT)))
 
 ## Turns a variant type into the kind of function type suitable for inference.
 (def: #export (variant tag expected-size inferT)
@@ -201,7 +207,7 @@
       (^template [<tag>]
         (<tag> env bodyT)
         (do macro.Monad<Meta>
-          [bodyT+ (recur (n/inc depth) bodyT)]
+          [bodyT+ (recur (inc depth) bodyT)]
           (wrap (<tag> env bodyT+))))
       ([#.UnivQ]
        [#.ExQ])
@@ -209,7 +215,7 @@
       (#.Sum _)
       (let [cases (type.flatten-variant currentT)
             actual-size (list.size cases)
-            boundary (n/dec expected-size)]
+            boundary (dec expected-size)]
         (cond (or (n/= expected-size actual-size)
                   (and (n/> expected-size actual-size)
                        (n/< boundary tag)))
@@ -217,28 +223,26 @@
                 (#.Some caseT)
                 (macro/wrap (if (n/= +0 depth)
                               (type.function (list caseT) currentT)
-                              (let [replace! (replace-bound (|> depth n/dec (n/* +2)) inferT)]
+                              (let [replace! (replace-bound (|> depth dec (n/* +2)) inferT)]
                                 (type.function (list (replace! caseT))
                                   (replace! currentT)))))
 
                 #.None
-                (&common.variant-out-of-bounds-error inferT expected-size tag))
+                (lang.throw variant-tag-out-of-bounds [expected-size tag inferT]))
               
               (n/< expected-size actual-size)
-              (&.throw Smaller-Variant-Than-Expected
-                       (format "Expected: " (%i (nat-to-int expected-size)) "\n"
-                               "  Actual: " (%i (nat-to-int actual-size))))
+              (lang.throw smaller-variant-than-expected [expected-size actual-size])
 
               (n/= boundary tag)
               (let [caseT (type.variant (list.drop boundary cases))]
                 (macro/wrap (if (n/= +0 depth)
                               (type.function (list caseT) currentT)
-                              (let [replace! (replace-bound (|> depth n/dec (n/* +2)) inferT)]
+                              (let [replace! (replace-bound (|> depth dec (n/* +2)) inferT)]
                                 (type.function (list (replace! caseT))
                                   (replace! currentT))))))
               
               ## else
-              (&common.variant-out-of-bounds-error inferT expected-size tag)))
+              (lang.throw variant-tag-out-of-bounds [expected-size tag inferT])))
 
       (#.Apply inputT funcT)
       (case (type.apply (list inputT) funcT)
@@ -246,7 +250,7 @@
         (variant tag expected-size outputT)
 
         #.None
-        (&.throw Invalid-Type-Application (%type inferT)))
+        (lang.throw invalid-type-application inferT))
 
       _
-      (&.throw Not-A-Variant-Type (%type inferT)))))
+      (lang.throw not-a-variant-type inferT))))

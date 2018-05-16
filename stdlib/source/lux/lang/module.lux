@@ -1,0 +1,239 @@
+(.module:
+  lux
+  (lux (control [monad #+ do]
+                ["ex" exception #+ exception:]
+                pipe)
+       (data [text "text/" Eq<Text>]
+             text/format
+             ["e" error]
+             (coll [list "list/" Fold<List> Functor<List>]
+                   (dictionary [plist])))
+       [macro])
+  [//])
+
+(type: #export Tag Text)
+
+(exception: #export (unknown-module {module Text})
+  module)
+
+(exception: #export (cannot-declare-tag-twice {module Text} {tag Text})
+  (format "Module: " module "\n"
+          "   Tag: " tag "\n"))
+
+(do-template [<name>]
+  [(exception: #export (<name> {tags (List Text)} {owner Type})
+     (format "Tags: " (text.join-with " " tags) "\n"
+             "Type: " (%type owner) "\n"))]
+
+  [cannot-declare-tags-for-unnamed-type]
+  [cannot-declare-tags-for-foreign-type]
+  )
+
+(exception: #export (cannot-define-more-than-once {name Ident})
+  (%ident name))
+
+(exception: #export (can-only-change-state-of-active-module {module Text} {state Module-State})
+  (format "       Module: " module "\n"
+          "Desired state: " (case state
+                              #.Active   "Active"
+                              #.Compiled "Compiled"
+                              #.Cached   "Cached") "\n"))
+
+(exception: #export (cannot-set-module-annotations-more-than-once {module Text} {old Code} {new Code})
+  (format "         Module: " module "\n"
+          "Old annotations: " (%code old) "\n"
+          "New annotations: " (%code new) "\n"))
+
+(def: (new hash)
+  (-> Nat Module)
+  {#.module-hash        hash
+   #.module-aliases     (list)
+   #.definitions        (list)
+   #.imports            (list)
+   #.tags               (list)
+   #.types              (list)
+   #.module-annotations #.None
+   #.module-state       #.Active})
+
+(def: #export (set-annotations annotations)
+  (-> Code (Meta Top))
+  (do macro.Monad<Meta>
+    [self-name macro.current-module-name
+     self macro.current-module]
+    (case (get@ #.module-annotations self)
+      #.None
+      (function (_ compiler)
+        (#e.Success [(update@ #.modules
+                              (plist.put self-name (set@ #.module-annotations (#.Some annotations) self))
+                              compiler)
+                     []]))
+      
+      (#.Some old)
+      (//.throw cannot-set-module-annotations-more-than-once [self-name old annotations]))))
+
+(def: #export (import module)
+  (-> Text (Meta Top))
+  (do macro.Monad<Meta>
+    [self-name macro.current-module-name]
+    (function (_ compiler)
+      (#e.Success [(update@ #.modules
+                            (plist.update self-name (update@ #.imports (|>> (#.Cons module))))
+                            compiler)
+                   []]))))
+
+(def: #export (alias alias module)
+  (-> Text Text (Meta Top))
+  (do macro.Monad<Meta>
+    [self-name macro.current-module-name]
+    (function (_ compiler)
+      (#e.Success [(update@ #.modules
+                            (plist.update self-name (update@ #.module-aliases (: (-> (List [Text Text]) (List [Text Text]))
+                                                                                 (|>> (#.Cons [alias module])))))
+                            compiler)
+                   []]))))
+
+(def: #export (exists? module)
+  (-> Text (Meta Bool))
+  (function (_ compiler)
+    (|> compiler
+        (get@ #.modules)
+        (plist.get module)
+        (case> (#.Some _) true #.None false)
+        [compiler] #e.Success)))
+
+(def: #export (define name definition)
+  (-> Text Definition (Meta []))
+  (do macro.Monad<Meta>
+    [self-name macro.current-module-name
+     self macro.current-module]
+    (function (_ compiler)
+      (case (plist.get name (get@ #.definitions self))
+        #.None
+        (#e.Success [(update@ #.modules
+                              (plist.put self-name
+                                         (update@ #.definitions
+                                                  (: (-> (List [Text Definition]) (List [Text Definition]))
+                                                     (|>> (#.Cons [name definition])))
+                                                  self))
+                              compiler)
+                     []])
+
+        (#.Some already-existing)
+        ((//.throw cannot-define-more-than-once [self-name name]) compiler)))))
+
+(def: #export (create hash name)
+  (-> Nat Text (Meta []))
+  (function (_ compiler)
+    (let [module (new hash)]
+      (#e.Success [(update@ #.modules
+                            (plist.put name module)
+                            compiler)
+                   []]))))
+
+(def: #export (with-module hash name action)
+  (All [a] (-> Nat Text (Meta a) (Meta [Module a])))
+  (do macro.Monad<Meta>
+    [_ (create hash name)
+     output (//.with-current-module name
+              action)
+     module (macro.find-module name)]
+    (wrap [module output])))
+
+(do-template [<setter> <asker> <tag>]
+  [(def: #export (<setter> module-name)
+     (-> Text (Meta Top))
+     (function (_ compiler)
+       (case (|> compiler (get@ #.modules) (plist.get module-name))
+         (#.Some module)
+         (let [active? (case (get@ #.module-state module)
+                         #.Active true
+                         _     false)]
+           (if active?
+             (#e.Success [(update@ #.modules
+                                   (plist.put module-name (set@ #.module-state <tag> module))
+                                   compiler)
+                          []])
+             ((//.throw can-only-change-state-of-active-module [module-name <tag>])
+              compiler)))
+
+         #.None
+         ((//.throw unknown-module module-name) compiler))))
+   
+   (def: #export (<asker> module-name)
+     (-> Text (Meta Bool))
+     (function (_ compiler)
+       (case (|> compiler (get@ #.modules) (plist.get module-name))
+         (#.Some module)
+         (#e.Success [compiler
+                      (case (get@ #.module-state module)
+                        <tag> true
+                        _     false)])
+
+         #.None
+         ((//.throw unknown-module module-name) compiler))))]
+
+  [set-active   active?   #.Active]
+  [set-compiled compiled? #.Compiled]
+  [set-cached   cached?   #.Cached]
+  )
+
+(do-template [<name> <tag> <type>]
+  [(def: (<name> module-name)
+     (-> Text (Meta <type>))
+     (function (_ compiler)
+       (case (|> compiler (get@ #.modules) (plist.get module-name))
+         (#.Some module)
+         (#e.Success [compiler (get@ <tag> module)])
+
+         #.None
+         ((//.throw unknown-module module-name) compiler))))]
+
+  [tags  #.tags        (List [Text [Nat (List Ident) Bool Type]])]
+  [types #.types       (List [Text [(List Ident) Bool Type]])]
+  [hash  #.module-hash Nat]
+  )
+
+(def: (ensure-undeclared-tags module-name tags)
+  (-> Text (List Tag) (Meta Top))
+  (do macro.Monad<Meta>
+    [bindings (..tags module-name)
+     _ (monad.map @
+                  (function (_ tag)
+                    (case (plist.get tag bindings)
+                      #.None
+                      (wrap [])
+
+                      (#.Some _)
+                      (//.throw cannot-declare-tag-twice [module-name tag])))
+                  tags)]
+    (wrap [])))
+
+(def: #export (declare-tags tags exported? type)
+  (-> (List Tag) Bool Type (Meta Top))
+  (do macro.Monad<Meta>
+    [self-name macro.current-module-name
+     [type-module type-name] (case type
+                               (#.Named type-ident _)
+                               (wrap type-ident)
+
+                               _
+                               (//.throw cannot-declare-tags-for-unnamed-type [tags type]))
+     _ (ensure-undeclared-tags self-name tags)
+     _ (//.assert cannot-declare-tags-for-foreign-type [tags type]
+                  (text/= self-name type-module))]
+    (function (_ compiler)
+      (case (|> compiler (get@ #.modules) (plist.get self-name))
+        (#.Some module)
+        (let [namespaced-tags (list/map (|>> [self-name]) tags)]
+          (#e.Success [(update@ #.modules
+                                (plist.update self-name
+                                              (|>> (update@ #.tags (function (_ tag-bindings)
+                                                                     (list/fold (function (_ [idx tag] table)
+                                                                                  (plist.put tag [idx namespaced-tags exported? type] table))
+                                                                                tag-bindings
+                                                                                (list.enumerate tags))))
+                                                   (update@ #.types (plist.put type-name [namespaced-tags exported? type]))))
+                                compiler)
+                       []]))
+        #.None
+        ((//.throw unknown-module self-name) compiler)))))
