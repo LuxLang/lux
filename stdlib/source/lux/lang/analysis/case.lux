@@ -1,8 +1,8 @@
 (.module:
-  lux
+  [lux #- case]
   (lux (control [monad #+ do]
                 ["ex" exception #+ exception:]
-                eq)
+                [equality #+ Eq])
        (data [bool]
              [number]
              [product]
@@ -11,38 +11,43 @@
              [text]
              text/format
              (coll [list "list/" Fold<List> Monoid<List> Functor<List>]))
+       [function]
        [macro]
        (macro [code])
+       [lang]
        (lang [type]
-             (type ["tc" check])))
-  (luxc ["&" lang]
-        (lang ["&." scope]
-              ["la" analysis]
-              (analysis [".A" common]
-                        [".A" structure]
-                        (case [".A" coverage])))))
+             (type ["tc" check])
+             [".L" scope]
+             [".L" analysis #+ Pattern Analysis Analyser]
+             (analysis [".A" type]
+                       [".A" structure]
+                       (case [".A" coverage])))))
+
+(exception: #export (cannot-match-type-with-pattern {type Type} {pattern Code})
+  (ex.report ["Type" (%type type)]
+             ["Pattern" (%code pattern)]))
+
+(exception: #export (sum-type-has-no-case {case Nat} {type Type})
+  (ex.report ["Case" (%n case)]
+             ["Type" (%type type)]))
+
+(exception: #export (unrecognized-pattern-syntax {pattern Code})
+  (%code pattern))
+
+(exception: #export (cannot-simplify-type-for-pattern-matching {type Type})
+  (%type type))
 
 (do-template [<name>]
   [(exception: #export (<name> {message Text})
      message)]
 
-  [Cannot-Match-Type-With-Pattern]
-  [Sum-Type-Has-No-Case]
-  [Unrecognized-Pattern-Syntax]
-  [Cannot-Simplify-Type-For-Pattern-Matching]
-  [Cannot-Have-Empty-Branches]
-  [Non-Exhaustive-Pattern-Matching]
-  [Symbols-Must-Be-Unqualified-Inside-Patterns]
+  [cannot-have-empty-branches]
+  [non-exhaustive-pattern-matching]
   )
-
-(def: (pattern-error type pattern)
-  (-> Type Code Text)
-  (format "   Type: " (%type type) "\n"
-          "Pattern: " (%code pattern)))
 
 (def: (re-quantify envs baseT)
   (-> (List (List Type)) Type Type)
-  (case envs
+  (.case envs
     #.Nil
     baseT
 
@@ -61,17 +66,17 @@
   (loop [envs (: (List (List Type))
                  (list))
          caseT caseT]
-    (case caseT
+    (.case caseT
       (#.Var id)
       (do macro.Monad<Meta>
-        [?caseT' (&.with-type-env
+        [?caseT' (typeA.with-env
                    (tc.read id))]
-        (case ?caseT'
+        (.case ?caseT'
           (#.Some caseT')
           (recur envs caseT')
 
           _
-          (&.throw Cannot-Simplify-Type-For-Pattern-Matching (%type caseT))))
+          (lang.throw cannot-simplify-type-for-pattern-matching caseT)))
 
       (#.Named name unnamedT)
       (recur envs unnamedT)
@@ -79,43 +84,34 @@
       (#.UnivQ env unquantifiedT)
       (recur (#.Cons env envs) unquantifiedT)
 
-      ## (^template [<tag> <instancer>]
-      ##   (<tag> _)
-      ##   (do macro.Monad<Meta>
-      ##     [[_ instanceT] (&.with-type-env
-      ##                      <instancer>)]
-      ##     (recur (maybe.assume (type.apply (list instanceT) caseT)))))
-      ## ([#.UnivQ tc.var]
-      ##  [#.ExQ tc.existential])
-      
       (#.ExQ _)
       (do macro.Monad<Meta>
-        [[ex-id exT] (&.with-type-env
+        [[ex-id exT] (typeA.with-env
                        tc.existential)]
         (recur envs (maybe.assume (type.apply (list exT) caseT))))
 
       (#.Apply inputT funcT)
-      (case funcT
+      (.case funcT
         (#.Var funcT-id)
         (do macro.Monad<Meta>
-          [funcT' (&.with-type-env
+          [funcT' (typeA.with-env
                     (do tc.Monad<Check>
                       [?funct' (tc.read funcT-id)]
-                      (case ?funct'
+                      (.case ?funct'
                         (#.Some funct')
                         (wrap funct')
 
                         _
-                        (tc.throw Cannot-Simplify-Type-For-Pattern-Matching (%type caseT)))))]
+                        (tc.throw cannot-simplify-type-for-pattern-matching caseT))))]
           (recur envs (#.Apply inputT funcT')))
 
         _
-        (case (type.apply (list inputT) funcT)
+        (.case (type.apply (list inputT) funcT)
           (#.Some outputT)
           (recur envs outputT)
 
           #.None
-          (&.throw Cannot-Simplify-Type-For-Pattern-Matching (%type caseT))))
+          (lang.throw cannot-simplify-type-for-pattern-matching caseT)))
 
       (#.Product _)
       (|> caseT
@@ -126,6 +122,15 @@
 
       _
       (:: macro.Monad<Meta> wrap (re-quantify envs caseT)))))
+
+(def: (analyse-primitive type inputT cursor output next)
+  (All [a] (-> Type Type Cursor Pattern (Meta a) (Meta [Pattern a])))
+  (lang.with-cursor cursor
+    (do macro.Monad<Meta>
+      [_ (typeA.with-env
+           (tc.check inputT type))
+       outputA next]
+      (wrap [output outputA]))))
 
 ## This function handles several concerns at once, but it must be that
 ## way because those concerns are interleaved when doing
@@ -144,74 +149,57 @@
 ## That is why the body must be analysed in the context of the
 ## pattern, and not separately.
 (def: (analyse-pattern num-tags inputT pattern next)
-  (All [a] (-> (Maybe Nat) Type Code (Meta a) (Meta [la.Pattern a])))
-  (case pattern
+  (All [a] (-> (Maybe Nat) Type Code (Meta a) (Meta [Pattern a])))
+  (.case pattern
     [cursor (#.Symbol ["" name])]
-    (&.with-cursor cursor
+    (lang.with-cursor cursor
       (do macro.Monad<Meta>
-        [outputA (&scope.with-local [name inputT]
+        [outputA (scopeL.with-local [name inputT]
                    next)
-         idx &scope.next-local]
-        (wrap [(` ("lux case bind" (~ (code.nat idx)))) outputA])))
+         idx scopeL.next-local]
+        (wrap [(#analysisL.Bind idx) outputA])))
 
-    [cursor (#.Symbol ident)]
-    (&.with-cursor cursor
-      (&.throw Symbols-Must-Be-Unqualified-Inside-Patterns (%ident ident)))
-
-    (^template [<type> <code-tag>]
-      [cursor (<code-tag> test)]
-      (&.with-cursor cursor
-        (do macro.Monad<Meta>
-          [_ (&.with-type-env
-               (tc.check inputT <type>))
-           outputA next]
-          (wrap [pattern outputA]))))
-    ([Bool #.Bool]
-     [Nat  #.Nat]
-     [Int  #.Int]
-     [Deg  #.Deg]
-     [Frac #.Frac]
-     [Text #.Text])
-
-    (^ [cursor (#.Tuple (list))])
-    (&.with-cursor cursor
-      (do macro.Monad<Meta>
-        [_ (&.with-type-env
-             (tc.check inputT Top))
-         outputA next]
-        (wrap [(` ("lux case tuple" [])) outputA])))
-
+    (^template [<type> <input> <output>]
+      [cursor <input>]
+      (analyse-primitive <type> inputT cursor (#analysisL.Simple <output>) next))
+    ([Bool (#.Bool pattern-value) (#analysisL.Bool pattern-value)]
+     [Nat  (#.Nat pattern-value)  (#analysisL.Nat pattern-value)]
+     [Int  (#.Int pattern-value)  (#analysisL.Int pattern-value)]
+     [Deg  (#.Deg pattern-value)  (#analysisL.Deg pattern-value)]
+     [Frac (#.Frac pattern-value) (#analysisL.Frac pattern-value)]
+     [Text (#.Text pattern-value) (#analysisL.Text pattern-value)]
+     [Top  (#.Tuple #.Nil)        #analysisL.Unit])
+    
     (^ [cursor (#.Tuple (list singleton))])
     (analyse-pattern #.None inputT singleton next)
     
     [cursor (#.Tuple sub-patterns)]
-    (&.with-cursor cursor
+    (lang.with-cursor cursor
       (do macro.Monad<Meta>
         [inputT' (simplify-case-type inputT)]
-        (case inputT'
+        (.case inputT'
           (#.Product _)
           (let [sub-types (type.flatten-tuple inputT')
                 num-sub-types (maybe.default (list.size sub-types)
                                              num-tags)
                 num-sub-patterns (list.size sub-patterns)
                 matches (cond (n/< num-sub-types num-sub-patterns)
-                              (let [[prefix suffix] (list.split (n/dec num-sub-patterns) sub-types)]
+                              (let [[prefix suffix] (list.split (dec num-sub-patterns) sub-types)]
                                 (list.zip2 (list/compose prefix (list (type.tuple suffix))) sub-patterns))
 
                               (n/> num-sub-types num-sub-patterns)
-                              (let [[prefix suffix] (list.split (n/dec num-sub-types) sub-patterns)]
+                              (let [[prefix suffix] (list.split (dec num-sub-types) sub-patterns)]
                                 (list.zip2 sub-types (list/compose prefix (list (code.tuple suffix)))))
                               
                               ## (n/= num-sub-types num-sub-patterns)
-                              (list.zip2 sub-types sub-patterns)
-                              )]
+                              (list.zip2 sub-types sub-patterns))]
             (do @
               [[memberP+ thenA] (list/fold (: (All [a]
-                                                (-> [Type Code] (Meta [(List la.Pattern) a])
-                                                    (Meta [(List la.Pattern) a])))
+                                                (-> [Type Code] (Meta [(List Pattern) a])
+                                                    (Meta [(List Pattern) a])))
                                               (function (_ [memberT memberC] then)
                                                 (do @
-                                                  [[memberP [memberP+ thenA]] ((:! (All [a] (-> (Maybe Nat) Type Code (Meta a) (Meta [la.Pattern a])))
+                                                  [[memberP [memberP+ thenA]] ((:! (All [a] (-> (Maybe Nat) Type Code (Meta a) (Meta [Pattern a])))
                                                                                    analyse-pattern)
                                                                                #.None memberT memberC then)]
                                                   (wrap [(list& memberP memberP+) thenA]))))
@@ -219,81 +207,76 @@
                                              [nextA next]
                                              (wrap [(list) nextA]))
                                            (list.reverse matches))]
-              (wrap [(` ("lux case tuple" [(~+ memberP+)]))
+              (wrap [(analysisL.product-pattern memberP+)
                      thenA])))
 
           _
-          (&.throw Cannot-Match-Type-With-Pattern (pattern-error inputT pattern))
+          (lang.throw cannot-match-type-with-pattern [inputT pattern])
           )))
 
     [cursor (#.Record record)]
     (do macro.Monad<Meta>
       [record (structureA.normalize record)
        [members recordT] (structureA.order record)
-       _ (&.with-type-env
+       _ (typeA.with-env
            (tc.check inputT recordT))]
       (analyse-pattern (#.Some (list.size members)) inputT [cursor (#.Tuple members)] next))
 
     [cursor (#.Tag tag)]
-    (&.with-cursor cursor
+    (lang.with-cursor cursor
       (analyse-pattern #.None inputT (` ((~ pattern))) next))
 
     (^ [cursor (#.Form (list& [_ (#.Nat idx)] values))])
-    (&.with-cursor cursor
+    (lang.with-cursor cursor
       (do macro.Monad<Meta>
         [inputT' (simplify-case-type inputT)]
-        (case inputT'
+        (.case inputT'
           (#.Sum _)
           (let [flat-sum (type.flatten-variant inputT')
                 size-sum (list.size flat-sum)
                 num-cases (maybe.default size-sum num-tags)]
-            (case (list.nth idx flat-sum)
+            (.case (list.nth idx flat-sum)
               (^multi (#.Some case-type)
                       (n/< num-cases idx))
-              (if (and (n/> num-cases size-sum)
-                       (n/= (n/dec num-cases) idx))
-                (do macro.Monad<Meta>
-                  [[testP nextA] (analyse-pattern #.None
-                                                  (type.variant (list.drop (n/dec num-cases) flat-sum))
+              (do macro.Monad<Meta>
+                [[testP nextA] (if (and (n/> num-cases size-sum)
+                                        (n/= (dec num-cases) idx))
+                                 (analyse-pattern #.None
+                                                  (type.variant (list.drop (dec num-cases) flat-sum))
                                                   (` [(~+ values)])
-                                                  next)]
-                  (wrap [(` ("lux case variant" (~ (code.nat idx)) (~ (code.nat num-cases)) (~ testP)))
-                         nextA]))
-                (do macro.Monad<Meta>
-                  [[testP nextA] (analyse-pattern #.None case-type (` [(~+ values)]) next)]
-                  (wrap [(` ("lux case variant" (~ (code.nat idx)) (~ (code.nat num-cases)) (~ testP)))
-                         nextA])))
+                                                  next)
+                                 (analyse-pattern #.None case-type (` [(~+ values)]) next))]
+                (wrap [(analysisL.sum-pattern num-cases idx testP)
+                       nextA]))
 
               _
-              (&.throw Sum-Type-Has-No-Case
-                       (format "Case: " (%n idx) "\n"
-                               "Type: " (%type inputT)))))
+              (lang.throw sum-type-has-no-case [idx inputT])))
 
           _
-          (&.throw Cannot-Match-Type-With-Pattern (pattern-error inputT pattern)))))
+          (lang.throw cannot-match-type-with-pattern [inputT pattern]))))
 
     (^ [cursor (#.Form (list& [_ (#.Tag tag)] values))])
-    (&.with-cursor cursor
+    (lang.with-cursor cursor
       (do macro.Monad<Meta>
         [tag (macro.normalize tag)
          [idx group variantT] (macro.resolve-tag tag)
-         _ (&.with-type-env
+         _ (typeA.with-env
              (tc.check inputT variantT))]
         (analyse-pattern (#.Some (list.size group)) inputT (` ((~ (code.nat idx)) (~+ values))) next)))
 
     _
-    (&.throw Unrecognized-Pattern-Syntax (%code pattern))
+    (lang.throw unrecognized-pattern-syntax pattern)
     ))
 
-(def: #export (analyse-case analyse inputC branches)
-  (-> &.Analyser Code (List [Code Code]) (Meta la.Analysis))
-  (case branches
+(def: #export (case analyse inputC branches)
+  (-> Analyser Code (List [Code Code]) (Meta Analysis))
+  (.case branches
     #.Nil
-    (&.throw Cannot-Have-Empty-Branches "")
+    (lang.throw cannot-have-empty-branches "")
 
     (#.Cons [patternH bodyH] branchesT)
     (do macro.Monad<Meta>
-      [[inputT inputA] (commonA.with-unknown-type
+      [[inputT inputA] (typeA.with-inference
                          (analyse inputC))
        outputH (analyse-pattern #.None inputT patternH (analyse bodyH))
        outputT (monad.map @
@@ -302,11 +285,11 @@
                           branchesT)
        outputHC (|> outputH product.left coverageA.determine)
        outputTC (monad.map @ (|>> product.left coverageA.determine) outputT)
-       _ (case (monad.fold e.Monad<Error> coverageA.merge outputHC outputTC)
+       _ (.case (monad.fold e.Monad<Error> coverageA.merge outputHC outputTC)
            (#e.Success coverage)
-           (&.assert Non-Exhaustive-Pattern-Matching ""
-                     (coverageA.exhaustive? coverage))
+           (lang.assert non-exhaustive-pattern-matching ""
+                        (coverageA.exhaustive? coverage))
 
            (#e.Error error)
-           (&.fail error))]
-      (wrap (` ("lux case" (~ inputA) (~ (code.record (list& outputH outputT)))))))))
+           (lang.fail error))]
+      (wrap (#analysisL.Case inputA [outputH outputT])))))

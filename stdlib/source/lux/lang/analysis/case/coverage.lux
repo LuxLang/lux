@@ -2,19 +2,41 @@
   lux
   (lux (control [monad #+ do]
                 ["ex" exception #+ exception:]
-                eq)
+                equality)
        (data [bool "bool/" Eq<Bool>]
              [number]
              ["e" error "error/" Monad<Error>]
+             [maybe]
              text/format
              (coll [list "list/" Fold<List>]
                    (dictionary ["dict" unordered #+ Dict])))
-       [macro "macro/" Monad<Meta>])
-  (luxc ["&" lang]
-        (lang ["la" analysis])))
+       [macro "macro/" Monad<Meta>]
+       [lang]
+       (lang [".L" analysis #+ Pattern Variant])))
 
-(exception: #export (Unknown-Pattern {message Text})
-  message)
+(def: cases
+  (-> (Maybe Nat) Nat)
+  (|>> (maybe.default +0)))
+
+(def: (variant sum-side)
+  (-> (Either Pattern Pattern) (Variant Pattern))
+  (loop [lefts +0
+         variantP sum-side]
+    (case variantP
+      (#.Left valueP)
+      (case valueP
+        (#analysisL.Complex (#analysisL.Sum value-side))
+        (recur (inc lefts) value-side)
+
+        _
+        {#analysisL.lefts lefts
+         #analysisL.right? false
+         #analysisL.value valueP})
+      
+      (#.Right valueP)
+      {#analysisL.lefts lefts
+       #analysisL.right? true
+       #analysisL.value valueP})))
 
 ## The coverage of a pattern-matching expression summarizes how well
 ## all the possible values of an input are being covered by the
@@ -31,7 +53,7 @@
 (type: #export #rec Coverage
   #Partial
   (#Bool Bool)
-  (#Variant Nat (Dict Nat Coverage))
+  (#Variant (Maybe Nat) (Dict Nat Coverage))
   (#Seq Coverage Coverage)
   (#Alt Coverage Coverage)
   #Exhaustive)
@@ -46,57 +68,56 @@
     false))
 
 (def: #export (determine pattern)
-  (-> la.Pattern (Meta Coverage))
+  (-> Pattern (Meta Coverage))
   (case pattern
-    ## Binding amounts to exhaustive coverage because any value can be
-    ## matched that way.
-    ## Unit [] amounts to exhaustive coverage because there is only one
-    ## possible value, so matching against it covers all cases.
-    (^or (^code ("lux case bind" (~ _))) (^code ("lux case tuple" [])))
+    (^or (#analysisL.Simple #analysisL.Unit)
+         (#analysisL.Bind _))
     (macro/wrap #Exhaustive)
-
-    (^code ("lux case tuple" [(~ singleton)]))
-    (determine singleton)
 
     ## Primitive patterns always have partial coverage because there
     ## are too many possibilities as far as values go.
-    (^or [_ (#.Nat _)]  [_ (#.Int _)]  [_ (#.Deg _)]
-         [_ (#.Frac _)] [_ (#.Text _)])
-    (macro/wrap #Partial)
+    (^template [<tag>]
+      (#analysisL.Simple (<tag> _))
+      (macro/wrap #Partial))
+    ([#analysisL.Nat]
+     [#analysisL.Int]
+     [#analysisL.Deg]
+     [#analysisL.Frac]
+     [#analysisL.Text])
 
     ## Bools are the exception, since there is only "true" and
     ## "false", which means it is possible for boolean
     ## pattern-matching to become exhaustive if complementary parts meet.
-    [_ (#.Bool value)]
+    (#analysisL.Simple (#analysisL.Bool value))
     (macro/wrap (#Bool value))
 
     ## Tuple patterns can be exhaustive if there is exhaustiveness for all of
     ## their sub-patterns.
-    (^code ("lux case tuple" [(~+ subs)]))
-    (loop [subs subs]
-      (case subs
-        #.Nil
-        (macro/wrap #Exhaustive)
-
-        (#.Cons sub subs')
-        (do macro.Monad<Meta>
-          [pre (determine sub)
-           post (recur subs')]
-          (if (exhaustive? post)
-            (wrap pre)
-            (wrap (#Seq pre post))))))
-
-    ## Variant patterns can be shown to be exhaustive if all the possible
-    ## cases are handled exhaustively.
-    (^code ("lux case variant" (~ [_ (#.Nat tag-id)]) (~ [_ (#.Nat num-tags)]) (~ sub)))
+    (#analysisL.Complex (#analysisL.Product [left right]))
     (do macro.Monad<Meta>
-      [=sub (determine sub)]
-      (wrap (#Variant num-tags
-                      (|> (dict.new number.Hash<Nat>)
-                          (dict.put tag-id =sub)))))
+      [left (determine left)
+       right (determine right)]
+      (case right
+        (#Exhaustive _)
+        (wrap left)
 
-    _
-    (&.throw Unknown-Pattern (%code pattern))))
+        _
+        (wrap (#Seq left right))))
+
+    (#analysisL.Complex (#analysisL.Sum sum-side))
+    (let [[variant-lefts variant-right? variant-value] (variant sum-side)]
+      ## Variant patterns can be shown to be exhaustive if all the possible
+      ## cases are handled exhaustively.
+      (do macro.Monad<Meta>
+        [value-coverage (determine variant-value)
+         #let [variant-idx (if variant-right?
+                             (inc variant-lefts)
+                             variant-lefts)]]
+        (wrap (#Variant (if variant-right?
+                          (#.Some variant-idx)
+                          #.None)
+                        (|> (dict.new number.Hash<Nat>)
+                            (dict.put variant-idx value-coverage))))))))
 
 (def: (xor left right)
   (-> Bool Bool Bool)
@@ -132,9 +153,10 @@
       (bool/= sideR sideS)
 
       [(#Variant allR casesR) (#Variant allS casesS)]
-      (and (n/= allR allS)
+      (and (n/= (cases allR)
+                (cases allS))
            (:: (dict.Eq<Dict> =) = casesR casesS))
-
+      
       [(#Seq leftR rightR) (#Seq leftS rightS)]
       (and (= leftR leftS)
            (= rightR rightS))
@@ -176,7 +198,7 @@
     (error/wrap #Exhaustive)
 
     [(#Variant allA casesA) (#Variant allSF casesSF)]
-    (cond (not (n/= allSF allA))
+    (cond (not (n/= (cases allSF) (cases allA)))
           (e.fail "Variants do not match.")
 
           (:: (dict.Eq<Dict> Eq<Coverage>) = casesSF casesA)
@@ -196,7 +218,7 @@
                                     (wrap (dict.put tagA coverageA casesSF'))))
                                 casesSF (dict.entries casesA))]
             (wrap (if (let [case-coverages (dict.values casesM)]
-                        (and (n/= allSF (list.size case-coverages))
+                        (and (n/= (cases allSF) (list.size case-coverages))
                              (list.every? exhaustive? case-coverages)))
                     #Exhaustive
                     (#Variant allSF casesM)))))

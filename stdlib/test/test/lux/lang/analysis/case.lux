@@ -9,22 +9,20 @@
              [maybe]
              [text "T/" Eq<Text>]
              text/format
-             (coll [list "L/" Monad<List>]
+             (coll [list "list/" Monad<List>]
                    (set ["set" unordered])))
        ["r" math/random "r/" Monad<Random>]
        [macro #+ Monad<Meta>]
        (macro [code])
+       [lang]
        (lang [type "type/" Eq<Type>]
-             (type ["tc" check]))
+             (type ["tc" check])
+             [".L" module]
+             (analysis [".A" type]
+                       ["/" case]))
        test)
-  (luxc ["&" lang]
-        (lang ["@." module]
-              ["la" analysis]
-              (analysis [".A" expression]
-                        ["@" case]
-                        ["@." common])))
-  (// common)
-  (test/luxc common))
+  (// ["_." primitive]
+      ["_." structure]))
 
 (def: (exhaustive-weaving branchings)
   (-> (List (List Code)) (List (List Code)))
@@ -33,7 +31,7 @@
     #.Nil
 
     (#.Cons head+ #.Nil)
-    (L/map (|>> list) head+)
+    (list/map (|>> list) head+)
 
     (#.Cons head+ tail++)
     (do list.Monad<List>
@@ -61,11 +59,11 @@
             #.None
             (wrap (list (' _)))))
         (r/wrap (list (' _)))))
-    ([#.Nat  r.nat       code.nat]
-     [#.Int  r.int       code.int]
-     [#.Deg  r.deg       code.deg]
-     [#.Frac r.frac      code.frac]
-     [#.Text (r.text +5) code.text])
+    ([#.Nat  r.nat          code.nat]
+     [#.Int  r.int          code.int]
+     [#.Deg  r.deg          code.deg]
+     [#.Frac r.frac         code.frac]
+     [#.Text (r.unicode +5) code.text])
     
     (^ [_ (#.Tuple (list))])
     (r/wrap (list (' [])))
@@ -78,16 +76,16 @@
       [member-wise-patterns (monad.map @ (exhaustive-branches allow-literals? variantTC) members)]
       (wrap (|> member-wise-patterns
                 exhaustive-weaving
-                (L/map code.tuple))))
+                (list/map code.tuple))))
 
     [_ (#.Record kvs)]
     (do r.Monad<Random>
-      [#let [ks (L/map product.left kvs)
-             vs (L/map product.right kvs)]
+      [#let [ks (list/map product.left kvs)
+             vs (list/map product.right kvs)]
        member-wise-patterns (monad.map @ (exhaustive-branches allow-literals? variantTC) vs)]
       (wrap (|> member-wise-patterns
                 exhaustive-weaving
-                (L/map (|>> (list.zip2 ks) code.record)))))
+                (list/map (|>> (list.zip2 ks) code.record)))))
 
     (^ [_ (#.Form (list [_ (#.Tag _)] _))])
     (do r.Monad<Random>
@@ -95,10 +93,10 @@
                           (function (_ [_tag _code])
                             (do @
                               [v-branches (exhaustive-branches allow-literals? variantTC _code)]
-                              (wrap (L/map (function (_ pattern) (` ((~ _tag) (~ pattern))))
-                                           v-branches))))
+                              (wrap (list/map (function (_ pattern) (` ((~ _tag) (~ pattern))))
+                                              v-branches))))
                           variantTC)]
-      (wrap (L/join bundles)))
+      (wrap (list/join bundles)))
 
     _
     (r/wrap (list))
@@ -109,7 +107,7 @@
   (r.rec
    (function (_ input)
      ($_ r.either
-         (r/map product.right gen-primitive)
+         (r/map product.right _primitive.primitive)
          (do r.Monad<Random>
            [choice (|> r.nat (:: @ map (n/% (list.size variant-tags))))
             #let [choiceT (maybe.assume (list.nth choice variant-tags))
@@ -132,32 +130,32 @@
   (<| (seed +5004137551292836565)
       ## (times +100)
       (do @
-        [module-name (r.text +5)
-         variant-name (r.text +5)
-         record-name (|> (r.text +5) (r.filter (|>> (T/= variant-name) not)))
+        [module-name (r.unicode +5)
+         variant-name (r.unicode +5)
+         record-name (|> (r.unicode +5) (r.filter (|>> (T/= variant-name) not)))
          size (|> r.nat (:: @ map (|>> (n/% +10) (n/max +2))))
-         variant-tags (|> (r.set text.Hash<Text> size (r.text +5)) (:: @ map set.to-list))
-         record-tags (|> (r.set text.Hash<Text> size (r.text +5)) (:: @ map set.to-list))
-         primitivesTC (r.list size gen-primitive)
-         #let [primitivesT (L/map product.left primitivesTC)
-               primitivesC (L/map product.right primitivesTC)
+         variant-tags (|> (r.set text.Hash<Text> size (r.unicode +5)) (:: @ map set.to-list))
+         record-tags (|> (r.set text.Hash<Text> size (r.unicode +5)) (:: @ map set.to-list))
+         primitivesTC (r.list size _primitive.primitive)
+         #let [primitivesT (list/map product.left primitivesTC)
+               primitivesC (list/map product.right primitivesTC)
                code-tag (|>> [module-name] code.tag)
-               variant-tags+ (L/map code-tag variant-tags)
-               record-tags+ (L/map code-tag record-tags)
+               variant-tags+ (list/map code-tag variant-tags)
+               record-tags+ (list/map code-tag record-tags)
                variantTC (list.zip2 variant-tags+ primitivesC)]
          inputC (input variant-tags+ record-tags+ primitivesC)
-         [outputT outputC] gen-primitive
-         [heterogeneousT heterogeneousC] (|> gen-primitive
+         [outputT outputC] _primitive.primitive
+         [heterogeneousT heterogeneousC] (|> _primitive.primitive
                                              (r.filter (|>> product.left (tc.checks? outputT) not)))
          exhaustive-patterns (exhaustive-branches true variantTC inputC)
          redundant-patterns (exhaustive-branches false variantTC inputC)
          redundancy-idx (|> r.nat (:: @ map (n/% (list.size redundant-patterns))))
          heterogeneous-idx (|> r.nat (:: @ map (n/% (list.size exhaustive-patterns))))
-         #let [exhaustive-branchesC (L/map (branch outputC)
-                                           exhaustive-patterns)
-               non-exhaustive-branchesC (list.take (n/dec (list.size exhaustive-branchesC))
+         #let [exhaustive-branchesC (list/map (branch outputC)
+                                              exhaustive-patterns)
+               non-exhaustive-branchesC (list.take (dec (list.size exhaustive-branchesC))
                                                    exhaustive-branchesC)
-               redundant-branchesC (<| (L/map (branch outputC))
+               redundant-branchesC (<| (list/map (branch outputC))
                                        list.concat
                                        (list (list.take redundancy-idx redundant-patterns)
                                              (list (maybe.assume (list.nth redundancy-idx redundant-patterns)))
@@ -165,32 +163,32 @@
                heterogeneous-branchesC (list.concat (list (list.take heterogeneous-idx exhaustive-branchesC)
                                                           (list (let [[_pattern _body] (maybe.assume (list.nth heterogeneous-idx exhaustive-branchesC))]
                                                                   [_pattern heterogeneousC]))
-                                                          (list.drop (n/inc heterogeneous-idx) exhaustive-branchesC)))
-               analyse-pm (|>> (@.analyse-case analyse inputC)
-                               (&.with-type outputT)
-                               &.with-scope
+                                                          (list.drop (inc heterogeneous-idx) exhaustive-branchesC)))
+               analyse-pm (|>> (/.case _primitive.analyse inputC)
+                               (typeA.with-type outputT)
+                               lang.with-scope
                                (do Monad<Meta>
-                                 [_ (@module.declare-tags variant-tags false
+                                 [_ (moduleL.declare-tags variant-tags false
                                                           (#.Named [module-name variant-name]
                                                                    (type.variant primitivesT)))
-                                  _ (@module.declare-tags record-tags false
+                                  _ (moduleL.declare-tags record-tags false
                                                           (#.Named [module-name record-name]
                                                                    (type.tuple primitivesT)))])
-                               (@module.with-module +0 module-name))]]
+                               (moduleL.with-module +0 module-name))]]
         ($_ seq
             (test "Will reject empty pattern-matching (no branches)."
                   (|> (analyse-pm (list))
-                      check-failure))
+                      _structure.check-fails))
             (test "Can analyse exhaustive pattern-matching."
                   (|> (analyse-pm exhaustive-branchesC)
-                      check-success))
+                      _structure.check-succeeds))
             (test "Will reject non-exhaustive pattern-matching."
                   (|> (analyse-pm non-exhaustive-branchesC)
-                      check-failure))
+                      _structure.check-fails))
             (test "Will reject redundant pattern-matching."
                   (|> (analyse-pm redundant-branchesC)
-                      check-failure))
+                      _structure.check-fails))
             (test "Will reject pattern-matching if the bodies of the branches do not all have the same type."
                   (|> (analyse-pm heterogeneous-branchesC)
-                      check-failure))
+                      _structure.check-fails))
             ))))
