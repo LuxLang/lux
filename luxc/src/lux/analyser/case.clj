@@ -38,7 +38,7 @@
   (&/T [(&/T ["" -1 -1]) (&/$Tuple &/$Nil)]))
 
 (defn ^:private resolve-type [type]
-  (if (&type/type= &type/Top type)
+  (if (&type/type= &type/Any type)
     (return type)
     (|case type
       (&/$Var ?id)
@@ -301,7 +301,7 @@
       (&/$Tuple ?members)
       (|case ?members
         (&/$Nil)
-        (|do [_ (&type/check value-type &type/Top)
+        (|do [_ (&type/check value-type &type/Any)
               =kont kont]
           (return (&/T [($TupleTestAC (&/|list)) =kont])))
 
@@ -579,7 +579,7 @@
     (|case ?structs
       (&/$Nil)
       (|do [value-type* (resolve-type value-type)]
-        (if (&type/type= &type/Top value-type*)
+        (if (&type/type= &type/Any value-type*)
           (return true)
           (&/fail-with-loc "[Pattern-maching Error] Unit is not total.")))
       

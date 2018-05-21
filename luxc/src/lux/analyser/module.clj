@@ -49,7 +49,7 @@
 
 (do-template [<flagger> <asker> <tag>]
   (do (defn <flagger>
-        "(-> Text (Lux Top))"
+        "(-> Text (Lux Any))"
         [module-name]
         (fn [state]
           (let [state* (&/update$ &/$modules
@@ -382,7 +382,7 @@
          state)))))
 
 (defn ensure-can-see-tag
-  "(-> Text Text (Lux Top))"
+  "(-> Text Text (Lux Any))"
   [module tag-name]
   (|do [current-module &/get-module-name]
     (fn [state]

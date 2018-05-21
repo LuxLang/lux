@@ -58,8 +58,8 @@
                      )]
         output)))
 
-(def ^:private Top
-  (&/$Named (&/T ["lux" "Top"])
+(def ^:private Any
+  (&/$Named (&/T ["lux" "Any"])
             (&/$ExQ (&/|list)
                     (&/$Bound 1))))
 
@@ -139,7 +139,7 @@
         (if-let [[_ _ arr-obrackets arr-obase simple-base arr-pbrackets arr-pbase] (re-find class-name-re gclass-name)]
           (let [base (or arr-obase simple-base (jprim->lprim arr-pbase))]
             (if (.equals "void" base)
-              Top
+              Any
               (reduce (fn [inner _] (&/$Primitive array-data-tag (&/|list inner)))
                       (&/$Primitive base (try (-> (Class/forName base) .getTypeParameters
                                                   seq count (repeat (&/$Primitive "java.lang.Object" &/$Nil))
@@ -184,7 +184,7 @@
 (defn principal-class [refl-type]
   (cond (instance? Class refl-type)
         (let [class-type (class->type refl-type)]
-          (if (type= Top class-type)
+          (if (type= Any class-type)
             "V"
             (|case class-type
               (&/$Primitive "#Array" (&/$Cons (&/$Primitive class-name _) (&/$Nil)))

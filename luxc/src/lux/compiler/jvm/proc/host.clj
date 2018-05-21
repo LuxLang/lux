@@ -47,7 +47,7 @@
       double-class "java.lang.Double"
       char-class "java.lang.Character"]
   (defn prepare-return! [^MethodVisitor *writer* *type*]
-    (if (&type/type= &type/Top *type*)
+    (if (&type/type= &type/Any *type*)
       (.visitLdcInsn *writer* &/unit-tag)
       (|case *type*
         (&/$Primitive "boolean" (&/$Nil))

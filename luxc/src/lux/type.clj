@@ -53,27 +53,27 @@
   Box  "#Box"
   )
 
-(def Bottom
-  (&/$Named (&/T ["lux" "Bottom"])
+(def Nothing
+  (&/$Named (&/T ["lux" "Nothing"])
             (&/$UnivQ empty-env
                       (&/$Bound 1))))
 
-(def Top
-  (&/$Named (&/T ["lux" "Top"])
+(def Any
+  (&/$Named (&/T ["lux" "Any"])
             (&/$ExQ empty-env
                     (&/$Bound 1))))
 
 (def IO
   (&/$Named (&/T ["lux/codata" "IO"])
             (&/$UnivQ empty-env
-                      (&/$Function Bottom (&/$Bound 1)))))
+                      (&/$Function Nothing (&/$Bound 1)))))
 
 (def List
   (&/$Named (&/T ["lux" "List"])
             (&/$UnivQ empty-env
                       (&/$Sum
                        ;; lux;Nil
-                       Top
+                       Any
                        ;; lux;Cons
                        (&/$Product (&/$Bound 1)
                                    (&/$Apply (&/$Bound 1)
@@ -84,7 +84,7 @@
             (&/$UnivQ empty-env
                       (&/$Sum
                        ;; lux;None
-                       Top
+                       Any
                        ;; lux;Some
                        (&/$Bound 1))
                       )))
@@ -94,7 +94,7 @@
             (let [Type (&/$Apply (&/$Bound 1) (&/$Bound 0))
                   TypeList (&/$Apply Type List)
                   TypePair (&/$Product Type Type)]
-              (&/$Apply Bottom
+              (&/$Apply Nothing
                         (&/$UnivQ empty-env
                                   (&/$Sum
                                    ;; Primitive
@@ -424,8 +424,8 @@
       (&/$Nil)
       <unit>))
 
-  Variant$ &/$Sum  Bottom
-  Tuple$   &/$Product Top
+  Variant$ &/$Sum  Nothing
+  Tuple$   &/$Product Any
   )
 
 (defn show-type [^objects type]
@@ -930,8 +930,8 @@
       (&/$Cons last prevs)
       (&/fold (fn [r l] (<plus> l r)) last prevs)))
 
-  fold-prod Top &/$Product
-  fold-sum  Bottom &/$Sum
+  fold-prod Any &/$Product
+  fold-sum  Nothing &/$Sum
   )
 
 (def create-var+

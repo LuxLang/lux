@@ -75,7 +75,7 @@
       (return ex-type-class)
 
       _
-      (if (&type/type= &type/Top type)
+      (if (&type/type= &type/Any type)
         (return "V")
         (assert false (str '->java-sig " " (&type/show-type type))))
       )))

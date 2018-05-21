@@ -122,7 +122,7 @@
                                          (&/|list)))))))
 
 (do-template [<name> <op>]
-  (let [inputT (&/$Apply &type/Top &type/I64)
+  (let [inputT (&/$Apply &type/Any &type/I64)
         outputT &type/I64]
     (defn <name> [analyse exo-type ?values]
       (|do [:let [(&/$Cons mask (&/$Cons input (&/$Nil))) ?values]
@@ -139,7 +139,7 @@
   )
 
 (do-template [<name> <op>]
-  (let [inputT (&/$Apply &type/Top &type/I64)
+  (let [inputT (&/$Apply &type/Any &type/I64)
         outputT &type/I64]
     (defn <name> [analyse exo-type ?values]
       (|do [:let [(&/$Cons shift (&/$Cons input (&/$Nil))) ?values]
@@ -167,9 +167,9 @@
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T <proc>) (&/|list subjectA paramA) (&/|list))))))))
 
-  ^:private analyse-i64-eq   ["i64" "="]  (&/$Apply &type/Top &type/I64)  &type/Bool
-  ^:private analyse-i64-add  ["i64" "+"]  (&/$Apply &type/Top &type/I64)  &type/I64
-  ^:private analyse-i64-sub  ["i64" "-"]  (&/$Apply &type/Top &type/I64)  &type/I64
+  ^:private analyse-i64-eq   ["i64" "="]  (&/$Apply &type/Any &type/I64)  &type/Bool
+  ^:private analyse-i64-add  ["i64" "+"]  (&/$Apply &type/Any &type/I64)  &type/I64
+  ^:private analyse-i64-sub  ["i64" "-"]  (&/$Apply &type/Any &type/I64)  &type/I64
   )
 
 (do-template [<name> <proc> <input-type> <output-type>]
@@ -248,9 +248,9 @@
   ^:private analyse-int-frac  &type/Int  &type/Frac   ["int" "frac"]
   ^:private analyse-frac-int  &type/Frac &type/Int    ["frac" "int"]
 
-  ^:private analyse-io-log    &type/Text &type/Top    ["io" "log"]
-  ^:private analyse-io-error  &type/Text &type/Bottom ["io" "error"]
-  ^:private analyse-io-exit   &type/Int  &type/Bottom ["io" "exit"]
+  ^:private analyse-io-log    &type/Text &type/Any    ["io" "log"]
+  ^:private analyse-io-error  &type/Text &type/Nothing ["io" "error"]
+  ^:private analyse-io-exit   &type/Int  &type/Nothing ["io" "exit"]
   )
 
 (defn ^:private analyse-io-current-time [analyse exo-type ?values]
@@ -410,7 +410,7 @@
           (|do [:let [(&/$Cons valueC (&/$Cons boxC (&/$Nil))) ?values]
                 boxA (&&/analyse-1 analyse (&type/Box threadT valueT) boxC)
                 valueA (&&/analyse-1 analyse valueT valueC)
-                _ (&type/check exo-type &type/Top)
+                _ (&type/check exo-type &type/Any)
                 _cursor &/cursor]
             (return (&/|list (&&/|meta exo-type _cursor
                                        (&&/$proc (&/T ["box" "write"]) (&/|list valueA boxA) (&/|list)))))))))))
@@ -425,8 +425,8 @@
 (defn ^:private analyse-process-schedule [analyse exo-type ?values]
   (|do [:let [(&/$Cons ?milliseconds (&/$Cons ?procedure (&/$Nil))) ?values]
         =milliseconds (&&/analyse-1 analyse &type/Nat ?milliseconds)
-        =procedure (&&/analyse-1 analyse (&/$Apply &type/Top &type/IO) ?procedure)
-        _ (&type/check exo-type &type/Top)
+        =procedure (&&/analyse-1 analyse (&/$Apply &type/Any &type/IO) ?procedure)
+        _ (&type/check exo-type &type/Any)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["process" "schedule"]) (&/|list =milliseconds =procedure) (&/|list)))))))

@@ -1070,7 +1070,7 @@
             _
             output))))))
 
-(def ^{:doc "(Meta Top)"}
+(def ^{:doc "(Meta Any)"}
   ensure-statement
   (fn [state]
     (|case (get$ $expected state)
@@ -1325,7 +1325,7 @@
     (return* state (|keys (get$ $modules state)))))
 
 (defn when%
-  "(-> Bool (Meta Top) (Meta Top))"
+  "(-> Bool (Meta Any) (Meta Any))"
   [test body]
   (if test
     body

@@ -12,8 +12,7 @@
                           [module :as &&module]
                           [parser :as &&a-parser])
             (lux.analyser.proc [common :as &&common]
-                               [jvm :as &&jvm]
-                               [js :as &&js])))
+                               [jvm :as &&jvm])))
 
 ;; [Utils]
 (defn analyse-variant+ [analyse exo-type ident values]
@@ -172,10 +171,6 @@
                   (|do [_ &/jvm-host]
                     (&&jvm/analyse-host analyse exo-type compilers ?procedure parameters))
                   
-                  (.startsWith ^String ?procedure "js")
-                  (|do [_ &/js-host]
-                    (&&js/analyse-host analyse exo-type ?procedure parameters))
-
                   :else
                   (&&common/analyse-proc analyse exo-type ?procedure parameters))))
         
@@ -199,7 +194,7 @@
 ;; [Resources]
 (defn analyse [optimize eval! compile-module compilers]
   (|do [asts &parser/parse]
-    (&/flat-map% (partial analyse-ast optimize eval! compile-module compilers &type/Bottom) asts)))
+    (&/flat-map% (partial analyse-ast optimize eval! compile-module compilers &type/Nothing) asts)))
 
 (defn clean-output [?var analysis]
   (|do [:let [[[?output-type ?output-cursor] ?output-term] analysis]

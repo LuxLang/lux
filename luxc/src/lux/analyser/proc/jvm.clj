@@ -194,7 +194,7 @@
       "float"   (return (&/$Primitive "java.lang.Float" &/$Nil))
       "double"  (return (&/$Primitive "java.lang.Double" &/$Nil))
       "char"    (return (&/$Primitive "java.lang.Character" &/$Nil))
-      "void"    (return &type/Top)
+      "void"    (return &type/Any)
       ;; else
       (|do [=params (&/map% (partial generic-class->type env) params)]
         (return (&/$Primitive name =params))))
@@ -252,7 +252,7 @@
           itype (generic-class->type full-env itype*)]
       (if (double-register-gclass? itype*)
         (&&env/with-local iname itype
-          (&&env/with-local "" &type/Bottom
+          (&&env/with-local "" &type/Nothing
             body*))
         (&&env/with-local iname itype
           body*)))))
@@ -265,7 +265,7 @@
       (&/$ConstructorMethodSyntax =privacy-modifier ?strict ?anns ?gvars ?exceptions ?inputs ?ctor-args ?body)
       (|do [method-env (make-type-env ?gvars)
             :let [full-env (&/|++ class-env method-env)]
-            :let [output-type &type/Top]
+            :let [output-type &type/Any]
             =ctor-args (&/map% (fn [ctor-arg]
                                  (|do [:let [[ca-type ca-term] ctor-arg]
                                        =ca-type (generic-class->type full-env ca-type)
@@ -635,7 +635,7 @@
         _ (&type/check (&/$Primitive "java.lang.Throwable" &/$Nil) (&&/expr-type* =ex))
         [throw-class throw-params] (ensure-object (&&/expr-type* =ex))
         _cursor &/cursor
-        _ (&type/check exo-type &type/Bottom)]
+        _ (&type/check exo-type &type/Nothing)]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["jvm" "throw"]) (&/|list =ex) (&/|list)))))))
 
@@ -673,7 +673,7 @@
         :let [gclass (&host-type/gtype->gclass gtype)]
         =type (&host-type/instance-param &type/existential &/$Nil gtype)
         =value (&&/analyse-1 analyse =type value)
-        :let [output-type &type/Top]
+        :let [output-type &type/Any]
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
@@ -690,7 +690,7 @@
         :let [gclass (&host-type/gtype->gclass gtype)]
         =type (analyse-field-access-helper obj-type gvars gtype)
         =value (&&/analyse-1 analyse =type value)
-        :let [output-type &type/Top]
+        :let [output-type &type/Any]
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
@@ -829,7 +829,7 @@
         _ (compile-interface interface-decl supers =anns =methods)
         :let [_ (println 'INTERFACE (str module "." (&/|first interface-decl)))]
         _cursor &/cursor]
-    (return (&/|list (&&/|meta &type/Top _cursor
+    (return (&/|list (&&/|meta &type/Any _cursor
                                (&&/$tuple (&/|list)))))))
 
 (defn ^:private analyse-jvm-class [analyse compile-class class-decl super-class interfaces =inheritance-modifier =anns ?fields methods]
@@ -848,7 +848,7 @@
           _ &/pop-dummy-name
           :let [_ (println 'CLASS full-name)]
           _cursor &/cursor]
-      (return (&/|list (&&/|meta &type/Top _cursor
+      (return (&/|list (&&/|meta &type/Any _cursor
                                  (&&/$tuple (&/|list))))))))
 
 (defn ^:private captured-source [env-entry]
