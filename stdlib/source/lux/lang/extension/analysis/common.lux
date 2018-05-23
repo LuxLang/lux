@@ -1,7 +1,8 @@
 (.module:
   lux
   (lux (control [monad #+ do]
-                ["ex" exception #+ exception:])
+                ["ex" exception #+ exception:]
+                [thread])
        (concurrency [atom #+ Atom])
        (data [text]
              text/format
@@ -10,23 +11,27 @@
                    (dictionary ["dict" unordered #+ Dict])))
        [macro]
        (macro [code])
-       (lang (type ["tc" check]))
+       [lang]
+       (lang (type ["tc" check])
+             [".L" analysis]
+             (analysis [".A" type]
+                       [".A" case]
+                       [".A" function]))
        [io])
-  (luxc ["&" lang]
-        (lang ["la" analysis]
-              (analysis ["&." common]
-                        [".A" function]
-                        [".A" case]
-                        [".A" type])))
   [///])
 
-(do-template [<name>]
-  [(exception: #export (<name> {message Text})
-     message)]
+(exception: #export (incorrect-special-arity {name Text} {arity Nat} {args Nat})
+  (ex.report ["Special" (%t name)]
+             ["Expected arity" (|> arity .int %i)]
+             ["Actual arity" (|> args .int %i)]))
 
-  [Incorrect-Procedure-Arity]
-  [Invalid-Syntax]
-  )
+(exception: #export (invalid-syntax {name Text} {arguments (List Code)})
+  (ex.report ["Special" name]
+             ["Inputs" (|> arguments
+                           list.enumerate
+                           (list/map (function (_ [idx argC])
+                                       (format "\n  " (%n idx) " " (%code argC))))
+                           (text.join-with ""))]))
 
 ## [Utils]
 (type: #export Bundle
@@ -44,12 +49,6 @@
       (list/map (function (_ [key val]) [(format prefix " " key) val]))
       (dict.from-list text.Hash<Text>)))
 
-(def: #export (wrong-arity proc expected actual)
-  (-> Text Nat Nat Text)
-  (format "      Procedure: " (%t proc) "\n"
-          " Expected Arity: " (|> expected nat-to-int %i) "\n"
-          "   Actual Arity: " (|> actual nat-to-int %i)))
-
 (def: (simple proc inputsT+ outputT)
   (-> Text (List Type) Type ///.Analysis)
   (let [num-expected (list.size inputsT+)]
@@ -57,14 +56,14 @@
       (let [num-actual (list.size args)]
         (if (n/= num-expected num-actual)
           (do macro.Monad<Meta>
-            [_ (&.infer outputT)
+            [_ (typeA.infer outputT)
              argsA (monad.map @
                               (function (_ [argT argC])
-                                (&.with-type argT
+                                (typeA.with-type argT
                                   (analyse argC)))
                               (list.zip2 inputsT+ args))]
-            (wrap (la.procedure proc argsA)))
-          (&.throw Incorrect-Procedure-Arity (wrong-arity proc num-expected num-actual)))))))
+            (wrap (#analysisL.Special proc argsA)))
+          (lang.throw incorrect-special-arity [proc num-expected num-actual]))))))
 
 (def: #export (nullary valueT proc)
   (-> Type Text ///.Analysis)
@@ -88,7 +87,7 @@
   (-> Text ///.Analysis)
   (function (_ analyse eval args)
     (do macro.Monad<Meta>
-      [[var-id varT] (&.with-type-env tc.var)]
+      [[var-id varT] (typeA.with-env tc.var)]
       ((binary varT varT Bool proc)
        analyse eval args))))
 
@@ -100,14 +99,14 @@
     (case args
       (^ (list opC))
       (do macro.Monad<Meta>
-        [[var-id varT] (&.with-type-env tc.var)
-         _ (&.infer (type (Either Text varT)))
-         opA (&.with-type (type (io.IO varT))
+        [[var-id varT] (typeA.with-env tc.var)
+         _ (typeA.infer (type (Either Text varT)))
+         opA (typeA.with-type (type (io.IO varT))
                (analyse opC))]
-        (wrap (la.procedure proc (list opA))))
+        (wrap (#analysisL.Special proc (list opA))))
       
       _
-      (&.throw Incorrect-Procedure-Arity (wrong-arity proc +1 (list.size args))))))
+      (lang.throw incorrect-special-arity [proc +1 (list.size args)]))))
 
 (def: (lux//function proc)
   (-> Text ///.Analysis)
@@ -116,50 +115,50 @@
       (^ (list [_ (#.Symbol ["" func-name])]
                [_ (#.Symbol ["" arg-name])]
                body))
-      (functionA.analyse-function analyse func-name arg-name body)
+      (functionA.function analyse func-name arg-name body)
       
       _
-      (&.throw Incorrect-Procedure-Arity (wrong-arity proc +3 (list.size args))))))
+      (lang.throw incorrect-special-arity [proc +3 (list.size args)]))))
 
 (def: (lux//case proc)
   (-> Text ///.Analysis)
   (function (_ analyse eval args)
     (case args
       (^ (list input [_ (#.Record branches)]))
-      (caseA.analyse-case analyse input branches)
+      (caseA.case analyse input branches)
       
       _
-      (&.throw Incorrect-Procedure-Arity (wrong-arity proc +2 (list.size args))))))
+      (lang.throw incorrect-special-arity [proc +2 (list.size args)]))))
 
 (def: (lux//in-module proc)
   (-> Text ///.Analysis)
   (function (_ analyse eval argsC+)
     (case argsC+
       (^ (list [_ (#.Text module-name)] exprC))
-      (&.with-current-module module-name
+      (lang.with-current-module module-name
         (analyse exprC))
       
       _
-      (&.throw Invalid-Syntax (format "Procedure: " proc "\n"
-                                      "   Inputs:" (|> argsC+
-                                                       list.enumerate
-                                                       (list/map (function (_ [idx argC])
-                                                                   (format "\n  " (%n idx) " " (%code argC))))
-                                                       (text.join-with "")) "\n")))))
+      (lang.throw invalid-syntax [proc argsC+]))))
 
-(do-template [<name> <analyser>]
+(do-template [<name> <type>]
   [(def: (<name> proc)
      (-> Text ///.Analysis)
      (function (_ analyse eval args)
        (case args
          (^ (list typeC valueC))
-         (<analyser> analyse eval typeC valueC)
+         (do macro.Monad<Meta>
+           [actualT (eval Type typeC)
+            _ (typeA.infer (:! Type actualT))]
+           (typeA.with-type <type>
+             (analyse valueC)))
          
          _
-         (&.throw Incorrect-Procedure-Arity (wrong-arity proc +2 (list.size args))))))]
+         (lang.throw incorrect-special-arity [proc +2 (list.size args)]))))]
 
-  [lux//check typeA.analyse-check]
-  [lux//coerce typeA.analyse-coerce])
+  [lux//check  (:! Type actualT)]
+  [lux//coerce Any]
+  )
 
 (def: (lux//check//type proc)
   (-> Text ///.Analysis)
@@ -167,13 +166,13 @@
     (case args
       (^ (list valueC))
       (do macro.Monad<Meta>
-        [_ (&.infer (type Type))
-         valueA (&.with-type Type
+        [_ (typeA.infer Type)
+         valueA (typeA.with-type Type
                   (analyse valueC))]
         (wrap valueA))
       
       _
-      (&.throw Incorrect-Procedure-Arity (wrong-arity proc +1 (list.size args))))))
+      (lang.throw incorrect-special-arity [proc +1 (list.size args)]))))
 
 (def: lux-procs
   Bundle
@@ -284,7 +283,7 @@
   (-> Text ///.Analysis)
   (function (_ analyse eval args)
     (do macro.Monad<Meta>
-      [[var-id varT] (&.with-type-env tc.var)]
+      [[var-id varT] (typeA.with-env tc.var)]
       ((binary (type (Array varT)) Nat (type (Maybe varT)) proc)
        analyse eval args))))
 
@@ -292,7 +291,7 @@
   (-> Text ///.Analysis)
   (function (_ analyse eval args)
     (do macro.Monad<Meta>
-      [[var-id varT] (&.with-type-env tc.var)]
+      [[var-id varT] (typeA.with-env tc.var)]
       ((trinary (type (Array varT)) Nat varT (type (Array varT)) proc)
        analyse eval args))))
 
@@ -300,7 +299,7 @@
   (-> Text ///.Analysis)
   (function (_ analyse eval args)
     (do macro.Monad<Meta>
-      [[var-id varT] (&.with-type-env tc.var)]
+      [[var-id varT] (typeA.with-env tc.var)]
       ((binary (type (Array varT)) Nat (type (Array varT)) proc)
        analyse eval args))))
 
@@ -343,20 +342,20 @@
     (case args
       (^ (list initC))
       (do macro.Monad<Meta>
-        [[var-id varT] (&.with-type-env tc.var)
-         _ (&.infer (type (Atom varT)))
-         initA (&.with-type varT
+        [[var-id varT] (typeA.with-env tc.var)
+         _ (typeA.infer (type (Atom varT)))
+         initA (typeA.with-type varT
                  (analyse initC))]
-        (wrap (la.procedure proc (list initA))))
+        (wrap (#analysisL.Special proc (list initA))))
       
       _
-      (&.throw Incorrect-Procedure-Arity (wrong-arity proc +1 (list.size args))))))
+      (lang.throw incorrect-special-arity [proc +1 (list.size args)]))))
 
 (def: (atom-read proc)
   (-> Text ///.Analysis)
   (function (_ analyse eval args)
     (do macro.Monad<Meta>
-      [[var-id varT] (&.with-type-env tc.var)]
+      [[var-id varT] (typeA.with-env tc.var)]
       ((unary (type (Atom varT)) varT proc)
        analyse eval args))))
 
@@ -364,7 +363,7 @@
   (-> Text ///.Analysis)
   (function (_ analyse eval args)
     (do macro.Monad<Meta>
-      [[var-id varT] (&.with-type-env tc.var)]
+      [[var-id varT] (typeA.with-env tc.var)]
       ((trinary (type (Atom varT)) varT varT Bool proc)
        analyse eval args))))
 
@@ -377,40 +376,37 @@
           (install "compare-and-swap" atom//compare-and-swap)
           )))
 
-(type: (Box ! a)
-  (#.Primitive "#Box" (#.Cons ! (#.Cons a #.Nil))))
-
 (def: (box//new proc)
   (-> Text ///.Analysis)
   (function (_ analyse eval args)
     (case args
       (^ (list initC))
       (do macro.Monad<Meta>
-        [[var-id varT] (&.with-type-env tc.var)
-         _ (&.infer (type (All [!] (Box ! varT))))
-         initA (&.with-type varT
+        [[var-id varT] (typeA.with-env tc.var)
+         _ (typeA.infer (type (All [!] (thread.Box ! varT))))
+         initA (typeA.with-type varT
                  (analyse initC))]
-        (wrap (la.procedure proc (list initA))))
+        (wrap (#analysisL.Special proc (list initA))))
       
       _
-      (&.throw Incorrect-Procedure-Arity (wrong-arity proc +1 (list.size args))))))
+      (lang.throw incorrect-special-arity [proc +1 (list.size args)]))))
 
 (def: (box//read proc)
   (-> Text ///.Analysis)
   (function (_ analyse eval args)
     (do macro.Monad<Meta>
-      [[thread-id threadT] (&.with-type-env tc.var)
-       [var-id varT] (&.with-type-env tc.var)]
-      ((unary (type (Box threadT varT)) varT proc)
+      [[thread-id threadT] (typeA.with-env tc.var)
+       [var-id varT] (typeA.with-env tc.var)]
+      ((unary (type (thread.Box threadT varT)) varT proc)
        analyse eval args))))
 
 (def: (box//write proc)
   (-> Text ///.Analysis)
   (function (_ analyse eval args)
     (do macro.Monad<Meta>
-      [[thread-id threadT] (&.with-type-env tc.var)
-       [var-id varT] (&.with-type-env tc.var)]
-      ((binary varT (type (Box threadT varT)) Any proc)
+      [[thread-id threadT] (typeA.with-env tc.var)
+       [var-id varT] (typeA.with-env tc.var)]
+      ((binary varT (type (thread.Box threadT varT)) Any proc)
        analyse eval args))))
 
 (def: box-procs
@@ -430,7 +426,7 @@
           (install "schedule" (binary Nat (type (io.IO Any)) Any))
           )))
 
-(def: #export procedures
+(def: #export specials
   Bundle
   (<| (prefix "lux")
       (|> (dict.new text.Hash<Text>)
