@@ -1,0 +1,210 @@
+(.module:
+  [lux #- primitive]
+  (lux (control [monad #+ do]
+                ["ex" exception #+ exception:]
+                [state])
+       (data [maybe]
+             [error]
+             [number]
+             [product]
+             text/format
+             (coll [list "list/" Functor<List> Fold<List> Monoid<List>]
+                   (dictionary ["dict" unordered #+ Dict])))
+       (macro [code]
+              ["s" syntax])
+       [lang]
+       (lang [".L" analysis #+ Analysis]
+             [".L" extension #+ Extension]))
+  [// #+ Synthesis]
+  [//function]
+  ## (luxc (lang (synthesis [".S" case]
+  ##                        [".S" loop])
+  ##             [".L" variable #+ Variable])
+  ##       )
+  )
+
+(exception: #export (unknown-synthesis-extension {name Text})
+  name)
+
+## (def: init-env (List Variable) (list))
+## (def: init-resolver (Dict Int Int) (dict.new number.Hash<Int>))
+
+## (def: (prepare-body inner-arity arity body)
+##   (-> ls.Arity ls.Arity Synthesis Synthesis)
+##   (if (//function.nested? inner-arity)
+##     body
+##     (loopS.reify-recursion arity body)))
+
+## (def: (let$ register inputS bodyS)
+##   (-> Nat Synthesis Synthesis Synthesis)
+##   (` ("lux let" (~ (code.nat register)) (~ inputS) (~ bodyS))))
+
+## (def: (if$ testS thenS elseS)
+##   (-> Synthesis Synthesis Synthesis Synthesis)
+##   (` ("lux if" (~ testS)
+##       (~ thenS)
+##       (~ elseS))))
+
+## (def: (variant$ tag last? valueS)
+##   (-> Nat Bool Synthesis Synthesis)
+##   (` ((~ (code.nat tag)) (~ (code.bool last?)) (~ valueS))))
+
+## (def: (var$ var)
+##   (-> Variable Synthesis)
+##   (` ((~ (code.int var)))))
+
+## (def: (procedure$ name argsS)
+##   (-> Text (List Synthesis) Synthesis)
+##   (` ((~ (code.text name)) (~+ argsS))))
+
+## (def: (call$ funcS argsS)
+##   (-> Synthesis (List Synthesis) Synthesis)
+##   (` ("lux call" (~ funcS) (~+ argsS))))
+
+## (def: (synthesize-case arity num-locals synthesize inputA branchesA)
+##   (-> ls.Arity Nat (-> Nat Analysis Synthesis)
+##       Analysis (List [la.Pattern Analysis])
+##       Synthesis)
+##   (let [inputS (synthesize num-locals inputA)]
+##     (case (list.reverse branchesA)
+##       (^multi (^ (list [(^code ("lux case bind" (~ [_ (#.Nat input-register)])))
+##                         (^code ((~ [_ (#.Int var)])))]))
+##               (not (variableL.captured? var))
+##               (n/= input-register (variableL.local-register var)))
+##       inputS
+
+##       (^ (list [(^code ("lux case bind" (~ [_ (#.Nat register)]))) bodyA]))
+##       (let$ (if (//function.nested? arity)
+##               (n/+ (dec arity) register)
+##               register)
+##             inputS
+##             (synthesize (inc num-locals) bodyA))
+
+##       (^or (^ (list [(^code true) thenA] [(^code false) elseA]))
+##            (^ (list [(^code false) elseA] [(^code true) thenA])))
+##       (if$ inputS (synthesize num-locals thenA) (synthesize num-locals elseA))
+
+##       (#.Cons [lastP lastA] prevsPA)
+##       (let [transform-branch (: (-> la.Pattern Analysis ls.Path)
+##                                 (caseS.path arity num-locals synthesize))
+##             pathS (list/fold caseS.weave
+##                              (transform-branch lastP lastA)
+##                              (list/map (product.uncurry transform-branch) prevsPA))]
+##         (` ("lux case" (~ inputS) (~ pathS))))
+
+##       _
+##       (undefined)
+##       )))
+
+(def: (primitive analysis)
+  (-> analysisL.Primitive //.Primitive)
+  (case analysis
+    #analysisL.Unit
+    (#//.Text //.unit)
+    
+    (^template [<analysis> <synthesis>]
+      (<analysis> value)
+      (<synthesis> value))
+    ([#analysisL.Bool #//.Bool]
+     [#analysisL.Frac #//.F64]
+     [#analysisL.Text #//.Text])
+
+    (^template [<analysis> <synthesis>]
+      (<analysis> value)
+      (<synthesis> (.i64 value)))
+    ([#analysisL.Nat #//.I64]
+     [#analysisL.Int #//.I64]
+     [#analysisL.Deg #//.I64])))
+
+(def: Compiler@Monad (state.Monad<State'> error.Monad<Error>))
+(open: "compiler/" Compiler@Monad)
+
+(def: #export (synthesizer extensions)
+  (-> (Extension extensionL.Synthesis) //.Synthesizer)
+  (function (synthesize analysis)
+    (case analysis
+      (#analysisL.Primitive analysis')
+      (compiler/wrap (#//.Primitive (..primitive analysis')))
+
+      (#analysisL.Structure composite)
+      (case (analysisL.variant analysis)
+        (#.Some variant)
+        (do Compiler@Monad
+          [valueS (synthesize (get@ #analysisL.value variant))]
+          (wrap (#//.Structure (#//.Variant (set@ #analysisL.value valueS variant)))))
+
+        _
+        (do Compiler@Monad
+          [tupleS (monad.map @ synthesize (analysisL.tuple analysis))]
+          (wrap (#//.Structure (#//.Tuple tupleS)))))
+
+      (#analysisL.Apply _)
+      (//function.apply (//.indirectly synthesize) analysis)
+
+      (#analysisL.Special name args)
+      (case (dict.get name extensions)
+        #.None
+        (//.throw unknown-synthesis-extension name)
+        
+        (#.Some extension)
+        (extension (//.indirectly synthesize) args))
+
+      _
+      (undefined)
+
+      ## (^code ((~ [_ (#.Int var)])))
+      ## (if (variableL.local? var)
+      ##   (if (//function.nested? arity)
+      ##     (if (variableL.self? var)
+      ##       (call$ (var$ 0) (|> (list.n/range +1 (dec arity))
+      ##                           (list/map (|>> variableL.local code.int (~) () (`)))))
+      ##       (var$ (//function.adjust-var arity var)))
+      ##     (var$ var))
+      ##   (var$ (maybe.default var (dict.get var resolver))))
+
+      ## (^code ("lux case" (~ inputA) (~ [_ (#.Record branchesA)])))
+      ## (synthesize-case arity num-locals (//.indirectly synthesize) inputA branchesA)
+
+      ## (^multi (^code ("lux function" [(~+ scope)] (~ bodyA)))
+      ##         [(s.run scope (p.some s.int)) (#error.Success raw-env)])
+      ## (let [function-arity (if direct?
+      ##                        (inc arity)
+      ##                        +1)
+      ##       env (list/map (function (_ closure)
+      ##                       (case (dict.get closure resolver)
+      ##                         (#.Some resolved)
+      ##                         (if (and (variableL.local? resolved)
+      ##                                  (//function.nested? arity)
+      ##                                  (|> resolved variableL.local-register (n/>= arity)))
+      ##                           (//function.adjust-var arity resolved)
+      ##                           resolved)
+
+      ##                         #.None
+      ##                         (if (and (variableL.local? closure)
+      ##                                  (//function.nested? arity))
+      ##                           (//function.adjust-var arity closure)
+      ##                           closure)))
+      ##                     raw-env)
+      ##       env-vars (: (List Variable)
+      ##                   (case raw-env
+      ##                     #.Nil (list)
+      ##                     _ (|> (list.size raw-env) dec (list.n/range +0) (list/map variableL.captured))))
+      ##       resolver' (if (and (//function.nested? function-arity)
+      ##                          direct?)
+      ##                   (list/fold (function (_ [from to] resolver')
+      ##                                (dict.put from to resolver'))
+      ##                              init-resolver
+      ##                              (list.zip2 env-vars env))
+      ##                   (list/fold (function (_ var resolver')
+      ##                                (dict.put var var resolver'))
+      ##                              init-resolver
+      ##                              env-vars))]
+      ##   (case (recur function-arity resolver' true function-arity bodyA)
+      ##     (^ [_ (#.Form (list [_ (#.Text "lux function")] [_ (#.Nat unmerged-arity)] env' bodyS'))])
+      ##     (let [merged-arity (inc unmerged-arity)]
+      ##       (function$ merged-arity env
+      ##                  (prepare-body function-arity merged-arity bodyS')))
+
+      ##     bodyS
+      ##     (function$ +1 env (prepare-body function-arity +1 bodyS))))
+      )))

@@ -1,8 +1,152 @@
 (.module:
-  lux)
+  [lux #- Scope]
+  (lux (control [state]
+                ["ex" exception #+ Exception exception:])
+       (data [product]
+             [error #+ Error]
+             [number]
+             (coll (dictionary ["dict" unordered #+ Dict]))))
+  [//analysis #+ Register Variable Environment Special Analysis])
 
-(def: #export Arity Nat)
+(type: #export Arity Nat)
 
-(type: #export Synthesis Code)
+(type: #export Resolver (Dict Register Variable))
 
-(type: #export Path Code)
+(type: #export State
+  {#scope-arity Arity
+   #resolver Resolver
+   #direct? Bool
+   #locals Nat})
+
+(def: #export init
+  State
+  {#scope-arity +0
+   #resolver (dict.new number.Hash<Nat>)
+   #direct? false
+   #locals +0})
+
+(type: (Operation' s o)
+  (state.State' Error s o))
+
+(type: #export (Compiler s i o)
+  (-> i (Operation' ..State o)))
+
+(type: #export Primitive
+  (#Bool Bool)
+  (#I64 I64)
+  (#F64 Frac)
+  (#Text Text))
+
+(type: #export (Structure a)
+  (#Variant (//analysis.Variant a))
+  (#Tuple (//analysis.Tuple a)))
+
+(type: #export (Path' s)
+  (#Bind Register)
+  (#Alt (Path' s) (Path' s))
+  (#Seq (Path' s) (Path' s))
+  (#Exec s))
+
+(type: #export (Abstraction' s)
+  {#environment Environment
+   #arity Arity
+   #body s})
+
+(type: #export (Branch s)
+  (#Case s (Path' s))
+  (#Let s Register s)
+  (#If s s s))
+
+(type: #export (Scope s)
+  {#start Register
+   #inits (List s)
+   #iteration s})
+
+(type: #export (Loop s)
+  (#Scope (Scope s))
+  (#Recur (List s)))
+
+(type: #export (Function s)
+  (#Abstraction (Abstraction' s))
+  (#Apply s (List s)))
+
+(type: #export (Control s)
+  (#Branch (Branch s))
+  (#Loop (Loop s))
+  (#Function (Function s)))
+
+(type: #export #rec Synthesis
+  (#Primitive Primitive)
+  (#Structure (Structure Synthesis))
+  (#Variable Variable)
+  (#Control (Control Synthesis))
+  (#Special (Special Synthesis)))
+
+(type: #export Path
+  (Path' Synthesis))
+
+(type: #export Abstraction
+  (Abstraction' Synthesis))
+
+(type: #export (Operation a)
+  (Operation' ..State a))
+
+(def: #export unit Text "")
+
+(type: #export Synthesizer
+  (Compiler ..State Analysis Synthesis))
+
+(def: #export (throw exception parameters)
+  (All [e] (-> (Exception e) e Operation'))
+  (state.lift error.Monad<Error>
+              (ex.throw exception parameters)))
+
+(def: #export (run synthesizer analysis)
+  (-> Synthesizer Analysis (Error Synthesis))
+  (:: error.Monad<Error> map product.right
+      (synthesizer analysis ..init)))
+
+(def: (localized transform)
+  (-> (-> State State)
+      (-> Synthesizer Synthesizer))
+  (function (scope synthesizer)
+    (function (synthesize analysis state)
+      (case (synthesize analysis (transform state))
+        (#error.Error error)
+        (#error.Error error)
+
+        (#error.Success [state' output])
+        (#error.Success [state output])))))
+
+(def: #export indirectly
+  (-> Synthesizer Synthesizer)
+  (localized (set@ #direct? false)))
+
+(do-template [<name> <tag> <type>]
+  [(def: #export <name>
+     (Operation <type>)
+     (function (_ state)
+       (#error.Success [state (get@ <tag> state)])))]
+
+  [scope-arity #scope-arity Arity]
+  [direct?     #direct?     Bool]
+  [locals      #locals      Nat]
+  )
+
+(do-template [<name> <family> <tag>]
+  [(template: #export (<name> content)
+     (<| #..Control
+         <family>
+         <tag>
+         content))]
+
+  [branch/case          #..Branch   #..Case]
+  [branch/let           #..Branch   #..Let]
+  [branch/if            #..Branch   #..If]
+
+  [loop/scope           #..Loop     #..Scope]
+  [loop/recur           #..Loop     #..Recur]
+
+  [function/abstraction #..Function #..Abstraction]
+  [function/apply       #..Function #..Apply]
+  )

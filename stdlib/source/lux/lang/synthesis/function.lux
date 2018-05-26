@@ -1,0 +1,49 @@
+(.module:
+  lux
+  (lux (control [monad #+ do]
+                [state])
+       (data [maybe]
+             [error]
+             (coll [list "list/" Monoid<List>]))
+       (lang [".L" analysis #+ Variable Analysis]))
+  [// #+ Arity Synthesizer]
+  [//loop])
+
+(def: nested?
+  (-> Arity Bool)
+  (n/> +1))
+
+## (def: (adjust-var outer var)
+##   (-> Arity Variable Variable)
+##   (|> outer dec .int (i/+ var)))
+
+(def: (unfold apply)
+  (-> Analysis [Analysis (List Analysis)])
+  (loop [apply apply
+         args (list)]
+    (case apply
+      (#analysisL.Apply arg func)
+      (recur func (#.Cons arg args))
+
+      _
+      [apply args])))
+
+(def: #export (apply synthesize)
+  (-> Synthesizer Synthesizer)
+  (function (_ exprA)
+    (let [[funcA argsA] (unfold exprA)]
+      (do (state.Monad<State'> error.Monad<Error>)
+        [funcS (synthesize funcA)
+         argsS (monad.map @ synthesize argsA)
+         locals //.locals]
+        (case funcS
+          (^ (//.function/abstraction functionS))
+          (wrap (|> functionS
+                    (//loop.loop (get@ #//.environment functionS) locals argsS)
+                    (maybe.default (//.function/apply [funcS argsS]))))
+
+          (^ (//.function/apply [funcS' argsS']))
+          (wrap (//.function/apply [funcS' (list/compose argsS' argsS)]))
+
+          _
+          (wrap (//.function/apply [funcS argsS])))))))

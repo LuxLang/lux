@@ -4757,41 +4757,59 @@
       (return (list (` ("lux def" (~ (symbol$ ["" (text/compose prefix name)])) (~ source+)
                         [(~ cursor-code) (#.Record #Nil)])))))))
 
-(macro: #export (open tokens)
+(macro: #export (open: tokens)
   {#.doc "## Opens a structure and generates a definition for each of its members (including nested members).
           ## For example:
-          (open Number<Int> \"i:\")
+          (open: \"i:\" Number<Int>)
           ## Will generate:
           (def: i:+ (:: Number<Int> +))
           (def: i:- (:: Number<Int> -))
           (def: i:* (:: Number<Int> *))
+          ...
+
+          ## However, the prefix is optional.
+          ## For example:
+          (open: Number<Int>)
+          ## Will generate:
+          (def: + (:: Number<Int> +))
+          (def: - (:: Number<Int> -))
+          (def: * (:: Number<Int> *))
           ..."}
-  (case tokens
-    (^ (list& [_ (#Symbol struct-name)] tokens'))
-    (do Monad<Meta>
-      [@module current-module-name
-       #let [prefix (case tokens'
-                      (^ (list [_ (#Text prefix)]))
-                      prefix
-                      
-                      _
-                      "")]
-       struct-type (find-type struct-name)
-       output (resolve-type-tags struct-type)
-       #let [source (symbol$ struct-name)]]
-      (case output
-        (#Some [tags members])
+  (let [[prefix tokens'] (case tokens
+                           (^ (list& [_ (#Text prefix)] tokens'))
+                           [prefix tokens']
+
+                           tokens'
+                           ["" tokens'])]
+    (case tokens'
+      (^ (list struct))
+      (case struct
+        [_ (#Symbol struct-name)]
         (do Monad<Meta>
-          [decls' (monad/map Monad<Meta> (: (-> [Ident Type] (Meta (List Code)))
-                                            (function (_ [sname stype]) (open-field prefix sname source stype)))
-                             (zip2 tags members))]
-          (return (list/join decls')))
+          [struct-type (find-type struct-name)
+           output (resolve-type-tags struct-type)
+           #let [source (symbol$ struct-name)]]
+          (case output
+            (#Some [tags members])
+            (do Monad<Meta>
+              [decls' (monad/map Monad<Meta> (: (-> [Ident Type] (Meta (List Code)))
+                                                (function (_ [sname stype])
+                                                  (open-field prefix sname source stype)))
+                                 (zip2 tags members))]
+              (return (list/join decls')))
+
+            _
+            (fail (text/compose "Can only \"open:\" structs: " (type/show struct-type)))))
 
         _
-        (fail (text/compose "Can only \"open\" structs: " (type/show struct-type)))))
+        (do Monad<Meta>
+          [g!struct (gensym "struct")]
+          (return (list (` ("lux def" (~ g!struct) (~ struct)
+                            [(~ cursor-code) (#.Record #Nil)]))
+                        (` (..open: (~ (text$ prefix)) (~ g!struct)))))))
 
-    _
-    (fail "Wrong syntax for open")))
+      _
+      (fail "Wrong syntax for open:"))))
 
 (macro: #export (|>> tokens)
   {#.doc "## Similar to the piping macro, but rather than taking an initial object to work on, creates a function for taking it.
@@ -4897,7 +4915,8 @@
                           defs')
            openings (join-map (: (-> Openings (List Code))
                                  (function (_ [prefix structs])
-                                   (list/map (function (_ [_ name]) (` (open (~ (symbol$ [module-name name])) (~ (text$ prefix)))))
+                                   (list/map (function (_ [_ name])
+                                               (` (open: (~ (text$ prefix)) (~ (symbol$ [module-name name])))))
                                              structs)))
                               r-opens)]]
     (wrap (list/compose defs openings))
