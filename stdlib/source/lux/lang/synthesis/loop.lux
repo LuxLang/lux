@@ -9,7 +9,7 @@
   [///analysis #+ Register Variable Environment]
   [// #+ Path Abstraction Synthesis])
 
-(type: (Transform a)
+(type: #export (Transform a)
   (-> a (Maybe a)))
 
 (def: (some? maybe)
@@ -18,11 +18,21 @@
     (#.Some _) true
     #.None     false))
 
+(template: #export (self-reference)
+  (#//.Reference (#///analysis.Variable (#///analysis.Local +0))))
+
+(template: (recursive-apply args)
+  (#//.Apply (self-reference) args))
+
 (def: proper Bool true)
+(def: improper Bool false)
 
 (def: (proper? exprS)
   (-> Synthesis Bool)
   (case exprS
+    (^ (self-reference))
+    improper
+
     (#//.Structure structure)
     (case structure
       (#//.Variant variantS)
@@ -30,9 +40,6 @@
       
       (#//.Tuple membersS+)
       (list.every? proper? membersS+))
-
-    (#//.Variable var)
-    (not (///analysis.self? var))
 
     (#//.Control controlS)
     (case controlS
@@ -45,11 +52,14 @@
                  (^or (#//.Alt leftS rightS) (#//.Seq leftS rightS))
                  (and (recur leftS) (recur rightS))
 
-                 (#//.Exec bodyS)
+                 (#//.Then bodyS)
                  (proper? bodyS)
                  
                  _
                  proper)))
+
+        (#//.Exec bodyS)
+        (proper? bodyS)
 
         (#//.Let inputS register bodyS)
         (and (proper? inputS)
@@ -100,15 +110,11 @@
       (#//.Seq leftS rightS)
       (maybe/map (|>> (#//.Seq leftS)) (recur rightS))
 
-      (#//.Exec bodyS)
-      (maybe/map (|>> #//.Exec) (synthesis-recursion bodyS))
+      (#//.Then bodyS)
+      (maybe/map (|>> #//.Then) (synthesis-recursion bodyS))
       
       _
       #.None)))
-
-(template: (recursive-apply args)
-  (#//.Apply (#//.Variable (#///analysis.Local +0))
-             args))
 
 (def: #export (recursion arity)
   (-> Nat (Transform Synthesis))
@@ -122,6 +128,9 @@
           (|> pathS
               (path-recursion recur)
               (maybe/map (|>> (#//.Case inputS) #//.Branch #//.Control)))
+
+          (#//.Exec bodyS)
+          (maybe/map (|>> //.branch/exec) (recur bodyS))
 
           (#//.Let inputS register bodyS)
           (maybe/map (|>> (#//.Let inputS register) #//.Branch #//.Control)
@@ -174,8 +183,8 @@
           (wrap (<tag> leftS' rightS'))))
       ([#//.Alt] [#//.Seq])
       
-      (#//.Exec bodyS)
-      (|> bodyS adjust-synthesis (maybe/map (|>> #//.Exec)))
+      (#//.Then bodyS)
+      (|> bodyS adjust-synthesis (maybe/map (|>> #//.Then)))
 
       _
       (#.Some pathS))))
@@ -199,15 +208,20 @@
             (monad.map maybe.Monad<Maybe> recur)
             (maybe/map (|>> #//.Tuple #//.Structure))))
 
-      (#//.Variable variable)
-      (case variable
-        (#///analysis.Local register)
-        (#.Some (#//.Variable (#///analysis.Local (n/+ offset register))))
+      (#//.Reference reference)
+      (case reference
+        (#///analysis.Constant constant)
+        (#.Some exprS)
         
-        (#///analysis.Foreign register)
-        (|> scope-environment
-            (list.nth register)
-            (maybe/map (|>> #//.Variable))))
+        (#///analysis.Variable variable)
+        (case variable
+          (#///analysis.Local register)
+          (#.Some (#//.Reference (#///analysis.Variable (#///analysis.Local (n/+ offset register)))))
+          
+          (#///analysis.Foreign register)
+          (|> scope-environment
+              (list.nth register)
+              (maybe/map (|>> #///analysis.Variable #//.Reference)))))
 
       (^ (//.branch/case [inputS pathS]))
       (do maybe.Monad<Maybe>

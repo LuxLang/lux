@@ -1,0 +1,170 @@
+(.module:
+  lux
+  (lux (control [equality #+ Eq]
+                pipe
+                [monad #+ do])
+       (data [product]
+             [bool "bool/" Eq<Bool>]
+             [text "text/" Eq<Text>]
+             text/format
+             [number "frac/" Eq<Frac>]
+             (coll [list "list/" Fold<List> Monoid<List>])))
+  [///analysis #+ Pattern Match Analysis]
+  [// #+ Path Synthesis Operation]
+  [//function])
+
+(def: (path' pattern bodyC)
+  (-> Pattern (Operation Path) (Operation Path))
+  (case pattern
+    (#///analysis.Simple simple)
+    (case simple
+      #///analysis.Unit
+      bodyC
+      
+      (^template [<from> <to>]
+        (<from> value)
+        (:: //.Operation@Monad map
+            (|>> (#//.Seq (#//.Test (|> value <to>))))
+            bodyC))
+      ([#///analysis.Bool #//.Bool]
+       [#///analysis.Nat  (<| #//.I64 .i64)]
+       [#///analysis.Int  (<| #//.I64 .i64)]
+       [#///analysis.Deg  (<| #//.I64 .i64)]
+       [#///analysis.Frac #//.F64]
+       [#///analysis.Text #//.Text]))
+    
+    (#///analysis.Bind register)
+    (do //.Operation@Monad
+      [arity //.scope-arity]
+      (:: @ map (|>> (#//.Seq (#//.Bind (if (//function.nested? arity)
+                                          (n/+ (dec arity) register)
+                                          register))))
+          (//.with-new-local' bodyC)))
+
+    (#///analysis.Complex _)
+    (case (///analysis.variant-pattern pattern)
+      (#.Some [lefts right? value-pattern])
+      (:: //.Operation@Monad map
+          (|>> (#//.Seq (#//.Access (#//.Side (if right?
+                                                (#.Right lefts)
+                                                (#.Left lefts))))))
+          (path' value-pattern bodyC))
+      
+      #.None
+      (let [tuple (///analysis.tuple-pattern pattern)
+            tuple/last (dec (list.size tuple))]
+        (list/fold (function (_ [tuple/idx tuple/member] thenC)
+                     (case tuple/member
+                       (#///analysis.Simple #///analysis.Unit)
+                       thenC
+
+                       _
+                       (let [last? (n/= tuple/last tuple/idx)]
+                         (|> (if (or last?
+                                     (is? bodyC thenC))
+                               thenC
+                               (:: //.Operation@Monad map (|>> (#//.Seq #//.Pop)) thenC))
+                             (path' tuple/member)
+                             (:: //.Operation@Monad map
+                                 (|>> (#//.Seq (#//.Access (#//.Member (if last?
+                                                                         (#.Right (dec tuple/idx))
+                                                                         (#.Left tuple/idx)))))))))))
+                   bodyC
+                   (list.reverse (list.enumerate tuple)))))))
+
+(def: #export (path synthesize pattern bodyA)
+  (-> //.Synthesizer Pattern Analysis (Operation Path))
+  (path' pattern (:: //.Operation@Monad map (|>> #//.Then) (synthesize bodyA))))
+
+(def: #export (weave leftP rightP)
+  (-> Path Path Path)
+  (with-expansions [<default> (as-is (#//.Alt leftP rightP))]
+    (case [leftP rightP]
+      [(#//.Seq preL postL)
+       (#//.Seq preR postR)]
+      (case (weave preL preR)
+        (#//.Alt _)
+        <default>
+
+        weavedP
+        (#//.Seq weavedP (weave postL postR)))
+
+      [#//.Pop #//.Pop]
+      rightP
+
+      (^template [<tag> <eq>]
+        [(#//.Test (<tag> leftV))
+         (#//.Test (<tag> rightV))]
+        (if (<eq> leftV rightV)
+          rightP
+          <default>))
+      ([#//.Bool bool/=]
+       [#//.I64 (:! (Eq I64) i/=)]
+       [#//.F64 frac/=]
+       [#//.Text text/=])
+
+      (^template [<access> <side>]
+        [(#//.Access (<access> (<side> leftL)))
+         (#//.Access (<access> (<side> rightL)))]
+        (if (n/= leftL rightL)
+          rightP
+          <default>))
+      ([#//.Side #.Left]
+       [#//.Side #.Right]
+       [#//.Member #.Left]
+       [#//.Member #.Right])
+
+      [(#//.Bind leftR) (#//.Bind rightR)]
+      (if (n/= leftR rightR)
+        rightP
+        <default>)
+
+      _
+      <default>)))
+
+(def: #export (synthesize synthesize^ inputA [headB tailB+])
+  (-> //.Synthesizer Analysis Match (Operation Synthesis))
+  (do //.Operation@Monad
+    [inputS (synthesize^ inputA)]
+    (case [headB tailB+]
+      [[(#///analysis.Bind inputR) headB/bodyA]
+       #.Nil]
+      (case headB/bodyA
+        (^ (///analysis.variable/local outputR))
+        (wrap (if (n/= inputR outputR)
+                inputS
+                (//.branch/exec inputS)))
+
+        _
+        (do @
+          [arity //.scope-arity
+           headB/bodyS (//.with-new-local'
+                         (synthesize^ headB/bodyA))]
+          (wrap (//.branch/let [inputS
+                                (if (//function.nested? arity)
+                                  (n/+ (dec arity) inputR)
+                                  inputR)
+                                headB/bodyS]))))
+
+      (^or (^ [[(///analysis.pattern/bool true) thenA]
+               (list [(///analysis.pattern/bool false) elseA])])
+           (^ [[(///analysis.pattern/bool false) elseA]
+               (list [(///analysis.pattern/bool true) thenA])]))
+      (do @
+        [thenS (synthesize^ thenA)
+         elseS (synthesize^ elseA)]
+        (wrap (//.branch/if [inputS thenS elseS])))
+
+      _
+      (let [[[lastP lastA] prevsPA] (|> (#.Cons headB tailB+)
+                                        list.reverse
+                                        (case> (#.Cons [lastP lastA] prevsPA)
+                                               [[lastP lastA] prevsPA]
+
+                                               _
+                                               (undefined)))]
+        (do @
+          [lastSP (path synthesize^ lastP lastA)
+           prevsSP+ (monad.map @ (product.uncurry (path synthesize^)) prevsPA)]
+          (wrap (//.branch/case [inputS (list/fold weave lastSP prevsSP+)]))))
+      )))

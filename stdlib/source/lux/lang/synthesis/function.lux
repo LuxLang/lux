@@ -1,21 +1,33 @@
 (.module:
-  lux
+  [lux #- function]
   (lux (control [monad #+ do]
-                [state])
-       (data [maybe]
+                [state]
+                pipe
+                ["ex" exception #+ exception:])
+       (data [maybe "maybe/" Monad<Maybe>]
              [error]
-             (coll [list "list/" Monoid<List>]))
-       (lang [".L" analysis #+ Variable Analysis]))
-  [// #+ Arity Synthesizer]
+             (coll [list "list/" Functor<List> Monoid<List> Fold<List>]
+                   (dictionary ["dict" unordered #+ Dict])))
+       (lang [".L" analysis #+ Variable Environment Analysis]))
+  [// #+ Arity Synthesis Synthesizer]
   [//loop])
 
-(def: nested?
+(def: Operation@Monad (state.Monad<State'> error.Monad<Error>))
+
+(def: #export nested?
   (-> Arity Bool)
   (n/> +1))
 
-## (def: (adjust-var outer var)
-##   (-> Arity Variable Variable)
-##   (|> outer dec .int (i/+ var)))
+(def: #export (adjust up-arity after? var)
+  (-> Arity Bool Variable Variable)
+  (case var
+    (#analysisL.Local register)
+    (if (and after? (n/>= up-arity register))
+      (#analysisL.Local (n/+ (dec up-arity) register))
+      var)
+
+    _
+    var))
 
 (def: (unfold apply)
   (-> Analysis [Analysis (List Analysis)])
@@ -30,7 +42,7 @@
 
 (def: #export (apply synthesize)
   (-> Synthesizer Synthesizer)
-  (function (_ exprA)
+  (.function (_ exprA)
     (let [[funcA argsA] (unfold exprA)]
       (do (state.Monad<State'> error.Monad<Error>)
         [funcS (synthesize funcA)
@@ -47,3 +59,72 @@
 
           _
           (wrap (//.function/apply [funcS argsS])))))))
+
+(def: (prepare up down)
+  (-> Arity Arity (//loop.Transform Synthesis))
+  (.function (_ body)
+    (if (nested? up)
+      (#.Some body)
+      (//loop.recursion down body))))
+
+(exception: #export (cannot-prepare-function-body {_ []})
+  "")
+
+(def: return
+  (All [a] (-> (Maybe a) (//.Operation a)))
+  (|>> (case> (#.Some output)
+              (:: Operation@Monad wrap output)
+
+              #.None
+              (//.throw cannot-prepare-function-body []))))
+
+(def: #export (function synthesize environment body)
+  (-> Synthesizer Environment Analysis (//.Operation Synthesis))
+  (do Operation@Monad
+    [direct? //.direct?
+     arity //.scope-arity
+     resolver //.resolver
+     #let [function-arity (if direct?
+                            (inc arity)
+                            +1)
+           up-environment (if (nested? arity)
+                            (list/map (.function (_ closure)
+                                        (case (dict.get closure resolver)
+                                          (#.Some resolved)
+                                          (adjust arity true resolved)
+
+                                          #.None
+                                          (adjust arity false closure)))
+                                      environment)
+                            environment)
+           down-environment (: (List Variable)
+                               (case environment
+                                 #.Nil
+                                 (list)
+                                 
+                                 _
+                                 (|> (list.size environment) dec (list.n/range +0)
+                                     (list/map (|>> #analysisL.Foreign)))))
+           resolver' (if (and (nested? function-arity)
+                              direct?)
+                       (list/fold (.function (_ [from to] resolver')
+                                    (dict.put from to resolver'))
+                                  //.fresh-resolver
+                                  (list.zip2 down-environment up-environment))
+                       (list/fold (.function (_ var resolver')
+                                    (dict.put var var resolver'))
+                                  //.fresh-resolver
+                                  down-environment))
+           synthesize' (//.with-abstraction-state function-arity resolver' synthesize)]
+     bodyS (synthesize' body)]
+    (case bodyS
+      (^ (//.function/abstraction [env' down-arity' bodyS']))
+      (let [arity' (inc down-arity')]
+        (|> (prepare function-arity arity' bodyS')
+            (maybe/map (|>> [up-environment arity'] //.function/abstraction))
+            ..return))
+
+      _
+      (|> (prepare function-arity +1 bodyS)
+          (maybe/map (|>> [up-environment +1] //.function/abstraction))
+          ..return))))

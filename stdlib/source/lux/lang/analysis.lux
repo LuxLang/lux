@@ -1,6 +1,7 @@
 (.module:
   [lux #- nat int deg]
-  (lux (control [equality #+ Eq])
+  (lux (control [equality #+ Equality]
+                [hash #+ Hash])
        [function]
        (data (coll [list "list/" Fold<List>]))))
 
@@ -26,11 +27,19 @@
   (#Complex (Composite Pattern))
   (#Bind Register))
 
+(type: #export (Branch' e)
+  {#when Pattern
+   #then e})
+
 (type: #export Variable
   (#Local Register)
   (#Foreign Register))
 
-(struct: #export _ (Eq Variable)
+(type: #export Reference
+  (#Variable Variable)
+  (#Constant Ident))
+
+(struct: #export _ (Equality Variable)
   (def: (= reference sample)
     (case [reference sample]
       (^template [<tag>]
@@ -41,8 +50,18 @@
       _
       false)))
 
-(type: #export (Match p e)
-  [[p e] (List [p e])])
+(struct: #export _ (Hash Variable)
+  (def: eq Equality<Variable>)
+  (def: (hash var)
+    (case var
+      (#Local register)
+      (n/* +1 register)
+      
+      (#Foreign register)
+      (n/* +2 register))))
+
+(type: #export (Match' e)
+  [(Branch' e) (List (Branch' e))])
 
 (type: #export Environment
   (List Variable))
@@ -54,12 +73,45 @@
 (type: #export #rec Analysis
   (#Primitive Primitive)
   (#Structure (Composite Analysis))
-  (#Variable Variable)
-  (#Constant Ident)
-  (#Case Analysis (Match Pattern Analysis))
+  (#Reference Reference)
+  (#Case Analysis (Match' Analysis))
   (#Function Environment Analysis)
   (#Apply Analysis Analysis)
   (#Special (Special Analysis)))
+
+(type: #export Branch
+  (Branch' Analysis))
+
+(type: #export Match
+  (Match' Analysis))
+
+(do-template [<name> <tag>]
+  [(template: #export (<name> content)
+     (<tag> content))]
+
+  [control/case #Case]
+  )
+
+(do-template [<name> <family> <tag>]
+  [(template: #export (<name> content)
+     (<| #Reference
+         <family>
+         <tag>
+         content))]
+
+  [variable/local   #..Variable #..Local]
+  [variable/foreign #..Variable #..Foreign]
+  )
+
+(do-template [<name> <tag>]
+  [(template: #export (<name> content)
+     (<| #Reference
+         <tag>
+         content))]
+
+  [reference/variable #..Variable]
+  [reference/constant #..Constant]
+  )
 
 (do-template [<name> <type> <tag>]
   [(def: #export <name>
@@ -87,15 +139,13 @@
   (-> Nat Tag Bool)
   (n/= (dec size) tag))
 
-(def: #export (no-op value)
-  (-> Analysis Analysis)
-  (let [identity (#Function (list) (#Variable (#Local +1)))]
-    (#Apply value identity)))
+(template: #export (no-op value)
+  (#Apply value (#Function (list) (#Reference (#Variable (#Local +1))))))
 
 (do-template [<name> <type> <structure> <prep-value>]
   [(def: #export (<name> size tag value)
      (-> Nat Tag <type> <type>)
-     (let [left (function.const (|>> #.Left #Sum <structure>))
+     (let [left (function.constant (|>> #.Left #Sum <structure>))
            right (|>> #.Right #Sum <structure>)]
        (if (last? size tag)
          (if (n/= +1 tag)
@@ -141,37 +191,47 @@
 (type: #export Analyser
   (-> Code (Meta Analysis)))
 
-(def: #export (tuple analysis)
-  (-> Analysis (Tuple Analysis))
-  (case analysis
-    (#Structure (#Product left right))
-    (#.Cons left (tuple right))
+(do-template [<name> <type> <tag>]
+  [(def: #export (<name> value)
+     (-> <type> (Tuple <type>))
+     (case value
+       (<tag> (#Product left right))
+       (#.Cons left (<name> right))
 
-    _
-    (list analysis)))
+       _
+       (list value)))]
 
-(def: #export (variant analysis)
-  (-> Analysis (Maybe (Variant Analysis)))
-  (loop [lefts +0
-         variantA analysis]
-    (case variantA
-      (#Structure (#Sum (#.Left valueA)))
-      (case valueA
-        (#Structure (#Sum _))
-        (recur (inc lefts) valueA)
+  [tuple         Analysis #Structure]
+  [tuple-pattern Pattern  #Complex]
+  )
 
-        _
-        (#.Some {#lefts lefts
-                 #right? false
-                 #value valueA}))
-      
-      (#Structure (#Sum (#.Right valueA)))
-      (#.Some {#lefts lefts
-               #right? true
-               #value valueA})
+(do-template [<name> <type> <tag>]
+  [(def: #export (<name> value)
+     (-> <type> (Maybe (Variant <type>)))
+     (loop [lefts +0
+            variantA value]
+       (case variantA
+         (<tag> (#Sum (#.Left valueA)))
+         (case valueA
+           (<tag> (#Sum _))
+           (recur (inc lefts) valueA)
 
-      _
-      #.None)))
+           _
+           (#.Some {#lefts lefts
+                    #right? false
+                    #value valueA}))
+         
+         (<tag> (#Sum (#.Right valueA)))
+         (#.Some {#lefts lefts
+                  #right? true
+                  #value valueA})
+
+         _
+         #.None)))]
+
+  [variant         Analysis #Structure]
+  [variant-pattern Pattern  #Complex]
+  )
 
 (def: #export (application analysis)
   (-> Analysis Application)
@@ -191,3 +251,18 @@
     
     _
     false))
+
+(template: #export (pattern/unit)
+  (#..Simple #..Unit))
+
+(do-template [<name> <tag>]
+  [(template: #export (<name> content)
+     (#..Simple (<tag> content)))]
+  
+  [pattern/bool #..Bool]
+  [pattern/nat  #..Nat]
+  [pattern/int  #..Int]
+  [pattern/deg  #..Deg]
+  [pattern/frac #..Frac]
+  [pattern/text #..Text]
+  )

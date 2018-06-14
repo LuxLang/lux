@@ -1,16 +1,18 @@
 (.module:
   [lux #- Scope]
   (lux (control [state]
-                ["ex" exception #+ Exception exception:])
+                ["ex" exception #+ Exception exception:]
+                [monad #+ do])
        (data [product]
              [error #+ Error]
              [number]
-             (coll (dictionary ["dict" unordered #+ Dict]))))
-  [//analysis #+ Register Variable Environment Special Analysis])
+             (coll (dictionary ["dict" unordered #+ Dict])))
+       [function])
+  [//analysis #+ Register Variable Reference Environment Special Analysis])
 
 (type: #export Arity Nat)
 
-(type: #export Resolver (Dict Register Variable))
+(type: #export Resolver (Dict Variable Variable))
 
 (type: #export State
   {#scope-arity Arity
@@ -18,10 +20,14 @@
    #direct? Bool
    #locals Nat})
 
+(def: #export fresh-resolver
+  Resolver
+  (dict.new //analysis.Hash<Variable>))
+
 (def: #export init
   State
   {#scope-arity +0
-   #resolver (dict.new number.Hash<Nat>)
+   #resolver fresh-resolver
    #direct? false
    #locals +0})
 
@@ -41,11 +47,24 @@
   (#Variant (//analysis.Variant a))
   (#Tuple (//analysis.Tuple a)))
 
+(type: #export Side
+  (Either Nat Nat))
+
+(type: #export Member
+  (Either Nat Nat))
+
+(type: #export Access
+  (#Side Side)
+  (#Member Member))
+
 (type: #export (Path' s)
+  #Pop
+  (#Test Primitive)
+  (#Access Access)
   (#Bind Register)
   (#Alt (Path' s) (Path' s))
   (#Seq (Path' s) (Path' s))
-  (#Exec s))
+  (#Then s))
 
 (type: #export (Abstraction' s)
   {#environment Environment
@@ -55,7 +74,8 @@
 (type: #export (Branch s)
   (#Case s (Path' s))
   (#Let s Register s)
-  (#If s s s))
+  (#If s s s)
+  (#Exec s))
 
 (type: #export (Scope s)
   {#start Register
@@ -78,12 +98,35 @@
 (type: #export #rec Synthesis
   (#Primitive Primitive)
   (#Structure (Structure Synthesis))
-  (#Variable Variable)
+  (#Reference Reference)
   (#Control (Control Synthesis))
   (#Special (Special Synthesis)))
 
 (type: #export Path
   (Path' Synthesis))
+
+(def: #export path/pop
+  Path
+  #Pop)
+
+(do-template [<name> <tag>]
+  [(template: #export (<name> content)
+     (#..Test (<tag> content)))]
+
+  [path/bool #..Bool]
+  [path/i64  #..I64]
+  [path/f64  #..F64]
+  [path/text #..Text]
+  )
+
+(do-template [<name> <tag>]
+  [(template: #export (<name> content)
+     (<tag> content))]
+
+  [path/alt  #..Alt]
+  [path/seq  #..Seq]
+  [path/then #..Then]
+  )
 
 (type: #export Abstraction
   (Abstraction' Synthesis))
@@ -106,21 +149,62 @@
   (:: error.Monad<Error> map product.right
       (synthesizer analysis ..init)))
 
-(def: (localized transform)
+(def: (localized' transform)
   (-> (-> State State)
-      (-> Synthesizer Synthesizer))
-  (function (scope synthesizer)
-    (function (synthesize analysis state)
-      (case (synthesize analysis (transform state))
+      (All [a] (-> (Operation a) (Operation a))))
+  (function (_ operation)
+    (function (_ state)
+      (case (operation (transform state))
         (#error.Error error)
         (#error.Error error)
 
         (#error.Success [state' output])
         (#error.Success [state output])))))
 
-(def: #export indirectly
-  (-> Synthesizer Synthesizer)
-  (localized (set@ #direct? false)))
+(def: (localized transform)
+  (-> (-> State State)
+      (-> Synthesizer Synthesizer))
+  (function (_ synthesize)
+    (function (_ analysis)
+      (localized' transform (synthesize analysis)))))
+
+(do-template [<operation> <synthesizer> <value>]
+  [(def: #export <operation>
+     (All [a] (-> (Operation a) (Operation a)))
+     (localized' (set@ #direct? <value>)))
+
+   (def: #export <synthesizer>
+     (-> Synthesizer Synthesizer)
+     (localized (set@ #direct? <value>)))]
+
+  [indirectly' indirectly false]
+  [directly'   directly   true]
+  )
+
+(do-template [<operation> <synthesizer> <type> <tag>]
+  [(def: #export (<operation> value)
+     (-> <type> (All [a] (-> (Operation a) (Operation a))))
+     (localized' (set@ <tag> value)))
+
+   (def: #export (<synthesizer> value)
+     (-> <type> (-> Synthesizer Synthesizer))
+     (localized (set@ <tag> value)))]
+
+  [with-scope-arity' with-scope-arity Arity    #scope-arity]
+  [with-resolver'    with-resolver    Resolver #resolver]
+  [with-locals'      with-locals      Nat      #locals]
+  )
+
+(def: #export (with-state value)
+  (-> ..State (-> Synthesizer Synthesizer))
+  (localized (function.constant value)))
+
+(def: #export (with-abstraction-state arity resolver)
+  (-> Arity Resolver (-> Synthesizer Synthesizer))
+  (with-state {#scope-arity arity
+               #resolver resolver
+               #direct? true
+               #locals arity}))
 
 (do-template [<name> <tag> <type>]
   [(def: #export <name>
@@ -129,8 +213,28 @@
        (#error.Success [state (get@ <tag> state)])))]
 
   [scope-arity #scope-arity Arity]
+  [resolver    #resolver    Resolver]
   [direct?     #direct?     Bool]
   [locals      #locals      Nat]
+  )
+
+(def: #export Operation@Monad (state.Monad<State'> error.Monad<Error>))
+
+(def: #export with-new-local'
+  (All [a] (-> (Operation a) (Operation a)))
+  (<<| (do Operation@Monad
+         [locals ..locals])
+       (..with-locals' (inc locals))))
+
+(do-template [<name> <tag>]
+  [(template: #export (<name> content)
+     (<| #..Reference
+         #//analysis.Variable
+         <tag>
+         content))]
+
+  [variable/local   #//analysis.Local]
+  [variable/foreign #//analysis.Foreign]
   )
 
 (do-template [<name> <family> <tag>]
@@ -143,6 +247,7 @@
   [branch/case          #..Branch   #..Case]
   [branch/let           #..Branch   #..Let]
   [branch/if            #..Branch   #..If]
+  [branch/exec          #..Branch   #..Exec]
 
   [loop/scope           #..Loop     #..Scope]
   [loop/recur           #..Loop     #..Recur]

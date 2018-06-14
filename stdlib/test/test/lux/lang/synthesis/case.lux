@@ -1,47 +1,50 @@
 (.module:
   lux
-  (lux [io]
-       (control [monad #+ do]
+  (lux (control [monad #+ do]
                 pipe)
-       (macro [code])
+       (data [error "error/" Functor<Error>])
+       (lang [".L" analysis #+ Branch Analysis]
+             ["//" synthesis #+ Synthesis]
+             (synthesis [".S" expression])
+             [".L" extension])
        ["r" math/random "r/" Monad<Random>]
        test)
-  (luxc (lang ["la" analysis]
-              ["//" synthesis #+ Synthesis]
-              (synthesis [".S" expression])
-              [".L" extension]
-              [".L" variable #+ Variable]))
-  (/// common))
+  [//primitive])
 
 (context: "Dummy variables."
   (<| (times +100)
       (do @
-        [maskedA gen-primitive
+        [maskedA //primitive.primitive
          temp (|> r.nat (:: @ map (n/% +100)))
-         #let [maskA (` ("lux case" (~ maskedA)
-                         {("lux case bind" (~ (code.nat temp)))
-                          (~ (la.var (variableL.local temp)))}))]]
+         #let [maskA (analysisL.control/case
+                      [maskedA
+                       [[(#analysisL.Bind temp)
+                         (analysisL.variable/local temp)]
+                        (list)]])]]
         (test "Dummy variables created to mask expressions get eliminated during synthesis."
-              (|> (//.run (expressionS.synthesizer extensionL.no-syntheses
-                                                   maskA))
-                  (corresponds? maskedA))))))
+              (|> maskA
+                  (//.run (expressionS.synthesizer extensionL.empty))
+                  (error/map (//primitive.corresponds? maskedA))
+                  (error.default false))))))
 
 (context: "Let expressions."
   (<| (times +100)
       (do @
         [registerA r.nat
-         inputA gen-primitive
-         outputA gen-primitive
-         #let [letA (` ("lux case" (~ inputA)
-                        {("lux case bind" (~ (code.nat registerA)))
-                         (~ outputA)}))]]
+         inputA //primitive.primitive
+         outputA //primitive.primitive
+         #let [letA (analysisL.control/case
+                     [inputA
+                      [[(#analysisL.Bind registerA)
+                        outputA]
+                       (list)]])]]
         (test "Can detect and reify simple 'let' expressions."
-              (|> (//.run (expressionS.synthesizer extensionL.no-syntheses
-                                                   letA))
-                  (case> (^ [_ (#.Form (list [_ (#.Text "lux let")] [_ (#.Nat registerS)] inputS outputS))])
+              (|> letA
+                  (//.run (expressionS.synthesizer extensionL.empty))
+                  (case> (^ (#error.Success (//.branch/let [inputS registerS outputS])))
                          (and (n/= registerA registerS)
-                              (corresponds? inputA inputS)
-                              (corresponds? outputA outputS))
+                              (//primitive.corresponds? inputA inputS)
+                              (//primitive.corresponds? outputA outputS))
 
                          _
                          false))))))
@@ -50,23 +53,25 @@
   (<| (times +100)
       (do @
         [then|else r.bool
-         inputA gen-primitive
-         thenA gen-primitive
-         elseA gen-primitive
-         #let [ifA (if then|else
-                     (` ("lux case" (~ inputA)
-                         {true (~ thenA)
-                          false (~ elseA)}))
-                     (` ("lux case" (~ inputA)
-                         {false (~ elseA)
-                          true (~ thenA)})))]]
+         inputA //primitive.primitive
+         thenA //primitive.primitive
+         elseA //primitive.primitive
+         #let [thenB (: Branch
+                        [(#analysisL.Simple (#analysisL.Bool true))
+                         thenA])
+               elseB (: Branch
+                        [(#analysisL.Simple (#analysisL.Bool false))
+                         elseA])
+               ifA (if then|else
+                     (analysisL.control/case [inputA [thenB (list elseB)]])
+                     (analysisL.control/case [inputA [elseB (list thenB)]]))]]
         (test "Can detect and reify simple 'if' expressions."
-              (|> (//.run (expressionS.synthesizer extensionL.no-syntheses
-                                                   ifA))
-                  (case> (^ [_ (#.Form (list [_ (#.Text "lux if")] inputS thenS elseS))])
-                         (and (corresponds? inputA inputS)
-                              (corresponds? thenA thenS)
-                              (corresponds? elseA elseS))
+              (|> ifA
+                  (//.run (expressionS.synthesizer extensionL.empty))
+                  (case> (^ (#error.Success (//.branch/if [inputS thenS elseS])))
+                         (and (//primitive.corresponds? inputA inputS)
+                              (//primitive.corresponds? thenA thenS)
+                              (//primitive.corresponds? elseA elseS))
 
                          _
                          false))))))

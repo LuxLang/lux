@@ -11,7 +11,7 @@
              (coll [list "list/" Functor<List> Fold<List>]
                    (dictionary ["dict" unordered #+ Dict])
                    (set ["set" unordered])))
-       (lang [".L" analysis #+ Variable Analysis "variable/" Eq<Variable>]
+       (lang [".L" analysis #+ Variable Analysis "variable/" Equality<Variable>]
              ["//" synthesis #+ Arity Synthesis]
              (synthesis [".S" expression])
              [".L" extension])
@@ -44,40 +44,39 @@
   (do r.Monad<Random>
     [num-locals (|> r.nat (:: @ map (|>> (n/% +100) (n/max +10))))
      #let [indices (list.n/range +0 (dec num-locals))
-           absolute-env (list/map (|>> #analysisL.Local) indices)
-           relative-env (list/map (|>> #analysisL.Foreign) indices)]
+           local-env (list/map (|>> #analysisL.Local) indices)
+           foreign-env (list/map (|>> #analysisL.Foreign) indices)]
      [arity bodyA predictionA] (: (r.Random [Arity Analysis Variable])
                                   (loop [arity +1
-                                         global-env relative-env]
-                                    (let [env-size (list.size global-env)
+                                         current-env foreign-env]
+                                    (let [current-env/size (list.size current-env)
                                           resolver (list/fold (function (_ [idx var] resolver)
                                                                 (dict.put idx var resolver))
                                                               (: (Dict Nat Variable)
                                                                  (dict.new number.Hash<Nat>))
-                                                              (list.zip2 (list.n/range +0 (dec env-size))
-                                                                         global-env))]
+                                                              (list.enumerate current-env))]
                                       (do @
                                         [nest? r.bool]
                                         (if nest?
                                           (do @
-                                            [num-picks (:: @ map (n/max +1) (pick (inc env-size)))
-                                             picks (|> (r.set number.Hash<Nat> num-picks (pick env-size))
+                                            [num-picks (:: @ map (n/max +1) (pick (inc current-env/size)))
+                                             picks (|> (r.set number.Hash<Nat> num-picks (pick current-env/size))
                                                        (:: @ map set.to-list))
                                              [arity bodyA predictionA] (recur (inc arity)
                                                                               (list/map (function (_ pick)
-                                                                                          (maybe.assume (list.nth pick global-env)))
-                                                                                        picks))]
+                                                                                          (maybe.assume (list.nth pick current-env)))
+                                                                                        picks))
+                                             #let [picked-env (list/map (|>> #analysisL.Foreign) picks)]]
                                             (wrap [arity
-                                                   (#analysisL.Function (list/map (|>> #analysisL.Foreign) picks)
-                                                                        bodyA)
+                                                   (#analysisL.Function picked-env bodyA)
                                                    predictionA]))
                                           (do @
-                                            [chosen (pick (list.size global-env))]
+                                            [chosen (pick (list.size current-env))]
                                             (wrap [arity
-                                                   (#analysisL.Variable (#analysisL.Foreign chosen))
+                                                   (analysisL.variable/foreign chosen)
                                                    (maybe.assume (dict.get chosen resolver))])))))))]
     (wrap [arity
-           (#analysisL.Function absolute-env bodyA)
+           (#analysisL.Function local-env bodyA)
            predictionA])))
 
 (def: local-function
@@ -94,7 +93,7 @@
       (do r.Monad<Random>
         [chosen (|> r.nat (:: @ map (|>> (n/% +100) (n/max +2))))]
         (wrap [arity
-               (#analysisL.Variable (#analysisL.Local chosen))
+               (analysisL.variable/local chosen)
                (|> chosen (n/+ (dec arity)) #analysisL.Local)])))))
 
 (context: "Function definition."
@@ -116,7 +115,7 @@
             (test "Folded functions provide direct access to environment variables."
                   (|> function//environment
                       (//.run (expressionS.synthesizer extensionL.empty))
-                      (case> (^ (#error.Success (//.function/abstraction [environment arity (#//.Variable output)])))
+                      (case> (^ (#error.Success (//.function/abstraction [environment arity (analysisL.reference/variable output)])))
                              (and (n/= arity//environment arity)
                                   (variable/= prediction//environment output))
                              
@@ -125,7 +124,7 @@
             (test "Folded functions properly offset local variables."
                   (|> function//local
                       (//.run (expressionS.synthesizer extensionL.empty))
-                      (case> (^ (#error.Success (//.function/abstraction [environment arity (#//.Variable output)])))
+                      (case> (^ (#error.Success (//.function/abstraction [environment arity (analysisL.reference/variable output)])))
                              (and (n/= arity//local arity)
                                   (variable/= prediction//local output))
                              
