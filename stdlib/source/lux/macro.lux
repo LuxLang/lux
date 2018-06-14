@@ -3,7 +3,7 @@
   (lux (control [functor #+ Functor]
                 [apply #+ Apply]
                 [monad #+ do Monad])
-       (data [number]
+       (data [number "nat/" Codec<Text,Nat>]
              [product]
              [ident "ident/" Codec<Text,Ident> Eq<Ident>]
              [maybe]
@@ -397,8 +397,8 @@
                                                  (function (_ name) (list (code.symbol ["" name]) (` (gensym (~ (code.text name)))))))
                                               symbol-names))]]
       (wrap (list (` ((~! do) (~! Monad<Meta>)
-                       [(~+ symbol-defs)]
-                       (~ body))))))
+                      [(~+ symbol-defs)]
+                      (~ body))))))
 
     _
     (fail "Wrong syntax for with-gensyms")))
@@ -673,6 +673,14 @@
   (function (_ compiler)
     (#e.Success [compiler (get@ #.type-context compiler)])))
 
+(def: (cursor-description [file line column])
+  (-> Cursor Text)
+  (|> (list (text.encode file)
+            (nat/encode line)
+            (nat/encode column))
+      (text.join-with ", ")
+      (text.enclose ["[" "]"])))
+
 (do-template [<macro> <func> <desc>]
   [(macro: #export (<macro> tokens)
      {#.doc (doc "Performs a macro-expansion and logs the resulting code."
@@ -682,23 +690,30 @@
                           (def: (foo bar baz)
                             (-> Int Int Int)
                             (i/+ bar baz))))}
-     (case tokens
-       (^ (list [_ (#.Tag ["" "omit"])]
-                token))
-       (do Monad<Meta>
-         [output (<func> token)
-          #let [_ (list/map (|>> code.to-text log!)
-                            output)]]
-         (wrap (list)))
+     (case (: (Maybe [Bool Code])
+              (case tokens
+                (^ (list [_ (#.Tag ["" "omit"])]
+                         token))
+                (#.Some [true token])
 
-       (^ (list token))
-       (do Monad<Meta>
-         [output (<func> token)
-          #let [_ (list/map (|>> code.to-text log!)
-                            output)]]
-         (wrap output))
+                (^ (list token))
+                (#.Some [false token])
 
-       _
+                _
+                #.None))
+       (#.Some [omit? token])
+       (do Monad<Meta>
+         [cursor ..cursor
+          output (<func> token)
+          #let [_ (log! ($_ text/compose <desc> " @ " (cursor-description cursor)))
+                _ (list/map (|>> code.to-text log!)
+                            output)
+                _ (log! "")]]
+         (wrap (if omit?
+                 (list)
+                 output)))
+
+       #.None
        (fail ($_ text/compose "Wrong syntax for " <desc> "."))))]
 
   [log-expand      expand      "log-expand"]
@@ -706,21 +721,24 @@
   [log-expand-once expand-once "log-expand-once"]
   )
 
-(macro: #export (log-type tokens)
+(macro: #export (log-type! tokens)
   (case tokens
     (#.Cons [_ (#.Symbol valueN)] #.Nil)
     (do Monad<Meta>
-      [valueT (find-type valueN)
-       #let [_ (log! ($_ text/compose (code.to-text (code.symbol valueN)) " : " (type.to-text valueT)))]]
+      [cursor ..cursor
+       valueT (find-type valueN)
+       #let [_ (log! ($_ text/compose
+                         "log-type!" " @ " (cursor-description cursor) "\n"
+                         (code.to-text (code.symbol valueN)) " : " (type.to-text valueT) "\n"))]]
       (wrap (list (' []))))
 
     (#.Cons valueC #.Nil)
     (|> (` (.let [(~ g!value) (~ valueC)]
-             (..log-type (~ g!value))))
+             (..log-type! (~ g!value))))
         (let [g!value (code.local-symbol (code.to-text valueC))])
         list
         (:: Monad<Meta> wrap))
 
     _
-    (fail "Wrong syntax for log-type.")
+    (fail "Wrong syntax for log-type!.")
     ))
