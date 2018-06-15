@@ -10,12 +10,13 @@
              [number "frac/" Eq<Frac>]
              (coll [list "list/" Fold<List> Monoid<List>])))
   [///reference]
+  [///compiler #+ Operation "operation/" Monad<Operation>]
   [///analysis #+ Pattern Match Analysis]
-  [// #+ Path Synthesis Operation]
+  [// #+ Path Synthesis]
   [//function])
 
 (def: (path' pattern bodyC)
-  (-> Pattern (Operation Path) (Operation Path))
+  (-> Pattern (Operation //.State Path) (Operation //.State Path))
   (case pattern
     (#///analysis.Simple simple)
     (case simple
@@ -24,9 +25,8 @@
       
       (^template [<from> <to>]
         (<from> value)
-        (:: //.Operation@Monad map
-            (|>> (#//.Seq (#//.Test (|> value <to>))))
-            bodyC))
+        (operation/map (|>> (#//.Seq (#//.Test (|> value <to>))))
+                       bodyC))
       ([#///analysis.Bool #//.Bool]
        [#///analysis.Nat  (<| #//.I64 .i64)]
        [#///analysis.Int  (<| #//.I64 .i64)]
@@ -35,21 +35,21 @@
        [#///analysis.Text #//.Text]))
     
     (#///analysis.Bind register)
-    (do //.Operation@Monad
-      [arity //.scope-arity]
-      (:: @ map (|>> (#//.Seq (#//.Bind (if (//function.nested? arity)
-                                          (n/+ (dec arity) register)
-                                          register))))
-          (//.with-new-local' bodyC)))
+    (<| (do ///compiler.Monad<Operation>
+          [arity //.scope-arity])
+        (:: @ map (|>> (#//.Seq (#//.Bind (if (//function.nested? arity)
+                                            (n/+ (dec arity) register)
+                                            register)))))
+        //.with-new-local
+        bodyC)
 
     (#///analysis.Complex _)
     (case (///analysis.variant-pattern pattern)
       (#.Some [lefts right? value-pattern])
-      (:: //.Operation@Monad map
-          (|>> (#//.Seq (#//.Access (#//.Side (if right?
-                                                (#.Right lefts)
-                                                (#.Left lefts))))))
-          (path' value-pattern bodyC))
+      (operation/map (|>> (#//.Seq (#//.Access (#//.Side (if right?
+                                                           (#.Right lefts)
+                                                           (#.Left lefts))))))
+                     (path' value-pattern bodyC))
       
       #.None
       (let [tuple (///analysis.tuple-pattern pattern)
@@ -64,18 +64,17 @@
                          (|> (if (or last?
                                      (is? bodyC thenC))
                                thenC
-                               (:: //.Operation@Monad map (|>> (#//.Seq #//.Pop)) thenC))
+                               (operation/map (|>> (#//.Seq #//.Pop)) thenC))
                              (path' tuple/member)
-                             (:: //.Operation@Monad map
-                                 (|>> (#//.Seq (#//.Access (#//.Member (if last?
-                                                                         (#.Right (dec tuple/idx))
-                                                                         (#.Left tuple/idx)))))))))))
+                             (operation/map (|>> (#//.Seq (#//.Access (#//.Member (if last?
+                                                                                    (#.Right (dec tuple/idx))
+                                                                                    (#.Left tuple/idx)))))))))))
                    bodyC
                    (list.reverse (list.enumerate tuple)))))))
 
 (def: #export (path synthesize pattern bodyA)
-  (-> //.Synthesizer Pattern Analysis (Operation Path))
-  (path' pattern (:: //.Operation@Monad map (|>> #//.Then) (synthesize bodyA))))
+  (-> //.Synthesizer Pattern Analysis (Operation //.State Path))
+  (path' pattern (operation/map (|>> #//.Then) (synthesize bodyA))))
 
 (def: #export (weave leftP rightP)
   (-> Path Path Path)
@@ -124,8 +123,8 @@
       <default>)))
 
 (def: #export (synthesize synthesize^ inputA [headB tailB+])
-  (-> //.Synthesizer Analysis Match (Operation Synthesis))
-  (do //.Operation@Monad
+  (-> //.Synthesizer Analysis Match (Operation //.State Synthesis))
+  (do ///compiler.Monad<Operation>
     [inputS (synthesize^ inputA)]
     (case [headB tailB+]
       [[(#///analysis.Bind inputR) headB/bodyA]
@@ -139,7 +138,7 @@
         _
         (do @
           [arity //.scope-arity
-           headB/bodyS (//.with-new-local'
+           headB/bodyS (//.with-new-local
                          (synthesize^ headB/bodyA))]
           (wrap (//.branch/let [inputS
                                 (if (//function.nested? arity)

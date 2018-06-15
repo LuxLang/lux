@@ -1,15 +1,11 @@
 (.module:
   [lux #- Scope]
-  (lux (control [state]
-                ["ex" exception #+ Exception exception:]
-                [monad #+ do])
-       (data [product]
-             [error #+ Error]
-             [number]
-             (coll (dictionary ["dict" unordered #+ Dict])))
-       [function])
+  (lux (control [monad #+ do])
+       (data [error #+ Error]
+             (coll (dictionary ["dict" unordered #+ Dict]))))
   [//reference #+ Register Variable Reference]
-  [//analysis #+ Environment Special Analysis])
+  [//analysis #+ Environment Special Analysis]
+  [//compiler #+ Operation Compiler])
 
 (type: #export Arity Nat)
 
@@ -31,12 +27,6 @@
    #resolver fresh-resolver
    #direct? false
    #locals +0})
-
-(type: (Operation' s o)
-  (state.State' Error s o))
-
-(type: #export (Compiler s i o)
-  (-> i (Operation' ..State o)))
 
 (type: #export Primitive
   (#Bool Bool)
@@ -132,84 +122,42 @@
 (type: #export Abstraction
   (Abstraction' Synthesis))
 
-(type: #export (Operation a)
-  (Operation' ..State a))
-
 (def: #export unit Text "")
 
 (type: #export Synthesizer
   (Compiler ..State Analysis Synthesis))
 
-(def: #export (throw exception parameters)
-  (All [e] (-> (Exception e) e Operation'))
-  (state.lift error.Monad<Error>
-              (ex.throw exception parameters)))
+(do-template [<name> <value>]
+  [(def: #export <name>
+     (All [a] (-> (Operation ..State a) (Operation ..State a)))
+     (//compiler.localized (set@ #direct? <value>)))]
 
-(def: #export (run synthesizer analysis)
-  (-> Synthesizer Analysis (Error Synthesis))
-  (:: error.Monad<Error> map product.right
-      (synthesizer analysis ..init)))
-
-(def: (localized' transform)
-  (-> (-> State State)
-      (All [a] (-> (Operation a) (Operation a))))
-  (function (_ operation)
-    (function (_ state)
-      (case (operation (transform state))
-        (#error.Error error)
-        (#error.Error error)
-
-        (#error.Success [state' output])
-        (#error.Success [state output])))))
-
-(def: (localized transform)
-  (-> (-> State State)
-      (-> Synthesizer Synthesizer))
-  (function (_ synthesize)
-    (function (_ analysis)
-      (localized' transform (synthesize analysis)))))
-
-(do-template [<operation> <synthesizer> <value>]
-  [(def: #export <operation>
-     (All [a] (-> (Operation a) (Operation a)))
-     (localized' (set@ #direct? <value>)))
-
-   (def: #export <synthesizer>
-     (-> Synthesizer Synthesizer)
-     (localized (set@ #direct? <value>)))]
-
-  [indirectly' indirectly false]
-  [directly'   directly   true]
+  [indirectly false]
+  [directly   true]
   )
 
-(do-template [<operation> <synthesizer> <type> <tag>]
-  [(def: #export (<operation> value)
-     (-> <type> (All [a] (-> (Operation a) (Operation a))))
-     (localized' (set@ <tag> value)))
+(do-template [<name> <type> <tag>]
+  [(def: #export (<name> value)
+     (-> <type> (All [a] (-> (Operation ..State a) (Operation ..State a))))
+     (//compiler.localized (set@ <tag> value)))]
 
-   (def: #export (<synthesizer> value)
-     (-> <type> (-> Synthesizer Synthesizer))
-     (localized (set@ <tag> value)))]
-
-  [with-scope-arity' with-scope-arity Arity    #scope-arity]
-  [with-resolver'    with-resolver    Resolver #resolver]
-  [with-locals'      with-locals      Nat      #locals]
+  [with-scope-arity Arity    #scope-arity]
+  [with-resolver    Resolver #resolver]
+  [with-locals      Nat      #locals]
   )
 
-(def: #export (with-state value)
-  (-> ..State (-> Synthesizer Synthesizer))
-  (localized (function.constant value)))
-
-(def: #export (with-abstraction-state arity resolver)
-  (-> Arity Resolver (-> Synthesizer Synthesizer))
-  (with-state {#scope-arity arity
-               #resolver resolver
-               #direct? true
-               #locals arity}))
+(def: #export (with-abstraction arity resolver)
+  (All [o]
+    (-> Arity Resolver
+        (-> (Operation ..State o) (Operation ..State o))))
+  (//compiler.with-state {#scope-arity arity
+                          #resolver resolver
+                          #direct? true
+                          #locals arity}))
 
 (do-template [<name> <tag> <type>]
   [(def: #export <name>
-     (Operation <type>)
+     (Operation ..State <type>)
      (function (_ state)
        (#error.Success [state (get@ <tag> state)])))]
 
@@ -219,13 +167,11 @@
   [locals      #locals      Nat]
   )
 
-(def: #export Operation@Monad (state.Monad<State'> error.Monad<Error>))
-
-(def: #export with-new-local'
-  (All [a] (-> (Operation a) (Operation a)))
-  (<<| (do Operation@Monad
+(def: #export with-new-local
+  (All [a] (-> (Operation ..State a) (Operation ..State a)))
+  (<<| (do //compiler.Monad<Operation>
          [locals ..locals])
-       (..with-locals' (inc locals))))
+       (..with-locals (inc locals))))
 
 (do-template [<name> <tag>]
   [(template: #export (<name> content)
