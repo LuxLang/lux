@@ -4,16 +4,16 @@
                 ["ex" exception #+ exception:])
        (data ["e" error]
              [text]
-             (coll (dictionary ["dict" unordered #+ Dict])))
-       [macro])
+             (coll (dictionary ["dict" unordered #+ Dict]))))
   [// #+ Eval]
   [//compiler #+ Operation Compiler]
   [//analysis #+ Analyser]
-  [//synthesis #+ Synthesizer])
+  [//synthesis #+ Synthesizer]
+  [//translation #+ Translator])
 
 (do-template [<name>]
-  [(exception: #export (<name> {message Text})
-     message)]
+  [(exception: #export (<name> {extension Text})
+     extension)]
 
   [unknown-analysis]
   [unknown-synthesis]
@@ -27,7 +27,10 @@
   )
 
 (type: #export Analysis
-  (-> Analyser Eval (List Code) (Meta //analysis.Analysis)))
+  (-> Analyser Eval
+      (Compiler .Lux
+                (List Code)
+                //analysis.Analysis)))
 
 (type: #export Synthesis
   (-> Synthesizer
@@ -35,8 +38,11 @@
                 (List //analysis.Analysis)
                 //synthesis.Synthesis)))
 
-(type: #export Translation
-  (-> (List Code) (Meta Code)))
+(type: #export (Translation anchor code)
+  (-> (Translator anchor code)
+      (Compiler (//translation.State anchor code)
+                (List //synthesis.Synthesis)
+                code)))
 
 (type: #export Statement
   (-> (List Code) (Meta Any)))
@@ -72,14 +78,14 @@
 (do-template [<name> <type> <category> <exception>]
   [(def: #export (<name> name)
      (-> Text (Meta <type>))
-     (do macro.Monad<Meta>
+     (do //compiler.Monad<Operation>
        [extensions ..get]
        (case (dict.get name (get@ <category> extensions))
          (#.Some extension)
          (wrap extension)
 
          #.None
-         (//.throw <exception> name))))]
+         (//compiler.throw <exception> name))))]
 
   [find-analysis    Analysis    #analysis    unknown-analysis]
   [find-synthesis   Synthesis   #synthesis   unknown-synthesis]
@@ -91,25 +97,30 @@
   (All [e] (Extension e))
   (dict.new text.Hash<Text>))
 
-(do-template [<all> <type> <category>]
+(do-template [<params> <all> <state> <type> <category>]
   [(def: #export <all>
-     (Meta (Extension <type>))
+     (All <params> (Operation <state> (Extension <type>)))
      (|> ..get
-         (:: macro.Monad<Meta> map (get@ <category>))))]
+         (:: //compiler.Monad<Operation> map (get@ <category>))))]
 
-  [all-analyses     Analysis    #analysis]
-  [all-syntheses    Synthesis   #synthesis]
-  [all-translations Translation #translation]
-  [all-statements   Statement   #statement]
+  [[]            all-analyses     .Lux
+   Analysis    #analysis]
+  [[]            all-syntheses    //synthesis.State
+   Synthesis   #synthesis]
+  [[anchor code] all-translations (//translation.State anchor code)
+   Translation #translation]
+  [[]            all-statements   Any
+   Statement   #statement]
   )
 
 (do-template [<name> <type> <category> <exception>]
   [(def: #export (<name> name extension)
      (-> Text <type> (Meta Any))
-     (do macro.Monad<Meta>
+     (do //compiler.Monad<Operation>
        [extensions ..get
-        _ (//.assert <exception> name
-                     (not (dict.contains? name (get@ <category> extensions))))
+        _ (if (not (dict.contains? name (get@ <category> extensions)))
+            (wrap [])
+            (//compiler.throw <exception> name))
         _ (..set (update@ <category> (dict.put name extension) extensions))]
        (wrap [])))]
 

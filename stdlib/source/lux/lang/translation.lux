@@ -1,0 +1,164 @@
+(.module:
+  lux
+  (lux (control ["ex" exception #+ exception:]
+                [monad #+ do])
+       (data [maybe "maybe/" Functor<Maybe>]
+             [error #+ Error]
+             [text]
+             text/format
+             (coll [sequence #+ Sequence]
+                   (dictionary ["dict" unordered #+ Dict])))
+       (world [file #+ File]))
+  [//name]
+  [//reference #+ Register]
+  [//compiler #+ Operation Compiler]
+  [//synthesis #+ Synthesis])
+
+(do-template [<name>]
+  [(exception: #export (<name>)
+     "")]
+
+  [no-active-buffer]
+  [no-anchor]
+  )
+
+(exception: #export (cannot-interpret {message Text})
+  message)
+
+(type: #export Context
+  {#scope-name Text
+   #inner-functions Nat})
+
+(sig: #export (Host code)
+  (: (-> code (Error Any))
+     execute!)
+  (: (-> code (Error Any))
+     evaluate!))
+
+(type: #export (Buffer code) (Sequence [Ident code]))
+
+(type: #export (Artifacts code) (Dict File (Buffer code)))
+
+(type: #export (State anchor code)
+  {#context Context
+   #anchor (Maybe anchor)
+   #host (Host code)
+   #buffer (Maybe (Buffer code))
+   #artifacts (Artifacts code)})
+
+(type: #export (Translator anchor code)
+  (Compiler (State anchor code) Synthesis code))
+
+(def: #export (init host)
+  (All [anchor code] (-> (Host code) (..State anchor code)))
+  {#context {#scope-name ""
+             #inner-functions +0}
+   #anchor #.None
+   #host host
+   #buffer #.None
+   #artifacts (dict.new text.Hash<Text>)})
+
+(def: #export (with-context expr)
+  (All [anchor code output]
+    (-> (Operation (..State anchor code) output)
+        (Operation (..State anchor code) [Text output])))
+  (function (_ state)
+    (let [[old-scope old-inner] (get@ #context state)
+          new-scope (format old-scope "c___" (%i (.int old-inner)))]
+      (case (expr (set@ #context [new-scope +0] state))
+        (#error.Success [state' output])
+        (#error.Success [(set@ #context [old-scope (inc old-inner)] state')
+                         [new-scope output]])
+
+        (#error.Error error)
+        (#error.Error error)))))
+
+(def: #export context
+  (All [anchor code] (Operation (..State anchor code) Text))
+  (function (_ state)
+    (#error.Success [state
+                     (|> state
+                         (get@ #context)
+                         (get@ #scope-name))])))
+
+(do-template [<tag>
+              <with-declaration> <with-type> <with-value>
+              <get> <get-type> <exception>]
+  [(def: #export <with-declaration>
+     (All [anchor code output] <with-type>)
+     (function (_ body)
+       (function (_ state)
+         (case (body (set@ <tag> (#.Some <with-value>) state))
+           (#error.Success [state' output])
+           (#error.Success [(set@ <tag> (get@ <tag> state) state')
+                            output])
+
+           (#error.Error error)
+           (#error.Error error)))))
+
+   (def: #export <get>
+     (All [anchor code] (Operation (..State anchor code) <get-type>))
+     (function (_ state)
+       (case (get@ <tag> state)
+         (#.Some output)
+         (#error.Success [state output])
+
+         #.None
+         (ex.throw <exception> []))))]
+
+  [#anchor
+   (with-anchor anchor)
+   (-> anchor (Operation (..State anchor code) output)
+       (Operation (..State anchor code) output))
+   anchor
+   anchor anchor no-anchor]
+
+  [#buffer
+   with-buffer
+   (-> (Operation (..State anchor code) output)
+       (Operation (..State anchor code) output))
+   sequence.empty
+   buffer (Buffer code) no-active-buffer]
+  )
+
+(def: #export artifacts
+  (All [anchor code]
+    (Operation (..State anchor code) (Artifacts code)))
+  (function (_ state)
+    (#error.Success [state (get@ #artifacts state)])))
+
+(do-template [<name>]
+  [(def: #export (<name> code)
+     (All [anchor code]
+       (-> code (Operation (..State anchor code) Any)))
+     (function (_ state)
+       (case (:: (get@ #host state) <name> code)
+         (#error.Error error)
+         (ex.throw cannot-interpret error)
+         
+         (#error.Success output)
+         (#error.Success [state output]))))]
+
+  [execute!]
+  [evaluate!]
+  )
+
+(def: #export (save! name code)
+  (All [anchor code]
+    (-> Ident code (Operation (..State anchor code) Any)))
+  (do //compiler.Monad<Operation>
+    [_ (execute! code)]
+    (function (_ state)
+      (#error.Success [(update@ #buffer
+                                (maybe/map (sequence.add [name code]))
+                                state)
+                       []]))))
+
+(def: #export (save-buffer! target)
+  (All [anchor code]
+    (-> File (Operation (..State anchor code) Any)))
+  (do //compiler.Monad<Operation>
+    [buffer ..buffer]
+    (function (_ state)
+      (#error.Success [(update@ #artifacts (dict.put target buffer) state)
+                       []]))))
