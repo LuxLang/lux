@@ -10,16 +10,16 @@
                    (dictionary ["dict" unordered #+ Dict]))
              text/format)
        [macro]
-       (macro [code])
-       [lang]
-       (lang [type]
-             (type ["tc" check])
-             [analysis #+ Analysis Analyser]
-             (analysis [".A" type]
-                       [".A" primitive]
-                       [".A" inference]))))
+       (macro [code]))
+  (//// [type]
+        (type ["tc" check]))
+  [///]
+  [// #+ Tag Analysis Operation Compiler]
+  [//type]
+  [//primitive]
+  [//inference])
 
-(exception: #export (invalid-variant-type {type Type} {tag analysis.Tag} {code Code})
+(exception: #export (invalid-variant-type {type Type} {tag Tag} {code Code})
   (ex.report ["Type" (%type type)]
              ["Tag" (%n tag)]
              ["Expression" (%code code)]))
@@ -37,7 +37,7 @@
   (%type type))
 
 (do-template [<name>]
-  [(exception: #export (<name> {type Type} {tag analysis.Tag} {code Code})
+  [(exception: #export (<name> {type Type} {tag Tag} {code Code})
      (ex.report ["Type" (%type type)]
                 ["Tag" (%n tag)]
                 ["Expression" (%code code)]))]
@@ -74,10 +74,10 @@
                                       code.record))]))
 
 (def: #export (sum analyse tag valueC)
-  (-> Analyser Nat Code (Meta Analysis))
-  (do macro.Monad<Meta>
+  (-> Compiler Nat Code (Operation Analysis))
+  (do ///.Monad<Operation>
     [expectedT macro.expected-type]
-    (lang.with-stacked-errors
+    (///.with-stacked-errors
       (function (_ _)
         (ex.construct cannot-analyse-variant [expectedT tag valueC]))
       (case expectedT
@@ -87,38 +87,38 @@
           (case (list.nth tag flat)
             (#.Some variant-type)
             (do @
-              [valueA (typeA.with-type variant-type
+              [valueA (//type.with-type variant-type
                         (analyse valueC))]
-              (wrap (analysis.sum-analysis type-size tag valueA)))
+              (wrap (//.sum-analysis type-size tag valueA)))
 
             #.None
-            (lang.throw inferenceA.variant-tag-out-of-bounds [type-size tag expectedT])))
+            (///.throw //inference.variant-tag-out-of-bounds [type-size tag expectedT])))
 
         (#.Named name unnamedT)
-        (typeA.with-type unnamedT
+        (//type.with-type unnamedT
           (sum analyse tag valueC))
 
         (#.Var id)
         (do @
-          [?expectedT' (typeA.with-env
+          [?expectedT' (//type.with-env
                          (tc.read id))]
           (case ?expectedT'
             (#.Some expectedT')
-            (typeA.with-type expectedT'
+            (//type.with-type expectedT'
               (sum analyse tag valueC))
 
             _
             ## Cannot do inference when the tag is numeric.
             ## This is because there is no way of knowing how many
             ## cases the inferred sum type would have.
-            (lang.throw cannot-infer-numeric-tag [expectedT tag valueC])
+            (///.throw cannot-infer-numeric-tag [expectedT tag valueC])
             ))
 
         (^template [<tag> <instancer>]
           (<tag> _)
           (do @
-            [[instance-id instanceT] (typeA.with-env <instancer>)]
-            (typeA.with-type (maybe.assume (type.apply (list instanceT) expectedT))
+            [[instance-id instanceT] (//type.with-env <instancer>)]
+            (//type.with-type (maybe.assume (type.apply (list instanceT) expectedT))
               (sum analyse tag valueC))))
         ([#.UnivQ tc.existential]
          [#.ExQ tc.var])
@@ -127,30 +127,30 @@
         (case funT
           (#.Var funT-id)
           (do @
-            [?funT' (typeA.with-env (tc.read funT-id))]
+            [?funT' (//type.with-env (tc.read funT-id))]
             (case ?funT'
               (#.Some funT')
-              (typeA.with-type (#.Apply inputT funT')
+              (//type.with-type (#.Apply inputT funT')
                 (sum analyse tag valueC))
 
               _
-              (lang.throw invalid-variant-type [expectedT tag valueC])))
+              (///.throw invalid-variant-type [expectedT tag valueC])))
 
           _
           (case (type.apply (list inputT) funT)
             #.None
-            (lang.throw not-a-quantified-type funT)
+            (///.throw not-a-quantified-type funT)
             
             (#.Some outputT)
-            (typeA.with-type outputT
+            (//type.with-type outputT
               (sum analyse tag valueC))))
         
         _
-        (lang.throw invalid-variant-type [expectedT tag valueC])))))
+        (///.throw invalid-variant-type [expectedT tag valueC])))))
 
 (def: (typed-product analyse membersC+)
-  (-> Analyser (List Code) (Meta Analysis))
-  (do macro.Monad<Meta>
+  (-> Compiler (List Code) (Operation Analysis))
+  (do ///.Monad<Operation>
     [expectedT macro.expected-type]
     (loop [expectedT expectedT
            membersC+ membersC+]
@@ -158,17 +158,17 @@
         ## If the tuple runs out, whatever expression is the last gets
         ## matched to the remaining type.
         [tailT (#.Cons tailC #.Nil)]
-        (typeA.with-type tailT
+        (//type.with-type tailT
           (analyse tailC))
 
         ## If the type and the code are still ongoing, match each
         ## sub-expression to its corresponding type.
         [(#.Product leftT rightT) (#.Cons leftC rightC)]
         (do @
-          [leftA (typeA.with-type leftT
+          [leftA (//type.with-type leftT
                    (analyse leftC))
            rightA (recur rightT rightC)]
-          (wrap (#analysis.Structure (#analysis.Product leftA rightA))))
+          (wrap (#//.Structure (#//.Product leftA rightA))))
 
         ## If, however, the type runs out but there is still enough
         ## tail, the remaining elements get packaged into another
@@ -184,14 +184,14 @@
         (|> tailC
             code.tuple
             analyse
-            (typeA.with-type tailT)
-            (:: @ map (|>> analysis.no-op)))))))
+            (//type.with-type tailT)
+            (:: @ map (|>> //.no-op)))))))
 
 (def: #export (product analyse membersC)
-  (-> Analyser (List Code) (Meta Analysis))
-  (do macro.Monad<Meta>
+  (-> Compiler (List Code) (Operation Analysis))
+  (do ///.Monad<Operation>
     [expectedT macro.expected-type]
-    (lang.with-stacked-errors
+    (///.with-stacked-errors
       (function (_ _)
         (ex.construct cannot-analyse-tuple [expectedT membersC]))
       (case expectedT
@@ -199,33 +199,33 @@
         (..typed-product analyse membersC)
 
         (#.Named name unnamedT)
-        (typeA.with-type unnamedT
+        (//type.with-type unnamedT
           (product analyse membersC))
 
         (#.Var id)
         (do @
-          [?expectedT' (typeA.with-env
+          [?expectedT' (//type.with-env
                          (tc.read id))]
           (case ?expectedT'
             (#.Some expectedT')
-            (typeA.with-type expectedT'
+            (//type.with-type expectedT'
               (product analyse membersC))
 
             _
             ## Must do inference...
             (do @
-              [membersTA (monad.map @ (|>> analyse typeA.with-inference)
+              [membersTA (monad.map @ (|>> analyse //type.with-inference)
                                     membersC)
-               _ (typeA.with-env
+               _ (//type.with-env
                    (tc.check expectedT
                              (type.tuple (list/map product.left membersTA))))]
-              (wrap (analysis.product-analysis (list/map product.right membersTA))))))
+              (wrap (//.product-analysis (list/map product.right membersTA))))))
 
         (^template [<tag> <instancer>]
           (<tag> _)
           (do @
-            [[instance-id instanceT] (typeA.with-env <instancer>)]
-            (typeA.with-type (maybe.assume (type.apply (list instanceT) expectedT))
+            [[instance-id instanceT] (//type.with-env <instancer>)]
+            (//type.with-type (maybe.assume (type.apply (list instanceT) expectedT))
               (product analyse membersC))))
         ([#.UnivQ tc.existential]
          [#.ExQ tc.var])
@@ -234,31 +234,31 @@
         (case funT
           (#.Var funT-id)
           (do @
-            [?funT' (typeA.with-env (tc.read funT-id))]
+            [?funT' (//type.with-env (tc.read funT-id))]
             (case ?funT'
               (#.Some funT')
-              (typeA.with-type (#.Apply inputT funT')
+              (//type.with-type (#.Apply inputT funT')
                 (product analyse membersC))
 
               _
-              (lang.throw invalid-tuple-type [expectedT membersC])))
+              (///.throw invalid-tuple-type [expectedT membersC])))
 
           _
           (case (type.apply (list inputT) funT)
             #.None
-            (lang.throw not-a-quantified-type funT)
+            (///.throw not-a-quantified-type funT)
             
             (#.Some outputT)
-            (typeA.with-type outputT
+            (//type.with-type outputT
               (product analyse membersC))))
         
         _
-        (lang.throw invalid-tuple-type [expectedT membersC])
+        (///.throw invalid-tuple-type [expectedT membersC])
         ))))
 
 (def: #export (tagged-sum analyse tag valueC)
-  (-> Analyser Ident Code (Meta Analysis))
-  (do macro.Monad<Meta>
+  (-> Compiler Ident Code (Operation Analysis))
+  (do ///.Monad<Operation>
     [tag (macro.normalize tag)
      [idx group variantT] (macro.resolve-tag tag)
      expectedT macro.expected-type]
@@ -266,9 +266,9 @@
       (#.Var _)
       (do @
         [#let [case-size (list.size group)]
-         inferenceT (inferenceA.variant idx case-size variantT)
-         [inferredT valueA+] (inferenceA.general analyse inferenceT (list valueC))]
-        (wrap (analysis.sum-analysis case-size idx (|> valueA+ list.head maybe.assume))))
+         inferenceT (//inference.variant idx case-size variantT)
+         [inferredT valueA+] (//inference.general analyse inferenceT (list valueC))]
+        (wrap (//.sum-analysis case-size idx (|> valueA+ list.head maybe.assume))))
 
       _
       (..sum analyse idx valueC))))
@@ -278,38 +278,38 @@
 ## Normalization just means that all the tags get resolved to their
 ## canonical form (with their corresponding module identified).
 (def: #export (normalize record)
-  (-> (List [Code Code]) (Meta (List [Ident Code])))
-  (monad.map macro.Monad<Meta>
+  (-> (List [Code Code]) (Operation (List [Ident Code])))
+  (monad.map ///.Monad<Operation>
              (function (_ [key val])
                (case key
                  [_ (#.Tag key)]
-                 (do macro.Monad<Meta>
+                 (do ///.Monad<Operation>
                    [key (macro.normalize key)]
                    (wrap [key val]))
 
                  _
-                 (lang.throw record-keys-must-be-tags [key record])))
+                 (///.throw record-keys-must-be-tags [key record])))
              record))
 
 ## Lux already possesses the means to analyse tuples, so
 ## re-implementing the same functionality for records makes no sense.
 ## Records, thus, get transformed into tuples by ordering the elements.
 (def: #export (order record)
-  (-> (List [Ident Code]) (Meta [(List Code) Type]))
+  (-> (List [Ident Code]) (Operation [(List Code) Type]))
   (case record
     ## empty-record = empty-tuple = unit = []
     #.Nil
-    (:: macro.Monad<Meta> wrap [(list) Any])
+    (:: ///.Monad<Operation> wrap [(list) Any])
 
     (#.Cons [head-k head-v] _)
-    (do macro.Monad<Meta>
+    (do ///.Monad<Operation>
       [head-k (macro.normalize head-k)
        [_ tag-set recordT] (macro.resolve-tag head-k)
        #let [size-record (list.size record)
              size-ts (list.size tag-set)]
        _ (if (n/= size-ts size-record)
            (wrap [])
-           (lang.throw record-size-mismatch [size-ts size-record recordT record]))
+           (///.throw record-size-mismatch [size-ts size-record recordT record]))
        #let [tuple-range (list.n/range +0 (dec size-ts))
              tag->idx (dict.from-list ident.Hash<Ident> (list.zip2 tag-set tuple-range))]
        idx->val (monad.fold @
@@ -318,11 +318,11 @@
                                 [key (macro.normalize key)]
                                 (case (dict.get key tag->idx)
                                   #.None
-                                  (lang.throw tag-does-not-belong-to-record [key recordT])
+                                  (///.throw tag-does-not-belong-to-record [key recordT])
 
                                   (#.Some idx)
                                   (if (dict.contains? idx idx->val)
-                                    (lang.throw cannot-repeat-tag [key record])
+                                    (///.throw cannot-repeat-tag [key record])
                                     (wrap (dict.put idx val idx->val))))))
                             (: (Dict Nat Code)
                                (dict.new number.Hash<Nat>))
@@ -333,13 +333,13 @@
     ))
 
 (def: #export (record analyse members)
-  (-> Analyser (List [Code Code]) (Meta Analysis))
-  (do macro.Monad<Meta>
+  (-> Compiler (List [Code Code]) (Operation Analysis))
+  (do ///.Monad<Operation>
     [members (normalize members)
      [membersC recordT] (order members)]
     (case membersC
       (^ (list))
-      primitiveA.unit
+      //primitive.unit
       
       (^ (list singletonC))
       (analyse singletonC)
@@ -350,9 +350,9 @@
         (case expectedT
           (#.Var _)
           (do @
-            [inferenceT (inferenceA.record recordT)
-             [inferredT membersA] (inferenceA.general analyse inferenceT membersC)]
-            (wrap (analysis.product-analysis membersA)))
+            [inferenceT (//inference.record recordT)
+             [inferredT membersA] (//inference.general analyse inferenceT membersC)]
+            (wrap (//.product-analysis membersA)))
 
           _
           (..product analyse membersC))))))

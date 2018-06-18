@@ -1,9 +1,12 @@
 (.module:
   [lux #- nat int deg]
-  (lux [function]
-       (data (coll [list "list/" Fold<List>])))
-  [// #+ Extension]
-  [//reference #+ Register Variable Reference])
+  (lux (data [product]
+             [error]
+             [text "text/" Eq<Text>]
+             (coll [list "list/" Fold<List>]))
+       [function])
+  [///reference #+ Register Variable Reference]
+  [//])
 
 (type: #export #rec Primitive
   #Unit
@@ -41,8 +44,13 @@
   (#Reference Reference)
   (#Case Analysis (Match' Analysis))
   (#Function Environment Analysis)
-  (#Apply Analysis Analysis)
-  (#Extension (Extension Analysis)))
+  (#Apply Analysis Analysis))
+
+(type: #export Operation
+  (//.Operation .Lux))
+
+(type: #export Compiler
+  (//.Compiler .Lux Code Analysis))
 
 (type: #export Branch
   (Branch' Analysis))
@@ -88,7 +96,7 @@
   (n/= (dec size) tag))
 
 (template: #export (no-op value)
-  (|> +1 #//reference.Local #//reference.Variable #..Reference
+  (|> +1 #///reference.Local #///reference.Variable #..Reference
       (#..Function (list))
       (#..Apply value)))
 
@@ -137,9 +145,6 @@
 (def: #export (apply [func args])
   (-> (Application Analysis) Analysis)
   (list/fold (function (_ arg func) (#Apply arg func)) func args))
-
-(type: #export Analyser
-  (-> Code (Meta Analysis)))
 
 (do-template [<name> <type> <tag>]
   [(def: #export (<name> value)
@@ -207,3 +212,70 @@
   [pattern/frac #..Frac]
   [pattern/text #..Text]
   )
+
+(def: #export (with-source-code source action)
+  (All [a] (-> Source (Operation a) (Operation a)))
+  (function (_ compiler)
+    (let [old-source (get@ #.source compiler)]
+      (case (action (set@ #.source source compiler))
+        (#error.Error error)
+        (#error.Error error)
+
+        (#error.Success [compiler' output])
+        (#error.Success [(set@ #.source old-source compiler')
+                         output])))))
+
+(def: fresh-bindings
+  (All [k v] (Bindings k v))
+  {#.counter +0
+   #.mappings (list)})
+
+(def: fresh-scope
+  Scope
+  {#.name     (list)
+   #.inner    +0
+   #.locals   fresh-bindings
+   #.captured fresh-bindings})
+
+(def: #export (with-scope action)
+  (All [a] (-> (Operation a) (Operation [Scope a])))
+  (function (_ compiler)
+    (case (action (update@ #.scopes (|>> (#.Cons fresh-scope)) compiler))
+      (#error.Success [compiler' output])
+      (case (get@ #.scopes compiler')
+        #.Nil
+        (#error.Error "Impossible error: Drained scopes!")
+
+        (#.Cons head tail)
+        (#error.Success [(set@ #.scopes tail compiler')
+                         [head output]]))
+
+      (#error.Error error)
+      (#error.Error error))))
+
+(def: #export (with-current-module name action)
+  (All [a] (-> Text (Operation a) (Operation a)))
+  (function (_ compiler)
+    (case (action (set@ #.current-module (#.Some name) compiler))
+      (#error.Success [compiler' output])
+      (#error.Success [(set@ #.current-module
+                             (get@ #.current-module compiler)
+                             compiler')
+                       output])
+
+      (#error.Error error)
+      (#error.Error error))))
+
+(def: #export (with-cursor cursor action)
+  (All [a] (-> Cursor (Operation a) (Operation a)))
+  (if (text/= "" (product.left cursor))
+    action
+    (function (_ compiler)
+      (let [old-cursor (get@ #.cursor compiler)]
+        (case (action (set@ #.cursor cursor compiler))
+          (#error.Success [compiler' output])
+          (#error.Success [(set@ #.cursor old-cursor compiler')
+                           output])
+
+          (#error.Error error)
+          (#error.Error error))))))

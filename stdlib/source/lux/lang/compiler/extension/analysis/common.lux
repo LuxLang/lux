@@ -1,0 +1,396 @@
+(.module:
+  lux
+  (lux (control [monad #+ do]
+                ["ex" exception #+ exception:]
+                [thread #+ Box])
+       (concurrency [atom #+ Atom])
+       (data [text]
+             text/format
+             (coll [list "list/" Functor<List>]
+                   [array]
+                   (dictionary ["dict" unordered #+ Dict])))
+       [lang]
+       (lang (type ["tc" check])
+             (analysis [".A" type]
+                       [".A" case]
+                       [".A" function]))
+       [io #+ IO])
+  (//// [compiler]
+        [analysis #+ Analysis])
+  [///]
+  [///bundle])
+
+(type: Handler
+  (///.Handler .Lux .Code Analysis))
+
+## [Utils]
+(def: (simple extension inputsT+ outputT)
+  (-> Text (List Type) Type ..Handler)
+  (let [num-expected (list.size inputsT+)]
+    (function (_ analyse args)
+      (let [num-actual (list.size args)]
+        (if (n/= num-expected num-actual)
+          (do compiler.Monad<Operation>
+            [_ (typeA.infer outputT)
+             argsA (monad.map @
+                              (function (_ [argT argC])
+                                (typeA.with-type argT
+                                  (analyse argC)))
+                              (list.zip2 inputsT+ args))]
+            (wrap (#///.Extension extension argsA)))
+          (lang.throw ///bundle.incorrect-arity [extension num-expected num-actual]))))))
+
+(def: #export (nullary valueT extension)
+  (-> Type Text ..Handler)
+  (simple extension (list) valueT))
+
+(def: #export (unary inputT outputT extension)
+  (-> Type Type Text ..Handler)
+  (simple extension (list inputT) outputT))
+
+(def: #export (binary subjectT paramT outputT extension)
+  (-> Type Type Type Text ..Handler)
+  (simple extension (list subjectT paramT) outputT))
+
+(def: #export (trinary subjectT param0T param1T outputT extension)
+  (-> Type Type Type Type Text ..Handler)
+  (simple extension (list subjectT param0T param1T) outputT))
+
+## [Analysers]
+## "lux is" represents reference/pointer equality.
+(def: (lux//is extension)
+  (-> Text ..Handler)
+  (function (_ analyse args)
+    (do compiler.Monad<Operation>
+      [[var-id varT] (typeA.with-env tc.var)]
+      ((binary varT varT Bool extension)
+       analyse args))))
+
+## "lux try" provides a simple way to interact with the host platform's
+## error-handling facilities.
+(def: (lux//try extension)
+  (-> Text ..Handler)
+  (function (_ analyse args)
+    (case args
+      (^ (list opC))
+      (do compiler.Monad<Operation>
+        [[var-id varT] (typeA.with-env tc.var)
+         _ (typeA.infer (type (Either Text varT)))
+         opA (typeA.with-type (type (IO varT))
+               (analyse opC))]
+        (wrap (#///.Extension extension (list opA))))
+      
+      _
+      (lang.throw ///bundle.incorrect-arity [extension +1 (list.size args)]))))
+
+(def: (lux//in-module extension)
+  (-> Text ..Handler)
+  (function (_ analyse argsC+)
+    (case argsC+
+      (^ (list [_ (#.Text module-name)] exprC))
+      (lang.with-current-module module-name
+        (analyse exprC))
+      
+      _
+      (lang.throw ///bundle.invalid-syntax [extension]))))
+
+## (do-template [<name> <type>]
+##   [(def: (<name> extension)
+##      (-> Text ..Handler)
+##      (function (_ analyse args)
+##        (case args
+##          (^ (list typeC valueC))
+##          (do compiler.Monad<Operation>
+##            [actualT (eval Type typeC)
+##             _ (typeA.infer (:! Type actualT))]
+##            (typeA.with-type <type>
+##              (analyse valueC)))
+
+##          _
+##          (lang.throw ///bundle.incorrect-arity [extension +2 (list.size args)]))))]
+
+##   [lux//check  (:! Type actualT)]
+##   [lux//coerce Any]
+##   )
+
+(def: (lux//check//type extension)
+  (-> Text ..Handler)
+  (function (_ analyse args)
+    (case args
+      (^ (list valueC))
+      (do compiler.Monad<Operation>
+        [_ (typeA.infer Type)
+         valueA (typeA.with-type Type
+                  (analyse valueC))]
+        (wrap valueA))
+      
+      _
+      (lang.throw ///bundle.incorrect-arity [extension +1 (list.size args)]))))
+
+(def: bundle/lux
+  ///.Bundle
+  (|> ///.fresh
+      (///bundle.install "is" lux//is)
+      (///bundle.install "try" lux//try)
+      (///bundle.install "check" lux//check)
+      (///bundle.install "coerce" lux//coerce)
+      (///bundle.install "check type" lux//check//type)
+      (///bundle.install "in-module" lux//in-module)))
+
+(def: bundle/io
+  ///.Bundle
+  (<| (///bundle.prefix "io")
+      (|> ///.fresh
+          (///bundle.install "log" (unary Text Any))
+          (///bundle.install "error" (unary Text Nothing))
+          (///bundle.install "exit" (unary Int Nothing))
+          (///bundle.install "current-time" (nullary Int)))))
+
+(def: bundle/bit
+  ///.Bundle
+  (<| (///bundle.prefix "bit")
+      (|> ///.fresh
+          (///bundle.install "and" (binary Nat Nat Nat))
+          (///bundle.install "or" (binary Nat Nat Nat))
+          (///bundle.install "xor" (binary Nat Nat Nat))
+          (///bundle.install "left-shift" (binary Nat Nat Nat))
+          (///bundle.install "logical-right-shift" (binary Nat Nat Nat))
+          (///bundle.install "arithmetic-right-shift" (binary Int Nat Int))
+          )))
+
+(def: bundle/int
+  ///.Bundle
+  (<| (///bundle.prefix "int")
+      (|> ///.fresh
+          (///bundle.install "+" (binary Int Int Int))
+          (///bundle.install "-" (binary Int Int Int))
+          (///bundle.install "*" (binary Int Int Int))
+          (///bundle.install "/" (binary Int Int Int))
+          (///bundle.install "%" (binary Int Int Int))
+          (///bundle.install "=" (binary Int Int Bool))
+          (///bundle.install "<" (binary Int Int Bool))
+          (///bundle.install "min" (nullary Int))
+          (///bundle.install "max" (nullary Int))
+          (///bundle.install "to-nat" (unary Int Nat))
+          (///bundle.install "to-frac" (unary Int Frac))
+          (///bundle.install "char" (unary Int Text)))))
+
+(def: bundle/deg
+  ///.Bundle
+  (<| (///bundle.prefix "deg")
+      (|> ///.fresh
+          (///bundle.install "+" (binary Deg Deg Deg))
+          (///bundle.install "-" (binary Deg Deg Deg))
+          (///bundle.install "*" (binary Deg Deg Deg))
+          (///bundle.install "/" (binary Deg Deg Deg))
+          (///bundle.install "%" (binary Deg Deg Deg))
+          (///bundle.install "=" (binary Deg Deg Bool))
+          (///bundle.install "<" (binary Deg Deg Bool))
+          (///bundle.install "scale" (binary Deg Nat Deg))
+          (///bundle.install "reciprocal" (binary Deg Nat Deg))
+          (///bundle.install "min" (nullary Deg))
+          (///bundle.install "max" (nullary Deg))
+          (///bundle.install "to-frac" (unary Deg Frac)))))
+
+(def: bundle/frac
+  ///.Bundle
+  (<| (///bundle.prefix "frac")
+      (|> ///.fresh
+          (///bundle.install "+" (binary Frac Frac Frac))
+          (///bundle.install "-" (binary Frac Frac Frac))
+          (///bundle.install "*" (binary Frac Frac Frac))
+          (///bundle.install "/" (binary Frac Frac Frac))
+          (///bundle.install "%" (binary Frac Frac Frac))
+          (///bundle.install "=" (binary Frac Frac Bool))
+          (///bundle.install "<" (binary Frac Frac Bool))
+          (///bundle.install "smallest" (nullary Frac))
+          (///bundle.install "min" (nullary Frac))
+          (///bundle.install "max" (nullary Frac))
+          (///bundle.install "not-a-number" (nullary Frac))
+          (///bundle.install "positive-infinity" (nullary Frac))
+          (///bundle.install "negative-infinity" (nullary Frac))
+          (///bundle.install "to-deg" (unary Frac Deg))
+          (///bundle.install "to-int" (unary Frac Int))
+          (///bundle.install "encode" (unary Frac Text))
+          (///bundle.install "decode" (unary Text (type (Maybe Frac)))))))
+
+(def: bundle/text
+  ///.Bundle
+  (<| (///bundle.prefix "text")
+      (|> ///.fresh
+          (///bundle.install "=" (binary Text Text Bool))
+          (///bundle.install "<" (binary Text Text Bool))
+          (///bundle.install "concat" (binary Text Text Text))
+          (///bundle.install "index" (trinary Text Text Nat (type (Maybe Nat))))
+          (///bundle.install "size" (unary Text Nat))
+          (///bundle.install "hash" (unary Text Nat))
+          (///bundle.install "replace-once" (trinary Text Text Text Text))
+          (///bundle.install "replace-all" (trinary Text Text Text Text))
+          (///bundle.install "char" (binary Text Nat (type (Maybe Nat))))
+          (///bundle.install "clip" (trinary Text Nat Nat (type (Maybe Text))))
+          )))
+
+(def: (array//get extension)
+  (-> Text ..Handler)
+  (function (_ analyse args)
+    (do compiler.Monad<Operation>
+      [[var-id varT] (typeA.with-env tc.var)]
+      ((binary (type (Array varT)) Nat (type (Maybe varT)) extension)
+       analyse args))))
+
+(def: (array//put extension)
+  (-> Text ..Handler)
+  (function (_ analyse args)
+    (do compiler.Monad<Operation>
+      [[var-id varT] (typeA.with-env tc.var)]
+      ((trinary (type (Array varT)) Nat varT (type (Array varT)) extension)
+       analyse args))))
+
+(def: (array//remove extension)
+  (-> Text ..Handler)
+  (function (_ analyse args)
+    (do compiler.Monad<Operation>
+      [[var-id varT] (typeA.with-env tc.var)]
+      ((binary (type (Array varT)) Nat (type (Array varT)) extension)
+       analyse args))))
+
+(def: bundle/array
+  ///.Bundle
+  (<| (///bundle.prefix "array")
+      (|> ///.fresh
+          (///bundle.install "new" (unary Nat Array))
+          (///bundle.install "get" array//get)
+          (///bundle.install "put" array//put)
+          (///bundle.install "remove" array//remove)
+          (///bundle.install "size" (unary (type (Ex [a] (Array a))) Nat))
+          )))
+
+(def: bundle/math
+  ///.Bundle
+  (<| (///bundle.prefix "math")
+      (|> ///.fresh
+          (///bundle.install "cos" (unary Frac Frac))
+          (///bundle.install "sin" (unary Frac Frac))
+          (///bundle.install "tan" (unary Frac Frac))
+          (///bundle.install "acos" (unary Frac Frac))
+          (///bundle.install "asin" (unary Frac Frac))
+          (///bundle.install "atan" (unary Frac Frac))
+          (///bundle.install "cosh" (unary Frac Frac))
+          (///bundle.install "sinh" (unary Frac Frac))
+          (///bundle.install "tanh" (unary Frac Frac))
+          (///bundle.install "exp" (unary Frac Frac))
+          (///bundle.install "log" (unary Frac Frac))
+          (///bundle.install "ceil" (unary Frac Frac))
+          (///bundle.install "floor" (unary Frac Frac))
+          (///bundle.install "round" (unary Frac Frac))
+          (///bundle.install "atan2" (binary Frac Frac Frac))
+          (///bundle.install "pow" (binary Frac Frac Frac))
+          )))
+
+(def: (atom-new extension)
+  (-> Text ..Handler)
+  (function (_ analyse args)
+    (case args
+      (^ (list initC))
+      (do compiler.Monad<Operation>
+        [[var-id varT] (typeA.with-env tc.var)
+         _ (typeA.infer (type (Atom varT)))
+         initA (typeA.with-type varT
+                 (analyse initC))]
+        (wrap (#///.Extension extension (list initA))))
+      
+      _
+      (lang.throw ///bundle.incorrect-arity [extension +1 (list.size args)]))))
+
+(def: (atom-read extension)
+  (-> Text ..Handler)
+  (function (_ analyse args)
+    (do compiler.Monad<Operation>
+      [[var-id varT] (typeA.with-env tc.var)]
+      ((unary (type (Atom varT)) varT extension)
+       analyse args))))
+
+(def: (atom//compare-and-swap extension)
+  (-> Text ..Handler)
+  (function (_ analyse args)
+    (do compiler.Monad<Operation>
+      [[var-id varT] (typeA.with-env tc.var)]
+      ((trinary (type (Atom varT)) varT varT Bool extension)
+       analyse args))))
+
+(def: bundle/atom
+  ///.Bundle
+  (<| (///bundle.prefix "atom")
+      (|> ///.fresh
+          (///bundle.install "new" atom-new)
+          (///bundle.install "read" atom-read)
+          (///bundle.install "compare-and-swap" atom//compare-and-swap)
+          )))
+
+(def: (box//new extension)
+  (-> Text ..Handler)
+  (function (_ analyse args)
+    (case args
+      (^ (list initC))
+      (do compiler.Monad<Operation>
+        [[var-id varT] (typeA.with-env tc.var)
+         _ (typeA.infer (type (All [!] (Box ! varT))))
+         initA (typeA.with-type varT
+                 (analyse initC))]
+        (wrap (#///.Extension extension (list initA))))
+      
+      _
+      (lang.throw ///bundle.incorrect-arity [extension +1 (list.size args)]))))
+
+(def: (box//read extension)
+  (-> Text ..Handler)
+  (function (_ analyse args)
+    (do compiler.Monad<Operation>
+      [[thread-id threadT] (typeA.with-env tc.var)
+       [var-id varT] (typeA.with-env tc.var)]
+      ((unary (type (Box threadT varT)) varT extension)
+       analyse args))))
+
+(def: (box//write extension)
+  (-> Text ..Handler)
+  (function (_ analyse args)
+    (do compiler.Monad<Operation>
+      [[thread-id threadT] (typeA.with-env tc.var)
+       [var-id varT] (typeA.with-env tc.var)]
+      ((binary varT (type (Box threadT varT)) Any extension)
+       analyse args))))
+
+(def: bundle/box
+  ///.Bundle
+  (<| (///bundle.prefix "box")
+      (|> ///.fresh
+          (///bundle.install "new" box//new)
+          (///bundle.install "read" box//read)
+          (///bundle.install "write" box//write)
+          )))
+
+(def: bundle/process
+  ///.Bundle
+  (<| (///bundle.prefix "process")
+      (|> ///.fresh
+          (///bundle.install "parallelism" (nullary Nat))
+          (///bundle.install "schedule" (binary Nat (type (IO Any)) Any))
+          )))
+
+(def: #export bundle
+  ///.Bundle
+  (<| (///bundle.prefix "lux")
+      (|> ///.fresh
+          (dict.merge bundle/lux)
+          (dict.merge bundle/bit)
+          (dict.merge bundle/int)
+          (dict.merge bundle/deg)
+          (dict.merge bundle/frac)
+          (dict.merge bundle/text)
+          (dict.merge bundle/array)
+          (dict.merge bundle/math)
+          (dict.merge bundle/atom)
+          (dict.merge bundle/box)
+          (dict.merge bundle/process)
+          (dict.merge bundle/io))
+      ))

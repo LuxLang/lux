@@ -4,11 +4,20 @@
                 ["ex" exception #+ Exception exception:]
                 [monad #+ do])
        (data [product]
-             [error #+ Error])
-       [function]))
+             [error #+ Error]
+             [text]
+             text/format)
+       [function]
+       (macro ["s" syntax #+ syntax:])))
 
 (type: #export (Operation s o)
   (state.State' Error s o))
+
+(def: #export Monad<Operation>
+  (state.Monad<State'> error.Monad<Error>))
+
+(type: #export (Compiler s i o)
+  (-> i (Operation s o)))
 
 (def: #export (run state operation)
   (All [s o]
@@ -17,10 +26,19 @@
       operation
       (:: error.Monad<Error> map product.right)))
 
+(def: #export fail
+  (-> Text Operation)
+  (|>> error.fail (state.lift error.Monad<Error>)))
+
 (def: #export (throw exception parameters)
   (All [e] (-> (Exception e) e Operation))
   (state.lift error.Monad<Error>
               (ex.throw exception parameters)))
+
+(syntax: #export (assert exception message test)
+  (wrap (list (` (if (~ test)
+                   (:: ..Monad<Operation> (~' wrap) [])
+                   (..throw (~ exception) (~ message)))))))
 
 (def: #export (localized transform)
   (All [s o]
@@ -39,8 +57,35 @@
   (All [s o] (-> s (-> (Operation s o) (Operation s o))))
   (localized (function.constant state)))
 
-(def: #export Monad<Operation>
-  (state.Monad<State'> error.Monad<Error>))
+(def: error-separator
+  (format "\n\n"
+          "-----------------------------------------"
+          "\n\n"))
 
-(type: #export (Compiler s i o)
-  (-> i (Operation s o)))
+(def: #export (with-stacked-errors handler action)
+  (All [s o] (-> (-> [] Text) (Operation s o) (Operation s o)))
+  (function (_ state)
+    (case (action state)
+      (#error.Error error)
+      (#error.Error (if (text.empty? error)
+                      (handler [])
+                      (format (handler []) error-separator error)))
+
+      success
+      success)))
+
+(def: #export identity
+  (All [s a] (Compiler s a a))
+  (function (_ input state)
+    (#error.Success [state input])))
+
+(def: #export (compose pre post)
+  (All [s0 s1 i t o]
+    (-> (Compiler s0 i t)
+        (Compiler s1 t o)
+        (Compiler [s0 s1] i o)))
+  (function (_ input [pre/state post/state])
+    (do error.Monad<Error>
+      [[pre/state' temp] (pre input pre/state)
+       [post/state' output] (post temp post/state)]
+      (wrap [[pre/state' post/state'] output]))))

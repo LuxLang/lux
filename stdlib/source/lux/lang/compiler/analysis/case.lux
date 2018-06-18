@@ -1,27 +1,22 @@
 (.module:
   [lux #- case]
   (lux (control [monad #+ do]
-                ["ex" exception #+ exception:]
-                [equality #+ Eq])
-       (data [bool]
-             [number]
-             [product]
-             ["e" error]
+                ["ex" exception #+ exception:])
+       (data [product]
+             [error]
              [maybe]
-             [text]
              text/format
              (coll [list "list/" Fold<List> Monoid<List> Functor<List>]))
-       [function]
        [macro]
-       (macro [code])
-       [lang]
-       (lang [type]
-             (type ["tc" check])
-             [".L" scope]
-             [".L" analysis #+ Pattern Analysis Analyser]
-             (analysis [".A" type]
-                       [".A" structure]
-                       (case [".A" coverage])))))
+       (macro [code]))
+  (//// [type]
+        (type ["tc" check])
+        [scope])
+  [///]
+  [// #+ Pattern Analysis Operation Compiler]
+  [//type]
+  [//structure]
+  [/coverage])
 
 (exception: #export (cannot-match-type-with-pattern {type Type} {pattern Code})
   (ex.report ["Type" (%type type)]
@@ -62,21 +57,21 @@
 ## This function makes it easier for "case" analysis to properly
 ## type-check the input with respect to the patterns.
 (def: (simplify-case-type caseT)
-  (-> Type (Meta Type))
+  (-> Type (Operation Type))
   (loop [envs (: (List (List Type))
                  (list))
          caseT caseT]
     (.case caseT
       (#.Var id)
-      (do macro.Monad<Meta>
-        [?caseT' (typeA.with-env
+      (do ///.Monad<Operation>
+        [?caseT' (//type.with-env
                    (tc.read id))]
         (.case ?caseT'
           (#.Some caseT')
           (recur envs caseT')
 
           _
-          (lang.throw cannot-simplify-type-for-pattern-matching caseT)))
+          (///.throw cannot-simplify-type-for-pattern-matching caseT)))
 
       (#.Named name unnamedT)
       (recur envs unnamedT)
@@ -85,16 +80,16 @@
       (recur (#.Cons env envs) unquantifiedT)
 
       (#.ExQ _)
-      (do macro.Monad<Meta>
-        [[ex-id exT] (typeA.with-env
+      (do ///.Monad<Operation>
+        [[ex-id exT] (//type.with-env
                        tc.existential)]
         (recur envs (maybe.assume (type.apply (list exT) caseT))))
 
       (#.Apply inputT funcT)
       (.case funcT
         (#.Var funcT-id)
-        (do macro.Monad<Meta>
-          [funcT' (typeA.with-env
+        (do ///.Monad<Operation>
+          [funcT' (//type.with-env
                     (do tc.Monad<Check>
                       [?funct' (tc.read funcT-id)]
                       (.case ?funct'
@@ -111,23 +106,23 @@
           (recur envs outputT)
 
           #.None
-          (lang.throw cannot-simplify-type-for-pattern-matching caseT)))
+          (///.throw cannot-simplify-type-for-pattern-matching caseT)))
 
       (#.Product _)
       (|> caseT
           type.flatten-tuple
           (list/map (re-quantify envs))
           type.tuple
-          (:: macro.Monad<Meta> wrap))
+          (:: ///.Monad<Operation> wrap))
 
       _
-      (:: macro.Monad<Meta> wrap (re-quantify envs caseT)))))
+      (:: ///.Monad<Operation> wrap (re-quantify envs caseT)))))
 
 (def: (analyse-primitive type inputT cursor output next)
-  (All [a] (-> Type Type Cursor Pattern (Meta a) (Meta [Pattern a])))
-  (lang.with-cursor cursor
-    (do macro.Monad<Meta>
-      [_ (typeA.with-env
+  (All [a] (-> Type Type Cursor Pattern (Operation a) (Operation [Pattern a])))
+  (//.with-cursor cursor
+    (do ///.Monad<Operation>
+      [_ (//type.with-env
            (tc.check inputT type))
        outputA next]
       (wrap [output outputA]))))
@@ -149,33 +144,33 @@
 ## That is why the body must be analysed in the context of the
 ## pattern, and not separately.
 (def: (analyse-pattern num-tags inputT pattern next)
-  (All [a] (-> (Maybe Nat) Type Code (Meta a) (Meta [Pattern a])))
+  (All [a] (-> (Maybe Nat) Type Code (Operation a) (Operation [Pattern a])))
   (.case pattern
     [cursor (#.Symbol ["" name])]
-    (lang.with-cursor cursor
-      (do macro.Monad<Meta>
-        [outputA (scopeL.with-local [name inputT]
+    (//.with-cursor cursor
+      (do ///.Monad<Operation>
+        [outputA (scope.with-local [name inputT]
                    next)
-         idx scopeL.next-local]
-        (wrap [(#analysisL.Bind idx) outputA])))
+         idx scope.next-local]
+        (wrap [(#//.Bind idx) outputA])))
 
     (^template [<type> <input> <output>]
       [cursor <input>]
-      (analyse-primitive <type> inputT cursor (#analysisL.Simple <output>) next))
-    ([Bool (#.Bool pattern-value) (#analysisL.Bool pattern-value)]
-     [Nat  (#.Nat pattern-value)  (#analysisL.Nat pattern-value)]
-     [Int  (#.Int pattern-value)  (#analysisL.Int pattern-value)]
-     [Deg  (#.Deg pattern-value)  (#analysisL.Deg pattern-value)]
-     [Frac (#.Frac pattern-value) (#analysisL.Frac pattern-value)]
-     [Text (#.Text pattern-value) (#analysisL.Text pattern-value)]
-     [Any  (#.Tuple #.Nil)        #analysisL.Unit])
+      (analyse-primitive <type> inputT cursor (#//.Simple <output>) next))
+    ([Bool (#.Bool pattern-value) (#//.Bool pattern-value)]
+     [Nat  (#.Nat pattern-value)  (#//.Nat pattern-value)]
+     [Int  (#.Int pattern-value)  (#//.Int pattern-value)]
+     [Deg  (#.Deg pattern-value)  (#//.Deg pattern-value)]
+     [Frac (#.Frac pattern-value) (#//.Frac pattern-value)]
+     [Text (#.Text pattern-value) (#//.Text pattern-value)]
+     [Any  (#.Tuple #.Nil)        #//.Unit])
     
     (^ [cursor (#.Tuple (list singleton))])
     (analyse-pattern #.None inputT singleton next)
     
     [cursor (#.Tuple sub-patterns)]
-    (lang.with-cursor cursor
-      (do macro.Monad<Meta>
+    (//.with-cursor cursor
+      (do ///.Monad<Operation>
         [inputT' (simplify-case-type inputT)]
         (.case inputT'
           (#.Product _)
@@ -195,11 +190,11 @@
                               (list.zip2 sub-types sub-patterns))]
             (do @
               [[memberP+ thenA] (list/fold (: (All [a]
-                                                (-> [Type Code] (Meta [(List Pattern) a])
-                                                    (Meta [(List Pattern) a])))
+                                                (-> [Type Code] (Operation [(List Pattern) a])
+                                                    (Operation [(List Pattern) a])))
                                               (function (_ [memberT memberC] then)
                                                 (do @
-                                                  [[memberP [memberP+ thenA]] ((:! (All [a] (-> (Maybe Nat) Type Code (Meta a) (Meta [Pattern a])))
+                                                  [[memberP [memberP+ thenA]] ((:! (All [a] (-> (Maybe Nat) Type Code (Operation a) (Operation [Pattern a])))
                                                                                    analyse-pattern)
                                                                                #.None memberT memberC then)]
                                                   (wrap [(list& memberP memberP+) thenA]))))
@@ -207,28 +202,28 @@
                                              [nextA next]
                                              (wrap [(list) nextA]))
                                            (list.reverse matches))]
-              (wrap [(analysisL.product-pattern memberP+)
+              (wrap [(//.product-pattern memberP+)
                      thenA])))
 
           _
-          (lang.throw cannot-match-type-with-pattern [inputT pattern])
+          (///.throw cannot-match-type-with-pattern [inputT pattern])
           )))
 
     [cursor (#.Record record)]
-    (do macro.Monad<Meta>
-      [record (structureA.normalize record)
-       [members recordT] (structureA.order record)
-       _ (typeA.with-env
+    (do ///.Monad<Operation>
+      [record (//structure.normalize record)
+       [members recordT] (//structure.order record)
+       _ (//type.with-env
            (tc.check inputT recordT))]
       (analyse-pattern (#.Some (list.size members)) inputT [cursor (#.Tuple members)] next))
 
     [cursor (#.Tag tag)]
-    (lang.with-cursor cursor
+    (//.with-cursor cursor
       (analyse-pattern #.None inputT (` ((~ pattern))) next))
 
     (^ [cursor (#.Form (list& [_ (#.Nat idx)] values))])
-    (lang.with-cursor cursor
-      (do macro.Monad<Meta>
+    (//.with-cursor cursor
+      (do ///.Monad<Operation>
         [inputT' (simplify-case-type inputT)]
         (.case inputT'
           (#.Sum _)
@@ -238,7 +233,7 @@
             (.case (list.nth idx flat-sum)
               (^multi (#.Some case-type)
                       (n/< num-cases idx))
-              (do macro.Monad<Meta>
+              (do ///.Monad<Operation>
                 [[testP nextA] (if (and (n/> num-cases size-sum)
                                         (n/= (dec num-cases) idx))
                                  (analyse-pattern #.None
@@ -246,50 +241,50 @@
                                                   (` [(~+ values)])
                                                   next)
                                  (analyse-pattern #.None case-type (` [(~+ values)]) next))]
-                (wrap [(analysisL.sum-pattern num-cases idx testP)
+                (wrap [(//.sum-pattern num-cases idx testP)
                        nextA]))
 
               _
-              (lang.throw sum-type-has-no-case [idx inputT])))
+              (///.throw sum-type-has-no-case [idx inputT])))
 
           _
-          (lang.throw cannot-match-type-with-pattern [inputT pattern]))))
+          (///.throw cannot-match-type-with-pattern [inputT pattern]))))
 
     (^ [cursor (#.Form (list& [_ (#.Tag tag)] values))])
-    (lang.with-cursor cursor
-      (do macro.Monad<Meta>
+    (//.with-cursor cursor
+      (do ///.Monad<Operation>
         [tag (macro.normalize tag)
          [idx group variantT] (macro.resolve-tag tag)
-         _ (typeA.with-env
+         _ (//type.with-env
              (tc.check inputT variantT))]
         (analyse-pattern (#.Some (list.size group)) inputT (` ((~ (code.nat idx)) (~+ values))) next)))
 
     _
-    (lang.throw unrecognized-pattern-syntax pattern)
+    (///.throw unrecognized-pattern-syntax pattern)
     ))
 
 (def: #export (case analyse inputC branches)
-  (-> Analyser Code (List [Code Code]) (Meta Analysis))
+  (-> Compiler Code (List [Code Code]) (Operation Analysis))
   (.case branches
     #.Nil
-    (lang.throw cannot-have-empty-branches "")
+    (///.throw cannot-have-empty-branches "")
 
     (#.Cons [patternH bodyH] branchesT)
-    (do macro.Monad<Meta>
-      [[inputT inputA] (typeA.with-inference
+    (do ///.Monad<Operation>
+      [[inputT inputA] (//type.with-inference
                          (analyse inputC))
        outputH (analyse-pattern #.None inputT patternH (analyse bodyH))
        outputT (monad.map @
                           (function (_ [patternT bodyT])
                             (analyse-pattern #.None inputT patternT (analyse bodyT)))
                           branchesT)
-       outputHC (|> outputH product.left coverageA.determine)
-       outputTC (monad.map @ (|>> product.left coverageA.determine) outputT)
-       _ (.case (monad.fold e.Monad<Error> coverageA.merge outputHC outputTC)
-           (#e.Success coverage)
-           (lang.assert non-exhaustive-pattern-matching ""
-                        (coverageA.exhaustive? coverage))
+       outputHC (|> outputH product.left /coverage.determine)
+       outputTC (monad.map @ (|>> product.left /coverage.determine) outputT)
+       _ (.case (monad.fold error.Monad<Error> /coverage.merge outputHC outputTC)
+           (#error.Success coverage)
+           (///.assert non-exhaustive-pattern-matching ""
+                       (/coverage.exhaustive? coverage))
 
-           (#e.Error error)
-           (lang.fail error))]
-      (wrap (#analysisL.Case inputA [outputH outputT])))))
+           (#error.Error error)
+           (///.fail error))]
+      (wrap (#//.Case inputA [outputH outputT])))))

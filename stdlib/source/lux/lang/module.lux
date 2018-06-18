@@ -9,7 +9,8 @@
              (coll [list "list/" Fold<List> Functor<List>]
                    (dictionary [plist])))
        [macro])
-  [//])
+  [//compiler]
+  (//compiler [analysis]))
 
 (type: #export Tag Text)
 
@@ -17,13 +18,13 @@
   module)
 
 (exception: #export (cannot-declare-tag-twice {module Text} {tag Text})
-  (format "Module: " module "\n"
-          "   Tag: " tag "\n"))
+  (ex.report ["Module" module]
+             ["Tag" tag]))
 
 (do-template [<name>]
   [(exception: #export (<name> {tags (List Text)} {owner Type})
-     (format "Tags: " (text.join-with " " tags) "\n"
-             "Type: " (%type owner) "\n"))]
+     (ex.report ["Tags" (text.join-with " " tags)]
+                ["Type" (%type owner)]))]
 
   [cannot-declare-tags-for-unnamed-type]
   [cannot-declare-tags-for-foreign-type]
@@ -33,16 +34,16 @@
   (%ident name))
 
 (exception: #export (can-only-change-state-of-active-module {module Text} {state Module-State})
-  (format "       Module: " module "\n"
-          "Desired state: " (case state
-                              #.Active   "Active"
-                              #.Compiled "Compiled"
-                              #.Cached   "Cached") "\n"))
+  (ex.report ["Module" module]
+             ["Desired state" (case state
+                                #.Active   "Active"
+                                #.Compiled "Compiled"
+                                #.Cached   "Cached")]))
 
 (exception: #export (cannot-set-module-annotations-more-than-once {module Text} {old Code} {new Code})
-  (format "         Module: " module "\n"
-          "Old annotations: " (%code old) "\n"
-          "New annotations: " (%code new) "\n"))
+  (ex.report ["Module" module]
+             ["Old annotations" (%code old)]
+             ["New annotations" (%code new)]))
 
 (def: (new hash)
   (-> Nat Module)
@@ -69,7 +70,7 @@
                      []]))
       
       (#.Some old)
-      (//.throw cannot-set-module-annotations-more-than-once [self-name old annotations]))))
+      (//compiler.throw cannot-set-module-annotations-more-than-once [self-name old annotations]))))
 
 (def: #export (import module)
   (-> Text (Meta Any))
@@ -119,7 +120,7 @@
                      []])
 
         (#.Some already-existing)
-        ((//.throw cannot-define-more-than-once [self-name name]) compiler)))))
+        ((//compiler.throw cannot-define-more-than-once [self-name name]) compiler)))))
 
 (def: #export (create hash name)
   (-> Nat Text (Meta []))
@@ -134,7 +135,7 @@
   (All [a] (-> Nat Text (Meta a) (Meta [Module a])))
   (do macro.Monad<Meta>
     [_ (create hash name)
-     output (//.with-current-module name
+     output (analysis.with-current-module name
               action)
      module (macro.find-module name)]
     (wrap [module output])))
@@ -153,11 +154,11 @@
                                    (plist.put module-name (set@ #.module-state <tag> module))
                                    compiler)
                           []])
-             ((//.throw can-only-change-state-of-active-module [module-name <tag>])
+             ((//compiler.throw can-only-change-state-of-active-module [module-name <tag>])
               compiler)))
 
          #.None
-         ((//.throw unknown-module module-name) compiler))))
+         ((//compiler.throw unknown-module module-name) compiler))))
    
    (def: #export (<asker> module-name)
      (-> Text (Meta Bool))
@@ -170,7 +171,7 @@
                         _     false)])
 
          #.None
-         ((//.throw unknown-module module-name) compiler))))]
+         ((//compiler.throw unknown-module module-name) compiler))))]
 
   [set-active   active?   #.Active]
   [set-compiled compiled? #.Compiled]
@@ -186,7 +187,7 @@
          (#e.Success [compiler (get@ <tag> module)])
 
          #.None
-         ((//.throw unknown-module module-name) compiler))))]
+         ((//compiler.throw unknown-module module-name) compiler))))]
 
   [tags  #.tags        (List [Text [Nat (List Ident) Bool Type]])]
   [types #.types       (List [Text [(List Ident) Bool Type]])]
@@ -204,7 +205,7 @@
                       (wrap [])
 
                       (#.Some _)
-                      (//.throw cannot-declare-tag-twice [module-name tag])))
+                      (//compiler.throw cannot-declare-tag-twice [module-name tag])))
                   tags)]
     (wrap [])))
 
@@ -217,10 +218,10 @@
                                (wrap type-ident)
 
                                _
-                               (//.throw cannot-declare-tags-for-unnamed-type [tags type]))
+                               (//compiler.throw cannot-declare-tags-for-unnamed-type [tags type]))
      _ (ensure-undeclared-tags self-name tags)
-     _ (//.assert cannot-declare-tags-for-foreign-type [tags type]
-                  (text/= self-name type-module))]
+     _ (//compiler.assert cannot-declare-tags-for-foreign-type [tags type]
+                          (text/= self-name type-module))]
     (function (_ compiler)
       (case (|> compiler (get@ #.modules) (plist.get self-name))
         (#.Some module)
@@ -236,4 +237,4 @@
                                 compiler)
                        []]))
         #.None
-        ((//.throw unknown-module self-name) compiler)))))
+        ((//compiler.throw unknown-module self-name) compiler)))))
