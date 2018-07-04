@@ -1,6 +1,6 @@
 ;;; lux-mode.el --- Major mode for Lux code -*- lexical-binding: t; -*-
 
-;; Copyright © 2014-2017 Eduardo Julian
+;; Copyright © 2014-2018 Eduardo Julian
 ;;
 ;; Authors: Eduardo Julian <eduardoejp@gmail.com>
 ;; URL: https://github.com/LuxLang/lux/tree/master/lux-mode
@@ -233,7 +233,7 @@ Called by `imenu--generic-function'."
             "list" "list&" "io" "row" "tree"
             "get@" "set@" "update@" "|>" "|>>" "<|" "<<|" "_$" "$_" "~" "~+" "~!" "~'" "::" ":::"
             "|" "&" "->" "All" "Ex" "Rec" "primitive" "$" "type"
-            "^" "^or" "^slots" "^multi" "^@" "^template" "^open" "^|>" "^code" "^stream&" "^regex"
+            "^" "^or" "^slots" "^multi" "^@" "^template" "^open" "^|>" "^code" "^sequence&" "^regex"
             "bin" "oct" "hex"
             "pre" "post"
             "sig" "struct" "derive"
