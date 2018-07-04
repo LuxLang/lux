@@ -225,7 +225,7 @@ Called by `imenu--generic-function'."
             "abstract:"
             "unit:" "scale:"
             "import:"
-            ":" ":coerce" ":assume" ":abstraction" ":representation" "^:representation"
+            ":" ":coerce" ":assume" ":cast" ":abstraction" ":representation" "^:representation"
             "function" "case" "undefined" "ident-for" "static"
             "and" "or"
             "char"
@@ -259,7 +259,7 @@ Called by `imenu--generic-function'."
       ("\\<-?\\(0\\|[0-9][0-9_]*\\)\\(\\.[0-9_]+\\)?\\>" 0 font-lock-constant-face)
       ("\\<-?\\(0\\|[--9][0-9_]*\\)\\(\\.[0-9_]+\\(\\(e\\|E\\)\\(-\\|\\+\\)?[0-9][0-9_]*\\)?\\)?\\>" 0 font-lock-constant-face)
                                         ; Frac "ratio" literals
-      ("\\<-?\\(0\\|[0-9][0-9_]*\\)/[0-9][0-9_]*\\>" 0 font-lock-constant-face)
+      ("\\<-?[0-9][0-9_]*/[0-9][0-9_]*\\>" 0 font-lock-constant-face)
                                         ; Deg literals
       ("\\<\\(\\.[0-9][0-9_]*\\)\\>" 0 font-lock-constant-face)
                                         ; Tags

@@ -1,13 +1,16 @@
 (.module: {#.doc "Basic functionality for working with types."}
   [lux #- function]
   (lux (control [equality #+ Eq]
-                [monad #+ do Monad])
+                [monad #+ do Monad]
+                ["p" parser])
        (data [text "text/" Monoid<Text> Eq<Text>]
-             [ident "ident/" Eq<Ident>]
+             [ident "ident/" Eq<Ident> Codec<Text,Ident>]
              [number "nat/" Codec<Text,Nat>]
              [maybe]
-             (coll [list #+ "list/" Monad<List> Monoid<List> Fold<List>]))
-       (macro [code])
+             (coll [list #+ "list/" Functor<List> Monoid<List> Fold<List>]))
+       [macro]
+       (macro [code]
+              ["s" syntax #+ syntax:])
        ))
 
 ## [Utils]
@@ -275,7 +278,7 @@
        (<ctor> type (<name> types'))))]
 
   [variant Nothing #.Sum]
-  [tuple   Any #.Product]
+  [tuple   Any     #.Product]
   )
 
 (def: #export (function inputs output)
@@ -330,3 +333,34 @@
   (case level
     +0 elem-type
     _ (|> elem-type (array (dec level)) (list) (#.Primitive "#Array"))))
+
+(syntax: #export (:log! {input (p.alt s.symbol
+                                      s.any)})
+  (case input
+    (#.Left valueN)
+    (do @
+      [cursor macro.cursor
+       valueT (macro.find-type valueN)
+       #let [_ (log! ($_ text/compose
+                         ":log!" " @ " (.cursor-description cursor) "\n"
+                         (ident/encode valueN) " : " (..to-text valueT) "\n"))]]
+      (wrap (list (' []))))
+
+    (#.Right valueC)
+    (macro.with-gensyms [g!value]
+      (wrap (list (` (.let [(~ g!value) (~ valueC)]
+                       (..:log! (~ g!value)))))))))
+
+(syntax: #export (:cast {type-vars (s.tuple (p.some s.local-symbol))}
+                        input
+                        output
+                        {value (p.maybe s.any)})
+  (let [casterC (` (: (All [(~+ (list/map code.local-symbol type-vars))]
+                        (-> (~ input) (~ output)))
+                      (|>> :assume)))]
+    (case value
+      #.None
+      (wrap (list casterC))
+      
+      (#.Some value)
+      (wrap (list (` ((~ casterC) (~ value))))))))

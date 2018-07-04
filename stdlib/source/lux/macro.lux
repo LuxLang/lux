@@ -9,8 +9,7 @@
              [maybe]
              ["e" error]
              [text "text/" Monoid<Text> Eq<Text>]
-             (coll [list "list/" Monoid<List> Monad<List>]))
-       (lang [type]))
+             (coll [list "list/" Monoid<List> Monad<List>])))
   (/ [code]))
 
 ## (type: (Meta a)
@@ -605,17 +604,31 @@
     [(^slots [#.imports]) (find-module module-name)]
     (wrap imports)))
 
+(def: #export (imported-by? import module)
+  (-> Text Text (Meta Bool))
+  (do Monad<Meta>
+    [(^slots [#.imports]) (find-module module)]
+    (wrap (list.any? (text/= import) imports))))
+
+(def: #export (imported? import)
+  (-> Text (Meta Bool))
+  (let [(^open) Monad<Meta>]
+    (|> current-module-name
+        (map find-module) join
+        (map (|>> (get@ #.imports) (list.any? (text/= import)))))))
+
 (def: #export (resolve-tag tag)
   {#.doc "Given a tag, finds out what is its index, its related tag-list and it's associated type."}
   (-> Ident (Meta [Nat (List Ident) Type]))
   (do Monad<Meta>
     [#let [[module name] tag]
      =module (find-module module)
-     this-module-name current-module-name]
+     this-module-name current-module-name
+     imported! (..imported? module)]
     (case (get name (get@ #.tags =module))
       (#.Some [idx tag-list exported? type])
-      (if (or exported?
-              (text/= this-module-name module))
+      (if (or (text/= this-module-name module)
+              (and imported! exported?))
         (wrap [idx tag-list type])
         (fail ($_ text/compose "Cannot access tag: " (ident/encode tag) " from module " this-module-name)))
 
@@ -673,14 +686,6 @@
   (function (_ compiler)
     (#e.Success [compiler (get@ #.type-context compiler)])))
 
-(def: (cursor-description [file line column])
-  (-> Cursor Text)
-  (|> (list (text.encode file)
-            (nat/encode line)
-            (nat/encode column))
-      (text.join-with ", ")
-      (text.enclose ["[" "]"])))
-
 (do-template [<macro> <func> <desc>]
   [(macro: #export (<macro> tokens)
      {#.doc (doc "Performs a macro-expansion and logs the resulting code."
@@ -705,7 +710,7 @@
        (do Monad<Meta>
          [cursor ..cursor
           output (<func> token)
-          #let [_ (log! ($_ text/compose <desc> " @ " (cursor-description cursor)))
+          #let [_ (log! ($_ text/compose <desc> " @ " (.cursor-description cursor)))
                 _ (list/map (|>> code.to-text log!)
                             output)
                 _ (log! "")]]
@@ -720,25 +725,3 @@
   [log-expand-all  expand-all  "log-expand-all"]
   [log-expand-once expand-once "log-expand-once"]
   )
-
-(macro: #export (log-type! tokens)
-  (case tokens
-    (#.Cons [_ (#.Symbol valueN)] #.Nil)
-    (do Monad<Meta>
-      [cursor ..cursor
-       valueT (find-type valueN)
-       #let [_ (log! ($_ text/compose
-                         "log-type!" " @ " (cursor-description cursor) "\n"
-                         (code.to-text (code.symbol valueN)) " : " (type.to-text valueT) "\n"))]]
-      (wrap (list (' []))))
-
-    (#.Cons valueC #.Nil)
-    (|> (` (.let [(~ g!value) (~ valueC)]
-             (..log-type! (~ g!value))))
-        (let [g!value (code.local-symbol (code.to-text valueC))])
-        list
-        (:: Monad<Meta> wrap))
-
-    _
-    (fail "Wrong syntax for log-type!.")
-    ))
