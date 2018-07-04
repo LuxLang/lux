@@ -224,6 +224,7 @@ Called by `imenu--generic-function'."
             "word:"
             "abstract:"
             "unit:" "scale:"
+            "import:"
             ":" ":coerce" ":assume" ":abstraction" ":representation" "^:representation"
             "function" "case" "undefined" "ident-for" "static"
             "and" "or"
@@ -390,7 +391,6 @@ This function also returns nil meaning don't specify the indentation."
   (synchronized 'defun)
   (object 'defun)
   (do-to 'defun)
-  (import 'defun)
   (comment 'defun)
   (^template 'defun)
   )
