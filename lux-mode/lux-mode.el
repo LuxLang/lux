@@ -254,14 +254,14 @@ Called by `imenu--generic-function'."
          "\\>")
        0 font-lock-constant-face)
                                         ; Nat literals
-      ("\\<\\+\\(0\\|[1-9][0-9_]*\\)\\>" 0 font-lock-constant-face)
+      ("\\<\\+\\(0\\|[0-9][0-9_]*\\)\\>" 0 font-lock-constant-face)
                                         ; Int|Frac literals
-      ("\\<-?\\(0\\|[1-9][0-9_]*\\)\\(\\.[0-9_]+\\)?\\>" 0 font-lock-constant-face)
-      ("\\<-?\\(0\\|[1-9][0-9_]*\\)\\(\\.[0-9_]+\\(\\(e\\|E\\)\\(-\\|\\+\\)?[1-9][0-9_]*\\)?\\)?\\>" 0 font-lock-constant-face)
+      ("\\<-?\\(0\\|[0-9][0-9_]*\\)\\(\\.[0-9_]+\\)?\\>" 0 font-lock-constant-face)
+      ("\\<-?\\(0\\|[--9][0-9_]*\\)\\(\\.[0-9_]+\\(\\(e\\|E\\)\\(-\\|\\+\\)?[0-9][0-9_]*\\)?\\)?\\>" 0 font-lock-constant-face)
                                         ; Frac "ratio" literals
-      ("\\<-?\\(0\\|[1-9][0-9_]*\\)/[1-9][0-9_]*\\>" 0 font-lock-constant-face)
+      ("\\<-?\\(0\\|[0-9][0-9_]*\\)/[0-9][0-9_]*\\>" 0 font-lock-constant-face)
                                         ; Deg literals
-      ("\\<\\(\\.[0-9_]+\\)\\>" 0 font-lock-constant-face)
+      ("\\<\\(\\.[0-9][0-9_]*\\)\\>" 0 font-lock-constant-face)
                                         ; Tags
       ("#\\.[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>\.,/\\\\\\|':~\\?]+" 0 font-lock-type-face)
       ("#\\.\\.[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>\.,/\\\\\\|':~\\?]+" 0 font-lock-type-face)
@@ -396,6 +396,4 @@ This function also returns nil meaning don't specify the indentation."
   )
 
 ;;;###autoload
-
-
 (provide 'lux-mode)

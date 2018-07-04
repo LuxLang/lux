@@ -138,10 +138,10 @@
     (|do [[meta _ token] (&reader/read-regex <regex>)]
       (return (&/T [meta (<tag> (string/replace token #"_" ""))]))))
 
-  lex-nat  $Nat  #"^\+(0|[1-9][0-9_]*)"
-  lex-int  $Int  #"^-?(0|[1-9][0-9_]*)"
-  lex-deg  $Deg  #"^(\.[0-9_]+)"
-  lex-frac $Frac #"^-?(0\.[0-9_]+|[1-9][0-9_]*\.[0-9_]+)(e-?[1-9][0-9_]*)?"
+  lex-nat  $Nat  #"^\+[0-9][0-9_]*"
+  lex-int  $Int  #"^-?[0-9][0-9_]*"
+  lex-deg  $Deg  #"^\.[0-9][0-9_]+"
+  lex-frac $Frac #"^-?[0-9][0-9_]*\.[0-9_]+((e|E)(-|\+)?[0-9][0-9_]*)?"
   )
 
 (def +same-module-mark+ (str &/+name-separator+ &/+name-separator+))
