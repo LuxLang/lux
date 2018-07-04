@@ -230,9 +230,6 @@
   ^:private analyse-frac-smallest           &type/Frac ["frac"  "smallest"]
   ^:private analyse-frac-min                &type/Frac ["frac"  "min"]
   ^:private analyse-frac-max                &type/Frac ["frac"  "max"]
-  ^:private analyse-frac-not-a-number       &type/Frac ["frac"  "not-a-number"]
-  ^:private analyse-frac-positive-infinity  &type/Frac ["frac"  "positive-infinity"]
-  ^:private analyse-frac-negative-infinity  &type/Frac ["frac"  "negative-infinity"]
   )
 
 (do-template [<name> <from-type> <to-type> <op>]
@@ -491,9 +488,6 @@
          "lux frac smallest" (analyse-frac-smallest analyse exo-type ?values)
          "lux frac min" (analyse-frac-min analyse exo-type ?values)
          "lux frac max" (analyse-frac-max analyse exo-type ?values)
-         "lux frac not-a-number" (analyse-frac-not-a-number analyse exo-type ?values)
-         "lux frac positive-infinity" (analyse-frac-positive-infinity analyse exo-type ?values)
-         "lux frac negative-infinity" (analyse-frac-negative-infinity analyse exo-type ?values)
          "lux frac int" (analyse-frac-int analyse exo-type ?values)
          
          "lux math cos" (analyse-math-cos analyse exo-type ?values)

@@ -248,10 +248,6 @@
   ^:private compile-frac-smallest Double/MIN_VALUE
   ^:private compile-frac-min (* -1.0 Double/MAX_VALUE)
   ^:private compile-frac-max Double/MAX_VALUE
-
-  ^:private compile-frac-not-a-number Double/NaN
-  ^:private compile-frac-positive-infinity Double/POSITIVE_INFINITY
-  ^:private compile-frac-negative-infinity Double/NEGATIVE_INFINITY
   )
 
 (defn ^:private compile-frac-encode [compile ?values special-args]
@@ -708,9 +704,6 @@
       "smallest" (compile-frac-smallest compile ?values special-args)
       "max" (compile-frac-max compile ?values special-args)
       "min" (compile-frac-min compile ?values special-args)
-      "not-a-number" (compile-frac-not-a-number compile ?values special-args)
-      "positive-infinity" (compile-frac-positive-infinity compile ?values special-args)
-      "negative-infinity" (compile-frac-negative-infinity compile ?values special-args)
       "int"    (compile-frac-int compile ?values special-args)
       "encode"    (compile-frac-encode compile ?values special-args)
       "decode"    (compile-frac-decode compile ?values special-args)
