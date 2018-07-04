@@ -3,9 +3,9 @@
   (lux (control [monad #+ do Monad]
                 ["p" parser])
        (data [text "text/" Eq<Text> Monoid<Text>]
-             ["E" error]
+             [error]
              (coll [list "list/" Functor<List> Monoid<List>]))
-       [macro]
+       [macro #+ "meta/" Monad<Meta>]
        (macro [code]
               ["s" syntax #+ syntax:]
               (syntax ["cs" common]
@@ -57,43 +57,36 @@
   (|>> ($_ text/compose "{" kind "@" module "}")
        (let [[module kind] (ident-for #..Representation)])))
 
+(def: (cast name type-vars input-declaration output-declaration)
+  (-> Text (List Code) Code Code Macro)
+  (function (_ tokens)
+    (case tokens
+      (^ (list value))
+      (meta/wrap (list (` ((: (All [(~+ type-vars)]
+                                (-> (~ input-declaration) (~ output-declaration)))
+                              (|>> :assume))
+                           (~ value)))))
+
+      _
+      (macro.fail ($_ text/compose "Wrong syntax for " name)))))
+
 (def: (install-casts' this-module-name name type-vars)
   (-> Text Text (List Text) (Meta Any))
   (do macro.Monad<Meta>
     [this-module (macro.find-module this-module-name)
      #let [type-varsC (list/map code.local-symbol type-vars)
-           abstract-declaration (` ((~ (code.local-symbol name)) (~+ type-varsC)))
+           abstraction-declaration (` ((~ (code.local-symbol name)) (~+ type-varsC)))
            representation-declaration (` ((~ (code.local-symbol (representation-name name))) (~+ type-varsC)))
            this-module (|> this-module
                            (update@ #.definitions (put down-cast (: Definition
                                                                     [Macro macro-anns
-                                                                     (: Macro
-                                                                        (function (_ tokens)
-                                                                          (case tokens
-                                                                            (^ (list value))
-                                                                            (wrap (list (` ((: (All [(~+ type-varsC)]
-                                                                                                 (-> (~ representation-declaration) (~ abstract-declaration)))
-                                                                                               (|>> :assume))
-                                                                                            (~ value)))))
-
-                                                                            _
-                                                                            (macro.fail ($_ text/compose "Wrong syntax for " down-cast)))))])))
+                                                                     (cast down-cast type-varsC representation-declaration abstraction-declaration)])))
                            (update@ #.definitions (put up-cast (: Definition
                                                                   [Macro macro-anns
-                                                                   (: Macro
-                                                                      (function (_ tokens)
-                                                                        (case tokens
-                                                                          (^ (list value))
-                                                                          (wrap (list (` ((: (All [(~+ type-varsC)]
-                                                                                               (-> (~ abstract-declaration) (~ representation-declaration)))
-                                                                                             (|>> :assume))
-                                                                                          (~ value)))))
-
-                                                                          _
-                                                                          (macro.fail ($_ text/compose "Wrong syntax for " up-cast)))))]))))]]
+                                                                   (cast up-cast type-varsC abstraction-declaration representation-declaration)]))))]]
     (function (_ compiler)
-      (#E.Success [(update@ #.modules (put this-module-name this-module) compiler)
-                   []]))))
+      (#error.Success [(update@ #.modules (put this-module-name this-module) compiler)
+                       []]))))
 
 (def: (un-install-casts' this-module-name)
   (-> Text (Meta Any))
@@ -103,8 +96,8 @@
                            (update@ #.definitions (remove down-cast))
                            (update@ #.definitions (remove up-cast)))]]
     (function (_ compiler)
-      (#E.Success [(update@ #.modules (put this-module-name this-module) compiler)
-                   []]))))
+      (#error.Success [(update@ #.modules (put this-module-name this-module) compiler)
+                       []]))))
 
 (syntax: (install-casts {name s.local-symbol}
                         {type-vars (s.tuple (p.some s.local-symbol))})
@@ -119,10 +112,7 @@
         (wrap (list)))
 
       _
-      (macro.fail ($_ text/compose
-                      "Cannot temporarily define casting functions ("
-                      down-cast " & " up-cast
-                      ") because definitions like that already exist.")))))
+      (macro.fail ($_ text/compose "Cannot temporarily define casting functions (" down-cast " & " up-cast ") because definitions like that already exist.")))))
 
 (syntax: (un-install-casts)
   (do macro.Monad<Meta>
@@ -136,10 +126,7 @@
         (wrap (list)))
 
       _
-      (macro.fail ($_ text/compose
-                      "Cannot un-define casting functions ("
-                      down-cast " & " up-cast
-                      ") because they do not exist.")))))
+      (macro.fail ($_ text/compose "Cannot un-define casting functions (" down-cast " & " up-cast ") because they do not exist.")))))
 
 (def: declaration
   (s.Syntax [Text (List Text)])
@@ -154,9 +141,9 @@
                    {primitives (p.some s.any)})
   (let [hidden-name (representation-name name)
         type-varsC (list/map code.local-symbol type-vars)
-        abstract-declaration (` ((~ (code.local-symbol name)) (~+ type-varsC)))
+        abstraction-declaration (` ((~ (code.local-symbol name)) (~+ type-varsC)))
         representation-declaration (` ((~ (code.local-symbol hidden-name)) (~+ type-varsC)))]
-    (wrap (list& (` (type: (~+ (csw.export export)) (~ abstract-declaration)
+    (wrap (list& (` (type: (~+ (csw.export export)) (~ abstraction-declaration)
                       (~ (csw.annotations annotations))
                       (primitive (~ (code.text hidden-name)) [(~+ type-varsC)])))
                  (` (type: (~+ (csw.export export)) (~ representation-declaration)
