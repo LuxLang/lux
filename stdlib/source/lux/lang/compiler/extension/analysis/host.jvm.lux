@@ -3,7 +3,6 @@
   (lux (control [monad #+ do]
                 ["p" parser]
                 ["ex" exception #+ exception:])
-       (concurrency ["A" atom])
        (data ["e" error]
              [maybe]
              [product]
@@ -19,12 +18,12 @@
               ["s" syntax])
        [lang]
        (lang [type]
-             (type ["tc" check])
-             [".L" analysis #+ Analysis]
-             (analysis [".A" type]
-                       [".A" inference]))
+             (type ["tc" check]))
        [host])
   ["/" //common]
+  (//// [".L" analysis #+ Analysis]
+        (analysis [".A" type]
+                  [".A" inference]))
   [///]
   )
 
@@ -59,30 +58,39 @@
   [(exception: #export (<name> {message Text})
      message)]
 
-  [Unknown-Class]
-  [Primitives-Cannot-Have-Type-Parameters]
-  [Primitives-Are-Not-Objects]
-  [Invalid-Type-For-Array-Element]
+  [unknown-class]
+  [primitives-cannot-have-type-parameters]
+  [primitives-are-not-objects]
+  [invalid-type-for-array-element]
 
-  [Unknown-Field]
-  [Mistaken-Field-Owner]
-  [Not-Virtual-Field]
-  [Not-Static-Field]
-  [Cannot-Set-Final-Field]
+  [unknown-field]
+  [mistaken-field-owner]
+  [not-a-virtual-field]
+  [not-a-static-field]
+  [cannot-set-a-final-field]
 
-  [No-Candidates]
-  [Too-Many-Candidates]
+  [cannot-cast]
 
-  [Cannot-Cast]
+  [cannot-possibly-be-an-instance]
 
-  [Cannot-Possibly-Be-Instance]
+  [cannot-convert-to-a-class]
+  [cannot-convert-to-a-parameter]
+  [cannot-convert-to-a-lux-type]
+  [unknown-type-var]
+  [type-parameter-mismatch]
+  [cannot-correspond-type-with-a-class]
+  )
 
-  [Cannot-Convert-To-Class]
-  [Cannot-Convert-To-Parameter]
-  [Cannot-Convert-To-Lux-Type]
-  [Unknown-Type-Var]
-  [Type-Parameter-Mismatch]
-  [Cannot-Correspond-Type-With-Class]
+(do-template [<name>]
+  [(exception: #export (<name> {class Text} {method Text} {hints (List [Type (List Type)])})
+     (ex.report ["Class" class]
+                ["Method" method]
+                ["Hints" (|> hints
+                             (list/map (|>> %type (format "\n\t")))
+                             (text.join-with ""))]))]
+
+  [no-candidates]
+  [too-many-candidates]
   )
 
 (do-template [<name> <class>]
@@ -289,7 +297,7 @@
   (do macro.Monad<Meta>
     [name (check-jvm objectT)]
     (if (dict.contains? name boxes)
-      (lang.throw Primitives-Are-Not-Objects name)
+      (lang.throw primitives-are-not-objects name)
       (macro/wrap name))))
 
 (def: (box-array-element-type elemT)
@@ -303,11 +311,11 @@
 
     (#.Primitive name _)
     (if (dict.contains? name boxes)
-      (lang.throw Primitives-Cannot-Have-Type-Parameters name)
+      (lang.throw primitives-cannot-have-type-parameters name)
       (macro/wrap [elemT name]))
 
     _
-    (lang.throw Invalid-Type-For-Array-Element (%type elemT))))
+    (lang.throw invalid-type-for-array-element (%type elemT))))
 
 (def: (array//read proc)
   (-> Text ///.Analysis)
@@ -472,7 +480,7 @@
       (wrap class)
 
       (#e.Error error)
-      (lang.throw Unknown-Class name))))
+      (lang.throw unknown-class name))))
 
 (def: (sub-class? super sub)
   (-> Text Text (Meta Bool))
@@ -534,7 +542,7 @@
            ? (sub-class? class object-class)]
           (if ?
             (wrap (#analysisL.Extension proc (list (analysisL.text class))))
-            (lang.throw Cannot-Possibly-Be-Instance (format object-class " !<= "  class))))
+            (lang.throw cannot-possibly-be-an-instance (format object-class " !<= "  class))))
 
         _
         (lang.throw /.invalid-syntax [proc args]))
@@ -551,7 +559,7 @@
         (java-type-to-class (ParameterizedType::getRawType [] (:coerce ParameterizedType type)))
 
         ## else
-        (lang.throw Cannot-Convert-To-Class (jvm-type-name type))))
+        (lang.throw cannot-convert-to-a-class (jvm-type-name type))))
 
 (type: Mappings
   (Dict Text Type))
@@ -567,7 +575,7 @@
             (macro/wrap var-type)
             
             #.None
-            (lang.throw Unknown-Type-Var var-name)))
+            (lang.throw unknown-type-var var-name)))
 
         (host.instance? WildcardType java-type)
         (let [java-type (:coerce WildcardType java-type)]
@@ -614,7 +622,7 @@
           (wrap (#.Primitive "#Array" (list innerT))))
 
         ## else
-        (lang.throw Cannot-Convert-To-Lux-Type (jvm-type-name java-type))))
+        (lang.throw cannot-convert-to-a-lux-type (jvm-type-name java-type))))
 
 (def: (correspond-type-params class type)
   (-> (Class Object) Type (Meta Mappings))
@@ -625,12 +633,12 @@
           num-class-params (list.size class-params)
           num-type-params (list.size params)]
       (cond (not (text/= class-name name))
-            (lang.throw Cannot-Correspond-Type-With-Class
+            (lang.throw cannot-correspond-type-with-a-class
                         (format "Class = " class-name "\n"
                                 "Type = " (%type type)))
 
             (not (n/= num-class-params num-type-params))
-            (lang.throw Type-Parameter-Mismatch
+            (lang.throw type-parameter-mismatch
                         (format "Expected: " (%i (.int num-class-params)) "\n"
                                 "  Actual: " (%i (.int num-type-params)) "\n"
                                 "   Class: " class-name "\n"
@@ -675,9 +683,9 @@
 
                         _
                         (do @
-                          [_ (lang.assert Primitives-Are-Not-Objects from-name
+                          [_ (lang.assert primitives-are-not-objects from-name
                                           (not (dict.contains? from-name boxes)))
-                           _ (lang.assert Primitives-Are-Not-Objects to-name
+                           _ (lang.assert primitives-are-not-objects to-name
                                           (not (dict.contains? to-name boxes)))
                            to-class (load-class to-name)]
                           (loop [[current-name currentT] [from-name valueT]]
@@ -687,7 +695,7 @@
                                 (wrap true))
                               (do @
                                 [current-class (load-class current-name)
-                                 _ (lang.assert Cannot-Cast (format "From class/primitive: " current-name "\n"
+                                 _ (lang.assert cannot-cast (format "From class/primitive: " current-name "\n"
                                                                     "  To class/primitive: " to-name "\n"
                                                                     "           For value: " (%code valueC) "\n")
                                                 (Class::isAssignableFrom [current-class] to-class))
@@ -709,7 +717,7 @@
                                     (recur [next-name nextT]))
 
                                   #.Nil
-                                  (lang.throw Cannot-Cast (format "From class/primitive: " from-name "\n"
+                                  (lang.throw cannot-cast (format "From class/primitive: " from-name "\n"
                                                                   "  To class/primitive: " to-name "\n"
                                                                   "           For value: " (%code valueC) "\n")))
                                 ))))))]
@@ -717,7 +725,7 @@
           (wrap (#analysisL.Extension proc (list (analysisL.text from-name)
                                                  (analysisL.text to-name)
                                                  valueA)))
-          (lang.throw Cannot-Cast (format "From class/primitive: " from-name "\n"
+          (lang.throw cannot-cast (format "From class/primitive: " from-name "\n"
                                           "  To class/primitive: " to-name "\n"
                                           "           For value: " (%code valueC) "\n"))))
 
@@ -746,13 +754,13 @@
       (let [owner (Field::getDeclaringClass [] field)]
         (if (is? owner class)
           (wrap [class field])
-          (lang.throw Mistaken-Field-Owner
+          (lang.throw mistaken-field-owner
                       (format "       Field: " field-name "\n"
                               " Owner Class: " (Class::getName [] owner) "\n"
                               "Target Class: " class-name "\n"))))
 
       (#e.Error _)
-      (lang.throw Unknown-Field (format class-name "#" field-name)))))
+      (lang.throw unknown-field (format class-name "#" field-name)))))
 
 (def: (static-field class-name field-name)
   (-> Text Text (Meta [Type Bool]))
@@ -764,7 +772,7 @@
         (do @
           [fieldT (java-type-to-lux-type fresh-mappings fieldJT)]
           (wrap [fieldT (Modifier::isFinal [modifiers])])))
-      (lang.throw Not-Static-Field (format class-name "#" field-name)))))
+      (lang.throw not-a-static-field (format class-name "#" field-name)))))
 
 (def: (virtual-field class-name field-name objectT)
   (-> Text Text Type (Meta [Type Bool]))
@@ -784,7 +792,7 @@
                        (do @
                          [#let [num-params (list.size _class-params)
                                 num-vars (list.size var-names)]
-                          _ (lang.assert Type-Parameter-Mismatch
+                          _ (lang.assert type-parameter-mismatch
                                          (format "Expected: " (%i (.int num-params)) "\n"
                                                  "  Actual: " (%i (.int num-vars)) "\n"
                                                  "   Class: " _class-name "\n"
@@ -797,7 +805,7 @@
                        (lang.throw non-object objectT)))
          fieldT (java-type-to-lux-type mappings fieldJT)]
         (wrap [fieldT (Modifier::isFinal [modifiers])]))
-      (lang.throw Not-Virtual-Field (format class-name "#" field-name)))))
+      (lang.throw not-a-virtual-field (format class-name "#" field-name)))))
 
 (def: (static//get proc)
   (-> Text ///.Analysis)
@@ -826,7 +834,7 @@
         (do macro.Monad<Meta>
           [_ (typeA.infer Any)
            [fieldT final?] (static-field class field)
-           _ (lang.assert Cannot-Set-Final-Field (format class "#" field)
+           _ (lang.assert cannot-set-a-final-field (format class "#" field)
                           (not final?))
            valueA (typeA.with-type fieldT
                     (analyse valueC))]
@@ -869,7 +877,7 @@
                                (analyse objectC))
            _ (typeA.infer objectT)
            [fieldT final?] (virtual-field class field objectT)
-           _ (lang.assert Cannot-Set-Final-Field (format class "#" field)
+           _ (lang.assert cannot-set-a-final-field (format class "#" field)
                           (not final?))
            valueA (typeA.with-type fieldT
                     (analyse valueC))]
@@ -899,17 +907,17 @@
           (wrap (format componentP "[]")))
 
         ## else
-        (lang.throw Cannot-Convert-To-Parameter (jvm-type-name type))))
+        (lang.throw cannot-convert-to-a-parameter (jvm-type-name type))))
 
-(type: Method-Type
+(type: Method-style
   #Static
   #Abstract
   #Virtual
   #Special
   #Interface)
 
-(def: (check-method class method-name method-type arg-classes method)
-  (-> (Class Object) Text Method-Type (List Text) Method (Meta Bool))
+(def: (check-method class method-name method-style arg-classes method)
+  (-> (Class Object) Text Method-style (List Text) Method (Meta Bool))
   (do macro.Monad<Meta>
     [parameters (|> (Method::getGenericParameterTypes [] method)
                     array.to-list
@@ -923,7 +931,7 @@
 
                  _
                  true)
-               (case method-type
+               (case method-style
                  #Special
                  (not (or (Modifier::isInterface [(Class::getModifiers [] class)])
                           (Modifier::isAbstract [modifiers])))
@@ -962,11 +970,11 @@
     (|> (list.n/range offset (|> amount dec (n/+ offset)))
         (list/map idx-to-bound))))
 
-(def: (method-to-type method-type method)
-  (-> Method-Type Method (Meta [Type (List Type)]))
+(def: (method-to-type method-style method)
+  (-> Method-style Method (Meta [Type (List Type)]))
   (let [owner (Method::getDeclaringClass [] method)
         owner-name (Class::getName [] owner)
-        owner-tvars (case method-type
+        owner-tvars (case method-style
                       #Static
                       (list)
 
@@ -999,7 +1007,7 @@
                        array.to-list
                        (monad.map @ (java-type-to-lux-type mappings)))
        #let [methodT (<| (type.univ-q num-all-tvars)
-                         (type.function (case method-type
+                         (type.function (case method-style
                                           #Static
                                           inputsT
 
@@ -1009,26 +1017,56 @@
                          outputT)]]
       (wrap [methodT exceptionsT]))))
 
-(def: (methods class-name method-name method-type arg-classes)
-  (-> Text Text Method-Type (List Text) (Meta [Type (List Type)]))
+(type: (Evaluation a)
+  (#Pass a)
+  (#Hint a)
+  #Fail)
+
+(do-template [<name> <tag>]
+  [(def: <name>
+     (All [a] (-> (Evaluation a) (Maybe a)))
+     (|>> (case> (<tag> output)
+                 (#.Some output)
+
+                 _
+                 #.None)))]
+
+  [pass! #Pass]
+  [hint! #Hint]
+  )
+
+(def: (method-candidate class-name method-name method-style arg-classes)
+  (-> Text Text Method-style (List Text) (Meta [Type (List Type)]))
   (do macro.Monad<Meta>
     [class (load-class class-name)
      candidates (|> class
                     (Class::getDeclaredMethods [])
                     array.to-list
-                    (monad.map @ (function (_ method)
-                                   (do @
-                                     [passes? (check-method class method-name method-type arg-classes method)]
-                                     (wrap [passes? method])))))]
-    (case (list.filter product.left candidates)
-      #.Nil
-      (lang.throw No-Candidates (format class-name "#" method-name))
-      
-      (#.Cons candidate #.Nil)
-      (|> candidate product.right (method-to-type method-type))
+                    (monad.map @ (: (-> Method (Meta (Evaluation Method)))
+                                    (function (_ method)
+                                      (do @
+                                        [passes? (check-method class method-name method-style arg-classes method)]
+                                        (wrap (cond passes?
+                                                    (#Pass method)
 
-      _
-      (lang.throw Too-Many-Candidates (format class-name "#" method-name)))))
+                                                    (text/= method-name (Method::getName [] method))
+                                                    (#Hint method)
+
+                                                    ## else
+                                                    #Fail)))))))]
+    (case (list.search-all pass! candidates)
+      #.Nil
+      (lang.throw no-candidates [class-name method-name
+                                 (|> candidates
+                                     (list.search-all hint!)
+                                     (list/map (method-to-type method-style)))])
+      
+      (#.Cons method #.Nil)
+      (method-to-type method-style method)
+
+      candidates
+      (lang.throw too-many-candidates [class-name method-name
+                                       (list/map (method-to-type method-style) candidates)]))))
 
 (def: (constructor-to-type constructor)
   (-> (Constructor Object) (Meta [Type (List Type)]))
@@ -1065,7 +1103,9 @@
                               objectT)]]
       (wrap [constructorT exceptionsT]))))
 
-(def: (constructor-methods class-name arg-classes)
+(def: constructor-method "<init>")
+
+(def: (constructor-candidate class-name arg-classes)
   (-> Text (List Text) (Meta [Type (List Type)]))
   (do macro.Monad<Meta>
     [class (load-class class-name)
@@ -1076,15 +1116,19 @@
                                    (do @
                                      [passes? (check-constructor class arg-classes constructor)]
                                      (wrap [passes? constructor])))))]
-    (case (list.filter product.left candidates)
+    (case (list.search-all pass! candidates)
       #.Nil
-      (lang.throw No-Candidates (format class-name "(" (text.join-with ", " arg-classes) ")"))
+      (lang.throw no-candidates [class-name ..constructor-method
+                                 (|> candidates
+                                     (list.search-all hint!)
+                                     (list/map constructor-to-type))])
       
-      (#.Cons candidate #.Nil)
-      (|> candidate product.right constructor-to-type)
+      (#.Cons constructor #.Nil)
+      (constructor-to-type constructor)
 
-      _
-      (lang.throw Too-Many-Candidates class-name))))
+      candidates
+      (lang.throw too-many-candidates [class-name ..constructor-method
+                                       (list/map constructor-to-type candidates)]))))
 
 (def: (decorate-inputs typesT inputsA)
   (-> (List Text) (List Analysis) (List Analysis))
@@ -1101,7 +1145,7 @@
       (#e.Success [class method argsTC])
       (do macro.Monad<Meta>
         [#let [argsT (list/map product.left argsTC)]
-         [methodT exceptionsT] (methods class method #Static argsT)
+         [methodT exceptionsT] (method-candidate class method #Static argsT)
          [outputT argsA] (inferenceA.general analyse methodT (list/map product.right argsTC))
          outputJC (check-jvm outputT)]
         (wrap (#analysisL.Extension proc (list& (analysisL.text class) (analysisL.text method)
@@ -1118,7 +1162,7 @@
       (#e.Success [class method objectC argsTC])
       (do macro.Monad<Meta>
         [#let [argsT (list/map product.left argsTC)]
-         [methodT exceptionsT] (methods class method #Virtual argsT)
+         [methodT exceptionsT] (method-candidate class method #Virtual argsT)
          [outputT allA] (inferenceA.general analyse methodT (list& objectC (list/map product.right argsTC)))
          #let [[objectA argsA] (case allA
                                  (#.Cons objectA argsA)
@@ -1141,7 +1185,7 @@
       (#e.Success [_ [class method objectC argsTC _]])
       (do macro.Monad<Meta>
         [#let [argsT (list/map product.left argsTC)]
-         [methodT exceptionsT] (methods class method #Special argsT)
+         [methodT exceptionsT] (method-candidate class method #Special argsT)
          [outputT argsA] (inferenceA.general analyse methodT (list& objectC (list/map product.right argsTC)))
          outputJC (check-jvm outputT)]
         (wrap (#analysisL.Extension proc (list& (analysisL.text class) (analysisL.text method)
@@ -1161,7 +1205,7 @@
          class (load-class class-name)
          _ (lang.assert non-interface class-name
                         (Modifier::isInterface [(Class::getModifiers [] class)]))
-         [methodT exceptionsT] (methods class-name method #Interface argsT)
+         [methodT exceptionsT] (method-candidate class-name method #Interface argsT)
          [outputT argsA] (inferenceA.general analyse methodT (list& objectC (list/map product.right argsTC)))
          outputJC (check-jvm outputT)]
         (wrap (#analysisL.Extension proc
@@ -1179,7 +1223,7 @@
       (#e.Success [class argsTC])
       (do macro.Monad<Meta>
         [#let [argsT (list/map product.left argsTC)]
-         [methodT exceptionsT] (constructor-methods class argsT)
+         [methodT exceptionsT] (constructor-candidate class argsT)
          [outputT argsA] (inferenceA.general analyse methodT (list/map product.right argsTC))]
         (wrap (#analysisL.Extension proc (list& (analysisL.text class) (decorate-inputs argsT argsA)))))
 
