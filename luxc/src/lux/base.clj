@@ -74,7 +74,7 @@
   ("Bool" 1)
   ("Nat" 1)
   ("Int" 1)
-  ("Deg" 1)
+  ("Rev" 1)
   ("Frac" 1)
   ("Text" 1)
   ("Symbol" 1)
@@ -1086,12 +1086,12 @@
   (fn [state]
     (return* state (get$ $cursor state))))
 
-(def deg-bits 64)
+(def rev-bits 64)
 
 (let [clean-separators (fn [^String input]
                          (.replaceAll input "_" ""))
-      deg-text-to-digits (fn [^String input]
-                           (loop [output (vec (repeat deg-bits 0))
+      rev-text-to-digits (fn [^String input]
+                           (loop [output (vec (repeat rev-bits 0))
                                   index (dec (.length input))]
                              (if (>= index 0)
                                (let [digit (Byte/parseByte (.substring input index (inc index)))]
@@ -1108,50 +1108,50 @@
                             (int (/ raw 10))
                             (assoc digits index (rem raw 10))))
                    digits)))
-      deg-digit-power (fn [level]
-                        (loop [output (-> (vec (repeat deg-bits 0))
+      rev-digit-power (fn [level]
+                        (loop [output (-> (vec (repeat rev-bits 0))
                                           (assoc level 1))
                                times level]
                           (if (>= times 0)
                             (recur (times5 level output)
                                    (dec times))
                             output)))
-      deg-digits-lt (fn deg-digits-lt
+      rev-digits-lt (fn rev-digits-lt
                       ([subject param index]
-                         (and (< index deg-bits)
+                         (and (< index rev-bits)
                               (or (< (get subject index)
                                      (get param index))
                                   (and (= (get subject index)
                                           (get param index))
-                                       (deg-digits-lt subject param (inc index))))))
+                                       (rev-digits-lt subject param (inc index))))))
                       ([subject param]
-                         (deg-digits-lt subject param 0)))
-      deg-digits-sub-once (fn [subject param-digit index]
+                         (rev-digits-lt subject param 0)))
+      rev-digits-sub-once (fn [subject param-digit index]
                             (if (>= (get subject index)
                                     param-digit)
                               (update-in subject [index] #(- % param-digit))
                               (recur (update-in subject [index] #(- 10 (- param-digit %)))
                                      1
                                      (dec index))))
-      deg-digits-sub (fn [subject param]
+      rev-digits-sub (fn [subject param]
                        (loop [target subject
-                              index (dec deg-bits)]
+                              index (dec rev-bits)]
                          (if (>= index 0)
-                           (recur (deg-digits-sub-once target (get param index) index)
+                           (recur (rev-digits-sub-once target (get param index) index)
                                   (dec index))
                            target)))
-      deg-digits-to-text (fn [digits]
+      rev-digits-to-text (fn [digits]
                            (loop [output ""
-                                  index (dec deg-bits)]
+                                  index (dec rev-bits)]
                              (if (>= index 0)
                                (recur (-> (get digits index)
                                           (Character/forDigit 10)
                                           (str output))
                                       (dec index))
                                output)))
-      add-deg-digit-powers (fn [dl dr]
-                             (loop [index (dec deg-bits)
-                                    output (vec (repeat deg-bits 0))
+      add-rev-digit-powers (fn [dl dr]
+                             (loop [index (dec rev-bits)
+                                    output (vec (repeat rev-bits 0))
                                     carry 0]
                                (if (>= index 0)
                                  (let [raw (+ carry
@@ -1161,45 +1161,45 @@
                                           (assoc output index (rem raw 10))
                                           (int (/ raw 10))))
                                  output)))]
-  ;; Based on the LuxRT.encode_deg method
-  (defn encode-deg [input]
+  ;; Based on the LuxRT.encode_rev method
+  (defn encode-rev [input]
     (if (= 0 input)
       ".0"
-      (loop [index (dec deg-bits)
-             output (vec (repeat deg-bits 0))]
+      (loop [index (dec rev-bits)
+             output (vec (repeat rev-bits 0))]
         (if (>= index 0)
           (recur (dec index)
                  (if (bit-test input index)
-                   (->> (- (dec deg-bits) index)
-                        deg-digit-power
-                        (add-deg-digit-powers output))
+                   (->> (- (dec rev-bits) index)
+                        rev-digit-power
+                        (add-rev-digit-powers output))
                    output))
-          (-> output deg-digits-to-text
+          (-> output rev-digits-to-text
               (->> (str "."))
               (.split "0*$")
               (aget 0))))))
 
-  ;; Based on the LuxRT.decode_deg method
-  (defn decode-deg [^String input]
+  ;; Based on the LuxRT.decode_rev method
+  (defn decode-rev [^String input]
     (if (and (.startsWith input ".")
-             (< (.length input) (inc deg-bits)))
+             (< (.length input) (inc rev-bits)))
       (loop [digits-left (-> input
                              (.substring 1)
                              clean-separators
-                             deg-text-to-digits)
+                             rev-text-to-digits)
              index 0
              ouput 0]
-        (if (< index deg-bits)
-          (let [power-slice (deg-digit-power index)]
-            (if (not (deg-digits-lt digits-left power-slice))
-              (recur (deg-digits-sub digits-left power-slice)
+        (if (< index rev-bits)
+          (let [power-slice (rev-digit-power index)]
+            (if (not (rev-digits-lt digits-left power-slice))
+              (recur (rev-digits-sub digits-left power-slice)
                      (inc index)
-                     (bit-set ouput (- (dec deg-bits) index)))
+                     (bit-set ouput (- (dec rev-bits) index)))
               (recur digits-left
                      (inc index)
                      ouput)))
           ouput))
-      (throw (str "Bad format for Deg number: " input))))
+      (throw (str "Bad format for Rev number: " input))))
   )
 
 (defn show-ast [ast]
@@ -1213,8 +1213,8 @@
     [_ ($Int ?value)]
     (pr-str ?value)
 
-    [_ ($Deg ?value)]
-    (encode-deg ?value)
+    [_ ($Rev ?value)]
+    (encode-rev ?value)
 
     [_ ($Frac ?value)]
     (pr-str ?value)

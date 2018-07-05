@@ -39,7 +39,7 @@
 
   compile-nat  "java/lang/Long"      "J" long
   compile-int  "java/lang/Long"      "J" long
-  compile-deg "java/lang/Long"      "J" long
+  compile-rev "java/lang/Long"      "J" long
   compile-frac "java/lang/Double"    "D" double
   )
 

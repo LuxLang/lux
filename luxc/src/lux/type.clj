@@ -27,12 +27,12 @@
                    (&/$UnivQ empty-env
                              (&/$Primitive "#I64" (&/|list (&/$Parameter 1))))))
 (def Nat* (&/$Primitive &&host/nat-data-tag &/$Nil))
-(def Deg* (&/$Primitive &&host/deg-data-tag &/$Nil))
+(def Rev* (&/$Primitive &&host/rev-data-tag &/$Nil))
 (def Int* (&/$Primitive &&host/int-data-tag &/$Nil))
 
 (def Bool (&/$Named (&/T ["lux" "Bool"]) (&/$Primitive "#Bool" &/$Nil)))
 (def Nat (&/$Named (&/T ["lux" "Nat"]) (&/$Apply Nat* I64)))
-(def Deg (&/$Named (&/T ["lux" "Deg"]) (&/$Apply Deg* I64)))
+(def Rev (&/$Named (&/T ["lux" "Rev"]) (&/$Apply Rev* I64)))
 (def Int (&/$Named (&/T ["lux" "Int"]) (&/$Apply Int* I64)))
 (def Frac (&/$Named (&/T ["lux" "Frac"]) (&/$Primitive "#Frac" &/$Nil)))
 (def Text (&/$Named (&/T ["lux" "Text"]) (&/$Primitive "#Text" &/$Nil)))
@@ -154,8 +154,8 @@
                           Nat
                           (&/$Sum ;; "lux;Int"
                            Int
-                           (&/$Sum ;; "lux;Deg"
-                            Deg
+                           (&/$Sum ;; "lux;Rev"
+                            Rev
                             (&/$Sum ;; "lux;Frac"
                              Frac
                              (&/$Sum ;; "lux;Text"

@@ -77,9 +77,9 @@
       (|do [_ (&type/check exo-type &type/Int)]
         (return (&/|list (&&/|meta exo-type cursor (&&/$int ?value)))))
 
-      (&/$Deg ?value)
-      (|do [_ (&type/check exo-type &type/Deg)]
-        (return (&/|list (&&/|meta exo-type cursor (&&/$deg ?value)))))
+      (&/$Rev ?value)
+      (|do [_ (&type/check exo-type &type/Rev)]
+        (return (&/|list (&&/|meta exo-type cursor (&&/$rev ?value)))))
 
       (&/$Frac ?value)
       (|do [_ (&type/check exo-type &type/Frac)]

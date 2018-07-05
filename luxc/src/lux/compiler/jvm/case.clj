@@ -85,7 +85,7 @@
       (.visitInsn Opcodes/LCMP)
       (.visitJumpInsn Opcodes/IFNE $else))
 
-    (&o/$DegPM _value)
+    (&o/$RevPM _value)
     (doto writer
       stack-peek
       &&/unwrap-long

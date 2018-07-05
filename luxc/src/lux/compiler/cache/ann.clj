@@ -33,7 +33,7 @@
     [_ (&/$Int value)]
     (str "I" value stop)
 
-    [_ (&/$Deg value)]
+    [_ (&/$Rev value)]
     (str "D" value stop)
 
     [_ (&/$Frac value)]
@@ -79,7 +79,7 @@
   ^:private deserialize-bool "B" &/$Bool Boolean/parseBoolean
   ^:private deserialize-nat  "N" &/$Nat  Long/parseLong
   ^:private deserialize-int  "I" &/$Int  Long/parseLong
-  ^:private deserialize-deg  "D" &/$Deg  Long/parseLong
+  ^:private deserialize-rev  "D" &/$Rev  Long/parseLong
   ^:private deserialize-frac "F" &/$Frac Double/parseDouble
   ^:private deserialize-text "T" &/$Text identity
   )
@@ -127,7 +127,7 @@
   (or (deserialize-bool input)
       (deserialize-nat input)
       (deserialize-int input)
-      (deserialize-deg input)
+      (deserialize-rev input)
       (deserialize-frac input)
       (deserialize-text input)
       (deserialize-symbol input)

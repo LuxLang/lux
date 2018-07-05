@@ -12,7 +12,7 @@
   ("Bool" 1)
   ("Nat" 1)
   ("Int" 1)
-  ("Deg" 1)
+  ("Rev" 1)
   ("Frac" 1)
   ("Text" 1)
   ("Symbol" 1)
@@ -140,7 +140,7 @@
 
   lex-nat  $Nat  #"^\+[0-9][0-9_]*"
   lex-int  $Int  #"^-?[0-9][0-9_]*"
-  lex-deg  $Deg  #"^\.[0-9][0-9_]+"
+  lex-rev  $Rev  #"^\.[0-9][0-9_]+"
   lex-frac $Frac #"^-?[0-9][0-9_]*\.[0-9_]+((e|E)(-|\+)?[0-9][0-9_]*)?"
   )
 
@@ -208,7 +208,7 @@
                         lex-bool
                         lex-nat
                         lex-frac
-                        lex-deg
+                        lex-rev
                         lex-int
                         lex-text
                         lex-symbol

@@ -9,7 +9,7 @@
   ("bool" 1)
   ("nat" 1)
   ("int" 1)
-  ("deg" 1)
+  ("rev" 1)
   ("frac" 1)
   ("text" 1)
   ("variant" 3)

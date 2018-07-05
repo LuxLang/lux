@@ -69,7 +69,7 @@
 (def i64-data-tag "#I64")
 (def nat-data-tag "#Nat")
 (def int-data-tag "#Int")
-(def deg-data-tag "#Deg")
+(def rev-data-tag "#Rev")
 
 ;; [Utils]
 (defn ^:private trace-lineage* [^Class super-class ^Class sub-class]

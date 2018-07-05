@@ -9,7 +9,7 @@
   ("bool" 1)
   ("nat" 1)
   ("int" 1)
-  ("deg" 1)
+  ("rev" 1)
   ("frac" 1)
   ("text" 1)
   ("variant" 3)
@@ -71,8 +71,8 @@
   ("NatPM" 1)
   ;; Compare the CDN with an integer value.
   ("IntPM" 1)
-  ;; Compare the CDN with a degree value.
-  ("DegPM" 1)
+  ;; Compare the CDN with a revolution value.
+  ("RevPM" 1)
   ;; Compare the CDN with a frac value.
   ("FracPM" 1)
   ;; Compare the CDN with a text value.
@@ -186,8 +186,8 @@
     (&/|list ($IntPM _value)
              $PopPM)
 
-    (&a-case/$DegTestAC _value)
-    (&/|list ($DegPM _value)
+    (&a-case/$RevTestAC _value)
+    (&/|list ($RevPM _value)
              $PopPM)
 
     (&a-case/$FracTestAC _value)
@@ -290,9 +290,9 @@
       ($IntPM _pre-value)
       ($AltPM pre post))
 
-    [($DegPM _pre-value) ($DegPM _post-value)]
+    [($RevPM _pre-value) ($RevPM _post-value)]
     (if (= _pre-value _post-value)
-      ($DegPM _pre-value)
+      ($RevPM _pre-value)
       ($AltPM pre post))
 
     [($FracPM _pre-value) ($FracPM _post-value)]
@@ -1010,8 +1010,8 @@
         (&a/$int value)
         (&/T [meta ($int value)])
 
-        (&a/$deg value)
-        (&/T [meta ($deg value)])
+        (&a/$rev value)
+        (&/T [meta ($rev value)])
         
         (&a/$frac value)
         (&/T [meta ($frac value)])
