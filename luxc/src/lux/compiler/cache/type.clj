@@ -41,7 +41,7 @@
       (&/$ExQ env body)
       (str "E" (serialize-list serialize-type env) (serialize-type body))
 
-      (&/$Bound idx)
+      (&/$Parameter idx)
       (str "$" idx stop)
 
       (&/$Ex idx)
@@ -96,7 +96,7 @@
       (let [[idx ^String input*] (.split (.substring input 1) stop 2)]
         [(<type> (Long/parseLong idx)) input*])))
 
-  ^:private deserialize-bound "$" &/$Bound
+  ^:private deserialize-parameter "$" &/$Parameter
   ^:private deserialize-ex    "!" &/$Ex
   ^:private deserialize-var   "?" &/$Var
   )
@@ -133,7 +133,7 @@
       (deserialize-prod input)
       (deserialize-lambda input)
       (deserialize-app input)
-      (deserialize-bound input)
+      (deserialize-parameter input)
       (deserialize-ex input)
       (deserialize-var input)
       (deserialize-named input)

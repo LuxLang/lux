@@ -35,7 +35,7 @@
                      [(&/$Var xid) (&/$Var yid)]
                      (= xid yid)
 
-                     [(&/$Bound xidx) (&/$Bound yidx)]
+                     [(&/$Parameter xidx) (&/$Parameter yidx)]
                      (= xidx yidx)
 
                      [(&/$Ex xid) (&/$Ex yid)]
@@ -61,7 +61,7 @@
 (def ^:private Any
   (&/$Named (&/T ["lux" "Any"])
             (&/$ExQ (&/|list)
-                    (&/$Bound 1))))
+                    (&/$Parameter 1))))
 
 ;; [Exports]
 (def array-data-tag "#Array")

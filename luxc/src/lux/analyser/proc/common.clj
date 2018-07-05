@@ -260,7 +260,7 @@
 (defn ^:private analyse-array-new [analyse exo-type ?values]
   (|do [:let [(&/$Cons length (&/$Nil)) ?values]
         =length (&&/analyse-1 analyse &type/Nat length)
-        _ (&type/check exo-type (&/$UnivQ (&/|list) (&type/Array (&/$Bound 1))))
+        _ (&type/check exo-type (&/$UnivQ (&/|list) (&type/Array (&/$Parameter 1))))
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["array" "new"]) (&/|list =length) (&/|list)))))))
@@ -382,7 +382,7 @@
     (fn [$var]
       (|do [:let [(&/$Cons ?init (&/$Nil)) ?values]
             =init (&&/analyse-1 analyse $var ?init)
-            _ (&type/check exo-type (&/$UnivQ (&/|list) (&type/Box (&/$Bound 1) $var)))
+            _ (&type/check exo-type (&/$UnivQ (&/|list) (&type/Box (&/$Parameter 1) $var)))
             _cursor &/cursor]
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T ["box" "new"]) (&/|list =init) (&/|list)))))))))

@@ -25,7 +25,7 @@
 
 (def I64 (&/$Named (&/T ["lux" "I64"])
                    (&/$UnivQ empty-env
-                             (&/$Primitive "#I64" (&/|list (&/$Bound 1))))))
+                             (&/$Primitive "#I64" (&/|list (&/$Parameter 1))))))
 (def Nat* (&/$Primitive &&host/nat-data-tag &/$Nil))
 (def Deg* (&/$Primitive &&host/deg-data-tag &/$Nil))
 (def Int* (&/$Primitive &&host/int-data-tag &/$Nil))
@@ -56,17 +56,17 @@
 (def Nothing
   (&/$Named (&/T ["lux" "Nothing"])
             (&/$UnivQ empty-env
-                      (&/$Bound 1))))
+                      (&/$Parameter 1))))
 
 (def Any
   (&/$Named (&/T ["lux" "Any"])
             (&/$ExQ empty-env
-                    (&/$Bound 1))))
+                    (&/$Parameter 1))))
 
 (def IO
   (&/$Named (&/T ["lux/codata" "IO"])
             (&/$UnivQ empty-env
-                      (&/$Function Nothing (&/$Bound 1)))))
+                      (&/$Function Nothing (&/$Parameter 1)))))
 
 (def List
   (&/$Named (&/T ["lux" "List"])
@@ -75,9 +75,9 @@
                        ;; lux;Nil
                        Any
                        ;; lux;Cons
-                       (&/$Product (&/$Bound 1)
-                                   (&/$Apply (&/$Bound 1)
-                                             (&/$Bound 0)))))))
+                       (&/$Product (&/$Parameter 1)
+                                   (&/$Apply (&/$Parameter 1)
+                                             (&/$Parameter 0)))))))
 
 (def Maybe
   (&/$Named (&/T ["lux" "Maybe"])
@@ -86,12 +86,12 @@
                        ;; lux;None
                        Any
                        ;; lux;Some
-                       (&/$Bound 1))
+                       (&/$Parameter 1))
                       )))
 
 (def Type
   (&/$Named (&/T ["lux" "Type"])
-            (let [Type (&/$Apply (&/$Bound 1) (&/$Bound 0))
+            (let [Type (&/$Apply (&/$Parameter 1) (&/$Parameter 0))
                   TypeList (&/$Apply Type List)
                   TypePair (&/$Product Type Type)]
               (&/$Apply Nothing
@@ -109,7 +109,7 @@
                                       ;; Function
                                       TypePair
                                       (&/$Sum
-                                       ;; Bound
+                                       ;; Parameter
                                        Nat
                                        (&/$Sum
                                         ;; Var
@@ -138,14 +138,14 @@
   (&/$Named (&/T ["lux" "Meta"])
             (&/$UnivQ empty-env
                       (&/$UnivQ empty-env
-                                (&/$Product (&/$Bound 3)
-                                            (&/$Bound 1))))))
+                                (&/$Product (&/$Parameter 3)
+                                            (&/$Parameter 1))))))
 
 (def Code*
   (&/$Named (&/T ["lux" "Code'"])
-            (let [Code (&/$Apply (&/$Apply (&/$Bound 1)
-                                           (&/$Bound 0))
-                                 (&/$Bound 1))
+            (let [Code (&/$Apply (&/$Apply (&/$Parameter 1)
+                                           (&/$Parameter 0))
+                                 (&/$Parameter 1))
                   Code-List (&/$Apply Code List)]
               (&/$UnivQ empty-env
                         (&/$Sum ;; "lux;Bool"
@@ -204,7 +204,7 @@
         (return* state type)
         
         (&/$None)
-        ((&/fail-with-loc (str "[Type Error] Unbound type-var: " id))
+        ((&/fail-with-loc (str "[Type Error] Un-bound type-var: " id))
          state))
       ((&/fail-with-loc (str "[Type Error] Unknown type-var: " id))
        state))))
@@ -454,7 +454,7 @@
     (&/$Ex ?id)
     (str "⟨e:" ?id "⟩")
 
-    (&/$Bound idx)
+    (&/$Parameter idx)
     (str idx)
 
     (&/$Apply _ _)
@@ -502,7 +502,7 @@
                      [(&/$Var xid) (&/$Var yid)]
                      (= xid yid)
 
-                     [(&/$Bound xidx) (&/$Bound yidx)]
+                     [(&/$Parameter xidx) (&/$Parameter yidx)]
                      (= xidx yidx)
 
                      [(&/$Ex xid) (&/$Ex yid)]
@@ -597,10 +597,10 @@
     (&/$Function ?input ?output)
     (&/$Function (beta-reduce env ?input) (beta-reduce env ?output))
 
-    (&/$Bound ?idx)
+    (&/$Parameter ?idx)
     (|case (&/|at ?idx env)
-      (&/$Some bound)
-      (beta-reduce env bound)
+      (&/$Some parameter)
+      (beta-reduce env parameter)
 
       _
       (assert false (str "[Type Error] Unknown var: " ?idx " | " (&/->seq (&/|map show-type env)))))

@@ -16,7 +16,7 @@
                           [meta :as &&meta])))
 
 ;; [Utils]
-;; TODO: Walk the type to set up the bound-type, instead of doing a
+;; TODO: Walk the type to set up the parameter-type, instead of doing a
 ;; rough calculation like this one.
 (defn ^:private count-univq [type]
   "(-> Type Int)"
@@ -29,9 +29,9 @@
 
 ;; TODO: This technique will not work if the body of the type contains
 ;; nested quantifications that cannot be directly counted.
-(defn ^:private next-bound-type [type]
+(defn ^:private next-parameter-type [type]
   "(-> Type Type)"
-  (&/$Bound (->> (count-univq type) (* 2) (+ 1))))
+  (&/$Parameter (->> (count-univq type) (* 2) (+ 1))))
 
 (defn ^:private embed-inferred-input [input output]
   "(-> Type Type Type)"
@@ -75,7 +75,7 @@
                     =var (&type/resolve-type $var)
                     inferred-type (|case =var
                                     (&/$Var iid)
-                                    (|do [:let [=var* (next-bound-type tuple-type)]
+                                    (|do [:let [=var* (next-parameter-type tuple-type)]
                                           _ (&type/set-var iid =var*)
                                           tuple-type* (&type/clean $var tuple-type)]
                                       (return (&/$UnivQ &/$Nil tuple-type*)))
@@ -184,7 +184,7 @@
                   =var (&type/resolve-type $var)
                   inferred-type (|case =var
                                   (&/$Var iid)
-                                  (|do [:let [=var* (next-bound-type variant-type)]
+                                  (|do [:let [=var* (next-parameter-type variant-type)]
                                         _ (&type/set-var iid =var*)
                                         variant-type* (&type/clean $var variant-type)]
                                     (return (&/$UnivQ &/$Nil variant-type*)))
@@ -328,7 +328,7 @@
                   (|do [? (&type/bound? ?id)
                         type** (if ?
                                  (&type/clean $var =output-t)
-                                 (|do [_ (&type/set-var ?id (next-bound-type =output-t))
+                                 (|do [_ (&type/set-var ?id (next-parameter-type =output-t))
                                        cleaned-output* (&type/clean $var =output-t)
                                        :let [cleaned-output (&/$UnivQ &/$Nil cleaned-output*)]]
                                    (return cleaned-output)))
@@ -431,7 +431,7 @@
 (defn ^:private clean-func-inference [$input $output =input =func]
   (|case =input
     (&/$Var iid)
-    (|do [:let [=input* (next-bound-type =func)]
+    (|do [:let [=input* (next-parameter-type =func)]
           _ (&type/set-var iid =input*)
           =func* (&type/clean $input =func)
           =func** (&type/clean $output =func*)]

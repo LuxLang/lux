@@ -84,7 +84,7 @@
       (if ?
         (|do [real-type (&type/deref id)]
           (return (&/T [idx real-type])))
-        (return (&/T [(+ 2 idx) (&/$Bound idx)]))))))
+        (return (&/T [(+ 2 idx) (&/$Parameter idx)]))))))
 
 (defn ^:private clean-gtype-vars [gtype-vars]
   (|do [[_ clean-types] (&/fold% (fn [idx+types gtype-var]
@@ -99,7 +99,7 @@
   "(-> Text (List Type) Type)"
   (&/fold (fn [base-type type-arg]
             (|case type-arg
-              (&/$Bound _)
+              (&/$Parameter _)
               (&/$UnivQ &type/empty-env base-type)
               
               _
@@ -204,7 +204,7 @@
       (return (&/$Primitive &host-type/array-data-tag (&/|list =param))))
 
     (&/$GenericWildcard _)
-    (return (&/$ExQ &/$Nil (&/$Bound 1)))
+    (return (&/$ExQ &/$Nil (&/$Parameter 1)))
     ))
 
 (defn gen-super-env [class-env supers class-decl]

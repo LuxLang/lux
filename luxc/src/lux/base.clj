@@ -89,7 +89,7 @@
   ("Sum" 2)
   ("Product" 2)
   ("Function" 2)
-  ("Bound" 1)
+  ("Parameter" 1)
   ("Var" 1)
   ("Ex" 1)
   ("UnivQ" 2)

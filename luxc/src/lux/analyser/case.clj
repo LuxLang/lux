@@ -63,40 +63,40 @@
   (|let [[_env _idx _var] frame]
     (&/T [_env (+ 2 _idx) _var])))
 
-(defn clean! [level ?tid bound-idx type]
+(defn clean! [level ?tid parameter-idx type]
   (|case type
     (&/$Var ?id)
     (if (= ?tid ?id)
-      (&/$Bound (+ (* 2 level) bound-idx))
+      (&/$Parameter (+ (* 2 level) parameter-idx))
       type)
 
     (&/$Primitive ?name ?params)
-    (&/$Primitive ?name (&/|map (partial clean! level ?tid bound-idx)
+    (&/$Primitive ?name (&/|map (partial clean! level ?tid parameter-idx)
                                 ?params))
     
     (&/$Function ?arg ?return)
-    (&/$Function (clean! level ?tid bound-idx ?arg)
-                 (clean! level ?tid bound-idx ?return))
+    (&/$Function (clean! level ?tid parameter-idx ?arg)
+                 (clean! level ?tid parameter-idx ?return))
 
     (&/$Apply ?param ?lambda)
-    (&/$Apply (clean! level ?tid bound-idx ?param)
-              (clean! level ?tid bound-idx ?lambda))
+    (&/$Apply (clean! level ?tid parameter-idx ?param)
+              (clean! level ?tid parameter-idx ?lambda))
 
     (&/$Product ?left ?right)
-    (&/$Product (clean! level ?tid bound-idx ?left)
-                (clean! level ?tid bound-idx ?right))
+    (&/$Product (clean! level ?tid parameter-idx ?left)
+                (clean! level ?tid parameter-idx ?right))
     
     (&/$Sum ?left ?right)
-    (&/$Sum (clean! level ?tid bound-idx ?left)
-            (clean! level ?tid bound-idx ?right))
+    (&/$Sum (clean! level ?tid parameter-idx ?left)
+            (clean! level ?tid parameter-idx ?right))
 
     (&/$UnivQ ?env ?body)
-    (&/$UnivQ (&/|map (partial clean! level ?tid bound-idx) ?env)
-              (clean! (inc level) ?tid bound-idx ?body))
+    (&/$UnivQ (&/|map (partial clean! level ?tid parameter-idx) ?env)
+              (clean! (inc level) ?tid parameter-idx ?body))
 
     (&/$ExQ ?env ?body)
-    (&/$ExQ (&/|map (partial clean! level ?tid bound-idx) ?env)
-            (clean! (inc level) ?tid bound-idx ?body))
+    (&/$ExQ (&/|map (partial clean! level ?tid parameter-idx) ?env)
+            (clean! (inc level) ?tid parameter-idx ?body))
 
     _
     type
@@ -139,10 +139,10 @@
     (&/$Function (beta-reduce! level env ?input)
                  (beta-reduce! level env ?output))
 
-    (&/$Bound ?idx)
+    (&/$Parameter ?idx)
     (|case (&/|at (- ?idx (* 2 level)) env)
-      (&/$Some bound)
-      (beta-reduce! level env bound)
+      (&/$Some parameter)
+      (beta-reduce! level env parameter)
 
       _
       type)
