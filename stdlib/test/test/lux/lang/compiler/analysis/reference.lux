@@ -4,7 +4,8 @@
        (control [monad #+ do]
                 pipe)
        (data ["e" error]
-             [ident "ident/" Eq<Ident>])
+             [ident "ident/" Eq<Ident>]
+             [text "text/" Eq<Text>])
        ["r" math/random]
        [macro #+ Monad<Meta>]
        (macro [code])
@@ -22,14 +23,49 @@
 
 (def: analyse (expressionA.analyser (:coerce lang.Eval [])))
 
+(type: Check (-> (e.Error Any) Bool))
+
+(do-template [<name> <on-success> <on-failure>]
+  [(def: <name>
+     Check
+     (|>> (case> (#e.Success _)
+                 <on-success>
+
+                 (#e.Error _)
+                 <on-failure>)))]
+
+  [success? true false]
+  [failure? false true]
+  )
+
+(def: (reach-test var-name [export? def-module] [import? dependent-module] check!)
+  (-> Text [Bool Text] [Bool Text] Check Bool)
+  (|> (do Monad<Meta>
+        [_ (moduleL.with-module +0 def-module
+             (moduleL.define var-name [Any
+                                       (if export?
+                                         (' {#.export? true})
+                                         (' {}))
+                                       []]))]
+        (moduleL.with-module +0 dependent-module
+          (do @
+            [_ (if import?
+                 (moduleL.import def-module)
+                 (wrap []))]
+            (typeA.with-inference
+              (..analyse (code.symbol [def-module var-name]))))))
+      (macro.run (initL.compiler []))
+      check!))
+
 (context: "References"
   (<| (times +100)
       (do @
         [[expectedT _] _primitive.primitive
-         module-name (r.unicode +5)
+         def-module (r.unicode +5)
          scope-name (r.unicode +5)
          var-name (r.unicode +5)
-         #let [def-name [module-name var-name]]]
+         dependent-module (|> (r.unicode +5)
+                              (r.filter (|>> (text/= def-module) not)))]
         ($_ seq
             (test "Can analyse variable."
                   (|> (scopeL.with-scope scope-name
@@ -43,16 +79,24 @@
 
                              _
                              false)))
-            (test "Can analyse definition."
-                  (|> (do Monad<Meta>
-                        [_ (moduleL.define var-name [expectedT (' {}) []])]
-                        (typeA.with-inference
-                          (..analyse (code.symbol def-name))))
-                      (moduleL.with-module +0 module-name)
-                      (macro.run (initL.compiler []))
-                      (case> (^ (#e.Success [_ inferredT (#analysisL.Reference (referenceL.constant constant-name))]))
-                             (and (type/= expectedT inferredT)
-                                  (ident/= def-name constant-name))
+            (test "Can analyse definition (in the same module)."
+                  (let [def-name [def-module var-name]]
+                    (|> (do Monad<Meta>
+                          [_ (moduleL.define var-name [expectedT (' {}) []])]
+                          (typeA.with-inference
+                            (..analyse (code.symbol def-name))))
+                        (moduleL.with-module +0 def-module)
+                        (macro.run (initL.compiler []))
+                        (case> (^ (#e.Success [_ inferredT (#analysisL.Reference (referenceL.constant constant-name))]))
+                               (and (type/= expectedT inferredT)
+                                    (ident/= def-name constant-name))
 
-                             _
-                             false)))))))
+                               _
+                               false))))
+            (test "Can analyse definition (if exported from imported module)."
+                  (reach-test var-name [true def-module] [true dependent-module] success?))
+            (test "Cannot analyse definition (if not exported from imported module)."
+                  (reach-test var-name [false def-module] [true dependent-module] failure?))
+            (test "Cannot analyse definition (if exported from non-imported module)."
+                  (reach-test var-name [true def-module] [false dependent-module] failure?))
+            ))))
