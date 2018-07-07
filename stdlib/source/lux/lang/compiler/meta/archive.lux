@@ -1,0 +1,87 @@
+(.module:
+  lux
+  (lux (control ["ex" exception #+ exception:]
+                [equivalence #+ Equivalence]
+                [monad #+ do])
+       (data [error #+ Error]
+             [ident]
+             [text]
+             text/format
+             (coll (dictionary ["dict" unordered #+ Dict])))
+       (lang [type #+ :share])
+       (type abstract))
+  [////])
+
+## Key
+(abstract: #export (Key k)
+  {}
+
+  {#name Ident
+   #version Text}
+
+  (def: Equivalence<Key>'
+    (equivalence.product ident.Equivalence<Ident> text.Equivalence<Text>))
+  
+  (struct: #export Equivalence<Key>
+    (All [k] (Equivalence (Key k)))
+    (def: (= reference sample)
+      (:: Equivalence<Key>' = (:representation reference) (:representation sample))))
+
+  (def: #export default
+    (Key Nothing)
+    (:abstraction {#name ["" ""]
+                   #version ////.version}))
+
+  (def: (describe (^:representation key))
+    (-> (Key Any) Text)
+    (format (%ident (get@ #name key)) " " (get@ #version key)))
+  )
+
+## Document
+(exception: #export (invalid-key-for-document {expected (Key Any)} {actual (Key Any)})
+  (ex.report ["Expected" (describe expected)]
+             ["Actual" (describe actual)]))
+
+(type: #export (Document d)
+  {#key (Key d)
+   #value d})
+
+(def: #export (open expected [actual value])
+  (All [e] (-> (Key e) (Document Any) (Error e)))
+  (if (:: Equivalence<Key> = expected actual)
+    (#error.Success (:share [e]
+                            {(Key e)
+                             expected}
+                            {e
+                             value}))
+    (ex.throw invalid-key-for-document [expected actual])))
+
+## Archive
+(exception: #export (cannot-replace-document-in-archive {name Text} {old (Document Any)} {new (Document Any)})
+  (ex.report ["Module's name" name]
+             ["Old document's key" (describe (get@ #key old))]
+             ["New document's key" (describe (get@ #key new))]))
+
+(type: #export Archive
+  (Dict Text (Ex [d] (Document d))))
+
+(def: #export empty Archive (dict.new text.Hash<Text>))
+
+(def: #export (add name document archive)
+  (-> Text (Ex [d] (Document d)) Archive (Error Archive))
+  (case (dict.get name archive)
+    (#.Some existing)
+    (if (is? document existing)
+      (#error.Success archive)
+      (ex.throw cannot-replace-document-in-archive [name existing document]))
+    
+    #.None
+    (#error.Success (dict.put name document archive))))
+
+(def: #export (merge additions archive)
+  (-> Archive Archive (Error Archive))
+  (monad.fold error.Monad<Error>
+              (function (_ [name' document'] archive')
+                (..add name' document' archive'))
+              archive
+              (dict.entries additions)))
