@@ -141,11 +141,6 @@
             (&/with-cursor cursor
               (&&lux/analyse-program analyse optimize compile-program ?program)))
 
-          "lux case"
-          (|let [(&/$Cons ?value (&/$Cons [_ (&/$Record ?branches)] (&/$Nil))) parameters]
-            (&/with-analysis-meta cursor exo-type
-              (&&lux/analyse-case analyse exo-type ?value ?branches)))
-
           "lux function"
           (|let [(&/$Cons [_ (&/$Symbol "" ?self)]
                           (&/$Cons [_ (&/$Symbol "" ?arg)]
@@ -181,6 +176,11 @@
         (&/$Tag ?ident)
         (&/with-analysis-meta cursor exo-type
           (analyse-variant+ analyse exo-type ?ident parameters))
+
+        (&/$Record ?pattern-matching)
+        (|let [(&/$Cons ?input (&/$Nil)) parameters]
+          (&/with-analysis-meta cursor exo-type
+            (&&lux/analyse-case analyse exo-type ?input ?pattern-matching)))
 
         _
         (&/with-cursor cursor
