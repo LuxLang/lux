@@ -141,14 +141,6 @@
             (&/with-cursor cursor
               (&&lux/analyse-program analyse optimize compile-program ?program)))
 
-          "lux function"
-          (|let [(&/$Cons [_ (&/$Symbol "" ?self)]
-                          (&/$Cons [_ (&/$Symbol "" ?arg)]
-                                   (&/$Cons ?body
-                                            (&/$Nil)))) parameters]
-            (&/with-analysis-meta cursor exo-type
-              (&&lux/analyse-function analyse exo-type ?self ?arg ?body)))
-
           "lux module"
           (|let [(&/$Cons ?meta (&/$Nil)) parameters]
             (&/with-cursor cursor
@@ -177,10 +169,18 @@
         (&/with-analysis-meta cursor exo-type
           (analyse-variant+ analyse exo-type ?ident parameters))
 
+        ;; Pattern-matching syntax.
         (&/$Record ?pattern-matching)
         (|let [(&/$Cons ?input (&/$Nil)) parameters]
           (&/with-analysis-meta cursor exo-type
             (&&lux/analyse-case analyse exo-type ?input ?pattern-matching)))
+
+        ;; Function syntax.
+        (&/$Tuple (&/$Cons [_ (&/$Symbol "" ?self)]
+                           (&/$Cons [_ (&/$Symbol "" ?arg)] (&/$Nil))))
+        (|let [(&/$Cons ?body (&/$Nil)) parameters]
+          (&/with-analysis-meta cursor exo-type
+            (&&lux/analyse-function analyse exo-type ?self ?arg ?body)))
 
         _
         (&/with-cursor cursor
