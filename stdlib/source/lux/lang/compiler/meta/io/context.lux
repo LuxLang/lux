@@ -1,0 +1,89 @@
+(.module:
+  [lux #- Module]
+  (lux (control monad
+                ["ex" exception #+ Exception exception:])
+       (data [error]
+             (text format
+                   [encoding]))
+       (world [file #+ File System]
+              [blob #+ Blob]))
+  [/////host]
+  [// #+ Module])
+
+(type: #export Context File)
+
+(type: #export Extension Text)
+
+(def: #export (file System<m> context module)
+  (All [m] (-> (System m) Context Module File))
+  (|> module
+      (//.sanitize System<m>)
+      (format context (:: System<m> separator))))
+
+(def: host-extension
+  Extension
+  (`` (for {(~~ (static /////host.common-lisp)) ".cl"
+            (~~ (static /////host.js))          ".js"
+            (~~ (static /////host.jvm))         ".jvm"
+            (~~ (static /////host.lua))         ".lua"
+            (~~ (static /////host.php))         ".php"
+            (~~ (static /////host.python))      ".py"
+            (~~ (static /////host.r))           ".r"
+            (~~ (static /////host.ruby))        ".rb"
+            (~~ (static /////host.scheme))      ".scm"})))
+
+(def: lux-extension Extension ".lux")
+
+(do-template [<name>]
+  [(exception: #export (<name> {module Module})
+     (ex.report ["Module" module]))]
+
+  [module-not-found]
+  [cannot-read-module]
+  )
+
+(def: (find-source System<m> contexts module extension)
+  (All [m] (-> (System m) (List Context) Module Text (m (Maybe [Module File]))))
+  (case contexts
+    #.Nil
+    (:: (:: System<m> &monad) wrap #.None)
+
+    (#.Cons context contexts')
+    (do (:: System<m> &monad)
+      [#let [file (format (..file System<m> context module) extension)]
+       ? (file.exists? System<m> file)]
+      (if ?
+        (wrap (#.Some [module file]))
+        (find-source System<m> contexts' module)))))
+
+(def: (try System<m> computations exception message)
+  (All [m a e] (-> (System m) (List (m (Maybe a))) (Exception e) e (m a)))
+  (case computations
+    #.Nil
+    (:: System<m> throw exception message)
+
+    (#.Cons computation computations')
+    (do (:: System<m> &monad)
+      [outcome computation]
+      (case outcome
+        (#.Some output)
+        (wrap output)
+
+        #.None
+        (try System<m> computations' exception message)))))
+
+(def: #export (read System<m> contexts name)
+  (All [m] (-> (System m) (List Context) Module (m [Module Text])))
+  (let [find-source' (find-source System<m> contexts name)]
+    (do (:: System<m> &monad)
+      [[path file] (try System<m>
+                        (list (find-source' (format host-extension lux-extension))
+                              (find-source' lux-extension))
+                        module-not-found [name])
+       blob (:: System<m> read file)]
+      (case (encoding.from-utf8 blob)
+        (#error.Success code)
+        (wrap [path code])
+        
+        (#error.Error _)
+        (:: System<m> throw cannot-read-module [name])))))

@@ -1,0 +1,70 @@
+(.module:
+  [lux #- Module]
+  (lux (control monad
+                ["ex" exception #+ exception:])
+       (data [error]
+             [text]
+             text/format)
+       (world [file #+ File System]
+              [blob #+ Blob]))
+  [/////host]
+  [// #+ Module])
+
+(type: #export Document File)
+
+(exception: #export (cannot-prepare {archive File} {module Module})
+  (ex.report ["Archive" archive]
+             ["Module" module]))
+
+(def: #export (archive System<m> root)
+  (All [m] (-> (System m) File File))
+  (<| (format root (:: System<m> separator))
+      (`` (for {(~~ (static /////host.common-lisp)) /////host.common-lisp
+                (~~ (static /////host.js))          /////host.js
+                (~~ (static /////host.jvm))         /////host.jvm
+                (~~ (static /////host.lua))         /////host.lua
+                (~~ (static /////host.php))         /////host.php
+                (~~ (static /////host.python))      /////host.python
+                (~~ (static /////host.r))           /////host.r
+                (~~ (static /////host.ruby))        /////host.ruby
+                (~~ (static /////host.scheme))      /////host.scheme}))))
+
+(def: #export (document System<m> root module)
+  (All [m] (-> (System m) File Module Document))
+  (let [archive (..archive System<m> root)]
+    (|> module
+        (//.sanitize System<m>)
+        (format archive (:: System<m> separator)))))
+
+(def: #export (prepare System<m> root module)
+  (All [m] (-> (System m) File Module (m Any)))
+  (do (:: System<m> &monad)
+    [#let [archive (..archive System<m> root)
+           document (..document System<m> root module)]
+     document-exists? (file.exists? System<m> document)]
+    (if document-exists?
+      (wrap [])
+      (do @
+        [outcome (:: System<m> try (:: System<m> make-directory document))]
+        (case outcome
+          (#error.Success output)
+          (wrap output)
+
+          (#error.Error _)
+          (:: System<m> throw cannot-prepare [archive module]))))))
+
+(def: #export (write System<m> root content name)
+  (All [m] (-> (System m) File Blob Text (m Any)))
+  (:: System<m> write content (..document System<m> root name)))
+
+(def: #export (module System<m> root document)
+  (All [m] (-> (System m) File Document (Maybe Module)))
+  (case (text.split-with (..archive System<m> root) document)
+    (#.Some ["" post])
+    (let [raw (text.replace-all (:: System<m> separator) "/" post)]
+      (if (text.starts-with? "/" raw)
+        (text.clip' +1 raw)
+        (#.Some raw)))
+
+    _
+    #.None))
