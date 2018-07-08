@@ -1,27 +1,14 @@
 (.module:
   lux
   (lux (control [monad #+ do]
-                ["ex" exception #+ exception:]
-                ["p" parser]
-                pipe)
+                ["ex" exception #+ exception:])
        (data [maybe]
              ["e" error #+ Error]
-             [text "text/" Eq<Text>]
+             [text "text/" Equivalence<Text>]
              text/format
-             (format [xml #+ XML]
-                     [json #+ JSON])
-             (coll [array]
-                   [list "list/" Functor<List>]
-                   (dictionary ["dict" unordered])))
-       (time [instant #+ Instant]
-             [duration #+ Duration]
-             [date #+ Date])
-       [function #+ const]
+             (coll (dictionary ["dict" unordered])))
        [macro]
-       (macro [code]
-              [poly #+ Poly])
        (lang [syntax #+ Aliases]
-             [type]
              (type [check])
              [".L" init]
              [".L" module]
@@ -91,186 +78,6 @@
   (-> Text Source Source)
   [where offset (format input "\n" line)])
 
-(type: Representation (-> Any Text))
-
-(def: (represent-together representations values)
-  (-> (List Representation) (List Any) (List Text))
-  (|> (list.zip2 representations values)
-      (list/map (function (_ [representation value]) (representation value)))))
-
-(def: primitive-representation
-  (Poly Representation)
-  (`` ($_ p.either
-          (do p.Monad<Parser>
-            [_ (poly.this Any)]
-            (wrap (const "[]")))
-          
-          (~~ (do-template [<type> <formatter>]
-                [(do p.Monad<Parser>
-                   [_ (poly.like <type>)]
-                   (wrap (|>> (:coerce <type>) <formatter>)))]
-
-                [Bool %b]
-                [Nat %n]
-                [Int %i]
-                [Rev %r]
-                [Frac %f]
-                [Text %t])))))
-
-(def: (special-representation representation)
-  (-> (Poly Representation) (Poly Representation))
-  (`` ($_ p.either
-          (~~ (do-template [<type> <formatter>]
-                [(do p.Monad<Parser>
-                   [_ (poly.like <type>)]
-                   (wrap (|>> (:coerce <type>) <formatter>)))]
-
-                [Type %type]
-                [Code %code]
-                [Instant %instant]
-                [Duration %duration]
-                [Date %date]
-                [JSON %json]
-                [XML %xml]
-                ))
-
-          (do p.Monad<Parser>
-            [[_ elemT] (poly.apply (p.seq (poly.this List) poly.any))
-             elemR (poly.local (list elemT) representation)]
-            (wrap (|>> (:coerce (List Any)) (%list elemR))))
-
-          (do p.Monad<Parser>
-            [[_ elemT] (poly.apply (p.seq (poly.this Maybe) poly.any))
-             elemR (poly.local (list elemT) representation)]
-            (wrap (|>> (:coerce (Maybe Any))
-                       (case> #.None
-                              "#.None"
-
-                              (#.Some elemV)
-                              (format "(#.Some " (elemR elemV) ")"))))))))
-
-(def: (record-representation tags representation)
-  (-> (List Ident) (Poly Representation) (Poly Representation))
-  (do p.Monad<Parser>
-    [membersR+ (poly.tuple (p.many representation))
-     _ (p.assert "Number of tags does not match record type size."
-                 (n/= (list.size tags) (list.size membersR+)))]
-    (wrap (function (_ recordV)
-            (let [record-body (loop [pairs-left (list.zip2 tags membersR+)
-                                     recordV recordV]
-                                (case pairs-left
-                                  #.Nil
-                                  ""
-
-                                  (#.Cons [tag repr] #.Nil)
-                                  (format (%code (code.tag tag)) " " (repr recordV))
-
-                                  (#.Cons [tag repr] tail)
-                                  (let [[leftV rightV] (:coerce [Any Any] recordV)]
-                                    (format (%code (code.tag tag)) " " (repr leftV) " "
-                                            (recur tail rightV)))))]
-              (format "{" record-body "}"))))))
-
-(def: (variant-representation tags representation)
-  (-> (List Ident) (Poly Representation) (Poly Representation))
-  (do p.Monad<Parser>
-    [casesR+ (poly.variant (p.many representation))
-     #let [num-tags (list.size tags)]
-     _ (p.assert "Number of tags does not match variant type size."
-                 (n/= num-tags (list.size casesR+)))]
-    (wrap (function (_ variantV)
-            (loop [cases-left (list.zip3 tags
-                                         (list.n/range +0 (dec num-tags))
-                                         casesR+)
-                   variantV variantV]
-              (case cases-left
-                #.Nil
-                ""
-
-                (#.Cons [tag-name tag-idx repr] #.Nil)
-                (let [[_tag _last? _value] (:coerce [Nat Text Any] variantV)]
-                  (if (n/= tag-idx _tag)
-                    (format "(" (%code (code.tag tag-name)) " " (repr _value) ")")
-                    (undefined)))
-
-                (#.Cons [tag-name tag-idx repr] tail)
-                (let [[_tag _last? _value] (:coerce [Nat Text Any] variantV)]
-                  (if (n/= tag-idx _tag)
-                    (format "(" (%code (code.tag tag-name)) " " (repr _value) ")")
-                    (recur tail variantV)))))))))
-
-(def: (tagged-representation compiler representation)
-  (-> Lux (Poly Representation) (Poly Representation))
-  (do p.Monad<Parser>
-    [[name anonymous] poly.named]
-    (case (macro.run compiler (macro.tags-of name))
-      (#e.Success ?tags)
-      (case ?tags
-        (#.Some tags)
-        (poly.local (list anonymous)
-                    (p.either (record-representation tags representation)
-                              (variant-representation tags representation)))
-        
-        #.None
-        representation)
-      
-      (#e.Error error)
-      (p.fail error))))
-
-(def: (tuple-representation representation)
-  (-> (Poly Representation) (Poly Representation))
-  (do p.Monad<Parser>
-    [membersR+ (poly.tuple (p.many representation))]
-    (wrap (function (_ tupleV)
-            (let [tuple-body (loop [representations membersR+
-                                    tupleV tupleV]
-                               (case representations
-                                 #.Nil
-                                 ""
-                                 
-                                 (#.Cons lastR #.Nil)
-                                 (lastR tupleV)
-                                 
-                                 (#.Cons headR tailR)
-                                 (let [[leftV rightV] (:coerce [Any Any] tupleV)]
-                                   (format (headR leftV) " " (recur tailR rightV)))))]
-              (format "[" tuple-body "]"))))))
-
-(def: (representation compiler)
-  (-> Lux (Poly Representation))
-  (p.rec
-   (function (_ representation)
-     ($_ p.either
-         primitive-representation
-         (special-representation representation)
-         (tagged-representation compiler representation)
-         (tuple-representation representation)
-
-         (do p.Monad<Parser>
-           [[funcT inputsT+] (poly.apply (p.seq poly.any (p.many poly.any)))]
-           (case (type.apply inputsT+ funcT)
-             (#.Some outputT)
-             (poly.local (list outputT) representation)
-
-             #.None
-             (p.fail "")))
-
-         (do p.Monad<Parser>
-           [[name anonymous] poly.named]
-           (poly.local (list anonymous) representation))
-
-         (p.fail "")
-         ))))
-
-(def: (represent compiler type value)
-  (-> Lux Type Any Text)
-  (case (poly.run type (representation compiler))
-    (#e.Success representation)
-    (representation value)
-
-    (#e.Error error)
-    ". . . cannot represent value . . ."))
-
 (def: (repl-translate source-dirs target-dir code)
   (-> (List File) File Code (Meta [Type Any]))
   (function (_ compiler)
@@ -318,9 +125,7 @@
                                   (wrap [source' exprT exprV])))))
             (#e.Success [compiler' [source' exprT exprV]])
             (do @
-              [_ (console.write (format " Type: " (type.to-text exprT) "\n"
-                                        "Value: " (represent compiler' exprT exprV) "\n\n")
-                                console)]
+              [_ (console.write (represent compiler' exprT exprV) console)]
               (recur compiler' source' false))
 
             (#e.Error error)
