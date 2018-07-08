@@ -13,41 +13,54 @@
   [////])
 
 ## Key
+(type: #export Signature
+  {#name Ident
+   #version Text})
+
+(def: Equivalence<Signature>
+  (Equivalence Signature)
+  (equivalence.product ident.Equivalence<Ident> text.Equivalence<Text>))
+
+(def: (describe signature)
+  (-> Signature Text)
+  (format (%ident (get@ #name signature)) " " (get@ #version signature)))
+
 (abstract: #export (Key k)
   {}
 
-  {#name Ident
-   #version Text}
+  Signature
 
-  (def: Equivalence<Key>'
-    (equivalence.product ident.Equivalence<Ident> text.Equivalence<Text>))
-  
   (struct: #export Equivalence<Key>
     (All [k] (Equivalence (Key k)))
     (def: (= reference sample)
-      (:: Equivalence<Key>' = (:representation reference) (:representation sample))))
+      (:: Equivalence<Signature> = (:representation reference) (:representation sample))))
 
   (def: #export default
     (Key Nothing)
     (:abstraction {#name ["" ""]
                    #version ////.version}))
 
-  (def: (describe (^:representation key))
-    (-> (Key Any) Text)
-    (format (%ident (get@ #name key)) " " (get@ #version key)))
+  (def: #export signature
+    (-> (Key Any) Signature)
+    (|>> :representation))
   )
 
 ## Document
 (exception: #export (invalid-key-for-document {expected (Key Any)} {actual (Key Any)})
-  (ex.report ["Expected" (describe expected)]
-             ["Actual" (describe actual)]))
+  (ex.report ["Expected" (describe (..signature expected))]
+             ["Actual" (describe (..signature actual))]))
+
+(exception: #export (signature-does-not-match-key {key (Key Any)} {signature Signature})
+  (ex.report ["Key" (describe (..signature key))]
+             ["Signature" (describe signature)]))
 
 (type: #export (Document d)
   {#key (Key d)
+   #hash Nat
    #value d})
 
 (def: #export (open expected [actual value])
-  (All [e] (-> (Key e) (Document Any) (Error e)))
+  (All [d] (-> (Key d) (Document Any) (Error d)))
   (if (:: Equivalence<Key> = expected actual)
     (#error.Success (:share [e]
                             {(Key e)
@@ -56,11 +69,19 @@
                              value}))
     (ex.throw invalid-key-for-document [expected actual])))
 
+(def: #export (close key signature hash value)
+  (All [d] (-> (Key d) Signature Nat d (Error (Document d))))
+  (if (:: Equivalence<Signature> = (..signature key) signature)
+    (#error.Success {#key key
+                     #hash hash
+                     #value value})
+    (ex.throw signature-does-not-match-key [key signature])))
+
 ## Archive
 (exception: #export (cannot-replace-document-in-archive {name Text} {old (Document Any)} {new (Document Any)})
   (ex.report ["Module's name" name]
-             ["Old document's key" (describe (get@ #key old))]
-             ["New document's key" (describe (get@ #key new))]))
+             ["Old document's key" (describe (..signature (get@ #key old)))]
+             ["New document's key" (describe (..signature (get@ #key new)))]))
 
 (type: #export Archive
   (Dict Text (Ex [d] (Document d))))

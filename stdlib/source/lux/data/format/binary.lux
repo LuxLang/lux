@@ -1,5 +1,5 @@
 (.module:
-  [lux #- nat int rev]
+  [lux #- nat int rev list]
   (lux (control [monad #+ do Monad]
                 ["p" parser]
                 ["ex" exception #+ exception:])
@@ -14,8 +14,9 @@
   (ex.report ["Blob length" (%n length)]
              ["Read bytes" (%n read)]))
 
-(exception: #export (invalid-bool {byte Nat})
-  (%n byte))
+(exception: #export (invalid-tag {range Nat} {byte Nat})
+  (ex.report ["Range" (%n range)]
+             ["Byte" (%n byte)]))
 
 ## Types
 (type: #export Offset Nat)
@@ -33,13 +34,13 @@
 (type: #export (Write a)
   (-> a [Size (-> Offset Blob Blob)]))
 
-(type: #export (Format a)
+(type: #export (Binary a)
   {#read (Read a)
    #write (Write a)})
 
 ## Operators
 (def: #export (read format input)
-  (All [a] (-> (Format a) Blob (error.Error a)))
+  (All [a] (-> (Binary a) Blob (error.Error a)))
   (case ((get@ #read format) [+0 input])
     (#error.Error msg)
     (#error.Error msg)
@@ -51,26 +52,14 @@
         (ex.throw blob-was-not-fully-read [length end])))))
 
 (def: #export (write format value)
-  (All [a] (-> (Format a) a Blob))
+  (All [a] (-> (Binary a) a Blob))
   (let [[valueS valueT] ((get@ #write format) value)]
     (|> valueS blob.create (valueT +0))))
-
-## Combinators
-(def: #export (seq preF postF)
-  (All [a b] (-> (Format a) (Format b) (Format [a b])))
-  {#read (p.seq (get@ #read preF) (get@ #read postF))
-   #write (function (_ [preV postV])
-            (let [[preS preT] ((get@ #write preF) preV)
-                  [postS postT] ((get@ #write postF) postV)]
-              [(n/+ preS postS)
-               (function (_ offset)
-                 (|>> (preT offset)
-                      (postT (n/+ preS offset))))]))})
 
 ## Primitives
 (do-template [<name> <size> <read> <write>]
   [(def: <name>
-     (Format (I64 Any))
+     (Binary (I64 Any))
      {#read (function (_ [offset blob])
               (case (<read> offset blob)
                 (#error.Success data)
@@ -81,7 +70,9 @@
       #write (function (_ value)
                [<size>
                 (function (_ offset blob)
-                  (error.assume (<write> offset value blob)))])})]
+                  (|> blob
+                      (<write> offset value)
+                      error.assume))])})]
 
   [bits/8  size/8 blob.read/8  blob.write/8]
   [bits/16 size/16 blob.read/16 blob.write/16]
@@ -89,9 +80,68 @@
   [bits/64 size/64 blob.read/64 blob.write/64]
   )
 
+## Combinators
+(def: #export (alt leftB rightB)
+  (All [l r] (-> (Binary l) (Binary r) (Binary (| l r))))
+  {#read (do p.Monad<Parser>
+           [flag (get@ #read bits/8)]
+           (case flag
+             +0 (:: @ map (|>> #.Left) (get@ #read leftB))
+             +1 (:: @ map (|>> #.Right) (get@ #read rightB))
+             _ (p.lift (ex.throw invalid-tag [+2 (.nat flag)]))))
+   #write (function (_ altV)
+            (case altV
+              (#.Left leftV)
+              (let [[leftS leftT] ((get@ #write leftB) leftV)]
+                [(.inc leftS)
+                 (function (_ offset blob)
+                   (|> blob
+                       (blob.write/8 offset +0)
+                       error.assume
+                       (leftT (.inc offset))))])
+              
+              (#.Right rightV)
+              (let [[rightS rightT] ((get@ #write rightB) rightV)]
+                [(.inc rightS)
+                 (function (_ offset blob)
+                   (|> blob
+                       (blob.write/8 offset +1)
+                       error.assume
+                       (rightT (.inc offset))))])
+              ))})
+
+(def: #export (seq preB postB)
+  (All [a b] (-> (Binary a) (Binary b) (Binary [a b])))
+  {#read (p.seq (get@ #read preB) (get@ #read postB))
+   #write (function (_ [preV postV])
+            (let [[preS preT] ((get@ #write preB) preV)
+                  [postS postT] ((get@ #write postB) postV)]
+              [(n/+ preS postS)
+               (function (_ offset)
+                 (|>> (preT offset)
+                      (postT (n/+ preS offset))))]))})
+
+(def: #export (rec body)
+  (All [a] (-> (-> (Binary a) (Binary a)) (Binary a)))
+  {#read (function (_ input)
+           (let [read (get@ #read (body (rec body)))]
+             (read input)))
+   #write (function (_ value)
+            (let [write (get@ #write (body (rec body)))]
+              (write value)))})
+
 ## Utilities
+(def: #export unit
+  (Binary Any)
+  {#read (function (_ input)
+           (#error.Success [input []]))
+   #write (function (_ value)
+            [+0
+             (function (_ offset blob)
+               blob)])})
+
 (def: #export bool
-  (Format Bool)
+  (Binary Bool)
   {#read (function (_ [offset blob])
            (case (blob.read/8 offset blob)
              (#error.Success data)
@@ -102,29 +152,29 @@
                 [+1 true])
                
                _
-               (ex.throw invalid-bool data))
+               (ex.throw invalid-tag [+2 data]))
              
              (#error.Error error)
              (#error.Error error)))
    #write (function (_ value)
             [+1
              (function (_ offset blob)
-               (exec (error.assume (blob.write/8 offset (if value +1 +0) blob))
-                 blob))])}
-  )
+               (|> blob
+                   (blob.write/8 offset (if value +1 +0))
+                   error.assume))])})
 
-(def: #export nat (Format Nat) (:assume ..bits/64))
-(def: #export int (Format Int) (:assume ..bits/64))
-(def: #export rev (Format Rev) (:assume ..bits/64))
+(def: #export nat (Binary Nat) (:assume ..bits/64))
+(def: #export int (Binary Int) (:assume ..bits/64))
+(def: #export rev (Binary Rev) (:assume ..bits/64))
 
 (def: #export frac
-  (Format Frac)
+  (Binary Frac)
   (let [(^slots [#read #write]) ..bits/64]
     {#read (:: p.Monad<Parser> map number.bits-to-frac read)
      #write (|>> number.frac-to-bits write)}))
 
 (def: #export blob
-  (Format Blob)
+  (Binary Blob)
   {#read (do p.Monad<Parser>
            [size (get@ #read nat)]
            (function (_ [offset blob])
@@ -142,9 +192,16 @@
                     (blob.copy size +0 value (n/+ size/64 offset) blob))))]))})
 
 (def: #export text
-  (Format Text)
+  (Binary Text)
   (let [(^slots [#read #write]) ..blob]
     {#read (do p.Monad<Parser>
              [utf8 read]
              (p.lift (encoding.from-utf8 utf8)))
      #write (|>> encoding.to-utf8 write)}))
+
+(def: #export (list value)
+  (All [a] (-> (Binary a) (Binary (List a))))
+  (..rec
+   (function (_ recur)
+     (..alt ..unit
+            (..seq value recur)))))

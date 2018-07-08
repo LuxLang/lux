@@ -1,0 +1,163 @@
+(.module:
+  [lux #- Module]
+  (lux (control [monad #+ Monad do]
+                ["ex" exception #+ exception:]
+                pipe)
+       (data [bool "bool/" Equivalence<Bool>]
+             [maybe]
+             [error]
+             [product]
+             (format [binary #+ Binary])
+             [text]
+             text/format
+             (coll [list "list/" Functor<List> Fold<List>]
+                   (dictionary ["dict" unordered #+ Dict])
+                   (set ["set" unordered #+ Set])))
+       (world [file #+ File System]))
+  [//io #+ Context Module]
+  [//io/context]
+  [//io/archive]
+  [//archive #+ Signature Key Document Archive]
+  [/dependency #+ Dependency Graph])
+
+(exception: #export (cannot-delete-cached-file {file File})
+  (ex.report ["File" file]))
+
+(exception: #export (stale-document {module Text} {current-hash Nat} {stale-hash Nat})
+  (ex.report ["Module" module]
+             ["Current hash" (%n current-hash)]
+             ["Stale hash" (%n stale-hash)]))
+
+(do-template [<name>]
+  [(exception: #export (<name> {message Text})
+     message)]
+
+  [cannot-load-definition]
+  )
+
+## General
+(def: #export (cached System<m> root)
+  (All [m] (-> (System m) File (m (List File))))
+  (|> root
+      (//io/archive.archive System<m>)
+      (do> (:: System<m> &monad)
+           [(:: System<m> files)]
+           [(monad.map @ (function (recur file)
+                           (do @
+                             [is-dir? (:: System<m> directory? file)]
+                             (if is-dir?
+                               (|> file
+                                   (do> @
+                                        [(:: System<m> files)]
+                                        [(monad.map @ recur)]
+                                        [list.concat
+                                         (list& (maybe.assume (//io/archive.module System<m> root file)))
+                                         wrap]))
+                               (wrap (list))))))]
+           [list.concat wrap])))
+
+## Clean
+(def: (delete System<m> document)
+  (All [m] (-> (System m) File (m Any)))
+  (do (:: System<m> &monad)
+    [deleted? (:: System<m> delete document)]
+    (if deleted?
+      (wrap [])
+      (:: System<m> throw cannot-delete-cached-file document))))
+
+(def: (un-install System<m> root module)
+  (All [m] (-> (System m) File Module (m Any)))
+  (let [document (//io/archive.document System<m> root module)]
+    (|> document
+        (do> (:: System<m> &monad)
+             [(:: System<m> files)]
+             [(monad.map @ (function (_ file)
+                             (do @
+                               [? (:: System<m> directory? file)]
+                               (if ?
+                                 (wrap false)
+                                 (do @
+                                   [_ (..delete System<m> file)]
+                                   (wrap true))))))]
+             [(list.every? (bool/= true))
+              (if> [(..delete System<m> document)]
+                   [(wrap [])])]))))
+
+(def: #export (clean System<m> root wanted-modules)
+  (All [m] (-> (System m) File (Set Module) (m Any)))
+  (|> root
+      (do> (:: System<m> &monad)
+           [(..cached System<m>)]
+           [(list.filter (bool.complement (set.member? wanted-modules)))
+            (monad.map @ (un-install System<m> root))])))
+
+## Load
+(def: signature
+  (Binary Signature)
+  (let [name (binary.seq binary.text binary.text)
+        version binary.text]
+    (binary.seq name version)))
+
+(def: imports
+  (Binary (List Module))
+  (binary.list binary.text))
+
+(def: document
+  (All [a] (-> (Binary a) (Binary [Signature Nat (List Module) a])))
+  (|>> ($_ binary.seq ..signature binary.nat ..imports)))
+
+(def: (load-document System<m> contexts root key binary module)
+  (All [m d] (-> (System m) (List File) File (Key d) (Binary d) Module
+                 (m (Maybe [Dependency (Document d)]))))
+  (do (:: System<m> &monad)
+    [document' (:: System<m> read (//io/archive.document System<m> root module))
+     [module' source-code] (//io/context.read System<m> contexts module)
+     #let [current-hash (:: text.Hash<Text> hash source-code)]]
+    (case (do error.Monad<Error>
+            [[signature document-hash imports content] (binary.read (..document binary) document')
+             _ (ex.assert stale-document [module current-hash document-hash]
+                          (n/= current-hash document-hash))
+             document (//archive.close key signature document-hash content)]
+            (wrap [[module imports] document]))
+      (#error.Success [dependency document])
+      (wrap (#.Some [dependency document]))
+      
+      (#error.Error error)
+      (do @
+        [_ (un-install System<m> root module)]
+        (wrap #.None)))))
+
+(def: #export (load-archive System<m> contexts root key binary)
+  (All [m d] (-> (System m) (List Context) File (Key d) (Binary d) (m Archive)))
+  (do (:: System<m> &monad)
+    [candidate (|> root
+                   (do> @
+                        [(..cached System<m>)]
+                        [(monad.map @ (load-document System<m> contexts root key binary))
+                         (:: @ map (list/fold (function (_ full-document archive)
+                                                (case full-document
+                                                  (#.Some [[module imports] document])
+                                                  (dict.put module [imports document] archive)
+                                                  
+                                                  #.None
+                                                  archive))
+                                              (: (Dict Text [(List Module) (Ex [d] (Document d))])
+                                                 (dict.new text.Hash<Text>))))]))
+     #let [candidate-entries (dict.entries candidate)
+           candidate-dependencies (list/map (product.both id product.left)
+                                            candidate-entries)
+           candidate-archive (|> candidate-entries
+                                 (list/map (product.both id product.right))
+                                 (dict.from-list text.Hash<Text>))
+           graph (|> candidate
+                     dict.entries
+                     (list/map (product.both id product.left))
+                     /dependency.graph
+                     (/dependency.prune candidate-archive))
+           archive (list/fold (function (_ module archive)
+                                (if (dict.contains? module graph)
+                                  archive
+                                  (dict.remove module archive)))
+                              candidate-archive
+                              (dict.keys candidate))]]
+    (wrap archive)))
