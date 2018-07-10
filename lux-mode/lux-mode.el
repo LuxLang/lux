@@ -216,7 +216,7 @@ Called by `imenu--generic-function'."
          (regexp-opt
           '(".module:"
             "def:" "type:" "macro:" "syntax:" "program:"
-            "sig:" "struct:" "context:" "template:"
+            "signature:" "struct:" "context:" "template:"
             "class:" "interface:"
             "poly:" "derived:"
             "actor:" "message:" "on:"
