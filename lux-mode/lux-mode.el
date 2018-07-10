@@ -261,7 +261,7 @@ Called by `imenu--generic-function'."
                                         ; Frac "ratio" literals
       ("\\<-?[0-9][0-9_]*/[0-9][0-9_]*\\>" 0 font-lock-constant-face)
                                         ; Rev literals
-      ("\\<\\(\\.[0-9][0-9_]*\\)\\>" 0 font-lock-constant-face)
+      ("\\<\\.[0-9][0-9_]*\\>" 0 font-lock-constant-face)
                                         ; Tags
       ("#\\.[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>\.,/\\\\\\|':~\\?]+" 0 font-lock-type-face)
       ("#\\.\\.[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>\.,/\\\\\\|':~\\?]+" 0 font-lock-type-face)
