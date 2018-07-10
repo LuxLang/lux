@@ -1,8 +1,9 @@
 (.module:
-  [lux #- nat int rev list]
+  [lux #- nat int rev list type]
   (lux (control [monad #+ do Monad]
                 ["p" parser]
-                ["ex" exception #+ exception:])
+                ["ex" exception #+ exception:]
+                [equivalence #+ Equivalence])
        (data [error]
              (text [encoding]
                    [format #+ %n])
@@ -131,14 +132,18 @@
               (write value)))})
 
 ## Utilities
-(def: #export unit
-  (Binary Any)
+(def: #export (ignore default)
+  (All [a] (-> a (Binary a)))
   {#read (function (_ input)
-           (#error.Success [input []]))
+           (#error.Success [input default]))
    #write (function (_ value)
             [+0
              (function (_ offset blob)
                blob)])})
+
+(def: #export any
+  (Binary Any)
+  (ignore []))
 
 (def: #export bool
   (Binary Bool)
@@ -199,9 +204,83 @@
              (p.lift (encoding.from-utf8 utf8)))
      #write (|>> encoding.to-utf8 write)}))
 
+(def: #export maybe
+  (All [a] (-> (Binary a) (Binary (Maybe a))))
+  (..alt ..any))
+
 (def: #export (list value)
   (All [a] (-> (Binary a) (Binary (List a))))
   (..rec
    (function (_ recur)
-     (..alt ..unit
+     (..alt ..any
             (..seq value recur)))))
+
+(def: #export ident
+  (Binary Ident)
+  (..seq ..text ..text))
+
+(def: #export type
+  (Binary Type)
+  (..rec
+   (function (_ type)
+     (let [pair (..seq type type)
+           indexed ..nat
+           quantified (..seq (..list type) type)]
+       ($_ ..alt
+           ## #Primitive
+           (..seq ..text (..list type))
+           ## #Sum
+           pair
+           ## #Product
+           pair
+           ## #Function
+           pair
+           ## #Parameter
+           indexed
+           ## #Var
+           indexed
+           ## #Ex
+           indexed
+           ## #UnivQ
+           quantified
+           ## #ExQ
+           quantified
+           ## #Apply
+           pair
+           ## #Named
+           (..seq ..ident type)
+           )))))
+
+(def: #export cursor
+  (Binary Cursor)
+  ($_ ..seq ..text ..nat ..nat))
+
+(def: #export code
+  (Binary Code)
+  (..rec
+   (function (_ code)
+     (let [sequence (..list code)
+           code' ($_ ..alt
+                     ## #Bool
+                     ..bool
+                     ## #Nat
+                     ..nat
+                     ## #Int
+                     ..int
+                     ## #Rev
+                     ..rev
+                     ## #Frac
+                     ..frac
+                     ## #Text
+                     ..text
+                     ## #Symbol
+                     ..ident
+                     ## #Tag
+                     ..ident
+                     ## #Form
+                     sequence
+                     ## #Tuple
+                     sequence
+                     ## #Record
+                     (..list (..seq code code)))]
+       (..seq ..cursor code')))))

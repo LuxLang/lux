@@ -17,7 +17,7 @@
   [//io #+ Context Module]
   [//io/context]
   [//io/archive]
-  [//archive #+ Signature Key Document Archive]
+  [//archive #+ Signature Key Descriptor Document Archive]
   [/dependency #+ Dependency Graph])
 
 (exception: #export (cannot-delete-cached-file {file File})
@@ -94,17 +94,15 @@
 ## Load
 (def: signature
   (Binary Signature)
-  (let [name (binary.seq binary.text binary.text)
-        version binary.text]
-    (binary.seq name version)))
+  ($_ binary.seq binary.ident binary.text))
 
-(def: imports
-  (Binary (List Module))
-  (binary.list binary.text))
+(def: descriptor
+  (Binary Descriptor)
+  ($_ binary.seq binary.nat binary.text (binary.list binary.text) (binary.ignore #.Cached)))
 
 (def: document
-  (All [a] (-> (Binary a) (Binary [Signature Nat (List Module) a])))
-  (|>> ($_ binary.seq ..signature binary.nat ..imports)))
+  (All [a] (-> (Binary a) (Binary [Signature Descriptor a])))
+  (|>> ($_ binary.seq ..signature ..descriptor)))
 
 (def: (load-document System<m> contexts root key binary module)
   (All [m d] (-> (System m) (List File) File (Key d) (Binary d) Module
@@ -114,11 +112,12 @@
      [module' source-code] (//io/context.read System<m> contexts module)
      #let [current-hash (:: text.Hash<Text> hash source-code)]]
     (case (do error.Monad<Error>
-            [[signature document-hash imports content] (binary.read (..document binary) document')
+            [[signature descriptor content] (binary.read (..document binary) document')
+             #let [[document-hash _file references _state] descriptor]
              _ (ex.assert stale-document [module current-hash document-hash]
                           (n/= current-hash document-hash))
-             document (//archive.close key signature document-hash content)]
-            (wrap [[module imports] document]))
+             document (//archive.close key signature descriptor content)]
+            (wrap [[module references] document]))
       (#error.Success [dependency document])
       (wrap (#.Some [dependency document]))
       
@@ -136,8 +135,8 @@
                         [(monad.map @ (load-document System<m> contexts root key binary))
                          (:: @ map (list/fold (function (_ full-document archive)
                                                 (case full-document
-                                                  (#.Some [[module imports] document])
-                                                  (dict.put module [imports document] archive)
+                                                  (#.Some [[module references] document])
+                                                  (dict.put module [references document] archive)
                                                   
                                                   #.None
                                                   archive))
