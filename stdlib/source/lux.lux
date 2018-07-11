@@ -4055,7 +4055,7 @@
   #Nothing)
 
 (type: Openings
-  [Text (List Ident)])
+  [Text (List Text)])
 
 (type: Refer
   {#refer-defs Referrals
@@ -4115,17 +4115,20 @@
 (def: (parse-short-referrals tokens)
   (-> (List Code) (Meta [Referrals (List Code)]))
   (case tokens
-    (^ (list& [_ (#Form (list& [_ (#Tag "" "+")] defs))] tokens'))
+    (^or (^ (list& [_ (#Form (list& [_ (#Tag ["" "+"])] defs))] tokens'))
+         (^ (list& [_ (#Form (list& [_ (#Tag ["" "only"])] defs))] tokens')))
     (do Monad<Meta>
       [defs' (extract-defs defs)]
       (return [(#Only defs') tokens']))
 
-    (^ (list& [_ (#Form (list& [_ (#Tag "" "-")] defs))] tokens'))
+    (^or (^ (list& [_ (#Form (list& [_ (#Tag ["" "-"])] defs))] tokens'))
+         (^ (list& [_ (#Form (list& [_ (#Tag ["" "exclude"])] defs))] tokens')))
     (do Monad<Meta>
       [defs' (extract-defs defs)]
       (return [(#Exclude defs') tokens']))
 
-    (^ (list& [_ (#Tag "" "*")] tokens'))
+    (^or (^ (list& [_ (#Tag ["" "*"])] tokens'))
+         (^ (list& [_ (#Tag ["" "all"])] tokens')))
     (return [#All tokens'])
     
     _
@@ -4160,7 +4163,7 @@
                                        [_ (#Text prefix)]
                                        (list& [prefix (list)] openings)
                                        
-                                       [_ (#Symbol struct-name)]
+                                       [_ (#Symbol ["" struct-name])]
                                        (case openings
                                          #Nil
                                          (list ["" (list struct-name)])
@@ -4180,36 +4183,28 @@
 
 (def: (parse-short-openings parts)
   (-> (List Code) (Meta [(List Openings) (List Code)]))
-  (if (|> parts
-          (list/map (: (-> Code Bool)
-                       (function (_ part)
-                         (case part
-                           (^or [_ (#Text _)] [_ (#Symbol _)])
-                           true
+  (case parts
+    #.Nil
+    (return [#.Nil #.Nil])
 
-                           _
-                           false))))
-          (list/fold (function (_ r l) (and l r)) true))
-    (let [openings (list/fold (: (-> Code (List Openings) (List Openings))
-                                 (function (_ part openings)
-                                   (case part
-                                     [_ (#Text prefix)]
-                                     (list& [prefix (list)] openings)
-                                     
-                                     [_ (#Symbol struct-name)]
-                                     (case openings
-                                       #Nil
-                                       (list ["" (list struct-name)])
-                                       
-                                       (#Cons [prefix structs] openings')
-                                       (#Cons [prefix (#Cons struct-name structs)] openings'))
+    (^ (list& [_ (#Form (list& [_ (#Text prefix)] structs))] parts'))
+    (do Monad<Meta>
+      [structs' (monad/map Monad<Meta>
+                           (function (_ struct)
+                             (case struct
+                               [_ (#Symbol ["" struct-name])]
+                               (return struct-name)
 
-                                     _
-                                     openings)))
-                              (: (List Openings) (list))
-                              parts)]
-      (return [openings (list)]))
-    (fail "Expected all parts of opening form to be of either prefix (text) or struct (symbol).")))
+                               _
+                               (fail "Expected all structures of opening form to be symbols.")))
+                           structs)
+       next+remainder (parse-short-openings parts')]
+      (let [[next remainder] next+remainder]
+        (return [(#.Cons [prefix structs'] next)
+                 remainder])))
+
+    _
+    (return [#.Nil parts])))
 
 (def: (decorate-sub-importations super-name)
   (-> Text (List Importation) (List Importation))
@@ -4877,7 +4872,7 @@
                           defs')
            openings (join-map (: (-> Openings (List Code))
                                  (function (_ [prefix structs])
-                                   (list/map (function (_ [_ name])
+                                   (list/map (function (_ name)
                                                (` (open: (~ (text$ prefix)) (~ (symbol$ [module-name name])))))
                                              structs)))
                               r-opens)]]
@@ -4912,7 +4907,7 @@
                    #Nothing
                    (list)))
         =opens (join-map (function (_ [prefix structs])
-                           (list& (text$ prefix) (list/map symbol$ structs)))
+                           (list& (text$ prefix) (list/map (|>> [""] symbol$) structs)))
                          r-opens)]
     (` (..refer (~ (text$ module-name))
                 (~+ =defs)
