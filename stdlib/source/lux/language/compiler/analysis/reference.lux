@@ -1,0 +1,77 @@
+(.module:
+  lux
+  (lux (control monad
+                ["ex" exception #+ exception:])
+       [macro]
+       (macro [code])
+       (language (type ["tc" check]))
+       (data [text "text/" Equivalence<Text>]
+             text/format))
+  [///]
+  [// #+ Analysis Operation]
+  [//type]
+  [////reference]
+  [////scope])
+
+(exception: #export (foreign-module-has-not-been-imported {current Text} {foreign Text})
+  (ex.report ["Current" current]
+             ["Foreign" foreign]))
+
+(exception: #export (definition-has-not-been-expored {definition Ident})
+  (ex.report ["Definition" (%ident definition)]))
+
+## [Analysers]
+(def: (definition def-name)
+  (-> Ident (Operation Analysis))
+  (with-expansions [<return> (wrap (|> def-name ////reference.constant #//.Reference))]
+    (do ///.Monad<Operation>
+      [[actualT def-anns _] (macro.find-def def-name)]
+      (case (macro.get-symbol-ann (ident-for #.alias) def-anns)
+        (#.Some real-def-name)
+        (definition real-def-name)
+
+        _
+        (do @
+          [_ (//type.infer actualT)
+           (^@ def-name [::module ::name]) (macro.normalize def-name)
+           current macro.current-module-name]
+          (if (text/= current ::module)
+            <return>
+            (if (macro.export? def-anns)
+              (do @
+                [imported! (macro.imported-by? ::module current)]
+                (if imported!
+                  <return>
+                  (///.throw foreign-module-has-not-been-imported [current ::module])))
+              (///.throw definition-has-not-been-expored def-name))))))))
+
+(def: (variable var-name)
+  (-> Text (Operation (Maybe Analysis)))
+  (do ///.Monad<Operation>
+    [?var (////scope.find var-name)]
+    (case ?var
+      (#.Some [actualT ref])
+      (do @
+        [_ (//type.infer actualT)]
+        (wrap (#.Some (|> ref ////reference.variable #//.Reference))))
+
+      #.None
+      (wrap #.None))))
+
+(def: #export (reference reference)
+  (-> Ident (Operation Analysis))
+  (case reference
+    ["" simple-name]
+    (do ///.Monad<Operation>
+      [?var (variable simple-name)]
+      (case ?var
+        (#.Some varA)
+        (wrap varA)
+
+        #.None
+        (do @
+          [this-module macro.current-module-name]
+          (definition [this-module simple-name]))))
+
+    _
+    (definition reference)))

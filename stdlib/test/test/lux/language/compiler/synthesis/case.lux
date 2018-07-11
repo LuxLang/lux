@@ -1,0 +1,82 @@
+(.module:
+  lux
+  (lux (control [monad #+ do]
+                pipe)
+       (data [error "error/" Functor<Error>])
+       (language ["///." reference]
+                 ["///." compiler]
+                 [".L" analysis #+ Branch Analysis]
+                 ["//" synthesis #+ Synthesis]
+                 (synthesis [".S" expression])
+                 [".L" extension])
+       ["r" math/random "r/" Monad<Random>]
+       test)
+  [//primitive])
+
+(context: "Dummy variables."
+  (<| (times +100)
+      (do @
+        [maskedA //primitive.primitive
+         temp (|> r.nat (:: @ map (n/% +100)))
+         #let [maskA (analysisL.control/case
+                      [maskedA
+                       [[(#analysisL.Bind temp)
+                         (#analysisL.Reference (///reference.local temp))]
+                        (list)]])]]
+        (test "Dummy variables created to mask expressions get eliminated during synthesis."
+              (|> maskA
+                  (expressionS.synthesizer extensionL.empty)
+                  (///compiler.run //.init)
+                  (error/map (//primitive.corresponds? maskedA))
+                  (error.default false))))))
+
+(context: "Let expressions."
+  (<| (times +100)
+      (do @
+        [registerA r.nat
+         inputA //primitive.primitive
+         outputA //primitive.primitive
+         #let [letA (analysisL.control/case
+                     [inputA
+                      [[(#analysisL.Bind registerA)
+                        outputA]
+                       (list)]])]]
+        (test "Can detect and reify simple 'let' expressions."
+              (|> letA
+                  (expressionS.synthesizer extensionL.empty)
+                  (///compiler.run //.init)
+                  (case> (^ (#error.Success (//.branch/let [inputS registerS outputS])))
+                         (and (n/= registerA registerS)
+                              (//primitive.corresponds? inputA inputS)
+                              (//primitive.corresponds? outputA outputS))
+
+                         _
+                         false))))))
+
+(context: "If expressions."
+  (<| (times +100)
+      (do @
+        [then|else r.bool
+         inputA //primitive.primitive
+         thenA //primitive.primitive
+         elseA //primitive.primitive
+         #let [thenB (: Branch
+                        [(#analysisL.Simple (#analysisL.Bool true))
+                         thenA])
+               elseB (: Branch
+                        [(#analysisL.Simple (#analysisL.Bool false))
+                         elseA])
+               ifA (if then|else
+                     (analysisL.control/case [inputA [thenB (list elseB)]])
+                     (analysisL.control/case [inputA [elseB (list thenB)]]))]]
+        (test "Can detect and reify simple 'if' expressions."
+              (|> ifA
+                  (expressionS.synthesizer extensionL.empty)
+                  (///compiler.run //.init)
+                  (case> (^ (#error.Success (//.branch/if [inputS thenS elseS])))
+                         (and (//primitive.corresponds? inputA inputS)
+                              (//primitive.corresponds? thenA thenS)
+                              (//primitive.corresponds? elseA elseS))
+
+                         _
+                         false))))))

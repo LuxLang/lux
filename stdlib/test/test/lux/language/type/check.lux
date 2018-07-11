@@ -1,0 +1,262 @@
+(.module:
+  lux
+  (lux [io]
+       (control [monad #+ do Monad]
+                [pipe #+ case>])
+       (data [product]
+             [maybe]
+             [number]
+             [text "text/" Monoid<Text> Equivalence<Text>]
+             text/format
+             (collection [list "list/" Functor<List>]
+                         [set]))
+       ["r" math/random]
+       (language [type "type/" Equivalence<Type>]
+                 (type ["@" check])))
+  lux/test)
+
+## [Utils]
+(def: gen-name
+  (r.Random Text)
+  (do r.Monad<Random>
+    [size (|> r.nat (:: @ map (n/% +10)))]
+    (r.unicode size)))
+
+(def: gen-ident
+  (r.Random Ident)
+  (r.seq gen-name gen-name))
+
+(def: gen-type
+  (r.Random Type)
+  (let [(^open "r/") r.Monad<Random>]
+    (r.rec (function (_ gen-type)
+             ($_ r.alt
+                 (r.seq gen-name (r/wrap (list)))
+                 (r.seq gen-type gen-type)
+                 (r.seq gen-type gen-type)
+                 (r.seq gen-type gen-type)
+                 r.nat
+                 r.nat
+                 r.nat
+                 (r.seq (r/wrap (list)) gen-type)
+                 (r.seq (r/wrap (list)) gen-type)
+                 (r.seq gen-type gen-type)
+                 (r.seq gen-ident gen-type)
+                 )))))
+
+(def: (valid-type? type)
+  (-> Type Bool)
+  (case type
+    (#.Primitive name params)
+    (list.every? valid-type? params)
+    
+    (#.Ex id)
+    true
+
+    (^template [<tag>]
+      (<tag> left right)
+      (and (valid-type? left) (valid-type? right)))
+    ([#.Sum] [#.Product] [#.Function])
+
+    (#.Named name type')
+    (valid-type? type')
+
+    _
+    false))
+
+(def: (type-checks? input)
+  (-> (@.Check []) Bool)
+  (case (@.run @.fresh-context input)
+    (#.Right [])
+    true
+
+    (#.Left error)
+    false))
+
+## [Tests]
+(context: "Any and Nothing."
+  (<| (times +100)
+      (do @
+        [sample (|> gen-type (r.filter valid-type?))]
+        ($_ seq
+            (test "Any is the super-type of everything."
+                  (@.checks? Any sample))
+
+            (test "Nothing is the sub-type of everything."
+                  (@.checks? sample Nothing))
+            ))))
+
+(context: "Simple type-checking."
+  ($_ seq
+      (test "Any and Nothing match themselves."
+            (and (@.checks? Nothing Nothing)
+                 (@.checks? Any Any)))
+
+      (test "Existential types only match with themselves."
+            (and (type-checks? (do @.Monad<Check>
+                                 [[_ exT] @.existential]
+                                 (@.check exT exT)))
+                 (not (type-checks? (do @.Monad<Check>
+                                      [[_ exTL] @.existential
+                                       [_ exTR] @.existential]
+                                      (@.check exTL exTR))))))
+
+      (test "Names do not affect type-checking."
+            (and (type-checks? (do @.Monad<Check>
+                                 [[_ exT] @.existential]
+                                 (@.check (#.Named ["module" "name"] exT)
+                                          exT)))
+                 (type-checks? (do @.Monad<Check>
+                                 [[_ exT] @.existential]
+                                 (@.check exT
+                                          (#.Named ["module" "name"] exT))))
+                 (type-checks? (do @.Monad<Check>
+                                 [[_ exT] @.existential]
+                                 (@.check (#.Named ["module" "name"] exT)
+                                          (#.Named ["module" "name"] exT))))))
+
+      (test "Functions are covariant on inputs and contravariant on outputs."
+            (and (@.checks? (#.Function Nothing Any)
+                            (#.Function Any Nothing))
+                 (not (@.checks? (#.Function Any Nothing)
+                                 (#.Function Nothing Any)))))
+      ))
+
+(context: "Type application."
+  (<| (times +100)
+      (do @
+        [meta gen-type
+         data gen-type]
+        (test "Can type-check type application."
+              (and (@.checks? (|> Ann (#.Apply meta) (#.Apply data))
+                              (type.tuple (list meta data)))
+                   (@.checks? (type.tuple (list meta data))
+                              (|> Ann (#.Apply meta) (#.Apply data))))))))
+
+(context: "Primitive types."
+  (<| (times +100)
+      (do @
+        [nameL gen-name
+         nameR (|> gen-name (r.filter (|>> (text/= nameL) not)))
+         paramL gen-type
+         paramR (|> gen-type (r.filter (|>> (@.checks? paramL) not)))]
+        ($_ seq
+            (test "Primitive types match when they have the same name and the same parameters."
+                  (@.checks? (#.Primitive nameL (list paramL))
+                             (#.Primitive nameL (list paramL))))
+
+            (test "Names matter to primitive types."
+                  (not (@.checks? (#.Primitive nameL (list paramL))
+                                  (#.Primitive nameR (list paramL)))))
+
+            (test "Parameters matter to primitive types."
+                  (not (@.checks? (#.Primitive nameL (list paramL))
+                                  (#.Primitive nameL (list paramR)))))
+            ))))
+
+(context: "Type variables."
+  ($_ seq
+      (test "Type-vars check against themselves."
+            (type-checks? (do @.Monad<Check>
+                            [[id var] @.var]
+                            (@.check var var))))
+
+      (test "Can bind unbound type-vars by type-checking against them."
+            (and (type-checks? (do @.Monad<Check>
+                                 [[id var] @.var]
+                                 (@.check var .Any)))
+                 (type-checks? (do @.Monad<Check>
+                                 [[id var] @.var]
+                                 (@.check .Any var)))))
+
+      (test "Cannot rebind already bound type-vars."
+            (not (type-checks? (do @.Monad<Check>
+                                 [[id var] @.var
+                                  _ (@.check var .Bool)]
+                                 (@.check var .Nat)))))
+
+      (test "If the type bound to a var is a super-type to another, then the var is also a super-type."
+            (type-checks? (do @.Monad<Check>
+                            [[id var] @.var
+                             _ (@.check var Any)]
+                            (@.check var .Bool))))
+
+      (test "If the type bound to a var is a sub-type of another, then the var is also a sub-type."
+            (type-checks? (do @.Monad<Check>
+                            [[id var] @.var
+                             _ (@.check var Nothing)]
+                            (@.check .Bool var))))
+      ))
+
+(def: (build-ring num-connections)
+  (-> Nat (@.Check [[Nat Type] (List [Nat Type]) [Nat Type]]))
+  (do @.Monad<Check>
+    [[head-id head-type] @.var
+     ids+types (monad.seq @ (list.repeat num-connections @.var))
+     [tail-id tail-type] (monad.fold @ (function (_ [tail-id tail-type] [_head-id _head-type])
+                                         (do @
+                                           [_ (@.check head-type tail-type)]
+                                           (wrap [tail-id tail-type])))
+                                     [head-id head-type]
+                                     ids+types)]
+    (wrap [[head-id head-type] ids+types [tail-id tail-type]])))
+
+(context: "Rings of type variables."
+  (<| (times +100)
+      (do @
+        [num-connections (|> r.nat (:: @ map (n/% +100)))
+         boundT (|> gen-type (r.filter (|>> (case> (#.Var _) false _ true))))
+         pick-pcg (r.seq r.nat r.nat)]
+        ($_ seq
+            (test "Can create rings of variables."
+                  (type-checks? (do @.Monad<Check>
+                                  [[[head-id head-type] ids+types [tail-id tail-type]] (build-ring num-connections)
+                                   #let [ids (list/map product.left ids+types)]
+                                   headR (@.ring head-id)
+                                   tailR (@.ring tail-id)]
+                                  (@.assert ""
+                                            (let [same-rings? (:: set.Equivalence<Set> = headR tailR)
+                                                  expected-size? (n/= (inc num-connections) (set.size headR))
+                                                  same-vars? (|> (set.to-list headR)
+                                                                 (list.sort n/<)
+                                                                 (:: (list.Equivalence<List> number.Equivalence<Nat>) = (list.sort n/< (#.Cons head-id ids))))]
+                                              (and same-rings?
+                                                   expected-size?
+                                                   same-vars?))))))
+            (test "When a var in a ring is bound, all the ring is bound."
+                  (type-checks? (do @.Monad<Check>
+                                  [[[head-id headT] ids+types tailT] (build-ring num-connections)
+                                   #let [ids (list/map product.left ids+types)]
+                                   _ (@.check headT boundT)
+                                   head-bound (@.read head-id)
+                                   tail-bound (monad.map @ @.read ids)
+                                   headR (@.ring head-id)
+                                   tailR+ (monad.map @ @.ring ids)]
+                                  (let [rings-were-erased? (and (set.empty? headR)
+                                                                (list.every? set.empty? tailR+))
+                                        same-types? (list.every? (type/= boundT) (list& (maybe.default headT head-bound)
+                                                                                        (list/map (function (_ [tail-id ?tailT])
+                                                                                                    (maybe.default (#.Var tail-id) ?tailT))
+                                                                                                  (list.zip2 ids tail-bound))))]
+                                    (@.assert ""
+                                              (and rings-were-erased?
+                                                   same-types?))))))
+            (test "Can merge multiple rings of variables."
+                  (type-checks? (do @.Monad<Check>
+                                  [[[head-idL headTL] ids+typesL [tail-idL tailTL]] (build-ring num-connections)
+                                   [[head-idR headTR] ids+typesR [tail-idR tailTR]] (build-ring num-connections)
+                                   headRL-pre (@.ring head-idL)
+                                   headRR-pre (@.ring head-idR)
+                                   _ (@.check headTL headTR)
+                                   headRL-post (@.ring head-idL)
+                                   headRR-post (@.ring head-idR)]
+                                  (@.assert ""
+                                            (let [same-rings? (:: set.Equivalence<Set> = headRL-post headRR-post)
+                                                  expected-size? (n/= (n/* +2 (inc num-connections))
+                                                                      (set.size headRL-post))
+                                                  union? (:: set.Equivalence<Set> = headRL-post (set.union headRL-pre headRR-pre))]
+                                              (and same-rings?
+                                                   expected-size?
+                                                   union?))))))
+            ))
+      ))

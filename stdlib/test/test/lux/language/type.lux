@@ -1,0 +1,163 @@
+(.module:
+  lux
+  (lux [io]
+       (control ["M" monad #+ do Monad]
+                pipe)
+       (data [text "Text/" Monoid<Text>]
+             text/format
+             [number]
+             [maybe]
+             (collection [list]))
+       ["r" math/random]
+       (language ["&" type]))
+  lux/test)
+
+## [Utils]
+(def: gen-name
+  (r.Random Text)
+  (do r.Monad<Random>
+    [size (|> r.nat (:: @ map (n/% +10)))]
+    (r.unicode size)))
+
+(def: gen-ident
+  (r.Random Ident)
+  (r.seq gen-name gen-name))
+
+(def: gen-type
+  (r.Random Type)
+  (let [(^open "R/") r.Monad<Random>]
+    (r.rec (function (_ gen-type)
+             ($_ r.alt
+                 (r.seq gen-name (R/wrap (list)))
+                 (r.seq gen-type gen-type)
+                 (r.seq gen-type gen-type)
+                 (r.seq gen-type gen-type)
+                 r.nat
+                 r.nat
+                 r.nat
+                 (r.seq (R/wrap (list)) gen-type)
+                 (r.seq (R/wrap (list)) gen-type)
+                 (r.seq gen-type gen-type)
+                 (r.seq gen-ident gen-type)
+                 )))))
+
+## [Tests]
+(context: "Types"
+  (<| (times +100)
+      (do @
+        [sample gen-type]
+        (test "Every type is equal to itself."
+              (:: &.Equivalence<Type> = sample sample)))))
+
+(context: "Type application"
+  (test "Can apply quantified types (universal and existential quantification)."
+        (and (maybe.default false
+                            (do maybe.Monad<Maybe>
+                              [partial (&.apply (list Bool) Ann)
+                               full (&.apply (list Int) partial)]
+                              (wrap (:: &.Equivalence<Type> = full (#.Product Bool Int)))))
+             (|> (&.apply (list Bool) Text)
+                 (case> #.None true _ false)))))
+
+(context: "Naming"
+  (let [base (#.Named ["" "a"] (#.Product Bool Int))
+        aliased (#.Named ["" "c"]
+                         (#.Named ["" "b"]
+                                  base))]
+    ($_ seq
+        (test "Can remove aliases from an already-named type."
+              (:: &.Equivalence<Type> =
+                  base
+                  (&.un-alias aliased)))
+
+        (test "Can remove all names from a type."
+              (and (not (:: &.Equivalence<Type> =
+                            base
+                            (&.un-name aliased)))
+                   (:: &.Equivalence<Type> =
+                       (&.un-name base)
+                       (&.un-name aliased)))))))
+
+(context: "Type construction [structs]"
+  (<| (times +100)
+      (do @
+        [size (|> r.nat (:: @ map (n/% +3)))
+         members (|> gen-type
+                     (r.filter (function (_ type)
+                                 (case type
+                                   (^or (#.Sum _) (#.Product _))
+                                   false
+
+                                   _
+                                   true)))
+                     (list.repeat size)
+                     (M.seq @))
+         #let [(^open "&/") &.Equivalence<Type>
+               (^open "L/") (list.Equivalence<List> &.Equivalence<Type>)]]
+        (with-expansions
+          [<struct-tests> (do-template [<desc> <ctor> <dtor> <unit>]
+                            [(test (format "Can build and tear-down " <desc> " types.")
+                                   (let [flat (|> members <ctor> <dtor>)]
+                                     (or (L/= members flat)
+                                         (and (L/= (list) members)
+                                              (L/= (list <unit>) flat)))))]
+
+                            ["variant" &.variant &.flatten-variant Nothing]
+                            ["tuple"   &.tuple   &.flatten-tuple   Any]
+                            )]
+          ($_ seq
+              <struct-tests>
+              )))))
+
+(context: "Type construction [parameterized]"
+  (<| (times +100)
+      (do @
+        [size (|> r.nat (:: @ map (n/% +3)))
+         members (M.seq @ (list.repeat size gen-type))
+         extra (|> gen-type
+                   (r.filter (function (_ type)
+                               (case type
+                                 (^or (#.Function _) (#.Apply _))
+                                 false
+
+                                 _
+                                 true))))
+         #let [(^open "&/") &.Equivalence<Type>
+               (^open "L/") (list.Equivalence<List> &.Equivalence<Type>)]]
+        ($_ seq
+            (test "Can build and tear-down function types."
+                  (let [[inputs output] (|> (&.function members extra) &.flatten-function)]
+                    (and (L/= members inputs)
+                         (&/= extra output))))
+
+            (test "Can build and tear-down application types."
+                  (let [[tfunc tparams] (|> extra (&.application members) &.flatten-application)]
+                    (n/= (list.size members) (list.size tparams))))
+            ))))
+
+(context: "Type construction [higher order]"
+  (<| (times +100)
+      (do @
+        [size (|> r.nat (:: @ map (n/% +3)))
+         extra (|> gen-type
+                   (r.filter (function (_ type)
+                               (case type
+                                 (^or (#.UnivQ _) (#.ExQ _))
+                                 false
+
+                                 _
+                                 true))))
+         #let [(^open "&/") &.Equivalence<Type>]]
+        (with-expansions
+          [<quant-tests> (do-template [<desc> <ctor> <dtor>]
+                           [(test (format "Can build and tear-down " <desc> " types.")
+                                  (let [[flat-size flat-body] (|> extra (<ctor> size) <dtor>)]
+                                    (and (n/= size flat-size)
+                                         (&/= extra flat-body))))]
+
+                           ["universally-quantified"   &.univ-q &.flatten-univ-q]
+                           ["existentially-quantified" &.ex-q   &.flatten-ex-q]
+                           )]
+          ($_ seq
+              <quant-tests>
+              )))))
