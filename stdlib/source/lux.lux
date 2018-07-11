@@ -431,6 +431,11 @@
   ([_ ident] (_ann (#Symbol ident))))
  [dummy-cursor (#Record #Nil)])
 
+("lux def" local-symbol$
+ ("lux check" (#Function Text Code)
+  ([_ ident] (_ann (#Symbol ["" ident]))))
+ [dummy-cursor (#Record #Nil)])
+
 ("lux def" tag$
  ("lux check" (#Function Ident Code)
   ([_ ident] (_ann (#Tag ident))))
@@ -4079,39 +4084,6 @@
                     (fail "only/exclude requires symbols."))))
              defs))
 
-(def: (parse-alias tokens)
-  (-> (List Code) (Meta [(Maybe Text) (List Code)]))
-  (case tokens
-    (^ (list& [_ (#Tag "" "as")] [_ (#Symbol "" alias)] tokens'))
-    (return [(#Some alias) tokens'])
-    
-    _
-    (return [#None tokens])))
-
-(def: (parse-referrals tokens)
-  (-> (List Code) (Meta [Referrals (List Code)]))
-  (case tokens
-    (^ (list& [_ (#Tag ["" "refer"])] referral tokens'))
-    (case referral
-      [_ (#Tag "" "all")]
-      (return [#All tokens'])
-
-      (^ [_ (#Form (list& [_ (#Tag ["" "only"])] defs))])
-      (do Monad<Meta>
-        [defs' (extract-defs defs)]
-        (return [(#Only defs') tokens']))
-
-      (^ [_ (#Form (list& [_ (#Tag ["" "exclude"])] defs))])
-      (do Monad<Meta>
-        [defs' (extract-defs defs)]
-        (return [(#Exclude defs') tokens']))
-
-      _
-      (fail "Incorrect syntax for referral."))
-    
-    _
-    (return [#Nothing tokens])))
-
 (def: (parse-short-referrals tokens)
   (-> (List Code) (Meta [Referrals (List Code)]))
   (case tokens
@@ -4133,53 +4105,6 @@
     
     _
     (return [#Nothing tokens])))
-
-(def: (extract-symbol syntax)
-  (-> Code (Meta Ident))
-  (case syntax
-    [_ (#Symbol ident)]
-    (return ident)
-
-    _
-    (fail "Not a symbol.")))
-
-(def: (parse-openings tokens)
-  (-> (List Code) (Meta [(List Openings) (List Code)]))
-  (case tokens
-    (^ (list& [_ (#Tag "" "open")] [_ (#Form parts)] tokens'))
-    (if (|> parts
-            (list/map (: (-> Code Bool)
-                         (function (_ part)
-                           (case part
-                             (^or [_ (#Text _)] [_ (#Symbol _)])
-                             true
-
-                             _
-                             false))))
-            (list/fold (function (_ r l) (and l r)) true))
-      (let [openings (list/fold (: (-> Code (List Openings) (List Openings))
-                                   (function (_ part openings)
-                                     (case part
-                                       [_ (#Text prefix)]
-                                       (list& [prefix (list)] openings)
-                                       
-                                       [_ (#Symbol ["" struct-name])]
-                                       (case openings
-                                         #Nil
-                                         (list ["" (list struct-name)])
-                                         
-                                         (#Cons [prefix structs] openings')
-                                         (#Cons [prefix (#Cons struct-name structs)] openings'))
-
-                                       _
-                                       openings)))
-                                (: (List Openings) (list))
-                                parts)]
-        (return [openings tokens']))
-      (fail "Expected all parts of opening form to be of either prefix (text) or struct (symbol)."))
-    
-    _
-    (return [(list) tokens])))
 
 (def: (parse-short-openings parts)
   (-> (List Code) (Meta [(List Openings) (List Code)]))
@@ -4275,54 +4200,53 @@
                          (: (-> Code (Meta (List Importation)))
                             (function (_ token)
                               (case token
-                                [_ (#Symbol "" m-name)]
+                                [_ (#Symbol ["" m-name])]
                                 (do Monad<Meta>
                                   [m-name (clean-module relative-root m-name)]
-                                  (wrap (list [m-name #None {#refer-defs #All
-                                                             #refer-open (list)}])))
+                                  (wrap (list {#import-name m-name
+                                               #import-alias #None
+                                               #import-refer {#refer-defs #All
+                                                              #refer-open (list)}})))
 
-                                (^ [_ (#Form (list& [_ (#Symbol "" m-name)] extra))])
+                                (^ [_ (#Tuple (list [_ (#Symbol ["" m-name])]))])
                                 (do Monad<Meta>
-                                  [m-name (clean-module relative-root m-name)
-                                   alias+extra (parse-alias extra)
-                                   #let [[alias extra] alias+extra]
-                                   referral+extra (parse-referrals extra)
+                                  [import-name (clean-module relative-root m-name)]
+                                  (wrap (list {#import-name import-name
+                                               #import-alias (#Some m-name)
+                                               #import-refer {#refer-defs #Nothing
+                                                              #refer-open (list)}})))
+
+                                (^ [_ (#Tuple (list& [_ (#Text alias)] [_ (#Symbol ["" m-name])] extra))])
+                                (do Monad<Meta>
+                                  [import-name (clean-module relative-root m-name)
+                                   referral+extra (parse-short-referrals extra)
                                    #let [[referral extra] referral+extra]
-                                   openings+extra (parse-openings extra)
+                                   openings+extra (parse-short-openings extra)
                                    #let [[openings extra] openings+extra]
                                    sub-imports (parse-imports relative-root extra)
-                                   #let [sub-imports (decorate-sub-importations m-name sub-imports)]]
-                                  (wrap (case [referral alias openings]
-                                          [#Nothing #None #Nil] sub-imports
-                                          _                     (list& {#import-name m-name
-                                                                        #import-alias alias
-                                                                        #import-refer {#refer-defs referral
-                                                                                       #refer-open openings}}
-                                                                       sub-imports))))
+                                   #let [sub-imports (decorate-sub-importations import-name sub-imports)]]
+                                  (wrap (list& {#import-name import-name
+                                                #import-alias (#Some (replace-all "." m-name alias))
+                                                #import-refer {#refer-defs referral
+                                                               #refer-open openings}}
+                                               sub-imports)))
 
-                                (^ [_ (#Tuple (list& [_ (#Text alias)] [_ (#Symbol "" m-name)] extra))])
+                                (^ [_ (#Tuple (list& [_ (#Symbol ["" m-name])] extra))])
                                 (do Monad<Meta>
-                                  [m-name (clean-module relative-root m-name)
+                                  [import-name (clean-module relative-root m-name)
                                    referral+extra (parse-short-referrals extra)
                                    #let [[referral extra] referral+extra]
                                    openings+extra (parse-short-openings extra)
-                                   #let [[openings extra] openings+extra]]
-                                  (wrap (list {#import-name m-name
-                                               #import-alias (#Some (replace-all "." m-name alias))
-                                               #import-refer {#refer-defs referral
-                                                              #refer-open openings}})))
-
-                                (^ [_ (#Tuple (list& [_ (#Symbol "" raw-m-name)] extra))])
-                                (do Monad<Meta>
-                                  [m-name (clean-module relative-root raw-m-name)
-                                   referral+extra (parse-short-referrals extra)
-                                   #let [[referral extra] referral+extra]
-                                   openings+extra (parse-short-openings extra)
-                                   #let [[openings extra] openings+extra]]
-                                  (wrap (list {#import-name m-name
-                                               #import-alias (#Some raw-m-name)
-                                               #import-refer {#refer-defs referral
-                                                              #refer-open openings}})))
+                                   #let [[openings extra] openings+extra]
+                                   sub-imports (parse-imports relative-root extra)
+                                   #let [sub-imports (decorate-sub-importations import-name sub-imports)]]
+                                  (wrap (case [referral openings]
+                                          [#Nothing #Nil] sub-imports
+                                          _               (list& {#import-name import-name
+                                                                  #import-alias (#Some m-name)
+                                                                  #import-refer {#refer-defs referral
+                                                                                 #refer-open openings}}
+                                                                 sub-imports))))
 
                                 _
                                 (do Monad<Meta>
@@ -4804,9 +4728,9 @@
 (def: (read-refer module-name options)
   (-> Text (List Code) (Meta Refer))
   (do Monad<Meta>
-    [referral+options (parse-referrals options)
+    [referral+options (parse-short-referrals options)
      #let [[referral options] referral+options]
-     openings+options (parse-openings options)
+     openings+options (parse-short-openings options)
      #let [[openings options] openings+options]
      current-module current-module-name
      #let [test-referrals (: (-> Text (List Text) (List Text) (Meta (List Any)))
@@ -4891,27 +4815,25 @@
 
 (def: (refer-to-code module-name [r-defs r-opens])
   (-> Text Refer Code)
-  (let [=defs (: (List Code)
-                 (case r-defs
-                   #All
-                   (list (' #refer) (' #all))
-                   
-                   (#Only defs)
-                   (list (' #refer) (`' (#only (~+ (list/map (|>> [""] symbol$)
-                                                             defs)))))
-                   
-                   (#Exclude defs)
-                   (list (' #refer) (`' (#exclude (~+ (list/map (|>> [""] symbol$)
-                                                                defs)))))
-                   
-                   #Nothing
-                   (list)))
-        =opens (join-map (function (_ [prefix structs])
-                           (list& (text$ prefix) (list/map (|>> [""] symbol$) structs)))
-                         r-opens)]
+  (let [localizations (: (List Code)
+                         (case r-defs
+                           #All
+                           (list (' #*))
+                           
+                           (#Only defs)
+                           (list (form$ (list& (' #+) (list/map local-symbol$ defs))))
+                           
+                           (#Exclude defs)
+                           (list (form$ (list& (' #-) (list/map local-symbol$ defs))))
+                           
+                           #Nothing
+                           (list)))
+        openings (list/map (function (_ [prefix structs])
+                             (form$ (list& (text$ prefix) (list/map local-symbol$ structs))))
+                           r-opens)]
     (` (..refer (~ (text$ module-name))
-                (~+ =defs)
-                (~' #open) ((~+ =opens))))))
+                (~+ localizations)
+                (~+ openings)))))
 
 (macro: #export (module: tokens)
   {#.doc "Module-definition macro.
