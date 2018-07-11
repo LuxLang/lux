@@ -1,0 +1,152 @@
+## https://en.wikipedia.org/wiki/Multiset
+(.module:
+  lux
+  (lux (control [equivalence #+ Equivalence]
+                [hash #+ Hash])
+       [function]
+       (language [type #+ :share])
+       (type abstract))
+  (//// [maybe])
+  (/// [list "list/" Fold<List>]
+       [dictionary #+ Dictionary])
+  [//])
+
+(abstract: #export (Set a)
+  {}
+  
+  (Dictionary a Nat)
+
+  (def: #export new
+    (All [a] (-> (Hash a) (Set a)))
+    (|>> dictionary.new :abstraction))
+
+  (def: #export size
+    (All [a] (-> (Set a) Nat))
+    (|>> :representation dictionary.values (list/fold n/+ +0)))
+
+  (def: #export (add/* count elem set)
+    (All [a] (-> Nat a (Set a) (Set a)))
+    (|> set :representation (dictionary.update~ elem +0 (n/+ count)) :abstraction))
+
+  (def: #export add/1
+    (All [a] (-> a (Set a) (Set a)))
+    (add/* +1))
+
+  (def: #export (remove/* count elem set)
+    (All [a] (-> Nat a (Set a) (Set a)))
+    (case (dictionary.get elem (:representation set))
+      (#.Some current)
+      (let [transform (:share [a]
+                              {(Set a)
+                               set}
+                              {(-> (Dictionary a Nat) (Dictionary a Nat))
+                               (if (n/> count current)
+                                 (dictionary.update elem (n/- count))
+                                 (dictionary.remove elem))})]
+        (|> set :representation transform :abstraction))
+      
+      #.None
+      set))
+
+  (def: #export remove/1
+    (All [a] (-> a (Set a) (Set a)))
+    (remove/* +1))
+
+  (def: #export (multiplicity elem set)
+    (All [a] (-> a (Set a) Nat))
+    (|> set :representation (dictionary.get elem) (maybe.default +0)))
+
+  (def: #export to-list
+    (All [a] (-> (Set a) (List a)))
+    (let [append (: (All [a] (-> a Nat (List a) (List a)))
+                    (function (append elem count output)
+                      (case count
+                        +0 output
+                        _ (|> output (#.Cons elem) (append elem (dec count))))))]
+      (|>> :representation
+           dictionary.entries
+           (list/fold (function (_ [elem count] output)
+                        (append elem count output))
+                      #.Nil))))
+
+  (def: #export (union parameter subject)
+    (All [a] (-> (Set a) (Set a) (Set a)))
+    (:abstraction (dictionary.merge-with n/+ (:representation parameter) (:representation subject))))
+
+  (def: #export (difference parameter subject)
+    (All [a] (-> (Set a) (Set a) (Set a)))
+    (|> parameter
+        :representation
+        dictionary.entries
+        (list/fold (function (_ [elem count] output)
+                     (remove/* count elem output))
+                   subject)))
+
+  (def: #export (intersection parameter subject)
+    (All [a] (-> (Set a) (Set a) (Set a)))
+    (|> parameter
+        :representation
+        dictionary.entries
+        (list/fold (function (_ [elem count] (^:representation output))
+                     (:abstraction (if (dictionary.contains? elem output)
+                                     (dictionary.update elem (n/min count) output)
+                                     output)))
+                   subject)))
+
+  (def: #export (sub? reference subject)
+    (All [a] (-> (Set a) (Set a) Bool))
+    (|> subject
+        :representation
+        dictionary.entries
+        (list.every? (function (_ [elem count])
+                       (|> reference
+                           :representation
+                           (dictionary.get elem)
+                           (maybe.default +0)
+                           (n/>= count))))))
+
+  (def: #export (support set)
+    (All [a] (-> (Set a) (//.Set a)))
+    (let [(^@ set [Hash<a> _]) (:representation set)]
+      (|> set
+          dictionary.keys
+          (//.from-list Hash<a>))))
+
+  (structure: #export Equivalence<Set> (All [a] (Equivalence (Set a)))
+    (def: (= (^:representation reference) (^:representation sample))
+      (and (n/= (dictionary.size reference)
+                (dictionary.size sample))
+           (|> reference
+               dictionary.entries
+               (list.every? (function (_ [elem count])
+                              (|> sample
+                                  (dictionary.get elem)
+                                  (maybe.default +0)
+                                  (n/= count))))))))
+
+  (structure: #export Hash<Set> (All [a] (Hash (Set a)))
+    (def: eq ..Equivalence<Set>)
+    
+    (def: (hash (^:representation set))
+      (let [[Hash<a> _] set]
+        (list/fold (function (_ [elem count] acc)
+                     (|> elem (:: Hash<a> hash) (n/* count) (n/+ acc)))
+                   +0
+                   (dictionary.entries set)))))
+  )
+
+(def: #export (member? set elem)
+  (All [a] (-> (Set a) a Bool))
+  (|> set (..multiplicity elem) (n/> +0)))
+
+(def: #export empty?
+  (All [a] (-> (Set a) Bool))
+  (|>> ..size (n/= +0)))
+
+(def: #export (from-list Hash<a> subject)
+  (All [a] (-> (Hash a) (List a) (Set a)))
+  (list/fold ..add/1 (..new Hash<a>) subject))
+
+(def: #export super?
+  (All [a] (-> (Set a) (Set a) Bool))
+  (function.flip sub?))
