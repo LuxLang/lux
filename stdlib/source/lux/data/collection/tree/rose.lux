@@ -1,0 +1,73 @@
+(.module:
+  lux
+  (lux (control functor
+                [monad #+ do Monad]
+                equivalence
+                ["p" parser]
+                fold)
+       (data (collection [list "L/" Monad<List> Fold<List>]))
+       [macro]
+       (macro [code]
+              ["s" syntax #+ syntax: Syntax])))
+
+## [Types]
+(type: #export (Tree a)
+  {#value a
+   #children (List (Tree a))})
+
+## [Values]
+(def: #export (flatten tree)
+  (All [a] (-> (Tree a) (List a)))
+  (#.Cons (get@ #value tree)
+          (L/join (L/map flatten (get@ #children tree)))))
+
+(def: #export (leaf value)
+  (All [a] (-> a (Tree a)))
+  {#value value
+   #children (list)})
+
+(def: #export (branch value children)
+  (All [a] (-> a (List (Tree a)) (Tree a)))
+  {#value value
+   #children children})
+
+## [Syntax]
+(type: #rec Tree-Code
+  [Code (List Tree-Code)])
+
+(def: tree^
+  (Syntax Tree-Code)
+  (|> (|>> p.some s.record (p.seq s.any))
+      p.rec
+      p.some
+      s.record
+      (p.seq s.any)
+      s.tuple))
+
+(syntax: #export (tree {root tree^})
+  {#.doc (doc "Tree literals."
+              (tree Int [10 {20 {}
+                             30 {}
+                             40 {}}]))}
+  (wrap (list (` (~ (loop [[value children] root]
+                      (` {#value (~ value)
+                          #children (list (~+ (L/map recur children)))})))))))
+
+## [Structs]
+(structure: #export (Equivalence<Tree> Equivalence<a>) (All [a] (-> (Equivalence a) (Equivalence (Tree a))))
+  (def: (= tx ty)
+    (and (:: Equivalence<a> = (get@ #value tx) (get@ #value ty))
+         (:: (list.Equivalence<List> (Equivalence<Tree> Equivalence<a>)) = (get@ #children tx) (get@ #children ty)))))
+
+(structure: #export _ (Functor Tree)
+  (def: (map f fa)
+    {#value (f (get@ #value fa))
+     #children (L/map (map f)
+                      (get@ #children fa))}))
+
+(structure: #export _ (Fold Tree)
+  (def: (fold f init tree)
+    (L/fold (function (_ tree' init') (fold f init' tree'))
+            (f (get@ #value tree)
+               init)
+            (get@ #children tree))))

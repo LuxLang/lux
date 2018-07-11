@@ -1,0 +1,128 @@
+(.module:
+  lux
+  (lux [io]
+       (control [monad #+ do Monad]
+                ["eq" equivalence])
+       (data [text]
+             text/format
+             [number]
+             [maybe]
+             (collection ["&" dictionary]
+                         [list "list/" Fold<List> Functor<List>]))
+       ["r" math/random])
+  lux/test)
+
+(context: "Dictionaries."
+  (<| (times +100)
+      (do @
+        [#let [capped-nat (:: r.Monad<Random> map (n/% +100) r.nat)]
+         size capped-nat
+         dict (r.dictionary number.Hash<Nat> size r.nat capped-nat)
+         non-key (|> r.nat (r.filter (function (_ key) (not (&.contains? key dict)))))
+         test-val (|> r.nat (r.filter (function (_ val) (not (list.member? number.Equivalence<Nat> (&.values dict) val)))))]
+        ($_ seq
+            (test "Size function should correctly represent Dictionary size."
+                  (n/= size (&.size dict)))
+            
+            (test "Dictionaries of size 0 should be considered empty."
+                  (if (n/= +0 size)
+                    (&.empty? dict)
+                    (not (&.empty? dict))))
+            
+            (test "The functions 'entries', 'keys' and 'values' should be synchronized."
+                  (:: (list.Equivalence<List> (eq.product number.Equivalence<Nat> number.Equivalence<Nat>)) =
+                      (&.entries dict)
+                      (list.zip2 (&.keys dict)
+                                 (&.values dict))))
+            
+            (test "Dictionary should be able to recognize it's own keys."
+                  (list.every? (function (_ key) (&.contains? key dict))
+                               (&.keys dict)))
+            
+            (test "Should be able to get every key."
+                  (list.every? (function (_ key) (case (&.get key dict)
+                                                   (#.Some _) true
+                                                   _          false))
+                               (&.keys dict)))
+            
+            (test "Shouldn't be able to access non-existant keys."
+                  (case (&.get non-key dict)
+                    (#.Some _) false
+                    _          true))
+            
+            (test "Should be able to put and then get a value."
+                  (case (&.get non-key (&.put non-key test-val dict))
+                    (#.Some v) (n/= test-val v)
+                    _          true))
+            
+            (test "Should be able to put~ and then get a value."
+                  (case (&.get non-key (&.put~ non-key test-val dict))
+                    (#.Some v) (n/= test-val v)
+                    _          true))
+            
+            (test "Shouldn't be able to put~ an existing key."
+                  (or (n/= +0 size)
+                      (let [first-key (|> dict &.keys list.head maybe.assume)]
+                        (case (&.get first-key (&.put~ first-key test-val dict))
+                          (#.Some v) (not (n/= test-val v))
+                          _          true))))
+            
+            (test "Removing a key should make it's value inaccessible."
+                  (let [base (&.put non-key test-val dict)]
+                    (and (&.contains? non-key base)
+                         (not (&.contains? non-key (&.remove non-key base))))))
+            
+            (test "Should be possible to update values via their keys."
+                  (let [base (&.put non-key test-val dict)
+                        updt (&.update non-key inc base)]
+                    (case [(&.get non-key base) (&.get non-key updt)]
+                      [(#.Some x) (#.Some y)]
+                      (n/= (inc x) y)
+
+                      _
+                      false)))
+            
+            (test "Additions and removals to a Dictionary should affect its size."
+                  (let [plus (&.put non-key test-val dict)
+                        base (&.remove non-key plus)]
+                    (and (n/= (inc (&.size dict)) (&.size plus))
+                         (n/= (dec (&.size plus)) (&.size base)))))
+
+            (test "A Dictionary should equal itself & going to<->from lists shouldn't change that."
+                  (let [(^open) (&.Equivalence<Dictionary> number.Equivalence<Nat>)]
+                    (and (= dict dict)
+                         (|> dict &.entries (&.from-list number.Hash<Nat>) (= dict)))))
+
+            (test "Merging a Dictionary to itself changes nothing."
+                  (let [(^open) (&.Equivalence<Dictionary> number.Equivalence<Nat>)]
+                    (= dict (&.merge dict dict))))
+
+            (test "If you merge, and the second dict has overlapping keys, it should overwrite yours."
+                  (let [dict' (|> dict &.entries
+                                  (list/map (function (_ [k v]) [k (inc v)]))
+                                  (&.from-list number.Hash<Nat>))
+                        (^open) (&.Equivalence<Dictionary> number.Equivalence<Nat>)]
+                    (= dict' (&.merge dict' dict))))
+
+            (test "Can merge values in such a way that they become combined."
+                  (list.every? (function (_ [x x*2]) (n/= (n/* +2 x) x*2))
+                               (list.zip2 (&.values dict)
+                                          (&.values (&.merge-with n/+ dict dict)))))
+
+            (test "Should be able to select subset of keys from dict."
+                  (|> dict
+                      (&.put non-key test-val)
+                      (&.select (list non-key))
+                      &.size
+                      (n/= +1)))
+
+            (test "Should be able to re-bind existing values to different keys."
+                  (or (n/= +0 size)
+                      (let [first-key (|> dict &.keys list.head maybe.assume)
+                            rebound (&.re-bind first-key non-key dict)]
+                        (and (n/= (&.size dict) (&.size rebound))
+                             (&.contains? non-key rebound)
+                             (not (&.contains? first-key rebound))
+                             (n/= (maybe.assume (&.get first-key dict))
+                                  (maybe.assume (&.get non-key rebound)))))))
+            ))))
