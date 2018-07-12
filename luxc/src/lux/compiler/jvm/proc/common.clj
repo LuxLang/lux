@@ -405,7 +405,6 @@
       (return nil)))
 
   ^:private compile-text-size "java/lang/String" "length"
-  ^:private compile-text-hash "java/lang/Object" "hashCode"
   )
 
 (defn ^:private compile-text-char [compile ?values special-args]
@@ -626,7 +625,6 @@
       "clip"                 (compile-text-clip compile ?values special-args)
       "index"                (compile-text-index compile ?values special-args)
       "size"                 (compile-text-size compile ?values special-args)
-      "hash"                 (compile-text-hash compile ?values special-args)
       "char"                 (compile-text-char compile ?values special-args)
       )
     

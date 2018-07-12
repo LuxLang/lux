@@ -84,7 +84,6 @@
                                            (&/|list)))))))
 
   ^:private analyse-text-size "size"
-  ^:private analyse-text-hash "hash"
   )
 
 (defn ^:private analyse-text-char [analyse exo-type ?values]
@@ -425,7 +424,6 @@
          "lux text clip"                 (analyse-text-clip analyse exo-type ?values)
          "lux text index"                (analyse-text-index analyse exo-type ?values)
          "lux text size"                 (analyse-text-size analyse exo-type ?values)
-         "lux text hash"                 (analyse-text-hash analyse exo-type ?values)
          "lux text char"                 (analyse-text-char analyse exo-type ?values)
          
          "lux array new"    (analyse-array-new analyse exo-type ?values)
