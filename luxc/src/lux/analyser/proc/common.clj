@@ -60,17 +60,6 @@
   ^:private analyse-text-index      "index"      (&/$Apply &type/Nat &type/Maybe)
   )
 
-(defn ^:private analyse-text-contains? [analyse exo-type ?values]
-  (|do [:let [(&/$Cons text (&/$Cons part (&/$Nil))) ?values]
-        =text (&&/analyse-1 analyse &type/Text text)
-        =part (&&/analyse-1 analyse &type/Text part)
-        _ (&type/check exo-type &type/Bool)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$proc (&/T ["text" "contains?"])
-                                         (&/|list =text =part)
-                                         (&/|list)))))))
-
 (defn ^:private analyse-text-clip [analyse exo-type ?values]
   (|do [:let [(&/$Cons text (&/$Cons from (&/$Cons to (&/$Nil)))) ?values]
         =text (&&/analyse-1 analyse &type/Text text)
@@ -81,18 +70,6 @@
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["text" "clip"])
                                          (&/|list =text =from =to)
-                                         (&/|list)))))))
-
-(defn ^:private analyse-text-replace-all [analyse exo-type ?values]
-  (|do [:let [(&/$Cons text (&/$Cons to-find (&/$Cons replace-with (&/$Nil)))) ?values]
-        =text (&&/analyse-1 analyse &type/Text text)
-        =to-find (&&/analyse-1 analyse &type/Text to-find)
-        =replace-with (&&/analyse-1 analyse &type/Text replace-with)
-        _ (&type/check exo-type &type/Text)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$proc (&/T ["text" "replace-all"])
-                                         (&/|list =text =to-find =replace-with)
                                          (&/|list)))))))
 
 (do-template [<name> <proc>]
@@ -449,9 +426,7 @@
          "lux text index"                (analyse-text-index analyse exo-type ?values)
          "lux text size"                 (analyse-text-size analyse exo-type ?values)
          "lux text hash"                 (analyse-text-hash analyse exo-type ?values)
-         "lux text replace-all"          (analyse-text-replace-all analyse exo-type ?values)
          "lux text char"                 (analyse-text-char analyse exo-type ?values)
-         "lux text contains?"            (analyse-text-contains? analyse exo-type ?values)
          
          "lux array new"    (analyse-array-new analyse exo-type ?values)
          "lux array get"    (analyse-array-get analyse exo-type ?values)

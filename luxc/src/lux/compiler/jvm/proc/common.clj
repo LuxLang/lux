@@ -408,36 +408,6 @@
   ^:private compile-text-hash "java/lang/Object" "hashCode"
   )
 
-(defn ^:private compile-text-replace-all [compile ?values special-args]
-  (|do [:let [(&/$Cons ?text (&/$Cons ?pattern (&/$Cons ?replacement (&/$Nil)))) ?values]
-        ^MethodVisitor *writer* &/get-writer
-        _ (compile ?text)
-        :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String"))]
-        _ (compile ?pattern)
-        :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String"))]
-        _ (compile ?replacement)
-        :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String"))]
-        :let [_ (doto *writer*
-                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "replace" "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Ljava/lang/String;"))]]
-    (return nil)))
-
-(defn ^:private compile-text-contains? [compile ?values special-args]
-  (|do [:let [(&/$Cons ?text (&/$Cons ?sub (&/$Nil))) ?values]
-        ^MethodVisitor *writer* &/get-writer
-        _ (compile ?text)
-        :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String"))]
-        _ (compile ?sub)
-        :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String"))]
-        :let [_ (doto *writer*
-                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "contains" "(Ljava/lang/CharSequence;)Z")
-                  &&/wrap-boolean)]]
-    (return nil)))
-
 (defn ^:private compile-text-char [compile ?values special-args]
   (|do [:let [(&/$Cons ?text (&/$Cons ?idx (&/$Nil))) ?values]
         ^MethodVisitor *writer* &/get-writer
@@ -657,9 +627,7 @@
       "index"                (compile-text-index compile ?values special-args)
       "size"                 (compile-text-size compile ?values special-args)
       "hash"                 (compile-text-hash compile ?values special-args)
-      "replace-all"          (compile-text-replace-all compile ?values special-args)
       "char"                 (compile-text-char compile ?values special-args)
-      "contains?"            (compile-text-contains? compile ?values special-args)
       )
     
     "i64"

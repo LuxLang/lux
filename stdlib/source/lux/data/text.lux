@@ -8,10 +8,9 @@
     [codec (#+ Codec)]
     hash]
    [data
-    [collection [list]]
+    [collection [list ("list/" Fold<List>)]]
     [maybe]]])
 
-## [Functions]
 (def: #export (size x)
   (-> Text Nat)
   ("lux text size" x))
@@ -19,27 +18,6 @@
 (def: #export (nth idx input)
   (-> Nat Text (Maybe Nat))
   ("lux text char" input idx))
-
-(def: #export (contains? sub text)
-  (-> Text Text Bool)
-  (case ("lux text index" text sub +0)
-    (#.Some _)
-    true
-
-    _
-    false))
-
-(def: #export (clip from to input)
-  (-> Nat Nat Text (Maybe Text))
-  ("lux text clip" input from to))
-
-(def: #export (clip' from input)
-  (-> Nat Text (Maybe Text))
-  ("lux text clip" input from (size input)))
-
-(def: #export (replace-all pattern value template)
-  (-> Text Text Text Text)
-  ("lux text replace-all" template pattern value))
 
 (def: #export (index-of' pattern from input)
   (-> Text Nat Text (Maybe Nat))
@@ -95,9 +73,26 @@
     _
     false))
 
+(def: #export (contains? sub text)
+  (-> Text Text Bool)
+  (case ("lux text index" text sub +0)
+    (#.Some _)
+    true
+
+    _
+    false))
+
+(def: #export (clip from to input)
+  (-> Nat Nat Text (Maybe Text))
+  ("lux text clip" input from to))
+
+(def: #export (clip' from input)
+  (-> Nat Text (Maybe Text))
+  ("lux text clip" input from (size input)))
+
 (def: #export (split at x)
   (-> Nat Text (Maybe [Text Text]))
-  (case [(clip +0 at x) (clip' at x)]
+  (case [(..clip +0 at x) (..clip' at x)]
     [(#.Some pre) (#.Some post)]
     (#.Some [pre post])
 
@@ -114,7 +109,7 @@
 
 (def: #export (split-all-with token sample)
   (-> Text Text (List Text))
-  (case (split-with token sample)
+  (case (..split-with token sample)
     (#.Some [pre post])
     (#.Cons pre (split-all-with token post))
 
@@ -122,9 +117,24 @@
     (#.Cons sample #.Nil)))
 
 (def: #export split-lines
-  (split-all-with "\n"))
+  (..split-all-with "\n"))
 
-## [Structures]
+(def: #export (replace-once pattern value template)
+  (-> Text Text Text Text)
+  (<| (maybe.default template)
+      (do maybe.Monad<Maybe>
+        [[pre post] (split-with pattern template)]
+        (wrap ($_ "lux text concat" pre value post)))))
+
+(def: #export (replace-all pattern value template)
+  (-> Text Text Text Text)
+  (case (..split-with pattern template)
+    (#.Some [pre post])
+    ($_ "lux text concat" pre value (replace-all pattern value post))
+
+    #.None
+    template))
+
 (structure: #export _ (Equivalence Text)
   (def: (= test subject)
     ("lux text =" subject test)))
@@ -152,22 +162,6 @@
   (def: (compose left right)
     ("lux text concat" left right)))
 
-(open: "text/" Monoid<Text>)
-
-(def: #export (encode original)
-  (-> Text Text)
-  (let [escaped (|> original
-                    (replace-all "\\" "\\\\")
-                    (replace-all "\t" "\\t")
-                    (replace-all "\v" "\\v")
-                    (replace-all "\b" "\\b")
-                    (replace-all "\n" "\\n")
-                    (replace-all "\r" "\\r")
-                    (replace-all "\f" "\\f")
-                    (replace-all "\"" "\\\"")
-                    )]
-    ($_ text/compose "\"" escaped "\"")))
-
 (structure: #export _ (Hash Text)
   (def: eq Equivalence<Text>)
   
@@ -176,9 +170,8 @@
 
 (def: #export concat
   (-> (List Text) Text)
-  (let [(^open) list.Fold<List>
-        (^open) Monoid<Text>]
-    (|>> list.reverse (fold text/compose identity))))
+  (let [(^open) Monoid<Text>]
+    (|>> list.reverse (list/fold compose identity))))
 
 (def: #export (join-with sep texts)
   (-> Text (List Text) Text)
@@ -190,24 +183,28 @@
     "" true
     _  false))
 
-(def: #export (replace-once pattern value template)
-  (-> Text Text Text Text)
-  (maybe.default template
-                 (do maybe.Monad<Maybe>
-                   [[pre post] (split-with pattern template)
-                    #let [(^open) Monoid<Text>]]
-                   (wrap ($_ text/compose pre value post)))))
-
 (def: #export (enclose [left right] content)
   {#.doc "Surrounds the given content text with left and right side additions."}
   (-> [Text Text] Text Text)
   (let [(^open) Monoid<Text>]
-    ($_ text/compose left content right)))
+    ($_ "lux text concat" left content right)))
 
 (def: #export (enclose' boundary content)
   {#.doc "Surrounds the given content text with the same boundary text."}
   (-> Text Text Text)
   (enclose [boundary boundary] content))
+
+(def: #export encode
+  (-> Text Text)
+  (|>> (replace-all "\\" "\\\\")
+       (replace-all "\t" "\\t")
+       (replace-all "\v" "\\v")
+       (replace-all "\b" "\\b")
+       (replace-all "\n" "\\n")
+       (replace-all "\r" "\\r")
+       (replace-all "\f" "\\f")
+       (replace-all "\"" "\\\"")
+       (..enclose' "\"")))
 
 (def: #export from-code
   (-> Nat Text)
