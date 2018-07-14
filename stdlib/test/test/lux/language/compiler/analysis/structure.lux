@@ -1,6 +1,5 @@
 (.module:
   [lux #*
-   [io]
    [control
     [monad (#+ do)]
     pipe]
@@ -9,35 +8,36 @@
     ["e" error]
     [product]
     [maybe]
-    ["." text
-     format]
+    ["." text]
     [collection
      [list ("list/" Functor<List>)]
      [set]]]
    [math
     ["r" random]]
-   ["." macro
+   [macro
     [code]]
    ["." language
     [type ("type/" Equivalence<Type>)
-     ["tc" check]]
-    [".L" module]
-    [compiler
-     [".L" init]
-     [".L" analysis (#+ Analysis Variant Tag)
+     [check]]
+    ["." compiler
+     [init]
+     [analysis (#+ Analysis Variant Tag Operation)
+      [module]
       [".A" type]
       ["/" structure]
-      [".A" expression]]]]
+      [expression]]
+     [extension
+      [".E" analysis]]]]
    test]
   [//
    ["_." primitive]])
 
-(def: analyse (expressionA.analyser (:coerce language.Eval [])))
+(def: analyse (expression.analyser (:coerce language.Eval [])))
 
 (do-template [<name> <on-success> <on-error>]
   [(def: #export <name>
-     (All [a] (-> (Meta a) Bool))
-     (|>> (macro.run (initL.compiler []))
+     (All [a] (-> (Operation a) Bool))
+     (|>> (compiler.run [analysisE.bundle (init.compiler [])])
           (case> (#e.Success _)
                  <on-success>
 
@@ -50,20 +50,20 @@
 
 (def: (check-sum' size tag variant)
   (-> Nat Tag (Variant Analysis) Bool)
-  (let [variant-tag (if (get@ #analysisL.right? variant)
-                      (inc (get@ #analysisL.lefts variant))
-                      (get@ #analysisL.lefts variant))]
+  (let [variant-tag (if (get@ #analysis.right? variant)
+                      (inc (get@ #analysis.lefts variant))
+                      (get@ #analysis.lefts variant))]
     (|> size dec (n/= tag)
-        (bool/= (get@ #analysisL.right? variant))
+        (bool/= (get@ #analysis.right? variant))
         (and (n/= tag variant-tag)))))
 
 (def: (check-sum type size tag analysis)
-  (-> Type Nat Tag (Meta Analysis) Bool)
+  (-> Type Nat Tag (Operation Analysis) Bool)
   (|> analysis
       (typeA.with-type type)
-      (macro.run (initL.compiler []))
+      (compiler.run [analysisE.bundle (init.compiler [])])
       (case> (^multi (#e.Success sumA)
-                     [(analysisL.variant sumA)
+                     [(analysis.variant sumA)
                       (#.Some variant)])
              (check-sum' size tag variant)
 
@@ -71,19 +71,19 @@
              false)))
 
 (def: (tagged module tags type)
-  (All [a] (-> Text (List moduleL.Tag) Type (Meta a) (Meta [Module a])))
-  (|>> (do macro.Monad<Meta>
-         [_ (moduleL.declare-tags tags false type)])
-       (moduleL.with-module +0 module)))
+  (All [a] (-> Text (List module.Tag) Type (Operation a) (Operation [Module a])))
+  (|>> (do compiler.Monad<Operation>
+         [_ (module.declare-tags tags false type)])
+       (module.with-module +0 module)))
 
 (def: (check-variant module tags type size tag analysis)
-  (-> Text (List moduleL.Tag) Type Nat Tag (Meta Analysis) Bool)
+  (-> Text (List module.Tag) Type Nat Tag (Operation Analysis) Bool)
   (|> analysis
       (tagged module tags type)
       (typeA.with-type type)
-      (macro.run (initL.compiler []))
+      (compiler.run [analysisE.bundle (init.compiler [])])
       (case> (^multi (#e.Success [_ sumA])
-                     [(analysisL.variant sumA)
+                     [(analysis.variant sumA)
                       (#.Some variant)])
              (check-sum' size tag variant)
 
@@ -92,13 +92,13 @@
 
 (def: (right-size? size)
   (-> Nat (-> Analysis Bool))
-  (|>> analysisL.tuple list.size (n/= size)))
+  (|>> analysis.tuple list.size (n/= size)))
 
 (def: (check-record-inference module tags type size analysis)
-  (-> Text (List moduleL.Tag) Type Nat (Meta [Type Analysis]) Bool)
+  (-> Text (List module.Tag) Type Nat (Operation [Type Analysis]) Bool)
   (|> analysis
       (tagged module tags type)
-      (macro.run (initL.compiler []))
+      (compiler.run [analysisE.bundle (init.compiler [])])
       (case> (#e.Success [_ productT productA])
              (and (type/= type productT)
                   (right-size? size productA))
@@ -127,23 +127,23 @@
                   (check-sum variantT size choice
                              (/.sum ..analyse choice valueC)))
             (test "Can analyse sum through bound type-vars."
-                  (|> (do macro.Monad<Meta>
-                        [[_ varT] (typeA.with-env tc.var)
+                  (|> (do compiler.Monad<Operation>
+                        [[_ varT] (typeA.with-env check.var)
                          _ (typeA.with-env
-                             (tc.check varT variantT))]
+                             (check.check varT variantT))]
                         (typeA.with-type varT
                           (/.sum ..analyse choice valueC)))
-                      (macro.run (initL.compiler []))
+                      (compiler.run [analysisE.bundle (init.compiler [])])
                       (case> (^multi (#e.Success sumA)
-                                     [(analysisL.variant sumA)
+                                     [(analysis.variant sumA)
                                       (#.Some variant)])
                              (check-sum' size choice variant)
 
                              _
                              false)))
             (test "Cannot analyse sum through unbound type-vars."
-                  (|> (do macro.Monad<Meta>
-                        [[_ varT] (typeA.with-env tc.var)]
+                  (|> (do compiler.Monad<Operation>
+                        [[_ varT] (typeA.with-env check.var)]
                         (typeA.with-type varT
                           (/.sum ..analyse choice valueC)))
                       check-fails))
@@ -177,7 +177,7 @@
             (test "Can analyse product."
                   (|> (typeA.with-type tupleT
                         (/.product ..analyse (list/map product.right primitives)))
-                      (macro.run (initL.compiler []))
+                      (compiler.run [analysisE.bundle (init.compiler [])])
                       (case> (#e.Success tupleA)
                              (right-size? size tupleA)
 
@@ -186,7 +186,7 @@
             (test "Can infer product."
                   (|> (typeA.with-inference
                         (/.product ..analyse (list/map product.right primitives)))
-                      (macro.run (initL.compiler []))
+                      (compiler.run [analysisE.bundle (init.compiler [])])
                       (case> (#e.Success [_type tupleA])
                              (and (type/= tupleT _type)
                                   (right-size? size tupleA))
@@ -198,13 +198,13 @@
                         (..analyse (` [(~ singletonC)])))
                       check-succeeds))
             (test "Can analyse product through bound type-vars."
-                  (|> (do macro.Monad<Meta>
-                        [[_ varT] (typeA.with-env tc.var)
+                  (|> (do compiler.Monad<Operation>
+                        [[_ varT] (typeA.with-env check.var)
                          _ (typeA.with-env
-                             (tc.check varT (type.tuple (list/map product.left primitives))))]
+                             (check.check varT (type.tuple (list/map product.left primitives))))]
                         (typeA.with-type varT
                           (/.product ..analyse (list/map product.right primitives))))
-                      (macro.run (initL.compiler []))
+                      (compiler.run [analysisE.bundle (init.compiler [])])
                       (case> (#e.Success tupleA)
                              (right-size? size tupleA)
 
@@ -290,7 +290,7 @@
                         (/.record ..analyse recordC))
                       (check-record-inference module-name tags named-polyT size)))
             (test "Can specialize generic records."
-                  (|> (do macro.Monad<Meta>
+                  (|> (do compiler.Monad<Operation>
                         [recordA (typeA.with-type tupleT
                                    (/.record ..analyse recordC))]
                         (wrap [tupleT recordA]))

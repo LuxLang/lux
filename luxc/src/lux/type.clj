@@ -21,6 +21,8 @@
     _
     false))
 
+(def max-env-size 128)
+
 (def empty-env &/$Nil)
 
 (def I64 (&/$Named (&/T ["lux" "I64"])
@@ -751,7 +753,7 @@
         
         [(&/$Apply A F) _]
         (let [fp-pair (&/T [expected actual])
-              _ (when (> (&/|length fixpoints) 64)
+              _ (when (> (&/|length fixpoints) max-env-size)
                   (&/|log! (println-str 'FIXPOINTS (->> (&/|keys fixpoints)
                                                         (&/|map (fn [pair]
                                                                   (|let [[e a] pair]

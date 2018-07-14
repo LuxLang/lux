@@ -4084,7 +4084,7 @@
                     (fail "only/exclude requires symbols."))))
              defs))
 
-(def: (parse-short-referrals tokens)
+(def: (parse-referrals tokens)
   (-> (List Code) (Meta [Referrals (List Code)]))
   (case tokens
     (^or (^ (list& [_ (#Form (list& [_ (#Tag ["" "+"])] defs))] tokens'))
@@ -4106,7 +4106,7 @@
     _
     (return [#Nothing tokens])))
 
-(def: (parse-short-openings parts)
+(def: (parse-openings parts)
   (-> (List Code) (Meta [(List Openings) (List Code)]))
   (case parts
     #.Nil
@@ -4123,26 +4123,13 @@
                                _
                                (fail "Expected all structures of opening form to be symbols.")))
                            structs)
-       next+remainder (parse-short-openings parts')]
+       next+remainder (parse-openings parts')]
       (let [[next remainder] next+remainder]
         (return [(#.Cons [prefix structs'] next)
                  remainder])))
 
     _
     (return [#.Nil parts])))
-
-(def: (decorate-sub-importations super-name)
-  (-> Text (List Importation) (List Importation))
-  (list/map (: (-> Importation Importation)
-               (function (_ importation)
-                 (let [{#import-name _name
-                        #import-alias _alias
-                        #import-refer {#refer-defs _referrals
-                                       #refer-open _openings}} importation]
-                   {#import-name ($_ text/compose super-name "/" _name)
-                    #import-alias _alias
-                    #import-refer {#refer-defs _referrals
-                                   #refer-open _openings}})))))
 
 (def: (split at x)
   (-> Nat Text (Maybe [Text Text]))
@@ -4192,11 +4179,13 @@
     [_ (#Cons _ a+')]
     (list/drop (n/- +1 amount) a+')))
 
-(def: (clean-module relative-root module)
-  (-> Text Text (Meta Text))
+(def: (clean-module nested? relative-root module)
+  (-> Bool Text Text (Meta Text))
   (case (count-ups +0 module)
     +0
-    (return module)
+    (return (if nested?
+              ($_ "lux text concat" relative-root "/" module)
+              module))
     
     ups
     (let [parts (text/split "/" relative-root)]
@@ -4217,8 +4206,8 @@
                   "Importing module: " module "\n"
                   "   Relative Root: " relative-root "\n"))))))
 
-(def: (parse-imports relative-root imports)
-  (-> Text (List Code) (Meta (List Importation)))
+(def: (parse-imports nested? relative-root imports)
+  (-> Bool Text (List Code) (Meta (List Importation)))
   (do Monad<Meta>
     [imports' (monad/map Monad<Meta>
                          (: (-> Code (Meta (List Importation)))
@@ -4226,7 +4215,7 @@
                               (case token
                                 [_ (#Symbol ["" m-name])]
                                 (do Monad<Meta>
-                                  [m-name (clean-module relative-root m-name)]
+                                  [m-name (clean-module nested? relative-root m-name)]
                                   (wrap (list {#import-name m-name
                                                #import-alias #None
                                                #import-refer {#refer-defs #All
@@ -4234,7 +4223,7 @@
 
                                 (^ [_ (#Tuple (list [_ (#Symbol ["" m-name])]))])
                                 (do Monad<Meta>
-                                  [import-name (clean-module relative-root m-name)]
+                                  [import-name (clean-module nested? relative-root m-name)]
                                   (wrap (list {#import-name import-name
                                                #import-alias (#Some m-name)
                                                #import-refer {#refer-defs #Nothing
@@ -4242,13 +4231,12 @@
 
                                 (^ [_ (#Tuple (list& [_ (#Text alias)] [_ (#Symbol ["" m-name])] extra))])
                                 (do Monad<Meta>
-                                  [import-name (clean-module relative-root m-name)
-                                   referral+extra (parse-short-referrals extra)
+                                  [import-name (clean-module nested? relative-root m-name)
+                                   referral+extra (parse-referrals extra)
                                    #let [[referral extra] referral+extra]
-                                   openings+extra (parse-short-openings extra)
+                                   openings+extra (parse-openings extra)
                                    #let [[openings extra] openings+extra]
-                                   sub-imports (parse-imports relative-root extra)
-                                   #let [sub-imports (decorate-sub-importations import-name sub-imports)]]
+                                   sub-imports (parse-imports true import-name extra)]
                                   (wrap (list& {#import-name import-name
                                                 #import-alias (#Some (replace-all "." m-name alias))
                                                 #import-refer {#refer-defs referral
@@ -4257,13 +4245,12 @@
 
                                 (^ [_ (#Tuple (list& [_ (#Symbol ["" m-name])] extra))])
                                 (do Monad<Meta>
-                                  [import-name (clean-module relative-root m-name)
-                                   referral+extra (parse-short-referrals extra)
+                                  [import-name (clean-module nested? relative-root m-name)
+                                   referral+extra (parse-referrals extra)
                                    #let [[referral extra] referral+extra]
-                                   openings+extra (parse-short-openings extra)
+                                   openings+extra (parse-openings extra)
                                    #let [[openings extra] openings+extra]
-                                   sub-imports (parse-imports relative-root extra)
-                                   #let [sub-imports (decorate-sub-importations import-name sub-imports)]]
+                                   sub-imports (parse-imports true import-name extra)]
                                   (wrap (case [referral openings]
                                           [#Nothing #Nil] sub-imports
                                           _               (list& {#import-name import-name
@@ -4752,9 +4739,9 @@
 (def: (read-refer module-name options)
   (-> Text (List Code) (Meta Refer))
   (do Monad<Meta>
-    [referral+options (parse-short-referrals options)
+    [referral+options (parse-referrals options)
      #let [[referral options] referral+options]
-     openings+options (parse-short-openings options)
+     openings+options (parse-openings options)
      #let [[openings options] openings+options]
      current-module current-module-name
      #let [test-referrals (: (-> Text (List Text) (List Text) (Meta (List Any)))
@@ -4895,7 +4882,7 @@
                                  _
                                  [(list) tokens]))]
      current-module current-module-name
-     imports (parse-imports current-module _imports)
+     imports (parse-imports false current-module _imports)
      #let [=imports (list/map (: (-> Importation Code)
                                  (function (_ [m-name m-alias =refer])
                                    (` [(~ (text$ m-name)) (~ (text$ (default "" m-alias)))])))

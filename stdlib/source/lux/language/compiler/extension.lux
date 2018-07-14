@@ -6,61 +6,108 @@
    [data
     [error (#+ Error)]
     [text]
-    [collection ["dict" dictionary (#+ Dictionary)]]]]
-  [// (#+ Operation Compiler)])
+    [collection ["dict" dictionary (#+ Dictionary)]]]
+   [function]]
+  [//])
 
 (type: #export (Extension i)
-  (#Base i)
-  (#Extension [Text (List (Extension i))]))
+  [Text (List i)])
 
-(with-expansions [<Bundle> (as-is (Dictionary Text (-> Text (Handler s i o))))]
+(with-expansions [<Bundle> (as-is (Dictionary Text (Handler s i o)))]
   (type: #export (Handler s i o)
-    (-> (Compiler [s <Bundle>] (Extension i) (Extension o))
-        (Compiler [s <Bundle>] (List (Extension i)) (Extension o))))
+    (-> Text
+        (//.Compiler [<Bundle> s] i o)
+        (//.Compiler [<Bundle> s] (List i) o)))
 
   (type: #export (Bundle s i o)
     <Bundle>))
+
+(type: #export (Operation s i o v)
+  (//.Operation [(Bundle s i o) s] v))
+
+(type: #export (Compiler s i o)
+  (//.Compiler [(Bundle s i o) s] i o))
 
 (do-template [<name>]
   [(exception: #export (<name> {name Text})
      (ex.report ["Name" name]))]
 
-  [unknown-extension]
-  [cannot-overwrite-existing-extension]
+  [unknown]
+  [cannot-overwrite]
   )
-
-(def: #export (extend compiler)
-  (All [s i o]
-    (-> (Compiler s i o)
-        (Compiler [s (Bundle s i o)]
-                  (Extension i)
-                  (Extension o))))
-  (function (compiler' input (^@ stateE [stateB bundle]))
-    (case input
-      (#Base input')
-      (do error.Monad<Error>
-        [[stateB' output] (compiler input' stateB)]
-        (wrap [[stateB' bundle] (#Base output)]))
-      
-      (#Extension name parameters)
-      (case (dict.get name bundle)
-        (#.Some handler)
-        (do error.Monad<Error>
-          [[stateE' output] (handler name compiler' parameters stateE)]
-          (wrap [stateE' output]))
-        
-        #.None
-        (ex.throw unknown-extension name)))))
 
 (def: #export (install name handler)
   (All [s i o]
-    (-> Text (-> Text (Handler s i o))
-        (Operation [s (Bundle s i o)] Any)))
-  (function (_ (^@ stateE [_ bundle]))
+    (-> Text (Handler s i o) (Operation s i o Any)))
+  (function (_ [bundle state])
     (if (dict.contains? name bundle)
-      (ex.throw cannot-overwrite-existing-extension name)
-      (ex.return [stateE (dict.put name handler bundle)]))))
+      (ex.throw cannot-overwrite name)
+      (#error.Success [[(dict.put name handler bundle) state]
+                       []]))))
 
-(def: #export fresh
-  Bundle
-  (dict.new text.Hash<Text>))
+(def: #export (apply compiler [name parameters])
+  (All [s i o]
+    (-> (Compiler s i o) (Extension i) (Operation s i o o)))
+  (function (_ (^@ stateE [bundle state]))
+    (case (dict.get name bundle)
+      #.None
+      (ex.throw unknown name)
+      
+      (#.Some handler)
+      ((handler name compiler) parameters stateE))))
+
+(def: #export (localized get set transform)
+  (All [s s' i o v]
+    (-> (-> s s') (-> s' s s) (-> s' s')
+        (-> (Operation s i o v) (Operation s i o v))))
+  (function (_ operation)
+    (function (_ [bundle state])
+      (let [old (get state)]
+        (case (operation [bundle (set (transform old) state)])
+          (#error.Error error)
+          (#error.Error error)
+
+          (#error.Success [[bundle' state'] output])
+          (#error.Success [[bundle' (set old state')] output]))))))
+
+(def: #export (temporary transform)
+  (All [s i o v]
+    (-> (-> s s)
+        (-> (Operation s i o v) (Operation s i o v))))
+  (function (_ operation)
+    (function (_ [bundle state])
+      (case (operation [bundle (transform state)])
+        (#error.Error error)
+        (#error.Error error)
+
+        (#error.Success [[bundle' state'] output])
+        (#error.Success [[bundle' state] output])))))
+
+(def: #export (with-state state)
+  (All [s i o v]
+    (-> s (-> (Operation s i o v) (Operation s i o v))))
+  (..temporary (function.constant state)))
+
+(def: #export (read get)
+  (All [s i o v]
+    (-> (-> s v) (Operation s i o v)))
+  (function (_ [bundle state])
+    (#error.Success [[bundle state] (get state)])))
+
+(def: #export (update transform)
+  (All [s i o]
+    (-> (-> s s) (Operation s i o Any)))
+  (function (_ [bundle state])
+    (#error.Success [[bundle (transform state)] []])))
+
+(def: #export (lift action)
+  (All [s i o v]
+    (-> (//.Operation s v)
+        (//.Operation [(Bundle s i o) s] v)))
+  (function (_ [bundle state])
+    (case (action state)
+      (#error.Error error)
+      (#error.Error error)
+
+      (#error.Success [state' output])
+      (#error.Success [[bundle state] output]))))

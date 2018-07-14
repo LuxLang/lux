@@ -6,8 +6,10 @@
     [text ("text/" Equivalence<Text>)]
     [collection [list ("list/" Fold<List>)]]]
    [function]]
-  [///reference (#+ Register Variable Reference)]
-  [//])
+  [//
+   [extension (#+ Extension)]
+   [//
+    [reference (#+ Register Variable Reference)]]])
 
 (type: #export #rec Primitive
   #Unit
@@ -45,13 +47,20 @@
   (#Reference Reference)
   (#Case Analysis (Match' Analysis))
   (#Function Environment Analysis)
-  (#Apply Analysis Analysis))
+  (#Apply Analysis Analysis)
+  (#Extension (Extension Analysis)))
 
 (type: #export Operation
-  (//.Operation .Lux))
+  (extension.Operation .Lux Code Analysis))
 
 (type: #export Compiler
-  (//.Compiler .Lux Code Analysis))
+  (extension.Compiler .Lux Code Analysis))
+
+(type: #export Handler
+  (extension.Handler .Lux .Code Analysis))
+
+(type: #export Bundle
+  (extension.Bundle .Lux .Code Analysis))
 
 (type: #export Branch
   (Branch' Analysis))
@@ -97,7 +106,7 @@
   (n/= (dec size) tag))
 
 (template: #export (no-op value)
-  (|> +1 #///reference.Local #///reference.Variable #..Reference
+  (|> +1 #reference.Local #reference.Variable #..Reference
       (#..Function (list))
       (#..Apply value)))
 
@@ -216,14 +225,14 @@
 
 (def: #export (with-source-code source action)
   (All [a] (-> Source (Operation a) (Operation a)))
-  (function (_ compiler)
+  (function (_ [bundle compiler])
     (let [old-source (get@ #.source compiler)]
-      (case (action (set@ #.source source compiler))
+      (case (action [bundle (set@ #.source source compiler)])
         (#error.Error error)
         (#error.Error error)
 
-        (#error.Success [compiler' output])
-        (#error.Success [(set@ #.source old-source compiler')
+        (#error.Success [[bundle' compiler'] output])
+        (#error.Success [[bundle' (set@ #.source old-source compiler')]
                          output])))))
 
 (def: fresh-bindings
@@ -240,42 +249,35 @@
 
 (def: #export (with-scope action)
   (All [a] (-> (Operation a) (Operation [Scope a])))
-  (function (_ compiler)
-    (case (action (update@ #.scopes (|>> (#.Cons fresh-scope)) compiler))
-      (#error.Success [compiler' output])
+  (function (_ [bundle compiler])
+    (case (action [bundle (update@ #.scopes (|>> (#.Cons fresh-scope)) compiler)])
+      (#error.Success [[bundle' compiler'] output])
       (case (get@ #.scopes compiler')
         #.Nil
         (#error.Error "Impossible error: Drained scopes!")
 
         (#.Cons head tail)
-        (#error.Success [(set@ #.scopes tail compiler')
+        (#error.Success [[bundle' (set@ #.scopes tail compiler')]
                          [head output]]))
 
       (#error.Error error)
       (#error.Error error))))
 
-(def: #export (with-current-module name action)
+(def: #export (with-current-module name)
   (All [a] (-> Text (Operation a) (Operation a)))
-  (function (_ compiler)
-    (case (action (set@ #.current-module (#.Some name) compiler))
-      (#error.Success [compiler' output])
-      (#error.Success [(set@ #.current-module
-                             (get@ #.current-module compiler)
-                             compiler')
-                       output])
-
-      (#error.Error error)
-      (#error.Error error))))
+  (extension.localized (get@ #.current-module)
+                       (set@ #.current-module)
+                       (function.constant (#.Some name))))
 
 (def: #export (with-cursor cursor action)
   (All [a] (-> Cursor (Operation a) (Operation a)))
   (if (text/= "" (product.left cursor))
     action
-    (function (_ compiler)
+    (function (_ [bundle compiler])
       (let [old-cursor (get@ #.cursor compiler)]
-        (case (action (set@ #.cursor cursor compiler))
-          (#error.Success [compiler' output])
-          (#error.Success [(set@ #.cursor old-cursor compiler')
+        (case (action [bundle (set@ #.cursor cursor compiler)])
+          (#error.Success [[bundle' compiler'] output])
+          (#error.Success [[bundle' (set@ #.cursor old-cursor compiler')]
                            output])
 
           (#error.Error error)
