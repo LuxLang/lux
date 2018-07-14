@@ -130,7 +130,7 @@
     (|do [[meta _ token] (&reader/read-regex <regex>)]
       (return (&/T [meta (<tag> token)]))))
 
-  lex-bit $Bit #"^(true|false)"
+  lex-bit $Bit #"^(#0|#1)"
   )
 
 (do-template [<name> <tag> <regex>]
