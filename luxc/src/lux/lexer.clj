@@ -9,7 +9,7 @@
 (defvariant
   ("White_Space" 1)
   ("Comment" 1)
-  ("Bool" 1)
+  ("Bit" 1)
   ("Nat" 1)
   ("Int" 1)
   ("Rev" 1)
@@ -130,7 +130,7 @@
     (|do [[meta _ token] (&reader/read-regex <regex>)]
       (return (&/T [meta (<tag> token)]))))
 
-  lex-bool $Bool #"^(true|false)"
+  lex-bit $Bit #"^(true|false)"
   )
 
 (do-template [<name> <tag> <regex>]
@@ -205,7 +205,7 @@
   (&/try-all-% "[Reader Error]"
                (&/|list lex-white-space
                         lex-comment
-                        lex-bool
+                        lex-bit
                         lex-nat
                         lex-frac
                         lex-rev

@@ -32,7 +32,7 @@
 (def Rev* (&/$Primitive &&host/rev-data-tag &/$Nil))
 (def Int* (&/$Primitive &&host/int-data-tag &/$Nil))
 
-(def Bool (&/$Named (&/T ["lux" "Bool"]) (&/$Primitive "#Bool" &/$Nil)))
+(def Bit (&/$Named (&/T ["lux" "Bit"]) (&/$Primitive "#Bit" &/$Nil)))
 (def Nat (&/$Named (&/T ["lux" "Nat"]) (&/$Apply Nat* I64)))
 (def Rev (&/$Named (&/T ["lux" "Rev"]) (&/$Apply Rev* I64)))
 (def Int (&/$Named (&/T ["lux" "Int"]) (&/$Apply Int* I64)))
@@ -150,8 +150,8 @@
                                  (&/$Parameter 1))
                   Code-List (&/$Apply Code List)]
               (&/$UnivQ empty-env
-                        (&/$Sum ;; "lux;Bool"
-                         Bool
+                        (&/$Sum ;; "lux;Bit"
+                         Bit
                          (&/$Sum ;; "lux;Nat"
                           Nat
                           (&/$Sum ;; "lux;Int"
@@ -886,7 +886,7 @@
     ))
 
 (defn unknown? [type]
-  "(-> Type (Lux Bool))"
+  "(-> Type (Lux Bit))"
   (|case type
     (&/$Var id)
     (|do [? (bound? id)]

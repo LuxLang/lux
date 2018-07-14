@@ -133,7 +133,7 @@
 (def ^:private parse-ann-param
   (|do [param-name parse-name
         _ (&reader/read-text "=")
-        param-value (&/try-all% (&/|list (|do [[_ (&lexer/$Bool param-value*)] &lexer/lex-bool]
+        param-value (&/try-all% (&/|list (|do [[_ (&lexer/$Bit param-value*)] &lexer/lex-bit]
                                            (return (boolean param-value*)))
 
                                          (|do [[_ (&lexer/$Int param-value*)] &lexer/lex-int]
@@ -243,8 +243,8 @@
   (|do [_ (&reader/read-text "init")
         =privacy-modifier (with-pre-space
                             parse-privacy-modifier)
-        [_ (&lexer/$Bool =strict*)] (with-pre-space
-                                      &lexer/lex-bool)
+        [_ (&lexer/$Bit =strict*)] (with-pre-space
+                                     &lexer/lex-bit)
         :let [=strict (Boolean/parseBoolean =strict*)]
         =anns (with-pre-space
                 (with-brackets
@@ -271,11 +271,11 @@
                 parse-name)
         =privacy-modifier (with-pre-space
                             parse-privacy-modifier)
-        [_ (&lexer/$Bool =final?*)] (with-pre-space
-                                      &lexer/lex-bool)
+        [_ (&lexer/$Bit =final?*)] (with-pre-space
+                                     &lexer/lex-bit)
         :let [=final? (Boolean/parseBoolean =final?*)]
-        [_ (&lexer/$Bool =strict*)] (with-pre-space
-                                      &lexer/lex-bool)
+        [_ (&lexer/$Bit =strict*)] (with-pre-space
+                                     &lexer/lex-bit)
         :let [=strict (Boolean/parseBoolean =strict*)]
         =anns (with-pre-space
                 (with-brackets
@@ -301,8 +301,8 @@
                       parse-gclass-decl)
         =name (with-pre-space
                 parse-name)
-        [_ (&lexer/$Bool =strict*)] (with-pre-space
-                                      &lexer/lex-bool)
+        [_ (&lexer/$Bit =strict*)] (with-pre-space
+                                     &lexer/lex-bit)
         :let [=strict (Boolean/parseBoolean =strict*)]
         =anns (with-pre-space
                 (with-brackets
@@ -328,8 +328,8 @@
                 parse-name)
         =privacy-modifier (with-pre-space
                             parse-privacy-modifier)
-        [_ (&lexer/$Bool =strict*)] (with-pre-space
-                                      &lexer/lex-bool)
+        [_ (&lexer/$Bit =strict*)] (with-pre-space
+                                     &lexer/lex-bit)
         :let [=strict (Boolean/parseBoolean =strict*)]
         =anns (with-pre-space
                 (with-brackets

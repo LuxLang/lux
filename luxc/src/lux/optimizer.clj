@@ -6,7 +6,7 @@
 ;; [Tags]
 (defvariant
   ;; These tags just have a one-to-one correspondence with Analysis data-structures.
-  ("bool" 1)
+  ("bit" 1)
   ("nat" 1)
   ("int" 1)
   ("rev" 1)
@@ -65,8 +65,8 @@
   ("PopPM" 0)
   ;; Store the CDN in a register.
   ("BindPM" 1)
-  ;; Compare the CDN with a boolean value.
-  ("BoolPM" 1)
+  ;; Compare the CDN with a bit value.
+  ("BitPM" 1)
   ;; Compare the CDN with a natural value.
   ("NatPM" 1)
   ;; Compare the CDN with an integer value.
@@ -174,8 +174,8 @@
     (&a-case/$StoreTestAC _register)
     (&/|list ($BindPM _register))
 
-    (&a-case/$BoolTestAC _value)
-    (&/|list ($BoolPM _value)
+    (&a-case/$BitTestAC _value)
+    (&/|list ($BitPM _value)
              $PopPM)
 
     (&a-case/$NatTestAC _value)
@@ -275,9 +275,9 @@
       ($BindPM _pre-var-id)
       ($AltPM pre post))
 
-    [($BoolPM _pre-value) ($BoolPM _post-value)]
+    [($BitPM _pre-value) ($BitPM _post-value)]
     (if (= _pre-value _post-value)
-      ($BoolPM _pre-value)
+      ($BitPM _pre-value)
       ($AltPM pre post))
 
     [($NatPM _pre-value) ($NatPM _post-value)]
@@ -632,7 +632,7 @@
 
 ;; Shifts the body of a function after a folding is performed.
 (defn shift-function-body
-  "(-> Scope Scope Bool Optimized Optimized)"
+  "(-> Scope Scope Bit Optimized Optimized)"
   [old-scope new-scope own-body? body]
   (|let [[meta body-] body]
     (|case body-
@@ -818,7 +818,7 @@
       )))
 
 (defn ^:private contains-self-reference?
-  "(-> Optimized Bool)"
+  "(-> Optimized Bit)"
   [body]
   (|let [[meta body-] body
          stepwise-test (fn [base arg] (or base (contains-self-reference? arg)))]
@@ -997,12 +997,12 @@
                                      (&/T [_name (optimize _analysis)])))
                                  closure))]
   (defn ^:private pass-0
-    "(-> Bool Analysis Optimized)"
+    "(-> Bit Analysis Optimized)"
     [top-level-func? analysis]
     (|let [[meta analysis-] analysis]
       (|case analysis-
-        (&a/$bool value)
-        (&/T [meta ($bool value)])
+        (&a/$bit value)
+        (&/T [meta ($bit value)])
         
         (&a/$nat value)
         (&/T [meta ($nat value)])
@@ -1052,8 +1052,8 @@
             (&/$Cons [(&a-case/$StoreTestAC _register) _body] (&/$Nil))
             (&/T [meta ($let (pass-0 top-level-func? value) _register (pass-0 top-level-func? _body))])
 
-            (&/$Cons [(&a-case/$BoolTestAC false) _else]
-                     (&/$Cons [(&a-case/$BoolTestAC true) _then]
+            (&/$Cons [(&a-case/$BitTestAC false) _else]
+                     (&/$Cons [(&a-case/$BitTestAC true) _then]
                               (&/$Nil)))
             (&/T [meta ($if (pass-0 top-level-func? value) (pass-0 top-level-func? _then) (pass-0 top-level-func? _else))])
             

@@ -61,7 +61,7 @@
                                   state)]
             (&/$Right (&/T [state* &/unit-tag])))))
     (defn <asker>
-      "(-> Text (Lux Bool))"
+      "(-> Text (Lux Bit))"
       [module-name]
       (fn [state]
         (if-let [=module (->> state (&/get$ &/$modules) (&/|get module-name))]
@@ -141,7 +141,7 @@
        state))))
 
 (defn type-def
-  "(-> Text Text (Lux [Bool Type]))"
+  "(-> Text Text (Lux [Bit Type]))"
   [module name]
   (fn [state]
     (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
@@ -167,7 +167,7 @@
        state))))
 
 (defn exists?
-  "(-> Text (Lux Bool))"
+  "(-> Text (Lux Bit))"
   [name]
   (fn [state]
     (return* state
@@ -269,7 +269,7 @@
                   _
                   (return* state (&/T [(&/T [module name]) $def])))
                 (|case (&meta/meta-get &meta/export?-tag ?meta)
-                  (&/$Some [_ (&/$Bool true)])
+                  (&/$Some [_ (&/$Bit true)])
                   (return* state (&/T [(&/T [module name]) $def]))
 
                   _
@@ -354,7 +354,7 @@
     (return nil)))
 
 (defn declare-tags
-  "(-> Text (List Text) Bool Type (Lux Null))"
+  "(-> Text (List Text) Bit Type (Lux Null))"
   [module tag-names was-exported? type]
   (|do [_ (ensure-undeclared-tags module tag-names)
         type-name (&type/type-name type)
@@ -437,7 +437,7 @@
 (do-template [<name> <type> <tag> <desc>]
   (defn <name> [module name meta type]
     (|case (&meta/meta-get <tag> meta)
-      (&/$Some [_ (&/$Bool true)])
+      (&/$Some [_ (&/$Bit true)])
       (&/try-all% (&/|list (&type/check <type> type)
                            (&/fail-with-loc (str "[Analyser Error] Cannot tag as lux;" <desc> "? if it's not a " <desc> ": " (str module &/+name-separator+ name)))))
 

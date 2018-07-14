@@ -65,9 +65,9 @@
          macro-caller (aget compilers 2)]
     (|case token
       ;; Standard special forms
-      (&/$Bool ?value)
-      (|do [_ (&type/check exo-type &type/Bool)]
-        (return (&/|list (&&/|meta exo-type cursor (&&/$bool ?value)))))
+      (&/$Bit ?value)
+      (|do [_ (&type/check exo-type &type/Bit)]
+        (return (&/|list (&&/|meta exo-type cursor (&&/$bit ?value)))))
 
       (&/$Nat ?value)
       (|do [_ (&type/check exo-type &type/Nat)]

@@ -71,7 +71,7 @@
 
 ;; Code
 (defvariant
-  ("Bool" 1)
+  ("Bit" 1)
   ("Nat" 1)
   ("Int" 1)
   ("Rev" 1)
@@ -410,7 +410,7 @@
     (assert false (prn-str '|map f (adt->text xs)))))
 
 (defn |empty?
-  "(All [a] (-> (List a) Bool))"
+  "(All [a] (-> (List a) Bit))"
   [xs]
   (|case xs
     ($Nil)
@@ -420,7 +420,7 @@
     false))
 
 (defn |filter
-  "(All [a] (-> (-> a Bool) (List a) (List a)))"
+  "(All [a] (-> (-> a Bit) (List a) (List a)))"
   [p xs]
   (|case xs
     ($Nil)
@@ -856,7 +856,7 @@
 
 (do-template [<name> <tag>]
   (defn <name>
-    "(-> CompilerMode Bool)"
+    "(-> CompilerMode Bit)"
     [mode]
     (|case mode
       (<tag>) true
@@ -1204,7 +1204,7 @@
 
 (defn show-ast [ast]
   (|case ast
-    [_ ($Bool ?value)]
+    [_ ($Bit ?value)]
     (pr-str ?value)
 
     [_ ($Nat ?value)]
@@ -1325,7 +1325,7 @@
     (return* state (|keys (get$ $modules state)))))
 
 (defn when%
-  "(-> Bool (Meta Any) (Meta Any))"
+  "(-> Bit (Meta Any) (Meta Any))"
   [test body]
   (if test
     body
@@ -1377,7 +1377,7 @@
 
 (do-template [<name> <default> <op>]
   (defn <name>
-    "(All [a] (-> (-> a Bool) (List a) Bool))"
+    "(All [a] (-> (-> a Bit) (List a) Bit))"
     [p xs]
     (|case xs
       ($Nil)

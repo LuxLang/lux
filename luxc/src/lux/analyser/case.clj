@@ -12,7 +12,7 @@
 ;; [Tags]
 (defvariant
   ("DefaultTotal" 1)
-  ("BoolTotal" 2)
+  ("BitTotal" 2)
   ("NatTotal" 2)
   ("IntTotal" 2)
   ("RevTotal" 2)
@@ -24,7 +24,7 @@
 (defvariant
   ("NoTestAC" 0)
   ("StoreTestAC" 1)
-  ("BoolTestAC" 1)
+  ("BitTestAC" 1)
   ("NatTestAC" 1)
   ("IntTestAC" 1)
   ("RevTestAC" 1)
@@ -268,10 +268,10 @@
       (&/$Symbol ident)
       (&/fail-with-loc (str "[Pattern-matching Error] Symbols must be unqualified: " (&/ident->text ident)))
 
-      (&/$Bool ?value)
-      (|do [_ (&type/check value-type &type/Bool)
+      (&/$Bit ?value)
+      (|do [_ (&type/check value-type &type/Bit)
             =kont kont]
-        (return (&/T [($BoolTestAC ?value) =kont])))
+        (return (&/T [($BitTestAC ?value) =kont])))
 
       (&/$Nat ?value)
       (|do [_ (&type/check value-type &type/Nat)
@@ -405,8 +405,8 @@
       [($DefaultTotal total?) ($NoTestAC)]
       (return ($DefaultTotal true))
 
-      [($BoolTotal total? ?values) ($NoTestAC)]
-      (return ($BoolTotal true ?values))
+      [($BitTotal total? ?values) ($NoTestAC)]
+      (return ($BitTotal true ?values))
 
       [($NatTotal total? ?values) ($NoTestAC)]
       (return ($NatTotal true ?values))
@@ -432,8 +432,8 @@
       [($DefaultTotal total?) ($StoreTestAC ?idx)]
       (return ($DefaultTotal true))
 
-      [($BoolTotal total? ?values) ($StoreTestAC ?idx)]
-      (return ($BoolTotal true ?values))
+      [($BitTotal total? ?values) ($StoreTestAC ?idx)]
+      (return ($BitTotal true ?values))
 
       [($NatTotal total? ?values) ($StoreTestAC ?idx)]
       (return ($NatTotal true ?values))
@@ -456,11 +456,11 @@
       [($VariantTotal total? ?values) ($StoreTestAC ?idx)]
       (return ($VariantTotal true ?values))
 
-      [($DefaultTotal total?) ($BoolTestAC ?value)]
-      (return ($BoolTotal total? (&/|list ?value)))
+      [($DefaultTotal total?) ($BitTestAC ?value)]
+      (return ($BitTotal total? (&/|list ?value)))
 
-      [($BoolTotal total? ?values) ($BoolTestAC ?value)]
-      (return ($BoolTotal total? (&/$Cons ?value ?values)))
+      [($BitTotal total? ?values) ($BitTestAC ?value)]
+      (return ($BitTotal total? (&/$Cons ?value ?values)))
 
       [($DefaultTotal total?) ($NatTestAC ?value)]
       (return ($NatTotal total? (&/|list ?value)))
@@ -550,8 +550,8 @@
     ($DefaultTotal ?total)
     (return ?total)
 
-    ($BoolTotal ?total ?values)
-    (|do [_ (&type/check value-type &type/Bool)]
+    ($BitTotal ?total ?values)
+    (|do [_ (&type/check value-type &type/Bit)]
       (return (or ?total
                   (= #{true false} (set (&/->seq ?values))))))
 

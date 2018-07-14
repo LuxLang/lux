@@ -24,7 +24,7 @@
            java.lang.reflect.Field))
 
 ;; [Exports]
-(defn compile-bool [?value]
+(defn compile-bit [?value]
   (|do [^MethodVisitor *writer* &/get-writer
         :let [_ (.visitFieldInsn *writer* Opcodes/GETSTATIC "java/lang/Boolean" (if ?value "TRUE" "FALSE") "Ljava/lang/Boolean;")]]
     (return nil)))
@@ -253,7 +253,7 @@
         :let [def-class (&&/load-class! class-loader (&host-generics/->class-name current-class))
               def-type (&a/expr-type* ?body)
               is-type? (|case (&a-meta/meta-get &a-meta/type?-tag ?meta)
-                         (&/$Some [_ (&/$Bool true)])
+                         (&/$Some [_ (&/$Bit true)])
                          true
 
                          _

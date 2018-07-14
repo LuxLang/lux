@@ -22,7 +22,7 @@
 (def ^:private buffer-size (* 10 kilobyte))
 
 (defn ^:private manifest
-  "(-> Project Text Bool Manifest)"
+  "(-> Project Text Bit Manifest)"
   [project module includes-android?]
   (doto (new Manifest)
     (-> .getMainAttributes

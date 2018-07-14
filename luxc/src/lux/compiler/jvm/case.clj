@@ -63,7 +63,7 @@
       (.visitVarInsn Opcodes/ASTORE _var-id)
       (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_pop" "([Ljava/lang/Object;)[Ljava/lang/Object;"))
 
-    (&o/$BoolPM _value)
+    (&o/$BitPM _value)
     (doto writer
       stack-peek
       &&/unwrap-boolean

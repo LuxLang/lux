@@ -24,7 +24,7 @@
   "(-> Code Text)"
   [ann]
   (|case ann
-    [_ (&/$Bool value)]
+    [_ (&/$Bit value)]
     (str "B" value stop)
 
     [_ (&/$Nat value)]
@@ -76,7 +76,7 @@
       (let [[value* ^String input*] (.split (.substring input 1) stop 2)]
         [(&/T [dummy-cursor (<ctor> (<parser> value*))]) input*])))
 
-  ^:private deserialize-bool "B" &/$Bool Boolean/parseBoolean
+  ^:private deserialize-bit  "B" &/$Bit  Boolean/parseBoolean
   ^:private deserialize-nat  "N" &/$Nat  Long/parseLong
   ^:private deserialize-int  "I" &/$Int  Long/parseLong
   ^:private deserialize-rev  "D" &/$Rev  Long/parseLong
@@ -124,7 +124,7 @@
 (defn deserialize
   "(-> Text V[Code Text])"
   [input]
-  (or (deserialize-bool input)
+  (or (deserialize-bit input)
       (deserialize-nat input)
       (deserialize-int input)
       (deserialize-rev input)

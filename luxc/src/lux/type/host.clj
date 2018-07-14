@@ -310,7 +310,7 @@
     (contains? primitive-types type-name)))
 
 (def ^:private lux-jvm-type-combos
-  #{#{"java.lang.Boolean" "#Bool"}
+  #{#{"java.lang.Boolean" "#Bit"}
     #{"java.lang.Long" i64-data-tag}
     #{"java.lang.Double" "#Frac"}
     #{"java.lang.String" "#Text"}})

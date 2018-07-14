@@ -246,7 +246,7 @@ Called by `imenu--generic-function'."
             ) t)
          "\\>")
        1 font-lock-builtin-face)
-                                        ; Bool literals
+                                        ; Bit literals
       (,(concat
          "\\<"
          (regexp-opt

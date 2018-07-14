@@ -6,7 +6,7 @@
 
 ;; [Tags]
 (defvariant
-  ("bool" 1)
+  ("bit" 1)
   ("nat" 1)
   ("int" 1)
   ("rev" 1)

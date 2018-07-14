@@ -47,8 +47,8 @@
                       (.visitLineNumber (int _line) debug-label))
                     (swap! !source->last-line assoc _file-name _line))]]
       (|case ?form
-        (&o/$bool ?value)
-        (&&lux/compile-bool ?value)
+        (&o/$bit ?value)
+        (&&lux/compile-bit ?value)
 
         (&o/$nat ?value)
         (&&lux/compile-nat ?value)

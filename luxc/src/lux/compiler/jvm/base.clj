@@ -43,8 +43,9 @@
     (.mkdirs (File. module-dir))
     (&&/write-file (str module-dir java.io.File/separator name ".class") data)))
 
-(defn class-exists? [^String module ^String class-name]
-  "(-> Text Text (IO Bool))"
+(defn class-exists?
+  "(-> Text Text (IO Bit))"
+  [^String module ^String class-name]
   (|do [_ (return nil)
         :let [full-path (str @&&/!output-dir java.io.File/separator module java.io.File/separator class-name ".class")
               exists? (.exists (File. full-path))]]

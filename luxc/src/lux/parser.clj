@@ -64,8 +64,8 @@
       (&lexer/$Comment _)
       (return &/$Nil)
       
-      (&lexer/$Bool ?value)
-      (return (&/|list (&/T [meta (&/$Bool (Boolean/parseBoolean ?value))])))
+      (&lexer/$Bit ?value)
+      (return (&/|list (&/T [meta (&/$Bit (Boolean/parseBoolean ?value))])))
 
       (&lexer/$Nat ?value)
       (return (&/|list (&/T [meta (&/$Nat (Long/parseUnsignedLong ?value))])))

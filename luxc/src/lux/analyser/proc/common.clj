@@ -12,7 +12,7 @@
       (|do [:let [(&/$Cons left (&/$Cons right (&/$Nil))) ?values]
             =left (&&/analyse-1 analyse $var left)
             =right (&&/analyse-1 analyse $var right)
-            _ (&type/check exo-type &type/Bool)
+            _ (&type/check exo-type &type/Bit)
             _cursor &/cursor]
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T ["lux" "is"]) (&/|list =left =right) (&/|list)))))))))
@@ -39,8 +39,8 @@
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T <proc>) (&/|list =x =y) (&/|list)))))))
 
-  ^:private analyse-text-eq     ["text" "="]      &type/Text &type/Bool
-  ^:private analyse-text-lt     ["text" "<"]      &type/Text &type/Bool
+  ^:private analyse-text-eq     ["text" "="]      &type/Text &type/Bit
+  ^:private analyse-text-lt     ["text" "<"]      &type/Text &type/Bit
   ^:private analyse-text-concat ["text" "concat"] &type/Text &type/Text
   )
 
@@ -143,7 +143,7 @@
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T <proc>) (&/|list subjectA paramA) (&/|list))))))))
 
-  ^:private analyse-i64-eq   ["i64" "="]  (&/$Apply &type/Any &type/I64)  &type/Bool
+  ^:private analyse-i64-eq   ["i64" "="]  (&/$Apply &type/Any &type/I64)  &type/Bit
   ^:private analyse-i64-add  ["i64" "+"]  (&/$Apply &type/Any &type/I64)  &type/I64
   ^:private analyse-i64-sub  ["i64" "-"]  (&/$Apply &type/Any &type/I64)  &type/I64
   )
@@ -163,15 +163,15 @@
   ^:private analyse-int-mul  ["int" "*"]  &type/Int  &type/Int
   ^:private analyse-int-div  ["int" "/"]  &type/Int  &type/Int
   ^:private analyse-int-rem  ["int" "%"]  &type/Int  &type/Int
-  ^:private analyse-int-lt   ["int" "<"]  &type/Int  &type/Bool
+  ^:private analyse-int-lt   ["int" "<"]  &type/Int  &type/Bit
 
   ^:private analyse-frac-add ["frac" "+"] &type/Frac &type/Frac
   ^:private analyse-frac-sub ["frac" "-"] &type/Frac &type/Frac
   ^:private analyse-frac-mul ["frac" "*"] &type/Frac &type/Frac
   ^:private analyse-frac-div ["frac" "/"] &type/Frac &type/Frac
   ^:private analyse-frac-rem ["frac" "%"] &type/Frac &type/Frac
-  ^:private analyse-frac-eq  ["frac" "="] &type/Frac &type/Bool
-  ^:private analyse-frac-lt  ["frac" "<"] &type/Frac &type/Bool
+  ^:private analyse-frac-eq  ["frac" "="] &type/Frac &type/Bit
+  ^:private analyse-frac-lt  ["frac" "<"] &type/Frac &type/Bit
   )
 
 (do-template [<encode> <encode-op> <decode> <decode-op> <type>]
@@ -348,7 +348,7 @@
             =atom (&&/analyse-1 analyse (&type/Atom $var) ?atom)
             =old (&&/analyse-1 analyse $var ?old)
             =new (&&/analyse-1 analyse $var ?new)
-            _ (&type/check exo-type &type/Bool)
+            _ (&type/check exo-type &type/Bit)
             _cursor &/cursor]
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T ["atom" "compare-and-swap"]) (&/|list =atom =old =new) (&/|list)))))))))

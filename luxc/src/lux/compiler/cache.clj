@@ -28,12 +28,14 @@
        java.io.File/separator
        (.replace ^String (&host/->module-class module) "/" java.io.File/separator)))
 
-(defn cached? [module]
-  "(-> Text Bool)"
+(defn cached?
+  "(-> Text Bit)"
+  [module]
   (.exists (new File (str (module-path module) java.io.File/separator &&core/lux-module-descriptor-name))))
 
-(defn delete [module]
+(defn delete
   "(-> Text (Lux Null))"
+  [module]
   (fn [state]
     (do (delete-all-module-files (new File (module-path module)))
       (return* state nil))))
@@ -48,8 +50,9 @@
        (apply concat)
        (list* module)))
 
-(defn clean [state]
+(defn clean
   "(-> Lux Null)"
+  [state]
   (let [needed-modules (->> state (&/get$ &/$modules) &/|keys &/->seq set)
         output-dir-prefix (str (.getAbsolutePath (new File ^String @&&core/!output-dir)) java.io.File/separator)
         outdated? #(->> % (contains? needed-modules) not)
@@ -237,8 +240,9 @@
                         compiler)
              nil)))
 
-(defn load [module-name]
+(defn load
   "(-> Text (Lux Null))"
+  [module-name]
   (if-let [module-struct (get @!pre-loaded-cache module-name)]
     (|do [_ (inject-module module-name module-struct)]
       (return nil))

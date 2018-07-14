@@ -464,40 +464,40 @@
   ^:private analyse-jvm-imul "imul" "java.lang.Integer" "java.lang.Integer"
   ^:private analyse-jvm-idiv "idiv" "java.lang.Integer" "java.lang.Integer"
   ^:private analyse-jvm-irem "irem" "java.lang.Integer" "java.lang.Integer"
-  ^:private analyse-jvm-ieq  "ieq"  "java.lang.Integer" "java.lang.Boolean"
-  ^:private analyse-jvm-ilt  "ilt"  "java.lang.Integer" "java.lang.Boolean"
-  ^:private analyse-jvm-igt  "igt"  "java.lang.Integer" "java.lang.Boolean"
+  ^:private analyse-jvm-ieq  "ieq"  "java.lang.Integer" "#Bit"
+  ^:private analyse-jvm-ilt  "ilt"  "java.lang.Integer" "#Bit"
+  ^:private analyse-jvm-igt  "igt"  "java.lang.Integer" "#Bit"
 
-  ^:private analyse-jvm-ceq  "ceq"  "java.lang.Character" "java.lang.Boolean"
-  ^:private analyse-jvm-clt  "clt"  "java.lang.Character" "java.lang.Boolean"
-  ^:private analyse-jvm-cgt  "cgt"  "java.lang.Character" "java.lang.Boolean"
+  ^:private analyse-jvm-ceq  "ceq"  "java.lang.Character" "#Bit"
+  ^:private analyse-jvm-clt  "clt"  "java.lang.Character" "#Bit"
+  ^:private analyse-jvm-cgt  "cgt"  "java.lang.Character" "#Bit"
 
   ^:private analyse-jvm-ladd "ladd" "java.lang.Long"    "java.lang.Long"
   ^:private analyse-jvm-lsub "lsub" "java.lang.Long"    "java.lang.Long"
   ^:private analyse-jvm-lmul "lmul" "java.lang.Long"    "java.lang.Long"
   ^:private analyse-jvm-ldiv "ldiv" "java.lang.Long"    "java.lang.Long"
   ^:private analyse-jvm-lrem "lrem" "java.lang.Long"    "java.lang.Long"
-  ^:private analyse-jvm-leq  "leq"  "java.lang.Long"    "java.lang.Boolean"
-  ^:private analyse-jvm-llt  "llt"  "java.lang.Long"    "java.lang.Boolean"
-  ^:private analyse-jvm-lgt  "lgt"  "java.lang.Long"    "java.lang.Boolean"
+  ^:private analyse-jvm-leq  "leq"  "java.lang.Long"    "#Bit"
+  ^:private analyse-jvm-llt  "llt"  "java.lang.Long"    "#Bit"
+  ^:private analyse-jvm-lgt  "lgt"  "java.lang.Long"    "#Bit"
 
   ^:private analyse-jvm-fadd "fadd" "java.lang.Float"   "java.lang.Float"
   ^:private analyse-jvm-fsub "fsub" "java.lang.Float"   "java.lang.Float"
   ^:private analyse-jvm-fmul "fmul" "java.lang.Float"   "java.lang.Float"
   ^:private analyse-jvm-fdiv "fdiv" "java.lang.Float"   "java.lang.Float"
   ^:private analyse-jvm-frem "frem" "java.lang.Float"   "java.lang.Float"
-  ^:private analyse-jvm-feq  "feq"  "java.lang.Float"   "java.lang.Boolean"
-  ^:private analyse-jvm-flt  "flt"  "java.lang.Float"   "java.lang.Boolean"
-  ^:private analyse-jvm-fgt  "fgt"  "java.lang.Float"   "java.lang.Boolean"
+  ^:private analyse-jvm-feq  "feq"  "java.lang.Float"   "#Bit"
+  ^:private analyse-jvm-flt  "flt"  "java.lang.Float"   "#Bit"
+  ^:private analyse-jvm-fgt  "fgt"  "java.lang.Float"   "#Bit"
 
   ^:private analyse-jvm-dadd "dadd" "java.lang.Double"  "java.lang.Double"
   ^:private analyse-jvm-dsub "dsub" "java.lang.Double"  "java.lang.Double"
   ^:private analyse-jvm-dmul "dmul" "java.lang.Double"  "java.lang.Double"
   ^:private analyse-jvm-ddiv "ddiv" "java.lang.Double"  "java.lang.Double"
   ^:private analyse-jvm-drem "drem" "java.lang.Double"  "java.lang.Double"
-  ^:private analyse-jvm-deq  "deq"  "java.lang.Double"  "java.lang.Boolean"
-  ^:private analyse-jvm-dlt  "dlt"  "java.lang.Double"  "java.lang.Boolean"
-  ^:private analyse-jvm-dgt  "dgt"  "java.lang.Double"  "java.lang.Boolean"
+  ^:private analyse-jvm-deq  "deq"  "java.lang.Double"  "#Bit"
+  ^:private analyse-jvm-dlt  "dlt"  "java.lang.Double"  "#Bit"
+  ^:private analyse-jvm-dgt  "dgt"  "java.lang.Double"  "#Bit"
   )
 
 (let [length-type &type/Nat
@@ -606,7 +606,7 @@
   (|do [:let [(&/$Cons object (&/$Nil)) ?values]
         =object (&&/analyse-1+ analyse object)
         _ (ensure-object (&&/expr-type* =object))
-        :let [output-type &type/Bool]
+        :let [output-type &type/Bit]
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
@@ -805,7 +805,7 @@
   (|do [:let [(&/$Cons object (&/$Nil)) ?values]
         =object (&&/analyse-1+ analyse object)
         _ (ensure-object (&&/expr-type* =object))
-        :let [output-type &type/Bool]
+        :let [output-type &type/Bit]
         _ (&type/check exo-type output-type)
         _cursor &/cursor]
     (return (&/|list (&&/|meta output-type _cursor
