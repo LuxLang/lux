@@ -1,141 +1,72 @@
 (.module:
-  lux
-  (lux (control [monad #+ do]
-                ["ex" exception #+ exception:])
-       [io]
-       (concurrency [atom #+ Atom atom])
-       (data ["e" error #+ Error]
-             [text "text/" Hash<Text>]
-             text/format
-             (coll (dictionary ["dict" unordered #+ Dict])))
-       [macro]
-       [host]
-       (world [blob #+ Blob]
-              [file #+ File])
-       ["//" lang]
-       (lang ["//." reference #+ Register]))
-  (luxc [lang]
-        (lang (host ["$" jvm]
-                    (jvm ["$t" type]
-                         ["$d" def]
-                         ["$i" inst])))))
-
-(host.import: org/objectweb/asm/Opcodes
-  (#static V1_6 int))
-
-(host.import: org/objectweb/asm/Label)
-
-(host.import: java/lang/Object)
-
-(host.import: java/lang/reflect/Field
-  (get [#? Object] #try #? Object))
-
-(host.import: (java/lang/Class c)
-  (getField [String] #try Field))
-
-(host.import: java/lang/ClassLoader
-  (loadClass [String] (Class Object)))
-
-(type: #export Bytecode Blob)
-
-(type: #export Class-Store (Atom (Dict Text Bytecode)))
-
-(type: #export Artifacts (Dict File Blob))
-
-(type: #export Host
-  {#context [Text Nat]
-   #anchor (Maybe [Label Register])
-   #loader ClassLoader
-   #store Class-Store
-   #artifacts Artifacts})
-
-(do-template [<name>]
-  [(exception: #export (<name> {message Text})
-     message)]
-
-  [Unknown-Class]
-  [Class-Already-Stored]
-  [No-Function-Being-Compiled]
-  [Cannot-Overwrite-Artifact]
-  [Cannot-Load-Definition]
-  [Invalid-Definition-Value]
+  [lux #*
+   [control
+    [monad (#+ do)]
+    ["ex" exception (#+ exception:)]]
+   [io]
+   [concurrency
+    [atom (#+ Atom atom)]]
+   [data
+    [error (#+ Error)]
+    [text ("text/" Hash<Text>)
+     format]
+    [collection
+     [dictionary (#+ Dictionary)]]]
+   [macro]
+   [host (#+ import:)]
+   [world
+    [blob (#+ Blob)]]
+   [language
+    [name]
+    [reference (#+ Register)]
+    ["." compiler]]]
+  ## [luxc
+  ##  [lang
+  ##   [host
+  ##    ["." jvm
+  ##     [type]]]]]
   )
 
-(def: #export (with-artifacts action)
-  (All [a] (-> (Meta a) (Meta [Artifacts a])))
-  (function (_ compiler)
-    (case (action (update@ #.host
-                           (|>> (:coerce Host)
-                                (set@ #artifacts (dict.new text.Hash<Text>))
-                                (:coerce Nothing))
-                           compiler))
-      (#e.Success [compiler' output])
-      (#e.Success [(update@ #.host
-                            (|>> (:coerce Host)
-                                 (set@ #artifacts (|> (get@ #.host compiler) (:coerce Host) (get@ #artifacts)))
-                                 (:coerce Nothing))
-                            compiler')
-                   [(|> compiler' (get@ #.host) (:coerce Host) (get@ #artifacts))
-                    output]])
-      
-      (#e.Error error)
-      (#e.Error error))))
+## (def: #export (with-artifacts action)
+##   (All [a] (-> (Meta a) (Meta [Artifacts a])))
+##   (function (_ compiler)
+##     (case (action (update@ #.host
+##                            (|>> (:coerce Host)
+##                                 (set@ #artifacts (dictionary.new text.Hash<Text>))
+##                                 (:coerce Nothing))
+##                            compiler))
+##       (#error.Success [compiler' output])
+##       (#error.Success [(update@ #.host
+##                                 (|>> (:coerce Host)
+##                                      (set@ #artifacts (|> (get@ #.host compiler) (:coerce Host) (get@ #artifacts)))
+##                                      (:coerce Nothing))
+##                                 compiler')
+##                        [(|> compiler' (get@ #.host) (:coerce Host) (get@ #artifacts))
+##                         output]])
 
-(def: #export (record-artifact name content)
-  (-> Text Blob (Meta Any))
-  (function (_ compiler)
-    (if (|> compiler (get@ #.host) (:coerce Host) (get@ #artifacts) (dict.contains? name))
-      (ex.throw Cannot-Overwrite-Artifact name)
-      (#e.Success [(update@ #.host
-                            (|>> (:coerce Host)
-                                 (update@ #artifacts (dict.put name content))
-                                 (:coerce Nothing))
-                            compiler)
-                   []]))))
+##       (#error.Error error)
+##       (#error.Error error))))
 
-(def: #export (store-class name byte-code)
-  (-> Text Bytecode (Meta Any))
-  (function (_ compiler)
-    (let [store (|> (get@ #.host compiler)
-                    (:coerce Host)
-                    (get@ #store))]
-      (if (dict.contains? name (|> store atom.read io.run))
-        (ex.throw Class-Already-Stored name)
-        (exec (io.run (atom.update (dict.put name byte-code) store))
-          (#e.Success [compiler []]))))))
+## (def: #export (load-definition compiler)
+##   (-> Lux (-> Ident Blob (Error Any)))
+##   (function (_ (^@ def-ident [def-module def-name]) def-bytecode)
+##     (let [normal-name (format (name.normalize def-name) (%n (text/hash def-name)))
+##           class-name (format (text.replace-all "/" "." def-module) "." normal-name)]
+##       (<| (macro.run compiler)
+##           (do macro.Monad<Meta>
+##             [_ (..store-class class-name def-bytecode)
+##              class (..load-class class-name)]
+##             (case (do error.Monad<Error>
+##                     [field (Class::getField [..value-field] class)]
+##                     (Field::get [#.None] field))
+##               (#error.Success (#.Some def-value))
+##               (wrap def-value)
 
-(def: #export (load-class name)
-  (-> Text (Meta (Class Object)))
-  (function (_ compiler)
-    (let [host (:coerce Host (get@ #.host compiler))
-          store (|> host (get@ #store) atom.read io.run)]
-      (if (dict.contains? name store)
-        (#e.Success [compiler (ClassLoader::loadClass [name] (get@ #loader host))])
-        (ex.throw Unknown-Class name)))))
+##               (#error.Success #.None)
+##               (compiler.throw invalid-definition-value (%ident def-ident))
 
-(def: #export value-field Text "_value")
-(def: #export $Object $.Type ($t.class "java.lang.Object" (list)))
-
-(def: #export (load-definition compiler)
-  (-> Lux (-> Ident Blob (Error Any)))
-  (function (_ (^@ def-ident [def-module def-name]) def-bytecode)
-    (let [normal-name (format (lang.normalize-name def-name) (%n (text/hash def-name)))
-          class-name (format (text.replace-all "/" "." def-module) "." normal-name)]
-      (<| (macro.run compiler)
-          (do macro.Monad<Meta>
-            [_ (..store-class class-name def-bytecode)
-             class (..load-class class-name)]
-            (case (do e.Monad<Error>
-                    [field (Class::getField [..value-field] class)]
-                    (Field::get [#.None] field))
-              (#e.Success (#.Some def-value))
-              (wrap def-value)
-
-              (#e.Success #.None)
-              (//.throw Invalid-Definition-Value (%ident def-ident))
-              
-              (#e.Error error)
-              (//.throw Cannot-Load-Definition
-                        (format "Definition: " (%ident def-ident) "\n"
-                                "Error:\n"
-                                error))))))))
+##               (#error.Error error)
+##               (compiler.throw cannot-load-definition
+##                               (format "Definition: " (%ident def-ident) "\n"
+##                                       "Error:\n"
+##                                       error))))))))

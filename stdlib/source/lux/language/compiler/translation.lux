@@ -4,8 +4,9 @@
     ["ex" exception (#+ exception:)]
     [monad (#+ do)]]
    [data
-    [maybe ("maybe/" Functor<Maybe>)]
+    [product]
     [error (#+ Error)]
+    [ident ("ident/" Equivalence<Ident> Codec<Text,Ident>)]
     ["." text
      format]
     [collection
@@ -28,46 +29,58 @@
 (exception: #export (cannot-interpret {message Text})
   message)
 
+(do-template [<name>]
+  [(exception: #export (<name> {name Ident})
+     (ex.report ["Artifact" (ident/encode name)]))]
+
+  [cannot-overwrite-artifact]
+  [no-buffer-for-saving-code]
+  )
+
 (type: #export Context
   {#scope-name Text
    #inner-functions Nat})
 
-(signature: #export (Host code)
-  (: (-> code (Error Any))
-     execute!)
-  (: (-> code (Error Any))
-     evaluate!))
+(signature: #export (Host expression statement)
+  (: (-> expression (Error Any))
+     evaluate!)
+  (: (-> statement (Error Any))
+     execute!))
 
-(type: #export (Buffer code) (Row [Ident code]))
+(type: #export (Buffer statement) (Row [Ident statement]))
 
-(type: #export (Artifacts code) (Dictionary File (Buffer code)))
+(type: #export (Artifacts statement) (Dictionary File (Buffer statement)))
 
-(type: #export (State anchor code)
+(type: #export (State anchor expression statement)
   {#context Context
    #anchor (Maybe anchor)
-   #host (Host code)
-   #buffer (Maybe (Buffer code))
-   #artifacts (Artifacts code)})
+   #host (Host expression statement)
+   #buffer (Maybe (Buffer statement))
+   #artifacts (Artifacts statement)
+   #counter Nat})
 
-(type: #export (Operation anchor code)
-  (extension.Operation (State anchor code) Synthesis code))
+(type: #export (Operation anchor expression statement)
+  (extension.Operation (State anchor expression statement) Synthesis expression))
 
-(type: #export (Compiler anchor code)
-  (extension.Compiler (State anchor code) Synthesis code))
+(type: #export (Compiler anchor expression statement)
+  (extension.Compiler (State anchor expression statement) Synthesis expression))
 
 (def: #export (init host)
-  (All [anchor code] (-> (Host code) (..State anchor code)))
+  (All [anchor expression statement]
+    (-> (Host expression statement)
+        (..State anchor expression statement)))
   {#context {#scope-name ""
              #inner-functions +0}
    #anchor #.None
    #host host
    #buffer #.None
-   #artifacts (dict.new text.Hash<Text>)})
+   #artifacts (dict.new text.Hash<Text>)
+   #counter +0})
 
 (def: #export (with-context expr)
-  (All [anchor code output]
-    (-> (Operation anchor code output)
-        (Operation anchor code [Text output])))
+  (All [anchor expression statement output]
+    (-> (Operation anchor expression statement output)
+        (Operation anchor expression statement [Text output])))
   (function (_ [bundle state])
     (let [[old-scope old-inner] (get@ #context state)
           new-scope (format old-scope "c___" (%i (.int old-inner)))]
@@ -80,7 +93,8 @@
         (#error.Error error)))))
 
 (def: #export context
-  (All [anchor code] (Operation anchor code Text))
+  (All [anchor expression statement]
+    (Operation anchor expression statement Text))
   (extension.read (|>> (get@ #context)
                        (get@ #scope-name))))
 
@@ -88,7 +102,7 @@
               <with-declaration> <with-type> <with-value>
               <get> <get-type> <exception>]
   [(def: #export <with-declaration>
-     (All [anchor code output] <with-type>)
+     (All [anchor expression statement output] <with-type>)
      (function (_ body)
        (function (_ [bundle state])
          (case (body [bundle (set@ <tag> (#.Some <with-value>) state)])
@@ -100,7 +114,8 @@
            (#error.Error error)))))
 
    (def: #export <get>
-     (All [anchor code] (Operation anchor code <get-type>))
+     (All [anchor expression statement]
+       (Operation anchor expression statement <get-type>))
      (function (_ (^@ stateE [bundle state]))
        (case (get@ <tag> state)
          (#.Some output)
@@ -111,28 +126,35 @@
 
   [#anchor
    (with-anchor anchor)
-   (-> anchor (Operation anchor code output)
-       (Operation anchor code output))
+   (-> anchor (Operation anchor expression statement output)
+       (Operation anchor expression statement output))
    anchor
    anchor anchor no-anchor]
 
   [#buffer
    with-buffer
-   (-> (Operation anchor code output)
-       (Operation anchor code output))
+   (-> (Operation anchor expression statement output)
+       (Operation anchor expression statement output))
    row.empty
-   buffer (Buffer code) no-active-buffer]
+   buffer (Buffer statement) no-active-buffer]
   )
 
 (def: #export artifacts
-  (All [anchor code]
-    (Operation anchor code (Artifacts code)))
+  (All [anchor expression statement]
+    (Operation anchor expression statement (Artifacts statement)))
   (extension.read (get@ #artifacts)))
 
-(do-template [<name>]
+(def: #export next
+  (All [anchor expression statement]
+    (Operation anchor expression statement Nat))
+  (do //.Monad<Operation>
+    [_ (extension.update (update@ #counter inc))]
+    (extension.read (get@ #counter))))
+
+(do-template [<name> <inputT>]
   [(def: #export (<name> code)
-     (All [anchor code]
-       (-> code (Operation anchor code Any)))
+     (All [anchor expression statement]
+       (-> <inputT> (Operation anchor expression statement Any)))
      (function (_ (^@ stateE [bundle state]))
        (case (:: (get@ #host state) <name> code)
          (#error.Error error)
@@ -141,20 +163,28 @@
          (#error.Success output)
          (#error.Success [stateE output]))))]
 
-  [execute!]
-  [evaluate!]
+  [evaluate! expression]
+  [execute!  statement]
   )
 
 (def: #export (save! name code)
-  (All [anchor code]
-    (-> Ident code (Operation anchor code Any)))
+  (All [anchor expression statement]
+    (-> Ident statement (Operation anchor expression statement Any)))
   (do //.Monad<Operation>
-    [_ (execute! code)]
-    (extension.update (update@ #buffer (maybe/map (row.add [name code]))))))
+    [_ (execute! code)
+     ?buffer (extension.read (get@ #buffer))]
+    (case ?buffer
+      (#.Some buffer)
+      (if (row.any? (|>> product.left (ident/= name)) buffer)
+        (//.throw cannot-overwrite-artifact name)
+        (extension.update (set@ #buffer (#.Some (row.add [name code] buffer)))))
+      
+      #.None
+      (//.throw no-buffer-for-saving-code name))))
 
 (def: #export (save-buffer! target)
-  (All [anchor code]
-    (-> File (Operation anchor code Any)))
+  (All [anchor expression statement]
+    (-> File (Operation anchor expression statement Any)))
   (do //.Monad<Operation>
     [buffer ..buffer]
     (extension.update (update@ #artifacts (dict.put target buffer)))))

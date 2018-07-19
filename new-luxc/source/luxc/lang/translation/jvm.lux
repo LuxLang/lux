@@ -1,0 +1,202 @@
+(.module:
+  [lux (#- Definition)
+   [control
+    [monad (#+ do)]
+    ["ex" exception (#+ exception:)]
+    pipe]
+   [concurrency
+    ["." atom (#+ Atom atom)]]
+   [data
+    ["." error (#+ Error)]
+    ["." text
+     format]
+    [collection
+     ["." array]
+     ["." dictionary (#+ Dictionary)]]]
+   [host (#+ import: do-to object)]
+   ["." io (#+ IO io)]
+   [world
+    [blob (#+ Blob)]]
+   [language
+    ["." name]
+    [compiler
+     ["." translation]]]]
+  [///
+   [host
+    ["." jvm (#+ Inst Definition Host State)
+     ["." type]
+     ["." def]
+     ["." inst]]]]
+  )
+
+(import: org/objectweb/asm/Label)
+
+(import: java/lang/reflect/AccessibleObject
+  (setAccessible [boolean] void))
+
+(import: java/lang/reflect/Field
+  (get [#? Object] #try #? Object))
+
+(import: java/lang/reflect/Method
+  (invoke [Object (Array Object)] #try Object))
+
+(import: (java/lang/Class a)
+  (getField [String] #try Field)
+  (getDeclaredMethod [String (Array (Class Object))] #try Method))
+
+(import: java/lang/Object
+  (getClass [] (Class Object)))
+
+(import: java/lang/Integer
+  (#static TYPE (Class Integer)))
+
+(import: java/lang/ClassLoader
+  (loadClass [String] #try (Class Object)))
+
+(def: ClassLoader::defineClass
+  Method
+  (case (Class::getDeclaredMethod ["defineClass"
+                                   (|> (host.array (Class Object) +4)
+                                       (host.array-write +0 (:coerce (Class Object) (host.class-for String)))
+                                       (host.array-write +1 (Object::getClass [] (host.array byte +0)))
+                                       (host.array-write +2 (:coerce (Class Object) Integer::TYPE))
+                                       (host.array-write +3 (:coerce (Class Object) Integer::TYPE)))]
+                                  (host.class-for java/lang/ClassLoader))
+    (#error.Success method)
+    (do-to method
+      (AccessibleObject::setAccessible [#1]))
+
+    (#error.Error error)
+    (error! error)))
+
+(type: #export ByteCode Blob)
+
+(def: (define-class class-name bytecode loader)
+  (-> Text ByteCode ClassLoader (Error Object))
+  (Method::invoke [loader
+                   (array.from-list (list (:coerce Object class-name)
+                                          (:coerce Object bytecode)
+                                          (:coerce Object (host.long-to-int 0))
+                                          (:coerce Object (host.long-to-int (.int (host.array-length bytecode))))))]
+                  ClassLoader::defineClass))
+
+(type: Store (Atom (Dictionary Text ByteCode)))
+
+(def: (fetch-bytecode class-name store)
+  (-> Text Store (Maybe ByteCode))
+  (|> store atom.read io.run (dictionary.get class-name)))
+
+(do-template [<name>]
+  [(exception: #export (<name> {class Text})
+     (ex.report ["Class" class]))]
+
+  [unknown-class]
+  [class-already-stored]
+  )
+
+(exception: #export (cannot-define-class {class Text} {error Text})
+  (ex.report ["Class" class]
+             ["Error" error]))
+
+(def: (memory-class-loader store)
+  (-> Store ClassLoader)
+  (object [] ClassLoader []
+    []
+    (ClassLoader (findClass [class-name String]) Class
+                 (case (fetch-bytecode class-name store)
+                   (#.Some bytecode)
+                   (case (define-class class-name bytecode (:coerce ClassLoader _jvm_this))
+                     (#error.Success class)
+                     (:assume class)
+
+                     (#error.Error error)
+                     (error! (ex.construct cannot-define-class [class-name error])))
+
+                   #.None
+                   (error! (ex.construct unknown-class class-name))))))
+
+(def: (store! name bytecode store)
+  (-> Text ByteCode Store (Error Any))
+  (if (dictionary.contains? name (|> store atom.read io.run))
+    (ex.throw class-already-stored name)
+    (exec (io.run (atom.update (dictionary.put name bytecode) store))
+      (#error.Success []))))
+
+(def: (load! name loader)
+  (-> Text ClassLoader (Error (Class Object)))
+  (ClassLoader::loadClass [name] loader))
+
+(def: #export value-field Text "_value")
+(def: #export $Object jvm.Type (type.class "java.lang.Object" (list)))
+
+(exception: #export (cannot-load {class Text} {error Text})
+  (ex.report ["Class" class]
+             ["Error" error]))
+
+(exception: #export (invalid-field {class Text} {field Text})
+  (ex.report ["Class" class]
+             ["Field" field]))
+
+(exception: #export (invalid-value {class Text})
+  (ex.report ["Class" class]))
+
+(def: (class-value class-name class)
+  (-> Text (Class Object) (Error Any))
+  (case (Class::getField [..value-field] class)
+    (#error.Success field)
+    (case (Field::get [#.None] field)
+      (#error.Success ?value)
+      (case ?value
+        (#.Some value)
+        (#error.Success value)
+        
+        #.None
+        (ex.throw invalid-value class-name))
+      
+      (#error.Error error)
+      (ex.throw cannot-load [class-name error]))
+    
+    (#error.Error error)
+    (ex.throw invalid-field [class-name ..value-field])))
+
+(def: (eval store loader valueI)
+  (-> Store ClassLoader Inst (Error Any))
+  (do error.Monad<Error>
+    [#let [eval-class "eval"
+           bytecode (def.class #jvm.V1_6
+                               #jvm.Public jvm.noneC
+                               eval-class
+                               (list) ["java.lang.Object" (list)]
+                               (list)
+                               (|>> (def.field #jvm.Public ($_ jvm.++F jvm.finalF jvm.staticF)
+                                               ..value-field ..$Object)
+                                    (def.method #jvm.Public ($_ jvm.++M jvm.staticM jvm.strictM)
+                                                "<clinit>"
+                                                (type.method (list) #.None (list))
+                                                (|>> valueI
+                                                     (inst.PUTSTATIC eval-class ..value-field ..$Object)
+                                                     inst.RETURN))))]
+     _ (..store! eval-class bytecode store)
+     class (..load! eval-class loader)]
+    (class-value eval-class class)))
+
+(def: (define store loader [class-name class-bytecode])
+  (-> Store ClassLoader Definition (Error Any))
+  (do error.Monad<Error>
+    [_ (..store! class-name class-bytecode store)
+     class (..load! class-name loader)]
+    (class-value class-name class)))
+
+(def: #export init
+  (IO State)
+  (io (let [store (: Store (atom (dictionary.new text.Hash<Text>)))
+            loader (memory-class-loader store)]
+        (translation.init (: Host
+                             (structure
+                              (def: evaluate! (..eval store loader))
+                              (def: execute! (..define store loader))))))))
+
+(def: #export runtime-class "LuxRuntime")
+(def: #export function-class "LuxFunction")
+(def: #export runnable-class "LuxRunnable")
+(def: #export unit "")

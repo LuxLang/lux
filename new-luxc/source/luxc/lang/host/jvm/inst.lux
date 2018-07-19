@@ -1,29 +1,35 @@
 (.module:
-  [lux #- int char]
-  (lux (control monad
-                ["p" parser])
-       (data [maybe]
-             ["e" error]
-             text/format
-             (coll [list "list/" Functor<List>]))
-       [host #+ do-to]
-       [macro]
-       (macro [code]
-              ["s" syntax #+ syntax:])
-       [function])
-  [//]
-  [//type])
+  [lux (#- int char)
+   [control
+    [monad (#+ do)]
+    ["p" parser]]
+   [data
+    ["." maybe]
+    ["." error]
+    [text
+     format]
+    [collection
+     ["." list ("list/" Functor<List>)]]]
+   [host (#+ import: do-to)]
+   [macro
+    ["." code]
+    ["s" syntax (#+ syntax:)]]
+   [function]
+   [language
+    [compiler (#+ Operation)]]]
+  ["." // (#+ Primitive Inst)
+   ["." type]])
 
 ## [Host]
-(host.import: #long java/lang/Object)
-(host.import: #long java/lang/String)
+(import: #long java/lang/Object)
+(import: #long java/lang/String)
 
 (syntax: (declare {codes (p.many s.local-symbol)})
   (|> codes
       (list/map (function (_ code) (` ((~' #static) (~ (code.local-symbol code)) (~' int)))))
       wrap))
 
-(`` (host.import: org/objectweb/asm/Opcodes
+(`` (import: org/objectweb/asm/Opcodes
       (#static NOP int)
 
       ## Conversion
@@ -90,10 +96,10 @@
       (~~ (declare RETURN IRETURN LRETURN DRETURN ARETURN))
       ))
 
-(host.import: org/objectweb/asm/Label
+(import: org/objectweb/asm/Label
   (new []))
 
-(host.import: org/objectweb/asm/MethodVisitor
+(import: org/objectweb/asm/MethodVisitor
   (visitCode [] void)
   (visitMaxs [int int] void)
   (visitEnd [] void)
@@ -112,17 +118,17 @@
 
 ## [Insts]
 (def: #export make-label
-  (Meta Label)
-  (function (_ compiler)
-    (#e.Success [compiler (Label::new [])])))
+  (All [s] (Operation s Label))
+  (function (_ state)
+    (#error.Success [state (Label::new [])])))
 
 (def: #export (with-label action)
-  (-> (-> Label //.Inst) //.Inst)
+  (-> (-> Label Inst) Inst)
   (action (Label::new [])))
 
 (do-template [<name> <type> <prepare>]
   [(def: #export (<name> value)
-     (-> <type> //.Inst)
+     (-> <type> Inst)
      (function (_ visitor)
        (do-to visitor
          (MethodVisitor::visitLdcInsn [(<prepare> value)]))))]
@@ -139,14 +145,14 @@
   (wrap (list (code.local-symbol (format "Opcodes::" base)))))
 
 (def: #export NULL
-  //.Inst
+  Inst
   (function (_ visitor)
     (do-to visitor
       (MethodVisitor::visitInsn [(prefix ACONST_NULL)]))))
 
 (do-template [<name>]
   [(def: #export <name>
-     //.Inst
+     Inst
      (function (_ visitor)
        (do-to visitor
          (MethodVisitor::visitInsn [(prefix <name>)]))))]
@@ -207,7 +213,7 @@
 
 (do-template [<name>]
   [(def: #export (<name> register)
-     (-> Nat //.Inst)
+     (-> Nat Inst)
      (function (_ visitor)
        (do-to visitor
          (MethodVisitor::visitVarInsn [(prefix <name>) (.int register)]))))]
@@ -218,10 +224,10 @@
 
 (do-template [<name> <inst>]
   [(def: #export (<name> class field type)
-     (-> Text Text //.Type //.Inst)
+     (-> Text Text //.Type Inst)
      (function (_ visitor)
        (do-to visitor
-         (MethodVisitor::visitFieldInsn [<inst> (//type.binary-name class) field (//type.descriptor type)]))))]
+         (MethodVisitor::visitFieldInsn [<inst> (type.binary-name class) field (type.descriptor type)]))))]
 
   [GETSTATIC Opcodes::GETSTATIC]
   [PUTSTATIC Opcodes::PUTSTATIC]
@@ -232,10 +238,10 @@
 
 (do-template [<name> <inst>]
   [(def: #export (<name> class)
-     (-> Text //.Inst)
+     (-> Text Inst)
      (function (_ visitor)
        (do-to visitor
-         (MethodVisitor::visitTypeInsn [<inst> (//type.binary-name class)]))))]
+         (MethodVisitor::visitTypeInsn [<inst> (type.binary-name class)]))))]
 
   [CHECKCAST  Opcodes::CHECKCAST]
   [NEW        Opcodes::NEW]
@@ -244,7 +250,7 @@
   )
 
 (def: #export (NEWARRAY type)
-  (-> //.Primitive //.Inst)
+  (-> Primitive Inst)
   (function (_ visitor)
     (do-to visitor
       (MethodVisitor::visitIntInsn [Opcodes::NEWARRAY (case type
@@ -259,10 +265,10 @@
 
 (do-template [<name> <inst>]
   [(def: #export (<name> class method-name method-signature interface?)
-     (-> Text Text //.Method Bit //.Inst)
+     (-> Text Text //.Method Bit Inst)
      (function (_ visitor)
        (do-to visitor
-         (MethodVisitor::visitMethodInsn [<inst> (//type.binary-name class) method-name (//type.method-descriptor method-signature) interface?]))))]
+         (MethodVisitor::visitMethodInsn [<inst> (type.binary-name class) method-name (type.method-descriptor method-signature) interface?]))))]
 
   [INVOKESTATIC    Opcodes::INVOKESTATIC]
   [INVOKEVIRTUAL   Opcodes::INVOKEVIRTUAL]
@@ -272,7 +278,7 @@
 
 (do-template [<name>]
   [(def: #export (<name> @where)
-     (-> //.Label //.Inst)
+     (-> //.Label Inst)
      (function (_ visitor)
        (do-to visitor
          (MethodVisitor::visitJumpInsn [(prefix <name>) @where]))))]
@@ -283,7 +289,7 @@
   )
 
 (def: #export (TABLESWITCH min max default labels)
-  (-> Int Int //.Label (List //.Label) //.Inst)
+  (-> Int Int //.Label (List //.Label) Inst)
   (function (_ visitor)
     (let [num-labels (list.size labels)
           labels-array (host.array Label num-labels)
@@ -298,19 +304,19 @@
         (MethodVisitor::visitTableSwitchInsn [min max default labels-array])))))
 
 (def: #export (try @from @to @handler exception)
-  (-> //.Label //.Label //.Label Text //.Inst)
+  (-> //.Label //.Label //.Label Text Inst)
   (function (_ visitor)
     (do-to visitor
-      (MethodVisitor::visitTryCatchBlock [@from @to @handler (//type.binary-name exception)]))))
+      (MethodVisitor::visitTryCatchBlock [@from @to @handler (type.binary-name exception)]))))
 
 (def: #export (label @label)
-  (-> //.Label //.Inst)
+  (-> //.Label Inst)
   (function (_ visitor)
     (do-to visitor
       (MethodVisitor::visitLabel [@label]))))
 
 (def: #export (array type)
-  (-> //.Type //.Inst)
+  (-> //.Type Inst)
   (case type
     (#//.Primitive prim)
     (NEWARRAY prim)
@@ -318,17 +324,17 @@
     (#//.Generic generic)
     (let [elem-class (case generic
                        (#//.Class class params)
-                       (//type.binary-name class)
+                       (type.binary-name class)
 
                        _
-                       (//type.binary-name "java.lang.Object"))]
+                       (type.binary-name "java.lang.Object"))]
       (ANEWARRAY elem-class))
 
     _
-    (ANEWARRAY (//type.descriptor type))))
+    (ANEWARRAY (type.descriptor type))))
 
 (def: (primitive-wrapper type)
-  (-> //.Primitive Text)
+  (-> Primitive Text)
   (case type
     #//.Boolean "java.lang.Boolean"
     #//.Byte    "java.lang.Byte"
@@ -340,7 +346,7 @@
     #//.Char    "java.lang.Character"))
 
 (def: (primitive-unwrap type)
-  (-> //.Primitive Text)
+  (-> Primitive Text)
   (case type
     #//.Boolean "booleanValue"
     #//.Byte    "byteValue"
@@ -352,24 +358,24 @@
     #//.Char    "charValue"))
 
 (def: #export (wrap type)
-  (-> //.Primitive //.Inst)
+  (-> Primitive Inst)
   (let [class (primitive-wrapper type)]
     (|>> (INVOKESTATIC class "valueOf"
-                       (//type.method (list (#//.Primitive type))
-                                      (#.Some (//type.class class (list)))
-                                      (list))
+                       (type.method (list (#//.Primitive type))
+                                    (#.Some (type.class class (list)))
+                                    (list))
                        #0))))
 
 (def: #export (unwrap type)
-  (-> //.Primitive //.Inst)
+  (-> Primitive Inst)
   (let [class (primitive-wrapper type)]
     (|>> (CHECKCAST class)
          (INVOKEVIRTUAL class (primitive-unwrap type)
-                        (//type.method (list) (#.Some (#//.Primitive type)) (list))
+                        (type.method (list) (#.Some (#//.Primitive type)) (list))
                         #0))))
 
 (def: #export (fuse insts)
-  (-> (List //.Inst) //.Inst)
+  (-> (List Inst) Inst)
   (case insts
     #.Nil
     id

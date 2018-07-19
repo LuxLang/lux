@@ -1,22 +1,26 @@
 (.module:
-  lux
-  (lux (control [monad #+ do]
-                ["ex" exception #+ exception:])
-       (data text/format)
-       [macro "macro/" Monad<Meta>])
-  (luxc ["_" lang]
-        (lang [".L" host]
-              (host ["$" jvm]
-                    (jvm ["$t" type]
-                         ["$i" inst]))
-              ["ls" synthesis]))
-  [//runtime])
-
-(def: $Object $.Type ($t.class "java.lang.Object" (list)))
+  [lux (#- if let case)
+   [control
+    [monad (#+ do)]
+    ["ex" exception (#+ exception:)]]
+   [data
+    [text
+     format]]
+   [language
+    ["." compiler ("operation/" Monad<Operation>)
+     ["." synthesis (#+ Path Synthesis)]]]]
+  [luxc
+   [lang
+    [host
+     ["$" jvm (#+ Label Inst Operation Compiler)
+      ["$t" type]
+      ["$i" inst]]]]]
+  ["." // (#+ $Object)
+   [runtime]])
 
 (def: (pop-altI stack-depth)
-  (-> Nat $.Inst)
-  (case stack-depth
+  (-> Nat Inst)
+  (.case stack-depth
     +0 id
     +1 $i.POP
     +2 $i.POP2
@@ -25,203 +29,201 @@
          (pop-altI (n/- +2 stack-depth)))))
 
 (def: peekI
-  $.Inst
+  Inst
   (|>> $i.DUP
-       ($i.INVOKESTATIC hostL.runtime-class
+       ($i.INVOKESTATIC //.runtime-class
                         "pm_peek"
-                        ($t.method (list //runtime.$Stack)
+                        ($t.method (list runtime.$Stack)
                                    (#.Some $Object)
                                    (list))
                         #0)))
 
 (def: popI
-  $.Inst
-  (|>> ($i.INVOKESTATIC hostL.runtime-class
+  Inst
+  (|>> ($i.INVOKESTATIC //.runtime-class
                         "pm_pop"
-                        ($t.method (list //runtime.$Stack)
-                                   (#.Some //runtime.$Stack)
+                        ($t.method (list runtime.$Stack)
+                                   (#.Some runtime.$Stack)
                                    (list))
                         #0)))
 
 (def: pushI
-  $.Inst
-  (|>> ($i.INVOKESTATIC hostL.runtime-class
+  Inst
+  (|>> ($i.INVOKESTATIC //.runtime-class
                         "pm_push"
-                        ($t.method (list //runtime.$Stack $Object)
-                                   (#.Some //runtime.$Stack)
+                        ($t.method (list runtime.$Stack $Object)
+                                   (#.Some runtime.$Stack)
                                    (list))
                         #0)))
 
-(exception: #export (Unrecognized-Path {message Text})
-  message)
+(def: (path' translate stack-depth @else @end path)
+  (-> (-> Synthesis (Operation Inst))
+      Nat Label Label Path (Operation Inst))
+  (.case path
+    #synthesis.Pop
+    (operation/wrap popI)
+    
+    (#synthesis.Bind register)
+    (operation/wrap (|>> peekI
+                         ($i.ASTORE register)))
 
-(def: (translate-path' translate stack-depth @else @end path)
-  (-> (-> ls.Synthesis (Meta $.Inst))
-      Nat $.Label $.Label ls.Path (Meta $.Inst))
-  (case path
-    (^ [_ (#.Form (list [_ (#.Text "lux case exec")] bodyS))])
-    (do macro.Monad<Meta>
+    (^ (synthesis.path/bit value))
+    (operation/wrap (.let [jumpI (.if value $i.IFEQ $i.IFNE)]
+                      (|>> peekI
+                           ($i.unwrap #$.Boolean)
+                           (jumpI @else))))
+    
+    (^ (synthesis.path/i64 value))
+    (operation/wrap (|>> peekI
+                         ($i.unwrap #$.Long)
+                         ($i.long value)
+                         $i.LCMP
+                         ($i.IFNE @else)))
+    
+    (^ (synthesis.path/f64 value))
+    (operation/wrap (|>> peekI
+                         ($i.unwrap #$.Double)
+                         ($i.double value)
+                         $i.DCMPL
+                         ($i.IFNE @else)))
+    
+    (^ (synthesis.path/text value))
+    (operation/wrap (|>> peekI
+                         ($i.string value)
+                         ($i.INVOKEVIRTUAL "java.lang.Object"
+                                           "equals"
+                                           ($t.method (list $Object)
+                                                      (#.Some $t.boolean)
+                                                      (list))
+                                           #0)
+                         ($i.IFEQ @else)))
+    
+    (#synthesis.Then bodyS)
+    (do compiler.Monad<Operation>
       [bodyI (translate bodyS)]
       (wrap (|>> (pop-altI stack-depth)
                  bodyI
                  ($i.GOTO @end))))
-
-    (^ [_ (#.Form (list [_ (#.Text "lux case pop")]))])
-    (macro/wrap popI)
-
-    (^ [_ (#.Form (list [_ (#.Text "lux case bind")] [_ (#.Nat register)]))])
-    (macro/wrap (|>> peekI
-                     ($i.ASTORE register)))
-
-    [_ (#.Bit value)]
-    (macro/wrap (let [jumpI (if value $i.IFEQ $i.IFNE)]
-                  (|>> peekI
-                       ($i.unwrap #$.Boolean)
-                       (jumpI @else))))
-
-    [_ (#.Int value)]
-    (macro/wrap (|>> peekI
-                     ($i.unwrap #$.Long)
-                     ($i.long value)
-                     $i.LCMP
-                     ($i.IFNE @else)))
-
-    [_ (#.Frac value)]
-    (macro/wrap (|>> peekI
-                     ($i.unwrap #$.Double)
-                     ($i.double value)
-                     $i.DCMPL
-                     ($i.IFNE @else)))
     
-    [_ (#.Text value)]
-    (macro/wrap (|>> peekI
-                     ($i.string value)
-                     ($i.INVOKEVIRTUAL "java.lang.Object"
-                                       "equals"
-                                       ($t.method (list $Object)
-                                                  (#.Some $t.boolean)
-                                                  (list))
-                                       #0)
-                     ($i.IFEQ @else)))
-
-    (^template [<special> <method>]
-      (^ [_ (#.Form (list [_ (#.Text <special>)] [_ (#.Nat idx)]))])
-      (macro/wrap (case idx
-                    +0
-                    (|>> peekI
-                         ($i.CHECKCAST ($t.descriptor //runtime.$Tuple))
-                         ($i.int 0)
-                         $i.AALOAD
-                         pushI)
-                    
-                    _
-                    (|>> peekI
-                         ($i.CHECKCAST ($t.descriptor //runtime.$Tuple))
-                         ($i.int (.int idx))
-                         ($i.INVOKESTATIC hostL.runtime-class
-                                          <method>
-                                          ($t.method (list //runtime.$Tuple $t.int)
-                                                     (#.Some $Object)
-                                                     (list))
-                                          #0)
-                         pushI))))
-    (["lux case tuple left" "pm_left"]
-     ["lux case tuple right" "pm_right"])
-
-    (^template [<special> <flag>]
-      (^ [_ (#.Form (list [_ (#.Text <special>)] [_ (#.Nat idx)]))])
-      (macro/wrap (<| $i.with-label (function (_ @success))
-                      $i.with-label (function (_ @fail))
-                      (|>> peekI
-                           ($i.CHECKCAST ($t.descriptor //runtime.$Variant))
-                           ($i.int (.int idx))
-                           <flag>
-                           ($i.INVOKESTATIC hostL.runtime-class "pm_variant"
-                                            ($t.method (list //runtime.$Variant //runtime.$Tag //runtime.$Flag)
-                                                       (#.Some //runtime.$Datum)
-                                                       (list))
-                                            #0)
-                           $i.DUP
-                           ($i.IFNULL @fail)
-                           ($i.GOTO @success)
-                           ($i.label @fail)
-                           $i.POP
-                           ($i.GOTO @else)
-                           ($i.label @success)
-                           pushI))))
-    (["lux case variant left" $i.NULL]
-     ["lux case variant right" ($i.string "")])
     
-    (^ [_ (#.Form (list [_ (#.Text "lux case seq")] leftP rightP))])
-    (do macro.Monad<Meta>
-      [leftI (translate-path' translate stack-depth @else @end leftP)
-       rightI (translate-path' translate stack-depth @else @end rightP)]
-      (wrap (|>> leftI
-                 rightI)))
+    (^template [<pattern> <method> <mod>]
+      (^ (<pattern> idx))
+      (operation/wrap (.case (<mod> idx)
+                        +0
+                        (|>> peekI
+                             ($i.CHECKCAST ($t.descriptor runtime.$Tuple))
+                             ($i.int 0)
+                             $i.AALOAD
+                             pushI)
+                        
+                        idx
+                        (|>> peekI
+                             ($i.CHECKCAST ($t.descriptor runtime.$Tuple))
+                             ($i.int (.int idx))
+                             ($i.INVOKESTATIC //.runtime-class
+                                              <method>
+                                              ($t.method (list runtime.$Tuple $t.int)
+                                                         (#.Some $Object)
+                                                         (list))
+                                              #0)
+                             pushI))))
+    ([synthesis.member/left  "pm_left"  .id]
+     [synthesis.member/right "pm_right" .inc])
 
-    (^ [_ (#.Form (list [_ (#.Text "lux case alt")] leftP rightP))])
-    (do macro.Monad<Meta>
+    (^template [<pattern> <flag> <mod>]
+      (^ (<pattern> idx))
+      (.let [idx (<mod> idx)]
+        (operation/wrap (<| $i.with-label (function (_ @success))
+                            $i.with-label (function (_ @fail))
+                            (|>> peekI
+                                 ($i.CHECKCAST ($t.descriptor runtime.$Variant))
+                                 ($i.int (.int idx))
+                                 <flag>
+                                 ($i.INVOKESTATIC //.runtime-class "pm_variant"
+                                                  ($t.method (list runtime.$Variant runtime.$Tag runtime.$Flag)
+                                                             (#.Some runtime.$Datum)
+                                                             (list))
+                                                  #0)
+                                 $i.DUP
+                                 ($i.IFNULL @fail)
+                                 ($i.GOTO @success)
+                                 ($i.label @fail)
+                                 $i.POP
+                                 ($i.GOTO @else)
+                                 ($i.label @success)
+                                 pushI)))))
+    ([synthesis.side/left  $i.NULL        .id]
+     [synthesis.side/right ($i.string "") .inc])
+
+    (#synthesis.Alt leftP rightP)
+    (do compiler.Monad<Operation>
       [@alt-else $i.make-label
-       leftI (translate-path' translate (inc stack-depth) @alt-else @end leftP)
-       rightI (translate-path' translate stack-depth @else @end rightP)]
+       leftI (path' translate (inc stack-depth) @alt-else @end leftP)
+       rightI (path' translate stack-depth @else @end rightP)]
       (wrap (|>> $i.DUP
                  leftI
                  ($i.label @alt-else)
                  $i.POP
                  rightI)))
+    
+    (#synthesis.Seq leftP rightP)
+    (do compiler.Monad<Operation>
+      [leftI (path' translate stack-depth @else @end leftP)
+       rightI (path' translate stack-depth @else @end rightP)]
+      (wrap (|>> leftI
+                 rightI)))
+    ))
 
-    _
-    (_.throw Unrecognized-Path (%code path))))
-
-(def: (translate-path translate path @end)
-  (-> (-> ls.Synthesis (Meta $.Inst))
-      ls.Path $.Label (Meta $.Inst))
-  (do macro.Monad<Meta>
+(def: (path translate path @end)
+  (-> Compiler Path Label (Operation Inst))
+  (do compiler.Monad<Operation>
     [@else $i.make-label
-     pathI (translate-path' translate +1 @else @end path)]
+     pathI (..path' translate +1 @else @end path)]
     (wrap (|>> pathI
                ($i.label @else)
                $i.POP
-               ($i.INVOKESTATIC hostL.runtime-class
+               ($i.INVOKESTATIC //.runtime-class
                                 "pm_fail"
                                 ($t.method (list) #.None (list))
                                 #0)
                $i.NULL
                ($i.GOTO @end)))))
 
-(def: #export (translate-if testI thenI elseI)
-  (-> $.Inst $.Inst $.Inst $.Inst)
-  (<| $i.with-label (function (_ @else))
-      $i.with-label (function (_ @end))
-      (|>> testI
-           ($i.unwrap #$.Boolean)
-           ($i.IFEQ @else)
-           thenI
-           ($i.GOTO @end)
-           ($i.label @else)
-           elseI
-           ($i.label @end))))
+(def: #export (if translate testS thenS elseS)
+  (-> Compiler Synthesis Synthesis Synthesis (Operation Inst))
+  (do compiler.Monad<Operation>
+    [testI (translate testS)
+     thenI (translate thenS)
+     elseI (translate elseS)]
+    (wrap (<| $i.with-label (function (_ @else))
+              $i.with-label (function (_ @end))
+              (|>> testI
+                   ($i.unwrap #$.Boolean)
+                   ($i.IFEQ @else)
+                   thenI
+                   ($i.GOTO @end)
+                   ($i.label @else)
+                   elseI
+                   ($i.label @end))))))
 
-(def: #export (translate-case translate valueS path)
-  (-> (-> ls.Synthesis (Meta $.Inst))
-      ls.Synthesis ls.Path (Meta $.Inst))
-  (do macro.Monad<Meta>
+(def: #export (let translate inputS register exprS)
+  (-> Compiler Synthesis Nat Synthesis (Operation Inst))
+  (do compiler.Monad<Operation>
+    [inputI (translate inputS)
+     exprI (translate exprS)]
+    (wrap (|>> inputI
+               ($i.ASTORE register)
+               exprI))))
+
+(def: #export (case translate valueS path)
+  (-> Compiler Synthesis Path (Operation Inst))
+  (do compiler.Monad<Operation>
     [@end $i.make-label
      valueI (translate valueS)
-     pathI (translate-path translate path @end)]
+     pathI (..path translate path @end)]
     (wrap (|>> valueI
                $i.NULL
                $i.SWAP
                pushI
                pathI
                ($i.label @end)))))
-
-(def: #export (translate-let translate register inputS exprS)
-  (-> (-> ls.Synthesis (Meta $.Inst))
-      Nat ls.Synthesis ls.Synthesis (Meta $.Inst))
-  (do macro.Monad<Meta>
-    [inputI (translate inputS)
-     exprI (translate exprS)]
-    (wrap (|>> inputI
-               ($i.ASTORE register)
-               exprI))))
