@@ -211,73 +211,72 @@ Called by `imenu--generic-function'."
 (defconst lux-font-lock-keywords
   (let ((digits "[0-9][0-9_]*")
         (digits+ "[0-9_]+")
-        (symbol_h "[a-zA-Z\\-\\+_=!@\\$%\\^&\\*<>;,/\\\\\\|':~\\?]")
-        (symbol_t "[a-zA-Z0-9\\-\\+_=!@\\$%\\^&\\*<>;,/\\\\\\|':~\\?]"))
+        (symbol_h "[a-zA-Z-\\+_=!@\\$%\\^&\\*<>;,/\\\\\\|':~\\?]")
+        (symbol_t "[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>;,/\\\\\\|':~\\?]"))
     (let ((symbol (concat symbol_h symbol_t "*")))
-      (eval-when-compile
-        `(;; Special forms
-          (,(concat
-             "("
-             (regexp-opt
-              '(".module:"
-                "def:" "type:" "macro:" "syntax:" "program:"
-                "signature:" "structure:" "context:" "template:"
-                "class:" "interface:"
-                "poly:" "derived:"
-                "actor:" "message:" "on:"
-                "exception:"
-                "word:"
-                "abstract:"
-                "unit:" "scale:"
-                "import:"
-                ":" ":coerce" ":assume" ":of" ":cast" ":share" ":abstraction" ":representation" "^:representation" ":~"
-                "function" "case" "undefined" "ident-for" "static"
-                "and" "or"
-                "char"
-                "exec" "let" "if" "cond" "do" "be" "open:" "loop" "recur" "comment" "for"
-                "list" "list&" "io" "row" "tree"
-                "get@" "set@" "update@" "|>" "|>>" "<|" "<<|" "_$" "$_" "~" "~+" "~!" "~'" "::" ":::"
-                "|" "&" "->" "All" "Ex" "Rec" "primitive" "$" "type"
-                "^" "^or" "^slots" "^multi" "^@" "^template" "^open" "^|>" "^code" "^sequence&" "^regex"
-                "bin" "oct" "hex"
-                "pre" "post"
-                "structure" "derive"
-                "infix"
-                "format"
-                "`" "`'" "'" "do-template" "with-expansions" "``" "~~"
-                "object" "do-to" "synchronized" "class-for"
-                "doc"
-                "regex"
-                ) t)
-             "\\>")
-           1 font-lock-builtin-face)
-          ;; Bit literals
-          (,(concat
-             "\\<"
-             (regexp-opt
-              '("#0" "#1") t)
-             "\\>")
-           0 font-lock-constant-face)
-          ;; Nat literals
-          (,(concat "\\<\\+" digits "\\>")
-           0 font-lock-constant-face)
-          ;; Int literals && Frac literals
-          (,(concat "\\<-?" digits "\\(\\." digits+ "\\(\\(e\\|E\\)\\(-\\|\\+\\)?" digits "\\)?\\)?\\>")
-           0 font-lock-constant-face)
-          ;; Frac "ratio" literals
-          (,(concat "\\<-?" digits "/" digits "\\>")
-           0 font-lock-constant-face)
-          ;; Rev literals
-          (,(concat "\\<\\." digits "\\>")
-           0 font-lock-constant-face)
-          ;; Tags
-          (,(concat "#\\." symbol)
-           0 font-lock-type-face)
-          (,(concat "#\\.\\." symbol)
-           0 font-lock-type-face)
-          (,(concat "#" symbol "\\(\\." symbol "\\)?")
-           0 font-lock-type-face)
-          ))))
+      (let ((bitRE (concat "\\<" (regexp-opt '("#0" "#1") t) "\\>"))
+            (natRE (concat "\\<\\+" digits "\\>"))
+            (int&fracRE (concat "\\<-?" digits "\\(\\." digits+ "\\(\\(e\\|E\\)\\(-\\|\\+\\)?" digits "\\)?\\)?\\>"))
+            (frac-ratioRE (concat "\\<-?" digits "/" digits "\\>"))
+            (revRE (concat "\\<\\." digits "\\>"))
+            (tagRE (let ((separator "\\."))
+                     (let ((in-prelude separator)
+                           (in-current-module (concat separator separator))
+                           (in-module (concat symbol separator))
+                           (in-local ""))
+                       (concat "#"
+                               "\\(" in-prelude "\\|" in-current-module "\\|" in-module "\\|" in-local "\\)"
+                               symbol)))))
+        (eval-when-compile
+          `(;; Special forms
+            (,(concat
+               "("
+               (regexp-opt
+                '(".module:"
+                  "def:" "type:" "macro:" "syntax:" "program:"
+                  "signature:" "structure:" "context:" "template:"
+                  "class:" "interface:"
+                  "poly:" "derived:"
+                  "actor:" "message:" "on:"
+                  "exception:"
+                  "word:"
+                  "abstract:"
+                  "unit:" "scale:"
+                  "import:"
+                  ":" ":coerce" ":assume" ":of" ":cast" ":share" ":abstraction" ":representation" "^:representation" ":~"
+                  "function" "case" "undefined" "ident-for" "static"
+                  "and" "or"
+                  "char"
+                  "exec" "let" "if" "cond" "do" "be" "open:" "loop" "recur" "comment" "for"
+                  "list" "list&" "io" "row" "tree"
+                  "get@" "set@" "update@" "|>" "|>>" "<|" "<<|" "_$" "$_" "~" "~+" "~!" "~'" "::" ":::"
+                  "|" "&" "->" "All" "Ex" "Rec" "primitive" "$" "type"
+                  "^" "^or" "^slots" "^multi" "^@" "^template" "^open" "^|>" "^code" "^sequence&" "^regex"
+                  "bin" "oct" "hex"
+                  "pre" "post"
+                  "structure" "derive"
+                  "infix"
+                  "format"
+                  "`" "`'" "'" "do-template" "with-expansions" "``" "~~"
+                  "object" "do-to" "synchronized" "class-for"
+                  "doc"
+                  "regex"
+                  ) t)
+               "\\>")
+             1 font-lock-builtin-face)
+            ;; Bit literals
+            (,bitRE 0 font-lock-constant-face)
+            ;; Nat literals
+            (,natRE 0 font-lock-constant-face)
+            ;; Int literals && Frac literals
+            (,int&fracRE 0 font-lock-constant-face)
+            ;; Frac "ratio" literals
+            (,frac-ratioRE 0 font-lock-constant-face)
+            ;; Rev literals
+            (,revRE 0 font-lock-constant-face)
+            ;; Tags
+            (,tagRE 0 font-lock-type-face)
+            )))))
   "Default expressions to highlight in Lux mode.")
 
 (defun lux-font-lock-syntactic-face-function (state)
