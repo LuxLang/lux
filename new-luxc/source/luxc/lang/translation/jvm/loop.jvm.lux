@@ -1,41 +1,39 @@
 (.module:
-  lux
-  (lux (control [monad #+ do])
-       (data [text]
-             text/format
-             (coll [list "list/" Functor<List> Monoid<List>]))
-       [macro])
-  (luxc ["&" lang]
-        (lang [".L" host]
-              (host ["$" jvm]
-                    (jvm ["$t" type]
-                         ["$d" def]
-                         ["$i" inst]))
-              ["la" analysis]
-              ["ls" synthesis]
-              [".L" variable #+ Variable Register]))
-  (// [".T" common]
-      [".T" runtime]
-      [".T" reference]))
+  [lux #*
+   [control
+    [monad (#+ do)]]
+   [data
+    ["." text
+     format]
+    [collection
+     [list ("list/" Functor<List> Monoid<List>)]]]
+   [language
+    [reference (#+ Register)]
+    ["." compiler
+     ["." synthesis (#+ Synthesis)]
+     ["." translation]]]]
+  [luxc
+   [lang
+    [host
+     [jvm (#+ Inst Operation Compiler)
+      ["_" inst]]]]]
+  ["." //])
 
 (def: (constant? register changeS)
-  (-> Register ls.Synthesis Bit)
+  (-> Register Synthesis Bit)
   (case changeS
-    (^multi (^code ((~ [_ (#.Int var)])))
-            (i/= (variableL.local register)
-                 var))
-    #1
+    (^ (synthesis.variable/local var))
+    (n/= register var)
 
     _
     #0))
 
-(def: #export (translate-recur translate argsS)
-  (-> (-> ls.Synthesis (Meta $.Inst))
-      (List ls.Synthesis)
-      (Meta $.Inst))
-  (do macro.Monad<Meta>
-    [[@begin offset] hostL.anchor
-     #let [pairs (list.zip2 (list.n/range offset (|> (list.size argsS) dec (n/+ offset)))
+(def: #export (recur translate argsS)
+  (-> Compiler (List Synthesis) (Operation Inst))
+  (do compiler.Monad<Operation>
+    [[@begin start] translation.anchor
+     #let [end (|> argsS list.size dec (n/+ start))
+           pairs (list.zip2 (list.n/range start end)
                             argsS)]
      ## It may look weird that first I compile the values separately,
      ## and then I compile the stores/allocations.
@@ -44,37 +42,35 @@
      ## If Y depends on the value of X, and you don't compile values
      ## and stores separately, then by the time Y is evaluated, it
      ## will refer to the new value of X, instead of the old value, as
-     ## must be the case.
+     ## should be the case.
      valuesI+ (monad.map @ (function (_ [register argS])
-                             (: (Meta $.Inst)
+                             (: (Operation Inst)
                                 (if (constant? register argS)
                                   (wrap id)
                                   (translate argS))))
                          pairs)
      #let [storesI+ (list/map (function (_ [register argS])
-                                (: $.Inst
+                                (: Inst
                                    (if (constant? register argS)
                                      id
-                                     ($i.ASTORE register))))
+                                     (_.ASTORE register))))
                               (list.reverse pairs))]]
-    (wrap (|>> ($i.fuse valuesI+)
-               ($i.fuse storesI+)
-               ($i.GOTO @begin)))))
+    (wrap (|>> (_.fuse valuesI+)
+               (_.fuse storesI+)
+               (_.GOTO @begin)))))
 
-(def: #export (translate-loop translate offset initsS+ bodyS)
-  (-> (-> ls.Synthesis (Meta $.Inst))
-      Nat (List ls.Synthesis) ls.Synthesis
-      (Meta $.Inst))
-  (do macro.Monad<Meta>
-    [@begin $i.make-label
+(def: #export (scope translate [start initsS+ iterationS])
+  (-> Compiler [Nat (List Synthesis) Synthesis] (Operation Inst))
+  (do compiler.Monad<Operation>
+    [@begin _.make-label
      initsI+ (monad.map @ translate initsS+)
-     bodyI (hostL.with-anchor [@begin offset]
-             (translate bodyS))
+     iterationI (translation.with-anchor [@begin start]
+                  (translate iterationS))
      #let [initializationI (|> (list.enumerate initsI+)
                                (list/map (function (_ [register initI])
                                            (|>> initI
-                                                ($i.ASTORE (n/+ offset register)))))
-                               $i.fuse)]]
+                                                (_.ASTORE (n/+ start register)))))
+                               _.fuse)]]
     (wrap (|>> initializationI
-               ($i.label @begin)
-               bodyI))))
+               (_.label @begin)
+               iterationI))))

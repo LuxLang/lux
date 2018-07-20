@@ -1,304 +1,307 @@
 (.module:
-  lux
-  (lux (control [monad #+ do])
-       (data [text]
-             text/format
-             (coll [list "list/" Functor<List> Monoid<List>]))
-       [macro])
-  (luxc ["&" lang]
-        (lang [".L" host]
-              (host ["$" jvm]
-                    (jvm ["$t" type]
-                         ["$d" def]
-                         ["$i" inst]))
-              ["la" analysis]
-              ["ls" synthesis]
-              [".L" variable #+ Variable]))
-  (// [".T" common]
-      [".T" runtime]
-      [".T" reference]))
+  [lux (#- function)
+   [control
+    [monad (#+ do)]]
+   [data
+    ["." text
+     format]
+    [collection
+     [list ("list/" Functor<List> Monoid<List>)]]]
+   [language
+    ["_." reference (#+ Register Variable)]
+    ["." compiler
+     [analysis (#+ Arity)]
+     [synthesis (#+ Synthesis Abstraction Apply)]
+     ["." translation]]]]
+  [luxc
+   [lang
+    [host
+     ["$" jvm (#+ Label Inst Def Operation Compiler)
+      ["." type]
+      ["." def]
+      ["_" inst]]]]]
+  ["." //
+   ["." runtime]
+   ["." reference]])
 
 
 (def: arity-field Text "arity")
-(def: $Object $.Type ($t.class "java.lang.Object" (list)))
+(def: $Object $.Type (type.class "java.lang.Object" (list)))
 
 (def: (poly-arg? arity)
-  (-> ls.Arity Bit)
+  (-> Arity Bit)
   (n/> +1 arity))
 
 (def: (reset-method class)
   (-> Text $.Method)
-  ($t.method (list) (#.Some ($t.class class (list))) (list)))
+  (type.method (list) (#.Some (type.class class (list))) (list)))
 
 (def: (captured-args env)
   (-> (List Variable) (List $.Type))
   (list.repeat (list.size env) $Object))
 
 (def: (init-method env arity)
-  (-> (List Variable) ls.Arity $.Method)
+  (-> (List Variable) Arity $.Method)
   (if (poly-arg? arity)
-    ($t.method (list.concat (list (captured-args env)
-                                  (list $t.int)
-                                  (list.repeat (dec arity) $Object)))
-               #.None
-               (list))
-    ($t.method (captured-args env) #.None (list))))
+    (type.method (list.concat (list (captured-args env)
+                                    (list type.int)
+                                    (list.repeat (dec arity) $Object)))
+                 #.None
+                 (list))
+    (type.method (captured-args env) #.None (list))))
 
 (def: (implementation-method arity)
-  ($t.method (list.repeat arity $Object) (#.Some $Object) (list)))
+  (type.method (list.repeat arity $Object) (#.Some $Object) (list)))
 
 (def: get-amount-of-partialsI
-  $.Inst
-  (|>> ($i.ALOAD +0)
-       ($i.GETFIELD hostL.function-class runtimeT.partials-field $t.int)))
+  Inst
+  (|>> (_.ALOAD +0)
+       (_.GETFIELD //.function-class runtime.partials-field type.int)))
 
 (def: (load-fieldI class field)
-  (-> Text Text $.Inst)
-  (|>> ($i.ALOAD +0)
-       ($i.GETFIELD class field $Object)))
+  (-> Text Text Inst)
+  (|>> (_.ALOAD +0)
+       (_.GETFIELD class field $Object)))
 
 (def: (inputsI start amount)
-  (-> $.Register Nat $.Inst)
+  (-> Register Nat Inst)
   (|> (list.n/range start (n/+ start (dec amount)))
-      (list/map $i.ALOAD)
-      $i.fuse))
+      (list/map _.ALOAD)
+      _.fuse))
 
 (def: (applysI start amount)
-  (-> $.Register Nat $.Inst)
-  (let [max-args (n/min amount runtimeT.num-apply-variants)
-        later-applysI (if (n/> runtimeT.num-apply-variants amount)
-                        (applysI (n/+ runtimeT.num-apply-variants start) (n/- runtimeT.num-apply-variants amount))
+  (-> Register Nat Inst)
+  (let [max-args (n/min amount runtime.num-apply-variants)
+        later-applysI (if (n/> runtime.num-apply-variants amount)
+                        (applysI (n/+ runtime.num-apply-variants start) (n/- runtime.num-apply-variants amount))
                         id)]
-    (|>> ($i.CHECKCAST hostL.function-class)
+    (|>> (_.CHECKCAST //.function-class)
          (inputsI start max-args)
-         ($i.INVOKEVIRTUAL hostL.function-class runtimeT.apply-method (runtimeT.apply-signature max-args) #0)
+         (_.INVOKEVIRTUAL //.function-class runtime.apply-method (runtime.apply-signature max-args) #0)
          later-applysI)))
 
 (def: (inc-intI by)
-  (-> Nat $.Inst)
-  (|>> ($i.int (.int by))
-       $i.IADD))
+  (-> Nat Inst)
+  (|>> (_.int (.int by))
+       _.IADD))
 
 (def: (nullsI amount)
-  (-> Nat $.Inst)
-  (|> $i.NULL
+  (-> Nat Inst)
+  (|> _.NULL
       (list.repeat amount)
-      $i.fuse))
+      _.fuse))
 
 (def: (with-captured env)
-  (-> (List Variable) $.Def)
+  (-> (List Variable) Def)
   (|> (list.enumerate env)
-      (list/map (function (_ [env-idx env-source])
-                  ($d.field #$.Private $.finalF (referenceT.captured env-idx) $Object)))
-      $d.fuse))
+      (list/map (.function (_ [env-idx env-source])
+                  (def.field #$.Private $.finalF (reference.foreign-name env-idx) $Object)))
+      def.fuse))
 
 (def: (with-partial arity)
-  (-> ls.Arity $.Def)
+  (-> Arity Def)
   (if (poly-arg? arity)
     (|> (list.n/range +0 (n/- +2 arity))
-        (list/map (function (_ idx)
-                    ($d.field #$.Private $.finalF (referenceT.partial idx) $Object)))
-        $d.fuse)
+        (list/map (.function (_ idx)
+                    (def.field #$.Private $.finalF (reference.partial-name idx) $Object)))
+        def.fuse)
     id))
 
 (def: (instance class arity env)
-  (-> Text ls.Arity (List Variable) (Meta $.Inst))
-  (do macro.Monad<Meta>
-    [captureI+ (monad.map @ referenceT.translate-variable env)
+  (-> Text Arity (List Variable) (Operation Inst))
+  (do compiler.Monad<Operation>
+    [captureI+ (monad.map @ reference.variable env)
      #let [argsI (if (poly-arg? arity)
                    (|> (nullsI (dec arity))
-                       (list ($i.int 0))
-                       $i.fuse)
+                       (list (_.int 0))
+                       _.fuse)
                    id)]]
-    (wrap (|>> ($i.NEW class)
-               $i.DUP
-               ($i.fuse captureI+)
+    (wrap (|>> (_.NEW class)
+               _.DUP
+               (_.fuse captureI+)
                argsI
-               ($i.INVOKESPECIAL class "<init>" (init-method env arity) #0)))))
+               (_.INVOKESPECIAL class "<init>" (init-method env arity) #0)))))
 
 (def: (with-reset class arity env)
-  (-> Text ls.Arity (List Variable) $.Def)
-  ($d.method #$.Public $.noneM "reset" (reset-method class)
-             (if (poly-arg? arity)
-               (let [env-size (list.size env)
-                     captureI (|> (case env-size
-                                    +0 (list)
-                                    _ (list.n/range +0 (dec env-size)))
-                                  (list/map (function (_ source)
-                                              (|>> ($i.ALOAD +0)
-                                                   ($i.GETFIELD class (referenceT.captured source) $Object))))
-                                  $i.fuse)
-                     argsI (|> (nullsI (dec arity))
-                               (list ($i.int 0))
-                               $i.fuse)]
-                 (|>> ($i.NEW class)
-                      $i.DUP
-                      captureI
-                      argsI
-                      ($i.INVOKESPECIAL class "<init>" (init-method env arity) #0)
-                      $i.ARETURN))
-               (|>> ($i.ALOAD +0)
-                    $i.ARETURN))))
+  (-> Text Arity (List Variable) Def)
+  (def.method #$.Public $.noneM "reset" (reset-method class)
+              (if (poly-arg? arity)
+                (let [env-size (list.size env)
+                      captureI (|> (case env-size
+                                     +0 (list)
+                                     _ (list.n/range +0 (dec env-size)))
+                                   (list/map (.function (_ source)
+                                               (|>> (_.ALOAD +0)
+                                                    (_.GETFIELD class (reference.foreign-name source) $Object))))
+                                   _.fuse)
+                      argsI (|> (nullsI (dec arity))
+                                (list (_.int 0))
+                                _.fuse)]
+                  (|>> (_.NEW class)
+                       _.DUP
+                       captureI
+                       argsI
+                       (_.INVOKESPECIAL class "<init>" (init-method env arity) #0)
+                       _.ARETURN))
+                (|>> (_.ALOAD +0)
+                     _.ARETURN))))
 
 (def: (with-implementation arity @begin bodyI)
-  (-> Nat $.Label $.Inst $.Def)
-  ($d.method #$.Public $.strictM "impl" (implementation-method arity)
-             (|>> ($i.label @begin)
-                  bodyI
-                  $i.ARETURN)))
+  (-> Nat Label Inst Def)
+  (def.method #$.Public $.strictM "impl" (implementation-method arity)
+              (|>> (_.label @begin)
+                   bodyI
+                   _.ARETURN)))
 
 (def: function-init-method
   $.Method
-  ($t.method (list $t.int) #.None (list)))
+  (type.method (list type.int) #.None (list)))
 
 (def: (function-init arity env-size)
-  (-> ls.Arity Nat $.Inst)
+  (-> Arity Nat Inst)
   (if (n/= +1 arity)
-    (|>> ($i.int 0)
-         ($i.INVOKESPECIAL hostL.function-class "<init>" function-init-method #0))
-    (|>> ($i.ILOAD (inc env-size))
-         ($i.INVOKESPECIAL hostL.function-class "<init>" function-init-method #0))))
+    (|>> (_.int 0)
+         (_.INVOKESPECIAL //.function-class "<init>" function-init-method #0))
+    (|>> (_.ILOAD (inc env-size))
+         (_.INVOKESPECIAL //.function-class "<init>" function-init-method #0))))
 
 (def: (with-init class env arity)
-  (-> Text (List Variable) ls.Arity $.Def)
+  (-> Text (List Variable) Arity Def)
   (let [env-size (list.size env)
         offset-partial (: (-> Nat Nat)
                           (|>> inc (n/+ env-size)))
         store-capturedI (|> (case env-size
                               +0 (list)
                               _ (list.n/range +0 (dec env-size)))
-                            (list/map (function (_ register)
-                                        (|>> ($i.ALOAD +0)
-                                             ($i.ALOAD (inc register))
-                                             ($i.PUTFIELD class (referenceT.captured register) $Object))))
-                            $i.fuse)
+                            (list/map (.function (_ register)
+                                        (|>> (_.ALOAD +0)
+                                             (_.ALOAD (inc register))
+                                             (_.PUTFIELD class (reference.foreign-name register) $Object))))
+                            _.fuse)
         store-partialI (if (poly-arg? arity)
                          (|> (list.n/range +0 (n/- +2 arity))
-                             (list/map (function (_ idx)
+                             (list/map (.function (_ idx)
                                          (let [register (offset-partial idx)]
-                                           (|>> ($i.ALOAD +0)
-                                                ($i.ALOAD (inc register))
-                                                ($i.PUTFIELD class (referenceT.partial idx) $Object)))))
-                             $i.fuse)
+                                           (|>> (_.ALOAD +0)
+                                                (_.ALOAD (inc register))
+                                                (_.PUTFIELD class (reference.partial-name idx) $Object)))))
+                             _.fuse)
                          id)]
-    ($d.method #$.Public $.noneM "<init>" (init-method env arity)
-               (|>> ($i.ALOAD +0)
-                    (function-init arity env-size)
-                    store-capturedI
-                    store-partialI
-                    $i.RETURN))))
+    (def.method #$.Public $.noneM "<init>" (init-method env arity)
+                (|>> (_.ALOAD +0)
+                     (function-init arity env-size)
+                     store-capturedI
+                     store-partialI
+                     _.RETURN))))
 
 (def: (with-apply class env function-arity @begin bodyI apply-arity)
-  (-> Text (List Variable) ls.Arity $.Label $.Inst ls.Arity
-      $.Def)
+  (-> Text (List Variable) Arity Label Inst Arity
+      Def)
   (let [num-partials (dec function-arity)
         @default ($.new-label [])
         @labels (list/map $.new-label (list.repeat num-partials []))
         arity-over-extent (|> (.int function-arity) (i/- (.int apply-arity)))
         casesI (|> (list/compose @labels (list @default))
                    (list.zip2 (list.n/range +0 num-partials))
-                   (list/map (function (_ [stage @label])
+                   (list/map (.function (_ [stage @label])
                                (let [load-partialsI (if (n/> +0 stage)
                                                       (|> (list.n/range +0 (dec stage))
-                                                          (list/map (|>> referenceT.partial (load-fieldI class)))
-                                                          $i.fuse)
+                                                          (list/map (|>> reference.partial-name (load-fieldI class)))
+                                                          _.fuse)
                                                       id)]
                                  (cond (i/= arity-over-extent (.int stage))
-                                       (|>> ($i.label @label)
-                                            ($i.ALOAD +0)
+                                       (|>> (_.label @label)
+                                            (_.ALOAD +0)
                                             (when (n/> +0 stage)
-                                                  ($i.INVOKEVIRTUAL class "reset" (reset-method class) #0))
+                                                  (_.INVOKEVIRTUAL class "reset" (reset-method class) #0))
                                             load-partialsI
                                             (inputsI +1 apply-arity)
-                                            ($i.INVOKEVIRTUAL class "impl" (implementation-method function-arity) #0)
-                                            $i.ARETURN)
+                                            (_.INVOKEVIRTUAL class "impl" (implementation-method function-arity) #0)
+                                            _.ARETURN)
 
                                        (i/> arity-over-extent (.int stage))
                                        (let [args-to-completion (|> function-arity (n/- stage))
                                              args-left (|> apply-arity (n/- args-to-completion))]
-                                         (|>> ($i.label @label)
-                                              ($i.ALOAD +0)
-                                              ($i.INVOKEVIRTUAL class "reset" (reset-method class) #0)
+                                         (|>> (_.label @label)
+                                              (_.ALOAD +0)
+                                              (_.INVOKEVIRTUAL class "reset" (reset-method class) #0)
                                               load-partialsI
                                               (inputsI +1 args-to-completion)
-                                              ($i.INVOKEVIRTUAL class "impl" (implementation-method function-arity) #0)
+                                              (_.INVOKEVIRTUAL class "impl" (implementation-method function-arity) #0)
                                               (applysI (inc args-to-completion) args-left)
-                                              $i.ARETURN))
+                                              _.ARETURN))
 
                                        ## (i/< arity-over-extent (.int stage))
                                        (let [env-size (list.size env)
                                              load-capturedI (|> (case env-size
                                                                   +0 (list)
                                                                   _ (list.n/range +0 (dec env-size)))
-                                                                (list/map (|>> referenceT.captured (load-fieldI class)))
-                                                                $i.fuse)]
-                                         (|>> ($i.label @label)
-                                              ($i.NEW class)
-                                              $i.DUP
+                                                                (list/map (|>> reference.foreign-name (load-fieldI class)))
+                                                                _.fuse)]
+                                         (|>> (_.label @label)
+                                              (_.NEW class)
+                                              _.DUP
                                               load-capturedI
                                               get-amount-of-partialsI
                                               (inc-intI apply-arity)
                                               load-partialsI
                                               (inputsI +1 apply-arity)
                                               (nullsI (|> num-partials (n/- apply-arity) (n/- stage)))
-                                              ($i.INVOKESPECIAL class "<init>" (init-method env function-arity) #0)
-                                              $i.ARETURN))
+                                              (_.INVOKESPECIAL class "<init>" (init-method env function-arity) #0)
+                                              _.ARETURN))
                                        ))))
-                   $i.fuse)]
-    ($d.method #$.Public $.noneM runtimeT.apply-method (runtimeT.apply-signature apply-arity)
-               (|>> get-amount-of-partialsI
-                    ($i.TABLESWITCH 0 (|> num-partials dec .int)
+                   _.fuse)]
+    (def.method #$.Public $.noneM runtime.apply-method (runtime.apply-signature apply-arity)
+                (|>> get-amount-of-partialsI
+                     (_.TABLESWITCH 0 (|> num-partials dec .int)
                                     @default @labels)
-                    casesI
-                    ($i.INVOKESTATIC hostL.runtime-class "apply_fail" ($t.method (list) #.None (list)) #0)
-                    $i.NULL
-                    $i.ARETURN
-                    ))))
+                     casesI
+                     (_.INVOKESTATIC //.runtime-class "apply_fail" (type.method (list) #.None (list)) #0)
+                     _.NULL
+                     _.ARETURN
+                     ))))
 
 (def: #export (with-function @begin class env arity bodyI)
-  (-> $.Label Text (List Variable) ls.Arity $.Inst
-      (Meta [$.Def $.Inst]))
+  (-> Label Text (List Variable) Arity Inst
+      (Operation [Def Inst]))
   (let [env-size (list.size env)
-        applyD (: $.Def
+        applyD (: Def
                   (if (poly-arg? arity)
-                    (|> (n/min arity runtimeT.num-apply-variants)
+                    (|> (n/min arity runtime.num-apply-variants)
                         (list.n/range +1)
                         (list/map (with-apply class env arity @begin bodyI))
                         (list& (with-implementation arity @begin bodyI))
-                        $d.fuse)
-                    ($d.method #$.Public $.strictM runtimeT.apply-method (runtimeT.apply-signature +1)
-                               (|>> ($i.label @begin)
-                                    bodyI
-                                    $i.ARETURN))))
-        functionD (: $.Def
-                     (|>> ($d.int-field #$.Public ($_ $.++F $.staticF $.finalF) arity-field (.int arity))
+                        def.fuse)
+                    (def.method #$.Public $.strictM runtime.apply-method (runtime.apply-signature +1)
+                                (|>> (_.label @begin)
+                                     bodyI
+                                     _.ARETURN))))
+        functionD (: Def
+                     (|>> (def.int-field #$.Public ($_ $.++F $.staticF $.finalF) arity-field (.int arity))
                           (with-captured env)
                           (with-partial arity)
                           (with-init class env arity)
                           (with-reset class arity env)
                           applyD
                           ))]
-    (do macro.Monad<Meta>
+    (do compiler.Monad<Operation>
       [instanceI (instance class arity env)]
       (wrap [functionD instanceI]))))
 
-(def: #export (translate-function translate env arity bodyS)
-  (-> (-> ls.Synthesis (Meta $.Inst))
-      (List Variable) ls.Arity ls.Synthesis
-      (Meta $.Inst))
-  (do macro.Monad<Meta>
-    [@begin $i.make-label
-     [function-class bodyI] (hostL.with-sub-context
-                              (hostL.with-anchor [@begin +1]
+(def: #export (function translate [env arity bodyS])
+  (-> Compiler Abstraction (Operation Inst))
+  (do compiler.Monad<Operation>
+    [@begin _.make-label
+     [function-class bodyI] (translation.with-context
+                              (translation.with-anchor [@begin +1]
                                 (translate bodyS)))
-     this-module macro.current-module-name
-     #let [function-class (format (text.replace-all "/" "." this-module) "." function-class)]
      [functionD instanceI] (with-function @begin function-class env arity bodyI)
-     _ (commonT.store-class function-class
-                            ($d.class #$.V1_6 #$.Public $.finalC
+     _ (translation.save! ["" function-class]
+                          [function-class
+                           (def.class #$.V1_6 #$.Public $.finalC
                                       function-class (list)
-                                      ($.simple-class hostL.function-class) (list)
-                                      functionD))]
+                                      ($.simple-class //.function-class) (list)
+                                      functionD)])]
     (wrap instanceI)))
 
 (def: (segment size elems)
@@ -308,18 +311,16 @@
       (list pre)
       (list& pre (segment size post)))))
 
-(def: #export (translate-call translate functionS argsS)
-  (-> (-> ls.Synthesis (Meta $.Inst))
-      ls.Synthesis (List ls.Synthesis)
-      (Meta $.Inst))
-  (do macro.Monad<Meta>
+(def: #export (call translate [functionS argsS])
+  (-> Compiler Apply (Operation Inst))
+  (do compiler.Monad<Operation>
     [functionI (translate functionS)
      argsI (monad.map @ translate argsS)
-     #let [applyI (|> (segment runtimeT.num-apply-variants argsI)
-                      (list/map (function (_ chunkI+)
-                                  (|>> ($i.CHECKCAST hostL.function-class)
-                                       ($i.fuse chunkI+)
-                                       ($i.INVOKEVIRTUAL hostL.function-class runtimeT.apply-method (runtimeT.apply-signature (list.size chunkI+)) #0))))
-                      $i.fuse)]]
+     #let [applyI (|> (segment runtime.num-apply-variants argsI)
+                      (list/map (.function (_ chunkI+)
+                                  (|>> (_.CHECKCAST //.function-class)
+                                       (_.fuse chunkI+)
+                                       (_.INVOKEVIRTUAL //.function-class runtime.apply-method (runtime.apply-signature (list.size chunkI+)) #0))))
+                      _.fuse)]]
     (wrap (|>> functionI
                applyI))))
