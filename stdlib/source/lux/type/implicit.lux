@@ -1,23 +1,24 @@
 (.module:
   [lux #*
-   [control [monad (#+ do Monad)]
+   [control
+    ["." monad (#+ do Monad)]
     ["eq" equivalence]
     ["p" parser]]
    [data
-    [text ("text/" Equivalence<Text>)
+    ["." product]
+    ["." maybe]
+    ["." number]
+    ["." text ("text/" Equivalence<Text>)
      format]
-    [number]
-    [collection [list ("list/" Monad<List> Fold<List>)]
-     ["dict" dictionary (#+ Dictionary)]]
-    [product]
-    [maybe]]
-   [macro (#+ Monad<Meta>)
-    [code]
+    [collection
+     ["." list ("list/" Monad<List> Fold<List>)]
+     ["dict" dictionary (#+ Dictionary)]]]
+   ["." macro (#+ Monad<Meta>)
+    ["." code]
     ["s" syntax (#+ syntax: Syntax)]]
    [language
-    [type]
-    [type ["tc" check (#+ Check)]]]
-   ])
+    ["." type
+     ["." check (#+ Check)]]]])
 
 (def: (find-type-var id env)
   (-> Nat Type-Context (Meta Type))
@@ -59,20 +60,20 @@
     (#.Apply arg func)
     (case (type.apply (list arg) func)
       #.None
-      (tc.fail (format "Cannot apply type " (%type func) " to type " (%type arg)))
+      (check.fail (format "Cannot apply type " (%type func) " to type " (%type arg)))
 
       (#.Some sig-type')
       (find-member-type idx sig-type'))
 
     (#.Product left right)
     (if (n/= +0 idx)
-      (:: tc.Monad<Check> wrap left)
+      (:: check.Monad<Check> wrap left)
       (find-member-type (dec idx) right))
 
     _
     (if (n/= +0 idx)
-      (:: tc.Monad<Check> wrap sig-type)
-      (tc.fail (format "Cannot find member type " (%n idx) " for " (%type sig-type))))))
+      (:: check.Monad<Check> wrap sig-type)
+      (check.fail (format "Cannot find member type " (%n idx) " for " (%type sig-type))))))
 
 (def: (find-member-name member)
   (-> Ident (Meta Ident))
@@ -156,41 +157,41 @@
     (apply-function-type func' arg)
 
     (#.UnivQ _)
-    (do tc.Monad<Check>
-      [[id var] tc.var]
+    (do check.Monad<Check>
+      [[id var] check.var]
       (apply-function-type (maybe.assume (type.apply (list var) func))
                            arg))
 
     (#.Function input output)
-    (do tc.Monad<Check>
-      [_ (tc.check input arg)]
+    (do check.Monad<Check>
+      [_ (check.check input arg)]
       (wrap output))
 
     _
-    (tc.fail (format "Invalid function type: " (%type func)))))
+    (check.fail (format "Invalid function type: " (%type func)))))
 
 (def: (concrete-type type)
   (-> Type (Check [(List Nat) Type]))
   (case type
     (#.UnivQ _)
-    (do tc.Monad<Check>
-      [[id var] tc.var
+    (do check.Monad<Check>
+      [[id var] check.var
        [ids final-output] (concrete-type (maybe.assume (type.apply (list var) type)))]
       (wrap [(#.Cons id ids)
              final-output]))
     
     _
-    (:: tc.Monad<Check> wrap [(list) type])))
+    (:: check.Monad<Check> wrap [(list) type])))
 
 (def: (check-apply member-type input-types output-type)
   (-> Type (List Type) Type (Check []))
-  (do tc.Monad<Check>
-    [member-type' (monad.fold tc.Monad<Check>
+  (do check.Monad<Check>
+    [member-type' (monad.fold check.Monad<Check>
                               (function (_ input member)
                                 (apply-function-type member input))
                               member-type
                               input-types)]
-    (tc.check output-type member-type')))
+    (check.check output-type member-type')))
 
 (type: #rec Instance
   {#constructor Ident
@@ -204,14 +205,14 @@
     [compiler macro.get-compiler]
     (case (|> alts
               (list/map (function (_ [alt-name alt-type])
-                          (case (tc.run context
-                                        (do tc.Monad<Check>
-                                          [[tvars alt-type] (concrete-type alt-type)
-                                           #let [[deps alt-type] (type.flatten-function alt-type)]
-                                           _ (tc.check dep alt-type)
-                                           context' tc.context
-                                           =deps (monad.map @ (provision compiler context') deps)]
-                                          (wrap =deps)))
+                          (case (check.run context
+                                           (do check.Monad<Check>
+                                             [[tvars alt-type] (concrete-type alt-type)
+                                              #let [[deps alt-type] (type.flatten-function alt-type)]
+                                              _ (check.check dep alt-type)
+                                              context' check.context
+                                              =deps (monad.map @ (provision compiler context') deps)]
+                                             (wrap =deps)))
                             (#.Left error)
                             (list)
 
@@ -232,18 +233,18 @@
                        (do Monad<Meta> [alts local-structs] (test-provision provision context dep alts))
                        (do Monad<Meta> [alts import-structs] (test-provision provision context dep alts))))
     (#.Left error)
-    (tc.fail error)
+    (check.fail error)
 
     (#.Right candidates)
     (case candidates
       #.Nil
-      (tc.fail (format "No candidates for provisioning: " (%type dep)))
+      (check.fail (format "No candidates for provisioning: " (%type dep)))
 
       (#.Cons winner #.Nil)
-      (:: tc.Monad<Check> wrap winner)
+      (:: check.Monad<Check> wrap winner)
 
       _
-      (tc.fail (format "Too many candidates for provisioning: " (%type dep) " --- " (%list (|>> product.left %ident) candidates))))
+      (check.fail (format "Too many candidates for provisioning: " (%type dep) " --- " (%list (|>> product.left %ident) candidates))))
     ))
 
 (def: (test-alternatives sig-type member-idx input-types output-type alts)
@@ -253,16 +254,16 @@
      context macro.type-context]
     (case (|> alts
               (list/map (function (_ [alt-name alt-type])
-                          (case (tc.run context
-                                        (do tc.Monad<Check>
-                                          [[tvars alt-type] (concrete-type alt-type)
-                                           #let [[deps alt-type] (type.flatten-function alt-type)]
-                                           _ (tc.check alt-type sig-type)
-                                           member-type (find-member-type member-idx alt-type)
-                                           _ (check-apply member-type input-types output-type)
-                                           context' tc.context
-                                           =deps (monad.map @ (provision compiler context') deps)]
-                                          (wrap =deps)))
+                          (case (check.run context
+                                           (do check.Monad<Check>
+                                             [[tvars alt-type] (concrete-type alt-type)
+                                              #let [[deps alt-type] (type.flatten-function alt-type)]
+                                              _ (check.check alt-type sig-type)
+                                              member-type (find-member-type member-idx alt-type)
+                                              _ (check-apply member-type input-types output-type)
+                                              context' check.context
+                                              =deps (monad.map @ (provision compiler context') deps)]
+                                             (wrap =deps)))
                             (#.Left error)
                             (list)
 

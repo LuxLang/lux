@@ -1,23 +1,26 @@
 (.module:
   [lux (#- type)
    [control
-    [monad (#+ do Monad)]
-    [enum]
+    ["." monad (#+ do Monad)]
+    ["." enum]
     ["p" parser]]
-   [io (#+ IO Monad<IO> io)]
+   ["." io]
    function
    [data
-    [collection [list ("list/" Monad<List> Fold<List> Monoid<List>)]]
+    ["." maybe]
+    ["." product]
+    ["." error (#+ Error)]
+    [bit ("bit/" Codec<Text,Bit>)]
     number
-    [maybe]
-    [product]
-    [text ("text/" Equivalence<Text> Monoid<Text>)
+    ["." text ("text/" Equivalence<Text> Monoid<Text>)
      format]
-    [bit ("bit/" Codec<Text,Bit>)]]
-   [macro (#+ with-gensyms Functor<Meta> Monad<Meta>)
-    [code]
+    [collection
+     ["." list ("list/" Monad<List> Fold<List> Monoid<List>)]]]
+   ["." macro (#+ with-gensyms Functor<Meta> Monad<Meta>)
+    ["." code]
     ["s" syntax (#+ syntax: Syntax)]]
-   [language [type ("type/" Equivalence<Type>)]]
+   [language
+    ["." type ("type/" Equivalence<Type>)]]
    ])
 
 (do-template [<name> <op> <from> <to>]
@@ -1583,8 +1586,8 @@
        _
        [return-type return-term]))]
 
-  [decorate-return-try #import-member-try? (` (Either Text (~ return-type))) (` (try (~ return-term)))]
-  [decorate-return-io  #import-member-io?  (` (IO (~ return-type)))          (` (io (~ return-term)))]
+  [decorate-return-try #import-member-try? (` ((~! error.Error) (~ return-type))) (` (try (~ return-term)))]
+  [decorate-return-io  #import-member-io?  (` ((~! io.IO) (~ return-type)))  (` ((~! io.io) (~ return-term)))]
   )
 
 (def: (free-type-param? [name bounds])
@@ -1785,7 +1788,7 @@
                                               getter-name
                                               (` ((~ getter-name) (~ g!obj))))
                                 getter-type (if import-field-setter?
-                                              (` (IO (~ typeC)))
+                                              (` ((~! io.IO) (~ typeC)))
                                               typeC)
                                 getter-type (if import-field-static?
                                               getter-type
@@ -1800,7 +1803,7 @@
                                               (` (??? (~ getter-body)))
                                               getter-body)
                                 getter-body (if import-field-setter?
-                                              (` (io (~ getter-body)))
+                                              (` ((~! io.io) (~ getter-body)))
                                               getter-body)]
                             (wrap (` (def: (~ getter-call)
                                        (~ getter-type)
@@ -1811,8 +1814,8 @@
                                                 (` ((~ setter-name) (~ g!value)))
                                                 (` ((~ setter-name) (~ g!value) (~ g!obj))))
                                   setter-type (if import-field-static?
-                                                (` (All [(~+ tvar-asts)] (-> (~ typeC) (IO Any))))
-                                                (` (All [(~+ tvar-asts)] (-> (~ typeC) (~ classC) (IO Any)))))
+                                                (` (All [(~+ tvar-asts)] (-> (~ typeC) ((~! io.IO) Any))))
+                                                (` (All [(~+ tvar-asts)] (-> (~ typeC) (~ classC) ((~! io.IO) Any)))))
                                   setter-value (with-mode-field-set import-field-mode import-field-type g!value)
                                   setter-value (if import-field-maybe?
                                                  (` (!!! (~ setter-value)))
@@ -1822,7 +1825,7 @@
                               (wrap (: (List Code)
                                        (list (` (def: (~ setter-call)
                                                   (~ setter-type)
-                                                  (io ((~ (code.text setter-command)) (~ setter-value))))))))))
+                                                  ((~! io.io) ((~ (code.text setter-command)) (~ setter-value))))))))))
                           (wrap (list)))]
         (wrap (list& getter-interop setter-interop)))
       )))
@@ -1842,7 +1845,7 @@
   ("jvm invokevirtual:java.lang.Class:isInterface:" class))
 
 (def: (load-class class-name)
-  (-> Text (Either Text (primitive "java.lang.Class" [Any])))
+  (-> Text (Error (primitive "java.lang.Class" [Any])))
   (try ("jvm invokestatic:java.lang.Class:forName:java.lang.String" class-name)))
 
 (def: (class-kind [class-name _])
@@ -2033,7 +2036,7 @@
               "Afterwards, closes all resources (assumed to be subclasses of java.io.Closeable), and returns the value resulting from running the body."
               (with-open [my-res1 (res1-constructor ___)
                           my-res2 (res1-constructor ___)]
-                (do Monad<IO>
+                (do io.Monad<IO>
                   [foo (do-something my-res1)
                    bar (do-something-else my-res2)]
                   (do-one-last-thing foo bar))))}
@@ -2044,7 +2047,7 @@
           closes (list/map (function (_ res)
                              (` (try ("jvm invokevirtual:java.io.Closeable:close:" (~ (code.symbol ["" (product.left res)]))))))
                            bindings)]
-      (wrap (list (` (do Monad<IO>
+      (wrap (list (` (do (~! io.Monad<IO>)
                        [(~+ inits)
                         (~ g!output) (~ body)
                         (~' #let) [(~ g!_) (exec (~+ (list.reverse closes)) [])]]
