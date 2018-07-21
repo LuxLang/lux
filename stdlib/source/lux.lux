@@ -4158,6 +4158,10 @@
     #.None
     template))
 
+(def: de-alias
+  (-> Text Text Text)
+  (replace-all "."))
+
 (def: (count-ups ups input)
   (-> Nat Text Nat)
   (case ("lux text index" input "/" ups)
@@ -4245,7 +4249,7 @@
                                    #let [[openings extra] openings+extra]
                                    sub-imports (parse-imports #1 import-name extra)]
                                   (wrap (list& {#import-name import-name
-                                                #import-alias (#Some (replace-all "." m-name alias))
+                                                #import-alias (#Some (de-alias m-name alias))
                                                 #import-refer {#refer-defs referral
                                                                #refer-open openings}}
                                                sub-imports)))
@@ -4487,22 +4491,17 @@
 
 (macro: #export (^open tokens)
   {#.doc "## Same as the \"open\" macro, but meant to be used as a pattern-matching macro for generating local bindings.
-          ## Can optionally take a \"prefix\" text for the generated local bindings.
-          (def: #export (range (^open) from to)
+          ## Takes an \"alias\" text for the generated local bindings.
+          (def: #export (range (^open \".\") from to)
             (All [a] (-> (Enum a) a a (List a)))
             (range' <= succ from to))"}
   (case tokens
-    (^ (list& [_ (#Form (list))] body branches))
+    (^ (list& [_ (#Form (list [_ (#Text alias)]))] body branches))
     (do Monad<Meta>
       [g!temp (gensym "temp")]
-      (wrap (list& g!temp (` (..^open (~ g!temp) "" (~ body))) branches)))
+      (wrap (list& g!temp (` (..^open (~ g!temp) (~ (text$ alias)) (~ body))) branches)))
 
-    (^ (list& [_ (#Form (list [_ (#Text prefix)]))] body branches))
-    (do Monad<Meta>
-      [g!temp (gensym "temp")]
-      (wrap (list& g!temp (` (..^open (~ g!temp) (~ (text$ prefix)) (~ body))) branches)))
-
-    (^ (list [_ (#Symbol name)] [_ (#Text prefix)] body))
+    (^ (list [_ (#Symbol name)] [_ (#Text alias)] body))
     (do Monad<Meta>
       [init-type (find-type name)
        struct-evidence (resolve-type-tags init-type)]
@@ -4516,7 +4515,7 @@
                          (function (recur source [tags members] target)
                            (let [pattern (record$ (list/map (function (_ [t-module t-name])
                                                               [(tag$ [t-module t-name])
-                                                               (symbol$ ["" (text/compose prefix t-name)])])
+                                                               (symbol$ ["" (de-alias t-name alias)])])
                                                             tags))]
                              (do Monad<Meta>
                                [enhanced-target (monad/fold Monad<Meta>
@@ -4525,7 +4524,7 @@
                                                                 [m-structure (resolve-type-tags m-type)]
                                                                 (case m-structure
                                                                   (#Some m-tags&members)
-                                                                  (recur ["" (text/compose prefix m-name)]
+                                                                  (recur ["" (de-alias m-name alias)]
                                                                          m-tags&members
                                                                          enhanced-target)
 
@@ -4622,7 +4621,7 @@
     _
     (fail "Wrong syntax for get@")))
 
-(def: (open-field prefix [module name] source type)
+(def: (open-field alias [module name] source type)
   (-> Text Ident Code Type (Meta (List Code)))
   (do Monad<Meta>
     [output (resolve-type-tags type)
@@ -4632,67 +4631,53 @@
       (do Monad<Meta>
         [decls' (monad/map Monad<Meta>
                            (: (-> [Ident Type] (Meta (List Code)))
-                              (function (_ [sname stype]) (open-field prefix sname source+ stype)))
+                              (function (_ [sname stype]) (open-field alias sname source+ stype)))
                            (zip2 tags members))]
         (return (list/join decls')))
 
       _
-      (return (list (` ("lux def" (~ (symbol$ ["" (text/compose prefix name)])) (~ source+)
+      (return (list (` ("lux def" (~ (symbol$ ["" (de-alias name alias)]))
+                        (~ source+)
                         [(~ cursor-code) (#.Record #Nil)])))))))
 
 (macro: #export (open: tokens)
   {#.doc "## Opens a structure and generates a definition for each of its members (including nested members).
           ## For example:
-          (open: \"i:\" Number<Int>)
+          (open: \"i:.\" Number<Int>)
           ## Will generate:
           (def: i:+ (:: Number<Int> +))
           (def: i:- (:: Number<Int> -))
           (def: i:* (:: Number<Int> *))
-          ...
-
-          ## However, the prefix is optional.
-          ## For example:
-          (open: Number<Int>)
-          ## Will generate:
-          (def: + (:: Number<Int> +))
-          (def: - (:: Number<Int> -))
-          (def: * (:: Number<Int> *))
           ..."}
-  (let [[prefix tokens'] (case tokens
-                           (^ (list& [_ (#Text prefix)] tokens'))
-                           [prefix tokens']
+  (case tokens
+    (^ (list [_ (#Text alias)] struct))
+    (case struct
+      [_ (#Symbol struct-name)]
+      (do Monad<Meta>
+        [struct-type (find-type struct-name)
+         output (resolve-type-tags struct-type)
+         #let [source (symbol$ struct-name)]]
+        (case output
+          (#Some [tags members])
+          (do Monad<Meta>
+            [decls' (monad/map Monad<Meta> (: (-> [Ident Type] (Meta (List Code)))
+                                              (function (_ [sname stype])
+                                                (open-field alias sname source stype)))
+                               (zip2 tags members))]
+            (return (list/join decls')))
 
-                           tokens'
-                           ["" tokens'])]
-    (case tokens'
-      (^ (list struct))
-      (case struct
-        [_ (#Symbol struct-name)]
-        (do Monad<Meta>
-          [struct-type (find-type struct-name)
-           output (resolve-type-tags struct-type)
-           #let [source (symbol$ struct-name)]]
-          (case output
-            (#Some [tags members])
-            (do Monad<Meta>
-              [decls' (monad/map Monad<Meta> (: (-> [Ident Type] (Meta (List Code)))
-                                                (function (_ [sname stype])
-                                                  (open-field prefix sname source stype)))
-                                 (zip2 tags members))]
-              (return (list/join decls')))
-
-            _
-            (fail (text/compose "Can only \"open:\" structs: " (type/show struct-type)))))
-
-        _
-        (do Monad<Meta>
-          [g!struct (gensym "struct")]
-          (return (list (` ("lux def" (~ g!struct) (~ struct)
-                            [(~ cursor-code) (#.Record #Nil)]))
-                        (` (..open: (~ (text$ prefix)) (~ g!struct)))))))
+          _
+          (fail (text/compose "Can only \"open:\" structs: " (type/show struct-type)))))
 
       _
-      (fail "Wrong syntax for open:"))))
+      (do Monad<Meta>
+        [g!struct (gensym "struct")]
+        (return (list (` ("lux def" (~ g!struct) (~ struct)
+                          [(~ cursor-code) (#.Record #Nil)]))
+                      (` (..open: (~ (text$ alias)) (~ g!struct)))))))
+
+    _
+    (fail "Wrong syntax for open:")))
 
 (macro: #export (|>> tokens)
   {#.doc "## Similar to the piping macro, but rather than taking an initial object to work on, creates a function for taking it.
@@ -4797,9 +4782,9 @@
                                                      #Nil))]))))
                           defs')
            openings (join-map (: (-> Openings (List Code))
-                                 (function (_ [prefix structs])
+                                 (function (_ [alias structs])
                                    (list/map (function (_ name)
-                                               (` (open: (~ (text$ prefix)) (~ (symbol$ [module-name name])))))
+                                               (` (open: (~ (text$ alias)) (~ (symbol$ [module-name name])))))
                                              structs)))
                               r-opens)]]
     (wrap (list/compose defs openings))
@@ -4830,8 +4815,8 @@
                            
                            #Nothing
                            (list)))
-        openings (list/map (function (_ [prefix structs])
-                             (form$ (list& (text$ prefix) (list/map local-symbol$ structs))))
+        openings (list/map (function (_ [alias structs])
+                             (form$ (list& (text$ alias) (list/map local-symbol$ structs))))
                            r-opens)]
     (` (..refer (~ (text$ module-name))
                 (~+ localizations)
@@ -4896,10 +4881,10 @@
           (:: Codec<Text,Int> encode 123)"}
   (case tokens
     (^ (list struct [_ (#Symbol member)]))
-    (return (list (` (let [(^open) (~ struct)] (~ (symbol$ member))))))
+    (return (list (` (let [(^open ".") (~ struct)] (~ (symbol$ member))))))
 
     (^ (list& struct [_ (#Symbol member)] args))
-    (return (list (` ((let [(^open) (~ struct)] (~ (symbol$ member))) (~+ args)))))
+    (return (list (` ((let [(^open ".") (~ struct)] (~ (symbol$ member))) (~+ args)))))
     
     _
     (fail "Wrong syntax for ::")))
