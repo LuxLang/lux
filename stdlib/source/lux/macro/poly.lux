@@ -10,10 +10,11 @@
     ["." product]
     ["." bit]
     ["." maybe]
-    [ident ("ident/." Equivalence<Ident> Codec<Text,Ident>)]
+    [ident ("ident/." Codec<Text,Ident>)]
     ["e" error]
     ["." number ("nat/." Codec<Text,Nat>)]
-    ["." text ("text/." Monoid<Text>)]
+    ["." text ("text/." Monoid<Text>)
+     format]
     [collection
      ["." list ("list/." Fold<List> Monad<List> Monoid<List>)]
      ["dict" dictionary (#+ Dictionary)]]]
@@ -27,6 +28,36 @@
       ["csw" writer]]]]
    ["." type ("type/." Equivalence<Type>)
     ["." check]]])
+
+(do-template [<name>]
+  [(exception: #export (<name> {type Type})
+     (%type type))]
+
+  [not-existential]
+  [not-recursive]
+  [not-named]
+  [not-parameter]
+  [unknown-parameter]
+  [not-function]
+  [not-application]
+  [not-polymorphic]
+  [not-variant]
+  [not-tuple]
+  )
+
+(do-template [<name>]
+  [(exception: #export (<name> {expected Type} {actual Type})
+     (ex.report ["Expected" (%type expected)]
+                ["Actual" (%type actual)]))]
+
+  [types-do-not-match]
+  [wrong-parameter]
+  )
+
+(exception: #export (unconsumed {remaining (List Type)})
+  (ex.report ["Types" (|> remaining
+                          (list/map (|>> %type (format "\n* ")))
+                          (text.join-with ""))]))
 
 (type: #export Env (Dictionary Nat [Type Code]))
 
@@ -47,10 +78,7 @@
       (#e.Success output)
 
       _
-      (#e.Error (|> remaining
-                    (list/map type.to-text)
-                    (text.join-with ", ")
-                    (text/compose "Unconsumed types: "))))))
+      (ex.throw unconsumed remaining))))
 
 (def: #export (run type poly)
   (All [a] (-> Type (Poly a) (e.Error a)))
@@ -119,7 +147,7 @@
         (#e.Success [[_ inputs'] output])
         (#e.Success [[env inputs'] [g!var output]])))))
 
-(do-template [<name> <flattener> <tag>]
+(do-template [<name> <flattener> <tag> <exception>]
   [(def: #export (<name> poly)
      (All [a] (-> (Poly a) (Poly a)))
      (do p.Monad<Parser>
@@ -127,10 +155,10 @@
        (let [members (<flattener> (type.un-name headT))]
          (if (n/> +1 (list.size members))
            (local members poly)
-           (p.fail ($_ text/compose "Not a " (ident/encode (ident-for <tag>)) " type: " (type.to-text headT)))))))]
+           (p.fail (ex.construct <exception> headT))))))]
 
-  [variant type.flatten-variant #.Sum]
-  [tuple   type.flatten-tuple   #.Product]
+  [variant type.flatten-variant #.Sum     not-variant]
+  [tuple   type.flatten-tuple   #.Product not-tuple]
   )
 
 (def: polymorphic'
@@ -139,7 +167,7 @@
     [headT any
      #let [[num-arg bodyT] (type.flatten-univ-q (type.un-name headT))]]
     (if (n/= +0 num-arg)
-      (p.fail ($_ text/compose "Non-polymorphic type: " (type.to-text headT)))
+      (p.fail (ex.construct not-polymorphic headT))
       (wrap [num-arg bodyT]))))
 
 (def: #export (polymorphic poly)
@@ -187,7 +215,7 @@
     (if (n/> +0 (list.size inputsT))
       (p.seq (local inputsT in-poly)
              (local (list outputT) out-poly))
-      (p.fail ($_ text/compose "Non-function type: " (type.to-text headT))))))
+      (p.fail (ex.construct not-function headT)))))
 
 (def: #export (apply poly)
   (All [a] (-> (Poly a) (Poly a)))
@@ -195,7 +223,7 @@
     [headT any
      #let [[funcT paramsT] (type.flatten-application (type.un-name headT))]]
     (if (n/= +0 (list.size paramsT))
-      (p.fail ($_ text/compose "Non-application type: " (type.to-text headT)))
+      (p.fail (ex.construct not-application headT))
       (local (#.Cons funcT paramsT) poly))))
 
 (do-template [<name> <test>]
@@ -205,13 +233,11 @@
        [actual any]
        (if (<test> expected actual)
          (wrap [])
-         (p.fail ($_ text/compose
-                     "Types do not match." "\n"
-                     "Expected: " (type.to-text expected) "\n"
-                     "  Actual: " (type.to-text actual))))))]
+         (p.fail (ex.construct types-do-not-match [expected actual])))))]
 
   [exactly type/=]
-  [similar check.checks?]
+  [sub     check.checks?]
+  [super   (function.flip check.checks?)]
   )
 
 (def: (adjusted-idx env idx)
@@ -233,12 +259,12 @@
         (wrap poly-code)
 
         #.None
-        (p.fail ($_ text/compose "Unknown parameter type: " (type.to-text headT))))
+        (p.fail (ex.construct unknown-parameter headT)))
 
       _
-      (p.fail ($_ text/compose "Not a parameter type: " (type.to-text headT))))))
+      (p.fail (ex.construct not-parameter headT)))))
 
-(def: #export (var id)
+(def: #export (parameter! id)
   (-> Nat (Poly Any))
   (do p.Monad<Parser>
     [env ..env
@@ -247,15 +273,10 @@
       (#.Parameter idx)
       (if (n/= id (adjusted-idx env idx))
         (wrap [])
-        (p.fail ($_ text/compose "Wrong parameter type.\n"
-                    "Expected: " (nat/encode id) "\n"
-                    "  Actual: " (nat/encode idx))))
+        (p.fail (ex.construct wrong-parameter [(#.Parameter id) headT])))
 
       _
-      (p.fail ($_ text/compose "Not a parameter type: " (type.to-text headT))))))
-
-(exception: #export (not-existential-type {type Type})
-  (type.to-text type))
+      (p.fail (ex.construct not-parameter headT)))))
 
 (def: #export existential
   (Poly Nat)
@@ -266,7 +287,7 @@
       (wrap ex-id)
 
       _
-      (p.fail (ex.construct not-existential-type headT)))))
+      (p.fail (ex.construct not-existential headT)))))
 
 (def: #export named
   (Poly [Ident Type])
@@ -277,7 +298,7 @@
       (wrap [name anonymousT])
 
       _
-      (p.fail ($_ text/compose "Not a named type: " (type.to-text inputT))))))
+      (p.fail (ex.construct not-named inputT)))))
 
 (def: #export (recursive poly)
   (All [a] (-> (Poly a) (Poly [Code a])))
@@ -293,7 +314,7 @@
         (wrap [recT output]))
 
       _
-      (p.fail ($_ text/compose "Not a recursive type: " (type.to-text headT))))))
+      (p.fail (ex.construct not-recursive headT)))))
 
 (def: #export recursive-self
   (Poly Code)
@@ -307,17 +328,17 @@
       (wrap self-call)
 
       _
-      (p.fail ($_ text/compose "Not a recursive type: " (type.to-text headT))))))
+      (p.fail (ex.construct not-recursive headT)))))
 
 (def: #export recursive-call
   (Poly Code)
   (do p.Monad<Parser>
     [env ..env
      [funcT argsT] (apply (p.seq any (p.many any)))
-     _ (local (list funcT) (var +0))
+     _ (local (list funcT) (..parameter! +0))
      allC (let [allT (list& funcT argsT)]
             (|> allT
-                (monad.map @ (function.constant parameter))
+                (monad.map @ (function.constant ..parameter))
                 (local allT)))]
     (wrap (` ((~+ allC))))))
 
@@ -327,7 +348,7 @@
     [current any
      #let [_ (log! ($_ text/compose
                        "{" (ident/encode (ident-for ..log)) "} "
-                       (type.to-text current)))]]
+                       (%type current)))]]
     (p.fail "LOGGING")))
 
 ## [Syntax]
