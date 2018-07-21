@@ -1,0 +1,102 @@
+(.module:
+  [lux (#- function)
+   [control
+    monad
+    ["ex" exception (#+ exception:)]]
+   [data
+    ["." maybe]
+    ["." text
+     format]
+    [collection
+     ["." list ("list/." Fold<List> Monoid<List> Monad<List>)]]]
+   ["." type
+    ["." check]]
+   ["." macro]]
+  ["." // (#+ Analysis Operation Phase)
+   ["." scope]
+   ["//." type]
+   ["." inference]
+   ["/." //
+    ["." extension]]])
+
+(exception: #export (cannot-analyse {expected Type} {function Text} {argument Text} {body Code})
+  (ex.report ["Type" (%type expected)]
+             ["Function" function]
+             ["Argument" argument]
+             ["Body" (%code body)]))
+
+(exception: #export (cannot-apply {function Type} {arguments (List Code)})
+  (ex.report [" Function" (%type function)]
+             ["Arguments" (|> arguments
+                              list.enumerate
+                              (list/map (.function (_ [idx argC])
+                                          (format "\n  " (%n idx) " " (%code argC))))
+                              (text.join-with ""))]))
+
+(def: #export (function analyse function-name arg-name body)
+  (-> Phase Text Text Code (Operation Analysis))
+  (do ///.Monad<Operation>
+    [functionT (extension.lift macro.expected-type)]
+    (loop [expectedT functionT]
+      (///.with-stack cannot-analyse [expectedT function-name arg-name body]
+        (case expectedT
+          (#.Named name unnamedT)
+          (recur unnamedT)
+
+          (#.Apply argT funT)
+          (case (type.apply (list argT) funT)
+            (#.Some value)
+            (recur value)
+
+            #.None
+            (///.fail (ex.construct cannot-analyse [expectedT function-name arg-name body])))
+
+          (^template [<tag> <instancer>]
+            (<tag> _)
+            (do @
+              [[_ instanceT] (//type.with-env <instancer>)]
+              (recur (maybe.assume (type.apply (list instanceT) expectedT)))))
+          ([#.UnivQ check.existential]
+           [#.ExQ check.var])
+          
+          (#.Var id)
+          (do @
+            [?expectedT' (//type.with-env
+                           (check.read id))]
+            (case ?expectedT'
+              (#.Some expectedT')
+              (recur expectedT')
+
+              ## Inference
+              _
+              (do @
+                [[input-id inputT] (//type.with-env check.var)
+                 [output-id outputT] (//type.with-env check.var)
+                 #let [functionT (#.Function inputT outputT)]
+                 functionA (recur functionT)
+                 _ (//type.with-env
+                     (check.check expectedT functionT))]
+                (wrap functionA))
+              ))
+
+          (#.Function inputT outputT)
+          (<| (:: @ map (.function (_ [scope bodyA])
+                          (#//.Function (scope.environment scope) bodyA)))
+              //.with-scope
+              ## Functions have access not only to their argument, but
+              ## also to themselves, through a local variable.
+              (scope.with-local [function-name expectedT])
+              (scope.with-local [arg-name inputT])
+              (//type.with-type outputT)
+              (analyse body))
+          
+          _
+          (///.fail "")
+          )))))
+
+(def: #export (apply analyse functionT functionA argsC+)
+  (-> Phase Type Analysis (List Code) (Operation Analysis))
+  (<| (///.with-stack cannot-apply [functionT argsC+])
+      (do ///.Monad<Operation>
+        [[applyT argsA+] (inference.general analyse functionT argsC+)])
+      (wrap (//.apply [functionA argsA+]))))

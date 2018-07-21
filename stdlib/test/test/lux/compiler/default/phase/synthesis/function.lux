@@ -1,0 +1,175 @@
+(.module:
+  [lux #*
+   [control
+    [monad (#+ do)]
+    pipe]
+   [data
+    ["." product]
+    ["." maybe]
+    ["." error]
+    ["." number]
+    [text
+     format]
+    [collection
+     ["." list ("list/." Functor<List> Fold<List>)]
+     ["dict" dictionary (#+ Dictionary)]
+     ["." set]]]
+   [compiler
+    [default
+     ["." reference (#+ Variable) ("variable/." Equivalence<Variable>)]
+     ["." phase
+      ["." analysis (#+ Arity Analysis)]
+      ["//" synthesis (#+ Synthesis)
+       ["." expression]]
+      [extension
+       ["." bundle]]]]]
+   [math
+    ["r" random]]
+   test]
+  ["." //primitive])
+
+(def: constant-function
+  (r.Random [Arity Analysis Analysis])
+  (r.rec
+   (function (_ constant-function)
+     (do r.Monad<Random>
+       [function? r.bit]
+       (if function?
+         (do @
+           [[arity bodyA predictionA] constant-function]
+           (wrap [(inc arity)
+                  (#analysis.Function (list) bodyA)
+                  predictionA]))
+         (do @
+           [predictionA //primitive.primitive]
+           (wrap [+0 predictionA predictionA])))))))
+
+(def: (pick scope-size)
+  (-> Nat (r.Random Nat))
+  (|> r.nat (:: r.Monad<Random> map (n/% scope-size))))
+
+(def: function-with-environment
+  (r.Random [Arity Analysis Variable])
+  (do r.Monad<Random>
+    [num-locals (|> r.nat (:: @ map (|>> (n/% +100) (n/max +10))))
+     #let [indices (list.n/range +0 (dec num-locals))
+           local-env (list/map (|>> #reference.Local) indices)
+           foreign-env (list/map (|>> #reference.Foreign) indices)]
+     [arity bodyA predictionA] (: (r.Random [Arity Analysis Variable])
+                                  (loop [arity +1
+                                         current-env foreign-env]
+                                    (let [current-env/size (list.size current-env)
+                                          resolver (list/fold (function (_ [idx var] resolver)
+                                                                (dict.put idx var resolver))
+                                                              (: (Dictionary Nat Variable)
+                                                                 (dict.new number.Hash<Nat>))
+                                                              (list.enumerate current-env))]
+                                      (do @
+                                        [nest? r.bit]
+                                        (if nest?
+                                          (do @
+                                            [num-picks (:: @ map (n/max +1) (pick (inc current-env/size)))
+                                             picks (|> (r.set number.Hash<Nat> num-picks (pick current-env/size))
+                                                       (:: @ map set.to-list))
+                                             [arity bodyA predictionA] (recur (inc arity)
+                                                                              (list/map (function (_ pick)
+                                                                                          (maybe.assume (list.nth pick current-env)))
+                                                                                        picks))
+                                             #let [picked-env (list/map (|>> #reference.Foreign) picks)]]
+                                            (wrap [arity
+                                                   (#analysis.Function picked-env bodyA)
+                                                   predictionA]))
+                                          (do @
+                                            [chosen (pick (list.size current-env))]
+                                            (wrap [arity
+                                                   (#analysis.Reference (reference.foreign chosen))
+                                                   (maybe.assume (dict.get chosen resolver))])))))))]
+    (wrap [arity
+           (#analysis.Function local-env bodyA)
+           predictionA])))
+
+(def: local-function
+  (r.Random [Arity Analysis Variable])
+  (loop [arity +0
+         nest? #1]
+    (if nest?
+      (do r.Monad<Random>
+        [nest?' r.bit
+         [arity' bodyA predictionA] (recur (inc arity) nest?')]
+        (wrap [arity'
+               (#analysis.Function (list) bodyA)
+               predictionA]))
+      (do r.Monad<Random>
+        [chosen (|> r.nat (:: @ map (|>> (n/% +100) (n/max +2))))]
+        (wrap [arity
+               (#analysis.Reference (reference.local chosen))
+               (|> chosen (n/+ (dec arity)) #reference.Local)])))))
+
+(context: "Function definition."
+  (<| (seed +13007429814532219492)
+      ## (times +100)
+      (do @
+        [[arity//constant function//constant prediction//constant] constant-function
+         [arity//environment function//environment prediction//environment] function-with-environment
+         [arity//local function//local prediction//local] local-function]
+        ($_ seq
+            (test "Nested functions will get folded together."
+                  (|> function//constant
+                      expression.synthesize
+                      (phase.run [bundle.empty //.init])
+                      (case> (^ (#error.Success (//.function/abstraction [environment arity output])))
+                             (and (n/= arity//constant arity)
+                                  (//primitive.corresponds? prediction//constant output))
+                             
+                             _
+                             (n/= +0 arity//constant))))
+            (test "Folded functions provide direct access to environment variables."
+                  (|> function//environment
+                      expression.synthesize
+                      (phase.run [bundle.empty //.init])
+                      (case> (^ (#error.Success (//.function/abstraction [environment arity (#//.Reference (reference.variable output))])))
+                             (and (n/= arity//environment arity)
+                                  (variable/= prediction//environment output))
+                             
+                             _
+                             #0)))
+            (test "Folded functions properly offset local variables."
+                  (|> function//local
+                      expression.synthesize
+                      (phase.run [bundle.empty //.init])
+                      (case> (^ (#error.Success (//.function/abstraction [environment arity (#//.Reference (reference.variable output))])))
+                             (and (n/= arity//local arity)
+                                  (variable/= prediction//local output))
+                             
+                             _
+                             #0)))
+            ))))
+
+(context: "Function application."
+  (<| (times +100)
+      (do @
+        [arity (|> r.nat (:: @ map (|>> (n/% +10) (n/max +1))))
+         funcA //primitive.primitive
+         argsA (r.list arity //primitive.primitive)]
+        ($_ seq
+            (test "Can synthesize function application."
+                  (|> (analysis.apply [funcA argsA])
+                      expression.synthesize
+                      (phase.run [bundle.empty //.init])
+                      (case> (^ (#error.Success (//.function/apply [funcS argsS])))
+                             (and (//primitive.corresponds? funcA funcS)
+                                  (list.every? (product.uncurry //primitive.corresponds?)
+                                               (list.zip2 argsA argsS)))
+                             
+                             _
+                             #0)))
+            (test "Function application on no arguments just synthesizes to the function itself."
+                  (|> (analysis.apply [funcA (list)])
+                      expression.synthesize
+                      (phase.run [bundle.empty //.init])
+                      (case> (#error.Success funcS)
+                             (//primitive.corresponds? funcA funcS)
+
+                             _
+                             #0)))
+            ))))

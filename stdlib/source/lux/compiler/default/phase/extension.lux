@@ -1,0 +1,114 @@
+(.module:
+  [lux #*
+   [control
+    [monad (#+ do)]
+    ["ex" exception (#+ exception:)]]
+   [data
+    ["." error (#+ Error)]
+    ["." text]
+    [collection
+     ["dict" dictionary (#+ Dictionary)]]]
+   ["." function]]
+  ["." //])
+
+(type: #export (Extension i)
+  [Text (List i)])
+
+(with-expansions [<Bundle> (as-is (Dictionary Text (Handler s i o)))]
+  (type: #export (Handler s i o)
+    (-> Text
+        (//.Phase [<Bundle> s] i o)
+        (//.Phase [<Bundle> s] (List i) o)))
+
+  (type: #export (Bundle s i o)
+    <Bundle>))
+
+(type: #export (Operation s i o v)
+  (//.Operation [(Bundle s i o) s] v))
+
+(type: #export (Phase s i o)
+  (//.Phase [(Bundle s i o) s] i o))
+
+(do-template [<name>]
+  [(exception: #export (<name> {name Text})
+     (ex.report ["Name" name]))]
+
+  [unknown]
+  [cannot-overwrite]
+  )
+
+(def: #export (install name handler)
+  (All [s i o]
+    (-> Text (Handler s i o) (Operation s i o Any)))
+  (function (_ [bundle state])
+    (if (dict.contains? name bundle)
+      (ex.throw cannot-overwrite name)
+      (#error.Success [[(dict.put name handler bundle) state]
+                       []]))))
+
+(def: #export (apply phase [name parameters])
+  (All [s i o]
+    (-> (Phase s i o) (Extension i) (Operation s i o o)))
+  (function (_ (^@ stateE [bundle state]))
+    (case (dict.get name bundle)
+      #.None
+      (ex.throw unknown name)
+      
+      (#.Some handler)
+      ((handler name phase) parameters stateE))))
+
+(def: #export (localized get set transform)
+  (All [s s' i o v]
+    (-> (-> s s') (-> s' s s) (-> s' s')
+        (-> (Operation s i o v) (Operation s i o v))))
+  (function (_ operation)
+    (function (_ [bundle state])
+      (let [old (get state)]
+        (case (operation [bundle (set (transform old) state)])
+          (#error.Error error)
+          (#error.Error error)
+
+          (#error.Success [[bundle' state'] output])
+          (#error.Success [[bundle' (set old state')] output]))))))
+
+(def: #export (temporary transform)
+  (All [s i o v]
+    (-> (-> s s)
+        (-> (Operation s i o v) (Operation s i o v))))
+  (function (_ operation)
+    (function (_ [bundle state])
+      (case (operation [bundle (transform state)])
+        (#error.Error error)
+        (#error.Error error)
+
+        (#error.Success [[bundle' state'] output])
+        (#error.Success [[bundle' state] output])))))
+
+(def: #export (with-state state)
+  (All [s i o v]
+    (-> s (-> (Operation s i o v) (Operation s i o v))))
+  (..temporary (function.constant state)))
+
+(def: #export (read get)
+  (All [s i o v]
+    (-> (-> s v) (Operation s i o v)))
+  (function (_ [bundle state])
+    (#error.Success [[bundle state] (get state)])))
+
+(def: #export (update transform)
+  (All [s i o]
+    (-> (-> s s) (Operation s i o Any)))
+  (function (_ [bundle state])
+    (#error.Success [[bundle (transform state)] []])))
+
+(def: #export (lift action)
+  (All [s i o v]
+    (-> (//.Operation s v)
+        (//.Operation [(Bundle s i o) s] v)))
+  (function (_ [bundle state])
+    (case (action state)
+      (#error.Error error)
+      (#error.Error error)
+
+      (#error.Success [state' output])
+      (#error.Success [[bundle state] output]))))

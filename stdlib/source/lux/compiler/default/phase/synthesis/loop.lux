@@ -1,0 +1,291 @@
+(.module:
+  [lux (#- loop)
+   [control
+    ["." monad (#+ do)]
+    ["p" parser]]
+   [data
+    ["." maybe ("maybe/." Monad<Maybe>)]
+    [collection
+     ["." list ("list/." Functor<List>)]]]
+   [macro
+    ["." code]
+    ["." syntax]]]
+  ["." // (#+ Path Abstraction Synthesis)
+   [//
+    ["." analysis (#+ Environment)]
+    ["." extension]
+    [//
+     ["." reference (#+ Register Variable)]]]])
+
+(type: #export (Transform a)
+  (-> a (Maybe a)))
+
+(def: (some? maybe)
+  (All [a] (-> (Maybe a) Bit))
+  (case maybe
+    (#.Some _) #1
+    #.None     #0))
+
+(template: #export (self)
+  (#//.Reference (reference.local +0)))
+
+(template: (recursive-apply args)
+  (#//.Apply (self) args))
+
+(def: improper #0)
+(def: proper #1)
+
+(def: (proper? exprS)
+  (-> Synthesis Bit)
+  (case exprS
+    (^ (self))
+    improper
+
+    (#//.Structure structure)
+    (case structure
+      (#//.Variant variantS)
+      (proper? (get@ #analysis.value variantS))
+      
+      (#//.Tuple membersS+)
+      (list.every? proper? membersS+))
+
+    (#//.Control controlS)
+    (case controlS
+      (#//.Branch branchS)
+      (case branchS
+        (#//.Case inputS pathS)
+        (and (proper? inputS)
+             (.loop [pathS pathS]
+               (case pathS
+                 (^or (#//.Alt leftS rightS) (#//.Seq leftS rightS))
+                 (and (recur leftS) (recur rightS))
+
+                 (#//.Then bodyS)
+                 (proper? bodyS)
+                 
+                 _
+                 proper)))
+
+        (#//.Let inputS register bodyS)
+        (and (proper? inputS)
+             (proper? bodyS))
+
+        (#//.If inputS thenS elseS)
+        (and (proper? inputS)
+             (proper? thenS)
+             (proper? elseS)))
+
+      (#//.Loop loopS)
+      (case loopS
+        (#//.Scope scopeS)
+        (and (list.every? proper? (get@ #//.inits scopeS))
+             (proper? (get@ #//.iteration scopeS)))
+
+        (#//.Recur argsS)
+        (list.every? proper? argsS))
+
+      (#//.Function functionS)
+      (case functionS
+        (#//.Abstraction environment arity bodyS)
+        (list.every? reference.self? environment)
+
+        (#//.Apply funcS argsS)
+        (and (proper? funcS)
+             (list.every? proper? argsS))))
+
+    (#//.Extension [name argsS])
+    (list.every? proper? argsS)
+
+    _
+    proper))
+
+(def: (path-recursion synthesis-recursion)
+  (-> (Transform Synthesis) (Transform Path))
+  (function (recur pathS)
+    (case pathS
+      (#//.Alt leftS rightS)
+      (let [leftS' (recur leftS)
+            rightS' (recur rightS)]
+        (if (or (some? leftS')
+                (some? rightS'))
+          (#.Some (#//.Alt (maybe.default leftS leftS')
+                           (maybe.default rightS rightS')))
+          #.None))
+      
+      (#//.Seq leftS rightS)
+      (maybe/map (|>> (#//.Seq leftS)) (recur rightS))
+
+      (#//.Then bodyS)
+      (maybe/map (|>> #//.Then) (synthesis-recursion bodyS))
+      
+      _
+      #.None)))
+
+(def: #export (recursion arity)
+  (-> Nat (Transform Synthesis))
+  (function (recur exprS)
+    (case exprS
+      (#//.Control controlS)
+      (case controlS
+        (#//.Branch branchS)
+        (case branchS
+          (#//.Case inputS pathS)
+          (|> pathS
+              (path-recursion recur)
+              (maybe/map (|>> (#//.Case inputS) #//.Branch #//.Control)))
+
+          (#//.Let inputS register bodyS)
+          (maybe/map (|>> (#//.Let inputS register) #//.Branch #//.Control)
+                     (recur bodyS))
+
+          (#//.If inputS thenS elseS)
+          (let [thenS' (recur thenS)
+                elseS' (recur elseS)]
+            (if (or (some? thenS')
+                    (some? elseS'))
+              (#.Some (|> (#//.If inputS
+                                  (maybe.default thenS thenS')
+                                  (maybe.default elseS elseS'))
+                          #//.Branch #//.Control))
+              #.None)))
+
+        (^ (#//.Function (recursive-apply argsS)))
+        (if (n/= arity (list.size argsS))
+          (#.Some (|> argsS #//.Recur #//.Loop #//.Control))
+          #.None)
+
+        _
+        #.None)
+
+      _
+      #.None)))
+
+(def: (resolve environment)
+  (-> Environment (Transform Variable))
+  (function (_ variable)
+    (case variable
+      (#reference.Foreign register)
+      (list.nth register environment)
+
+      _
+      (#.Some variable))))
+
+(def: (adjust-path adjust-synthesis offset)
+  (-> (Transform Synthesis) Register (Transform Path))
+  (function (recur pathS)
+    (case pathS
+      (#//.Bind register)
+      (#.Some (#//.Bind (n/+ offset register)))
+
+      (^template [<tag>]
+        (<tag> leftS rightS)
+        (do maybe.Monad<Maybe>
+          [leftS' (recur leftS)
+           rightS' (recur rightS)]
+          (wrap (<tag> leftS' rightS'))))
+      ([#//.Alt] [#//.Seq])
+      
+      (#//.Then bodyS)
+      (|> bodyS adjust-synthesis (maybe/map (|>> #//.Then)))
+
+      _
+      (#.Some pathS))))
+
+(def: (adjust scope-environment offset)
+  (-> Environment Register (Transform Synthesis))
+  (function (recur exprS)
+    (case exprS
+      (#//.Structure structureS)
+      (case structureS
+        (#//.Variant variantS)
+        (do maybe.Monad<Maybe>
+          [valueS' (|> variantS (get@ #analysis.value) recur)]
+          (wrap (|> variantS
+                    (set@ #analysis.value valueS')
+                    #//.Variant
+                    #//.Structure)))
+        
+        (#//.Tuple membersS+)
+        (|> membersS+
+            (monad.map maybe.Monad<Maybe> recur)
+            (maybe/map (|>> #//.Tuple #//.Structure))))
+
+      (#//.Reference reference)
+      (case reference
+        (^ (reference.constant constant))
+        (#.Some exprS)
+
+        (^ (reference.local register))
+        (#.Some (#//.Reference (reference.local (n/+ offset register))))
+
+        (^ (reference.foreign register))
+        (|> scope-environment
+            (list.nth register)
+            (maybe/map (|>> #reference.Variable #//.Reference))))
+
+      (^ (//.branch/case [inputS pathS]))
+      (do maybe.Monad<Maybe>
+        [inputS' (recur inputS)
+         pathS' (adjust-path recur offset pathS)]
+        (wrap (|> pathS' [inputS'] //.branch/case)))
+
+      (^ (//.branch/let [inputS register bodyS]))
+      (do maybe.Monad<Maybe>
+        [inputS' (recur inputS)
+         bodyS' (recur bodyS)]
+        (wrap (//.branch/let [inputS' register bodyS'])))
+
+      (^ (//.branch/if [inputS thenS elseS]))
+      (do maybe.Monad<Maybe>
+        [inputS' (recur inputS)
+         thenS' (recur thenS)
+         elseS' (recur elseS)]
+        (wrap (//.branch/if [inputS' thenS' elseS'])))
+
+      (^ (//.loop/scope scopeS))
+      (do maybe.Monad<Maybe>
+        [inits' (|> scopeS
+                    (get@ #//.inits)
+                    (monad.map maybe.Monad<Maybe> recur))
+         iteration' (recur (get@ #//.iteration scopeS))]
+        (wrap (//.loop/scope {#//.start (|> scopeS (get@ #//.start) (n/+ offset))
+                              #//.inits inits'
+                              #//.iteration iteration'})))
+
+      (^ (//.loop/recur argsS))
+      (|> argsS
+          (monad.map maybe.Monad<Maybe> recur)
+          (maybe/map (|>> //.loop/recur)))
+      
+
+      (^ (//.function/abstraction [environment arity bodyS]))
+      (do maybe.Monad<Maybe>
+        [environment' (monad.map maybe.Monad<Maybe>
+                                 (resolve scope-environment)
+                                 environment)]
+        (wrap (//.function/abstraction [environment' arity bodyS])))
+      
+      (^ (//.function/apply [function arguments]))
+      (do maybe.Monad<Maybe>
+        [function' (recur function)
+         arguments' (monad.map maybe.Monad<Maybe> recur arguments)]
+        (wrap (//.function/apply [function' arguments'])))
+
+      (#//.Extension [name argsS])
+      (|> argsS
+          (monad.map maybe.Monad<Maybe> recur)
+          (maybe/map (|>> [name] #//.Extension)))
+
+      _
+      (#.Some exprS))))
+
+(def: #export (loop environment num-locals inits functionS)
+  (-> Environment Nat (List Synthesis) Abstraction (Maybe Synthesis))
+  (let [bodyS (get@ #//.body functionS)]
+    (if (and (n/= (list.size inits)
+                  (get@ #//.arity functionS))
+             (proper? bodyS))
+      (|> bodyS
+          (adjust environment num-locals)
+          (maybe/map (|>> [(inc num-locals) inits] //.loop/scope)))
+      #.None)))

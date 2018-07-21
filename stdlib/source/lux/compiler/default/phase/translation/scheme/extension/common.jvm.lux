@@ -1,0 +1,360 @@
+(.module:
+  [lux #*
+   [control
+    ["." monad (#+ do)]
+    ["ex" exception (#+ exception:)]]
+   [data
+    ["e" error]
+    ["." product]
+    ["." text
+     format]
+    [number (#+ hex)]
+    [collection
+     ["." list ("list/." Functor<List>)]
+     ["dict" dictionary (#+ Dictionary)]]]
+   ["." macro (#+ with-gensyms)
+    ["." code]
+    ["s" syntax (#+ syntax:)]]
+   [host (#+ import:)]]
+  [///
+   ["." runtime (#+ Operation Phase Handler Bundle)]
+   ["//." ///
+    ["." synthesis (#+ Synthesis)]
+    [extension
+     ["." bundle]]
+    [///
+     [host
+      ["_" scheme (#+ Expression Computation)]]]]])
+
+## [Types]
+(syntax: (Vector {size s.nat} elemT)
+  (wrap (list (` [(~+ (list.repeat size elemT))]))))
+
+(type: #export Nullary (-> (Vector +0 Expression) Computation))
+(type: #export Unary   (-> (Vector +1 Expression) Computation))
+(type: #export Binary  (-> (Vector +2 Expression) Computation))
+(type: #export Trinary (-> (Vector +3 Expression) Computation))
+(type: #export Variadic (-> (List Expression) Computation))
+
+## [Utils]
+(syntax: (arity: {name s.local-symbol} {arity s.nat})
+  (with-gensyms [g!_ g!extension g!name g!translate g!inputs]
+    (do @
+      [g!input+ (monad.seq @ (list.repeat arity (macro.gensym "input")))]
+      (wrap (list (` (def: #export ((~ (code.local-symbol name)) (~ g!extension))
+                       (-> (-> (..Vector (~ (code.nat arity)) Expression) Computation)
+                           Handler)
+                       (function ((~ g!_) (~ g!name) (~ g!translate) (~ g!inputs))
+                         (case (~ g!inputs)
+                           (^ (list (~+ g!input+)))
+                           (do /////.Monad<Operation>
+                             [(~+ (|> g!input+
+                                      (list/map (function (_ g!input)
+                                                  (list g!input (` ((~ g!translate) (~ g!input))))))
+                                      list.concat))]
+                             ((~' wrap) ((~ g!extension) [(~+ g!input+)])))
+
+                           (~' _)
+                           (/////.throw bundle.incorrect-arity [(~ g!name) +1 (list.size (~ g!inputs))]))))))))))
+
+(arity: nullary +0)
+(arity: unary +1)
+(arity: binary +2)
+(arity: trinary +3)
+
+(def: #export (variadic extension)
+  (-> Variadic Handler)
+  (function (_ extension-name)
+    (function (_ translate inputsS)
+      (do /////.Monad<Operation>
+        [inputsI (monad.map @ translate inputsS)]
+        (wrap (extension inputsI))))))
+
+## [Bundle]
+## [[Lux]]
+(def: bundle::lux
+  Bundle
+  (|> bundle.empty
+      (bundle.install "is?" (binary (product.uncurry _.eq?/2)))
+      (bundle.install "try" (unary runtime.lux//try))))
+
+## [[Bits]]
+(do-template [<name> <op>]
+  [(def: (<name> [subjectO paramO])
+     Binary
+     (<op> paramO subjectO))]
+  
+  [bit::and _.bit-and/2]
+  [bit::or  _.bit-or/2]
+  [bit::xor _.bit-xor/2]
+  )
+
+(def: (bit::left-shift [subjectO paramO])
+  Binary
+  (_.arithmetic-shift/2 (_.remainder/2 (_.int 64) paramO)
+                        subjectO))
+
+(def: (bit::arithmetic-right-shift [subjectO paramO])
+  Binary
+  (_.arithmetic-shift/2 (|> paramO (_.remainder/2 (_.int 64)) (_.*/2 (_.int -1)))
+                        subjectO))
+
+(def: (bit::logical-right-shift [subjectO paramO])
+  Binary
+  (runtime.bit//logical-right-shift (_.remainder/2 (_.int 64) paramO) subjectO))
+
+(def: bundle::bit
+  Bundle
+  (<| (bundle.prefix "bit")
+      (|> bundle.empty
+          (bundle.install "and" (binary bit::and))
+          (bundle.install "or" (binary bit::or))
+          (bundle.install "xor" (binary bit::xor))
+          (bundle.install "left-shift" (binary bit::left-shift))
+          (bundle.install "logical-right-shift" (binary bit::logical-right-shift))
+          (bundle.install "arithmetic-right-shift" (binary bit::arithmetic-right-shift))
+          )))
+
+## [[Arrays]]
+(def: (array::new size0)
+  Unary
+  (_.make-vector/2 size0 _.nil))
+
+(def: (array::get [arrayO idxO])
+  Binary
+  (runtime.array//get arrayO idxO))
+
+(def: (array::put [arrayO idxO elemO])
+  Trinary
+  (runtime.array//put arrayO idxO elemO))
+
+(def: (array::remove [arrayO idxO])
+  Binary
+  (runtime.array//put arrayO idxO _.nil))
+
+(def: bundle::array
+  Bundle
+  (<| (bundle.prefix "array")
+      (|> bundle.empty
+          (bundle.install "new" (unary array::new))
+          (bundle.install "get" (binary array::get))
+          (bundle.install "put" (trinary array::put))
+          (bundle.install "remove" (binary array::remove))
+          (bundle.install "size" (unary _.vector-length/1))
+          )))
+
+## [[Numbers]]
+(import: java/lang/Double
+  (#static MIN_VALUE Double)
+  (#static MAX_VALUE Double))
+
+(do-template [<name> <const> <encode>]
+  [(def: (<name> _)
+     Nullary
+     (<encode> <const>))]
+
+  [frac::smallest Double::MIN_VALUE            _.float]
+  [frac::min      (f/* -1.0 Double::MAX_VALUE) _.float]
+  [frac::max      Double::MAX_VALUE            _.float]
+  )
+
+(do-template [<name> <op>]
+  [(def: (<name> [subjectO paramO])
+     Binary
+     (|> subjectO (<op> paramO)))]
+
+  [int::+ _.+/2]
+  [int::- _.-/2]
+  [int::* _.*/2]
+  [int::/ _.quotient/2]
+  [int::% _.remainder/2]
+  )
+
+(do-template [<name> <op>]
+  [(def: (<name> [subjectO paramO])
+     Binary
+     (<op> paramO subjectO))]
+
+  [frac::+ _.+/2]
+  [frac::- _.-/2]
+  [frac::* _.*/2]
+  [frac::/ _.//2]
+  [frac::% _.mod/2]
+  [frac::= _.=/2]
+  [frac::< _.</2]
+
+  [text::= _.string=?/2]
+  [text::< _.string<?/2]
+  )
+
+(do-template [<name> <cmp>]
+  [(def: (<name> [subjectO paramO])
+     Binary
+     (<cmp> paramO subjectO))]
+
+  [int::= _.=/2]
+  [int::< _.</2]
+  )
+
+(def: int::char (|>> _.integer->char/1 _.string/1))
+
+(def: bundle::int
+  Bundle
+  (<| (bundle.prefix "int")
+      (|> bundle.empty
+          (bundle.install "+" (binary int::+))
+          (bundle.install "-" (binary int::-))
+          (bundle.install "*" (binary int::*))
+          (bundle.install "/" (binary int::/))
+          (bundle.install "%" (binary int::%))
+          (bundle.install "=" (binary int::=))
+          (bundle.install "<" (binary int::<))
+          (bundle.install "to-frac" (unary (|>> (_.//2 (_.float 1.0)))))
+          (bundle.install "char" (unary int::char)))))
+
+(def: bundle::frac
+  Bundle
+  (<| (bundle.prefix "frac")
+      (|> bundle.empty
+          (bundle.install "+" (binary frac::+))
+          (bundle.install "-" (binary frac::-))
+          (bundle.install "*" (binary frac::*))
+          (bundle.install "/" (binary frac::/))
+          (bundle.install "%" (binary frac::%))
+          (bundle.install "=" (binary frac::=))
+          (bundle.install "<" (binary frac::<))
+          (bundle.install "smallest" (nullary frac::smallest))
+          (bundle.install "min" (nullary frac::min))
+          (bundle.install "max" (nullary frac::max))
+          (bundle.install "to-int" (unary _.exact/1))
+          (bundle.install "encode" (unary _.number->string/1))
+          (bundle.install "decode" (unary runtime.frac//decode)))))
+
+## [[Text]]
+(def: (text::char [subjectO paramO])
+  Binary
+  (_.string/1 (_.string-ref/2 subjectO paramO)))
+
+(def: (text::clip [subjectO startO endO])
+  Trinary
+  (_.substring/3 subjectO startO endO))
+
+(def: bundle::text
+  Bundle
+  (<| (bundle.prefix "text")
+      (|> bundle.empty
+          (bundle.install "=" (binary text::=))
+          (bundle.install "<" (binary text::<))
+          (bundle.install "concat" (binary (product.uncurry _.string-append/2)))
+          (bundle.install "size" (unary _.string-length/1))
+          (bundle.install "char" (binary text::char))
+          (bundle.install "clip" (trinary text::clip)))))
+
+## [[Math]]
+(def: (math::pow [subject param])
+  Binary
+  (_.expt/2 param subject))
+
+(def: math-func
+  (-> Text Unary)
+  (|>> _.global _.apply/1))
+
+(def: bundle::math
+  Bundle
+  (<| (bundle.prefix "math")
+      (|> bundle.empty
+          (bundle.install "cos" (unary (math-func "cos")))
+          (bundle.install "sin" (unary (math-func "sin")))
+          (bundle.install "tan" (unary (math-func "tan")))
+          (bundle.install "acos" (unary (math-func "acos")))
+          (bundle.install "asin" (unary (math-func "asin")))
+          (bundle.install "atan" (unary (math-func "atan")))
+          (bundle.install "exp" (unary (math-func "exp")))
+          (bundle.install "log" (unary (math-func "log")))
+          (bundle.install "ceil" (unary (math-func "ceiling")))
+          (bundle.install "floor" (unary (math-func "floor")))
+          (bundle.install "pow" (binary math::pow))
+          )))
+
+## [[IO]]
+(def: (io::log input)
+  Unary
+  (_.begin (list (_.display/1 input)
+                 _.newline/0)))
+
+(def: (void code)
+  (-> Expression Computation)
+  (_.begin (list code (_.string synthesis.unit))))
+
+(def: bundle::io
+  Bundle
+  (<| (bundle.prefix "io")
+      (|> bundle.empty
+          (bundle.install "log" (unary (|>> io::log ..void)))
+          (bundle.install "error" (unary _.raise/1))
+          (bundle.install "exit" (unary _.exit/1))
+          (bundle.install "current-time" (nullary (function (_ _) (runtime.io//current-time (_.string synthesis.unit))))))))
+
+## [[Atoms]]
+(def: atom::new
+  Unary
+  (|>> (list) _.vector/*))
+
+(def: (atom::read atom)
+  Unary
+  (_.vector-ref/2 atom (_.int 0)))
+
+(def: (atom::compare-and-swap [atomO oldO newO])
+  Trinary
+  (runtime.atom//compare-and-swap atomO oldO newO))
+
+(def: bundle::atom
+  Bundle
+  (<| (bundle.prefix "atom")
+      (|> bundle.empty
+          (bundle.install "new" (unary atom::new))
+          (bundle.install "read" (unary atom::read))
+          (bundle.install "compare-and-swap" (trinary atom::compare-and-swap)))))
+
+## [[Box]]
+(def: (box::write [valueO boxO])
+  Binary
+  (runtime.box//write valueO boxO))
+
+(def: bundle::box
+  Bundle
+  (<| (bundle.prefix "box")
+      (|> bundle.empty
+          (bundle.install "new" (unary atom::new))
+          (bundle.install "read" (unary atom::read))
+          (bundle.install "write" (binary box::write)))))
+
+## [[Processes]]
+(def: (process::parallelism-level [])
+  Nullary
+  (_.int 1))
+
+(def: bundle::process
+  Bundle
+  (<| (bundle.prefix "process")
+      (|> bundle.empty
+          (bundle.install "parallelism-level" (nullary process::parallelism-level))
+          (bundle.install "schedule" (binary (product.uncurry runtime.process//schedule)))
+          )))
+
+## [Bundles]
+(def: #export bundle
+  Bundle
+  (<| (bundle.prefix "lux")
+      (|> bundle::lux
+          (dict.merge bundle::bit)
+          (dict.merge bundle::int)
+          (dict.merge bundle::frac)
+          (dict.merge bundle::text)
+          (dict.merge bundle::array)
+          (dict.merge bundle::math)
+          (dict.merge bundle::io)
+          (dict.merge bundle::atom)
+          (dict.merge bundle::box)
+          (dict.merge bundle::process)
+          )))

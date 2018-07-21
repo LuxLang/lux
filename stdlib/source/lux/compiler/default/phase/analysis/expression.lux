@@ -1,0 +1,121 @@
+(.module:
+  [lux #*
+   [control
+    [monad (#+ do)]
+    ["ex" exception (#+ exception:)]]
+   [data
+    ["e" error]
+    [text
+     format]]
+   ["." macro]]
+  ["." // (#+ Analysis Operation Phase)
+   ["." type]
+   ["." primitive]
+   ["." structure]
+   ["." reference]
+   ["/." //
+    ["." extension]
+    ["//." // (#+ Eval)
+     ## [".L" macro]
+     ]]])
+
+(exception: #export (macro-expansion-failed {message Text})
+  message)
+
+(do-template [<name>]
+  [(exception: #export (<name> {code Code})
+     (%code code))]
+
+  [macro-call-must-have-single-expansion]
+  [unrecognized-syntax]
+  )
+
+(def: #export (analyser eval)
+  (-> Eval Phase)
+  (function (compile code)
+    (do ///.Monad<Operation>
+      [expectedT (extension.lift macro.expected-type)]
+      (let [[cursor code'] code]
+        ## The cursor must be set in the state for the sake
+        ## of having useful error messages.
+        (//.with-cursor cursor
+          (case code'
+            (^template [<tag> <analyser>]
+              (<tag> value)
+              (<analyser> value))
+            ([#.Bit  primitive.bit]
+             [#.Nat  primitive.nat]
+             [#.Int  primitive.int]
+             [#.Rev  primitive.rev]
+             [#.Frac primitive.frac]
+             [#.Text primitive.text])
+
+            (^template [<tag> <analyser>]
+              (^ (#.Form (list& [_ (<tag> tag)]
+                                values)))
+              (case values
+                (#.Cons value #.Nil)
+                (<analyser> compile tag value)
+
+                _
+                (<analyser> compile tag (` [(~+ values)]))))
+            ([#.Nat structure.sum]
+             [#.Tag structure.tagged-sum])
+
+            (#.Tag tag)
+            (structure.tagged-sum compile tag (' []))
+
+            (^ (#.Tuple (list)))
+            primitive.unit
+
+            (^ (#.Tuple (list singleton)))
+            (compile singleton)
+
+            (^ (#.Tuple elems))
+            (structure.product compile elems)
+
+            (^ (#.Record pairs))
+            (structure.record compile pairs)
+
+            (#.Symbol reference)
+            (reference.reference reference)
+
+            (^ (#.Form (list& [_ (#.Text extension-name)] extension-args)))
+            (extension.apply compile [extension-name extension-args])
+
+            ## (^ (#.Form (list& func args)))
+            ## (do ///.Monad<Operation>
+            ##   [[funcT funcA] (type.with-inference
+            ##                    (compile func))]
+            ##   (case funcA
+            ##     [_ (#.Symbol def-name)]
+            ##     (do @
+            ##       [?macro (///.with-error-tracking
+            ##                 (extension.lift (macro.find-macro def-name)))]
+            ##       (case ?macro
+            ##         (#.Some macro)
+            ##         (do @
+            ##           [expansion (: (Operation (List Code))
+            ##                         (function (_ state)
+            ##                           (case (macroL.expand macro args state)
+            ##                             (#e.Error error)
+            ##                             ((///.throw macro-expansion-failed error) state)
+
+            ##                             output
+            ##                             output)))]
+            ##           (case expansion
+            ##             (^ (list single))
+            ##             (compile single)
+
+            ##             _
+            ##             (///.throw macro-call-must-have-single-expansion code)))
+
+            ##         _
+            ##         (functionA.apply compile funcT funcA args)))
+
+            ##     _
+            ##     (functionA.apply compile funcT funcA args)))
+
+            _
+            (///.throw unrecognized-syntax code)
+            ))))))

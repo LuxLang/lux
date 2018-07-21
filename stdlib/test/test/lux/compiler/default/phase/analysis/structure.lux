@@ -1,0 +1,299 @@
+(.module:
+  [lux #*
+   [control
+    [monad (#+ do)]
+    pipe]
+   [data
+    [bit ("bit/." Equivalence<Bit>)]
+    ["e" error]
+    ["." product]
+    ["." maybe]
+    ["." text]
+    [collection
+     ["." list ("list/." Functor<List>)]
+     ["." set]]]
+   [math
+    ["r" random]]
+   ["." type ("type/." Equivalence<Type>)
+    ["." check]]
+   [macro
+    ["." code]]
+   [compiler
+    ["." default
+     ["." init]
+     ["." phase
+      ["." analysis (#+ Analysis Variant Tag Operation)
+       ["." module]
+       [".A" type]
+       ["/" structure]
+       ["." expression]]
+      [extension
+       [".E" analysis]]]]]
+   test]
+  [//
+   ["_." primitive]])
+
+(def: analyse (expression.analyser (:coerce default.Eval [])))
+
+(do-template [<name> <on-success> <on-error>]
+  [(def: #export <name>
+     (All [a] (-> (Operation a) Bit))
+     (|>> (phase.run [analysisE.bundle (init.compiler [])])
+          (case> (#e.Success _)
+                 <on-success>
+
+                 _
+                 <on-error>)))]
+
+  [check-succeeds #1 #0]
+  [check-fails    #0 #1]
+  )
+
+(def: (check-sum' size tag variant)
+  (-> Nat Tag (Variant Analysis) Bit)
+  (let [variant-tag (if (get@ #analysis.right? variant)
+                      (inc (get@ #analysis.lefts variant))
+                      (get@ #analysis.lefts variant))]
+    (|> size dec (n/= tag)
+        (bit/= (get@ #analysis.right? variant))
+        (and (n/= tag variant-tag)))))
+
+(def: (check-sum type size tag analysis)
+  (-> Type Nat Tag (Operation Analysis) Bit)
+  (|> analysis
+      (typeA.with-type type)
+      (phase.run [analysisE.bundle (init.compiler [])])
+      (case> (^multi (#e.Success sumA)
+                     [(analysis.variant sumA)
+                      (#.Some variant)])
+             (check-sum' size tag variant)
+
+             _
+             #0)))
+
+(def: (tagged module tags type)
+  (All [a] (-> Text (List module.Tag) Type (Operation a) (Operation [Module a])))
+  (|>> (do phase.Monad<Operation>
+         [_ (module.declare-tags tags #0 type)])
+       (module.with-module +0 module)))
+
+(def: (check-variant module tags type size tag analysis)
+  (-> Text (List module.Tag) Type Nat Tag (Operation Analysis) Bit)
+  (|> analysis
+      (tagged module tags type)
+      (typeA.with-type type)
+      (phase.run [analysisE.bundle (init.compiler [])])
+      (case> (^multi (#e.Success [_ sumA])
+                     [(analysis.variant sumA)
+                      (#.Some variant)])
+             (check-sum' size tag variant)
+
+             _
+             #0)))
+
+(def: (right-size? size)
+  (-> Nat (-> Analysis Bit))
+  (|>> analysis.tuple list.size (n/= size)))
+
+(def: (check-record-inference module tags type size analysis)
+  (-> Text (List module.Tag) Type Nat (Operation [Type Analysis]) Bit)
+  (|> analysis
+      (tagged module tags type)
+      (phase.run [analysisE.bundle (init.compiler [])])
+      (case> (#e.Success [_ productT productA])
+             (and (type/= type productT)
+                  (right-size? size productA))
+
+             _
+             #0)))
+
+(context: "Sums"
+  (<| (times +100)
+      (do @
+        [size (|> r.nat (:: @ map (|>> (n/% +10) (n/max +2))))
+         choice (|> r.nat (:: @ map (n/% size)))
+         primitives (r.list size _primitive.primitive)
+         +choice (|> r.nat (:: @ map (n/% (inc size))))
+         [_ +valueC] _primitive.primitive
+         #let [variantT (type.variant (list/map product.left primitives))
+               [valueT valueC] (maybe.assume (list.nth choice primitives))
+               +size (inc size)
+               +primitives (list.concat (list (list.take choice primitives)
+                                              (list [(#.Parameter +1) +valueC])
+                                              (list.drop choice primitives)))
+               [+valueT +valueC] (maybe.assume (list.nth +choice +primitives))
+               +variantT (type.variant (list/map product.left +primitives))]]
+        ($_ seq
+            (test "Can analyse sum."
+                  (check-sum variantT size choice
+                             (/.sum ..analyse choice valueC)))
+            (test "Can analyse sum through bound type-vars."
+                  (|> (do phase.Monad<Operation>
+                        [[_ varT] (typeA.with-env check.var)
+                         _ (typeA.with-env
+                             (check.check varT variantT))]
+                        (typeA.with-type varT
+                          (/.sum ..analyse choice valueC)))
+                      (phase.run [analysisE.bundle (init.compiler [])])
+                      (case> (^multi (#e.Success sumA)
+                                     [(analysis.variant sumA)
+                                      (#.Some variant)])
+                             (check-sum' size choice variant)
+
+                             _
+                             #0)))
+            (test "Cannot analyse sum through unbound type-vars."
+                  (|> (do phase.Monad<Operation>
+                        [[_ varT] (typeA.with-env check.var)]
+                        (typeA.with-type varT
+                          (/.sum ..analyse choice valueC)))
+                      check-fails))
+            (test "Can analyse sum through existential quantification."
+                  (|> (typeA.with-type (type.ex-q +1 +variantT)
+                        (/.sum ..analyse +choice +valueC))
+                      check-succeeds))
+            (test "Can analyse sum through universal quantification."
+                  (let [check-outcome (if (not (n/= choice +choice))
+                                        check-succeeds
+                                        check-fails)]
+                    (|> (typeA.with-type (type.univ-q +1 +variantT)
+                          (/.sum ..analyse +choice +valueC))
+                        check-outcome)))
+            ))))
+
+(context: "Products"
+  (<| (times +100)
+      (do @
+        [size (|> r.nat (:: @ map (|>> (n/% +10) (n/max +2))))
+         primitives (r.list size _primitive.primitive)
+         choice (|> r.nat (:: @ map (n/% size)))
+         [_ +valueC] _primitive.primitive
+         #let [tupleT (type.tuple (list/map product.left primitives))
+               [singletonT singletonC] (|> primitives (list.nth choice) maybe.assume)
+               +primitives (list.concat (list (list.take choice primitives)
+                                              (list [(#.Parameter +1) +valueC])
+                                              (list.drop choice primitives)))
+               +tupleT (type.tuple (list/map product.left +primitives))]]
+        ($_ seq
+            (test "Can analyse product."
+                  (|> (typeA.with-type tupleT
+                        (/.product ..analyse (list/map product.right primitives)))
+                      (phase.run [analysisE.bundle (init.compiler [])])
+                      (case> (#e.Success tupleA)
+                             (right-size? size tupleA)
+
+                             _
+                             #0)))
+            (test "Can infer product."
+                  (|> (typeA.with-inference
+                        (/.product ..analyse (list/map product.right primitives)))
+                      (phase.run [analysisE.bundle (init.compiler [])])
+                      (case> (#e.Success [_type tupleA])
+                             (and (type/= tupleT _type)
+                                  (right-size? size tupleA))
+
+                             _
+                             #0)))
+            (test "Can analyse pseudo-product (singleton tuple)"
+                  (|> (typeA.with-type singletonT
+                        (..analyse (` [(~ singletonC)])))
+                      check-succeeds))
+            (test "Can analyse product through bound type-vars."
+                  (|> (do phase.Monad<Operation>
+                        [[_ varT] (typeA.with-env check.var)
+                         _ (typeA.with-env
+                             (check.check varT (type.tuple (list/map product.left primitives))))]
+                        (typeA.with-type varT
+                          (/.product ..analyse (list/map product.right primitives))))
+                      (phase.run [analysisE.bundle (init.compiler [])])
+                      (case> (#e.Success tupleA)
+                             (right-size? size tupleA)
+
+                             _
+                             #0)))
+            (test "Can analyse product through existential quantification."
+                  (|> (typeA.with-type (type.ex-q +1 +tupleT)
+                        (/.product ..analyse (list/map product.right +primitives)))
+                      check-succeeds))
+            (test "Cannot analyse product through universal quantification."
+                  (|> (typeA.with-type (type.univ-q +1 +tupleT)
+                        (/.product ..analyse (list/map product.right +primitives)))
+                      check-fails))
+            ))))
+
+(context: "Tagged Sums"
+  (<| (times +100)
+      (do @
+        [size (|> r.nat (:: @ map (|>> (n/% +10) (n/max +2))))
+         tags (|> (r.set text.Hash<Text> size (r.unicode +5)) (:: @ map set.to-list))
+         choice (|> r.nat (:: @ map (n/% size)))
+         other-choice (|> r.nat (:: @ map (n/% size)) (r.filter (|>> (n/= choice) not)))
+         primitives (r.list size _primitive.primitive)
+         module-name (r.unicode +5)
+         type-name (r.unicode +5)
+         #let [varT (#.Parameter +1)
+               primitivesT (list/map product.left primitives)
+               [choiceT choiceC] (maybe.assume (list.nth choice primitives))
+               [other-choiceT other-choiceC] (maybe.assume (list.nth other-choice primitives))
+               variantT (type.variant primitivesT)
+               namedT (#.Named [module-name type-name] variantT)
+               named-polyT (|> (type.variant (list.concat (list (list.take choice primitivesT)
+                                                                (list varT)
+                                                                (list.drop (inc choice) primitivesT))))
+                               (type.univ-q +1)
+                               (#.Named [module-name type-name]))
+               choice-tag (maybe.assume (list.nth choice tags))
+               other-choice-tag (maybe.assume (list.nth other-choice tags))]]
+        ($_ seq
+            (test "Can infer tagged sum."
+                  (|> (/.tagged-sum ..analyse [module-name choice-tag] choiceC)
+                      (check-variant module-name tags namedT choice size)))
+            (test "Tagged sums specialize when type-vars get bound."
+                  (|> (/.tagged-sum ..analyse [module-name choice-tag] choiceC)
+                      (check-variant module-name tags named-polyT choice size)))
+            (test "Tagged sum inference retains universal quantification when type-vars are not bound."
+                  (|> (/.tagged-sum ..analyse [module-name other-choice-tag] other-choiceC)
+                      (check-variant module-name tags named-polyT other-choice size)))
+            (test "Can specialize generic tagged sums."
+                  (|> (typeA.with-type variantT
+                        (/.tagged-sum ..analyse [module-name other-choice-tag] other-choiceC))
+                      (check-variant module-name tags named-polyT other-choice size)))
+            ))))
+
+(context: "Records"
+  (<| (times +100)
+      (do @
+        [size (|> r.nat (:: @ map (|>> (n/% +10) (n/max +2))))
+         tags (|> (r.set text.Hash<Text> size (r.unicode +5)) (:: @ map set.to-list))
+         primitives (r.list size _primitive.primitive)
+         module-name (r.unicode +5)
+         type-name (r.unicode +5)
+         choice (|> r.nat (:: @ map (n/% size)))
+         #let [varT (#.Parameter +1)
+               tagsC (list/map (|>> [module-name] code.tag) tags)
+               primitivesT (list/map product.left primitives)
+               primitivesC (list/map product.right primitives)
+               tupleT (type.tuple primitivesT)
+               namedT (#.Named [module-name type-name] tupleT)
+               recordC (list.zip2 tagsC primitivesC)
+               named-polyT (|> (type.tuple (list.concat (list (list.take choice primitivesT)
+                                                              (list varT)
+                                                              (list.drop (inc choice) primitivesT))))
+                               (type.univ-q +1)
+                               (#.Named [module-name type-name]))]]
+        ($_ seq
+            (test "Can infer record."
+                  (|> (typeA.with-inference
+                        (/.record ..analyse recordC))
+                      (check-record-inference module-name tags namedT size)))
+            (test "Records specialize when type-vars get bound."
+                  (|> (typeA.with-inference
+                        (/.record ..analyse recordC))
+                      (check-record-inference module-name tags named-polyT size)))
+            (test "Can specialize generic records."
+                  (|> (do phase.Monad<Operation>
+                        [recordA (typeA.with-type tupleT
+                                   (/.record ..analyse recordC))]
+                        (wrap [tupleT recordA]))
+                      (check-record-inference module-name tags named-polyT size)))
+            ))))

@@ -1,0 +1,109 @@
+(.module:
+  [lux #*
+   [control
+    [monad (#+ do)]
+    pipe]
+   [data
+    ["e" error]
+    [ident ("ident/." Equivalence<Ident>)]
+    [text ("text/." Equivalence<Text>)]]
+   [math
+    ["r" random]]
+   [type ("type/." Equivalence<Type>)]
+   [macro
+    ["." code]]
+   [compiler
+    ["." default
+     ["." reference]
+     ["." init]
+     ["." phase
+      ["." analysis
+       ["." scope]
+       ["." module]
+       [".A" type]
+       ["." expression]]
+      [extension
+       [".E" analysis]]]]]
+   test]
+  [//
+   ["_." primitive]])
+
+(def: analyse (expression.analyser (:coerce default.Eval [])))
+
+(type: Check (-> (e.Error Any) Bit))
+
+(do-template [<name> <on-success> <on-failure>]
+  [(def: <name>
+     Check
+     (|>> (case> (#e.Success _)
+                 <on-success>
+
+                 (#e.Error _)
+                 <on-failure>)))]
+
+  [success? #1 #0]
+  [failure? #0 #1]
+  )
+
+(def: (reach-test var-name [export? def-module] [import? dependent-module] check!)
+  (-> Text [Bit Text] [Bit Text] Check Bit)
+  (|> (do phase.Monad<Operation>
+        [_ (module.with-module +0 def-module
+             (module.define var-name [Any
+                                      (if export?
+                                        (' {#.export? #1})
+                                        (' {}))
+                                      []]))]
+        (module.with-module +0 dependent-module
+          (do @
+            [_ (if import?
+                 (module.import def-module)
+                 (wrap []))]
+            (typeA.with-inference
+              (..analyse (code.symbol [def-module var-name]))))))
+      (phase.run [analysisE.bundle (init.compiler [])])
+      check!))
+
+(context: "References"
+  (<| (times +100)
+      (do @
+        [[expectedT _] _primitive.primitive
+         def-module (r.unicode +5)
+         scope-name (r.unicode +5)
+         var-name (r.unicode +5)
+         dependent-module (|> (r.unicode +5)
+                              (r.filter (|>> (text/= def-module) not)))]
+        ($_ seq
+            (test "Can analyse variable."
+                  (|> (scope.with-scope scope-name
+                        (scope.with-local [var-name expectedT]
+                          (typeA.with-inference
+                            (..analyse (code.local-symbol var-name)))))
+                      (phase.run [analysisE.bundle (init.compiler [])])
+                      (case> (^ (#e.Success [inferredT (#analysis.Reference (reference.local var))]))
+                             (and (type/= expectedT inferredT)
+                                  (n/= +0 var))
+
+                             _
+                             #0)))
+            (test "Can analyse definition (in the same module)."
+                  (let [def-name [def-module var-name]]
+                    (|> (do phase.Monad<Operation>
+                          [_ (module.define var-name [expectedT (' {}) []])]
+                          (typeA.with-inference
+                            (..analyse (code.symbol def-name))))
+                        (module.with-module +0 def-module)
+                        (phase.run [analysisE.bundle (init.compiler [])])
+                        (case> (^ (#e.Success [_ inferredT (#analysis.Reference (reference.constant constant-name))]))
+                               (and (type/= expectedT inferredT)
+                                    (ident/= def-name constant-name))
+
+                               _
+                               #0))))
+            (test "Can analyse definition (if exported from imported module)."
+                  (reach-test var-name [#1 def-module] [#1 dependent-module] success?))
+            (test "Cannot analyse definition (if not exported from imported module)."
+                  (reach-test var-name [#0 def-module] [#1 dependent-module] failure?))
+            (test "Cannot analyse definition (if exported from non-imported module)."
+                  (reach-test var-name [#1 def-module] [#0 dependent-module] failure?))
+            ))))

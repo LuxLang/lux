@@ -1,0 +1,92 @@
+(.module:
+  [lux (#- function)
+   [control
+    ["." monad (#+ do)]
+    pipe]
+   [data
+    ["." product]
+    [text
+     format]
+    [collection
+     ["." list ("list/." Functor<List>)]]]]
+  [//
+   ["." runtime (#+ Operation Phase)]
+   ["." reference]
+   ["/." //
+    ["//." // ("operation/." Monad<Operation>)
+     [analysis (#+ Variant Tuple Environment Arity Abstraction Application Analysis)]
+     [synthesis (#+ Synthesis)]
+     [//
+      [reference (#+ Register Variable)]
+      ["." name]
+      [//
+       [host
+        ["_" scheme (#+ Expression Computation Var)]]]]]]])
+
+(def: #export (apply translate [functionS argsS+])
+  (-> Phase (Application Synthesis) (Operation Computation))
+  (do ////.Monad<Operation>
+    [functionO (translate functionS)
+     argsO+ (monad.map @ translate argsS+)]
+    (wrap (_.apply/* functionO argsO+))))
+
+(def: (with-closure function-name inits function-definition)
+  (-> Text (List Expression) Computation (Operation Computation))
+  (let [@closure (_.var (format function-name "___CLOSURE"))]
+    (operation/wrap
+     (case inits
+       #.Nil
+       function-definition
+
+       _
+       (_.letrec (list [@closure
+                        (_.lambda [(|> (list.enumerate inits)
+                                  (list/map (|>> product.left reference.foreign')))
+                              #.None]
+                             function-definition)])
+                 (_.apply/* @closure inits))))))
+
+(def: @curried (_.var "curried"))
+(def: @missing (_.var "missing"))
+
+(def: input
+  (|>> inc reference.local'))
+
+(def: #export (function translate [environment arity bodyS])
+  (-> Phase (Abstraction Synthesis) (Operation Computation))
+  (do ////.Monad<Operation>
+    [[function-name bodyO] (///.with-context
+                             (do @
+                               [function-name ///.context]
+                               (///.with-anchor (_.var function-name)
+                                 (translate bodyS))))
+     closureO+ (monad.map @ reference.variable environment)
+     #let [arityO (|> arity .int _.int)
+           @num-args (_.var "num_args")
+           @function (_.var function-name)
+           apply-poly (.function (_ args func)
+                        (_.apply/2 (_.global "apply") func args))]]
+    (with-closure function-name closureO+
+      (_.letrec (list [@function (_.lambda [(list) (#.Some @curried)]
+                                      (_.let (list [@num-args (_.length/1 @curried)])
+                                        (<| (_.if (|> @num-args (_.=/2 arityO))
+                                              (<| (_.let (list [(reference.local' +0) @function]))
+                                                  (_.let-values (list [[(|> (list.n/range +0 (dec arity))
+                                                                            (list/map ..input))
+                                                                        #.None]
+                                                                       (_.apply/2 (_.global "apply") (_.global "values") @curried)]))
+                                                  bodyO))
+                                            (_.if (|> @num-args (_.>/2 arityO))
+                                              (let [arity-args (runtime.slice (_.int 0) arityO @curried)
+                                                    output-func-args (runtime.slice arityO
+                                                                                    (|> @num-args (_.-/2 arityO))
+                                                                                    @curried)]
+                                                (|> @function
+                                                    (apply-poly arity-args)
+                                                    (apply-poly output-func-args))))
+                                            ## (|> @num-args (_.</2 arityO))
+                                            (_.lambda [(list) (#.Some @missing)]
+                                                 (|> @function
+                                                     (apply-poly (_.append/2 @curried @missing)))))))])
+                @function))
+    ))
