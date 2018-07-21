@@ -6,7 +6,7 @@
     ["ex" exception (#+ exception:)]
     [equivalence (#+ Equivalence)]]
    [data
-    ["." error]
+    ["." error (#+ Error)]
     ["." number]
     [text
      ["." encoding]
@@ -39,13 +39,13 @@
 (type: #export (Write a)
   (-> a [Size (-> Offset Blob Blob)]))
 
-(type: #export (Binary a)
+(type: #export (Format a)
   {#read (Read a)
    #write (Write a)})
 
 ## Operators
 (def: #export (read format input)
-  (All [a] (-> (Binary a) Blob (error.Error a)))
+  (All [a] (-> (Format a) Blob (Error a)))
   (case ((get@ #read format) [+0 input])
     (#error.Error msg)
     (#error.Error msg)
@@ -57,14 +57,14 @@
         (ex.throw blob-was-not-fully-read [length end])))))
 
 (def: #export (write format value)
-  (All [a] (-> (Binary a) a Blob))
+  (All [a] (-> (Format a) a Blob))
   (let [[valueS valueT] ((get@ #write format) value)]
     (|> valueS blob.create (valueT +0))))
 
 ## Primitives
 (do-template [<name> <size> <read> <write>]
   [(def: <name>
-     (Binary (I64 Any))
+     (Format (I64 Any))
      {#read (function (_ [offset blob])
               (case (<read> offset blob)
                 (#error.Success data)
@@ -87,7 +87,7 @@
 
 ## Combinators
 (def: #export (alt leftB rightB)
-  (All [l r] (-> (Binary l) (Binary r) (Binary (| l r))))
+  (All [l r] (-> (Format l) (Format r) (Format (| l r))))
   {#read (do p.Monad<Parser>
            [flag (get@ #read bits/8)]
            (case flag
@@ -116,7 +116,7 @@
               ))})
 
 (def: #export (seq preB postB)
-  (All [a b] (-> (Binary a) (Binary b) (Binary [a b])))
+  (All [a b] (-> (Format a) (Format b) (Format [a b])))
   {#read (p.seq (get@ #read preB) (get@ #read postB))
    #write (function (_ [preV postV])
             (let [[preS preT] ((get@ #write preB) preV)
@@ -127,7 +127,7 @@
                       (postT (n/+ preS offset))))]))})
 
 (def: #export (rec body)
-  (All [a] (-> (-> (Binary a) (Binary a)) (Binary a)))
+  (All [a] (-> (-> (Format a) (Format a)) (Format a)))
   {#read (function (_ input)
            (let [read (get@ #read (body (rec body)))]
              (read input)))
@@ -137,7 +137,7 @@
 
 ## Utilities
 (def: #export (ignore default)
-  (All [a] (-> a (Binary a)))
+  (All [a] (-> a (Format a)))
   {#read (function (_ input)
            (#error.Success [input default]))
    #write (function (_ value)
@@ -146,11 +146,11 @@
                blob)])})
 
 (def: #export any
-  (Binary Any)
+  (Format Any)
   (ignore []))
 
 (def: #export bit
-  (Binary Bit)
+  (Format Bit)
   {#read (function (_ [offset blob])
            (case (blob.read/8 offset blob)
              (#error.Success data)
@@ -172,18 +172,18 @@
                    (blob.write/8 offset (if value +1 +0))
                    error.assume))])})
 
-(def: #export nat (Binary Nat) (:assume ..bits/64))
-(def: #export int (Binary Int) (:assume ..bits/64))
-(def: #export rev (Binary Rev) (:assume ..bits/64))
+(def: #export nat (Format Nat) (:assume ..bits/64))
+(def: #export int (Format Int) (:assume ..bits/64))
+(def: #export rev (Format Rev) (:assume ..bits/64))
 
 (def: #export frac
-  (Binary Frac)
+  (Format Frac)
   (let [(^slots [#read #write]) ..bits/64]
     {#read (:: p.Monad<Parser> map number.bits-to-frac read)
      #write (|>> number.frac-to-bits write)}))
 
 (def: #export blob
-  (Binary Blob)
+  (Format Blob)
   {#read (do p.Monad<Parser>
            [size (get@ #read nat)]
            (function (_ [offset blob])
@@ -201,7 +201,7 @@
                     (blob.copy size +0 value (n/+ size/64 offset) blob))))]))})
 
 (def: #export text
-  (Binary Text)
+  (Format Text)
   (let [(^slots [#read #write]) ..blob]
     {#read (do p.Monad<Parser>
              [utf8 read]
@@ -209,22 +209,22 @@
      #write (|>> encoding.to-utf8 write)}))
 
 (def: #export maybe
-  (All [a] (-> (Binary a) (Binary (Maybe a))))
+  (All [a] (-> (Format a) (Format (Maybe a))))
   (..alt ..any))
 
 (def: #export (list value)
-  (All [a] (-> (Binary a) (Binary (List a))))
+  (All [a] (-> (Format a) (Format (List a))))
   (..rec
    (function (_ recur)
      (..alt ..any
             (..seq value recur)))))
 
 (def: #export ident
-  (Binary Ident)
+  (Format Ident)
   (..seq ..text ..text))
 
 (def: #export type
-  (Binary Type)
+  (Format Type)
   (..rec
    (function (_ type)
      (let [pair (..seq type type)
@@ -256,11 +256,11 @@
            )))))
 
 (def: #export cursor
-  (Binary Cursor)
+  (Format Cursor)
   ($_ ..seq ..text ..nat ..nat))
 
 (def: #export code
-  (Binary Code)
+  (Format Code)
   (..rec
    (function (_ code)
      (let [sequence (..list code)
