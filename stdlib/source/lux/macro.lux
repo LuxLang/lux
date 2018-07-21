@@ -6,7 +6,7 @@
     ["." monad (#+ do Monad)]]
    [data
     ["." product]
-    [ident ("ident/." Codec<Text,Ident> Equivalence<Ident>)]
+    [name ("name/." Codec<Text,Name> Equivalence<Name>)]
     ["." maybe]
     ["e" error]
     ["." number ("nat/." Codec<Text,Nat>)]
@@ -142,7 +142,7 @@
 
 (def: #export (get-ann tag anns)
   {#.doc "Looks-up a particular annotation's value within the set of annotations."}
-  (-> Ident Code (Maybe Code))
+  (-> Name Code (Maybe Code))
   (case anns
     [_ (#.Record anns)]
     (loop [anns anns]
@@ -150,7 +150,7 @@
         (#.Cons [key value] anns')
         (case key
           [_ (#.Tag tag')]
-          (if (ident/= tag tag')
+          (if (name/= tag tag')
             (#.Some value)
             (recur anns'))
 
@@ -165,7 +165,7 @@
 
 (do-template [<name> <tag> <type>]
   [(def: #export (<name> tag anns)
-     (-> Ident Code (Maybe <type>))
+     (-> Name Code (Maybe <type>))
      (case (get-ann tag anns)
        (#.Some [_ (<tag> value)])
        (#.Some value)
@@ -177,8 +177,8 @@
   [get-int-ann    #.Int    Int]
   [get-frac-ann   #.Frac   Frac]
   [get-text-ann   #.Text   Text]
-  [get-symbol-ann #.Symbol Ident]
-  [get-tag-ann    #.Tag    Ident]
+  [get-symbol-ann #.Symbol Name]
+  [get-tag-ann    #.Tag    Name]
   [get-form-ann   #.Form   (List Code)]
   [get-tuple-ann  #.Tuple  (List Code)]
   [get-record-ann #.Record (List [Code Code])]
@@ -187,18 +187,18 @@
 (def: #export (get-doc anns)
   {#.doc "Looks-up a definition's documentation."}
   (-> Code (Maybe Text))
-  (get-text-ann (ident-for #.doc) anns))
+  (get-text-ann (name-for #.doc) anns))
 
 (def: #export (flag-set? flag-name anns)
   {#.doc "Finds out whether an annotation-as-a-flag is set (has value '#1')."}
-  (-> Ident Code Bit)
+  (-> Name Code Bit)
   (maybe.default #0 (get-bit-ann flag-name anns)))
 
 (do-template [<name> <tag> <desc>]
   [(def: #export <name>
      {#.doc (code.text ($_ text/compose "Checks whether a definition is " <desc> "."))}
      (-> Code Bit)
-     (flag-set? (ident-for <tag>)))]
+     (flag-set? (name-for <tag>)))]
 
   [export?   #.export?   "exported"]
   [macro?    #.macro?    "a macro"]
@@ -210,7 +210,7 @@
 
 (def: #export (aliased? annotations)
   (-> Code Bit)
-  (case (get-symbol-ann (ident-for #.alias) annotations)
+  (case (get-symbol-ann (name-for #.alias) annotations)
     (#.Some _)
     #1
 
@@ -237,7 +237,7 @@
      (-> Code (List Text))
      (maybe.default (list)
                     (do maybe.Monad<Maybe>
-                      [_args (get-ann (ident-for <tag>) anns)
+                      [_args (get-ann (name-for <tag>) anns)
                        args (parse-tuple _args)]
                       (monad.map @ parse-text args))))]
 
@@ -255,36 +255,35 @@
     (if (and (macro? def-anns)
              (or (export? def-anns) (text/= module this-module)))
       (#.Some (:coerce Macro def-value))
-      (case (get-symbol-ann (ident-for #.alias) def-anns)
+      (case (get-symbol-ann (name-for #.alias) def-anns)
         (#.Some [r-module r-name])
         (find-macro' modules this-module r-module r-name)
 
         _
         #.None))))
 
-(def: #export (normalize ident)
-  {#.doc "If given an identifier without a module prefix, gives it the current module's name as prefix.
+(def: #export (normalize name)
+  {#.doc "If given a name without a module prefix, gives it the current module's name as prefix.
 
-          Otherwise, returns the identifier as-is."}
-  (-> Ident (Meta Ident))
-  (case ident
+          Otherwise, returns the name as-is."}
+  (-> Name (Meta Name))
+  (case name
     ["" name]
     (do Monad<Meta>
       [module-name current-module-name]
       (wrap [module-name name]))
 
     _
-    (:: Monad<Meta> wrap ident)))
+    (:: Monad<Meta> wrap name)))
 
-(def: #export (find-macro ident)
-  (-> Ident (Meta (Maybe Macro)))
+(def: #export (find-macro full-name)
+  (-> Name (Meta (Maybe Macro)))
   (do Monad<Meta>
-    [ident (normalize ident)
+    [[module name] (normalize full-name)
      this-module current-module-name]
-    (let [[module name] ident]
-      (: (Meta (Maybe Macro))
-         (function (_ compiler)
-           (#e.Success [compiler (find-macro' (get@ #.modules compiler) this-module module name)]))))))
+    (: (Meta (Maybe Macro))
+       (function (_ compiler)
+         (#e.Success [compiler (find-macro' (get@ #.modules compiler) this-module module name)])))))
 
 (def: #export (expand-once syntax)
   {#.doc "Given code that requires applying a macro, does it once and returns the result.
@@ -361,7 +360,7 @@
     (:: Monad<Meta> wrap (list syntax))))
 
 (def: #export (gensym prefix)
-  {#.doc "Generates a unique identifier as an Code node (ready to be used in code templates).
+  {#.doc "Generates a unique name as an Code node (ready to be used in code templates).
 
           A prefix can be given (or just be empty text \"\") to better identify the code for debugging purposes."}
   (-> Text (Meta Code))
@@ -490,7 +489,7 @@
 
 (def: #export (find-def name)
   {#.doc "Looks-up a definition's whole data in the available modules (including the current one)."}
-  (-> Ident (Meta Definition))
+  (-> Name (Meta Definition))
   (do Monad<Meta>
     [name (normalize name)]
     (function (_ compiler)
@@ -505,7 +504,7 @@
         _
         (let [current-module (|> compiler (get@ #.current-module) (maybe.default "???"))]
           (#e.Error ($_ text/compose
-                        "Unknown definition: " (ident/encode name) "\n"
+                        "Unknown definition: " (name/encode name) "\n"
                         "    Current module: " current-module "\n"
                         (case (get current-module (get@ #.modules compiler))
                           (#.Some this-module)
@@ -519,14 +518,14 @@
 
 (def: #export (find-def-type name)
   {#.doc "Looks-up a definition's type in the available modules (including the current one)."}
-  (-> Ident (Meta Type))
+  (-> Name (Meta Type))
   (do Monad<Meta>
     [[def-type def-data def-value] (find-def name)]
     (clean-type def-type)))
 
 (def: #export (find-type name)
   {#.doc "Looks-up the type of either a local variable or a definition."}
-  (-> Ident (Meta Type))
+  (-> Name (Meta Type))
   (do Monad<Meta>
     [#let [[_ _name] name]]
     (case name
@@ -539,7 +538,7 @@
 
 (def: #export (find-type-def name)
   {#.doc "Finds the value of a type definition (such as Int, Any or Lux)."}
-  (-> Ident (Meta Type))
+  (-> Name (Meta Type))
   (do Monad<Meta>
     [[def-type def-data def-value] (find-def name)]
     (wrap (:coerce Type def-value))))
@@ -573,7 +572,7 @@
 
 (def: #export (tags-of type-name)
   {#.doc "All the tags associated with a type definition."}
-  (-> Ident (Meta (Maybe (List Ident))))
+  (-> Name (Meta (Maybe (List Name))))
   (do Monad<Meta>
     [#let [[module name] type-name]
      module (find-module module)]
@@ -623,7 +622,7 @@
 
 (def: #export (resolve-tag tag)
   {#.doc "Given a tag, finds out what is its index, its related tag-list and it's associated type."}
-  (-> Ident (Meta [Nat (List Ident) Type]))
+  (-> Name (Meta [Nat (List Name) Type]))
   (do Monad<Meta>
     [#let [[module name] tag]
      =module (find-module module)
@@ -634,14 +633,14 @@
       (if (or (text/= this-module-name module)
               (and imported! exported?))
         (wrap [idx tag-list type])
-        (fail ($_ text/compose "Cannot access tag: " (ident/encode tag) " from module " this-module-name)))
+        (fail ($_ text/compose "Cannot access tag: " (name/encode tag) " from module " this-module-name)))
 
       _
-      (fail ($_ text/compose "Unknown tag: " (ident/encode tag))))))
+      (fail ($_ text/compose "Unknown tag: " (name/encode tag))))))
 
 (def: #export (tag-lists module)
   {#.doc "All the tag-lists defined in a module, with their associated types."}
-  (-> Text (Meta (List [(List Ident) Type])))
+  (-> Text (Meta (List [(List Name) Type])))
   (do Monad<Meta>
     [=module (find-module module)
      this-module-name current-module-name]
@@ -669,10 +668,10 @@
 
 (def: #export (un-alias def-name)
   {#.doc "Given an aliased definition's name, returns the original definition being referenced."}
-  (-> Ident (Meta Ident))
+  (-> Name (Meta Name))
   (do Monad<Meta>
     [[_ def-anns _] (find-def def-name)]
-    (case (get-symbol-ann (ident-for #.alias) def-anns)
+    (case (get-symbol-ann (name-for #.alias) def-anns)
       (#.Some real-def-name)
       (wrap real-def-name)
 
