@@ -11,6 +11,8 @@
      format]
     [collection
      ["." list ("list/." Fold<List> Monoid<List> Functor<List>)]]]
+   ["." type
+    ["." check]]
    ["." macro
     ["." code]]]
   ["." // (#+ Pattern Analysis Operation Compiler)
@@ -18,25 +20,22 @@
    ["//." type]
    ["." structure]
    ["/." //
-    ["." extension]
-    [//
-     ["." type
-      ["tc" check]]]]]
+    ["." extension]]]
   [/
    ["." coverage]])
 
-(exception: #export (cannot-match-type-with-pattern {type Type} {pattern Code})
+(exception: #export (cannot-match-with-pattern {type Type} {pattern Code})
   (ex.report ["Type" (%type type)]
              ["Pattern" (%code pattern)]))
 
-(exception: #export (sum-type-has-no-case {case Nat} {type Type})
+(exception: #export (sum-has-no-case {case Nat} {type Type})
   (ex.report ["Case" (%n case)]
              ["Type" (%type type)]))
 
 (exception: #export (unrecognized-pattern-syntax {pattern Code})
   (%code pattern))
 
-(exception: #export (cannot-simplify-type-for-pattern-matching {type Type})
+(exception: #export (cannot-simplify-for-pattern-matching {type Type})
   (%type type))
 
 (do-template [<name>]
@@ -63,7 +62,7 @@
 ## type-variables or quantifications.
 ## This function makes it easier for "case" analysis to properly
 ## type-check the input with respect to the patterns.
-(def: (simplify-case-type caseT)
+(def: (simplify-case caseT)
   (-> Type (Operation Type))
   (loop [envs (: (List (List Type))
                  (list))
@@ -72,13 +71,13 @@
       (#.Var id)
       (do ///.Monad<Operation>
         [?caseT' (//type.with-env
-                   (tc.read id))]
+                   (check.read id))]
         (.case ?caseT'
           (#.Some caseT')
           (recur envs caseT')
 
           _
-          (///.throw cannot-simplify-type-for-pattern-matching caseT)))
+          (///.throw cannot-simplify-for-pattern-matching caseT)))
 
       (#.Named name unnamedT)
       (recur envs unnamedT)
@@ -89,7 +88,7 @@
       (#.ExQ _)
       (do ///.Monad<Operation>
         [[ex-id exT] (//type.with-env
-                       tc.existential)]
+                       check.existential)]
         (recur envs (maybe.assume (type.apply (list exT) caseT))))
 
       (#.Apply inputT funcT)
@@ -97,14 +96,14 @@
         (#.Var funcT-id)
         (do ///.Monad<Operation>
           [funcT' (//type.with-env
-                    (do tc.Monad<Check>
-                      [?funct' (tc.read funcT-id)]
+                    (do check.Monad<Check>
+                      [?funct' (check.read funcT-id)]
                       (.case ?funct'
                         (#.Some funct')
                         (wrap funct')
 
                         _
-                        (tc.throw cannot-simplify-type-for-pattern-matching caseT))))]
+                        (check.throw cannot-simplify-for-pattern-matching caseT))))]
           (recur envs (#.Apply inputT funcT')))
 
         _
@@ -113,7 +112,7 @@
           (recur envs outputT)
 
           #.None
-          (///.throw cannot-simplify-type-for-pattern-matching caseT)))
+          (///.throw cannot-simplify-for-pattern-matching caseT)))
 
       (#.Product _)
       (|> caseT
@@ -130,7 +129,7 @@
   (//.with-cursor cursor
     (do ///.Monad<Operation>
       [_ (//type.with-env
-           (tc.check inputT type))
+           (check.check inputT type))
        outputA next]
       (wrap [output outputA]))))
 
@@ -178,23 +177,23 @@
     [cursor (#.Tuple sub-patterns)]
     (//.with-cursor cursor
       (do ///.Monad<Operation>
-        [inputT' (simplify-case-type inputT)]
+        [inputT' (simplify-case inputT)]
         (.case inputT'
           (#.Product _)
-          (let [sub-types (type.flatten-tuple inputT')
-                num-sub-types (maybe.default (list.size sub-types)
-                                             num-tags)
+          (let [subs (type.flatten-tuple inputT')
+                num-subs (maybe.default (list.size subs)
+                                        num-tags)
                 num-sub-patterns (list.size sub-patterns)
-                matches (cond (n/< num-sub-types num-sub-patterns)
-                              (let [[prefix suffix] (list.split (dec num-sub-patterns) sub-types)]
+                matches (cond (n/< num-subs num-sub-patterns)
+                              (let [[prefix suffix] (list.split (dec num-sub-patterns) subs)]
                                 (list.zip2 (list/compose prefix (list (type.tuple suffix))) sub-patterns))
 
-                              (n/> num-sub-types num-sub-patterns)
-                              (let [[prefix suffix] (list.split (dec num-sub-types) sub-patterns)]
-                                (list.zip2 sub-types (list/compose prefix (list (code.tuple suffix)))))
+                              (n/> num-subs num-sub-patterns)
+                              (let [[prefix suffix] (list.split (dec num-subs) sub-patterns)]
+                                (list.zip2 subs (list/compose prefix (list (code.tuple suffix)))))
                               
-                              ## (n/= num-sub-types num-sub-patterns)
-                              (list.zip2 sub-types sub-patterns))]
+                              ## (n/= num-subs num-sub-patterns)
+                              (list.zip2 subs sub-patterns))]
             (do @
               [[memberP+ thenA] (list/fold (: (All [a]
                                                 (-> [Type Code] (Operation [(List Pattern) a])
@@ -213,7 +212,7 @@
                      thenA])))
 
           _
-          (///.throw cannot-match-type-with-pattern [inputT pattern])
+          (///.throw cannot-match-with-pattern [inputT pattern])
           )))
 
     [cursor (#.Record record)]
@@ -221,7 +220,7 @@
       [record (structure.normalize record)
        [members recordT] (structure.order record)
        _ (//type.with-env
-           (tc.check inputT recordT))]
+           (check.check inputT recordT))]
       (analyse-pattern (#.Some (list.size members)) inputT [cursor (#.Tuple members)] next))
 
     [cursor (#.Tag tag)]
@@ -231,14 +230,14 @@
     (^ [cursor (#.Form (list& [_ (#.Nat idx)] values))])
     (//.with-cursor cursor
       (do ///.Monad<Operation>
-        [inputT' (simplify-case-type inputT)]
+        [inputT' (simplify-case inputT)]
         (.case inputT'
           (#.Sum _)
           (let [flat-sum (type.flatten-variant inputT')
                 size-sum (list.size flat-sum)
                 num-cases (maybe.default size-sum num-tags)]
             (.case (list.nth idx flat-sum)
-              (^multi (#.Some case-type)
+              (^multi (#.Some caseT)
                       (n/< num-cases idx))
               (do ///.Monad<Operation>
                 [[testP nextA] (if (and (n/> num-cases size-sum)
@@ -247,15 +246,15 @@
                                                   (type.variant (list.drop (dec num-cases) flat-sum))
                                                   (` [(~+ values)])
                                                   next)
-                                 (analyse-pattern #.None case-type (` [(~+ values)]) next))]
+                                 (analyse-pattern #.None caseT (` [(~+ values)]) next))]
                 (wrap [(//.sum-pattern num-cases idx testP)
                        nextA]))
 
               _
-              (///.throw sum-type-has-no-case [idx inputT])))
+              (///.throw sum-has-no-case [idx inputT])))
 
           _
-          (///.throw cannot-match-type-with-pattern [inputT pattern]))))
+          (///.throw cannot-match-with-pattern [inputT pattern]))))
 
     (^ [cursor (#.Form (list& [_ (#.Tag tag)] values))])
     (//.with-cursor cursor
@@ -263,7 +262,7 @@
         [tag (extension.lift (macro.normalize tag))
          [idx group variantT] (extension.lift (macro.resolve-tag tag))
          _ (//type.with-env
-             (tc.check inputT variantT))]
+             (check.check inputT variantT))]
         (analyse-pattern (#.Some (list.size group)) inputT (` ((~ (code.nat idx)) (~+ values))) next)))
 
     _
