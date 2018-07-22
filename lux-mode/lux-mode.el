@@ -208,6 +208,9 @@ Called by `imenu--generic-function'."
               (set-match-data (list def-beg def-end)))))
         (goto-char start)))))
 
+(defun altRE (&rest alternatives)
+  (concat "\\(" (mapconcat 'identity alternatives "\\|") "\\)"))
+
 (defconst lux-font-lock-keywords
   (let ((digits "[0-9][0-9_]*")
         (digits+ "[0-9_]+")
@@ -224,45 +227,80 @@ Called by `imenu--generic-function'."
                            (in-current-module (concat separator separator))
                            (in-module (concat symbol separator))
                            (in-local ""))
-                       (concat "#"
-                               "\\(" in-prelude "\\|" in-current-module "\\|" in-module "\\|" in-local "\\)"
-                               symbol)))))
+                       (concat "#" (altRE in-prelude in-current-module in-module in-local) symbol)))))
         (eval-when-compile
           `(;; Special forms
-            (,(concat
-               "("
-               (regexp-opt
-                '(".module:"
-                  "def:" "type:" "macro:" "syntax:" "program:"
-                  "signature:" "structure:" "context:" "template:"
-                  "class:" "interface:"
-                  "poly:" "derived:"
-                  "actor:" "message:" "on:"
-                  "exception:"
-                  "word:"
-                  "abstract:"
-                  "unit:" "scale:"
-                  "import:"
-                  ":" ":coerce" ":assume" ":of" ":cast" ":share" ":abstraction" ":representation" "^:representation" ":~"
-                  "function" "case" "undefined" "name-for" "static"
-                  "and" "or"
-                  "char"
-                  "exec" "let" "if" "cond" "do" "be" "open:" "loop" "recur" "comment" "for"
-                  "list" "list&" "io" "row" "tree"
-                  "get@" "set@" "update@" "|>" "|>>" "<|" "<<|" "_$" "$_" "~" "~+" "~!" "~'" "::" ":::"
-                  "|" "&" "->" "All" "Ex" "Rec" "primitive" "$" "type"
-                  "^" "^or" "^slots" "^multi" "^@" "^template" "^open" "^|>" "^code" "^sequence&" "^regex"
-                  "bin" "oct" "hex"
-                  "pre" "post"
-                  "structure" "derive"
-                  "infix"
-                  "format"
-                  "`" "`'" "'" "do-template" "with-expansions" "``" "~~"
-                  "object" "do-to" "synchronized" "class-for"
-                  "doc"
-                  "regex"
-                  ) t)
-               "\\>")
+            (,(let (;; Control
+                    (control//flow (altRE "case" "exec" "let" "if" "cond" "loop" "recur" "do" "be"))
+                    (control//pattern-matching (altRE "\\^" "\\^or" "\\^slots"
+                                                      "\\^multi" "\\^@" "\\^template"
+                                                      "\\^open" "\\^|>" "\\^code"
+                                                      "\\^sequence&" "\\^regex"))
+                    (control//logic (altRE "and" "or"))
+                    (control//contract (altRE "pre" "post"))
+                    ;; Type
+                    (type//syntax (altRE "|" "&" "->" "All" "Ex" "Rec" "primitive" "\\$" "type"))
+                    (type//checking (altRE ":" ":coerce" ":~" ":assume" ":of" ":cast" ":share"))
+                    (type//abstract (altRE "abstract:" ":abstraction" ":representation" "\\^:representation"))
+                    (type//unit (altRE "unit:" "scale:"))
+                    (type//poly (altRE "poly:" "derived:"))
+                    ;; Data
+                    (data//record (altRE "get@" "set@" "update@"))
+                    (data//signature (altRE "signature:" "structure:" "open:" "structure" "::"))
+                    (data//implicit (altRE "implicit:" "implicit" ":::"))
+                    (data//collection (altRE "list" "list&" "row" "tree"))
+                    ;; Code
+                    (code//quotation (altRE "`" "`'" "'" "~" "~\\+" "~!" "~'"))
+                    (code//super-quotation (altRE "``" "~~"))
+                    (code//template (altRE "do-template" "template:"))
+                    ;; Miscellaneous
+                    (actor (altRE "actor:" "message:" "on:"))
+                    (jvm-host (altRE "class:" "interface:" "import:" "object" "do-to" "synchronized" "class-for"))
+                    (alternative-format (altRE "char" "bin" "oct" "hex"))
+                    (documentation (altRE "doc""comment"))
+                    (function-application (altRE "|>" "|>>" "<|" "<<|" "_\\$" "\\$_")))
+                (let ((control (altRE control//flow
+                                      control//pattern-matching
+                                      control//logic
+                                      control//contract))
+                      (type (altRE type//syntax
+                                   type//checking
+                                   type//abstract
+                                   type//unit
+                                   type//poly))
+                      (data (altRE data//record
+                                   data//signature
+                                   data//implicit
+                                   data//collection))
+                      (code (altRE code//quotation
+                                   code//super-quotation
+                                   code//template)))
+                  (concat
+                   "("
+                   (altRE
+                    control
+                    type
+                    data
+                    code
+                    ;;;;;;;;;;;;;;;;;;;;;;;;
+                    actor
+                    jvm-host
+                    alternative-format
+                    documentation
+                    function-application
+                    ;;;;;;;;;;;;;;;;;;;;;;;;
+                    "\\.module:"
+                    "def:" "type:" "program:" "context:"
+                    "macro:" "syntax:"
+                    "with-expansions"
+                    "exception:"
+                    "word:"
+                    "function" "undefined" "name-for" "static"
+                    "for" "io"
+                    "infix"
+                    "format"
+                    "regex")
+                   "\\>")))
              1 font-lock-builtin-face)
             ;; Bit literals
             (,bitRE 0 font-lock-constant-face)
