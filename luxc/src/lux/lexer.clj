@@ -15,7 +15,7 @@
   ("Rev" 1)
   ("Frac" 1)
   ("Text" 1)
-  ("Symbol" 1)
+  ("Identifier" 1)
   ("Tag" 1)
   ("Open_Paren" 0)
   ("Close_Paren" 0)
@@ -170,9 +170,9 @@
                           (return (&/T [meta (&/T ["lux" token])])))
                         )))
 
-(def ^:private lex-symbol
+(def ^:private lex-identifier
   (|do [[meta ident] lex-ident]
-    (return (&/T [meta ($Symbol ident)]))))
+    (return (&/T [meta ($Identifier ident)]))))
 
 (def ^:private lex-tag
   (|do [[meta _ _] (&reader/read-text "#")
@@ -211,6 +211,6 @@
                         lex-rev
                         lex-int
                         lex-text
-                        lex-symbol
+                        lex-identifier
                         lex-tag
                         lex-delimiter)))

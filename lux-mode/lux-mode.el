@@ -214,9 +214,9 @@ Called by `imenu--generic-function'."
 (defconst lux-font-lock-keywords
   (let ((digits "[0-9][0-9_]*")
         (digits+ "[0-9_]+")
-        (symbol_h "[a-zA-Z-\\+_=!@\\$%\\^&\\*<>;,/\\\\\\|':~\\?]")
-        (symbol_t "[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>;,/\\\\\\|':~\\?]"))
-    (let ((symbol (concat symbol_h symbol_t "*")))
+        (identifier_h "[a-zA-Z-\\+_=!@\\$%\\^&\\*<>;,/\\\\\\|':~\\?]")
+        (identifier_t "[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>;,/\\\\\\|':~\\?]"))
+    (let ((identifier (concat identifier_h identifier_t "*")))
       (let ((bitRE (concat "\\<" (regexp-opt '("#0" "#1") t) "\\>"))
             (natRE (concat "\\<\\+" digits "\\>"))
             (int&fracRE (concat "\\<-?" digits "\\(\\." digits+ "\\(\\(e\\|E\\)\\(-\\|\\+\\)?" digits "\\)?\\)?\\>"))
@@ -225,9 +225,9 @@ Called by `imenu--generic-function'."
             (tagRE (let ((separator "\\."))
                      (let ((in-prelude separator)
                            (in-current-module (concat separator separator))
-                           (in-module (concat symbol separator))
+                           (in-module (concat identifier separator))
                            (in-local ""))
-                       (concat "#" (altRE in-prelude in-current-module in-module in-local) symbol)))))
+                       (concat "#" (altRE in-prelude in-current-module in-module in-local) identifier)))))
         (eval-when-compile
           `(;; Special forms
             (,(let (;; Control
@@ -372,7 +372,7 @@ This function also returns nil meaning don't specify the indentation."
     (parse-partial-sexp (point) calculate-lisp-indent-last-sexp 0 t)
     (if (and (elt state 2)
              (not (looking-at "\\sw\\|\\s_")))
-        ;; car of form doesn't seem to be a symbol
+        ;; car of form doesn't seem to be an identifier
         (progn
           (if (not (> (save-excursion (forward-line 1) (point))
                       calculate-lisp-indent-last-sexp))
@@ -422,7 +422,6 @@ This function also returns nil meaning don't specify the indentation."
                kvs)))
 
 (define-lux-indent
-  (def 'defun)
   (function 'defun)
   (let 'defun)
   (case 'defun)

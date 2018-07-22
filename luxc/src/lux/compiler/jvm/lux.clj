@@ -300,7 +300,7 @@
     (|do [module-name &/get-module-name
           class-loader &/loader]
       (|case (&a-meta/meta-get &a-meta/alias-tag ?meta)
-        (&/$Some [_ (&/$Symbol [r-module r-name])])
+        (&/$Some [_ (&/$Identifier [r-module r-name])])
         (|case ?meta
           [_ (&/$Record ?meta*)]
           (if (= 1 (&/|length ?meta*))
@@ -315,7 +315,7 @@
             (&/fail-with-loc (str "[Compilation Error] Aliases cannot contain meta-data: " (str module-name &/+name-separator+ ?name)))))
 
         (&/$Some _)
-        (&/fail-with-loc "[Compilation Error] Invalid syntax for lux;alias meta-data. Must be a symbol.")
+        (&/fail-with-loc "[Compilation Error] Invalid syntax for lux;alias meta-data. Must be an identifier.")
         
         _
         (|case (de-ann ?body)

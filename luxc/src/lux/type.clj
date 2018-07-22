@@ -162,7 +162,7 @@
                              Frac
                              (&/$Sum ;; "lux;Text"
                               Text
-                              (&/$Sum ;; "lux;Symbol"
+                              (&/$Sum ;; "lux;Identifier"
                                Ident
                                (&/$Sum ;; "lux;Tag"
                                 Ident

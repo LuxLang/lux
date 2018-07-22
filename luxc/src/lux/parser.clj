@@ -82,8 +82,8 @@
       (&lexer/$Text ?value)
       (return (&/|list (&/T [meta (&/$Text ?value)])))
 
-      (&lexer/$Symbol ?ident)
-      (return (&/|list (&/T [meta (&/$Symbol ?ident)])))
+      (&lexer/$Identifier ?ident)
+      (return (&/|list (&/T [meta (&/$Identifier ?ident)])))
 
       (&lexer/$Tag ?ident)
       (return (&/|list (&/T [meta (&/$Tag ?ident)])))

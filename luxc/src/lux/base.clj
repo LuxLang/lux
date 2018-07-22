@@ -77,7 +77,7 @@
   ("Rev" 1)
   ("Frac" 1)
   ("Text" 1)
-  ("Symbol" 1)
+  ("Identifier" 1)
   ("Tag" 1)
   ("Form" 1)
   ("Tuple" 1)
@@ -1227,7 +1227,7 @@
       (str "#" ?tag)
       (str "#" ?module +name-separator+ ?tag))
 
-    [_ ($Symbol ?module ?name)]
+    [_ ($Identifier ?module ?name)]
     (if (.equals "" ?module)
       ?name
       (str ?module +name-separator+ ?name))

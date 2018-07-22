@@ -252,7 +252,7 @@
 (defn ^:private analyse-pattern [var?? value-type pattern kont]
   (|let [[meta pattern*] pattern]
     (|case pattern*
-      (&/$Symbol "" name)
+      (&/$Identifier "" name)
       (|case var??
         (&/$Some var-analysis)
         (|do [=kont (&env/with-alias name var-analysis
@@ -265,8 +265,8 @@
               idx &env/next-local-idx]
           (return (&/T [($StoreTestAC idx) =kont]))))
       
-      (&/$Symbol ident)
-      (&/fail-with-loc (str "[Pattern-matching Error] Symbols must be unqualified: " (&/ident->text ident)))
+      (&/$Identifier ident)
+      (&/fail-with-loc (str "[Pattern-matching Error] Identifiers must be unqualified: " (&/ident->text ident)))
 
       (&/$Bit ?value)
       (|do [_ (&type/check value-type &type/Bit)

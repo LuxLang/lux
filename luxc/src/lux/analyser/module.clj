@@ -236,7 +236,7 @@
           (|let [[?type ?meta ?value] $def]
             (if (.equals ^Object current-module module)
               (|case (&meta/meta-get &meta/alias-tag ?meta)
-                (&/$Some [_ (&/$Symbol [?r-module ?r-name])])
+                (&/$Some [_ (&/$Identifier [?r-module ?r-name])])
                 ((find-def! ?r-module ?r-name)
                  state)
 
@@ -262,7 +262,7 @@
             (|let [[?type ?meta ?value] $def]
               (if (.equals ^Object current-module module)
                 (|case (&meta/meta-get &meta/alias-tag ?meta)
-                  (&/$Some [_ (&/$Symbol [?r-module ?r-name])])
+                  (&/$Some [_ (&/$Identifier [?r-module ?r-name])])
                   ((find-def ?r-module ?r-name)
                    state)
 
@@ -427,7 +427,7 @@
                               (|let [[k _def-data] kv
                                      [_ ?def-meta _] _def-data]
                                 (|case (&meta/meta-get &meta/alias-tag ?def-meta)
-                                  (&/$Some [_ (&/$Symbol [?r-module ?r-name])])
+                                  (&/$Some [_ (&/$Identifier [?r-module ?r-name])])
                                   (&/T [k (str ?r-module &/+name-separator+ ?r-name) _def-data])
                                   
                                   _

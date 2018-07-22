@@ -42,7 +42,7 @@
     [_ (&/$Text value)]
     (str "T" value stop)
 
-    [_ (&/$Symbol ident)]
+    [_ (&/$Identifier ident)]
     (str "@" (serialize-ident ident) stop)
 
     [_ (&/$Tag ident)]
@@ -91,8 +91,8 @@
             [_module _name] (.split ident* "\\." 2)]
         [(&/T [dummy-cursor (<tag> (&/T [_module _name]))]) input*])))
 
-  ^:private deserialize-symbol "@" &/$Symbol
-  ^:private deserialize-tag    "#" &/$Tag)
+  ^:private deserialize-identifier "@" &/$Identifier
+  ^:private deserialize-tag        "#" &/$Tag)
 
 (defn ^:private deserialize-seq [deserializer ^String input]
   (cond (.startsWith input nil-signal)
@@ -130,7 +130,7 @@
       (deserialize-rev input)
       (deserialize-frac input)
       (deserialize-text input)
-      (deserialize-symbol input)
+      (deserialize-identifier input)
       (deserialize-tag input)
       (deserialize-form input)
       (deserialize-tuple input)

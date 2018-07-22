@@ -101,9 +101,9 @@
       (&/with-analysis-meta cursor exo-type
         (analyse-variant+ analyse exo-type ?ident &/$Nil))
 
-      (&/$Symbol ?ident)
+      (&/$Identifier ?ident)
       (&/with-analysis-meta cursor exo-type
-        (&&lux/analyse-symbol analyse exo-type ?ident))
+        (&&lux/analyse-identifier analyse exo-type ?ident))
 
       (&/$Form (&/$Cons [command-meta command] parameters))
       (|case command
@@ -128,7 +128,7 @@
               (&&lux/analyse-coerce analyse eval! exo-type ?type ?value)))
 
           "lux def"
-          (|let [(&/$Cons [_ (&/$Symbol "" ?name)]
+          (|let [(&/$Cons [_ (&/$Identifier "" ?name)]
                           (&/$Cons ?value
                                    (&/$Cons ?meta
                                             (&/$Nil))
@@ -176,8 +176,8 @@
             (&&lux/analyse-case analyse exo-type ?input ?pattern-matching)))
 
         ;; Function syntax.
-        (&/$Tuple (&/$Cons [_ (&/$Symbol "" ?self)]
-                           (&/$Cons [_ (&/$Symbol "" ?arg)] (&/$Nil))))
+        (&/$Tuple (&/$Cons [_ (&/$Identifier "" ?self)]
+                           (&/$Cons [_ (&/$Identifier "" ?arg)] (&/$Nil))))
         (|let [(&/$Cons ?body (&/$Nil)) parameters]
           (&/with-analysis-meta cursor exo-type
             (&&lux/analyse-function analyse exo-type ?self ?arg ?body)))

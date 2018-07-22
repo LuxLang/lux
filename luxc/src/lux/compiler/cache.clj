@@ -89,8 +89,8 @@
 (defn make-tag [ident]
   (&/T [(&/T ["" 0 0]) (&/$Tag ident)]))
 
-(defn make-symbol [ident]
-  (&/T [(&/T ["" 0 0]) (&/$Symbol ident)]))
+(defn make-identifier [ident]
+  (&/T [(&/T ["" 0 0]) (&/$Identifier ident)]))
 
 (defn make-record [ident]
   (&/T [(&/T ["" 0 0]) (&/$Record ident)]))
@@ -101,7 +101,7 @@
       2 (let [[_name _alias] parts
               [_ __module __name] (re-find #"^(.*)\.(.*)$" _alias)
               def-anns (make-record (&/|list (&/T [(make-tag &a-meta/alias-tag)
-                                                   (make-symbol (&/T [__module __name]))])))]
+                                                   (make-identifier (&/T [__module __name]))])))]
           (|do [def-type (&a-module/def-type __module __name)
                 def-value (load-def-value __module __name)]
             (&a-module/define module _name def-type def-anns def-value)))

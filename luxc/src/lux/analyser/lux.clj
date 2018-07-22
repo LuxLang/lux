@@ -300,7 +300,7 @@
            (&/set$ &/$scopes (&/|++ inner* outer) state)))
         ))))
 
-(defn analyse-symbol [analyse exo-type ident]
+(defn analyse-identifier [analyse exo-type ident]
   (|do [:let [[?module ?name] ident]]
     (if (= "" ?module)
       (analyse-local analyse exo-type ?name)
