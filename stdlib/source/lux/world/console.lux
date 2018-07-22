@@ -1,105 +1,72 @@
 (.module:
   [lux #*
-   [control [monad (#+ do)]]
+   [control
+    [monad (#+ do)]
+    ["ex" exception (#+ exception:)]]
    [data
-    ["e" error]
-    ["." text]]
+    ["." error]
+    ["." text
+     format]]
    [concurrency
     ["." promise]
     ["." task (#+ Task)]]
-   [type
-    [object
-     interface]]
    ["." io (#+ IO Process io)]
    [host (#+ import:)]])
 
-(interface: #export Console
-  (read-char [] (Task Text))
-  (read-line [] (Task Text))
-  (write [Text] (Task Any))
-  (close [] (Task Any)))
+(exception: #export (cannot-close)
+  "")
+
+(signature: #export (Console m)
+  (: (-> [] (m Nat))
+     read)
+  (: (-> [] (m Text))
+     read-line)
+  (: (-> [Text] (m Any))
+     write)
+  (: (-> [] (m Any))
+     close))
 
 (for {"JVM"
-      (as-is (import: java/io/InputStream
-               (read [] #io #try int)
-               (available [] #io #try int)
-               (mark [int] #io #try void)
-               (reset [] #io #try void))
+      (as-is (import: java/lang/String)
 
-             (import: java/io/Reader)
+             (import: #long java/io/Console
+               (readLine [] #io #try String))
+
+             (import: java/io/InputStream
+               (read [] #io #try int))
 
              (import: java/io/PrintStream
                (print [String] #io #try void))
 
              (import: java/lang/System
+               (#static console [] #io #try java/io/Console)
                (#static in java/io/InputStream)
                (#static out java/io/PrintStream))
 
-             (import: java/lang/Appendable
-               (append [CharSequence] Appendable))
-
-             (import: java/lang/String)
-
-             (import: java/lang/StringBuffer
-               (new [String])
-               (toString [] String))
-
-             (class: JVM-Console Console
-               {#input InputStream
-                #output PrintStream}
-
-               (def: read-char
-                 (|>> get@Console
-                      (get@ #input)
-                      (InputStream::read [])
-                      (:: io.Functor<Process> map (|>> .nat text.from-code))
-                      promise.future))
-               
-               (def: (read-line console)
-                 (let [input (|> console get@Console (get@ #input))
-                       buffer (StringBuffer::new [""])]
-                   (promise.future
-                    (loop [_ []]
-                      (do io.Monad<Process>
-                        [char (<| (:: @ map (|>> .nat text.from-code))
-                                  (InputStream::read [] input))]
-                        (case char
-                          "\n"
-                          (wrap (StringBuffer::toString [] buffer))
-                          
-                          "\r"
-                          (do @
-                            [available (InputStream::available [] input)]
-                            (if (i/> 0 available)
-                              (do @
-                                [_ (InputStream::mark [10] input)
-                                 next (<| (:: @ map (|>> .nat text.from-code))
-                                          (InputStream::read [] input))]
-                                (case next
-                                  "\n"
-                                  (wrap (StringBuffer::toString [] buffer))
-                                  
-                                  _
-                                  (do @
-                                    [_ (InputStream::reset [] input)]
-                                    (wrap (StringBuffer::toString [] buffer)))))
-                              (wrap (StringBuffer::toString [] buffer))))
-                          
-                          _
-                          (exec (Appendable::append [(:coerce String char)] buffer)
-                            (recur []))))))))
-               
-               (def: (write message)
-                 (|>> get@Console
-                      (get@ #output)
-                      (PrintStream::print [message])
-                      promise.future))
-               
-               (def: (close self)
-                 (task.return [])))
-
              (def: #export open
-               (Process Console)
-               (io (#e.Success (new@JVM-Console {#input System::in
-                                                 #output System::out})))))
+               (Process (Console Task))
+               (do io.Monad<Process>
+                 [jvm-console (System::console [])
+                  #let [jvm-input System::in
+                        jvm-output System::out]]
+                 (wrap (: (Console Task)
+                          (structure
+                           (def: (read _)
+                             (|> jvm-input
+                                 (InputStream::read [])
+                                 (:: io.Functor<Process> map .nat)
+                                 promise.future))
+                           
+                           (def: (read-line _)
+                             (|> jvm-console (java/io/Console::readLine []) promise.future))
+                           
+                           (def: (write message)
+                             (|> jvm-output (PrintStream::print [message]) promise.future))
+                           
+                           (def: close
+                             (|>> (ex.construct cannot-close) task.fail))))))))
       })
+
+(def: #export (write-line message console)
+  (All [m] (-> Text (Console m) (m Any)))
+  (:: console write (format message "")))
