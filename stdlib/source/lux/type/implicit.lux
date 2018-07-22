@@ -13,9 +13,9 @@
     [collection
      ["." list ("list/." Monad<List> Fold<List>)]
      ["dict" dictionary (#+ Dictionary)]]]
-   ["." macro (#+ Monad<Meta>)
+   ["." macro
     ["." code]
-    ["s" syntax (#+ syntax: Syntax)]]
+    ["s" syntax (#+ Syntax syntax:)]]
    ["." type
     ["." check (#+ Check)]]])
 
@@ -29,7 +29,7 @@
       (find-type-var id' env)
 
       _
-      (:: Monad<Meta> wrap type))
+      (:: macro.Monad<Meta> wrap type))
 
     (#.Some [_ #.None])
     (macro.fail (format "Unbound type-var " (%n id)))
@@ -40,7 +40,7 @@
 
 (def: (resolve-type var-name)
   (-> Name (Meta Type))
-  (do Monad<Meta>
+  (do macro.Monad<Meta>
     [raw-type (macro.find-type var-name)
      compiler macro.get-compiler]
     (case raw-type
@@ -78,11 +78,11 @@
   (-> Name (Meta Name))
   (case member
     ["" simple-name]
-    (macro.either (do Monad<Meta>
+    (macro.either (do macro.Monad<Meta>
                     [member (macro.normalize member)
                      _ (macro.resolve-tag member)]
                     (wrap member))
-                  (do Monad<Meta>
+                  (do macro.Monad<Meta>
                     [this-module-name macro.current-module-name
                      imp-mods (macro.imported-modules this-module-name)
                      tag-lists (monad.map @ macro.tag-lists imp-mods)
@@ -100,11 +100,11 @@
                       (macro.fail (format "Too many candidate tags: " (%list %name candidates))))))
 
     _
-    (:: Monad<Meta> wrap member)))
+    (:: macro.Monad<Meta> wrap member)))
 
 (def: (resolve-member member)
   (-> Name (Meta [Nat Type]))
-  (do Monad<Meta>
+  (do macro.Monad<Meta>
     [member (find-member-name member)
      [idx tag-list sig-type] (macro.resolve-tag member)]
     (wrap [idx sig-type])))
@@ -119,7 +119,7 @@
 
 (def: local-env
   (Meta (List [Name Type]))
-  (do Monad<Meta>
+  (do macro.Monad<Meta>
     [local-batches macro.locals
      #let [total-locals (list/fold (function (_ [name type] table)
                                      (dict.put~ name type table))
@@ -132,14 +132,14 @@
 
 (def: local-structs
   (Meta (List [Name Type]))
-  (do Monad<Meta>
+  (do macro.Monad<Meta>
     [this-module-name macro.current-module-name
      definitions (macro.definitions this-module-name)]
     (wrap (prepare-definitions this-module-name definitions))))
 
 (def: import-structs
   (Meta (List [Name Type]))
-  (do Monad<Meta>
+  (do macro.Monad<Meta>
     [this-module-name macro.current-module-name
      imp-mods (macro.imported-modules this-module-name)
      export-batches (monad.map @ (function (_ imp-mod)
@@ -200,7 +200,7 @@
   (-> (-> Lux Type-Context Type (Check Instance))
       Type-Context Type (List [Name Type])
       (Meta (List Instance)))
-  (do Monad<Meta>
+  (do macro.Monad<Meta>
     [compiler macro.get-compiler]
     (case (|> alts
               (list/map (function (_ [alt-name alt-type])
@@ -228,9 +228,9 @@
   (-> Lux Type-Context Type (Check Instance))
   (case (macro.run compiler
                    ($_ macro.either
-                       (do Monad<Meta> [alts local-env] (test-provision provision context dep alts))
-                       (do Monad<Meta> [alts local-structs] (test-provision provision context dep alts))
-                       (do Monad<Meta> [alts import-structs] (test-provision provision context dep alts))))
+                       (do macro.Monad<Meta> [alts local-env] (test-provision provision context dep alts))
+                       (do macro.Monad<Meta> [alts local-structs] (test-provision provision context dep alts))
+                       (do macro.Monad<Meta> [alts import-structs] (test-provision provision context dep alts))))
     (#.Left error)
     (check.fail error)
 
@@ -248,7 +248,7 @@
 
 (def: (test-alternatives sig-type member-idx input-types output-type alts)
   (-> Type Nat (List Type) Type (List [Name Type]) (Meta (List Instance)))
-  (do Monad<Meta>
+  (do macro.Monad<Meta>
     [compiler macro.get-compiler
      context macro.type-context]
     (case (|> alts
@@ -279,9 +279,9 @@
   (-> Type Nat (List Type) Type (Meta (List Instance)))
   (let [test (test-alternatives sig-type member-idx input-types output-type)]
     ($_ macro.either
-        (do Monad<Meta> [alts local-env] (test alts))
-        (do Monad<Meta> [alts local-structs] (test alts))
-        (do Monad<Meta> [alts import-structs] (test alts)))))
+        (do macro.Monad<Meta> [alts local-env] (test alts))
+        (do macro.Monad<Meta> [alts local-structs] (test alts))
+        (do macro.Monad<Meta> [alts import-structs] (test alts)))))
 
 (def: (var? input)
   (-> Code Bit)
@@ -361,3 +361,29 @@
       (wrap (list (` (let [(~+ (|> (list.zip2 labels args) (list/map join-pair) list/join))]
                        (..::: (~ (code.symbol member)) (~+ labels)))))))
     ))
+
+(def: (implicit-bindings amount)
+  (-> Nat (Meta (List Code)))
+  (|> (macro.gensym "g!implicit")
+      (list.repeat amount)
+      (monad.seq macro.Monad<Meta>)))
+
+(def: implicits
+  (Syntax (List Code))
+  (s.tuple (p.many s.any)))
+
+(syntax: #export (implicit {structures ..implicits} body)
+  (do @
+    [g!implicit+ (implicit-bindings (list.size structures))]
+    (wrap (list (` (let [(~+ (|> (list.zip2 g!implicit+ structures)
+                                 (list/map (function (_ [g!implicit structure])
+                                             (list g!implicit structure)))
+                                 list/join))]
+                     (~ body)))))))
+
+(syntax: #export (implicit: {structures ..implicits})
+  (do @
+    [g!implicit+ (implicit-bindings (list.size structures))]
+    (wrap (|> (list.zip2 g!implicit+ structures)
+              (list/map (function (_ [g!implicit structure])
+                          (` (def: (~ g!implicit) (~ structure)))))))))
