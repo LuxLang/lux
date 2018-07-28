@@ -211,23 +211,30 @@ Called by `imenu--generic-function'."
 (defun altRE (&rest alternatives)
   (concat "\\(" (mapconcat 'identity alternatives "\\|") "\\)"))
 
+(defun literal (content)
+  (concat "\\<" content "\\>"))
+
+(defun special (normal)
+  (concat "#" normal))
+
 (defconst lux-font-lock-keywords
-  (let ((digits "[0-9][0-9_]*")
-        (digits+ "[0-9_]+")
+  (let ((natural "[0-9][0-9_]*")
         (identifier_h "[a-zA-Z-\\+_=!@\\$%\\^&\\*<>;,/\\\\\\|':~\\?]")
-        (identifier_t "[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>;,/\\\\\\|':~\\?]"))
-    (let ((identifier (concat identifier_h identifier_t "*")))
-      (let ((bitRE (concat "\\<" (regexp-opt '("#0" "#1") t) "\\>"))
-            (natRE (concat "\\<\\+" digits "\\>"))
-            (int&fracRE (concat "\\<-?" digits "\\(\\." digits+ "\\(\\(e\\|E\\)\\(-\\|\\+\\)?" digits "\\)?\\)?\\>"))
-            (frac-ratioRE (concat "\\<-?" digits "/" digits "\\>"))
-            (revRE (concat "\\<\\." digits "\\>"))
+        (identifier_t "[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>;,/\\\\\\|':~\\?]")
+        (sign (altRE "-" "\\+")))
+    (let ((identifier (concat identifier_h identifier_t "*"))
+          (integer (concat sign natural)))
+      (let ((bitRE (literal (special (altRE "0" "1"))))
+            (natRE (literal natural))
+            (int&fracRE (literal (concat integer "\\(\\." natural "\\(\\(e\\|E\\)" integer "\\)?\\)?")))
+            (frac-ratioRE (literal (concat integer "/" natural)))
+            (revRE (literal (concat "\\." natural)))
             (tagRE (let ((separator "\\."))
                      (let ((in-prelude separator)
                            (in-current-module (concat separator separator))
                            (in-module (concat identifier separator))
                            (in-local ""))
-                       (concat "#" (altRE in-prelude in-current-module in-module in-local) identifier)))))
+                       (special (concat (altRE in-prelude in-current-module in-module in-local) identifier))))))
         (eval-when-compile
           `(;; Special forms
             (,(let (;; Control
