@@ -68,7 +68,7 @@
       (return (&/|list (&/T [meta (&/$Bit (.equals ^String ?value "#1"))])))
 
       (&lexer/$Nat ?value)
-      (return (&/|list (&/T [meta (&/$Nat (Long/parseUnsignedLong ?value))])))
+      (return (&/|list (&/T [meta (&/$Nat (Long/parseUnsignedLong (.substring ^String ?value 1)))])))
 
       (&lexer/$Int ?value)
       (return (&/|list (&/T [meta (&/$Int (Long/parseLong ?value))])))
