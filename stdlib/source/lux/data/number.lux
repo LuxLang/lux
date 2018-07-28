@@ -10,7 +10,7 @@
     interval
     [codec (#+ Codec)]]
    [data
-    ["e" error]
+    ["." error (#+ Error)]
     ["." maybe]
     ["." text]]]
   [/
@@ -74,8 +74,8 @@
              <1>))
      )]
 
-  [ Int  Order<Int> i/+ i/- i/* i// i/% i/= i/<   0   1   -1]
-  [Frac Order<Frac> f/+ f/- f/* f// f/% f/= f/< 0.0 1.0 -1.0]
+  [ Int  Order<Int> i/+ i/- i/* i// i/% i/= i/<   +0   +1   -1]
+  [Frac Order<Frac> f/+ f/- f/* f// f/% f/= f/< +0.0 +1.0 -1.0]
   )
 
 (structure: #export _ (Number Rev)
@@ -108,7 +108,7 @@
      (def: bottom <bottom>))]
 
   [ Nat Enum<Nat>  (:coerce Nat -1) |0]
-  [ Int Enum<Int>  9_223_372_036_854_775_807 -9_223_372_036_854_775_808]
+  [ Int Enum<Int>  +9_223_372_036_854_775_807 -9_223_372_036_854_775_808]
   [Frac Enum<Frac> ("lux frac max") ("lux frac min")]
   [ Rev Enum<Rev>  (:coerce Rev -1) (:coerce Rev |0)]
   )
@@ -122,12 +122,12 @@
   [ Mul@Monoid<Nat>  Nat |1                         n/*]
   [ Max@Monoid<Nat>  Nat (:: Interval<Nat> bottom)  n/max]
   [ Min@Monoid<Nat>  Nat (:: Interval<Nat> top)     n/min]
-  [ Add@Monoid<Int>  Int 0                          i/+]
-  [ Mul@Monoid<Int>  Int 1                          i/*]
+  [ Add@Monoid<Int>  Int +0                          i/+]
+  [ Mul@Monoid<Int>  Int +1                          i/*]
   [ Max@Monoid<Int>  Int (:: Interval<Int> bottom)  i/max]
   [ Min@Monoid<Int>  Int (:: Interval<Int> top)     i/min]
-  [Add@Monoid<Frac> Frac 0.0                        f/+]
-  [Mul@Monoid<Frac> Frac 1.0                        f/*]
+  [Add@Monoid<Frac> Frac +0.0                        f/+]
+  [Mul@Monoid<Frac> Frac +1.0                        f/*]
   [Max@Monoid<Frac> Frac (:: Interval<Frac> bottom) f/max]
   [Min@Monoid<Frac> Frac (:: Interval<Frac> top)    f/min]
   [ Add@Monoid<Rev>  Rev (:: Interval<Rev> bottom)  r/+]
@@ -140,10 +140,10 @@
   [(def: #export <name>
      {#.doc <doc>}
      Frac
-     (f// 0.0 <numerator>))]
+     (f// +0.0 <numerator>))]
 
-  [not-a-number       0.0 "Not a number."]
-  [positive-infinity  1.0 "Positive infinity."]
+  [not-a-number       +0.0 "Not a number."]
+  [positive-infinity  +1.0 "Positive infinity."]
   [negative-infinity -1.0 "Negative infinity."]
   )
 
@@ -166,10 +166,10 @@
      (def: (decode input)
        (case (<decoder> [input])
          (#.Some value)
-         (#e.Success value)
+         (#error.Success value)
 
          #.None
-         (#e.Error <error>))))]
+         (#error.Error <error>))))]
 
   [Frac "lux frac encode" "lux frac decode" "Could not decode Frac"]
   )
@@ -314,16 +314,16 @@
                  (let [digit (maybe.assume (get-char repr idx))]
                    (case (<to-value> digit)
                      #.None
-                     (#e.Error ("lux text concat" <error> repr))
+                     (#error.Error ("lux text concat" <error> repr))
 
                      (#.Some digit-value)
                      (recur (inc idx)
                             (|> output (n/* <base>) (n/+ digit-value)))))
-                 (#e.Success output)))
+                 (#error.Success output)))
 
              _
-             (#e.Error ("lux text concat" <error> repr)))
-           (#e.Error ("lux text concat" <error> repr))))))]
+             (#error.Error ("lux text concat" <error> repr)))
+           (#error.Error ("lux text concat" <error> repr))))))]
 
   [Binary@Codec<Text,Nat> |2  binary-character      binary-value      "Invalid binary syntax for Nat: "]
   [Octal@Codec<Text,Nat>  |8  octal-character       octal-value       "Invalid octal syntax for Nat: "]
@@ -331,51 +331,69 @@
   [Hex@Codec<Text,Nat>    |16 hexadecimal-character hexadecimal-value "Invalid hexadecimal syntax for Nat: "]
   )
 
+(def: (int/sign!! value)
+  (-> Int Text)
+  (if (i/< +0 value)
+    "-"
+    "+"))
+
+(def: (int/sign?? representation)
+  (-> Text (Maybe Int))
+  (case (get-char representation |0)
+    (^ (#.Some "-"))
+    (#.Some -1)
+
+    (^ (#.Some "+"))
+    (#.Some +1)
+
+    _
+    #.None))
+
+(def: (int-decode-loop input-size repr sign <base> <to-value> <error>)
+  (-> Nat Text Int Int (-> Text (Maybe Nat)) Text (Error Int))
+  (loop [idx |1
+         output +0]
+    (if (n/< input-size idx)
+      (let [digit (maybe.assume (get-char repr idx))]
+        (case (<to-value> digit)
+          #.None
+          (#error.Error <error>)
+
+          (#.Some digit-value)
+          (recur (inc idx)
+                 (|> output (i/* <base>) (i/+ (.int digit-value))))))
+      (#error.Success (i/* sign output)))))
+
 (do-template [<struct> <base> <to-character> <to-value> <error>]
   [(structure: #export <struct> (Codec Text Int)
      (def: (encode value)
-       (if (i/= 0 value)
-         "0"
-         (let [sign (if (i/< 0 value)
-                      "-"
-                      "")]
-           (loop [input (|> value (i// <base>) (:: Number<Int> abs))
-                  output (|> value (i/% <base>) (:: Number<Int> abs) .nat
-                             <to-character>
-                             maybe.assume)]
-             (if (i/= 0 input)
-               ("lux text concat" sign output)
-               (let [digit (maybe.assume (<to-character> (.nat (i/% <base> input))))]
-                 (recur (i// <base> input)
-                        ("lux text concat" digit output))))))))
+       (if (i/= +0 value)
+         "+0"
+         (loop [input (|> value (i// <base>) (:: Number<Int> abs))
+                output (|> value (i/% <base>) (:: Number<Int> abs) .nat
+                           <to-character>
+                           maybe.assume)]
+           (if (i/= +0 input)
+             ("lux text concat" (int/sign!! value) output)
+             (let [digit (maybe.assume (<to-character> (.nat (i/% <base> input))))]
+               (recur (i// <base> input)
+                      ("lux text concat" digit output)))))))
 
      (def: (decode repr)
        (let [input-size ("lux text size" repr)]
-         (if (n/>= |1 input-size)
-           (let [sign (case (get-char repr |0)
-                        (^ (#.Some "-"))
-                        -1
+         (if (n/> |1 input-size)
+           (case (int/sign?? repr)
+             (#.Some sign)
+             (int-decode-loop input-size repr sign <base> <to-value> <error>)
 
-                        _
-                        1)]
-             (loop [idx (if (i/= -1 sign) |1 |0)
-                    output 0]
-               (if (n/< input-size idx)
-                 (let [digit (maybe.assume (get-char repr idx))]
-                   (case (<to-value> digit)
-                     #.None
-                     (#e.Error <error>)
+             #.None
+             (#error.Error <error>))
+           (#error.Error <error>)))))]
 
-                     (#.Some digit-value)
-                     (recur (inc idx)
-                            (|> output (i/* <base>) (i/+ (:coerce Int digit-value))))))
-                 (#e.Success (i/* sign output)))))
-           (#e.Error <error>)))))]
-
-  [Binary@Codec<Text,Int> 2  binary-character      binary-value      "Invalid binary syntax for Int: "]
-  [Octal@Codec<Text,Int>  8  octal-character       octal-value       "Invalid octal syntax for Int: "]
-  [_                      10 decimal-character     decimal-value     "Invalid syntax for Int: "]
-  [Hex@Codec<Text,Int>    16 hexadecimal-character hexadecimal-value "Invalid hexadecimal syntax for Int: "]
+  [Binary@Codec<Text,Int> +2  binary-character      binary-value      "Invalid binary syntax for Int: "]
+  [Octal@Codec<Text,Int>  +8  octal-character       octal-value       "Invalid octal syntax for Int: "]
+  [_                      +10 decimal-character     decimal-value     "Invalid syntax for Int: "]
+  [Hex@Codec<Text,Int>    +16 hexadecimal-character hexadecimal-value "Invalid hexadecimal syntax for Int: "]
   )
 
 (def: (de-prefix input)
@@ -403,12 +421,12 @@
            (case ("lux text char" repr |0)
              (^multi (^ (#.Some (char ".")))
                      [(:: <nat> decode ("lux text concat" "|" (de-prefix repr)))
-                      (#e.Success output)])
-             (#e.Success (:coerce Rev output))
+                      (#error.Success output)])
+             (#error.Success (:coerce Rev output))
 
              _
-             (#e.Error ("lux text concat" <error> repr)))
-           (#e.Error ("lux text concat" <error> repr))))))]
+             (#error.Error ("lux text concat" <error> repr)))
+           (#error.Error ("lux text concat" <error> repr))))))]
 
   [Binary@Codec<Text,Rev> Binary@Codec<Text,Nat> |1 "Invalid binary syntax: "]
   [Octal@Codec<Text,Rev>  Octal@Codec<Text,Nat>  |3 "Invalid octal syntax: "]
@@ -420,17 +438,17 @@
      (def: (encode value)
        (let [whole (frac-to-int value)
              whole-part (:: <int> encode whole)
-             decimal (:: Number<Frac> abs (f/% 1.0 value))
-             decimal-part (if (f/= 0.0 decimal)
+             decimal (:: Number<Frac> abs (f/% +1.0 value))
+             decimal-part (if (f/= +0.0 decimal)
                             ".0"
                             (loop [dec-left decimal
                                    output ""]
-                              (if (f/= 0.0 dec-left)
+                              (if (f/= +0.0 dec-left)
                                 ("lux text concat" "." output)
                                 (let [shifted (f/* <base> dec-left)
                                       digit (|> shifted (f/% <base>) frac-to-int .nat
                                                 (get-char <char-set>) maybe.assume)]
-                                  (recur (f/% 1.0 shifted)
+                                  (recur (f/% +1.0 shifted)
                                          ("lux text concat" output digit))))))]
          ("lux text concat" whole-part decimal-part)))
 
@@ -441,34 +459,34 @@
                decimal-part (maybe.assume ("lux text clip" repr (inc split-index) ("lux text size" repr)))]
            (case [(:: <int> decode whole-part)
                   (:: <int> decode decimal-part)]
-             (^multi [(#e.Success whole) (#e.Success decimal)]
-                     (i/>= 0 decimal))
-             (let [sign (if (i/< 0 whole)
+             (^multi [(#error.Success whole) (#error.Success decimal)]
+                     (i/>= +0 decimal))
+             (let [sign (if (i/< +0 whole)
                           -1.0
-                          1.0)
+                          +1.0)
                    div-power (loop [muls-left ("lux text size" decimal-part)
-                                    output 1.0]
+                                    output +1.0]
                                (if (n/= |0 muls-left)
                                  output
                                  (recur (dec muls-left)
                                         (f/* <base> output))))
                    adjusted-decimal (|> decimal int-to-frac (f// div-power))
                    dec-rev (case (:: Hex@Codec<Text,Rev> decode ("lux text concat" "." decimal-part))
-                             (#e.Success dec-rev)
+                             (#error.Success dec-rev)
                              dec-rev
 
-                             (#e.Error error)
+                             (#error.Error error)
                              (error! error))]
-               (#e.Success (f/+ (int-to-frac whole)
-                                (f/* sign adjusted-decimal))))
+               (#error.Success (f/+ (int-to-frac whole)
+                                    (f/* sign adjusted-decimal))))
 
              _
-             (#e.Error ("lux text concat" <error> repr))))
+             (#error.Error ("lux text concat" <error> repr))))
 
          _
-         (#e.Error ("lux text concat" <error> repr)))))]
+         (#error.Error ("lux text concat" <error> repr)))))]
 
-  [Binary@Codec<Text,Frac> Binary@Codec<Text,Int> 2.0 "01" "Invalid binary syntax: "]
+  [Binary@Codec<Text,Frac> Binary@Codec<Text,Int> +2.0 "01" "Invalid binary syntax: "]
   )
 
 (def: (segment-digits chunk-size digits)
@@ -627,7 +645,7 @@
                     -1.0
 
                     _
-                    1.0)]
+                    +1.0)]
          (case ("lux text index" repr "." |0)
            (#.Some split-index)
            (let [whole-part (maybe.assume ("lux text clip" repr (if (f/= -1.0 sign) |1 |0) split-index))
@@ -637,14 +655,14 @@
                                ("lux text concat" (<to> whole-part))
                                ("lux text concat" (if (f/= -1.0 sign) "-" "")))]
              (case (:: Binary@Codec<Text,Frac> decode as-binary)
-               (#e.Error _)
-               (#e.Error ("lux text concat" <error> repr))
+               (#error.Error _)
+               (#error.Error ("lux text concat" <error> repr))
 
                output
                output))
 
            _
-           (#e.Error ("lux text concat" <error> repr))))))]
+           (#error.Error ("lux text concat" <error> repr))))))]
 
   [Octal@Codec<Text,Frac> "Invalid octaladecimal syntax: " binary-to-octal octal-to-binary]
   [Hex@Codec<Text,Frac>   "Invalid hexadecimal syntax: "   binary-to-hex   hex-to-binary]
@@ -661,12 +679,12 @@
           description [cursor (#.Text ($_ "lux text concat"
                                           encoding "\n"
                                           underscore))]]
-      (#e.Success [state (list (` (doc (~ description)
-                                       (~ example-1)
-                                       (~ example-2))))]))
+      (#error.Success [state (list (` (doc (~ description)
+                                           (~ example-1)
+                                           (~ example-2))))]))
 
     _
-    (#e.Error "Wrong syntax for \"encoding-doc\".")))
+    (#error.Error "Wrong syntax for \"encoding-doc\".")))
 
 (def: (underscore-prefixed? number)
   (-> Text Bit)
@@ -687,36 +705,36 @@
      (case tokens
        (#.Cons [meta (#.Text repr')] #.Nil)
        (if (underscore-prefixed? repr')
-         (#e.Error <error>)
+         (#error.Error <error>)
          (let [repr (clean-underscores repr')]
            (case (:: <nat> decode repr)
-             (#e.Success value)
-             (#e.Success [state (list [meta (#.Nat value)])])
+             (#error.Success value)
+             (#error.Success [state (list [meta (#.Nat value)])])
 
-             (^multi (#e.Error _)
-                     [(:: <int> decode repr) (#e.Success value)])
-             (#e.Success [state (list [meta (#.Int value)])])
+             (^multi (#error.Error _)
+                     [(:: <int> decode repr) (#error.Success value)])
+             (#error.Success [state (list [meta (#.Int value)])])
 
-             (^multi (#e.Error _)
-                     [(:: <rev> decode repr) (#e.Success value)])
-             (#e.Success [state (list [meta (#.Rev value)])])
+             (^multi (#error.Error _)
+                     [(:: <rev> decode repr) (#error.Success value)])
+             (#error.Success [state (list [meta (#.Rev value)])])
 
-             (^multi (#e.Error _)
-                     [(:: <frac> decode repr) (#e.Success value)])
-             (#e.Success [state (list [meta (#.Frac value)])])
+             (^multi (#error.Error _)
+                     [(:: <frac> decode repr) (#error.Success value)])
+             (#error.Success [state (list [meta (#.Frac value)])])
 
              _
-             (#e.Error <error>))))
+             (#error.Error <error>))))
 
        _
-       (#e.Error <error>)))]
+       (#error.Error <error>)))]
 
   [bin Binary@Codec<Text,Nat> Binary@Codec<Text,Int> Binary@Codec<Text,Rev> Binary@Codec<Text,Frac>
    "Invalid binary syntax."
-   (encoding-doc "binary" (bin "11001001") (bin "11_00_10_01"))]
+   (encoding-doc "binary" (bin "+11001001") (bin "+11_00_10_01"))]
   [oct Octal@Codec<Text,Nat>  Octal@Codec<Text,Int>  Octal@Codec<Text,Rev>  Octal@Codec<Text,Frac>
    "Invalid octal syntax."
-   (encoding-doc "octal" (oct "615243") (oct "615_243"))]
+   (encoding-doc "octal" (oct "+615243") (oct "+615_243"))]
   [hex Hex@Codec<Text,Nat>    Hex@Codec<Text,Int>    Hex@Codec<Text,Rev>    Hex@Codec<Text,Frac>
    "Invalid hexadecimal syntax."
    (encoding-doc "hexadecimal" (hex "deadBEEF") (hex "dead_BEEF"))]
@@ -755,7 +773,7 @@
   (loop [idx idx
          carry |0
          output output]
-    (if (i/>= 0 (:coerce Int idx))
+    (if (i/>= +0 (:coerce Int idx))
       (let [raw (|> (digits-get idx output)
                     (n/* |5)
                     (n/+ carry))]
@@ -769,7 +787,7 @@
   (loop [times power
          output (|> (make-digits [])
                     (digits-put power |1))]
-    (if (i/>= 0 (:coerce Int times))
+    (if (i/>= +0 (:coerce Int times))
       (recur (dec times)
              (digits-times-5! power output))
       output)))
@@ -779,7 +797,7 @@
   (loop [idx (dec i64.width)
          all-zeroes? #1
          output ""]
-    (if (i/>= 0 (:coerce Int idx))
+    (if (i/>= +0 (:coerce Int idx))
       (let [digit (digits-get idx digits)]
         (if (and (n/= |0 digit)
                  all-zeroes?)
@@ -798,7 +816,7 @@
   (loop [idx (dec i64.width)
          carry |0
          output (make-digits [])]
-    (if (i/>= 0 (:coerce Int idx))
+    (if (i/>= +0 (:coerce Int idx))
       (let [raw ($_ n/+
                     carry
                     (digits-get idx param)
@@ -816,7 +834,7 @@
              output (make-digits [])]
         (if (n/< length idx)
           (let [char (maybe.assume (get-char input idx))]
-            (case ("lux text index" "0123456789" char |0)
+            (case ("lux text index" "+0123456789" char |0)
               #.None
               #.None
 
@@ -852,7 +870,7 @@
   (-> Digits Digits Digits)
   (loop [idx (dec i64.width)
          output subject]
-    (if (i/>= 0 (.int idx))
+    (if (i/>= +0 (.int idx))
       (recur (dec idx)
              (digits-sub-once! idx (digits-get idx param) output))
       output)))
@@ -865,7 +883,7 @@
         ".0"
         (loop [idx last-idx
                digits (make-digits [])]
-          (if (i/>= 0 (:coerce Int idx))
+          (if (i/>= +0 (:coerce Int idx))
             (if (i64.set? idx input)
               (let [digits' (digits-add (digits-power (n/- idx last-idx))
                                         digits)]
@@ -901,16 +919,16 @@
                   (recur (digits-sub! power digits)
                          (inc idx)
                          (i64.set (n/- idx (dec i64.width)) output))))
-              (#e.Success (:coerce Rev output))))
+              (#error.Success (:coerce Rev output))))
 
           #.None
-          (#e.Error ("lux text concat" "Wrong syntax for Rev: " input)))
-        (#e.Error ("lux text concat" "Wrong syntax for Rev: " input))))
+          (#error.Error ("lux text concat" "Wrong syntax for Rev: " input)))
+        (#error.Error ("lux text concat" "Wrong syntax for Rev: " input))))
     ))
 
 (def: (log2 input)
   (-> Frac Frac)
-  (f// ("lux math log" 2.0)
+  (f// ("lux math log" +2.0)
        ("lux math log" input)))
 
 (def: double-bias Nat |1023)
@@ -929,8 +947,8 @@
              (f/= negative-infinity input)
              (hex "|FFF0000000000000")
 
-             (f/= 0.0 input)
-             (let [reciprocal (f// input 1.0)]
+             (f/= +0.0 input)
+             (let [reciprocal (f// input +1.0)]
                (if (f/= positive-infinity reciprocal)
                  ## Positive zero
                  (hex "|0000000000000000")
@@ -944,9 +962,9 @@
                    exponent-mask (|> |1 (i64.left-shift exponent-size) dec) 
                    mantissa (|> input
                                 ## Normalize
-                                (f// ("lux math pow" 2.0 exponent))
+                                (f// ("lux math pow" +2.0 exponent))
                                 ## Make it int-equivalent
-                                (f/* ("lux math pow" 2.0 52.0)))
+                                (f/* ("lux math pow" +2.0 +52.0)))
                    sign-bit (if (f/= -1.0 sign) |1 |0)
                    exponent-bits (|> exponent frac-to-int .nat (n/+ double-bias) (i64.and exponent-mask))
                    mantissa-bits (|> mantissa frac-to-int .nat)]
@@ -981,16 +999,16 @@
 
           (and (n/= |0 E) (n/= |0 M))
           (if (n/= |0 S)
-            0.0
-            (f/* -1.0 0.0))
+            +0.0
+            (f/* -1.0 +0.0))
 
           ## else
           (let [normalized (|> M (i64.set mantissa-size)
                                .int int-to-frac
-                               (f// ("lux math pow" 2.0 52.0)))
+                               (f// ("lux math pow" +2.0 +52.0)))
                 power (|> E (n/- double-bias)
                           .int int-to-frac
-                          ("lux math pow" 2.0))
+                          ("lux math pow" +2.0))
                 shifted (f/* power
                              normalized)]
             (if (n/= |0 S)
