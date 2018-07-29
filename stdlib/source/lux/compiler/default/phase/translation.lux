@@ -2,16 +2,17 @@
   [lux #*
    [control
     ["ex" exception (#+ exception:)]
-    [monad (#+ do)]]
+    [monad (#+ do)]
+    pipe]
    [data
     ["." product]
     ["." error (#+ Error)]
-    [name ("name/." Equivalence<Name> Codec<Text,Name>)]
+    ["." name ("name/." Equivalence<Name>)]
     ["." text
      format]
     [collection
      ["." row (#+ Row)]
-     ["dict" dictionary (#+ Dictionary)]]]
+     ["." dictionary (#+ Dictionary)]]]
    [world
     [file (#+ File)]]]
   ["." //
@@ -26,12 +27,22 @@
   [no-anchor]
   )
 
-(exception: #export (cannot-interpret {message Text})
-  message)
+(exception: #export (cannot-interpret {error Text})
+  (ex.report ["Error" error]))
+
+(exception: #export (unknown-lux-name {name Name})
+  (ex.report ["Name" (%name name)]))
+
+(exception: #export (cannot-overwrite-lux-name {lux-name Name}
+                                               {old-host-name Text}
+                                               {new-host-name Text})
+  (ex.report ["Lux Name" (%name lux-name)]
+             ["Old Host Name" old-host-name]
+             ["New Host Name" new-host-name]))
 
 (do-template [<name>]
   [(exception: #export (<name> {name Name})
-     (ex.report ["Artifact" (name/encode name)]))]
+     (ex.report ["Artifact" (%name name)]))]
 
   [cannot-overwrite-artifact]
   [no-buffer-for-saving-code]
@@ -57,7 +68,8 @@
    #host (Host expression statement)
    #buffer (Maybe (Buffer statement))
    #artifacts (Artifacts statement)
-   #counter Nat})
+   #counter Nat
+   #name-cache (Dictionary Name Text)})
 
 (type: #export (Operation anchor expression statement)
   (extension.Operation (State anchor expression statement) Synthesis expression))
@@ -80,8 +92,9 @@
    #anchor #.None
    #host host
    #buffer #.None
-   #artifacts (dict.new text.Hash<Text>)
-   #counter 0})
+   #artifacts (dictionary.new text.Hash<Text>)
+   #counter 0
+   #name-cache (dictionary.new name.Hash<Name>)})
 
 (def: #export (with-context expr)
   (All [anchor expression statement output]
@@ -198,4 +211,33 @@
     (-> File (Operation anchor expression statement Any)))
   (do //.Monad<Operation>
     [buffer ..buffer]
-    (extension.update (update@ #artifacts (dict.put target buffer)))))
+    (extension.update (update@ #artifacts (dictionary.put target buffer)))))
+
+(def: #export (remember lux-name)
+  (All [anchor expression statement]
+    (-> Name (Operation anchor expression statement Text)))
+  (function (_ (^@ stateE [_ state]))
+    (|> state
+        (get@ #name-cache)
+        (dictionary.get lux-name)
+        (case> (#.Some host-name)
+               (#error.Success [stateE host-name])
+               
+               #.None
+               (ex.throw unknown-lux-name lux-name)))))
+
+(def: #export (learn lux-name host-name)
+  (All [anchor expression statement]
+    (-> Name Text (Operation anchor expression statement Any)))
+  (function (_ [bundle state])
+    (let [cache (get@ #name-cache state)]
+      (case (dictionary.get lux-name cache)
+        (#.Some old-host-name)
+        (ex.throw cannot-overwrite-lux-name [lux-name old-host-name host-name])
+
+        #.None
+        (#error.Success [[bundle
+                          (update@ #name-cache
+                                   (dictionary.put lux-name host-name)
+                                   state)]
+                         []])))))
