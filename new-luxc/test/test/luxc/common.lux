@@ -2,77 +2,72 @@
   [lux #*
    [control
     [monad (#+ do)]]
-   [io (#+ IO)]
+   ["." io (#+ IO)]
    [data
     [error (#+ Error)]]
    ["." macro
-    [code]]
-   ["." language
-    [compiler
-     [init]
-     [analysis
-      [module]]
-     [synthesis (#+ Synthesis)]]]]
+    ["." code]]
+   [compiler
+    ["." default
+     ["." init]
+     ["." phase
+      ["." analysis
+       ["." module]]
+      [synthesis (#+ Synthesis)]
+      ["." translation]
+      [extension
+       ["." bundle]]]]]]
   [luxc
    [lang
+    [host
+     [jvm (#+ Inst State Operation Phase Bundle)]]
     [translation
      ["." jvm
+      ["._jvm" runtime]
       ["._jvm" expression]
-      ## ["._jvm" eval]
-      ## ["._jvm" runtime]
       ## ["._jvm" statement]
       ]
      ## [js]
      ## (js ["._js" expression]
-     ##     ["._js" eval]
      ##     ["._js" runtime]
      ##     ["._js" statement])
      ## [lua]
      ## (lua ["._lua" expression]
-     ##      ["._lua" eval]
      ##      ["._lua" runtime]
      ##      ["._lua" statement])
      ## [ruby]
      ## (ruby ["._ruby" expression]
-     ##       ["._ruby" eval]
      ##       ["._ruby" runtime]
      ##       ["._ruby" statement])
      ## [python]
      ## (python ["._python" expression]
-     ##         ["._python" eval]
      ##         ["._python" runtime]
      ##         ["._python" statement])
      ## [r]
      ## (r ["._r" expression]
-     ##    ["._r" eval]
      ##    ["._r" runtime]
      ##    ["._r" statement])
      ## [scheme]
      ## (scheme ["._scheme" expression]
-     ##         ["._scheme" eval]
      ##         ["._scheme" runtime]
      ##         ["._scheme" statement])
      ## [common-lisp]
      ## (common-lisp ["._common-lisp" expression]
-     ##              ["._common-lisp" eval]
      ##              ["._common-lisp" runtime]
      ##              ["._common-lisp" statement])
      ## [php]
      ## (php ["._php" expression]
-     ##      ["._php" eval]
      ##      ["._php" runtime]
      ##      ["._php" statement])
      ]]])
 
 (type: #export Runner (-> Synthesis (Error Any)))
-(type: #export Definer (-> Ident Synthesis (Error Any)))
+(type: #export Definer (-> Name Synthesis (Error Any)))
 
 (do-template [<name> <host>]
   [(def: #export <name>
-     (IO Lux)
-     (do io.Monad<IO>
-       [host <host>]
-       (wrap (init.compiler host))))]
+     (IO State)
+     (:: io.Monad<IO> map translation.state <host>))]
 
   [init-jvm jvm.init]
   ## [init-js  js.init]
@@ -85,55 +80,55 @@
   ## [init-php php.init]
   )
 
-(def: (runner translate-runtime translate-expression eval init)
-  (All [a] (-> (Meta Any) (-> Synthesis (Meta a)) (-> a (Meta Any)) (IO Lux)
-               Runner))
+(def: (runner generate-runtime translate bundle state)
+  (-> (Operation Any) Phase Bundle (IO State)
+      Runner)
   (function (_ synthesis)
-    (|> (do macro.Monad<Meta>
-          [_ translate-runtime
-           sampleO (translate-expression synthesis)]
-          (eval sampleO))
-        (language.with-current-module "")
-        (macro.run (io.run init)))))
+    (|> (do phase.Monad<Operation>
+          [_ generate-runtime
+           program (translate synthesis)]
+          (translation.evaluate! program))
+        (phase.run [bundle (io.run state)]))))
 
-(def: (definer translate-runtime translate-expression eval init translate-def)
-  (All [a] (-> (Meta Any) (-> Synthesis (Meta a)) (-> a (Meta Any)) (IO Lux)
-               (-> Text Type a Code (Meta Any))
-               Definer))
-  (function (_ [module-name def-name] synthesis)
-    (|> (do macro.Monad<Meta>
-          [_ translate-runtime
-           valueO (translate-expression synthesis)
-           _ (module.with-module +0 module-name
-               (translate-def def-name Any valueO (' {})))
-           sampleO (translate-expression (code.identifier [module-name def-name]))]
-          (eval sampleO))
-        (language.with-current-module "")
-        (macro.run (io.run init)))))
+## (def: (definer generate-runtime translate bundle state translate-def)
+##   (All [a]
+##     (-> (Operation Any) Phase Bundle (IO State)
+##         (-> Text Type a Code (Meta Any))
+##         Definer))
+##   (function (_ [module-name def-name] synthesis)
+##     (|> (do macro.Monad<Meta>
+##           [_ generate-runtime
+##            valueO (translate synthesis)
+##            _ (module.with-module +0 module-name
+##                (translate-def def-name Any valueO (' {})))
+##            sampleO (translate (code.identifier [module-name def-name]))]
+##           (eval sampleO))
+##         (analysis.with-current-module "")
+##         (macro.run (io.run init)))))
 
-(def: #export run-jvm (runner runtime_jvm.translate expression_jvm.translate eval_jvm.eval init-jvm))
-(def: #export def-jvm (definer runtime_jvm.translate expression_jvm.translate eval_jvm.eval init-jvm statement_jvm.translate-def))
+(def: #export run-jvm (runner runtime_jvm.translate expression_jvm.translate bundle.empty init-jvm))
+## (def: #export def-jvm (definer runtime_jvm.translate expression_jvm.translate init-jvm statement_jvm.translate-def))
 
-## (def: #export run-js (runner runtime_js.translate expression_js.translate eval_js.eval init-js))
-## (def: #export def-js (definer runtime_js.translate expression_js.translate eval_js.eval init-js statement_js.translate-def))
+## (def: #export run-js (runner runtime_js.translate expression_js.translate init-js))
+## (def: #export def-js (definer runtime_js.translate expression_js.translate init-js statement_js.translate-def))
 
-## (def: #export run-lua (runner runtime_lua.translate expression_lua.translate eval_lua.eval init-lua))
-## (def: #export def-lua (definer runtime_lua.translate expression_lua.translate eval_lua.eval init-lua statement_lua.translate-def))
+## (def: #export run-lua (runner runtime_lua.translate expression_lua.translate init-lua))
+## (def: #export def-lua (definer runtime_lua.translate expression_lua.translate init-lua statement_lua.translate-def))
 
-## (def: #export run-ruby (runner runtime_ruby.translate expression_ruby.translate eval_ruby.eval init-ruby))
-## (def: #export def-ruby (definer runtime_ruby.translate expression_ruby.translate eval_ruby.eval init-ruby statement_ruby.translate-def))
+## (def: #export run-ruby (runner runtime_ruby.translate expression_ruby.translate init-ruby))
+## (def: #export def-ruby (definer runtime_ruby.translate expression_ruby.translate init-ruby statement_ruby.translate-def))
 
-## (def: #export run-python (runner runtime_python.translate expression_python.translate eval_python.eval init-python))
-## (def: #export def-python (definer runtime_python.translate expression_python.translate eval_python.eval init-python statement_python.translate-def))
+## (def: #export run-python (runner runtime_python.translate expression_python.translate init-python))
+## (def: #export def-python (definer runtime_python.translate expression_python.translate init-python statement_python.translate-def))
 
-## (def: #export run-r (runner runtime_r.translate expression_r.translate eval_r.eval init-r))
-## (def: #export def-r (definer runtime_r.translate expression_r.translate eval_r.eval init-r statement_r.translate-def))
+## (def: #export run-r (runner runtime_r.translate expression_r.translate init-r))
+## (def: #export def-r (definer runtime_r.translate expression_r.translate init-r statement_r.translate-def))
 
-## (def: #export run-scheme (runner runtime_scheme.translate expression_scheme.translate eval_scheme.eval init-scheme))
-## (def: #export def-scheme (definer runtime_scheme.translate expression_scheme.translate eval_scheme.eval init-scheme statement_scheme.translate-def))
+## (def: #export run-scheme (runner runtime_scheme.translate expression_scheme.translate init-scheme))
+## (def: #export def-scheme (definer runtime_scheme.translate expression_scheme.translate init-scheme statement_scheme.translate-def))
 
-## (def: #export run-common-lisp (runner runtime_common-lisp.translate expression_common-lisp.translate eval_common-lisp.eval init-common-lisp))
-## (def: #export def-common-lisp (definer runtime_common-lisp.translate expression_common-lisp.translate eval_common-lisp.eval init-common-lisp statement_common-lisp.translate-def))
+## (def: #export run-common-lisp (runner runtime_common-lisp.translate expression_common-lisp.translate init-common-lisp))
+## (def: #export def-common-lisp (definer runtime_common-lisp.translate expression_common-lisp.translate init-common-lisp statement_common-lisp.translate-def))
 
-## (def: #export run-php (runner runtime_php.translate expression_php.translate eval_php.eval init-php))
-## (def: #export def-php (definer runtime_php.translate expression_php.translate eval_php.eval init-php statement_php.translate-def))
+## (def: #export run-php (runner runtime_php.translate expression_php.translate init-php))
+## (def: #export def-php (definer runtime_php.translate expression_php.translate init-php statement_php.translate-def))
