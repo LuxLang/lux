@@ -464,47 +464,6 @@
                   &&/wrap-long)]]
     (return nil)))
 
-(do-template [<name> <method>]
-  (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
-          ^MethodVisitor *writer* &/get-writer
-          _ (compile ?input)
-          :let [_ (doto *writer*
-                    &&/unwrap-double
-                    (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Math" <method> "(D)D")
-                    &&/wrap-double)]]
-      (return nil)))
-
-  ^:private compile-math-cos "cos"
-  ^:private compile-math-sin "sin"
-  ^:private compile-math-tan "tan"
-  ^:private compile-math-acos "acos"
-  ^:private compile-math-asin "asin"
-  ^:private compile-math-atan "atan"
-  ^:private compile-math-exp "exp"
-  ^:private compile-math-log "log"
-  ^:private compile-math-ceil "ceil"
-  ^:private compile-math-floor "floor"
-  )
-
-(do-template [<name> <method>]
-  (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?input (&/$Cons ?param (&/$Nil))) ?values]
-          ^MethodVisitor *writer* &/get-writer
-          _ (compile ?input)
-          :let [_ (doto *writer*
-                    &&/unwrap-double)]
-          _ (compile ?param)
-          :let [_ (doto *writer*
-                    &&/unwrap-double)]
-          :let [_ (doto *writer*
-                    (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Math" <method> "(DD)D")
-                    &&/wrap-double)]]
-      (return nil)))
-
-  ^:private compile-math-pow "pow"
-  )
-
 (defn ^:private compile-atom-new [compile ?values special-args]
   (|do [:let [(&/$Cons ?init (&/$Nil)) ?values]
         ^MethodVisitor *writer* &/get-writer
@@ -673,21 +632,6 @@
       "int"    (compile-frac-int compile ?values special-args)
       "encode"    (compile-frac-encode compile ?values special-args)
       "decode"    (compile-frac-decode compile ?values special-args)
-      )
-
-    "math"
-    (case proc
-      "cos" (compile-math-cos compile ?values special-args)
-      "sin" (compile-math-sin compile ?values special-args)
-      "tan" (compile-math-tan compile ?values special-args)
-      "acos" (compile-math-acos compile ?values special-args)
-      "asin" (compile-math-asin compile ?values special-args)
-      "atan" (compile-math-atan compile ?values special-args)
-      "exp" (compile-math-exp compile ?values special-args)
-      "log" (compile-math-log compile ?values special-args)
-      "ceil" (compile-math-ceil compile ?values special-args)
-      "floor" (compile-math-floor compile ?values special-args)
-      "pow" (compile-math-pow compile ?values special-args)
       )
 
     "box"

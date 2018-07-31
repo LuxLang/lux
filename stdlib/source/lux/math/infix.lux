@@ -1,0 +1,89 @@
+(.module: {#.doc "Common mathematical constants and functions."}
+  [lux #*
+   [control
+    monad
+    ["p" parser ("parser/." Functor<Parser>)]]
+   [data
+    ["." product]
+    [collection
+     [list ("list/." Fold<List>)]]]
+   [macro
+    ["s" syntax (#+ syntax: Syntax)]
+    ["." code]]])
+
+(type: #rec Infix
+  (#Const Code)
+  (#Call (List Code))
+  (#Unary Code Infix)
+  (#Binary Infix Code Infix))
+
+(def: infix^
+  (Syntax Infix)
+  (<| p.rec (function (_ infix^))
+      ($_ p.or
+          ($_ p.either
+              (parser/map code.bit s.bit)
+              (parser/map code.nat s.nat)
+              (parser/map code.int s.int)
+              (parser/map code.rev s.rev)
+              (parser/map code.frac s.frac)
+              (parser/map code.text s.text)
+              (parser/map code.identifier s.identifier)
+              (parser/map code.tag s.tag))
+          (s.form (p.many s.any))
+          (s.tuple (p.and s.any infix^))
+          (s.tuple ($_ p.either
+                       (do p.Monad<Parser>
+                         [_ (s.this (' #and))
+                          init-subject infix^
+                          init-op s.any
+                          init-param infix^
+                          steps (p.some (p.and s.any infix^))]
+                         (wrap (product.right (list/fold (function (_ [op param] [subject [_subject _op _param]])
+                                                           [param [(#Binary _subject _op _param)
+                                                                   (` and)
+                                                                   (#Binary subject op param)]])
+                                                         [init-param [init-subject init-op init-param]]
+                                                         steps))))
+                       (do p.Monad<Parser>
+                         [init-subject infix^
+                          init-op s.any
+                          init-param infix^
+                          steps (p.some (p.and s.any infix^))]
+                         (wrap (list/fold (function (_ [op param] [_subject _op _param])
+                                            [(#Binary _subject _op _param) op param])
+                                          [init-subject init-op init-param]
+                                          steps)))
+                       ))
+          )))
+
+(def: (infix-to-prefix infix)
+  (-> Infix Code)
+  (case infix
+    (#Const value)
+    value
+    
+    (#Call parts)
+    (code.form parts)
+
+    (#Unary op subject)
+    (` ((~ op) (~ (infix-to-prefix subject))))
+    
+    (#Binary left op right)
+    (` ((~ op) (~ (infix-to-prefix right)) (~ (infix-to-prefix left))))
+    ))
+
+(syntax: #export (infix {expr infix^})
+  {#.doc (doc "Infix math syntax."
+              (infix [x i/* +10])
+              (infix [[x i/+ y] i/* [x i/- y]])
+              (infix [sin [x i/+ y]])
+              (infix [[x n/< y] and [y n/< z]])
+              (infix [#and x n/< y n/< z])
+              (infix [(n/* 3 9) gcd 450])
+
+              "The rules for infix syntax are simple."
+              "If you want your binary function to work well with it."
+              "Then take the argument to the right (y) as your first argument,"
+              "and take the argument to the left (x) as your second argument.")}
+  (wrap (list (infix-to-prefix expr))))

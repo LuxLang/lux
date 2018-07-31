@@ -287,40 +287,6 @@
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T ["array" "size"]) (&/|list =array) (&/|list)))))))))
 
-(do-template [<name> <proc>]
-  (defn <name> [analyse exo-type ?values]
-    (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
-          =input (&&/analyse-1 analyse &type/Frac ?input)
-          _ (&type/check exo-type &type/Frac)
-          _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor
-                                 (&&/$proc (&/T ["math" <proc>]) (&/|list =input) (&/|list)))))))
-
-  ^:private analyse-math-cos "cos"
-  ^:private analyse-math-sin "sin"
-  ^:private analyse-math-tan "tan"
-  ^:private analyse-math-acos "acos"
-  ^:private analyse-math-asin "asin"
-  ^:private analyse-math-atan "atan"
-  ^:private analyse-math-exp "exp"
-  ^:private analyse-math-log "log"
-  ^:private analyse-math-ceil "ceil"
-  ^:private analyse-math-floor "floor"
-  )
-
-(do-template [<name> <proc>]
-  (defn <name> [analyse exo-type ?values]
-    (|do [:let [(&/$Cons ?input (&/$Cons ?param (&/$Nil))) ?values]
-          =input (&&/analyse-1 analyse &type/Frac ?input)
-          =param (&&/analyse-1 analyse &type/Frac ?param)
-          _ (&type/check exo-type &type/Frac)
-          _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor
-                                 (&&/$proc (&/T ["math" <proc>]) (&/|list =input =param) (&/|list)))))))
-
-  ^:private analyse-math-pow "pow"
-  )
-
 (defn ^:private analyse-atom-new [analyse exo-type ?values]
   (&type/with-var
     (fn [$var]
@@ -462,18 +428,6 @@
          "lux frac min" (analyse-frac-min analyse exo-type ?values)
          "lux frac max" (analyse-frac-max analyse exo-type ?values)
          "lux frac int" (analyse-frac-int analyse exo-type ?values)
-         
-         "lux math cos" (analyse-math-cos analyse exo-type ?values)
-         "lux math sin" (analyse-math-sin analyse exo-type ?values)
-         "lux math tan" (analyse-math-tan analyse exo-type ?values)
-         "lux math acos" (analyse-math-acos analyse exo-type ?values)
-         "lux math asin" (analyse-math-asin analyse exo-type ?values)
-         "lux math atan" (analyse-math-atan analyse exo-type ?values)
-         "lux math exp" (analyse-math-exp analyse exo-type ?values)
-         "lux math log" (analyse-math-log analyse exo-type ?values)
-         "lux math ceil" (analyse-math-ceil analyse exo-type ?values)
-         "lux math floor" (analyse-math-floor analyse exo-type ?values)
-         "lux math pow" (analyse-math-pow analyse exo-type ?values)
          
          "lux atom new" (analyse-atom-new analyse exo-type ?values)
          "lux atom read" (analyse-atom-read analyse exo-type ?values)
