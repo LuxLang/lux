@@ -464,40 +464,6 @@
                   &&/wrap-long)]]
     (return nil)))
 
-(defn ^:private compile-atom-new [compile ?values special-args]
-  (|do [:let [(&/$Cons ?init (&/$Nil)) ?values]
-        ^MethodVisitor *writer* &/get-writer
-        :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/NEW "java/util/concurrent/atomic/AtomicReference")
-                  (.visitInsn Opcodes/DUP))]
-        _ (compile ?init)
-        :let [_ (doto *writer*
-                  (.visitMethodInsn Opcodes/INVOKESPECIAL "java/util/concurrent/atomic/AtomicReference" "<init>" "(Ljava/lang/Object;)V"))]]
-    (return nil)))
-
-(defn ^:private compile-atom-read [compile ?values special-args]
-  (|do [:let [(&/$Cons ?atom (&/$Nil)) ?values]
-        ^MethodVisitor *writer* &/get-writer
-        _ (compile ?atom)
-        :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/CHECKCAST "java/util/concurrent/atomic/AtomicReference"))]
-        :let [_ (doto *writer*
-                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/util/concurrent/atomic/AtomicReference" "get" "()Ljava/lang/Object;"))]]
-    (return nil)))
-
-(defn ^:private compile-atom-compare-and-swap [compile ?values special-args]
-  (|do [:let [(&/$Cons ?atom (&/$Cons ?old (&/$Cons ?new (&/$Nil)))) ?values]
-        ^MethodVisitor *writer* &/get-writer
-        _ (compile ?atom)
-        :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/CHECKCAST "java/util/concurrent/atomic/AtomicReference"))]
-        _ (compile ?old)
-        _ (compile ?new)
-        :let [_ (doto *writer*
-                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/util/concurrent/atomic/AtomicReference" "compareAndSet" "(Ljava/lang/Object;Ljava/lang/Object;)Z")
-                  &&/wrap-boolean)]]
-    (return nil)))
-
 (defn ^:private compile-box-new [compile ?values special-args]
   (|do [:let [(&/$Cons initS (&/$Nil)) ?values]
         ^MethodVisitor *writer* &/get-writer
@@ -639,13 +605,6 @@
       "new" (compile-box-new compile ?values special-args)
       "read" (compile-box-read compile ?values special-args)
       "write" (compile-box-write compile ?values special-args)
-      )
-
-    "atom"
-    (case proc
-      "new" (compile-atom-new compile ?values special-args)
-      "read" (compile-atom-read compile ?values special-args)
-      "compare-and-swap" (compile-atom-compare-and-swap compile ?values special-args)
       )
 
     "process"

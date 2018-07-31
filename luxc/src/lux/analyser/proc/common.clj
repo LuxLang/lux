@@ -287,38 +287,6 @@
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T ["array" "size"]) (&/|list =array) (&/|list)))))))))
 
-(defn ^:private analyse-atom-new [analyse exo-type ?values]
-  (&type/with-var
-    (fn [$var]
-      (|do [:let [(&/$Cons ?init (&/$Nil)) ?values]
-            =init (&&/analyse-1 analyse $var ?init)
-            _ (&type/check exo-type (&type/Atom $var))
-            _cursor &/cursor]
-        (return (&/|list (&&/|meta exo-type _cursor
-                                   (&&/$proc (&/T ["atom" "new"]) (&/|list =init) (&/|list)))))))))
-
-(defn ^:private analyse-atom-read [analyse exo-type ?values]
-  (&type/with-var
-    (fn [$var]
-      (|do [:let [(&/$Cons ?atom (&/$Nil)) ?values]
-            =atom (&&/analyse-1 analyse (&type/Atom $var) ?atom)
-            _ (&type/check exo-type $var)
-            _cursor &/cursor]
-        (return (&/|list (&&/|meta exo-type _cursor
-                                   (&&/$proc (&/T ["atom" "read"]) (&/|list =atom) (&/|list)))))))))
-
-(defn ^:private analyse-atom-compare-and-swap [analyse exo-type ?values]
-  (&type/with-var
-    (fn [$var]
-      (|do [:let [(&/$Cons ?atom (&/$Cons ?old (&/$Cons ?new (&/$Nil)))) ?values]
-            =atom (&&/analyse-1 analyse (&type/Atom $var) ?atom)
-            =old (&&/analyse-1 analyse $var ?old)
-            =new (&&/analyse-1 analyse $var ?new)
-            _ (&type/check exo-type &type/Bit)
-            _cursor &/cursor]
-        (return (&/|list (&&/|meta exo-type _cursor
-                                   (&&/$proc (&/T ["atom" "compare-and-swap"]) (&/|list =atom =old =new) (&/|list)))))))))
-
 (defn ^:private analyse-box-new [analyse exo-type ?values]
   (&type/with-var
     (fn [$var]
@@ -428,10 +396,6 @@
          "lux frac min" (analyse-frac-min analyse exo-type ?values)
          "lux frac max" (analyse-frac-max analyse exo-type ?values)
          "lux frac int" (analyse-frac-int analyse exo-type ?values)
-         
-         "lux atom new" (analyse-atom-new analyse exo-type ?values)
-         "lux atom read" (analyse-atom-read analyse exo-type ?values)
-         "lux atom compare-and-swap" (analyse-atom-compare-and-swap analyse exo-type ?values)
          
          "lux process parallelism" (analyse-process-parallelism analyse exo-type ?values)
          "lux process schedule" (analyse-process-schedule analyse exo-type ?values)

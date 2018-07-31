@@ -1,26 +1,44 @@
 (.module:
   [lux #*
+   [control
+    [monad (#+ do)]]
    ["." function]
-   [io (#- run)]])
+   ["." io (#- run)]
+   [type
+    abstract]
+   [compiler
+    ["." host]]
+   [host (#+ import:)]])
 
-(type: #export (Atom a)
-  {#.doc "Atomic references that are safe to mutate concurrently."}
-  (#.Primitive "#Atom" (#.Cons a #.Nil)))
+(`` (for {(~~ (static host.jvm))
+          (import: (java/util/concurrent/atomic/AtomicReference a)
+            (new [a])
+            (get [] a)
+            (compareAndSet [a a] boolean))}))
 
-(def: #export (atom value)
-  (All [a] (-> a (Atom a)))
-  ("lux atom new" value))
+(`` (abstract: #export (Atom a)
+      {#.doc "Atomic references that are safe to mutate concurrently."}
 
-(def: #export (read atom)
-  (All [a] (-> (Atom a) (IO a)))
-  (io ("lux atom read" atom)))
+      (for {(~~ (static host.jvm))
+            (AtomicReference a)})
 
-(def: #export (compare-and-swap current new atom)
-  {#.doc "Only mutates an atom if you can present it's current value.
+      (def: #export (atom value)
+        (All [a] (-> a (Atom a)))
+        (:abstraction (for {(~~ (static host.jvm))
+                            (AtomicReference::new [value])})))
+
+      (def: #export (read atom)
+        (All [a] (-> (Atom a) (IO a)))
+        (io (for {(~~ (static host.jvm))
+                  (AtomicReference::get [] (:representation atom))})))
+
+      (def: #export (compare-and-swap current new atom)
+        {#.doc "Only mutates an atom if you can present it's current value.
 
           That guarantees that atom was not updated since you last read from it."}
-  (All [a] (-> a a (Atom a) (IO Bit)))
-  (io ("lux atom compare-and-swap" atom current new)))
+        (All [a] (-> a a (Atom a) (IO Bit)))
+        (io (AtomicReference::compareAndSet [current new] (:representation atom))))
+      ))
 
 (def: #export (update f atom)
   {#.doc "Updates an atom by applying a function to its current value.
@@ -29,12 +47,14 @@
 
           The retries will be done with the new values of the atom, as they show up."}
   (All [a] (-> (-> a a) (Atom a) (IO a)))
-  (io (loop [_ []]
-        (let [old ("lux atom read" atom)
-              new (f old)]
-          (if ("lux atom compare-and-swap" atom old new)
-            new
-            (recur []))))))
+  (loop [_ []]
+    (do io.Monad<IO>
+      [old (read atom)
+       #let [new (f old)]
+       swapped? (compare-and-swap old new atom)]
+      (if swapped?
+        (wrap new)
+        (recur [])))))
 
 (def: #export (write value atom)
   (All [a] (-> a (Atom a) (IO Any)))
