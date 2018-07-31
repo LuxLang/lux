@@ -1,62 +1,81 @@
 (.module:
-  lux
-  (lux [io #+ IO]
-       (control [monad #+ do]
-                pipe)
-       (data ["e" error]
-             text/format
-             (coll [list]))
-       ["r" math/random]
-       (lang ["//." synthesis #+ Path Synthesis])
-       test)
-  (test/luxc common))
+  [lux #*
+   [control
+    [monad (#+ do)]
+    pipe]
+   [data
+    ["e" error]
+    [text
+     format]
+    [collection
+     ["." list]]]
+   [math
+    ["r" random]]
+   [compiler
+    [default
+     ["." reference]
+     [phase
+      ["." analysis]
+      ["." synthesis (#+ Path Synthesis)]]]]
+   test]
+  [test
+   [luxc
+    ["." common (#+ Runner)]]]
+  [//
+   ["&" function]])
 
-(def: struct-limit Nat +10)
+(def: struct-limit Nat 10)
 
 (def: (tail? size idx)
   (-> Nat Nat Bit)
-  (n/= (n/dec size) idx))
+  (n/= (dec size) idx))
 
 (def: gen-case
   (r.Random [Synthesis Path])
   (<| r.rec (function (_ gen-case))
       (`` ($_ r.either
               (do r.Monad<Random>
-                [value r.int]
-                (wrap [(//synthesis.path/i64 value)
-                       //synthesis.path/pop]))
+                [value r.i64]
+                (wrap [(synthesis.i64 value)
+                       synthesis.path/pop]))
               (~~ (do-template [<gen> <synth> <path>]
                     [(do r.Monad<Random>
                        [value <gen>]
                        (wrap [(<synth> value)
                               (<path> value)]))]
 
-                    [r.bit          //synthesis.bit  //synthesis.path/bit]
-                    [r.int          //synthesis.i64  //synthesis.path/i64]
-                    [r.frac         //synthesis.f64  //synthesis.path/f64]
-                    [(r.unicode +5) //synthesis.text //synthesis.path/text]))
+                    [r.bit         synthesis.bit  synthesis.path/bit]
+                    [r.i64         synthesis.i64  synthesis.path/i64]
+                    [r.frac        synthesis.f64  synthesis.path/f64]
+                    [(r.unicode 5) synthesis.text synthesis.path/text]))
               (do r.Monad<Random>
-                [size (|> r.nat (:: @ map (|>> (n/% struct-limit) (n/max +2))))
+                [size (|> r.nat (:: @ map (|>> (n/% struct-limit) (n/max 2))))
                  idx (|> r.nat (:: @ map (n/% size)))
                  [subS subP] gen-case
-                 #let [caseS (` [(~+ (list.concat (list (list.repeat idx (' []))
-                                                        (list subS)
-                                                        (list.repeat (|> size n/dec (n/- idx)) (' [])))))])
-                       caseP (//synthesis.path/seq [(if (tail? size idx)
-                                                      (` ("lux case tuple right" (~ (code.nat idx))))
-                                                      (` ("lux case tuple left" (~ (code.nat idx)))))
-                                                    subP])]]
+                 #let [unitS (synthesis.text synthesis.unit)
+                       caseS (synthesis.tuple
+                              (list.concat (list (list.repeat idx unitS)
+                                                 (list subS)
+                                                 (list.repeat (|> size dec (n/- idx)) unitS))))
+                       caseP (synthesis.path/seq [(if (tail? size idx)
+                                                    (synthesis.member/right idx)
+                                                    (synthesis.member/left idx))
+                                                  subP])]]
                 (wrap [caseS caseP]))
               (do r.Monad<Random>
-                [size (|> r.nat (:: @ map (|>> (n/% struct-limit) (n/max +2))))
+                [size (|> r.nat (:: @ map (|>> (n/% struct-limit) (n/max 2))))
                  idx (|> r.nat (:: @ map (n/% size)))
                  [subS subP] gen-case
-                 #let [caseS (` ((~ (code.nat idx)) (~ (code.bit (tail? size idx))) (~ subS)))
-                       caseP (` ("lux case seq"
-                                 (~ (if (tail? size idx)
-                                      (` ("lux case variant right" (~ (code.nat idx))))
-                                      (` ("lux case variant left" (~ (code.nat idx))))))
-                                 (~ subP)))]]
+                 #let [caseS (let [right? (tail? size idx)]
+                               (synthesis.variant
+                                {#analysis.lefts idx
+                                 #analysis.right? right?
+                                 #analysis.value subS}))
+                       caseP (synthesis.path/seq
+                              [(if (tail? size idx)
+                                 (synthesis.side/right idx)
+                                 (synthesis.side/left idx))
+                               subP])]]
                 (wrap [caseS caseP]))
               ))))
 
@@ -64,65 +83,55 @@
   (-> Runner Test)
   (do r.Monad<Random>
     [[valueS pathS] gen-case
-     to-bind r.nat]
+     to-bind r.frac]
     ($_ seq
         (test "Can translate pattern-matching."
-              (|> (run (` ("lux case" (~ valueS)
-                           ("lux case alt"
-                            ("lux case seq" (~ pathS)
-                             ("lux case exec" #1))
-                            ("lux case seq" ("lux case bind" +0)
-                             ("lux case exec" #0))))))
-                  (case> (#e.Success valueT)
-                         (:coerce Bit valueT)
-
-                         (#e.Error error)
-                         (exec (log! error)
-                           #0))))
+              (|> (run (synthesis.branch/case
+                        [valueS
+                         (synthesis.path/alt [(synthesis.path/seq [pathS
+                                                                   (synthesis.path/then (synthesis.f64 to-bind))])
+                                              (synthesis.path/then (synthesis.f64 +0.0))])]))
+                  (&.check to-bind)))
         (test "Can bind values."
-              (|> (run (` ("lux case" (~ (code.nat to-bind))
-                           ("lux case seq" ("lux case bind" +0)
-                            ("lux case exec" (0))))))
-                  (case> (#e.Success valueT)
-                         (n/= to-bind (:coerce Nat valueT))
-
-                         (#e.Error error)
-                         (exec (log! error)
-                           #0))))
+              (|> (run (synthesis.branch/case
+                        [(synthesis.f64 to-bind)
+                         (synthesis.path/seq [(synthesis.path/bind 0)
+                                              (synthesis.path/then (synthesis.variable/local 0))])]))
+                  (&.check to-bind)))
         )))
 
 (context: "[JVM] Pattern-matching."
-  (<| (times +100)
-      (pattern-matching-spec run-jvm)))
+  (<| (times 100)
+      (pattern-matching-spec common.run-jvm)))
 
 ## (context: "[JS] Pattern-matching."
-##   (<| (times +100)
-##       (pattern-matching-spec run-js)))
+##   (<| (times 100)
+##       (pattern-matching-spec common.run-js)))
 
 ## (context: "[Lua] Pattern-matching."
-##   (<| (times +100)
-##       (pattern-matching-spec run-lua)))
+##   (<| (times 100)
+##       (pattern-matching-spec common.run-lua)))
 
 ## (context: "[Ruby] Pattern-matching."
-##   (<| (times +100)
-##       (pattern-matching-spec run-ruby)))
+##   (<| (times 100)
+##       (pattern-matching-spec common.run-ruby)))
 
 ## (context: "[Python] Function."
-##   (<| (times +100)
-##       (pattern-matching-spec run-python)))
+##   (<| (times 100)
+##       (pattern-matching-spec common.run-python)))
 
 ## (context: "[R] Pattern-matching."
-##   (<| (times +100)
-##       (pattern-matching-spec run-r)))
+##   (<| (times 100)
+##       (pattern-matching-spec common.run-r)))
 
 ## (context: "[Scheme] Pattern-matching."
-##   (<| (times +100)
-##       (pattern-matching-spec run-scheme)))
+##   (<| (times 100)
+##       (pattern-matching-spec common.run-scheme)))
 
 ## (context: "[Common Lisp] Pattern-matching."
-##   (<| (times +100)
-##       (pattern-matching-spec run-common-lisp)))
+##   (<| (times 100)
+##       (pattern-matching-spec common.run-common-lisp)))
 
 ## (context: "[PHP] Pattern-matching."
-##   (<| (times +100)
-##       (pattern-matching-spec run-php)))
+##   (<| (times 100)
+##       (pattern-matching-spec common.run-php)))

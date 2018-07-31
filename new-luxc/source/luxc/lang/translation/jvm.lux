@@ -8,7 +8,7 @@
     ["." atom (#+ Atom atom)]]
    [data
     ["." error (#+ Error)]
-    ["." text
+    ["." text ("text/." Hash<Text>)
      format]
     [collection
      ["." array]
@@ -160,13 +160,16 @@
     (#error.Error error)
     (ex.throw invalid-field [class-name ..value-field])))
 
-(def: (evaluate! store loader temp-label valueI)
+(def: module-separator "/")
+(def: class-path-separator ".")
+
+(def: (evaluate! store loader eval-class valueI)
   (-> Store ClassLoader Text Inst (Error Any))
   (do error.Monad<Error>
-    [#let [eval-class (|> temp-label name.normalize (text.replace-all " " "$"))
+    [#let [bytecode-name (text.replace-all class-path-separator module-separator eval-class)
            bytecode (def.class #jvm.V1_6
                                #jvm.Public jvm.noneC
-                               eval-class
+                               bytecode-name
                                (list) ["java.lang.Object" (list)]
                                (list)
                                (|>> (def.field #jvm.Public ($_ jvm.++F jvm.finalF jvm.staticF)
@@ -175,7 +178,7 @@
                                                 "<clinit>"
                                                 (type.method (list) #.None (list))
                                                 (|>> valueI
-                                                     (inst.PUTSTATIC eval-class ..value-field ..$Object)
+                                                     (inst.PUTSTATIC bytecode-name ..value-field ..$Object)
                                                      inst.RETURN))))]
      _ (..store! eval-class bytecode store)
      class (..load! eval-class loader)]
@@ -187,14 +190,24 @@
     [_ (..store! class-name class-bytecode store)]
     (..load! class-name loader)))
 
+(def: (define! store loader [module name] valueI)
+  (-> Store ClassLoader Name Inst (Error Any))
+  (let [class-name (format (text.replace-all module-separator class-path-separator module)
+                           class-path-separator (name.normalize name)
+                           "___" (%n (text/hash name)))]
+    (evaluate! store loader class-name valueI)))
+
 (def: #export init
   (IO Host)
   (io (let [store (: Store (atom (dictionary.new text.Hash<Text>)))
             loader (memory-class-loader store)]
         (: Host
            (structure
-            (def: evaluate! (..evaluate! store loader))
-            (def: execute! (..execute! store loader)))))))
+            (def: (evaluate! temp-label valueI)
+              (let [eval-class (|> temp-label name.normalize (text.replace-all " " "$"))]
+                (..evaluate! store loader eval-class valueI)))
+            (def: execute! (..execute! store loader))
+            (def: define! (..define! store loader)))))))
 
 (def: #export runtime-class "LuxRuntime")
 (def: #export function-class "LuxFunction")
