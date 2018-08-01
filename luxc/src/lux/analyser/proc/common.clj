@@ -233,60 +233,6 @@
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["io" "current-time"]) (&/|list) (&/|list)))))))
 
-(defn ^:private analyse-array-new [analyse exo-type ?values]
-  (|do [:let [(&/$Cons length (&/$Nil)) ?values]
-        =length (&&/analyse-1 analyse &type/Nat length)
-        _ (&type/check exo-type (&/$UnivQ (&/|list) (&type/Array (&/$Parameter 1))))
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$proc (&/T ["array" "new"]) (&/|list =length) (&/|list)))))))
-
-(defn ^:private analyse-array-get [analyse exo-type ?values]
-  (&type/with-var
-    (fn [$var]
-      (|do [:let [(&/$Cons array (&/$Cons idx (&/$Nil))) ?values]
-            =array (&&/analyse-1 analyse (&type/Array $var) array)
-            =idx (&&/analyse-1 analyse &type/Nat idx)
-            _ (&type/check exo-type (&/$Apply $var &type/Maybe))
-            _cursor &/cursor]
-        (return (&/|list (&&/|meta exo-type _cursor
-                                   (&&/$proc (&/T ["array" "get"]) (&/|list =array =idx) (&/|list)))))))))
-
-(defn ^:private analyse-array-put [analyse exo-type ?values]
-  (&type/with-var
-    (fn [$var]
-      (|do [:let [(&/$Cons array (&/$Cons idx (&/$Cons elem (&/$Nil)))) ?values]
-            :let [array-type (&type/Array $var)]
-            =array (&&/analyse-1 analyse array-type array)
-            =idx (&&/analyse-1 analyse &type/Nat idx)
-            =elem (&&/analyse-1 analyse $var elem)
-            _ (&type/check exo-type array-type)
-            _cursor &/cursor]
-        (return (&/|list (&&/|meta exo-type _cursor
-                                   (&&/$proc (&/T ["array" "put"]) (&/|list =array =idx =elem) (&/|list)))))))))
-
-(defn ^:private analyse-array-remove [analyse exo-type ?values]
-  (&type/with-var
-    (fn [$var]
-      (|do [:let [(&/$Cons array (&/$Cons idx (&/$Nil))) ?values]
-            :let [array-type (&type/Array $var)]
-            =array (&&/analyse-1 analyse array-type array)
-            =idx (&&/analyse-1 analyse &type/Nat idx)
-            _ (&type/check exo-type array-type)
-            _cursor &/cursor]
-        (return (&/|list (&&/|meta exo-type _cursor
-                                   (&&/$proc (&/T ["array" "remove"]) (&/|list =array =idx) (&/|list)))))))))
-
-(defn ^:private analyse-array-size [analyse exo-type ?values]
-  (&type/with-var
-    (fn [$var]
-      (|do [:let [(&/$Cons array (&/$Nil)) ?values]
-            =array (&&/analyse-1 analyse (&type/Array $var) array)
-            _ (&type/check exo-type &type/Nat)
-            _cursor &/cursor]
-        (return (&/|list (&&/|meta exo-type _cursor
-                                   (&&/$proc (&/T ["array" "size"]) (&/|list =array) (&/|list)))))))))
-
 (defn ^:private analyse-box-new [analyse exo-type ?values]
   (&type/with-var
     (fn [$var]
@@ -344,12 +290,6 @@
          "lux text size"                 (analyse-text-size analyse exo-type ?values)
          "lux text char"                 (analyse-text-char analyse exo-type ?values)
          
-         "lux array new"    (analyse-array-new analyse exo-type ?values)
-         "lux array get"    (analyse-array-get analyse exo-type ?values)
-         "lux array put"    (analyse-array-put analyse exo-type ?values)
-         "lux array remove" (analyse-array-remove analyse exo-type ?values)
-         "lux array size"   (analyse-array-size analyse exo-type ?values)
-
          "lux i64 and"                  (analyse-i64-and analyse exo-type ?values)
          "lux i64 or"                   (analyse-i64-or analyse exo-type ?values)
          "lux i64 xor"                  (analyse-i64-xor analyse exo-type ?values)
