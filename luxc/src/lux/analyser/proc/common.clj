@@ -322,22 +322,6 @@
             (return (&/|list (&&/|meta exo-type _cursor
                                        (&&/$proc (&/T ["box" "write"]) (&/|list valueA boxA) (&/|list)))))))))))
 
-(defn ^:private analyse-process-parallelism [analyse exo-type ?values]
-  (|do [:let [(&/$Nil) ?values]
-        _ (&type/check exo-type &type/Nat)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$proc (&/T ["process" "parallelism"]) (&/|list) (&/|list)))))))
-
-(defn ^:private analyse-process-schedule [analyse exo-type ?values]
-  (|do [:let [(&/$Cons ?milliseconds (&/$Cons ?procedure (&/$Nil))) ?values]
-        =milliseconds (&&/analyse-1 analyse &type/Nat ?milliseconds)
-        =procedure (&&/analyse-1 analyse (&/$Apply &type/Any &type/IO) ?procedure)
-        _ (&type/check exo-type &type/Any)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta exo-type _cursor
-                               (&&/$proc (&/T ["process" "schedule"]) (&/|list =milliseconds =procedure) (&/|list)))))))
-
 (defn analyse-proc [analyse exo-type proc ?values]
   (try (case proc
          "lux is"                   (analyse-lux-is analyse exo-type ?values)
@@ -396,9 +380,6 @@
          "lux frac min" (analyse-frac-min analyse exo-type ?values)
          "lux frac max" (analyse-frac-max analyse exo-type ?values)
          "lux frac int" (analyse-frac-int analyse exo-type ?values)
-         
-         "lux process parallelism" (analyse-process-parallelism analyse exo-type ?values)
-         "lux process schedule" (analyse-process-schedule analyse exo-type ?values)
          
          ;; else
          (&/fail-with-loc (str "[Analyser Error] Unknown host procedure: " proc)))

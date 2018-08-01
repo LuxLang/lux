@@ -66,36 +66,6 @@
     (&&/save-class! (second (string/split &&/function-class #"/"))
                     (.toByteArray (doto =class .visitEnd)))))
 
-;; Custom Runnable
-(def compile-LuxRunnable-class
-  (|do [_ (return nil)
-        :let [=class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                       (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
-                               "lux/LuxRunnable" nil "java/lang/Object" (into-array String ["java/lang/Runnable"])))
-              _ (doto (.visitField =class Opcodes/ACC_PUBLIC "procedure" "Llux/Function;" nil nil)
-                  (.visitEnd))
-              _ (doto (.visitMethod =class Opcodes/ACC_PUBLIC init-method "(Llux/Function;)V" nil nil)
-                  (.visitCode)
-                  (.visitVarInsn Opcodes/ALOAD 0)
-                  (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/Object" init-method "()V")
-                  (.visitVarInsn Opcodes/ALOAD 0)
-                  (.visitVarInsn Opcodes/ALOAD 1)
-                  (.visitFieldInsn Opcodes/PUTFIELD "lux/LuxRunnable" "procedure" "Llux/Function;")
-                  (.visitInsn Opcodes/RETURN)
-                  (.visitMaxs 0 0)
-                  (.visitEnd))
-              _ (doto (.visitMethod =class Opcodes/ACC_PUBLIC "run" "()V" nil nil)
-                  (.visitCode)
-                  (.visitVarInsn Opcodes/ALOAD 0)
-                  (.visitFieldInsn Opcodes/GETFIELD "lux/LuxRunnable" "procedure" "Llux/Function;")
-                  (.visitInsn Opcodes/ACONST_NULL)
-                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "lux/Function" &&/apply-method (&&/apply-signature 1))
-                  (.visitInsn Opcodes/RETURN)
-                  (.visitMaxs 0 0)
-                  (.visitEnd))]]
-    (&&/save-class! "LuxRunnable"
-                    (.toByteArray (doto =class .visitEnd)))))
-
 ;; Runtime infrastructure
 (defn ^:private compile-LuxRT-adt-methods [^ClassWriter =class]
   (|let [_ (let [$begin (new Label)
@@ -415,63 +385,6 @@
         (.visitEnd)))
     nil))
 
-(defn ^:private compile-LuxRT-process-methods [^ClassWriter =class]
-  (do (doto (.visitField =class
-                         (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC)
-                         "concurrency_level" "I" nil nil)
-        (.visitEnd))
-    (doto (.visitField =class
-                       (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC)
-                       "executor" "Ljava/util/concurrent/ScheduledThreadPoolExecutor;" nil nil)
-      (.visitEnd))
-    (doto (.visitMethod =class Opcodes/ACC_STATIC "<clinit>" "()V" nil nil)
-      (.visitCode)
-      ;; concurrency_level
-      (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/Runtime" "getRuntime" "()Ljava/lang/Runtime;")
-      (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Runtime" "availableProcessors" "()I")
-      (.visitFieldInsn Opcodes/PUTSTATIC "lux/LuxRT" "concurrency_level" "I")
-      ;; executor
-      (.visitTypeInsn Opcodes/NEW "java/util/concurrent/ScheduledThreadPoolExecutor")
-      (.visitInsn Opcodes/DUP)
-      (.visitFieldInsn Opcodes/GETSTATIC "lux/LuxRT" "concurrency_level" "I")
-      (.visitMethodInsn Opcodes/INVOKESPECIAL "java/util/concurrent/ScheduledThreadPoolExecutor" "<init>" "(I)V")
-      (.visitFieldInsn Opcodes/PUTSTATIC "lux/LuxRT" "executor" "Ljava/util/concurrent/ScheduledThreadPoolExecutor;")
-      ;; DONE
-      (.visitInsn Opcodes/RETURN)
-      (.visitMaxs 0 0)
-      (.visitEnd))
-    (let [$immediately (new Label)]
-      (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "schedule" "(JLlux/Function;)Ljava/lang/Object;" nil nil)
-        (.visitCode)
-        (.visitVarInsn Opcodes/LLOAD 0)
-        (.visitLdcInsn (long 0))
-        (.visitInsn Opcodes/LCMP)
-        (.visitJumpInsn Opcodes/IFEQ $immediately)
-        ;; Schedule for later
-        (.visitFieldInsn Opcodes/GETSTATIC "lux/LuxRT" "executor" "Ljava/util/concurrent/ScheduledThreadPoolExecutor;")
-        (.visitTypeInsn Opcodes/NEW "lux/LuxRunnable")
-        (.visitInsn Opcodes/DUP)
-        (.visitVarInsn Opcodes/ALOAD 2)
-        (.visitMethodInsn Opcodes/INVOKESPECIAL "lux/LuxRunnable" "<init>" "(Llux/Function;)V")
-        (.visitVarInsn Opcodes/LLOAD 0)
-        (.visitFieldInsn Opcodes/GETSTATIC "java/util/concurrent/TimeUnit" "MILLISECONDS" "Ljava/util/concurrent/TimeUnit;")
-        (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/util/concurrent/ScheduledThreadPoolExecutor" "schedule" "(Ljava/lang/Runnable;JLjava/util/concurrent/TimeUnit;)Ljava/util/concurrent/ScheduledFuture;")
-        (.visitLdcInsn &/unit-tag)
-        (.visitInsn Opcodes/ARETURN)
-        ;; Run immediately
-        (.visitLabel $immediately)
-        (.visitFieldInsn Opcodes/GETSTATIC "lux/LuxRT" "executor" "Ljava/util/concurrent/ScheduledThreadPoolExecutor;")
-        (.visitTypeInsn Opcodes/NEW "lux/LuxRunnable")
-        (.visitInsn Opcodes/DUP)
-        (.visitVarInsn Opcodes/ALOAD 2)
-        (.visitMethodInsn Opcodes/INVOKESPECIAL "lux/LuxRunnable" "<init>" "(Llux/Function;)V")
-        (.visitMethodInsn Opcodes/INVOKEINTERFACE "java/util/concurrent/Executor" "execute" "(Ljava/lang/Runnable;)V")
-        (.visitLdcInsn &/unit-tag)
-        (.visitInsn Opcodes/ARETURN)
-        (.visitMaxs 0 0)
-        (.visitEnd)))
-    nil))
-
 (def compile-LuxRT-class
   (|do [_ (return nil)
         :let [full-name &&/lux-utils-class
@@ -577,7 +490,6 @@
                   (compile-LuxRT-adt-methods)
                   (compile-LuxRT-int-methods)
                   (compile-LuxRT-frac-methods)
-                  (compile-LuxRT-text-methods)
-                  (compile-LuxRT-process-methods))]]
+                  (compile-LuxRT-text-methods))]]
     (&&/save-class! (second (string/split &&/lux-utils-class #"/"))
                     (.toByteArray (doto =class .visitEnd)))))

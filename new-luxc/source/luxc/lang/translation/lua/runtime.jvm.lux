@@ -258,50 +258,6 @@
   Runtime
   (format @@box//write))
 
-(def: process//incoming
-  Text
-  (lang.normalize-name "process//incoming"))
-
-(runtime: (process//loop _)
-  (let [migrate-incoming! (lua.block! (list (lua.for-step! "idx" (lua.int 1) (lua.length process//incoming) (lua.int 1)
-                                                           (lua.apply "table.insert" (list "queue" (lua.nth "idx" process//incoming))))
-                                            (lua.set! process//incoming (lua.array (list)))))
-        consume-queue! (lua.block! (list (lua.local! "survivors" (#.Some (lua.array (list))))
-                                         (lua.local! "active_processes" (#.Some (lua.length "queue")))
-                                         (lua.for-step! "idx" (lua.int 1) "active_processes" (lua.int 1)
-                                                        (lua.block! (list (lua.local! "process" (#.Some (lua.nth "idx" "queue")))
-                                                                          (lua.when! (lua.apply "coroutine.resume" (list "process"))
-                                                                                     (lua.apply "table.insert" (list "survivors" "process"))))))
-                                         (lua.set! "queue" "survivors")))
-        loop-body! (lua.block! (list migrate-incoming!
-                                     consume-queue!))]
-    (lua.block! (list (lua.local! "queue" (#.Some (lua.array (list))))
-                      loop-body!
-                      (lua.while! (|> (lua.length "queue") (lua.> (lua.int 0)))
-                                  loop-body!)))))
-
-(runtime: (process//schedule milli-seconds procedure)
-  (let [now (lua.apply "os.time" (list))]
-    (lua.if! (lua.= (lua.int 0) milli-seconds)
-             (lua.apply "table.insert" (list process//incoming
-                                             (lua.function (list)
-                                               (lua.return! (lua.apply procedure (list unit))))))
-             (lua.block! (list (lua.local! "start" (#.Some now))
-                               (lua.local! "seconds" (#.Some (lua.// (lua.int 1_000)
-                                                                     milli-seconds)))
-                               (lua.apply "table.insert" (list process//incoming
-                                                               (lua.function (list)
-                                                                 (lua.block! (list (lua.while! (lua.< "seconds" (lua.- "start" now))
-                                                                                               (lua.apply "coroutine.yield" (list)))
-                                                                                   (lua.return! (lua.apply procedure (list unit))))))))
-                               (lua.return! unit))))))
-
-(def: runtime//process
-  Runtime
-  (format (lua.global! process//incoming (#.Some (lua.array (list))))
-          @@process//loop
-          @@process//schedule))
-
 (runtime: (lua//get object field)
   (lua.block! (list (lua.local! "value" (#.Some (lua.nth field object)))
                     (lua.if! (lua.= lua.nil "value")
@@ -325,7 +281,6 @@
           runtime//text
           runtime//array
           runtime//box
-          runtime//process
           runtime//lua))
 
 (def: #export artifact Text (format prefix ".lua"))

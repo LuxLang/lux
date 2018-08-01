@@ -505,28 +505,6 @@
                   (.visitLdcInsn &/unit-tag))]]
     (return nil)))
 
-(defn ^:private compile-process-parallelism [compile ?values special-args]
-  (|do [:let [(&/$Nil) ?values]
-        ^MethodVisitor *writer* &/get-writer
-        :let [_ (doto *writer*
-                  (.visitFieldInsn Opcodes/GETSTATIC "lux/LuxRT" "concurrency_level" "I")
-                  (.visitInsn Opcodes/I2L)
-                  &&/wrap-long)]]
-    (return nil)))
-
-(defn ^:private compile-process-schedule [compile ?values special-args]
-  (|do [:let [(&/$Cons ?milliseconds (&/$Cons ?procedure (&/$Nil))) ?values]
-        ^MethodVisitor *writer* &/get-writer
-        _ (compile ?milliseconds)
-        :let [_ (doto *writer*
-                  &&/unwrap-long)]
-        _ (compile ?procedure)
-        :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/CHECKCAST "lux/Function"))]
-        :let [_ (doto *writer*
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "schedule" "(JLlux/Function;)Ljava/lang/Object;"))]]
-    (return nil)))
-
 (defn compile-proc [compile category proc ?values special-args]
   (case category
     "lux"
@@ -607,11 +585,5 @@
       "write" (compile-box-write compile ?values special-args)
       )
 
-    "process"
-    (case proc
-      "parallelism" (compile-process-parallelism compile ?values special-args)
-      "schedule" (compile-process-schedule compile ?values special-args)
-      )
-    
     ;; else
     (&/fail-with-loc (str "[Compiler Error] Unknown procedure: " [category proc]))))
