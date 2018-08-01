@@ -374,47 +374,6 @@
                   &&/wrap-long)]]
     (return nil)))
 
-(defn ^:private compile-box-new [compile ?values special-args]
-  (|do [:let [(&/$Cons initS (&/$Nil)) ?values]
-        ^MethodVisitor *writer* &/get-writer
-        :let [_ (doto *writer*
-                  (.visitLdcInsn (int 1))
-                  (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object"))]
-        :let [_ (doto *writer*
-                  (.visitInsn Opcodes/DUP)
-                  (.visitLdcInsn (int 0)))]
-        _ (compile initS)
-        :let [_ (doto *writer*
-                  (.visitInsn Opcodes/AASTORE))]]
-    (return nil)))
-
-(defn ^:private compile-box-read [compile ?values special-args]
-  (|do [:let [(&/$Cons boxS (&/$Nil)) ?values
-              ;; (&/$Nil) special-args
-              ]
-        ^MethodVisitor *writer* &/get-writer
-        _ (compile boxS)
-        :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-                  (.visitLdcInsn (int 0))
-                  (.visitInsn Opcodes/AALOAD))]]
-    (return nil)))
-
-(defn ^:private compile-box-write [compile ?values special-args]
-  (|do [:let [(&/$Cons valueS (&/$Cons boxS (&/$Nil))) ?values
-              ;; (&/$Nil) special-args
-              ]
-        ^MethodVisitor *writer* &/get-writer
-        _ (compile boxS)
-        :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-                  (.visitLdcInsn (int 0)))]
-        _ (compile valueS)
-        :let [_ (doto *writer*
-                  (.visitInsn Opcodes/AASTORE)
-                  (.visitLdcInsn &/unit-tag))]]
-    (return nil)))
-
 (defn compile-proc [compile category proc ?values special-args]
   (case category
     "lux"
@@ -478,13 +437,6 @@
       "int"    (compile-frac-int compile ?values special-args)
       "encode"    (compile-frac-encode compile ?values special-args)
       "decode"    (compile-frac-decode compile ?values special-args)
-      )
-
-    "box"
-    (case proc
-      "new" (compile-box-new compile ?values special-args)
-      "read" (compile-box-read compile ?values special-args)
-      "write" (compile-box-write compile ?values special-args)
       )
 
     ;; else
