@@ -1,0 +1,184 @@
+(.module:
+  [lux #*
+   [control
+    [monad (#+ do)]
+    pipe]
+   [data
+    [collection
+     [list ("list/." Functor<List>)]
+     ["." dictionary]]]
+   ["." macro]
+   [type (#+ :share)
+    ["." check]]]
+  [//
+   ["/." // (#+ Eval)
+    ["." analysis
+     ["." module]
+     ["." type]]
+    ["." synthesis]
+    ["." translation]
+    ["." statement (#+ Operation Handler Bundle)]
+    ["." extension
+     ["." bundle]]
+    [//
+     ["." evaluation]]]])
+
+(do-template [<name> <component> <operation>]
+  [(def: (<name> operation)
+     (All [anchor expression statement output]
+       (-> (<operation> output) (Operation anchor expression statement output)))
+     (extension.lift
+      (///.sub [(get@ [<component> #statement.state])
+                (set@ [<component> #statement.state])]
+               operation)))]
+
+  [lift-analysis!    #statement.analysis    analysis.Operation]
+  [lift-synthesis!   #statement.synthesis   synthesis.Operation]
+  [lift-translation! #statement.translation (translation.Operation anchor expression statement)]
+  )
+
+(def: (compile ?name ?type codeC)
+  (All [anchor expression statement]
+    (-> (Maybe Name) (Maybe Type) Code
+        (Operation anchor expression statement [Type expression Any])))
+  (do ///.Monad<Operation>
+    [state (extension.lift ///.state)
+     #let [analyse (get@ [#statement.analysis #statement.phase] state)
+           synthesize (get@ [#statement.synthesis #statement.phase] state)
+           translate (get@ [#statement.translation #statement.phase] state)]
+     [_ code//type codeA] (lift-analysis!
+                           (analysis.with-scope
+                             (type.with-fresh-env
+                               (case ?type
+                                 (#.Some type)
+                                 (type.with-type type
+                                   (do @
+                                     [codeA (analyse codeC)]
+                                     (wrap [type codeA])))
+
+                                 #.None
+                                 (do @
+                                   [[code//type codeA] (type.with-inference (analyse codeC))
+                                    code//type (type.with-env
+                                                 (check.clean code//type))]
+                                   (wrap [code//type codeA]))))))
+     codeS (lift-synthesis!
+            (synthesize codeA))]
+    (lift-translation!
+     (do @
+       [codeT (translate codeS)
+        codeV (case ?name
+                (#.Some name)
+                (translation.define! name codeT)
+
+                #.None
+                (translation.evaluate! codeT))]
+       (wrap [code//type codeT codeV])))))
+
+(def: lux::def
+  Handler
+  (function (_ extension-name phase inputsC+)
+    (case inputsC+
+      (^ (list [_ (#.Identifier ["" def-name])] valueC annotationsC))
+      (do ///.Monad<Operation>
+        [[_ annotationsT annotationsV] (compile #.None (#.Some Code) annotationsC)
+         #let [annotationsV (:coerce Code annotationsV)]
+         current-module (lift-analysis!
+                         (extension.lift
+                          macro.current-module-name))
+         [value//type valueT valueV] (compile (#.Some [current-module def-name])
+                                              (if (macro.type? annotationsV)
+                                                (#.Some Type)
+                                                #.None)
+                                              valueC)]
+        (lift-analysis!
+         (do @
+           [_ (module.define def-name [value//type annotationsV valueV])]
+           (if (macro.type? annotationsV)
+             (case (macro.declared-tags annotationsV)
+               #.Nil
+               (wrap [])
+
+               tags
+               (module.declare-tags tags (macro.export? annotationsV) (:coerce Type valueV)))
+             (wrap [])))))
+
+      _
+      (///.throw bundle.invalid-syntax [extension-name]))))
+
+(def: (alias! alias def-name)
+  (-> Text Name (analysis.Operation Any))
+  (do ///.Monad<Operation>
+    [definition (extension.lift (macro.find-def def-name))]
+    (module.define alias definition)))
+
+(def: def::alias
+  Handler
+  (function (_ extension-name phase inputsC+)
+    (case inputsC+
+      (^ (list [_ (#.Identifier ["" alias])] [_ (#.Identifier def-name)]))
+      (extension.lift
+       (///.sub [(get@ [#statement.analysis #statement.state])
+                 (set@ [#statement.analysis #statement.state])]
+                (alias! alias def-name)))
+
+      _
+      (///.throw bundle.invalid-syntax [extension-name]))))
+
+(do-template [<mame> <type> <scope>]
+  [(def: <mame>
+     (All [anchor expression statement]
+       (Handler anchor expression statement))
+     (function (handler extension-name phase inputsC+)
+       (case inputsC+
+         (^ (list [_ (#.Text name)] valueC))
+         (do ///.Monad<Operation>
+           [[_ handlerT handlerV] (compile #.None
+                                           (#.Some (:of (:share [anchor expression statement]
+                                                                {(Handler anchor expression statement)
+                                                                 handler}
+                                                                {<type>
+                                                                 (:assume [])})))
+                                           valueC)]
+           (<| <scope>
+               (extension.install name)
+               (:share [anchor expression statement]
+                       {(Handler anchor expression statement)
+                        handler}
+                       {<type>
+                        (:assume handlerV)})))
+
+         _
+         (///.throw bundle.invalid-syntax [extension-name]))))]
+
+  [def::analysis    analysis.Handler lift-analysis!]
+  [def::synthesis   synthesis.Handler
+   (<| extension.lift
+       (///.sub [(get@ [#statement.synthesis #statement.state])
+                 (set@ [#statement.synthesis #statement.state])]))]
+  [def::translation (translation.Handler anchor expression statement)
+   (<| extension.lift
+       (///.sub [(get@ [#statement.translation #statement.state])
+                 (set@ [#statement.translation #statement.state])]))]
+
+  [def::statement (Handler anchor expression statement)
+   (<|)]
+  )
+
+(def: bundle::def
+  Bundle
+  (<| (bundle.prefix "def")
+      (|> bundle.empty
+          (dictionary.put "alias"       def::alias)
+          (dictionary.put "analysis"    def::analysis)
+          (dictionary.put "synthesis"   def::synthesis)
+          (dictionary.put "translation" def::translation)
+          (dictionary.put "statement"   def::statement)
+          )))
+
+(def: #export bundle
+  Bundle
+  (<| (bundle.prefix "lux")
+      (|> bundle.empty
+          (dictionary.put "def" lux::def)
+          (dictionary.merge ..bundle::def))))

@@ -7,8 +7,7 @@
              [text "text/" Monoid<Text> Hash<Text>]
              text/format
              (coll [list "list/" Functor<List> Fold<List>]))
-       [macro]
-       [host])
+       [macro])
   (luxc ["&" lang]
         ["&." io]
         (lang (host ["$" jvm]
@@ -20,76 +19,6 @@
               [".L" host]))
   (// [".T" common]
       [".T" runtime]))
-
-(do-template [<name>]
-  [(exception: #export (<name> {message Text})
-     message)]
-
-  [Invalid-Definition-Value]
-  [Cannot-Evaluate-Definition]
-  )
-
-(host.import: java/lang/reflect/Field
-  (get [#? Object] #try #? Object))
-
-(host.import: (java/lang/Class c)
-  (getField [String] #try Field))
-
-(def: #export (translate-def def-name valueT valueI metaV)
-  (-> Text Type $.Inst Code (Meta Any))
-  (do macro.Monad<Meta>
-    [current-module macro.current-module-name
-     #let [def-name [current-module def-name]]]
-    (case (macro.get-identifier-ann (name-of #.alias) metaV)
-      (#.Some real-def)
-      (do @
-        [[realT realA realV] (macro.find-def real-def)
-         _ (&module.define def-name [realT metaV realV])]
-        (wrap []))
-
-      _
-      (do @
-        [#let [normal-name (format (&.normalize-name def-name) (%n (text/hash def-name)))
-               bytecode-name (format current-module "/" normal-name)
-               class-name (format (text.replace-all "/" "." current-module) "." normal-name)
-               bytecode ($d.class #$.V1_6
-                                  #$.Public $.finalC
-                                  bytecode-name
-                                  (list) ["java.lang.Object" (list)]
-                                  (list)
-                                  (|>> ($d.field #$.Public ($.++F $.finalF $.staticF) commonT.value-field commonT.$Object)
-                                       ($d.method #$.Public $.staticM "<clinit>" ($t.method (list) #.None (list))
-                                                  (|>> valueI
-                                                       ($i.PUTSTATIC bytecode-name commonT.value-field commonT.$Object)
-                                                       $i.RETURN))))]
-         _ (commonT.store-class class-name bytecode)
-         class (commonT.load-class class-name)
-         valueV (: (Meta Any)
-                   (case (do e.Monad<Error>
-                           [field (Class::getField [commonT.value-field] class)]
-                           (Field::get [#.None] field))
-                     (#e.Success #.None)
-                     (&.throw Invalid-Definition-Value (%name def-name))
-                     
-                     (#e.Success (#.Some valueV))
-                     (wrap valueV)
-                     
-                     (#e.Error error)
-                     (&.throw Cannot-Evaluate-Definition
-                              (format "Definition: " (%name def-name) "\n"
-                                      "Error:\n"
-                                      error))))
-         _ (&module.define def-name [valueT metaV valueV])
-         _ (if (macro.type? metaV)
-             (case (macro.declared-tags metaV)
-               #.Nil
-               (wrap [])
-
-               tags
-               (&module.declare-tags tags (macro.export? metaV) (:coerce Type valueV)))
-             (wrap []))
-         #let [_ (log! (format "DEF " (%name def-name)))]]
-        (commonT.record-artifact (format bytecode-name ".class") bytecode)))))
 
 (def: #export (translate-program programI)
   (-> $.Inst (Meta Any))
