@@ -21,7 +21,7 @@
     _
     false))
 
-(def max-env-size 128)
+(def max-stack-size 256)
 
 (def empty-env &/$Nil)
 
@@ -753,7 +753,7 @@
         
         [(&/$Apply A F) _]
         (let [fp-pair (&/T [expected actual])
-              _ (when (> (&/|length fixpoints) max-env-size)
+              _ (when (> (&/|length fixpoints) max-stack-size)
                   (&/|log! (println-str 'FIXPOINTS (->> (&/|keys fixpoints)
                                                         (&/|map (fn [pair]
                                                                   (|let [[e a] pair]
