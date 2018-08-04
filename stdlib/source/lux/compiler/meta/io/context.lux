@@ -9,7 +9,7 @@
      format
      ["." encoding]]]
    [world
-    ["." file (#+ File System)]
+    ["." file (#+ File)]
     [binary (#+ Binary)]]]
   ["." // (#+ Context Module)
    [///
@@ -18,7 +18,7 @@
 (type: #export Extension Text)
 
 (def: #export (file System<m> context module)
-  (All [m] (-> (System m) Context Module File))
+  (All [m] (-> (file.System m) Context Module File))
   (|> module
       (//.sanitize System<m>)
       (format context (:: System<m> separator))))
@@ -37,6 +37,8 @@
 
 (def: lux-extension Extension ".lux")
 
+(def: full-extension Extension (format host-extension lux-extension))
+
 (do-template [<name>]
   [(exception: #export (<name> {module Module})
      (ex.report ["Module" module]))]
@@ -46,7 +48,9 @@
   )
 
 (def: (find-source System<m> contexts module extension)
-  (All [m] (-> (System m) (List Context) Module Text (m (Maybe [Module File]))))
+  (All [fs]
+    (-> (file.System fs) (List Context) Module Extension
+        (fs (Maybe [Module File]))))
   (case contexts
     #.Nil
     (:: (:: System<m> &monad) wrap #.None)
@@ -57,10 +61,10 @@
        ? (file.exists? System<m> file)]
       (if ?
         (wrap (#.Some [module file]))
-        (find-source System<m> contexts' module)))))
+        (find-source System<m> contexts' module extension)))))
 
 (def: (try System<m> computations exception message)
-  (All [m a e] (-> (System m) (List (m (Maybe a))) (Exception e) e (m a)))
+  (All [m a e] (-> (file.System m) (List (m (Maybe a))) (Exception e) e (m a)))
   (case computations
     #.Nil
     (:: System<m> throw exception message)
@@ -77,20 +81,20 @@
 
 (type: #export Code Text)
 
-(def: #export (read System<m> contexts name)
-  (All [m]
-    (-> (System m) (List Context) Module
-        (m [Text Code])))
-  (let [find-source' (find-source System<m> contexts name)]
+(def: #export (read System<m> contexts module)
+  (All [fs]
+    (-> (file.System fs) (List Context) Module
+        (fs [Text Code])))
+  (let [find-source' (find-source System<m> contexts module)]
     (do (:: System<m> &monad)
       [[path file] (try System<m>
-                        (list (find-source' (format host-extension lux-extension))
-                              (find-source' lux-extension))
-                        module-not-found [name])
+                        (list (find-source' ..full-extension)
+                              (find-source' ..lux-extension))
+                        ..module-not-found [module])
        binary (:: System<m> read file)]
       (case (encoding.from-utf8 binary)
         (#error.Success code)
         (wrap [path code])
         
         (#error.Error _)
-        (:: System<m> throw cannot-read-module [name])))))
+        (:: System<m> throw ..cannot-read-module [module])))))

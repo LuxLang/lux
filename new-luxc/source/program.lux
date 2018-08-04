@@ -5,48 +5,59 @@
     ["p" parser]]
    [concurrency
     ["." promise (#+ Promise)]
-    [task (#+ Task)]]
+    ["." task (#+ Task)]]
    [data
     ["e" error]
     [text
      format]]
-   ["." io (#- run)]
+   ["." io (#+ IO Process io)]
    [time
     ["." instant]]
    ["." cli (#+ CLI program:)]
    [world
-    [file (#+ File)]]]
+    ["." file (#+ File)]]
+   [compiler
+    ["." default (#+ Configuration Platform)]]]
   [luxc
-   ["." repl]
+   ## ["." repl]
    [lang
-    [".L" translation]]])
+    ["." host/jvm]
+    [translation
+     ["." jvm
+      ["." runtime]
+      ["." expression]]]]])
 
 (type: Build
-  {#build-sources (List File)
-   #build-target File
-   #build-program Text})
+  [Configuration Text])
 
 (type: REPL
-  {#repl-sources (List File)
-   #repl-target File})
+  Configuration)
 
-(def: (param [short long])
-  (-> [Text Text] (CLI Text))
-  (cli.somewhere (p.after (p.either (cli.this short) (cli.this long))
-                          cli.any)))
+(do-template [<name> <short> <long>]
+  [(def: <name>
+     (CLI Text)
+     (cli.parameter [<short> <long>]))]
+
+  [source  "-s" "--source"]
+  [target  "-t" "--target"]
+  [program "-p" "--program"]
+  )
+
+(def: configuration
+  (CLI Configuration)
+  ($_ p.and
+      (p.some ..source)
+      ..target))
 
 (def: build
   (CLI Build)
-  ($_ p.seq
-      (p.some (param ["-s" "--source"]))
-      (param ["-t" "--target"])
-      (param ["-p" "--program"])))
+  ($_ p.and
+      configuration
+      ..program))
 
 (def: repl
   (CLI REPL)
-  ($_ p.seq
-      (p.some (param ["-s" "--source"]))
-      (param ["-t" "--target"])))
+  ..configuration)
 
 (type: Service
   (#Build Build)
@@ -58,7 +69,8 @@
         (p.after (cli.this "repl") repl)))
 
 (def: (or-crash! failure-describer action)
-  (All [a] (-> Text (Task a) (Promise a)))
+  (All [a]
+    (-> Text (Task a) (Promise a)))
   (do promise.Monad<Promise>
     [?output action]
     (case ?output
@@ -66,24 +78,44 @@
       (exec (log! (format "\n"
                           failure-describer "\n"
                           error "\n"))
-        ("lux io exit" 1))
+        (io.run (io.exit +1)))
 
       (#e.Success output)
       (wrap output))))
 
+(def: (timed action)
+  (All [a]
+    (-> (Process a) (Process a)))
+  (do io.Monad<Process>
+    [start (io.from-io instant.now)
+     result action
+     finish (io.from-io instant.now)
+     #let [elapsed-time (instant.span start finish)
+           _ (log! (format "\n" "Elapsed time: " (%duration elapsed-time)))]]
+    (wrap result)))
+
+(def: jvm-platform
+  (IO (Platform Process host/jvm.Anchor host/jvm.Inst host/jvm.Definition))
+  (do io.Monad<IO>
+    [host jvm.init]
+    (wrap {#default.host host
+           #default.phase expression.translate
+           #default.runtime runtime.translate
+           #default.file-system file.JVM@System})))
+
 (program: [{service ..service}]
-  (exec (case service
-          (#Build [sources target program])
-          (<| (or-crash! "Compilation failed:")
-              (promise.future
-               (do io.Monad<Process>
-                 [#let [start (io.run instant.now)]
-                  result (translationL.translate-program sources target program)
-                  #let [end (io.run instant.now)
-                        _ (log! (format "\n" "Elapsed time: " (%duration (instant.span start end))))]]
-                 (wrap result))))
-          
-          (#REPL [sources target])
-          (<| (or-crash! "REPL failed:")
-              (repl.run sources target)))
-    (io [])))
+  (do io.Monad<IO>
+    [platform ..jvm-platform]
+    (wrap (: (Promise Any)
+             (case service
+               (#Build [configuration program])
+               (<| (or-crash! "Compilation failed:")
+                   promise.future
+                   ..timed
+                   (default.compile platform configuration program))
+               
+               (#REPL configuration)
+               (undefined)
+               ## (<| (or-crash! "REPL failed:")
+               ##     (repl.run sources target))
+               )))))

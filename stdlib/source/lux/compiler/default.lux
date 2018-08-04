@@ -1,5 +1,5 @@
 (.module:
-  [lux #*
+  [lux (#- Source)
    [control
     [monad (#+ do)]
     ["ex" exception (#+ exception:)]]
@@ -13,9 +13,6 @@
      ["." dictionary]]]
    [type (#+ :share)]
    ["." macro]
-   [concurrency
-    ["." promise ("promise/." Monad<Promise>)]
-    ["." task (#+ Task)]]
    [world
     ["." file (#+ File)]]]
   [//
@@ -67,28 +64,32 @@
 ## ##                (format module-name "/" cache.descriptor-name)
 ## ##                (encoding.to-utf8 (%code (cache/description.write file-name module))))))
 
-(type: Configuration
+(type: #export Configuration
   {#sources (List File)
    #target File})
 
-(type: (Platform anchor expression statement)
+(type: #export (Platform fs anchor expression statement)
   {#host (Host expression statement)
    #phase (translation.Phase anchor expression statement)
    #runtime (translation.Operation anchor expression statement Any)
-   #file-system (file.System Task)})
+   #file-system (file.System fs)})
 
-(with-expansions [<Platform> (as-is (Platform anchor expression statement))
+(type: #export Source
+  {#name Text
+   #code Text})
+
+(with-expansions [<Platform> (as-is (Platform fs anchor expression statement))
                   <Operation> (as-is (statement.Operation anchor expression statement Any))
                   <Compiler> (as-is (statement.State+ anchor expression statement))]
   
-  (def: (begin-module-compilation module-name file-name source-code)
+  (def: (begin-module-compilation module-name source)
     (All [anchor expression statement]
-      (-> Text Text Text <Operation>))
+      (-> Text Source <Operation>))
     (statement.lift-analysis!
      (do phase.Monad<Operation>
-       [_ (module.create (text/hash source-code) module-name)
+       [_ (module.create (text/hash (get@ #code source)) module-name)
         _ (analysis.set-current-module module-name)]
-       (analysis.set-source-code (init.source file-name source-code)))))
+       (analysis.set-source-code (init.source (get@ #name source) (get@ #code source))))))
 
   (def: (end-module-compilation module-name)
     (All [anchor expression statement]
@@ -111,75 +112,76 @@
           _ (totalS.phase code)]
          (forgive-eof (recur []))))))
 
-  (def: (perform-module-compilation module-name file-name source-code)
+  (def: (perform-module-compilation module-name source)
     (All [anchor expression statement]
-      (-> Text Text Text <Operation>))
+      (-> Text Source <Operation>))
     (do phase.Monad<Operation>
-      [_ (begin-module-compilation module-name file-name source-code)
+      [_ (begin-module-compilation module-name source)
        _ (loop-module-compilation module-name)]
       (end-module-compilation module-name)))
 
   (def: #export (compile-module platform configuration module-name compiler)
-    (All [anchor expression statement]
-      (-> <Platform> Configuration Text <Compiler> (Task <Compiler>)))
-    (do task.Monad<Task>
-      [[file-name source-code] (context.read (get@ #file-system platform)
-                                             (get@ #sources configuration)
-                                             module-name)
-       [compiler' _] (<| promise/wrap
-                         (phase.run' compiler)
-                         (:share [anchor expression statement]
-                                 {<Platform>
-                                  platform}
-                                 {<Operation>
-                                  (perform-module-compilation module-name file-name source-code)}))
+    (All [fs anchor expression statement]
+      (-> <Platform> Configuration Text <Compiler> (fs <Compiler>)))
+    (do (:: (get@ #file-system platform) &monad)
+      [source (context.read (get@ #file-system platform)
+                            (get@ #sources configuration)
+                            module-name)
        ## _ (&io.prepare-module target-dir module-name)
        ## _ (write-module target-dir file-name module-name module artifacts)
        ]
-      (wrap compiler')))
+      (<| (:: @ map product.left)
+          (:: (get@ #file-system platform) lift)
+          (phase.run' compiler)
+          (:share [fs anchor expression statement]
+                  {<Platform>
+                   platform}
+                  {<Operation>
+                   (perform-module-compilation module-name source)}))))
 
-  (def: (initialize platform configuration)
-    (All [anchor expression statement]
-      (-> <Platform> Configuration (Task <Compiler>)))
-    (do task.Monad<Task>
-      [[compiler _] (|> platform
-                        (get@ #runtime)
-                        statement.lift-translation!
-                        (phase.run' (init.state (get@ #host platform)
-                                                (get@ #phase platform)))
-                        promise/wrap)
-       ## compiler (case (runtimeT.translate ## (initL.compiler (io.run js.init))
-       ##                 (initL.compiler (io.run hostL.init-host))
-       ##                 )
-       ##            ## (#error.Success [compiler disk-write])
-       ##            ## (do @
-       ##            ##   [_ (&io.prepare-target target)
-       ##            ##    _ disk-write
-       ##            ##    ## _ (cache/io.pre-load sources target (commonT.load-definition compiler))
-       ##            ##    ]
-       ##            ##   (wrap (|> compiler
-       ##            ##             (set@ [#.info #.mode] #.Build))))
+  (def: (initialize-runtime platform configuration)
+    (All [fs anchor expression statement]
+      (-> <Platform> Configuration (fs <Compiler>)))
+    (|> platform
+        (get@ #runtime)
+        statement.lift-translation!
+        (phase.run' (init.state (get@ #host platform)
+                                (get@ #phase platform)))
+        (:: error.Functor<Error> map product.left)
+        (:: (get@ #file-system platform) lift))
+    
+    ## (case (runtimeT.translate ## (initL.compiler (io.run js.init))
+    ##        (initL.compiler (io.run hostL.init-host))
+    ##        )
+    ##   ## (#error.Success [compiler disk-write])
+    ##   ## (do @
+    ##   ##   [_ (&io.prepare-target target)
+    ##   ##    _ disk-write
+    ##   ##    ## _ (cache/io.pre-load sources target (commonT.load-definition compiler))
+    ##   ##    ]
+    ##   ##   (wrap (|> compiler
+    ##   ##             (set@ [#.info #.mode] #.Build))))
 
-       ##            (#error.Success [compiler [runtime-bc function-bc]])
-       ##            (do @
-       ##              [_ (&io.prepare-target target)
-       ##               ## _ (&io.write target (format hostL.runtime-class ".class") runtime-bc)
-       ##               ## _ (&io.write target (format hostL.function-class ".class") function-bc)
-       ##               ## _ (cache/io.pre-load sources target (commonT.load-definition compiler))
-       ##               ]
-       ##              (wrap (|> compiler
-       ##                        (set@ [#.info #.mode] #.Build))))
+    ##   (#error.Success [compiler [runtime-bc function-bc]])
+    ##   (do @
+    ##     [_ (&io.prepare-target target)
+    ##      ## _ (&io.write target (format hostL.runtime-class ".class") runtime-bc)
+    ##      ## _ (&io.write target (format hostL.function-class ".class") function-bc)
+    ##      ## _ (cache/io.pre-load sources target (commonT.load-definition compiler))
+    ##      ]
+    ##     (wrap (|> compiler
+    ##               (set@ [#.info #.mode] #.Build))))
 
-       ##            (#error.Error error)
-       ##            (io.fail error))
-       ]
-      (compile-module platform configuration prelude compiler)))
+    ##   (#error.Error error)
+    ##   (io.fail error))
+    )
 
   (def: #export (compile platform configuration program)
-    (All [anchor expression statement]
-      (-> <Platform> Configuration Text (Task Any)))
-    (do task.Monad<Task>
-      [compiler (initialize platform configuration)
+    (All [fs anchor expression statement]
+      (-> <Platform> Configuration Text (fs Any)))
+    (do (:: (get@ #file-system platform) &monad)
+      [compiler (initialize-runtime platform configuration)
+       _ (compile-module platform configuration ..prelude compiler)
        _ (compile-module platform configuration program compiler)
        ## _ (cache/io.clean target ...)
        #let [_ (log! "Compilation complete!")]]
