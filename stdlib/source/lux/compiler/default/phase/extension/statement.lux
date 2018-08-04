@@ -23,20 +23,6 @@
     [//
      ["." evaluation]]]])
 
-(do-template [<name> <component> <operation>]
-  [(def: (<name> operation)
-     (All [anchor expression statement output]
-       (-> (<operation> output) (Operation anchor expression statement output)))
-     (extension.lift
-      (///.sub [(get@ [<component> #statement.state])
-                (set@ [<component> #statement.state])]
-               operation)))]
-
-  [lift-analysis!    #statement.analysis    analysis.Operation]
-  [lift-synthesis!   #statement.synthesis   synthesis.Operation]
-  [lift-translation! #statement.translation (translation.Operation anchor expression statement)]
-  )
-
 (def: (compile ?name ?type codeC)
   (All [anchor expression statement]
     (-> (Maybe Name) (Maybe Type) Code
@@ -46,7 +32,7 @@
      #let [analyse (get@ [#statement.analysis #statement.phase] state)
            synthesize (get@ [#statement.synthesis #statement.phase] state)
            translate (get@ [#statement.translation #statement.phase] state)]
-     [_ code//type codeA] (lift-analysis!
+     [_ code//type codeA] (statement.lift-analysis!
                            (analysis.with-scope
                              (type.with-fresh-env
                                (case ?type
@@ -62,9 +48,9 @@
                                     code//type (type.with-env
                                                  (check.clean code//type))]
                                    (wrap [code//type codeA]))))))
-     codeS (lift-synthesis!
+     codeS (statement.lift-synthesis!
             (synthesize codeA))]
-    (lift-translation!
+    (statement.lift-translation!
      (do @
        [codeT (translate codeS)
         codeV (case ?name
@@ -83,7 +69,7 @@
       (do ///.Monad<Operation>
         [[_ annotationsT annotationsV] (compile #.None (#.Some Code) annotationsC)
          #let [annotationsV (:coerce Code annotationsV)]
-         current-module (lift-analysis!
+         current-module (statement.lift-analysis!
                          (extension.lift
                           macro.current-module-name))
          [value//type valueT valueV] (compile (#.Some [current-module def-name])
@@ -91,7 +77,7 @@
                                                 (#.Some Type)
                                                 #.None)
                                               valueC)]
-        (lift-analysis!
+        (statement.lift-analysis!
          (do @
            [_ (module.define def-name [value//type annotationsV valueV])]
            (if (macro.type? annotationsV)
@@ -111,6 +97,20 @@
   (do ///.Monad<Operation>
     [definition (extension.lift (macro.find-def def-name))]
     (module.define alias definition)))
+
+(def: def::module
+  Handler
+  (function (_ extension-name phase inputsC+)
+    (case inputsC+
+      (^ (list annotationsC))
+      (do ///.Monad<Operation>
+        [[_ annotationsT annotationsV] (compile #.None (#.Some Code) annotationsC)
+         _ (statement.lift-analysis!
+            (module.set-annotations (:coerce Code annotationsV)))]
+        (wrap []))
+
+      _
+      (///.throw bundle.invalid-syntax [extension-name]))))
 
 (def: def::alias
   Handler
@@ -151,7 +151,7 @@
          _
          (///.throw bundle.invalid-syntax [extension-name]))))]
 
-  [def::analysis    analysis.Handler lift-analysis!]
+  [def::analysis    analysis.Handler statement.lift-analysis!]
   [def::synthesis   synthesis.Handler
    (<| extension.lift
        (///.sub [(get@ [#statement.synthesis #statement.state])
@@ -169,6 +169,7 @@
   Bundle
   (<| (bundle.prefix "def")
       (|> bundle.empty
+          (dictionary.put "module"      def::module)
           (dictionary.put "alias"       def::alias)
           (dictionary.put "analysis"    def::analysis)
           (dictionary.put "synthesis"   def::synthesis)
