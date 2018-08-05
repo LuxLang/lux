@@ -729,7 +729,8 @@
                      super-params*))))
 
 (defn ^:private check-method! [only-interface? class method]
-  (|do [!class! (&/de-alias-class class)
+  (|do [!class!* (&/de-alias-class class)
+        :let [!class! (string/replace !class!* "/" ".")]
         class-loader &/loader
         _ (try (assert! (let [=class (Class/forName !class! true class-loader)]
                           (= only-interface? (.isInterface =class)))
@@ -737,7 +738,7 @@
                           (str "[Analyser Error] Can only invoke method \"" method "\"" " on interface.")
                           (str "[Analyser Error] Can only invoke method \"" method "\"" " on class.")))
             (catch Exception e
-              (&/fail-with-loc (str "[Analyser Error] Unknown class: " class))))]
+              (&/fail-with-loc (str "[Analyser Error] Unknown class: " !class!))))]
     (return (&/T [!class! class-loader]))))
 
 (let [dummy-type-param (&/$Primitive "java.lang.Object" &/$Nil)]
@@ -883,6 +884,7 @@
             :let [name (->> scope &/|reverse &/|tail &host/location)
                   class-decl (&/T [name &/$Nil])
                   anon-class (str (string/replace module "/" ".") "." name)
+                  class-type-decl (&/T [anon-class &/$Nil])
                   anon-class-type (&/$Primitive anon-class &/$Nil)]
             =ctor-args (&/map% (fn [ctor-arg]
                                  (|let [[arg-type arg-term] ctor-arg]
@@ -893,7 +895,7 @@
                    (&/$Cons default-<init>)
                    (&host/use-dummy-class class-decl super-class interfaces (&/$Some =ctor-args) &/$Nil))
             [=methods =captured] (let [all-supers (&/$Cons super-class interfaces)]
-                                   (analyse-methods analyse class-decl all-supers methods))
+                                   (analyse-methods analyse class-type-decl all-supers methods))
             _ (let [=fields (&/|map (fn [^objects idx+capt]
                                       (|let [[idx _] idx+capt]
                                         (&/$VariableFieldAnalysis (str &c!base/closure-prefix idx)
