@@ -25,7 +25,7 @@
 ## (file-name, line, column) to keep track of their provenance and
 ## location, which is helpful for documentation and debugging.
 (.module:
-  [lux (#- nat int rev)
+  [lux (#- nat int rev true false)
    [control
     monad
     ["p" parser ("parser/." Monad<Parser>)]
@@ -36,11 +36,12 @@
     ["." product]
     ["." maybe]
     ["." text
-     ["l" lexer]
+     ["l" lexer (#+ Lexer)]
      format]
     [collection
      ["." row (#+ Row)]
-     ["." dictionary (#+ Dictionary)]]]])
+     ["." dictionary (#+ Dictionary)]]]
+   ["." function]])
 
 (type: #export Aliases (Dictionary Text Text))
 (def: #export no-aliases Aliases (dictionary.new text.Hash<Text>))
@@ -54,7 +55,7 @@
 ## It operates recursively in order to produce the longest continuous
 ## chunk of white-space.
 (def: (space^ where)
-  (-> Cursor (l.Lexer [Cursor Text]))
+  (-> Cursor (Lexer [Cursor Text]))
   (p.either (do p.Monad<Parser>
               [content (l.many (l.one-of white-space))]
               (wrap [(update@ #.column (n/+ (text.size content)) where)
@@ -72,7 +73,7 @@
 ## Single-line comments can start anywhere, but only go up to the
 ## next new-line.
 (def: (single-line-comment^ where)
-  (-> Cursor (l.Lexer [Cursor Text]))
+  (-> Cursor (Lexer [Cursor Text]))
   (do p.Monad<Parser>
     [_ (l.this "##")
      comment (l.some (l.none-of new-line))
@@ -85,7 +86,7 @@
 ## This is just a helper parser to find text which doesn't run into
 ## any special character sequences for multi-line comments.
 (def: comment-bound^
-  (l.Lexer Any)
+  (Lexer Any)
   ($_ p.either
       (l.this new-line)
       (l.this ")#")
@@ -97,7 +98,7 @@
 ## That is, any nested comment must have matched delimiters.
 ## Unbalanced comments ought to be rejected as invalid code.
 (def: (multi-line-comment^ where)
-  (-> Cursor (l.Lexer [Cursor Text]))
+  (-> Cursor (Lexer [Cursor Text]))
   (do p.Monad<Parser>
     [_ (l.this "#(")]
     (loop [comment ""
@@ -141,7 +142,7 @@
 ## from being used in any situation (alternatively, forcing one type
 ## of comment to be the only usable one).
 (def: (comment^ where)
-  (-> Cursor (l.Lexer [Cursor Text]))
+  (-> Cursor (Lexer [Cursor Text]))
   (p.either (single-line-comment^ where)
             (multi-line-comment^ where)))
 
@@ -150,7 +151,7 @@
 ## Left-padding is assumed to be either white-space or a comment.
 ## The cursor gets updated, but the padding gets ignored.
 (def: (left-padding^ where)
-  (-> Cursor (l.Lexer Cursor))
+  (-> Cursor (Lexer Cursor))
   ($_ p.either
       (do p.Monad<Parser>
         [[where comment] (comment^ where)]
@@ -166,7 +167,7 @@
 ## and 4 characters long (e.g. \u12aB).
 ## Escaped characters may show up in Char and Text literals.
 (def: escaped-char^
-  (l.Lexer [Nat Text])
+  (Lexer [Nat Text])
   (p.after (l.this "\\")
            (do p.Monad<Parser>
              [code l.any]
@@ -199,12 +200,12 @@
 ## specific shapes and then use decoders already present in the
 ## standard library to actually produce the values from the literals.
 (def: rich-digit
-  (l.Lexer Text)
+  (Lexer Text)
   (p.either l.decimal
             (p.after (l.this "_") (parser/wrap ""))))
 
 (def: rich-digits^
-  (l.Lexer Text)
+  (Lexer Text)
   (l.and l.decimal
          (l.some rich-digit)))
 
@@ -212,7 +213,7 @@
 
 (do-template [<name> <tag> <lexer> <codec>]
   [(def: #export (<name> where)
-     (-> Cursor (l.Lexer [Cursor Code]))
+     (-> Cursor (Lexer [Cursor Code]))
      (do p.Monad<Parser>
        [chunk <lexer>]
        (case (:: <codec> decode chunk)
@@ -234,10 +235,10 @@
   )
 
 (def: (nat-char where)
-  (-> Cursor (l.Lexer [Cursor Code]))
+  (-> Cursor (Lexer [Cursor Code]))
   (do p.Monad<Parser>
     [_ (l.this "#\"")
-     [where' char] (: (l.Lexer [Cursor Text])
+     [where' char] (: (Lexer [Cursor Text])
                       ($_ p.either
                           ## Normal text characters.
                           (do @
@@ -259,7 +260,7 @@
            [where (#.Nat char)]])))
 
 (def: (normal-nat where)
-  (-> Cursor (l.Lexer [Cursor Code]))
+  (-> Cursor (Lexer [Cursor Code]))
   (do p.Monad<Parser>
     [chunk rich-digits^]
     (case (:: number.Codec<Text,Nat> decode chunk)
@@ -271,12 +272,12 @@
              [where (#.Nat value)]]))))
 
 (def: #export (nat where)
-  (-> Cursor (l.Lexer [Cursor Code]))
+  (-> Cursor (Lexer [Cursor Code]))
   (p.either (normal-nat where)
             (nat-char where)))
 
 (def: (normal-frac where)
-  (-> Cursor (l.Lexer [Cursor Code]))
+  (-> Cursor (Lexer [Cursor Code]))
   (do p.Monad<Parser>
     [chunk ($_ l.and
                sign^
@@ -297,14 +298,14 @@
              [where (#.Frac value)]]))))
 
 (def: frac-ratio-fragment
-  (l.Lexer Frac)
+  (Lexer Frac)
   (<| (p.codec number.Codec<Text,Frac>)
       (:: p.Monad<Parser> map (function (_ digits)
                                 (format digits ".0")))
       rich-digits^))
 
 (def: (ratio-frac where)
-  (-> Cursor (l.Lexer [Cursor Code]))
+  (-> Cursor (Lexer [Cursor Code]))
   (do p.Monad<Parser>
     [chunk ($_ l.and
                (p.default "" (l.one-of "-"))
@@ -326,14 +327,14 @@
            [where (#.Frac value)]])))
 
 (def: #export (frac where)
-  (-> Cursor (l.Lexer [Cursor Code]))
+  (-> Cursor (Lexer [Cursor Code]))
   (p.either (normal-frac where)
             (ratio-frac where)))
 
 ## This parser looks so complex because text in Lux can be multi-line
 ## and there are rules regarding how this is handled.
 (def: #export (text where)
-  (-> Cursor (l.Lexer [Cursor Code]))
+  (-> Cursor (Lexer [Cursor Code]))
   (do p.Monad<Parser>
     [## Lux text "is delimited by double-quotes", as usual in most
      ## programming languages.
@@ -346,7 +347,7 @@
      ## This helps ensure that the formatting on the text in the
      ## source-code matches the formatting of the Text value.
      #let [offset-column (inc (get@ #.column where))]
-     [where' text-read] (: (l.Lexer [Cursor Text])
+     [where' text-read] (: (Lexer [Cursor Text])
                            ## I must keep track of how much of the
                            ## text body has been read, how far the
                            ## cursor has progressed, and whether I'm
@@ -424,8 +425,8 @@
 (do-template [<name> <tag> <open> <close>]
   [(def: (<name> where ast)
      (-> Cursor
-         (-> Cursor (l.Lexer [Cursor Code]))
-         (l.Lexer [Cursor Code]))
+         (-> Cursor (Lexer [Cursor Code]))
+         (Lexer [Cursor Code]))
      (do p.Monad<Parser>
        [_ (l.this <open>)
         [where' elems] (loop [elems (: (Row Code)
@@ -463,8 +464,8 @@
 ## macros.
 (def: (record where ast)
   (-> Cursor
-      (-> Cursor (l.Lexer [Cursor Code]))
-      (l.Lexer [Cursor Code]))
+      (-> Cursor (Lexer [Cursor Code]))
+      (Lexer [Cursor Code]))
   (do p.Monad<Parser>
     [_ (l.this "{")
      [where' elems] (loop [elems (: (Row [Code Code])
@@ -506,7 +507,7 @@
 ## Additionally, the first character in an name's part cannot be
 ## a digit, to avoid confusion with regards to numbers.
 (def: name-part^
-  (l.Lexer Text)
+  (Lexer Text)
   (do p.Monad<Parser>
     [#let [digits "0123456789"
            delimiters (format "()[]{}#\"" name-separator)
@@ -520,7 +521,7 @@
 (def: current-module-mark Text (format name-separator name-separator))
 
 (def: (name^ current-module aliases)
-  (-> Text Aliases (l.Lexer [Name Nat]))
+  (-> Text Aliases (Lexer [Name Nat]))
   ($_ p.either
       ## When an name starts with 2 marks, its module is
       ## taken to be the current-module being compiled at the moment.
@@ -565,64 +566,70 @@
                   (wrap [["" first-part]
                          (text.size first-part)])))))
 
-(def: #export (tag current-module aliases where)
-  (-> Text Aliases Cursor (l.Lexer [Cursor Code]))
-  (do p.Monad<Parser>
-    [[value length] (p.after (l.this "#")
-                             (name^ current-module aliases))]
-    (wrap [(update@ #.column (|>> ($_ n/+ 1 length)) where)
-           [where (#.Tag value)]])))
+(do-template [<name> <pre> <tag> <length>]
+  [(def: #export (<name> current-module aliases where)
+     (-> Text Aliases Cursor (Lexer [Cursor Code]))
+     (do p.Monad<Parser>
+       [[value length] (<| <pre>
+                           (name^ current-module aliases))]
+       (wrap [(update@ #.column (|>> (n/+ <length>)) where)
+              [where (<tag> value)]])))]
 
-(def: #export (identifier current-module aliases where)
-  (-> Text Aliases Cursor (l.Lexer [Cursor Code]))
+  [tag        (p.after (l.this "#")) #.Tag        (n/+ 1 length)]
+  [identifier (|>)                   #.Identifier length]
+  )
+
+(do-template [<name> <value>]
+  [(def: <name>
+     (Lexer Bit)
+     (:: p.Monad<Parser> map (function.constant <value>) (l.this (%b <value>))))]
+
+  [false #0]
+  [true  #1]
+  )
+
+(def: #export (bit where)
+  (-> Cursor (Lexer [Cursor Code]))
   (do p.Monad<Parser>
-    [[value length] (name^ current-module aliases)]
-    (wrap [(update@ #.column (|>> (n/+ length)) where)
-           [where (case value
-                    (^template [<name> <value>]
-                      ["" <name>]
-                      (#.Bit <value>))
-                    (["#0" #0]
-                     ["#1" #1])
-                    
-                    _
-                    (#.Identifier value))]])))
+    [value (p.either ..false ..true)]
+    (wrap [(update@ #.column (|>> (n/+ 2)) where)
+           [where (#.Bit value)]])))
 
 (exception: #export (end-of-file {module Text})
-  module)
+  (ex.report ["Module" (%t module)]))
 
 (exception: #export (unrecognized-input {[file line column] Cursor})
-  (ex.report ["File" file]
+  (ex.report ["File" (%t file)]
              ["Line" (%n line)]
              ["Column" (%n column)]))
 
 (def: (ast current-module aliases)
-  (-> Text Aliases Cursor (l.Lexer [Cursor Code]))
-  (: (-> Cursor (l.Lexer [Cursor Code]))
-     (function (ast' where)
-       (do p.Monad<Parser>
-         [where (left-padding^ where)]
-         ($_ p.either
-             (form where ast')
-             (tuple where ast')
-             (record where ast')
-             (nat where)
-             (frac where)
-             (int where)
-             (rev where)
-             (identifier current-module aliases where)
-             (tag current-module aliases where)
-             (text where)
-             (do @
-               [end? l.end?]
-               (if end?
-                 (p.fail (ex.construct end-of-file current-module))
-                 (p.fail (ex.construct unrecognized-input where))))
-             )))))
+  (-> Text Aliases Cursor (Lexer [Cursor Code]))
+  (function (ast' where)
+    (do p.Monad<Parser>
+      [where (left-padding^ where)]
+      ($_ p.either
+          (form where ast')
+          (tuple where ast')
+          (record where ast')
+          (identifier current-module aliases where)
+          (tag current-module aliases where)
+          (text where)
+          (nat where)
+          (int where)
+          (frac where)
+          (rev where)
+          (bit where)
+          (do @
+            [end? l.end?]
+            (if end?
+              (p.fail (ex.construct end-of-file current-module))
+              (p.fail (ex.construct unrecognized-input where))))
+          ))))
 
-(def: #export (read current-module aliases [where offset source])
+(def: #export (read current-module aliases [where offset source-code])
   (-> Text Aliases Source (e.Error [Source Code]))
-  (case (p.run [offset source] (ast current-module aliases where))
+  (case (p.run [offset source-code] (ast current-module aliases where))
     (#e.Error error)
     (#e.Error error)
 
