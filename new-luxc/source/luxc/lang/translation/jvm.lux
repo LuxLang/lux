@@ -12,6 +12,7 @@
      format]
     [collection
      ["." array]
+     [list ("list/." Functor<List>)]
      ["." dictionary (#+ Dictionary)]]]
    ["." host (#+ import: do-to object)]
    ["." io (#+ IO io)]
@@ -83,17 +84,14 @@
 
 (type: Store (Atom (Dictionary Text ByteCode)))
 
-(def: (fetch-bytecode class-name store)
-  (-> Text Store (Maybe ByteCode))
-  (|> store atom.read io.run (dictionary.get class-name)))
+(exception: #export (class-already-stored {class Text})
+  (ex.report ["Class" class]))
 
-(do-template [<name>]
-  [(exception: #export (<name> {class Text})
-     (ex.report ["Class" class]))]
-
-  [unknown-class]
-  [class-already-stored]
-  )
+(exception: #export (unknown-class {class Text} {known-classes (List Text)})
+  (ex.report ["Class" class]
+             ["Known Classes" (|> known-classes
+                                  (list/map (|>> (format "\n\t")))
+                                  (text.join-with ""))]))
 
 (exception: #export (cannot-define-class {class Text} {error Text})
   (ex.report ["Class" class]
@@ -104,17 +102,18 @@
   (object [] ClassLoader []
     []
     (ClassLoader (findClass {class-name String}) Class
-                 (case (fetch-bytecode class-name store)
-                   (#.Some bytecode)
-                   (case (define-class class-name bytecode (:coerce ClassLoader _jvm_this))
-                     (#error.Success class)
-                     (:assume class)
+                 (let [classes (|> store atom.read io.run)]
+                   (case (dictionary.get class-name classes)
+                     (#.Some bytecode)
+                     (case (define-class class-name bytecode (:coerce ClassLoader _jvm_this))
+                       (#error.Success class)
+                       (:assume class)
 
-                     (#error.Error error)
-                     (error! (ex.construct cannot-define-class [class-name error])))
+                       (#error.Error error)
+                       (error! (ex.construct cannot-define-class [class-name error])))
 
-                   #.None
-                   (error! (ex.construct unknown-class class-name))))))
+                     #.None
+                     (error! (ex.construct unknown-class [class-name (dictionary.keys classes)])))))))
 
 (def: (store! name bytecode store)
   (-> Text ByteCode Store (Error Any))
@@ -191,11 +190,13 @@
     (..load! class-name loader)))
 
 (def: (define! store loader [module name] valueI)
-  (-> Store ClassLoader Name Inst (Error Any))
+  (-> Store ClassLoader Name Inst (Error [Text Any]))
   (let [class-name (format (text.replace-all module-separator class-path-separator module)
                            class-path-separator (name.normalize name)
                            "___" (%n (text/hash name)))]
-    (evaluate! store loader class-name valueI)))
+    (do error.Monad<Error>
+      [value (evaluate! store loader class-name valueI)]
+      (wrap [class-name value]))))
 
 (def: #export init
   (IO Host)

@@ -13,7 +13,8 @@
    ["." primitive]
    ["." structure]
    ["." reference]
-   ["/." // (#+ Eval)
+   ["." case]
+   ["/." //
     ["." extension]
     [//
      ## [".L" macro]
@@ -30,92 +31,94 @@
   [unrecognized-syntax]
   )
 
-(def: #export (analyser eval)
-  (-> Eval Phase)
-  (function (compile code)
-    (do ///.Monad<Operation>
-      [expectedT (extension.lift macro.expected-type)]
-      (let [[cursor code'] code]
-        ## The cursor must be set in the state for the sake
-        ## of having useful error messages.
-        (//.with-cursor cursor
-          (case code'
-            (^template [<tag> <analyser>]
-              (<tag> value)
-              (<analyser> value))
-            ([#.Bit  primitive.bit]
-             [#.Nat  primitive.nat]
-             [#.Int  primitive.int]
-             [#.Rev  primitive.rev]
-             [#.Frac primitive.frac]
-             [#.Text primitive.text])
+(def: #export (compile code)
+  Phase
+  (do ///.Monad<Operation>
+    [expectedT (extension.lift macro.expected-type)]
+    (let [[cursor code'] code]
+      ## The cursor must be set in the state for the sake
+      ## of having useful error messages.
+      (//.with-cursor cursor
+        (case code'
+          (^template [<tag> <analyser>]
+            (<tag> value)
+            (<analyser> value))
+          ([#.Bit  primitive.bit]
+           [#.Nat  primitive.nat]
+           [#.Int  primitive.int]
+           [#.Rev  primitive.rev]
+           [#.Frac primitive.frac]
+           [#.Text primitive.text])
 
-            (^template [<tag> <analyser>]
-              (^ (#.Form (list& [_ (<tag> tag)]
-                                values)))
-              (case values
-                (#.Cons value #.Nil)
-                (<analyser> compile tag value)
+          (^template [<tag> <analyser>]
+            (^ (#.Form (list& [_ (<tag> tag)]
+                              values)))
+            (case values
+              (#.Cons value #.Nil)
+              (<analyser> compile tag value)
 
-                _
-                (<analyser> compile tag (` [(~+ values)]))))
-            ([#.Nat structure.sum]
-             [#.Tag structure.tagged-sum])
+              _
+              (<analyser> compile tag (` [(~+ values)]))))
+          ([#.Nat structure.sum]
+           [#.Tag structure.tagged-sum])
 
-            (#.Tag tag)
-            (structure.tagged-sum compile tag (' []))
+          (#.Tag tag)
+          (structure.tagged-sum compile tag (' []))
 
-            (^ (#.Tuple (list)))
-            primitive.unit
+          (^ (#.Tuple (list)))
+          primitive.unit
 
-            (^ (#.Tuple (list singleton)))
-            (compile singleton)
+          (^ (#.Tuple (list singleton)))
+          (compile singleton)
 
-            (^ (#.Tuple elems))
-            (structure.product compile elems)
+          (^ (#.Tuple elems))
+          (structure.product compile elems)
 
-            (^ (#.Record pairs))
-            (structure.record compile pairs)
+          (^ (#.Record pairs))
+          (structure.record compile pairs)
 
-            (#.Identifier reference)
-            (reference.reference reference)
+          (#.Identifier reference)
+          (reference.reference reference)
 
-            (^ (#.Form (list& [_ (#.Text extension-name)] extension-args)))
-            (extension.apply compile [extension-name extension-args])
+          (^ (#.Form (list [_ (#.Record branches)] input)))
+          (case.case compile input branches)
 
-            ## (^ (#.Form (list& func args)))
-            ## (do ///.Monad<Operation>
-            ##   [[funcT funcA] (type.with-inference
-            ##                    (compile func))]
-            ##   (case funcA
-            ##     [_ (#.Identifier def-name)]
-            ##     (do @
-            ##       [?macro (///.with-error-tracking
-            ##                 (extension.lift (macro.find-macro def-name)))]
-            ##       (case ?macro
-            ##         (#.Some macro)
-            ##         (do @
-            ##           [expansion (: (Operation (List Code))
-            ##                         (function (_ state)
-            ##                           (case (macroL.expand macro args state)
-            ##                             (#e.Error error)
-            ##                             ((///.throw macro-expansion-failed error) state)
+          (^ (#.Form (list& [_ (#.Text extension-name)] extension-args)))
+          (extension.apply compile [extension-name extension-args])
 
-            ##                             output
-            ##                             output)))]
-            ##           (case expansion
-            ##             (^ (list single))
-            ##             (compile single)
+          ## (^ (#.Form (list& func args)))
+          ## (do ///.Monad<Operation>
+          ##   [[funcT funcA] (type.with-inference
+          ##                    (compile func))]
+          ##   (case funcA
+          ##     [_ (#.Identifier def-name)]
+          ##     (do @
+          ##       [?macro (///.with-error-tracking
+          ##                 (extension.lift (macro.find-macro def-name)))]
+          ##       (case ?macro
+          ##         (#.Some macro)
+          ##         (do @
+          ##           [expansion (: (Operation (List Code))
+          ##                         (function (_ state)
+          ##                           (case (macroL.expand macro args state)
+          ##                             (#e.Error error)
+          ##                             ((///.throw macro-expansion-failed error) state)
 
-            ##             _
-            ##             (///.throw macro-call-must-have-single-expansion code)))
+          ##                             output
+          ##                             output)))]
+          ##           (case expansion
+          ##             (^ (list single))
+          ##             (compile single)
 
-            ##         _
-            ##         (functionA.apply compile funcT funcA args)))
+          ##             _
+          ##             (///.throw macro-call-must-have-single-expansion code)))
 
-            ##     _
-            ##     (functionA.apply compile funcT funcA args)))
+          ##         _
+          ##         (functionA.apply compile funcT funcA args)))
 
-            _
-            (///.throw unrecognized-syntax code)
-            ))))))
+          ##     _
+          ##     (functionA.apply compile funcT funcA args)))
+
+          _
+          (///.throw unrecognized-syntax code)
+          )))))
