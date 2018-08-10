@@ -26,7 +26,7 @@
   (All [anchor expression statement]
     (-> Type Code (Operation anchor expression statement [Type expression Any])))
   (do ///.Monad<Operation>
-    [state (extension.lift ///.state)
+    [state (extension.lift ///.get-state)
      #let [analyse (get@ [#statement.analysis #statement.phase] state)
            synthesize (get@ [#statement.synthesis #statement.phase] state)
            translate (get@ [#statement.translation #statement.phase] state)]
@@ -40,17 +40,19 @@
      codeS (statement.lift-synthesis
             (synthesize codeA))]
     (statement.lift-translation
-     (do @
-       [codeT (translate codeS)
-        codeV (translation.evaluate! codeT)]
-       (wrap [code//type codeT codeV])))))
+     (translation.with-buffer
+       (do @
+         [codeT (translate codeS)
+          count translation.next
+          codeV (translation.evaluate! (format "evaluate" (%n count)) codeT)]
+         (wrap [code//type codeT codeV]))))))
 
 (def: (define! name ?type codeC)
   (All [anchor expression statement]
     (-> Name (Maybe Type) Code
         (Operation anchor expression statement [Type expression Text Any])))
   (do ///.Monad<Operation>
-    [state (extension.lift ///.state)
+    [state (extension.lift ///.get-state)
      #let [analyse (get@ [#statement.analysis #statement.phase] state)
            synthesize (get@ [#statement.synthesis #statement.phase] state)
            translate (get@ [#statement.translation #statement.phase] state)]
@@ -73,10 +75,11 @@
      codeS (statement.lift-synthesis
             (synthesize codeA))]
     (statement.lift-translation
-     (do @
-       [codeT (translate codeS)
-        codeN+V (translation.define! name codeT)]
-       (wrap [code//type codeT codeN+V])))))
+     (translation.with-buffer
+       (do @
+         [codeT (translate codeS)
+          codeN+V (translation.define! name codeT)]
+         (wrap [code//type codeT codeN+V]))))))
 
 (def: lux::def
   Handler
@@ -97,8 +100,7 @@
                                                      valueC)
          _ (statement.lift-analysis
             (do @
-              [_ (module.define def-name [value//type annotationsV valueV])
-               #let [_ (log! (format "Definition " (%name full-name)))]]
+              [_ (module.define def-name [value//type annotationsV valueV])]
               (if (macro.type? annotationsV)
                 (case (macro.declared-tags annotationsV)
                   #.Nil
@@ -106,7 +108,8 @@
 
                   tags
                   (module.declare-tags tags (macro.export? annotationsV) (:coerce Type valueV)))
-                (wrap []))))]
+                (wrap []))))
+         #let [_ (log! (format "Definition " (%name full-name)))]]
         (statement.lift-translation
          (translation.learn full-name valueN)))
 

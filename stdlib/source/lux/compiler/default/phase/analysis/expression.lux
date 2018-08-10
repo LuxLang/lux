@@ -4,7 +4,7 @@
     [monad (#+ do)]
     ["ex" exception (#+ exception:)]]
    [data
-    ["e" error]
+    ["." error]
     [text
      format]]
    ["." macro]]
@@ -12,13 +12,14 @@
    ["." type]
    ["." primitive]
    ["." structure]
-   ["." reference]
+   ["//." reference]
    ["." case]
+   ["." function]
+   ["//." macro]
    ["/." //
     ["." extension]
     [//
-     ## [".L" macro]
-     ]]])
+     ["." reference]]]])
 
 (exception: #export (macro-expansion-failed {message Text})
   message)
@@ -78,7 +79,7 @@
           (structure.record compile pairs)
 
           (#.Identifier reference)
-          (reference.reference reference)
+          (//reference.reference reference)
 
           (^ (#.Form (list [_ (#.Record branches)] input)))
           (case.case compile input branches)
@@ -86,38 +87,45 @@
           (^ (#.Form (list& [_ (#.Text extension-name)] extension-args)))
           (extension.apply compile [extension-name extension-args])
 
-          ## (^ (#.Form (list& func args)))
-          ## (do ///.Monad<Operation>
-          ##   [[funcT funcA] (type.with-inference
-          ##                    (compile func))]
-          ##   (case funcA
-          ##     [_ (#.Identifier def-name)]
-          ##     (do @
-          ##       [?macro (///.with-error-tracking
-          ##                 (extension.lift (macro.find-macro def-name)))]
-          ##       (case ?macro
-          ##         (#.Some macro)
-          ##         (do @
-          ##           [expansion (: (Operation (List Code))
-          ##                         (function (_ state)
-          ##                           (case (macroL.expand macro args state)
-          ##                             (#e.Error error)
-          ##                             ((///.throw macro-expansion-failed error) state)
+          (^ (#.Form (list [_ (#.Tuple (list [_ (#.Identifier ["" function-name])]
+                                             [_ (#.Identifier ["" arg-name])]))]
+                           body)))
+          (function.function compile function-name arg-name body)
 
-          ##                             output
-          ##                             output)))]
-          ##           (case expansion
-          ##             (^ (list single))
-          ##             (compile single)
+          (^ (#.Form (list& functionC argsC+)))
+          (do @
+            [[functionT functionA] (type.with-inference
+                                     (compile functionC))]
+            (case functionA
+              (#//.Reference (#reference.Constant def-name))
+              (do @
+                [?macro (extension.lift (macro.find-macro def-name))]
+                (case ?macro
+                  (#.Some macro)
+                  (do @
+                    [#let [_ (log! (format (%name def-name) " @@@ "
+                                           (%list %code argsC+)))]
+                     expansion (: (Operation (List Code))
+                                  (extension.lift
+                                   (function (_ state)
+                                     (case (//macro.expand macro argsC+ state)
+                                       (#error.Error error)
+                                       ((///.throw macro-expansion-failed error) state)
 
-          ##             _
-          ##             (///.throw macro-call-must-have-single-expansion code)))
+                                       output
+                                       output))))]
+                    (case expansion
+                      (^ (list single))
+                      (compile single)
 
-          ##         _
-          ##         (functionA.apply compile funcT funcA args)))
+                      _
+                      (///.throw macro-call-must-have-single-expansion code)))
 
-          ##     _
-          ##     (functionA.apply compile funcT funcA args)))
+                  _
+                  (function.apply compile functionT functionA argsC+)))
+
+              _
+              (function.apply compile functionT functionA argsC+)))
 
           _
           (///.throw unrecognized-syntax code)

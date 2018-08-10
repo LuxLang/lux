@@ -2,8 +2,7 @@
   [lux #*
    [control
     ["ex" exception (#+ exception:)]
-    [monad (#+ do)]
-    pipe]
+    [monad (#+ do)]]
    [data
     ["." product]
     ["." error (#+ Error)]
@@ -168,26 +167,21 @@
   (All [anchor expression statement]
     (Operation anchor expression statement Nat))
   (do //.Monad<Operation>
-    [_ (extension.update (update@ #counter inc))]
-    (extension.read (get@ #counter))))
-
-(def: (temp-label state)
-  (All [anchor expression statement]
-    (-> (State anchor expression statement) Text))
-  (format (get@ [#context #scope-name] state) " " (%n (get@ #counter state))))
+    [count (extension.read (get@ #counter))
+     _ (extension.update (update@ #counter inc))]
+    (wrap count)))
 
 (do-template [<name> <inputT>]
-  [(def: #export (<name> code)
+  [(def: #export (<name> label code)
      (All [anchor expression statement]
-       (-> <inputT> (Operation anchor expression statement Any)))
-     (function (_ [bundle state])
-       (case (:: (get@ #host state) <name> (temp-label state) code)
+       (-> Text <inputT> (Operation anchor expression statement Any)))
+     (function (_ (^@ state+ [bundle state]))
+       (case (:: (get@ #host state) <name> label code)
          (#error.Error error)
          (ex.throw cannot-interpret error)
          
          (#error.Success output)
-         (#error.Success [[bundle (update@ #counter inc state)]
-                          output]))))]
+         (#error.Success [state+ output]))))]
 
   [evaluate! expression]
   [execute!  statement]
@@ -208,7 +202,8 @@
   (All [anchor expression statement]
     (-> Name statement (Operation anchor expression statement Any)))
   (do //.Monad<Operation>
-    [_ (execute! code)
+    [count ..next
+     _ (execute! (format "save" (%n count)) code)
      ?buffer (extension.read (get@ #buffer))]
     (case ?buffer
       (#.Some buffer)
@@ -230,14 +225,13 @@
   (All [anchor expression statement]
     (-> Name (Operation anchor expression statement Text)))
   (function (_ (^@ stateE [_ state]))
-    (|> state
-        (get@ #name-cache)
-        (dictionary.get lux-name)
-        (case> (#.Some host-name)
-               (#error.Success [stateE host-name])
-               
-               #.None
-               (ex.throw unknown-lux-name lux-name)))))
+    (let [cache (get@ #name-cache state)]
+      (case (dictionary.get lux-name cache)
+        (#.Some host-name)
+        (#error.Success [stateE host-name])
+        
+        #.None
+        (ex.throw unknown-lux-name lux-name)))))
 
 (def: #export (learn lux-name host-name)
   (All [anchor expression statement]
