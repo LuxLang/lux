@@ -7,7 +7,7 @@
     ["." promise (#+ Promise)]
     ["." task (#+ Task)]]
    [data
-    ["e" error]
+    ["." error]
     [text
      format]]
    ["." io (#+ IO Process io)]
@@ -15,12 +15,13 @@
     ["." instant]]
    [cli (#+ program:)]
    [world
-    ["." file (#+ File)]]
+    ["." file (#+ File)]
+    ["." console]]
    [compiler
     ["." cli]
-    ["." default (#+ Platform)]]]
+    ["." default (#+ Platform)]]
+   ["." interpreter]]
   [luxc
-   ## ["." repl]
    [lang
     ["." host/jvm]
     [translation
@@ -28,19 +29,19 @@
       ["." runtime]
       ["." expression]]]]])
 
-(def: (or-crash! failure-describer action)
+(def: (or-crash! failure-description action)
   (All [a]
-    (-> Text (Task a) (Promise a)))
-  (do promise.Monad<Promise>
+    (-> Text (Process a) (IO a)))
+  (do io.Monad<IO>
     [?output action]
     (case ?output
-      (#e.Error error)
+      (#error.Error error)
       (exec (log! (format "\n"
-                          failure-describer "\n"
+                          failure-description "\n"
                           error "\n"))
-        (io.run (io.exit +1)))
+        (io.exit +1))
 
-      (#e.Success output)
+      (#error.Success output)
       (wrap output))))
 
 (def: (timed action)
@@ -65,17 +66,14 @@
 
 (program: [{service cli.service}]
   (do io.Monad<IO>
-    [platform ..jvm-platform]
-    (wrap (: (Promise Any)
-             (case service
-               (#cli.Build [configuration program])
-               (<| (or-crash! "Compilation failed:")
-                   promise.future
-                   ..timed
-                   (default.compile platform configuration program))
-               
-               (#cli.REPL configuration)
-               (undefined)
-               ## (<| (or-crash! "REPL failed:")
-               ##     (repl.run sources target))
-               )))))
+    [platform ..jvm-platform
+     console (:: @ map error.assume console.open)]
+    (case service
+      (#cli.Compilation configuration)
+      (<| (or-crash! "Compilation failed:")
+          ..timed
+          (default.compile platform configuration))
+      
+      (#cli.Interpretation configuration)
+      (<| (or-crash! "Interpretation failed:")
+          (interpreter.run io.Monad<Process> console platform configuration)))))

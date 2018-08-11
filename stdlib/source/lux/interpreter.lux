@@ -1,0 +1,217 @@
+(.module:
+  [lux #*
+   [control
+    [monad (#+ Monad do)]
+    ["ex" exception (#+ exception:)]]
+   [data
+    ["." error (#+ Error)]
+    [text ("text/." Equivalence<Text>)
+     format]]
+   [type (#+ :share)
+    ["." check]]
+   [compiler
+    ["." cli (#+ Configuration)]
+    ["." default (#+ Platform)
+     ["." syntax]
+     ["." init]
+     ["." phase
+      ["." analysis
+       ["." module]
+       ["." type]]
+      ["." translation]
+      ["." statement (#+ State+ Operation)
+       ["." total]]
+      ["." extension]]]]
+   [world
+    ["." file (#+ File)]
+    ["." console (#+ Console)]]]
+  ["." /type])
+
+(exception: #export (error {message Text})
+  message)
+
+(def: #export module "<INTERPRETER>")
+
+(def: fresh-source Source [[..module 1 0] 0 ""])
+
+(def: (add-line line [where offset input])
+  (-> Text Source Source)
+  [where offset (format input "\n" line)])
+
+(def: exit-command Text "exit")
+
+(def: welcome-message
+  Text
+  (format "\n"
+          "Welcome to the interpreter!" "\n"
+          "Type \"exit\" to leave." "\n"
+          "\n"))
+
+(def: farewell-message
+  Text
+  "Till next time...")
+
+(def: enter-module
+  (All [anchor expression statement]
+    (Operation anchor expression statement Any))
+  (statement.lift-analysis
+   (do phase.Monad<Operation>
+     [_ (module.create 0 ..module)]
+     (analysis.set-current-module ..module))))
+
+(def: (initialize Monad<!> Console<!> platform configuration)
+  (All [! anchor expression statement]
+    (-> (Monad !)
+        (Console !) (Platform ! anchor expression statement)
+        Configuration
+        (! (State+ anchor expression statement))))
+  (do Monad<!>
+    [state (default.initialize platform configuration)
+     state (default.compile-module platform
+                                   (set@ #cli.module default.prelude configuration)
+                                   (set@ [#extension.state
+                                          #statement.analysis #statement.state
+                                          #extension.state
+                                          #.info #.mode]
+                                         #.Interpreter
+                                         state))
+     [state _] (:: (get@ #default.file-system platform)
+                   lift (phase.run' state enter-module))
+     _ (:: Console<!> write ..welcome-message)]
+    (wrap state)))
+
+(with-expansions [<Interpretation> (as-is (Operation anchor expression statement [Type Any]))]
+  
+  (def: (interpret-statement code)
+    (All [anchor expression statement]
+      (-> Code <Interpretation>))
+    (do phase.Monad<Operation>
+      [_ (total.phase code)
+       _ init.refresh]
+      (wrap [Any []])))
+
+  (def: (interpret-expression code)
+    (All [anchor expression statement]
+      (-> Code <Interpretation>))
+    (do phase.Monad<Operation>
+      [state (extension.lift phase.get-state)
+       #let [analyse (get@ [#statement.analysis #statement.phase] state)
+             synthesize (get@ [#statement.synthesis #statement.phase] state)
+             translate (get@ [#statement.translation #statement.phase] state)]
+       [_ codeT codeA] (statement.lift-analysis
+                        (analysis.with-scope
+                          (type.with-fresh-env
+                            (do @
+                              [[codeT codeA] (type.with-inference
+                                               (analyse code))
+                               codeT (type.with-env
+                                       (check.clean codeT))]
+                              (wrap [codeT codeA])))))
+       codeS (statement.lift-synthesis
+              (synthesize codeA))]
+      (statement.lift-translation
+       (translation.with-buffer
+         (do @
+           [codeH (translate codeS)
+            count translation.next
+            codeV (translation.evaluate! (format "interpretation_" (%n count)) codeH)]
+           (wrap [codeT codeV]))))))
+
+  (def: (interpret configuration code)
+    (All [anchor expression statement]
+      (-> Configuration Code <Interpretation>))
+    (function (_ state)
+      (case (<| (phase.run' state)
+                (:share [anchor expression statement]
+                        {(State+ anchor expression statement)
+                         state}
+                        {<Interpretation>
+                         (interpret-statement code)}))
+        (#error.Success [state' output])
+        (#error.Success [state' output])
+
+        (#error.Error error)
+        (if (ex.match? total.unrecognized-statement error)
+          (<| (phase.run' state)
+              (:share [anchor expression statement]
+                      {(State+ anchor expression statement)
+                       state}
+                      {<Interpretation>
+                       (interpret-expression code)}))
+          (#error.Error error)))))
+  )
+
+(def: (execute configuration code)
+  (All [anchor expression statement]
+    (-> Configuration Code (Operation anchor expression statement Text)))
+  (do phase.Monad<Operation>
+    [[codeT codeV] (interpret configuration code)
+     state phase.get-state]
+    (wrap (/type.represent (get@ [#extension.state
+                                  #statement.analysis #statement.state
+                                  #extension.state]
+                                 state)
+                           codeT
+                           codeV))))
+
+(type: (Context anchor expression statement)
+  {#configuration Configuration
+   #state (State+ anchor expression statement)
+   #source Source})
+
+(with-expansions [<Context> (as-is (Context anchor expression statement))]
+  (def: (read-eval-print context)
+    (All [anchor expression statement]
+      (-> <Context> (Error [<Context> Text])))
+    (do error.Monad<Error>
+      [[source' input] (syntax.read ..module syntax.no-aliases (get@ #source context))
+       [state' representation] (let [## TODO: Simplify ASAP
+                                     state (:share [anchor expression statement]
+                                                   {<Context>
+                                                    context}
+                                                   {(State+ anchor expression statement)
+                                                    (get@ #state context)})]
+                                 (<| (phase.run' state)
+                                     ## TODO: Simplify ASAP
+                                     (:share [anchor expression statement]
+                                             {<Context>
+                                              context}
+                                             {(Operation anchor expression statement Text)
+                                              (execute (get@ #configuration context) input)})))]
+      (wrap [(|> context
+                 (set@ #state state')
+                 (set@ #source source'))
+             representation]))))
+
+(def: #export (run Monad<!> Console<!> platform configuration)
+  (All [! anchor expression statement]
+    (-> (Monad !)
+        (Console !) (Platform ! anchor expression statement)
+        Configuration
+        (! Any)))
+  (do Monad<!>
+    [state (initialize Monad<!> Console<!> platform configuration)]
+    (loop [context {#configuration configuration
+                    #state state
+                    #source ..fresh-source}
+           multi-line? #0]
+      (do @
+        [_ (if multi-line?
+             (:: Console<!> write "  ")
+             (:: Console<!> write "> "))
+         line (:: Console<!> read-line)]
+        (if (and (not multi-line?)
+                 (text/= ..exit-command line))
+          (:: Console<!> write ..farewell-message)
+          (case (read-eval-print (update@ #source (add-line line) context))
+            (#error.Success [context' representation])
+            (do @
+              [_ (:: Console<!> write representation)]
+              (recur context' #0))
+
+            (#error.Error error)
+            (if (ex.match? syntax.end-of-file error)
+              (recur context #1)
+              (exec (log! (ex.construct ..error error))
+                (recur (set@ #source ..fresh-source context) #0))))))
+      )))

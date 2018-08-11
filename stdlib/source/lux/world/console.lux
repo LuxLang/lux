@@ -7,66 +7,76 @@
     ["." error]
     ["." text
      format]]
-   [concurrency
-    ["." promise]
-    ["." task (#+ Task)]]
    ["." io (#+ IO Process io)]
-   [host (#+ import:)]])
+   [host (#+ import:)]
+   [compiler
+    ["." host]]])
 
-(exception: #export (cannot-close)
-  "")
+(do-template [<name>]
+  [(exception: #export (<name>)
+     "")]
 
-(signature: #export (Console m)
-  (: (-> [] (m Nat))
+  [cannot-open]
+  [cannot-close]
+  )
+
+(signature: #export (Console !)
+  (: (-> [] (! Nat))
      read)
-  (: (-> [] (m Text))
+  (: (-> [] (! Text))
      read-line)
-  (: (-> [Text] (m Any))
+  (: (-> Text (! Any))
      write)
-  (: (-> [] (m Any))
+  (: (-> [] (! Any))
      close))
 
-(for {"JVM"
-      (as-is (import: java/lang/String)
+(`` (for {(~~ (static host.jvm))
+          (as-is (import: java/lang/String)
 
-             (import: #long java/io/Console
-               (readLine [] #io #try String))
+                 (import: #long java/io/Console
+                   (readLine [] #io #try String))
 
-             (import: java/io/InputStream
-               (read [] #io #try int))
+                 (import: java/io/InputStream
+                   (read [] #io #try int))
 
-             (import: java/io/PrintStream
-               (print [String] #io #try void))
+                 (import: java/io/PrintStream
+                   (print [String] #io #try void))
 
-             (import: java/lang/System
-               (#static console [] #io #try java/io/Console)
-               (#static in java/io/InputStream)
-               (#static out java/io/PrintStream))
+                 (import: java/lang/System
+                   (#static console [] #io #? java/io/Console)
+                   (#static in java/io/InputStream)
+                   (#static out java/io/PrintStream))
 
-             (def: #export open
-               (Process (Console Task))
-               (do io.Monad<Process>
-                 [jvm-console (System::console [])
-                  #let [jvm-input System::in
-                        jvm-output System::out]]
-                 (wrap (: (Console Task)
-                          (structure
-                           (def: (read _)
-                             (|> jvm-input
-                                 (InputStream::read [])
-                                 (:: io.Functor<Process> map .nat)
-                                 promise.future))
-                           
-                           (def: (read-line _)
-                             (|> jvm-console (java/io/Console::readLine []) promise.future))
-                           
-                           (def: (write message)
-                             (|> jvm-output (PrintStream::print [message]) promise.future))
-                           
-                           (def: close
-                             (|>> (ex.construct cannot-close) task.fail))))))))
-      })
+                 (def: #export open
+                   (Process (Console Process))
+                   (do io.Monad<IO>
+                     [?jvm-console (System::console [])]
+                     (case ?jvm-console
+                       #.None
+                       (io.fail (ex.construct cannot-open []))
 
-(def: #export (write-line message console)
-  (All [m] (-> Text (Console m) (m Any)))
-  (:: console write (format message "")))
+                       (#.Some jvm-console)
+                       (let [jvm-input System::in
+                             jvm-output System::out]
+                         (<| io.from-io
+                             wrap
+                             (: (Console Process)) ## TODO: Remove ASAP
+                             (structure
+                              (def: (read _)
+                                (|> jvm-input
+                                    (InputStream::read [])
+                                    (:: io.Functor<Process> map .nat)))
+                              
+                              (def: (read-line _)
+                                (|> jvm-console (java/io/Console::readLine [])))
+                              
+                              (def: (write message)
+                                (|> jvm-output (PrintStream::print [message])))
+                              
+                              (def: close
+                                (|>> (ex.construct cannot-close) io.fail)))))))))
+          }))
+
+(def: #export (write-line message Console<!>)
+  (All [!] (-> Text (Console !) (! Any)))
+  (:: Console<!> write (format message "")))
