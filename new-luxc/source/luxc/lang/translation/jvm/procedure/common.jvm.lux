@@ -1,180 +1,122 @@
 (.module:
-  lux
-  (lux (control [monad #+ do]
-                ["p" parser]
-                ["ex" exception #+ exception:])
-       (data ["e" error]
-             [text]
-             text/format
-             (coll [list "list/" Functor<List>]
-                   (dictionary ["dict" unordered #+ Dict])))
-       [macro #+ with-gensyms]
-       (macro [code]
-              ["s" syntax #+ syntax:])
-       [host]
-       ["//" lang]
-       (lang ["//." reference #+ Register]
-             ["//." synthesis #+ Synthesis]
-             ["//." extension]))
-  (luxc (lang [".L" host]
-              (host ["$" jvm]
-                    (jvm ["$t" type]
-                         ["$d" def]
-                         ["_" inst]))))
-  (/// [".T" runtime]
-       [".T" case]
-       [".T" function]
-       [".T" loop]))
+  [lux #*
+   [control
+    ["." monad (#+ do)]
+    ["p" parser]
+    ["ex" exception (#+ exception:)]]
+   [data
+    ["." text
+     format]
+    [collection
+     ["." list ("list/." Functor<List>)]
+     ["." dictionary]]]
+   ["." macro (#+ with-gensyms)
+    ["." code]
+    ["s" syntax (#+ syntax:)]]
+   [compiler
+    [default
+     ["." phase
+      [synthesis (#+ Synthesis)]
+      ["." extension
+       ["." bundle]]]]]
+   [host (#+ import:)]]
+  [luxc
+   [lang
+    [host
+     ["$" jvm (#+ Label Inst Method Handler Bundle)
+      ["_t" type]
+      ["_" inst]]]]]
+  ["." ///
+   ["." runtime]])
 
-(host.import: java/lang/Double
+(import: java/lang/Double
   (#static MIN_VALUE Double)
   (#static MAX_VALUE Double))
 
 ## [Types]
-(type: #export Translator
-  (-> Synthesis (Meta $.Inst)))
-
-(type: #export Proc
-  (-> Translator (List Synthesis) (Meta $.Inst)))
-
-(type: #export Bundle
-  (Dict Text Proc))
-
 (syntax: (Vector {size s.nat} elemT)
   (wrap (list (` [(~+ (list.repeat size elemT))]))))
 
-(type: #export Nullary (-> (Vector +0 $.Inst) $.Inst))
-(type: #export Unary   (-> (Vector +1 $.Inst) $.Inst))
-(type: #export Binary  (-> (Vector +2 $.Inst) $.Inst))
-(type: #export Trinary (-> (Vector +3 $.Inst) $.Inst))
-(type: #export Variadic (-> (List $.Inst) $.Inst))
+(type: #export Nullary (-> (Vector 0 Inst) Inst))
+(type: #export Unary   (-> (Vector 1 Inst) Inst))
+(type: #export Binary  (-> (Vector 2 Inst) Inst))
+(type: #export Trinary (-> (Vector 3 Inst) Inst))
+(type: #export Variadic (-> (List Inst) Inst))
 
 ## [Utils]
-(def: $Object $.Type ($t.class "java.lang.Object" (list)))
-(def: $Object-Array $.Type ($t.array +1 $Object))
-(def: $Variant $.Type ($t.array +1 $Object))
-(def: $String $.Type ($t.class "java.lang.String" (list)))
-(def: $CharSequence $.Type ($t.class "java.lang.CharSequence" (list)))
-(def: $Function $.Type ($t.class hostL.function-class (list)))
-
-(def: #export (install name unnamed)
-  (-> Text (-> Text Proc)
-      (-> Bundle Bundle))
-  (dict.put name (unnamed name)))
-
-(def: #export (prefix prefix bundle)
-  (-> Text Bundle Bundle)
-  (|> bundle
-      dict.entries
-      (list/map (function (_ [key val]) [(format prefix " " key) val]))
-      (dict.from-list text.Hash<Text>)))
-
-(def: (wrong-arity proc expected actual)
-  (-> Text Nat Nat Text)
-  (format "Wrong number of arguments for " (%t proc) "\n"
-          "Expected: " (|> expected .int %i) "\n"
-          "  Actual: " (|> actual .int %i)))
+(def: $Object-Array $.Type (_t.array 1 ///.$Object))
+(def: $String $.Type (_t.class "java.lang.String" (list)))
+(def: $CharSequence $.Type (_t.class "java.lang.CharSequence" (list)))
 
 (syntax: (arity: {name s.local-identifier} {arity s.nat})
-  (with-gensyms [g!_ g!proc g!name g!translate g!inputs]
+  (with-gensyms [g!_ g!extension g!extension-name g!phase g!inputs]
     (do @
-      [g!input+ (monad.seq @ (list.repeat arity (macro.gensym "input")))]
-      (wrap (list (` (def: #export ((~ (code.local-identifier name)) (~ g!proc))
-                       (-> (-> (..Vector (~ (code.nat arity)) $.Inst) $.Inst)
-                           (-> Text ..Proc))
-                       (function ((~ g!_) (~ g!name))
-                         (function ((~ g!_) (~ g!translate) (~ g!inputs))
-                           (case (~ g!inputs)
-                             (^ (list (~+ g!input+)))
-                             (do macro.Monad<Meta>
-                               [(~+ (|> g!input+
-                                        (list/map (function (_ g!input)
-                                                    (list g!input (` ((~ g!translate) (~ g!input))))))
-                                        list.concat))]
-                               ((~' wrap) ((~ g!proc) [(~+ g!input+)])))
+      [g!inputC+ (monad.seq @ (list.repeat arity (macro.gensym "input")))
+       #let [arityC (code.nat arity)]]
+      (wrap (list (` (def: #export ((~ (code.local-identifier name)) (~ g!extension))
+                       (-> (-> (..Vector (~ arityC) Inst) Inst) ..Handler)
+                       (function ((~ g!_) (~ g!extension-name) (~ g!phase) (~ g!inputs))
+                         (case (~ g!inputs)
+                           (^ (list (~+ g!inputC+)))
+                           (do phase.Monad<Operation>
+                             [(~+ (|> g!inputC+
+                                      (list/map (function (_ g!input)
+                                                  (list g!input (` ((~ g!phase) (~ g!input))))))
+                                      list.concat))]
+                             ((~' wrap) ((~ g!extension) [(~+ g!inputC+)])))
 
-                             (~' _)
-                             (macro.fail (wrong-arity (~ g!name) +1 (list.size (~ g!inputs))))))))))))))
+                           (~ g!_)
+                           (phase.fail (ex.construct extension.incorrect-arity
+                                                     [(~ g!extension-name) (~ arityC) (list.size (~ g!inputs))])))))))))))
 
-(arity: nullary +0)
-(arity: unary +1)
-(arity: binary +2)
-(arity: trinary +3)
+(arity: nullary 0)
+(arity: unary 1)
+(arity: binary 2)
+(arity: trinary 3)
 
-(def: #export (variadic proc)
-  (-> Variadic (-> Text Proc))
-  (function (_ proc-name)
-    (function (_ translate inputsS)
-      (do macro.Monad<Meta>
-        [inputsI (monad.map @ translate inputsS)]
-        (wrap (proc inputsI))))))
+(def: #export (variadic extension)
+  (-> Variadic Handler)
+  (function (_ extension-name phase inputsS)
+    (do phase.Monad<Operation>
+      [inputsH (monad.map @ phase inputsS)]
+      (wrap (extension inputsH)))))
 
 ## [Instructions]
-(def: lux-intI $.Inst (|>> _.I2L (_.wrap #$.Long)))
-(def: jvm-intI $.Inst (|>> (_.unwrap #$.Long) _.L2I))
+(def: lux-intI Inst (|>> _.I2L (_.wrap #$.Long)))
+(def: jvm-intI Inst (|>> (_.unwrap #$.Long) _.L2I))
 
 (def: (predicateI tester)
-  (-> (-> $.Label $.Inst)
-      $.Inst)
+  (-> (-> Label Inst)
+      Inst)
   (<| _.with-label (function (_ @then))
       _.with-label (function (_ @end))
       (|>> (tester @then)
-           (_.GETSTATIC "java.lang.Boolean" "FALSE" ($t.class "java.lang.Boolean" (list)))
+           (_.GETSTATIC "java.lang.Boolean" "FALSE" (_t.class "java.lang.Boolean" (list)))
            (_.GOTO @end)
            (_.label @then)
-           (_.GETSTATIC "java.lang.Boolean" "TRUE" ($t.class "java.lang.Boolean" (list)))
+           (_.GETSTATIC "java.lang.Boolean" "TRUE" (_t.class "java.lang.Boolean" (list)))
            (_.label @end)
            )))
 
-(def: unitI $.Inst (_.string hostL.unit))
+(def: unitI Inst (_.string ///.unit))
 
-## [Procedures]
-## [[Lux]]
-(def: (lux//is [leftI rightI])
+## Extensions
+### Lux
+(def: (lux::is [leftI rightI])
   Binary
   (|>> leftI
        rightI
        (predicateI _.IF_ACMPEQ)))
 
-(def: (lux//if [testI thenI elseI])
-  Trinary
-  (caseT.translate-if testI thenI elseI))
-
-(def: (lux//try riskyI)
+(def: (lux::try riskyI)
   Unary
   (|>> riskyI
-       (_.CHECKCAST hostL.function-class)
-       (_.INVOKESTATIC hostL.runtime-class "try"
-                       ($t.method (list $Function) (#.Some $Object-Array) (list))
+       (_.CHECKCAST ///.function-class)
+       (_.INVOKESTATIC ///.runtime-class "try"
+                       (_t.method (list ///.$Function) (#.Some $Object-Array) (list))
                        #0)))
 
-(exception: #export (Wrong-Syntax {message Text})
-  message)
-
-(def: #export (wrong-syntax procedure args)
-  (-> Text (List Synthesis) Text)
-  (format "Procedure: " procedure "\n"
-          "Arguments: " (%code (code.tuple args))))
-
-(def: lux//loop
-  (-> Text Proc)
-  (function (_ proc-name)
-    (function (_ translate inputsS)
-      (case (s.run inputsS ($_ p.seq s.nat (s.tuple (p.many s.any)) s.any))
-        (#e.Success [offset initsS+ bodyS])
-        (loopT.translate-loop translate offset initsS+ bodyS)
-
-        (#e.Error error)
-        (//.throw Wrong-Syntax (wrong-syntax proc-name inputsS)))
-      )))
-
-(def: lux//recur
-  (-> Text Proc)
-  (function (_ proc-name)
-    (function (_ translate inputsS)
-      (loopT.translate-recur translate inputsS))))
-
-## [[Bits]]
+### Bits
 (do-template [<name> <op>]
   [(def: (<name> [inputI maskI])
      Binary
@@ -182,9 +124,9 @@
           maskI (_.unwrap #$.Long)
           <op> (_.wrap #$.Long)))]
 
-  [bit//and _.LAND]
-  [bit//or  _.LOR]
-  [bit//xor _.LXOR]
+  [bit::and _.LAND]
+  [bit::or  _.LOR]
+  [bit::xor _.LXOR]
   )
 
 (do-template [<name> <op>]
@@ -195,24 +137,20 @@
           <op>
           (_.wrap #$.Long)))]
 
-  [bit//left-shift             _.LSHL]
-  [bit//arithmetic-right-shift _.LSHR]
-  [bit//logical-right-shift    _.LUSHR]
+  [bit::left-shift             _.LSHL]
+  [bit::arithmetic-right-shift _.LSHR]
+  [bit::logical-right-shift    _.LUSHR]
   )
 
-## [[Numbers]]
-(def: nat-method
-  $.Method
-  ($t.method (list $t.long $t.long) (#.Some $t.long) (list)))
-
+### Numbers
 (do-template [<name> <const> <type>]
   [(def: (<name> _)
      Nullary
      (|>> <const> (_.wrap <type>)))]
 
-  [frac//smallest          (_.double Double::MIN_VALUE)            #$.Double]
-  [frac//min               (_.double (f/* -1.0 Double::MAX_VALUE)) #$.Double]
-  [frac//max               (_.double Double::MAX_VALUE)            #$.Double]
+  [f64::smallest (_.double Double::MIN_VALUE)            #$.Double]
+  [f64::min      (_.double (f/* -1.0 Double::MAX_VALUE)) #$.Double]
+  [f64::max      (_.double Double::MAX_VALUE)            #$.Double]
   )
 
 (do-template [<name> <type> <op>]
@@ -223,17 +161,17 @@
           <op>
           (_.wrap <type>)))]
 
-  [int//add        #$.Long   _.LADD]
-  [int//sub        #$.Long   _.LSUB]
-  [int//mul        #$.Long   _.LMUL]
-  [int//div        #$.Long   _.LDIV]
-  [int//rem        #$.Long   _.LREM]
+  [i64::add #$.Long   _.LADD]
+  [i64::sub #$.Long   _.LSUB]
+  [i64::mul #$.Long   _.LMUL]
+  [i64::div #$.Long   _.LDIV]
+  [i64::rem #$.Long   _.LREM]
   
-  [frac//add       #$.Double _.DADD]
-  [frac//sub       #$.Double _.DSUB]
-  [frac//mul       #$.Double _.DMUL]
-  [frac//div       #$.Double _.DDIV]
-  [frac//rem       #$.Double _.DREM]
+  [f64::add #$.Double _.DADD]
+  [f64::sub #$.Double _.DSUB]
+  [f64::mul #$.Double _.DMUL]
+  [f64::div #$.Double _.DDIV]
+  [f64::rem #$.Double _.DREM]
   )
 
 (do-template [<eq> <lt> <unwrap> <cmp>]
@@ -245,11 +183,11 @@
              <cmp>
              (_.int <reference>)
              (predicateI _.IF_ICMPEQ)))]
-     [<eq>  0]
+     [<eq> +0]
      [<lt> -1])]
 
-  [int//eq  int//lt  (_.unwrap #$.Long)   _.LCMP]
-  [frac//eq frac//lt (_.unwrap #$.Double) _.DCMPG]
+  [i64::eq i64::lt (_.unwrap #$.Long)   _.LCMP]
+  [f64::eq f64::lt (_.unwrap #$.Double) _.DCMPG]
   )
 
 (do-template [<name> <prepare> <transform>]
@@ -257,28 +195,24 @@
      Unary
      (|>> inputI <prepare> <transform>))]
 
-  [int//to-frac (_.unwrap #$.Long) (<| (_.wrap #$.Double) _.L2D)]
-  [int//char (_.unwrap #$.Long)
-   ((|>> _.L2I _.I2C (_.INVOKESTATIC "java.lang.Character" "toString" ($t.method (list $t.char) (#.Some $String) (list)) #0)))]
+  [i64::to-f64 (_.unwrap #$.Long) (<| (_.wrap #$.Double) _.L2D)]
+  [i64::char (_.unwrap #$.Long)
+   ((|>> _.L2I _.I2C (_.INVOKESTATIC "java.lang.Character" "toString" (_t.method (list _t.char) (#.Some $String) (list)) #0)))]
 
-  [frac//to-int (_.unwrap #$.Double) (<| (_.wrap #$.Long) _.D2L)]
-  [frac//encode (_.unwrap #$.Double)
-   (_.INVOKESTATIC "java.lang.Double" "toString" ($t.method (list $t.double) (#.Some $String) (list)) #0)]
-  [frac//decode (_.CHECKCAST "java.lang.String")
-   (_.INVOKESTATIC hostL.runtime-class "decode_frac" ($t.method (list $String) (#.Some $Object-Array) (list)) #0)]
+  [f64::to-i64 (_.unwrap #$.Double) (<| (_.wrap #$.Long) _.D2L)]
+  [f64::encode (_.unwrap #$.Double)
+   (_.INVOKESTATIC "java.lang.Double" "toString" (_t.method (list _t.double) (#.Some $String) (list)) #0)]
+  [f64::decode (_.CHECKCAST "java.lang.String")
+   (_.INVOKESTATIC ///.runtime-class "decode_frac" (_t.method (list $String) (#.Some $Object-Array) (list)) #0)]
   )
 
-## [[Text]]
-(do-template [<name> <class> <method> <post> <outputT>]
-  [(def: (<name> inputI)
-     Unary
-     (|>> inputI
-          (_.CHECKCAST "java.lang.String")
-          (_.INVOKEVIRTUAL <class> <method> ($t.method (list) (#.Some <outputT>) (list)) #0)
-          <post>))]
-
-  [text//size  "java.lang.String" "length"      lux-intI $t.int]
-  )
+### Text
+(def: (text::size inputI)
+  Unary
+  (|>> inputI
+       (_.CHECKCAST "java.lang.String")
+       (_.INVOKEVIRTUAL "java.lang.String" "length" (_t.method (list) (#.Some _t.int) (list)) #0)
+       lux-intI))
 
 (do-template [<name> <pre-subject> <pre-param> <op> <post>]
   [(def: (<name> [subjectI paramI])
@@ -287,17 +221,17 @@
           paramI <pre-param>
           <op> <post>))]
 
-  [text//eq id id
-   (_.INVOKEVIRTUAL "java.lang.Object" "equals" ($t.method (list $Object) (#.Some $t.boolean) (list)) #0)
+  [text::eq id id
+   (_.INVOKEVIRTUAL "java.lang.Object" "equals" (_t.method (list ///.$Object) (#.Some _t.boolean) (list)) #0)
    (_.wrap #$.Boolean)]
-  [text//lt (_.CHECKCAST "java.lang.String") (_.CHECKCAST "java.lang.String")
-   (_.INVOKEVIRTUAL "java.lang.String" "compareTo" ($t.method (list $String) (#.Some $t.int) (list)) #0)
+  [text::lt (_.CHECKCAST "java.lang.String") (_.CHECKCAST "java.lang.String")
+   (_.INVOKEVIRTUAL "java.lang.String" "compareTo" (_t.method (list $String) (#.Some _t.int) (list)) #0)
    (<| (predicateI _.IF_ICMPEQ) (_.int -1))]
-  [text//concat (_.CHECKCAST "java.lang.String") (_.CHECKCAST "java.lang.String")
-   (_.INVOKEVIRTUAL "java.lang.String" "concat" ($t.method (list $String) (#.Some $String) (list)) #0)
+  [text::concat (_.CHECKCAST "java.lang.String") (_.CHECKCAST "java.lang.String")
+   (_.INVOKEVIRTUAL "java.lang.String" "concat" (_t.method (list $String) (#.Some $String) (list)) #0)
    id]
-  [text//char (_.CHECKCAST "java.lang.String") jvm-intI
-   (_.INVOKESTATIC hostL.runtime-class "text_char" ($t.method (list $String $t.int) (#.Some $Variant) (list)) #0)
+  [text::char (_.CHECKCAST "java.lang.String") jvm-intI
+   (_.INVOKESTATIC ///.runtime-class "text_char" (_t.method (list $String _t.int) (#.Some ///.$Variant) (list)) #0)
    id]
   )
 
@@ -309,13 +243,13 @@
           extraI <pre-extra>
           <op>))]
 
-  [text//clip (_.CHECKCAST "java.lang.String") jvm-intI jvm-intI
-   (_.INVOKESTATIC hostL.runtime-class "text_clip"
-                   ($t.method (list $String $t.int $t.int) (#.Some $Variant) (list)) #0)]
+  [text::clip (_.CHECKCAST "java.lang.String") jvm-intI jvm-intI
+   (_.INVOKESTATIC ///.runtime-class "text_clip"
+                   (_t.method (list $String _t.int _t.int) (#.Some ///.$Variant) (list)) #0)]
   )
 
-(def: index-method $.Method ($t.method (list $String $t.int) (#.Some $t.int) (list)))
-(def: (text//index [textI partI startI])
+(def: index-method Method (_t.method (list $String _t.int) (#.Some _t.int) (list)))
+(def: (text::index [textI partI startI])
   Trinary
   (<| _.with-label (function (_ @not-found))
       _.with-label (function (_ @end))
@@ -327,24 +261,24 @@
            (_.int -1)
            (_.IF_ICMPEQ @not-found)
            lux-intI
-           runtimeT.someI
+           runtime.someI
            (_.GOTO @end)
            (_.label @not-found)
-           _.POP
-           runtimeT.noneI
+           ## _.POP
+           runtime.noneI
            (_.label @end))))
 
-## [[IO]]
-(def: string-method $.Method ($t.method (list $String) #.None (list)))
-(def: (io//log messageI)
+### I/O
+(def: string-method Method (_t.method (list $String) #.None (list)))
+(def: (io::log messageI)
   Unary
-  (|>> (_.GETSTATIC "java.lang.System" "out" ($t.class "java.io.PrintStream" (list)))
+  (|>> (_.GETSTATIC "java.lang.System" "out" (_t.class "java.io.PrintStream" (list)))
        messageI
        (_.CHECKCAST "java.lang.String")
        (_.INVOKEVIRTUAL "java.io.PrintStream" "println" string-method #0)
        unitI))
 
-(def: (io//error messageI)
+(def: (io::error messageI)
   Unary
   (|>> (_.NEW "java.lang.Error")
        _.DUP
@@ -353,101 +287,94 @@
        (_.INVOKESPECIAL "java.lang.Error" "<init>" string-method #0)
        _.ATHROW))
 
-(def: (io//exit codeI)
+(def: (io::exit codeI)
   Unary
   (|>> codeI jvm-intI
-       (_.INVOKESTATIC "java.lang.System" "exit" ($t.method (list $t.int) #.None (list)) #0)
+       (_.INVOKESTATIC "java.lang.System" "exit" (_t.method (list _t.int) #.None (list)) #0)
        _.NULL))
 
-(def: (io//current-time [])
+(def: (io::current-time [])
   Nullary
-  (|>> (_.INVOKESTATIC "java.lang.System" "currentTimeMillis" ($t.method (list) (#.Some $t.long) (list)) #0)
+  (|>> (_.INVOKESTATIC "java.lang.System" "currentTimeMillis" (_t.method (list) (#.Some _t.long) (list)) #0)
        (_.wrap #$.Long)))
 
-## [Bundles]
-(def: lux-procs
+## Bundles
+(def: bundle::lux
   Bundle
-  (|> (dict.new text.Hash<Text>)
-      (install "is" (binary lux//is))
-      (install "try" (unary lux//try))
-      (install "if" (trinary lux//if))
-      (install "loop" lux//loop)
-      (install "recur" lux//recur)
-      ))
+  (|> (: Bundle bundle.empty)
+      (bundle.install "is" (binary lux::is))
+      (bundle.install "try" (unary lux::try))))
 
-(def: bit-procs
+(def: bundle::bit
   Bundle
-  (<| (prefix "bit")
-      (|> (dict.new text.Hash<Text>)
-          (install "and" (binary bit//and))
-          (install "or" (binary bit//or))
-          (install "xor" (binary bit//xor))
-          (install "left-shift" (binary bit//left-shift))
-          (install "logical-right-shift" (binary bit//logical-right-shift))
-          (install "arithmetic-right-shift" (binary bit//arithmetic-right-shift))
-          )))
+  (<| (bundle.prefix "bit")
+      (|> (: Bundle bundle.empty)
+          (bundle.install "and" (binary bit::and))
+          (bundle.install "or" (binary bit::or))
+          (bundle.install "xor" (binary bit::xor))
+          (bundle.install "left-shift" (binary bit::left-shift))
+          (bundle.install "logical-right-shift" (binary bit::logical-right-shift))
+          (bundle.install "arithmetic-right-shift" (binary bit::arithmetic-right-shift)))))
 
-(def: int-procs
+(def: bundle::i64
   Bundle
-  (<| (prefix "int")
-      (|> (dict.new text.Hash<Text>)
-          (install "+" (binary int//add))
-          (install "-" (binary int//sub))
-          (install "*" (binary int//mul))
-          (install "/" (binary int//div))
-          (install "%" (binary int//rem))
-          (install "=" (binary int//eq))
-          (install "<" (binary int//lt))
-          (install "to-frac" (unary int//to-frac))
-          (install "char" (unary int//char)))))
+  (<| (bundle.prefix "i64")
+      (|> (: Bundle bundle.empty)
+          (bundle.install "+" (binary i64::add))
+          (bundle.install "-" (binary i64::sub))
+          (bundle.install "*" (binary i64::mul))
+          (bundle.install "/" (binary i64::div))
+          (bundle.install "%" (binary i64::rem))
+          (bundle.install "=" (binary i64::eq))
+          (bundle.install "<" (binary i64::lt))
+          (bundle.install "to-f64" (unary i64::to-f64))
+          (bundle.install "char" (unary i64::char)))))
 
-(def: frac-procs
+(def: bundle::f64
   Bundle
-  (<| (prefix "frac")
-      (|> (dict.new text.Hash<Text>)
-          (install "+" (binary frac//add))
-          (install "-" (binary frac//sub))
-          (install "*" (binary frac//mul))
-          (install "/" (binary frac//div))
-          (install "%" (binary frac//rem))
-          (install "=" (binary frac//eq))
-          (install "<" (binary frac//lt))
-          (install "smallest" (nullary frac//smallest))
-          (install "min" (nullary frac//min))
-          (install "max" (nullary frac//max))
-          (install "to-int" (unary frac//to-int))
-          (install "encode" (unary frac//encode))
-          (install "decode" (unary frac//decode)))))
+  (<| (bundle.prefix "f64")
+      (|> (: Bundle bundle.empty)
+          (bundle.install "+" (binary f64::add))
+          (bundle.install "-" (binary f64::sub))
+          (bundle.install "*" (binary f64::mul))
+          (bundle.install "/" (binary f64::div))
+          (bundle.install "%" (binary f64::rem))
+          (bundle.install "=" (binary f64::eq))
+          (bundle.install "<" (binary f64::lt))
+          (bundle.install "smallest" (nullary f64::smallest))
+          (bundle.install "min" (nullary f64::min))
+          (bundle.install "max" (nullary f64::max))
+          (bundle.install "to-i64" (unary f64::to-i64))
+          (bundle.install "encode" (unary f64::encode))
+          (bundle.install "decode" (unary f64::decode)))))
 
-(def: text-procs
+(def: bundle::text
   Bundle
-  (<| (prefix "text")
-      (|> (dict.new text.Hash<Text>)
-          (install "=" (binary text//eq))
-          (install "<" (binary text//lt))
-          (install "concat" (binary text//concat))
-          (install "index" (trinary text//index))
-          (install "size" (unary text//size))
-          (install "char" (binary text//char))
-          (install "clip" (trinary text//clip))
-          )))
+  (<| (bundle.prefix "text")
+      (|> (: Bundle bundle.empty)
+          (bundle.install "=" (binary text::eq))
+          (bundle.install "<" (binary text::lt))
+          (bundle.install "concat" (binary text::concat))
+          (bundle.install "index" (trinary text::index))
+          (bundle.install "size" (unary text::size))
+          (bundle.install "char" (binary text::char))
+          (bundle.install "clip" (trinary text::clip)))))
 
-(def: io-procs
+(def: bundle::io
   Bundle
-  (<| (prefix "io")
-      (|> (dict.new text.Hash<Text>)
-          (install "log" (unary io//log))
-          (install "error" (unary io//error))
-          (install "exit" (unary io//exit))
-          (install "current-time" (nullary io//current-time)))))
+  (<| (bundle.prefix "io")
+      (|> (: Bundle bundle.empty)
+          (bundle.install "log" (unary io::log))
+          (bundle.install "error" (unary io::error))
+          (bundle.install "exit" (unary io::exit))
+          (bundle.install "current-time" (nullary io::current-time)))))
 
-(def: #export procedures
+(def: #export bundle
   Bundle
-  (<| (prefix "lux")
-      (|> lux-procs
-          (dict.merge bit-procs)
-          (dict.merge int-procs)
-          (dict.merge frac-procs)
-          (dict.merge text-procs)
-          (dict.merge io-procs)
-          )))
+  (<| (bundle.prefix "lux")
+      (|> bundle::lux
+          (dictionary.merge bundle::bit)
+          (dictionary.merge bundle::i64)
+          (dictionary.merge bundle::f64)
+          (dictionary.merge bundle::text)
+          (dictionary.merge bundle::io))))
