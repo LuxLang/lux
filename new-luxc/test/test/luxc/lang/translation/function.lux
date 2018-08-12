@@ -1,18 +1,21 @@
 (.module:
-  [lux #*
+  [lux (#- function)
    [control
     [monad (#+ do)]
     pipe]
    [data
     ["." maybe]
     ["." error (#+ Error)]
+    ["." number]
+    [text
+     format]
     [collection
      ["." list ("list/." Functor<List>)]]]
    [math
-    ["r" random ("r/." Monad<Random>)]]
+    ["r" random (#+ Random) ("r/." Monad<Random>)]]
    [compiler
     [default
-     ["." reference]
+     ["." reference (#+ Register)]
      [phase
       [analysis (#+ Arity)]
       ["." synthesis (#+ Synthesis)]]]]
@@ -21,77 +24,83 @@
    [luxc
     ["." common (#+ Runner)]]])
 
-(def: max-arity Nat 10)
+(def: max-arity Arity 10)
 
 (def: arity
-  (r.Random Arity)
+  (Random Arity)
   (|> r.nat (r/map (|>> (n/% max-arity) (n/max 1)))))
 
-(def: gen-function
-  (r.Random [Arity Nat Synthesis])
+(def: (local arity)
+  (-> Arity(Random Register))
+  (|> r.nat (r/map (|>> (n/% arity) inc))))
+
+(def: function
+  (Random [Arity Register Synthesis])
   (do r.Monad<Random>
-    [arity arity
-     arg (|> r.nat (:: @ map (n/% arity)))]
-    (wrap [arity arg
+    [arity ..arity
+     local (..local arity)]
+    (wrap [arity local
            (synthesis.function/abstraction
             {#synthesis.environment (list)
              #synthesis.arity arity
-             #synthesis.body (synthesis.variable/local arg)})])))
-
-(def: upper-alpha-ascii
-  (r.Random Nat)
-  (|> r.nat (:: r.Functor<Random> map (|>> (n/% 26) (n/+ 65)))))
+             #synthesis.body (synthesis.variable/local local)})])))
 
 (def: #export (check reference)
   (-> Frac (Error Any) Bit)
   (|>> (case> (#error.Success valueT)
-              (|> valueT (:coerce Frac) (f/= reference))
+              (f/= reference (:coerce Frac valueT))
 
               (#error.Error error)
               (exec (log! error)
                 #0))))
 
+(def: #export safe-frac
+  (Random Frac)
+  (|> r.frac (r.filter (|>> number.not-a-number? not))))
+
 (def: (function-spec run)
   (-> Runner Test)
   (do r.Monad<Random>
-    [[arity arg functionS] gen-function
-     cut-off (|> r.nat (:: @ map (n/% arity)))
-     args (r.list arity r.frac)
-     #let [arg-value (maybe.assume (list.nth arg args))
-           argsS (list/map (|>> synthesis.f64) args)
-           last-arg (dec arity)
-           cut-off (|> cut-off (n/min (dec last-arg)))]]
+    [[arity local functionS] ..function
+     partial-arity (|> r.nat (:: @ map (|>> (n/% arity) (n/max 1))))
+     inputs (r.list arity safe-frac)
+     #let [expectation (maybe.assume (list.nth (dec local) inputs))
+           inputsS (list/map (|>> synthesis.f64) inputs)]]
     ($_ seq
         (test "Can read arguments."
-              (|> (run (synthesis.function/apply [functionS argsS]))
-                  (check arg-value)))
+              (|> (run (synthesis.function/apply {#synthesis.function functionS
+                                                  #synthesis.arguments inputsS}))
+                  (check expectation)))
         (test "Can partially apply functions."
               (or (n/= 1 arity)
-                  (let [partial-arity (inc cut-off)
-                        preS (list.take partial-arity argsS)
-                        postS (list.drop partial-arity argsS)]
-                    (|> (run (synthesis.function/apply {#synthesis.function (synthesis.function/apply {#synthesis.function functionS
-                                                                                                       #synthesis.arguments preS})
-                                                        #synthesis.arguments postS}))
-                        (check arg-value)))))
+                  (let [preS (list.take partial-arity inputsS)
+                        postS (list.drop partial-arity inputsS)
+                        partialS (synthesis.function/apply {#synthesis.function functionS
+                                                            #synthesis.arguments preS})
+                        totalS (synthesis.function/apply {#synthesis.function partialS
+                                                          #synthesis.arguments postS})]
+                    (|> (run totalS)
+                        (check expectation)))))
         (test "Can read environment."
               (or (n/= 1 arity)
-                  (let [environment (|> (list.n/range 0 cut-off)
+                  (let [environment (|> partial-arity
+                                        (list.n/range 1)
                                         (list/map (|>> #reference.Local)))
-                        arity::super (inc cut-off)
-                        argument (if (n/<= cut-off arg)
-                                   (synthesis.variable/foreign arg)
-                                   (synthesis.variable/local (n/- (dec arity::super) arg)))
-                        arity::sub (|> arity (n/- arity::super))
-                        functionS (synthesis.function/abstraction
-                                   {#synthesis.environment (list)
-                                    #synthesis.arity arity::super
-                                    #synthesis.body (synthesis.function/abstraction
-                                                     {#synthesis.environment environment
-                                                      #synthesis.arity arity::sub
-                                                      #synthesis.body argument})})]
-                    (|> (run (synthesis.function/apply [functionS argsS]))
-                        (check arg-value)))))
+                        variableS (if (n/<= partial-arity local)
+                                    (synthesis.variable/foreign (dec local))
+                                    (synthesis.variable/local (|> local (n/- partial-arity))))
+                        inner-arity (n/- partial-arity arity)
+                        innerS (synthesis.function/abstraction
+                                {#synthesis.environment environment
+                                 #synthesis.arity inner-arity
+                                 #synthesis.body variableS})
+                        outerS (synthesis.function/abstraction
+                                {#synthesis.environment (list)
+                                 #synthesis.arity partial-arity
+                                 #synthesis.body innerS})]
+                    (|> (run (synthesis.function/apply {#synthesis.function outerS
+                                                        #synthesis.arguments inputsS}))
+                        (check expectation)))))
         )))
 
 (context: "[JVM] Function."

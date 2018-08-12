@@ -227,8 +227,7 @@
               $end (new Label)
               _ (doto *writer*
                   (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "compareTo" "(Ljava/lang/String;)I")
-                  (.visitLdcInsn (int -1))
-                  (.visitJumpInsn Opcodes/IF_ICMPEQ $then)
+                  (.visitJumpInsn Opcodes/IFLT $then)
                   (.visitFieldInsn Opcodes/GETSTATIC (&host-generics/->bytecode-class-name "java.lang.Boolean") "FALSE" (&host-generics/->type-signature "java.lang.Boolean"))
                   (.visitJumpInsn Opcodes/GOTO $end)
                   (.visitLabel $then)
@@ -267,40 +266,36 @@
                   (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "text_clip" "(Ljava/lang/String;II)[Ljava/lang/Object;"))]]
     (return nil)))
 
-(do-template [<name> <method>]
-  (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Cons ?text (&/$Cons ?part (&/$Cons ?start (&/$Nil)))) ?values]
-          ^MethodVisitor *writer* &/get-writer
-          _ (compile ?text)
-          :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String"))]
-          _ (compile ?part)
-          :let [_ (doto *writer*
-                    (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String"))]
-          _ (compile ?start)
-          :let [_ (doto *writer*
-                    &&/unwrap-long
-                    (.visitInsn Opcodes/L2I))]
-          :let [_ (doto *writer*
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" <method> "(Ljava/lang/String;I)I"))]
-          :let [$not-found (new Label)
-                $end (new Label)
-                _ (doto *writer*
-                    (.visitInsn Opcodes/DUP)
-                    (.visitLdcInsn (int -1))
-                    (.visitJumpInsn Opcodes/IF_ICMPEQ $not-found)
-                    (.visitInsn Opcodes/I2L)
-                    &&/wrap-long
-                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)[Ljava/lang/Object;")
-                    (.visitJumpInsn Opcodes/GOTO $end)
-                    (.visitLabel $not-found)
-                    (.visitInsn Opcodes/POP)
-                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()[Ljava/lang/Object;")
-                    (.visitLabel $end))]]
-      (return nil)))
-
-  ^:private compile-text-index      "indexOf"
-  )
+(defn ^:private compile-text-index [compile ?values special-args]
+  (|do [:let [(&/$Cons ?text (&/$Cons ?part (&/$Cons ?start (&/$Nil)))) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        _ (compile ?text)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String"))]
+        _ (compile ?part)
+        :let [_ (doto *writer*
+                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String"))]
+        _ (compile ?start)
+        :let [_ (doto *writer*
+                  &&/unwrap-long
+                  (.visitInsn Opcodes/L2I))]
+        :let [_ (doto *writer*
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "indexOf" "(Ljava/lang/String;I)I"))]
+        :let [$not-found (new Label)
+              $end (new Label)
+              _ (doto *writer*
+                  (.visitInsn Opcodes/DUP)
+                  (.visitLdcInsn (int -1))
+                  (.visitJumpInsn Opcodes/IF_ICMPEQ $not-found)
+                  (.visitInsn Opcodes/I2L)
+                  &&/wrap-long
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)[Ljava/lang/Object;")
+                  (.visitJumpInsn Opcodes/GOTO $end)
+                  (.visitLabel $not-found)
+                  (.visitInsn Opcodes/POP)
+                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()[Ljava/lang/Object;")
+                  (.visitLabel $end))]]
+    (return nil)))
 
 (do-template [<name> <class> <method>]
   (defn <name> [compile ?values special-args]

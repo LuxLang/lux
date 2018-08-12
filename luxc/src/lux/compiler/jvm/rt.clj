@@ -93,7 +93,7 @@
                (.visitVarInsn Opcodes/ISTORE 1) ;;
                (.visitJumpInsn Opcodes/GOTO $begin)
                (.visitLabel $not-rec) ;; tuple-size, index-last-elem
-               (.visitInsn Opcodes/POP2) ;;
+               ;; (.visitInsn Opcodes/POP2) ;;
                (.visitVarInsn Opcodes/ALOAD 0) ;; tuple
                (.visitVarInsn Opcodes/ILOAD 1) ;; tuple, index
                (.visitInsn Opcodes/AALOAD) ;; elem
@@ -139,7 +139,7 @@
                (.visitMethodInsn Opcodes/INVOKESTATIC "java/util/Arrays" "copyOfRange" "([Ljava/lang/Object;II)[Ljava/lang/Object;")
                (.visitInsn Opcodes/ARETURN)
                (.visitLabel $is-last) ;; tuple-size, index-last-elem
-               (.visitInsn Opcodes/POP2) ;;
+               ;; (.visitInsn Opcodes/POP2) ;;
                (.visitVarInsn Opcodes/ALOAD 0) ;; tuple
                (.visitVarInsn Opcodes/ILOAD 1) ;; tuple, index
                (.visitInsn Opcodes/AALOAD) ;; elem
@@ -154,7 +154,7 @@
                  $not-right (new Label)
                  failure (fn [^MethodVisitor writer]
                            (doto writer
-                             (.visitInsn Opcodes/POP2)
+                             ;; (.visitInsn Opcodes/POP2)
                              (.visitInsn Opcodes/ACONST_NULL)
                              (.visitInsn Opcodes/ARETURN)))
                  shortened (fn [^MethodVisitor writer]
@@ -192,7 +192,7 @@
                (.visitJumpInsn Opcodes/IF_ACMPEQ $just-return)
                (.visitJumpInsn Opcodes/GOTO $further)
                (.visitLabel $just-return)
-               (.visitInsn Opcodes/POP2)
+               ;; (.visitInsn Opcodes/POP2)
                (.visitVarInsn Opcodes/ALOAD 0)
                (.visitLdcInsn (int 2))
                (.visitInsn Opcodes/AALOAD)
@@ -200,7 +200,7 @@
                (.visitLabel $shorten)
                (.visitVarInsn Opcodes/ALOAD 2)
                (.visitJumpInsn Opcodes/IFNULL $not-right)
-               (.visitInsn Opcodes/POP2)
+               ;; (.visitInsn Opcodes/POP2)
                shortened
                (.visitInsn Opcodes/ARETURN)
                (.visitLabel $further) ;; tag, sum-tag

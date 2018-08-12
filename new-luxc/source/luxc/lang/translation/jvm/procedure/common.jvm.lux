@@ -84,6 +84,7 @@
 ## [Instructions]
 (def: lux-intI Inst (|>> _.I2L (_.wrap #$.Long)))
 (def: jvm-intI Inst (|>> (_.unwrap #$.Long) _.L2I))
+(def: check-stringI Inst (_.CHECKCAST "java.lang.String"))
 
 (def: (predicateI tester)
   (-> (-> Label Inst)
@@ -161,17 +162,17 @@
           <op>
           (_.wrap <type>)))]
 
-  [i64::add #$.Long   _.LADD]
-  [i64::sub #$.Long   _.LSUB]
-  [i64::mul #$.Long   _.LMUL]
-  [i64::div #$.Long   _.LDIV]
-  [i64::rem #$.Long   _.LREM]
+  [i64::+ #$.Long   _.LADD]
+  [i64::- #$.Long   _.LSUB]
+  [i64::* #$.Long   _.LMUL]
+  [i64::/ #$.Long   _.LDIV]
+  [i64::% #$.Long   _.LREM]
   
-  [f64::add #$.Double _.DADD]
-  [f64::sub #$.Double _.DSUB]
-  [f64::mul #$.Double _.DMUL]
-  [f64::div #$.Double _.DDIV]
-  [f64::rem #$.Double _.DREM]
+  [f64::+ #$.Double _.DADD]
+  [f64::- #$.Double _.DSUB]
+  [f64::* #$.Double _.DMUL]
+  [f64::/ #$.Double _.DDIV]
+  [f64::% #$.Double _.DREM]
   )
 
 (do-template [<eq> <lt> <unwrap> <cmp>]
@@ -183,11 +184,12 @@
              <cmp>
              (_.int <reference>)
              (predicateI _.IF_ICMPEQ)))]
+     
      [<eq> +0]
      [<lt> -1])]
 
-  [i64::eq i64::lt (_.unwrap #$.Long)   _.LCMP]
-  [f64::eq f64::lt (_.unwrap #$.Double) _.DCMPG]
+  [i64::= i64::< (_.unwrap #$.Long)   _.LCMP]
+  [f64::= f64::< (_.unwrap #$.Double) _.DCMPG]
   )
 
 (do-template [<name> <prepare> <transform>]
@@ -202,7 +204,7 @@
   [f64::to-i64 (_.unwrap #$.Double) (<| (_.wrap #$.Long) _.D2L)]
   [f64::encode (_.unwrap #$.Double)
    (_.INVOKESTATIC "java.lang.Double" "toString" (_t.method (list _t.double) (#.Some $String) (list)) #0)]
-  [f64::decode (_.CHECKCAST "java.lang.String")
+  [f64::decode ..check-stringI
    (_.INVOKESTATIC ///.runtime-class "decode_frac" (_t.method (list $String) (#.Some $Object-Array) (list)) #0)]
   )
 
@@ -210,7 +212,7 @@
 (def: (text::size inputI)
   Unary
   (|>> inputI
-       (_.CHECKCAST "java.lang.String")
+       ..check-stringI
        (_.INVOKEVIRTUAL "java.lang.String" "length" (_t.method (list) (#.Some _t.int) (list)) #0)
        lux-intI))
 
@@ -221,16 +223,16 @@
           paramI <pre-param>
           <op> <post>))]
 
-  [text::eq id id
+  [text::= id id
    (_.INVOKEVIRTUAL "java.lang.Object" "equals" (_t.method (list ///.$Object) (#.Some _t.boolean) (list)) #0)
    (_.wrap #$.Boolean)]
-  [text::lt (_.CHECKCAST "java.lang.String") (_.CHECKCAST "java.lang.String")
+  [text::< ..check-stringI ..check-stringI
    (_.INVOKEVIRTUAL "java.lang.String" "compareTo" (_t.method (list $String) (#.Some _t.int) (list)) #0)
-   (<| (predicateI _.IF_ICMPEQ) (_.int -1))]
-  [text::concat (_.CHECKCAST "java.lang.String") (_.CHECKCAST "java.lang.String")
+   (predicateI _.IFLT)]
+  [text::concat ..check-stringI ..check-stringI
    (_.INVOKEVIRTUAL "java.lang.String" "concat" (_t.method (list $String) (#.Some $String) (list)) #0)
    id]
-  [text::char (_.CHECKCAST "java.lang.String") jvm-intI
+  [text::char ..check-stringI jvm-intI
    (_.INVOKESTATIC ///.runtime-class "text_char" (_t.method (list $String _t.int) (#.Some ///.$Variant) (list)) #0)
    id]
   )
@@ -243,7 +245,7 @@
           extraI <pre-extra>
           <op>))]
 
-  [text::clip (_.CHECKCAST "java.lang.String") jvm-intI jvm-intI
+  [text::clip ..check-stringI jvm-intI jvm-intI
    (_.INVOKESTATIC ///.runtime-class "text_clip"
                    (_t.method (list $String _t.int _t.int) (#.Some ///.$Variant) (list)) #0)]
   )
@@ -253,8 +255,8 @@
   Trinary
   (<| _.with-label (function (_ @not-found))
       _.with-label (function (_ @end))
-      (|>> textI (_.CHECKCAST "java.lang.String")
-           partI (_.CHECKCAST "java.lang.String")
+      (|>> textI ..check-stringI
+           partI ..check-stringI
            startI jvm-intI
            (_.INVOKEVIRTUAL "java.lang.String" "indexOf" index-method #0)
            _.DUP
@@ -264,7 +266,7 @@
            runtime.someI
            (_.GOTO @end)
            (_.label @not-found)
-           ## _.POP
+           _.POP
            runtime.noneI
            (_.label @end))))
 
@@ -274,7 +276,7 @@
   Unary
   (|>> (_.GETSTATIC "java.lang.System" "out" (_t.class "java.io.PrintStream" (list)))
        messageI
-       (_.CHECKCAST "java.lang.String")
+       ..check-stringI
        (_.INVOKEVIRTUAL "java.io.PrintStream" "println" string-method #0)
        unitI))
 
@@ -283,7 +285,7 @@
   (|>> (_.NEW "java.lang.Error")
        _.DUP
        messageI
-       (_.CHECKCAST "java.lang.String")
+       ..check-stringI
        (_.INVOKESPECIAL "java.lang.Error" "<init>" string-method #0)
        _.ATHROW))
 
@@ -293,7 +295,7 @@
        (_.INVOKESTATIC "java.lang.System" "exit" (_t.method (list _t.int) #.None (list)) #0)
        _.NULL))
 
-(def: (io::current-time [])
+(def: (io::current-time _)
   Nullary
   (|>> (_.INVOKESTATIC "java.lang.System" "currentTimeMillis" (_t.method (list) (#.Some _t.long) (list)) #0)
        (_.wrap #$.Long)))
@@ -320,13 +322,13 @@
   Bundle
   (<| (bundle.prefix "i64")
       (|> (: Bundle bundle.empty)
-          (bundle.install "+" (binary i64::add))
-          (bundle.install "-" (binary i64::sub))
-          (bundle.install "*" (binary i64::mul))
-          (bundle.install "/" (binary i64::div))
-          (bundle.install "%" (binary i64::rem))
-          (bundle.install "=" (binary i64::eq))
-          (bundle.install "<" (binary i64::lt))
+          (bundle.install "+" (binary i64::+))
+          (bundle.install "-" (binary i64::-))
+          (bundle.install "*" (binary i64::*))
+          (bundle.install "/" (binary i64::/))
+          (bundle.install "%" (binary i64::%))
+          (bundle.install "=" (binary i64::=))
+          (bundle.install "<" (binary i64::<))
           (bundle.install "to-f64" (unary i64::to-f64))
           (bundle.install "char" (unary i64::char)))))
 
@@ -334,13 +336,13 @@
   Bundle
   (<| (bundle.prefix "f64")
       (|> (: Bundle bundle.empty)
-          (bundle.install "+" (binary f64::add))
-          (bundle.install "-" (binary f64::sub))
-          (bundle.install "*" (binary f64::mul))
-          (bundle.install "/" (binary f64::div))
-          (bundle.install "%" (binary f64::rem))
-          (bundle.install "=" (binary f64::eq))
-          (bundle.install "<" (binary f64::lt))
+          (bundle.install "+" (binary f64::+))
+          (bundle.install "-" (binary f64::-))
+          (bundle.install "*" (binary f64::*))
+          (bundle.install "/" (binary f64::/))
+          (bundle.install "%" (binary f64::%))
+          (bundle.install "=" (binary f64::=))
+          (bundle.install "<" (binary f64::<))
           (bundle.install "smallest" (nullary f64::smallest))
           (bundle.install "min" (nullary f64::min))
           (bundle.install "max" (nullary f64::max))
@@ -352,8 +354,8 @@
   Bundle
   (<| (bundle.prefix "text")
       (|> (: Bundle bundle.empty)
-          (bundle.install "=" (binary text::eq))
-          (bundle.install "<" (binary text::lt))
+          (bundle.install "=" (binary text::=))
+          (bundle.install "<" (binary text::<))
           (bundle.install "concat" (binary text::concat))
           (bundle.install "index" (trinary text::index))
           (bundle.install "size" (unary text::size))

@@ -1,16 +1,13 @@
 (.module:
-  [lux #*
+  [lux (#- case)
    [control
     [monad (#+ do)]
     pipe]
    [data
-    ["e" error]
-    [text
-     format]
     [collection
      ["." list]]]
    [math
-    ["r" random]]
+    ["r" random (#+ Random)]]
    [compiler
     [default
      ["." reference]
@@ -24,15 +21,19 @@
   [//
    ["&" function]])
 
-(def: struct-limit Nat 10)
+(def: limit Nat 10)
+
+(def: size
+  (Random Nat)
+  (|> r.nat (:: r.Monad<Random> map (|>> (n/% ..limit) (n/max 2)))))
 
 (def: (tail? size idx)
   (-> Nat Nat Bit)
   (n/= (dec size) idx))
 
-(def: gen-case
-  (r.Random [Synthesis Path])
-  (<| r.rec (function (_ gen-case))
+(def: case
+  (Random [Synthesis Path])
+  (<| r.rec (function (_ case))
       (`` ($_ r.either
               (do r.Monad<Random>
                 [value r.i64]
@@ -49,9 +50,9 @@
                     [r.frac        synthesis.f64  synthesis.path/f64]
                     [(r.unicode 5) synthesis.text synthesis.path/text]))
               (do r.Monad<Random>
-                [size (|> r.nat (:: @ map (|>> (n/% struct-limit) (n/max 2))))
+                [size ..size
                  idx (|> r.nat (:: @ map (n/% size)))
-                 [subS subP] gen-case
+                 [subS subP] case
                  #let [unitS (synthesis.text synthesis.unit)
                        caseS (synthesis.tuple
                               (list.concat (list (list.repeat idx unitS)
@@ -63,42 +64,64 @@
                                                   subP])]]
                 (wrap [caseS caseP]))
               (do r.Monad<Random>
-                [size (|> r.nat (:: @ map (|>> (n/% struct-limit) (n/max 2))))
+                [size ..size
                  idx (|> r.nat (:: @ map (n/% size)))
-                 [subS subP] gen-case
-                 #let [caseS (let [right? (tail? size idx)]
-                               (synthesis.variant
-                                {#analysis.lefts idx
-                                 #analysis.right? right?
-                                 #analysis.value subS}))
+                 [subS subP] case
+                 #let [right? (tail? size idx)
+                       caseS (synthesis.variant
+                              {#analysis.lefts idx
+                               #analysis.right? right?
+                               #analysis.value subS})
                        caseP (synthesis.path/seq
-                              [(if (tail? size idx)
+                              [(if right?
                                  (synthesis.side/right idx)
                                  (synthesis.side/left idx))
                                subP])]]
                 (wrap [caseS caseP]))
               ))))
 
-(def: (pattern-matching-spec run)
+(def: (let-spec run)
   (-> Runner Test)
   (do r.Monad<Random>
-    [[valueS pathS] gen-case
-     to-bind r.frac]
-    ($_ seq
-        (test "Can translate pattern-matching."
-              (|> (run (synthesis.branch/case
-                        [valueS
-                         (synthesis.path/alt [(synthesis.path/seq [pathS
-                                                                   (synthesis.path/then (synthesis.f64 to-bind))])
-                                              (synthesis.path/then (synthesis.f64 +0.0))])]))
-                  (&.check to-bind)))
-        (test "Can bind values."
-              (|> (run (synthesis.branch/case
-                        [(synthesis.f64 to-bind)
-                         (synthesis.path/seq [(synthesis.path/bind 0)
-                                              (synthesis.path/then (synthesis.variable/local 0))])]))
-                  (&.check to-bind)))
-        )))
+    [value &.safe-frac]
+    (test "Specialized \"let\"."
+          (|> (run (synthesis.branch/let [(synthesis.f64 value)
+                                          0
+                                          (synthesis.variable/local 0)]))
+              (&.check value)))))
+
+(def: (if-spec run)
+  (-> Runner Test)
+  (do r.Monad<Random>
+    [on-true &.safe-frac
+     on-false (|> &.safe-frac (r.filter (|>> (f/= on-true) not)))
+     verdict r.bit]
+    (test "Specialized \"if\"."
+          (|> (run (synthesis.branch/if [(synthesis.bit verdict)
+                                         (synthesis.f64 on-true)
+                                         (synthesis.f64 on-false)]))
+              (&.check (if verdict on-true on-false))))))
+
+(def: (case-spec run)
+  (-> Runner Test)
+  (do r.Monad<Random>
+    [[inputS pathS] ..case
+     on-success &.safe-frac
+     on-failure (|> &.safe-frac (r.filter (|>> (f/= on-success) not)))]
+    (test "Case."
+          (|> (run (synthesis.branch/case
+                    [inputS
+                     (synthesis.path/alt [(synthesis.path/seq [pathS
+                                                               (synthesis.path/then (synthesis.f64 on-success))])
+                                          (synthesis.path/then (synthesis.f64 on-failure))])]))
+              (&.check on-success)))))
+
+(def: (pattern-matching-spec run)
+  (-> Runner Test)
+  ($_ seq
+      (let-spec run)
+      (if-spec run)
+      (case-spec run)))
 
 (context: "[JVM] Pattern-matching."
   (<| (times 100)

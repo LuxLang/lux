@@ -196,10 +196,10 @@
   (|do [^MethodVisitor *writer* &/get-writer
         :let [$end (new Label)
               bodies-labels (&/|map (fn [_] (new Label)) ?bodies)]
+        :let [_ (doto *writer*
+                  (.visitInsn Opcodes/ACONST_NULL))]
         _ (compile ?value)
         :let [_ (doto *writer*
-                  (.visitInsn Opcodes/ACONST_NULL)
-                  (.visitInsn Opcodes/SWAP)
                   (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;"))
               _ (compile-pattern *writer* bodies-labels ?pm $end)]
         _ (compile-bodies *writer* compile bodies-labels ?bodies $end)
