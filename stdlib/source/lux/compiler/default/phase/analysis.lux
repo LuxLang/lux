@@ -25,9 +25,16 @@
 
 (type: #export Tag Nat)
 
+(type: #export (Variant a)
+  {#lefts Nat
+   #right? Bit
+   #value a})
+
+(type: #export (Tuple a) (List a))
+
 (type: #export (Composite a)
-  (#Sum (Either a a))
-  (#Product [a a]))
+  (#Variant (Variant a))
+  (#Tuple (Tuple a)))
 
 (type: #export #rec Pattern
   (#Simple Primitive)
@@ -90,13 +97,6 @@
   [text Text #Text]
   )
 
-(type: #export (Variant a)
-  {#lefts Nat
-   #right? Bit
-   #value a})
-
-(type: #export (Tuple a) (List a))
-
 (type: #export Arity Nat)
 
 (type: #export (Abstraction c) [Environment Arity c])
@@ -112,91 +112,9 @@
       (#..Function (list))
       (#..Apply value)))
 
-(do-template [<name> <type> <structure> <prep-value>]
-  [(def: #export (<name> size tag value)
-     (-> Nat Tag <type> <type>)
-     (let [left (function.constant (|>> #.Left #Sum <structure>))
-           right (|>> #.Right #Sum <structure>)]
-       (if (last? size tag)
-         (list/fold left
-                    (right value)
-                    (list.indices (dec tag)))
-         (list/fold left
-                    (case value
-                      (<structure> (#Sum _))
-                      (<prep-value> value)
-
-                      _
-                      value)
-                    (list.indices (inc tag))))))]
-
-  [sum-analysis Analysis #Structure ..no-op]
-  [sum-pattern  Pattern  #Complex   id]
-  )
-
-(do-template [<name> <type> <primitive> <structure>]
-  [(def: #export (<name> members)
-     (-> (Tuple <type>) <type>)
-     (case (list.reverse members)
-       #.Nil
-       (<primitive> #Unit)
-
-       (#.Cons singleton #.Nil)
-       singleton
-
-       (#.Cons last prevs)
-       (list/fold (function (_ left right) (<structure> (#Product left right)))
-                  last prevs)))]
-
-  [product-analysis Analysis #Primitive #Structure]
-  [product-pattern  Pattern  #Simple    #Complex]
-  )
-
 (def: #export (apply [func args])
   (-> (Application Analysis) Analysis)
   (list/fold (function (_ arg func) (#Apply arg func)) func args))
-
-(do-template [<name> <type> <tag>]
-  [(def: #export (<name> value)
-     (-> <type> (Tuple <type>))
-     (case value
-       (<tag> (#Product left right))
-       (#.Cons left (<name> right))
-
-       _
-       (list value)))]
-
-  [tuple         Analysis #Structure]
-  [tuple-pattern Pattern  #Complex]
-  )
-
-(do-template [<name> <type> <tag>]
-  [(def: #export (<name> value)
-     (-> <type> (Maybe (Variant <type>)))
-     (loop [lefts 0
-            variantA value]
-       (case variantA
-         (<tag> (#Sum (#.Left valueA)))
-         (case valueA
-           (<tag> (#Sum _))
-           (recur (inc lefts) valueA)
-
-           _
-           (#.Some {#lefts lefts
-                    #right? #0
-                    #value valueA}))
-         
-         (<tag> (#Sum (#.Right valueA)))
-         (#.Some {#lefts lefts
-                  #right? #1
-                  #value valueA})
-
-         _
-         #.None)))]
-
-  [variant         Analysis #Structure]
-  [variant-pattern Pattern  #Complex]
-  )
 
 (def: #export (application analysis)
   (-> Analysis (Application Analysis))
@@ -207,6 +125,26 @@
 
     _
     [analysis (list)]))
+
+(do-template [<name> <tag>]
+  [(template: #export (<name> content)
+     (.<| #Complex
+          <tag>
+          content))]
+
+  [pattern/variant #..Variant]
+  [pattern/tuple   #..Tuple]
+  )
+
+(do-template [<name> <tag>]
+  [(template: #export (<name> content)
+     (.<| #..Structure
+          <tag>
+          content))]
+
+  [variant #..Variant]
+  [tuple   #..Tuple]
+  )
 
 (template: #export (pattern/unit)
   (#..Simple #..Unit))
@@ -222,6 +160,9 @@
   [pattern/frac #..Frac]
   [pattern/text #..Text]
   )
+
+(template: #export (pattern/bind register)
+  (#..Bind register))
 
 (def: #export (with-source-code source action)
   (All [a] (-> Source (Operation a) (Operation a)))
@@ -314,13 +255,11 @@
     
     (#Structure structure)
     (case structure
-      (#Sum _)
-      (let [[lefts right? value] (maybe.assume (..variant analysis))]
-        (format "(" (%n lefts) " " (%b right?) " " (%analysis value) ")"))
+      (#Variant [lefts right? value])
+      (format "(" (%n lefts) " " (%b right?) " " (%analysis value) ")")
       
-      (#Product _)
-      (|> analysis
-          ..tuple
+      (#Tuple members)
+      (|> members
           (list/map %analysis)
           (text.join-with " ")
           (text.enclose ["[" "]"])))

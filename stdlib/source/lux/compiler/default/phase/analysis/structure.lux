@@ -2,12 +2,14 @@
   [lux #*
    [control
     ["." monad (#+ do)]
-    ["ex" exception (#+ exception:)]]
+    ["ex" exception (#+ exception:)]
+    ["." state]]
    [data
     ["." name]
     ["." number]
     ["." product]
     ["." maybe]
+    ["." error]
     [text
      format]
     [collection
@@ -86,13 +88,18 @@
       (case expectedT
         (#.Sum _)
         (let [flat (type.flatten-variant expectedT)
-              type-size (list.size flat)]
+              type-size (list.size flat)
+              right? (n/= (dec type-size)
+                          tag)
+              lefts (if right?
+                      (dec tag)
+                      tag)]
           (case (list.nth tag flat)
             (#.Some variant-type)
             (do @
               [valueA (//type.with-type variant-type
                         (analyse valueC))]
-              (wrap (//.sum-analysis type-size tag valueA)))
+              (wrap (//.variant [lefts right? valueA])))
 
             #.None
             (///.throw inference.variant-tag-out-of-bounds [type-size tag expectedT])))
@@ -151,44 +158,32 @@
         _
         (///.throw invalid-variant-type [expectedT tag valueC])))))
 
-(def: (typed-product analyse membersC+)
+(def: (typed-product analyse members)
   (-> Phase (List Code) (Operation Analysis))
   (do ///.Monad<Operation>
-    [expectedT (extension.lift macro.expected-type)]
-    (loop [expectedT expectedT
-           membersC+ membersC+]
-      (case [expectedT membersC+]
-        ## If the tuple runs out, whatever expression is the last gets
-        ## matched to the remaining type.
-        [tailT (#.Cons tailC #.Nil)]
-        (//type.with-type tailT
-          (analyse tailC))
+    [expectedT (extension.lift macro.expected-type)
+     membersA+ (: (Operation (List Analysis))
+                  (loop [membersT+ (type.flatten-tuple expectedT)
+                         membersC+ members]
+                    (case [membersT+ membersC+]
+                      [(#.Cons memberT #.Nil) _]
+                      (//type.with-type memberT
+                        (:: @ map (|>> list) (analyse (code.tuple membersC+))))
+                      
+                      [_ (#.Cons memberC #.Nil)]
+                      (//type.with-type (type.tuple membersT+)
+                        (:: @ map (|>> list) (analyse memberC)))
+                      
+                      [(#.Cons memberT membersT+') (#.Cons memberC membersC+')]
+                      (do @
+                        [memberA (//type.with-type memberT
+                                   (analyse memberC))
+                         memberA+ (recur membersT+' membersC+')]
+                        (wrap (#.Cons memberA memberA+)))
 
-        ## If the type and the code are still ongoing, match each
-        ## sub-expression to its corresponding type.
-        [(#.Product leftT rightT) (#.Cons leftC rightC)]
-        (do @
-          [leftA (//type.with-type leftT
-                   (analyse leftC))
-           rightA (recur rightT rightC)]
-          (wrap (#//.Structure (#//.Product leftA rightA))))
-
-        ## If, however, the type runs out but there is still enough
-        ## tail, the remaining elements get packaged into another
-        ## tuple.
-        ## The reason for this is that it is assumed that the type of
-        ## the tuple represents the expectations of the user.
-        ## If the type is for a 3-tuple, but a 5-tuple is provided, it
-        ## is assumed that the user intended the following layout:
-        ## [+0, +1, [+2, +3, +4]]
-        ## but that, for whatever reason, it was written in a flat
-        ## way.
-        [tailT tailC]
-        (|> tailC
-            code.tuple
-            analyse
-            (//type.with-type tailT)
-            (:: @ map (|>> //.no-op)))))))
+                      _
+                      (///.throw cannot-analyse-tuple [expectedT members]))))]
+    (wrap (//.tuple membersA+))))
 
 (def: #export (product analyse membersC)
   (-> Phase (List Code) (Operation Analysis))
@@ -220,7 +215,7 @@
                _ (//type.with-env
                    (check.check expectedT
                                 (type.tuple (list/map product.left membersTA))))]
-              (wrap (//.product-analysis (list/map product.right membersTA))))))
+              (wrap (//.tuple (list/map product.right membersTA))))))
 
         (^template [<tag> <instancer>]
           (<tag> _)
@@ -268,8 +263,12 @@
       (do @
         [#let [case-size (list.size group)]
          inferenceT (inference.variant idx case-size variantT)
-         [inferredT valueA+] (inference.general analyse inferenceT (list valueC))]
-        (wrap (//.sum-analysis case-size idx (|> valueA+ list.head maybe.assume))))
+         [inferredT valueA+] (inference.general analyse inferenceT (list valueC))
+         #let [right? (n/= (dec case-size) idx)
+               lefts (if right?
+                       (dec idx)
+                       idx)]]
+        (wrap (//.variant [lefts right? (|> valueA+ list.head maybe.assume)])))
 
       _
       (..sum analyse idx valueC))))
@@ -353,7 +352,7 @@
           (do @
             [inferenceT (inference.record recordT)
              [inferredT membersA] (inference.general analyse inferenceT membersC)]
-            (wrap (//.product-analysis membersA)))
+            (wrap (//.tuple membersA)))
 
           _
           (..product analyse membersC))))))

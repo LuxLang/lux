@@ -17,29 +17,12 @@
   ["." //// ("operation/." Monad<Operation>)]
   ["." /// (#+ Pattern Variant Operation)])
 
+(exception: #export (invalid-tuple-pattern)
+  "Tuple size must be >= 2")
+
 (def: cases
   (-> (Maybe Nat) Nat)
   (|>> (maybe.default 0)))
-
-(def: (variant sum-side)
-  (-> (Either Pattern Pattern) (Variant Pattern))
-  (loop [lefts 0
-         variantP sum-side]
-    (case variantP
-      (#.Left valueP)
-      (case valueP
-        (#///.Complex (#///.Sum value-side))
-        (recur (inc lefts) value-side)
-
-        _
-        {#///.lefts lefts
-         #///.right? #0
-         #///.value valueP})
-      
-      (#.Right valueP)
-      {#///.lefts lefts
-       #///.right? #1
-       #///.value valueP})))
 
 ## The coverage of a pattern-matching expression summarizes how well
 ## all the possible values of an input are being covered by the
@@ -96,31 +79,39 @@
 
     ## Tuple patterns can be exhaustive if there is exhaustiveness for all of
     ## their sub-patterns.
-    (#///.Complex (#///.Product [left right]))
-    (do ////.Monad<Operation>
-      [left (determine left)
-       right (determine right)]
-      (case right
-        (#Exhaustive _)
-        (wrap left)
-
-        _
-        (wrap (#Seq left right))))
-
-    (#///.Complex (#///.Sum sum-side))
-    (let [[variant-lefts variant-right? variant-value] (variant sum-side)]
-      ## Variant patterns can be shown to be exhaustive if all the possible
-      ## cases are handled exhaustively.
+    (#///.Complex (#///.Tuple membersP+))
+    (case (list.reverse membersP+)
+      (^or #.Nil (#.Cons _ #.Nil))
+      (////.throw invalid-tuple-pattern [])
+      
+      (#.Cons lastP prevsP+)
       (do ////.Monad<Operation>
-        [value-coverage (determine variant-value)
-         #let [variant-idx (if variant-right?
-                             (inc variant-lefts)
-                             variant-lefts)]]
-        (wrap (#Variant (if variant-right?
-                          (#.Some variant-idx)
-                          #.None)
-                        (|> (dict.new number.Hash<Nat>)
-                            (dict.put variant-idx value-coverage))))))))
+        [lastC (determine lastP)]
+        (monad.fold ////.Monad<Operation>
+                    (function (_ leftP rightC)
+                      (do ////.Monad<Operation>
+                        [leftC (determine leftP)]
+                        (case rightC
+                          #Exhaustive
+                          (wrap leftC)
+
+                          _
+                          (wrap (#Seq leftC rightC)))))
+                    lastC prevsP+)))
+
+    ## Variant patterns can be shown to be exhaustive if all the possible
+    ## cases are handled exhaustively.
+    (#///.Complex (#///.Variant [lefts right? value]))
+    (do ////.Monad<Operation>
+      [value-coverage (determine value)
+       #let [idx (if right?
+                   (inc lefts)
+                   lefts)]]
+      (wrap (#Variant (if right?
+                        (#.Some idx)
+                        #.None)
+                      (|> (dict.new number.Hash<Nat>)
+                          (dict.put idx value-coverage)))))))
 
 (def: (xor left right)
   (-> Bit Bit Bit)

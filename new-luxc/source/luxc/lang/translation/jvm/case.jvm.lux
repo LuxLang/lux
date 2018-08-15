@@ -57,9 +57,8 @@
                                   (list))
                        #0)))
 
-(def: (path' translate stack-depth @else @end path)
-  (-> (-> Synthesis (Operation Inst))
-      Nat Label Label Path (Operation Inst))
+(def: (path' phase stack-depth @else @end path)
+  (-> Phase Nat Label Label Path (Operation Inst))
   (.case path
     #synthesis.Pop
     (operation/wrap popI)
@@ -101,15 +100,39 @@
     
     (#synthesis.Then bodyS)
     (do phase.Monad<Operation>
-      [bodyI (translate bodyS)]
+      [bodyI (phase bodyS)]
       (wrap (|>> (pop-altI stack-depth)
                  bodyI
                  (_.GOTO @end))))
     
     
-    (^template [<pattern> <method>]
+    (^template [<pattern> <flag> <prepare>]
       (^ (<pattern> idx))
-      (operation/wrap (.case idx
+      (operation/wrap (<| _.with-label (function (_ @success))
+                          _.with-label (function (_ @fail))
+                          (|>> peekI
+                               (_.CHECKCAST ($t.descriptor runtime.$Variant))
+                               (_.int (.int (<prepare> idx)))
+                               <flag>
+                               (_.INVOKESTATIC //.runtime-class "pm_variant"
+                                               ($t.method (list runtime.$Variant runtime.$Tag runtime.$Flag)
+                                                          (#.Some runtime.$Datum)
+                                                          (list))
+                                               #0)
+                               _.DUP
+                               (_.IFNULL @fail)
+                               (_.GOTO @success)
+                               (_.label @fail)
+                               _.POP
+                               (_.GOTO @else)
+                               (_.label @success)
+                               pushI))))
+    ([synthesis.side/left  _.NULL        .id]
+     [synthesis.side/right (_.string "") .inc])
+
+    (^template [<pattern> <method> <prepare>]
+      (^ (<pattern> idx))
+      (operation/wrap (.case (<prepare> idx)
                         0
                         (|>> peekI
                              (_.CHECKCAST ($t.descriptor runtime.$Tuple))
@@ -128,39 +151,14 @@
                                                         (list))
                                              #0)
                              pushI))))
-    ([synthesis.member/left  "pm_left"]
-     [synthesis.member/right "pm_right"])
-
-    (^template [<pattern> <flag> <mod>]
-      (^ (<pattern> idx))
-      (.let [idx (<mod> idx)]
-        (operation/wrap (<| _.with-label (function (_ @success))
-                            _.with-label (function (_ @fail))
-                            (|>> peekI
-                                 (_.CHECKCAST ($t.descriptor runtime.$Variant))
-                                 (_.int (.int idx))
-                                 <flag>
-                                 (_.INVOKESTATIC //.runtime-class "pm_variant"
-                                                 ($t.method (list runtime.$Variant runtime.$Tag runtime.$Flag)
-                                                            (#.Some runtime.$Datum)
-                                                            (list))
-                                                 #0)
-                                 _.DUP
-                                 (_.IFNULL @fail)
-                                 (_.GOTO @success)
-                                 (_.label @fail)
-                                 _.POP
-                                 (_.GOTO @else)
-                                 (_.label @success)
-                                 pushI)))))
-    ([synthesis.side/left  _.NULL        .id]
-     [synthesis.side/right (_.string "") .inc])
+    ([synthesis.member/left  "pm_left"  id]
+     [synthesis.member/right "pm_right" inc])
 
     (#synthesis.Alt leftP rightP)
     (do phase.Monad<Operation>
       [@alt-else _.make-label
-       leftI (path' translate (inc stack-depth) @alt-else @end leftP)
-       rightI (path' translate stack-depth @else @end rightP)]
+       leftI (path' phase (inc stack-depth) @alt-else @end leftP)
+       rightI (path' phase stack-depth @else @end rightP)]
       (wrap (|>> _.DUP
                  leftI
                  (_.label @alt-else)
@@ -169,17 +167,17 @@
     
     (#synthesis.Seq leftP rightP)
     (do phase.Monad<Operation>
-      [leftI (path' translate stack-depth @else @end leftP)
-       rightI (path' translate stack-depth @else @end rightP)]
+      [leftI (path' phase stack-depth @else @end leftP)
+       rightI (path' phase stack-depth @else @end rightP)]
       (wrap (|>> leftI
                  rightI)))
     ))
 
-(def: (path translate path @end)
+(def: (path phase path @end)
   (-> Phase Path Label (Operation Inst))
   (do phase.Monad<Operation>
     [@else _.make-label
-     pathI (..path' translate 1 @else @end path)]
+     pathI (..path' phase 1 @else @end path)]
     (wrap (|>> pathI
                (_.label @else)
                _.POP
@@ -190,12 +188,12 @@
                _.NULL
                (_.GOTO @end)))))
 
-(def: #export (if translate testS thenS elseS)
+(def: #export (if phase testS thenS elseS)
   (-> Phase Synthesis Synthesis Synthesis (Operation Inst))
   (do phase.Monad<Operation>
-    [testI (translate testS)
-     thenI (translate thenS)
-     elseI (translate elseS)]
+    [testI (phase testS)
+     thenI (phase thenS)
+     elseI (phase elseS)]
     (wrap (<| _.with-label (function (_ @else))
               _.with-label (function (_ @end))
               (|>> testI
@@ -207,21 +205,21 @@
                    elseI
                    (_.label @end))))))
 
-(def: #export (let translate inputS register exprS)
+(def: #export (let phase inputS register exprS)
   (-> Phase Synthesis Nat Synthesis (Operation Inst))
   (do phase.Monad<Operation>
-    [inputI (translate inputS)
-     exprI (translate exprS)]
+    [inputI (phase inputS)
+     exprI (phase exprS)]
     (wrap (|>> inputI
                (_.ASTORE register)
                exprI))))
 
-(def: #export (case translate valueS path)
+(def: #export (case phase valueS path)
   (-> Phase Synthesis Path (Operation Inst))
   (do phase.Monad<Operation>
     [@end _.make-label
-     valueI (translate valueS)
-     pathI (..path translate path @end)]
+     valueI (phase valueS)
+     pathI (..path phase path @end)]
     (wrap (|>> _.NULL
                valueI
                pushI

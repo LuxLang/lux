@@ -19,18 +19,22 @@
     [//
      ["." reference]]]])
 
-(def: (path' pattern bodyC)
-  (-> Pattern (Operation Path) (Operation Path))
+(def: clean-up
+  (-> Path Path)
+  (|>> (#//.Seq #//.Pop)))
+
+(def: (path' pattern end? thenC)
+  (-> Pattern Bit (Operation Path) (Operation Path))
   (case pattern
     (#analysis.Simple simple)
     (case simple
       #analysis.Unit
-      bodyC
+      thenC
       
       (^template [<from> <to>]
         (<from> value)
         (operation/map (|>> (#//.Seq (#//.Test (|> value <to>))))
-                       bodyC))
+                       thenC))
       ([#analysis.Bit  #//.Bit]
        [#analysis.Nat  (<| #//.I64 .i64)]
        [#analysis.Int  (<| #//.I64 .i64)]
@@ -45,40 +49,33 @@
                                             (n/+ (dec arity) register)
                                             register)))))
         //.with-new-local
-        bodyC)
+        thenC)
 
-    (#analysis.Complex _)
-    (case (analysis.variant-pattern pattern)
-      (#.Some [lefts right? value-pattern])
-      (operation/map (|>> (#//.Seq (#//.Access (#//.Side (if right?
-                                                           (#.Right lefts)
-                                                           (#.Left lefts))))))
-                     (path' value-pattern bodyC))
-      
-      #.None
-      (let [tuple (analysis.tuple-pattern pattern)
-            tuple/last (dec (list.size tuple))]
-        (list/fold (function (_ [tuple/idx tuple/member] thenC)
-                     (case tuple/member
-                       (#analysis.Simple #analysis.Unit)
-                       thenC
+    (#analysis.Complex (#analysis.Variant [lefts right? value-pattern]))
+    (<| (operation/map (|>> (#//.Seq (#//.Access (#//.Side (if right?
+                                                             (#.Right lefts)
+                                                             (#.Left lefts)))))))
+        (path' value-pattern end?)
+        (when (not end?) (operation/map ..clean-up))
+        thenC)
 
-                       _
-                       (let [last? (n/= tuple/last tuple/idx)]
-                         (|> (if (or last?
-                                     (is? bodyC thenC))
-                               thenC
-                               (operation/map (|>> (#//.Seq #//.Pop)) thenC))
-                             (path' tuple/member)
-                             (operation/map (|>> (#//.Seq (#//.Access (#//.Member (if last?
-                                                                                    (#.Right (dec tuple/idx))
-                                                                                    (#.Left tuple/idx)))))))))))
-                   bodyC
-                   (list.reverse (list.enumerate tuple)))))))
+    (#analysis.Complex (#analysis.Tuple tuple))
+    (let [tuple::last (dec (list.size tuple))]
+      (list/fold (function (_ [tuple::lefts tuple::member] nextC)
+                   (let [right? (n/= tuple::last tuple::lefts)
+                         end?' (and end? right?)]
+                     (<| (operation/map (|>> (#//.Seq (#//.Access (#//.Member (if right?
+                                                                                (#.Right (dec tuple::lefts))
+                                                                                (#.Left tuple::lefts)))))))
+                         (path' tuple::member end?')
+                         (when (not end?') (operation/map ..clean-up))
+                         nextC)))
+                 thenC
+                 (list.reverse (list.enumerate tuple))))))
 
 (def: #export (path synthesize pattern bodyA)
   (-> Phase Pattern Analysis (Operation Path))
-  (path' pattern (operation/map (|>> #//.Then) (synthesize bodyA))))
+  (path' pattern true (operation/map (|>> #//.Then) (synthesize bodyA))))
 
 (def: #export (weave leftP rightP)
   (-> Path Path Path)
