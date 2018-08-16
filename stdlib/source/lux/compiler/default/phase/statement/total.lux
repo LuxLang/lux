@@ -1,27 +1,56 @@
 (.module:
   [lux #*
    [control
-    [monad (#+ do)]
+    ["." monad (#+ do)]
     ["ex" exception (#+ exception:)]]
    [data
     [text
-     format]]]
+     format]]
+   ["." macro]]
   ["." // (#+ Phase)
    ["/." //
+    ["." analysis
+     ["." expression]
+     ["." type]
+     [macro (#+ expand)]]
     ["." extension]]])
 
-(do-template [<name>]
-  [(exception: #export (<name> {code Code})
-     (ex.report ["Statement" (%code code)]))]
+(exception: #export (not-a-statement {code Code})
+  (ex.report ["Statement" (%code code)]))
 
-  [unrecognized-statement]
-  )
+(exception: #export (not-a-macro {code Code})
+  (ex.report ["Code" (%code code)]))
+
+(exception: #export (macro-was-not-found {name Name})
+  (ex.report ["Name" (%name name)]))
 
 (def: #export (phase code)
   Phase
   (case code
-    (^ [_ (#.Form (list& [_ (#.Text extension-name)] extension-args))])
-    (extension.apply phase [extension-name extension-args])
+    (^ [_ (#.Form (list& [_ (#.Text name)] inputs))])
+    (extension.apply phase [name inputs])
+
+    (^ [_ (#.Form (list& macro inputs))])
+    (do ///.Monad<Operation>
+      [expansion (//.lift-analysis
+                  (do @
+                    [macroA (type.with-type Macro
+                              (expression.compile macro))]
+                    (case macroA
+                      (^ (analysis.constant macro-name))
+                      (do @
+                        [?macro (extension.lift (macro.find-macro macro-name))
+                         macro (case ?macro
+                                 (#.Some macro)
+                                 (wrap macro)
+                                 
+                                 #.None
+                                 (///.throw macro-was-not-found macro-name))]
+                        (expression.expand-macro macro-name macro inputs))
+                      
+                      _
+                      (///.throw not-a-macro code))))]
+      (monad.map @ phase expansion))
 
     _
-    (///.throw unrecognized-statement code)))
+    (///.throw not-a-statement code)))

@@ -7,13 +7,13 @@
    [data
     [bit ("bit/." Equivalence<Bit>)]
     ["." number]
-    ["e" error ("error/." Monad<Error>)]
+    ["." error (#+ Error) ("error/." Monad<Error>)]
     ["." maybe]
-    [text
+    ["." text
      format]
     [collection
-     ["." list ("list/." Fold<List>)]
-     ["dict" dictionary (#+ Dictionary)]]]]
+     ["." list ("list/." Functor<List> Fold<List>)]
+     ["." dictionary (#+ Dictionary)]]]]
   ["." //// ("operation/." Monad<Operation>)]
   ["." /// (#+ Pattern Variant Operation)])
 
@@ -23,6 +23,10 @@
 (def: cases
   (-> (Maybe Nat) Nat)
   (|>> (maybe.default 0)))
+
+(def: known-cases?
+  (-> Nat Bit)
+  (n/> 0))
 
 ## The coverage of a pattern-matching expression summarizes how well
 ## all the possible values of an input are being covered by the
@@ -52,6 +56,36 @@
 
     _
     #0))
+
+(def: #export (%coverage value)
+  (Format Coverage)
+  (case value
+    #Partial
+    "#Partial"
+    
+    (#Bit value')
+    (|> value'
+        %b
+        (text.enclose ["(#Bit " ")"]))
+    
+    (#Variant ?max-cases cases)
+    (|> cases
+        dictionary.entries
+        (list/map (function (_ [idx coverage])
+                    (format (%n idx) " " (%coverage coverage))))
+        (text.join-with " ")
+        (text.enclose ["{" "}"])
+        (format (%n (..cases ?max-cases)) " ")
+        (text.enclose ["(#Variant " ")"]))
+
+    (#Seq left right)
+    (format "(#Seq " (%coverage left) " " (%coverage right) ")")
+    
+    (#Alt left right)
+    (format "(#Alt " (%coverage left) " " (%coverage right) ")")
+
+    #Exhaustive
+    "#Exhaustive"))
 
 (def: #export (determine pattern)
   (-> Pattern (Operation Coverage))
@@ -110,8 +144,8 @@
       (wrap (#Variant (if right?
                         (#.Some idx)
                         #.None)
-                      (|> (dict.new number.Hash<Nat>)
-                          (dict.put idx value-coverage)))))))
+                      (|> (dictionary.new number.Hash<Nat>)
+                          (dictionary.put idx value-coverage)))))))
 
 (def: (xor left right)
   (-> Bit Bit Bit)
@@ -124,9 +158,8 @@
 ## always be a pattern prior to them that would match the input.
 ## Because of that, the presence of redundant patterns is assumed to
 ## be a bug, likely due to programmer carelessness.
-(def: redundant-pattern
-  (e.Error Coverage)
-  (e.fail "Redundant pattern."))
+(exception: #export (redundant-pattern)
+  "")
 
 (def: (flatten-alt coverage)
   (-> Coverage (List Coverage))
@@ -149,7 +182,7 @@
       [(#Variant allR casesR) (#Variant allS casesS)]
       (and (n/= (cases allR)
                 (cases allS))
-           (:: (dict.Equivalence<Dictionary> =) = casesR casesS))
+           (:: (dictionary.Equivalence<Dictionary> =) = casesR casesS))
       
       [(#Seq leftR rightR) (#Seq leftS rightS)]
       (and (= leftR leftS)
@@ -168,16 +201,20 @@
 
 (open: "coverage/." Equivalence<Coverage>)
 
+(exception: #export (variants-do-not-match {addition-cases Nat} {so-far-cases Nat})
+  (ex.report ["So-far Cases" (%n so-far-cases)]
+             ["Addition Cases" (%n addition-cases)]))
+
 ## After determining the coverage of each individual pattern, it is
 ## necessary to merge them all to figure out if the entire
 ## pattern-matching expression is exhaustive and whether it contains
 ## redundant patterns.
 (def: #export (merge addition so-far)
-  (-> Coverage Coverage (e.Error Coverage))
+  (-> Coverage Coverage (Error Coverage))
   (case [addition so-far]
     ## The addition cannot possibly improve the coverage.
     [_ #Exhaustive]
-    redundant-pattern
+    (ex.throw redundant-pattern [])
 
     ## The addition completes the coverage.
     [#Exhaustive _]
@@ -192,36 +229,46 @@
     (error/wrap #Exhaustive)
 
     [(#Variant allA casesA) (#Variant allSF casesSF)]
-    (cond (not (n/= (cases allSF) (cases allA)))
-          (e.fail "Variants do not match.")
+    (let [addition-cases (cases allSF)
+          so-far-cases (cases allA)]
+      (cond (and (known-cases? addition-cases)
+                 (known-cases? so-far-cases)
+                 (not (n/= addition-cases so-far-cases)))
+            (ex.throw variants-do-not-match [addition-cases so-far-cases])
 
-          (:: (dict.Equivalence<Dictionary> Equivalence<Coverage>) = casesSF casesA)
-          redundant-pattern
+            (:: (dictionary.Equivalence<Dictionary> Equivalence<Coverage>) = casesSF casesA)
+            (ex.throw redundant-pattern [])
 
-          ## else
-          (do e.Monad<Error>
-            [casesM (monad.fold @
-                                (function (_ [tagA coverageA] casesSF')
-                                  (case (dict.get tagA casesSF')
-                                    (#.Some coverageSF)
-                                    (do @
-                                      [coverageM (merge coverageA coverageSF)]
-                                      (wrap (dict.put tagA coverageM casesSF')))
+            ## else
+            (do error.Monad<Error>
+              [casesM (monad.fold @
+                                  (function (_ [tagA coverageA] casesSF')
+                                    (case (dictionary.get tagA casesSF')
+                                      (#.Some coverageSF)
+                                      (do @
+                                        [coverageM (merge coverageA coverageSF)]
+                                        (wrap (dictionary.put tagA coverageM casesSF')))
 
-                                    #.None
-                                    (wrap (dict.put tagA coverageA casesSF'))))
-                                casesSF (dict.entries casesA))]
-            (wrap (if (let [case-coverages (dict.values casesM)]
-                        (and (n/= (cases allSF) (list.size case-coverages))
-                             (list.every? exhaustive? case-coverages)))
-                    #Exhaustive
-                    (#Variant allSF casesM)))))
+                                      #.None
+                                      (wrap (dictionary.put tagA coverageA casesSF'))))
+                                  casesSF (dictionary.entries casesA))]
+              (wrap (if (and (n/= (inc (n/max addition-cases so-far-cases))
+                                  (dictionary.size casesM))
+                             (list.every? exhaustive? (dictionary.values casesM)))
+                      #Exhaustive
+                      (#Variant (case allSF
+                                  (#.Some _)
+                                  allSF
+
+                                  _
+                                  allA)
+                                casesM))))))
 
     [(#Seq leftA rightA) (#Seq leftSF rightSF)]
     (case [(coverage/= leftSF leftA) (coverage/= rightSF rightA)]
       ## There is nothing the addition adds to the coverage.
       [#1 #1]
-      redundant-pattern
+      (ex.throw redundant-pattern [])
 
       ## The 2 sequences cannot possibly be merged.
       [#0 #0]
@@ -229,7 +276,7 @@
 
       ## Same prefix
       [#1 #0]
-      (do e.Monad<Error>
+      (do error.Monad<Error>
         [rightM (merge rightA rightSF)]
         (if (exhaustive? rightM)
           ## If all that follows is exhaustive, then it can be safely dropped
@@ -240,14 +287,14 @@
 
       ## Same suffix
       [#0 #1]
-      (do e.Monad<Error>
+      (do error.Monad<Error>
         [leftM (merge leftA leftSF)]
         (wrap (#Seq leftM rightA))))
     
     ## The left part will always match, so the addition is redundant.
     (^multi [(#Seq left right) single]
             (coverage/= left single))
-    redundant-pattern
+    (ex.throw redundant-pattern [])
 
     ## The right part is not necessary, since it can always match the left.
     (^multi [single (#Seq left right)]
@@ -264,10 +311,10 @@
     ## This process must be repeated until no further productive
     ## merges can be done.
     [_ (#Alt leftS rightS)]
-    (do e.Monad<Error>
+    (do error.Monad<Error>
       [#let [fuse-once (: (-> Coverage (List Coverage)
-                              (e.Error [(Maybe Coverage)
-                                        (List Coverage)]))
+                              (Error [(Maybe Coverage)
+                                      (List Coverage)]))
                           (function (_ coverage possibilities)
                             (loop [alts possibilities]
                               (case alts
@@ -276,7 +323,7 @@
                                 
                                 (#.Cons alt alts')
                                 (case (merge coverage alt)
-                                  (#e.Success altM)
+                                  (#error.Success altM)
                                   (case altM
                                     (#Alt _)
                                     (do @
@@ -286,8 +333,8 @@
                                     _
                                     (wrap [(#.Some altM) alts']))
                                   
-                                  (#e.Error error)
-                                  (e.fail error))
+                                  (#error.Error error)
+                                  (error.fail error))
                                 ))))]
        [success possibilities] (fuse-once addition (flatten-alt so-far))]
       (loop [success success
@@ -311,6 +358,6 @@
     _
     (if (coverage/= so-far addition)
       ## The addition cannot possibly improve the coverage.
-      redundant-pattern
+      (ex.throw redundant-pattern [])
       ## There are now 2 alternative paths.
       (error/wrap (#Alt so-far addition)))))

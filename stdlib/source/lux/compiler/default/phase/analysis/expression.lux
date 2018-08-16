@@ -5,8 +5,10 @@
     ["ex" exception (#+ exception:)]]
    [data
     ["." error]
-    [text
-     format]]
+    ["." text
+     format]
+    [collection
+     [list ("list/." Functor<List>)]]]
    ["." macro]]
   ["." // (#+ Analysis Operation Phase)
    ["." type]
@@ -21,16 +23,32 @@
     [//
      ["." reference]]]])
 
-(exception: #export (macro-expansion-failed {message Text})
-  message)
+(exception: #export (macro-expansion-failed {macro Name} {inputs (List Code)} {error Text})
+  (ex.report ["Macro" (%name macro)]
+             ["Inputs" (|> inputs
+                           (list/map (|>> %code (format "\n\t")))
+                           (text.join-with ""))]
+             ["Error" error]))
 
-(do-template [<name>]
-  [(exception: #export (<name> {code Code})
-     (%code code))]
+(exception: #export (macro-call-must-have-single-expansion {macro Name} {inputs (List Code)})
+  (ex.report ["Macro" (%name macro)]
+             ["Inputs" (|> inputs
+                           (list/map (|>> %code (format "\n\t")))
+                           (text.join-with ""))]))
 
-  [macro-call-must-have-single-expansion]
-  [unrecognized-syntax]
-  )
+(exception: #export (unrecognized-syntax {code Code})
+  (ex.report ["Code" (%code code)]))
+
+(def: #export (expand-macro name macro inputs)
+  (-> Name Macro (List Code) (Operation (List Code)))
+  (extension.lift
+   (function (_ state)
+     (case (//macro.expand macro inputs state)
+       (#error.Error error)
+       ((///.throw macro-expansion-failed [name inputs error]) state)
+
+       output
+       output))))
 
 (def: #export (compile code)
   Phase
@@ -103,23 +121,13 @@
                 (case ?macro
                   (#.Some macro)
                   (do @
-                    [#let [_ (log! (format (%name def-name) " @@@ "
-                                           (%list %code argsC+)))]
-                     expansion (: (Operation (List Code))
-                                  (extension.lift
-                                   (function (_ state)
-                                     (case (//macro.expand macro argsC+ state)
-                                       (#error.Error error)
-                                       ((///.throw macro-expansion-failed error) state)
-
-                                       output
-                                       output))))]
+                    [expansion (expand-macro def-name macro argsC+)]
                     (case expansion
                       (^ (list single))
                       (compile single)
 
                       _
-                      (///.throw macro-call-must-have-single-expansion code)))
+                      (///.throw macro-call-must-have-single-expansion [def-name argsC+])))
 
                   _
                   (function.apply compile functionT functionA argsC+)))
