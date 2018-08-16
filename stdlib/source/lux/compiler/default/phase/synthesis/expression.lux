@@ -6,7 +6,7 @@
     ["." maybe]
     [collection
      ["." list ("list/." Functor<List>)]
-     ["dict" dictionary (#+ Dictionary)]]]]
+     ["." dictionary (#+ Dictionary)]]]]
   ["." // (#+ Synthesis Phase)
    ["." function]
    ["." case]
@@ -36,62 +36,39 @@
      [#analysis.Int #//.I64]
      [#analysis.Rev #//.I64])))
 
-(def: #export (synthesize analysis)
+(def: #export (phase analysis)
   Phase
   (case analysis
     (#analysis.Primitive analysis')
     (operation/wrap (#//.Primitive (..primitive analysis')))
 
-    (#analysis.Structure composite)
-    (case (analysis.variant analysis)
-      (#.Some variant)
+    (#analysis.Structure structure)
+    (case structure
+      (#analysis.Variant variant)
       (do ///.Monad<Operation>
-        [valueS (synthesize (get@ #analysis.value variant))]
-        (wrap (#//.Structure (#//.Variant (set@ #analysis.value valueS variant)))))
+        [valueS (phase (get@ #analysis.value variant))]
+        (wrap (//.variant (set@ #analysis.value valueS variant))))
 
-      _
-      (do ///.Monad<Operation>
-        [tupleS (monad.map @ synthesize (analysis.tuple analysis))]
-        (wrap (#//.Structure (#//.Tuple tupleS)))))
-
+      (#analysis.Tuple tuple)
+      (|> tuple
+          (monad.map ///.Monad<Operation> phase)
+          (:: ///.Monad<Operation> map (|>> //.tuple))))
+    
     (#analysis.Reference reference)
-    (case reference
-      (#reference.Constant constant)
-      (operation/wrap (#//.Reference reference))
-
-      (#reference.Variable var)
-      (do ///.Monad<Operation>
-        [resolver //.resolver]
-        (case var
-          (#reference.Local register)
-          (do @
-            [arity //.scope-arity]
-            (wrap (if (function.nested? arity)
-                    (if (n/= 0 register)
-                      (|> (dec arity)
-                          (list.n/range 1)
-                          (list/map (|>> //.variable/local))
-                          [(//.variable/local 0)]
-                          //.function/apply)
-                      (#//.Reference (#reference.Variable (function.adjust arity #0 var))))
-                    (#//.Reference (#reference.Variable var)))))
-          
-          (#reference.Foreign register)
-          (wrap (|> resolver (dict.get var) (maybe.default var) #reference.Variable #//.Reference)))))
+    (operation/wrap (#//.Reference reference))
 
     (#analysis.Case inputA branchesAB+)
-    (case.synthesize (|>> synthesize //.indirectly) inputA branchesAB+)
+    (case.synthesize phase inputA branchesAB+)
 
     (^ (analysis.no-op value))
-    (synthesize value)
+    (phase value)
 
     (#analysis.Apply _)
-    (function.apply (|>> synthesize //.indirectly) analysis)
+    (function.apply phase analysis)
 
     (#analysis.Function environmentA bodyA)
-    (function.function synthesize environmentA bodyA)
+    (function.abstraction phase environmentA bodyA)
 
     (#analysis.Extension name args)
-    (extension.apply (|>> synthesize //.indirectly)
-                     [name args])
+    (extension.apply phase [name args])
     ))

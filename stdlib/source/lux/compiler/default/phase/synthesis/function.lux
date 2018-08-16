@@ -1,120 +1,211 @@
 (.module:
-  [lux (#- function)
+  [lux #*
    [control
-    ["." monad (#+ do)]]
+    ["." monad (#+ do)]
+    ["ex" exception (#+ exception:)]]
    [data
     ["." maybe]
+    ["." text
+     format]
     [collection
      ["." list ("list/." Functor<List> Monoid<List> Fold<List>)]
      ["dict" dictionary (#+ Dictionary)]]]]
-  ["." // (#+ Synthesis Operation Phase)
+  ["." // (#+ Path Synthesis Operation Phase)
    ["." loop (#+ Transform)]
-   ["/." //
+   ["/." // ("operation/." Monad<Operation>)
     ["." analysis (#+ Environment Arity Analysis)]
     [//
-     ["." reference (#+ Variable)]]]])
+     ["." reference (#+ Register Variable)]]]])
 
-(def: #export nested?
-  (-> Arity Bit)
-  (n/> 1))
+(exception: #export (cannot-find-foreign-variable-in-environment {foreign Register} {environment Environment})
+  (ex.report ["Foreign" (%n foreign)]
+             ["Environment" (|> environment
+                                (list/map reference.%variable)
+                                (text.join-with " "))]))
 
-(def: #export (adjust up-arity after? var)
-  (-> Arity Bit Variable Variable)
-  (case var
-    (#reference.Local register)
-    (if (and after? (n/>= up-arity register))
-      (#reference.Local (n/+ (dec up-arity) register))
-      var)
+(def: arity-arguments
+  (-> Arity (List Synthesis))
+  (|>> dec
+       (list.n/range 1)
+       (list/map (|>> //.variable/local))))
+
+(template: #export (self-reference)
+  (//.variable/local 0))
+
+(def: (expanded-nested-self-reference arity)
+  (-> Arity Synthesis)
+  (//.function/apply [(..self-reference) (arity-arguments arity)]))
+
+(def: #export (apply phase)
+  (-> Phase Phase)
+  (function (_ exprA)
+    (let [[funcA argsA] (analysis.application exprA)]
+      (do ///.Monad<Operation>
+        [funcS (phase funcA)
+         argsS (monad.map @ phase argsA)
+         ## locals //.locals
+         ]
+        (with-expansions [<apply> (as-is (//.function/apply [funcS argsS]))]
+          (case funcS
+            ## (^ (//.function/abstraction functionS))
+            ## (wrap (|> functionS
+            ##           (loop.loop (get@ #//.environment functionS) locals argsS)
+            ##           (maybe.default <apply>)))
+
+            (^ (//.function/apply [funcS' argsS']))
+            (wrap (//.function/apply [funcS' (list/compose argsS' argsS)]))
+
+            _
+            (wrap <apply>)))))))
+
+(def: (find-foreign environment register)
+  (-> Environment Register (Operation Variable))
+  (case (list.nth register environment)
+    (#.Some aliased)
+    (operation/wrap aliased)
+
+    #.None
+    (///.throw cannot-find-foreign-variable-in-environment [register environment])))
+
+(def: (grow-path grow path)
+  (-> (-> Synthesis (Operation Synthesis)) Path (Operation Path))
+  (case path
+    (#//.Bind register)
+    (operation/wrap (#//.Bind (inc register)))
+
+    (^template [<tag>]
+      (<tag> left right)
+      (do ///.Monad<Operation>
+        [left' (grow-path grow left)
+         right' (grow-path grow right)]
+        (wrap (<tag> left' right'))))
+    ([#//.Alt] [#//.Alt])
+    
+    (#//.Then thenS)
+    (|> thenS
+        grow
+        (operation/map (|>> #//.Then)))
 
     _
-    var))
+    (operation/wrap path)))
 
-(def: (unfold apply)
-  (-> Analysis [Analysis (List Analysis)])
-  (loop [apply apply
-         args (list)]
-    (case apply
-      (#analysis.Apply arg func)
-      (recur func (#.Cons arg args))
+(def: (grow-sub-environment super sub)
+  (-> Environment Environment (Operation Environment))
+  (monad.map ///.Monad<Operation>
+             (function (_ variable)
+               (case variable
+                 (#reference.Local register)
+                 (operation/wrap variable)
+                 
+                 (#reference.Foreign register)
+                 (find-foreign super register)))
+             sub))
 
-      _
-      [apply args])))
+(def: (grow environment expression)
+  (-> Environment Synthesis (Operation Synthesis))
+  (case expression
+    (#//.Structure structure)
+    (case structure
+      (#analysis.Variant [lefts right? subS])
+      (|> subS
+          (grow environment)
+          (operation/map (|>> [lefts right?] //.variant)))
+      
+      (#analysis.Tuple membersS+)
+      (|> membersS+
+          (monad.map ///.Monad<Operation> (grow environment))
+          (operation/map (|>> //.tuple))))
 
-(def: #export (apply synthesize)
-  (-> Phase Phase)
-  (.function (_ exprA)
-    (let [[funcA argsA] (unfold exprA)]
-      (do ///.Monad<Operation>
-        [funcS (synthesize funcA)
-         argsS (monad.map @ synthesize argsA)
-         locals //.locals]
+    (^ (..self-reference))
+    (operation/wrap (//.function/apply [expression (list (//.variable/local 1))]))
+    
+    (#//.Reference reference)
+    (case reference
+      (#reference.Variable variable)
+      (case variable
+        (#reference.Local register)
+        (operation/wrap (//.variable/local (inc register)))
+        
+        (#reference.Foreign register)
+        (|> register
+            (find-foreign environment)
+            (operation/map (|>> //.variable))))
+      
+      (#reference.Constant constant)
+      (operation/wrap expression))
+    
+    (#//.Control control)
+    (case control
+      (#//.Branch branch)
+      (case branch
+        (#//.Let [inputS register bodyS])
+        (do ///.Monad<Operation>
+          [inputS' (grow environment inputS)
+           bodyS' (grow environment bodyS)]
+          (wrap (//.branch/let [inputS' (inc register) bodyS'])))
+        
+        (#//.If [testS thenS elseS])
+        (do ///.Monad<Operation>
+          [testS' (grow environment testS)
+           thenS' (grow environment thenS)
+           elseS' (grow environment elseS)]
+          (wrap (//.branch/if [testS' thenS' elseS'])))
+        
+        (#//.Case [inputS pathS])
+        (do ///.Monad<Operation>
+          [inputS' (grow environment inputS)
+           pathS' (grow-path (grow environment) pathS)]
+          (wrap (//.branch/case [inputS' pathS']))))
+      
+      (#//.Loop loop)
+      (case loop
+        (#//.Scope [start initsS+ iterationS])
+        (do ///.Monad<Operation>
+          [initsS+' (monad.map @ (grow environment) initsS+)
+           iterationS' (grow environment iterationS)]
+          (wrap (//.loop/scope [start initsS+' iterationS'])))
+        
+        (#//.Recur argumentsS+)
+        (|> argumentsS+
+            (monad.map ///.Monad<Operation> (grow environment))
+            (operation/map (|>> //.loop/recur))))
+      
+      (#//.Function function)
+      (case function
+        (#//.Abstraction [_env _arity _body])
+        (do ///.Monad<Operation>
+          [_env' (grow-sub-environment environment _env)]
+          (wrap (//.function/abstraction [_env' _arity _body])))
+        
+        (#//.Apply funcS argsS+)
         (case funcS
-          (^ (//.function/abstraction functionS))
-          (wrap (|> functionS
-                    (loop.loop (get@ #//.environment functionS) locals argsS)
-                    (maybe.default (//.function/apply [funcS argsS]))))
-
-          (^ (//.function/apply [funcS' argsS']))
-          (wrap (//.function/apply [funcS' (list/compose argsS' argsS)]))
-
+          (^ (//.function/apply [(..self-reference) pre-argsS+]))
+          (operation/wrap (//.function/apply [(..self-reference)
+                                              (list/compose pre-argsS+ argsS+)]))
+          
           _
-          (wrap (//.function/apply [funcS argsS])))))))
+          (do ///.Monad<Operation>
+            [funcS' (grow environment funcS)
+             argsS+' (monad.map @ (grow environment) argsS+)]
+            (wrap (//.function/apply [funcS' argsS+']))))))
+    
+    (#//.Extension name argumentsS+)
+    (|> argumentsS+
+        (monad.map ///.Monad<Operation> (grow environment))
+        (operation/map (|>> (#//.Extension name))))
 
-(def: (prepare up down body)
-  (-> Arity Arity Synthesis Synthesis)
-  (if (nested? up)
-    body
-    (maybe.default body (loop.recursion down body))))
+    _
+    (operation/wrap expression)))
 
-(def: #export (function synthesize environment body)
+(def: #export (abstraction phase environment bodyA)
   (-> Phase Environment Analysis (Operation Synthesis))
   (do ///.Monad<Operation>
-    [direct? //.direct?
-     arity //.scope-arity
-     resolver //.resolver
-     #let [function-arity (if direct?
-                            (inc arity)
-                            1)
-           up-environment (if (nested? arity)
-                            (list/map (.function (_ closure)
-                                        (case (dict.get closure resolver)
-                                          (#.Some resolved)
-                                          (adjust arity #1 resolved)
-
-                                          #.None
-                                          (adjust arity #0 closure)))
-                                      environment)
-                            environment)
-           down-environment (: (List Variable)
-                               (case environment
-                                 #.Nil
-                                 (list)
-                                 
-                                 _
-                                 (|> environment
-                                     list.size
-                                     list.indices
-                                     (list/map (|>> #reference.Foreign)))))
-           resolver' (if (and (nested? function-arity)
-                              direct?)
-                       (list/fold (.function (_ [from to] resolver')
-                                    (dict.put from to resolver'))
-                                  //.fresh-resolver
-                                  (list.zip2 down-environment up-environment))
-                       (list/fold (.function (_ var resolver')
-                                    (dict.put var var resolver'))
-                                  //.fresh-resolver
-                                  down-environment))]
-     bodyS (//.with-abstraction function-arity resolver'
-             (synthesize body))]
+    [bodyS (phase bodyA)]
     (case bodyS
       (^ (//.function/abstraction [env' down-arity' bodyS']))
-      (let [arity' (inc down-arity')]
-        (|> (prepare function-arity arity' bodyS')
-            [up-environment arity'] //.function/abstraction
-            wrap))
-
+      (|> bodyS'
+          (grow env')
+          (:: @ map (|>> [environment (inc down-arity')] //.function/abstraction)))
+      
       _
-      (|> (prepare function-arity 1 bodyS)
-          [up-environment 1] //.function/abstraction
-          wrap))))
+      (wrap (//.function/abstraction [environment 1 bodyS])))))

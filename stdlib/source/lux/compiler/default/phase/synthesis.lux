@@ -1,15 +1,18 @@
 (.module:
   [lux (#- i64 Scope)
-   [control [monad (#+ do)]]
+   [control
+    [monad (#+ do)]
+    [equivalence (#+ Equivalence)]
+    ["ex" exception (#+ exception:)]]
    [data
-    [error (#+ Error)]
-    ["." text
+    [bit ("bit/." Equivalence<Bit>)]
+    ["." text ("text/." Equivalence<Text>)
      format]
     [collection
      [list ("list/." Functor<List>)]
      ["." dictionary (#+ Dictionary)]]]]
   ["." //
-   ["." analysis (#+ Environment Arity Analysis)]
+   ["." analysis (#+ Environment Arity Composite Analysis)]
    ["." extension (#+ Extension)]
    [//
     ["." reference (#+ Register Variable Reference)]]])
@@ -17,10 +20,7 @@
 (type: #export Resolver (Dictionary Variable Variable))
 
 (type: #export State
-  {#scope-arity Arity
-   #resolver Resolver
-   #direct? Bit
-   #locals Nat})
+  {#locals Nat})
 
 (def: #export fresh-resolver
   Resolver
@@ -28,20 +28,13 @@
 
 (def: #export init
   State
-  {#scope-arity 0
-   #resolver fresh-resolver
-   #direct? #0
-   #locals 0})
+  {#locals 0})
 
 (type: #export Primitive
   (#Bit Bit)
   (#I64 (I64 Any))
   (#F64 Frac)
   (#Text Text))
-
-(type: #export (Structure a)
-  (#Variant (analysis.Variant a))
-  (#Tuple (analysis.Tuple a)))
 
 (type: #export Side
   (Either Nat Nat))
@@ -96,7 +89,7 @@
 
 (type: #export #rec Synthesis
   (#Primitive Primitive)
-  (#Structure (Structure Synthesis))
+  (#Structure (Composite Synthesis))
   (#Reference Reference)
   (#Control (Control Synthesis))
   (#Extension (Extension Synthesis)))
@@ -157,9 +150,15 @@
      (<tag> content))]
 
   [path/bind #..Bind]
+  [path/then #..Then]
+  )
+
+(do-template [<name> <tag>]
+  [(template: #export (<name> left right)
+     (<tag> [left right]))]
+
   [path/alt  #..Alt]
   [path/seq  #..Seq]
-  [path/then #..Then]
   )
 
 (type: #export Abstraction
@@ -170,41 +169,24 @@
 
 (def: #export unit Text "")
 
-(do-template [<name> <value>]
-  [(def: #export <name>
-     (All [a] (-> (Operation a) (Operation a)))
-     (extension.temporary (set@ #direct? <value>)))]
-
-  [indirectly #0]
-  [directly   #1]
-  )
-
 (do-template [<name> <type> <tag>]
   [(def: #export (<name> value)
      (-> <type> (All [a] (-> (Operation a) (Operation a))))
      (extension.temporary (set@ <tag> value)))]
 
-  [with-scope-arity Arity    #scope-arity]
-  [with-resolver    Resolver #resolver]
   [with-locals      Nat      #locals]
   )
 
 (def: #export (with-abstraction arity resolver)
   (-> Arity Resolver
       (All [a] (-> (Operation a) (Operation a))))
-  (extension.with-state {#scope-arity arity
-                         #resolver resolver
-                         #direct? #1
-                         #locals arity}))
+  (extension.with-state {#locals arity}))
 
 (do-template [<name> <tag> <type>]
   [(def: #export <name>
      (Operation <type>)
      (extension.read (get@ <tag>)))]
 
-  [scope-arity #scope-arity Arity]
-  [resolver    #resolver    Resolver]
-  [direct?     #direct?     Bit]
   [locals      #locals      Nat]
   )
 
@@ -230,8 +212,8 @@
          <tag>
          content))]
 
-  [variant #..Variant]
-  [tuple   #..Tuple]
+  [variant #analysis.Variant]
+  [tuple   #analysis.Tuple]
   )
 
 (do-template [<name> <tag>]
@@ -272,6 +254,59 @@
   [function/apply       #..Function #..Apply]
   )
 
+(def: #export (%path' %then value)
+  (All [a] (-> (Format a) (Format (Path' a))))
+  (case value
+    #Pop
+    "_"
+    
+    (#Test primitive)
+    (format "(? "
+            (case primitive
+              (#Bit value)
+              (%b value)
+              
+              (#I64 value)
+              (%i (.int value))
+              
+              (#F64 value)
+              (%f value)
+              
+              (#Text value)
+              (%t value))
+            ")")
+    
+    (#Access access)
+    (case access
+      (#Side side)
+      (case side
+        (#.Left lefts)
+        (format "(" (%n lefts) " #0" ")")
+        
+        (#.Right lefts)
+        (format "(" (%n lefts) " #1" ")"))
+      
+      (#Member member)
+      (case member
+        (#.Left lefts)
+        (format "[" (%n lefts) " #0" "]")
+        
+        (#.Right lefts)
+        (format "[" (%n lefts) " #1" "]")))
+    
+    (#Bind register)
+    (format "(@ " (%n register) ")")
+    
+    (#Alt left right)
+    (format "(| " (%path' %then left) " " (%path' %then right) ")")
+    
+    (#Seq left right)
+    (format "(& " (%path' %then left) " " (%path' %then right) ")")
+    
+    (#Then then)
+    (|> (%then then)
+        (text.enclose ["(! " ")"]))))
+
 (def: #export (%synthesis value)
   (Format Synthesis)
   (case value
@@ -283,7 +318,7 @@
      [..text %t])
     
     (^ (..i64 value))
-    (%n (.nat value))
+    (%i (.int value))
 
     (^ (..variant [lefts right? content]))
     (|> (%synthesis content)
@@ -295,6 +330,121 @@
         (list/map %synthesis)
         (text.join-with " ")
         (text.enclose ["[" "]"]))
-    
-    _
-    "???"))
+
+    (#Reference reference)
+    (reference.%reference reference)
+
+    (#Control control)
+    (case control
+      (#Function function)
+      (case function
+        (#Abstraction [environment arity body])
+        (|> (%synthesis body)
+            (format (%n arity) " ")
+            (format (|> environment
+                        (list/map reference.%variable)
+                        (text.join-with " ")
+                        (text.enclose ["[" "]"]))
+                    " ")
+            (text.enclose ["(" ")"]))
+        
+        (#Apply func args)
+        (|> (list/map %synthesis args)
+            (text.join-with " ")
+            (format (%synthesis func) " ")
+            (text.enclose ["(" ")"])))
+
+      ## (%path' %synthesis ...)
+      ## (#Branch branch)
+      ## (#Loop loop)
+      _
+      "???")
+
+    (#Extension [name args])
+    (|> (list/map %synthesis args)
+        (text.join-with " ")
+        (format (%t name))
+        (text.enclose ["(" ")"]))))
+
+(def: #export %path
+  (Format Path)
+  (%path' %synthesis))
+
+(structure: #export _ (Equivalence Primitive)
+  (def: (= reference sample)
+    (case [reference sample]
+      (^template [<tag> <eq> <format>]
+        [(<tag> reference') (<tag> sample')]
+        (<eq> reference' sample'))
+      ([#Bit  bit/=  %b]
+       [#F64  f/=    %f]
+       [#Text text/= %t])
+
+      [(#I64 reference') (#I64 sample')]
+      (i/= (.int reference') (.int sample'))
+
+      _
+      false)))
+
+(structure: #export _ (Equivalence Access)
+  (def: (= reference sample)
+    (case [reference sample]
+      (^template [<tag>]
+        [(<tag> reference') (<tag> sample')]
+        (case [reference' sample']
+          (^template [<side>]
+            [(<side> reference'') (<side> sample'')]
+            (n/= reference'' sample''))
+          ([#.Left]
+           [#.Right])
+          
+          _
+          false))
+      ([#Side]
+       [#Member])
+
+      _
+      false)))
+
+(structure: #export (Equivalence<Path'> Equivalence<a>)
+  (All [a] (-> (Equivalence a) (Equivalence (Path' a))))
+
+  (def: (= reference sample)
+    (case [reference sample]
+      [#Pop #Pop]
+      true
+
+      (^template [<tag> <equivalence>]
+        [(<tag> reference') (<tag> sample')]
+        (:: <equivalence> = reference' sample'))
+      ([#Test   Equivalence<Primitive>]
+       [#Access Equivalence<Access>]
+       [#Then   Equivalence<a>])
+      
+      [(#Bind reference') (#Bind sample')]
+      (n/= reference' sample')
+
+      (^template [<tag>]
+        [(<tag> leftR rightR) (<tag> leftS rightS)]
+        (and (= leftR leftS)
+             (= rightR rightS)))
+      ([#Alt]
+       [#Seq])
+
+      _
+      false)))
+
+(structure: #export _ (Equivalence Synthesis)
+  (def: (= reference sample)
+    (case [reference sample]
+      (^template [<tag> <equivalence>]
+        [(<tag> reference') (<tag> sample')]
+        (:: <equivalence> = reference' sample'))
+      ([#Primitive Equivalence<Primitive>])
+
+      _
+      false)))
+
+(def: #export Equivalence<Path>
+  (Equivalence Path)
+  (Equivalence<Path'> Equivalence<Synthesis>))
