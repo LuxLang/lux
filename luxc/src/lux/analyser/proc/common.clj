@@ -135,9 +135,9 @@
   (let [inputT <input-type>
         outputT <output-type>]
     (defn <name> [analyse exo-type ?values]
-      (|do [:let [(&/$Cons paramC (&/$Cons subjectC (&/$Nil))) ?values]
-            paramA (&&/analyse-1 analyse <input-type> paramC)
+      (|do [:let [(&/$Cons subjectC (&/$Cons paramC (&/$Nil))) ?values]
             subjectA (&&/analyse-1 analyse <input-type> subjectC)
+            paramA (&&/analyse-1 analyse <input-type> paramC)
             _ (&type/check exo-type <output-type>)
             _cursor &/cursor]
         (return (&/|list (&&/|meta exo-type _cursor
