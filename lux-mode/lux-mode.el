@@ -264,7 +264,7 @@ Called by `imenu--generic-function'."
                     (actor (altRE "actor:" "message:" "on:"))
                     (jvm-host (altRE "class:" "interface:" "import:" "object" "do-to" "synchronized" "class-for"))
                     (alternative-format (altRE "char" "bin" "oct" "hex"))
-                    (documentation (altRE "doc""comment"))
+                    (documentation (altRE "doc" "comment"))
                     (function-application (altRE "|>" "|>>" "<|" "<<|" "_\\$" "\\$_")))
                 (let ((control (altRE control//flow
                                       control//pattern-matching
