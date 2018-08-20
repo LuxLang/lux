@@ -158,8 +158,9 @@
 ## always be a pattern prior to them that would match the input.
 ## Because of that, the presence of redundant patterns is assumed to
 ## be a bug, likely due to programmer carelessness.
-(exception: #export (redundant-pattern)
-  "")
+(exception: #export (redundant-pattern {so-far Coverage} {addition Coverage})
+  (ex.report ["Coverage so-far" (%coverage so-far)]
+             ["Coverage addition" (%coverage addition)]))
 
 (def: (flatten-alt coverage)
   (-> Coverage (List Coverage))
@@ -214,7 +215,7 @@
   (case [addition so-far]
     ## The addition cannot possibly improve the coverage.
     [_ #Exhaustive]
-    (ex.throw redundant-pattern [])
+    (ex.throw redundant-pattern [so-far addition])
 
     ## The addition completes the coverage.
     [#Exhaustive _]
@@ -237,7 +238,7 @@
             (ex.throw variants-do-not-match [addition-cases so-far-cases])
 
             (:: (dictionary.Equivalence<Dictionary> Equivalence<Coverage>) = casesSF casesA)
-            (ex.throw redundant-pattern [])
+            (ex.throw redundant-pattern [so-far addition])
 
             ## else
             (do error.Monad<Error>
@@ -252,7 +253,9 @@
                                       #.None
                                       (wrap (dictionary.put tagA coverageA casesSF'))))
                                   casesSF (dictionary.entries casesA))]
-              (wrap (if (and (n/= (inc (n/max addition-cases so-far-cases))
+              (wrap (if (and (or (known-cases? addition-cases)
+                                 (known-cases? so-far-cases))
+                             (n/= (inc (n/max addition-cases so-far-cases))
                                   (dictionary.size casesM))
                              (list.every? exhaustive? (dictionary.values casesM)))
                       #Exhaustive
@@ -268,7 +271,7 @@
     (case [(coverage/= leftSF leftA) (coverage/= rightSF rightA)]
       ## There is nothing the addition adds to the coverage.
       [#1 #1]
-      (ex.throw redundant-pattern [])
+      (ex.throw redundant-pattern [so-far addition])
 
       ## The 2 sequences cannot possibly be merged.
       [#0 #0]
@@ -294,7 +297,7 @@
     ## The left part will always match, so the addition is redundant.
     (^multi [(#Seq left right) single]
             (coverage/= left single))
-    (ex.throw redundant-pattern [])
+    (ex.throw redundant-pattern [so-far addition])
 
     ## The right part is not necessary, since it can always match the left.
     (^multi [single (#Seq left right)]
@@ -315,38 +318,38 @@
       [#let [fuse-once (: (-> Coverage (List Coverage)
                               (Error [(Maybe Coverage)
                                       (List Coverage)]))
-                          (function (_ coverage possibilities)
-                            (loop [alts possibilities]
-                              (case alts
+                          (function (_ coverageA possibilitiesSF)
+                            (loop [altsSF possibilitiesSF]
+                              (case altsSF
                                 #.Nil
-                                (wrap [#.None (list coverage)])
+                                (wrap [#.None (list coverageA)])
                                 
-                                (#.Cons alt alts')
-                                (case (merge coverage alt)
-                                  (#error.Success altM)
-                                  (case altM
+                                (#.Cons altSF altsSF')
+                                (case (merge coverageA altSF)
+                                  (#error.Success altMSF)
+                                  (case altMSF
                                     (#Alt _)
                                     (do @
-                                      [[success alts+] (recur alts')]
-                                      (wrap [success (#.Cons alt alts+)]))
+                                      [[success altsSF+] (recur altsSF')]
+                                      (wrap [success (#.Cons altSF altsSF+)]))
 
                                     _
-                                    (wrap [(#.Some altM) alts']))
+                                    (wrap [(#.Some altMSF) altsSF']))
                                   
                                   (#error.Error error)
                                   (error.fail error))
                                 ))))]
-       [success possibilities] (fuse-once addition (flatten-alt so-far))]
-      (loop [success success
-             possibilities possibilities]
-        (case success
-          (#.Some coverage')
+       [successA possibilitiesSF] (fuse-once addition (flatten-alt so-far))]
+      (loop [successA successA
+             possibilitiesSF possibilitiesSF]
+        (case successA
+          (#.Some coverageA')
           (do @
-            [[success' possibilities'] (fuse-once coverage' possibilities)]
-            (recur success' possibilities'))
+            [[successA' possibilitiesSF'] (fuse-once coverageA' possibilitiesSF)]
+            (recur successA' possibilitiesSF'))
           
           #.None
-          (case (list.reverse possibilities)
+          (case (list.reverse possibilitiesSF)
             (#.Cons last prevs)
             (wrap (list/fold (function (_ left right) (#Alt left right))
                              last
@@ -358,6 +361,6 @@
     _
     (if (coverage/= so-far addition)
       ## The addition cannot possibly improve the coverage.
-      (ex.throw redundant-pattern [])
+      (ex.throw redundant-pattern [so-far addition])
       ## There are now 2 alternative paths.
       (error/wrap (#Alt so-far addition)))))
