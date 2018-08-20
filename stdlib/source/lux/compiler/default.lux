@@ -29,19 +29,12 @@
      [".A" expression]]
     ["." translation (#+ Host Bundle)]
     ["." statement
-     [".S" total]]]]
+     [".S" total]]
+    ["." extension]]]
   ## (luxc [cache]
   ##       [cache/description]
   ##       [cache/io])
   )
-
-(def: (forgive-eof operation)
-  (All [s o]
-    (-> (phase.Operation s o) (phase.Operation s Any)))
-  (function (_ compiler)
-    (ex.catch syntax.end-of-file
-              (|>> [compiler])
-              (operation compiler))))
 
 (def: #export prelude Text "lux")
 
@@ -65,17 +58,17 @@
 ## ##                (format module-name "/" cache.descriptor-name)
 ## ##                (encoding.to-utf8 (%code (cache/description.write file-name module))))))
 
-(type: #export (Platform fs anchor expression statement)
+(type: #export (Platform ! anchor expression statement)
   {#host (Host expression statement)
    #phase (translation.Phase anchor expression statement)
    #runtime (translation.Operation anchor expression statement Any)
-   #file-system (file.System fs)})
+   #file-system (file.System !)})
 
 (type: #export Source
   {#name Text
    #code Text})
 
-(with-expansions [<Platform> (as-is (Platform fs anchor expression statement))
+(with-expansions [<Platform> (as-is (Platform ! anchor expression statement))
                   <Operation> (as-is (statement.Operation anchor expression statement Any))
                   <Compiler> (as-is (statement.State+ anchor expression statement))
                   <Bundle> (as-is (Bundle anchor expression statement))]
@@ -98,18 +91,30 @@
   (def: (loop-module-compilation module-name)
     (All [anchor expression statement]
       (-> Text <Operation>))
-    (forgive-eof
-     (loop [_ []]
-       (do phase.Monad<Operation>
-         [code (statement.lift-analysis
-                (do @
-                  [code (..read module-name syntax.no-aliases)
-                   #let [[cursor _] code]
-                   _ (analysis.set-cursor cursor)]
-                  (wrap code)))
-          _ (totalS.phase code)
-          _ init.refresh]
-         (forgive-eof (recur []))))))
+    (let [iteration (: (All [anchor expression statement]
+                         <Operation>)
+                       (<| (phase.timed (name-of ..loop-module-compilation) "ITERATION")
+                           (do phase.Monad<Operation>
+                             [code (statement.lift-analysis
+                                    (do @
+                                      [code (<| (phase.timed (name-of ..loop-module-compilation) "syntax")
+                                                (..read module-name syntax.no-aliases))
+                                       #let [[cursor _] code]
+                                       _ (analysis.set-cursor cursor)]
+                                      (wrap code)))
+                              _ (<| (phase.timed (name-of ..loop-module-compilation) "PHASE")
+                                    (totalS.phase code))]
+                             init.refresh)))]
+      (function (_ state)
+        (loop [state state]
+          (case (iteration state)
+            (#error.Success [state' output])
+            (recur state')
+            
+            (#error.Error error)
+            (if (ex.match? syntax.end-of-file error)
+              (#error.Success [state []])
+              (#error.Error error)))))))
 
   (def: (perform-module-compilation module-name source)
     (All [anchor expression statement]
@@ -120,8 +125,8 @@
       (end-module-compilation module-name)))
 
   (def: #export (compile-module platform configuration compiler)
-    (All [fs anchor expression statement]
-      (-> <Platform> Configuration <Compiler> (fs <Compiler>)))
+    (All [! anchor expression statement]
+      (-> <Platform> Configuration <Compiler> (! <Compiler>)))
     (do (:: (get@ #file-system platform) &monad)
       [source (context.read (get@ #file-system platform)
                             (get@ #cli.sources configuration)
@@ -132,15 +137,15 @@
       (<| (:: @ map product.left)
           (:: (get@ #file-system platform) lift)
           (phase.run' compiler)
-          (:share [fs anchor expression statement]
+          (:share [! anchor expression statement]
                   {<Platform>
                    platform}
                   {<Operation>
                    (perform-module-compilation (get@ #cli.module configuration) source)}))))
 
   (def: #export (initialize platform configuration translation-bundle)
-    (All [fs anchor expression statement]
-      (-> <Platform> Configuration <Bundle> (fs <Compiler>)))
+    (All [! anchor expression statement]
+      (-> <Platform> Configuration <Bundle> (! <Compiler>)))
     (|> platform
         (get@ #runtime)
         statement.lift-translation
@@ -177,8 +182,8 @@
     )
 
   (def: #export (compile platform configuration translation-bundle)
-    (All [fs anchor expression statement]
-      (-> <Platform> Configuration <Bundle> (fs Any)))
+    (All [! anchor expression statement]
+      (-> <Platform> Configuration <Bundle> (! Any)))
     (do (:: (get@ #file-system platform) &monad)
       [compiler (initialize platform configuration translation-bundle)
        _ (compile-module platform (set@ #cli.module ..prelude configuration) compiler)

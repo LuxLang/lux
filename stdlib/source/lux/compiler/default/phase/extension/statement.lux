@@ -51,35 +51,40 @@
   (All [anchor expression statement]
     (-> Name (Maybe Type) Code
         (Operation anchor expression statement [Type expression Text Any])))
-  (do ///.Monad<Operation>
-    [state (//.lift ///.get-state)
-     #let [analyse (get@ [#statement.analysis #statement.phase] state)
-           synthesize (get@ [#statement.synthesis #statement.phase] state)
-           translate (get@ [#statement.translation #statement.phase] state)]
-     [_ code//type codeA] (statement.lift-analysis
-                           (analysis.with-scope
-                             (type.with-fresh-env
-                               (case ?type
-                                 (#.Some type)
-                                 (type.with-type type
-                                   (do @
-                                     [codeA (analyse codeC)]
-                                     (wrap [type codeA])))
+  (<| (///.timed name "DEFINE")
+      (do ///.Monad<Operation>
+        [state (//.lift ///.get-state)
+         #let [analyse (get@ [#statement.analysis #statement.phase] state)
+               synthesize (get@ [#statement.synthesis #statement.phase] state)
+               translate (get@ [#statement.translation #statement.phase] state)]
+         [_ code//type codeA] (<| (///.timed name "analysis")
+                                  (statement.lift-analysis
+                                   (analysis.with-scope
+                                     (type.with-fresh-env
+                                       (case ?type
+                                         (#.Some type)
+                                         (type.with-type type
+                                           (do @
+                                             [codeA (analyse codeC)]
+                                             (wrap [type codeA])))
 
-                                 #.None
-                                 (do @
-                                   [[code//type codeA] (type.with-inference (analyse codeC))
-                                    code//type (type.with-env
-                                                 (check.clean code//type))]
-                                   (wrap [code//type codeA]))))))
-     codeS (statement.lift-synthesis
-            (synthesize codeA))]
-    (statement.lift-translation
-     (translation.with-buffer
-       (do @
-         [codeT (translate codeS)
-          codeN+V (translation.define! name codeT)]
-         (wrap [code//type codeT codeN+V]))))))
+                                         #.None
+                                         (do @
+                                           [[code//type codeA] (type.with-inference (analyse codeC))
+                                            code//type (type.with-env
+                                                         (check.clean code//type))]
+                                           (wrap [code//type codeA])))))))
+         codeS (<| (///.timed name "synthesis")
+                   (statement.lift-synthesis
+                    (synthesize codeA)))]
+        (statement.lift-translation
+         (translation.with-buffer
+           (do @
+             [codeT (<| (///.timed name "translation")
+                        (translate codeS))
+              codeN+V (<| (///.timed name "evaluation")
+                          (translation.define! name codeT))]
+             (wrap [code//type codeT codeN+V])))))))
 
 (def: lux::def
   Handler
