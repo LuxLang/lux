@@ -49,9 +49,23 @@
 (type: #export Syntax
   (-> Cursor (Lexer [Cursor Code])))
 
-(def: #export (timed description lexer)
+(def: (timed' description lexer)
   (All [a]
-    (-> Text (Lexer [Cursor Code]) (Lexer [Cursor Code])))
+    (-> Text (Lexer a) (Lexer a)))
+  (do p.Monad<Parser>
+    [_ (wrap [])
+     #let [pre (io.run instant.now)]
+     output lexer
+     #let [_ (log! (|> instant.now
+                       io.run
+                       instant.relative
+                       (duration.difference (instant.relative pre))
+                       %duration
+                       (format "[" description "]: ")))]]
+    (wrap output)))
+
+(def: (timed description lexer)
+  (-> Text (Lexer [Cursor Code]) (Lexer [Cursor Code]))
   (do p.Monad<Parser>
     [_ (wrap [])
      #let [pre (io.run instant.now)]
@@ -319,7 +333,7 @@
      ## as many spaces as necessary to be column-aligned.
      ## This helps ensure that the formatting on the text in the
      ## source-code matches the formatting of the Text value.
-     #let [offset (inc (get@ #.column where))]
+     #let [offset ("lux i64 +" 1 (get@ #.column where))]
      [where' text-read] (: (Lexer [Cursor Text])
                            ## I must keep track of how much of the
                            ## text body has been read, how far the
@@ -387,21 +401,24 @@
     (function (_ where)
       (do p.Monad<Parser>
         [_ open^]
-        (loop [where where]
-          (p.either (do @
-                      [## Must update the cursor as I
-                       ## go along, to keep things accurate.
-                       [where' head] (element where)]
-                      (parser/map (product.both id (|>> (#.Cons head)))
-                                  (recur where')))
-                    (do @
-                      [## Must take into account any
-                       ## padding present before the
-                       ## end-delimiter.
-                       where' (left-padding^ where)
-                       _ close^]
-                      (wrap [(update@ #.column inc where')
-                             #.Nil]))))))))
+        (loop [where (update@ #.column inc where)]
+          (p.either (<| (timed' "composite CONS")
+                        (do @
+                          [## Must update the cursor as I
+                           ## go along, to keep things accurate.
+                           [where' head] (<| (timed' "composite HEAD")
+                                             (element where))]
+                          (parser/map (product.both id (|>> (#.Cons head)))
+                                      (recur where'))))
+                    (<| (timed' "composite NIL")
+                        (do @
+                          [## Must take into account any
+                           ## padding present before the
+                           ## end-delimiter.
+                           where' (left-padding^ where)
+                           _ close^]
+                          (wrap [(update@ #.column inc where')
+                                 #.Nil])))))))))
 
 ## Form and tuple syntax is mostly the same, differing only in the
 ## delimiters involved.
@@ -412,7 +429,7 @@
      (<| (parser/map (product.both id (|>> <tag> [where])))
          (composite <open> <close> ast where)))]
 
-  [form  #.Form  ..open-form ..close-form]
+  [form  #.Form  ..open-form  ..close-form]
   [tuple #.Tuple ..open-tuple ..close-tuple]
   )
 
@@ -495,7 +512,7 @@
         [_ (l.this name-separator)
          def-name name-part^]
         (wrap [["lux" def-name]
-               (inc (text.size def-name))]))
+               ("lux i64 +" 1 (text.size def-name))]))
       ## Not all names must be specified with a module part.
       ## If that part is not provided, the name will be created
       ## with the empty "" text as the module.
