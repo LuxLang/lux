@@ -46,8 +46,14 @@
 (type: #export Aliases (Dictionary Text Text))
 (def: #export no-aliases Aliases (dictionary.new text.Hash<Text>))
 
+(def: digits "0123456789")
+(def: digits+ (format "_" ..digits))
+
 (def: white-space Text "\t\v \r\f")
 (def: new-line Text "\n")
+(def: new-line^ (l.this new-line))
+
+(def: text-delimiter^ (l.this "\""))
 
 ## This is the parser for white-space.
 ## Whenever a new-line is encountered, the column gets reset to 0, and
@@ -55,41 +61,41 @@
 ## It operates recursively in order to produce the longest continuous
 ## chunk of white-space.
 (def: (space^ where)
-  (-> Cursor (Lexer [Cursor Any]))
+  (-> Cursor (Lexer Cursor))
   (p.either (do p.Monad<Parser>
               [content (l.many! (l.one-of! white-space))]
-              (wrap [(update@ #.column (n/+ (get@ #l.distance content)) where)
-                     []]))
+              (wrap (update@ #.column (n/+ (get@ #l.distance content)) where)))
             ## New-lines must be handled as a separate case to ensure line
             ## information is handled properly.
             (do p.Monad<Parser>
               [content (l.many! (l.one-of! new-line))]
-              (wrap [(|> where
-                         (update@ #.line (n/+ (get@ #l.distance content)))
-                         (set@ #.column 0))
-                     []]))))
+              (wrap (|> where
+                        (update@ #.line (n/+ (get@ #l.distance content)))
+                        (set@ #.column 0))))))
 
 ## Single-line comments can start anywhere, but only go up to the
 ## next new-line.
 (def: (single-line-comment^ where)
-  (-> Cursor (Lexer [Cursor Text]))
+  (-> Cursor (Lexer Cursor))
   (do p.Monad<Parser>
     [_ (l.this "##")
-     comment (l.slice (l.some! (l.none-of! new-line)))
-     _ (l.this new-line)]
-    (wrap [(|> where
-               (update@ #.line inc)
-               (set@ #.column 0))
-           comment])))
+     _ (l.some! (l.none-of! new-line))
+     _ ..new-line^]
+    (wrap (|> where
+              (update@ #.line inc)
+              (set@ #.column 0)))))
 
 ## This is just a helper parser to find text which doesn't run into
 ## any special character sequences for multi-line comments.
-(def: comment-bound^
+(def: multi-line-comment-start^ (l.this "#("))
+(def: multi-line-comment-end^ (l.this ")#"))
+
+(def: multi-line-comment-bound^
   (Lexer Any)
   ($_ p.either
-      (l.this new-line)
-      (l.this ")#")
-      (l.this "#(")))
+      ..new-line^
+      ..multi-line-comment-start^
+      ..multi-line-comment-end^))
 
 ## Multi-line comments are bounded by #( these delimiters, #(and, they may
 ## also be nested)# )#.
@@ -97,24 +103,21 @@
 ## That is, any nested comment must have matched delimiters.
 ## Unbalanced comments ought to be rejected as invalid code.
 (def: (multi-line-comment^ where)
-  (-> Cursor (Lexer [Cursor Text]))
+  (-> Cursor (Lexer Cursor))
   (do p.Monad<Parser>
-    [_ (l.this "#(")]
-    (loop [comment ""
-           where (update@ #.column (n/+ 2) where)]
+    [_ ..multi-line-comment-start^]
+    (loop [where (update@ #.column (n/+ 2) where)]
       ($_ p.either
           ## These are normal chunks of commented text.
           (do @
-            [chunk (l.many (l.not comment-bound^))]
-            (recur (format comment chunk)
-                   (|> where
-                       (update@ #.column (n/+ (text.size chunk))))))
+            [chunk (l.many! (l.not! multi-line-comment-bound^))]
+            (recur (|> where
+                       (update@ #.column (n/+ (get@ #l.distance chunk))))))
           ## This is a special rule to handle new-lines within
           ## comments properly.
           (do @
-            [_ (l.this new-line)]
-            (recur (format comment new-line)
-                   (|> where
+            [_ ..new-line^]
+            (recur (|> where
                        (update@ #.line inc)
                        (set@ #.column 0))))
           ## This is the rule for handling nested sub-comments.
@@ -124,14 +127,12 @@
           ## That is why the sub-comment is covered in delimiters
           ## and then appended to the rest of the comment text.
           (do @
-            [[sub-where sub-comment] (multi-line-comment^ where)]
-            (recur (format comment "#(" sub-comment ")#")
-                   sub-where))
+            [sub-where (multi-line-comment^ where)]
+            (recur sub-where))
           ## Finally, this is the rule for closing the comment.
           (do @
-            [_ (l.this ")#")]
-            (wrap [(update@ #.column (n/+ 2) where)
-                   comment]))
+            [_ ..multi-line-comment-end^]
+            (wrap (update@ #.column (n/+ 2) where)))
           ))))
 
 ## This is the only parser that should be used directly by other
@@ -141,11 +142,11 @@
 ## from being used in any situation (alternatively, forcing one type
 ## of comment to be the only usable one).
 (def: (comment^ where)
-  (-> Cursor (Lexer [Cursor Text]))
+  (-> Cursor (Lexer Cursor))
   (p.either (single-line-comment^ where)
             (multi-line-comment^ where)))
 
-## To simplify parsing, I remove any left-padding that an Code token
+## To simplify parsing, I remove any left-padding that a Code token
 ## may have prior to parsing the token itself.
 ## Left-padding is assumed to be either white-space or a comment.
 ## The cursor gets updated, but the padding gets ignored.
@@ -153,10 +154,10 @@
   (-> Cursor (Lexer Cursor))
   ($_ p.either
       (do p.Monad<Parser>
-        [[where comment] (comment^ where)]
+        [where (comment^ where)]
         (left-padding^ where))
       (do p.Monad<Parser>
-        [[where _] (space^ where)]
+        [where (space^ where)]
         (left-padding^ where))
       (:: p.Monad<Parser> wrap where)))
 
@@ -187,7 +188,7 @@
                  [code (l.between 1 4 l.hexadecimal)]
                  (wrap (case (:: number.Hex@Codec<Text,Nat> decode code)
                          (#.Right value)
-                         [(n/+ 2 (text.size code)) (text.from-code value)]
+                         [("lux i64 +" 2 (text.size code)) (text.from-code value)]
 
                          _
                          (undefined))))
@@ -233,32 +234,7 @@
    number.Codec<Text,Rev>]
   )
 
-(def: (nat-char where)
-  (-> Cursor (Lexer [Cursor Code]))
-  (do p.Monad<Parser>
-    [_ (l.this "#\"")
-     [where' char] (: (Lexer [Cursor Text])
-                      ($_ p.either
-                          ## Normal text characters.
-                          (do @
-                            [normal (l.none-of "\\\"\n")]
-                            (wrap [(|> where
-                                       (update@ #.column inc))
-                                   normal]))
-                          ## Must handle escaped
-                          ## chars separately.
-                          (do @
-                            [[chars-consumed char] escaped-char^]
-                            (wrap [(|> where
-                                       (update@ #.column (n/+ chars-consumed)))
-                                   char]))))
-     _ (l.this "\"")
-     #let [char (maybe.assume (text.nth 0 char))]]
-    (wrap [(|> where'
-               (update@ #.column inc))
-           [where (#.Nat char)]])))
-
-(def: (normal-nat where)
+(def: #export (nat where)
   (-> Cursor (Lexer [Cursor Code]))
   (do p.Monad<Parser>
     [chunk rich-digits^]
@@ -269,11 +245,6 @@
       (#.Right value)
       (wrap [(update@ #.column (n/+ (text.size chunk)) where)
              [where (#.Nat value)]]))))
-
-(def: #export (nat where)
-  (-> Cursor (Lexer [Cursor Code]))
-  (p.either (normal-nat where)
-            (nat-char where)))
 
 (def: (normal-frac where)
   (-> Cursor (Lexer [Cursor Code]))
@@ -299,8 +270,8 @@
 (def: frac-ratio-fragment
   (Lexer Frac)
   (<| (p.codec number.Codec<Text,Frac>)
-      (:: p.Monad<Parser> map (function (_ digits)
-                                (format digits ".0")))
+      (parser/map (function (_ digits)
+                    (format digits ".0")))
       rich-digits^))
 
 (def: (ratio-frac where)
@@ -337,7 +308,7 @@
   (do p.Monad<Parser>
     [## Lux text "is delimited by double-quotes", as usual in most
      ## programming languages.
-     _ (l.this "\"")
+     _ ..text-delimiter^
      ## I must know what column the text body starts at (which is
      ## always 1 column after the left-delimiting quote).
      ## This is important because, when procesing subsequent lines,
@@ -364,43 +335,28 @@
                                          ## the text's body's column,
                                          ## to ensure they are aligned.
                                          (do @
-                                           [offset (l.slice (l.many! (l.one-of! " ")))
-                                            #let [offset-size (text.size offset)]]
-                                           (if (n/>= offset-column offset-size)
-                                             ## Any extra offset
-                                             ## becomes part of the
-                                             ## text's body.
-                                             (recur (|> offset
-                                                        (text.split offset-column)
-                                                        (maybe.default (undefined))
-                                                        product.right
-                                                        (format text-read))
-                                                    (|> where
-                                                        (update@ #.column (n/+ offset-size)))
-                                                    #0)
-                                             (p.fail (format "Each line of a multi-line text must have an appropriate offset!\n"
-                                                             "Expected: " (%i (.int offset-column)) " columns.\n"
-                                                             "  Actual: " (%i (.int offset-size)) " columns.\n"))))
+                                           [_ (l.exactly! offset-column (l.one-of! " "))]
+                                           (recur text-read
+                                                  (update@ #.column (n/+ offset-column) where)
+                                                  #0))
                                          ($_ p.either
                                              ## Normal text characters.
                                              (do @
                                                [normal (l.slice (l.many! (l.none-of! "\\\"\n")))]
                                                (recur (format text-read normal)
-                                                      (|> where
-                                                          (update@ #.column (n/+ (text.size normal))))
+                                                      (update@ #.column (n/+ (text.size normal)) where)
                                                       #0))
                                              ## Must handle escaped
                                              ## chars separately.
                                              (do @
                                                [[chars-consumed char] escaped-char^]
                                                (recur (format text-read char)
-                                                      (|> where
-                                                          (update@ #.column (n/+ chars-consumed)))
+                                                      (update@ #.column (n/+ chars-consumed) where)
                                                       #0))
                                              ## The text ends when it
                                              ## reaches the right-delimiter.
                                              (do @
-                                               [_ (l.this "\"")]
+                                               [_ ..text-delimiter^]
                                                (wrap [(update@ #.column inc where)
                                                       text-read]))))
                                        ## If a new-line is
@@ -409,7 +365,7 @@
                                        ## the loop is alerted that the
                                        ## next line must have an offset.
                                        (do @
-                                         [_ (l.this new-line)]
+                                         [_ ..new-line^]
                                          (recur (format text-read new-line)
                                                 (|> where
                                                     (update@ #.line inc)
@@ -507,15 +463,11 @@
 ## a digit, to avoid confusion with regards to numbers.
 (def: name-part^
   (Lexer Text)
-  (do p.Monad<Parser>
-    [#let [digits "0123456789"
-           delimiters (format "()[]{}#\"" name-separator)
-           space (format white-space new-line)
-           head-lexer (l.slice (l.none-of! (format digits delimiters space)))
-           tail-lexer (l.slice (l.some! (l.none-of! (format delimiters space))))]
-     head head-lexer
-     tail tail-lexer]
-    (wrap (format head tail))))
+  (let [delimiters (format "()[]{}#\"" name-separator)
+        space (format white-space new-line)
+        head (l.none-of! (format ..digits delimiters space))
+        tail (l.some! (l.none-of! (format delimiters space)))]
+    (l.slice (l.and! head tail))))
 
 (def: current-module-mark Text (format name-separator name-separator))
 
@@ -530,7 +482,7 @@
         [_ (l.this current-module-mark)
          def-name name-part^]
         (wrap [[current-module def-name]
-               (n/+ 2 (text.size def-name))]))
+               ("lux i64 +" 2 (text.size def-name))]))
       ## If the name is prefixed by the mark, but no module
       ## part, the module is assumed to be "lux" (otherwise known as
       ## the 'prelude').
@@ -558,7 +510,7 @@
                      second-part name-part^]
                     (wrap [[(|> aliases (dictionary.get first-part) (maybe.default first-part))
                             second-part]
-                           ($_ n/+
+                           ($_ "lux i64 +"
                                (text.size first-part)
                                1
                                (text.size second-part))]))
@@ -571,17 +523,17 @@
      (do p.Monad<Parser>
        [[value length] (<| <pre>
                            (name^ current-module aliases))]
-       (wrap [(update@ #.column (|>> (n/+ <length>)) where)
+       (wrap [(update@ #.column (n/+ <length>) where)
               [where (<tag> value)]])))]
 
-  [tag        (p.after (l.this "#")) #.Tag        (n/+ 1 length)]
+  [tag        (p.after (l.this "#")) #.Tag        ("lux i64 +" 1 length)]
   [identifier (|>)                   #.Identifier length]
   )
 
 (do-template [<name> <value>]
   [(def: <name>
      (Lexer Bit)
-     (:: p.Monad<Parser> map (function.constant <value>) (l.this (%b <value>))))]
+     (parser/map (function.constant <value>) (l.this (%b <value>))))]
 
   [false #0]
   [true  #1]
@@ -591,7 +543,7 @@
   (-> Cursor (Lexer [Cursor Code]))
   (do p.Monad<Parser>
     [value (p.either ..false ..true)]
-    (wrap [(update@ #.column (|>> (n/+ 2)) where)
+    (wrap [(update@ #.column (n/+ 2) where)
            [where (#.Bit value)]])))
 
 (exception: #export (end-of-file {module Text})
@@ -608,17 +560,17 @@
     (do p.Monad<Parser>
       [where (left-padding^ where)]
       ($_ p.either
+          (..bit where)
+          (..nat where)
+          (..frac where)
+          (..rev where)
+          (..int where)
+          (..text where)
+          (..identifier current-module aliases where)
+          (..tag current-module aliases where)
           (..form where ast')
           (..tuple where ast')
           (..record where ast')
-          (..text where)
-          (..nat where)
-          (..frac where)
-          (..int where)
-          (..rev where)
-          (..bit where)
-          (..identifier current-module aliases where)
-          (..tag current-module aliases where)
           (do @
             [end? l.end?]
             (if end?
