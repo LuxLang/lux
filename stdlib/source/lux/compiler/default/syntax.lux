@@ -50,10 +50,17 @@
 (def: digits+ (format "_" ..digits))
 
 (def: white-space Text "\t\v \r\f")
-(def: new-line Text "\n")
+(def: new-line "\n")
 (def: new-line^ (l.this new-line))
 
-(def: text-delimiter^ (l.this "\""))
+(def: text-delimiter "\"")
+(def: text-delimiter^ (l.this text-delimiter))
+
+(def: escape "\\")
+
+(def: sigil "#")
+
+(def: single-line-comment-marker (format ..sigil ..sigil))
 
 ## This is the parser for white-space.
 ## Whenever a new-line is encountered, the column gets reset to 0, and
@@ -78,7 +85,7 @@
 (def: (single-line-comment^ where)
   (-> Cursor (Lexer Cursor))
   (do p.Monad<Parser>
-    [_ (l.this "##")
+    [_ (l.this ..single-line-comment-marker)
      _ (l.some! (l.none-of! new-line))
      _ ..new-line^]
     (wrap (|> where
@@ -87,8 +94,8 @@
 
 ## This is just a helper parser to find text which doesn't run into
 ## any special character sequences for multi-line comments.
-(def: multi-line-comment-start^ (l.this "#("))
-(def: multi-line-comment-end^ (l.this ")#"))
+(def: multi-line-comment-start^ (l.this (format ..sigil "(")))
+(def: multi-line-comment-end^ (l.this (format ")" ..sigil)))
 
 (def: multi-line-comment-bound^
   (Lexer Any)
@@ -168,19 +175,19 @@
 ## Escaped characters may show up in Char and Text literals.
 (def: escaped-char^
   (Lexer [Nat Text])
-  (p.after (l.this "\\")
+  (p.after (l.this ..escape)
            (do p.Monad<Parser>
              [code l.any]
              (case code
                ## Handle special cases.
-               "t"  (wrap [2 "\t"])
-               "v"  (wrap [2 "\v"])
-               "b"  (wrap [2 "\b"])
-               "n"  (wrap [2 "\n"])
-               "r"  (wrap [2 "\r"])
-               "f"  (wrap [2 "\f"])
-               "\"" (wrap [2 "\""])
-               "\\" (wrap [2 "\\"])
+               "t" (wrap [2 "\t"])
+               "v" (wrap [2 "\v"])
+               "b" (wrap [2 "\b"])
+               "n" (wrap [2 ..new-line])
+               "r" (wrap [2 "\r"])
+               "f" (wrap [2 "\f"])
+               (^ (static ..text-delimiter)) (wrap [2 ..text-delimiter])
+               (^ (static ..escape)) (wrap [2 ..escape])
 
                ## Handle unicode escapes.
                "u"
@@ -246,7 +253,7 @@
       (wrap [(update@ #.column (n/+ (text.size chunk)) where)
              [where (#.Nat value)]]))))
 
-(def: (normal-frac where)
+(def: #export (frac where)
   (-> Cursor (Lexer [Cursor Code]))
   (do p.Monad<Parser>
     [chunk ($_ l.and
@@ -266,40 +273,6 @@
       (#.Right value)
       (wrap [(update@ #.column (n/+ (text.size chunk)) where)
              [where (#.Frac value)]]))))
-
-(def: frac-ratio-fragment
-  (Lexer Frac)
-  (<| (p.codec number.Codec<Text,Frac>)
-      (parser/map (function (_ digits)
-                    (format digits ".0")))
-      rich-digits^))
-
-(def: (ratio-frac where)
-  (-> Cursor (Lexer [Cursor Code]))
-  (do p.Monad<Parser>
-    [chunk ($_ l.and
-               (p.default "" (l.one-of "-"))
-               rich-digits^
-               (l.one-of "/")
-               rich-digits^)
-     value (l.local chunk
-                    (do @
-                      [signed? (l.this? "-")
-                       numerator frac-ratio-fragment
-                       _ (l.this? "/")
-                       denominator frac-ratio-fragment
-                       _ (p.assert "Denominator cannot be 0."
-                                   (not (f/= +0.0 denominator)))]
-                      (wrap (|> numerator
-                                (f/* (if signed? -1.0 +1.0))
-                                (f// denominator)))))]
-    (wrap [(update@ #.column (n/+ (text.size chunk)) where)
-           [where (#.Frac value)]])))
-
-(def: #export (frac where)
-  (-> Cursor (Lexer [Cursor Code]))
-  (p.either (normal-frac where)
-            (ratio-frac where)))
 
 ## This parser looks so complex because text in Lux can be multi-line
 ## and there are rules regarding how this is handled.
@@ -342,7 +315,7 @@
                                          ($_ p.either
                                              ## Normal text characters.
                                              (do @
-                                               [normal (l.slice (l.many! (l.none-of! "\\\"\n")))]
+                                               [normal (l.slice (l.many! (l.none-of! (format ..escape ..text-delimiter ..new-line))))]
                                                (recur (format text-read normal)
                                                       (update@ #.column (n/+ (text.size normal)) where)
                                                       #0))
@@ -463,13 +436,13 @@
 ## a digit, to avoid confusion with regards to numbers.
 (def: name-part^
   (Lexer Text)
-  (let [delimiters (format "()[]{}#\"" name-separator)
+  (let [delimiters (format "()[]{}" ..sigil ..text-delimiter ..name-separator)
         space (format white-space new-line)
         head (l.none-of! (format ..digits delimiters space))
         tail (l.some! (l.none-of! (format delimiters space)))]
     (l.slice (l.and! head tail))))
 
-(def: current-module-mark Text (format name-separator name-separator))
+(def: current-module-mark Text (format ..name-separator ..name-separator))
 
 (def: (name^ current-module aliases)
   (-> Text Aliases (Lexer [Name Nat]))
@@ -526,8 +499,8 @@
        (wrap [(update@ #.column (n/+ <length>) where)
               [where (<tag> value)]])))]
 
-  [tag        (p.after (l.this "#")) #.Tag        ("lux i64 +" 1 length)]
-  [identifier (|>)                   #.Identifier length]
+  [tag        (p.after (l.this ..sigil)) #.Tag        ("lux i64 +" 1 length)]
+  [identifier (|>)                       #.Identifier length]
   )
 
 (do-template [<name> <value>]
