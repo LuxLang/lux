@@ -39,9 +39,30 @@
      ["l" lexer (#+ Lexer)]
      format]
     [collection
-     ["." row (#+ Row)]
      ["." dictionary (#+ Dictionary)]]]
-   ["." function]])
+   ["." function]
+   ["." io]
+   [time
+    ["." instant]
+    ["." duration]]])
+
+(type: #export Syntax
+  (-> Cursor (Lexer [Cursor Code])))
+
+(def: #export (timed description lexer)
+  (All [a]
+    (-> Text (Lexer [Cursor Code]) (Lexer [Cursor Code])))
+  (do p.Monad<Parser>
+    [_ (wrap [])
+     #let [pre (io.run instant.now)]
+     [where output] lexer
+     #let [_ (log! (|> instant.now
+                       io.run
+                       instant.relative
+                       (duration.difference (instant.relative pre))
+                       %duration
+                       (format (%code output) " [" description "]: ")))]]
+    (wrap [where output])))
 
 (type: #export Aliases (Dictionary Text Text))
 (def: #export no-aliases Aliases (dictionary.new text.Hash<Text>))
@@ -55,6 +76,15 @@
 
 (def: text-delimiter "\"")
 (def: text-delimiter^ (l.this text-delimiter))
+
+(def: open-form "(")
+(def: close-form ")")
+
+(def: open-tuple "[")
+(def: close-tuple "]")
+
+(def: open-record "{")
+(def: close-record "}")
 
 (def: escape "\\")
 
@@ -94,8 +124,8 @@
 
 ## This is just a helper parser to find text which doesn't run into
 ## any special character sequences for multi-line comments.
-(def: multi-line-comment-start^ (l.this (format ..sigil "(")))
-(def: multi-line-comment-end^ (l.this (format ")" ..sigil)))
+(def: multi-line-comment-start^ (l.this (format ..sigil open-form)))
+(def: multi-line-comment-end^ (l.this (format close-form ..sigil)))
 
 (def: multi-line-comment-bound^
   (Lexer Any)
@@ -220,7 +250,7 @@
 
 (do-template [<name> <tag> <lexer> <codec>]
   [(def: #export (<name> where)
-     (-> Cursor (Lexer [Cursor Code]))
+     Syntax
      (do p.Monad<Parser>
        [chunk <lexer>]
        (case (:: <codec> decode chunk)
@@ -242,7 +272,7 @@
   )
 
 (def: #export (nat where)
-  (-> Cursor (Lexer [Cursor Code]))
+  Syntax
   (do p.Monad<Parser>
     [chunk rich-digits^]
     (case (:: number.Codec<Text,Nat> decode chunk)
@@ -254,7 +284,7 @@
              [where (#.Nat value)]]))))
 
 (def: #export (frac where)
-  (-> Cursor (Lexer [Cursor Code]))
+  Syntax
   (do p.Monad<Parser>
     [chunk ($_ l.and
                sign^
@@ -277,7 +307,7 @@
 ## This parser looks so complex because text in Lux can be multi-line
 ## and there are rules regarding how this is handled.
 (def: #export (text where)
-  (-> Cursor (Lexer [Cursor Code]))
+  Syntax
   (do p.Monad<Parser>
     [## Lux text "is delimited by double-quotes", as usual in most
      ## programming languages.
@@ -289,7 +319,7 @@
      ## as many spaces as necessary to be column-aligned.
      ## This helps ensure that the formatting on the text in the
      ## source-code matches the formatting of the Text value.
-     #let [offset-column (inc (get@ #.column where))]
+     #let [offset (inc (get@ #.column where))]
      [where' text-read] (: (Lexer [Cursor Text])
                            ## I must keep track of how much of the
                            ## text body has been read, how far the
@@ -308,9 +338,9 @@
                                          ## the text's body's column,
                                          ## to ensure they are aligned.
                                          (do @
-                                           [_ (l.exactly! offset-column (l.one-of! " "))]
+                                           [_ (p.exactly offset (l.this " "))]
                                            (recur text-read
-                                                  (update@ #.column (n/+ offset-column) where)
+                                                  (update@ #.column (n/+ offset) where)
                                                   #0))
                                          ($_ p.either
                                              ## Normal text characters.
@@ -347,38 +377,43 @@
     (wrap [where'
            [where (#.Text text-read)]])))
 
+(def: (composite open close element)
+  (All [a]
+    (-> Text Text
+        (-> Cursor (Lexer [Cursor a]))
+        (-> Cursor (Lexer [Cursor (List a)]))))
+  (let [open^ (l.this open)
+        close^ (l.this close)]
+    (function (_ where)
+      (do p.Monad<Parser>
+        [_ open^]
+        (loop [where where]
+          (p.either (do @
+                      [## Must update the cursor as I
+                       ## go along, to keep things accurate.
+                       [where' head] (element where)]
+                      (parser/map (product.both id (|>> (#.Cons head)))
+                                  (recur where')))
+                    (do @
+                      [## Must take into account any
+                       ## padding present before the
+                       ## end-delimiter.
+                       where' (left-padding^ where)
+                       _ close^]
+                      (wrap [(update@ #.column inc where')
+                             #.Nil]))))))))
+
 ## Form and tuple syntax is mostly the same, differing only in the
 ## delimiters involved.
 ## They may have an arbitrary number of arbitrary Code nodes as elements.
 (do-template [<name> <tag> <open> <close>]
-  [(def: (<name> where ast)
-     (-> Cursor
-         (-> Cursor (Lexer [Cursor Code]))
-         (Lexer [Cursor Code]))
-     (do p.Monad<Parser>
-       [_ (l.this <open>)
-        [where' elems] (loop [elems (: (Row Code)
-                                       row.empty)
-                              where where]
-                         (p.either (do @
-                                     [## Must update the cursor as I
-                                      ## go along, to keep things accurate.
-                                      [where' elem] (ast where)]
-                                     (recur (row.add elem elems)
-                                            where'))
-                                   (do @
-                                     [## Must take into account any
-                                      ## padding present before the
-                                      ## end-delimiter.
-                                      where' (left-padding^ where)
-                                      _ (l.this <close>)]
-                                     (wrap [(update@ #.column inc where')
-                                            (row.to-list elems)]))))]
-       (wrap [where'
-              [where (<tag> elems)]])))]
+  [(def: (<name> ast where)
+     (-> Syntax Syntax)
+     (<| (parser/map (product.both id (|>> <tag> [where])))
+         (composite <open> <close> ast where)))]
 
-  [form   #.Form   "(" ")"]
-  [tuple  #.Tuple  "[" "]"]
+  [form  #.Form  ..open-form ..close-form]
+  [tuple #.Tuple ..open-tuple ..close-tuple]
   )
 
 ## Records are almost (syntactically) the same as forms and tuples,
@@ -390,27 +425,16 @@
 ## Code node, however, record Code nodes allow any Code node to occupy
 ## this position, since it may be useful when processing Code syntax in
 ## macros.
-(def: (record where ast)
-  (-> Cursor
-      (-> Cursor (Lexer [Cursor Code]))
-      (Lexer [Cursor Code]))
-  (do p.Monad<Parser>
-    [_ (l.this "{")
-     [where' elems] (loop [elems (: (Row [Code Code])
-                                    row.empty)
-                           where where]
-                      (p.either (do @
-                                  [[where' key] (ast where)
-                                   [where' val] (ast where')]
-                                  (recur (row.add [key val] elems)
-                                         where'))
-                                (do @
-                                  [where' (left-padding^ where)
-                                   _ (l.this "}")]
-                                  (wrap [(update@ #.column inc where')
-                                         (row.to-list elems)]))))]
-    (wrap [where'
-           [where (#.Record elems)]])))
+(def: (record ast where)
+  (-> Syntax Syntax)
+  (<| (parser/map (product.both id (|>> #.Record [where])))
+      (composite ..open-record ..close-record
+                 (function (_ where')
+                   (do p.Monad<Parser>
+                     [[where' key] (ast where')
+                      [where' val] (ast where')]
+                     (wrap [where' [key val]])))
+                 where)))
 
 ## The parts of an name are separated by a single mark.
 ## E.g. module.short.
@@ -436,8 +460,13 @@
 ## a digit, to avoid confusion with regards to numbers.
 (def: name-part^
   (Lexer Text)
-  (let [delimiters (format "()[]{}" ..sigil ..text-delimiter ..name-separator)
-        space (format white-space new-line)
+  (let [delimiters (format ..open-form ..close-form
+                           ..open-tuple ..close-tuple
+                           ..open-record ..close-record
+                           ..sigil
+                           ..text-delimiter
+                           ..name-separator)
+        space (format ..white-space ..new-line)
         head (l.none-of! (format ..digits delimiters space))
         tail (l.some! (l.none-of! (format delimiters space)))]
     (l.slice (l.and! head tail))))
@@ -491,13 +520,14 @@
                          (text.size first-part)])))))
 
 (do-template [<name> <pre> <tag> <length>]
-  [(def: #export (<name> current-module aliases where)
-     (-> Text Aliases Cursor (Lexer [Cursor Code]))
-     (do p.Monad<Parser>
-       [[value length] (<| <pre>
-                           (name^ current-module aliases))]
-       (wrap [(update@ #.column (n/+ <length>) where)
-              [where (<tag> value)]])))]
+  [(def: #export (<name> current-module aliases)
+     (-> Text Aliases Syntax)
+     (function (_ where)
+       (do p.Monad<Parser>
+         [[value length] (<| <pre>
+                             (name^ current-module aliases))]
+         (wrap [(update@ #.column (n/+ <length>) where)
+                [where (<tag> value)]]))))]
 
   [tag        (p.after (l.this ..sigil)) #.Tag        ("lux i64 +" 1 length)]
   [identifier (|>)                       #.Identifier length]
@@ -513,7 +543,7 @@
   )
 
 (def: #export (bit where)
-  (-> Cursor (Lexer [Cursor Code]))
+  Syntax
   (do p.Monad<Parser>
     [value (p.either ..false ..true)]
     (wrap [(update@ #.column (n/+ 2) where)
@@ -528,22 +558,33 @@
              ["Column" (%n column)]))
 
 (def: (ast current-module aliases)
-  (-> Text Aliases Cursor (Lexer [Cursor Code]))
+  (-> Text Aliases Syntax)
   (function (ast' where)
     (do p.Monad<Parser>
       [where (left-padding^ where)]
       ($_ p.either
-          (..bit where)
-          (..nat where)
-          (..frac where)
-          (..rev where)
-          (..int where)
-          (..text where)
-          (..identifier current-module aliases where)
-          (..tag current-module aliases where)
-          (..form where ast')
-          (..tuple where ast')
-          (..record where ast')
+          (<| (..timed "bit")
+              (..bit where))
+          (<| (..timed "nat")
+              (..nat where))
+          (<| (..timed "frac")
+              (..frac where))
+          (<| (..timed "rev")
+              (..rev where))
+          (<| (..timed "int")
+              (..int where))
+          (<| (..timed "text")
+              (..text where))
+          (<| (..timed "identifier")
+              (..identifier current-module aliases where))
+          (<| (..timed "tag")
+              (..tag current-module aliases where))
+          (<| (..timed "form")
+              (..form ast' where))
+          (<| (..timed "tuple")
+              (..tuple ast' where))
+          (<| (..timed "record")
+              (..record ast' where))
           (do @
             [end? l.end?]
             (if end?
