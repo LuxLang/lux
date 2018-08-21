@@ -26,8 +26,9 @@
   )
 
 ;; [Utils]
-(defn ^:private clean-line [^String raw-line]
+(defn- clean-line
   "(-> Text Text)"
+  [^String raw-line]
   (let [line-length (.length raw-line)
         buffer (new StringBuffer line-length)]
     (loop [idx 0]
@@ -61,7 +62,7 @@
               (recur (+ 1 idx)))))
         (.toString buffer)))))
 
-(defn ^:private lex-text-body [multi-line? offset]
+(defn- lex-text-body [multi-line? offset]
   (|do [[_ eol? ^String pre-quotes**] (&reader/read-regex #"^([^\"]*)")
         ^String pre-quotes* (if multi-line?
                               (|do [:let [empty-line? (and eol? (= "" pre-quotes**))]
@@ -110,7 +111,7 @@
         [meta _ comment] (&reader/read-regex #"^(.*)$")]
     (return (&/T [meta ($Comment comment)]))))
 
-(defn ^:private lex-multi-line-comment [_]
+(defn- lex-multi-line-comment [_]
   (|do [_ (&reader/read-text "#(")
         [meta comment] (&/try-all% (&/|list (|do [[meta comment] (&reader/read-regex+ #"(?is)^(?!#\()((?!\)#).)*")]
                                               (return (&/T [meta comment])))
