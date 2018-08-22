@@ -62,39 +62,24 @@
               (recur (+ 1 idx)))))
         (.toString buffer)))))
 
-(defn- lex-text-body [multi-line? offset]
-  (|do [[_ eol? ^String pre-quotes**] (&reader/read-regex #"^([^\"]*)")
-        ^String pre-quotes* (if multi-line?
-                              (|do [:let [empty-line? (and eol? (= "" pre-quotes**))]
-                                    _ (&/assert! (or empty-line?
-                                                     (>= (.length pre-quotes**) offset))
-                                                 "Each line of a multi-line text must have an appropriate offset!")]
-                                (return (if empty-line?
-                                          "\n"
-                                          (str "\n" (.substring pre-quotes** offset)))))
-                              (return pre-quotes**))
+(defn- lex-text-body [_]
+  (|do [[_ _ ^String pre-quotes*] (&reader/read-regex #"^([^\"]*)")
         [pre-quotes post-quotes] (if (.endsWith pre-quotes* "\\")
-                                   (if eol?
-                                     (&/fail-with-loc "[Lexer Error] Cannot leave dangling back-slash \\")
-                                     (if (if-let [^String back-slashes (re-find #"\\+$" pre-quotes*)]
-                                           (odd? (.length back-slashes)))
-                                       (|do [[_ eol?* _] (&reader/read-regex #"^([\"])")
-                                             next-part (lex-text-body eol?* offset)]
-                                         (return (&/T [(.substring pre-quotes* 0 (dec (.length pre-quotes*)))
-                                                       (str "\"" next-part)])))
-                                       (|do [post-quotes* (lex-text-body false offset)]
-                                         (return (&/T [pre-quotes* post-quotes*])))))
-                                   (if eol?
-                                     (|do [next-part (lex-text-body true offset)]
-                                       (return (&/T [pre-quotes*
-                                                     next-part])))
-                                     (return (&/T [pre-quotes* ""]))))]
+                                   (if (if-let [^String back-slashes (re-find #"\\+$" pre-quotes*)]
+                                         (odd? (.length back-slashes)))
+                                     (|do [[_ _ _] (&reader/read-regex #"^([\"])")
+                                           next-part (lex-text-body nil)]
+                                       (return (&/T [(.substring pre-quotes* 0 (dec (.length pre-quotes*)))
+                                                     (str "\"" next-part)])))
+                                     (|do [post-quotes* (lex-text-body nil)]
+                                       (return (&/T [pre-quotes* post-quotes*]))))
+                                   (return (&/T [pre-quotes* ""])))]
     (return (str (clean-line pre-quotes) post-quotes))))
 
 (def lex-text
   (|do [[meta _ _] (&reader/read-text "\"")
         :let [[_ _ _column] meta]
-        token (lex-text-body false (inc _column))
+        token (lex-text-body nil)
         _ (&reader/read-text "\"")]
     (return (&/T [meta ($Text token)]))))
 
