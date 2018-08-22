@@ -106,25 +106,10 @@
   (|do [[meta _ white-space] (&reader/read-regex #"^(\s+|$)")]
     (return (&/T [meta ($White_Space white-space)]))))
 
-(def ^:private lex-single-line-comment
+(def ^:private lex-comment
   (|do [_ (&reader/read-text "##")
         [meta _ comment] (&reader/read-regex #"^(.*)$")]
     (return (&/T [meta ($Comment comment)]))))
-
-(defn- lex-multi-line-comment [_]
-  (|do [_ (&reader/read-text "#(")
-        [meta comment] (&/try-all% (&/|list (|do [[meta comment] (&reader/read-regex+ #"(?is)^(?!#\()((?!\)#).)*")]
-                                              (return (&/T [meta comment])))
-                                            (|do [[meta pre] (&reader/read-regex+ #"(?is)^((?!#\().)*")
-                                                  [_ ($Comment inner)] (lex-multi-line-comment nil)
-                                                  [_ post] (&reader/read-regex+ #"(?is)^((?!\)#).)*")]
-                                              (return (&/T [meta (str pre "#(" inner ")#" post)])))))
-        _ (&reader/read-text ")#")]
-    (return (&/T [meta ($Comment comment)]))))
-
-(def ^:private lex-comment
-  (&/try-all% (&/|list lex-single-line-comment
-                       (lex-multi-line-comment nil))))
 
 (do-template [<name> <tag> <regex>]
   (def <name>
