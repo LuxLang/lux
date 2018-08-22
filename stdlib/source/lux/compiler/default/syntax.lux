@@ -82,6 +82,8 @@
 (type: #export Aliases (Dictionary Text Text))
 (def: #export no-aliases Aliases (dictionary.new text.Hash<Text>))
 
+(def: #export prelude Text "lux")
+
 (def: digits "0123456789")
 (def: digits+ (format "_" ..digits))
 
@@ -623,12 +625,13 @@
 (type: (Reader a)
   (-> Text Aliases (Simple a)))
 
-(do-template [<name> <extension>]
+(do-template [<name> <extension> <diff>]
   [(template: (<name> value)
-     (<extension> value 1))]
+     (<extension> value <diff>))]
 
-  [!inc "lux i64 +"]
-  [!dec "lux i64 -"]
+  [!inc   "lux i64 +" 1]
+  [!inc/2 "lux i64 +" 2]
+  [!dec   "lux i64 -" 1]
   )
 
 (do-template [<name> <close> <tag>]
@@ -743,13 +746,12 @@
         _
         <output>))))
 
-(with-expansions [<output> (#error.Success [tracker
-                                            [(update@ #.column (n/+ ("lux i64 -" end start)) where)
+(with-expansions [<output> (#error.Success [[(update@ #.column (n/+ ("lux i64 -" end start)) where)
                                              end
                                              source-code]
-                                            ["" (!clip start end source-code)]])]
-  (def: (read-name start tracker [where offset source-code])
-    (-> Offset (Simple Name))
+                                            (!clip start end source-code)])]
+  (def: (read-name-part start [where offset source-code])
+    (-> Offset Source (Error [Source Text]))
     (loop [end offset]
       (case ("lux text char" source-code end)
         (#.Some char)
@@ -769,98 +771,167 @@
   (let [[where::file where::line where::column] where]
     [where::file (!inc where::line) 0]))
 
-(template: (!read-name @offset @tracker @source @where @tag)
-  (case (..read-name @offset @tracker @source)
-    (#error.Success [tracker' source' name])
-    (#error.Success [tracker' source' [@where (@tag name)]])
-    
-    (#error.Error error)
-    (#error.Error error)))
+(with-expansions [<end> (ex.throw end-of-file current-module)
+                  <failure> (ex.throw unrecognized-input where)
+                  <consume-1> (as-is [where ("lux i64 +" offset 1) source-code])
+                  <consume-2> (as-is [where ("lux i64 +" offset 2) source-code])
+                  <consume-3> (as-is [where ("lux i64 +" offset 3) source-code])]
 
-(with-expansions [<consume-1> (as-is [where (!inc offset) source-code])
-                  <forceful-end> (as-is (recur tracker
-                                               [where ("lux text size" source-code) source-code]))]
+  (template: (!with-char @source-code @offset @char @body)
+    (case ("lux text char" @source-code @offset)
+      (#.Some @char)
+      @body
+      
+      _
+      <end>))
+
+  (template: (!read-half-name @offset//pre @offset//post @char @module)
+    (let [@offset//post (!inc @offset//pre)]
+      (cond (!name-char?|head @char)
+            (case (..read-name-part @offset//post [where @offset//post source-code])
+              (#error.Success [source' name])
+              (#error.Success [source' [@module name]])
+              
+              (#error.Error error)
+              (#error.Error error))
+
+            ## else
+            <failure>)))
+
+  (`` (def: (read-short-name current-module [where offset/0 source-code])
+        (-> Text Source (Error [Source Name]))
+        (<| (!with-char source-code offset/0 char/0)
+            (case char/0
+              (^ (char (~~ (static ..name-separator))))
+              (let [offset/1 (!inc offset/0)]
+                (<| (!with-char source-code offset/1 char/1)
+                    (!read-half-name offset/1 offset/2 char/1 current-module)))
+
+              _
+              (!read-half-name offset/0 offset/1 char/0 ..prelude)))))
+
+  (template: (!read-short-name @current-module @tracker @source @where @tag)
+    (case (..read-short-name @current-module @source)
+      (#error.Success [source' name])
+      (#error.Success [@tracker source' [@where (@tag name)]])
+      
+      (#error.Error error)
+      (#error.Error error)))
+
+  (with-expansions [<simple> (as-is (#error.Success [source' ["" simple]]))]
+    (`` (def: (read-full-name start source)
+          (-> Offset Source (Error [Source Name]))
+          (case (..read-name-part start source)
+            (#error.Success [source' simple])
+            (let [[where' offset' source-code'] source']
+              (case ("lux text char" source-code' offset')
+                (#.Some char/separator)
+                (case char/separator
+                  (^ (char (~~ (static ..name-separator))))
+                  (let [offset'' (!inc offset')]
+                    (case (..read-name-part offset'' [where' offset'' source-code'])
+                      (#error.Success [source'' complex])
+                      (#error.Success [source'' [simple complex]])
+                      
+                      (#error.Error error)
+                      (#error.Error error)))
+
+                  _
+                  <simple>)
+                
+                _
+                <simple>))
+            
+            (#error.Error error)
+            (#error.Error error)))))
+
+  (template: (!read-full-name @offset @tracker @source @where @tag)
+    (case (..read-full-name @offset @source)
+      (#error.Success [source' full-name])
+      (#error.Success [@tracker source' [@where (@tag full-name)]])
+      
+      (#error.Error error)
+      (#error.Error error)))
+  
   (def: (read-code current-module aliases tracker source)
     (Reader Code)
     (let [read-code' (read-code current-module aliases)]
       (loop [tracker tracker
              [where offset source-code] source]
-        (case ("lux text char" source-code offset)
-          (#.Some current)
-          (`` (case current
-                ## White-space
-                (^template [<char> <direction>]
-                  (^ (char <char>))
-                  (recur tracker
-                         [(update@ <direction> inc where)
-                          (!inc offset)
-                          source-code]))
-                ([(~~ (static ..white-space))     #.column]
-                 [(~~ (static ..carriage-return)) #.column])
+        (<| (!with-char source-code offset char/0)
+            (`` (case char/0
+                  ## White-space
+                  (^template [<char> <direction>]
+                    (^ (char <char>))
+                    (recur tracker
+                           [(update@ <direction> inc where)
+                            (!inc offset)
+                            source-code]))
+                  ([(~~ (static ..white-space))     #.column]
+                   [(~~ (static ..carriage-return)) #.column])
 
-                (^ (char (~~ (static ..new-line))))
-                (recur tracker [(!new-line where) (!inc offset) source-code])
+                  (^ (char (~~ (static ..new-line))))
+                  (recur tracker [(!new-line where) (!inc offset) source-code])
 
-                ## Form
-                (^ (char (~~ (static ..open-form))))
-                (read-form read-code' tracker <consume-1>)
+                  ## Form
+                  (^ (char (~~ (static ..open-form))))
+                  (read-form read-code' tracker <consume-1>)
 
-                ## Tuple
-                (^ (char (~~ (static ..open-tuple))))
-                (read-tuple read-code' tracker <consume-1>)
+                  ## Tuple
+                  (^ (char (~~ (static ..open-tuple))))
+                  (read-tuple read-code' tracker <consume-1>)
 
-                ## Text
-                (^ (char (~~ (static ..text-delimiter))))
-                (read-text tracker <consume-1>)
+                  ## Text
+                  (^ (char (~~ (static ..text-delimiter))))
+                  (read-text tracker <consume-1>)
 
-                ## Special code
-                (^ (char (~~ (static ..sigil))))
-                (let [offset' (!inc offset)]
-                  (case ("lux text char" source-code offset')
-                    (#.Some next)
-                    (case next
-                      (^template [<char> <bit>]
-                        (^ (char <char>))
-                        (#error.Success [tracker
-                                         [(update@ #.column (|>> !leap-bit) where)
-                                          (!leap-bit offset)
-                                          source-code]
-                                         [where (#.Bit <bit>)]]))
-                      (["0" #0]
-                       ["1" #1])
+                  ## Special code
+                  (^ (char (~~ (static ..sigil))))
+                  (let [offset' (!inc offset)]
+                    (<| (!with-char source-code offset' char/1)
+                        (case char/1
+                          (^template [<char> <bit>]
+                            (^ (char <char>))
+                            (#error.Success [tracker
+                                             [(update@ #.column (|>> !leap-bit) where)
+                                              (!leap-bit offset)
+                                              source-code]
+                                             [where (#.Bit <bit>)]]))
+                          (["0" #0]
+                           ["1" #1])
 
-                      ## Single-line comment
-                      (^ (char (~~ (static ..sigil))))
-                      (case ("lux text index" source-code (static ..new-line) offset')
-                        (#.Some end)
-                        (recur tracker [(!new-line where) (!inc end) source-code])
+                          ## Single-line comment
+                          (^ (char (~~ (static ..sigil))))
+                          (case ("lux text index" source-code (static ..new-line) offset')
+                            (#.Some end)
+                            (recur tracker [(!new-line where) (!inc end) source-code])
+                            
+                            _
+                            <end>)
+
+                          (^ (char (~~ (static ..name-separator))))
+                          (!read-short-name current-module tracker <consume-2> where #.Identifier)
+
+                          _
+                          (cond (!name-char?|head char/1) ## Tag
+                                (!read-full-name offset tracker <consume-2> where #.Tag)
+
+                                ## else
+                                <failure>))))
+
+                  (^ (char (~~ (static ..name-separator))))
+                  (!read-short-name current-module tracker <consume-1> where #.Identifier)
+
+                  _
+                  (cond (!digit? char/0) ## Natural number
+                        (read-nat offset tracker <consume-1>)
+
+                        ## Identifier
+                        (!name-char?|head char/0)
+                        (!read-full-name offset tracker <consume-1> where #.Identifier)
                         
-                        _
-                        <forceful-end>)
-
-                      _
-                      (cond (!name-char?|head next) ## Tag
-                            (!read-name offset tracker <consume-1> where #.Tag)
-
-                            ## else
-                            (ex.throw unrecognized-input where)))
-                    
-                    _
-                    (ex.throw end-of-file current-module)))
-
-                _
-                (cond (!digit? current) ## Natural number
-                      (read-nat offset tracker <consume-1>)
-
-                      ## Identifier
-                      (!name-char?|head current)
-                      (!read-name offset tracker <consume-1> where #.Identifier)
-                      
-                      ## else
-                      (ex.throw unrecognized-input where))))
-          
-          _
-          (ex.throw end-of-file current-module))))))
+                        ## else
+                        <failure>))))))))
 
 ## [where offset source-code]
 (def: #export (read current-module aliases source)
@@ -880,3 +951,5 @@
 
 ##     (#error.Success [[offset' remaining] [where' output]])
 ##     (#error.Success [[where' offset' remaining] output])))
+
+## (yolo)
