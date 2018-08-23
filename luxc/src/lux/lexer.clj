@@ -43,9 +43,6 @@
                      (recur (+ 2 idx)))
                 \\ (do (.append buffer "\\")
                      (recur (+ 2 idx)))
-                \u (do (assert (< (+ 5 idx) line-length) (str "[Lexer Error] Text is too short for unicode-escaping: " raw-line " " idx))
-                     (.append buffer (char (Integer/valueOf (.substring raw-line (+ 2 idx) (+ 6 idx)) 16)))
-                     (recur (+ 6 idx)))
                 ;; else
                 (assert false (str "[Lexer Error] Invalid escaping syntax: " raw-line " " idx))))
             (do (.append buffer current-char)
