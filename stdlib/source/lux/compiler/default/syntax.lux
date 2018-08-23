@@ -84,29 +84,6 @@
 
 (def: sign^ (l.one-of "+-"))
 
-(do-template [<name> <tag> <lexer> <codec>]
-  [(def: #export (<name> where)
-     Syntax
-     (do p.Monad<Parser>
-       [chunk <lexer>]
-       (case (:: <codec> decode chunk)
-         (#.Left error)
-         (p.fail error)
-
-         (#.Right value)
-         (wrap [(update@ #.column (n/+ (text.size chunk)) where)
-                [where (<tag> value)]]))))]
-
-  [int #.Int
-   (l.and sign^ rich-digits^)
-   number.Codec<Text,Int>]
-  
-  [rev #.Rev
-   (l.and (l.one-of ".")
-          rich-digits^)
-   number.Codec<Text,Rev>]
-  )
-
 (def: #export (frac where)
   Syntax
   (do p.Monad<Parser>
@@ -156,7 +133,6 @@
   (function (ast' where)
     ($_ p.either
         (..frac where)
-        (..rev where)
         )))
 
 (type: (Simple a)
@@ -260,6 +236,21 @@
     g!_
     body))
 
+(def: (read-text [where offset source-code])
+  (Simple Code)
+  (case ("lux text index" source-code (static ..text-delimiter) offset)
+    (#.Some end)
+    (let [content (!clip offset end source-code)]
+      (<| (!guarantee-no-new-lines content)
+          (#error.Success [[(update@ #.column (n/+ (!n/- offset end)) where)
+                            (!inc end)
+                            source-code]
+                           [where
+                            (#.Text content)]])))
+    
+    _
+    (ex.throw unrecognized-input where)))
+
 (def: digit-bottom Nat (!dec (char "0")))
 (def: digit-top Nat (!inc (char "9")))
 
@@ -331,6 +322,18 @@
       
       _
       (!discrete-output number.Codec<Text,Int> #.Int))))
+
+(def: (parse-rev start [where offset source-code])
+  (-> Offset (Simple Code))
+  (loop [end offset]
+    (case ("lux text char" source-code end)
+      (#.Some char)
+      (if (!digit?+ char)
+        (recur (!inc end))
+        (!discrete-output number.Codec<Text,Rev> #.Rev))
+      
+      _
+      (!discrete-output number.Codec<Text,Rev> #.Rev))))
 
 (template: (!parse-int offset where source-code)
   (let [g!offset/1 (!inc offset)]
@@ -477,19 +480,7 @@
 
                   ## Text
                   (^ (char (~~ (static ..text-delimiter))))
-                  (let [offset/1 (!inc offset)]
-                    (case ("lux text index" source-code (static ..text-delimiter) offset/1)
-                      (#.Some end)
-                      (let [content (!clip offset/1 end source-code)]
-                        (<| (!guarantee-no-new-lines content)
-                            (#error.Success [[(update@ #.column (n/+ (!n/- offset/1 end)) where)
-                                              (!inc end)
-                                              source-code]
-                                             [where
-                                              (#.Text content)]])))
-                      
-                      _
-                      (ex.throw unrecognized-input where)))
+                  (read-text <consume-1>)
 
                   ## Special code
                   (^ (char (~~ (static ..sigil))))
@@ -525,7 +516,11 @@
                                 <failure>))))
 
                   (^ (char (~~ (static ..name-separator))))
-                  (!parse-short-name current-module <consume-1> where #.Identifier)
+                  (let [offset/1 (!inc offset)]
+                    (<| (!with-char source-code offset/1 char/1)
+                        (if (!digit? char/1)
+                          (parse-rev offset [where (!inc offset/1) source-code])
+                          (!parse-short-name current-module <consume-1> where #.Identifier))))
 
                   (^template [<sign>]
                     (^ (char <sign>))
