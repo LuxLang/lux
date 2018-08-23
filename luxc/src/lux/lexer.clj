@@ -43,8 +43,6 @@
                      (recur (+ 2 idx)))
                 \r (do (.append buffer "\r")
                      (recur (+ 2 idx)))
-                \f (do (.append buffer "\f")
-                     (recur (+ 2 idx)))
                 \" (do (.append buffer "\"")
                      (recur (+ 2 idx)))
                 \\ (do (.append buffer "\\")
