@@ -263,7 +263,7 @@
                   &&/unwrap-long
                   (.visitInsn Opcodes/L2I))]
         :let [_ (doto *writer*
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "text_clip" "(Ljava/lang/String;II)[Ljava/lang/Object;"))]]
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "substring" "(II)Ljava/lang/String;"))]]
     (return nil)))
 
 (defn ^:private compile-text-index [compile ?values special-args]

@@ -65,7 +65,7 @@
         =text (&&/analyse-1 analyse &type/Text text)
         =from (&&/analyse-1 analyse &type/Nat from)
         =to (&&/analyse-1 analyse &type/Nat to)
-        _ (&type/check exo-type (&/$Apply &type/Text &type/Maybe))
+        _ (&type/check exo-type &type/Text)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["text" "clip"])

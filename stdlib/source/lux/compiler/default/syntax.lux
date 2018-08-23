@@ -33,7 +33,6 @@
    [data
     ["." error (#+ Error)]
     ["." number]
-    ["." maybe]
     ["." text
      ["l" lexer (#+ Offset Lexer)]
      format]
@@ -135,11 +134,8 @@
         (..frac where)
         )))
 
-(type: (Simple a)
-  (-> Source (Error [Source a])))
-
-(type: (Parser a)
-  (-> Text Aliases (Simple a)))
+(type: Parser
+  (-> Source (Error [Source Code])))
 
 (do-template [<name> <extension> <diff>]
   [(template: (<name> value)
@@ -152,7 +148,7 @@
 
 (do-template [<name> <close> <tag>]
   [(def: (<name> parse source)
-     (-> (Simple Code) (Simple Code))
+     (-> Parser Parser)
      (loop [source source
             stack (: (List Code) #.Nil)]
        (case (parse source)
@@ -184,7 +180,7 @@
   )
 
 (def: (parse-record parse source)
-  (-> (Simple Code) (Simple Code))
+  (-> Parser Parser)
   (loop [source source
          stack (: (List [Code Code]) #.Nil)]
     (case (parse source)
@@ -214,8 +210,7 @@
       (#error.Error error))))
 
 (template: (!clip from to text)
-  ## TODO: Optimize-away "maybe.assume"
-  (maybe.assume ("lux text clip" text from to)))
+  ("lux text clip" text from to))
 
 (template: (!i/< reference subject)
   ("lux int <" subject reference))
@@ -237,7 +232,7 @@
     body))
 
 (def: (read-text [where offset source-code])
-  (Simple Code)
+  Parser
   (case ("lux text index" source-code (static ..text-delimiter) offset)
     (#.Some end)
     (let [content (!clip offset end source-code)]
@@ -300,7 +295,7 @@
     (#error.Error error)))
 
 (def: (parse-nat start [where offset source-code])
-  (-> Offset (Simple Code))
+  (-> Offset Parser)
   (loop [end offset]
     (case ("lux text char" source-code end)
       (#.Some char)
@@ -312,7 +307,7 @@
       (!discrete-output number.Codec<Text,Nat> #.Nat))))
 
 (def: (parse-int start [where offset source-code])
-  (-> Offset (Simple Code))
+  (-> Offset Parser)
   (loop [end offset]
     (case ("lux text char" source-code end)
       (#.Some char)
@@ -324,7 +319,7 @@
       (!discrete-output number.Codec<Text,Int> #.Int))))
 
 (def: (parse-rev start [where offset source-code])
-  (-> Offset (Simple Code))
+  (-> Offset Parser)
   (loop [end offset]
     (case ("lux text char" source-code end)
       (#.Some char)
@@ -360,17 +355,14 @@
         _
         <output>))))
 
-(template: (!leap-bit value)
-  ("lux i64 +" value 2))
-
 (template: (!new-line where)
   (let [[where::file where::line where::column] where]
     [where::file (!inc where::line) 0]))
 
 (with-expansions [<end> (ex.throw end-of-file current-module)
                   <failure> (ex.throw unrecognized-input where)
-                  <consume-1> (as-is [where (!inc offset) source-code])
-                  <consume-2> (as-is [where (!inc/2 offset) source-code])]
+                  <consume-1> (as-is [where (!inc offset/0) source-code])
+                  <consume-2> (as-is [where (!inc/2 offset/0) source-code])]
 
   (template: (!with-char @source-code @offset @char @body)
     (case ("lux text char" @source-code @offset)
@@ -451,20 +443,20 @@
   (def: #export (parse current-module aliases source)
     (-> Text Aliases Source (Error [Source Code]))
     (let [parse' (parse current-module aliases)]
-      (loop [[where offset source-code] source]
-        (<| (!with-char source-code offset char/0)
+      (loop [[where offset/0 source-code] source]
+        (<| (!with-char source-code offset/0 char/0)
             (`` (case char/0
                   ## White-space
                   (^template [<char> <direction>]
                     (^ (char <char>))
                     (recur [(update@ <direction> inc where)
-                            (!inc offset)
+                            (!inc offset/0)
                             source-code]))
                   ([(~~ (static ..space))              #.column]
                    [(~~ (static text.carriage-return)) #.column])
 
                   (^ (char (~~ (static text.new-line))))
-                  (recur [(!new-line where) (!inc offset) source-code])
+                  (recur [(!new-line where) (!inc offset/0) source-code])
 
                   ## Form
                   (^ (char (~~ (static ..open-form))))
@@ -484,13 +476,13 @@
 
                   ## Special code
                   (^ (char (~~ (static ..sigil))))
-                  (let [offset/1 (!inc offset)]
+                  (let [offset/1 (!inc offset/0)]
                     (<| (!with-char source-code offset/1 char/1)
                         (case char/1
                           (^template [<char> <bit>]
                             (^ (char <char>))
-                            (#error.Success [[(update@ #.column (|>> !leap-bit) where)
-                                              (!leap-bit offset)
+                            (#error.Success [[(update@ #.column (|>> !inc/2) where)
+                                              (!inc offset/1)
                                               source-code]
                                              [where (#.Bit <bit>)]]))
                           (["0" #0]
@@ -510,31 +502,31 @@
 
                           _
                           (cond (!name-char?|head char/1) ## Tag
-                                (!parse-full-name offset <consume-2> where #.Tag)
+                                (!parse-full-name offset/1 <consume-2> where #.Tag)
 
                                 ## else
                                 <failure>))))
 
                   (^ (char (~~ (static ..name-separator))))
-                  (let [offset/1 (!inc offset)]
+                  (let [offset/1 (!inc offset/0)]
                     (<| (!with-char source-code offset/1 char/1)
                         (if (!digit? char/1)
-                          (parse-rev offset [where (!inc offset/1) source-code])
+                          (parse-rev offset/0 [where (!inc offset/1) source-code])
                           (!parse-short-name current-module <consume-1> where #.Identifier))))
 
                   (^template [<sign>]
                     (^ (char <sign>))
-                    (!parse-int offset where source-code))
+                    (!parse-int offset/0 where source-code))
                   ([(~~ (static ..positive-sign))]
                    [(~~ (static ..negative-sign))])
 
                   _
                   (cond (!digit? char/0) ## Natural number
-                        (parse-nat offset <consume-1>)
+                        (parse-nat offset/0 <consume-1>)
 
                         ## Identifier
                         (!name-char?|head char/0)
-                        (!parse-full-name offset <consume-1> where #.Identifier)
+                        (!parse-full-name offset/0 <consume-1> where #.Identifier)
                         
                         ## else
                         <failure>))))))))
