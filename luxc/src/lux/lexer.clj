@@ -39,8 +39,6 @@
               (case (.charAt raw-line (+ 1 idx))
                 \n (do (.append buffer "\n")
                      (recur (+ 2 idx)))
-                \" (do (.append buffer "\"")
-                     (recur (+ 2 idx)))
                 \\ (do (.append buffer "\\")
                      (recur (+ 2 idx)))
                 ;; else
