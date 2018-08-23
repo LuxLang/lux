@@ -26,31 +26,12 @@
   )
 
 ;; [Utils]
-(defn- clean-line
-  "(-> Text Text)"
-  [^String raw-line]
-  (let [line-length (.length raw-line)
-        buffer (new StringBuffer line-length)]
-    (loop [idx 0]
-      (if (< idx line-length)
-        (let [current-char (.charAt raw-line idx)]
-          (if (= \\ current-char)
-            (do (assert (< (+ 1 idx) line-length) (str "[Lexer Error] Text is too short for escaping: " raw-line " " idx))
-              (case (.charAt raw-line (+ 1 idx))
-                \\ (do (.append buffer "\\")
-                     (recur (+ 2 idx)))
-                ;; else
-                (assert false (str "[Lexer Error] Invalid escaping syntax: " raw-line " " idx))))
-            (do (.append buffer current-char)
-              (recur (+ 1 idx)))))
-        (.toString buffer)))))
-
 (def lex-text
   (|do [[meta _ _] (&reader/read-text "\"")
         :let [[_ _ _column] meta]
         [_ _ ^String content] (&reader/read-regex #"^([^\"]*)")
         _ (&reader/read-text "\"")]
-    (return (&/T [meta ($Text (clean-line content))]))))
+    (return (&/T [meta ($Text content)]))))
 
 (def +ident-re+
   #"^([^0-9\[\]\{\}\(\)\s\"#.][^\[\]\{\}\(\)\s\"#.]*)")
