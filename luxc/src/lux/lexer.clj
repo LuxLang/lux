@@ -39,8 +39,6 @@
               (case (.charAt raw-line (+ 1 idx))
                 \v (do (.append buffer "\u000B")
                      (recur (+ 2 idx)))
-                \b (do (.append buffer "\b")
-                     (recur (+ 2 idx)))
                 \n (do (.append buffer "\n")
                      (recur (+ 2 idx)))
                 \r (do (.append buffer "\r")
