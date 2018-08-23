@@ -5,7 +5,7 @@
     ["ex" exception (#+ exception:)]]
    [data
     ["." product]
-    ["." error]
+    ["." error (#+ Error)]
     [text ("text/." Hash<Text>)
      format
      ["." encoding]]
@@ -36,10 +36,20 @@
   ##       [cache/io])
   )
 
-(def: (read current-module aliases)
-  (-> Text Aliases (analysis.Operation Code))
+(type: Reader
+  (-> .Source (Error [.Source Code])))
+
+(def: (reader current-module aliases)
+  (-> Text Aliases (analysis.Operation Reader))
+  (function (_ [bundle state])
+    (let [[cursor offset source-code] (get@ #.source state)]
+      (#error.Success [[bundle state]
+                       (syntax.parse current-module aliases ("lux text size" source-code))]))))
+
+(def: (read reader)
+  (-> Reader (analysis.Operation Code))
   (function (_ [bundle compiler])
-    (case (syntax.parse current-module aliases (get@ #.source compiler))
+    (case (reader (get@ #.source compiler))
       (#error.Error error)
       (#error.Error error)
 
@@ -86,26 +96,30 @@
     (|>> module.set-compiled
          statement.lift-analysis))
 
-  (def: (loop-module-compilation module-name)
+  (def: (module-compilation-iteration reader)
+    (-> Reader (All [anchor expression statement] <Operation>))
+    (<| (phase.timed (name-of ..module-compilation-iteration) "ITERATION")
+        (do phase.Monad<Operation>
+          [code (statement.lift-analysis
+                 (do @
+                   [code (<| (phase.timed (name-of ..module-compilation-iteration) "syntax")
+                             (..read reader))
+                    #let [[cursor _] code]
+                    _ (analysis.set-cursor cursor)]
+                   (wrap code)))
+           _ (<| (phase.timed (name-of ..module-compilation-iteration) "PHASE")
+                 (totalS.phase code))]
+          init.refresh)))
+  
+  (def: (module-compilation-loop module-name)
     (All [anchor expression statement]
       (-> Text <Operation>))
-    (let [iteration (: (All [anchor expression statement]
-                         <Operation>)
-                       (<| (phase.timed (name-of ..loop-module-compilation) "ITERATION")
-                           (do phase.Monad<Operation>
-                             [code (statement.lift-analysis
-                                    (do @
-                                      [code (<| (phase.timed (name-of ..loop-module-compilation) "syntax")
-                                                (..read module-name syntax.no-aliases))
-                                       #let [[cursor _] code]
-                                       _ (analysis.set-cursor cursor)]
-                                      (wrap code)))
-                              _ (<| (phase.timed (name-of ..loop-module-compilation) "PHASE")
-                                    (totalS.phase code))]
-                             init.refresh)))]
+    (do phase.Monad<Operation>
+      [reader (statement.lift-analysis
+               (..reader module-name syntax.no-aliases))]
       (function (_ state)
         (loop [state state]
-          (case (iteration state)
+          (case (module-compilation-iteration reader state)
             (#error.Success [state' output])
             (recur state')
             
@@ -119,7 +133,7 @@
       (-> Text Source <Operation>))
     (do phase.Monad<Operation>
       [_ (begin-module-compilation module-name source)
-       _ (loop-module-compilation module-name)]
+       _ (module-compilation-loop module-name)]
       (end-module-compilation module-name)))
 
   (def: #export (compile-module platform configuration compiler)
