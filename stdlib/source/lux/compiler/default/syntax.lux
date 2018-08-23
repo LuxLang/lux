@@ -73,8 +73,6 @@
 (def: #export open-record "{")
 (def: #export close-record "}")
 
-(def: escape "\")
-
 (def: #export sigil "#")
 
 (def: #export digit-separator "_")
@@ -125,21 +123,6 @@
 ##         [where (space^ where)]
 ##         (left-padding^ where))
 ##       (:: p.Monad<Parser> wrap where)))
-
-## Escaped character sequences follow the usual syntax of
-## back-slash followed by a letter.
-## Escaped characters may show up in Char and Text literals.
-(def: escaped-char^
-  (Lexer [Nat Text])
-  (p.after (l.this ..escape)
-           (do p.Monad<Parser>
-             [code l.any]
-             (case code
-               ## Handle special cases.
-               (^ (static ..escape)) (wrap [2 ..escape])
-
-               _
-               (p.fail (format "Invalid escaping syntax: " (%t code)))))))
 
 ## These are very simple parsers that just cut chunks of text in
 ## specific shapes and then use decoders already present in the
@@ -493,15 +476,8 @@
               (p.fail (ex.construct unrecognized-input where))))
           ))))
 
-(type: Tracker
-  {#next-escape Offset})
-
-(def: fresh-tracker
-  Tracker
-  {#next-escape 0})
-
 (type: (Simple a)
-  (-> Tracker Source (Error [Tracker Source a])))
+  (-> Source (Error [Source a])))
 
 (type: (Reader a)
   (-> Text Aliases (Simple a)))
@@ -516,14 +492,13 @@
   )
 
 (do-template [<name> <close> <tag>]
-  [(def: (<name> read-code tracker source)
+  [(def: (<name> read-code source)
      (-> (Simple Code) (Simple Code))
-     (loop [tracker tracker
-            source source
+     (loop [source source
             stack (: (List Code) #.Nil)]
-       (case (read-code tracker source)
-         (#error.Success [tracker' source' top])
-         (recur tracker' source' (#.Cons top stack))
+       (case (read-code source)
+         (#error.Success [source' top])
+         (recur source' (#.Cons top stack))
          
          (#error.Error error)
          (let [[where offset source-code] source]
@@ -531,8 +506,7 @@
              (#.Some char)
              (`` (case char
                    (^ (char (~~ (static <close>))))
-                   (#error.Success [tracker
-                                    [(update@ #.column inc where)
+                   (#error.Success [[(update@ #.column inc where)
                                      (!inc offset)
                                      source-code]
                                     [where (<tag> (list.reverse stack))]])
@@ -565,23 +539,6 @@
   [!n/- "lux i64 -"]
   )
 
-(with-expansions [<finish-text> ($_ "lux text concat" total output (!clip g!post-escape end source-code))]
-  (template: (!find-next-escape diff current-escape end source-code total output)
-    (let [g!post-escape (!n/+ diff current-escape)]
-      (case ("lux text index" source-code (static ..escape) g!post-escape)
-        ## More escaping work needs to be done
-        (#.Some g!next-escape)
-        (if (!i/< (:coerce Int end)
-                  (:coerce Int g!next-escape))
-          ## For the current text.
-          (recur end g!next-escape ($_ "lux text concat" total output (!clip g!post-escape g!next-escape source-code)))
-          ## For another text.
-          (#error.Success [g!next-escape (!inc end) <finish-text>]))
-
-        ## No more escaping... ever!
-        _
-        (#error.Success [("lux text size" source-code) (!inc end) <finish-text>])))))
-
 (template: (!guarantee-no-new-lines content body)
   (case ("lux text index" content (static text.new-line) 0)
     (#.Some g!_)
@@ -590,65 +547,20 @@
     g!_
     body))
 
-(def: (read-escaped-text next-escape end offset source-code)
-  (-> Offset Offset Offset Text (Error [Offset Offset Text]))
-  (with-expansions [<escape-start> (!n/+ 1 next-escape)
-                    <escape-end> (!n/+ 5 next-escape)]
-    (loop [end end
-           next-escape next-escape
-           total (!clip offset next-escape source-code)]
-      ## TODO: Optimize-away "maybe.assume"
-      (`` (case (maybe.assume ("lux text char" source-code <escape-start>))
-            (^template [<input> <output>]
-              (^ (char <input>))
-              (!find-next-escape 2 next-escape end source-code total <output>))
-            ([(~~ (static ..escape)) (static ..escape)])
-
-            _
-            (ex.throw invalid-escape-syntax []))))))
-
-(def: (read-text next-escape (^@ source [where offset source-code]))
+(def: (read-text (^@ source [where offset source-code]))
   (Simple Code)
-  (if (!i/< (:coerce Int offset)
-            (:coerce Int next-escape))
-    ## Must update next-escape.
-    (case ("lux text index" source-code (static ..escape) offset)
-      ## There is a escape further down the road.
-      (#.Some next-escape')
-      (read-text next-escape' source)
-
-      ## There are no escapes left.
-      _
-      (read-text ("lux text size" source-code) source))
-    (case ("lux text index" source-code (static ..text-delimiter) offset)
-      (#.Some end)
-      (if (!i/< (:coerce Int end)
-                (:coerce Int next-escape))
-        ## Must handle escape
-        (case (read-escaped-text next-escape end offset source-code)
-          (#error.Error error)
-          (#error.Error error)
-
-          (#error.Success [next-escape' offset' content])
-          (<| (!guarantee-no-new-lines content)
-              (#error.Success [next-escape'
-                               [(update@ #.column (n/+ (!n/- offset offset')) where)
-                                offset'
-                                source-code]
-                               [where
-                                (#.Text content)]])))
-        ## No escape to handle at the moment.
-        (let [content (!clip offset end source-code)]
-          (<| (!guarantee-no-new-lines content)
-              (#error.Success [next-escape
-                               [(update@ #.column (n/+ (!n/- offset end)) where)
-                                (!inc end)
-                                source-code]
-                               [where
-                                (#.Text content)]]))))
-      
-      _
-      (ex.throw unrecognized-input where))))
+  (case ("lux text index" source-code (static ..text-delimiter) offset)
+    (#.Some end)
+    (let [content (!clip offset end source-code)]
+      (<| (!guarantee-no-new-lines content)
+          (#error.Success [[(update@ #.column (n/+ (!n/- offset end)) where)
+                            (!inc end)
+                            source-code]
+                           [where
+                            (#.Text content)]])))
+    
+    _
+    (ex.throw unrecognized-input where)))
 
 (def: digit-bottom Nat (!dec (char "0")))
 (def: digit-top Nat (!inc (char "9")))
@@ -689,15 +601,14 @@
 
 (with-expansions [<output> (case (:: number.Codec<Text,Nat> decode (!clip start end source-code))
                              (#error.Success output)
-                             (#error.Success [tracker
-                                              [(update@ #.column (n/+ (!n/- start end)) where)
+                             (#error.Success [[(update@ #.column (n/+ (!n/- start end)) where)
                                                end
                                                source-code]
                                               [where (#.Nat output)]])
 
                              (#error.Error error)
                              (#error.Error error))]
-  (def: (read-nat start tracker [where offset source-code])
+  (def: (read-nat start [where offset source-code])
     (-> Offset (Simple Code))
     (loop [end offset]
       (case ("lux text char" source-code end)
@@ -773,10 +684,10 @@
               _
               (!read-half-name offset/0 offset/1 char/0 ..prelude)))))
 
-  (template: (!read-short-name @current-module @tracker @source @where @tag)
+  (template: (!read-short-name @current-module @source @where @tag)
     (case (..read-short-name @current-module @source)
       (#error.Success [source' name])
-      (#error.Success [@tracker source' [@where (@tag name)]])
+      (#error.Success [source' [@where (@tag name)]])
       
       (#error.Error error)
       (#error.Error error)))
@@ -808,45 +719,43 @@
             (#error.Error error)
             (#error.Error error)))))
 
-  (template: (!read-full-name @offset @tracker @source @where @tag)
+  (template: (!read-full-name @offset @source @where @tag)
     (case (..read-full-name @offset @source)
       (#error.Success [source' full-name])
-      (#error.Success [@tracker source' [@where (@tag full-name)]])
+      (#error.Success [source' [@where (@tag full-name)]])
       
       (#error.Error error)
       (#error.Error error)))
   
-  (def: (read-code current-module aliases tracker source)
+  (def: (read-code current-module aliases source)
     (Reader Code)
     (let [read-code' (read-code current-module aliases)]
-      (loop [tracker tracker
-             [where offset source-code] source]
+      (loop [[where offset source-code] source]
         (<| (!with-char source-code offset char/0)
             (`` (case char/0
                   ## White-space
                   (^template [<char> <direction>]
                     (^ (char <char>))
-                    (recur tracker
-                           [(update@ <direction> inc where)
+                    (recur [(update@ <direction> inc where)
                             (!inc offset)
                             source-code]))
                   ([(~~ (static ..white-space))     #.column]
                    [(~~ (static text.carriage-return)) #.column])
 
                   (^ (char (~~ (static text.new-line))))
-                  (recur tracker [(!new-line where) (!inc offset) source-code])
+                  (recur [(!new-line where) (!inc offset) source-code])
 
                   ## Form
                   (^ (char (~~ (static ..open-form))))
-                  (read-form read-code' tracker <consume-1>)
+                  (read-form read-code' <consume-1>)
 
                   ## Tuple
                   (^ (char (~~ (static ..open-tuple))))
-                  (read-tuple read-code' tracker <consume-1>)
+                  (read-tuple read-code' <consume-1>)
 
                   ## Text
                   (^ (char (~~ (static ..text-delimiter))))
-                  (read-text tracker <consume-1>)
+                  (read-text <consume-1>)
 
                   ## Special code
                   (^ (char (~~ (static ..sigil))))
@@ -855,8 +764,7 @@
                         (case char/1
                           (^template [<char> <bit>]
                             (^ (char <char>))
-                            (#error.Success [tracker
-                                             [(update@ #.column (|>> !leap-bit) where)
+                            (#error.Success [[(update@ #.column (|>> !leap-bit) where)
                                               (!leap-bit offset)
                                               source-code]
                                              [where (#.Bit <bit>)]]))
@@ -867,44 +775,39 @@
                           (^ (char (~~ (static ..sigil))))
                           (case ("lux text index" source-code (static text.new-line) offset')
                             (#.Some end)
-                            (recur tracker [(!new-line where) (!inc end) source-code])
+                            (recur [(!new-line where) (!inc end) source-code])
                             
                             _
                             <end>)
 
                           (^ (char (~~ (static ..name-separator))))
-                          (!read-short-name current-module tracker <consume-2> where #.Identifier)
+                          (!read-short-name current-module <consume-2> where #.Identifier)
 
                           _
                           (cond (!name-char?|head char/1) ## Tag
-                                (!read-full-name offset tracker <consume-2> where #.Tag)
+                                (!read-full-name offset <consume-2> where #.Tag)
 
                                 ## else
                                 <failure>))))
 
                   (^ (char (~~ (static ..name-separator))))
-                  (!read-short-name current-module tracker <consume-1> where #.Identifier)
+                  (!read-short-name current-module <consume-1> where #.Identifier)
 
                   _
                   (cond (!digit? char/0) ## Natural number
-                        (read-nat offset tracker <consume-1>)
+                        (read-nat offset <consume-1>)
 
                         ## Identifier
                         (!name-char?|head char/0)
-                        (!read-full-name offset tracker <consume-1> where #.Identifier)
+                        (!read-full-name offset <consume-1> where #.Identifier)
                         
                         ## else
                         <failure>))))))))
 
 ## [where offset source-code]
-(def: #export (read current-module aliases source)
+(def: #export read
   (-> Text Aliases Source (Error [Source Code]))
-  (case (read-code current-module aliases fresh-tracker source)
-    (#error.Error error)
-    (#error.Error error)
-
-    (#error.Success [tracker' source' output])
-    (#error.Success [source' output])))
+  ..read-code)
 
 ## (def: #export (read current-module aliases source)
 ##   (-> Text Aliases Source (Error [Source Code]))
