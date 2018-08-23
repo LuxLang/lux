@@ -322,7 +322,9 @@
         :let [_ (doto *writer*
                   &&/unwrap-long
                   (.visitInsn Opcodes/L2I)
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "text_char" "(Ljava/lang/String;I)[Ljava/lang/Object;"))]]
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "charAt" "(I)C")
+                  (.visitInsn Opcodes/I2L)
+                  &&/wrap-long)]]
     (return nil)))
 
 (defn ^:private compile-io-log [compile ?values special-args]

@@ -90,7 +90,7 @@
   (|do [:let [(&/$Cons text (&/$Cons idx (&/$Nil))) ?values]
         =text (&&/analyse-1 analyse &type/Text text)
         =idx (&&/analyse-1 analyse &type/Nat idx)
-        _ (&type/check exo-type (&/$Apply &type/Nat &type/Maybe))
+        _ (&type/check exo-type &type/Nat)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["text" "char"])
