@@ -37,8 +37,6 @@
           (if (= \\ current-char)
             (do (assert (< (+ 1 idx) line-length) (str "[Lexer Error] Text is too short for escaping: " raw-line " " idx))
               (case (.charAt raw-line (+ 1 idx))
-                \v (do (.append buffer "\u000B")
-                     (recur (+ 2 idx)))
                 \n (do (.append buffer "\n")
                      (recur (+ 2 idx)))
                 \" (do (.append buffer "\"")
