@@ -37,8 +37,6 @@
           (if (= \\ current-char)
             (do (assert (< (+ 1 idx) line-length) (str "[Lexer Error] Text is too short for escaping: " raw-line " " idx))
               (case (.charAt raw-line (+ 1 idx))
-                \n (do (.append buffer "\n")
-                     (recur (+ 2 idx)))
                 \\ (do (.append buffer "\\")
                      (recur (+ 2 idx)))
                 ;; else
@@ -47,26 +45,12 @@
               (recur (+ 1 idx)))))
         (.toString buffer)))))
 
-(defn- lex-text-body [_]
-  (|do [[_ _ ^String pre-quotes*] (&reader/read-regex #"^([^\"]*)")
-        [pre-quotes post-quotes] (if (.endsWith pre-quotes* "\\")
-                                   (if (if-let [^String back-slashes (re-find #"\\+$" pre-quotes*)]
-                                         (odd? (.length back-slashes)))
-                                     (|do [[_ _ _] (&reader/read-regex #"^([\"])")
-                                           next-part (lex-text-body nil)]
-                                       (return (&/T [(.substring pre-quotes* 0 (dec (.length pre-quotes*)))
-                                                     (str "\"" next-part)])))
-                                     (|do [post-quotes* (lex-text-body nil)]
-                                       (return (&/T [pre-quotes* post-quotes*]))))
-                                   (return (&/T [pre-quotes* ""])))]
-    (return (str (clean-line pre-quotes) post-quotes))))
-
 (def lex-text
   (|do [[meta _ _] (&reader/read-text "\"")
         :let [[_ _ _column] meta]
-        token (lex-text-body nil)
+        [_ _ ^String content] (&reader/read-regex #"^([^\"]*)")
         _ (&reader/read-text "\"")]
-    (return (&/T [meta ($Text token)]))))
+    (return (&/T [meta ($Text (clean-line content))]))))
 
 (def +ident-re+
   #"^([^0-9\[\]\{\}\(\)\s\"#.][^\[\]\{\}\(\)\s\"#.]*)")
