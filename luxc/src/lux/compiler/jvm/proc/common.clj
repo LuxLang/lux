@@ -374,22 +374,25 @@
 (defn ^:private compile-syntax-char-case! [compile ?values ?patterns]
   (|do [:let [(&/$Cons ?input (&/$Cons [_ (&a/$tuple ?matches)] (&/$Cons ?else (&/$Nil)))) ?values]
         ^MethodVisitor *writer* &/get-writer
-        :let [?patterns+?matches* (->> (&/zip2 ?patterns ?matches)
-                                       &/->seq
-                                       (sort-by &/|first <)
-                                       &/->list)
-              ?patterns* (&/|map &/|first ?patterns+?matches*)
-              ?matches* (&/|map &/|second ?patterns+?matches*)
+        :let [pattern-labels (&/|map (fn [_] (new Label)) ?patterns)
+              matched-patterns (->> (&/zip2 ?patterns pattern-labels)
+                                    (&/flat-map (fn [?chars+?label]
+                                                  (|let [[?chars ?label] ?chars+?label]
+                                                    (&/|map (fn [?char]
+                                                              (&/T [?char ?label]))
+                                                            ?chars))))
+                                    &/->seq
+                                    (sort-by &/|first <)
+                                    &/->list)
               end-label (new Label)
-              else-label (new Label)
-              pattern-labels (&/|map (fn [_] (new Label)) ?patterns*)]
+              else-label (new Label)]
         _ (compile ?input)
         :let [_ (doto *writer*
                   &&/unwrap-long
                   (.visitInsn Opcodes/L2I)
                   (.visitLookupSwitchInsn else-label
-                                          (int-array (&/->seq ?patterns*))
-                                          (into-array (&/->seq pattern-labels))))]
+                                          (int-array (&/->seq (&/|map &/|first matched-patterns)))
+                                          (into-array (&/->seq (&/|map &/|second matched-patterns)))))]
         _ (&/map% (fn [?label+?match]
                     (|let [[?label ?match] ?label+?match]
                       (|do [:let [_ (doto *writer*
@@ -398,7 +401,7 @@
                             :let [_ (doto *writer*
                                       (.visitJumpInsn Opcodes/GOTO end-label))]]
                         (return nil))))
-                  (&/zip2 pattern-labels ?matches*))
+                  (&/zip2 pattern-labels ?matches))
         :let [_ (doto *writer*
                   (.visitLabel else-label))]
         _ (compile ?else)

@@ -239,12 +239,13 @@
         =input (&&/analyse-1 analyse &type/Nat ?input)
         _ (assert! (even? (&/|length ?pairs)) "The number of matches must be even!")
         =pairs (&/map% (fn [?pair]
-                         (|let [[?pattern ?match] ?pair]
-                           (|case ?pattern
-                             [_ (&/$Text ^String ?pattern-char)]
-                             (|do [=match (&&/analyse-1 analyse exo-type ?match)]
-                               (return (&/T [(int (.charAt ?pattern-char 0))
-                                             =match]))))))
+                         (|let [[[_ (&/$Tuple ?patterns)] ?match] ?pair]
+                           (|do [=match (&&/analyse-1 analyse exo-type ?match)]
+                             (return (&/T [(&/|map (fn [?pattern]
+                                                     (|let [[_ (&/$Text ^String ?pattern-char)] ?pattern]
+                                                       (int (.charAt ?pattern-char 0))))
+                                                   ?patterns)
+                                           =match])))))
                        (&/|as-pairs ?pairs))
         =else (&&/analyse-1 analyse exo-type ?else)]
     (return (&/|list (&&/|meta exo-type _cursor
