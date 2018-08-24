@@ -410,7 +410,10 @@
       (#error.Error error)
       (#error.Error error)))
   
-  (with-expansions [<parse> (as-is (parse current-module aliases source-code//size))]
+  (with-expansions [<parse> (as-is (parse current-module aliases source-code//size))
+                    <horizontal-move> (as-is (recur [(update@ #.column inc where)
+                                                     (!inc offset/0)
+                                                     source-code]))]
     (def: #export (parse current-module aliases source-code//size)
       (-> Text Aliases Nat (-> Source (Error [Source Code])))
       ## The "exec []" is only there to avoid function fusion.
@@ -418,51 +421,50 @@
       (exec []
         (function (recur [where offset/0 source-code])
           (<| (!with-char+ source-code//size source-code offset/0 char/0 <end>)
-              (`` (case char/0
-                    ## White-space
-                    (^template [<char> <direction>]
-                      (^ (char <char>))
-                      (recur [(update@ <direction> inc where)
-                              (!inc offset/0)
-                              source-code]))
-                    ([(~~ (static ..space))              #.column]
-                     [(~~ (static text.carriage-return)) #.column])
+              (`` ("lux syntax char case!" char/0
+                   [## White-space
+                    (~~ (static ..space))
+                    <horizontal-move>
+                    
+                    (~~ (static text.carriage-return))
+                    <horizontal-move>
 
-                    (^ (char (~~ (static text.new-line))))
+                    (~~ (static text.new-line))
                     (recur [(!new-line where) (!inc offset/0) source-code])
 
                     ## Form
-                    (^ (char (~~ (static ..open-form))))
+                    (~~ (static ..open-form))
                     (parse-form <parse> <consume-1>)
 
                     ## Tuple
-                    (^ (char (~~ (static ..open-tuple))))
+                    (~~ (static ..open-tuple))
                     (parse-tuple <parse> <consume-1>)
 
                     ## Record
-                    (^ (char (~~ (static ..open-record))))
+                    (~~ (static ..open-record))
                     (parse-record <parse> <consume-1>)
 
                     ## Text
-                    (^ (char (~~ (static ..text-delimiter))))
+                    (~~ (static ..text-delimiter))
                     (read-text <consume-1>)
 
                     ## Special code
-                    (^ (char (~~ (static ..sigil))))
+                    (~~ (static ..sigil))
                     (let [offset/1 (!inc offset/0)]
                       (<| (!with-char+ source-code//size source-code offset/1 char/1 <end>)
-                          (case char/1
-                            (^template [<char> <bit>]
-                              (^ (char <char>))
-                              (#error.Success [[(update@ #.column (|>> !inc/2) where)
-                                                (!inc offset/1)
-                                                source-code]
-                                               [where (#.Bit <bit>)]]))
-                            (["0" #0]
-                             ["1" #1])
+                          ("lux syntax char case!" char/1
+                           [(~~ (do-template [<char> <bit>]
+                                  [<char>
+                                   (#error.Success [[(update@ #.column (|>> !inc/2) where)
+                                                     (!inc offset/1)
+                                                     source-code]
+                                                    [where (#.Bit <bit>)]])]
+
+                                  ["0" #0]
+                                  ["1" #1]))
 
                             ## Single-line comment
-                            (^ (char (~~ (static ..sigil))))
+                            (~~ (static ..sigil))
                             (case ("lux text index" source-code (static text.new-line) offset/1)
                               (#.Some end)
                               (recur [(!new-line where) (!inc end) source-code])
@@ -470,36 +472,36 @@
                               _
                               <end>)
 
-                            (^ (char (~~ (static ..name-separator))))
-                            (!parse-short-name current-module <consume-2> where #.Identifier)
+                            (~~ (static ..name-separator))
+                            (!parse-short-name current-module <consume-2> where #.Identifier)]
 
-                            _
-                            (cond (!name-char?|head char/1) ## Tag
-                                  (!parse-full-name offset/1 <consume-2> where #.Tag)
+                           ## else
+                           (cond (!name-char?|head char/1) ## Tag
+                                 (!parse-full-name offset/1 <consume-2> where #.Tag)
 
-                                  ## else
-                                  <failure>))))
+                                 ## else
+                                 <failure>))))
 
-                    (^ (char (~~ (static ..name-separator))))
+                    (~~ (static ..name-separator))
                     (let [offset/1 (!inc offset/0)]
                       (<| (!with-char+ source-code//size source-code offset/1 char/1 <end>)
                           (if (!digit? char/1)
                             (parse-rev offset/0 [where (!inc offset/1) source-code])
                             (!parse-short-name current-module <consume-1> where #.Identifier))))
 
-                    (^template [<sign>]
-                      (^ (char <sign>))
-                      (!parse-int source-code//size offset/0 where source-code <end>))
-                    ([(~~ (static ..positive-sign))]
-                     [(~~ (static ..negative-sign))])
+                    (~~ (static ..positive-sign))
+                    (!parse-int source-code//size offset/0 where source-code <end>)
 
-                    _
-                    (cond (!digit? char/0) ## Natural number
-                          (parse-nat offset/0 <consume-1>)
+                    (~~ (static ..negative-sign))
+                    (!parse-int source-code//size offset/0 where source-code <end>)]
 
-                          ## Identifier
-                          (!name-char?|head char/0)
-                          (!parse-full-name offset/0 <consume-1> where #.Identifier)
-                          
-                          ## else
-                          <failure>)))))))))
+                   ## else
+                   (cond (!digit? char/0) ## Natural number
+                         (parse-nat offset/0 <consume-1>)
+
+                         ## Identifier
+                         (!name-char?|head char/0)
+                         (!parse-full-name offset/0 <consume-1> where #.Identifier)
+                         
+                         ## else
+                         <failure>)))))))))
