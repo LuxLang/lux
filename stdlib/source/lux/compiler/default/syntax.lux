@@ -237,17 +237,16 @@
     g!_
     body))
 
-(def: (read-text [where offset source-code])
-  Parser
+(template: (!read-text where offset source-code)
   (case ("lux text index" source-code (static ..text-delimiter) offset)
-    (#.Some end)
-    (let [content (!clip offset end source-code)]
-      (<| (!guarantee-no-new-lines content)
-          (#error.Success [[(update@ #.column (n/+ (!n/- offset end)) where)
-                            (!inc end)
+    (#.Some g!end)
+    (let [g!content (!clip offset g!end source-code)]
+      (<| (!guarantee-no-new-lines g!content)
+          (#error.Success [[(update@ #.column (n/+ (!n/- offset g!end)) where)
+                            (!inc g!end)
                             source-code]
                            [where
-                            (#.Text content)]])))
+                            (#.Text g!content)]])))
     
     _
     (ex.throw unrecognized-input where)))
@@ -289,11 +288,11 @@
   (or (!strict-name-char? char)
       (!digit? char)))
 
-(template: (!discrete-output <codec> <tag>)
-  (case (:: <codec> decode (!clip start end source-code))
+(template: (!discrete-output <start> <end> <codec> <tag>)
+  (case (:: <codec> decode (!clip <start> <end> source-code))
     (#error.Success output)
-    (#error.Success [[(update@ #.column (n/+ (!n/- start end)) where)
-                      end
+    (#error.Success [[(update@ #.column (n/+ (!n/- <start> <end>)) where)
+                      <end>
                       source-code]
                      [where (<tag> output)]])
 
@@ -305,17 +304,27 @@
      (-> Offset Parser)
      (let [source-code//size ("lux text size" source-code)]
        (loop [end offset]
-         (<| (!with-char+ source-code//size source-code end char (!discrete-output <codec> <tag>))
+         (<| (!with-char+ source-code//size source-code end char (!discrete-output start end <codec> <tag>))
              (if (!digit?+ char)
                (recur (!inc end))
-               (!discrete-output <codec> <tag>))))))]
+               (!discrete-output start end <codec> <tag>))))))]
 
-  [parse-nat number.Codec<Text,Nat> #.Nat]
   [parse-int number.Codec<Text,Int> #.Int]
-  [parse-rev number.Codec<Text,Rev> #.Rev]
   )
 
-(template: (!parse-int source-code//size offset where source-code @end)
+(do-template [<name> <codec> <tag>]
+  [(template: (<name> source-code//size start where offset source-code)
+     (loop [g!end offset]
+       (<| (!with-char+ source-code//size source-code g!end g!char (!discrete-output start g!end <codec> <tag>))
+           (if (!digit?+ g!char)
+             (recur (!inc g!end))
+             (!discrete-output start g!end <codec> <tag>)))))]
+
+  [!parse-nat number.Codec<Text,Nat> #.Nat]
+  [!parse-rev number.Codec<Text,Rev> #.Rev]
+  )
+
+(template: (!parse-signed source-code//size offset where source-code @end)
   (let [g!offset/1 (!inc offset)]
     (<| (!with-char+ source-code//size source-code g!offset/1 g!char/1 @end)
         (if (!digit? g!char/1)
@@ -446,7 +455,8 @@
 
                     ## Text
                     (~~ (static ..text-delimiter))
-                    (read-text <consume-1>)
+                    (let [offset/1 (!inc offset/0)]
+                      (!read-text where offset/1 source-code))
 
                     ## Special code
                     (~~ (static ..sigil))
@@ -486,21 +496,23 @@
                     (let [offset/1 (!inc offset/0)]
                       (<| (!with-char+ source-code//size source-code offset/1 char/1 <end>)
                           (if (!digit? char/1)
-                            (parse-rev offset/0 [where (!inc offset/1) source-code])
+                            (let [offset/2 (!inc offset/1)]
+                              (!parse-rev source-code//size offset/0 where offset/2 source-code))
                             (!parse-short-name current-module <consume-1> where #.Identifier))))
 
                     (~~ (static ..positive-sign))
-                    (!parse-int source-code//size offset/0 where source-code <end>)
+                    (!parse-signed source-code//size offset/0 where source-code <end>)
 
                     (~~ (static ..negative-sign))
-                    (!parse-int source-code//size offset/0 where source-code <end>)]
+                    (!parse-signed source-code//size offset/0 where source-code <end>)]
 
                    ## else
                    (cond (!digit? char/0) ## Natural number
-                         (parse-nat offset/0 <consume-1>)
+                         (let [offset/1 (!inc offset/0)]
+                           (!parse-nat source-code//size offset/0 where offset/1 source-code))
 
                          ## Identifier
-                         (!name-char?|head char/0)
+                         (!strict-name-char? char/0)
                          (!parse-full-name offset/0 <consume-1> where #.Identifier)
                          
                          ## else
