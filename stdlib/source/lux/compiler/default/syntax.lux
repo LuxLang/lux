@@ -40,6 +40,41 @@
      ["." list]
      ["." dictionary (#+ Dictionary)]]]])
 
+(type: Char Nat)
+
+(do-template [<name> <extension> <diff>]
+  [(template: (<name> value)
+     (<extension> value <diff>))]
+
+  [!inc   "lux i64 +" 1]
+  [!inc/2 "lux i64 +" 2]
+  [!dec   "lux i64 -" 1]
+  )
+
+(template: (!clip from to text)
+  ("lux text clip" text from to))
+
+(do-template [<name> <extension>]
+  [(template: (<name> reference subject)
+     (<extension> subject reference))]
+
+  [!n/= "lux i64 ="]
+  [!i/< "lux int <"]
+  )
+
+(do-template [<name> <extension>]
+  [(template: (<name> param subject)
+     (<extension> subject param))]
+
+  [!n/+ "lux i64 +"]
+  [!n/- "lux i64 -"]
+  )
+
+## TODO: Optimize how forms, tuples & records are parsed in the end.
+## There is repeated-work going on when parsing the space before the
+## closing parenthesis/bracket/brace.
+## That repeated-work should be avoided.
+
 ## TODO: Implement "lux syntax char case!" as a custom extension.
 ## That way, it should be possible to obtain the char without wrapping
 ## it into a java.lang.Long, thereby improving performance.
@@ -120,16 +155,24 @@
 (exception: #export (end-of-file {module Text})
   (ex.report ["Module" (%t module)]))
 
-(exception: #export (unrecognized-input {[file line column] Cursor})
-  (ex.report ["File" (%t file)]
-             ["Line" (%n line)]
-             ["Column" (%n column)]))
+(def: amount-of-input-shown 64)
+
+(exception: #export (unrecognized-input {[file line column] Cursor} {context Text} {input Text} {offset Offset})
+  (let [end-offset (|> offset (n/+ amount-of-input-shown) (n/min ("lux text size" input)))]
+    (ex.report ["File" file]
+               ["Line" (%n line)]
+               ["Column" (%n column)]
+               ["Context" (%t context)]
+               ["Input" (!clip offset end-offset input)])))
 
 (exception: #export (text-cannot-contain-new-lines {text Text})
   (ex.report ["Text" (%t text)]))
 
 (exception: #export (invalid-escape-syntax)
   "")
+
+(exception: #export (cannot-close-composite-expression {closing-char Char})
+  (ex.report ["Closing Character" (text.from-code closing-char)]))
 
 (def: (ast current-module aliases)
   (-> Text Aliases Syntax)
@@ -141,34 +184,6 @@
 (type: Parser
   (-> Source (Error [Source Code])))
 
-(do-template [<name> <extension> <diff>]
-  [(template: (<name> value)
-     (<extension> value <diff>))]
-
-  [!inc   "lux i64 +" 1]
-  [!inc/2 "lux i64 +" 2]
-  [!dec   "lux i64 -" 1]
-  )
-
-(template: (!clip from to text)
-  ("lux text clip" text from to))
-
-(do-template [<name> <extension>]
-  [(template: (<name> reference subject)
-     (<extension> subject reference))]
-
-  [!n/= "lux i64 ="]
-  [!i/< "lux int <"]
-  )
-
-(do-template [<name> <extension>]
-  [(template: (<name> param subject)
-     (<extension> subject param))]
-
-  [!n/+ "lux i64 +"]
-  [!n/- "lux i64 -"]
-  )
-
 (template: (!with-char+ @source-code-size @source-code @offset @char @else @body)
   (if (!i/< (:coerce Int @source-code-size)
             (:coerce Int @offset))
@@ -179,33 +194,50 @@
 (template: (!with-char @source-code @offset @char @else @body)
   (!with-char+ ("lux text size" @source-code) @source-code @offset @char @else @body))
 
-(do-template [<name> <close> <tag>]
-  [(def: (<name> parse source)
-     (-> Parser Parser)
-     (let [[_ _ source-code] source
-           source-code//size ("lux text size" source-code)]
-       (loop [source source
-              stack (: (List Code) #.Nil)]
-         (case (parse source)
-           (#error.Success [source' top])
-           (recur source' (#.Cons top stack))
-           
-           (#error.Error error)
-           (let [[where offset _] source]
-             (<| (!with-char+ source-code//size source-code offset closing-char (#error.Error error))
-                 (if (`` (!n/= (char (~~ (static <close>))) closing-char))
-                   (#error.Success [[(update@ #.column inc where)
-                                     (!inc offset)
-                                     source-code]
-                                    [where (<tag> (list.reverse stack))]])
-                   (ex.throw unrecognized-input where))))))))]
+(def: close-signal "CLOSE")
 
-  ## Form and tuple syntax is mostly the same, differing only in the
-  ## delimiters involved.
-  ## They may have an arbitrary number of arbitrary Code nodes as elements.
-  [parse-form  ..close-form  #.Form]
-  [parse-tuple ..close-tuple #.Tuple]
-  )
+(def: (read-close closing-char source-code//size source-code offset)
+  (-> Char Nat Text Offset (Error Offset))
+  (loop [end offset]
+    (<| (!with-char+ source-code//size source-code end char (ex.throw cannot-close-composite-expression closing-char)
+          (if (!n/= closing-char char)
+            (#error.Success (!inc end))
+            (`` ("lux syntax char case!" char
+                 [[(~~ (static ..space))
+                   (~~ (static text.carriage-return))
+                   (~~ (static text.new-line))]
+                  (recur (!inc end))]
+
+                 ## else
+                 (ex.throw cannot-close-composite-expression closing-char))))))))
+
+(`` (do-template [<name> <close> <tag> <context>]
+      [(def: (<name> parse source)
+         (-> Parser Parser)
+         (let [[_ _ source-code] source
+               source-code//size ("lux text size" source-code)]
+           (loop [source source
+                  stack (: (List Code) #.Nil)]
+             (case (parse source)
+               (#error.Success [source' top])
+               (recur source' (#.Cons top stack))
+               
+               (#error.Error error)
+               (let [[where offset _] source]
+                 (case (read-close (char <close>) source-code//size source-code offset)
+                   (#error.Success offset')
+                   (#error.Success [[(update@ #.column inc where) offset' source-code]
+                                    [where (<tag> (list.reverse stack))]])
+
+                   (#error.Error error)
+                   (#error.Error error)))))))]
+
+      ## Form and tuple syntax is mostly the same, differing only in the
+      ## delimiters involved.
+      ## They may have an arbitrary number of arbitrary Code nodes as elements.
+      [parse-form  (~~ (static ..close-form))  #.Form  "Form"]
+      [parse-tuple (~~ (static ..close-tuple)) #.Tuple "Tuple"]
+      ))
 
 (def: (parse-record parse source)
   (-> Parser Parser)
@@ -220,17 +252,18 @@
           (recur sourceFV (#.Cons [field value] stack))
 
           (#error.Error error)
-          (let [[where offset _] source]
-            (<| (!with-char+ source-code//size source-code offset closing-char (#error.Error error))
-                (if (`` (!n/= (char (~~ (static ..close-record))) closing-char))
-                  (#error.Success [[(update@ #.column inc where)
-                                    (!inc offset)
-                                    source-code]
-                                   [where (#.Record (list.reverse stack))]])
-                  (ex.throw unrecognized-input where)))))
+          (#error.Error error))
 
         (#error.Error error)
-        (#error.Error error)))))
+        (let [[where offset _] source]
+          (<| (!with-char+ source-code//size source-code offset closing-char (#error.Error error))
+              (case (read-close (`` (char (~~ (static ..close-record)))) source-code//size source-code offset)
+                (#error.Success offset')
+                (#error.Success [[(update@ #.column inc where) offset' source-code]
+                                 [where (#.Record (list.reverse stack))]])
+
+                (#error.Error error)
+                (#error.Error error))))))))
 
 (template: (!guarantee-no-new-lines content body)
   (case ("lux text index" content (static text.new-line) 0)
@@ -252,7 +285,7 @@
                             (#.Text g!content)]])))
     
     _
-    (ex.throw unrecognized-input where)))
+    (ex.throw unrecognized-input [where "Text" source-code offset])))
 
 (def: digit-bottom Nat (!dec (char "0")))
 (def: digit-top Nat (!inc (char "9")))
@@ -352,22 +385,22 @@
     [where::file (!inc where::line) 0]))
 
 (with-expansions [<end> (ex.throw end-of-file current-module)
-                  <failure> (ex.throw unrecognized-input where)
+                  <failure> (ex.throw unrecognized-input [where "General" source-code offset/0])
+                  <close!> (#error.Error (`` (~~ (static close-signal))))
                   <consume-1> (as-is [where (!inc offset/0) source-code])
                   <consume-2> (as-is [where (!inc/2 offset/0) source-code])]
 
-  (template: (!parse-half-name @offset//pre @offset//post @char @module)
-    (let [@offset//post (!inc @offset//pre)]
-      (cond (!name-char?|head @char)
-            (case (..parse-name-part @offset//post [where @offset//post source-code])
-              (#error.Success [source' name])
-              (#error.Success [source' [@module name]])
-              
-              (#error.Error error)
-              (#error.Error error))
+  (template: (!parse-half-name @offset @char @module)
+    (cond (!name-char?|head @char)
+          (case (..parse-name-part @offset [where (!inc @offset) source-code])
+            (#error.Success [source' name])
+            (#error.Success [source' [@module name]])
+            
+            (#error.Error error)
+            (#error.Error error))
 
-            ## else
-            <failure>)))
+          ## else
+          <failure>))
 
   (`` (def: (parse-short-name current-module [where offset/0 source-code])
         (-> Text Source (Error [Source Name]))
@@ -375,8 +408,8 @@
             (if (!n/= (char (~~ (static ..name-separator))) char/0)
               (let [offset/1 (!inc offset/0)]
                 (<| (!with-char source-code offset/1 char/1 <end>)
-                    (!parse-half-name offset/1 offset/2 char/1 current-module)))
-              (!parse-half-name offset/0 offset/1 char/0 ..prelude)))))
+                    (!parse-half-name offset/1 char/1 current-module)))
+              (!parse-half-name offset/0 char/0 ..prelude)))))
 
   (template: (!parse-short-name @current-module @source @where @tag)
     (case (..parse-short-name @current-module @source)
@@ -484,7 +517,7 @@
                                 <end>)
 
                               [(~~ (static ..name-separator))]
-                              (!parse-short-name current-module <consume-2> where #.Identifier)]
+                              (!parse-short-name current-module <consume-2> where #.Tag)]
 
                              ## else
                              (cond (!name-char?|head char/1) ## Tag
@@ -499,7 +532,7 @@
                             (if (!digit? char/1)
                               (let [offset/2 (!inc offset/1)]
                                 (!parse-rev source-code//size offset/0 where offset/2 source-code))
-                              (!parse-short-name current-module <consume-1> where #.Identifier))))
+                              (!parse-short-name current-module [where offset/1 source-code] where #.Identifier))))
 
                       [(~~ (static ..positive-sign))
                        (~~ (static ..negative-sign))]
@@ -507,7 +540,7 @@
 
                       ## Invalid characters at this point...
                       (~~ (<<closers>>))
-                      <failure>]
+                      <close!>]
 
                      ## else
                      (if (!digit? char/0)
