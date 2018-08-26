@@ -1,7 +1,8 @@
 (.module:
   [lux #*
    [control
-    monad]
+    monad
+    ["ex" exception (#+ exception:)]]
    [data
     [text ("text/." Equivalence<Text>)
      format]
@@ -46,13 +47,13 @@
   (loop [idx 0
          mappings (get@ [#.captured #.mappings] scope)]
     (case mappings
-      #.Nil
-      #.None
-
       (#.Cons [_name [_source-type _source-ref]] mappings')
       (if (text/= name _name)
         (#.Some [_source-type (#reference.Foreign idx)])
-        (recur (inc idx) mappings')))))
+        (recur (inc idx) mappings'))
+
+      #.Nil
+      #.None)))
 
 (def: (reference? name scope)
   (-> Text Scope Bit)
@@ -98,6 +99,12 @@
                      (#.Some [ref-type ref])]))
          )))))
 
+(exception: #export (cannot-create-local-binding-without-a-scope)
+  "")
+
+(exception: #export (invalid-scope-alteration)
+  "")
+
 (def: #export (with-local [name type] action)
   (All [a] (-> [Text Type] (Operation a) (Operation a)))
   (function (_ [bundle state])
@@ -121,13 +128,13 @@
                            output]))
 
             _
-            (error! "Invalid scope alteration."))
+            (ex.throw invalid-scope-alteration []))
 
           (#e.Error error)
           (#e.Error error)))
 
       _
-      (#e.Error "Cannot create local binding without a scope."))
+      (ex.throw cannot-create-local-binding-without-a-scope []))
     ))
 
 (do-template [<name> <val-type>]
@@ -159,27 +166,29 @@
       (case (action [bundle (update@ #.scopes
                                      (|>> (#.Cons (scope parent-name name)))
                                      state)])
-        (#e.Error error)
-        (#e.Error error)
-
         (#e.Success [[bundle' state'] output])
         (#e.Success [[bundle' (update@ #.scopes
                                        (|>> list.tail (maybe.default (list)))
                                        state')]
                      output])
-        ))
+
+        (#e.Error error)
+        (#e.Error error)))
     ))
+
+(exception: #export (cannot-get-next-reference-when-there-is-no-scope)
+  "")
 
 (def: #export next-local
   (Operation Register)
   (extension.lift
    (function (_ state)
      (case (get@ #.scopes state)
-       #.Nil
-       (#e.Error "Cannot get next reference when there is no scope.")
-       
        (#.Cons top _)
-       (#e.Success [state (get@ [#.locals #.counter] top)])))))
+       (#e.Success [state (get@ [#.locals #.counter] top)])
+
+       #.Nil
+       (ex.throw cannot-get-next-reference-when-there-is-no-scope [])))))
 
 (def: (ref-to-variable ref)
   (-> Ref Variable)

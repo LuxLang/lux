@@ -25,16 +25,15 @@
 ## [file-name, line, column] to keep track of their provenance and
 ## location, which is helpful for documentation and debugging.
 (.module:
-  [lux (#- int rev)
+  [lux #*
    [control
     monad
-    ["p" parser ("parser/." Monad<Parser>)]
     ["ex" exception (#+ exception:)]]
    [data
     ["." error (#+ Error)]
     ["." number]
     ["." text
-     ["l" lexer (#+ Offset Lexer)]
+     [lexer (#+ Offset)]
      format]
     [collection
      ["." list]
@@ -82,9 +81,6 @@
   [!n/- "lux i64 -"]
   )
 
-(type: #export Syntax
-  (-> Cursor (Lexer [Cursor Code])))
-
 (type: #export Aliases (Dictionary Text Text))
 (def: #export no-aliases Aliases (dictionary.new text.Hash<Text>))
 
@@ -121,42 +117,6 @@
 ## encoded on the parser.
 (def: #export name-separator ".")
 
-## These are very simple parsers that just cut chunks of text in
-## specific shapes and then use decoders already present in the
-## standard library to actually produce the values from the literals.
-(def: rich-digit
-  (Lexer Text)
-  (p.either l.decimal
-            (p.after (l.this "_") (parser/wrap ""))))
-
-(def: rich-digits^
-  (Lexer Text)
-  (l.and l.decimal
-         (l.some rich-digit)))
-
-(def: sign^ (l.one-of "+-"))
-
-(def: #export (frac where)
-  Syntax
-  (do p.Monad<Parser>
-    [chunk ($_ l.and
-               sign^
-               rich-digits^
-               (l.one-of ".")
-               rich-digits^
-               (p.default ""
-                          ($_ l.and
-                              (l.one-of "eE")
-                              sign^
-                              rich-digits^)))]
-    (case (:: number.Codec<Text,Frac> decode chunk)
-      (#.Left error)
-      (p.fail error)
-
-      (#.Right value)
-      (wrap [(update@ #.column (n/+ (text.size chunk)) where)
-             [where (#.Frac value)]]))))
-
 (exception: #export (end-of-file {module Text})
   (ex.report ["Module" (%t module)]))
 
@@ -178,13 +138,6 @@
 
 (exception: #export (cannot-close-composite-expression {closing-char Char})
   (ex.report ["Closing Character" (text.from-code closing-char)]))
-
-(def: (ast current-module aliases)
-  (-> Text Aliases Syntax)
-  (function (ast' where)
-    ($_ p.either
-        (..frac where)
-        )))
 
 (type: Parser
   (-> Source (Error [Source Code])))
@@ -272,11 +225,11 @@
 
 (template: (!guarantee-no-new-lines content body)
   (case ("lux text index" content (static text.new-line) 0)
-    (#.Some g!_)
-    (ex.throw ..text-cannot-contain-new-lines content)
+    #.None
+    body
 
     g!_
-    body))
+    (ex.throw ..text-cannot-contain-new-lines content)))
 
 (template: (!read-text where offset source-code)
   (case ("lux text index" source-code (static ..text-delimiter) offset)
