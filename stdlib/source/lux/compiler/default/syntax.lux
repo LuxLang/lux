@@ -40,6 +40,18 @@
      ["." list]
      ["." dictionary (#+ Dictionary)]]]])
 
+## TODO: Optimize how forms, tuples & records are parsed in the end.
+## There is repeated-work going on when parsing the white-space before the
+## closing parenthesis/bracket/brace.
+## That repeated-work should be avoided.
+
+## TODO: Implement "lux syntax char case!" as a custom extension.
+## That way, it should be possible to obtain the char without wrapping
+## it into a java.lang.Long, thereby improving performance.
+
+## TODO: Make an extension to take advantage of java/lang/String::indexOf<int,int>
+## to get better performance than the current "lux text index" extension.
+
 (type: Char Nat)
 
 (do-template [<name> <extension> <diff>]
@@ -70,15 +82,6 @@
   [!n/- "lux i64 -"]
   )
 
-## TODO: Optimize how forms, tuples & records are parsed in the end.
-## There is repeated-work going on when parsing the space before the
-## closing parenthesis/bracket/brace.
-## That repeated-work should be avoided.
-
-## TODO: Implement "lux syntax char case!" as a custom extension.
-## That way, it should be possible to obtain the char without wrapping
-## it into a java.lang.Long, thereby improving performance.
-
 (type: #export Syntax
   (-> Cursor (Lexer [Cursor Code])))
 
@@ -106,6 +109,17 @@
 
 (def: #export positive-sign "+")
 (def: #export negative-sign "-")
+
+(def: #export frac-separator ".")
+
+## The parts of an name are separated by a single mark.
+## E.g. module.short.
+## Only one such mark may be used in an name, since there
+## can only be 2 parts to an name (the module [before the
+## mark], and the short [after the mark]).
+## There are also some extra rules regarding name syntax,
+## encoded on the parser.
+(def: #export name-separator ".")
 
 ## These are very simple parsers that just cut chunks of text in
 ## specific shapes and then use decoders already present in the
@@ -142,15 +156,6 @@
       (#.Right value)
       (wrap [(update@ #.column (n/+ (text.size chunk)) where)
              [where (#.Frac value)]]))))
-
-## The parts of an name are separated by a single mark.
-## E.g. module.short.
-## Only one such mark may be used in an name, since there
-## can only be 2 parts to an name (the module [before the
-## mark], and the short [after the mark]).
-## There are also some extra rules regarding name syntax,
-## encoded on the parser.
-(def: name-separator ".")
 
 (exception: #export (end-of-file {module Text})
   (ex.report ["Module" (%t module)]))
@@ -324,7 +329,7 @@
   (or (!strict-name-char? char)
       (!digit? char)))
 
-(template: (!discrete-output <start> <end> <codec> <tag>)
+(template: (!number-output <start> <end> <codec> <tag>)
   (case (:: <codec> decode (!clip <start> <end> source-code))
     (#error.Success output)
     (#error.Success [[(update@ #.column (n/+ (!n/- <start> <end>)) where)
@@ -335,26 +340,56 @@
     (#error.Error error)
     (#error.Error error)))
 
-(do-template [<name> <codec> <tag>]
-  [(def: (<name> start [where offset source-code])
-     (-> Offset Parser)
-     (let [source-code//size ("lux text size" source-code)]
-       (loop [end offset]
-         (<| (!with-char+ source-code//size source-code end char (!discrete-output start end <codec> <tag>))
-             (if (!digit?+ char)
-               (recur (!inc end))
-               (!discrete-output start end <codec> <tag>))))))]
+(def: no-exponent Offset 0)
 
-  [parse-int number.Codec<Text,Int> #.Int]
-  )
+(with-expansions [<int-output> (as-is (!number-output start end number.Codec<Text,Int> #.Int))
+                  <frac-output> (as-is (!number-output start end number.Codec<Text,Frac> #.Frac))
+                  <failure> (ex.throw unrecognized-input [where "Frac" source-code offset])]
+  (def: (parse-frac source-code//size start [where offset source-code])
+    (-> Nat Offset Parser)
+    (loop [end offset
+           exponent ..no-exponent]
+      (<| (!with-char+ source-code//size source-code end char/0 <frac-output>)
+          (cond (!digit?+ char/0)
+                (recur (!inc end) exponent)
+
+                (and (or (!n/= (char "e") char/0)
+                         (!n/= (char "E") char/0))
+                     (not (is? ..no-exponent exponent)))
+                (<| (!with-char+ source-code//size source-code (!inc end) char/1 <failure>)
+                    (if (or (!n/= (`` (char (~~ (static ..positive-sign)))) char/1)
+                            (!n/= (`` (char (~~ (static ..negative-sign)))) char/1))
+                      (<| (!with-char+ source-code//size source-code (!n/+ 2 end) char/2 <failure>)
+                          (if (!digit?+ char/2)
+                            (recur (!n/+ 3 end) char/0)
+                            <failure>))
+                      <failure>))
+
+                ## else
+                <frac-output>))))
+
+  (def: (parse-signed start [where offset source-code])
+    (-> Offset Parser)
+    (let [source-code//size ("lux text size" source-code)]
+      (loop [end offset]
+        (<| (!with-char+ source-code//size source-code end char <int-output>)
+            (cond (!digit?+ char)
+                  (recur (!inc end))
+
+                  (!n/= (`` (.char (~~ (static ..frac-separator))))
+                        char)
+                  (parse-frac source-code//size start [where (!inc end) source-code])
+
+                  ## else
+                  <int-output>))))))
 
 (do-template [<name> <codec> <tag>]
   [(template: (<name> source-code//size start where offset source-code)
      (loop [g!end offset]
-       (<| (!with-char+ source-code//size source-code g!end g!char (!discrete-output start g!end <codec> <tag>))
+       (<| (!with-char+ source-code//size source-code g!end g!char (!number-output start g!end <codec> <tag>))
            (if (!digit?+ g!char)
              (recur (!inc g!end))
-             (!discrete-output start g!end <codec> <tag>)))))]
+             (!number-output start g!end <codec> <tag>)))))]
 
   [!parse-nat number.Codec<Text,Nat> #.Nat]
   [!parse-rev number.Codec<Text,Rev> #.Rev]
@@ -364,7 +399,7 @@
   (let [g!offset/1 (!inc offset)]
     (<| (!with-char+ source-code//size source-code g!offset/1 g!char/1 @end)
         (if (!digit? g!char/1)
-          (parse-int offset [where (!inc/2 offset) source-code])
+          (parse-signed offset [where (!inc/2 offset) source-code])
           (!parse-full-name offset [where (!inc offset) source-code] where #.Identifier)))))
 
 (with-expansions [<output> (#error.Success [[(update@ #.column (n/+ (!n/- start end)) where)
@@ -526,6 +561,7 @@
                                    ## else
                                    <failure>))))
 
+                      ## Coincidentally (= name-separator frac-separator)
                       [(~~ (static ..name-separator))]
                       (let [offset/1 (!inc offset/0)]
                         (<| (!with-char+ source-code//size source-code offset/1 char/1 <end>)
