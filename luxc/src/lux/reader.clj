@@ -11,7 +11,7 @@
   ("Yes" 2))
 
 ;; [Utils]
-(defn ^:private with-line [body]
+(defn- with-line [body]
   (fn [state]
     (|case (&/get$ &/$source state)
       (&/$Nil)
@@ -32,7 +32,7 @@
                  output))
       )))
 
-(defn ^:private with-lines [body]
+(defn- with-lines [body]
   (fn [state]
     (|case (body (&/get$ &/$source state))
       (&/$Right reader* match)
@@ -43,7 +43,7 @@
       ((&/fail-with-loc msg) state)
       )))
 
-(defn ^:private re-find! [^java.util.regex.Pattern regex column ^String line]
+(defn- re-find! [^java.util.regex.Pattern regex column ^String line]
   (let [matcher (doto (.matcher regex line)
                   (.region column (.length line))
                   (.useAnchoringBounds true))]
@@ -63,8 +63,9 @@
                   (&/T [(&/T [file-name line-num column-num*]) line]))))
         ($No (str "[Reader Error] Pattern failed: " regex))))))
 
-(defn read-regex? [regex]
+(defn read-regex?
   "(-> Regex (Reader (Maybe Text)))"
+  [regex]
   (with-line
     (fn [file-name line-num column-num ^String line]
       (if-let [^String match (re-find! regex column-num line)]
@@ -101,8 +102,9 @@
                                 (&/T [(&/T [file-name line-num column-num]) prefix*])]))))
             (&/$Left (str "[Reader Error] Pattern failed: " regex))))))))
 
-(defn read-text [^String text]
+(defn read-text
   "(-> Text (Reader Text))"
+  [^String text]
   (with-line
     (fn [file-name line-num column-num ^String line]
       (if (.startsWith line text column-num)
@@ -114,8 +116,9 @@
                   (&/T [(&/T [file-name line-num column-num*]) line]))))
         ($No (str "[Reader Error] Text failed: " text))))))
 
-(defn read-text? [^String text]
+(defn read-text?
   "(-> Text (Reader (Maybe Text)))"
+  [^String text]
   (with-line
     (fn [file-name line-num column-num ^String line]
       (if (.startsWith line text column-num)

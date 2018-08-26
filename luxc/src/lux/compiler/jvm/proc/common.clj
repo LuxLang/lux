@@ -263,7 +263,7 @@
                   &&/unwrap-long
                   (.visitInsn Opcodes/L2I))]
         :let [_ (doto *writer*
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "text_clip" "(Ljava/lang/String;II)[Ljava/lang/Object;"))]]
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "substring" "(II)Ljava/lang/String;"))]]
     (return nil)))
 
 (defn ^:private compile-text-index [compile ?values special-args]
@@ -322,7 +322,9 @@
         :let [_ (doto *writer*
                   &&/unwrap-long
                   (.visitInsn Opcodes/L2I)
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "text_char" "(Ljava/lang/String;I)[Ljava/lang/Object;"))]]
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "charAt" "(I)C")
+                  (.visitInsn Opcodes/I2L)
+                  &&/wrap-long)]]
     (return nil)))
 
 (defn ^:private compile-io-log [compile ?values special-args]
@@ -369,12 +371,53 @@
                   &&/wrap-long)]]
     (return nil)))
 
+(defn ^:private compile-syntax-char-case! [compile ?values ?patterns]
+  (|do [:let [(&/$Cons ?input (&/$Cons [_ (&a/$tuple ?matches)] (&/$Cons ?else (&/$Nil)))) ?values]
+        ^MethodVisitor *writer* &/get-writer
+        :let [pattern-labels (&/|map (fn [_] (new Label)) ?patterns)
+              matched-patterns (->> (&/zip2 ?patterns pattern-labels)
+                                    (&/flat-map (fn [?chars+?label]
+                                                  (|let [[?chars ?label] ?chars+?label]
+                                                    (&/|map (fn [?char]
+                                                              (&/T [?char ?label]))
+                                                            ?chars))))
+                                    &/->seq
+                                    (sort-by &/|first <)
+                                    &/->list)
+              end-label (new Label)
+              else-label (new Label)]
+        _ (compile ?input)
+        :let [_ (doto *writer*
+                  &&/unwrap-long
+                  (.visitInsn Opcodes/L2I)
+                  (.visitLookupSwitchInsn else-label
+                                          (int-array (&/->seq (&/|map &/|first matched-patterns)))
+                                          (into-array (&/->seq (&/|map &/|second matched-patterns)))))]
+        _ (&/map% (fn [?label+?match]
+                    (|let [[?label ?match] ?label+?match]
+                      (|do [:let [_ (doto *writer*
+                                      (.visitLabel ?label))]
+                            _ (compile ?match)
+                            :let [_ (doto *writer*
+                                      (.visitJumpInsn Opcodes/GOTO end-label))]]
+                        (return nil))))
+                  (&/zip2 pattern-labels ?matches))
+        :let [_ (doto *writer*
+                  (.visitLabel else-label))]
+        _ (compile ?else)
+        :let [_ (doto *writer*
+                  (.visitLabel end-label))]]
+    (return nil)))
+
 (defn compile-proc [compile category proc ?values special-args]
   (case category
     "lux"
     (case proc
       "is"                   (compile-lux-is compile ?values special-args)
-      "try"                  (compile-lux-try compile ?values special-args))
+      "try"                  (compile-lux-try compile ?values special-args)
+      ;; Special extensions for performance reasons
+      ;; Will be replaced by custom extensions in the future.
+      "syntax char case!" (compile-syntax-char-case! compile ?values special-args))
 
     "io"
     (case proc

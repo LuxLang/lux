@@ -6,7 +6,7 @@
                  [type :as &type])
             (lux.analyser [base :as &&])))
 
-(defn ^:private analyse-lux-is [analyse exo-type ?values]
+(defn- analyse-lux-is [analyse exo-type ?values]
   (&type/with-var
     (fn [$var]
       (|do [:let [(&/$Cons left (&/$Cons right (&/$Nil))) ?values]
@@ -17,7 +17,7 @@
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T ["lux" "is"]) (&/|list =left =right) (&/|list)))))))))
 
-(defn ^:private analyse-lux-try [analyse exo-type ?values]
+(defn- analyse-lux-try [analyse exo-type ?values]
   (&type/with-var
     (fn [$var]
       (|do [:let [(&/$Cons op (&/$Nil)) ?values]
@@ -30,7 +30,7 @@
                                    (&&/$proc (&/T ["lux" "try"]) (&/|list =op) (&/|list)))))))))
 
 (do-template [<name> <proc> <input-type> <output-type>]
-  (defn <name> [analyse exo-type ?values]
+  (defn- <name> [analyse exo-type ?values]
     (|do [:let [(&/$Cons x (&/$Cons y (&/$Nil))) ?values]
           =x (&&/analyse-1 analyse <input-type> x)
           =y (&&/analyse-1 analyse <input-type> y)
@@ -39,13 +39,13 @@
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T <proc>) (&/|list =x =y) (&/|list)))))))
 
-  ^:private analyse-text-eq     ["text" "="]      &type/Text &type/Bit
-  ^:private analyse-text-lt     ["text" "<"]      &type/Text &type/Bit
-  ^:private analyse-text-concat ["text" "concat"] &type/Text &type/Text
+  analyse-text-eq     ["text" "="]      &type/Text &type/Bit
+  analyse-text-lt     ["text" "<"]      &type/Text &type/Bit
+  analyse-text-concat ["text" "concat"] &type/Text &type/Text
   )
 
 (do-template [<name> <proc-name> <output-type>]
-  (defn <name> [analyse exo-type ?values]
+  (defn- <name> [analyse exo-type ?values]
     (|do [:let [(&/$Cons text (&/$Cons part (&/$Cons start (&/$Nil)))) ?values]
           =text (&&/analyse-1 analyse &type/Text text)
           =part (&&/analyse-1 analyse &type/Text part)
@@ -57,15 +57,15 @@
                                            (&/|list =text =part =start)
                                            (&/|list)))))))
 
-  ^:private analyse-text-index      "index"      (&/$Apply &type/Nat &type/Maybe)
+  analyse-text-index      "index"      (&/$Apply &type/Nat &type/Maybe)
   )
 
-(defn ^:private analyse-text-clip [analyse exo-type ?values]
+(defn- analyse-text-clip [analyse exo-type ?values]
   (|do [:let [(&/$Cons text (&/$Cons from (&/$Cons to (&/$Nil)))) ?values]
         =text (&&/analyse-1 analyse &type/Text text)
         =from (&&/analyse-1 analyse &type/Nat from)
         =to (&&/analyse-1 analyse &type/Nat to)
-        _ (&type/check exo-type (&/$Apply &type/Text &type/Maybe))
+        _ (&type/check exo-type &type/Text)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["text" "clip"])
@@ -73,7 +73,7 @@
                                          (&/|list)))))))
 
 (do-template [<name> <proc>]
-  (defn <name> [analyse exo-type ?values]
+  (defn- <name> [analyse exo-type ?values]
     (|do [:let [(&/$Cons text (&/$Nil)) ?values]
           =text (&&/analyse-1 analyse &type/Text text)
           _ (&type/check exo-type &type/Nat)
@@ -83,14 +83,14 @@
                                            (&/|list =text)
                                            (&/|list)))))))
 
-  ^:private analyse-text-size "size"
+  analyse-text-size "size"
   )
 
-(defn ^:private analyse-text-char [analyse exo-type ?values]
+(defn- analyse-text-char [analyse exo-type ?values]
   (|do [:let [(&/$Cons text (&/$Cons idx (&/$Nil))) ?values]
         =text (&&/analyse-1 analyse &type/Text text)
         =idx (&&/analyse-1 analyse &type/Nat idx)
-        _ (&type/check exo-type (&/$Apply &type/Nat &type/Maybe))
+        _ (&type/check exo-type &type/Nat)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["text" "char"])
@@ -100,7 +100,7 @@
 (do-template [<name> <op>]
   (let [inputT (&/$Apply &type/Any &type/I64)
         outputT &type/I64]
-    (defn <name> [analyse exo-type ?values]
+    (defn- <name> [analyse exo-type ?values]
       (|do [:let [(&/$Cons mask (&/$Cons input (&/$Nil))) ?values]
             =mask (&&/analyse-1 analyse inputT mask)
             =input (&&/analyse-1 analyse inputT input)
@@ -109,15 +109,15 @@
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T ["i64" <op>]) (&/|list =input =mask) (&/|list))))))))
 
-  ^:private analyse-i64-and "and"
-  ^:private analyse-i64-or  "or"
-  ^:private analyse-i64-xor "xor"
+  analyse-i64-and "and"
+  analyse-i64-or  "or"
+  analyse-i64-xor "xor"
   )
 
 (do-template [<name> <op>]
   (let [inputT (&/$Apply &type/Any &type/I64)
         outputT &type/I64]
-    (defn <name> [analyse exo-type ?values]
+    (defn- <name> [analyse exo-type ?values]
       (|do [:let [(&/$Cons shift (&/$Cons input (&/$Nil))) ?values]
             =shift (&&/analyse-1 analyse &type/Nat shift)
             =input (&&/analyse-1 analyse inputT input)
@@ -126,15 +126,15 @@
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T ["i64" <op>]) (&/|list =input =shift) (&/|list))))))))
 
-  ^:private analyse-i64-left-shift             "left-shift"
-  ^:private analyse-i64-arithmetic-right-shift "arithmetic-right-shift"
-  ^:private analyse-i64-logical-right-shift    "logical-right-shift"
+  analyse-i64-left-shift             "left-shift"
+  analyse-i64-arithmetic-right-shift "arithmetic-right-shift"
+  analyse-i64-logical-right-shift    "logical-right-shift"
   )
 
 (do-template [<name> <proc> <input-type> <output-type>]
   (let [inputT <input-type>
         outputT <output-type>]
-    (defn <name> [analyse exo-type ?values]
+    (defn- <name> [analyse exo-type ?values]
       (|do [:let [(&/$Cons subjectC (&/$Cons paramC (&/$Nil))) ?values]
             subjectA (&&/analyse-1 analyse <input-type> subjectC)
             paramA (&&/analyse-1 analyse <input-type> paramC)
@@ -143,15 +143,15 @@
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T <proc>) (&/|list subjectA paramA) (&/|list))))))))
 
-  ^:private analyse-i64-eq   ["i64" "="]  (&/$Apply &type/Any &type/I64)  &type/Bit
-  ^:private analyse-i64-add  ["i64" "+"]  (&/$Apply &type/Any &type/I64)  &type/I64
-  ^:private analyse-i64-sub  ["i64" "-"]  (&/$Apply &type/Any &type/I64)  &type/I64
+  analyse-i64-eq   ["i64" "="]  (&/$Apply &type/Any &type/I64)  &type/Bit
+  analyse-i64-add  ["i64" "+"]  (&/$Apply &type/Any &type/I64)  &type/I64
+  analyse-i64-sub  ["i64" "-"]  (&/$Apply &type/Any &type/I64)  &type/I64
   )
 
 (do-template [<name> <proc> <input-type> <output-type>]
   (let [inputT <input-type>
         outputT <output-type>]
-    (defn <name> [analyse exo-type ?values]
+    (defn- <name> [analyse exo-type ?values]
       (|do [:let [(&/$Cons x (&/$Cons y (&/$Nil))) ?values]
             =x (&&/analyse-1 analyse <input-type> x)
             =y (&&/analyse-1 analyse <input-type> y)
@@ -160,22 +160,22 @@
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T <proc>) (&/|list =x =y) (&/|list))))))))
 
-  ^:private analyse-int-mul  ["int" "*"]  &type/Int  &type/Int
-  ^:private analyse-int-div  ["int" "/"]  &type/Int  &type/Int
-  ^:private analyse-int-rem  ["int" "%"]  &type/Int  &type/Int
-  ^:private analyse-int-lt   ["int" "<"]  &type/Int  &type/Bit
+  analyse-int-mul  ["int" "*"]  &type/Int  &type/Int
+  analyse-int-div  ["int" "/"]  &type/Int  &type/Int
+  analyse-int-rem  ["int" "%"]  &type/Int  &type/Int
+  analyse-int-lt   ["int" "<"]  &type/Int  &type/Bit
 
-  ^:private analyse-frac-add ["frac" "+"] &type/Frac &type/Frac
-  ^:private analyse-frac-sub ["frac" "-"] &type/Frac &type/Frac
-  ^:private analyse-frac-mul ["frac" "*"] &type/Frac &type/Frac
-  ^:private analyse-frac-div ["frac" "/"] &type/Frac &type/Frac
-  ^:private analyse-frac-rem ["frac" "%"] &type/Frac &type/Frac
-  ^:private analyse-frac-eq  ["frac" "="] &type/Frac &type/Bit
-  ^:private analyse-frac-lt  ["frac" "<"] &type/Frac &type/Bit
+  analyse-frac-add ["frac" "+"] &type/Frac &type/Frac
+  analyse-frac-sub ["frac" "-"] &type/Frac &type/Frac
+  analyse-frac-mul ["frac" "*"] &type/Frac &type/Frac
+  analyse-frac-div ["frac" "/"] &type/Frac &type/Frac
+  analyse-frac-rem ["frac" "%"] &type/Frac &type/Frac
+  analyse-frac-eq  ["frac" "="] &type/Frac &type/Bit
+  analyse-frac-lt  ["frac" "<"] &type/Frac &type/Bit
   )
 
 (do-template [<encode> <encode-op> <decode> <decode-op> <type>]
-  (do (defn <encode> [analyse exo-type ?values]
+  (do (defn- <encode> [analyse exo-type ?values]
         (|do [:let [(&/$Cons x (&/$Nil)) ?values]
               =x (&&/analyse-1 analyse <type> x)
               _ (&type/check exo-type &type/Text)
@@ -184,7 +184,7 @@
                                      (&&/$proc (&/T <encode-op>) (&/|list =x) (&/|list)))))))
 
     (let [decode-type (&/$Apply <type> &type/Maybe)]
-      (defn <decode> [analyse exo-type ?values]
+      (defn- <decode> [analyse exo-type ?values]
         (|do [:let [(&/$Cons x (&/$Nil)) ?values]
               =x (&&/analyse-1 analyse &type/Text x)
               _ (&type/check exo-type decode-type)
@@ -192,24 +192,24 @@
           (return (&/|list (&&/|meta exo-type _cursor
                                      (&&/$proc (&/T <decode-op>) (&/|list =x) (&/|list)))))))))
 
-  ^:private analyse-frac-encode ["frac" "encode"] ^:private analyse-frac-decode ["frac" "decode"] &type/Frac
+  analyse-frac-encode ["frac" "encode"] analyse-frac-decode ["frac" "decode"] &type/Frac
   )
 
 (do-template [<name> <type> <op>]
-  (defn <name> [analyse exo-type ?values]
+  (defn- <name> [analyse exo-type ?values]
     (|do [:let [(&/$Nil) ?values]
           _ (&type/check exo-type <type>)
           _cursor &/cursor]
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T <op>) (&/|list) (&/|list)))))))
 
-  ^:private analyse-frac-smallest           &type/Frac ["frac"  "smallest"]
-  ^:private analyse-frac-min                &type/Frac ["frac"  "min"]
-  ^:private analyse-frac-max                &type/Frac ["frac"  "max"]
+  analyse-frac-smallest           &type/Frac ["frac"  "smallest"]
+  analyse-frac-min                &type/Frac ["frac"  "min"]
+  analyse-frac-max                &type/Frac ["frac"  "max"]
   )
 
 (do-template [<name> <from-type> <to-type> <op>]
-  (defn <name> [analyse exo-type ?values]
+  (defn- <name> [analyse exo-type ?values]
     (|do [:let [(&/$Cons x (&/$Nil)) ?values]
           =x (&&/analyse-1 analyse <from-type> x)
           _ (&type/check exo-type <to-type>)
@@ -217,21 +217,43 @@
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T <op>) (&/|list =x) (&/|list)))))))
 
-  ^:private analyse-int-char  &type/Int  &type/Text   ["int" "char"]
-  ^:private analyse-int-frac  &type/Int  &type/Frac   ["int" "frac"]
-  ^:private analyse-frac-int  &type/Frac &type/Int    ["frac" "int"]
+  analyse-int-char  &type/Int  &type/Text   ["int" "char"]
+  analyse-int-frac  &type/Int  &type/Frac   ["int" "frac"]
+  analyse-frac-int  &type/Frac &type/Int    ["frac" "int"]
 
-  ^:private analyse-io-log    &type/Text &type/Any    ["io" "log"]
-  ^:private analyse-io-error  &type/Text &type/Nothing ["io" "error"]
-  ^:private analyse-io-exit   &type/Int  &type/Nothing ["io" "exit"]
+  analyse-io-log    &type/Text &type/Any    ["io" "log"]
+  analyse-io-error  &type/Text &type/Nothing ["io" "error"]
+  analyse-io-exit   &type/Int  &type/Nothing ["io" "exit"]
   )
 
-(defn ^:private analyse-io-current-time [analyse exo-type ?values]
+(defn- analyse-io-current-time [analyse exo-type ?values]
   (|do [:let [(&/$Nil) ?values]
         _ (&type/check exo-type &type/Int)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["io" "current-time"]) (&/|list) (&/|list)))))))
+
+(defn- analyse-syntax-char-case! [analyse exo-type ?values]
+  (|do [:let [(&/$Cons ?input (&/$Cons [_ (&/$Tuple ?pairs)] (&/$Cons ?else (&/$Nil)))) ?values]
+        _cursor &/cursor
+        =input (&&/analyse-1 analyse &type/Nat ?input)
+        _ (assert! (even? (&/|length ?pairs)) "The number of matches must be even!")
+        =pairs (&/map% (fn [?pair]
+                         (|let [[[_ (&/$Tuple ?patterns)] ?match] ?pair]
+                           (|do [=match (&&/analyse-1 analyse exo-type ?match)]
+                             (return (&/T [(&/|map (fn [?pattern]
+                                                     (|let [[_ (&/$Text ^String ?pattern-char)] ?pattern]
+                                                       (int (.charAt ?pattern-char 0))))
+                                                   ?patterns)
+                                           =match])))))
+                       (&/|as-pairs ?pairs))
+        =else (&&/analyse-1 analyse exo-type ?else)]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$proc (&/T ["lux" "syntax char case!"])
+                                         (&/|list =input
+                                                  (&&/|meta exo-type _cursor (&&/$tuple (&/|map &/|second =pairs)))
+                                                  =else)
+                                         (&/|map &/|first =pairs)))))))
 
 (defn analyse-proc [analyse exo-type proc ?values]
   (try (case proc
@@ -281,6 +303,10 @@
          "lux frac min" (analyse-frac-min analyse exo-type ?values)
          "lux frac max" (analyse-frac-max analyse exo-type ?values)
          "lux frac int" (analyse-frac-int analyse exo-type ?values)
+
+         ;; Special extensions for performance reasons
+         ;; Will be replaced by custom extensions in the future.
+         "lux syntax char case!" (analyse-syntax-char-case! analyse exo-type ?values)
          
          ;; else
          (&/fail-with-loc (str "[Analyser Error] Unknown host procedure: " proc)))

@@ -93,7 +93,6 @@ Otherwise check `define-lux-indent' and `put-lux-indent'."
     (modify-syntax-entry ?\[ "(]" table)
     (modify-syntax-entry ?\] ")[" table)
     (modify-syntax-entry ?\" "\"\"" table)
-    (modify-syntax-entry ?\\ "\\" table)
     (modify-syntax-entry ?# "w 124b" table)
     (modify-syntax-entry ?\n "> b" table)
     (modify-syntax-entry '(?a . ?z) "w" table)
@@ -122,7 +121,7 @@ Otherwise check `define-lux-indent' and `put-lux-indent'."
     (modify-syntax-entry ?< "w" table)
     (modify-syntax-entry ?> "w" table)
     (modify-syntax-entry ?\; "w" table)
-    ;; (modify-syntax-entry ?\\ "w" table)
+    (modify-syntax-entry ?\\ "w" table)
     (modify-syntax-entry ?\s "-" table)
     (modify-syntax-entry ?\t "-" table)
     (modify-syntax-entry ?\r "-" table)
@@ -227,7 +226,6 @@ Called by `imenu--generic-function'."
       (let ((bitRE (literal (special (altRE "0" "1"))))
             (natRE (literal natural))
             (int&fracRE (literal (concat integer "\\(\\." natural "\\(\\(e\\|E\\)" integer "\\)?\\)?")))
-            (frac-ratioRE (literal (concat integer "/" natural)))
             (revRE (literal (concat "\\." natural)))
             (tagRE (let ((separator "\\."))
                      (let ((in-prelude separator)
@@ -315,8 +313,6 @@ Called by `imenu--generic-function'."
             (,natRE 0 font-lock-constant-face)
             ;; Int literals && Frac literals
             (,int&fracRE 0 font-lock-constant-face)
-            ;; Frac "ratio" literals
-            (,frac-ratioRE 0 font-lock-constant-face)
             ;; Rev literals
             (,revRE 0 font-lock-constant-face)
             ;; Tags

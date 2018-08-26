@@ -22,179 +22,104 @@
 ## updated cursor pointing to the end position, after the parser was run.
 
 ## Lux Code nodes/tokens are annotated with cursor meta-data
-## (file-name, line, column) to keep track of their provenance and
+## [file-name, line, column] to keep track of their provenance and
 ## location, which is helpful for documentation and debugging.
 (.module:
-  [lux (#- nat int rev true false)
+  [lux (#- int rev)
    [control
     monad
     ["p" parser ("parser/." Monad<Parser>)]
     ["ex" exception (#+ exception:)]]
    [data
-    ["e" error]
+    ["." error (#+ Error)]
     ["." number]
-    ["." product]
-    ["." maybe]
     ["." text
-     ["l" lexer (#+ Lexer)]
+     ["l" lexer (#+ Offset Lexer)]
      format]
     [collection
-     ["." row (#+ Row)]
-     ["." dictionary (#+ Dictionary)]]]
-   ["." function]])
+     ["." list]
+     ["." dictionary (#+ Dictionary)]]]])
+
+## TODO: Optimize how forms, tuples & records are parsed in the end.
+## There is repeated-work going on when parsing the white-space before the
+## closing parenthesis/bracket/brace.
+## That repeated-work should be avoided.
+
+## TODO: Implement "lux syntax char case!" as a custom extension.
+## That way, it should be possible to obtain the char without wrapping
+## it into a java.lang.Long, thereby improving performance.
+
+## TODO: Make an extension to take advantage of java/lang/String::indexOf<int,int>
+## to get better performance than the current "lux text index" extension.
+
+(type: Char Nat)
+
+(do-template [<name> <extension> <diff>]
+  [(template: (<name> value)
+     (<extension> value <diff>))]
+
+  [!inc   "lux i64 +" 1]
+  [!inc/2 "lux i64 +" 2]
+  [!dec   "lux i64 -" 1]
+  )
+
+(template: (!clip from to text)
+  ("lux text clip" text from to))
+
+(do-template [<name> <extension>]
+  [(template: (<name> reference subject)
+     (<extension> subject reference))]
+
+  [!n/= "lux i64 ="]
+  [!i/< "lux int <"]
+  )
+
+(do-template [<name> <extension>]
+  [(template: (<name> param subject)
+     (<extension> subject param))]
+
+  [!n/+ "lux i64 +"]
+  [!n/- "lux i64 -"]
+  )
+
+(type: #export Syntax
+  (-> Cursor (Lexer [Cursor Code])))
 
 (type: #export Aliases (Dictionary Text Text))
 (def: #export no-aliases Aliases (dictionary.new text.Hash<Text>))
 
-(def: white-space Text "\t\v \r\f")
-(def: new-line Text "\n")
+(def: #export prelude "lux")
 
-## This is the parser for white-space.
-## Whenever a new-line is encountered, the column gets reset to 0, and
-## the line gets incremented.
-## It operates recursively in order to produce the longest continuous
-## chunk of white-space.
-(def: (space^ where)
-  (-> Cursor (Lexer [Cursor Text]))
-  (p.either (do p.Monad<Parser>
-              [content (l.many (l.one-of white-space))]
-              (wrap [(update@ #.column (n/+ (text.size content)) where)
-                     content]))
-            ## New-lines must be handled as a separate case to ensure line
-            ## information is handled properly.
-            (do p.Monad<Parser>
-              [content (l.many (l.one-of new-line))]
-              (wrap [(|> where
-                         (update@ #.line (n/+ (text.size content)))
-                         (set@ #.column 0))
-                     content]))
-            ))
+(def: #export space " ")
 
-## Single-line comments can start anywhere, but only go up to the
-## next new-line.
-(def: (single-line-comment^ where)
-  (-> Cursor (Lexer [Cursor Text]))
-  (do p.Monad<Parser>
-    [_ (l.this "##")
-     comment (l.some (l.none-of new-line))
-     _ (l.this new-line)]
-    (wrap [(|> where
-               (update@ #.line inc)
-               (set@ #.column 0))
-           comment])))
+(def: #export text-delimiter text.double-quote)
 
-## This is just a helper parser to find text which doesn't run into
-## any special character sequences for multi-line comments.
-(def: comment-bound^
-  (Lexer Any)
-  ($_ p.either
-      (l.this new-line)
-      (l.this ")#")
-      (l.this "#(")))
+(def: #export open-form "(")
+(def: #export close-form ")")
 
-## Multi-line comments are bounded by #( these delimiters, #(and, they may
-## also be nested)# )#.
-## Multi-line comment syntax must be balanced.
-## That is, any nested comment must have matched delimiters.
-## Unbalanced comments ought to be rejected as invalid code.
-(def: (multi-line-comment^ where)
-  (-> Cursor (Lexer [Cursor Text]))
-  (do p.Monad<Parser>
-    [_ (l.this "#(")]
-    (loop [comment ""
-           where (update@ #.column (n/+ 2) where)]
-      ($_ p.either
-          ## These are normal chunks of commented text.
-          (do @
-            [chunk (l.many (l.not comment-bound^))]
-            (recur (format comment chunk)
-                   (|> where
-                       (update@ #.column (n/+ (text.size chunk))))))
-          ## This is a special rule to handle new-lines within
-          ## comments properly.
-          (do @
-            [_ (l.this new-line)]
-            (recur (format comment new-line)
-                   (|> where
-                       (update@ #.line inc)
-                       (set@ #.column 0))))
-          ## This is the rule for handling nested sub-comments.
-          ## Ultimately, the whole comment is just treated as text
-          ## (the comment must respect the syntax structure, but the
-          ## output produced is just a block of text).
-          ## That is why the sub-comment is covered in delimiters
-          ## and then appended to the rest of the comment text.
-          (do @
-            [[sub-where sub-comment] (multi-line-comment^ where)]
-            (recur (format comment "#(" sub-comment ")#")
-                   sub-where))
-          ## Finally, this is the rule for closing the comment.
-          (do @
-            [_ (l.this ")#")]
-            (wrap [(update@ #.column (n/+ 2) where)
-                   comment]))
-          ))))
+(def: #export open-tuple "[")
+(def: #export close-tuple "]")
 
-## This is the only parser that should be used directly by other
-## parsers, since all comments must be treated as either being
-## single-line or multi-line.
-## That is, there is no syntactic rule prohibiting one type of comment
-## from being used in any situation (alternatively, forcing one type
-## of comment to be the only usable one).
-(def: (comment^ where)
-  (-> Cursor (Lexer [Cursor Text]))
-  (p.either (single-line-comment^ where)
-            (multi-line-comment^ where)))
+(def: #export open-record "{")
+(def: #export close-record "}")
 
-## To simplify parsing, I remove any left-padding that an Code token
-## may have prior to parsing the token itself.
-## Left-padding is assumed to be either white-space or a comment.
-## The cursor gets updated, but the padding gets ignored.
-(def: (left-padding^ where)
-  (-> Cursor (Lexer Cursor))
-  ($_ p.either
-      (do p.Monad<Parser>
-        [[where comment] (comment^ where)]
-        (left-padding^ where))
-      (do p.Monad<Parser>
-        [[where white-space] (space^ where)]
-        (left-padding^ where))
-      (:: p.Monad<Parser> wrap where)))
+(def: #export sigil "#")
 
-## Escaped character sequences follow the usual syntax of
-## back-slash followed by a letter (e.g. \n).
-## Unicode escapes are possible, with hexadecimal sequences between 1
-## and 4 characters long (e.g. \u12aB).
-## Escaped characters may show up in Char and Text literals.
-(def: escaped-char^
-  (Lexer [Nat Text])
-  (p.after (l.this "\\")
-           (do p.Monad<Parser>
-             [code l.any]
-             (case code
-               ## Handle special cases.
-               "t"  (wrap [2 "\t"])
-               "v"  (wrap [2 "\v"])
-               "b"  (wrap [2 "\b"])
-               "n"  (wrap [2 "\n"])
-               "r"  (wrap [2 "\r"])
-               "f"  (wrap [2 "\f"])
-               "\"" (wrap [2 "\""])
-               "\\" (wrap [2 "\\"])
+(def: #export digit-separator "_")
 
-               ## Handle unicode escapes.
-               "u"
-               (do p.Monad<Parser>
-                 [code (l.between 1 4 l.hexadecimal)]
-                 (wrap (case (:: number.Hex@Codec<Text,Nat> decode code)
-                         (#.Right value)
-                         [(n/+ 2 (text.size code)) (text.from-code value)]
+(def: #export positive-sign "+")
+(def: #export negative-sign "-")
 
-                         _
-                         (undefined))))
+(def: #export frac-separator ".")
 
-               _
-               (p.fail (format "Invalid escaping syntax: " (%t code)))))))
+## The parts of an name are separated by a single mark.
+## E.g. module.short.
+## Only one such mark may be used in an name, since there
+## can only be 2 parts to an name (the module [before the
+## mark], and the short [after the mark]).
+## There are also some extra rules regarding name syntax,
+## encoded on the parser.
+(def: #export name-separator ".")
 
 ## These are very simple parsers that just cut chunks of text in
 ## specific shapes and then use decoders already present in the
@@ -211,73 +136,8 @@
 
 (def: sign^ (l.one-of "+-"))
 
-(do-template [<name> <tag> <lexer> <codec>]
-  [(def: #export (<name> where)
-     (-> Cursor (Lexer [Cursor Code]))
-     (do p.Monad<Parser>
-       [chunk <lexer>]
-       (case (:: <codec> decode chunk)
-         (#.Left error)
-         (p.fail error)
-
-         (#.Right value)
-         (wrap [(update@ #.column (n/+ (text.size chunk)) where)
-                [where (<tag> value)]]))))]
-
-  [int #.Int
-   (l.and sign^ rich-digits^)
-   number.Codec<Text,Int>]
-  
-  [rev #.Rev
-   (l.and (l.one-of ".")
-          rich-digits^)
-   number.Codec<Text,Rev>]
-  )
-
-(def: (nat-char where)
-  (-> Cursor (Lexer [Cursor Code]))
-  (do p.Monad<Parser>
-    [_ (l.this "#\"")
-     [where' char] (: (Lexer [Cursor Text])
-                      ($_ p.either
-                          ## Normal text characters.
-                          (do @
-                            [normal (l.none-of "\\\"\n")]
-                            (wrap [(|> where
-                                       (update@ #.column inc))
-                                   normal]))
-                          ## Must handle escaped
-                          ## chars separately.
-                          (do @
-                            [[chars-consumed char] escaped-char^]
-                            (wrap [(|> where
-                                       (update@ #.column (n/+ chars-consumed)))
-                                   char]))))
-     _ (l.this "\"")
-     #let [char (maybe.assume (text.nth 0 char))]]
-    (wrap [(|> where'
-               (update@ #.column inc))
-           [where (#.Nat char)]])))
-
-(def: (normal-nat where)
-  (-> Cursor (Lexer [Cursor Code]))
-  (do p.Monad<Parser>
-    [chunk rich-digits^]
-    (case (:: number.Codec<Text,Nat> decode chunk)
-      (#.Left error)
-      (p.fail error)
-
-      (#.Right value)
-      (wrap [(update@ #.column (n/+ (text.size chunk)) where)
-             [where (#.Nat value)]]))))
-
-(def: #export (nat where)
-  (-> Cursor (Lexer [Cursor Code]))
-  (p.either (normal-nat where)
-            (nat-char where)))
-
-(def: (normal-frac where)
-  (-> Cursor (Lexer [Cursor Code]))
+(def: #export (frac where)
+  Syntax
   (do p.Monad<Parser>
     [chunk ($_ l.and
                sign^
@@ -297,341 +157,435 @@
       (wrap [(update@ #.column (n/+ (text.size chunk)) where)
              [where (#.Frac value)]]))))
 
-(def: frac-ratio-fragment
-  (Lexer Frac)
-  (<| (p.codec number.Codec<Text,Frac>)
-      (:: p.Monad<Parser> map (function (_ digits)
-                                (format digits ".0")))
-      rich-digits^))
-
-(def: (ratio-frac where)
-  (-> Cursor (Lexer [Cursor Code]))
-  (do p.Monad<Parser>
-    [chunk ($_ l.and
-               (p.default "" (l.one-of "-"))
-               rich-digits^
-               (l.one-of "/")
-               rich-digits^)
-     value (l.local chunk
-                    (do @
-                      [signed? (l.this? "-")
-                       numerator frac-ratio-fragment
-                       _ (l.this? "/")
-                       denominator frac-ratio-fragment
-                       _ (p.assert "Denominator cannot be 0."
-                                   (not (f/= +0.0 denominator)))]
-                      (wrap (|> numerator
-                                (f/* (if signed? -1.0 +1.0))
-                                (f// denominator)))))]
-    (wrap [(update@ #.column (n/+ (text.size chunk)) where)
-           [where (#.Frac value)]])))
-
-(def: #export (frac where)
-  (-> Cursor (Lexer [Cursor Code]))
-  (p.either (normal-frac where)
-            (ratio-frac where)))
-
-## This parser looks so complex because text in Lux can be multi-line
-## and there are rules regarding how this is handled.
-(def: #export (text where)
-  (-> Cursor (Lexer [Cursor Code]))
-  (do p.Monad<Parser>
-    [## Lux text "is delimited by double-quotes", as usual in most
-     ## programming languages.
-     _ (l.this "\"")
-     ## I must know what column the text body starts at (which is
-     ## always 1 column after the left-delimiting quote).
-     ## This is important because, when procesing subsequent lines,
-     ## they must all start at the same column, being left-padded with
-     ## as many spaces as necessary to be column-aligned.
-     ## This helps ensure that the formatting on the text in the
-     ## source-code matches the formatting of the Text value.
-     #let [offset-column (inc (get@ #.column where))]
-     [where' text-read] (: (Lexer [Cursor Text])
-                           ## I must keep track of how much of the
-                           ## text body has been read, how far the
-                           ## cursor has progressed, and whether I'm
-                           ## processing a subsequent line, or just
-                           ## processing normal text body.
-                           (loop [text-read ""
-                                  where (|> where
-                                            (update@ #.column inc))
-                                  must-have-offset? #0]
-                             (p.either (if must-have-offset?
-                                         ## If I'm at the start of a
-                                         ## new line, I must ensure the
-                                         ## space-offset is at least
-                                         ## as great as the column of
-                                         ## the text's body's column,
-                                         ## to ensure they are aligned.
-                                         (do @
-                                           [offset (l.many (l.one-of " "))
-                                            #let [offset-size (text.size offset)]]
-                                           (if (n/>= offset-column offset-size)
-                                             ## Any extra offset
-                                             ## becomes part of the
-                                             ## text's body.
-                                             (recur (|> offset
-                                                        (text.split offset-column)
-                                                        (maybe.default (undefined))
-                                                        product.right
-                                                        (format text-read))
-                                                    (|> where
-                                                        (update@ #.column (n/+ offset-size)))
-                                                    #0)
-                                             (p.fail (format "Each line of a multi-line text must have an appropriate offset!\n"
-                                                             "Expected: " (%i (.int offset-column)) " columns.\n"
-                                                             "  Actual: " (%i (.int offset-size)) " columns.\n"))))
-                                         ($_ p.either
-                                             ## Normal text characters.
-                                             (do @
-                                               [normal (l.many (l.none-of "\\\"\n"))]
-                                               (recur (format text-read normal)
-                                                      (|> where
-                                                          (update@ #.column (n/+ (text.size normal))))
-                                                      #0))
-                                             ## Must handle escaped
-                                             ## chars separately.
-                                             (do @
-                                               [[chars-consumed char] escaped-char^]
-                                               (recur (format text-read char)
-                                                      (|> where
-                                                          (update@ #.column (n/+ chars-consumed)))
-                                                      #0))
-                                             ## The text ends when it
-                                             ## reaches the right-delimiter.
-                                             (do @
-                                               [_ (l.this "\"")]
-                                               (wrap [(update@ #.column inc where)
-                                                      text-read]))))
-                                       ## If a new-line is
-                                       ## encountered, it gets
-                                       ## appended to the value and
-                                       ## the loop is alerted that the
-                                       ## next line must have an offset.
-                                       (do @
-                                         [_ (l.this new-line)]
-                                         (recur (format text-read new-line)
-                                                (|> where
-                                                    (update@ #.line inc)
-                                                    (set@ #.column 0))
-                                                #1)))))]
-    (wrap [where'
-           [where (#.Text text-read)]])))
-
-## Form and tuple syntax is mostly the same, differing only in the
-## delimiters involved.
-## They may have an arbitrary number of arbitrary Code nodes as elements.
-(do-template [<name> <tag> <open> <close>]
-  [(def: (<name> where ast)
-     (-> Cursor
-         (-> Cursor (Lexer [Cursor Code]))
-         (Lexer [Cursor Code]))
-     (do p.Monad<Parser>
-       [_ (l.this <open>)
-        [where' elems] (loop [elems (: (Row Code)
-                                       row.empty)
-                              where where]
-                         (p.either (do @
-                                     [## Must update the cursor as I
-                                      ## go along, to keep things accurate.
-                                      [where' elem] (ast where)]
-                                     (recur (row.add elem elems)
-                                            where'))
-                                   (do @
-                                     [## Must take into account any
-                                      ## padding present before the
-                                      ## end-delimiter.
-                                      where' (left-padding^ where)
-                                      _ (l.this <close>)]
-                                     (wrap [(update@ #.column inc where')
-                                            (row.to-list elems)]))))]
-       (wrap [where'
-              [where (<tag> elems)]])))]
-
-  [form   #.Form   "(" ")"]
-  [tuple  #.Tuple  "[" "]"]
-  )
-
-## Records are almost (syntactically) the same as forms and tuples,
-## with the exception that their elements must come in pairs (as in
-## key-value pairs).
-## Semantically, though, records and tuples are just 2 different
-## representations for the same thing (a tuple).
-## In normal Lux syntax, the key position in the pair will be a tag
-## Code node, however, record Code nodes allow any Code node to occupy
-## this position, since it may be useful when processing Code syntax in
-## macros.
-(def: (record where ast)
-  (-> Cursor
-      (-> Cursor (Lexer [Cursor Code]))
-      (Lexer [Cursor Code]))
-  (do p.Monad<Parser>
-    [_ (l.this "{")
-     [where' elems] (loop [elems (: (Row [Code Code])
-                                    row.empty)
-                           where where]
-                      (p.either (do @
-                                  [[where' key] (ast where)
-                                   [where' val] (ast where')]
-                                  (recur (row.add [key val] elems)
-                                         where'))
-                                (do @
-                                  [where' (left-padding^ where)
-                                   _ (l.this "}")]
-                                  (wrap [(update@ #.column inc where')
-                                         (row.to-list elems)]))))]
-    (wrap [where'
-           [where (#.Record elems)]])))
-
-## The parts of an name are separated by a single mark.
-## E.g. module.short.
-## Only one such mark may be used in an name, since there
-## can only be 2 parts to an name (the module [before the
-## mark], and the short [after the mark]).
-## There are also some extra rules regarding name syntax,
-## encoded on the parser.
-(def: name-separator Text ".")
-
-## A Lux name is a pair of chunks of text, where the first-part
-## refers to the module that gives context to the name, and the
-## second part corresponds to the short of the name itself.
-## The module part may be absent (by being the empty text ""), but the
-## name part must always be present.
-## The rules for which characters you may use are specified in terms
-## of which characters you must avoid (to keep things as open-ended as
-## possible).
-## In particular, no white-space can be used, and neither can other
-## characters which are already used by Lux as delimiters for other
-## Code nodes (thereby reducing ambiguity while parsing).
-## Additionally, the first character in an name's part cannot be
-## a digit, to avoid confusion with regards to numbers.
-(def: name-part^
-  (Lexer Text)
-  (do p.Monad<Parser>
-    [#let [digits "0123456789"
-           delimiters (format "()[]{}#\"" name-separator)
-           space (format white-space new-line)
-           head-lexer (l.none-of (format digits delimiters space))
-           tail-lexer (l.some (l.none-of (format delimiters space)))]
-     head head-lexer
-     tail tail-lexer]
-    (wrap (format head tail))))
-
-(def: current-module-mark Text (format name-separator name-separator))
-
-(def: (name^ current-module aliases)
-  (-> Text Aliases (Lexer [Name Nat]))
-  ($_ p.either
-      ## When an name starts with 2 marks, its module is
-      ## taken to be the current-module being compiled at the moment.
-      ## This can be useful when mentioning names and tags
-      ## inside quoted/templated code in macros.
-      (do p.Monad<Parser>
-        [_ (l.this current-module-mark)
-         def-name name-part^]
-        (wrap [[current-module def-name]
-               (n/+ 2 (text.size def-name))]))
-      ## If the name is prefixed by the mark, but no module
-      ## part, the module is assumed to be "lux" (otherwise known as
-      ## the 'prelude').
-      ## This makes it easy to refer to definitions in that module,
-      ## since it is the most fundamental module in the entire
-      ## standard library.
-      (do p.Monad<Parser>
-        [_ (l.this name-separator)
-         def-name name-part^]
-        (wrap [["lux" def-name]
-               (inc (text.size def-name))]))
-      ## Not all names must be specified with a module part.
-      ## If that part is not provided, the name will be created
-      ## with the empty "" text as the module.
-      ## During program analysis, such names tend to be treated
-      ## as if their context is the current-module, but this only
-      ## applies to names for tags and module definitions.
-      ## Function arguments and local-variables may not be referred-to
-      ## using names with module parts, so being able to specify
-      ## names with empty modules helps with those use-cases.
-      (do p.Monad<Parser>
-        [first-part name-part^]
-        (p.either (do @
-                    [_ (l.this name-separator)
-                     second-part name-part^]
-                    (wrap [[(|> aliases (dictionary.get first-part) (maybe.default first-part))
-                            second-part]
-                           ($_ n/+
-                               (text.size first-part)
-                               1
-                               (text.size second-part))]))
-                  (wrap [["" first-part]
-                         (text.size first-part)])))))
-
-(do-template [<name> <pre> <tag> <length>]
-  [(def: #export (<name> current-module aliases where)
-     (-> Text Aliases Cursor (Lexer [Cursor Code]))
-     (do p.Monad<Parser>
-       [[value length] (<| <pre>
-                           (name^ current-module aliases))]
-       (wrap [(update@ #.column (|>> (n/+ <length>)) where)
-              [where (<tag> value)]])))]
-
-  [tag        (p.after (l.this "#")) #.Tag        (n/+ 1 length)]
-  [identifier (|>)                   #.Identifier length]
-  )
-
-(do-template [<name> <value>]
-  [(def: <name>
-     (Lexer Bit)
-     (:: p.Monad<Parser> map (function.constant <value>) (l.this (%b <value>))))]
-
-  [false #0]
-  [true  #1]
-  )
-
-(def: #export (bit where)
-  (-> Cursor (Lexer [Cursor Code]))
-  (do p.Monad<Parser>
-    [value (p.either ..false ..true)]
-    (wrap [(update@ #.column (|>> (n/+ 2)) where)
-           [where (#.Bit value)]])))
-
 (exception: #export (end-of-file {module Text})
   (ex.report ["Module" (%t module)]))
 
-(exception: #export (unrecognized-input {[file line column] Cursor})
-  (ex.report ["File" (%t file)]
-             ["Line" (%n line)]
-             ["Column" (%n column)]))
+(def: amount-of-input-shown 64)
+
+(exception: #export (unrecognized-input {[file line column] Cursor} {context Text} {input Text} {offset Offset})
+  (let [end-offset (|> offset (n/+ amount-of-input-shown) (n/min ("lux text size" input)))]
+    (ex.report ["File" file]
+               ["Line" (%n line)]
+               ["Column" (%n column)]
+               ["Context" (%t context)]
+               ["Input" (!clip offset end-offset input)])))
+
+(exception: #export (text-cannot-contain-new-lines {text Text})
+  (ex.report ["Text" (%t text)]))
+
+(exception: #export (invalid-escape-syntax)
+  "")
+
+(exception: #export (cannot-close-composite-expression {closing-char Char})
+  (ex.report ["Closing Character" (text.from-code closing-char)]))
 
 (def: (ast current-module aliases)
-  (-> Text Aliases Cursor (Lexer [Cursor Code]))
+  (-> Text Aliases Syntax)
   (function (ast' where)
-    (do p.Monad<Parser>
-      [where (left-padding^ where)]
-      ($_ p.either
-          (..form where ast')
-          (..tuple where ast')
-          (..record where ast')
-          (..text where)
-          (..nat where)
-          (..frac where)
-          (..int where)
-          (..rev where)
-          (..bit where)
-          (..identifier current-module aliases where)
-          (..tag current-module aliases where)
-          (do @
-            [end? l.end?]
-            (if end?
-              (p.fail (ex.construct end-of-file current-module))
-              (p.fail (ex.construct unrecognized-input where))))
-          ))))
+    ($_ p.either
+        (..frac where)
+        )))
 
-(def: #export (read current-module aliases [where offset source-code])
-  (-> Text Aliases Source (e.Error [Source Code]))
-  (case (p.run [offset source-code] (ast current-module aliases where))
-    (#e.Error error)
-    (#e.Error error)
+(type: Parser
+  (-> Source (Error [Source Code])))
 
-    (#e.Success [[offset' remaining] [where' output]])
-    (#e.Success [[where' offset' remaining] output])))
+(template: (!with-char+ @source-code-size @source-code @offset @char @else @body)
+  (if (!i/< (:coerce Int @source-code-size)
+            (:coerce Int @offset))
+    (let [@char ("lux text char" @source-code @offset)]
+      @body)
+    @else))
+
+(template: (!with-char @source-code @offset @char @else @body)
+  (!with-char+ ("lux text size" @source-code) @source-code @offset @char @else @body))
+
+(def: close-signal "CLOSE")
+
+(def: (read-close closing-char source-code//size source-code offset)
+  (-> Char Nat Text Offset (Error Offset))
+  (loop [end offset]
+    (<| (!with-char+ source-code//size source-code end char (ex.throw cannot-close-composite-expression closing-char)
+          (if (!n/= closing-char char)
+            (#error.Success (!inc end))
+            (`` ("lux syntax char case!" char
+                 [[(~~ (static ..space))
+                   (~~ (static text.carriage-return))
+                   (~~ (static text.new-line))]
+                  (recur (!inc end))]
+
+                 ## else
+                 (ex.throw cannot-close-composite-expression closing-char))))))))
+
+(`` (do-template [<name> <close> <tag> <context>]
+      [(def: (<name> parse source)
+         (-> Parser Parser)
+         (let [[_ _ source-code] source
+               source-code//size ("lux text size" source-code)]
+           (loop [source source
+                  stack (: (List Code) #.Nil)]
+             (case (parse source)
+               (#error.Success [source' top])
+               (recur source' (#.Cons top stack))
+               
+               (#error.Error error)
+               (let [[where offset _] source]
+                 (case (read-close (char <close>) source-code//size source-code offset)
+                   (#error.Success offset')
+                   (#error.Success [[(update@ #.column inc where) offset' source-code]
+                                    [where (<tag> (list.reverse stack))]])
+
+                   (#error.Error error)
+                   (#error.Error error)))))))]
+
+      ## Form and tuple syntax is mostly the same, differing only in the
+      ## delimiters involved.
+      ## They may have an arbitrary number of arbitrary Code nodes as elements.
+      [parse-form  (~~ (static ..close-form))  #.Form  "Form"]
+      [parse-tuple (~~ (static ..close-tuple)) #.Tuple "Tuple"]
+      ))
+
+(def: (parse-record parse source)
+  (-> Parser Parser)
+  (let [[_ _ source-code] source
+        source-code//size ("lux text size" source-code)]
+    (loop [source source
+           stack (: (List [Code Code]) #.Nil)]
+      (case (parse source)
+        (#error.Success [sourceF field])
+        (case (parse sourceF)
+          (#error.Success [sourceFV value])
+          (recur sourceFV (#.Cons [field value] stack))
+
+          (#error.Error error)
+          (#error.Error error))
+
+        (#error.Error error)
+        (let [[where offset _] source]
+          (<| (!with-char+ source-code//size source-code offset closing-char (#error.Error error))
+              (case (read-close (`` (char (~~ (static ..close-record)))) source-code//size source-code offset)
+                (#error.Success offset')
+                (#error.Success [[(update@ #.column inc where) offset' source-code]
+                                 [where (#.Record (list.reverse stack))]])
+
+                (#error.Error error)
+                (#error.Error error))))))))
+
+(template: (!guarantee-no-new-lines content body)
+  (case ("lux text index" content (static text.new-line) 0)
+    (#.Some g!_)
+    (ex.throw ..text-cannot-contain-new-lines content)
+
+    g!_
+    body))
+
+(template: (!read-text where offset source-code)
+  (case ("lux text index" source-code (static ..text-delimiter) offset)
+    (#.Some g!end)
+    (let [g!content (!clip offset g!end source-code)]
+      (<| (!guarantee-no-new-lines g!content)
+          (#error.Success [[(update@ #.column (n/+ (!n/- offset g!end)) where)
+                            (!inc g!end)
+                            source-code]
+                           [where
+                            (#.Text g!content)]])))
+    
+    _
+    (ex.throw unrecognized-input [where "Text" source-code offset])))
+
+(def: digit-bottom Nat (!dec (char "0")))
+(def: digit-top Nat (!inc (char "9")))
+
+(template: (!digit? char)
+  (and (!i/< (:coerce Int char) (:coerce Int (static ..digit-bottom)))
+       (!i/< (:coerce Int (static ..digit-top)) (:coerce Int char))))
+
+(`` (template: (!digit?+ char)
+      (or (!digit? char)
+          ("lux i64 =" (.char (~~ (static ..digit-separator))) char))))
+
+(`` (template: (!strict-name-char? char)
+      (not (or ("lux i64 =" (.char (~~ (static ..space))) char)
+               ("lux i64 =" (.char (~~ (static text.new-line))) char)
+
+               ("lux i64 =" (.char (~~ (static ..name-separator))) char)
+
+               ("lux i64 =" (.char (~~ (static ..open-form))) char)
+               ("lux i64 =" (.char (~~ (static ..close-form))) char)
+
+               ("lux i64 =" (.char (~~ (static ..open-tuple))) char)
+               ("lux i64 =" (.char (~~ (static ..close-tuple))) char)
+
+               ("lux i64 =" (.char (~~ (static ..open-record))) char)
+               ("lux i64 =" (.char (~~ (static ..close-record))) char)
+
+               ("lux i64 =" (.char (~~ (static ..text-delimiter))) char)
+               ("lux i64 =" (.char (~~ (static ..sigil))) char)))))
+
+(template: (!name-char?|head char)
+  (and (!strict-name-char? char)
+       (not (!digit? char))))
+
+(template: (!name-char? char)
+  (or (!strict-name-char? char)
+      (!digit? char)))
+
+(template: (!number-output <start> <end> <codec> <tag>)
+  (case (:: <codec> decode (!clip <start> <end> source-code))
+    (#error.Success output)
+    (#error.Success [[(update@ #.column (n/+ (!n/- <start> <end>)) where)
+                      <end>
+                      source-code]
+                     [where (<tag> output)]])
+
+    (#error.Error error)
+    (#error.Error error)))
+
+(def: no-exponent Offset 0)
+
+(with-expansions [<int-output> (as-is (!number-output start end number.Codec<Text,Int> #.Int))
+                  <frac-output> (as-is (!number-output start end number.Codec<Text,Frac> #.Frac))
+                  <failure> (ex.throw unrecognized-input [where "Frac" source-code offset])]
+  (def: (parse-frac source-code//size start [where offset source-code])
+    (-> Nat Offset Parser)
+    (loop [end offset
+           exponent ..no-exponent]
+      (<| (!with-char+ source-code//size source-code end char/0 <frac-output>)
+          (cond (!digit?+ char/0)
+                (recur (!inc end) exponent)
+
+                (and (or (!n/= (char "e") char/0)
+                         (!n/= (char "E") char/0))
+                     (not (is? ..no-exponent exponent)))
+                (<| (!with-char+ source-code//size source-code (!inc end) char/1 <failure>)
+                    (if (or (!n/= (`` (char (~~ (static ..positive-sign)))) char/1)
+                            (!n/= (`` (char (~~ (static ..negative-sign)))) char/1))
+                      (<| (!with-char+ source-code//size source-code (!n/+ 2 end) char/2 <failure>)
+                          (if (!digit?+ char/2)
+                            (recur (!n/+ 3 end) char/0)
+                            <failure>))
+                      <failure>))
+
+                ## else
+                <frac-output>))))
+
+  (def: (parse-signed start [where offset source-code])
+    (-> Offset Parser)
+    (let [source-code//size ("lux text size" source-code)]
+      (loop [end offset]
+        (<| (!with-char+ source-code//size source-code end char <int-output>)
+            (cond (!digit?+ char)
+                  (recur (!inc end))
+
+                  (!n/= (`` (.char (~~ (static ..frac-separator))))
+                        char)
+                  (parse-frac source-code//size start [where (!inc end) source-code])
+
+                  ## else
+                  <int-output>))))))
+
+(do-template [<name> <codec> <tag>]
+  [(template: (<name> source-code//size start where offset source-code)
+     (loop [g!end offset]
+       (<| (!with-char+ source-code//size source-code g!end g!char (!number-output start g!end <codec> <tag>))
+           (if (!digit?+ g!char)
+             (recur (!inc g!end))
+             (!number-output start g!end <codec> <tag>)))))]
+
+  [!parse-nat number.Codec<Text,Nat> #.Nat]
+  [!parse-rev number.Codec<Text,Rev> #.Rev]
+  )
+
+(template: (!parse-signed source-code//size offset where source-code @end)
+  (let [g!offset/1 (!inc offset)]
+    (<| (!with-char+ source-code//size source-code g!offset/1 g!char/1 @end)
+        (if (!digit? g!char/1)
+          (parse-signed offset [where (!inc/2 offset) source-code])
+          (!parse-full-name offset [where (!inc offset) source-code] where #.Identifier)))))
+
+(with-expansions [<output> (#error.Success [[(update@ #.column (n/+ (!n/- start end)) where)
+                                             end
+                                             source-code]
+                                            (!clip start end source-code)])]
+  (def: (parse-name-part start [where offset source-code])
+    (-> Offset Source (Error [Source Text]))
+    (let [source-code//size ("lux text size" source-code)]
+      (loop [end offset]
+        (<| (!with-char+ source-code//size source-code end char <output>)
+            (if (!name-char? char)
+              (recur (!inc end))
+              <output>))))))
+
+(template: (!new-line where)
+  (let [[where::file where::line where::column] where]
+    [where::file (!inc where::line) 0]))
+
+(with-expansions [<end> (ex.throw end-of-file current-module)
+                  <failure> (ex.throw unrecognized-input [where "General" source-code offset/0])
+                  <close!> (#error.Error (`` (~~ (static close-signal))))
+                  <consume-1> (as-is [where (!inc offset/0) source-code])
+                  <consume-2> (as-is [where (!inc/2 offset/0) source-code])]
+
+  (template: (!parse-half-name @offset @char @module)
+    (cond (!name-char?|head @char)
+          (case (..parse-name-part @offset [where (!inc @offset) source-code])
+            (#error.Success [source' name])
+            (#error.Success [source' [@module name]])
+            
+            (#error.Error error)
+            (#error.Error error))
+
+          ## else
+          <failure>))
+
+  (`` (def: (parse-short-name current-module [where offset/0 source-code])
+        (-> Text Source (Error [Source Name]))
+        (<| (!with-char source-code offset/0 char/0 <end>)
+            (if (!n/= (char (~~ (static ..name-separator))) char/0)
+              (let [offset/1 (!inc offset/0)]
+                (<| (!with-char source-code offset/1 char/1 <end>)
+                    (!parse-half-name offset/1 char/1 current-module)))
+              (!parse-half-name offset/0 char/0 ..prelude)))))
+
+  (template: (!parse-short-name @current-module @source @where @tag)
+    (case (..parse-short-name @current-module @source)
+      (#error.Success [source' name])
+      (#error.Success [source' [@where (@tag name)]])
+      
+      (#error.Error error)
+      (#error.Error error)))
+
+  (with-expansions [<simple> (as-is (#error.Success [source' ["" simple]]))]
+    (`` (def: (parse-full-name start source)
+          (-> Offset Source (Error [Source Name]))
+          (case (..parse-name-part start source)
+            (#error.Success [source' simple])
+            (let [[where' offset' source-code'] source']
+              (<| (!with-char source-code' offset' char/separator <simple>)
+                  (if (!n/= (char (~~ (static ..name-separator))) char/separator)
+                    (let [offset'' (!inc offset')]
+                      (case (..parse-name-part offset'' [where' offset'' source-code'])
+                        (#error.Success [source'' complex])
+                        (#error.Success [source'' [simple complex]])
+                        
+                        (#error.Error error)
+                        (#error.Error error)))
+                    <simple>)))
+            
+            (#error.Error error)
+            (#error.Error error)))))
+
+  (template: (!parse-full-name @offset @source @where @tag)
+    (case (..parse-full-name @offset @source)
+      (#error.Success [source' full-name])
+      (#error.Success [source' [@where (@tag full-name)]])
+      
+      (#error.Error error)
+      (#error.Error error)))
+
+  (`` (template: (<<closers>>)
+        [(~~ (static ..close-form))
+         (~~ (static ..close-tuple))
+         (~~ (static ..close-record))]))
+  
+  (with-expansions [<parse> (as-is (parse current-module aliases source-code//size))
+                    <horizontal-move> (as-is (recur [(update@ #.column inc where)
+                                                     (!inc offset/0)
+                                                     source-code]))]
+    (def: #export (parse current-module aliases source-code//size)
+      (-> Text Aliases Nat (-> Source (Error [Source Code])))
+      ## The "exec []" is only there to avoid function fusion.
+      ## This is to preserve the loop as much as possible and keep it tight.
+      (exec []
+        (function (recur [where offset/0 source-code])
+          (<| (!with-char+ source-code//size source-code offset/0 char/0 <end>)
+              ## The space was singled-out for special treatment
+              ## because of how common it is.
+              (`` (if (!n/= (char (~~ (static ..space))) char/0)
+                    <horizontal-move>
+                    ("lux syntax char case!" char/0
+                     [## New line
+                      [(~~ (static text.carriage-return))]
+                      <horizontal-move>
+                      
+                      [(~~ (static text.new-line))]
+                      (recur [(!new-line where) (!inc offset/0) source-code])
+
+                      ## Form
+                      [(~~ (static ..open-form))]
+                      (parse-form <parse> <consume-1>)
+
+                      ## Tuple
+                      [(~~ (static ..open-tuple))]
+                      (parse-tuple <parse> <consume-1>)
+
+                      ## Record
+                      [(~~ (static ..open-record))]
+                      (parse-record <parse> <consume-1>)
+
+                      ## Text
+                      [(~~ (static ..text-delimiter))]
+                      (let [offset/1 (!inc offset/0)]
+                        (!read-text where offset/1 source-code))
+
+                      ## Special code
+                      [(~~ (static ..sigil))]
+                      (let [offset/1 (!inc offset/0)]
+                        (<| (!with-char+ source-code//size source-code offset/1 char/1 <end>)
+                            ("lux syntax char case!" char/1
+                             [(~~ (do-template [<char> <bit>]
+                                    [[<char>]
+                                     (#error.Success [[(update@ #.column (|>> !inc/2) where)
+                                                       (!inc offset/1)
+                                                       source-code]
+                                                      [where (#.Bit <bit>)]])]
+
+                                    ["0" #0]
+                                    ["1" #1]))
+
+                              ## Single-line comment
+                              [(~~ (static ..sigil))]
+                              (case ("lux text index" source-code (static text.new-line) offset/1)
+                                (#.Some end)
+                                (recur [(!new-line where) (!inc end) source-code])
+                                
+                                _
+                                <end>)
+
+                              [(~~ (static ..name-separator))]
+                              (!parse-short-name current-module <consume-2> where #.Tag)]
+
+                             ## else
+                             (cond (!name-char?|head char/1) ## Tag
+                                   (!parse-full-name offset/1 <consume-2> where #.Tag)
+
+                                   ## else
+                                   <failure>))))
+
+                      ## Coincidentally (= name-separator frac-separator)
+                      [(~~ (static ..name-separator))]
+                      (let [offset/1 (!inc offset/0)]
+                        (<| (!with-char+ source-code//size source-code offset/1 char/1 <end>)
+                            (if (!digit? char/1)
+                              (let [offset/2 (!inc offset/1)]
+                                (!parse-rev source-code//size offset/0 where offset/2 source-code))
+                              (!parse-short-name current-module [where offset/1 source-code] where #.Identifier))))
+
+                      [(~~ (static ..positive-sign))
+                       (~~ (static ..negative-sign))]
+                      (!parse-signed source-code//size offset/0 where source-code <end>)
+
+                      ## Invalid characters at this point...
+                      (~~ (<<closers>>))
+                      <close!>]
+
+                     ## else
+                     (if (!digit? char/0)
+                       ## Natural number
+                       (let [offset/1 (!inc offset/0)]
+                         (!parse-nat source-code//size offset/0 where offset/1 source-code))
+                       ## Identifier
+                       (!parse-full-name offset/0 <consume-1> where #.Identifier))
+                     )))
+              )))
+      ))
+  )

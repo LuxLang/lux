@@ -26,76 +26,12 @@
   )
 
 ;; [Utils]
-(defn ^:private clean-line [^String raw-line]
-  "(-> Text Text)"
-  (let [line-length (.length raw-line)
-        buffer (new StringBuffer line-length)]
-    (loop [idx 0]
-      (if (< idx line-length)
-        (let [current-char (.charAt raw-line idx)]
-          (if (= \\ current-char)
-            (do (assert (< (+ 1 idx) line-length) (str "[Lexer Error] Text is too short for escaping: " raw-line " " idx))
-              (case (.charAt raw-line (+ 1 idx))
-                \t (do (.append buffer "\t")
-                     (recur (+ 2 idx)))
-                \v (do (.append buffer "\u000B")
-                     (recur (+ 2 idx)))
-                \b (do (.append buffer "\b")
-                     (recur (+ 2 idx)))
-                \n (do (.append buffer "\n")
-                     (recur (+ 2 idx)))
-                \r (do (.append buffer "\r")
-                     (recur (+ 2 idx)))
-                \f (do (.append buffer "\f")
-                     (recur (+ 2 idx)))
-                \" (do (.append buffer "\"")
-                     (recur (+ 2 idx)))
-                \\ (do (.append buffer "\\")
-                     (recur (+ 2 idx)))
-                \u (do (assert (< (+ 5 idx) line-length) (str "[Lexer Error] Text is too short for unicode-escaping: " raw-line " " idx))
-                     (.append buffer (char (Integer/valueOf (.substring raw-line (+ 2 idx) (+ 6 idx)) 16)))
-                     (recur (+ 6 idx)))
-                ;; else
-                (assert false (str "[Lexer Error] Invalid escaping syntax: " raw-line " " idx))))
-            (do (.append buffer current-char)
-              (recur (+ 1 idx)))))
-        (.toString buffer)))))
-
-(defn ^:private lex-text-body [multi-line? offset]
-  (|do [[_ eol? ^String pre-quotes**] (&reader/read-regex #"^([^\"]*)")
-        ^String pre-quotes* (if multi-line?
-                              (|do [:let [empty-line? (and eol? (= "" pre-quotes**))]
-                                    _ (&/assert! (or empty-line?
-                                                     (>= (.length pre-quotes**) offset))
-                                                 "Each line of a multi-line text must have an appropriate offset!")]
-                                (return (if empty-line?
-                                          "\n"
-                                          (str "\n" (.substring pre-quotes** offset)))))
-                              (return pre-quotes**))
-        [pre-quotes post-quotes] (if (.endsWith pre-quotes* "\\")
-                                   (if eol?
-                                     (&/fail-with-loc "[Lexer Error] Cannot leave dangling back-slash \\")
-                                     (if (if-let [^String back-slashes (re-find #"\\+$" pre-quotes*)]
-                                           (odd? (.length back-slashes)))
-                                       (|do [[_ eol?* _] (&reader/read-regex #"^([\"])")
-                                             next-part (lex-text-body eol?* offset)]
-                                         (return (&/T [(.substring pre-quotes* 0 (dec (.length pre-quotes*)))
-                                                       (str "\"" next-part)])))
-                                       (|do [post-quotes* (lex-text-body false offset)]
-                                         (return (&/T [pre-quotes* post-quotes*])))))
-                                   (if eol?
-                                     (|do [next-part (lex-text-body true offset)]
-                                       (return (&/T [pre-quotes*
-                                                     next-part])))
-                                     (return (&/T [pre-quotes* ""]))))]
-    (return (str (clean-line pre-quotes) post-quotes))))
-
 (def lex-text
   (|do [[meta _ _] (&reader/read-text "\"")
         :let [[_ _ _column] meta]
-        token (lex-text-body false (inc _column))
+        [_ _ ^String content] (&reader/read-regex #"^([^\"]*)")
         _ (&reader/read-text "\"")]
-    (return (&/T [meta ($Text token)]))))
+    (return (&/T [meta ($Text content)]))))
 
 (def +ident-re+
   #"^([^0-9\[\]\{\}\(\)\s\"#.][^\[\]\{\}\(\)\s\"#.]*)")
@@ -105,25 +41,10 @@
   (|do [[meta _ white-space] (&reader/read-regex #"^(\s+|$)")]
     (return (&/T [meta ($White_Space white-space)]))))
 
-(def ^:private lex-single-line-comment
+(def ^:private lex-comment
   (|do [_ (&reader/read-text "##")
         [meta _ comment] (&reader/read-regex #"^(.*)$")]
     (return (&/T [meta ($Comment comment)]))))
-
-(defn ^:private lex-multi-line-comment [_]
-  (|do [_ (&reader/read-text "#(")
-        [meta comment] (&/try-all% (&/|list (|do [[meta comment] (&reader/read-regex+ #"(?is)^(?!#\()((?!\)#).)*")]
-                                              (return (&/T [meta comment])))
-                                            (|do [[meta pre] (&reader/read-regex+ #"(?is)^((?!#\().)*")
-                                                  [_ ($Comment inner)] (lex-multi-line-comment nil)
-                                                  [_ post] (&reader/read-regex+ #"(?is)^((?!\)#).)*")]
-                                              (return (&/T [meta (str pre "#(" inner ")#" post)])))))
-        _ (&reader/read-text ")#")]
-    (return (&/T [meta ($Comment comment)]))))
-
-(def ^:private lex-comment
-  (&/try-all% (&/|list lex-single-line-comment
-                       (lex-multi-line-comment nil))))
 
 (do-template [<name> <tag> <regex>]
   (def <name>
