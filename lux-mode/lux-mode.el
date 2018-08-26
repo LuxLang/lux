@@ -67,10 +67,10 @@
   "Major mode for editing Lux code."
   :prefix "lux-"
   :group 'languages
-  :link '(url-link :tag "Github" "https://github.com/lux/lux-mode")
+  :link '(url-link :tag "Github" "https://github.com/LuxLang/lux/tree/master/lux-mode")
   :link '(emacs-commentary-link :tag "Commentary" "lux-mode"))
 
-(defconst lux-mode-version "0.1.0"
+(defconst lux-mode-version "0.6.0"
   "The current version of `lux-mode'.")
 
 (defcustom lux-defun-style-default-indent nil
