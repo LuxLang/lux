@@ -1608,34 +1608,6 @@
   [auto-convert-output byte-to-long short-to-long int-to-long float-to-double]
   )
 
-(def: (with-mode-field-get mode class output)
-  (-> Primitive-Mode GenericType Code Code)
-  (case mode
-    #ManualPrM
-    output
-    
-    #AutoPrM
-    (case (simple-class$ (list) class)
-      "byte"  (` (byte-to-long (~ output)))
-      "short" (` (short-to-long (~ output)))
-      "int"   (` (int-to-long (~ output)))
-      "float" (` (float-to-double (~ output)))
-      _       output)))
-
-(def: (with-mode-field-set mode class g!input)
-  (-> Primitive-Mode GenericType Code Code)
-  (case mode
-    #ManualPrM
-    g!input
-    
-    #AutoPrM
-    (case (simple-class$ (list) class)
-      "byte"  (` (long-to-byte (~ g!input)))
-      "short" (` (long-to-short (~ g!input)))
-      "int"   (` (long-to-int (~ g!input)))
-      "float" (` (double-to-float (~ g!input)))
-      _       g!input)))
-
 (def: (un-quote quoted)
   (-> Code Code)
   (` ((~' ~) (~ quoted))))
@@ -1739,48 +1711,43 @@
                setter-name (code.identifier ["" (format method-prefix member-separator import-field-name "!")])]
          getter-interop (with-gensyms [g!obj]
                           (let [getter-call (if import-field-static?
-                                              getter-name
+                                              (` ((~ getter-name)))
                                               (` ((~ getter-name) (~ g!obj))))
-                                getter-type (if import-field-setter?
-                                              (` ((~! io.IO) (~ typeC)))
-                                              typeC)
-                                getter-type (if import-field-static?
-                                              getter-type
-                                              (` (-> (~ classC) (~ getter-type))))
-                                getter-type (` (All [(~+ tvar-asts)] (~ getter-type)))
-                                getter-body (if import-field-static?
-                                              (with-mode-field-get import-field-mode import-field-type
-                                                (` ((~ (code.text (format "jvm getstatic" ":" full-name ":" import-field-name))))))
-                                              (with-mode-field-get import-field-mode import-field-type
-                                                (` ((~ (code.text (format "jvm getfield" ":" full-name ":" import-field-name))) (~ g!obj)))))
+                                getter-body (<| (auto-convert-output import-field-mode)
+                                                [(simple-class$ (list) import-field-type)
+                                                 (if import-field-static?
+                                                   (let [jvm-extension (code.text (format "jvm getstatic" ":" full-name ":" import-field-name))]
+                                                     (` ((~ jvm-extension))))
+                                                   (let [jvm-extension (code.text (format "jvm getfield" ":" full-name ":" import-field-name))]
+                                                     (` ((~ jvm-extension) (~ (un-quote g!obj))))))])
                                 getter-body (if import-field-maybe?
-                                              (` (??? (~ getter-body)))
+                                              (` ((~! ???) (~ getter-body)))
                                               getter-body)
                                 getter-body (if import-field-setter?
                                               (` ((~! io.io) (~ getter-body)))
                                               getter-body)]
-                            (wrap (` (def: (~ getter-call)
-                                       (~ getter-type)
-                                       (~ getter-body))))))
-         setter-interop (if import-field-setter?
-                          (with-gensyms [g!obj g!value]
-                            (let [setter-call (if import-field-static?
-                                                (` ((~ setter-name) (~ g!value)))
-                                                (` ((~ setter-name) (~ g!value) (~ g!obj))))
-                                  setter-type (if import-field-static?
-                                                (` (All [(~+ tvar-asts)] (-> (~ typeC) ((~! io.IO) Any))))
-                                                (` (All [(~+ tvar-asts)] (-> (~ typeC) (~ classC) ((~! io.IO) Any)))))
-                                  setter-value (with-mode-field-set import-field-mode import-field-type g!value)
-                                  setter-value (if import-field-maybe?
-                                                 (` (!!! (~ setter-value)))
-                                                 setter-value)
-                                  setter-command (format (if import-field-static? "jvm putstatic" "jvm putfield")
-                                                         ":" full-name ":" import-field-name)]
-                              (wrap (: (List Code)
-                                       (list (` (def: (~ setter-call)
-                                                  (~ setter-type)
-                                                  ((~! io.io) ((~ (code.text setter-command)) (~ setter-value))))))))))
-                          (wrap (list)))]
+                            (wrap (` ((~! syntax:) (~ getter-call)
+                                      ((~' wrap) (.list (.` (~ getter-body)))))))))
+         setter-interop (: (Meta (List Code))
+                           (if import-field-setter?
+                             (with-gensyms [g!obj g!value]
+                               (let [setter-call (if import-field-static?
+                                                   (` ((~ setter-name) (~ g!value)))
+                                                   (` ((~ setter-name) (~ g!value) (~ g!obj))))
+                                     setter-value (auto-convert-input import-field-mode
+                                                                      [(simple-class$ (list) import-field-type) (un-quote g!value)])
+                                     setter-value (if import-field-maybe?
+                                                    (` ((~! !!!) (~ setter-value)))
+                                                    setter-value)
+                                     setter-command (format (if import-field-static? "jvm putstatic" "jvm putfield")
+                                                            ":" full-name ":" import-field-name)
+                                     g!obj+ (: (List Code)
+                                               (if import-field-static?
+                                                 (list)
+                                                 (list (un-quote g!obj))))]
+                                 (wrap (list (` ((~! syntax:) (~ setter-call)
+                                                 ((~' wrap) (.list (.` ((~! io.io) ((~ (code.text setter-command)) (~+ g!obj+) (~ setter-value))))))))))))
+                             (wrap (list))))]
         (wrap (list& getter-interop setter-interop)))
       )))
 
