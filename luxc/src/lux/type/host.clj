@@ -277,13 +277,15 @@
               :else
               (assert false (prn-str super* (class super*) [sub super])))))))
 
-(defn ^:private raise [existential lineage class params]
+(defn- raise
   "(-> (List Class) Class (List Type) (Lux (, Class (List Type))))"
+  [existential lineage class params]
   (&/fold% (partial raise* existential) (&/T [class params]) lineage))
 
 ;; [Exports]
-(defn ->super-type [existential class-loader super-class sub-class sub-params]
+(defn ->super-type
   "(-> Text Text (List Type) (Lux Type))"
+  [existential class-loader super-class sub-class sub-params]
   (let [super-class+ (Class/forName super-class true class-loader)
         sub-class+ (Class/forName sub-class true class-loader)]
     (if (.isAssignableFrom super-class+ sub-class+)

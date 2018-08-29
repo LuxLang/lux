@@ -1547,50 +1547,36 @@
     _
     (:: Monad<Meta> wrap [(list) (list) (list) (list)])))
 
-(def: (member-def-return mode type-params class member)
-  (-> Primitive-Mode (List Type-Paramameter) Class-Declaration Import-Member-Declaration (Meta Code))
-  (case member
-    (#ConstructorDecl _)
-    (:: Monad<Meta> wrap (class-decl-type$ class))
-
-    (#MethodDecl [_ method])
-    (:: Monad<Meta> wrap (class->type mode type-params (get@ #import-method-return method)))
-
-    _
-    (macro.fail "Only methods have return values.")))
-
-(def: (decorate-return-maybe member [return-type return-term])
-  (-> Import-Member-Declaration [Code Code] [Code Code])
+(def: (decorate-return-maybe member return-term)
+  (-> Import-Member-Declaration Code Code)
   (case member
     (^or (#ConstructorDecl [commons _]) (#MethodDecl [commons _]))
     (if (get@ #import-member-maybe? commons)
-      [(` (Maybe (~ return-type)))
-       (` (??? (~ return-term)))]
-      [return-type
-       (let [g!temp (code.identifier ["" " Ω "])]
-         (` (let [(~ g!temp) (~ return-term)]
-              (if (not (null? (:coerce (primitive "java.lang.Object")
-                                       (~ g!temp))))
-                (~ g!temp)
-                (error! "Cannot produce null references from method calls.")))))])
+      (` (??? (~ return-term)))
+      (let [g!temp (` ((~' ~') (~ (code.identifier ["" " Ω "]))))]
+        (` (let [(~ g!temp) (~ return-term)]
+             (if (not (null? (:coerce (primitive "java.lang.Object")
+                                      (~ g!temp))))
+               (~ g!temp)
+               (error! "Cannot produce null references from method calls."))))))
 
     _
-    [return-type return-term]))
+    return-term))
 
-(do-template [<name> <tag> <type-trans> <term-trans>]
-  [(def: (<name> member [return-type return-term])
-     (-> Import-Member-Declaration [Code Code] [Code Code])
+(do-template [<name> <tag> <term-trans>]
+  [(def: (<name> member return-term)
+     (-> Import-Member-Declaration Code Code)
      (case member
        (^or (#ConstructorDecl [commons _]) (#MethodDecl [commons _]))
        (if (get@ <tag> commons)
-         [<type-trans> <term-trans>]
-         [return-type return-term])
+         <term-trans>
+         return-term)
 
        _
-       [return-type return-term]))]
+       return-term))]
 
-  [decorate-return-try #import-member-try? (` ((~! error.Error) (~ return-type))) (` (..try (~ return-term)))]
-  [decorate-return-io  #import-member-io?  (` ((~! io.IO) (~ return-type)))  (` ((~! io.io) (~ return-term)))]
+  [decorate-return-try #import-member-try? (` (..try (~ return-term)))]
+  [decorate-return-io  #import-member-io?  (` ((~! io.io) (~ return-term)))]
   )
 
 (def: (free-type-param? [name bounds])
@@ -1603,58 +1589,24 @@
   (-> Type-Paramameter Code)
   (code.identifier ["" name]))
 
-(def: (with-mode-output mode output-type body)
-  (-> Primitive-Mode GenericType Code Code)
-  (case mode
-    #ManualPrM
-    body
-    
-    #AutoPrM
-    (case output-type
-      (#GenericClass ["byte" _])
-      (` (byte-to-long (~ body)))
-      
-      (#GenericClass ["short" _])
-      (` (short-to-long (~ body)))
-      
-      (#GenericClass ["int" _])
-      (` (int-to-long (~ body)))
-      
-      (#GenericClass ["float" _])
-      (` (float-to-double (~ body)))
-      
-      _
-      body)))
+(do-template [<name> <byte> <short> <int> <float>]
+  [(def: (<name> mode [class expression])
+     (-> Primitive-Mode [Text Code] Code)
+     (case mode
+       #ManualPrM
+       expression
+       
+       #AutoPrM
+       (case class
+         "byte"  (` (<byte> (~ expression)))
+         "short" (` (<short> (~ expression)))
+         "int"   (` (<int> (~ expression)))
+         "float" (` (<float> (~ expression)))
+         _       expression)))]
 
-(def: (auto-conv-class? class)
-  (-> Text Bit)
-  (case class
-    (^or "byte" "short" "int" "float")
-    #1
-
-    _
-    #0))
-
-(def: (auto-conv [class var])
-  (-> [Text Code] (List Code))
-  (case class
-    "byte"  (list var (` (long-to-byte (~ var))))
-    "short" (list var (` (long-to-short (~ var))))
-    "int"   (list var (` (long-to-int (~ var))))
-    "float" (list var (` (double-to-float (~ var))))
-    _       (list)))
-
-(def: (with-mode-inputs mode inputs body)
-  (-> Primitive-Mode (List [Text Code]) Code Code)
-  (case mode
-    #ManualPrM
-    body
-    
-    #AutoPrM
-    (` (let [(~+ (|> inputs
-                     (list/map auto-conv)
-                     list/join))]
-         (~ body)))))
+  [auto-convert-input  long-to-byte long-to-short long-to-int double-to-float]
+  [auto-convert-output byte-to-long short-to-long int-to-long float-to-double]
+  )
 
 (def: (with-mode-field-get mode class output)
   (-> Primitive-Mode GenericType Code Code)
@@ -1683,6 +1635,17 @@
       "int"   (` (long-to-int (~ g!input)))
       "float" (` (double-to-float (~ g!input)))
       _       g!input)))
+
+(def: (un-quote quoted)
+  (-> Code Code)
+  (` ((~' ~) (~ quoted))))
+
+(def: (jvm-extension-inputs mode classes inputs)
+  (-> Primitive-Mode (List Text) (List Code) (List Code))
+  (|> inputs
+      (list/map un-quote)
+      (list.zip2 classes)
+      (list/map (auto-convert-input mode))))
 
 (def: (member-def-interop type-params kind class [arg-function-inputs arg-method-inputs arg-classes arg-types] member method-prefix)
   (-> (List Type-Paramameter) Class-Kind Class-Declaration [(List Code) (List Code) (List Text) (List Code)] Import-Member-Declaration Text (Meta (List Code)))
@@ -1714,63 +1677,51 @@
       
       (#ConstructorDecl [commons _])
       (do Monad<Meta>
-        [return-type (member-def-return (get@ #import-member-mode commons) type-params class member)
-         #let [def-name (code.identifier ["" (format method-prefix member-separator (get@ #import-member-alias commons))])
-               def-params (list (code.tuple arg-function-inputs))
-               jvm-interop (|> (` ((~ (code.text (format "jvm new" ":" full-name ":" (text.join-with "," arg-classes))))
-                                   (~+ arg-method-inputs)))
-                               (with-mode-inputs (get@ #import-member-mode commons)
-                                 (list.zip2 arg-classes arg-function-inputs)))
-               [return-type jvm-interop] (|> [return-type jvm-interop]
-                                             (decorate-return-maybe member)
-                                             (decorate-return-try member)
-                                             (decorate-return-io member))]]
-        (wrap (list (` (def: ((~ def-name) (~+ def-params))
-                         (All [(~+ all-params)] (-> [(~+ arg-types)] (~ return-type)))
-                         (~ jvm-interop))))))
+        [#let [def-name (code.identifier ["" (format method-prefix member-separator (get@ #import-member-alias commons))])
+               jvm-extension (code.text (format "jvm new" ":" full-name ":" (text.join-with "," arg-classes)))
+               jvm-interop (|> (` ((~ jvm-extension)
+                                   (~+ (jvm-extension-inputs (get@ #import-member-mode commons) arg-classes arg-function-inputs))))
+                               (decorate-return-maybe member)
+                               (decorate-return-try member)
+                               (decorate-return-io member))]]
+        (wrap (list (` ((~! syntax:) ((~ def-name) (~+ arg-function-inputs))
+                        ((~' wrap) (.list (.` (~ jvm-interop)))))))))
 
       (#MethodDecl [commons method])
       (with-gensyms [g!obj]
         (do @
-          [return-type (member-def-return (get@ #import-member-mode commons) type-params class member)
-           #let [def-name (code.identifier ["" (format method-prefix member-separator (get@ #import-member-alias commons))])
+          [#let [def-name (code.identifier ["" (format method-prefix member-separator (get@ #import-member-alias commons))])
                  (^slots [#import-member-kind]) commons
                  (^slots [#import-method-name]) method
-                 [jvm-op obj-ast class-ast] (: [Text (List Code) (List Code)]
-                                               (case import-member-kind
-                                                 #StaticIMK
-                                                 ["invokestatic"
-                                                  (list)
-                                                  (list)]
+                 [jvm-op object-ast class-ast] (: [Text (List Code) (List Code)]
+                                                  (case import-member-kind
+                                                    #StaticIMK
+                                                    ["invokestatic"
+                                                     (list)
+                                                     (list)]
 
-                                                 #VirtualIMK
-                                                 (case kind
-                                                   #Class
-                                                   ["invokevirtual"
-                                                    (list g!obj)
-                                                    (list (class-decl-type$ class))]
-                                                   
-                                                   #Interface
-                                                   ["invokeinterface"
-                                                    (list g!obj)
-                                                    (list (class-decl-type$ class))]
-                                                   )))
-                 def-params (#.Cons (code.tuple arg-function-inputs) obj-ast)
-                 def-param-types (#.Cons (` [(~+ arg-types)]) class-ast)
-                 jvm-interop (|> (` ((~ (code.text (format "jvm " jvm-op ":" full-name ":" import-method-name
-                                                           ":" (text.join-with "," arg-classes))))
-                                     (~+ obj-ast) (~+ arg-method-inputs)))
-                                 (with-mode-output (get@ #import-member-mode commons)
-                                   (get@ #import-method-return method))
-                                 (with-mode-inputs (get@ #import-member-mode commons)
-                                   (list.zip2 arg-classes arg-function-inputs)))
-                 [return-type jvm-interop] (|> [return-type jvm-interop]
-                                               (decorate-return-maybe member)
-                                               (decorate-return-try member)
-                                               (decorate-return-io member))]]
-          (wrap (list (` (def: ((~ def-name) (~+ def-params))
-                           (All [(~+ all-params)] (-> (~+ def-param-types) (~ return-type)))
-                           (~ jvm-interop)))))))
+                                                    #VirtualIMK
+                                                    (case kind
+                                                      #Class
+                                                      ["invokevirtual"
+                                                       (list g!obj)
+                                                       (list (class-decl-type$ class))]
+                                                      
+                                                      #Interface
+                                                      ["invokeinterface"
+                                                       (list g!obj)
+                                                       (list (class-decl-type$ class))]
+                                                      )))
+                 jvm-extension (code.text (format "jvm " jvm-op ":" full-name ":" import-method-name ":" (text.join-with "," arg-classes)))
+                 jvm-interop (|> [(simple-class$ (list) (get@ #import-method-return method))
+                                  (` ((~ jvm-extension) (~+ (list/map un-quote object-ast))
+                                      (~+ (jvm-extension-inputs (get@ #import-member-mode commons) arg-classes arg-function-inputs))))]
+                                 (auto-convert-output (get@ #import-member-mode commons))
+                                 (decorate-return-maybe member)
+                                 (decorate-return-try member)
+                                 (decorate-return-io member))]]
+          (wrap (list (` ((~! syntax:) ((~ def-name) (~+ arg-function-inputs) (~+ object-ast))
+                          ((~' wrap) (.list (.` (~ jvm-interop))))))))))
 
       (#FieldAccessDecl fad)
       (do Monad<Meta>
@@ -1874,11 +1825,11 @@
   {#.doc (doc "Allows importing JVM classes, and using them as types."
               "Their methods, fields and enum options can also be imported."
               "Also, classes which get imported into a module can also be referred-to with their short names in other macros that require JVM classes."
-              "Examples:"
               (import: java/lang/Object
                 (new [])
                 (equals [Object] boolean)
                 (wait [int] #io #try void))
+              
               "Special options can also be given for the return values."
               "#? means that the values will be returned inside a Maybe type. That way, null becomes #.None."
               "#try means that the computation might throw an exception, and the return value will be wrapped by the Error type."
@@ -1895,23 +1846,23 @@
 
               (import: (java/util/ArrayList a)
                 ([T] toArray [(Array T)] (Array T)))
+              
               "#long makes it so the class-type that is generated is of the fully-qualified name."
               "In this case, it avoids a clash between the java.util.List type, and Lux's own List type."
+              "All enum options to be imported must be specified."
               (import: java/lang/Character$UnicodeScript
                 (#enum ARABIC CYRILLIC LATIN))
-              "All enum options to be imported must be specified."
 
+              "It should also be noted, the only types that may show up in method arguments or return values may be Java classes, arrays, primitives, void or type-parameters."
+              "Lux types, such as Maybe cannot be named (otherwise, they'd be confused for Java classes)."
               (import: #long (lux/concurrency/promise/JvmPromise A)
                 (resolve [A] boolean)
                 (poll [] A)
                 (wasResolved [] boolean)
                 (waitOn [lux/Function] void)
                 (#static [A] make [A] (JvmPromise A)))
-              "It should also be noted, the only types that may show up in method arguments or return values may be Java classes, arrays, primitives, void or type-parameters."
-              "Lux types, such as Maybe cannot be named (otherwise, they'd be confused for Java classes)."
               
-              "Also, the names of the imported members will look like ClassName.MemberName."
-              "E.g.:"
+              "Also, the names of the imported members will look like Class::member"
               (Object::new [])
               (Object::equals [other-object] my-object)
               (java/util/List::size [] my-list)

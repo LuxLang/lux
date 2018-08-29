@@ -41,8 +41,9 @@
   (|let [[[type cursor] adt] analysis]
     (&/T [(&/T [new-type cursor]) adt])))
 
-(defn clean-analysis [$var an]
+(defn clean-analysis
   "(-> Type Analysis (Lux Analysis))"
+  [$var an]
   (|do [=an-type (&type/clean $var (expr-type* an))]
     (return (with-type =an-type an))))
 

@@ -18,8 +18,9 @@
   (:import (java.lang.reflect Type TypeVariable)))
 
 ;; [Utils]
-(defn ^:private ensure-object [type]
+(defn- ensure-object
   "(-> Type (Lux (, Text (List Type))))"
+  [type]
   (|case type
     (&/$Primitive payload)
     (return payload)
@@ -46,8 +47,9 @@
     _
     (&/fail-with-loc (str "[Analyser Error] Was expecting object type. Instead got: " (&type/show-type type)))))
 
-(defn ^:private as-object [type]
+(defn- as-object
   "(-> Type Type)"
+  [type]
   (|case type
     (&/$Primitive class params)
     (&/$Primitive (&host-type/as-obj class) params)
@@ -55,7 +57,7 @@
     _
     type))
 
-(defn ^:private as-otype [tname]
+(defn- as-otype [tname]
   (case tname
     "boolean" "java.lang.Boolean"
     "byte"    "java.lang.Byte"
@@ -69,8 +71,9 @@
     tname
     ))
 
-(defn ^:private as-otype+ [type]
+(defn- as-otype+
   "(-> Type Type)"
+  [type]
   (|case type
     (&/$Primitive name params)
     (&/$Primitive (as-otype name) params)
@@ -78,7 +81,7 @@
     _
     type))
 
-(defn ^:private clean-gtype-var [idx gtype-var]
+(defn- clean-gtype-var [idx gtype-var]
   (|let [(&/$Var id) gtype-var]
     (|do [? (&type/bound? id)]
       (if ?
@@ -86,7 +89,7 @@
           (return (&/T [idx real-type])))
         (return (&/T [(+ 2 idx) (&/$Parameter idx)]))))))
 
-(defn ^:private clean-gtype-vars [gtype-vars]
+(defn- clean-gtype-vars [gtype-vars]
   (|do [[_ clean-types] (&/fold% (fn [idx+types gtype-var]
                                    (|do [:let [[idx types] idx+types]
                                          [idx* real-type] (clean-gtype-var idx gtype-var)]
@@ -95,8 +98,9 @@
                                  gtype-vars)]
     (return clean-types)))
 
-(defn ^:private make-gtype [class-name type-args]
+(defn- make-gtype
   "(-> Text (List Type) Type)"
+  [class-name type-args]
   (&/fold (fn [base-type type-arg]
             (|case type-arg
               (&/$Parameter _)
@@ -108,8 +112,9 @@
           type-args))
 
 ;; [Resources]
-(defn ^:private analyse-field-access-helper [obj-type gvars gtype]
+(defn- analyse-field-access-helper
   "(-> Type (List (^ java.lang.reflect.Type)) (^ java.lang.reflect.Type) (Lux Type))"
+  [obj-type gvars gtype]
   (|case obj-type
     (&/$Primitive class targs)
     (if (= (&/|length targs) (&/|length gvars))
@@ -207,8 +212,9 @@
     (return (&/$ExQ &/$Nil (&/$Parameter 1)))
     ))
 
-(defn gen-super-env [class-env supers class-decl]
+(defn gen-super-env
   "(-> (List (, TypeVar Type)) (List SuperClassDecl) ClassDecl (Lux (List (, Text Type))))"
+  [class-env supers class-decl]
   (|let [[class-name class-vars] class-decl]
     (|case (&/|some (fn [super]
                       (|let [[super-name super-params] super]
@@ -227,15 +233,16 @@
               vars+gtypes)
       )))
 
-(defn ^:private make-type-env [type-params]
+(defn- make-type-env
   "(-> (List TypeParam) (Lux (List [Text Type])))"
+  [type-params]
   (&/map% (fn [gvar]
             (|do [:let [[gvar-name _] gvar]
                   ex &type/existential]
               (return (&/T [gvar-name ex]))))
           type-params))
 
-(defn ^:private double-register-gclass? [gclass]
+(defn- double-register-gclass? [gclass]
   (|case gclass
     (&/$GenericClass name _)
     (|case name
@@ -246,7 +253,7 @@
     _
     false))
 
-(defn ^:private method-input-folder [full-env]
+(defn- method-input-folder [full-env]
   (fn [body* input*]
     (|do [:let [[iname itype*] input*]
           itype (generic-class->type full-env itype*)]
@@ -257,8 +264,9 @@
         (&&env/with-local iname itype
           body*)))))
 
-(defn ^:private analyse-method [analyse class-decl class-env all-supers method]
+(defn- analyse-method
   "(-> Analyser ClassDecl (List (, TypeVar Type)) (List SuperClassDecl) MethodSyntax (Lux MethodAnalysis))"
+  [analyse class-decl class-env all-supers method]
   (|let [[?cname ?cparams] class-decl
          class-type (&/$Primitive ?cname (&/|map &/|second class-env))]
     (|case method
@@ -319,12 +327,13 @@
       (return (&/$NativeMethodAnalysis (&/T [?name =privacy-modifier ?anns ?gvars ?exceptions ?inputs ?output])))
       )))
 
-(defn ^:private mandatory-methods [supers]
+(defn- mandatory-methods [supers]
   (|do [class-loader &/loader]
     (&/flat-map% (partial &host/abstract-methods class-loader) supers)))
 
-(defn ^:private check-method-completion [supers methods]
+(defn- check-method-completion
   "(-> (List SuperClassDecl) (List (, MethodDecl Analysis)) (Lux Null))"
+  [supers methods]
   (|do [abstract-methods (mandatory-methods supers)
         :let [methods-map (&/fold (fn [mmap mentry]
                                     (|case mentry
@@ -370,8 +379,9 @@
       (|let [[am-name am-inputs] missing-method]
         (&/fail-with-loc (str "[Analyser Error] Missing method: " am-name " " "(" (->> am-inputs (&/|interpose " ") (&/fold str "")) ")"))))))
 
-(defn ^:private analyse-field [analyse gtype-env field]
+(defn- analyse-field
   "(-> Analyser GTypeEnv FieldSyntax (Lux FieldAnalysis))"
+  [analyse gtype-env field]
   (|case field
     (&/$ConstantFieldSyntax ?name ?anns ?gclass ?value)
     (|do [=gtype (&host-type/instance-gtype &type/existential gtype-env ?gclass)
@@ -384,47 +394,47 @@
 
 (do-template [<name> <proc> <from-class> <to-class>]
   (let [output-type (&/$Primitive <to-class> &/$Nil)]
-    (defn <name> [analyse exo-type _?value]
+    (defn- <name> [analyse exo-type _?value]
       (|do [:let [(&/$Cons ?value (&/$Nil)) _?value]
             =value (&&/analyse-1 analyse (&/$Primitive <from-class> &/$Nil) ?value)
             _ (&type/check exo-type output-type)
             _cursor &/cursor]
         (return (&/|list (&&/|meta output-type _cursor (&&/$proc (&/T ["jvm" <proc>]) (&/|list =value) (&/|list))))))))
 
-  ^:private analyse-jvm-double-to-float "double-to-float" "java.lang.Double"    "java.lang.Float"
-  ^:private analyse-jvm-double-to-int "double-to-int" "java.lang.Double"    "java.lang.Integer"
-  ^:private analyse-jvm-double-to-long "double-to-long" "java.lang.Double"    "java.lang.Long"
+  analyse-jvm-double-to-float "double-to-float" "java.lang.Double"    "java.lang.Float"
+  analyse-jvm-double-to-int "double-to-int" "java.lang.Double"    "java.lang.Integer"
+  analyse-jvm-double-to-long "double-to-long" "java.lang.Double"    "java.lang.Long"
 
-  ^:private analyse-jvm-float-to-double "float-to-double" "java.lang.Float"     "java.lang.Double"
-  ^:private analyse-jvm-float-to-int "float-to-int" "java.lang.Float"     "java.lang.Integer"
-  ^:private analyse-jvm-float-to-long "float-to-long" "java.lang.Float"     "java.lang.Long"
+  analyse-jvm-float-to-double "float-to-double" "java.lang.Float"     "java.lang.Double"
+  analyse-jvm-float-to-int "float-to-int" "java.lang.Float"     "java.lang.Integer"
+  analyse-jvm-float-to-long "float-to-long" "java.lang.Float"     "java.lang.Long"
 
-  ^:private analyse-jvm-int-to-byte "int-to-byte" "java.lang.Integer"   "java.lang.Byte"
-  ^:private analyse-jvm-int-to-char "int-to-char" "java.lang.Integer"   "java.lang.Character"
-  ^:private analyse-jvm-int-to-double "int-to-double" "java.lang.Integer"   "java.lang.Double"
-  ^:private analyse-jvm-int-to-float "int-to-float" "java.lang.Integer"   "java.lang.Float"
-  ^:private analyse-jvm-int-to-long "int-to-long" "java.lang.Integer"   "java.lang.Long"
-  ^:private analyse-jvm-int-to-short "int-to-short" "java.lang.Integer"   "java.lang.Short"
+  analyse-jvm-int-to-byte "int-to-byte" "java.lang.Integer"   "java.lang.Byte"
+  analyse-jvm-int-to-char "int-to-char" "java.lang.Integer"   "java.lang.Character"
+  analyse-jvm-int-to-double "int-to-double" "java.lang.Integer"   "java.lang.Double"
+  analyse-jvm-int-to-float "int-to-float" "java.lang.Integer"   "java.lang.Float"
+  analyse-jvm-int-to-long "int-to-long" "java.lang.Integer"   "java.lang.Long"
+  analyse-jvm-int-to-short "int-to-short" "java.lang.Integer"   "java.lang.Short"
 
-  ^:private analyse-jvm-long-to-double "long-to-double" "java.lang.Long"      "java.lang.Double"
-  ^:private analyse-jvm-long-to-float "long-to-float" "java.lang.Long"      "java.lang.Float"
-  ^:private analyse-jvm-long-to-int "long-to-int" "java.lang.Long"      "java.lang.Integer"
-  ^:private analyse-jvm-long-to-short "long-to-short" "java.lang.Long"      "java.lang.Short"
-  ^:private analyse-jvm-long-to-byte "long-to-byte" "java.lang.Long"      "java.lang.Byte"
+  analyse-jvm-long-to-double "long-to-double" "java.lang.Long"      "java.lang.Double"
+  analyse-jvm-long-to-float "long-to-float" "java.lang.Long"      "java.lang.Float"
+  analyse-jvm-long-to-int "long-to-int" "java.lang.Long"      "java.lang.Integer"
+  analyse-jvm-long-to-short "long-to-short" "java.lang.Long"      "java.lang.Short"
+  analyse-jvm-long-to-byte "long-to-byte" "java.lang.Long"      "java.lang.Byte"
 
-  ^:private analyse-jvm-char-to-byte "char-to-byte" "java.lang.Character" "java.lang.Byte"
-  ^:private analyse-jvm-char-to-short "char-to-short" "java.lang.Character" "java.lang.Short"
-  ^:private analyse-jvm-char-to-int "char-to-int" "java.lang.Character" "java.lang.Integer"
-  ^:private analyse-jvm-char-to-long "char-to-long" "java.lang.Character" "java.lang.Long"
+  analyse-jvm-char-to-byte "char-to-byte" "java.lang.Character" "java.lang.Byte"
+  analyse-jvm-char-to-short "char-to-short" "java.lang.Character" "java.lang.Short"
+  analyse-jvm-char-to-int "char-to-int" "java.lang.Character" "java.lang.Integer"
+  analyse-jvm-char-to-long "char-to-long" "java.lang.Character" "java.lang.Long"
 
-  ^:private analyse-jvm-short-to-long "short-to-long" "java.lang.Short"     "java.lang.Long"
+  analyse-jvm-short-to-long "short-to-long" "java.lang.Short"     "java.lang.Long"
 
-  ^:private analyse-jvm-byte-to-long "byte-to-long" "java.lang.Byte"      "java.lang.Long"
+  analyse-jvm-byte-to-long "byte-to-long" "java.lang.Byte"      "java.lang.Long"
   )
 
 (do-template [<name> <proc> <v1-class> <v2-class> <to-class>]
   (let [output-type (&/$Primitive <to-class> &/$Nil)]
-    (defn <name> [analyse exo-type ?values]
+    (defn- <name> [analyse exo-type ?values]
       (|do [:let [(&/$Cons ?value1 (&/$Cons ?value2 (&/$Nil))) ?values]
             =value1 (&&/analyse-1 analyse (&/$Primitive <v1-class> &/$Nil) ?value1)
             =value2 (&&/analyse-1 analyse (&/$Primitive <v2-class> &/$Nil) ?value2)
@@ -432,25 +442,25 @@
             _cursor &/cursor]
         (return (&/|list (&&/|meta output-type _cursor (&&/$proc (&/T ["jvm" <proc>]) (&/|list =value1 =value2) (&/|list))))))))
 
-  ^:private analyse-jvm-iand  "iand"  "java.lang.Integer" "java.lang.Integer" "java.lang.Integer"
-  ^:private analyse-jvm-ior   "ior"   "java.lang.Integer" "java.lang.Integer" "java.lang.Integer"
-  ^:private analyse-jvm-ixor  "ixor"  "java.lang.Integer" "java.lang.Integer" "java.lang.Integer"
-  ^:private analyse-jvm-ishl  "ishl"  "java.lang.Integer" "java.lang.Integer" "java.lang.Integer"
-  ^:private analyse-jvm-ishr  "ishr"  "java.lang.Integer" "java.lang.Integer" "java.lang.Integer"
-  ^:private analyse-jvm-iushr "iushr" "java.lang.Integer" "java.lang.Integer" "java.lang.Integer"
+  analyse-jvm-iand  "iand"  "java.lang.Integer" "java.lang.Integer" "java.lang.Integer"
+  analyse-jvm-ior   "ior"   "java.lang.Integer" "java.lang.Integer" "java.lang.Integer"
+  analyse-jvm-ixor  "ixor"  "java.lang.Integer" "java.lang.Integer" "java.lang.Integer"
+  analyse-jvm-ishl  "ishl"  "java.lang.Integer" "java.lang.Integer" "java.lang.Integer"
+  analyse-jvm-ishr  "ishr"  "java.lang.Integer" "java.lang.Integer" "java.lang.Integer"
+  analyse-jvm-iushr "iushr" "java.lang.Integer" "java.lang.Integer" "java.lang.Integer"
 
-  ^:private analyse-jvm-land  "land"  "java.lang.Long"    "java.lang.Long"    "java.lang.Long"
-  ^:private analyse-jvm-lor   "lor"   "java.lang.Long"    "java.lang.Long"    "java.lang.Long"
-  ^:private analyse-jvm-lxor  "lxor"  "java.lang.Long"    "java.lang.Long"    "java.lang.Long"
-  ^:private analyse-jvm-lshl  "lshl"  "java.lang.Long"    "java.lang.Integer" "java.lang.Long"
-  ^:private analyse-jvm-lshr  "lshr"  "java.lang.Long"    "java.lang.Integer" "java.lang.Long"
-  ^:private analyse-jvm-lushr "lushr" "java.lang.Long"    "java.lang.Integer" "java.lang.Long"
+  analyse-jvm-land  "land"  "java.lang.Long"    "java.lang.Long"    "java.lang.Long"
+  analyse-jvm-lor   "lor"   "java.lang.Long"    "java.lang.Long"    "java.lang.Long"
+  analyse-jvm-lxor  "lxor"  "java.lang.Long"    "java.lang.Long"    "java.lang.Long"
+  analyse-jvm-lshl  "lshl"  "java.lang.Long"    "java.lang.Integer" "java.lang.Long"
+  analyse-jvm-lshr  "lshr"  "java.lang.Long"    "java.lang.Integer" "java.lang.Long"
+  analyse-jvm-lushr "lushr" "java.lang.Long"    "java.lang.Integer" "java.lang.Long"
   )
 
 (do-template [<name> <proc> <input-class> <output-class>]
   (let [input-type (&/$Primitive <input-class> &/$Nil)
         output-type (&/$Primitive <output-class> &/$Nil)]
-    (defn <name> [analyse exo-type ?values]
+    (defn- <name> [analyse exo-type ?values]
       (|do [:let [(&/$Cons x (&/$Cons y (&/$Nil))) ?values]
             =x (&&/analyse-1 analyse input-type x)
             =y (&&/analyse-1 analyse input-type y)
@@ -459,45 +469,45 @@
         (return (&/|list (&&/|meta output-type _cursor
                                    (&&/$proc (&/T ["jvm" <proc>]) (&/|list =x =y) (&/|list))))))))
 
-  ^:private analyse-jvm-iadd "iadd" "java.lang.Integer" "java.lang.Integer"
-  ^:private analyse-jvm-isub "isub" "java.lang.Integer" "java.lang.Integer"
-  ^:private analyse-jvm-imul "imul" "java.lang.Integer" "java.lang.Integer"
-  ^:private analyse-jvm-idiv "idiv" "java.lang.Integer" "java.lang.Integer"
-  ^:private analyse-jvm-irem "irem" "java.lang.Integer" "java.lang.Integer"
-  ^:private analyse-jvm-ieq  "ieq"  "java.lang.Integer" "#Bit"
-  ^:private analyse-jvm-ilt  "ilt"  "java.lang.Integer" "#Bit"
-  ^:private analyse-jvm-igt  "igt"  "java.lang.Integer" "#Bit"
+  analyse-jvm-iadd "iadd" "java.lang.Integer" "java.lang.Integer"
+  analyse-jvm-isub "isub" "java.lang.Integer" "java.lang.Integer"
+  analyse-jvm-imul "imul" "java.lang.Integer" "java.lang.Integer"
+  analyse-jvm-idiv "idiv" "java.lang.Integer" "java.lang.Integer"
+  analyse-jvm-irem "irem" "java.lang.Integer" "java.lang.Integer"
+  analyse-jvm-ieq  "ieq"  "java.lang.Integer" "#Bit"
+  analyse-jvm-ilt  "ilt"  "java.lang.Integer" "#Bit"
+  analyse-jvm-igt  "igt"  "java.lang.Integer" "#Bit"
 
-  ^:private analyse-jvm-ceq  "ceq"  "java.lang.Character" "#Bit"
-  ^:private analyse-jvm-clt  "clt"  "java.lang.Character" "#Bit"
-  ^:private analyse-jvm-cgt  "cgt"  "java.lang.Character" "#Bit"
+  analyse-jvm-ceq  "ceq"  "java.lang.Character" "#Bit"
+  analyse-jvm-clt  "clt"  "java.lang.Character" "#Bit"
+  analyse-jvm-cgt  "cgt"  "java.lang.Character" "#Bit"
 
-  ^:private analyse-jvm-ladd "ladd" "java.lang.Long"    "java.lang.Long"
-  ^:private analyse-jvm-lsub "lsub" "java.lang.Long"    "java.lang.Long"
-  ^:private analyse-jvm-lmul "lmul" "java.lang.Long"    "java.lang.Long"
-  ^:private analyse-jvm-ldiv "ldiv" "java.lang.Long"    "java.lang.Long"
-  ^:private analyse-jvm-lrem "lrem" "java.lang.Long"    "java.lang.Long"
-  ^:private analyse-jvm-leq  "leq"  "java.lang.Long"    "#Bit"
-  ^:private analyse-jvm-llt  "llt"  "java.lang.Long"    "#Bit"
-  ^:private analyse-jvm-lgt  "lgt"  "java.lang.Long"    "#Bit"
+  analyse-jvm-ladd "ladd" "java.lang.Long"    "java.lang.Long"
+  analyse-jvm-lsub "lsub" "java.lang.Long"    "java.lang.Long"
+  analyse-jvm-lmul "lmul" "java.lang.Long"    "java.lang.Long"
+  analyse-jvm-ldiv "ldiv" "java.lang.Long"    "java.lang.Long"
+  analyse-jvm-lrem "lrem" "java.lang.Long"    "java.lang.Long"
+  analyse-jvm-leq  "leq"  "java.lang.Long"    "#Bit"
+  analyse-jvm-llt  "llt"  "java.lang.Long"    "#Bit"
+  analyse-jvm-lgt  "lgt"  "java.lang.Long"    "#Bit"
 
-  ^:private analyse-jvm-fadd "fadd" "java.lang.Float"   "java.lang.Float"
-  ^:private analyse-jvm-fsub "fsub" "java.lang.Float"   "java.lang.Float"
-  ^:private analyse-jvm-fmul "fmul" "java.lang.Float"   "java.lang.Float"
-  ^:private analyse-jvm-fdiv "fdiv" "java.lang.Float"   "java.lang.Float"
-  ^:private analyse-jvm-frem "frem" "java.lang.Float"   "java.lang.Float"
-  ^:private analyse-jvm-feq  "feq"  "java.lang.Float"   "#Bit"
-  ^:private analyse-jvm-flt  "flt"  "java.lang.Float"   "#Bit"
-  ^:private analyse-jvm-fgt  "fgt"  "java.lang.Float"   "#Bit"
+  analyse-jvm-fadd "fadd" "java.lang.Float"   "java.lang.Float"
+  analyse-jvm-fsub "fsub" "java.lang.Float"   "java.lang.Float"
+  analyse-jvm-fmul "fmul" "java.lang.Float"   "java.lang.Float"
+  analyse-jvm-fdiv "fdiv" "java.lang.Float"   "java.lang.Float"
+  analyse-jvm-frem "frem" "java.lang.Float"   "java.lang.Float"
+  analyse-jvm-feq  "feq"  "java.lang.Float"   "#Bit"
+  analyse-jvm-flt  "flt"  "java.lang.Float"   "#Bit"
+  analyse-jvm-fgt  "fgt"  "java.lang.Float"   "#Bit"
 
-  ^:private analyse-jvm-dadd "dadd" "java.lang.Double"  "java.lang.Double"
-  ^:private analyse-jvm-dsub "dsub" "java.lang.Double"  "java.lang.Double"
-  ^:private analyse-jvm-dmul "dmul" "java.lang.Double"  "java.lang.Double"
-  ^:private analyse-jvm-ddiv "ddiv" "java.lang.Double"  "java.lang.Double"
-  ^:private analyse-jvm-drem "drem" "java.lang.Double"  "java.lang.Double"
-  ^:private analyse-jvm-deq  "deq"  "java.lang.Double"  "#Bit"
-  ^:private analyse-jvm-dlt  "dlt"  "java.lang.Double"  "#Bit"
-  ^:private analyse-jvm-dgt  "dgt"  "java.lang.Double"  "#Bit"
+  analyse-jvm-dadd "dadd" "java.lang.Double"  "java.lang.Double"
+  analyse-jvm-dsub "dsub" "java.lang.Double"  "java.lang.Double"
+  analyse-jvm-dmul "dmul" "java.lang.Double"  "java.lang.Double"
+  analyse-jvm-ddiv "ddiv" "java.lang.Double"  "java.lang.Double"
+  analyse-jvm-drem "drem" "java.lang.Double"  "java.lang.Double"
+  analyse-jvm-deq  "deq"  "java.lang.Double"  "#Bit"
+  analyse-jvm-dlt  "dlt"  "java.lang.Double"  "#Bit"
+  analyse-jvm-dgt  "dgt"  "java.lang.Double"  "#Bit"
   )
 
 (let [length-type &type/Nat
@@ -505,7 +515,7 @@
   (do-template [<elem-class> <array-class> <new-name> <new-tag> <load-name> <load-tag> <store-name> <store-tag>]
     (let [elem-type (&/$Primitive <elem-class> &/$Nil)
           array-type (&/$Primitive <array-class> &/$Nil)]
-      (defn <new-name> [analyse exo-type ?values]
+      (defn- <new-name> [analyse exo-type ?values]
         (|do [:let [(&/$Cons length (&/$Nil)) ?values]
               =length (&&/analyse-1 analyse length-type length)
               _ (&type/check exo-type array-type)
@@ -513,7 +523,7 @@
           (return (&/|list (&&/|meta exo-type _cursor
                                      (&&/$proc (&/T ["jvm" <new-tag>]) (&/|list =length) (&/|list)))))))
 
-      (defn <load-name> [analyse exo-type ?values]
+      (defn- <load-name> [analyse exo-type ?values]
         (|do [:let [(&/$Cons array (&/$Cons idx (&/$Nil))) ?values]
               =array (&&/analyse-1 analyse array-type array)
               =idx (&&/analyse-1 analyse idx-type idx)
@@ -522,7 +532,7 @@
           (return (&/|list (&&/|meta exo-type _cursor
                                      (&&/$proc (&/T ["jvm" <load-tag>]) (&/|list =array =idx) (&/|list)))))))
 
-      (defn <store-name> [analyse exo-type ?values]
+      (defn- <store-name> [analyse exo-type ?values]
         (|do [:let [(&/$Cons array (&/$Cons idx (&/$Cons elem (&/$Nil)))) ?values]
               =array (&&/analyse-1 analyse array-type array)
               =idx (&&/analyse-1 analyse idx-type idx)
@@ -533,17 +543,17 @@
                                      (&&/$proc (&/T ["jvm" <store-tag>]) (&/|list =array =idx =elem) (&/|list)))))))
       )
 
-    "java.lang.Boolean"   "[Z" ^:private analyse-jvm-znewarray "znewarray" analyse-jvm-zaload "zaload" analyse-jvm-zastore "zastore"
-    "java.lang.Byte"      "[B" ^:private analyse-jvm-bnewarray "bnewarray" analyse-jvm-baload "baload" analyse-jvm-bastore "bastore"
-    "java.lang.Short"     "[S" ^:private analyse-jvm-snewarray "snewarray" analyse-jvm-saload "saload" analyse-jvm-sastore "sastore"
-    "java.lang.Integer"   "[I" ^:private analyse-jvm-inewarray "inewarray" analyse-jvm-iaload "iaload" analyse-jvm-iastore "iastore"
-    "java.lang.Long"      "[J" ^:private analyse-jvm-lnewarray "lnewarray" analyse-jvm-laload "laload" analyse-jvm-lastore "lastore"
-    "java.lang.Float"     "[F" ^:private analyse-jvm-fnewarray "fnewarray" analyse-jvm-faload "faload" analyse-jvm-fastore "fastore"
-    "java.lang.Double"    "[D" ^:private analyse-jvm-dnewarray "dnewarray" analyse-jvm-daload "daload" analyse-jvm-dastore "dastore"
-    "java.lang.Character" "[C" ^:private analyse-jvm-cnewarray "cnewarray" analyse-jvm-caload "caload" analyse-jvm-castore "castore"
+    "java.lang.Boolean"   "[Z" analyse-jvm-znewarray "znewarray" analyse-jvm-zaload "zaload" analyse-jvm-zastore "zastore"
+    "java.lang.Byte"      "[B" analyse-jvm-bnewarray "bnewarray" analyse-jvm-baload "baload" analyse-jvm-bastore "bastore"
+    "java.lang.Short"     "[S" analyse-jvm-snewarray "snewarray" analyse-jvm-saload "saload" analyse-jvm-sastore "sastore"
+    "java.lang.Integer"   "[I" analyse-jvm-inewarray "inewarray" analyse-jvm-iaload "iaload" analyse-jvm-iastore "iastore"
+    "java.lang.Long"      "[J" analyse-jvm-lnewarray "lnewarray" analyse-jvm-laload "laload" analyse-jvm-lastore "lastore"
+    "java.lang.Float"     "[F" analyse-jvm-fnewarray "fnewarray" analyse-jvm-faload "faload" analyse-jvm-fastore "fastore"
+    "java.lang.Double"    "[D" analyse-jvm-dnewarray "dnewarray" analyse-jvm-daload "daload" analyse-jvm-dastore "dastore"
+    "java.lang.Character" "[C" analyse-jvm-cnewarray "cnewarray" analyse-jvm-caload "caload" analyse-jvm-castore "castore"
     ))
 
-(defn ^:private array-class? [class-name]
+(defn- array-class? [class-name]
   (or (= &host-type/array-data-tag class-name)
       (case class-name
         ("[Z" "[B" "[S" "[I" "[J" "[F" "[D" "[C") true
@@ -552,7 +562,7 @@
 
 (let [length-type &type/Nat
       idx-type &type/Nat]
-  (defn ^:private analyse-jvm-anewarray [analyse exo-type ?values]
+  (defn- analyse-jvm-anewarray [analyse exo-type ?values]
     (|do [:let [(&/$Cons [_ (&/$Text _gclass)] (&/$Cons length (&/$Nil))) ?values]
           gclass (&reader/with-source "jvm-anewarray" _gclass
                    &&a-parser/parse-gclass)
@@ -565,7 +575,7 @@
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T ["jvm" "anewarray"]) (&/|list =length) (&/|list gclass gtype-env)))))))
 
-  (defn ^:private analyse-jvm-aaload [analyse exo-type ?values]
+  (defn- analyse-jvm-aaload [analyse exo-type ?values]
     (|do [:let [(&/$Cons array (&/$Cons idx (&/$Nil))) ?values]
           =array (&&/analyse-1+ analyse array)
           [arr-class arr-params] (ensure-object (&&/expr-type* =array))
@@ -577,7 +587,7 @@
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T ["jvm" "aaload"]) (&/|list =array =idx) (&/|list)))))))
 
-  (defn ^:private analyse-jvm-aastore [analyse exo-type ?values]
+  (defn- analyse-jvm-aastore [analyse exo-type ?values]
     (|do [:let [(&/$Cons array (&/$Cons idx (&/$Cons elem (&/$Nil)))) ?values]
           =array (&&/analyse-1+ analyse array)
           :let [array-type (&&/expr-type* =array)]
@@ -591,7 +601,7 @@
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T ["jvm" "aastore"]) (&/|list =array =idx =elem) (&/|list))))))))
 
-(defn ^:private analyse-jvm-arraylength [analyse exo-type ?values]
+(defn- analyse-jvm-arraylength [analyse exo-type ?values]
   (|do [:let [(&/$Cons array (&/$Nil)) ?values]
         =array (&&/analyse-1+ analyse array)
         [arr-class arr-params] (ensure-object (&&/expr-type* =array))
@@ -602,7 +612,7 @@
                                (&&/$proc (&/T ["jvm" "arraylength"]) (&/|list =array) (&/|list))
                                )))))
 
-(defn ^:private analyse-jvm-object-null? [analyse exo-type ?values]
+(defn- analyse-jvm-object-null? [analyse exo-type ?values]
   (|do [:let [(&/$Cons object (&/$Nil)) ?values]
         =object (&&/analyse-1+ analyse object)
         _ (ensure-object (&&/expr-type* =object))
@@ -612,7 +622,7 @@
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["jvm" "object null?"]) (&/|list =object) (&/|list)))))))
 
-(defn ^:private analyse-jvm-object-null [analyse exo-type ?values]
+(defn- analyse-jvm-object-null [analyse exo-type ?values]
   (|do [:let [(&/$Nil) ?values]
         :let [output-type (&/$Primitive &host-type/null-data-tag &/$Nil)]
         _ (&type/check exo-type output-type)
@@ -629,7 +639,7 @@
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["jvm" "object synchronized"]) (&/|list =monitor =expr) (&/|list)))))))
 
-(defn ^:private analyse-jvm-throw [analyse exo-type ?values]
+(defn- analyse-jvm-throw [analyse exo-type ?values]
   (|do [:let [(&/$Cons ?ex (&/$Nil)) ?values]
         =ex (&&/analyse-1+ analyse ?ex)
         _ (&type/check (&/$Primitive "java.lang.Throwable" &/$Nil) (&&/expr-type* =ex))
@@ -639,7 +649,7 @@
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["jvm" "throw"]) (&/|list =ex) (&/|list)))))))
 
-(defn ^:private analyse-jvm-getstatic [analyse exo-type class field ?values]
+(defn- analyse-jvm-getstatic [analyse exo-type class field ?values]
   (|do [!class! (&/de-alias-class class)
         :let [(&/$Nil) ?values]
         class-loader &/loader
@@ -651,7 +661,7 @@
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["jvm" "getstatic"]) (&/|list) (&/|list class field output-type)))))))
 
-(defn ^:private analyse-jvm-getfield [analyse exo-type class field ?values]
+(defn- analyse-jvm-getfield [analyse exo-type class field ?values]
   (|do [!class! (&/de-alias-class class)
         :let [(&/$Cons object (&/$Nil)) ?values]
         class-loader &/loader
@@ -665,7 +675,7 @@
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["jvm" "getfield"]) (&/|list =object) (&/|list class field output-type)))))))
 
-(defn ^:private analyse-jvm-putstatic [analyse exo-type class field ?values]
+(defn- analyse-jvm-putstatic [analyse exo-type class field ?values]
   (|do [!class! (&/de-alias-class class)
         :let [(&/$Cons value (&/$Nil)) ?values]
         class-loader &/loader
@@ -679,7 +689,7 @@
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["jvm" "putstatic"]) (&/|list =value) (&/|list class field gclass)))))))
 
-(defn ^:private analyse-jvm-putfield [analyse exo-type class field ?values]
+(defn- analyse-jvm-putfield [analyse exo-type class field ?values]
   (|do [!class! (&/de-alias-class class)
         :let [(&/$Cons object (&/$Cons value (&/$Nil))) ?values]
         class-loader &/loader
@@ -696,7 +706,7 @@
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["jvm" "putfield"]) (&/|list =object =value) (&/|list class field gclass =type)))))))
 
-(defn ^:private analyse-method-call-helper [analyse exo-type gret gtype-env gtype-vars gtype-args args]
+(defn- analyse-method-call-helper [analyse exo-type gret gtype-env gtype-vars gtype-args args]
   (|case gtype-vars
     (&/$Nil)
     (|do [arg-types (&/map% (partial &host-type/instance-param &type/existential gtype-env) gtype-args)
@@ -717,7 +727,7 @@
           (return (&/T [==gret ==args])))))
     ))
 
-(defn ^:private up-cast [class parent-gvars class-loader !class! object-type]
+(defn- up-cast [class parent-gvars class-loader !class! object-type]
   (|do [[sub-class sub-params] (ensure-object object-type)
         (&/$Primitive super-class* super-params*) (&host-type/->super-type &type/existential class-loader !class! (if (= sub-class class)
                                                                                                                     !class!
@@ -728,7 +738,7 @@
                      parent-gvars
                      super-params*))))
 
-(defn ^:private check-method! [only-interface? class method]
+(defn- check-method! [only-interface? class method]
   (|do [!class!* (&/de-alias-class class)
         :let [!class! (string/replace !class!* "/" ".")]
         class-loader &/loader
@@ -743,7 +753,7 @@
 
 (let [dummy-type-param (&/$Primitive "java.lang.Object" &/$Nil)]
   (do-template [<name> <tag> <only-interface?>]
-    (defn <name> [analyse exo-type class method classes ?values]
+    (defn- <name> [analyse exo-type class method classes ?values]
       (|do [:let [(&/$Cons object args) ?values]
             [!class! class-loader] (check-method! <only-interface?> class method)
             [gret exceptions parent-gvars gvars gargs] (if (= "<init>" method)
@@ -756,12 +766,12 @@
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T ["jvm" <tag>]) (&/$Cons =object =args) (&/|list class method classes output-type gret)))))))
 
-    ^:private analyse-jvm-invokevirtual   "invokevirtual"   false
-    ^:private analyse-jvm-invokespecial   "invokespecial"   false
-    ^:private analyse-jvm-invokeinterface "invokeinterface" true
+    analyse-jvm-invokevirtual   "invokevirtual"   false
+    analyse-jvm-invokespecial   "invokespecial"   false
+    analyse-jvm-invokeinterface "invokeinterface" true
     ))
 
-(defn ^:private analyse-jvm-invokestatic [analyse exo-type class method classes ?values]
+(defn- analyse-jvm-invokestatic [analyse exo-type class method classes ?values]
   (|do [!class! (&/de-alias-class class)
         :let [args ?values]
         class-loader &/loader
@@ -772,7 +782,7 @@
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["jvm" "invokestatic"]) =args (&/|list class method classes output-type gret)))))))
 
-(defn ^:private analyse-jvm-new-helper [analyse gtype gtype-env gtype-vars gtype-args args]
+(defn- analyse-jvm-new-helper [analyse gtype gtype-env gtype-vars gtype-args args]
   (|case gtype-vars
     (&/$Nil)
     (|do [arg-types (&/map% (partial &host-type/instance-param &type/existential gtype-env) gtype-args)
@@ -791,7 +801,7 @@
           (return (&/T [==gret ==args])))))
     ))
 
-(defn ^:private analyse-jvm-new [analyse exo-type class classes ?values]
+(defn- analyse-jvm-new [analyse exo-type class classes ?values]
   (|do [!class! (&/de-alias-class class)
         :let [args ?values]
         class-loader &/loader
@@ -802,7 +812,7 @@
     (return (&/|list (&&/|meta exo-type _cursor
                                (&&/$proc (&/T ["jvm" "new"]) =args (&/|list class classes)))))))
 
-(defn ^:private analyse-jvm-instanceof [analyse exo-type class ?values]
+(defn- analyse-jvm-instanceof [analyse exo-type class ?values]
   (|do [:let [(&/$Cons object (&/$Nil)) ?values]
         =object (&&/analyse-1+ analyse object)
         _ (ensure-object (&&/expr-type* =object))
@@ -812,7 +822,7 @@
     (return (&/|list (&&/|meta output-type _cursor
                                (&&/$proc (&/T ["jvm" "instanceof"]) (&/|list =object) (&/|list class)))))))
 
-(defn ^:private analyse-jvm-object-class [analyse exo-type ?values]
+(defn- analyse-jvm-object-class [analyse exo-type ?values]
   (|do [:let [(&/$Cons [_ (&/$Text _class-name)] (&/$Nil)) ?values]
         ^ClassLoader class-loader &/loader
         _ (try (do (.loadClass class-loader _class-name)
@@ -825,7 +835,7 @@
     (return (&/|list (&&/|meta output-type _cursor
                                (&&/$proc (&/T ["jvm" "object class"]) (&/|list) (&/|list _class-name output-type)))))))
 
-(defn ^:private analyse-jvm-interface [analyse compile-interface interface-decl supers =anns =methods]
+(defn- analyse-jvm-interface [analyse compile-interface interface-decl supers =anns =methods]
   (|do [module &/get-module-name
         _ (compile-interface interface-decl supers =anns =methods)
         :let [_ (println 'INTERFACE (str module "." (&/|first interface-decl)))]
@@ -833,7 +843,7 @@
     (return (&/|list (&&/|meta &type/Any _cursor
                                (&&/$tuple (&/|list)))))))
 
-(defn ^:private analyse-jvm-class [analyse compile-class class-decl super-class interfaces =inheritance-modifier =anns ?fields methods]
+(defn- analyse-jvm-class [analyse compile-class class-decl super-class interfaces =inheritance-modifier =anns ?fields methods]
   (&/with-closure
     (|do [module &/get-module-name
           :let [[?name ?params] class-decl
@@ -852,18 +862,18 @@
       (return (&/|list (&&/|meta &type/Any _cursor
                                  (&&/$tuple (&/|list))))))))
 
-(defn ^:private captured-source [env-entry]
+(defn- captured-source [env-entry]
   (|case env-entry
     [name [_ (&&/$captured _ _ source)]]
     source))
 
-(defn ^:private analyse-methods [analyse class-decl all-supers methods]
+(defn- analyse-methods [analyse class-decl all-supers methods]
   (|do [=methods (&/map% (partial analyse-method analyse class-decl &/$Nil all-supers) methods)
         _ (check-method-completion all-supers =methods)
         =captured &&env/captured-vars]
     (return (&/T [=methods =captured]))))
 
-(defn ^:private get-names []
+(defn- get-names []
   (|do [module &/get-module-name
         scope &/get-scope-name]
     (return (&/T [module scope]))))
@@ -878,7 +888,7 @@
                                                        (&/$Tuple &/$Nil)]))
       captured-slot-class "java.lang.Object"
       captured-slot-type (&/$GenericClass captured-slot-class &/$Nil)]
-  (defn ^:private analyse-jvm-anon-class [analyse compile-class exo-type super-class interfaces ctor-args methods]
+  (defn- analyse-jvm-anon-class [analyse compile-class exo-type super-class interfaces ctor-args methods]
     (&/with-closure
       (|do [[module scope] (get-names)
             :let [name (->> scope &/|reverse &/|tail &host/location)

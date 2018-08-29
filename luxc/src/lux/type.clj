@@ -315,7 +315,7 @@
 
               _
               (|do [_ (reset-var ?id ==type)]
-                (return type))))
+                (return ==type))))
           (return type)))
       )
 
