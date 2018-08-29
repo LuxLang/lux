@@ -16,14 +16,21 @@
      ["." set (#+ Set)]]]]
   ["." // ("type/." Equivalence<Type>)])
 
+(template: (!n/= reference subject)
+  ("lux i64 =" subject reference))
+
+(template: (!text/= reference subject)
+  ("lux text =" subject reference))
+
 (exception: #export (unknown-type-var {id Nat})
-  (nat/encode id))
+  (ex.report ["ID" (nat/encode id)]))
 
 (exception: #export (unbound-type-var {id Nat})
-  (nat/encode id))
+  (ex.report ["ID" (nat/encode id)]))
 
 (exception: #export (invalid-type-application {funcT Type} {argT Type})
-  (//.to-text (#.Apply argT funcT)))
+  (ex.report ["Type function" (//.to-text funcT)]
+             ["Type argument" (//.to-text argT)]))
 
 (exception: #export (cannot-rebind-var {id Nat} {type Type} {bound Type})
   (ex.report ["Var" (nat/encode id)]
@@ -109,7 +116,7 @@
 
     (#.Cons [var-id var-type]
             plist')
-    (if (n/= id var-id)
+    (if (!n/= id var-id)
       (#.Some var-type)
       (var::get id plist'))
     ))
@@ -126,7 +133,7 @@
 
     (#.Cons [var-id var-type]
             plist')
-    (if (n/= id var-id)
+    (if (!n/= id var-id)
       (#.Cons [var-id value]
               plist')
       (#.Cons [var-id var-type]
@@ -141,7 +148,7 @@
 
     (#.Cons [var-id var-type]
             plist')
-    (if (n/= id var-id)
+    (if (!n/= id var-id)
       plist'
       (#.Cons [var-id var-type]
               (var::remove id plist')))
@@ -283,7 +290,7 @@
         (#.Some (#.Some type))
         (case type
           (#.Var post)
-          (if (n/= id post)
+          (if (!n/= id post)
             (#error.Success [context output])
             (recur post (set.add post output)))
           
@@ -381,7 +388,7 @@
       (List Assumption)
       Var Var
       (Check (List Assumption)))
-  (if (n/= idE idA)
+  (if (!n/= idE idA)
     (check/wrap assumptions)
     (do Monad<Check>
       [ebound (attempt (peek idE))
@@ -587,15 +594,21 @@
          [#.ExQ ..existential])
 
         [(#.Primitive e-name e-params) (#.Primitive a-name a-params)]
-        (if (and (text/= e-name a-name)
-                 (n/= (list.size e-params)
-                      (list.size a-params)))
-          (do Monad<Check>
-            [assumptions (monad.fold Monad<Check>
-                                     (function (_ [e a] assumptions) (check' e a assumptions))
-                                     assumptions
-                                     (list.zip2 e-params a-params))]
-            (check/wrap assumptions))
+        (if (!text/= e-name a-name)
+          (loop [e-params e-params
+                 a-params a-params
+                 assumptions assumptions]
+            (case [e-params a-params]
+              [#.Nil #.Nil]
+              (check/wrap assumptions)
+              
+              [(#.Cons e-head e-tail) (#.Cons a-head a-tail)]
+              (do Monad<Check>
+                [assumptions' (check' e-head a-head assumptions)]
+                (recur e-tail a-tail assumptions'))
+
+              _
+              (fail "")))
           (fail ""))
 
         (^template [<compose>]
@@ -612,7 +625,7 @@
           (check' eO aO assumptions))
 
         [(#.Ex e!id) (#.Ex a!id)]
-        (if (n/= e!id a!id)
+        (if (!n/= e!id a!id)
           (check/wrap assumptions)
           (fail ""))
 
@@ -656,7 +669,7 @@
       (wrap (#.Primitive name paramsT+')))
 
     (^or (#.Parameter _) (#.Ex _) (#.Named _))
-    (:: Monad<Check> wrap inputT)
+    (check/wrap inputT)
 
     (^template [<tag>]
       (<tag> leftT rightT)
