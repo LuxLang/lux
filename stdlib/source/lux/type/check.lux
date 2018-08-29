@@ -43,9 +43,7 @@
 
 (type: #export Var Nat)
 
-(type: #export Assumption
-  {#subsumption [Type Type]
-   #verdict Bit})
+(type: #export Assumption [Type Type])
 
 (type: #export (Check a)
   (-> Type-Context (Error [Type-Context a])))
@@ -343,16 +341,15 @@
       (right context))))
 
 (def: (assumed? [e a] assumptions)
-  (-> [Type Type] (List Assumption) (Maybe Bit))
-  (:: maybe.Monad<Maybe> map product.right
-      (list.find (function (_ [[fe fa] status])
-                   (and (type/= e fe)
-                        (type/= a fa)))
-                 assumptions)))
+  (-> Assumption (List Assumption) Bit)
+  (list.any? (function (_ [e' a'])
+               (and (type/= e e')
+                    (type/= a a')))
+             assumptions))
 
-(def: (assume! ea status assumptions)
-  (-> [Type Type] Bit (List Assumption) (List Assumption))
-  (#.Cons [ea status] assumptions))
+(def: (assume! assumption assumptions)
+  (-> Assumption (List Assumption) (List Assumption))
+  (#.Cons assumption assumptions))
 
 (def: (if-bind id type then else)
   (All [a]
@@ -384,7 +381,7 @@
     (update (#.Var to) interpose)))
 
 (def: (check-vars check' assumptions idE idA)
-  (-> (-> Type Type (List Assumption) (Check (List Assumption)))
+  (-> (-> (List Assumption) Type Type (Check (List Assumption)))
       (List Assumption)
       Var Var
       (Check (List Assumption)))
@@ -409,7 +406,7 @@
             (wrap assumptions))
 
           _
-          (check' etype (#.Var idA) assumptions))
+          (check' assumptions etype (#.Var idA)))
 
         ## Interpose new variable between 2 existing links
         [#.None (#.Some atype)]
@@ -420,7 +417,7 @@
             (wrap assumptions))
 
           _
-          (check' (#.Var idE) atype assumptions))
+          (check' assumptions (#.Var idE) atype))
 
         [(#.Some etype) (#.Some atype)]
         (case [etype atype]
@@ -453,7 +450,7 @@
             (wrap assumptions))
           
           _
-          (check' etype atype assumptions))))))
+          (check' assumptions etype atype))))))
 
 (def: (with-error-stack on-error check)
   (All [a] (-> (-> Any Text) (Check a) (Check a)))
@@ -476,59 +473,59 @@
       output)))
 
 (def: (check-apply check' assumptions [eAT eFT] [aAT aFT])
-  (-> (-> Type Type (List Assumption) (Check (List Assumption))) (List Assumption)
+  (-> (-> (List Assumption) Type Type (Check (List Assumption))) (List Assumption)
       [Type Type] [Type Type]
       (Check (List Assumption)))
   (case [eFT aFT]
     (^or [(#.UnivQ _ _) (#.Ex _)] [(#.UnivQ _ _) (#.Var _)])
     (do Monad<Check>
       [eFT' (apply-type! eFT eAT)]
-      (check' eFT' (#.Apply aAT aFT) assumptions))
+      (check' assumptions eFT' (#.Apply aAT aFT)))
 
     (^or [(#.Ex _) (#.UnivQ _ _)] [(#.Var _) (#.UnivQ _ _)])
     (do Monad<Check>
       [aFT' (apply-type! aFT aAT)]
-      (check' (#.Apply eAT eFT) aFT' assumptions))
+      (check' assumptions (#.Apply eAT eFT) aFT'))
 
     (^or [(#.Ex _) _] [_ (#.Ex _)])
     (do Monad<Check>
-      [assumptions (check' eFT aFT assumptions)]
-      (check' eAT aAT assumptions))
+      [assumptions (check' assumptions eFT aFT)]
+      (check' assumptions eAT aAT))
 
     [(#.Var id) _]
     (do Monad<Check>
       [?rFT (read id)]
       (case ?rFT
         (#.Some rFT)
-        (check' (#.Apply eAT rFT) (#.Apply aAT aFT) assumptions)
+        (check' assumptions (#.Apply eAT rFT) (#.Apply aAT aFT))
 
         _
         (do Monad<Check>
-          [assumptions (check' eFT aFT assumptions)
+          [assumptions (check' assumptions eFT aFT)
            e' (apply-type! aFT eAT)
            a' (apply-type! aFT aAT)]
-          (check' e' a' assumptions))))
+          (check' assumptions e' a'))))
 
     [_ (#.Var id)]
     (do Monad<Check>
       [?rFT (read id)]
       (case ?rFT
         (#.Some rFT)
-        (check' (#.Apply eAT eFT) (#.Apply aAT rFT) assumptions)
+        (check' assumptions (#.Apply eAT eFT) (#.Apply aAT rFT))
 
         _
         (do Monad<Check>
-          [assumptions (check' eFT aFT assumptions)
+          [assumptions (check' assumptions eFT aFT)
            e' (apply-type! eFT eAT)
            a' (apply-type! eFT aAT)]
-          (check' e' a' assumptions))))
+          (check' assumptions e' a'))))
 
     _
     (fail "")))
 
-(def: #export (check' expected actual assumptions)
+(def: #export (check' assumptions expected actual)
   {#.doc "Type-check to ensure that the 'expected' type subsumes the 'actual' type."}
-  (-> Type Type (List Assumption) (Check (List Assumption)))
+  (-> (List Assumption) Type Type (Check (List Assumption)))
   (if (is? expected actual)
     (check/wrap assumptions)
     (with-error-stack
@@ -541,13 +538,13 @@
         (if-bind id actual
                  (check/wrap assumptions)
                  (function (_ bound)
-                   (check' bound actual assumptions)))
+                   (check' assumptions bound actual)))
         
         [_ (#.Var id)]
         (if-bind id expected
                  (check/wrap assumptions)
                  (function (_ bound)
-                   (check' expected bound assumptions)))
+                   (check' assumptions expected bound)))
 
         (^template [<fe> <fa>]
           [(#.Apply A1 <fe>) (#.Apply A2 <fa>)]
@@ -559,28 +556,23 @@
         
         [(#.Apply A F) _]
         (let [fx-pair [expected actual]]
-          (case (assumed? fx-pair assumptions)
-            (#.Some ?)
-            (if ?
-              (check/wrap assumptions)
-              (fail ""))
-
-            #.None
+          (if (assumed? fx-pair assumptions)
+            (check/wrap assumptions)
             (do Monad<Check>
               [expected' (apply-type! F A)]
-              (check' expected' actual (assume! fx-pair #1 assumptions)))))
+              (check' (assume! fx-pair assumptions) expected' actual))))
 
         [_ (#.Apply A F)]
         (do Monad<Check>
           [actual' (apply-type! F A)]
-          (check' expected actual' assumptions))
+          (check' assumptions expected actual'))
 
         (^template [<tag> <instancer>]
           [(<tag> _) _]
           (do Monad<Check>
             [[_ paramT] <instancer>
              expected' (apply-type! expected paramT)]
-            (check' expected' actual assumptions)))
+            (check' assumptions expected' actual)))
         ([#.UnivQ ..existential]
          [#.ExQ ..var])
 
@@ -589,23 +581,23 @@
           (do Monad<Check>
             [[_ paramT] <instancer>
              actual' (apply-type! actual paramT)]
-            (check' expected actual' assumptions)))
+            (check' assumptions expected actual')))
         ([#.UnivQ ..var]
          [#.ExQ ..existential])
 
         [(#.Primitive e-name e-params) (#.Primitive a-name a-params)]
         (if (!text/= e-name a-name)
-          (loop [e-params e-params
-                 a-params a-params
-                 assumptions assumptions]
+          (loop [assumptions assumptions
+                 e-params e-params
+                 a-params a-params]
             (case [e-params a-params]
               [#.Nil #.Nil]
               (check/wrap assumptions)
               
               [(#.Cons e-head e-tail) (#.Cons a-head a-tail)]
               (do Monad<Check>
-                [assumptions' (check' e-head a-head assumptions)]
-                (recur e-tail a-tail assumptions'))
+                [assumptions' (check' assumptions e-head a-head)]
+                (recur assumptions' e-tail a-tail))
 
               _
               (fail "")))
@@ -614,15 +606,15 @@
         (^template [<compose>]
           [(<compose> eL eR) (<compose> aL aR)]
           (do Monad<Check>
-            [assumptions (check' eL aL assumptions)]
-            (check' eR aR assumptions)))
+            [assumptions (check' assumptions eL aL)]
+            (check' assumptions eR aR)))
         ([#.Sum]
          [#.Product])
         
         [(#.Function eI eO) (#.Function aI aO)]
         (do Monad<Check>
-          [assumptions (check' aI eI assumptions)]
-          (check' eO aO assumptions))
+          [assumptions (check' assumptions aI eI)]
+          (check' assumptions eO aO))
 
         [(#.Ex e!id) (#.Ex a!id)]
         (if (!n/= e!id a!id)
@@ -630,10 +622,10 @@
           (fail ""))
 
         [(#.Named _ ?etype) _]
-        (check' ?etype actual assumptions)
+        (check' assumptions ?etype actual)
 
         [_ (#.Named _ ?atype)]
-        (check' expected ?atype assumptions)
+        (check' assumptions expected ?atype)
 
         _
         (fail "")))))
@@ -641,15 +633,13 @@
 (def: #export (check expected actual)
   {#.doc "Type-check to ensure that the 'expected' type subsumes the 'actual' type."}
   (-> Type Type (Check Any))
-  (do Monad<Check>
-    [assumptions (check' expected actual (list))]
-    (wrap [])))
+  (check' (list) expected actual))
 
 (def: #export (checks? expected actual)
   {#.doc "A simple type-checking function that just returns a yes/no answer."}
   (-> Type Type Bit)
-  (case (run fresh-context (check expected actual))
-    (#error.Error error)
+  (case (run fresh-context (check' (list) expected actual))
+    (#error.Error _)
     #0
 
     (#error.Success _)
