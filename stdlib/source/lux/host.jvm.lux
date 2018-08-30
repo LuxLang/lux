@@ -184,8 +184,8 @@
                   (List GenericType)]))
 
 (type: Partial-Call
-  {#pc-method Code
-   #pc-args   Code})
+  {#pc-method Name
+   #pc-args   (List Code)})
 
 (type: ImportMethodKind
   #StaticIMK
@@ -960,7 +960,7 @@
 
 (def: partial-call^
   (Syntax Partial-Call)
-  (s.form (p.and s.any s.any)))
+  (s.form (p.and s.identifier (p.some s.any))))
 
 (def: class-kind^
   (Syntax Class-Kind)
@@ -1271,7 +1271,7 @@
 
 (def: (complete-call$ g!obj [method args])
   (-> Code Partial-Call Code)
-  (` ((~ method) (~ args) (~ g!obj))))
+  (` ((~ (code.identifier method)) (~+ args) (~ g!obj))))
 
 ## [Syntax]
 (def: object-super-class
@@ -1473,13 +1473,11 @@
                   (finish-the-computation ___))))}
   (wrap (list (` ("jvm object synchronized" (~ lock) (~ body))))))
 
-(syntax: #export (do-to
-                   obj
-                   {methods (p.some partial-call^)})
+(syntax: #export (do-to obj {methods (p.some partial-call^)})
   {#.doc (doc "Call a variety of methods on an object. Then, return the object."
               (do-to object
-                (ClassName::method1 [arg0 arg1 arg2])
-                (ClassName::method2 [arg3 arg4 arg5])))}
+                (ClassName::method1 arg0 arg1 arg2)
+                (ClassName::method2 arg3 arg4 arg5)))}
   (with-gensyms [g!obj]
     (wrap (list (` (let [(~ g!obj) (~ obj)]
                      (exec (~+ (list/map (complete-call$ g!obj) methods))
@@ -1517,18 +1515,16 @@
     class-tvars))
 
 (def: (member-def-arg-bindings type-params class member)
-  (-> (List Type-Paramameter) Class-Declaration Import-Member-Declaration (Meta [(List Code) (List Code) (List Text) (List Code)]))
+  (-> (List Type-Paramameter) Class-Declaration Import-Member-Declaration (Meta [(List [Bit Code]) (List Text) (List Code)]))
   (case member
     (^or (#ConstructorDecl [commons _]) (#MethodDecl [commons _]))
     (let [(^slots [#import-member-tvars #import-member-args]) commons]
       (do Monad<Meta>
         [arg-inputs (monad.map @
-                               (: (-> [Bit GenericType] (Meta [Code Code]))
+                               (: (-> [Bit GenericType] (Meta [Bit Code]))
                                   (function (_ [maybe? _])
                                     (with-gensyms [arg-name]
-                                      (wrap [arg-name (if maybe?
-                                                        (` (!!! (~ arg-name)))
-                                                        arg-name)]))))
+                                      (wrap [maybe? arg-name]))))
                                import-member-args)
          #let [arg-classes (: (List Text)
                               (list/map (|>> product.right (simple-class$ (list/compose type-params import-member-tvars)))
@@ -1539,13 +1535,11 @@
                                           (if maybe?
                                             (` (Maybe (~ arg-type)))
                                             arg-type))))
-                                   import-member-args)
-               arg-function-inputs (list/map product.left arg-inputs)
-               arg-method-inputs (list/map product.right arg-inputs)]]
-        (wrap [arg-function-inputs arg-method-inputs arg-classes arg-types])))
+                                   import-member-args)]]
+        (wrap [arg-inputs arg-classes arg-types])))
 
     _
-    (:: Monad<Meta> wrap [(list) (list) (list) (list)])))
+    (:: Monad<Meta> wrap [(list) (list) (list)])))
 
 (def: (decorate-return-maybe member return-term)
   (-> Import-Member-Declaration Code Code)
@@ -1613,14 +1607,17 @@
   (` ((~' ~) (~ quoted))))
 
 (def: (jvm-extension-inputs mode classes inputs)
-  (-> Primitive-Mode (List Text) (List Code) (List Code))
+  (-> Primitive-Mode (List Text) (List [Bit Code]) (List Code))
   (|> inputs
-      (list/map un-quote)
+      (list/map (function (_ [maybe? input])
+                  (if maybe?
+                    (` ((~! !!!) (~ (un-quote input))))
+                    (un-quote input))))
       (list.zip2 classes)
       (list/map (auto-convert-input mode))))
 
-(def: (member-def-interop type-params kind class [arg-function-inputs arg-method-inputs arg-classes arg-types] member method-prefix)
-  (-> (List Type-Paramameter) Class-Kind Class-Declaration [(List Code) (List Code) (List Text) (List Code)] Import-Member-Declaration Text (Meta (List Code)))
+(def: (member-def-interop type-params kind class [arg-function-inputs arg-classes arg-types] member method-prefix)
+  (-> (List Type-Paramameter) Class-Kind Class-Declaration [(List [Bit Code]) (List Text) (List Code)] Import-Member-Declaration Text (Meta (List Code)))
   (let [[full-name class-tvars] class
         full-name (sanitize full-name)
         all-params (|> (member-type-vars class-tvars member)
@@ -1656,7 +1653,7 @@
                                (decorate-return-maybe member)
                                (decorate-return-try member)
                                (decorate-return-io member))]]
-        (wrap (list (` ((~! syntax:) ((~ def-name) (~+ arg-function-inputs))
+        (wrap (list (` ((~! syntax:) ((~ def-name) (~+ (list/map product.right arg-function-inputs)))
                         ((~' wrap) (.list (.` (~ jvm-interop)))))))))
 
       (#MethodDecl [commons method])
@@ -1692,7 +1689,7 @@
                                  (decorate-return-maybe member)
                                  (decorate-return-try member)
                                  (decorate-return-io member))]]
-          (wrap (list (` ((~! syntax:) ((~ def-name) (~+ arg-function-inputs) (~+ object-ast))
+          (wrap (list (` ((~! syntax:) ((~ def-name) (~+ (list/map product.right arg-function-inputs)) (~+ object-ast))
                           ((~' wrap) (.list (.` (~ jvm-interop))))))))))
 
       (#FieldAccessDecl fad)
