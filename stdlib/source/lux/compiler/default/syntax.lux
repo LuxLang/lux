@@ -122,13 +122,17 @@
 
 (def: amount-of-input-shown 64)
 
+(def: (input-at start input)
+  (-> Offset Text Text)
+  (let [end (|> start (n/+ amount-of-input-shown) (n/min ("lux text size" input)))]
+    (!clip start end input)))
+
 (exception: #export (unrecognized-input {[file line column] Cursor} {context Text} {input Text} {offset Offset})
-  (let [end-offset (|> offset (n/+ amount-of-input-shown) (n/min ("lux text size" input)))]
-    (ex.report ["File" file]
-               ["Line" (%n line)]
-               ["Column" (%n column)]
-               ["Context" (%t context)]
-               ["Input" (!clip offset end-offset input)])))
+  (ex.report ["File" file]
+             ["Line" (%n line)]
+             ["Column" (%n column)]
+             ["Context" (%t context)]
+             ["Input" (input-at offset input)]))
 
 (exception: #export (text-cannot-contain-new-lines {text Text})
   (ex.report ["Text" (%t text)]))
@@ -136,8 +140,10 @@
 (exception: #export (invalid-escape-syntax)
   "")
 
-(exception: #export (cannot-close-composite-expression {closing-char Char})
-  (ex.report ["Closing Character" (text.from-code closing-char)]))
+(exception: #export (cannot-close-composite-expression {closing-char Char} {source-code Text} {offset Offset})
+  (ex.report ["Closing Character" (text.from-code closing-char)]
+             ["Input" (format text.new-line
+                              (input-at offset source-code))]))
 
 (type: Parser
   (-> Source (Error [Source Code])))
@@ -154,20 +160,21 @@
 
 (def: close-signal "CLOSE")
 
-(def: (read-close closing-char source-code//size source-code offset)
-  (-> Char Nat Text Offset (Error Offset))
-  (loop [end offset]
-    (<| (!with-char+ source-code//size source-code end char (ex.throw cannot-close-composite-expression closing-char)
-          (if (!n/= closing-char char)
-            (#error.Success (!inc end))
-            (`` ("lux syntax char case!" char
-                 [[(~~ (static ..space))
-                   (~~ (static text.carriage-return))
-                   (~~ (static text.new-line))]
-                  (recur (!inc end))]
+(with-expansions [<cannot-close> (as-is (ex.throw cannot-close-composite-expression [closing-char source-code end]))]
+  (def: (read-close closing-char source-code//size source-code offset)
+    (-> Char Nat Text Offset (Error Offset))
+    (loop [end offset]
+      (<| (!with-char+ source-code//size source-code end char <cannot-close>
+            (if (!n/= closing-char char)
+              (#error.Success (!inc end))
+              (`` ("lux syntax char case!" char
+                   [[(~~ (static ..space))
+                     (~~ (static text.carriage-return))
+                     (~~ (static text.new-line))]
+                    (recur (!inc end))]
 
-                 ## else
-                 (ex.throw cannot-close-composite-expression closing-char))))))))
+                   ## else
+                   <cannot-close>))))))))
 
 (`` (do-template [<name> <close> <tag> <context>]
       [(def: (<name> parse source)
@@ -369,12 +376,13 @@
               <output>))))))
 
 (template: (!new-line where)
+  ## (-> Cursor Cursor)
   (let [[where::file where::line where::column] where]
     [where::file (!inc where::line) 0]))
 
-(with-expansions [<end> (ex.throw end-of-file current-module)
+(with-expansions [<end-of-file> (ex.throw end-of-file current-module)
                   <failure> (ex.throw unrecognized-input [where "General" source-code offset/0])
-                  <close!> (#error.Error (`` (~~ (static close-signal))))
+                  <close!> (#error.Error close-signal)
                   <consume-1> (as-is [where (!inc offset/0) source-code])
                   <consume-2> (as-is [where (!inc/2 offset/0) source-code])]
 
@@ -392,10 +400,10 @@
 
   (`` (def: (parse-short-name current-module [where offset/0 source-code])
         (-> Text Source (Error [Source Name]))
-        (<| (!with-char source-code offset/0 char/0 <end>)
+        (<| (!with-char source-code offset/0 char/0 <end-of-file>)
             (if (!n/= (char (~~ (static ..name-separator))) char/0)
               (let [offset/1 (!inc offset/0)]
-                (<| (!with-char source-code offset/1 char/1 <end>)
+                (<| (!with-char source-code offset/1 char/1 <end-of-file>)
                     (!parse-half-name offset/1 char/1 current-module)))
               (!parse-half-name offset/0 char/0 ..prelude)))))
 
@@ -439,6 +447,11 @@
         [(~~ (static ..close-form))
          (~~ (static ..close-tuple))
          (~~ (static ..close-record))]))
+
+  ## TODO: Grammar macro for specifying syntax.
+  ## (grammar: lux-grammar
+  ##   [expression ...]
+  ##   [form "(" [#* expression] ")"])
   
   (with-expansions [<parse> (as-is (parse current-module aliases source-code//size))
                     <horizontal-move> (as-is (recur [(update@ #.column inc where)
@@ -450,7 +463,7 @@
       ## This is to preserve the loop as much as possible and keep it tight.
       (exec []
         (function (recur [where offset/0 source-code])
-          (<| (!with-char+ source-code//size source-code offset/0 char/0 <end>)
+          (<| (!with-char+ source-code//size source-code offset/0 char/0 <end-of-file>)
               ## The space was singled-out for special treatment
               ## because of how common it is.
               (`` (if (!n/= (char (~~ (static ..space))) char/0)
@@ -483,7 +496,7 @@
                       ## Special code
                       [(~~ (static ..sigil))]
                       (let [offset/1 (!inc offset/0)]
-                        (<| (!with-char+ source-code//size source-code offset/1 char/1 <end>)
+                        (<| (!with-char+ source-code//size source-code offset/1 char/1 <end-of-file>)
                             ("lux syntax char case!" char/1
                              [(~~ (do-template [<char> <bit>]
                                     [[<char>]
@@ -502,7 +515,7 @@
                                 (recur [(!new-line where) (!inc end) source-code])
                                 
                                 _
-                                <end>)
+                                <end-of-file>)
 
                               [(~~ (static ..name-separator))]
                               (!parse-short-name current-module <consume-2> where #.Tag)]
@@ -517,7 +530,7 @@
                       ## Coincidentally (= name-separator frac-separator)
                       [(~~ (static ..name-separator))]
                       (let [offset/1 (!inc offset/0)]
-                        (<| (!with-char+ source-code//size source-code offset/1 char/1 <end>)
+                        (<| (!with-char+ source-code//size source-code offset/1 char/1 <end-of-file>)
                             (if (!digit? char/1)
                               (let [offset/2 (!inc offset/1)]
                                 (!parse-rev source-code//size offset/0 where offset/2 source-code))
@@ -525,7 +538,7 @@
 
                       [(~~ (static ..positive-sign))
                        (~~ (static ..negative-sign))]
-                      (!parse-signed source-code//size offset/0 where source-code <end>)
+                      (!parse-signed source-code//size offset/0 where source-code <end-of-file>)
 
                       ## Invalid characters at this point...
                       (~~ (<<closers>>))

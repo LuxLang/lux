@@ -51,53 +51,47 @@
   (All [anchor expression statement]
     (-> Name (Maybe Type) Code
         (Operation anchor expression statement [Type expression Text Any])))
-  (<| (///.timed name "DEFINE")
-      (do ///.Monad<Operation>
-        [state (//.lift ///.get-state)
-         #let [analyse (get@ [#statement.analysis #statement.phase] state)
-               synthesize (get@ [#statement.synthesis #statement.phase] state)
-               translate (get@ [#statement.translation #statement.phase] state)]
-         [_ code//type codeA] (<| (///.timed name "analysis")
-                                  (statement.lift-analysis
-                                   (analysis.with-scope
-                                     (type.with-fresh-env
-                                       (case ?type
-                                         (#.Some type)
-                                         (type.with-type type
-                                           (do @
-                                             [codeA (analyse codeC)]
-                                             (wrap [type codeA])))
+  (do ///.Monad<Operation>
+    [state (//.lift ///.get-state)
+     #let [analyse (get@ [#statement.analysis #statement.phase] state)
+           synthesize (get@ [#statement.synthesis #statement.phase] state)
+           translate (get@ [#statement.translation #statement.phase] state)]
+     [_ code//type codeA] (statement.lift-analysis
+                           (analysis.with-scope
+                             (type.with-fresh-env
+                               (case ?type
+                                 (#.Some type)
+                                 (type.with-type type
+                                   (do @
+                                     [codeA (analyse codeC)]
+                                     (wrap [type codeA])))
 
-                                         #.None
-                                         (do @
-                                           [[code//type codeA] (type.with-inference (analyse codeC))
-                                            code//type (type.with-env
-                                                         (check.clean code//type))]
-                                           (wrap [code//type codeA])))))))
-         codeS (<| (///.timed name "synthesis")
-                   (statement.lift-synthesis
-                    (synthesize codeA)))]
-        (statement.lift-translation
-         (translation.with-buffer
-           (do @
-             [codeT (<| (///.timed name "translation")
-                        (translate codeS))
-              codeN+V (<| (///.timed name "evaluation")
-                          (translation.define! name codeT))]
-             (wrap [code//type codeT codeN+V])))))))
+                                 #.None
+                                 (do @
+                                   [[code//type codeA] (type.with-inference (analyse codeC))
+                                    code//type (type.with-env
+                                                 (check.clean code//type))]
+                                   (wrap [code//type codeA]))))))
+     codeS (statement.lift-synthesis
+            (synthesize codeA))]
+    (statement.lift-translation
+     (translation.with-buffer
+       (do @
+         [codeT (translate codeS)
+          codeN+V (translation.define! name codeT)]
+         (wrap [code//type codeT codeN+V]))))))
 
 (def: lux::def
   Handler
   (function (_ extension-name phase inputsC+)
     (case inputsC+
-      (^ (list [_ (#.Identifier ["" def-name])] valueC annotationsC))
+      (^ (list [_ (#.Identifier ["" short-name])] valueC annotationsC))
       (do ///.Monad<Operation>
-        [[_ annotationsT annotationsV] (evaluate! Code annotationsC)
+        [current-module (statement.lift-analysis
+                         (//.lift macro.current-module-name))
+         #let [full-name [current-module short-name]]
+         [_ annotationsT annotationsV] (evaluate! Code annotationsC)
          #let [annotationsV (:coerce Code annotationsV)]
-         current-module (statement.lift-analysis
-                         (//.lift
-                          macro.current-module-name))
-         #let [full-name [current-module def-name]]
          [value//type valueT valueN valueV] (define! full-name
                                                      (if (macro.type? annotationsV)
                                                        (#.Some Type)
@@ -105,7 +99,7 @@
                                                      valueC)
          _ (statement.lift-analysis
             (do @
-              [_ (module.define def-name [value//type annotationsV valueV])]
+              [_ (module.define short-name [value//type annotationsV valueV])]
               (if (macro.type? annotationsV)
                 (case (macro.declared-tags annotationsV)
                   #.Nil
