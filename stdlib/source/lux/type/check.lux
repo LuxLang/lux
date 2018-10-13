@@ -55,12 +55,11 @@
   (def: (map f fa)
     (function (_ context)
       (case (fa context)
-        (#error.Error error)
-        (#error.Error error)
-
         (#error.Success [context' output])
         (#error.Success [context' (f output)])
-        ))))
+
+        (#error.Error error)
+        (#error.Error error)))))
 
 (structure: #export _ (Apply Check)
   (def: functor Functor<Check>)
@@ -109,15 +108,14 @@
 (def: (var::get id plist)
   (-> Var Type-Vars (Maybe (Maybe Type)))
   (case plist
-    #.Nil
-    #.None
-
     (#.Cons [var-id var-type]
             plist')
     (if (!n/= id var-id)
       (#.Some var-type)
       (var::get id plist'))
-    ))
+
+    #.Nil
+    #.None))
 
 (def: (var::new id plist)
   (-> Var Type-Vars Type-Vars)
@@ -135,32 +133,30 @@
       (#.Cons [var-id value]
               plist')
       (#.Cons [var-id var-type]
-              (var::put id value plist')))
-    ))
+              (var::put id value plist')))))
 
 (def: (var::remove id plist)
   (-> Var Type-Vars Type-Vars)
   (case plist
-    #.Nil
-    #.Nil
-
     (#.Cons [var-id var-type]
             plist')
     (if (!n/= id var-id)
       plist'
       (#.Cons [var-id var-type]
               (var::remove id plist')))
-    ))
+
+    #.Nil
+    #.Nil))
 
 ## [[Logic]]
 (def: #export (run context proc)
   (All [a] (-> Type-Context (Check a) (Error a)))
   (case (proc context)
-    (#error.Error error)
-    (#error.Error error)
-
     (#error.Success [context' output])
-    (#error.Success output)))
+    (#error.Success output)
+
+    (#error.Error error)
+    (#error.Error error)))
 
 (def: #export (throw exception message)
   (All [e a] (-> (ex.Exception e) e (Check a)))
@@ -190,8 +186,8 @@
          #.None
          (ex.throw unknown-type-var id))))]
 
-  [bound? Bit #0 #1]
-  [read (Maybe Type) #.None (#.Some bound)]
+  [bound? Bit          #0     #1]
+  [read   (Maybe Type) #.None (#.Some bound)]
   )
 
 (def: (peek id)
@@ -201,24 +197,24 @@
       (#.Some (#.Some bound))
       (#error.Success [context bound])
 
-      (#.Some #.None)
+      (#.Some _)
       (ex.throw unbound-type-var id)
 
-      #.None
+      _
       (ex.throw unknown-type-var id))))
 
 (def: #export (bind type id)
   (-> Type Var (Check Any))
   (function (_ context)
     (case (|> context (get@ #.var-bindings) (var::get id))
-      (#.Some (#.Some bound))
-      (ex.throw cannot-rebind-var [id type bound])
-      
       (#.Some #.None)
       (#error.Success [(update@ #.var-bindings (var::put id (#.Some type)) context)
                        []])
 
-      #.None
+      (#.Some (#.Some bound))
+      (ex.throw cannot-rebind-var [id type bound])
+      
+      _
       (ex.throw unknown-type-var id))))
 
 (def: (update type id)
@@ -229,7 +225,7 @@
       (#error.Success [(update@ #.var-bindings (var::put id (#.Some type)) context)
                        []])
       
-      #.None
+      _
       (ex.throw unknown-type-var id))))
 
 (def: #export var
@@ -241,18 +237,6 @@
                            (update@ #.var-bindings (var::new id)))
                        [id (#.Var id)]]))))
 
-(def: get-bindings
-  (Check (List [Var (Maybe Type)]))
-  (function (_ context)
-    (#error.Success [context
-                     (get@ #.var-bindings context)])))
-
-(def: (set-bindings value)
-  (-> (List [Var (Maybe Type)]) (Check Any))
-  (function (_ context)
-    (#error.Success [(set@ #.var-bindings value context)
-                     []])))
-
 (def: (apply-type! funcT argT)
   (-> Type Type (Check Type))
   (case funcT
@@ -260,35 +244,35 @@
     (do Monad<Check>
       [?funcT' (read func-id)]
       (case ?funcT'
-        #.None
-        (throw invalid-type-application [funcT argT])
-
         (#.Some funcT')
-        (apply-type! funcT' argT)))
+        (apply-type! funcT' argT)
+
+        _
+        (throw invalid-type-application [funcT argT])))
 
     _
-    (function (_ context)
-      (case (//.apply (list argT) funcT)
-        #.None
-        (ex.throw invalid-type-application [funcT argT])
+    (case (//.apply (list argT) funcT)
+      (#.Some output)
+      (check/wrap output)
 
-        (#.Some output)
-        (#error.Success [context output])))))
+      _
+      (throw invalid-type-application [funcT argT]))))
 
 (type: #export Ring (Set Var))
 
 (def: empty-ring Ring (set.new number.Hash<Nat>))
 
-(def: #export (ring id)
+## TODO: Optimize this by not using sets anymore.
+(def: #export (ring start)
   (-> Var (Check Ring))
   (function (_ context)
-    (loop [current id
-           output (set.add id empty-ring)]
+    (loop [current start
+           output (set.add start empty-ring)]
       (case (|> context (get@ #.var-bindings) (var::get current))
         (#.Some (#.Some type))
         (case type
           (#.Var post)
-          (if (!n/= id post)
+          (if (!n/= start post)
             (#error.Success [context output])
             (recur post (set.add post output)))
           
@@ -351,6 +335,7 @@
   (-> Assumption (List Assumption) (List Assumption))
   (#.Cons assumption assumptions))
 
+## TODO: "if-bind" can be optimized...
 (def: (if-bind id type then else)
   (All [a]
     (-> Var Type (Check a) (-> Type (Check a))
@@ -360,7 +345,7 @@
         [_ (..bind type id)]
         then)
       (do Monad<Check>
-        [ring (ring id)
+        [ring (..ring id)
          _ (assert "" (n/> 1 (set.size ring)))
          _ (monad.map @ (update type) (set.to-list ring))]
         then)
@@ -368,18 +353,21 @@
         [?bound (read id)]
         (else (maybe.default (#.Var id) ?bound)))))
 
+## TODO: "link-2" can be optimized...
 (def: (link-2 left right)
   (-> Var Var (Check Any))
   (do Monad<Check>
     [_ (..bind (#.Var right) left)]
     (..bind (#.Var left) right)))
 
+## TODO: "link-3" can be optimized...
 (def: (link-3 interpose to from)
   (-> Var Var Var (Check Any))
   (do Monad<Check>
     [_ (update (#.Var interpose) from)]
     (update (#.Var to) interpose)))
 
+## TODO: "check-vars" can be optimized...
 (def: (check-vars check' assumptions idE idA)
   (-> (-> (List Assumption) Type Type (Check (List Assumption)))
       (List Assumption)
@@ -391,7 +379,7 @@
       [ebound (attempt (peek idE))
        abound (attempt (peek idA))]
       (case [ebound abound]
-        ## Link the 2 variables circularily
+        ## Link the 2 variables circularly
         [#.None #.None]
         (do @
           [_ (link-2 idE idA)]
@@ -423,8 +411,8 @@
         (case [etype atype]
           [(#.Var targetE) (#.Var targetA)]
           (do @
-            [ringE (ring idE)
-             ringA (ring idA)]
+            [ringE (..ring idE)
+             ringA (..ring idA)]
             (if (:: set.Equivalence<Set> = ringE ringA)
               (wrap assumptions)
               ## Fuse 2 rings
@@ -436,18 +424,15 @@
                                targetE
                                (set.to-list ringA))]
                 (wrap assumptions))))
-          
-          [(#.Var targetE) _]
-          (do @
-            [ring (ring idE)
-             _ (monad.map @ (update atype) (set.to-list ring))]
-            (wrap assumptions))
-          
-          [_ (#.Var targetA)]
-          (do @
-            [ring (ring idA)
-             _ (monad.map @ (update etype) (set.to-list ring))]
-            (wrap assumptions))
+
+          (^template [<pattern> <id> <type>]
+            <pattern>
+            (do @
+              [ring (..ring <id>)
+               _ (monad.map @ (update <type>) (set.to-list ring))]
+              (wrap assumptions)))
+          ([[(#.Var _) _] idE atype]
+           [[_ (#.Var _)] idA etype])
           
           _
           (check' assumptions etype atype))))))
@@ -472,6 +457,7 @@
       output
       output)))
 
+## TODO: "check-apply" can be optimized...
 (def: (check-apply check' assumptions [eAT eFT] [aAT aFT])
   (-> (-> (List Assumption) Type Type (Check (List Assumption))) (List Assumption)
       [Type Type] [Type Type]
@@ -523,6 +509,7 @@
     _
     (fail "")))
 
+## TODO: "check'" can be optimized...
 (def: #export (check' assumptions expected actual)
   {#.doc "Type-check to ensure that the 'expected' type subsumes the 'actual' type."}
   (-> (List Assumption) Type Type (Check (List Assumption)))
@@ -555,18 +542,19 @@
          [(#.Var id) F2])
         
         [(#.Apply A F) _]
-        (let [fx-pair [expected actual]]
-          (if (assumed? fx-pair assumptions)
+        (let [new-assumption [expected actual]]
+          (if (assumed? new-assumption assumptions)
             (check/wrap assumptions)
             (do Monad<Check>
               [expected' (apply-type! F A)]
-              (check' (assume! fx-pair assumptions) expected' actual))))
+              (check' (assume! new-assumption assumptions) expected' actual))))
 
         [_ (#.Apply A F)]
         (do Monad<Check>
           [actual' (apply-type! F A)]
           (check' assumptions expected actual'))
 
+        ## TODO: Refactor-away as cold-code
         (^template [<tag> <instancer>]
           [(<tag> _) _]
           (do Monad<Check>
@@ -576,6 +564,7 @@
         ([#.UnivQ ..existential]
          [#.ExQ ..var])
 
+        ## TODO: Refactor-away as cold-code
         (^template [<tag> <instancer>]
           [_ (<tag> _)]
           (do Monad<Check>
@@ -654,9 +643,9 @@
   (-> Type (Check Type))
   (case inputT
     (#.Primitive name paramsT+)
-    (do Monad<Check>
-      [paramsT+' (monad.map @ clean paramsT+)]
-      (wrap (#.Primitive name paramsT+')))
+    (|> paramsT+
+        (monad.map Monad<Check> clean)
+        (check/map (|>> (#.Primitive name))))
 
     (^or (#.Parameter _) (#.Ex _) (#.Named _))
     (check/wrap inputT)
@@ -664,9 +653,9 @@
     (^template [<tag>]
       (<tag> leftT rightT)
       (do Monad<Check>
-        [leftT' (clean leftT)
-         rightT' (clean rightT)]
-        (wrap (<tag> leftT' rightT'))))
+        [leftT' (clean leftT)]
+        (|> (clean rightT)
+            (check/map (|>> (<tag> leftT'))))))
     ([#.Sum] [#.Product] [#.Function] [#.Apply])
 
     (#.Var id)
