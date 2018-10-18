@@ -1,7 +1,7 @@
 (.module:
   [lux #*
    [control
-    ["eq" equivalence]]
+    [equivalence (#+ Equivalence)]]
    [data
     [number ("rev/." Interval<Rev>)]
     [collection
@@ -23,22 +23,39 @@
   (-> Frac Nat)
   (|>> (f/* rgb-factor) frac-to-int .nat))
 
-(abstract: #export Color {}
+(type: #export RGB
   {#red Nat
    #green Nat
-   #blue Nat}
+   #blue Nat})
 
-  (def: #export (color [red green blue])
-    (-> [Nat Nat Nat] Color)
+(type: #export HSL
+  [Frac Frac Frac])
+
+(type: #export CMYK
+  {#cyan Frac
+   #magenta Frac
+   #yellow Frac
+   #key Frac})
+
+(type: #export HSB
+  [Frac Frac Frac])
+
+(abstract: #export Color
+  {}
+  
+  RGB
+
+  (def: #export (from-rgb [red green blue])
+    (-> RGB Color)
     (:abstraction {#red (n/% rgb red)
                    #green (n/% rgb green)
                    #blue (n/% rgb blue)}))
 
   (def: #export to-rgb
-    (-> Color [Nat Nat Nat])
+    (-> Color RGB)
     (|>> :representation))
 
-  (structure: #export _ (eq.Equivalence Color)
+  (structure: #export _ (Equivalence Color)
     (def: (= reference sample)
       (let [[rr rg rb] (:representation reference)
             [sr sg sb] (:representation sample)]
@@ -48,7 +65,7 @@
   )
 
 (def: #export (to-hsl color)
-  (-> Color [Frac Frac Frac])
+  (-> Color HSL)
   (let [[red green blue] (to-rgb color)
         red (scale-down red)
         green (scale-down green)
@@ -58,7 +75,9 @@
         luminance (|> (f/+ max min) (f// +2.0))]
     (if (f/= max min)
       ## Achromatic
-      [+0.0 +0.0 luminance]
+      [+0.0
+       +0.0
+       luminance]
       ## Chromatic
       (let [diff (|> max (f/- min))
             saturation (|> diff
@@ -100,23 +119,25 @@
           p)))
 
 (def: #export (from-hsl [hue saturation luminance])
-  (-> [Frac Frac Frac] Color)
+  (-> HSL Color)
   (if (f/= +0.0 saturation)
     ## Achromatic
     (let [intensity (scale-up luminance)]
-      (color [intensity intensity intensity]))
+      (from-rgb {#red intensity
+                 #green intensity
+                 #blue intensity}))
     ## Chromatic
     (let [q (if (f/< +0.5 luminance)
               (|> saturation (f/+ +1.0) (f/* luminance))
               (|> luminance (f/+ saturation) (f/- (f/* saturation luminance))))
           p (|> luminance (f/* +2.0) (f/- q))
           third (|> +1.0 (f// +3.0))]
-      (color [(scale-up (|> hue (f/+ third) (hue-to-rgb p q)))
-              (scale-up (|> hue (hue-to-rgb p q)))
-              (scale-up (|> hue (f/- third) (hue-to-rgb p q)))]))))
+      (from-rgb {#red (scale-up (|> hue (f/+ third) (hue-to-rgb p q)))
+                 #green (scale-up (|> hue (hue-to-rgb p q)))
+                 #blue (scale-up (|> hue (f/- third) (hue-to-rgb p q)))}))))
 
 (def: #export (to-hsb color)
-  (-> Color [Frac Frac Frac])
+  (-> Color HSB)
   (let [[red green blue] (to-rgb color)
         red (scale-down red)
         green (scale-down green)
@@ -148,7 +169,7 @@
          brightness]))))
 
 (def: #export (from-hsb [hue saturation brightness])
-  (-> [Frac Frac Frac] Color)
+  (-> HSB Color)
   (let [hue (|> hue (f/* +6.0))
         i (math.floor hue)
         f (|> hue (f/- i))
@@ -160,12 +181,12 @@
         red (case mod 0 v 1 q 2 p 3 p 4 t 5 v _ (undefined))
         green (case mod 0 t 1 v 2 v 3 q 4 p 5 p _ (undefined))
         blue (case mod 0 p 1 p 2 t 3 v 4 v 5 q _ (undefined))]
-    (color [(scale-up red)
-            (scale-up green)
-            (scale-up blue)])))
+    (from-rgb {#red (scale-up red)
+               #green (scale-up green)
+               #blue (scale-up blue)})))
 
 (def: #export (to-cmyk color)
-  (-> Color [Frac Frac Frac Frac])
+  (-> Color CMYK)
   (let [[red green blue] (to-rgb color)
         red (scale-down red)
         green (scale-down green)
@@ -177,19 +198,26 @@
         cyan (|> +1.0 (f/- red) (f/- key) (f/* f))
         magenta (|> +1.0 (f/- green) (f/- key) (f/* f))
         yellow (|> +1.0 (f/- blue) (f/- key) (f/* f))]
-    [cyan magenta yellow key]))
+    {#cyan cyan
+     #magenta magenta
+     #yellow yellow
+     #key key}))
 
 (def: #export (from-cmyk [cyan magenta yellow key])
-  (-> [Frac Frac Frac Frac] Color)
+  (-> CMYK Color)
   (if (f/= +1.0 key)
-    (color [0 0 0])
+    (from-rgb {#red 0
+               #green 0
+               #blue 0})
     (let [red (|> (|> +1.0 (f/- cyan))
                   (f/* (|> +1.0 (f/- key))))
           green (|> (|> +1.0 (f/- magenta))
                     (f/* (|> +1.0 (f/- key))))
           blue (|> (|> +1.0 (f/- yellow))
                    (f/* (|> +1.0 (f/- key))))]
-      (color [(scale-up red) (scale-up green) (scale-up blue)]))))
+      (from-rgb {#red (scale-up red)
+                 #green (scale-up green)
+                 #blue (scale-up blue)}))))
 
 (def: (normalize ratio)
   (-> Frac Frac)
@@ -214,12 +242,16 @@
                               .nat)))
         [redS greenS blueS] (to-rgb start)
         [redE greenE blueE] (to-rgb end)]
-    (color [(interpolate' redE redS)
-            (interpolate' greenE greenS)
-            (interpolate' blueE blueS)])))
+    (from-rgb {#red (interpolate' redE redS)
+               #green (interpolate' greenE greenS)
+               #blue (interpolate' blueE blueS)})))
 
-(def: #export black Color (color [0 0 0]))
-(def: #export white Color (color [top top top]))
+(def: #export black (from-rgb {#red 0
+                               #green 0
+                               #blue 0}))
+(def: #export white (from-rgb {#red top
+                               #green top
+                               #blue top}))
 
 (do-template [<name> <target>]
   [(def: #export (<name> ratio color)
@@ -234,9 +266,9 @@
   (-> Color Color)
   (let [[red green blue] (to-rgb color)
         adjust (function (_ value) (|> top (n/- value)))]
-    (..color [(adjust red)
-              (adjust green)
-              (adjust blue)])))
+    (from-rgb {#red (adjust red)
+               #green (adjust green)
+               #blue (adjust blue)})))
 
 (do-template [<name> <op>]
   [(def: #export (<name> ratio color)
@@ -255,15 +287,21 @@
 (def: #export (gray-scale color)
   (-> Color Color)
   (let [[_ _ luminance] (to-hsl color)]
-    (from-hsl [+0.0 +0.0 luminance])))
+    (from-hsl [+0.0
+               +0.0
+               luminance])))
 
 (do-template [<name> <1> <2>]
   [(def: #export (<name> color)
      (-> Color [Color Color Color])
      (let [[hue saturation luminance] (to-hsl color)]
        [color
-        (from-hsl [(|> hue (f/+ <1>) normalize) saturation luminance])
-        (from-hsl [(|> hue (f/+ <2>) normalize) saturation luminance])]))]
+        (from-hsl [(|> hue (f/+ <1>) normalize)
+                   saturation
+                   luminance])
+        (from-hsl [(|> hue (f/+ <2>) normalize)
+                   saturation
+                   luminance])]))]
 
   [triad            (|> +1.0 (f// +3.0)) (|> +2.0 (f// +3.0))]
   [clash            (|> +1.0 (f// +4.0)) (|> +3.0 (f// +4.0))]
@@ -275,9 +313,15 @@
      (-> Color [Color Color Color Color])
      (let [[hue saturation luminance] (to-hsl color)]
        [color
-        (from-hsl [(|> hue (f/+ <1>) normalize) saturation luminance])
-        (from-hsl [(|> hue (f/+ <2>) normalize) saturation luminance])
-        (from-hsl [(|> hue (f/+ <3>) normalize) saturation luminance])]))]
+        (from-hsl [(|> hue (f/+ <1>) normalize)
+                   saturation
+                   luminance])
+        (from-hsl [(|> hue (f/+ <2>) normalize)
+                   saturation
+                   luminance])
+        (from-hsl [(|> hue (f/+ <3>) normalize)
+                   saturation
+                   luminance])]))]
 
   [square   (|> +1.0 (f// +4.0))  (|> +2.0 (f// +4.0))  (|> +3.0 (f// +4.0))]
   [tetradic (|> +2.0 (f// +12.0)) (|> +6.0 (f// +12.0)) (|> +8.0 (f// +12.0))]
