@@ -1,12 +1,31 @@
 (.module:
   [lux #*
    [control
-    [monad (#+ do)]]
+    [monad (#+ do)]
+    ["ex" exception (#+ exception:)]]
    [data
     ["." error (#+ Error)]
+    ["." text
+     format]
     [collection
-     [array (#+ Array)]]]
-   ["." host (#+ import:)]])
+     [array (#+ Array)]
+     [list ("list/." Functor<List>)]]]
+   ["." macro]
+   ["." host (#+ import:)]]
+  ["." ///])
+
+(exception: #export (expansion-failed {macro Name} {inputs (List Code)} {error Text})
+  (ex.report ["Macro" (%name macro)]
+             ["Inputs" (|> inputs
+                           (list/map (|>> %code (format text.new-line text.tab)))
+                           (text.join-with ""))]
+             ["Error" error]))
+
+(exception: #export (must-have-single-expansion {macro Name} {inputs (List Code)})
+  (ex.report ["Macro" (%name macro)]
+             ["Inputs" (|> inputs
+                           (list/map (|>> %code (format text.new-line text.tab)))
+                           (text.join-with ""))]))
 
 (import: java/lang/reflect/Method
   (invoke [Object (Array Object)] #try Object))
@@ -27,8 +46,8 @@
       (host.array-write 0 _object-class)
       (host.array-write 1 _object-class)))
 
-(def: #export (expand macro inputs)
-  (-> Macro (List Code) (Meta (List Code)))
+(def: #export (expand name macro inputs)
+  (-> Name Macro (List Code) (Meta (List Code)))
   (function (_ state)
     (do error.Monad<Error>
       [apply-method (|> macro
@@ -40,5 +59,21 @@
                                   (host.array-write 0 (:coerce Object inputs))
                                   (host.array-write 1 (:coerce Object state)))
                               apply-method)]
-      (:coerce (Error [Lux (List Code)])
-               output))))
+      (case (:coerce (Error [Lux (List Code)])
+                     output)
+        (#error.Success output)
+        (#error.Success output)
+        
+        (#error.Error error)
+        ((///.throw expansion-failed [name inputs error]) state)))))
+
+(def: #export (expand-one name macro inputs)
+  (-> Name Macro (List Code) (Meta Code))
+  (do macro.Monad<Meta>
+    [expansion (expand name macro inputs)]
+    (case expansion
+      (^ (list single))
+      (wrap single)
+
+      _
+      (///.throw must-have-single-expansion [name inputs]))))

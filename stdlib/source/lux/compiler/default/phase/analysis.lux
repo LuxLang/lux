@@ -1,5 +1,7 @@
 (.module:
   [lux (#- nat int rev)
+   [control
+    [monad (#+ do)]]
    [data
     ["." product]
     ["." error]
@@ -59,17 +61,6 @@
   (#Function Environment Analysis)
   (#Apply Analysis Analysis)
   (#Extension (Extension Analysis)))
-
-(do-template [<special> <general>]
-  [(type: #export <special>
-     (<general> .Lux Code Analysis))]
-
-  [State+    extension.State]
-  [Operation extension.Operation]
-  [Phase     extension.Phase]
-  [Handler   extension.Handler]
-  [Bundle    extension.Bundle]
-  )
 
 (type: #export Branch
   (Branch' Analysis))
@@ -178,6 +169,81 @@
 (template: #export (pattern/bind register)
   (#..Bind register))
 
+(def: #export (%analysis analysis)
+  (Format Analysis)
+  (case analysis
+    (#Primitive primitive)
+    (case primitive
+      #Unit
+      "[]"
+
+      (^template [<tag> <format>]
+        (<tag> value)
+        (<format> value))
+      ([#Bit %b]
+       [#Nat %n]
+       [#Int %i]
+       [#Rev %r]
+       [#Frac %f]
+       [#Text %t]))
+    
+    (#Structure structure)
+    (case structure
+      (#Variant [lefts right? value])
+      (format "(" (%n lefts) " " (%b right?) " " (%analysis value) ")")
+      
+      (#Tuple members)
+      (|> members
+          (list/map %analysis)
+          (text.join-with " ")
+          (text.enclose ["[" "]"])))
+    
+    (#Reference reference)
+    (case reference
+      (#reference.Variable variable)
+      (reference.%variable variable)
+      
+      (#reference.Constant constant)
+      (%name constant))
+    
+    (#Case analysis match)
+    "{?}"
+    
+    (#Function environment body)
+    (|> (%analysis body)
+        (format " ")
+        (format (|> environment
+                    (list/map reference.%variable)
+                    (text.join-with " ")
+                    (text.enclose ["[" "]"])))
+        (text.enclose ["(" ")"]))
+    
+    (#Apply _)
+    (|> analysis
+        ..application
+        #.Cons
+        (list/map %analysis)
+        (text.join-with " ")
+        (text.enclose ["(" ")"]))
+    
+    (#Extension name parameters)
+    (|> parameters
+        (list/map %analysis)
+        (text.join-with " ")
+        (format (%t name) " ")
+        (text.enclose ["(" ")"]))))
+
+(do-template [<special> <general>]
+  [(type: #export <special>
+     (<general> .Lux Code Analysis))]
+
+  [State+    extension.State]
+  [Operation extension.Operation]
+  [Phase     extension.Phase]
+  [Handler   extension.Handler]
+  [Bundle    extension.Bundle]
+  )
+
 (def: #export (with-source-code source action)
   (All [a] (-> Source (Operation a) (Operation a)))
   (function (_ [bundle state])
@@ -249,66 +315,35 @@
   [set-cursor         Cursor #.cursor         value]
   )
 
-(def: #export (%analysis analysis)
-  (Format Analysis)
-  (case analysis
-    (#Primitive primitive)
-    (case primitive
-      #Unit
-      "[]"
+(def: #export (cursor file)
+  (-> Text Cursor)
+  [file 1 0])
 
-      (^template [<tag> <format>]
-        (<tag> value)
-        (<format> value))
-      ([#Bit %b]
-       [#Nat %n]
-       [#Int %i]
-       [#Rev %r]
-       [#Frac %f]
-       [#Text %t]))
-    
-    (#Structure structure)
-    (case structure
-      (#Variant [lefts right? value])
-      (format "(" (%n lefts) " " (%b right?) " " (%analysis value) ")")
-      
-      (#Tuple members)
-      (|> members
-          (list/map %analysis)
-          (text.join-with " ")
-          (text.enclose ["[" "]"])))
-    
-    (#Reference reference)
-    (case reference
-      (#reference.Variable variable)
-      (reference.%variable variable)
-      
-      (#reference.Constant constant)
-      (%name constant))
-    
-    (#Case analysis match)
-    "{?}"
-    
-    (#Function environment body)
-    (|> (%analysis body)
-        (format " ")
-        (format (|> environment
-                    (list/map reference.%variable)
-                    (text.join-with " ")
-                    (text.enclose ["[" "]"])))
-        (text.enclose ["(" ")"]))
-    
-    (#Apply _)
-    (|> analysis
-        ..application
-        #.Cons
-        (list/map %analysis)
-        (text.join-with " ")
-        (text.enclose ["(" ")"]))
-    
-    (#Extension name parameters)
-    (|> parameters
-        (list/map %analysis)
-        (text.join-with " ")
-        (format (%t name) " ")
-        (text.enclose ["(" ")"]))))
+(def: #export (source file code)
+  (-> Text Text Source)
+  [(cursor file) 0 code])
+
+(def: dummy-source
+  Source
+  [.dummy-cursor 0 ""])
+
+(def: type-context
+  Type-Context
+  {#.ex-counter 0
+   #.var-counter 0
+   #.var-bindings (list)})
+
+(def: #export (state info host)
+  (-> Info Any Lux)
+  {#.info            info
+   #.source          ..dummy-source
+   #.cursor          .dummy-cursor
+   #.current-module  #.None
+   #.modules         (list)
+   #.scopes          (list)
+   #.type-context    ..type-context
+   #.expected        #.None
+   #.seed            0
+   #.scope-type-vars (list)
+   #.extensions      []
+   #.host            host})
