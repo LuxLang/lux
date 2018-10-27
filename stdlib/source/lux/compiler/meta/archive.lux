@@ -1,5 +1,5 @@
 (.module:
-  [lux #*
+  [lux (#- Module)
    [control
     ["ex" exception (#+ exception:)]
     ["." equivalence (#+ Equivalence)]
@@ -10,120 +10,66 @@
     ["." text
      format]
     [collection
-     ["dict" dictionary (#+ Dictionary)]]]
+     ["." dictionary (#+ Dictionary)]]]
    [type (#+ :share)
     abstract]
    [world
     [file (#+ File)]]]
   [///
-   [default
-    ["." init (#+ Version)]]])
-
-## Key
-(type: #export Signature
-  {#name Name
-   #version Version})
-
-(def: Equivalence<Signature>
-  (Equivalence Signature)
-  (equivalence.product name.Equivalence<Name> text.Equivalence<Text>))
-
-(def: (describe signature)
-  (-> Signature Text)
-  (format (%name (get@ #name signature)) " " (get@ #version signature)))
-
-(abstract: #export (Key k)
-  {}
-
-  Signature
-
-  (structure: #export Equivalence<Key>
-    (All [k] (Equivalence (Key k)))
-    (def: (= reference sample)
-      (:: Equivalence<Signature> = (:representation reference) (:representation sample))))
-
-  (def: #export default
-    (Key Nothing)
-    (:abstraction {#name ["" ""]
-                   #version init.version}))
-
-  (def: #export signature
-    (-> (Key Any) Signature)
-    (|>> :representation))
-  )
-
-## Document
-(exception: #export (invalid-key-for-document {expected (Key Any)} {actual (Key Any)})
-  (ex.report ["Expected" (describe (..signature expected))]
-             ["Actual" (describe (..signature actual))]))
-
-(exception: #export (signature-does-not-match-key {key (Key Any)} {signature Signature})
-  (ex.report ["Key" (describe (..signature key))]
-             ["Signature" (describe signature)]))
-
-(type: #export Reference Text)
-
-(type: #export Descriptor
-  {#hash Nat
-   #file File
-   #references (List Reference)
-   #state Module-State})
-
-(type: #export (Document d)
-  {#key (Key d)
-   #descriptor Descriptor
-   #content d})
-
-(def: #export (open expected [actual _descriptor content])
-  (All [d] (-> (Key d) (Document Any) (Error d)))
-  (if (:: Equivalence<Key> = expected actual)
-    (#error.Success (:share [e]
-                            {(Key e)
-                             expected}
-                            {e
-                             content}))
-    (ex.throw invalid-key-for-document [expected actual])))
-
-(def: #export (close key signature descriptor content)
-  (All [d] (-> (Key d) Signature Descriptor d (Error (Document d))))
-  (if (:: Equivalence<Signature> = (..signature key) signature)
-    (#error.Success {#key key
-                     #descriptor descriptor
-                     #content content})
-    (ex.throw signature-does-not-match-key [key signature])))
+   [default (#+ Version)]]
+  [/
+   ["." signature (#+ Signature)]
+   ["." key (#+ Key)]
+   ["." descriptor (#+ Module Descriptor)]
+   ["." document (#+ Document)]])
 
 ## Archive
-(exception: #export (cannot-replace-document-in-archive {name Text} {old (Document Any)} {new (Document Any)})
-  (ex.report ["Module's name" name]
-             ["Old document's key" (describe (..signature (get@ #key old)))]
-             ["New document's key" (describe (..signature (get@ #key new)))]))
+(exception: #export (unknown-document {name Module})
+  (ex.report ["Module" name]))
 
-(abstract: #export Archive
-  {}
-  
-  (Dictionary Text (Ex [d] (Document d)))
+(exception: #export (cannot-replace-document {name Module}
+                                             {old (Document Any)}
+                                             {new (Document Any)})
+  (ex.report ["Module" name]
+             ["Old key" (signature.description (document.signature old))]
+             ["New key" (signature.description (document.signature new))]))
 
-  (def: #export empty
-    Archive
-    (:abstraction (dict.new text.Hash<Text>)))
+(with-expansions [<Document> (as-is (type (Ex [d] (Document d))))]
+  (abstract: #export Archive
+    {}
+    
+    (Dictionary Text <Document>)
 
-  (def: #export (add name document archive)
-    (-> Text (Ex [d] (Document d)) Archive (Error Archive))
-    (case (dict.get name (:representation archive))
-      (#.Some existing)
-      (if (is? document existing)
-        (#error.Success archive)
-        (ex.throw cannot-replace-document-in-archive [name existing document]))
-      
-      #.None
-      (#error.Success (:abstraction (dict.put name document
-                                              (:representation archive))))))
+    (def: #export empty
+      Archive
+      (:abstraction (dictionary.new text.Hash<Text>)))
 
-  (def: #export (merge additions archive)
-    (-> Archive Archive (Error Archive))
-    (monad.fold error.Monad<Error>
-                (function (_ [name' document'] archive')
-                  (..add name' document' archive'))
-                archive
-                (dict.entries (:representation additions))))
-  )
+    (def: #export (add name document archive)
+      (-> Module <Document> Archive (Error Archive))
+      (case (dictionary.get name (:representation archive))
+        (#.Some existing)
+        (if (is? document existing)
+          (#error.Success archive)
+          (ex.throw cannot-replace-document [name existing document]))
+        
+        #.None
+        (#error.Success (:abstraction (dictionary.put name document
+                                                      (:representation archive))))))
+
+    (def: #export (find name archive)
+      (-> Module Archive (Error <Document>))
+      (case (dictionary.get name (:representation archive))
+        (#.Some document)
+        (#error.Success document)
+        
+        #.None
+        (ex.throw unknown-document [name])))
+
+    (def: #export (merge additions archive)
+      (-> Archive Archive (Error Archive))
+      (monad.fold error.Monad<Error>
+                  (function (_ [name' document'] archive')
+                    (..add name' document' archive'))
+                  archive
+                  (dictionary.entries (:representation additions))))
+    ))
