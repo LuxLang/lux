@@ -1,8 +1,7 @@
 (.module:
   [lux #*
    [control
-    [monad (#+ do)]
-    ["p" parser]]
+    [monad (#+ do)]]
    [data
     ["." error]
     ["." text
@@ -14,10 +13,21 @@
    [world
     ["." file (#+ File)]
     ["." console]]
-   [compiler
-    ["." cli]
-    ["." default (#+ Platform)]]
-   ["." interpreter]]
+   ["." compiler
+    ["." cli (#+ Configuration)]
+    [meta
+     ["." archive]
+     [io
+      ["." context]]]
+    [default
+     ["." platform (#+ Platform)]
+     ["." init]
+     ["." syntax]
+     ["." phase
+      ["." translation]
+      ["." statement]]]]
+   ## ["." interpreter]
+   ]
   [luxc
    [lang
     ["." host/jvm]
@@ -45,23 +55,24 @@
 
 (def: (timed action)
   (All [a]
-    (-> (Process a) (Process a)))
+    (-> (-> Any (Process a)) (Process a)))
   (do io.Monad<Process>
     [start (io.from-io instant.now)
-     result action
+     result (action [])
      finish (io.from-io instant.now)
      #let [elapsed-time (instant.span start finish)
-           _ (log! (format text.new-line "Elapsed time: " (%duration elapsed-time)))]]
+           _ (log! (format text.new-line
+                           "Elapsed time: " (%duration elapsed-time)))]]
     (wrap result)))
 
 (def: jvm-platform
   (IO (Platform Process host/jvm.Anchor host/jvm.Inst host/jvm.Definition))
   (do io.Monad<IO>
     [host jvm.init]
-    (wrap {#default.host host
-           #default.phase expression.translate
-           #default.runtime runtime.translate
-           #default.file-system file.JVM@System})))
+    (wrap {#platform.host host
+           #platform.phase expression.translate
+           #platform.runtime runtime.translate
+           #platform.file-system file.JVM@System})))
 
 (program: [{service cli.service}]
   (do io.Monad<IO>
@@ -71,8 +82,18 @@
       (#cli.Compilation configuration)
       (<| (or-crash! "Compilation failed:")
           ..timed
-          (default.compile platform configuration common.bundle))
+          (function (_ _)
+            (do (:: (get@ #platform.file-system platform) &monad)
+              [state (platform.initialize platform common.bundle)
+               _ (platform.compile platform (set@ #cli.module syntax.prelude configuration) state)
+               ## _ (compile platform configuration state)
+               ## _ (cache/io.clean target ...)
+               ]
+              (wrap (log! "Compilation complete!")))))
       
       (#cli.Interpretation configuration)
-      (<| (or-crash! "Interpretation failed:")
-          (interpreter.run io.Monad<Process> console platform configuration)))))
+      ## TODO: Fix the interpreter...
+      (undefined)
+      ## (<| (or-crash! "Interpretation failed:")
+      ##     (interpreter.run io.Monad<Process> console platform configuration common.bundle))
+      )))

@@ -19,19 +19,26 @@
      ["." set (#+ Set)]]]
    [world
     [file (#+ File System)]]]
-  [//io (#+ Context Module)]
-  ["." //io/context]
-  ["." //io/archive]
-  ["." //archive (#+ Signature Key Descriptor Document Archive)]
+  [//
+   [io (#+ Context Module)
+    ["io/." context]
+    ["io/." archive]]
+   ["." archive (#+ Signature Key Descriptor Document Archive)]
+   ["/." //]]
   ["." /dependency (#+ Dependency Graph)])
 
-(exception: #export (cannot-delete-cached-file {file File})
+(exception: #export (cannot-delete-file {file File})
   (ex.report ["File" file]))
 
-(exception: #export (stale-document {module Text} {current-hash Nat} {stale-hash Nat})
+(exception: #export (stale-document {module ///.Module} {current-hash Nat} {stale-hash Nat})
   (ex.report ["Module" module]
              ["Current hash" (%n current-hash)]
              ["Stale hash" (%n stale-hash)]))
+
+(exception: #export (mismatched-signature {module ///.Module} {expected Signature} {actual Signature})
+  (ex.report ["Module" module]
+             ["Expected" (archive.describe expected)]
+             ["Actual" (archive.describe actual)]))
 
 (do-template [<name>]
   [(exception: #export (<name> {message Text})
@@ -44,7 +51,7 @@
 (def: #export (cached System<m> root)
   (All [m] (-> (System m) File (m (List File))))
   (|> root
-      (//io/archive.archive System<m>)
+      (io/archive.archive System<m>)
       (do> (:: System<m> &monad)
            [(:: System<m> files)]
            [(monad.map @ (function (recur file)
@@ -56,7 +63,7 @@
                                         [(:: System<m> files)]
                                         [(monad.map @ recur)]
                                         [list.concat
-                                         (list& (maybe.assume (//io/archive.module System<m> root file)))
+                                         (list& (maybe.assume (io/archive.module System<m> root file)))
                                          wrap]))
                                (wrap (list))))))]
            [list.concat wrap])))
@@ -68,11 +75,11 @@
     [deleted? (:: System<m> delete document)]
     (if deleted?
       (wrap [])
-      (:: System<m> throw cannot-delete-cached-file document))))
+      (:: System<m> throw cannot-delete-file document))))
 
 (def: (un-install System<m> root module)
   (All [m] (-> (System m) File Module (m Any)))
-  (let [document (//io/archive.document System<m> root module)]
+  (let [document (io/archive.document System<m> root module)]
     (|> document
         (do> (:: System<m> &monad)
              [(:: System<m> files)]
@@ -113,15 +120,19 @@
   (All [m d] (-> (System m) (List File) File (Key d) (Format d) Module
                  (m (Maybe [Dependency (Document d)]))))
   (do (:: System<m> &monad)
-    [document' (:: System<m> read (//io/archive.document System<m> root module))
-     [module' source-code] (//io/context.read System<m> contexts module)
+    [document' (:: System<m> read (io/archive.document System<m> root module))
+     [module' source-code] (io/context.read System<m> contexts module)
      #let [current-hash (:: text.Hash<Text> hash source-code)]]
     (case (do error.Monad<Error>
             [[signature descriptor content] (binary.read (..document binary) document')
              #let [[document-hash _file references _state] descriptor]
+             _ (ex.assert mismatched-signature [module (get@ #archive.signature key) signature]
+                          (:: archive.Equivalence<Signature> =
+                              (get@ #archive.signature key)
+                              signature))
              _ (ex.assert stale-document [module current-hash document-hash]
                           (n/= current-hash document-hash))
-             document (//archive.close key signature descriptor content)]
+             document (archive.write key signature descriptor content)]
             (wrap [[module references] document]))
       (#error.Success [dependency document])
       (wrap (#.Some [dependency document]))

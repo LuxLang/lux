@@ -1,0 +1,109 @@
+(.module:
+  [lux #*
+   [control
+    [monad (#+ do)]]
+   [data
+    ["." product]
+    ["." error]]
+   [world
+    ["." file (#+ File)]]
+   ["." compiler
+    [default
+     ["." init]
+     ["." syntax]
+     ["." phase
+      ["." translation]
+      ["." statement]]]
+    ["." cli (#+ Configuration)]
+    [meta
+     ["." archive]
+     [io
+      ["." context]]]]])
+
+(type: #export (Platform ! anchor expression statement)
+  {#host (translation.Host expression statement)
+   #phase (translation.Phase anchor expression statement)
+   #runtime (translation.Operation anchor expression statement Any)
+   #file-system (file.System !)})
+
+## (def: (write-module target-dir file-name module-name module outputs)
+##   (-> File Text Text Module Outputs (Process Any))
+##   (do io.Monad<Process>
+##     [_ (monad.map @ (product.uncurry (&io.write target-dir))
+##                   (dictionary.entries outputs))]
+##     (&io.write target-dir
+##                (format module-name "/" cache.descriptor-name)
+##                (encoding.to-utf8 (%code (cache/description.write file-name module))))))
+
+(with-expansions [<Platform> (as-is (Platform ! anchor expression statement))
+                  <State+> (as-is (statement.State+ anchor expression statement))
+                  <Bundle> (as-is (translation.Bundle anchor expression statement))]
+
+  (def: #export (initialize platform translation-bundle)
+    (All [! anchor expression statement]
+      (-> <Platform> <Bundle> (! <State+>)))
+    (|> platform
+        (get@ #runtime)
+        statement.lift-translation
+        (phase.run' (init.state (get@ #host platform)
+                                (get@ #phase platform)
+                                translation-bundle))
+        (:: error.Functor<Error> map product.left)
+        (:: (get@ #file-system platform) lift))
+    
+    ## (case (runtimeT.translate ## (initL.compiler (io.run js.init))
+    ##        (initL.compiler (io.run hostL.init-host))
+    ##        )
+    ##   ## (#error.Success [state disk-write])
+    ##   ## (do @
+    ##   ##   [_ (&io.prepare-target target)
+    ##   ##    _ disk-write
+    ##   ##    ## _ (cache/io.pre-load sources target (commonT.load-definition state))
+    ##   ##    ]
+    ##   ##   (wrap (|> state
+    ##   ##             (set@ [#.info #.mode] #.Build))))
+
+    ##   (#error.Success [state [runtime-bc function-bc]])
+    ##   (do @
+    ##     [_ (&io.prepare-target target)
+    ##      ## _ (&io.write target (format hostL.runtime-class ".class") runtime-bc)
+    ##      ## _ (&io.write target (format hostL.function-class ".class") function-bc)
+    ##      ## _ (cache/io.pre-load sources target (commonT.load-definition state))
+    ##      ]
+    ##     (wrap (|> state
+    ##               (set@ [#.info #.mode] #.Build))))
+
+    ##   (#error.Error error)
+    ##   (io.fail error))
+    )
+
+  (def: #export (compile platform configuration state)
+    (All [! anchor expression statement]
+      (-> <Platform> Configuration <State+> (! Any)))
+    (do (:: (get@ #file-system platform) &monad)
+      [input (context.read (get@ #file-system platform)
+                           (get@ #cli.sources configuration)
+                           (get@ #cli.module configuration))
+       ## _ (&io.prepare-module target-dir (get@ #cli.module configuration))
+       ## _ (write-module target-dir file-name (get@ #cli.module configuration) module outputs)
+       ]
+      ## (case (compiler input)
+      ##   (#error.Error error)
+      ##   (:: (get@ #file-system platform) lift (#error.Error error))
+      
+      ##   (#error.Success))
+      (let [compiler (init.compiler syntax.prelude state)
+            compilation (compiler init.key (list) input)]
+        (case ((get@ #compiler.process compilation)
+               archive.empty)
+          (#error.Success more|done)
+          (case more|done
+            (#.Left more)
+            (:: (get@ #file-system platform) lift (#error.Error "NOT DONE!"))
+            
+            (#.Right done)
+            (wrap []))
+          
+          (#error.Error error)
+          (:: (get@ #file-system platform) lift (#error.Error error))))))
+  )

@@ -1,95 +1,57 @@
 (.module:
-  [lux #*
+  [lux (#- Module loop)
    [control
-    [monad (#+ do)]]
+    [monad (#+ do)]
+    ["ex" exception (#+ exception:)]]
    [data
-    ["." product]]]
-  [//
+    ["." product]
+    ["." error (#+ Error)]
+    ["." text ("text/." Hash<Text>)]
+    [collection
+     ["." dictionary]]]
+   ["." macro]
+   [world
+    ["." file]]]
+  ["." //
+   ["." syntax (#+ Aliases)]
    ["." evaluation]
    ["." phase
     ["." analysis
+     ["." module]
      [".A" expression]]
     ["." synthesis
      [".S" expression]]
-    ["." translation (#+ Host)]
-    ["." statement]
+    ["." translation]
+    ["." statement
+     [".S" total]]
     ["." extension
      [".E" analysis]
      [".E" synthesis]
      [".E" statement]]]
-   [//
-    ["." host]]])
-
-(type: #export Version Text)
-
-(def: #export version Version "0.6.0")
-
-(def: #export (cursor file)
-  (-> Text Cursor)
-  [file 1 0])
-
-(def: #export (source file code)
-  (-> Text Text Source)
-  [(cursor file) 0 code])
-
-(def: dummy-source
-  Source
-  [.dummy-cursor 0 ""])
-
-(def: #export type-context
-  Type-Context
-  {#.ex-counter 0
-   #.var-counter 0
-   #.var-bindings (list)})
+   ["/." // (#+ Compiler)
+    ["." host]
+    [meta
+     [archive
+      ["." signature]
+      ["." key (#+ Key)]
+      ["." descriptor (#+ Module)]
+      ["." document]]]]])
 
 (def: #export info
   Info
-  {#.target  (`` (for {(~~ (static host.common-lisp)) host.common-lisp
-                       (~~ (static host.js))          host.js
-                       (~~ (static host.jvm))         host.jvm
-                       (~~ (static host.lua))         host.lua
-                       (~~ (static host.php))         host.php
-                       (~~ (static host.python))      host.python
-                       (~~ (static host.r))           host.r
-                       (~~ (static host.ruby))        host.ruby
-                       (~~ (static host.scheme))      host.scheme}))
-   #.version ..version
-   #.mode    #.Build})
+  {#.target (`` (for {(~~ (static host.common-lisp)) host.common-lisp
+                      (~~ (static host.js))          host.js
+                      (~~ (static host.jvm))         host.jvm
+                      (~~ (static host.lua))         host.lua
+                      (~~ (static host.php))         host.php
+                      (~~ (static host.python))      host.python
+                      (~~ (static host.r))           host.r
+                      (~~ (static host.ruby))        host.ruby
+                      (~~ (static host.scheme))      host.scheme}))
+   #.version //.version
+   #.mode #.Build})
 
-(def: #export (compiler host)
-  (-> Any Lux)
-  {#.info            ..info
-   #.source          dummy-source
-   #.cursor          .dummy-cursor
-   #.current-module  #.None
-   #.modules         (list)
-   #.scopes          (list)
-   #.type-context    ..type-context
-   #.expected        #.None
-   #.seed            0
-   #.scope-type-vars (list)
-   #.extensions      []
-   #.host            host})
-
-(def: #export (state host translate translation-bundle)
-  (All [anchor expression statement]
-    (-> (Host expression statement)
-        (translation.Phase anchor expression statement)
-        (translation.Bundle anchor expression statement)
-        (statement.State+ anchor expression statement)))
-  (let [synthesis-state [synthesisE.bundle synthesis.init]
-        translation-state [translation-bundle (translation.state host)]
-        eval (evaluation.evaluator synthesis-state translation-state translate)
-        analysis-state [(analysisE.bundle eval) (..compiler host)]]
-    [statementE.bundle
-     {#statement.analysis {#statement.state analysis-state
-                           #statement.phase expressionA.compile}
-      #statement.synthesis {#statement.state synthesis-state
-                            #statement.phase expressionS.phase}
-      #statement.translation {#statement.state translation-state
-                              #statement.phase translate}}]))
-
-(def: #export refresh
+(def: refresh
   (All [anchor expression statement]
     (statement.Operation anchor expression statement Any))
   (do phase.Monad<Operation>
@@ -103,3 +65,134 @@
                                   (|>> product.right
                                        [(analysisE.bundle eval)]))
                                state)])))
+
+(def: #export (state host translate translation-bundle)
+  (All [anchor expression statement]
+    (-> (translation.Host expression statement)
+        (translation.Phase anchor expression statement)
+        (translation.Bundle anchor expression statement)
+        (statement.State+ anchor expression statement)))
+  (let [synthesis-state [synthesisE.bundle synthesis.init]
+        translation-state [translation-bundle (translation.state host)]
+        eval (evaluation.evaluator synthesis-state translation-state translate)
+        analysis-state [(analysisE.bundle eval) (analysis.state ..info host)]]
+    [statementE.bundle
+     {#statement.analysis {#statement.state analysis-state
+                           #statement.phase expressionA.compile}
+      #statement.synthesis {#statement.state synthesis-state
+                            #statement.phase expressionS.phase}
+      #statement.translation {#statement.state translation-state
+                              #statement.phase translate}}]))
+
+(type: Reader
+  (-> Source (Error [Source Code])))
+
+(def: (reader current-module aliases)
+  (-> Module Aliases (analysis.Operation Reader))
+  (function (_ [bundle state])
+    (let [[cursor offset source-code] (get@ #.source state)]
+      (#error.Success [[bundle state]
+                       (syntax.parse current-module aliases ("lux text size" source-code))]))))
+
+(def: (read reader)
+  (-> Reader (analysis.Operation Code))
+  (function (_ [bundle compiler])
+    (case (reader (get@ #.source compiler))
+      (#error.Error error)
+      (#error.Error error)
+
+      (#error.Success [source' output])
+      (let [[cursor _] output]
+        (#error.Success [[bundle (|> compiler
+                                     (set@ #.source source')
+                                     (set@ #.cursor cursor))]
+                         output])))))
+
+(with-expansions [<Operation> (as-is (All [anchor expression statement]
+                                       (statement.Operation anchor expression statement Any)))]
+
+  (def: (begin hash input)
+    (-> Nat ///.Input <Operation>)
+    (statement.lift-analysis
+     (do phase.Monad<Operation>
+       [#let [module (get@ #///.module input)]
+        _ (module.create hash module)
+        _ (analysis.set-current-module module)]
+       (analysis.set-source-code (analysis.source (get@ #///.module input) (get@ #///.code input))))))
+
+  (def: end
+    (-> Module <Operation>)
+    (|>> module.set-compiled
+         statement.lift-analysis))
+
+  (def: (iteration reader)
+    (-> Reader <Operation>)
+    (do phase.Monad<Operation>
+      [code (statement.lift-analysis
+             (..read reader))
+       _ (totalS.phase code)]
+      ..refresh))
+
+  (def: (loop module)
+    (-> Module <Operation>)
+    (do phase.Monad<Operation>
+      [reader (statement.lift-analysis
+               (..reader module syntax.no-aliases))]
+      (function (_ state)
+        (.loop [state state]
+          (case (..iteration reader state)
+            (#error.Success [state' output])
+            (recur state')
+
+            (#error.Error error)
+            (if (ex.match? syntax.end-of-file error)
+              (#error.Success [state []])
+              (ex.with-stack ///.cannot-compile module (#error.Error error))))))))
+
+  (def: (compile hash input)
+    (-> Nat ///.Input <Operation>)
+    (do phase.Monad<Operation>
+      [#let [module (get@ #///.module input)]
+       _ (..begin hash input)
+       _ (..loop module)]
+      (..end module)))
+
+  (def: (default-dependencies prelude input)
+    (-> Module ///.Input (List Module))
+    (if (text/= prelude (get@ #///.module input))
+      (list)
+      (list prelude)))
+  )
+
+(def: #export (compiler prelude state)
+  (All [anchor expression statement]
+    (-> Module
+        (statement.State+ anchor expression statement)
+        (Compiler .Module)))
+  (function (_ key parameters input)
+    (let [hash (text/hash (get@ #///.code input))
+          dependencies (default-dependencies prelude input)]
+      {#///.dependencies dependencies
+       #///.process (function (_ archive)
+                      (do error.Monad<Error>
+                        [[state' analysis-module] (phase.run' state
+                                                              (: (All [anchor expression statement]
+                                                                   (statement.Operation anchor expression statement .Module))
+                                                                 (do phase.Monad<Operation>
+                                                                   [_ (compile hash input)]
+                                                                   (statement.lift-analysis
+                                                                    (extension.lift
+                                                                     macro.current-module)))))
+                         #let [descriptor {#descriptor.hash hash
+                                           #descriptor.name (get@ #///.module input)
+                                           #descriptor.file (get@ #///.file input)
+                                           #descriptor.references dependencies
+                                           #descriptor.state #.Compiled}]]
+                        (wrap (#.Right [(document.write key descriptor analysis-module)
+                                        (dictionary.new text.Hash<Text>)]))))})))
+
+(def: #export key
+  (Key .Module)
+  (key.key {#signature.name (name-of ..compiler)
+            #signature.version //.version}
+           (module.new 0)))
