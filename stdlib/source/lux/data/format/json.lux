@@ -5,11 +5,12 @@
     ["." monad (#+ do Monad)]
     [equivalence (#+ Equivalence)]
     codec
-    ["p" parser ("parser/." Monad<Parser>)]]
+    ["p" parser ("parser/." Monad<Parser>)]
+    ["ex" exception (#+ exception:)]]
    [data
     ["." bit]
     ["." maybe]
-    ["e" error]
+    ["." error (#+ Error)]
     ["." sum]
     ["." product]
     ["." number ("frac/." Codec<Text,Frac>) ("nat/." Codec<Text,Nat>)]
@@ -18,7 +19,7 @@
     [collection
      ["." list ("list/." Fold<List> Monad<List>)]
      ["." row (#+ Row row) ("row/." Monad<Row>)]
-     ["dict" dictionary (#+ Dictionary)]]]
+     ["." dictionary (#+ Dictionary)]]]
    ["." macro (#+ Monad<Meta> with-gensyms)
     ["s" syntax (#+ syntax:)]
     ["." code]]])
@@ -87,7 +88,7 @@
                                _
                                (macro.fail "Wrong syntax for JSON object.")))
                            pairs)]
-        (wrap (list (` (: JSON (#Object (dict.from-list text.Hash<Text> (list (~+ pairs')))))))))
+        (wrap (list (` (: JSON (#Object (dictionary.from-list text.Hash<Text> (list (~+ pairs')))))))))
       
       _
       (wrap (list token))
@@ -95,52 +96,52 @@
 
 (def: #export (get-fields json)
   {#.doc "Get all the fields in a JSON object."}
-  (-> JSON (e.Error (List String)))
+  (-> JSON (Error (List String)))
   (case json
     (#Object obj)
-    (#e.Success (dict.keys obj))
+    (#error.Success (dictionary.keys obj))
 
     _
-    (#e.Error ($_ text/compose "Cannot get the fields of a non-object."))))
+    (#error.Error ($_ text/compose "Cannot get the fields of a non-object."))))
 
 (def: #export (get key json)
   {#.doc "A JSON object field getter."}
-  (-> String JSON (e.Error JSON))
+  (-> String JSON (Error JSON))
   (case json
     (#Object obj)
-    (case (dict.get key obj)
+    (case (dictionary.get key obj)
       (#.Some value)
-      (#e.Success value)
+      (#error.Success value)
 
       #.None
-      (#e.Error ($_ text/compose "Missing field '" key "' on object.")))
+      (#error.Error ($_ text/compose "Missing field '" key "' on object.")))
 
     _
-    (#e.Error ($_ text/compose "Cannot get field '" key "' of a non-object."))))
+    (#error.Error ($_ text/compose "Cannot get field '" key "' of a non-object."))))
 
 (def: #export (set key value json)
   {#.doc "A JSON object field setter."}
-  (-> String JSON JSON (e.Error JSON))
+  (-> String JSON JSON (Error JSON))
   (case json
     (#Object obj)
-    (#e.Success (#Object (dict.put key value obj)))
+    (#error.Success (#Object (dictionary.put key value obj)))
 
     _
-    (#e.Error ($_ text/compose "Cannot set field '" key "' of a non-object."))))
+    (#error.Error ($_ text/compose "Cannot set field '" key "' of a non-object."))))
 
 (do-template [<name> <tag> <type> <desc>]
   [(def: #export (<name> key json)
      {#.doc (code.text ($_ text/compose "A JSON object field getter for " <desc> "."))}
-     (-> Text JSON (e.Error <type>))
+     (-> Text JSON (Error <type>))
      (case (get key json)
-       (#e.Success (<tag> value))
-       (#e.Success value)
+       (#error.Success (<tag> value))
+       (#error.Success value)
 
-       (#e.Success _)
-       (#e.Error ($_ text/compose "Wrong value type at key: " key))
+       (#error.Success _)
+       (#error.Error ($_ text/compose "Wrong value type at key: " key))
 
-       (#e.Error error)
-       (#e.Error error)))]
+       (#error.Error error)
+       (#error.Error error)))]
 
   [get-boolean #Boolean Boolean "booleans"]
   [get-number  #Number  Number  "numbers"]
@@ -175,14 +176,14 @@
                       (list.indices (row.size xs))))
       
       [(#Object xs) (#Object ys)]
-      (and (n/= (dict.size xs) (dict.size ys))
+      (and (n/= (dictionary.size xs) (dictionary.size ys))
            (list/fold (function (_ [xk xv] prev)
                         (and prev
-                             (case (dict.get xk ys)
+                             (case (dictionary.get xk ys)
                                #.None   #0
                                (#.Some yv) (= xv yv))))
                       #1
-                      (dict.entries xs)))
+                      (dictionary.entries xs)))
       
       _
       #0)))
@@ -191,26 +192,79 @@
 ############################################################
 ############################################################
 
-(def: unconsumed-input-error Text "Unconsumed JSON.")
+(def: (encode-boolean value)
+  (-> Bit Text)
+  (case value
+    #0 "false"
+    #1 "true"))
+
+(def: (show-null _) (-> Null Text) "null")
+(do-template [<name> <type> <codec>]
+  [(def: <name> (-> <type> Text) <codec>)]
+
+  [show-boolean Boolean encode-boolean]
+  [show-number  Number (:: number.Codec<Text,Frac> encode)]
+  [show-string  String text.encode])
+
+(def: (show-array show-json elems)
+  (-> (-> JSON Text) (-> Array Text))
+  ($_ text/compose "["
+      (|> elems (row/map show-json) row.to-list (text.join-with ","))
+      "]"))
+
+(def: (show-object show-json object)
+  (-> (-> JSON Text) (-> Object Text))
+  ($_ text/compose "{"
+      (|> object
+          dictionary.entries
+          (list/map (function (_ [key value]) ($_ text/compose (show-string key) ":" (show-json value))))
+          (text.join-with ","))
+      "}"))
+
+(def: (show-json json)
+  (-> JSON Text)
+  (case json
+    (^template [<tag> <show>]
+      (<tag> value)
+      (<show> value))
+    ([#Null    show-null]
+     [#Boolean show-boolean]
+     [#Number  show-number]
+     [#String  show-string]
+     [#Array   (show-array show-json)]
+     [#Object  (show-object show-json)])
+    ))
+
+############################################################
+############################################################
+############################################################
+
+(exception: #export (unconsumed-input {input (List JSON)})
+  (|> input
+      (list/map show-json)
+      (text.join-with text.new-line)))
+
+(exception: #export (empty-input)
+  "")
 
 (def: #export (run json parser)
-  (All [a] (-> JSON (Reader a) (e.Error a)))
+  (All [a] (-> JSON (Reader a) (Error a)))
   (case (p.run (list json) parser)
-    (#e.Success [remainder output])
+    (#error.Success [remainder output])
     (case remainder
       #.Nil
-      (#e.Success output)
+      (#error.Success output)
 
       _
-      (#e.Error unconsumed-input-error))
+      (ex.throw unconsumed-input remainder))
     
-    (#e.Error error)
-    (#e.Error error)))
+    (#error.Error error)
+    (#error.Error error)))
 
 (def: #export (fail error)
   (All [a] (-> Text (Reader a)))
   (function (_ inputs)
-    (#e.Error error)))
+    (#error.Error error)))
 
 (def: #export any
   {#.doc "Just returns the JSON input without applying any logic."}
@@ -218,10 +272,10 @@
   (<| (function (_ inputs))
       (case inputs
         #.Nil
-        (#e.Error "Empty JSON stream.")
+        (ex.throw empty-input [])
         
         (#.Cons head tail)
-        (#e.Success [tail head]))))
+        (#error.Success [tail head]))))
 
 (do-template [<name> <type> <tag> <desc>]
   [(def: #export <name>
@@ -241,12 +295,6 @@
   [number  Frac #Number  "number"]
   [string  Text #String  "string"]
   )
-
-(def: (encode-boolean value)
-  (-> Bit Text)
-  (if value
-    "true"
-    "false"))
 
 (do-template [<test> <check> <type> <eq> <encoder> <tag> <desc> <pre>]
   [(def: #export (<test> test)
@@ -271,7 +319,7 @@
          (let [value (<pre> value)]
            (if (:: <eq> = test value)
              (wrap [])
-             (fail ($_ text/compose "Value mismatch: " (<encoder> test) "=/=" (<encoder> value)))))
+             (fail ($_ text/compose "Value mismatch: " (<encoder> test) " =/= " (<encoder> value)))))
 
          _
          (fail ($_ text/compose "JSON value is not a " <desc> ".")))))]
@@ -287,116 +335,84 @@
         parser))
 
 (def: #export (array parser)
-  {#.doc "Parses a JSON array, assuming that every element can be parsed the same way."}
+  {#.doc "Parses a JSON array."}
   (All [a] (-> (Reader a) (Reader a)))
   (do p.Monad<Parser>
     [head any]
     (case head
       (#Array values)
       (case (p.run (row.to-list values) parser)
-        (#e.Error error)
+        (#error.Error error)
         (fail error)
 
-        (#e.Success [remainder output])
+        (#error.Success [remainder output])
         (case remainder
           #.Nil
           (wrap output)
 
           _
-          (fail unconsumed-input-error)))
+          (fail (ex.construct unconsumed-input remainder))))
 
       _
-      (fail "JSON value is not an array."))))
+      (fail (text/compose "JSON value is not an array: " (show-json head))))))
 
 (def: #export (object parser)
-  {#.doc "Parses a JSON object, assuming that every element can be parsed the same way."}
-  (All [a] (-> (Reader a) (Reader (Dictionary Text a))))
+  {#.doc "Parses a JSON object. Use this with the 'field' combinator."}
+  (All [a] (-> (Reader a) (Reader a)))
   (do p.Monad<Parser>
     [head any]
     (case head
-      (#Object object)
-      (case (do e.Monad<Error>
-              []
-              (|> (dict.entries object)
-                  (monad.map @ (function (_ [key val])
-                                 (do @
-                                   [val (run val parser)]
-                                   (wrap [key val]))))
-                  (:: @ map (dict.from-list text.Hash<Text>))))
-        (#e.Success table)
-        (wrap table)
+      (#Object kvs)
+      (case (p.run (|> kvs
+                       dictionary.entries
+                       (list/map (function (_ [key value])
+                                   (list (#String key) value)))
+                       list.concat)
+                   parser)
+        (#error.Error error)
+        (fail error)
 
-        (#e.Error error)
-        (fail error))
+        (#error.Success [remainder output])
+        (case remainder
+          #.Nil
+          (wrap output)
 
+          _
+          (fail (ex.construct unconsumed-input remainder))))
+      
       _
-      (fail "JSON value is not an array."))))
+      (fail (text/compose "JSON value is not an object: " (show-json head))))))
 
 (def: #export (field field-name parser)
-  {#.doc "Parses a field inside a JSON object."}
+  {#.doc "Parses a field inside a JSON object. Use this inside the 'object' combinator."}
   (All [a] (-> Text (Reader a) (Reader a)))
-  (do p.Monad<Parser>
-    [head any]
-    (case head
-      (#Object object)
-      (case (dict.get field-name object)
-        (#.Some value)
-        (case (run value parser)
-          (#e.Success output)
-          (function (_ tail)
-            (#e.Success [(#.Cons (#Object (dict.remove field-name object))
-                                 tail)
-                         output]))
+  (function (recur inputs)
+    (case inputs
+      (^ (list& (#String key) value inputs'))
+      (if (text/= key field-name)
+        (case (p.run (list value) parser)
+          (#error.Success [#.Nil output])
+          (#error.Success [inputs' output])
 
-          (#e.Error error)
-          (fail error))
+          (#error.Success [inputs'' _])
+          (ex.throw unconsumed-input inputs'')
 
-        _
-        (fail ($_ text/compose "JSON object does not have field '" field-name "'.")))
+          (#error.Error error)
+          (#error.Error error))
+        (do error.Monad<Error>
+          [[inputs'' output] (recur inputs')]
+          (wrap [(list& (#String key) value inputs'')
+                 output])))
+
+      #.Nil
+      (ex.throw empty-input [])
 
       _
-      (fail "JSON value is not an object."))))
+      (ex.throw unconsumed-input inputs))))
 
 ############################################################
 ############################################################
 ############################################################
-
-(def: (show-null _) (-> Null Text) "null")
-(do-template [<name> <type> <codec>]
-  [(def: <name> (-> <type> Text) <codec>)]
-
-  [show-boolean Boolean encode-boolean]
-  [show-number  Number (:: number.Codec<Text,Frac> encode)]
-  [show-string  String text.encode])
-
-(def: (show-array show-json elems)
-  (-> (-> JSON Text) (-> Array Text))
-  ($_ text/compose "["
-      (|> elems (row/map show-json) row.to-list (text.join-with ","))
-      "]"))
-
-(def: (show-object show-json object)
-  (-> (-> JSON Text) (-> Object Text))
-  ($_ text/compose "{"
-      (|> object
-          dict.entries
-          (list/map (function (_ [key value]) ($_ text/compose (show-string key) ":" (show-json value))))
-          (text.join-with ","))
-      "}"))
-
-(def: (show-json json)
-  (-> JSON Text)
-  (case json
-    (^template [<tag> <show>]
-      (<tag> value)
-      (<show> value))
-    ([#Null    show-null]
-     [#Boolean show-boolean]
-     [#Number  show-number]
-     [#String  show-string]
-     [#Array   (show-array show-json)]
-     [#Object  (show-object show-json)])
-    ))
 
 (def: space~
   (l.Lexer Text)
@@ -443,10 +459,10 @@
                        offset (l.many l.decimal)]
                       (wrap ($_ text/compose mark (if signed?' "-" "") offset))))]
     (case (frac/decode ($_ text/compose (if signed? "-" "") digits "." decimals exp))
-      (#e.Error message)
+      (#error.Error message)
       (p.fail message)
       
-      (#e.Success value)
+      (#error.Success value)
       (wrap value))))
 
 (def: escaped~
@@ -503,7 +519,7 @@
        (wrap (<prep> elems))))]
 
   [array~  Array  "[" "]" (json~ [])  row.from-list]
-  [object~ Object "{" "}" (kv~ json~) (dict.from-list text.Hash<Text>)]
+  [object~ Object "{" "}" (kv~ json~) (dictionary.from-list text.Hash<Text>)]
   )
 
 (def: (json~' _)
