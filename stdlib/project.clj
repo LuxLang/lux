@@ -16,7 +16,6 @@
   :scm {:name "git"
         :url "https://github.com/LuxLang/lux.git"}
 
-  :jvm-opts ["-Xss4m"]
   :dependencies []
   
   :source-paths ["source"]
