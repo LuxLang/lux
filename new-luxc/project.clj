@@ -20,23 +20,22 @@
 
   :dependencies [;; JVM Bytecode
                  [org.ow2.asm/asm-all "5.0.3"]
-                 ;; Lua
-                 [net.sandius.rembulan/rembulan-runtime "0.1-SNAPSHOT"]
-                 [net.sandius.rembulan/rembulan-stdlib "0.1-SNAPSHOT"]
-                 [net.sandius.rembulan/rembulan-compiler "0.1-SNAPSHOT"]
-                 ;; Ruby
-                 [org.jruby/jruby-complete "9.1.16.0"]
-                 ;; Python
-                 [org.python/jython-standalone "2.7.1"]
-                 ;; R
-                 [org.renjin/renjin-script-engine "0.8.2527"]
-                 ;; Scheme
-                 [kawa-scheme/kawa-core "2.4"]
-                 ;; Common Lisp
-                 [org.abcl/abcl "1.5.0"]
-                 ;; PHP 5
-                 [org.develnext.jphp/jphp-core "0.9.2"]
-                 [org.develnext.jphp/jphp-scripting "0.9.2"]]
+                 ;; ;; Lua
+                 ;; [net.sandius.rembulan/rembulan-runtime "0.1-SNAPSHOT"]
+                 ;; [net.sandius.rembulan/rembulan-stdlib "0.1-SNAPSHOT"]
+                 ;; [net.sandius.rembulan/rembulan-compiler "0.1-SNAPSHOT"]
+                 ;; ;; Ruby
+                 ;; [org.jruby/jruby-complete "9.1.16.0"]
+                 ;; ;; Python
+                 ;; [org.python/jython-standalone "2.7.1"]
+                 ;; ;; Scheme
+                 ;; [kawa-scheme/kawa-core "2.4"]
+                 ;; ;; Common Lisp
+                 ;; [org.abcl/abcl "1.5.0"]
+                 ;; ;; PHP 5
+                 ;; [org.develnext.jphp/jphp-core "0.9.2"]
+                 ;; [org.develnext.jphp/jphp-scripting "0.9.2"]
+                 ]
   
   :source-paths ["source"]
   :test-paths ["test"]
