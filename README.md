@@ -39,7 +39,9 @@ The `luxdoc` program was actually used to generate the documentation for the sta
 
 ### What's the license?
 
-[MIT](license.txt)
+[Custom License](license.txt)
+
+Read carefully before using this project, as the license disallows commercial use, and has other conditions which may be undesirable for some.
 
 ## What's interesting about the language?
 
