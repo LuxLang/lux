@@ -1,0 +1,80 @@
+(.module:
+  [lux #*
+   [control
+    [hash (#+ Hash)]
+    [monad (#+ do)]
+    [security
+     ["@" privacy (#+ Private Policy with-privacy)]]]
+   [data
+    ["." text ("text/." Equivalence<Text>)
+     format]]
+   [math
+    ["r" random]]]
+  lux/test)
+
+(signature: (Password %)
+  (: (Hash (Private % Text))
+     &hash)
+
+  (: (-> Text (Private % Text))
+     password))
+
+(def: (Password<%> _)
+  (Ex [%] (-> Any (Password %)))
+  (with-privacy
+    (: (Policy Text Password)
+       (function (_ (^open "%/."))
+         (structure
+          (def: &hash
+            (structure
+             (def: eq
+               (structure (def: (= reference sample)
+                            (text/= (%/reveal reference)
+                                    (%/reveal sample)))))
+             (def: hash
+               (|>> %/reveal
+                    (:: text.Hash<Text> hash)))))
+          
+          (def: password
+            %/conceal))))))
+
+(context: "Policy labels."
+  (do @
+    [#let [Password<%>0 (Password<%> 0)]
+     raw-password (r.ascii 10)
+     #let [password (:: Password<%>0 password raw-password)]]
+    ($_ seq
+        (test "Can work with private values under the same label."
+              (and (:: Password<%>0 = password password)
+                   (n/= (:: text.Hash<Text> hash raw-password)
+                        (:: Password<%>0 hash password))))
+        ## TODO: Figure out some way to test type-checking
+        ## failures, so the following code can be tested, instead
+        ## of being commented out.
+        ## (let [Password<%>1 (Password<%> 1)]
+        ##   (test "Cannot mix labels."
+        ##         (:: Password<%>1 = password password)))
+        )))
+
+(context: "Structures."
+  (do @
+    [#let [duplicate (: (-> Text Text)
+                        (function (_ raw) (format raw raw)))
+           Password<%>0 (Password<%> 0)]
+     raw-password (r.ascii 10)
+     #let [password (:: Password<%>0 password raw-password)]
+     #let [check (:: Password<%>0 =
+                     (:: Password<%>0 password (duplicate raw-password)))
+           (^open "@/.") @.Functor<Private>
+           (^open "@/.") @.Apply<Private>
+           (^open "@/.") @.Monad<Private>]]
+    ($_ seq
+        (test "Can use Functor."
+              (check (@/map duplicate password)))
+        (test "Can use Apply."
+              (check (@/apply (@/wrap duplicate) password)))
+        (test "Can use Monad."
+              (check (do @.Monad<Private>
+                       [raw-password' (:: Password<%>0 password raw-password)]
+                       (wrap (duplicate raw-password')))))
+        )))
