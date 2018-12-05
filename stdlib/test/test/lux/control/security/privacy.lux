@@ -4,7 +4,7 @@
     [hash (#+ Hash)]
     [monad (#+ do)]
     [security
-     ["@" privacy (#+ Private Policy with-privacy)]]]
+     ["@" privacy (#+ Context Privilege Private with-privacy)]]]
    [data
     ["." text ("text/." Equivalence<Text>)
      format]]
@@ -12,18 +12,23 @@
     ["r" random]]]
   lux/test)
 
-(signature: (Password %)
-  (: (Hash (Private % Text))
+(type: Password (Private Text))
+
+(signature: (Policy %)
+  (: (Hash (Password %))
      &hash)
 
-  (: (-> Text (Private % Text))
-     password))
+  (: (-> Text (Password %))
+     password)
 
-(def: (Password<%> _)
-  (Ex [%] (-> Any (Password %)))
+  (: (Privilege %)
+     privilege))
+
+(def: (policy _)
+  (Ex [%] (-> Any (Policy %)))
   (with-privacy
-    (: (Policy Text Password)
-       (function (_ (^open "%/."))
+    (: (Context Policy)
+       (function (_ (^@ privilege (^open "%/.")))
          (structure
           (def: &hash
             (structure
@@ -36,35 +41,35 @@
                     (:: text.Hash<Text> hash)))))
           
           (def: password
-            %/conceal))))))
+            %/conceal)
+
+          (def: privilege privilege))))))
 
 (context: "Policy labels."
   (do @
-    [#let [Password<%>0 (Password<%> 0)]
+    [#let [policy-0 (policy 0)]
      raw-password (r.ascii 10)
-     #let [password (:: Password<%>0 password raw-password)]]
+     #let [password (:: policy-0 password raw-password)]]
     ($_ seq
         (test "Can work with private values under the same label."
-              (and (:: Password<%>0 = password password)
+              (and (:: policy-0 = password password)
                    (n/= (:: text.Hash<Text> hash raw-password)
-                        (:: Password<%>0 hash password))))
-        ## TODO: Figure out some way to test type-checking
-        ## failures, so the following code can be tested, instead
-        ## of being commented out.
-        ## (let [Password<%>1 (Password<%> 1)]
-        ##   (test "Cannot mix labels."
-        ##         (:: Password<%>1 = password password)))
+                        (:: policy-0 hash password))))
+        (let [policy-1 (policy 1)
+              delegate (@.delegation (:: policy-0 reveal) (:: policy-1 conceal))]
+          (test "Can use delegation to share private values between policies."
+                (:: policy-1 = (delegate password) (delegate password))))
         )))
 
 (context: "Structures."
   (do @
     [#let [duplicate (: (-> Text Text)
                         (function (_ raw) (format raw raw)))
-           Password<%>0 (Password<%> 0)]
+           policy-0 (policy 0)]
      raw-password (r.ascii 10)
-     #let [password (:: Password<%>0 password raw-password)]
-     #let [check (:: Password<%>0 =
-                     (:: Password<%>0 password (duplicate raw-password)))
+     #let [password (:: policy-0 password raw-password)]
+     #let [check (:: policy-0 =
+                     (:: policy-0 password (duplicate raw-password)))
            (^open "@/.") @.Functor<Private>
            (^open "@/.") @.Apply<Private>
            (^open "@/.") @.Monad<Private>]]
@@ -75,6 +80,6 @@
               (check (@/apply (@/wrap duplicate) password)))
         (test "Can use Monad."
               (check (do @.Monad<Private>
-                       [raw-password' (:: Password<%>0 password raw-password)]
+                       [raw-password' (:: policy-0 password raw-password)]
                        (wrap (duplicate raw-password')))))
         )))
