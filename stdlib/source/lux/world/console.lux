@@ -2,15 +2,20 @@
   [lux #*
    [control
     [monad (#+ do)]
-    ["ex" exception (#+ exception:)]]
+    ["ex" exception (#+ exception:)]
+    [security
+     ["." taint (#+ Dirty taint)]]]
    [data
-    ["." error]
+    ["." error (#+ Error)]
     ["." text
      format]]
    ["." io (#+ IO Process io)]
+   [concurrency
+    ["." promise (#+ Promise)]]
    [host (#+ import:)]
-   [compiler
-    ["." host]]])
+   [platform
+    [compiler
+     ["." host]]]])
 
 (do-template [<name>]
   [(exception: #export (<name>)
@@ -21,14 +26,21 @@
   )
 
 (signature: #export (Console !)
-  (: (-> [] (! Nat))
+  (: (-> Any (! (Error (Dirty Nat))))
      read)
-  (: (-> [] (! Text))
+  (: (-> Any (! (Error (Dirty Text))))
      read-line)
-  (: (-> Text (! Any))
+  (: (-> Text (! (Error Any)))
      write)
-  (: (-> [] (! Any))
+  (: (-> Any (! (Error Any)))
      close))
+
+(def: #export (async console)
+  (-> (Console IO) (Console Promise))
+  (`` (structure (~~ (do-template [<capability>]
+                       [(def: <capability> (|>> (:: console <capability>) promise.future))]
+
+                       [read] [read-line] [write] [close])))))
 
 (`` (for {(~~ (static host.jvm))
           (as-is (import: java/lang/String)
@@ -47,8 +59,8 @@
                    (#static in java/io/InputStream)
                    (#static out java/io/PrintStream))
 
-                 (def: #export open
-                   (Process (Console Process))
+                 (def: #export system
+                   (IO (Error (Console IO)))
                    (do io.Monad<IO>
                      [?jvm-console (System::console)]
                      (case ?jvm-console
@@ -60,15 +72,17 @@
                              jvm-output (System::out)]
                          (<| io.from-io
                              wrap
-                             (: (Console Process)) ## TODO: Remove ASAP
+                             (: (Console IO)) ## TODO: Remove ASAP
                              (structure
                               (def: (read _)
                                 (|> jvm-input
                                     InputStream::read
-                                    (:: io.Functor<Process> map .nat)))
+                                    (:: io.Functor<Process> map (|>> .nat taint))))
                               
                               (def: (read-line _)
-                                (java/io/Console::readLine jvm-console))
+                                (|> jvm-console
+                                    java/io/Console::readLine
+                                    (:: io.Functor<Process> map taint)))
                               
                               (def: (write message)
                                 (PrintStream::print message jvm-output))

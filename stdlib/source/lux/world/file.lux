@@ -2,7 +2,9 @@
   [lux #*
    [control
     ["." monad (#+ Monad do)]
-    ["ex" exception (#+ Exception exception:)]]
+    ["ex" exception (#+ Exception exception:)]
+    [security
+     ["." taint (#+ Dirty taint)]]]
    [data
     ["." maybe]
     ["." error (#+ Error)]
@@ -15,10 +17,13 @@
     ["." duration]]
    [world
     ["." binary (#+ Binary)]]
-   ["." io (#+ Process)]
+   ["." io (#+ IO)]
+   [concurrency
+    ["." promise (#+ Promise)]]
    [host (#+ import:)]
-   [compiler
-    ["." host]]])
+   [platform
+    [compiler
+     ["." host]]]])
 
 (type: #export File Text)
 
@@ -28,62 +33,69 @@
   #Execute)
 
 (signature: #export (System !)
-  (: (Monad !)
-     &monad)
-
-  (: (All [e a] (-> (Exception e) e (! a)))
-     throw)
-
-  (: (All [a] (-> (! a) (! (Error a))))
-     try)
-
-  (: (All [a] (-> (Error a) (! a)))
-     lift)
-  
   (do-template [<name>]
-    [(: (-> Binary File (! Any))
+    [(: (-> Binary File (! (Error Any)))
         <name>)]
 
     [append]
     [write])
 
   (do-template [<name> <output>]
-    [(: (-> File (! <output>))
+    [(: (-> File (! (Error <output>)))
         <name>)]
 
-    [read Binary]
+    [read (Dirty Binary)]
     [size Nat]
     [files (List File)]
     [last-modified Instant])
 
   (do-template [<name>]
-    [(: (-> File (! Bit))
+    [(: (-> File (! (Error Bit)))
         <name>)]
 
     [file?]
     [directory?]
     )
 
-  (: (-> Permission File (! Bit))
+  (: (-> Permission File (! (Error Bit)))
      can?)
 
   (do-template [<name>]
-    [(: (-> File (! Any))
+    [(: (-> File (! (Error Any)))
         <name>)]
 
     [make-directory]
     [delete]
     )
 
-  (: (-> File File (! Any))
+  (: (-> File File (! (Error Any)))
      move)
 
-  (: (-> Instant File (! Any))
+  (: (-> Instant File (! (Error Any)))
      modify)
 
   (: Text
      separator)
   )
+
+(def: #export (async system)
+  (-> (System IO) (System Promise))
+  (`` (structure
+       (~~ (do-template [<name>]
+             [(def: (<name> parameter file)
+                (promise.future (:: system <name> parameter file)))]
+
+             [append] [write]
+             [can?] [move] [modify]))
+
+       (~~ (do-template [<name>]
+             [(def: <name> (|>> (:: system <name>) promise.future))]
+
+             [read] [size] [files] [last-modified]
+             [file?] [directory?]
+             [make-directory] [delete]))
+
+       (def: separator (:: system separator)))))
 
 (def: #export (un-nest System<!> file)
   (All [!] (-> (System !) File (Maybe [File Text])))
@@ -152,18 +164,7 @@
                  (import: java/io/FileInputStream
                    (new [java/io/File] #io #try))
 
-                 (structure: #export JVM@System (System Process)
-                   (def: &monad io.Monad<Process>)
-
-                   (def: throw io.throw)
-
-                   (def: (try computation)
-                     (do io.Monad<IO>
-                       [outcome computation]
-                       (:: io.Monad<Process> wrap outcome)))
-
-                   (def: lift (:: io.Monad<IO> wrap))
-                   
+                 (structure: #export _ (System IO)
                    (do-template [<name> <flag>]
                      [(def: (<name> data file)
                         (do io.Monad<Process>
@@ -185,7 +186,7 @@
                         bytes-read (InputStream::read data stream)
                         _ (AutoCloseable::close stream)]
                        (if (i/= size bytes-read)
-                         (wrap data)
+                         (wrap (taint data))
                          (io.io (ex.throw cannot-read-all-data file)))))
 
                    (def: size
@@ -258,9 +259,9 @@
                    ))
           }))
 
-(def: #export (exists? System<!> file)
-  (All [!] (-> (System !) File (! Bit)))
-  (do (:: System<!> &monad)
+(def: #export (exists? Monad<!> System<!> file)
+  (All [!] (-> (Monad !) (System !) File (! (Error Bit))))
+  (do (error.ErrorT Monad<!>)
     [??? (:: System<!> file? file)]
     (if ???
       (wrap ???)

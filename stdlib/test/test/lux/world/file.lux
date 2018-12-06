@@ -1,21 +1,23 @@
 (.module:
   [lux #*
-   [io]
+   ["." io (#+ IO)]
    [control
-    [monad (#+ do)]]
+    [monad (#+ do)]
+    [security
+     ["." taint (#+ Dirty)]]]
    [concurrency
-    [promise]]
+    ["." promise]]
    [data
-    [error]
-    [number]
+    ["." error (#+ Error)]
+    ["." number]
     ["." text
      format]]
    [time
-    [instant]
-    [duration]]
+    ["." instant]
+    ["." duration]]
    [world
-    ["@" file]
-    [binary]]
+    ["@" file (#+ File)]
+    ["." binary (#+ Binary)]]
    [math
     ["r" random]]]
   lux/test
@@ -30,114 +32,125 @@
     [file-size (|> r.nat (:: @ map (|>> (n/% 100) (n/max 10))))
      dataL (_binary.binary file-size)
      dataR (_binary.binary file-size)
-     code r.nat
      last-modified (|> r.int (:: @ map (|>> (:: number.Number<Int> abs)
                                             truncate-millis
                                             duration.from-millis
                                             instant.absolute)))]
     ($_ seq
         (wrap (do promise.Monad<Promise>
-                [#let [file (format "temp_file_" (%n (n/+ 0 code)))]
+                [#let [file "temp_file_0"]
                  result (promise.future
-                         (do (:: @.JVM@System &monad)
-                           [pre! (@.exists? @.JVM@System file)
-                            _ (:: @.JVM@System write dataL file)
-                            post! (@.exists? @.JVM@System file)
-                            _ (:: @.JVM@System delete file)
-                            remains? (@.exists? @.JVM@System file)]
-                           (wrap (and (not pre!) post!
+                         (do io.Monad<Process>
+                           [#let [check-existence! (: (IO (Error Bit))
+                                                      (@.exists? io.Monad<IO> @.System<IO> file))]
+                            pre! check-existence!
+                            _ (:: @.System<IO> write dataL file)
+                            post! check-existence!
+                            _ (:: @.System<IO> delete file)
+                            remains? check-existence!]
+                           (wrap (and (not pre!)
+                                      post!
                                       (not remains?)))))]
                 (assert "Can create/delete files."
                         (error.default #0 result))))
         (wrap (do promise.Monad<Promise>
-                [#let [file (format "temp_file_" (%n (n/+ 1 code)))]
+                [#let [file "temp_file_1"]
                  result (promise.future
-                         (do (:: @.JVM@System &monad)
-                           [_ (:: @.JVM@System write dataL file)
-                            output (:: @.JVM@System read file)
-                            _ (:: @.JVM@System delete file)]
-                           (wrap (:: binary.Equivalence<Binary> = dataL output))))]
+                         (do io.Monad<Process>
+                           [_ (:: @.System<IO> write dataL file)
+                            output (:: @.System<IO> read file)
+                            _ (:: @.System<IO> delete file)]
+                           (wrap (:: binary.Equivalence<Binary> = dataL (taint.trust output)))))]
                 (assert "Can write/read files."
                         (error.default #0 result))))
         (wrap (do promise.Monad<Promise>
-                [#let [file (format "temp_file_" (%n (n/+ 2 code)))]
+                [#let [file "temp_file_2"]
                  result (promise.future
-                         (do (:: @.JVM@System &monad)
-                           [_ (:: @.JVM@System write dataL file)
-                            read-size (:: @.JVM@System size file)
-                            _ (:: @.JVM@System delete file)]
+                         (do io.Monad<Process>
+                           [_ (:: @.System<IO> write dataL file)
+                            read-size (:: @.System<IO> size file)
+                            _ (:: @.System<IO> delete file)]
                            (wrap (n/= file-size read-size))))]
                 (assert "Can read file size."
                         (error.default #0 result))))
         (wrap (do promise.Monad<Promise>
-                [#let [file (format "temp_file_" (%n (n/+ 3 code)))]
+                [#let [file "temp_file_3"]
                  result (promise.future
-                         (do (:: @.JVM@System &monad)
-                           [_ (:: @.JVM@System write dataL file)
-                            _ (:: @.JVM@System append dataR file)
-                            output (:: @.JVM@System read file)
-                            read-size (:: @.JVM@System size file)
-                            _ (:: @.JVM@System delete file)]
+                         (do io.Monad<Process>
+                           [_ (:: @.System<IO> write dataL file)
+                            _ (:: @.System<IO> append dataR file)
+                            output (:: @.System<IO> read file)
+                            read-size (:: @.System<IO> size file)
+                            _ (:: @.System<IO> delete file)]
                            (wrap (and (n/= (n/* 2 file-size) read-size)
-                                      (:: binary.Equivalence<Binary> = dataL (error.assume (binary.slice 0 (dec file-size) output)))
-                                      (:: binary.Equivalence<Binary> = dataR (error.assume (binary.slice file-size (dec read-size) output)))))))]
+                                      (:: binary.Equivalence<Binary> =
+                                          dataL
+                                          (error.assume (binary.slice 0 (dec file-size)
+                                                                      (taint.trust output))))
+                                      (:: binary.Equivalence<Binary> =
+                                          dataR
+                                          (error.assume (binary.slice file-size (dec read-size)
+                                                                      (taint.trust output))))))))]
                 (assert "Can append to files."
                         (error.default #0 result))))
         (wrap (do promise.Monad<Promise>
-                [#let [dir (format "temp_dir_" (%n (n/+ 4 code)))]
+                [#let [dir "temp_dir_4"]
                  result (promise.future
-                         (do (:: @.JVM@System &monad)
-                           [pre! (@.exists? @.JVM@System dir)
-                            _ (:: @.JVM@System make-directory dir)
-                            post! (@.exists? @.JVM@System dir)
-                            _ (:: @.JVM@System delete dir)
-                            remains? (@.exists? @.JVM@System dir)]
-                           (wrap (and (not pre!) post!
+                         (do io.Monad<Process>
+                           [#let [check-existence! (: (IO (Error Bit))
+                                                      (@.exists? io.Monad<IO> @.System<IO> dir))]
+                            pre! check-existence!
+                            _ (:: @.System<IO> make-directory dir)
+                            post! check-existence!
+                            _ (:: @.System<IO> delete dir)
+                            remains? check-existence!]
+                           (wrap (and (not pre!)
+                                      post!
                                       (not remains?)))))]
                 (assert "Can create/delete directories."
                         (error.default #0 result))))
         (wrap (do promise.Monad<Promise>
-                [#let [file (format "temp_file_" (%n (n/+ 5 code)))
-                       dir (format "temp_dir_" (%n (n/+ 5 code)))]
+                [#let [file "temp_file_5"
+                       dir "temp_dir_5"]
                  result (promise.future
-                         (do (:: @.JVM@System &monad)
-                           [_ (:: @.JVM@System write dataL file)
-                            file-is-file (:: @.JVM@System file? file)
-                            file-is-directory (:: @.JVM@System directory? file)
-                            _ (:: @.JVM@System delete file)
-                            _ (:: @.JVM@System make-directory dir)
-                            directory-is-file (:: @.JVM@System file? dir)
-                            directory-is-directory (:: @.JVM@System directory? dir)
-                            _ (:: @.JVM@System delete dir)]
+                         (do io.Monad<Process>
+                           [_ (:: @.System<IO> write dataL file)
+                            file-is-file (:: @.System<IO> file? file)
+                            file-is-directory (:: @.System<IO> directory? file)
+                            _ (:: @.System<IO> delete file)
+                            _ (:: @.System<IO> make-directory dir)
+                            directory-is-file (:: @.System<IO> file? dir)
+                            directory-is-directory (:: @.System<IO> directory? dir)
+                            _ (:: @.System<IO> delete dir)]
                            (wrap (and file-is-file (not file-is-directory)
                                       (not directory-is-file) directory-is-directory))))]
                 (assert "Can differentiate files from directories."
                         (error.default #0 result))))
         (wrap (do promise.Monad<Promise>
-                [#let [file (format "temp_file_" (%n (n/+ 6 code)))
-                       dir (format "temp_dir_" (%n (n/+ 6 code)))]
+                [#let [file "temp_file_6"
+                       dir "temp_dir_6"]
                  result (promise.future
-                         (do (:: @.JVM@System &monad)
-                           [_ (:: @.JVM@System make-directory dir)
+                         (do io.Monad<Process>
+                           [_ (:: @.System<IO> make-directory dir)
                             #let [file' (format dir "/" file)]
-                            _ (:: @.JVM@System write dataL file')
-                            read-size (:: @.JVM@System size file')
-                            _ (:: @.JVM@System delete file')
-                            _ (:: @.JVM@System delete dir)]
+                            _ (:: @.System<IO> write dataL file')
+                            read-size (:: @.System<IO> size file')
+                            _ (:: @.System<IO> delete file')
+                            _ (:: @.System<IO> delete dir)]
                            (wrap (n/= file-size read-size))))]
                 (assert "Can create files inside of directories."
                         (error.default #0 result))))
         (wrap (do promise.Monad<Promise>
-                [#let [file (format "temp_file_" (%n (n/+ 7 code)))
-                       dir (format "temp_dir_" (%n (n/+ 7 code)))]
+                [#let [file "temp_file_7"
+                       dir "temp_dir_7"]
                  result (promise.future
-                         (do (:: @.JVM@System &monad)
-                           [_ (:: @.JVM@System make-directory dir)
+                         (do io.Monad<Process>
+                           [_ (:: @.System<IO> make-directory dir)
                             #let [file' (format dir "/" file)]
-                            _ (:: @.JVM@System write dataL file')
-                            children (:: @.JVM@System files dir)
-                            _ (:: @.JVM@System delete file')
-                            _ (:: @.JVM@System delete dir)]
+                            _ (:: @.System<IO> write dataL file')
+                            children (:: @.System<IO> files dir)
+                            _ (:: @.System<IO> delete file')
+                            _ (:: @.System<IO> delete dir)]
                            (wrap (case children
                                    (^ (list child))
                                    (text.ends-with? file' child)
@@ -147,28 +160,32 @@
                 (assert "Can list files inside a directory."
                         (error.default #0 result))))
         (wrap (do promise.Monad<Promise>
-                [#let [file (format "temp_file_" (%n (n/+ 8 code)))]
+                [#let [file "temp_file_8"]
                  result (promise.future
-                         (do (:: @.JVM@System &monad)
-                           [_ (:: @.JVM@System write dataL file)
-                            _ (:: @.JVM@System modify last-modified file)
-                            time-read (:: @.JVM@System last-modified file)
-                            _ (:: @.JVM@System delete file)]
+                         (do io.Monad<Process>
+                           [_ (:: @.System<IO> write dataL file)
+                            _ (:: @.System<IO> modify last-modified file)
+                            time-read (:: @.System<IO> last-modified file)
+                            _ (:: @.System<IO> delete file)]
                            (wrap (:: instant.Equivalence<Instant> = last-modified time-read))))]
                 (assert "Can change the time of last modification."
                         (error.default #0 result))))
         (wrap (do promise.Monad<Promise>
-                [#let [file0 (format "temp_file_" (%n (n/+ 9 code)) "+0")
-                       file1 (format "temp_file_" (%n (n/+ 9 code)) "+1")]
+                [#let [file0 (format "temp_file_9+0")
+                       file1 (format "temp_file_9+1")]
                  result (promise.future
-                         (do (:: @.JVM@System &monad)
-                           [_ (:: @.JVM@System write dataL file0)
-                            pre! (@.exists? @.JVM@System file0)
-                            _ (:: @.JVM@System move file1 file0)
-                            post! (@.exists? @.JVM@System file0)
-                            confirmed? (@.exists? @.JVM@System file1)
-                            _ (:: @.JVM@System delete file1)]
-                           (wrap (and pre! (not post!) confirmed?))))]
+                         (do io.Monad<Process>
+                           [#let [check-existence! (: (-> File (IO (Error Bit)))
+                                                      (@.exists? io.Monad<IO> @.System<IO>))]
+                            _ (:: @.System<IO> write dataL file0)
+                            pre! (check-existence! file0)
+                            _ (:: @.System<IO> move file1 file0)
+                            post! (check-existence! file0)
+                            confirmed? (check-existence! file1)
+                            _ (:: @.System<IO> delete file1)]
+                           (wrap (and pre!
+                                      (not post!)
+                                      confirmed?))))]
                 (assert "Can move a file from one path to another."
                         (error.default #0 result))))
         )))

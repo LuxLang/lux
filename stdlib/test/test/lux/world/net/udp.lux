@@ -1,14 +1,16 @@
 (.module:
   [lux #*
    [control
-    [monad (#+ do)]]
+    [monad (#+ do)]
+    [security
+     ["." taint]]]
    [concurrency
-    ["P" promise]
-    ["T" task]]
+    ["." promise]]
    [data
-    ["E" error]
+    ["." error]
     ["." text
      format]]
+   ["." io]
    [world
     ["." binary]
     ["." net
@@ -32,29 +34,31 @@
     [port ..port
      size (|> r.nat (:: @ map (|>> (n/% 100) (n/max 10))))
      from (_binary.binary size)
-     to (_binary.binary size)
-     #let [temp (binary.create size)]]
+     to (_binary.binary size)]
     ($_ seq
-        (wrap (do P.Monad<Promise>
-                [result (do T.Monad<Task>
-                          [server (@.server port)
-                           client (@.client [])
-                           ####################
-                           _ (@.write localhost port from 0 size client)
-                           [bytes-from from-address from-port] (@.read temp 0 size server)
-                           #let [from-worked? (and (n/= size bytes-from)
-                                                   (:: binary.Equivalence<Binary> = from temp))]
-                           ####################
-                           _ (@.write from-address from-port to 0 size server)
-                           [bytes-to to-address to-port] (@.read temp 0 size client)
-                           #let [to-worked? (and (n/= size bytes-to)
-                                                 (:: binary.Equivalence<Binary> = to temp)
-                                                 (n/= port to-port))]
-                           ####################
-                           _ (@.close client)
-                           _ (@.close server)]
-                          (wrap (and from-worked?
-                                     to-worked?)))]
+        (wrap (do promise.Monad<Promise>
+                [result (promise.future
+                         (do io.Monad<Process>
+                           [server (@.server port)
+                            client @.client
+                            ####################
+                            _ (:: client write [localhost port] from)
+                            [bytes-from [from-address from-port] temp] (:: server read size)
+                            #let [from-worked? (and (n/= size bytes-from)
+                                                    (:: binary.Equivalence<Binary> = from (taint.trust temp)))]
+                            ####################
+                            _ (:: server write [from-address from-port] to)
+                            [bytes-to [to-address to-port] temp] (:: client read size)
+                            #let [to-worked? (and (n/= size bytes-to)
+                                                  (:: binary.Equivalence<Binary> = to (taint.trust temp))
+                                                  (n/= port to-port))]
+                            ####################
+                            _ (:: client close [])
+                            _ (:: server close [])]
+                           ## (wrap false)
+                           (wrap (and from-worked?
+                                      to-worked?))
+                           ))]
                 (assert "Can communicate between client and server."
-                        (E.default #0 result))))
+                        (error.default #0 result))))
         )))
