@@ -4,20 +4,22 @@
     ["." monad (#+ Monad do)]
     ["ex" exception (#+ Exception exception:)]
     [security
-     ["." taint (#+ Dirty taint)]]]
+     ["." taint (#+ Dirty taint)]
+     ["." capability (#+ Capability)]]]
    [data
     ["." maybe]
-    ["." error (#+ Error)]
+    ["." error (#+ Error) ("error/." Functor<Error>)]
     ["." text
      format]
     [collection
-     ["." array (#+ Array)]]]
+     ["." array (#+ Array)]
+     ["." list ("list/." Functor<List>)]]]
    [time
     ["." instant (#+ Instant)]
     ["." duration]]
    [world
     ["." binary (#+ Binary)]]
-   ["." io (#+ IO)]
+   ["." io (#+ IO) ("io/." Functor<IO>)]
    [concurrency
     ["." promise (#+ Promise)]]
    [host (#+ import:)]
@@ -25,80 +27,119 @@
     [compiler
      ["." host]]]])
 
-(type: #export File Text)
+(type: #export Path Text)
 
-(type: #export Permission
-  #Read
-  #Write
-  #Execute)
+(type: #export (Can-Open ! capability)
+  (Capability Path (! (Error (capability !)))))
 
-(signature: #export (System !)
-  (do-template [<name>]
-    [(: (-> Binary File (! (Error Any)))
-        <name>)]
+(do-template [<capability> <input> <output>]
+  [(type: #export (<capability> !)
+     (Capability <input> (! (Error <output>))))]
 
-    [append]
-    [write])
+  [Can-Edit   [Binary] Any]
+  [Can-Delete []       Any]
+  )
 
+(type: #export (Can-Query ! o)
+  (Capability [] (! (Error o))))
+
+(type: #export (Can-Modify ! i)
+  (Capability [i] (! (Error Any))))
+
+(signature: #export (File !)
   (do-template [<name> <output>]
-    [(: (-> File (! (Error <output>)))
+    [(: (Can-Query ! <output>)
         <name>)]
 
-    [read (Dirty Binary)]
-    [size Nat]
-    [files (List File)]
-    [last-modified Instant])
-
-  (do-template [<name>]
-    [(: (-> File (! (Error Bit)))
-        <name>)]
-
-    [file?]
-    [directory?]
+    [size          Nat]
+    [last-modified Instant]
+    [can-execute?  Bit]
+    [content       (Dirty Binary)]
     )
 
-  (: (-> Permission File (! (Error Bit)))
-     can?)
-
-  (do-template [<name>]
-    [(: (-> File (! (Error Any)))
-        <name>)]
-
-    [make-directory]
-    [delete]
-    )
-
-  (: (-> File File (! (Error Any)))
+  (: (Can-Open ! File)
      move)
 
-  (: (-> Instant File (! (Error Any)))
-     modify)
+  (do-template [<name> <input>]
+    [(: (Can-Modify ! <input>)
+        <name>)]
+
+    [modify     Instant]
+    [over-write Binary]
+    )
+
+  (: (Can-Edit !)
+     append)
+
+  (: (Can-Delete !)
+     delete)
+  )
+
+(signature: #export (Directory !)
+  (: (Can-Query ! (List (File !)))
+     files)
+
+  (: (Can-Query ! (List (Directory !)))
+     directories)
+
+  (: (Can-Delete !)
+     discard))
+
+(signature: #export (System !)
+  (do-template [<name> <capability>]
+    [(: (Can-Open ! <capability>)
+        <name>)]
+
+    [file             File]
+    [create-file      File]
+    [directory        Directory]
+    [create-directory Directory]
+    )
 
   (: Text
      separator)
   )
 
+(def: (async-file file)
+  (-> (File IO) (File Promise))
+  (`` (structure
+       (~~ (do-template [<name>]
+             [(def: <name> (|>> (:: file <name>) promise.future))]
+
+             [size] [last-modified] [can-execute?] [content]
+             [modify] [over-write]
+             [append]
+             [delete]))
+
+       (def: move (|>> (:: file move) (io/map (error/map async-file)) promise.future)))))
+
+(def: (async-directory directory)
+  (-> (Directory IO) (Directory Promise))
+  (`` (structure (~~ (do-template [<name> <async>]
+                       [(def: <name> (|>> (:: directory <name>)
+                                          (io/map (error/map (list/map <async>)))
+                                          promise.future))]
+
+                       [files       async-file]
+                       [directories async-directory]))
+
+                 (def: discard (|>> (:: directory discard) promise.future)))))
+
 (def: #export (async system)
   (-> (System IO) (System Promise))
   (`` (structure
-       (~~ (do-template [<name>]
-             [(def: (<name> parameter file)
-                (promise.future (:: system <name> parameter file)))]
+       (~~ (do-template [<name> <async>]
+             [(def: <name> (|>> (:: system <name>) (io/map (error/map <async>)) promise.future))]
 
-             [append] [write]
-             [can?] [move] [modify]))
-
-       (~~ (do-template [<name>]
-             [(def: <name> (|>> (:: system <name>) promise.future))]
-
-             [read] [size] [files] [last-modified]
-             [file?] [directory?]
-             [make-directory] [delete]))
+             [file             async-file]
+             [create-file      async-file]
+             [directory        async-directory]
+             [create-directory async-directory]))
 
        (def: separator (:: system separator)))))
 
 (def: #export (un-nest System<!> file)
-  (All [!] (-> (System !) File (Maybe [File Text])))
+  (All [!] (-> (System !) Path (Maybe [Path Text])))
   (case (text.last-index-of (:: System<!> separator) file)
     #.None
     #.None
@@ -109,26 +150,42 @@
       (#.Some [parent child]))))
 
 (def: #export (nest System<!> [parent child])
-  (All [!] (-> (System !) [File Text] File))
+  (All [!] (-> (System !) [Path Text] Path))
   (format parent (:: System<!> separator) child))
 
 (do-template [<name>]
-  [(exception: #export (<name> {file File})
-     (ex.report ["File" file]))]
+  [(exception: #export (<name> {file Path})
+     (ex.report ["Path" file]))]
 
+  [cannot-create-file]
+  [cannot-find-file]
+  [cannot-delete-file]
+
+  [cannot-create-directory]
+  [cannot-find-directory]
+  [cannot-discard-directory]
+  
   [cannot-read-all-data]
   [not-a-directory]
-  [cannot-make-directory]
-  [cannot-delete]
   )
 
-(exception: #export (cannot-move {target File} {source File})
+(exception: #export (cannot-move {target Path} {source Path})
   (ex.report ["Source" source]
              ["Target" target]))
 
-(exception: #export (cannot-modify {instant Instant} {file File})
+(exception: #export (cannot-modify {instant Instant} {file Path})
   (ex.report ["Instant" (%instant instant)]
-             ["File" file]))
+             ["Path" file]))
+
+(template: (!delete path exception)
+  (do io.Monad<IO>
+    [outcome (java/io/File::delete (java/io/File::new path))]
+    (case outcome
+      (#error.Success #1)
+      (wrap (#error.Success []))
+
+      _
+      (io.throw exception [path]))))
 
 (`` (for {(~~ (static host.jvm))
           (as-is (import: #long java/io/File
@@ -136,7 +193,8 @@
                    (~~ (do-template [<name>]
                          [(<name> [] #io #try boolean)]
 
-                         [exists] [mkdirs] [delete]
+                         [createNewFile] [mkdir]
+                         [exists] [delete]
                          [isFile] [isDirectory]
                          [canRead] [canWrite] [canExecute]))
                    
@@ -164,105 +222,137 @@
                  (import: java/io/FileInputStream
                    (new [java/io/File] #io #try))
 
-                 (structure: #export _ (System IO)
+                 (structure: (File<IO> path)
+                   (-> Path (File IO))
+
                    (do-template [<name> <flag>]
-                     [(def: (<name> data file)
+                     [(def: (<name> data)
                         (do io.Monad<Process>
-                          [stream (FileOutputStream::new (java/io/File::new file) <flag>)
+                          [stream (FileOutputStream::new (java/io/File::new path) <flag>)
                            _ (OutputStream::write data stream)
                            _ (OutputStream::flush stream)]
                           (AutoCloseable::close stream)))]
 
-                     [append #1]
-                     [write  #0]
+                     [over-write  #0]
+                     [append      #1]
                      )
 
-                   (def: (read file)
+                   (def: (content _)
                      (do io.Monad<Process>
-                       [#let [file' (java/io/File::new file)]
-                        size (java/io/File::length file')
+                       [#let [file (java/io/File::new path)]
+                        size (java/io/File::length file)
                         #let [data (binary.create (.nat size))]
-                        stream (FileInputStream::new file')
+                        stream (FileInputStream::new file)
                         bytes-read (InputStream::read data stream)
                         _ (AutoCloseable::close stream)]
                        (if (i/= size bytes-read)
                          (wrap (taint data))
-                         (io.io (ex.throw cannot-read-all-data file)))))
+                         (io.io (ex.throw cannot-read-all-data path)))))
 
-                   (def: size
-                     (|>> java/io/File::new
-                          java/io/File::length
-                          (:: io.Monad<Process> map .nat)))
+                   (def: (size _)
+                     (|> path
+                         java/io/File::new
+                         java/io/File::length
+                         (:: io.Monad<Process> map .nat)))
 
-                   (def: (files dir)
-                     (do io.Monad<Process>
-                       [?files (java/io/File::listFiles (java/io/File::new dir))]
-                       (case ?files
-                         (#.Some files)
-                         (monad.map @ (|>> java/io/File::getAbsolutePath)
-                                    (array.to-list files))
+                   (def: (last-modified _)
+                     (|> path
+                         java/io/File::new
+                         (java/io/File::lastModified)
+                         (:: io.Monad<Process> map (|>> duration.from-millis instant.absolute))))
 
-                         #.None
-                         (io.throw not-a-directory dir))))
+                   (def: (can-execute? _)
+                     (|> path
+                         java/io/File::new
+                         java/io/File::canExecute))
 
-                   (do-template [<name> <method>]
-                     [(def: <name> (|>> java/io/File::new <method>))]
+                   (def: (move destination)
+                     (do io.Monad<IO>
+                       [outcome (java/io/File::renameTo (java/io/File::new destination)
+                                                        (java/io/File::new path))]
+                       (case outcome
+                         (#error.Success #1)
+                         (wrap (#error.Success (File<IO> destination)))
 
-                     [file?      java/io/File::isFile]
-                     [directory? java/io/File::isDirectory]
+                         _
+                         (io.throw cannot-move [destination path]))))
+
+                   (def: (modify time-stamp)
+                     (do io.Monad<IO>
+                       [outcome (java/io/File::setLastModified (|> time-stamp instant.relative duration.to-millis)
+                                                               (java/io/File::new path))]
+                       (case outcome
+                         (#error.Success #1)
+                         (wrap (#error.Success []))
+
+                         _
+                         (io.throw cannot-modify [time-stamp path]))))
+
+                   (def: (delete _)
+                     (!delete path cannot-delete-file)))
+
+                 (structure: (Directory<IO> path)
+                   (-> Path (Directory IO))
+
+                   (do-template [<name> <method> <capability>]
+                     [(def: (<name> _)
+                        (do io.Monad<Process>
+                          [?children (java/io/File::listFiles (java/io/File::new path))]
+                          (case ?children
+                            (#.Some children)
+                            (|> children
+                                array.to-list
+                                (monad.filter @ (|>> <method>))
+                                (:: @ map (monad.map @ (|>> java/io/File::getAbsolutePath (:: @ map  <capability>))))
+                                (:: @ join))
+
+                            #.None
+                            (io.throw not-a-directory [path]))))]
+
+                     [files       java/io/File::isFile      File<IO>]
+                     [directories java/io/File::isDirectory Directory<IO>]
                      )
 
-                   (def: (can? permission file)
-                     (let [jvm-file (java/io/File::new file)]
-                       (case permission
-                         #Read (java/io/File::canRead jvm-file)
-                         #Write (java/io/File::canWrite jvm-file)
-                         #Execute (java/io/File::canExecute jvm-file))))
+                   (def: (discard _)
+                     (!delete path cannot-discard-directory)))
 
-                   (def: last-modified
-                     (|>> java/io/File::new
-                          (java/io/File::lastModified)
-                          (:: io.Monad<Process> map (|>> duration.from-millis instant.absolute))))
-
-                   (do-template [<name> <exception> <method>]
-                     [(def: (<name> subject)
+                 (structure: #export _ (System IO)
+                   (do-template [<name> <method> <capability> <exception>]
+                     [(def: (<name> path)
                         (do io.Monad<IO>
-                          [outcome (<method> (java/io/File::new subject))]
+                          [#let [file (java/io/File::new path)]
+                           outcome (<method> file)]
                           (case outcome
                             (#error.Success #1)
-                            (wrap (#error.Success []))
+                            (wrap (#error.Success (<capability> path)))
 
                             _
-                            (io.throw <exception> [subject]))))]
+                            (wrap (ex.throw <exception> [path])))))]
 
-                     [make-directory cannot-make-directory java/io/File::mkdirs]
-                     [delete         cannot-delete         java/io/File::delete]
-                     )
-
-                   (do-template [<name> <exception> <method> <parameter-pre>]
-                     [(def: (<name> parameter subject)
-                        (do io.Monad<IO>
-                          [outcome (<method> (|> parameter <parameter-pre>)
-                                             (java/io/File::new subject))]
-                          (case outcome
-                            (#error.Success #1)
-                            (wrap (#error.Success []))
-
-                            _
-                            (io.throw <exception> [parameter subject]))))]
-
-                     [move   cannot-move   java/io/File::renameTo        java/io/File::new]
-                     [modify cannot-modify java/io/File::setLastModified (<| duration.to-millis instant.relative)]
+                     [file             java/io/File::isFile        ..File<IO>      cannot-find-file]
+                     [create-file      java/io/File::createNewFile ..File<IO>      cannot-create-file]
+                     [directory        java/io/File::isDirectory   ..Directory<IO> cannot-find-directory]
+                     [create-directory java/io/File::mkdir         ..Directory<IO> cannot-create-directory]
                      )
 
                    (def: separator (java/io/File::separator))
                    ))
           }))
 
-(def: #export (exists? Monad<!> System<!> file)
-  (All [!] (-> (Monad !) (System !) File (! (Error Bit))))
-  (do (error.ErrorT Monad<!>)
-    [??? (:: System<!> file? file)]
-    (if ???
-      (wrap ???)
-      (:: System<!> directory? file))))
+(def: #export (exists? Monad<!> System<!> path)
+  (All [!] (-> (Monad !) (System !) Path (! Bit)))
+  (do Monad<!>
+    [?file (:: System<!> file path)]
+    (case ?file
+      (#error.Success file)
+      (wrap true)
+
+      (#error.Error _)
+      (do Monad<!>
+        [?directory (:: System<!> directory path)]
+        (case ?directory
+          (#error.Success directory)
+          (wrap true)
+
+          (#error.Error _)
+          (wrap false))))))
