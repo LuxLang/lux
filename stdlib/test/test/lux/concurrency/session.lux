@@ -1,0 +1,78 @@
+(.module:
+  [lux #*
+   [control
+    [monad (#+ do)]]
+   [concurrency
+    ["." promise]
+    ["$" session (#+ Session choice: << >> ?? !! +<< -<< \/ /\)]]
+   [data
+    [text
+     format]]
+   [math
+    ["r" random]]]
+  lux/test)
+
+(choice: Calculation [#Add #Negate])
+
+(def: $add (<| (!! Int) (!! Int) (?? Int) >>))
+(def: $negate (<| (!! Int) (?? Int) >>))
+
+(def: (add-session _)
+  (-> [] (:~ (<< $add)))
+  (<| $.send $.send $.receive $.end))
+
+(def: (negate-session _)
+  (-> [] (:~ (<< $negate)))
+  (<| $.send $.receive $.end))
+
+(def: $calculation
+  Session
+  ($_ \/
+      $add
+      $negate))
+
+(def: (calculation-session _)
+  (-> [] (:~ (<< $calculation)))
+  ($_ $.fork
+      (add-session [])
+      (negate-session [])))
+
+(def: (__my-calculation _)
+  (-> [] (:~ (+<< $calculation)))
+  ($.my (calculation-session [])))
+
+(def: (__your-calculation _)
+  (-> [] (:~ (-<< $calculation)))
+  ($.your (calculation-session [])))
+
+(context: "Sessions."
+  (do @
+    [#let [[$me $you] (calculation-session [])]
+     param r.int
+     subject r.int]
+    ($_ seq
+        (wrap (do promise.Monad<Promise>
+                [$me ($me (#Add id))
+                 $me ($me param)
+                 $me ($me subject)
+                 [output $end] $me]
+                (assert "Client [#Add]"
+                        (i/= (i/+ param subject) output))))
+        (wrap (do promise.Monad<Promise>
+                [choice $you]
+                (case choice
+                  (#Add $you)
+                  (do @
+                    [[param-input $you] $you
+                     [subject-input $you] $you
+                     $end ($you (i/+ param-input subject-input))]
+                    (assert "Server [#Add]"
+                            true))
+                  
+                  (#Negate $you)
+                  (do @
+                    [[subject $you] $you
+                     $end ($you (i/* -1 subject))]
+                    (assert "Server [#Negate]"
+                            true)))))
+        )))

@@ -1,0 +1,211 @@
+(.module:
+  [lux #*
+   [control
+    ["." monad (#+ do)]
+    ["p" parser]]
+   [data
+    [text
+     format]
+    [collection
+     ["." list ("list/." Functor<List>)]]]
+   ["." io]
+   [type (#+ :share)]
+   ["." macro
+    ["." code]
+    ["s" syntax (#+ syntax:)
+     [common
+      ["." reader]
+      ["." writer]]]]]
+  [//
+   ["." promise (#+ Promise)]])
+
+(type: #export (Read value next)
+  {#.doc (doc "A reading step.")}
+  (Promise [value next]))
+
+(type: #export (Write value next)
+  {#.doc (doc "A writing step.")}
+  (-> value (Promise next)))
+
+(type: #export (Fork left right)
+  {#.doc (doc "A forking step, that allows choosing which path to take.")}
+  (All [next]
+    (-> (| (-> left next)
+           (-> right next))
+        (Promise next))))
+
+(type: #export (Join left right)
+  {#.doc (doc "A joining step, which communicates which path was taken.")}
+  (Promise (| left right)))
+
+(type: #export End
+  {#.doc (doc "Represents the end of a protocol.")}
+  [])
+
+(def: #export end
+  {#.doc (doc "The last step in a session.")}
+  [End End]
+  [[] []])
+
+(template: (!write <read> <write>)
+  (function (_ value)
+    (exec (io.run (promise.resolve [value <read>] channel))
+      (promise.promise (#.Some <write>)))))
+
+(def: #export receive
+  {#.doc (doc "A Read step for 'me', and a Write step for 'you'.")}
+  (All [value mine yours]
+    (-> [mine yours] [(Read value mine) (Write value yours)]))
+  (function (_ [mine yours])
+    (let [channel (promise.promise #.None)]
+      [channel
+       (!write mine yours)])))
+
+(def: #export send
+  {#.doc (doc "A Write step for 'me', and a Read step for 'you'.")}
+  (All [value mine yours]
+    (-> [mine yours] [(Write value mine) (Read value yours)]))
+  (function (_ [mine yours])
+    (let [channel (promise.promise #.None)]
+      [(!write yours mine)
+       channel])))
+
+(def: #export (fork left right)
+  {#.doc (doc "A Fork step for 'me', and a Join step for 'you'.")}
+  (All [myL yourL myR yourR]
+    (-> [myL yourL] [myR yourR]
+        [(Fork myL myR) (Join yourL yourR)]))
+  (let [[myL yourL] left
+        [myR yourR] right
+        channel (:share [yourL yourR]
+                        {[yourL yourR]
+                         [yourL yourR]}
+                        {(Join yourL yourR)
+                         (promise.promise #.None)})]
+    [(function (_ signal)
+       (case signal
+         (#.Left go)
+         (exec (io.run (promise.resolve (#.Left yourL) channel))
+           (promise.promise (#.Some (go myL))))
+         
+         (#.Right go)
+         (exec (io.run (promise.resolve (#.Right yourR) channel))
+           (promise.promise (#.Some (go myR))))))
+     channel]))
+
+(def: #export (join left right)
+  {#.doc (doc "A Join step for 'me', and a Fork step for 'you'.")}
+  (All [myL yourL myR yourR]
+    (-> [myL yourL] [myR yourR]
+        [(Join myL myR) (Fork yourL yourR)]))
+  (let [[myL yourL] left
+        [myR yourR] right
+        channel (:share [myL myR]
+                        {[myL myR]
+                         [myL myR]}
+                        {(Join myL myR)
+                         (promise.promise #.None)})]
+    [channel
+     (function (_ signal)
+       (case signal
+         (#.Left go)
+         (exec (io.run (promise.resolve (#.Left myL) channel))
+           (promise.promise (#.Some (go yourL))))
+         
+         (#.Right go)
+         (exec (io.run (promise.resolve (#.Right myR) channel))
+           (promise.promise (#.Some (go yourR))))))]))
+
+(do-template [<name> <side> <doc>]
+  [(def: #export (<name> session)
+     {#.doc (doc <doc>)}
+     (All [mine yours] (-> [mine yours] <side>))
+     (let [[mine yours] session]
+       <side>))]
+
+  [my   mine
+   "'My' side of the session."]
+  [your yours
+   "'Your' side of the session."]
+  )
+
+(type: #export Session
+  {#.doc (doc "A pair of types, for 'me' and 'you'."
+              "They describe each side in a session protocol.")}
+  [Type Type])
+
+(def: counterpart-doc
+  (-> Name Code)
+  (|>> %name (format "The session/type counterpart to ") code.text))
+
+(do-template [<name> <alias> <me> <you> <counterpart>]
+  [(def: #export (<name> value [mine yours])
+     {#.doc (doc (counterpart-doc (name-of <counterpart>)))}
+     (-> Type Session Session)
+     [(type (<me> value mine)) (type (<you> value yours))])
+
+   (def: #export <alias>
+     {#.doc (doc <doc>)}
+     <name>)]
+
+  [$receive ?? Read  Write ..receive]
+  [$send    !! Write Read  ..send]
+  )
+
+(def: #export $end
+  {#.doc (doc (counterpart-doc (name-of ..end)))}
+  Session
+  [End End])
+
+(def: #export >>
+  {#.doc (doc (counterpart-doc (name-of ..end)))}
+  $end)
+
+(do-template [<name> <alias> <+> <-> <counterpart>]
+  [(def: #export (<name> [myL yourL] [myR yourR])
+     {#.doc (doc (counterpart-doc (name-of <counterpart>)))}
+     (-> Session Session Session)
+     [(type (<+> myL myR)) (type (<-> yourL yourR))])
+
+   (def: #export <alias>
+     {#.doc (doc (counterpart-doc (name-of <counterpart>)))}
+     <name>)]
+
+  [$join /\ Join Fork ..join]
+  [$fork \/ Fork Join ..fork]
+  )
+
+(def: #export ($session [mine yours])
+  {#.doc (doc "Create an actual type from a session.")}
+  (-> Session Type)
+  (type [mine yours]))
+
+(def: #export <<
+  {#.doc (doc "Create an actual type from a session.")}
+  $session)
+
+(do-template [<name> <alias> <side> <counterpart>]
+  [(def: #export (<name> [mine yours])
+     {#.doc (doc (counterpart-doc (name-of <counterpart>)))}
+     (-> Session Type)
+     <side>)
+
+   (def: #export <alias> <name>)]
+
+  [$my   +<< mine  ..my]
+  [$your -<< yours ..your]
+  )
+
+(syntax: #export (choice: {export reader.export}
+                   {name s.local-identifier}
+                   {tags (s.tuple (p.many s.local-tag))})
+  {#.doc (doc "Defines tags to be used for fork/join branching in sessions.")}
+  (do @
+    [g!vars (monad.map @ macro.gensym
+                       (list.repeat (list.size tags) "var"))
+     #let [cases (list/map (function (_ [tag g!var])
+                             (` ((~ (code.local-tag tag)) (~ g!var))))
+                           (list.zip2 tags g!vars))]]
+    (wrap (list (` (type: (~+ (writer.export export)) ((~ (code.local-identifier name))
+                                                       (~+ g!vars))
+                     (~+ cases)))))))
