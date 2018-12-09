@@ -295,7 +295,7 @@ Called by `imenu--generic-function'."
                     function-application
                     ;;;;;;;;;;;;;;;;;;;;;;;;
                     "\\.module:"
-                    "def:" "type:" "program:" "context:" "choice:"
+                    "def:" "type:" "program:" "context:"
                     "macro:" "syntax:"
                     "with-expansions"
                     "exception:"
