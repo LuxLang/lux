@@ -2,9 +2,12 @@
   [lux #*
    [control
     [monad (#+ do)]]
+   [data
+    ["." lazy (#+ Lazy)]]
+   ["." io (#+ IO)]
    [concurrency
     ["." promise]
-    ["$" session (#+ Session choice: << >> ?? !! +<< -<< \/ /\)]]
+    ["$" session (#+ Session << >> ?? !! +<< -<< \/ /\ $rec)]]
    [data
     [text
      format]]
@@ -12,67 +15,114 @@
     ["r" random]]]
   lux/test)
 
-(choice: Calculation [#Add #Negate])
+(def: $transfer (<| << (!! Int) >>))
 
-(def: $add (<| (!! Int) (!! Int) (?? Int) >>))
-(def: $negate (<| (!! Int) (?? Int) >>))
+(def: transfer
+  (Lazy (:~ $transfer))
+  (<| $.send $.end))
 
-(def: (add-session _)
-  (-> [] (:~ (<< $add)))
-  (<| $.send $.send $.receive $.end))
+(context: "Transfer."
+  (do @
+    [#let [[$me $you] (lazy.thaw ..transfer)]
+     expectation r.int]
+    ($_ seq
+        (wrap (do promise.Monad<Promise>
+                [$me ($me expectation)]
+                (assert "Client [Transfer]"
+                        true)))
+        (wrap (do promise.Monad<Promise>
+                [[actual $end] ($you [])]
+                (assert "Server [Transfer]"
+                        (i/= expectation actual))))
+        )))
 
-(def: (negate-session _)
-  (-> [] (:~ (<< $negate)))
-  (<| $.send $.receive $.end))
+(def: $endless
+  (<< ($rec (function (_ $recur)
+              (<| (!! Int) $recur)))))
+
+(def: endless
+  (Lazy (:~ $endless))
+  ($.rec (function (_ recur)
+           (<| $.send recur))))
+
+(context: "Endless."
+  (do @
+    [#let [[$me $you] (lazy.thaw ..endless)]
+     expectation0 r.int
+     expectation1 r.int
+     expectation2 r.int]
+    ($_ seq
+        (wrap (do promise.Monad<Promise>
+                [$me ($me expectation0)
+                 $me ($me expectation1)
+                 $me ($me expectation2)]
+                (assert "Client [Endless]"
+                        true)))
+        (wrap (do promise.Monad<Promise>
+                [[actual0 $you] ($you [])
+                 [actual1 $you] ($you [])
+                 [actual2 $you] ($you [])]
+                (assert "Server [Endless]"
+                        (and (i/= expectation0 actual0)
+                             (i/= expectation1 actual1)
+                             (i/= expectation2 actual2)))))
+        )))
 
 (def: $calculation
   Session
-  ($_ \/
-      $add
-      $negate))
+  ($rec
+   (function (_ $recur)
+     ($_ \/
+         (<| (!! Int) (!! Int) (?? Int) $recur)
+         (<| (!! Int) (?? Int) $recur)
+         >>))))
 
-(def: (calculation-session _)
-  (-> [] (:~ (<< $calculation)))
-  ($_ $.fork
-      (add-session [])
-      (negate-session [])))
+(def: calculation
+  (Lazy (:~ (<< $calculation)))
+  ($.rec
+   (function (_ recur)
+     ($_ $.fork
+         (<| $.send $.send $.receive recur)
+         (<| $.send $.receive recur)
+         $.end))))
 
-(def: (__my-calculation _)
-  (-> [] (:~ (+<< $calculation)))
-  ($.my (calculation-session [])))
-
-(def: (__your-calculation _)
-  (-> [] (:~ (-<< $calculation)))
-  ($.your (calculation-session [])))
-
-(context: "Sessions."
+(context: "Complex session."
   (do @
-    [#let [[$me $you] (calculation-session [])]
+    [#let [[$me $you] (lazy.thaw calculation)]
      param r.int
-     subject r.int]
+     subject r.int
+     #let [expectation (i/+ param subject)]]
     ($_ seq
         (wrap (do promise.Monad<Promise>
-                [$me ($me (#Add id))
+                [$me ($me (#.Left id))
                  $me ($me param)
                  $me ($me subject)
-                 [output $end] $me]
+                 [output $end] ($me [])]
                 (assert "Client [#Add]"
-                        (i/= (i/+ param subject) output))))
+                        (i/= expectation output))))
         (wrap (do promise.Monad<Promise>
-                [choice $you]
-                (case choice
-                  (#Add $you)
+                [add|<negate|quit> ($you [])]
+                (case add|<negate|quit>
+                  (#.Left $add)
                   (do @
-                    [[param-input $you] $you
-                     [subject-input $you] $you
-                     $end ($you (i/+ param-input subject-input))]
+                    [[param-input $add] ($add [])
+                     [subject-input $add] ($add [])
+                     $recur ($add (i/+ param-input subject-input))]
                     (assert "Server [#Add]"
                             true))
-                  
-                  (#Negate $you)
+
+                  (#.Right $negate|quit)
                   (do @
-                    [[subject $you] $you
-                     $end ($you (i/* -1 subject))]
-                    (assert "Server [#Negate]"
-                            true)))))
+                    [negate|quit ($negate|quit [])]
+                    (case negate|quit
+                      (#.Left $negate)
+                      (do @
+                        [[subject $negate] ($negate [])
+                         $recur ($negate (i/* -1 subject))]
+                        (assert "Server [#Negate]"
+                                true))
+
+                      (#.Right $quit)
+                      (assert "Server [#Quit]"
+                              true))))))
         )))
