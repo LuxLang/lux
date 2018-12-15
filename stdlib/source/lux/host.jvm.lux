@@ -1446,24 +1446,33 @@
   (with-gensyms [g!_]
     (wrap (list (`' ("lux try" (.function ((~ g!_) (~ g!_)) (~ expr))))))))
 
-(syntax: #export (instance? {#let [imports (class-imports *compiler*)]}
-                            {class (generic-type^ imports (list))}
-                            {obj (p.maybe s.any)})
+(syntax: #export (check {#let [imports (class-imports *compiler*)]}
+                        {class (generic-type^ imports (list))}
+                        {unchecked (p.maybe s.any)})
   {#.doc (doc "Checks whether an object is an instance of a particular class."
               "Caveat emptor: Cannot check for polymorphism, so avoid using parameterized classes."
-              (instance? String "YOLO"))}
-  (case obj
-    (#.Some obj)
-    (wrap (list (` ((~ (code.text (format "jvm instanceof" ":" (simple-class$ (list) class)))) (~ obj)))))
+              (case (check String "YOLO")
+                (#.Some value-as-string)
+                #.None))}
+  (with-gensyms [g!_ g!unchecked]
+    (let [class-name (simple-class$ (list) class)
+          class-type (` (.primitive (~ (code.text class-name))))
+          check-type (` (.Maybe (~ class-type)))
+          check-code (` (if ((~ (code.text (format "jvm instanceof" ":" class-name))) (~ g!unchecked))
+                          (#.Some (.:coerce (~ class-type)
+                                            (~ g!unchecked)))
+                          #.None))]
+      (case unchecked
+        (#.Some unchecked)
+        (wrap (list (` (: (~ check-type)
+                          (let [(~ g!unchecked) (~ unchecked)]
+                            (~ check-code))))))
 
-    #.None
-    (do @
-      [g!_ (macro.gensym "_")
-       g!obj (macro.gensym "obj")]
-      (wrap (list (` (: (-> (primitive "java.lang.Object") Bit)
-                        (function ((~ g!_) (~ g!obj))
-                          ((~ (code.text (format "jvm instanceof" ":" (simple-class$ (list) class)))) (~ g!obj))))))))
-    ))
+        #.None
+        (wrap (list (` (: (-> (primitive "java.lang.Object") (~ check-type))
+                          (function ((~ g!_) (~ g!unchecked))
+                            (~ check-code))))))
+        ))))
 
 (syntax: #export (synchronized lock body)
   {#.doc (doc "Evaluates body, while holding a lock on a given object."
