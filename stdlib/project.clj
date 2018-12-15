@@ -1,8 +1,8 @@
 (defproject com.github.luxlang/stdlib "0.6.0-SNAPSHOT"
   :description "Standard library for the Lux programming language."
   :url "https://github.com/LuxLang/stdlib"
-  :license {:name "MIT License"
-            :url "https://opensource.org/licenses/MIT"}
+  :license {:name "Lux License v0.1"
+            :url "https://github.com/LuxLang/lux/blob/master/license.txt"}
   :plugins [[com.github.luxlang/lein-luxc "0.6.0-SNAPSHOT"]]
   :deploy-repositories [["releases" {:url "https://oss.sonatype.org/service/local/staging/deploy/maven2/"
                                      :creds :gpg}]

@@ -1,8 +1,8 @@
 (defproject com.github.luxlang/new-luxc "0.6.0-SNAPSHOT"
   :description "A re-written compiler for Lux."
   :url "https://github.com/LuxLang/lux"
-  :license {:name "MIT License"
-            :url "https://opensource.org/licenses/MIT"}
+  :license {:name "Lux License v0.1"
+            :url "https://github.com/LuxLang/lux/blob/master/license.txt"}
   :plugins [[com.github.luxlang/lein-luxc "0.6.0-SNAPSHOT"]]
   :deploy-repositories [["releases" {:url "https://oss.sonatype.org/service/local/staging/deploy/maven2/"
                                      :creds :gpg}]
