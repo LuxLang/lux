@@ -7,7 +7,7 @@
    [data
     ["." product]
     ["." maybe]
-    ["e" error]
+    ["." error (#+ Error)]
     [number ("nat/." Codec<Text,Nat>)]
     [collection
      ["." list ("list/." Fold<List>)]]]
@@ -38,20 +38,20 @@
              ["Remaining input" (remaining offset tape)]))
 
 (def: #export (run input lexer)
-  (All [a] (-> Text (Lexer a) (e.Error a)))
+  (All [a] (-> Text (Lexer a) (Error a)))
   (case (lexer [start-offset input])
-    (#e.Error msg)
-    (#e.Error msg)
+    (#error.Failure msg)
+    (#error.Failure msg)
     
-    (#e.Success [[end-offset _] output])
+    (#error.Success [[end-offset _] output])
     (if (n/= end-offset (//.size input))
-      (#e.Success output)
+      (#error.Success output)
       (ex.throw unconsumed-input [end-offset input]))))
 
 (def: #export offset
   (Lexer Offset)
   (function (_ (^@ input [offset tape]))
-    (#e.Success [input offset])))
+    (#error.Success [input offset])))
 
 (def: (with-slices lexer)
   (-> (Lexer (List Slice)) (Lexer Slice))
@@ -71,18 +71,18 @@
   (function (_ [offset tape])
     (case (//.nth offset tape)
       (#.Some output)
-      (#e.Success [[("lux i64 +" 1 offset) tape] (//.from-code output)])
+      (#error.Success [[("lux i64 +" 1 offset) tape] (//.from-code output)])
 
       _
-      (#e.Error cannot-lex-error))))
+      (#error.Failure cannot-lex-error))))
 
 (def: #export any!
   {#.doc "Just returns the next character without applying any logic."}
   (Lexer Slice)
   (function (_ [offset tape])
-    (#e.Success [[("lux i64 +" 1 offset) tape]
-                 {#basis offset
-                  #distance 1}])))
+    (#error.Success [[("lux i64 +" 1 offset) tape]
+                     {#basis offset
+                      #distance 1}])))
 
 (do-template [<name> <type> <any>]
   [(def: #export (<name> p)
@@ -90,11 +90,11 @@
      (All [a] (-> (Lexer a) (Lexer <type>)))
      (function (_ input)
        (case (p input)
-         (#e.Error msg)
+         (#error.Failure msg)
          (<any> input)
          
          _
-         (#e.Error "Expected to fail; yet succeeded."))))]
+         (#error.Failure "Expected to fail; yet succeeded."))))]
 
   [not  Text  ..any]
   [not! Slice ..any!]
@@ -107,12 +107,12 @@
     (case (//.index-of' reference offset tape)
       (#.Some where)
       (if (n/= offset where)
-        (#e.Success [[("lux i64 +" (//.size reference) offset) tape]
-                     []])
-        (#e.Error ($_ text/compose "Could not match: " (//.encode reference) " @ " (maybe.assume (//.clip' offset tape)))))
+        (#error.Success [[("lux i64 +" (//.size reference) offset) tape]
+                         []])
+        (#error.Failure ($_ text/compose "Could not match: " (//.encode reference) " @ " (maybe.assume (//.clip' offset tape)))))
 
       _
-      (#e.Error ($_ text/compose "Could not match: " (//.encode reference))))))
+      (#error.Failure ($_ text/compose "Could not match: " (//.encode reference))))))
 
 (def: #export (this? reference)
   {#.doc "Lex a text if it matches the given sample."}
@@ -120,25 +120,25 @@
   (function (_ (^@ input [offset tape]))
     (case (//.index-of' reference offset tape)
       (^multi (#.Some where) (n/= offset where))
-      (#e.Success [[("lux i64 +" (//.size reference) offset) tape]
-                   #1])
+      (#error.Success [[("lux i64 +" (//.size reference) offset) tape]
+                       #1])
 
       _
-      (#e.Success [input #0]))))
+      (#error.Success [input #0]))))
 
 (def: #export end
   {#.doc "Ensure the lexer's input is empty."}
   (Lexer Any)
   (function (_ (^@ input [offset tape]))
     (if (n/= offset (//.size tape))
-      (#e.Success [input []])
+      (#error.Success [input []])
       (ex.throw unconsumed-input [offset tape]))))
 
 (def: #export end?
   {#.doc "Ask if the lexer's input is empty."}
   (Lexer Bit)
   (function (_ (^@ input [offset tape]))
-    (#e.Success [input (n/= offset (//.size tape))])))
+    (#error.Success [input (n/= offset (//.size tape))])))
 
 (def: #export peek
   {#.doc "Lex the next character (without consuming it from the input)."}
@@ -146,16 +146,16 @@
   (function (_ (^@ input [offset tape]))
     (case (//.nth offset tape)
       (#.Some output)
-      (#e.Success [input (//.from-code output)])
+      (#error.Success [input (//.from-code output)])
 
       _
-      (#e.Error cannot-lex-error))))
+      (#error.Failure cannot-lex-error))))
 
 (def: #export get-input
   {#.doc "Get all of the remaining input (without consuming it)."}
   (Lexer Text)
   (function (_ (^@ input [offset tape]))
-    (#e.Success [input (remaining offset tape)])))
+    (#error.Success [input (remaining offset tape)])))
 
 (def: #export (range bottom top)
   {#.doc "Only lex characters within a range."}
@@ -207,13 +207,13 @@
          (#.Some output)
          (let [output (//.from-code output)]
            (if (<modifier> (//.contains? output options))
-             (#e.Success [[("lux i64 +" 1 offset) tape] output])
-             (#e.Error ($_ text/compose "Character (" output
-                           ") is should " <description-modifier>
-                           "be one of: " options))))
+             (#error.Success [[("lux i64 +" 1 offset) tape] output])
+             (#error.Failure ($_ text/compose "Character (" output
+                                 ") is should " <description-modifier>
+                                 "be one of: " options))))
 
          _
-         (#e.Error cannot-lex-error))))]
+         (#error.Failure cannot-lex-error))))]
 
   [one-of  ""     |>]
   [none-of " not" .not]
@@ -228,15 +228,15 @@
          (#.Some output)
          (let [output (//.from-code output)]
            (if (<modifier> (//.contains? output options))
-             (#e.Success [[("lux i64 +" 1 offset) tape]
-                          {#basis offset
-                           #distance 1}])
-             (#e.Error ($_ text/compose "Character (" output
-                           ") is should " <description-modifier>
-                           "be one of: " options))))
+             (#error.Success [[("lux i64 +" 1 offset) tape]
+                              {#basis offset
+                               #distance 1}])
+             (#error.Failure ($_ text/compose "Character (" output
+                                 ") is should " <description-modifier>
+                                 "be one of: " options))))
 
          _
-         (#e.Error cannot-lex-error))))]
+         (#error.Failure cannot-lex-error))))]
 
   [one-of!  ""     |>]
   [none-of! " not" .not]
@@ -249,11 +249,11 @@
     (case (//.nth offset tape)
       (#.Some output)
       (if (p output)
-        (#e.Success [[("lux i64 +" 1 offset) tape] (//.from-code output)])
-        (#e.Error ($_ text/compose "Character does not satisfy predicate: " (//.from-code output))))
+        (#error.Success [[("lux i64 +" 1 offset) tape] (//.from-code output)])
+        (#error.Failure ($_ text/compose "Character does not satisfy predicate: " (//.from-code output))))
 
       _
-      (#e.Error cannot-lex-error))))
+      (#error.Failure cannot-lex-error))))
 
 (def: #export space
   {#.doc "Only lex white-space."}
@@ -337,11 +337,11 @@
   (All [a] (-> Text (Lexer a) (Lexer a)))
   (function (_ real-input)
     (case (run local-input lexer)
-      (#e.Error error)
-      (#e.Error error)
+      (#error.Failure error)
+      (#error.Failure error)
 
-      (#e.Success value)
-      (#e.Success [real-input value]))))
+      (#error.Success value)
+      (#error.Success [real-input value]))))
 
 (def: #export (slice lexer)
   (-> (Lexer Slice) (Lexer Text))
@@ -350,7 +350,7 @@
     (function (_ (^@ input [offset tape]))
       (case (//.clip basis ("lux i64 +" basis distance) tape)
         (#.Some output)
-        (#e.Success [input output])
+        (#error.Success [input output])
 
         #.None
-        (#e.Error "Cannot slice.")))))
+        (#error.Failure "Cannot slice.")))))
