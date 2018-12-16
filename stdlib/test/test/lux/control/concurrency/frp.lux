@@ -13,110 +13,41 @@
      ["." list]]]]
   lux/test)
 
-(def: (write! values channel)
-  (All [a] (-> (List a) (Channel a) (IO Any)))
-  (do io.Monad<IO>
-    [_ (monad.map @ (frp.publish channel) values)]
-    (wrap [])))
-
-(def: (read! channel)
-  (All [a] (-> (Channel a) (IO (Atom (List a)))))
-  (do io.Monad<IO>
-    [#let [output (atom (list))]
-     _ (frp.listen (function (_ value)
-                     ## TODO: Simplify when possible.
-                     (do @
-                       [_ (atom.update (|>> (#.Cons value)) output)]
-                       (wrap [])))
-                   channel)]
-    (wrap output)))
-
 (context: "FRP"
   (let [(^open "list/.") (list.Equivalence<List> number.Equivalence<Int>)]
     ($_ seq
         (wrap (do promise.Monad<Promise>
-                [#let [values (list +0 +1 +2 +3 +4 +5)]
-                 output (promise.future
-                         (do io.Monad<IO>
-                           [#let [input (: (Channel Int) (frp.channel []))]
-                            output (read! input)
-                            _ (write! values input)]
-                           (wrap output)))
-                 _ (promise.wait 100)
-                 output (promise.future (atom.read output))]
-                (assert "Can pipe one channel into another."
-                        (list/= values
-                                (list.reverse output)))))
-
-        (wrap (do promise.Monad<Promise>
-                [output (promise.future
-                         (do io.Monad<IO>
-                           [#let [input (: (Channel Int) (frp.channel []))
-                                  elems (frp.filter i/even? input)]
-                            output (read! elems)
-                            _ (write! (list +0 +1 +2 +3 +4 +5) input)]
-                           (wrap output)))
-                 _ (promise.wait 100)
-                 output (promise.future (atom.read output))]
+                [output (|> (list +0 +1 +2 +3 +4 +5)
+                            (frp.sequential 0)
+                            (frp.filter i/even?)
+                            frp.consume)]
                 (assert "Can filter a channel's elements."
-                        (list/= (list +0 +2 +4)
-                                (list.reverse output)))))
+                        (list/= (list +0 +2 +4) output))))
 
         (wrap (do promise.Monad<Promise>
-                [output (promise.future
-                         (do io.Monad<IO>
-                           [#let [left (: (Channel Int) (frp.channel []))
-                                  right (: (Channel Int) (frp.channel []))]
-                            merged (frp.merge (list left right))
-                            output (read! merged)
-                            _ (write! (list +0 +1 +2 +3 +4 +5) left)
-                            _ (write! (list +0 -1 -2 -3 -4 -5) right)]
-                           (wrap output)))
-                 _ (promise.wait 100)
-                 output (promise.future (atom.read output))]
-                (assert "Can merge channels."
-                        (list/= (list +0 +1 +2 +3 +4 +5 +0 -1 -2 -3 -4 -5)
-                                (list.reverse output)))))
-
-        (wrap (do promise.Monad<Promise>
-                [output (promise.future
-                         (do io.Monad<IO>
-                           [#let [inputs (: (Channel Int) (frp.channel []))
-                                  mapped (:: frp.Functor<Channel> map inc inputs)]
-                            output (read! mapped)
-                            _ (write! (list +0 +1 +2 +3 +4 +5) inputs)]
-                           (wrap output)))
-                 _ (promise.wait 100)
-                 output (promise.future (atom.read output))]
+                [output (|> (list +0 +1 +2 +3 +4 +5)
+                            (frp.sequential 0)
+                            (:: frp.Functor<Channel> map inc)
+                            frp.consume)]
                 (assert "Functor goes over every element in a channel."
                         (list/= (list +1 +2 +3 +4 +5 +6)
-                                (list.reverse output)))))
+                                output))))
 
         (wrap (do promise.Monad<Promise>
-                [output (promise.future
-                         (do io.Monad<IO>
-                           [#let [>f< (: (Channel (-> Int Int)) (frp.channel []))
-                                  >a< (: (Channel Int) (frp.channel []))]
-                            output (read! (let [(^open ".") frp.Apply<Channel>]
-                                            (apply >f< >a<)))
-                            _ (write! (list inc) >f<)
-                            _ (write! (list +12345) >a<)]
-                           (wrap output)))
-                 _ (promise.wait 100)
-                 output (promise.future (atom.read output))]
+                [output (frp.consume (:: frp.Apply<Channel> apply
+                                         (frp.sequential 0 (list inc))
+                                         (frp.sequential 0 (list +12345))))]
                 (assert "Apply works over all channel values."
                         (list/= (list +12346)
-                                (list.reverse output)))))
+                                output))))
 
         (wrap (do promise.Monad<Promise>
-                [output (promise.future
-                         (read! (do frp.Monad<Channel>
-                                  [f (frp.from-promise (promise.delay 100 inc))
-                                   a (frp.from-promise (promise.delay 200 +12345))]
-                                  (frp.from-promise (promise.delay 300 (f a))))))
-                 _ (promise.wait 700)
-                 output (promise.future (atom.read output))]
+                [output (frp.consume
+                         (do frp.Monad<Channel>
+                           [f (frp.from-promise (promise/wrap inc))
+                            a (frp.from-promise (promise/wrap +12345))]
+                           (wrap (f a))))]
                 (assert "Valid monad."
                         (list/= (list +12346)
-                                (list.reverse output)))))
+                                output))))
         )))
