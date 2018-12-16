@@ -23,7 +23,7 @@
     abstract]]
   [//
    ["." atom (#+ Atom atom)]
-   ["." promise (#+ Promise promise) ("promise/." Monad<Promise>)]
+   ["." promise (#+ Promise Resolver) ("promise/." Monad<Promise>)]
    ["." task (#+ Task)]])
 
 (exception: #export poisoned)
@@ -37,11 +37,17 @@
 (with-expansions
   [<Message> (as-is (-> s (Actor s) (Task s)))
    <Obituary> (as-is [Text s (List <Message>)])
-   <Mailbox> (as-is (Rec Mailbox (Promise [<Message> Mailbox])))]
+   <Mailbox> (as-is (Rec Mailbox
+                      [(Promise [<Message> Mailbox])
+                       (Resolver [<Message> Mailbox])]))]
 
-  (def: (obituary mailbox)
-    (All [a] (-> (Rec Mailbox (Promise [a Mailbox])) (List a)))
-    (case (promise.poll mailbox)
+  (def: (obituary [read write])
+    (All [a]
+      (-> (Rec Mailbox
+            [(Promise [a Mailbox])
+             (Resolver [a Mailbox])])
+          (List a)))
+    (case (promise.poll read)
       (#.Some [head tail])
       (#.Cons head (obituary tail))
       
@@ -50,12 +56,18 @@
   
   (abstract: #export (Actor s)
     {#.doc "An actor, defined as all the necessities it requires."}
+    
     {#mailbox (Atom <Mailbox>)
-     #obituary (Promise <Obituary>)}
+     #obituary [(Promise <Obituary>)
+                (Resolver <Obituary>)]}
 
     ## TODO: Delete after new-luxc becomes the new standard compiler.
     (def: (actor mailbox obituary)
-      (All [s] (-> (Atom <Mailbox>) (Promise <Obituary>) (Actor s)))
+      (All [s]
+        (-> (Atom <Mailbox>)
+            [(Promise <Obituary>)
+             (Resolver <Obituary>)]
+            (Actor s)))
       (:abstraction {#mailbox mailbox
                      #obituary obituary}))
 
@@ -74,10 +86,10 @@
       {#.doc "Given a behavior and initial state, spawns an actor and returns it."}
       (All [s] (-> (Behavior s) s (IO (Actor s))))
       (io (let [[handle end] behavior
-                self (actor (atom (promise #.None))
-                            (promise #.None))
+                self (actor (atom (promise.promise []))
+                            (promise.promise []))
                 process (loop [state init
-                               |mailbox| (io.run (atom.read (get@ #mailbox (:representation self))))]
+                               [|mailbox| _] (io.run (atom.read (get@ #mailbox (:representation self))))]
                           (do promise.Monad<Promise>
                             [[head tail] |mailbox|
                              ?state' (handle head state self)]
@@ -85,9 +97,9 @@
                               (#e.Failure error)
                               (do @
                                 [_ (end error state)]
-                                (exec (io.run (promise.resolve [error state (#.Cons head (obituary tail))]
-                                                               (get@ #obituary (:representation self))))
-                                  (wrap [])))
+                                (let [[_ resolve] (get@ #obituary (:representation self))]
+                                  (exec (io.run (resolve [error state (#.Cons head (..obituary tail))]))
+                                    (wrap []))))
 
                               (#e.Success state')
                               (recur state' tail))))]
@@ -95,35 +107,37 @@
 
     (def: #export (alive? actor)
       (All [s] (-> (Actor s) Bit))
-      (case (promise.poll (get@ #obituary (:representation actor)))
-        #.None
-        #1
+      (let [[obituary _] (get@ #obituary (:representation actor))]
+        (case (promise.poll obituary)
+          #.None
+          #1
 
-        _
-        #0))
+          _
+          #0)))
 
     (def: #export (send message actor)
       {#.doc "Communicate with an actor through message passing."}
       (All [s] (-> (Message s) (Actor s) (IO Bit)))
       (if (alive? actor)
-        (let [entry [message (promise #.None)]]
+        (let [entry [message (promise.promise [])]]
           (do Monad<IO>
-            [|mailbox| (atom.read (get@ #mailbox (:representation actor)))]
-            (loop [|mailbox| |mailbox|]
+            [|mailbox|&resolve (atom.read (get@ #mailbox (:representation actor)))]
+            (loop [[|mailbox| resolve] |mailbox|&resolve]
               (case (promise.poll |mailbox|)
                 #.None
                 (do @
-                  [resolved? (promise.resolve entry |mailbox|)]
+                  [resolved? (resolve entry)]
                   (if resolved?
                     (do @
                       [_ (atom.write (product.right entry) (get@ #mailbox (:representation actor)))]
                       (wrap #1))
-                    (recur |mailbox|)))
+                    (recur |mailbox|&resolve)))
                 
                 (#.Some [_ |mailbox|'])
                 (recur |mailbox|')))))
         (io/wrap #0)))
-    ))
+    )
+  )
 
 ## [Values]
 (def: (default-handle message state self)
@@ -153,7 +167,7 @@
      (-> Name cs.Annotations cs.Annotations)
      (|>> (#.Cons [(name-of <tag>)
                    (code.tag name)])))
-   
+
    (def: #export (<resolve> name)
      (-> Name (Meta Name))
      (do Monad<Meta>
@@ -211,16 +225,16 @@
   {#.doc (doc "Defines an actor, with its behavior and internal state."
               (actor: #export Counter
                 Nat
-                
+
                 ((stop cause state)
                  (:: promise.Monad<Promise> wrap
                      (log! (if (ex.match? ..poisoned cause)
                              (format "Counter was poisoned: " (%n state))
                              cause)))))
-              
+
               (actor: #export (Stack a)
                 (List a)
-                
+
                 ((handle message state self)
                  (do task.Monad<Task>
                    [#let [_ (log! "BEFORE")]
@@ -317,7 +331,7 @@
                 (push [value a] state self (List a))
                 (let [state' (#.Cons value state)]
                   (task.return [state' state']))))}
-  (with-gensyms [g!_ g!return g!error g!task g!sent?]
+  (with-gensyms [g!_ g!return g!error g!task g!sent? g!resolve]
     (do @
       [current-module macro.current-module-name
        actor-name (resolve-actor actor-name)
@@ -350,7 +364,9 @@
                               (with-message actor-name)
                               csw.annotations))
                        (All [(~+ g!all-vars)] (-> (~+ g!inputsT) (~ actorC) (Task (~ (get@ #output signature)))))
-                       (let [(~ g!task) (task.task (~ g!outputT))]
+                       (let [[(~ g!task) (~ g!resolve)] (: [(task.Task (~ g!outputT))
+                                                            (task.Resolver (~ g!outputT))]
+                                                           (task.task []))]
                          (io.run (do io.Monad<IO>
                                    [(~ g!sent?) (..send (function ((~ g!_) (~ g!state) (~ g!self))
                                                           (do promise.Monad<Promise>
@@ -361,11 +377,11 @@
                                                                                (~ body)))]
                                                             (case (~ g!return)
                                                               (#.Right [(~ g!state) (~ g!return)])
-                                                              (exec (io.run (promise.resolve (#.Right (~ g!return)) (~ g!task)))
+                                                              (exec (io.run ((~ g!resolve) (#.Right (~ g!return))))
                                                                 (task.return (~ g!state)))
-                                                              
+
                                                               (#.Left (~ g!error))
-                                                              (exec (io.run (promise.resolve (#.Left (~ g!error)) (~ g!task)))
+                                                              (exec (io.run ((~ g!resolve) (#.Left (~ g!error))))
                                                                 (task.fail (~ g!error))))
                                                             ))
                                                         (~ g!self))]

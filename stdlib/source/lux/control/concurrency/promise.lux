@@ -18,9 +18,38 @@
   {#.doc "Represents values produced by asynchronous computations (unlike IO, which is synchronous)."}
   (Atom [(Maybe a) (List (-> a (IO Any)))])
 
-  (def: #export (promise ?value)
-    (All [a] (-> (Maybe a) (Promise a)))
-    (:abstraction (atom [?value (list)])))
+  (type: #export (Resolver a)
+    (-> a (IO Bit)))
+
+  (def: (resolver (^:representation promise))
+    {#.doc "Sets an promise's value if it has not been done yet."}
+    (All [a] (-> (Promise a) (Resolver a)))
+    (function (resolve value)
+      (do io.Monad<IO>
+        [(^@ old [_value _observers]) (atom.read promise)]
+        (case _value
+          (#.Some _)
+          (wrap #0)
+
+          #.None
+          (do @
+            [#let [new [(#.Some value) #.None]]
+             succeeded? (atom.compare-and-swap old new promise)]
+            (if succeeded?
+              (do @
+                [_ (monad.map @ (function (_ f) (f value))
+                              _observers)]
+                (wrap #1))
+              (resolve value)))))))
+
+  (def: #export (resolved value)
+    (All [a] (-> a (Promise a)))
+    (:abstraction (atom [(#.Some value) (list)])))
+
+  (def: #export (promise _)
+    (All [a] (-> Any [(Promise a) (Resolver a)]))
+    (let [promise (:abstraction (atom [#.None (list)]))]
+      [promise (..resolver promise)]))
 
   (def: #export (poll (^:representation promise))
     {#.doc "Polls a promise's value."}
@@ -29,37 +58,17 @@
         io.run
         product.left))
 
-  (def: #export (resolve value (^:representation promise))
-    {#.doc "Sets an promise's value if it has not been done yet."}
-    (All [a] (-> a (Promise a) (IO Bit)))
-    (do io.Monad<IO>
-      [(^@ old [_value _observers]) (atom.read promise)]
-      (case _value
-        (#.Some _)
-        (wrap #0)
-
-        #.None
-        (do @
-          [#let [new [(#.Some value) #.None]]
-           succeeded? (atom.compare-and-swap old new promise)]
-          (if succeeded?
-            (do @
-              [_ (monad.map @ (function (_ f) (f value))
-                            _observers)]
-              (wrap #1))
-            (resolve value (:abstraction promise)))))))
-
   (def: #export (await f (^:representation promise))
-    (All [a] (-> (-> a (IO Any)) (Promise a) Any))
+    (All [a] (-> (-> a (IO Any)) (Promise a) (IO Any)))
     (let [(^@ old [_value _observers]) (io.run (atom.read promise))]
       (case _value
         (#.Some value)
-        (io.run (f value))
+        (f value)
 
         #.None
         (let [new [_value (#.Cons f _observers)]]
           (if (io.run (atom.compare-and-swap old new promise))
-            []
+            (io.io [])
             (await f (:abstraction promise)))))))
   )
 
@@ -75,34 +84,31 @@
 
 (structure: #export _ (Functor Promise)
   (def: (map f fa)
-    (let [fb (promise #.None)]
-      (exec (await (function (_ a) (resolve (f a) fb))
-                   fa)
+    (let [[fb resolve] (..promise [])]
+      (exec (io.run (await (|>> f resolve) fa))
         fb))))
 
 (structure: #export _ (Apply Promise)
   (def: functor Functor<Promise>)
 
   (def: (apply ff fa)
-    (let [fb (promise #.None)]
-      (exec (await (function (_ f)
-                     (io (await (function (_ a) (resolve (f a) fb))
-                                fa)))
-                   ff)
+    (let [[fb resolve] (..promise [])]
+      (exec (io.run (await (function (_ f)
+                             (await (|>> f resolve) fa))
+                           ff))
         fb))))
 
 (structure: #export _ (Monad Promise)
   (def: functor Functor<Promise>)
 
   (def: (wrap a)
-    (promise (#.Some a)))
+    (..resolved a))
 
   (def: (join mma)
-    (let [ma (promise #.None)]
-      (exec (await (function (_ ma')
-                     (io (await (function (_ a') (resolve a' ma))
-                                ma')))
-                   mma)
+    (let [[ma resolve] (promise [])]
+      (exec (io.run (await (function (_ ma')
+                             (await resolve ma'))
+                           mma))
         ma))))
 
 (def: #export (and left right)
@@ -116,11 +122,10 @@
 (def: #export (or left right)
   {#.doc "Heterogeneous alternative combinator."}
   (All [a b] (-> (Promise a) (Promise b) (Promise (| a b))))
-  (let [a|b (promise #.None)]
+  (let [[a|b resolve] (..promise [])]
     (with-expansions
       [<sides> (do-template [<promise> <tag>]
-                 [(await (function (_ value) (resolve (<tag> value) a|b))
-                         <promise>)]
+                 [(io.run (await (|>> <tag> resolve) <promise>))]
 
                  [left  #.Left]
                  [right #.Right]
@@ -131,10 +136,9 @@
 (def: #export (either left right)
   {#.doc "Homogeneous alternative combinator."}
   (All [a] (-> (Promise a) (Promise a) (Promise a)))
-  (let [left||right (promise #.None)]
+  (let [[left||right resolve] (..promise [])]
     (`` (exec (~~ (do-template [<promise>]
-                    [(await (function (_ value) (resolve value left||right))
-                            <promise>)]
+                    [(io.run (await resolve <promise>))]
 
                     [left]
                     [right]))
@@ -144,10 +148,10 @@
   {#.doc (doc "Runs an I/O computation on its own process (after a specified delay)."
               "Returns a Promise that will eventually host its result.")}
   (All [a] (-> Nat (IO a) (Promise a)))
-  (let [!out (promise #.None)]
+  (let [[!out resolve] (..promise [])]
     (exec (|> (do io.Monad<IO>
                 [value computation]
-                (resolve value !out))
+                (resolve value))
               (process.schedule millis-delay)
               io.run)
       !out)))
