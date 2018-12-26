@@ -4,6 +4,7 @@
     [format
      ["." binary (#+ Format)]]
     [collection
+     [list ("list/." Fold<List>)]
      ["." row (#+ Row)]]]]
   [/
    ["/." version (#+ Version Minor Major)]
@@ -12,6 +13,9 @@
    ["/." magic (#+ Magic)]
    ["/." constant (#+ Constant)]
    ["/." index (#+ Index)]])
+
+(type: #export Interface
+  Index)
 
 (type: #export Field
   Any)
@@ -22,36 +26,58 @@
 (type: #export Attribute
   Any)
 
+(type: #export Pool (Row Constant))
+
 (type: #export Class
   {#magic Magic
    #minor-version Minor
    #major-version Major
-   #constant-pool (Row Constant)
+   #constant-pool Pool
    #access-flags Access
    #this Index
    #super Index
-   #interfaces (Row Index)
+   #interfaces (Row Interface)
    #fields (Row Field)
    #methods (Row Method)
    #attributes (Row Attribute)})
 
-(def: #export (class version access super this)
-  (-> Major Access Name Name Class)
-  {#magic /magic.code
-   #minor-version (/version.version 0)
-   #major-version version
-   #constant-pool (|> row.empty
-                      (row.add (#/constant.UTF8 (/name.read this)))
-                      (row.add (#/constant.Class (/index.index 1)))
-                      (row.add (#/constant.UTF8 (/name.read super)))
-                      (row.add (#/constant.Class (/index.index 3))))
-   #access-flags access
-   #this (/index.index 2)
-   #super (/index.index 4)
-   #interfaces row.empty
-   #fields row.empty
-   #methods row.empty
-   #attributes row.empty})
+(def: default-minor-version Minor (/version.version 0))
+
+(def: #export (class version access super this interfaces)
+  (-> Major Access Name Name (List Name) Class)
+  (let [with-classes (: (-> Pool Pool)
+                        (|>> (row.add (#/constant.UTF8 (/name.read this)))
+                             (row.add (#/constant.Class (/index.index 1)))
+                             (row.add (#/constant.UTF8 (/name.read super)))
+                             (row.add (#/constant.Class (/index.index 3)))))
+        with-interfaces (: (-> Nat Pool [(Row Index) Pool])
+                           (function (_ offset pool)
+                             (let [[_last-index indices pool']
+                                   (list/fold (function (_ interface [index interface-indices' pool'])
+                                                [(n/+ 2 index)
+                                                 (row.add (/index.index (n/+ 1 index))
+                                                          interface-indices')
+                                                 (|> pool'
+                                                     (row.add (#/constant.UTF8 (/name.read interface)))
+                                                     (row.add (#/constant.Class (/index.index index))))])
+                                              [offset (: (Row Index) row.empty) pool]
+                                              interfaces)]
+                               [indices pool'])))
+        interfaces-offset 5
+        [interface-indices pool] (|> row.empty
+                                     with-classes
+                                     (with-interfaces interfaces-offset))]
+    {#magic /magic.code
+     #minor-version ..default-minor-version
+     #major-version version
+     #constant-pool pool
+     #access-flags access
+     #this (/index.index 2)
+     #super (/index.index 4)
+     #interfaces interface-indices
+     #fields row.empty
+     #methods row.empty
+     #attributes row.empty}))
 
 (def: #export classF
   (Format Class)
@@ -63,7 +89,7 @@
       /access.format
       /index.format
       /index.format
-      (binary.row/16 (binary.ignore (/index.index 0)))
+      (binary.row/16 /index.format)
       (binary.row/16 (binary.ignore []))
       (binary.row/16 (binary.ignore []))
       (binary.row/16 (binary.ignore []))))
