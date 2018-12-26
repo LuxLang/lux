@@ -1,20 +1,26 @@
 (.module:
   [lux (#- and or nat int rev list type)
    [control
+    [monoid (#+ Monoid)]
+    ["." fold]
     [monad (#+ do Monad)]
-    ["p" parser]
+    ["." parser (#+ Parser) ("parser/." Functor<Parser>)]
     ["ex" exception (#+ exception:)]
     [equivalence (#+ Equivalence)]]
    [data
     ["." error (#+ Error)]
-    ["." number]
+    ["." number
+     ["." i64]]
     [text
      ["." encoding]
-     [format (#+ %n)]]]
+     [format (#+ %n)]]
+    [collection
+     ["." list]
+     ["." row (#+ Row) ("row/." Functor<Row>)]]]
+   [type (#+ :share)]
    [world
     ["." binary (#+ Binary)]]])
 
-## Exceptions
 (exception: #export (binary-was-not-fully-read {length Nat} {read Nat})
   (ex.report ["Binary length" (%n length)]
              ["Read bytes" (%n read)]))
@@ -23,30 +29,61 @@
   (ex.report ["Range" (%n range)]
              ["Byte" (%n byte)]))
 
-## Types
 (type: #export Offset Nat)
 
 (type: #export Size Nat)
 
-(def: #export size/8 1)
-(def: #export size/16 2)
-(def: #export size/32 4)
-(def: #export size/64 8)
+(def: #export size/8 Size 1)
+(def: #export size/16 Size 2)
+(def: #export size/32 Size 4)
+(def: #export size/64 Size 8)
 
-(type: #export Read
-  (p.Parser [Offset Binary]))
+(def: mask
+  (-> Size (I64 Any))
+  (|>> (n/* i64.bits-per-byte) i64.mask))
 
-(type: #export (Write a)
-  (-> a [Size (-> Offset Binary Binary)]))
+(type: #export Reader
+  (Parser [Offset Binary]))
+
+(type: #export Mutation
+  [Size (-> Offset Binary Binary)])
+
+(def: #export no-op
+  Mutation
+  [0 (function (_ offset data) data)])
+
+(structure: #export _ (Monoid Mutation)
+  
+  (def: identity
+    ..no-op)
+  
+  (def: (compose [sizeL mutL] [sizeR mutR])
+    [(n/+ sizeL sizeR)
+     (function (_ offset data)
+       (|> data
+           (mutL offset)
+           (mutR (n/+ sizeL offset))))]))
+
+(type: #export (Writer a)
+  (-> a Mutation))
 
 (type: #export (Format a)
-  {#read (Read a)
-   #write (Write a)})
+  {#reader (Reader a)
+   #writer (Writer a)})
 
-## Operators
+(def: #export (adapt post-read pre-write format)
+  (All [a a']
+    (-> (-> a a')
+        (-> a' a)
+        (Format a)
+        (Format a')))
+  (let [(^open "_/.") format]
+    {#reader (|> _/reader (parser/map post-read))
+     #writer (|>> pre-write _/writer)}))
+
 (def: #export (read format input)
   (All [a] (-> (Format a) Binary (Error a)))
-  (case ((get@ #read format) [0 input])
+  (case ((get@ #reader format) [0 input])
     (#error.Failure msg)
     (#error.Failure msg)
     
@@ -58,26 +95,26 @@
 
 (def: #export (write format value)
   (All [a] (-> (Format a) a Binary))
-  (let [[valueS valueT] ((get@ #write format) value)]
+  (let [[valueS valueT] ((get@ #writer format) value)]
     (|> valueS binary.create (valueT 0))))
 
 ## Primitives
 (do-template [<name> <size> <read> <write>]
-  [(def: <name>
+  [(def: #export <name>
      (Format (I64 Any))
-     {#read (function (_ [offset binary])
-              (case (<read> offset binary)
-                (#error.Success data)
-                (#error.Success [(n/+ <size> offset) binary] data)
-                
-                (#error.Failure error)
-                (#error.Failure error)))
-      #write (function (_ value)
-               [<size>
-                (function (_ offset binary)
-                  (|> binary
-                      (<write> offset value)
-                      error.assume))])})]
+     {#reader (function (_ [offset binary])
+                (case (<read> offset binary)
+                  (#error.Success data)
+                  (#error.Success [(n/+ <size> offset) binary] data)
+                  
+                  (#error.Failure error)
+                  (#error.Failure error)))
+      #writer (function (_ value)
+                [<size>
+                 (function (_ offset binary)
+                   (|> binary
+                       (<write> offset value)
+                       error.assume))])})]
 
   [bits/8  size/8  binary.read/8  binary.write/8]
   [bits/16 size/16 binary.read/16 binary.write/16]
@@ -88,62 +125,59 @@
 ## Combinators
 (def: #export (or leftB rightB)
   (All [l r] (-> (Format l) (Format r) (Format (| l r))))
-  {#read (do p.Monad<Parser>
-           [flag (get@ #read bits/8)]
-           (case flag
-             0 (:: @ map (|>> #.Left) (get@ #read leftB))
-             1 (:: @ map (|>> #.Right) (get@ #read rightB))
-             _ (p.lift (ex.throw invalid-tag [2 (.nat flag)]))))
-   #write (function (_ altV)
-            (case altV
-              (#.Left leftV)
-              (let [[leftS leftT] ((get@ #write leftB) leftV)]
-                [(.inc leftS)
-                 (function (_ offset binary)
-                   (|> binary
-                       (binary.write/8 offset 0)
-                       error.assume
-                       (leftT (.inc offset))))])
-              
-              (#.Right rightV)
-              (let [[rightS rightT] ((get@ #write rightB) rightV)]
-                [(.inc rightS)
-                 (function (_ offset binary)
-                   (|> binary
-                       (binary.write/8 offset 1)
-                       error.assume
-                       (rightT (.inc offset))))])
-              ))})
+  {#reader (do parser.Monad<Parser>
+             [flag (get@ #reader bits/8)]
+             (case flag
+               0 (:: @ map (|>> #.Left) (get@ #reader leftB))
+               1 (:: @ map (|>> #.Right) (get@ #reader rightB))
+               _ (parser.lift (ex.throw invalid-tag [2 (.nat flag)]))))
+   #writer (function (_ altV)
+             (case altV
+               (#.Left leftV)
+               (let [[leftS leftT] ((get@ #writer leftB) leftV)]
+                 [(.inc leftS)
+                  (function (_ offset binary)
+                    (|> binary
+                        (binary.write/8 offset 0)
+                        error.assume
+                        (leftT (.inc offset))))])
+               
+               (#.Right rightV)
+               (let [[rightS rightT] ((get@ #writer rightB) rightV)]
+                 [(.inc rightS)
+                  (function (_ offset binary)
+                    (|> binary
+                        (binary.write/8 offset 1)
+                        error.assume
+                        (rightT (.inc offset))))])
+               ))})
 
 (def: #export (and preB postB)
   (All [a b] (-> (Format a) (Format b) (Format [a b])))
-  {#read (p.and (get@ #read preB) (get@ #read postB))
-   #write (function (_ [preV postV])
-            (let [[preS preT] ((get@ #write preB) preV)
-                  [postS postT] ((get@ #write postB) postV)]
-              [(n/+ preS postS)
-               (function (_ offset)
-                 (|>> (preT offset)
-                      (postT (n/+ preS offset))))]))})
+  {#reader (parser.and (get@ #reader preB) (get@ #reader postB))
+   #writer (function (_ [preV postV])
+             (let [[preS preT] ((get@ #writer preB) preV)
+                   [postS postT] ((get@ #writer postB) postV)]
+               [(n/+ preS postS)
+                (function (_ offset)
+                  (|>> (preT offset)
+                       (postT (n/+ preS offset))))]))})
 
 (def: #export (rec body)
   (All [a] (-> (-> (Format a) (Format a)) (Format a)))
-  {#read (function (_ input)
-           (let [read (get@ #read (body (rec body)))]
-             (read input)))
-   #write (function (_ value)
-            (let [write (get@ #write (body (rec body)))]
-              (write value)))})
+  {#reader (function (_ input)
+             (let [reader (get@ #reader (body (rec body)))]
+               (reader input)))
+   #writer (function (_ value)
+             (let [writer (get@ #writer (body (rec body)))]
+               (writer value)))})
 
-## Utilities
 (def: #export (ignore default)
   (All [a] (-> a (Format a)))
-  {#read (function (_ input)
-           (#error.Success [input default]))
-   #write (function (_ value)
-            [0
-             (function (_ offset binary)
-               binary)])})
+  {#reader (function (_ input)
+             (#error.Success [input default]))
+   #writer (function (_ value)
+             ..no-op)})
 
 (def: #export any
   (Format Any)
@@ -151,26 +185,26 @@
 
 (def: #export bit
   (Format Bit)
-  {#read (function (_ [offset binary])
-           (case (binary.read/8 offset binary)
-             (#error.Success data)
-             (case (: Nat data)
-               (^template [<nat> <bit>]
-                 <nat> (#error.Success [(inc offset) binary] <bit>))
-               ([0 #0]
-                [1 #1])
+  {#reader (function (_ [offset binary])
+             (case (binary.read/8 offset binary)
+               (#error.Success data)
+               (case (: Nat data)
+                 (^template [<nat> <bit>]
+                   <nat> (#error.Success [(inc offset) binary] <bit>))
+                 ([0 #0]
+                  [1 #1])
+                 
+                 _
+                 (ex.throw invalid-tag [2 data]))
                
-               _
-               (ex.throw invalid-tag [2 data]))
-             
-             (#error.Failure error)
-             (#error.Failure error)))
-   #write (function (_ value)
-            [1
-             (function (_ offset binary)
-               (|> binary
-                   (binary.write/8 offset (if value 1 0))
-                   error.assume))])})
+               (#error.Failure error)
+               (#error.Failure error)))
+   #writer (function (_ value)
+             [1
+              (function (_ offset binary)
+                (|> binary
+                    (binary.write/8 offset (if value 1 0))
+                    error.assume))])})
 
 (def: #export nat (Format Nat) (:assume ..bits/64))
 (def: #export int (Format Int) (:assume ..bits/64))
@@ -178,35 +212,97 @@
 
 (def: #export frac
   (Format Frac)
-  (let [(^slots [#read #write]) ..bits/64]
-    {#read (:: p.Monad<Parser> map number.bits-to-frac read)
-     #write (|>> number.frac-to-bits write)}))
+  (let [(^slots [#reader #writer]) ..bits/64]
+    {#reader (:: parser.Monad<Parser> map number.bits-to-frac reader)
+     #writer (|>> number.frac-to-bits writer)}))
 
-(def: #export binary
-  (Format Binary)
-  {#read (do p.Monad<Parser>
-           [size (get@ #read nat)]
-           (function (_ [offset binary])
-             (do error.Monad<Error>
-               [#let [end (n/+ size offset)]
-                output (binary.slice offset end binary)]
-               (wrap [[end binary] output]))))
-   #write (function (_ value)
-            (let [size (binary.size value)]
-              [(n/+ size/64 size)
-               (function (_ offset binary)
-                 (error.assume
+(do-template [<name> <bits> <size> <write>]
+  [(def: #export <name>
+     (Format Binary)
+     {#reader (do parser.Monad<Parser>
+                [size (:coerce (Reader Nat)
+                               ## TODO: Remove coercion.
+                               (get@ #reader <bits>))]
+                (function (_ [offset binary])
                   (do error.Monad<Error>
-                    [_ (binary.write/64 offset size binary)]
-                    (binary.copy size 0 value (n/+ size/64 offset) binary))))]))})
+                    [#let [end (n/+ size offset)]
+                     output (binary.slice offset end binary)]
+                    (wrap [[end binary] output]))))
+      #writer (function (_ value)
+                (let [size (|> value
+                               binary.size
+                               (i64.and (..mask <size>)))]
+                  [(n/+ <size> size)
+                   (function (_ offset binary)
+                     (error.assume
+                      (do error.Monad<Error>
+                        [_ (<write> offset size binary)]
+                        (binary.copy size 0 value (n/+ <size> offset) binary))))]))})]
+
+  [binary/8  ..bits/8  ..size/8  binary.write/8]
+  [binary/16 ..bits/16 ..size/16 binary.write/16]
+  [binary/32 ..bits/32 ..size/32 binary.write/32]
+  [binary/64 ..bits/64 ..size/64 binary.write/64]
+  )
+
+(do-template [<name> <with-offset> <bits> <size> <write>]
+  [(def: #export (<with-offset> extra-count valueF)
+     (All [v] (-> Nat (Format v) (Format (Row v))))
+     {#reader (do parser.Monad<Parser>
+                [count (|> (get@ #reader <bits>)
+                           ## TODO: Remove coercion.
+                           (:coerce (Reader Nat))
+                           (:: @ map (n/- extra-count)))]
+                (loop [index 0
+                       output (:share [v]
+                                      {(Format v)
+                                       valueF}
+                                      {(Row v)
+                                       row.empty})]
+                  (if (n/< count index)
+                    (do parser.Monad<Parser>
+                      [value (get@ #reader valueF)]
+                      (recur (.inc index)
+                             (row.add value output)))
+                    (:: parser.Monad<Parser> wrap output))))
+      #writer (function (_ value)
+                (let [original-count (row.size value)
+                      capped-count (i64.and (..mask <size>)
+                                            original-count)
+                      value (if (n/= original-count capped-count)
+                              value
+                              (|> value row.to-list (list.take capped-count) row.from-list))
+                      (^open "mutation/.") ..Monoid<Mutation>
+                      [size mutation] (|> value
+                                          (row/map (get@ #writer valueF))
+                                          (:: row.Fold<Row> fold
+                                              (function (_ post pre)
+                                                (mutation/compose pre post))
+                                              mutation/identity))]
+                  [(n/+ <size> size)
+                   (function (_ offset binary)
+                     (error.assume
+                      (do error.Monad<Error>
+                        [_ (<write> offset (n/+ extra-count capped-count) binary)]
+                        (wrap (mutation (n/+ <size> offset) binary)))))]))})
+
+   (def: #export <name>
+     (All [v] (-> (Format v) (Format (Row v))))
+     (<with-offset> 0))]
+
+  [row/8  row/8'  ..bits/8  ..size/8  binary.write/8]
+  [row/16 row/16' ..bits/16 ..size/16 binary.write/16]
+  [row/32 row/32' ..bits/32 ..size/32 binary.write/32]
+  [row/64 row/64' ..bits/64 ..size/64 binary.write/64]
+  )
 
 (def: #export text
   (Format Text)
-  (let [(^slots [#read #write]) ..binary]
-    {#read (do p.Monad<Parser>
-             [utf8 read]
-             (p.lift (encoding.from-utf8 utf8)))
-     #write (|>> encoding.to-utf8 write)}))
+  (let [(^slots [#reader #writer]) ..binary/64]
+    {#reader (do parser.Monad<Parser>
+               [utf8 reader]
+               (parser.lift (encoding.from-utf8 utf8)))
+     #writer (|>> encoding.to-utf8 writer)}))
 
 (def: #export maybe
   (All [a] (-> (Format a) (Format (Maybe a))))
