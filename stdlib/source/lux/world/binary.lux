@@ -15,11 +15,19 @@
      [array (#+ Array)]]]
    ["." host (#+ import:)]])
 
-(exception: #export (index-out-of-bounds {description Text})
-  description)
+(exception: #export (index-out-of-bounds {size Nat} {index Nat})
+  (ex.report ["Size" (%n size)]
+             ["Index" (%n index)]))
 
-(exception: #export (inverted-range {description Text})
-  description)
+(do-template [<name>]
+  [(exception: #export (<name> {size Nat} {from Nat} {to Nat})
+     (ex.report ["Size" (%n size)]
+                ["From" (%n from)]
+                ["To" (%n to)]))]
+
+  [slice-out-of-bounds]
+  [inverted-slice]
+  )
 
 (type: #export Binary (host.type (Array byte)))
 
@@ -32,15 +40,22 @@
 
 (def: byte-mask
   I64
-  (|> 1 (i64.left-shift 8) dec .i64))
+  (|> i64.bits-per-byte i64.mask .i64))
 
 (def: i64
   (-> (primitive "java.lang.Byte") I64)
-  (|>> host.byte-to-long (:coerce I64) (i64.and byte-mask)))
+  (|>> host.byte-to-long (:coerce I64) (i64.and ..byte-mask)))
 
 (def: byte
   (-> (I64 Any) (primitive "java.lang.Byte"))
   (|>> .int host.long-to-byte))
+
+(template: (!size binary)
+  (host.array-length binary))
+
+(def: #export size
+  (-> Binary Nat)
+  (|>> !size))
 
 (def: #export (create size)
   (-> Nat Binary)
@@ -48,31 +63,31 @@
 
 (def: #export (read/8 idx binary)
   (-> Nat Binary (Error I64))
-  (if (n/< (host.array-length binary) idx)
-    (|> (host.array-read idx binary) ..i64 #error.Success)
-    (ex.throw index-out-of-bounds (%n idx))))
+  (if (n/< (..!size binary) idx)
+    (#error.Success (..i64 (host.array-read idx binary)))
+    (ex.throw index-out-of-bounds [(..!size binary) idx])))
 
 (def: #export (read/16 idx binary)
   (-> Nat Binary (Error I64))
-  (if (n/< (host.array-length binary) (n/+ 1 idx))
+  (if (n/< (..!size binary) (n/+ 1 idx))
     (#error.Success ($_ i64.or
                         (i64.left-shift 8 (..i64 (host.array-read idx binary)))
                         (..i64 (host.array-read (n/+ 1 idx) binary))))
-    (ex.throw index-out-of-bounds (%n idx))))
+    (ex.throw index-out-of-bounds [(..!size binary) idx])))
 
 (def: #export (read/32 idx binary)
   (-> Nat Binary (Error I64))
-  (if (n/< (host.array-length binary) (n/+ 3 idx))
+  (if (n/< (..!size binary) (n/+ 3 idx))
     (#error.Success ($_ i64.or
                         (i64.left-shift 24 (..i64 (host.array-read idx binary)))
                         (i64.left-shift 16 (..i64 (host.array-read (n/+ 1 idx) binary)))
                         (i64.left-shift 8 (..i64 (host.array-read (n/+ 2 idx) binary)))
                         (..i64 (host.array-read (n/+ 3 idx) binary))))
-    (ex.throw index-out-of-bounds (%n idx))))
+    (ex.throw index-out-of-bounds [(..!size binary) idx])))
 
 (def: #export (read/64 idx binary)
   (-> Nat Binary (Error I64))
-  (if (n/< (host.array-length binary) (n/+ 7 idx))
+  (if (n/< (..!size binary) (n/+ 7 idx))
     (#error.Success ($_ i64.or
                         (i64.left-shift 56 (..i64 (host.array-read idx binary)))
                         (i64.left-shift 48 (..i64 (host.array-read (n/+ 1 idx) binary)))
@@ -82,39 +97,39 @@
                         (i64.left-shift 16 (..i64 (host.array-read (n/+ 5 idx) binary)))
                         (i64.left-shift 8 (..i64 (host.array-read (n/+ 6 idx) binary)))
                         (..i64 (host.array-read (n/+ 7 idx) binary))))
-    (ex.throw index-out-of-bounds (%n idx))))
+    (ex.throw index-out-of-bounds [(..!size binary) idx])))
 
 (def: #export (write/8 idx value binary)
   (-> Nat (I64 Any) Binary (Error Binary))
-  (if (n/< (host.array-length binary) idx)
+  (if (n/< (..!size binary) idx)
     (exec (|> binary
               (host.array-write idx (..byte value)))
       (#error.Success binary))
-    (ex.throw index-out-of-bounds (%n idx))))
+    (ex.throw index-out-of-bounds [(..!size binary) idx])))
 
 (def: #export (write/16 idx value binary)
   (-> Nat (I64 Any) Binary (Error Binary))
-  (if (n/< (host.array-length binary) (n/+ 1 idx))
+  (if (n/< (..!size binary) (n/+ 1 idx))
     (exec (|> binary
               (host.array-write idx (..byte (i64.logical-right-shift 8 value)))
               (host.array-write (n/+ 1 idx) (..byte value)))
       (#error.Success binary))
-    (ex.throw index-out-of-bounds (%n idx))))
+    (ex.throw index-out-of-bounds [(..!size binary) idx])))
 
 (def: #export (write/32 idx value binary)
   (-> Nat (I64 Any) Binary (Error Binary))
-  (if (n/< (host.array-length binary) (n/+ 3 idx))
+  (if (n/< (..!size binary) (n/+ 3 idx))
     (exec (|> binary
               (host.array-write idx (..byte (i64.logical-right-shift 24 value)))
               (host.array-write (n/+ 1 idx) (..byte (i64.logical-right-shift 16 value)))
               (host.array-write (n/+ 2 idx) (..byte (i64.logical-right-shift 8 value)))
               (host.array-write (n/+ 3 idx) (..byte value)))
       (#error.Success binary))
-    (ex.throw index-out-of-bounds (%n idx))))
+    (ex.throw index-out-of-bounds [(..!size binary) idx])))
 
 (def: #export (write/64 idx value binary)
   (-> Nat (I64 Any) Binary (Error Binary))
-  (if (n/< (host.array-length binary) (n/+ 7 idx))
+  (if (n/< (..!size binary) (n/+ 7 idx))
     (exec (|> binary
               (host.array-write idx (..byte (i64.logical-right-shift 56 value)))
               (host.array-write (n/+ 1 idx) (..byte (i64.logical-right-shift 48 value)))
@@ -125,29 +140,24 @@
               (host.array-write (n/+ 6 idx) (..byte (i64.logical-right-shift 8 value)))
               (host.array-write (n/+ 7 idx) (..byte value)))
       (#error.Success binary))
-    (ex.throw index-out-of-bounds (%n idx))))
-
-(def: #export (size binary)
-  (-> Binary Nat)
-  (host.array-length binary))
+    (ex.throw index-out-of-bounds [(..!size binary) idx])))
 
 (def: #export (slice from to binary)
   (-> Nat Nat Binary (Error Binary))
-  (with-expansions [<description> (as-is (format "from = " (%n from) " | " "to = " (%n to)))]
-    (let [size (host.array-length binary)]
-      (cond (not (n/<= to from))
-            (ex.throw inverted-range <description>)
+  (let [size (..!size binary)]
+    (cond (not (n/<= to from))
+          (ex.throw inverted-slice [size from to])
 
-            (not (and (n/< size from)
-                      (n/< size to)))
-            (ex.throw index-out-of-bounds <description>)
+          (not (and (n/< size from)
+                    (n/< size to)))
+          (ex.throw slice-out-of-bounds [size from to])
 
-            ## else
-            (#error.Success (Arrays::copyOfRange binary (:coerce Int from) (:coerce Int (inc to))))))))
+          ## else
+          (#error.Success (Arrays::copyOfRange binary (:coerce Int from) (:coerce Int (inc to)))))))
 
 (def: #export (slice' from binary)
   (-> Nat Binary (Error Binary))
-  (slice from (dec (host.array-length binary)) binary))
+  (slice from (dec (..!size binary)) binary))
 
 (structure: #export _ (eq.Equivalence Binary)
   (def: (= reference sample)
