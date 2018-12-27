@@ -1,0 +1,124 @@
+(.module:
+  [lux #*
+   [control
+    [monad (#+ do)]
+    ["ex" exception (#+ exception:)]
+    [concurrency
+     ["." atom (#+ Atom)]]]
+   [data
+    ["." error (#+ Error)]
+    ["." text
+     format]
+    [collection
+     ["." array]
+     ["." list ("list/." Functor<List>)]
+     ["." dictionary (#+ Dictionary)]]]
+   ["." io (#+ IO)]
+   [world
+    ["." binary (#+ Binary)]]
+   ["." host (#+ import: object do-to)]])
+
+(type: #export Library
+  (Atom (Dictionary Text Binary)))
+
+(exception: #export (already-stored {class Text})
+  (ex.report ["Class" class]))
+
+(exception: #export (unknown {class Text} {known-classes (List Text)})
+  (ex.report ["Class" class]
+             ["Known classes" (|> known-classes
+                                  (list/map (|>> (format text.new-line text.tab)))
+                                  (text.join-with ""))]))
+
+(exception: #export (cannot-define {class Text} {error Text})
+  (ex.report ["Class" class]
+             ["Error" error]))
+
+(import: #long java/lang/Object
+  (getClass [] (java/lang/Class java/lang/Object)))
+
+(import: #long java/lang/String)
+
+(import: #long java/lang/reflect/Method
+  (invoke [java/lang/Object (Array java/lang/Object)]
+          #try java/lang/Object))
+
+(import: #long (java/lang/Class a)
+  (getDeclaredMethod [java/lang/String (Array (java/lang/Class java/lang/Object))]
+                     #try java/lang/reflect/Method))
+
+(import: #long java/lang/Integer
+  (#static TYPE (java/lang/Class java/lang/Integer)))
+
+(import: #long java/lang/reflect/AccessibleObject
+  (setAccessible [boolean] void))
+
+(import: #long java/lang/ClassLoader
+  (loadClass [java/lang/String]
+             #io #try (java/lang/Class java/lang/Object)))
+
+(def: java/lang/ClassLoader::defineClass
+  java/lang/reflect/Method
+  (let [signature (|> (host.array (java/lang/Class java/lang/Object) 4)
+                      (host.array-write 0 (:coerce (java/lang/Class java/lang/Object)
+                                                   (host.class-for java/lang/String)))
+                      (host.array-write 1 (java/lang/Object::getClass (host.array byte 0)))
+                      (host.array-write 2 (:coerce (java/lang/Class java/lang/Object)
+                                                   (java/lang/Integer::TYPE)))
+                      (host.array-write 3 (:coerce (java/lang/Class java/lang/Object)
+                                                   (java/lang/Integer::TYPE))))]
+    (do-to (error.assume
+            (java/lang/Class::getDeclaredMethod "defineClass"
+                                                signature
+                                                (host.class-for java/lang/ClassLoader)))
+      (java/lang/reflect/AccessibleObject::setAccessible true))))
+
+(def: #export (define class-name bytecode loader)
+  (-> Text Binary java/lang/ClassLoader (Error java/lang/Object))
+  (let [signature (array.from-list (list (:coerce java/lang/Object
+                                                  class-name)
+                                         (:coerce java/lang/Object
+                                                  bytecode)
+                                         (:coerce java/lang/Object
+                                                  (host.long-to-int +0))
+                                         (:coerce java/lang/Object
+                                                  (host.long-to-int (.int (binary.size bytecode))))))]
+    (java/lang/reflect/Method::invoke loader signature java/lang/ClassLoader::defineClass)))
+
+(def: #export (new-library _)
+  (-> Any Library)
+  (atom.atom (dictionary.new text.Hash<Text>)))
+
+(def: #export (memory library)
+  (-> Library java/lang/ClassLoader)
+  (object [] java/lang/ClassLoader []
+    []
+    (java/lang/ClassLoader (findClass {class-name java/lang/String}) java/lang/Class
+                           (let [classes (|> library atom.read io.run)]
+                             (case (dictionary.get class-name classes)
+                               (#.Some bytecode)
+                               (case (|> _jvm_this
+                                         (..define class-name bytecode))
+                                 (#error.Success class)
+                                 (:assume class)
+
+                                 (#error.Failure error)
+                                 (error! (ex.construct ..cannot-define [class-name error])))
+
+                               #.None
+                               (error! (ex.construct ..unknown [class-name (dictionary.keys classes)])))))))
+
+(def: #export (store name bytecode library)
+  (-> Text Binary Library (IO (Error Any)))
+  (do io.Monad<IO>
+    [library' (atom.read library)]
+    (if (dictionary.contains? name library')
+      (wrap (ex.throw ..already-stored name))
+      (do @
+        [_ (atom.update (dictionary.put name bytecode) library)]
+        (wrap (#error.Success []))))))
+
+(def: #export (load name loader)
+  (-> Text java/lang/ClassLoader
+      (IO (Error (java/lang/Class java/lang/Object))))
+  (java/lang/ClassLoader::loadClass name loader))
