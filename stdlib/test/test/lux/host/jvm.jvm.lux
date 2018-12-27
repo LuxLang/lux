@@ -1,0 +1,79 @@
+(.module:
+  [lux #*
+   [control
+    [monad (#+ do)]
+    [concurrency
+     ["." atom]]]
+   [data
+    ["." error (#+ Error)]
+    ["." text
+     format]
+    [format
+     ["." binary]]
+    [collection
+     ["." dictionary]]]
+   ["." io (#+ IO)]
+   [world
+    ["." file (#+ File)]
+    [binary (#+ Binary)]]
+   [host
+    ["/" jvm
+     ["/." loader (#+ Library)]
+     ["/." version]
+     ["/." name]
+     [modifier
+      ["/.M" class]
+      ["/.M" field]
+      ["/.M" method]
+      ["/.M" inner]]]]
+   [math
+    ["r" random]]]
+  lux/test)
+
+(def: (write-class name bytecode)
+  (-> Text Binary (IO Text))
+  (let [file-path (format name ".class")]
+    (do io.Monad<IO>
+      [outcome (do (error.ErrorT @)
+                 [file (: (IO (Error (File IO)))
+                          (file.get-file io.Monad<IO> file.System<IO> file-path))]
+                 (:: file over-write bytecode))]
+      (wrap (case outcome
+              (#error.Success definition)
+              (format "Wrote: " (%t file-path))
+              
+              (#error.Failure error)
+              error)))))
+
+(context: "Class"
+  (let [package "my.package"
+        name "MyClass"
+        full-name (format package "." name)
+        class (/.class /version.v6_0 /classM.public
+                       (/name.internal "java.lang.Object")
+                       (/name.internal full-name)
+                       (list (/name.internal "java.io.Serializable")
+                             (/name.internal "java.lang.Runnable")))
+        bytecode (binary.write /.classF class)
+        loader (/loader.memory (/loader.new-library []))]
+    (exec (io.run (..write-class name))
+      ($_ seq
+          (test "Can read generated class."
+                (case (binary.read /.classF bytecode)
+                  (#error.Success class)
+                  true
+                  
+                  (#error.Failure error)
+                  ## TODO: Remove log!
+                  (exec (log! error)
+                    false)))
+          (test "Can generate a class."
+                (case (/loader.define full-name bytecode loader)
+                  (#error.Success definition)
+                  true
+                  
+                  (#error.Failure error)
+                  ## TODO: Remove log!
+                  (exec (log! error)
+                    false)))
+          ))))
