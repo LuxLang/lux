@@ -1,22 +1,26 @@
 (.module:
   [lux #*
+   [control
+    ["." monad (#+ do)]
+    ["." state (#+ State)]]
    [data
     [format
      ["." binary (#+ Format)]]
     [collection
-     [list ("list/." Fold<List>)]
      ["." row (#+ Row)]]]]
   [/
    ["/." version (#+ Version Minor Major)]
    ["/." name (#+ Internal)]
+   ["/." magic (#+ Magic)]
+   ["/." index (#+ Index)]
+   ["/." attribute (#+ Attribute)]
    [modifier
     ["/.M" class]]
-   ["/." magic (#+ Magic)]
-   ["/." constant (#+ Constant)]
-   ["/." index (#+ Index)]])
+   ["/." constant (#+ Constant)
+    ["/." pool (#+ Pool)]]])
 
 (type: #export Interface
-  Index)
+  (Index /constant.Class))
 
 (type: #export Field
   Any)
@@ -24,19 +28,14 @@
 (type: #export Method
   Any)
 
-(type: #export Attribute
-  Any)
-
-(type: #export Pool (Row Constant))
-
 (type: #export Class
   {#magic Magic
    #minor-version Minor
    #major-version Major
    #constant-pool Pool
    #access-flags /classM.Modifier
-   #this Index
-   #super Index
+   #this (Index /constant.Class)
+   #super (Index /constant.Class)
    #interfaces (Row Interface)
    #fields (Row Field)
    #methods (Row Method)
@@ -44,38 +43,32 @@
 
 (def: default-minor-version Minor (/version.version 0))
 
+(def: (install-classes this super interfaces)
+  (-> Internal Internal (List Internal)
+      (State Pool [(Index /constant.Class) (Index /constant.Class) (Row Interface)]))
+  (do state.Monad<State>
+    [@this (/pool.class (/name.read this))
+     @super (/pool.class (/name.read super))
+     @interfaces (monad.fold @ (function (_ interface @interfaces)
+                                 (do @
+                                   [@interface (/pool.class (/name.read interface))]
+                                   (wrap (row.add @interface @interfaces))))
+                             (: (Row Interface) row.empty)
+                             interfaces)]
+    (wrap [@this @super @interfaces])))
+
 (def: #export (class version access super this interfaces)
   (-> Major /classM.Modifier Internal Internal (List Internal) Class)
-  (let [with-classes (: (-> Pool Pool)
-                        (|>> (row.add (#/constant.UTF8 (/name.read this)))
-                             (row.add (#/constant.Class (/index.index 1)))
-                             (row.add (#/constant.UTF8 (/name.read super)))
-                             (row.add (#/constant.Class (/index.index 3)))))
-        with-interfaces (: (-> Nat Pool [(Row Index) Pool])
-                           (function (_ offset pool)
-                             (let [[_last-index indices pool']
-                                   (list/fold (function (_ interface [index interface-indices' pool'])
-                                                [(n/+ 2 index)
-                                                 (row.add (/index.index (n/+ 1 index))
-                                                          interface-indices')
-                                                 (|> pool'
-                                                     (row.add (#/constant.UTF8 (/name.read interface)))
-                                                     (row.add (#/constant.Class (/index.index index))))])
-                                              [offset (: (Row Index) row.empty) pool]
-                                              interfaces)]
-                               [indices pool'])))
-        interfaces-offset 5
-        [interface-indices pool] (|> row.empty
-                                     with-classes
-                                     (with-interfaces interfaces-offset))]
+  (let [[pool [@this @super @interfaces]] (state.run (: Pool row.empty)
+                                                     (install-classes this super interfaces))]
     {#magic /magic.code
      #minor-version ..default-minor-version
      #major-version version
      #constant-pool pool
      #access-flags access
-     #this (/index.index 2)
-     #super (/index.index 4)
-     #interfaces interface-indices
+     #this @this
+     #super @super
+     #interfaces @interfaces
      #fields row.empty
      #methods row.empty
      #attributes row.empty}))
@@ -86,7 +79,7 @@
       /magic.format
       /version.format
       /version.format
-      (binary.row/16' 1 /constant.format)
+      /pool.format
       /classM.format
       /index.format
       /index.format
