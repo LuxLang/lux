@@ -5,16 +5,18 @@
     ["." parser]
     ["." equivalence (#+ Equivalence)]]
    [data
+    ["." number]
     ["." text]
     [format
      ["." binary (#+ Format) ("mutation/." Monoid<Mutation>)]]
     [collection
      ["." row (#+ Row)]]]
    [type
-    abstract]
-   ["." host (#+ import:)]]
+    abstract]]
   [//
-   ["//." index (#+ Index)]]
+   [encoding (#+ U4)]
+   ["//." index (#+ Index)]
+   [descriptor (#+ Descriptor)]]
   [/
    ["/." tag ("tag/." Equivalence<Tag>)]])
 
@@ -56,37 +58,117 @@
     (All [kind] (-> (Value kind) kind))
     (|>> :representation))
 
-  (do-template [<type> <class> <constructor>]
-    [(import: #long <class>)
+  (def: #export (Equivalence<Value> Equivalence<kind>)
+    (All [kind]
+      (-> (Equivalence kind)
+          (Equivalence (Value kind))))
+    (:: equivalence.Contravariant<Equivalence> map-1
+        (|>> :representation)
+        Equivalence<kind>))
 
-     (type: #export <type> (Value <class>))
+  (do-template [<constructor> <type> <marker>]
+    [(type: #export <type> (Value <marker>))
 
      (def: #export <constructor>
-       (-> <class> <type>)
+       (-> <marker> <type>)
        (|>> :abstraction))]
 
-    [Integer java/lang/Integer integer]
-    [Long java/lang/Long long]
-    [Float java/lang/Float float]
-    [Double java/lang/Double double]
-    [String java/lang/String string]
+    [integer Integer U4]
+    [long    Long    .Int]
+    [float   Float   Nothing]
+    [double  Double  Frac]
+    [string  String  (Index UTF8)]
     )
+
+  (do-template [<name> <type> <read> <write> <base>]
+    [(def: <name>
+       (Format <type>)
+       (binary.adapt (|>> <read> :abstraction)
+                     (|>> :representation <write>)
+                     <base>))]
+
+    [long-format Long .int (<|) binary.bits/64]
+    [double-format Double number.bits-to-frac number.frac-to-bits binary.bits/64]
+    [string-format String (<|) (<|) //index.format]
+    )
+  )
+
+(type: #export Name-And-Type
+  {#name (Index UTF8)
+   #descriptor (Index (Descriptor Any))})
+
+(type: #export Reference
+  {#class (Index Class)
+   #name-and-type (Index Name-And-Type)})
+
+(do-template [<type> <equivalence> <format>]
+  [(def: #export <equivalence>
+     (Equivalence <type>)
+     ($_ equivalence.product
+         //index.Equivalence<Index>
+         //index.Equivalence<Index>))
+
+   (def: #export <format>
+     (Format <type>)
+     ($_ binary.and
+         //index.format
+         //index.format))]
+
+  [Name-And-Type Equivalence<Name-And-Type> name-and-type-format]
+  [Reference Equivalence<Reference> reference-format]
   )
 
 (type: #export Constant
   (#UTF8 UTF8)
-  (#Class Class))
+  (#Long Long)
+  (#Double Double)
+  (#Class Class)
+  (#String String)
+  (#Field Reference)
+  (#Method Reference)
+  (#Interface-Method Reference)
+  (#Name-And-Type Name-And-Type))
 
 (def: #export Equivalence<Constant>
   (Equivalence Constant)
   ($_ equivalence.sum
+      ## #UTF8
       text.Equivalence<Text>
-      ..Equivalence<Class>))
+      ## #Long
+      (..Equivalence<Value> number.Equivalence<Int>)
+      ## #Double
+      (..Equivalence<Value> number.Equivalence<Frac>)
+      ## #Class
+      ..Equivalence<Class>
+      ## #String
+      (..Equivalence<Value> //index.Equivalence<Index>)
+      ## #Field
+      ..Equivalence<Reference>
+      ## #Method
+      ..Equivalence<Reference>
+      ## #Interface-Method
+      ..Equivalence<Reference>
+      ## #Name-And-Type
+      ..Equivalence<Name-And-Type>
+      ))
 
 (def: #export format
   (Format Constant)
-  (with-expansions [<constants> (as-is [#UTF8  /tag.utf8  ..utf8-format]
-                                       [#Class /tag.class ..class-format])]
+  (with-expansions [<constants> (as-is [#UTF8             /tag.utf8             ..utf8-format]
+                                       ## TODO: Integer
+                                       ## TODO: Float
+                                       [#Long             /tag.long             ..long-format]
+                                       [#Double           /tag.double           ..double-format]
+                                       [#Class            /tag.class            ..class-format]
+                                       [#String           /tag.string           ..string-format]
+                                       [#Field            /tag.field            ..reference-format]
+                                       [#Method           /tag.method           ..reference-format]
+                                       [#Interface-Method /tag.interface-method ..reference-format]
+                                       [#Name-And-Type    /tag.name-and-type    ..name-and-type-format]
+                                       ## TODO: Method-Handle
+                                       ## TODO: Method-Type
+                                       ## TODO: Invoke-Dynamic
+                                       )]
     {#binary.reader (do parser.Monad<Parser>
                       [tag (get@ #binary.reader /tag.format)]
                       (`` (cond (~~ (do-template [<case> <tag> <format>]
