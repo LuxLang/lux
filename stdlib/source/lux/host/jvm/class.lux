@@ -1,6 +1,7 @@
 (.module:
   [lux #*
    [control
+    ["." equivalence (#+ Equivalence)]
     [monoid (#+)]
     [parser (#+)]
     ["." monad (#+ do)]
@@ -43,13 +44,28 @@
    #minor-version Minor
    #major-version Major
    #constant-pool Pool
-   #access-flags Modifier
+   #modifier Modifier
    #this (Index //constant.Class)
    #super (Index //constant.Class)
    #interfaces (Row (Index //constant.Class))
    #fields (Row Field)
    #methods (Row Method)
    #attributes (Row Attribute)})
+
+(def: #export Equivalence<Class>
+  (Equivalence Class)
+  ($_ equivalence.product
+      //encoding.Equivalence<U4>
+      //encoding.Equivalence<U2>
+      //encoding.Equivalence<U2>
+      //pool.Equivalence<Pool>
+      ..Equivalence<Modifier>
+      //index.Equivalence<Index>
+      //index.Equivalence<Index>
+      (row.Equivalence<Row> //index.Equivalence<Index>)
+      (row.Equivalence<Row> //field.Equivalence<Field>)
+      (row.Equivalence<Row> //method.Equivalence<Method>)
+      (row.Equivalence<Row> //attribute.Equivalence<Attribute>)))
 
 (def: default-minor-version Minor (//version.version 0))
 
@@ -68,24 +84,30 @@
                                 interfaces))]
     (wrap [@this @super @interfaces])))
 
-(def: #export (class version access
+(def: #export (class version modifier
                      super this interfaces
                      fields methods attributes)
   (-> Major Modifier
       Internal Internal (List Internal)
-      (Row Field) (Row Method) (Row Attribute)
+      (List (State Pool Field))
+      (Row Method)
+      (Row Attribute)
       Class)
-  (let [[pool [@this @super @interfaces]] (state.run (: Pool row.empty)
-                                                     (install-classes this super interfaces))]
+  (let [[pool [@this @super @interfaces] =fields]
+        (state.run //pool.empty
+                   (do state.Monad<State>
+                     [classes (install-classes this super interfaces)
+                      =fields (monad.seq state.Monad<State> fields)]
+                     (wrap [classes =fields])))]
     {#magic //magic.code
      #minor-version ..default-minor-version
      #major-version version
      #constant-pool pool
-     #access-flags access
+     #modifier modifier
      #this @this
      #super @super
      #interfaces @interfaces
-     #fields fields
+     #fields (row.from-list =fields)
      #methods methods
      #attributes attributes}))
 
