@@ -1,0 +1,170 @@
+(.module:
+  [lux (#- and int)
+   [control
+    [functor (#+ Functor)]
+    [apply (#+ Apply)]
+    [monad (#+ Monad do)]
+    ["ex" exception]
+    [concurrency
+     ["." promise (#+ Promise) ("promise/." Monad<Promise>)]]
+    [security
+     [capability (#+ Capability)]]]
+   [data
+    ["." product]
+    ["." error (#+ Error)]
+    ["." number]
+    [text
+     format]
+    [collection
+     [list ("list/." Fold<List>)]]]
+   ["." io (#+ IO)]
+   [world
+    [net (#+ URL)]
+    [database
+     ["." sql]]]
+   [host (#+ import:)]]
+  [/
+   ["/." input (#+ Input)]
+   ["/." output (#+ Output)]])
+
+(import: #long java/sql/ResultSet
+  (getRow [] #try int)
+  (next [] #try boolean)
+  (close [] #io #try void))
+
+(import: #long java/sql/Statement
+  (#static NO_GENERATED_KEYS int)
+  (#static RETURN_GENERATED_KEYS int)
+  (getGeneratedKeys [] #try java/sql/ResultSet)
+  (close [] #io #try void))
+
+(import: #long java/sql/PreparedStatement
+  (executeUpdate [] #io #try int)
+  (executeQuery [] #io #try java/sql/ResultSet))
+
+(import: #long java/sql/Connection
+  (prepareStatement [String int] #try java/sql/PreparedStatement)
+  (isValid [int] #try boolean)
+  (close [] #io #try void))
+
+(import: #long java/sql/DriverManager
+  (#static getConnection [String String String] #io #try java/sql/Connection))
+
+(type: #export Credentials
+  {#url      URL
+   #user     Text
+   #password Text})
+
+(type: #export ID Int)
+
+(def: #export Equivalence<ID> number.Equivalence<Int>)
+
+(type: #export (Statement input)
+  {#sql sql.Statement
+   #input (Input input)
+   #value input})
+
+## DB
+(do-template [<name> <output>]
+  [(type: #export (<name> !)
+     (All [i]
+       (Capability (Statement i) (! (Error <output>)))))]
+
+  [Can-Execute Nat]
+  [Can-Insert  (List ID)]
+  )
+
+(type: #export (Can-Query !)
+  (All [i o]
+    (Capability [(Statement i) (Output o)] (! (Error (List o))))))
+
+(type: #export (Can-Close !)
+  (Capability Any (! (Error Any))))
+
+(signature: #export (DB !)
+  (: (Can-Execute !)
+     execute)
+  (: (Can-Insert !)
+     insert)
+  (: (Can-Query !)
+     query)
+  (: (Can-Close !)
+     close))
+
+(def: (with-statement statement conn action)
+  (All [i a]
+    (-> (Statement i) java/sql/Connection
+        (-> java/sql/PreparedStatement (IO (Error a)))
+        (IO (Error a))))
+  (do (error.ErrorT io.Monad<IO>)
+    [prepared (io.io (java/sql/Connection::prepareStatement (sql.sql (get@ #sql statement))
+                                                            (java/sql/Statement::RETURN_GENERATED_KEYS)
+                                                            conn))
+     _ (io.io ((get@ #input statement) (get@ #value statement) [1 prepared]))
+     result (action prepared)
+     _ (java/sql/Statement::close prepared)]
+    (wrap result)))
+
+(def: #export (async db)
+  (-> (DB IO) (DB Promise))
+  (`` (structure
+       (~~ (do-template [<name>]
+             [(def: <name> (|>> (:: db <name>) promise.future))]
+             
+             [execute] [insert] [close] [query])))))
+
+(def: #export (connect creds)
+  (-> Credentials (IO (Error (DB IO))))
+  (do (error.ErrorT io.Monad<IO>)
+    [connection (java/sql/DriverManager::getConnection (get@ #url creds)
+                                                       (get@ #user creds)
+                                                       (get@ #password creds))]
+    (wrap (: (DB IO)
+             (structure
+              (def: (execute statement)
+                (with-statement statement connection
+                  (function (_ prepared)
+                    (do (error.ErrorT io.Monad<IO>)
+                      [row-count (java/sql/PreparedStatement::executeUpdate prepared)]
+                      (wrap (.nat row-count))))))
+
+              (def: (insert statement)
+                (with-statement statement connection
+                  (function (_ prepared)
+                    (do (error.ErrorT io.Monad<IO>)
+                      [_ (java/sql/PreparedStatement::executeUpdate prepared)
+                       result-set (io.io (java/sql/Statement::getGeneratedKeys prepared))]
+                      (/output.rows /output.long result-set)))))
+
+              (def: (close _)
+                (java/sql/Connection::close connection))
+
+              (def: (query [statement output])
+                (with-statement statement connection
+                  (function (_ prepared)
+                    (do (error.ErrorT io.Monad<IO>)
+                      [result-set (java/sql/PreparedStatement::executeQuery prepared)]
+                      (/output.rows output result-set)))))
+              )))))
+
+(def: #export (with-db creds action)
+  (All [a]
+    (-> Credentials
+        (-> (DB IO) (IO (Error a)))
+        (IO (Error a))))
+  (do (error.ErrorT io.Monad<IO>)
+    [db (..connect creds)
+     result (action db)
+     _ (:: db close [])]
+    (wrap result)))
+
+(def: #export (with-async-db creds action)
+  (All [a]
+    (-> Credentials
+        (-> (DB Promise) (Promise (Error a)))
+        (Promise (Error a))))
+  (do (error.ErrorT promise.Monad<Promise>)
+    [db (promise.future (..connect creds))
+     result (action (..async db))
+     _ (promise/wrap (io.run (:: db close [])))]
+    (wrap result)))
