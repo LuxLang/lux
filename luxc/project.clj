@@ -15,7 +15,6 @@
                  [org.clojure/core.match "0.2.1"]
                  [org.ow2.asm/asm-all "5.0.3"]]
   :warn-on-reflection true
-  :main lux
   :repositories [["snapshots" "https://oss.sonatype.org/content/repositories/snapshots/"]
                  ["releases" "https://oss.sonatype.org/service/local/staging/deploy/maven2/"]]
   :source-paths ["src"]
@@ -23,11 +22,11 @@
   :scm {:name "git"
         :url "https://github.com/LuxLang/lux.git"}
 
-  ;; :classifiers {:sources {:resource-paths ["src"]}
-  ;;               :javadoc {:resource-paths ["src"]}}
-  
-  ;; :aot [lux]
-  
+  :main lux
+  :profiles {:uberjar {:classifiers {:sources {:resource-paths ["src"]}
+                                     :javadoc {:resource-paths ["src"]}}
+                       :aot [lux]}}
+
   :jvm-opts ^:replace ["-server" "-Xms2048m" "-Xmx2048m"
                        "-Xss16m"
                        "-XX:+OptimizeStringConcat"]
