@@ -1,0 +1,475 @@
+(.module:
+  [lux (#- Source Definition function and or not type is? int)
+   [control
+    [monad (#+ do)]]
+   [data
+    ["." text ("text/." Equivalence<Text>)
+     format]
+    [collection
+     [list ("list/." Functor<List>)]]]
+   [type
+    abstract]])
+
+(def: parenthesize
+  (-> Text Text)
+  (text.enclose ["(" ")"]))
+
+## Kind
+(do-template [<declaration>]
+  [(abstract: #export <declaration> {} Any)]
+
+  [Literal']
+  [Column']
+  [Placeholder']
+  [(Value' kind)]
+  
+  [Function']
+  
+  [Condition']
+
+  [Index']
+  
+  [Table']
+  [View']
+  [Source']
+  [DB']
+  
+  [No-Limit] [With-Limit]
+  [No-Offset] [With-Offset]
+  [Order']
+  [No-Order] [With-Order]
+  [No-Group] [With-Group]
+  [(Query' order group limit offset)]
+
+  [Command']
+
+  [No-Where] [With-Where] [Without-Where]
+  [No-Having] [With-Having] [Without-Having]
+  [(Action' where having kind)]
+  
+  [(Schema' kind)]
+  [Definition']
+  [(Statement' kind)]
+  )
+
+(type: #export Alias Text)
+
+(def: #export no-alias Alias "")
+
+(abstract: #export (SQL kind)
+  {}
+
+  Text
+
+  ## SQL
+  (do-template [<declaration> <kind>]
+    [(type: #export <declaration> (SQL <kind>))]
+
+    [Literal (Value' Literal')]
+    [Column (Value' Column')]
+    [Placeholder (Value' Placeholder')]
+    [Value (Value' Any)]
+    
+    [Function Function']
+    [Condition Condition']
+
+    [Index Index']
+    
+    [Table Table']
+    [View View']
+    [Source Source']
+    [DB DB']
+    
+    [Order Order']
+
+    [(Schema kind) (Schema' kind)]
+    
+    [(Query where having order group limit offset) (Statement' (Action' where having (Query' order group limit offset)))]
+    [(Command where having) (Statement' (Action' where having Command'))]
+    [(Action where having kind) (Statement' (Action' where having kind))]
+
+    [Definition (Statement' Definition')]
+    [Statement (Statement' Any)]
+    )
+
+  (def: Base-Query (.type (Query No-Where No-Having No-Order No-Group No-Limit No-Offset)))
+  (def: Any-Query (.type (Query Any Any Any Any Any Any)))
+
+  (def: #export read
+    {#.doc (doc "Only use this function for debugging purposes."
+                "Do not use this function to actually execute SQL code.")}
+    (-> (SQL Any) Text)
+    (|>> :representation))
+
+  (def: #export (sql action)
+    (-> Statement Text)
+    (format (:representation action) ";"))
+
+  (def: enumerate
+    (-> (List (SQL Any)) Text)
+    (|>> (list/map (|>> :representation))
+         (text.join-with ", ")))
+
+  ## Value
+  (def: #export ? Placeholder (:abstraction "?"))
+
+  (def: literal
+    (-> Text Literal)
+    (|>> :abstraction))
+
+  (def: #export null Literal (..literal "NULL"))
+
+  (def: #export (int value)
+    (-> Int Literal)
+    (..literal (if (i/< +0 value)
+                 (%i value)
+                 (%n (.nat value)))))
+
+  (def: #export function
+    (-> Text Function)
+    (|>> :abstraction))
+
+  (def: #export (call function parameters)
+    (-> Function (List Value) Value)
+    (:abstraction (format (:representation function)
+                          (..parenthesize (..enumerate parameters)))))
+
+  ## Condition
+  (do-template [<name> <sql-op>]
+    [(def: #export (<name> reference sample)
+       (-> Value Value Condition)
+       (:abstraction
+        (..parenthesize
+         (format (:representation sample)
+                 " " <sql-op> " "
+                 (:representation reference)))))]
+
+    [=      "="]
+    [<>     "<>"]
+    [is?    "IS"]
+    [>      ">"]
+    [>=     ">="]
+    [<      "<"]
+    [<=     "<="]
+    [like?  "LIKE"]
+    [ilike? "ILIKE"]
+    )
+
+  (def: #export (between from to sample)
+    (-> Value Value Value Condition)
+    (:abstraction
+     (..parenthesize
+      (format (:representation sample)
+              " BETWEEN " (:representation from)
+              " AND " (:representation to)))))
+
+  (def: #export (in options value)
+    (-> (List Value) Value Condition)
+    (:abstraction
+     (format (:representation value)
+             " IN "
+             (..parenthesize (enumerate options)))))
+
+  (do-template [<func-name> <sql-op>]
+    [(def: #export (<func-name> left right)
+       (-> Condition Condition Condition)
+       (:abstraction
+        (format (..parenthesize (:representation left))
+                " " <sql-op> " "
+                (..parenthesize (:representation right)))))]
+
+    [and "AND"]
+    [or  "OR"]
+    )
+
+  (do-template [<name> <type> <sql>]
+    [(def: #export <name>
+       (-> <type> Condition)
+       (|>> :representation ..parenthesize (format <sql> " ") :abstraction))]
+
+    [not    Condition "NOT"]
+    [exists Any-Query "EXISTS"]
+    )
+
+  ## Query
+  (do-template [<name> <type> <decoration>]
+    [(def: #export <name>
+       (-> <type> Source)
+       (|>> :representation <decoration> :abstraction))]
+
+    [from-table Table     (<|)]
+    [from-view  View      (<|)]
+    [from-query Any-Query ..parenthesize]
+    )
+
+  (do-template [<func-name> <op>]
+    [(def: #export (<func-name> columns source)
+       (-> (List [Column Alias]) Source Base-Query)
+       (:abstraction
+        (format <op>
+                " "
+                (case columns
+                  #.Nil
+                  "*"
+                  
+                  _
+                  (|> columns
+                      (list/map (.function (_ [column alias])
+                                  (if (text/= ..no-alias alias)
+                                    (:representation column)
+                                    (format (:representation column) " AS " alias))))
+                      (text.join-with ", ")))
+                " FROM " (:representation source))))]
+
+
+    [select          "SELECT"]
+    [select-distinct "SELECT DISTINCT"]
+    )
+
+  (do-template [<name> <join-text>]
+    [(def: #export (<name> table condition prev)
+       (-> Table Condition Base-Query Base-Query)
+       (:abstraction
+        (format (:representation prev)
+                " " <join-text> " "
+                (:representation table)
+                " ON " (:representation condition))))]
+
+    [inner-join      "INNER JOIN"]
+    [left-join       "LEFT JOIN"]
+    [right-join      "RIGHT JOIN"]
+    [full-outer-join "FULL OUTER JOIN"]
+    )
+
+  (do-template [<function> <sql-op>]
+    [(def: #export (<function> left right)
+       (-> Any-Query Any-Query (Query Without-Where Without-Having No-Order No-Group No-Limit No-Offset))
+       (:abstraction
+        (format (:representation left)
+                " " <sql-op> " "
+                (:representation right))))]
+
+    [union     "UNION"]
+    [union-all "UNION ALL"]
+    [intersect "INTERSECT"]
+    )
+
+  (do-template [<name> <sql> <variables> <input> <output>]
+    [(def: #export (<name> value query)
+       (All <variables>
+         (-> Nat <input> <output>))
+       (:abstraction
+        (format (:representation query)
+                " " <sql> " "
+                (%n value))))]
+
+    [limit "LIMIT" [where having order group offset]
+     (Query where having order group No-Limit offset)
+     (Query where having order group With-Limit offset)]
+
+    [offset "OFFSET" [where having order group limit]
+     (Query where having order group limit No-Offset)
+     (Query where having order group limit With-Offset)]
+    )
+
+  (do-template [<name> <sql>]
+    [(def: #export <name>
+       Order
+       (:abstraction <sql>))]
+
+    [ascending  "ASC"]
+    [descending "DESC"]
+    )
+
+  (def: #export (order-by pairs query)
+    (All [where having group limit offset]
+      (-> (List [Value Order])
+          (Query where having No-Order group limit offset)
+          (Query where having With-Order group limit offset)))
+    (case pairs
+      #.Nil
+      (|> query :representation :abstraction)
+      
+      _
+      (:abstraction
+       (format (:representation query)
+               " ORDER BY "
+               (|> pairs
+                   (list/map (.function (_ [value order])
+                               (format (:representation value) " " (:representation order))))
+                   (text.join-with ", "))))))
+
+  (def: #export (group-by pairs query)
+    (All [where having order limit offset]
+      (-> (List Value)
+          (Query where having order No-Group limit offset)
+          (Query where having order With-Group limit offset)))
+    (case pairs
+      #.Nil
+      (|> query :representation :abstraction)
+      
+      _
+      (:abstraction
+       (format (:representation query)
+               " GROUP BY "
+               (..enumerate pairs)))))
+
+  ## Command
+  (def: #export (insert table columns rows)
+    (-> Table (List Column) (List (List Value)) (Command Without-Where Without-Having))
+    (:abstraction
+     (format "INSERT INTO " (:representation table) " "
+             (..parenthesize (..enumerate columns))
+             " VALUES "
+             (|> rows
+                 (list/map (|>> ..enumerate ..parenthesize))
+                 (text.join-with ", "))
+             )))
+
+  (def: #export (update table pairs)
+    (-> Table (List [Column Value]) (Command No-Where No-Having))
+    (:abstraction (format "UPDATE " (:representation table)
+                          (case pairs
+                            #.Nil
+                            ""
+                            
+                            _
+                            (format " SET " (|> pairs
+                                                (list/map (.function (_ [column value])
+                                                            (format (:representation column) "=" (:representation value))))
+                                                (text.join-with ", ")))))))
+
+  (def: #export delete
+    (-> Table (Command No-Where No-Having))
+    (|>> :representation (format "DELETE FROM ") :abstraction))
+
+  ## Action
+  (def: #export (where condition prev)
+    (All [kind having]
+      (-> Condition (Action No-Where having kind) (Action With-Where having kind)))
+    (:abstraction
+     (format (:representation prev)
+             " WHERE "
+             (:representation condition))))
+
+  (def: #export (having condition prev)
+    (All [where kind]
+      (-> Condition (Action where No-Having kind) (Action where With-Having kind)))
+    (:abstraction
+     (format (:representation prev)
+             " HAVING "
+             (:representation condition))))
+
+  ## Schema
+  (def: #export type
+    (-> Text (Schema Value))
+    (|>> :abstraction))
+  
+  (do-template [<name> <attr>]
+    [(def: #export (<name> attr)
+       (-> (Schema Value) (Schema Value))
+       (:abstraction
+        (format (:representation attr) " " <attr>)))]
+
+    [unique   "UNIQUE"]
+    [not-null "NOT NULL"]
+    [stored   "STORED"]
+    )
+
+  (def: #export (default value attr)
+    (-> Value (Schema Value) (Schema Value))
+    (:abstraction
+     (format (:representation attr) " DEFAULT " (:representation value))))
+
+  (def: #export (define-column name type)
+    (-> Column (Schema Value) (Schema Column))
+    (:abstraction
+     (format (:representation name) " " (:representation type))))
+
+  (def: #export (auto-increment offset column)
+    (-> Int (Schema Column) (Schema Column))
+    (:abstraction
+     (format (:representation column) " AUTO_INCREMENT=" (:representation (..int offset)))))
+
+  (def: #export (create-table or-replace? table columns)
+    (-> Bit Table (List (Schema Column)) Definition)
+    (let [command (if or-replace?
+                    "CREATE OR REPLACE TABLE"
+                    "CREATE TABLE IF NOT EXISTS")]
+      (:abstraction
+       (format command " " (:representation table)
+               (..parenthesize (..enumerate columns))))))
+
+  (def: #export (create-table-as table query)
+    (-> Table Any-Query Definition)
+    (:abstraction
+     (format "CREATE TABLE " (:representation table) " AS " (:representation query))))
+
+  (do-template [<name> <sql>]
+    [(def: #export (<name> table)
+       (-> Table Definition)
+       (:abstraction
+        (format <sql> " TABLE " (:representation table))))]
+    
+    [drop     "DROP"]
+    [truncate "TRUNCATE"]
+    )
+
+  (def: #export (add-column table column)
+    (-> Table (Schema Column) Definition)
+    (:abstraction
+     (format "ALTER TABLE " (:representation table) " ADD " (:representation column))))
+
+  (def: #export (drop-column table column)
+    (-> Table Column Definition)
+    (:abstraction
+     (format "ALTER TABLE " (:representation table) " DROP COLUMN " (:representation column))))
+
+  (do-template [<name> <type>]
+    [(def: #export (<name> name)
+       (-> Text <type>)
+       (:abstraction name))]
+
+    [column Column]
+    [table Table]
+    [view View]
+    [index Index]
+    [db DB]
+    )
+
+  (do-template [<name> <type> <sql>]
+    [(def: #export <name>
+       (-> <type> Definition)
+       (|>> :representation (format <sql> " ") :abstraction))]
+
+    [create-db  DB    "CREATE DATABASE"]
+    [drop-db    DB    "DROP DATABASE"]
+    [drop-view  View  "DROP VIEW"]
+    )
+
+  (do-template [<name> <sql>]
+    [(def: #export (<name> view query)
+       (-> View Any-Query Definition)
+       (:abstraction
+        (format <sql> " " (:representation view) " AS " (:representation query))))]
+
+    [create-view            "CREATE VIEW"]
+    [create-or-replace-view "CREATE OR REPLACE VIEW"]
+    )
+
+  (def: #export (create-index index table unique? columns)
+    (-> Index Table Bit (List Column) Definition)
+    (:abstraction
+     (format "CREATE " (if unique? "UNIQUE" "") " INDEX " (:representation index)
+             " ON " (:representation table) " " (..parenthesize (..enumerate columns)))))
+
+  (def: #export (with alias query body)
+    (All [where having order group limit offset]
+      (-> Table Any-Query
+          (Query where having order group limit offset)
+          (Query where having order group limit offset)))
+    (:abstraction
+     (format "WITH " (:representation alias)
+             " AS " (..parenthesize (:representation query))
+             " " (:representation body))))
+  )
