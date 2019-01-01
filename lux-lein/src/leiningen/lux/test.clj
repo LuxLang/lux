@@ -15,7 +15,9 @@
                                     "[JVM COMPILATION ENDED]")
             (let [java-cmd (get project :java-cmd "java")
                   jvm-opts (->> (get project :jvm-opts) (interpose " ") (reduce str ""))
-                  output-package (str (get-in project [:lux :target] &utils/default-jvm-output-dir)
+                  output-package (str (get project :target-path &utils/default-target-dir)
+                                      java.io.File/separator
+                                      &utils/default-jvm-output-dir
                                       java.io.File/separator
                                       (get project :jar-name &utils/output-package))]
               (do (&packager/package project "jvm" jvm-module (get project :resource-paths (list)))
@@ -29,7 +31,9 @@
                                   nil
                                   "[JS COMPILATION BEGAN]"
                                   "[JS COMPILATION ENDED]")
-          (let [output-package (str (get-in project [:lux :target] &utils/default-js-output-dir)
+          (let [output-package (str (get project :target-path &utils/default-target-dir)
+                                    java.io.File/separator
+                                    &utils/default-js-output-dir
                                     java.io.File/separator
                                     "program.js")]
             (do (&packager/package project "js" js-module (get project :resource-paths (list)))

@@ -131,19 +131,23 @@
   [project module resources-dirs]
   (do (println "[JVM PACKAGING BEGAN]")
     (let [output-package-name (get project :jar-name &utils/output-package)
-          output-dir (&utils/prepare-path (get-in project [:lux :target] &utils/default-jvm-output-dir))
+          output-dir (&utils/prepare-path (str (get project :target-path &utils/default-target-dir)
+                                               java.io.File/separator
+                                               &utils/default-jvm-output-dir))
           output-package (str output-dir java.io.File/separator output-package-name)
           !all-jar-files (atom {})
           includes-android? (boolean (some #(-> % first (= 'com.google.android/android))
                                            (get project :dependencies)))
           project* (-> project
-                       (update-in [:dependencies] (fn [_deps]
-                                                    ;; Skip the last two,
-                                                    ;; because they are:
-                                                    ;; tools.nrepl-0.2.12.jar and
-                                                    ;; clojure-complete-0.2.4.jar
-                                                    ;; and they belong to Leiningen.
-                                                    (take (- (count _deps) 2) _deps))))
+                       (update :dependencies
+                               (fn [dependencies]
+                                 ;; tools.nrepl-0.2.12.jar and
+                                 ;; clojure-complete-0.2.4.jar
+                                 ;; belong to Leiningen.
+                                 (filter (fn [[dep-name dep-version & dep-extra]]
+                                           (not (or (= 'org.clojure/tools.nrepl dep-name)
+                                                    (= 'clojure-complete/clojure-complete dep-name))))
+                                         dependencies))))
           deps (->> project*
                     (classpath/resolve-managed-dependencies :dependencies :managed-dependencies)
                     (map #(.getAbsolutePath ^File %)))]
@@ -165,7 +169,9 @@
                 (.closeEntry)))
             nil))
         (when (get-in project [:lux :android])
-          (let [output-dir-context (new File (get-in project [:lux :target] &utils/default-jvm-output-dir))
+          (let [output-dir-context (new File (str (get project :target-path &utils/default-target-dir)
+                                                  java.io.File/separator
+                                                  &utils/default-jvm-output-dir))
                 output-dex "classes.dex"
                 _ (do (.delete (new File output-dex))
                     (&utils/run-process (str "dx --dex --output=" output-dex " " output-package-name)

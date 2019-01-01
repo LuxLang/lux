@@ -5,8 +5,9 @@
                     InputStreamReader
                     BufferedReader)))
 
-(def ^:const ^String default-jvm-output-dir (str "target" java.io.File/separator "jvm"))
-(def ^:const ^String default-js-output-dir (str "target" java.io.File/separator "js"))
+(def ^:const ^String default-target-dir "target")
+(def ^:const ^String default-jvm-output-dir "jvm")
+(def ^:const ^String default-js-output-dir "js")
 (def ^:const ^String output-package "program.jar")
 
 (def ^:private unit-separator (str (char 31)))
@@ -63,14 +64,16 @@
   (str "lux " mode
        " " (->> (get project :resource-paths (list)) (interpose unit-separator) (apply str))
        " " (->> source-paths (interpose unit-separator) (apply str))
-       " " (get-in project [:lux :target] (cond (.contains mode "jvm")
-                                                default-jvm-output-dir
+       " " (str (get project :target-path default-target-dir)
+                java.io.File/separator
+                (cond (.contains mode "jvm")
+                      default-jvm-output-dir
 
-                                                (.contains mode "js")
-                                                default-js-output-dir
+                      (.contains mode "js")
+                      default-js-output-dir
 
-                                                :else
-                                                (assert false)))))
+                      :else
+                      (assert false)))))
 
 (do-template [<name> <mode>]
   (defn <name> [project platform module source-paths]
