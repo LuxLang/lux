@@ -263,7 +263,8 @@ Called by `imenu--generic-function'."
                     (jvm-host (altRE "class:" "interface:" "import:" "object" "do-to" "synchronized" "class-for"))
                     (alternative-format (altRE "char" "bin" "oct" "hex"))
                     (documentation (altRE "doc" "comment"))
-                    (function-application (altRE "|>" "|>>" "<|" "<<|" "_\\$" "\\$_")))
+                    (function-application (altRE "|>" "|>>" "<|" "<<|" "_\\$" "\\$_"))
+                    (remember (altRE "remember" "to-do" "fix-me")))
                 (let ((control (altRE control//flow
                                       control//pattern-matching
                                       control//logic
@@ -293,6 +294,7 @@ Called by `imenu--generic-function'."
                     alternative-format
                     documentation
                     function-application
+                    remember
                     ;;;;;;;;;;;;;;;;;;;;;;;;
                     "\\.module:"
                     "def:" "type:" "program:" "context:"

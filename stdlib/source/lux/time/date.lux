@@ -5,12 +5,12 @@
     order
     enum
     codec
-    ["p" parser]
+    ["p" parser ("p/." Functor<Parser>)]
     [monad (#+ do)]]
    [data
     ["." error (#+ Error)]
     ["." maybe]
-    ["." number ("int/." Codec<Text,Int>)]
+    ["." number ("nat/." Codec<Text,Nat>) ("int/." Codec<Text,Int>)]
     [text ("text/." Monoid<Text>)
      ["l" lexer]]
     [collection
@@ -57,18 +57,18 @@
 (def: (month-to-nat month)
   (-> Month Nat)
   (case month
-    #January   0
-    #February  1
-    #March     2
-    #April     3
-    #May       4
-    #June      5
-    #July      6
-    #August    7
-    #September 8
-    #October   9
-    #November 10
-    #December 11))
+    #January   00
+    #February  01
+    #March     02
+    #April     03
+    #May       04
+    #June      05
+    #July      06
+    #August    07
+    #September 08
+    #October   09
+    #November  10
+    #December  11))
 
 (`` (structure: #export _ (Order Month)
       (def: eq Equivalence<Month>)
@@ -223,30 +223,37 @@
 ## Based on this: https://stackoverflow.com/a/42936293/6823464
 (def: (pad value)
   (-> Int Text)
-  (if (i/< +10 value)
-    (text/compose "0" (int/encode value))
-    (int/encode value)))
+  (let [digits (nat/encode (.nat value))]
+    (if (i/< +10 value)
+      (text/compose "0" digits)
+      digits)))
 
 (def: (encode [year month day])
   (-> Date Text)
   ($_ text/compose
-      (int/encode year) "-"
+      (if (i/< +0 year)
+        (int/encode year)
+        (nat/encode (.nat year)))
+      "-"
       (pad (|> month month-to-nat inc .int)) "-"
       (pad (|> day .int))))
 
 (def: lex-year
   (l.Lexer Int)
   (do p.Monad<Parser>
-    [sign (p.or (l.this "-") (l.this "+"))
-     raw-year (p.codec number.Codec<Text,Int> (l.many l.decimal))
+    [sign (p.maybe (l.this "-"))
+     raw-year (p.codec number.Codec<Text,Nat> (l.many l.decimal))
      #let [signum (case sign
-                    (#.Left _)  -1
-                    (#.Right _) +1)]]
-    (wrap (i/* signum raw-year))))
+                    (#.Some _)
+                    -1
+                    
+                    #.None
+                    +1)]]
+    (wrap (i/* signum (.int raw-year)))))
 
 (def: lex-section
   (l.Lexer Int)
-  (p.codec number.Codec<Text,Int> (l.exactly 2 l.decimal)))
+  (p/map .int (p.codec number.Codec<Text,Nat> (l.exactly 2 l.decimal))))
 
 (def: (leap-years year)
   (-> Int Int)
@@ -298,15 +305,15 @@
                       (i/<= (.int month-days) utc-day)))]
     (wrap {#year utc-year
            #month (case utc-month
-                    +1 #January
-                    +2 #February
-                    +3 #March
-                    +4 #April
-                    +5 #May
-                    +6 #June
-                    +7 #July
-                    +8 #August
-                    +9 #September
+                    +01 #January
+                    +02 #February
+                    +03 #March
+                    +04 #April
+                    +05 #May
+                    +06 #June
+                    +07 #July
+                    +08 #August
+                    +09 #September
                     +10 #October
                     +11 #November
                     +12 #December
@@ -315,7 +322,7 @@
 
 (def: (decode input)
   (-> Text (Error Date))
-  (l.run input lex-date))
+  (l.run input ..lex-date))
 
 (structure: #export _
   {#.doc (doc "Based on ISO 8601."

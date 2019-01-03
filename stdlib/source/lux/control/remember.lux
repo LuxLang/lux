@@ -1,0 +1,67 @@
+(.module:
+  [lux #*
+   [control
+    [monad (#+ do)]
+    ["p" parser ("p/." Functor<Parser>)]
+    ["ex" exception (#+ exception:)]]
+   [data
+    ["." error]
+    ["." text
+     format]]
+   [time
+    ["." instant]
+    ["." date (#+ Date) ("date/." Order<Date> Codec<Text,Date>)]]
+   ["." macro
+    ["." code]
+    ["s" syntax (#+ Syntax syntax:)]]
+   ["." io]])
+
+(exception: #export (must-remember {message Text} {focus (Maybe Code)})
+  (format message text.new-line
+          (case focus
+            (#.Some focus)
+            (%code focus)
+
+            #.None
+            "")))
+
+(def: deadline
+  (Syntax Date)
+  ($_ p.either
+      (p/map (|>> instant.from-millis instant.date)
+             s.int)
+      (do p.Monad<Parser>
+        [raw s.text]
+        (case (:: date.Codec<Text,Date> decode raw)
+          (#error.Success date)
+          (wrap date)
+          
+          (#error.Failure message)
+          (p.fail message)))))
+
+(syntax: #export (remember {deadline ..deadline} {message s.text} {focus (p.maybe s.any)})
+  (let [now (io.run instant.now)
+        today (instant.date now)]
+    (if (date/< deadline today)
+      (wrap (case focus
+              (#.Some focus)
+              (list focus)
+
+              #.None
+              (list)))
+      (macro.fail (ex.construct must-remember [message focus])))))
+
+(do-template [<name> <message>]
+  [(syntax: #export (<name> {deadline ..deadline} {message s.text} {focus (p.maybe s.any)})
+     (wrap (list (` (..remember (~ (code.text (date/encode deadline)))
+                                (~ (code.text (format <message> " " message)))
+                                (~+ (case focus
+                                      (#.Some focus)
+                                      (list focus)
+
+                                      #.None
+                                      (list))))))))]
+
+  [to-do  "TODO"]
+  [fix-me "FIXME"]
+  )
