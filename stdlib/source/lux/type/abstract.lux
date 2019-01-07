@@ -1,17 +1,18 @@
 (.module:
-  [lux #*
+  [lux (#- Scope)
    [control
-    [monad (#+ do Monad)]
-    ["p" parser]]
+    [monad (#+ Monad do)]
+    ["p" parser ("p/." Monad<Parser>)]
+    ["ex" exception (#+ exception:)]]
    [data
     [name ("name/." Codec<Text,Name>)]
     [text ("text/." Equivalence<Text> Monoid<Text>)]
-    ["." error]
     [collection
-     [list ("list/." Functor<List> Monoid<List>)]]]
+     ["." list ("list/." Functor<List> Monoid<List>)]
+     ["." stack (#+ Stack)]]]
    ["." macro ("meta/." Monad<Meta>)
     ["." code]
-    ["s" syntax (#+ syntax:)]
+    ["s" syntax (#+ Syntax syntax:)]
     [syntax
      ["cs" common]
      [common
@@ -19,126 +20,151 @@
       ["csw" writer]]]]
    [type (#+ :cast)]])
 
-(def: (get k plist)
-  (All [a]
-    (-> Text (List [Text a]) (Maybe a)))
-  (case plist
-    #.Nil
-    #.None
+(type: Scope
+  {#name Text
+   #type-vars (List Code)
+   #abstraction Code
+   #representation Code})
 
-    (#.Cons [k' v] plist')
-    (if (text/= k k')
-      (#.Some v)
-      (get k plist'))))
+(def: scopes
+  (Stack Scope)
+  stack.empty)
 
-(def: (put k v plist)
-  (All [a]
-    (-> Text a (List [Text a]) (List [Text a])))
-  (case plist
-    #.Nil
-    (list [k v])
+(template: (!peek <source> <reference> <then>)
+  (loop [entries <source>]
+    (case entries
+      (#.Cons [head-name head-content] tail)
+      (if (text/= <reference> head-name)
+        <then>
+        (recur tail))
 
-    (#.Cons [k' v'] plist')
-    (if (text/= k k')
-      (#.Cons [k' v] plist')
-      (#.Cons [k' v'] (put k v plist')))))
+      #.Nil
+      (undefined))))
 
-(def: (remove k plist)
-  (All [a]
-    (-> Text (List [Text a]) (List [Text a])))
-  (case plist
-    #.Nil
-    #.Nil
+(def: (peek-scopes-definition reference source)
+  (-> Text (List [Text Definition]) (Stack Scope))
+  (!peek source reference
+         (let [[scope-type scope-anns scope-value] head-content]
+           (:coerce (Stack Scope) scope-value))))
 
-    (#.Cons [k' v'] plist')
-    (if (text/= k k')
-      plist'
-      (#.Cons [k' v'] (remove k plist')))))
+(def: (peek-scopes reference definition-reference source)
+  (-> Text Text (List [Text Module]) (Stack Scope))
+  (!peek source reference
+         (peek-scopes-definition definition-reference (get@ #.definitions head-content))))
 
-(def: down-cast Text ":abstraction")
-(def: up-cast Text ":representation")
-(def: macro-anns Code (' {#.macro? #1}))
+(exception: #export (no-active-scopes)
+  "")
 
-(def: representation-name
+(def: (peek! scope)
+  (-> (Maybe Text) (Meta Scope))
+  (function (_ compiler)
+    (let [[reference definition-reference] (name-of ..scopes)
+          current-scopes (peek-scopes reference definition-reference (get@ #.modules compiler))]
+      (case (case scope
+              (#.Some scope)
+              (list.find (function (_ [actual _])
+                           (text/= scope actual))
+                         current-scopes)
+              
+              #.None
+              (stack.peek current-scopes))
+        (#.Some scope)
+        (#.Right [compiler scope])
+        
+        #.None
+        (ex.throw no-active-scopes [])))))
+
+(template: (!push <source> <reference> <then>)
+  (loop [entries <source>]
+    (case entries
+      (#.Cons [head-name head-content] tail)
+      (if (text/= <reference> head-name)
+        (#.Cons [head-name <then>]
+                tail)
+        (#.Cons [head-name head-content]
+                (recur tail)))
+
+      #.Nil
+      (undefined))))
+
+(def: (push-scope-definition reference scope source)
+  (-> Text Scope (List [Text Definition]) (List [Text Definition]))
+  (!push source reference
+         (let [[scopes-type scopes-anns scopes-value] head-content]
+           [scopes-type
+            scopes-anns
+            (stack.push scope (:coerce (Stack Scope) scopes-value))])))
+
+(def: (push-scope [module-reference definition-reference] scope source)
+  (-> Name Scope (List [Text Module]) (List [Text Module]))
+  (!push source module-reference
+         (|> head-content (update@ #.definitions (push-scope-definition definition-reference scope)))))
+
+(def: (push! scope)
+  (-> Scope (Meta Any))
+  (function (_ compiler)
+    (#.Right [(update@ #.modules
+                       (..push-scope (name-of ..scopes) scope)
+                       compiler)
+              []])))
+
+(def: (pop-scope-definition reference source)
+  (-> Text (List [Text Definition]) (List [Text Definition]))
+  (!push source reference
+         (let [[scopes-type scopes-anns scopes-value] head-content]
+           [scopes-type
+            scopes-anns
+            (let [current-scopes (:coerce (Stack Scope) scopes-value)]
+              (case (stack.pop current-scopes)
+                (#.Some current-scopes')
+                current-scopes'
+
+                #.None
+                current-scopes))])))
+
+(def: (pop-scope [module-reference definition-reference] source)
+  (-> Name (List [Text Module]) (List [Text Module]))
+  (!push source module-reference
+         (|> head-content (update@ #.definitions (pop-scope-definition definition-reference)))))
+
+(syntax: (pop!)
+  (function (_ compiler)
+    (#.Right [(update@ #.modules
+                       (..pop-scope (name-of ..scopes))
+                       compiler)
+              (list)])))
+
+(def: cast
+  (Syntax [(Maybe Text) Code])
+  (p.either (p.and (p.maybe s.local-identifier) s.any)
+            (p.and (p/wrap #.None) s.any)))
+
+(do-template [<name> <from> <to>]
+  [(syntax: #export (<name> {[scope value] cast})
+     (do @
+       [[name type-vars abstraction representation] (peek! scope)]
+       (wrap (list (` ((~! :cast) [(~+ type-vars)] (~ <from>) (~ <to>)
+                       (~ value)))))))]
+
+  [:abstraction representation abstraction]
+  [:representation abstraction representation]
+  )
+
+(def: abstraction-type-name
   (-> Name Text)
   (|>> name/encode
        ($_ text/compose
-           "{"
-           (name/encode (name-of #..Representation))
-           "} ")))
+           (name/encode (name-of #..Abstraction))
+           " ")))
 
-(def: (cast type-vars input-declaration output-declaration)
-  (-> (List Code) Code Code Macro)
-  (function (_ tokens)
-    (case tokens
-      (^ (list value))
-      (meta/wrap (list (` ((~! :cast) [(~+ type-vars)] (~ input-declaration) (~ output-declaration)
-                           (~ value)))))
-
-      _
-      (meta/wrap (list (` ((~! :cast) [(~+ type-vars)] (~ input-declaration) (~ output-declaration))))))))
-
-(def: (install-casts' this-module-name name type-vars)
-  (-> Text Text (List Text) (Meta Any))
-  (do macro.Monad<Meta>
-    [this-module (macro.find-module this-module-name)
-     #let [type-varsC (list/map code.local-identifier type-vars)
-           abstraction-declaration (` ((~ (code.local-identifier name)) (~+ type-varsC)))
-           representation-declaration (` ((~ (code.local-identifier (representation-name [this-module-name name])))
-                                          (~+ type-varsC)))
-           this-module (|> this-module
-                           (update@ #.definitions (put down-cast (: Definition
-                                                                    [Macro macro-anns
-                                                                     (cast type-varsC representation-declaration abstraction-declaration)])))
-                           (update@ #.definitions (put up-cast (: Definition
-                                                                  [Macro macro-anns
-                                                                   (cast type-varsC abstraction-declaration representation-declaration)]))))]]
-    (function (_ compiler)
-      (#error.Success [(update@ #.modules (put this-module-name this-module) compiler)
-                       []]))))
-
-(def: (un-install-casts' this-module-name)
-  (-> Text (Meta Any))
-  (do macro.Monad<Meta>
-    [this-module (macro.find-module this-module-name)
-     #let [this-module (|> this-module
-                           (update@ #.definitions (remove down-cast))
-                           (update@ #.definitions (remove up-cast)))]]
-    (function (_ compiler)
-      (#error.Success [(update@ #.modules (put this-module-name this-module) compiler)
-                       []]))))
-
-(syntax: (install-casts {name s.local-identifier}
-                        {type-vars (s.tuple (p.some s.local-identifier))})
-  (do @
-    [this-module-name macro.current-module-name
-     ?down-cast (macro.find-macro [this-module-name down-cast])
-     ?up-cast (macro.find-macro [this-module-name up-cast])]
-    (case [?down-cast ?up-cast]
-      [#.None #.None]
-      (do @
-        [_ (install-casts' this-module-name name type-vars)]
-        (wrap (list)))
-
-      _
-      (macro.fail ($_ text/compose "Cannot temporarily define casting functions (" down-cast " & " up-cast ") because definitions like that already exist.")))))
-
-(syntax: (un-install-casts)
-  (do macro.Monad<Meta>
-    [this-module-name macro.current-module-name
-     ?down-cast (macro.find-macro [this-module-name down-cast])
-     ?up-cast (macro.find-macro [this-module-name up-cast])]
-    (case [?down-cast ?up-cast]
-      [(#.Some _) (#.Some _)]
-      (do @
-        [_ (un-install-casts' this-module-name)]
-        (wrap (list)))
-
-      _
-      (macro.fail ($_ text/compose "Cannot un-define casting functions (" down-cast " & " up-cast ") because they do not exist.")))))
+(def: representation-definition-name
+  (-> Text Text)
+  (|>> ($_ text/compose
+           (name/encode (name-of #Representation))
+           " ")))
 
 (def: declaration
-  (s.Syntax [Text (List Text)])
+  (Syntax [Text (List Text)])
   (p.either (s.form (p.and s.local-identifier (p.some s.local-identifier)))
             (p.and s.local-identifier (:: p.Monad<Parser> wrap (list)))))
 
@@ -152,27 +178,29 @@
                    {primitives (p.some s.any)})
   (do @
     [current-module macro.current-module-name
-     #let [hidden-name (representation-name [current-module name])
-           type-varsC (list/map code.local-identifier type-vars)
+     #let [type-varsC (list/map code.local-identifier type-vars)
            abstraction-declaration (` ((~ (code.local-identifier name)) (~+ type-varsC)))
-           representation-declaration (` ((~ (code.local-identifier hidden-name)) (~+ type-varsC)))]]
+           representation-declaration (` ((~ (code.local-identifier (representation-definition-name name)))
+                                          (~+ type-varsC)))]
+     _ (..push! [name
+                 type-varsC
+                 abstraction-declaration
+                 representation-declaration])]
     (wrap (list& (` (type: (~+ (csw.export export)) (~ abstraction-declaration)
                       (~ (csw.annotations annotations))
-                      (primitive (~ (code.text hidden-name)) [(~+ type-varsC)])))
+                      (primitive (~ (code.text (abstraction-type-name [current-module name])))
+                                 [(~+ type-varsC)])))
                  (` (type: (~+ (csw.export export)) (~ representation-declaration)
                       (~ representation-type)))
-                 (` ((~! install-casts) (~ (code.local-identifier name)) [(~+ type-varsC)]))
-                 (list/compose primitives
-                               (list (` ((~! un-install-casts)))))))))
+                 ($_ list/compose
+                     primitives
+                     (list (` ((~! ..pop!)))))))))
 
 (syntax: #export (^:representation {name (s.form s.local-identifier)}
                                    body
                                    {branches (p.some s.any)})
-  (let [g!representation (code.local-identifier name)]
-    (do @
-      [current-module macro.current-module-name
-       #let [g!:representation (code.identifier [current-module up-cast])]]
-      (wrap (list& g!representation
-                   (` (.let [(~ g!representation) ((~ g!:representation) (~ g!representation))]
-                        (~ body)))
-                   branches)))))
+  (let [g!var (code.local-identifier name)]
+    (wrap (list& g!var
+                 (` (.let [(~ g!var) (..:representation (~ g!var))]
+                      (~ body)))
+                 branches))))
