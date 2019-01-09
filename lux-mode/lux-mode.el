@@ -1,11 +1,11 @@
 ;;; lux-mode.el --- Major mode for Lux code -*- lexical-binding: t; -*-
 
-;; Copyright © 2014-2018 Eduardo Julian
+;; Copyright © 2014-2019 Eduardo Julian
 ;;
 ;; Authors: Eduardo Julian <eduardoejp@gmail.com>
 ;; URL: https://github.com/LuxLang/lux/tree/master/lux-mode
 ;; Keywords: languages lisp lux
-;; Version: 0.1.0
+;; Version: 0.6.0
 ;; Package-Requires: ((emacs "24.1"))
 
 ;; This file is not part of GNU Emacs.
@@ -445,6 +445,9 @@ This function also returns nil meaning don't specify the indentation."
   (do-to 'defun)
   (comment 'defun)
   (^template 'defun)
+  (remember 'defun)
+  (to-do 'defun)
+  (fix-me 'defun)
   )
 
 ;;;###autoload
