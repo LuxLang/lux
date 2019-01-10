@@ -1,53 +1,294 @@
 (.module:
-  [lux (#- comment)
+  [lux (#- Meta comment and)
    [data
+    ["." maybe]
     ["." text
      format]
-    [collection [list ("list/." Functor<List>)]]]])
+    [collection
+     [list ("list/." Functor<List>)]]]
+   [type
+    abstract]
+   [world
+    [net (#+ URL)]]]
+  [//
+   ["." css (#+ CSS)]])
+
+(type: #export Tag Text)
+
+(type: #export ID Text)
 
 (type: #export Attributes
   {#.doc "Attributes for an HTML tag."}
   (List [Text Text]))
 
-(type: #export HTML Text)
+(type: #export Script Text)
 
-(def: #export (text value)
+(type: #export Target
+  #Blank
+  #Parent
+  #Self
+  #Top
+  (#Frame Text))
+
+(def: (target value)
+  (-> Target Text)
+  (case value
+    #Blank "_blank"
+    #Parent "_parent"
+    #Self "_self"
+    #Top "_top"
+    (#Frame name) name))
+
+(def: sanitize
   {#.doc "Properly formats text to ensure no injection can happen on the HTML."}
-  (-> Text HTML)
-  (|> value
-      (text.replace-all "&" "&amp;")
-      (text.replace-all "<" "&lt;")
-      (text.replace-all ">" "&gt;")
-      (text.replace-all text.double-quote "&quot;")
-      (text.replace-all "'" "&#x27;")
-      (text.replace-all "/" "&#x2F;")))
+  (-> Text Text)
+  (|>> (text.replace-all "&" "&amp;")
+       (text.replace-all "<" "&lt;")
+       (text.replace-all ">" "&gt;")
+       (text.replace-all text.double-quote "&quot;")
+       (text.replace-all "'" "&#x27;")
+       (text.replace-all "/" "&#x2F;")))
 
-(def: #export (comment content)
-  (-> Text HTML)
-  (format "<!--" (text content) "-->"))
-
-(def: attrs-to-text
+(def: attributes
   (-> Attributes Text)
-  (|>> (list/map (function (_ [key val]) (format key "=" text.double-quote (text val) text.double-quote)))
+  (|>> (list/map (function (_ [key val])
+                   (format key "=" text.double-quote (..sanitize val) text.double-quote)))
        (text.join-with " ")))
 
-(def: #export (tag name attrs children)
-  {#.doc "Generates the HTML for a tag."}
-  (-> Text Attributes (List HTML) HTML)
-  (format "<" name " " (attrs-to-text attrs) ">"
-          (text.join-with " " children)
-          "</" name ">"))
+(def: (open tag attributes)
+  (-> Tag Attributes Text)
+  (|> attributes
+      ..attributes
+      (format tag " ")
+      (text.enclose ["<" ">"])))
 
-(do-template [<name> <doc-type>]
-  [(def: #export <name>
-     (-> HTML HTML)
-     (let [doc-type <doc-type>]
-       (function (_ document)
-         (format doc-type
-                 document))))]
+(def: close
+  (-> Tag Text)
+  (text.enclose ["</" ">"]))
 
-  [html-5    "<!DOCTYPE html>"]
-  [html-4_01 (format "<!DOCTYPE HTML PUBLIC " text.double-quote "-//W3C//DTD HTML 4.01//EN" text.double-quote " " text.double-quote "http://www.w3.org/TR/html4/strict.dtd" text.double-quote ">")]
-  [xhtml-1_0 (format "<!DOCTYPE html PUBLIC " text.double-quote "-//W3C//DTD XHTML 1.0 Strict//EN" text.double-quote " " text.double-quote "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd" text.double-quote ">")]
-  [xhtml-1_1 (format "<!DOCTYPE html PUBLIC " text.double-quote "-//W3C//DTD XHTML 1.1//EN" text.double-quote " " text.double-quote "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd" text.double-quote ">")]
+(abstract: #export (HTML kind)
+  {}
+  
+  Text
+
+  (do-template [<name> <kind>]
+    [(abstract: #export <kind> {} Any)
+     (type: #export <name> (HTML <kind>))]
+
+    [Meta Meta']
+    [Head Head']
+    [Item Item']
+    [Option Option']
+    [Input Input']
+    [Body Body']
+    [Document Document']
+    )
+
+  (abstract: #export (Element' brand) {} Any)
+  (type: #export Element (HTML (Element' Any)))
+
+  (abstract: #export Content' {} Any)
+  (type: #export Content (HTML (Element' Content')))
+  
+  (def: #export html
+    (-> (HTML Any) Text)
+    (|>> :representation))
+
+  (def: #export (and pre post)
+    (All [kind] (-> (HTML kind) (HTML kind) (HTML kind)))
+    (:abstraction (format (:representation pre) (:representation post))))
+
+  (def: #export (comment content node)
+    (All [brand] (-> Text (HTML brand) (HTML brand)))
+    (:abstraction
+     (format (text.enclose ["<!--" "-->"] content)
+             (:representation node))))
+
+  (def: (tag name)
+    (-> Tag (-> Attributes (HTML Any) HTML))
+    (function (_ attributes content)
+      (:abstraction
+       (format (..open name attributes)
+               (:representation content)
+               (..close name)))))
+
+  (do-template [<name> <tag>]
+    [(def: #export <name>
+       (-> Attributes Meta)
+       (|>> (..open <tag>)
+            :abstraction))]
+
+    [link "link"]
+    [meta "meta"]
+    )
+
+  (def: #export (base href target)
+    (-> URL (Maybe Target) Meta)
+    (let [partial (list ["href" href])
+          full (case target
+                 (#.Some target)
+                 (list& ["target" (..target target)] partial)
+                 
+                 #.None
+                 partial)]
+      (:abstraction (..open "base" full))))
+
+  (do-template [<name> <tag>]
+    [(def: #export (<name> content)
+       (-> Text Meta)
+       (:abstraction
+        (format (..open <tag> (list))
+                content
+                (..close <tag>))))]
+
+    [title "title"]
+    [no-script "noscript"]
+    )
+
+  (def: #export (style css)
+    (-> CSS Meta)
+    (:abstraction
+     (format (..open "style" (list))
+             css
+             (..close "style"))))
+
+  (def: #export (script attributes inline)
+    (-> Attributes (Maybe Script) Meta)
+    (:abstraction
+     (format (..open "script" attributes)
+             (maybe.default "" inline)
+             (..close "script"))))
+
+  (def: #export text
+    (-> Text Content)
+    (|>> ..sanitize
+         :abstraction))
+
+  (do-template [<tag> <alias> <name>]
+    [(def: #export <name>
+       Element
+       (:abstraction (..open <tag> (list))))
+
+     (def: #export <alias> <name>)]
+    ["br" br break]
+    ["hr" hr separator]
+    )
+
+  (def: #export (image source attributes)
+    (-> URL Attributes Element)
+    (|> attributes
+        (#.Cons ["src" source])
+        (..open "img")
+        :abstraction))
+
+  (def: #export (anchor href attributes content)
+    (-> URL Attributes Element Element)
+    (..tag "a" (list& ["href" href] attributes) content))
+
+  (def: #export (input attributes)
+    (-> Attributes Input)
+    (|> attributes
+        (..open "input")
+        :abstraction))
+
+  (def: #export (label for)
+    (-> ID Input)
+    (:abstraction
+     (format (..open "label" (list ["for" for]))
+             (..close "label"))))
+
+  (type: #export Phrase (-> Attributes Content Element))
+
+  (type: #export Composite (-> Attributes Element Element))
+
+  (def: #export (phrase tag)
+    (-> Tag Phrase)
+    (function (_ attributes content)
+      (:abstraction
+       (format (..open tag attributes)
+               (:representation content)
+               (..close tag)))))
+
+  (do-template [<name> <tag>]
+    [(def: #export <name>
+       Phrase
+       (..phrase <tag>))]
+
+    [block-quote "blockquote"]
+    [bold "b"]
+    [cite "cite"]
+    [code "code"]
+    [definition "dfn"]
+    [emphasized "em"]
+    [italic "i"]
+    [keyboard "kbd"]
+    [marked "mark"]
+    [pre "pre"]
+    [quote "q"]
+    [sample "samp"]
+    [strong "strong"]
+    [variable "var"]
+    )
+
+  (def: #export (composite tag)
+    (-> Tag Composite)
+    (function (_ attributes content)
+      (:abstraction
+       (format (..open tag attributes)
+               (:representation content)
+               (..close tag)))))
+
+  (do-template [<name> <tag>]
+    [(def: #export <name>
+       Composite
+       (..composite <tag>))]
+
+    [div "div"]
+    [footer "footer"]
+    [header "header"]
+    [paragraph "p"]
+    [section "section"]
+    [span "span"]
+    )
+
+  (def: #export p ..paragraph)
+
+  (do-template [<name> <tag> <input> <output>]
+    [(def: #export <name>
+       (-> Attributes <input> <output>)
+       (..tag <tag>))]
+
+    [button "button" Element Input]
+    [item "li" (HTML Any) Item]
+    [ordered "ol" Item Element]
+    [unordered "ul" Item Element]
+    [option "option" Content Option]
+    [data-list "datalist" Option Element]
+    [select "select" Option Input]
+    )
+  
+  (do-template [<name> <tag> <element> <container>]
+    [(def: #export <name>
+       (-> <element> <container>)
+       (..tag <tag> (list)))]
+
+    [head "head" Meta Head]
+    [body "body" Element Body]
+    )
+
+  (do-template [<name> <doc-type>]
+    [(def: #export <name>
+       (-> Head Body Document)
+       (let [doc-type <doc-type>]
+         (function (_ head body)
+           (|> (..tag "html" (list) (..and head body))
+               :representation
+               (format doc-type)
+               :abstraction))))]
+
+    [html-5    "<!DOCTYPE html>"]
+    [html-4_01 (format "<!DOCTYPE HTML PUBLIC " text.double-quote "-//W3C//DTD HTML 4.01//EN" text.double-quote " " text.double-quote "http://www.w3.org/TR/html4/strict.dtd" text.double-quote ">")]
+    [xhtml-1_0 (format "<!DOCTYPE html PUBLIC " text.double-quote "-//W3C//DTD XHTML 1.0 Strict//EN" text.double-quote " " text.double-quote "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd" text.double-quote ">")]
+    [xhtml-1_1 (format "<!DOCTYPE html PUBLIC " text.double-quote "-//W3C//DTD XHTML 1.1//EN" text.double-quote " " text.double-quote "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd" text.double-quote ">")]
+    )
   )
