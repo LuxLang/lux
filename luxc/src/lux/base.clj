@@ -258,8 +258,7 @@
                           (assert false (str "Unknown var: " (first pattern))))
                         '_
                         (transform-pattern (vec (rest pattern)))]
-        :else pattern
-        ))
+        :else pattern))
 
 (defmacro |case [value & branches]
   (assert (= 0 (mod (count branches) 2)))
@@ -670,29 +669,29 @@
 
 (defn ^:private normalize-char [char]
   (case char
-    \* "_ASTER_"
-    \+ "_PLUS_"
-    \- "_DASH_"
-    \/ "_SLASH_"
-    \\ "_BSLASH_"
-    \_ "_UNDERS_"
-    \% "_PERCENT_"
-    \$ "_DOLLAR_"
-    \' "_QUOTE_"
-    \` "_BQUOTE_"
-    \@ "_AT_"
-    \^ "_CARET_"
-    \& "_AMPERS_"
-    \= "_EQ_"
-    \! "_BANG_"
-    \? "_QM_"
-    \: "_COLON_"
-    \. "_PERIOD_"
-    \, "_COMMA_"
-    \< "_LT_"
-    \> "_GT_"
-    \~ "_TILDE_"
-    \| "_PIPE_"
+    \* "_AS"
+    \+ "_PL"
+    \- "_DS"
+    \/ "_SL"
+    \\ "_BS"
+    \_ "_US"
+    \% "_PC"
+    \$ "_DL"
+    \' "_QU"
+    \` "_BQ"
+    \@ "_AT"
+    \^ "_CR"
+    \& "_AA"
+    \= "_EQ"
+    \! "_BG"
+    \? "_QM"
+    \: "_CO"
+    \. "_PD"
+    \, "_CM"
+    \< "_LT"
+    \> "_GT"
+    \~ "_TI"
+    \| "_PI"
     ;; default
     char))
 
@@ -1208,10 +1207,12 @@
     (pr-str ?value)
 
     [_ ($Nat ?value)]
-    (str "+" (Long/toUnsignedString ?value))
+    (Long/toUnsignedString ?value)
 
     [_ ($Int ?value)]
-    (pr-str ?value)
+    (if (< ?value 0)
+      (pr-str ?value)
+      (str "+" (pr-str ?value)))
 
     [_ ($Rev ?value)]
     (encode-rev ?value)
@@ -1470,3 +1471,16 @@
 
       _output
       _output)))
+
+(defn timed% [what when operation]
+  (fn [state]
+    (let [pre (System/currentTimeMillis)]
+      (|case (operation state)
+        ($Right state* output)
+        (let [post (System/currentTimeMillis)
+              duration (- post pre)
+              _ (|log! (str what " [" when "]: +" duration "ms" "\n"))]
+          ($Right (T [state* output])))
+
+        ($Left ^String msg)
+        (fail* msg)))))
