@@ -1,0 +1,63 @@
+(.module:
+  [lux #*
+   [control
+    pipe
+    [monad (#+ do)]
+    ["p" parser]]
+   [data
+    ["." error (#+ Error)]
+    ["." number]
+    ["." text
+     format
+     ["l" lexer (#+ Lexer)]]
+    [format
+     ["." context (#+ Context)]]
+    [collection
+     ["." dictionary]]]])
+
+(def: component
+  (Lexer Text)
+  (p.rec
+   (function (_ component)
+     (do p.Monad<Parser>
+       [head (l.some (l.none-of "+%&;"))]
+       ($_ p.either
+           (p.after (p.either l.end
+                              (l.this "&"))
+                    (wrap head))
+           (do @
+             [_ (l.this "+")
+              tail component]
+             (wrap (format head " " tail)))
+           (do @
+             [_ (l.this "%")
+              code (|> (l.exactly 2 l.hexadecimal)
+                       (p.codec number.Hex@Codec<Text,Nat>)
+                       (:: @ map text.from-code))
+              tail component]
+             (wrap (format head code tail))))))))
+
+(def: (form context)
+  (-> Context (Lexer Context))
+  ($_ p.either
+      (do p.Monad<Parser>
+        [_ l.end]
+        (wrap context))
+      (do p.Monad<Parser>
+        [key (l.some (l.none-of "=&;"))
+         key (l.local key ..component)]
+        (p.either (do @
+                    [_ (l.this "=")
+                     value ..component]
+                    (form (dictionary.put key value context)))
+                  (do @
+                    [_ ($_ p.or
+                           (l.one-of "&;")
+                           l.end)]
+                    (form (dictionary.put key "" context)))))
+      ## if invalid form data, just stop parsing...
+      (:: p.Monad<Parser> wrap context)))
+
+(def: #export (parameters raw)
+  (-> Text (Error Context))
+  (l.run raw (..form context.empty)))
