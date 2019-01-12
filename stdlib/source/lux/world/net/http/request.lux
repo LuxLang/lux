@@ -5,7 +5,9 @@
     ["." monad (#+ do)]
     [concurrency
      ["." promise (#+ Promise)]
-     ["." frp]]]
+     ["." frp]]
+    [security
+     ["." taint (#+ Dirty)]]]
    [data
     ["." maybe]
     ["." error (#+ Error)]
@@ -50,55 +52,56 @@
 (def: failure (//response.bad-request ""))
 
 (def: #export (json server)
-  (-> (-> JSON Server) Server)
+  (-> (-> (Dirty JSON) Server) Server)
   (function (_ request)
-    (let [[identification protocol resource message] request]
+    (let [[identification protocol resource message] (taint.trust request)]
       (do promise.Monad<Promise>
         [?raw (read-text-body (get@ #//.body message))]
         (case (do error.Monad<Error>
                 [raw ?raw]
                 (:: json.Codec<Text,JSON> decode raw))
           (#error.Success content)
-          (server content request)
+          (server (taint.taint content) request)
           
           (#error.Failure error)
           (promise.resolved ..failure))))))
 
 (def: #export (text server)
-  (-> (-> Text Server) Server)
+  (-> (-> (Dirty Text) Server) Server)
   (function (_ request)
-    (let [[identification protocol resource message] request]
+    (let [[identification protocol resource message] (taint.trust request)]
       (do promise.Monad<Promise>
         [?raw (read-text-body (get@ #//.body message))]
         (case ?raw
           (#error.Success content)
-          (server content request)
+          (server (taint.taint content) request)
           
           (#error.Failure error)
           (promise.resolved ..failure))))))
 
 (def: #export (query property server)
-  (All [a] (-> (Property a) (-> a Server) Server))
-  (function (_ [identification protocol resource message])
-    (let [full (get@ #//.uri resource)
+  (All [a] (-> (Property a) (-> (Dirty a) Server) Server))
+  (function (_ request)
+    (let [[identification protocol resource message] (taint.trust request)
+          full (get@ #//.uri resource)
           [uri query] (|> full
                           (text.split-with "?")
                           (maybe.default [full ""]))]
       (case (do error.Monad<Error>
               [query (//query.parameters query)
                input (context.run query property)]
-              (wrap [[identification protocol (set@ #//.uri uri resource) message]
+              (wrap [(taint.taint [identification protocol (set@ #//.uri uri resource) message])
                      input]))
         (#error.Success [request input])
-        (server input request)
+        (server (taint.taint input) request)
         
         (#error.Failure error)
         (promise.resolved ..failure)))))
 
 (def: #export (form property server)
-  (All [a] (-> (Property a) (-> a Server) Server))
+  (All [a] (-> (Property a) (-> (Dirty a) Server) Server))
   (function (_ request)
-    (let [[identification protocol resource message] request]
+    (let [[identification protocol resource message] (taint.trust request)]
       (do promise.Monad<Promise>
         [?body (read-text-body (get@ #//.body message))]
         (case (do error.Monad<Error>
@@ -106,15 +109,15 @@
                  form (//query.parameters body)]
                 (context.run form property))
           (#error.Success input)
-          (server input request)
+          (server (taint.taint input) request)
           
           (#error.Failure error)
           (promise.resolved ..failure))))))
 
 (def: #export (cookies property server)
-  (All [a] (-> (Property a) (-> a Server) Server))
+  (All [a] (-> (Property a) (-> (Dirty a) Server) Server))
   (function (_ request)
-    (let [[identification protocol resource message] request]
+    (let [[identification protocol resource message] (taint.trust request)]
       (case (do error.Monad<Error>
               [cookies (|> (get@ #//.headers message)
                            (dictionary.get "Cookie")
@@ -122,7 +125,7 @@
                            //cookie.get)]
               (context.run cookies property))
         (#error.Success input)
-        (server input request)
+        (server (taint.taint input) request)
         
         (#error.Failure error)
         (promise.resolved ..failure)))))
