@@ -1,17 +1,20 @@
 (.module:
-  [lux (#- Meta comment and)
+  [lux (#- Meta Source comment and)
    [data
+    ["." product]
     ["." maybe]
     ["." text
      format]
     [collection
-     [list ("list/." Functor<List>)]]]
+     [list ("list/." Functor<List> Fold<List>)]]]
+   ["." function]
    [type
     abstract]
    [world
     [net (#+ URL)]]]
   [//
-   ["." css (#+ CSS)]])
+   ["." css (#+ CSS)]
+   ["." xml (#+ XML)]])
 
 (type: #export Tag Text)
 
@@ -66,20 +69,25 @@
   (-> Tag Text)
   (text.enclose ["</" ">"]))
 
-(abstract: #export (HTML kind)
+(abstract: #export (HTML brand)
   {}
   
   Text
 
-  (do-template [<name> <kind>]
-    [(abstract: #export <kind> {} Any)
-     (type: #export <name> (HTML <kind>))]
+  (do-template [<name> <brand>]
+    [(abstract: #export <brand> {} Any)
+     (type: #export <name> (HTML <brand>))]
 
     [Meta Meta']
     [Head Head']
     [Item Item']
     [Option Option']
     [Input Input']
+    [Cell Cell']
+    [Header Header']
+    [Row Row']
+    [Column Column']
+    [Parameter Parameter']
     [Body Body']
     [Document Document']
     )
@@ -89,13 +97,25 @@
 
   (abstract: #export Content' {} Any)
   (type: #export Content (HTML (Element' Content')))
+
+  (abstract: #export Image' {} Any)
+  (type: #export Image (HTML (Element' Image')))
+
+  (abstract: #export (Media' brand) {} Any)
+  (type: #export Media (HTML (Media' Any)))
+
+  (abstract: #export Source' {} Any)
+  (type: #export Source (HTML (Media' Source')))
+
+  (abstract: #export Track' {} Any)
+  (type: #export Track (HTML (Media' Track')))
   
   (def: #export html
-    (-> (HTML Any) Text)
+    (-> Document Text)
     (|>> :representation))
 
   (def: #export (and pre post)
-    (All [kind] (-> (HTML kind) (HTML kind) (HTML kind)))
+    (All [brand] (-> (HTML brand) (HTML brand) (HTML brand)))
     (:abstraction (format (:representation pre) (:representation post))))
 
   (def: #export (comment content node)
@@ -104,22 +124,43 @@
      (format (text.enclose ["<!--" "-->"] content)
              (:representation node))))
 
-  (def: (tag name)
-    (-> Tag (-> Attributes (HTML Any) HTML))
-    (function (_ attributes content)
-      (:abstraction
-       (format (..open name attributes)
-               (:representation content)
-               (..close name)))))
+  (def: (empty name attributes)
+    (-> Tag Attributes HTML)
+    (:abstraction
+     (format (..open name attributes)
+             (..close name))))
 
-  (do-template [<name> <tag>]
+  (def: (simple tag attributes)
+    (-> Tag Attributes HTML)
+    (|> attributes
+        (..open tag)
+        :abstraction))
+
+  (def: (tag name attributes content)
+    (-> Tag Attributes (HTML Any) HTML)
+    (:abstraction
+     (format (..open name attributes)
+             (:representation content)
+             (..close name))))
+
+  (def: (raw tag attributes content)
+    (-> Text Attributes Text HTML)
+    (:abstraction
+     (format (..open tag attributes)
+             content
+             (..close tag))))
+
+  (do-template [<name> <tag> <brand>]
     [(def: #export <name>
-       (-> Attributes Meta)
-       (|>> (..open <tag>)
-            :abstraction))]
+       (-> Attributes <brand>)
+       (..simple <tag>))]
 
-    [link "link"]
-    [meta "meta"]
+    [link "link" Meta]
+    [meta "meta" Meta]
+    [input "input" Input]
+    [embedded "embed" Element]
+    [column "col" Column]
+    [parameter "param" Parameter]
     )
 
   (def: #export (base href target)
@@ -131,33 +172,17 @@
                  
                  #.None
                  partial)]
-      (:abstraction (..open "base" full))))
+      (..simple "base" full)))
 
-  (do-template [<name> <tag>]
-    [(def: #export (<name> content)
-       (-> Text Meta)
-       (:abstraction
-        (format (..open <tag> (list))
-                content
-                (..close <tag>))))]
-
-    [title "title"]
-    [no-script "noscript"]
-    )
-
-  (def: #export (style css)
+  (def: #export style
     (-> CSS Meta)
-    (:abstraction
-     (format (..open "style" (list))
-             css
-             (..close "style"))))
+    (..raw "style" (list)))
 
   (def: #export (script attributes inline)
     (-> Attributes (Maybe Script) Meta)
-    (:abstraction
-     (format (..open "script" attributes)
-             (maybe.default "" inline)
-             (..close "script"))))
+    (|> inline
+        (maybe.default "")
+        (..raw "script" attributes)))
 
   (def: #export text
     (-> Text Content)
@@ -167,89 +192,269 @@
   (do-template [<tag> <alias> <name>]
     [(def: #export <name>
        Element
-       (:abstraction (..open <tag> (list))))
+       (..simple <tag> (list)))
 
      (def: #export <alias> <name>)]
-    ["br" br break]
-    ["hr" hr separator]
+    ["br"  br  line-break]
+    ["wbr" wbr word-break]
+    ["hr"  hr  separator]
     )
 
   (def: #export (image source attributes)
-    (-> URL Attributes Element)
+    (-> URL Attributes Image)
     (|> attributes
         (#.Cons ["src" source])
-        (..open "img")
-        :abstraction))
+        (..simple "img")))
+
+  (def: #export (svg attributes content)
+    (-> Attributes XML Element)
+    (|> content
+        (:: xml.Codec<Text,XML> encode)
+        (..raw "svg" attributes)))
+
+  (type: #export Coord
+    {#horizontal Nat
+     #vertical Nat})
+
+  (def: metric-separator ",")
+  (def: coord-separator ",")
+
+  (def: (%coord [horizontal vertical])
+    (Format Coord)
+    (format (%n horizontal) ..metric-separator (%n vertical)))
+  
+  (type: #export Rectangle
+    {#start Coord
+     #end Coord})
+
+  (type: #export Circle
+    {#center Coord
+     #radius Nat})
+
+  (type: #export Polygon
+    {#first Coord
+     #second Coord
+     #third Coord
+     #extra (List Coord)})
+
+  (def: (%rectangle [start end])
+    (Format Rectangle)
+    (format (%coord start) ..coord-separator (%coord end)))
+
+  (def: (%circle [center radius])
+    (Format Circle)
+    (format (%coord center) ..metric-separator (%n radius)))
+
+  (def: (%polygon [first second third extra])
+    (Format Polygon)
+    (|> (list& first second third extra)
+        (list/map %coord)
+        (text.join-with ..coord-separator)))
+  
+  (type: #export Shape
+    (#Rectangle Rectangle)
+    (#Circle Circle)
+    (#Polygon Polygon))
+
+  (do-template [<name> <shape> <type> <format>]
+    [(def: (<name> attributes shape)
+       (-> Attributes <type> (HTML Any))
+       (..simple "area" (list& ["shape" <shape>]
+                               ["coords" (<format> shape)]
+                               attributes)))]
+
+    [rectangle "rect" Rectangle ..%rectangle]
+    [circle "circle" Circle ..%circle]
+    [polygon "poly" Polygon ..%polygon]
+    )
+  
+  (def: (area attributes shape)
+    (-> Attributes Shape (HTML Any))
+    (case shape
+      (#Rectangle rectangle)
+      (..rectangle attributes rectangle)
+      
+      (#Circle circle)
+      (..circle attributes circle)
+      
+      (#Polygon polygon)
+      (..polygon attributes polygon)))
+
+  (def: #export (map attributes areas for)
+    (-> Attributes (List [Attributes Shape]) Image Image)
+    ($_ ..and
+        for
+        (case (list/map (product.uncurry ..area) areas)
+          #.Nil
+          (..empty "map" attributes)
+          
+          (#.Cons head tail)
+          (..tag "map" attributes
+                 (list/fold (function.flip ..and) head tail)))))
+
+  (do-template [<name> <tag> <type>]
+    [(def: #export <name>
+       (-> Attributes <type>)
+       (..empty <tag>))]
+
+    [canvas "canvas" Element]
+    [progress "progress" Element]
+    [output "output" Input]
+    [source "source" Source]
+    [track "track" Track]
+    )
+
+  (do-template [<name> <tag>]
+    [(def: #export (<name> attributes media on-unsupported)
+       (-> Attributes Media (Maybe Content) Element)
+       (..tag <tag> attributes
+              (|> on-unsupported
+                  (maybe.default (..text ""))
+                  (..and media))))]
+
+    [audio "audio"]
+    [video "video"]
+    )
+
+  (def: #export (picture attributes sources image)
+    (-> Attributes Source Image Element)
+    (..tag "picture" attributes (..and sources image)))
 
   (def: #export (anchor href attributes content)
     (-> URL Attributes Element Element)
     (..tag "a" (list& ["href" href] attributes) content))
 
-  (def: #export (input attributes)
-    (-> Attributes Input)
-    (|> attributes
-        (..open "input")
-        :abstraction))
-
-  (def: #export (label for)
+  (def: #export label
     (-> ID Input)
-    (:abstraction
-     (format (..open "label" (list ["for" for]))
-             (..close "label"))))
+    (|>> ["for"] list (..empty "label")))
+
+  (do-template [<name> <container-tag> <description-tag> <type>]
+    [(def: #export (<name> description attributes content)
+       (-> (Maybe Content) Attributes <type> <type>)
+       (..tag <container-tag> attributes
+              (case description
+                (#.Some description)
+                ($_ ..and
+                    (..tag <description-tag> (list) description)
+                    content)
+                
+                #.None
+                content)))]
+
+    [details "details" "summary" Element]
+    [field-set "fieldset" "legend" Input]
+    [figure "figure" "figcaption" Element]
+    )
+
+  (do-template [<name> <tag> <type>]
+    [(def: #export (<name> attributes content)
+       (-> Attributes (Maybe Content) <type>)
+       (|> content
+           (maybe.default (..text ""))
+           (..tag <tag> attributes)))]
+
+    [text-area "textarea" Input]
+    [iframe "iframe" Element]
+    )
 
   (type: #export Phrase (-> Attributes Content Element))
-
-  (type: #export Composite (-> Attributes Element Element))
-
-  (def: #export (phrase tag)
-    (-> Tag Phrase)
-    (function (_ attributes content)
-      (:abstraction
-       (format (..open tag attributes)
-               (:representation content)
-               (..close tag)))))
 
   (do-template [<name> <tag>]
     [(def: #export <name>
        Phrase
-       (..phrase <tag>))]
+       (..tag <tag>))]
 
+    [abbrebiation "abbr"]
     [block-quote "blockquote"]
     [bold "b"]
     [cite "cite"]
     [code "code"]
     [definition "dfn"]
+    [deleted "del"]
     [emphasized "em"]
+    [h1 "h1"]
+    [h2 "h2"]
+    [h3 "h3"]
+    [h4 "h4"]
+    [h5 "h5"]
+    [h6 "h6"]
+    [inserted "ins"]
     [italic "i"]
     [keyboard "kbd"]
     [marked "mark"]
+    [meter "meter"]
     [pre "pre"]
     [quote "q"]
     [sample "samp"]
+    [struck "s"]
+    [small "small"]
+    [sub "sub"]
+    [super "sup"]
     [strong "strong"]
+    [time "time"]
+    [underlined "u"]
     [variable "var"]
     )
 
-  (def: #export (composite tag)
-    (-> Tag Composite)
-    (function (_ attributes content)
-      (:abstraction
-       (format (..open tag attributes)
-               (:representation content)
-               (..close tag)))))
+  (def: #export incorrect ..struck)
+
+  (def: (ruby-pronunciation pronunciation)
+    (-> Content (HTML Any))
+    (..tag "rt" (list)
+           ($_ ..and
+               (..tag "rp" (list) (..text "("))
+               pronunciation
+               (..tag "rp" (list) (..text ")")))))
+
+  (def: #export (ruby attributes content pronunciation)
+    (-> Attributes Content Content Element)
+    (..tag "ruby" attributes
+           ($_ ..and
+               content
+               (ruby-pronunciation pronunciation))))
+
+  (type: #export Composite (-> Attributes Element Element))
 
   (do-template [<name> <tag>]
     [(def: #export <name>
        Composite
-       (..composite <tag>))]
+       (..tag <tag>))]
 
+    [article "article"]
+    [aside "aside"]
+    [dialog "dialog"]
     [div "div"]
     [footer "footer"]
     [header "header"]
+    [main "main"]
+    [navigation "nav"]
     [paragraph "p"]
     [section "section"]
     [span "span"]
     )
+
+  (do-template [<tag> <name> <input>]
+    [(def: <name>
+       (-> <input> (HTML Any))
+       (..tag <tag> (list)))]
+
+    ["dt" term Content]
+    ["dd" description Element]
+    )
+
+  (def: #export (description-list attributes descriptions)
+    (-> Attributes (List [Content Element]) Element)
+    (case (list/map (function (_ [term description])
+                      ($_ ..and
+                          (..term term)
+                          (..description description)))
+                    descriptions)
+      #.Nil
+      (..empty "dl" attributes)
+      
+      (#.Cons head tail)
+      (..tag "dl" attributes
+             (list/fold (function.flip ..and) head tail))))
 
   (def: #export p ..paragraph)
 
@@ -259,22 +464,79 @@
        (..tag <tag>))]
 
     [button "button" Element Input]
-    [item "li" (HTML Any) Item]
-    [ordered "ol" Item Element]
-    [unordered "ul" Item Element]
+    [item "li" Element Item]
+    [ordered-list "ol" Item Element]
+    [unordered-list "ul" Item Element]
     [option "option" Content Option]
+    [option-group "optgroup" Option Option]
     [data-list "datalist" Option Element]
     [select "select" Option Input]
+    [address "address" Element Element]
+    [form "form" Input Element]
+    [data "data" Element Element]
+    [object "object" Parameter Element]
     )
-  
-  (do-template [<name> <tag> <element> <container>]
+
+  (do-template [<name> <tag> <input> <output>]
     [(def: #export <name>
-       (-> <element> <container>)
+       (-> <input> <output>)
        (..tag <tag> (list)))]
 
+    [title "title" Content Meta]
+    [no-script "noscript" Content Meta]
+    [template "template" (HTML Any) (HTML Nothing)]
+    [table-header "th" Element Header]
+    [table-cell "td" Element Cell]
     [head "head" Meta Head]
     [body "body" Element Body]
     )
+
+  (do-template [<name> <tag> <input> <output>]
+    [(def: <name>
+       (-> <input> <output>)
+       (..tag <tag> (list)))]
+
+    [table-row "tr" (HTML Any) Row]
+    [table-head "thead" Row HTML]
+    [table-body "tbody" Row HTML]
+    [table-foot "tfoot" Row HTML]
+    [columns-group "colgroup" Column HTML]
+    )
+
+  (def: #export (table attributes caption columns headers rows footer)
+    (-> Attributes (Maybe Content) (Maybe Column) Header (List Cell) (Maybe Cell) Element)
+    (let [head (..table-head (..table-row headers))
+          content (case (list/map table-row rows)
+                    #.Nil
+                    head
+
+                    (#.Cons first rest)
+                    (..and head
+                           (..table-body
+                            (list/fold (function.flip ..and) first rest))))
+          content (case footer
+                    #.None
+                    content
+                    
+                    (#.Some footer)
+                    (..and content
+                           (..table-foot (..table-row footer))))
+          content (case columns
+                    #.None
+                    content
+                    
+                    (#.Some columns)
+                    (..and (..columns-group columns)
+                           content))
+          content (case caption
+                    #.None
+                    content
+
+                    (#.Some caption)
+                    (..and (:coerce HTML caption)
+                           content))]
+      (..tag "table" attributes
+             content)))
 
   (do-template [<name> <doc-type>]
     [(def: #export <name>
