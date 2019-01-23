@@ -246,7 +246,7 @@ Called by `imenu--generic-function'."
                     ;; Type
                     (type//syntax (altRE "|" "&" "->" "All" "Ex" "Rec" "primitive" "\\$" "type"))
                     (type//checking (altRE ":" ":coerce" ":~" ":assume" ":of" ":cast" ":share"))
-                    (type//abstract (altRE "abstract:" ":abstraction" ":representation" "\\^:representation"))
+                    (type//abstract (altRE "abstract:" ":abstraction" ":representation" ":transmutation" "\\^:representation"))
                     (type//unit (altRE "unit:" "scale:"))
                     (type//poly (altRE "poly:" "derived:"))
                     ;; Data
