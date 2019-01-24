@@ -249,6 +249,7 @@ Called by `imenu--generic-function'."
                     (type//abstract (altRE "abstract:" ":abstraction" ":representation" ":transmutation" "\\^:representation"))
                     (type//unit (altRE "unit:" "scale:"))
                     (type//poly (altRE "poly:" "derived:"))
+                    (type//dynamic (altRE ":dynamic" ":check"))
                     ;; Data
                     (data//record (altRE "get@" "set@" "update@"))
                     (data//signature (altRE "signature:" "structure:" "open:" "structure" "::"))
@@ -273,7 +274,8 @@ Called by `imenu--generic-function'."
                                    type//checking
                                    type//abstract
                                    type//unit
-                                   type//poly))
+                                   type//poly
+                                   type//dynamic))
                       (data (altRE data//record
                                    data//signature
                                    data//implicit
