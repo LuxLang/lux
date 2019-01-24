@@ -1,56 +1,68 @@
 (.module:
-  [lux (#- Name and)
+  [lux (#- and)
    [data
-    ["." color (#+ Color Pigment)]
+    ["." maybe]
     ["." number]
     ["." text
      format
      ["." encoding (#+ Encoding)]]
     [collection
-     ["." list ("list/." Functor<List> Monoid<List>)]]]
+     [list ("list/." Functor<List>)]]]
    [type
     abstract]
    [world
     [net (#+ URL)]]]
   [/
-   ["." selector (#+ Selector Combinator)]
-   ["." value (#+ Value)]
-   ["." property (#+ Property)]])
-
-(abstract: #export Style
-  {#.doc "The style associated with a CSS selector."}
-
-  Text
-
-  (def: #export empty Style (:abstraction ""))
-
-  (def: property-separator " ")
-
-  (def: #export (with [property value])
-    (All [brand]
-      (-> [(Property brand) (Value brand)]
-          (-> Style Style)))
-    (|>> :representation
-         (format (property.name property) ": " (value.value value) ";" ..property-separator)
-         :abstraction))
-
-  (def: #export inline
-    (-> Style Text)
-    (|>> :representation))
-  )
+   ["/." selector (#+ Selector Combinator)]
+   ["/." value (#+ Value)]
+   ["/." font (#+ Font)]
+   ["/." style (#+ Style)]])
 
 (abstract: #export CSS
   {}
 
   Text
 
-  (def: #export (rule selector style)
-    (-> Selector Style CSS)
-    (:abstraction (format (selector.selector selector) " " "{" (..inline style) "}")))
+  (def: #export empty CSS (:abstraction ""))
 
-  (def: #export (char-set encoding)
+  (def: #export (rule selector style)
+    (-> (Selector Any) Style CSS)
+    (:abstraction (format (/selector.selector selector) "{" (/style.inline style) "}")))
+
+  (def: #export char-set
     (-> Encoding CSS)
-    (:abstraction (format "@charset" " " (%t (encoding.name encoding)) ";")))
+    (|>> encoding.name
+         %t
+         (text.enclose ["@charset " ";"])
+         :abstraction))
+
+  (def: #export (font font)
+    (-> Font CSS)
+    (let [with-unicode (case (get@ #/font.unicode-range font)
+                         (#.Some unicode-range)
+                         (let [unicode-range' (format "U+" (:: number.Hex@Codec<Text,Nat> encode (get@ #/font.start unicode-range))
+                                                      "-" (:: number.Hex@Codec<Text,Nat> encode (get@ #/font.end unicode-range)))]
+                           (list ["unicode-range" unicode-range']))
+                         
+                         #.None
+                         (list))]
+      (|> (list& ["font-family" (get@ #/font.family font)]
+                 ["src" (format "url(" (get@ #/font.source font) ")")]
+                 ["font-stretch" (|> font (get@ #/font.stretch) (maybe.default /value.normal-stretch) /value.value)]
+                 ["font-style" (|> font (get@ #/font.style) (maybe.default /value.normal-style) /value.value)]
+                 ["font-weight" (|> font (get@ #/font.weight) (maybe.default /value.normal-weight) /value.value)]
+                 with-unicode)
+          (list/map (function (_ [property value])
+                      (format property ": " value ";")))
+          (text.join-with /style.separator)
+          (text.enclose ["{" "}"])
+          (format "@font-face")
+          :abstraction)))
+
+  (def: #export (import url)
+    (-> URL CSS)
+    (:abstraction (format (format "@import url(" (%t url) ")")
+                          ";")))
 
   (def: css-separator text.new-line)
 
@@ -60,25 +72,25 @@
                           (:representation post))))
 
   (def: #export (alter combinator selector css)
-    (-> Combinator Selector CSS CSS)
+    (-> Combinator (Selector Any) CSS CSS)
     (|> css
         :representation
         (text.split-all-with ..css-separator)
-        (list/map (|>> (format (selector.selector (combinator selector (selector.tag ""))))))
+        (list/map (|>> (format (/selector.selector (combinator selector (/selector.tag ""))))))
         (text.join-with ..css-separator)
         :abstraction))
 
   (def: #export (dependent combinator selector style inner)
-    (-> Combinator Selector Style CSS CSS)
+    (-> Combinator (Selector Any) Style CSS CSS)
     (..and (..rule selector style)
            (..alter combinator selector inner)))
 
   (do-template [<name> <combinator>]
     [(def: #export <name>
-       (-> Selector Style CSS CSS)
+       (-> (Selector Any) Style CSS CSS)
        (..dependent <combinator>))]
 
-    [scope selector.in]
-    [complex selector.sub]
+    [with-descendants /selector.in]
+    [with-children /selector.sub]
     )
   )
