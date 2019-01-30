@@ -299,7 +299,7 @@ Called by `imenu--generic-function'."
                     remember
                     ;;;;;;;;;;;;;;;;;;;;;;;;
                     "\\.module:"
-                    "def:" "type:" "program:" "context:"
+                    "def:" "type:" "program:"
                     "macro:" "syntax:"
                     "with-expansions"
                     "exception:"

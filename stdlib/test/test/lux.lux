@@ -1,208 +1,240 @@
 (.module:
   [lux #*
    [control
-    [monad (#+ do)]]
+    [monad (#+ do)]
+    [predicate (#+ Predicate)]]
    [data
     ["." maybe]
     [number
-     ["." i64]]
-    [text ("text/." Equivalence<Text>)
-     format]]
+     ["." i64]]]
    ["." math
-    ["r" random]]
-   ["." macro
-    ["s" syntax (#+ syntax:)]]
-   test])
+    ["r" random (#+ Random) ("r/." Functor<Random>)]]
+   ["_" test (#+ Test)]])
 
-(context: "Value identity."
-  (<| (times 100)
-      (do @
-        [size (|> r.nat (:: @ map (|>> (n/% 100) (n/max 10))))
-         x (r.unicode size)
-         y (r.unicode size)]
-        ($_ seq
-            (test "Every value is identical to itself, and the 'id' function doesn't change values in any way."
-                  (and (is? x x)
-                       (is? x (id x))))
+(def: identity
+  Test
+  (do r.Monad<Random>
+    [self (r.unicode 1)]
+    ($_ _.and
+        (_.test "Every value is identical to itself."
+                (is? self self))
+        (_.test "The 'id' function doesn't change values in any way."
+                (is? self (id self)))
+        (do @
+          [other (r.unicode 1)]
+          (_.test "Values created separately can't be identical."
+                  (not (is? self other))))
+        )))
 
-            (test "Values created separately can't be identical."
-                  (not (is? x y)))
-            ))))
+(def: increment-and-decrement
+  Test
+  (do r.Monad<Random>
+    [value r.i64]
+    ($_ _.and
+        (_.test "'inc' and 'dec' are different."
+                (not (n/= (inc value)
+                          (dec value))))
+        (_.test "'inc' and 'dec' are opposites."
+                (and (|> value inc dec (n/= value))
+                     (|> value dec inc (n/= value))))
+        (_.test "'inc' and 'dec' shift the number by 1."
+                (let [shift 1]
+                  (and (n/= (n/+ shift value)
+                            (inc value))
+                       (n/= (n/- shift value)
+                            (dec value))))))))
 
-(do-template [category rand-gen even? odd? = < >]
-  [(context: (format "[" category "] " "Simple operations.")
-     (<| (times 100)
-         (do @
-           [value rand-gen]
-           ($_ seq
-               (test (format "[" category "] " "Moving up-down or down-up should result in same value.")
-                     (and (|> value inc dec (= value))
-                          (|> value dec inc (= value))))
-               (test (format "[" category "] " "(x1) > x && (x-1) < x")
-                     (and (|> value inc (> value))
-                          (|> value dec (< value))))
-               (test (format "[" category "] " "Every odd/even number is surrounded by two of the other kind.")
-                     (if (even? value)
-                       (and (|> value inc odd?)
-                            (|> value dec odd?))
-                       (and (|> value inc even?)
-                            (|> value dec even?))))))))]
+(def: (check-neighbors has-property? value)
+  (All [a] (-> (Predicate (I64 a)) (I64 a) Bit))
+  (and (|> value inc has-property?)
+       (|> value dec has-property?)))
 
-  ["Nat" r.nat n/even? n/odd? n/= n/< n/>]
-  ["Int" r.int i/even? i/odd? i/= i/< i/>]
-  )
+(def: (even-or-odd rand-gen even? odd?)
+  (All [a] (-> (Random (I64 a)) (Predicate (I64 a)) (Predicate (I64 a)) Test))
+  (do r.Monad<Random>
+    [value rand-gen]
+    ($_ _.and
+        (_.test "Every number is either even or odd."
+                (if (even? value)
+                  (not (odd? value))
+                  (odd? value)))
+        (_.test "Every odd/even number is surrounded by two of the other kind."
+                (if (even? value)
+                  (check-neighbors odd? value)
+                  (check-neighbors even? value))))))
 
-(do-template [category rand-gen = < > <= >= min max]
-  [(context: (format "[" category "] " "(More) simple operations.")
-     (<| (times 100)
-         (do @
-           [x rand-gen
-            y rand-gen]
-           (seq (test (format "[" category "] " "The symmetry of numerical comparisons.")
-                      (or (= x y)
-                          (if (< y x)
-                            (> x y)
-                            (< x y))))
-                (test (format "[" category "] " "Minimums and maximums.")
-                      (and (and (<= x (min x y))
-                                (<= y (min x y)))
-                           (and (>= x (max x y))
-                                (>= y (max x y)))))))))]
+(type: (Choice a)
+  (-> a a a))
 
-  ["Int"  r.int  i/= i/< i/> i/<= i/>= i/min i/max]
-  ["Nat"  r.nat  n/= n/< n/> n/<= n/>= n/min n/max]
-  ["Frac" r.frac f/= f/< f/> f/<= f/>= f/min f/max]
-  ["Rev"  r.rev  r/= r/< r/> r/<= r/>= r/min r/max]
-  )
+(type: (Order a)
+  (-> a a Bit))
 
-(do-template [category rand-gen = + - * / <%> > <0> <1> <factor> <cap> <prep>]
-  [(context: (format "[" category "] " "Additive identity")
-     (<| (times 100)
-         (do @
-           [x rand-gen]
-           (test ""
-                 (and (|> x (+ <0>) (= x))
-                      (|> x (- <0>) (= x)))))))
+(type: (Equivalence a)
+  (-> a a Bit))
 
-   (context: (format "[" category "] " "Addition & Substraction")
-     (<| (times 100)
-         (do @
-           [x (:: @ map <prep> rand-gen)
-            y (:: @ map <prep> rand-gen)
-            #let [x (* <factor> x)
-                  y (* <factor> y)]]
-           (test ""
-                 (and (|> x (- y) (+ y) (= x))
-                      (|> x (+ y) (- y) (= x)))))))
+(def: (choice rand-gen = [< choose])
+  (All [a] (-> (Random a) (Equivalence a) [(Order a) (Choice a)] Test))
+  (do r.Monad<Random>
+    [left rand-gen
+     right rand-gen
+     #let [choice (choose left right)]]
+    ($_ _.and
+        (_.test "The choice between 2 values is one of them."
+                (or (= left choice)
+                    (= right choice)))
+        (_.test "The choice between 2 values implies an order relationship between them."
+                (if (= left choice)
+                  (< right choice)
+                  (< left choice))))))
 
-   (context: (format "[" category "] " "Multiplicative identity")
-     (<| (times 100)
-         (do @
-           [x rand-gen]
-           (test ""
-                 ## Skip this test for Rev
-                 ## because Rev division loses the last
-                 ## 32 bits of precision.
-                 (or (text/= "Rev" category)
-                     (and (|> x (* <1>) (= x))
-                          (|> x (/ <1>) (= x))))))))
+(def: (minimum-and-maximum rand-gen = min' max')
+  (All [a] (-> (Random a) (Equivalence a) [(Order a) (Choice a)] [(Order a) (Choice a)] Test))
+  ($_ _.and
+      (<| (_.context "Minimum.")
+          (choice rand-gen = min'))
+      (<| (_.context "Maximum.")
+          (choice rand-gen = max'))))
 
-   (context: (format "[" category "] " "Multiplication & Division")
-     (<| (times 100)
-         (do @
-           [x (:: @ map <cap> rand-gen)
-            y (|> rand-gen
-                  (:: @ map <cap>)
-                  (r.filter (|>> (= <0>) not)))
-            #let [r (<%> y x)
-                  x' (- r x)]]
-           (test ""
-                 ## Skip this test for Rev
-                 ## because Rev division loses the last
-                 ## 32 bits of precision.
-                 (or (text/= "Rev" category)
-                     (or (> x' y)
-                         (|> x' (/ y) (* y) (= x'))))
-                 ))))]
-
-  ["Nat"  r.nat  n/= n/+ n/- n/* n// n/% n/> 0  1        1_000_000   (n/% 1_000) id]
-  ["Int"  r.int  i/= i/+ i/- i/* i// i/% i/>  +0   +1         +1_000_000   (i/%  +1_000) id]
-  ["Frac" r.frac f/= f/+ f/- f/* f// f/% f/>  +0.0 +1.0       +1_000_000.0 id           math.floor]
-  ["Rev"  r.rev  r/= r/+ r/- r/* r// r/% r/>   .0 (.rev -1) (.rev -1)   id           id]
-  )
+(def: (conversion rand-gen forward backward =)
+  (All [a b] (-> (Random a) (-> a b) (-> b a) (Equivalence a) Test))
+  (do r.Monad<Random>
+    [value rand-gen]
+    (_.test "Can convert between types in a lossless way."
+            (|> value forward backward (= value)))))
 
 (def: frac-rev
   (r.Random Rev)
   (|> r.rev
       (:: r.Functor<Random> map (|>> (i64.left-shift 11) (i64.logical-right-shift 11)))))
 
-(do-template [category rand-gen -> <- = <cap>]
-  [(context: (format "[" category "] " "Numeric conversions")
-     (<| (times 100)
-         (do @
-           [value rand-gen
-            #let [value (<cap> value)]]
-           (test ""
-                 (|> value -> <- (= value))))))]
+(def: prelude-macros
+  Test
+  ($_ _.and
+      (do r.Monad<Random>
+        [factor (r/map (|>> (n/% 10) (n/max 1)) r.nat)
+         iterations (r/map (n/% 100) r.nat)
+         #let [expected (n/* factor iterations)]]
+        (_.test "Can write loops."
+                (n/= expected
+                     (loop [counter 0
+                            value 0]
+                       (if (n/< iterations counter)
+                         (recur (inc counter) (n/+ factor value))
+                         value)))))
 
-  ["Int->Nat"  r.int    .nat        .int        i/= (i/%  +1_000_000)]
-  ["Nat->Int"  r.nat    .int        .nat        n/= (n/% 1_000_000)]
-  ["Int->Frac" r.int    int-to-frac frac-to-int i/= (i/%  +1_000_000)]
-  ["Frac->Int" r.frac   frac-to-int int-to-frac f/= math.floor]
-  ["Rev->Frac" frac-rev rev-to-frac frac-to-rev r/= id]
-  )
+      (do r.Monad<Random>
+        [first r.nat
+         second r.nat
+         third r.nat]
+        (_.test "Can create lists easily through macros."
+                (and (case (list first second third)
+                       (#.Cons first' (#.Cons second' (#.Cons third' #.Nil)))
+                       (and (n/= first first')
+                            (n/= second second')
+                            (n/= third third'))
 
-(context: "Simple macros and constructs"
-  ($_ seq
-      (test "Can write easy loops for iterative programming."
-            (i/= +1000
-                 (loop [counter +0
-                        value +1]
-                   (if (i/< +3 counter)
-                     (recur (inc counter) (i/* +10 value))
-                     value))))
+                       _
+                       false)
+                     (case (list& first (list second third))
+                       (#.Cons first' (#.Cons second' (#.Cons third' #.Nil)))
+                       (and (n/= first first')
+                            (n/= second second')
+                            (n/= third third'))
 
-      (test "Can create lists easily through macros."
-            (and (case (list +1 +2 +3)
-                   (#.Cons +1 (#.Cons +2 (#.Cons +3 #.Nil)))
-                   #1
+                       _
+                       false)
+                     (case (list& first second (list third))
+                       (#.Cons first' (#.Cons second' (#.Cons third' #.Nil)))
+                       (and (n/= first first')
+                            (n/= second second')
+                            (n/= third third'))
 
-                   _
-                   #0)
-                 
-                 (case (list& +1 +2 +3 (list +4 +5 +6))
-                   (#.Cons +1 (#.Cons +2 (#.Cons +3 (#.Cons +4 (#.Cons +5 (#.Cons +6 #.Nil))))))
-                   #1
+                       _
+                       false))))
+      (do r.Monad<Random>
+        [default r.nat
+         maybe r.nat]
+        (_.test "Can have defaults for Maybe values."
+                (and (is? default (maybe.default default
+                                                 #.None))
 
-                   _
-                   #0)))
-
-      (test "Can have defaults for Maybe values."
-            (and (is? "yolo" (maybe.default "yolo"
-                                            #.None))
-                 
-                 (is? "lol" (maybe.default "yolo"
-                                           (#.Some "lol")))))
+                     (is? maybe (maybe.default default
+                                               (#.Some maybe))))))
       ))
 
-(template: (hypotenuse x y)
-  (i/+ (i/* x x) (i/* y y)))
+(template: (hypotenuse cat0 cat1)
+  (n/+ (n/* cat0 cat0) (n/* cat1 cat1)))
 
-(context: "Templates."
-  (<| (times 100)
-      (do @
-        [x r.int
-         y r.int]
-        (test "Template application is a stand-in for the templated code."
-              (i/= (i/+ (i/* x x) (i/* y y))
-                   (hypotenuse x y))))))
+(def: template
+  Test
+  (do r.Monad<Random>
+    [cat0 r.nat
+     cat1 r.nat]
+    (_.test "Template application is a stand-in for the templated code."
+            (n/= (n/+ (n/* cat0 cat0) (n/* cat1 cat1))
+                 (hypotenuse cat0 cat1)))))
 
-(context: "Cross-platform support."
-  ($_ seq
-      (test "Can provide default in case there is no particular platform support."
-            (for {"" #0}
-                 #1))
-      (test "Can pick code depending on the platform being targeted."
-            (for {"JVM" #1
-                  "JS" #1}
-                 #0))))
+(def: cross-platform-support
+  Test
+  (do r.Monad<Random>
+    [on-default r.nat
+     on-fake-host r.nat
+     on-valid-host r.nat]
+    ($_ _.and
+        (_.test "Can provide default in case there is no particular host/platform support."
+                (n/= on-default
+                     (for {"" on-fake-host}
+                          on-default)))
+        (_.test "Can pick code depending on the host/platform being targeted."
+                (n/= on-valid-host
+                     (for {"JVM" on-valid-host
+                           "JS" on-valid-host}
+                          on-default))))))
+
+(def: #export test
+  ($_ _.and
+      (<| (_.context "Identity.")
+          ..identity)
+      (<| (_.context "Increment & decrement.")
+          ..increment-and-decrement)
+      (<| (_.context "Even or odd.")
+          ($_ _.and
+              (<| (_.context "Natural numbers.")
+                  (..even-or-odd r.nat n/even? n/odd?))
+              (<| (_.context "Integers.")
+                  (..even-or-odd r.int i/even? i/odd?))))
+      (<| (_.context "Minimum and maximum.")
+          (`` ($_ _.and
+                  (~~ (do-template [<=> <lt> <min> <gt> <max> <gen> <context>]
+                        [(<| (_.context <context>)
+                             (..minimum-and-maximum <gen> <=> [<lt> <min>] [<gt> <max>]))]
+
+                        [i/= i/< i/min i/> i/max r.int "Integers."]
+                        [n/= n/< n/min n/> n/max r.nat "Natural numbers."]
+                        [r/= r/< r/min r/> r/max r.rev "Revolutions."]
+                        [f/= f/< f/min f/> f/max r.frac "Fractions."]
+                        )))))
+      (<| (_.context "Conversion.")
+          (`` ($_ _.and
+                  (~~ (do-template [<context> <=> <forward> <backward> <gen>]
+                        [(<| (_.context <context>)
+                             (..conversion <gen> <forward> <backward> <=>))]
+
+                        ["Int -> Nat"
+                         i/= .nat        .int        (r/map (i/%  +1_000_000) r.int)]
+                        ["Nat -> Int"
+                         n/= .int        .nat        (r/map (n/% 1_000_000) r.nat)]
+                        ["Int -> Frac"
+                         i/= int-to-frac frac-to-int (r/map (i/%  +1_000_000) r.int)]
+                        ["Frac -> Int"
+                         f/= frac-to-int int-to-frac (r/map math.floor r.frac)]
+                        ["Rev -> Frac"
+                         r/= rev-to-frac frac-to-rev frac-rev]
+                        )))))
+      (<| (_.context "Prelude macros.")
+          ..prelude-macros)
+      (<| (_.context "Templates.")
+          ..template)
+      (<| (_.context "Cross-platform support.")
+          ..cross-platform-support)
+      ))

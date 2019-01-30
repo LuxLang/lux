@@ -1,260 +1,50 @@
 (.module: {#.doc "Tools for unit & property-based/generative testing."}
-  [lux #*
+  [lux (#- and)
    [control
-    ["." monad (#+ do Monad)]
-    ["p" parser]
+    ["." monad (#+ Monad do)]
+    ["ex" exception (#+ exception:)]
     [concurrency
-     ["." process]
-     ["." promise (#+ Promise)]]]
+     ["." promise (#+ Promise) ("promise/." Monad<Promise>)]]]
    [data
     ["." product]
-    ["." maybe]
-    ["e" error]
     ["." text
      format]
     [collection
-     ["." list ("list/." Monad<List> Fold<List>)]]]
+     ["." list ("list/." Functor<List>)]]]
    [time
     ["." instant]
     ["." duration]]
    [math
-    ["r" random]]
-   ["." macro (#+ with-gensyms)
-    ["s" syntax (#+ syntax: Syntax)]
-    ["." code]]
-   ["." io (#+ IO io)]])
+    ["r" random ("random/." Monad<Random>)]]
+   ["." io]])
 
-## [Types]
-(type: #export Counters [Nat Nat])
+(type: #export Counters
+  {#successes Nat
+   #failures Nat})
 
-(type: #export Seed
-  {#.doc "The seed value used for random testing (if that feature is used)."}
-  (I64 Any))
+(def: (add-counters parameter subject)
+  (-> Counters Counters Counters)
+  {#successes (n/+ (get@ #successes parameter) (get@ #successes subject))
+   #failures (n/+ (get@ #failures parameter) (get@ #failures subject))})
+
+(def: start
+  Counters
+  {#successes 0
+   #failures 0})
+
+(do-template [<name> <category>]
+  [(def: <name> Counters (update@ <category> .inc start))]
+
+  [success #successes]
+  [failure #failures]
+  )
 
 (type: #export Test
   (r.Random (Promise [Counters Text])))
 
-(def: pcg-32-magic-inc Nat 12345)
+(def: separator text.new-line)
 
-## [Values]
-(def: success Counters [1 0])
-(def: failure Counters [0 1])
-(def: start Counters [0 0])
-
-(def: (add-counters [s f] [ts tf])
-  (-> Counters Counters Counters)
-  [(n/+ s ts) (n/+ f tf)])
-
-(def: #export (fail message)
-  (All [a] (-> Text Test))
-  (|> [failure (format "  [Error] " message)]
-      (:: promise.Monad<Promise> wrap)
-      (:: r.Monad<Random> wrap)))
-
-(def: #export (assert message condition)
-  {#.doc "Check that a condition is #1, and fail with the given message otherwise."}
-  (-> Text Bit (Promise [Counters Text]))
-  (<| (:: promise.Monad<Promise> wrap)
-      (if condition
-        [success (format "[Success] " message)]
-        [failure (format "  [Error] " message)])))
-
-(def: #export (test message condition)
-  {#.doc "Check that a condition is #1, and fail with the given message otherwise."}
-  (-> Text Bit Test)
-  (:: r.Monad<Random> wrap (assert message condition)))
-
-(def: (run' tests)
-  (-> (List [Text (IO Test) Text]) (Promise Counters))
-  (do promise.Monad<Promise>
-    [test-runs (|> tests
-                   (list/map (: (-> [Text (IO Test) Text] (Promise Counters))
-                                (function (_ [module test description])
-                                  (do @
-                                    [#let [pre (io.run instant.now)]
-                                     [counters documentation] (|> (io.run test)
-                                                                  (r.run (r.pcg-32 [pcg-32-magic-inc
-                                                                                    (instant.to-millis pre)]))
-                                                                  product.right)
-                                     #let [post (io.run instant.now)
-                                           _ (log! (format "@ " module " "
-                                                           "(" (%duration (instant.span pre post)) ")"
-                                                           text.new-line
-                                                           description text.new-line
-                                                           text.new-line documentation text.new-line))]]
-                                    (wrap counters)))))
-                   (monad.seq @))]
-    (wrap (list/fold add-counters start test-runs))))
-
-(def: failed?
-  (-> Counters Bit)
-  (|>> product.right (n/> 0)))
-
-(def: #export (seed value test)
-  (-> Seed Test Test)
-  (function (_ prng)
-    (let [[_ result] (r.run (r.pcg-32 [pcg-32-magic-inc value])
-                            test)]
-      [prng result])))
-
-(def: (times-failure seed documentation)
-  (-> (I64 Any) Text Text)
-  (format "Failed with this seed: " (%n (.nat seed)) text.new-line
-          documentation))
-
-(def: #export (times amount test)
-  (-> Nat Test Test)
-  (cond (n/= 0 amount)
-        (fail "Cannot try a test 0 times.")
-
-        (n/= 1 amount)
-        test
-
-        ## else
-        (do r.Monad<Random>
-          [seed r.i64]
-          (function (_ prng)
-            (let [[prng' instance] (r.run (r.pcg-32 [pcg-32-magic-inc seed]) test)]
-              [prng' (do promise.Monad<Promise>
-                       [[counters documentation] instance]
-                       (if (failed? counters)
-                         (wrap [counters (times-failure seed documentation)])
-                         (product.right (r.run prng' (times (dec amount) test)))))])))))
-
-## [Syntax]
-(syntax: #export (context: description test)
-  {#.doc (doc "Macro for definint tests."
-              (context: "Simple macros and constructs"
-                ($_ seq
-                    (test "Can write easy loops for iterative programming."
-                          (i/= +1000
-                               (loop [counter +0
-                                      value +1]
-                                 (if (i/< +3 counter)
-                                   (recur (inc counter) (i/* +10 value))
-                                   value))))
-
-                    (test "Can create lists easily through macros."
-                          (and (case (list +1 +2 +3)
-                                 (#.Cons +1 (#.Cons +2 (#.Cons +3 #.Nil)))
-                                 #1
-
-                                 _
-                                 #0)
-                               
-                               (case (list& +1 +2 +3 (list +4 +5 +6))
-                                 (#.Cons +1 (#.Cons +2 (#.Cons +3 (#.Cons +4 (#.Cons +5 (#.Cons +6 #.Nil))))))
-                                 #1
-
-                                 _
-                                 #0)))
-
-                    (test "Can have defaults for Maybe values."
-                          (and (is? "yolo" (maybe.default "yolo"
-                                                          #.None))
-                               
-                               (is? "lol" (maybe.default "yolo"
-                                                         (#.Some "lol")))))
-                    ))
-              
-              "Also works with random generation of values for property-based testing."
-              (context: "Addition & Substraction"
-                (do @
-                  [x (:: @ map <prep> rand-gen)
-                   y (:: @ map <prep> rand-gen)]
-                  (test ""
-                        (and (|> x (- y) (+ y) (= x))
-                             (|> x (+ y) (- y) (= x))))))
-              
-              "By default, random tests will be tried 100 times, you can specify the amount you want:"
-              (context: "Addition & Substraction"
-                (<| (times 1234)
-                    (do @
-                      [x (:: @ map <prep> rand-gen)
-                       y (:: @ map <prep> rand-gen)]
-                      (test ""
-                            (and (|> x (- y) (+ y) (= x))
-                                 (|> x (+ y) (- y) (= x)))))))
-              
-              "If a test fails, you'll be shown a seed that you can then use to reproduce a failing scenario."
-              (context: "Addition & Substraction"
-                (<| (seed 987654321)
-                    (do @
-                      [x (:: @ map <prep> rand-gen)
-                       y (:: @ map <prep> rand-gen)]
-                      (test ""
-                            (and (|> x (- y) (+ y) (= x))
-                                 (|> x (+ y) (- y) (= x)))))))
-              )}
-  (with-gensyms [g!context g!test g!error]
-    (wrap (list (` (def: #export (~ g!context)
-                     {#..test ((~! code.text) (~ description))}
-                     (~! (IO Test))
-                     ((~! io) (case ("lux try" ((~! io) ((~! do)
-                                                         (~! r.Monad<Random>)
-                                                         []
-                                                         (~ test))))
-                                (#.Right (~ g!test))
-                                (~ g!test)
-
-                                (#.Left (~ g!error))
-                                (..fail (~ g!error))))))))))
-
-(def: (exported-tests module-name)
-  (-> Text (Meta (List [Text Text Text])))
-  (do macro.Monad<Meta>
-    [defs (macro.exports module-name)]
-    (wrap (|> defs
-              (list/map (function (_ [def-name [_ def-anns _]])
-                          (case (macro.get-text-ann (name-of #..test) def-anns)
-                            (#.Some description)
-                            [#1 module-name def-name description]
-
-                            _
-                            [#0 module-name def-name ""])))
-              (list.filter product.left)
-              (list/map product.right)))))
-
-(def: (success-message successes failures)
-  (-> Nat Nat Text)
-  (format "Test-suite finished." text.new-line
-          (%n successes) " out of " (%n (n/+ failures successes)) " tests passed." text.new-line
-          (%n failures) " tests failed." text.new-line))
-
-(syntax: #export (run)
-  {#.doc (doc "Runs all the tests defined on the current module, and in all imported modules."
-              (run))}
-  (with-gensyms [g!successes g!failures g!total-successes g!total-failures]
-    (do @
-      [current-module macro.current-module-name
-       modules (macro.imported-modules current-module)
-       tests (: (Meta (List [Text Text Text]))
-                (|> modules
-                    (#.Cons current-module)
-                    list.reverse
-                    (monad.map @ exported-tests)
-                    (:: @ map list/join)))]
-      (wrap (list (` (: (~! (IO Any))
-                        ((~! io) (exec ((~! do) (~! promise.Monad<Promise>)
-                                        [(~' #let) [(~ g!total-successes) 0
-                                                    (~ g!total-failures) 0]
-                                         (~+ (|> tests
-                                                 (list/map (function (_ [module-name test desc])
-                                                             (` [(~ (code.text module-name)) (~ (code.identifier [module-name test])) (~ (code.text desc))])))
-                                                 (list.split-all process.parallelism)
-                                                 (list/map (function (_ group)
-                                                             (list (` [(~ g!successes) (~ g!failures)]) (` ((~! run') (list (~+ group))))
-                                                                   (' #let) (` [(~ g!total-successes) (n/+ (~ g!successes) (~ g!total-successes))
-                                                                                (~ g!total-failures) (n/+ (~ g!failures) (~ g!total-failures))]))))
-                                                 list/join))]
-                                        (exec (log! ((~! success-message) (~ g!total-successes) (~ g!total-failures)))
-                                          ((~! promise.future)
-                                           ((~! io.exit) (if (n/> 0 (~ g!total-failures))
-                                                           +1
-                                                           +0)))))
-                                   [])))))))))
-
-(def: #export (seq left right)
+(def: #export (and left right)
   {#.doc "Sequencing combinator."}
   (-> Test Test Test)
   (do r.Monad<Random>
@@ -264,4 +54,108 @@
             [[l-counter l-documentation] left
              [r-counter r-documentation] right]
             (wrap [(add-counters l-counter r-counter)
-                   (format l-documentation text.new-line r-documentation)])))))
+                   (format l-documentation ..separator r-documentation)])))))
+
+(def: context-prefix text.tab)
+
+(def: #export (context description)
+  (-> Text Test Test)
+  (random/map (promise/map (function (_ [counters documentation])
+                             [counters (|> documentation
+                                           (text.split-all-with ..separator)
+                                           (list/map (|>> (format context-prefix)))
+                                           (text.join-with ..separator)
+                                           (format description ..separator))]))))
+
+(def: failure-prefix "  [Error] ")
+(def: success-prefix "[Success] ")
+
+(def: #export fail
+  (-> Text Test)
+  (|>> (format ..failure-prefix)
+       [failure]
+       promise/wrap
+       random/wrap))
+
+(def: #export (assert message condition)
+  {#.doc "Check that a condition is #1, and fail with the given message otherwise."}
+  (-> Text Bit (Promise [Counters Text]))
+  (<| promise/wrap
+      (if condition
+        [success (format ..success-prefix message)]
+        [failure (format ..failure-prefix message)])))
+
+(def: #export (test message condition)
+  {#.doc "Check that a condition is #1, and fail with the given message otherwise."}
+  (-> Text Bit Test)
+  (:: r.Monad<Random> wrap (assert message condition)))
+
+(def: pcg-32-magic-inc Nat 12345)
+
+(type: #export Seed
+  {#.doc "The seed value used for random testing (if that feature is used)."}
+  Nat)
+
+(def: #export (seed value test)
+  (-> Seed Test Test)
+  (function (_ prng)
+    (let [[_ result] (r.run (r.pcg-32 [..pcg-32-magic-inc value])
+                            test)]
+      [prng result])))
+
+(def: failed?
+  (-> Counters Bit)
+  (|>> product.right (n/> 0)))
+
+(def: (times-failure seed documentation)
+  (-> Seed Text Text)
+  (format documentation ..separator ..separator
+          "Failed with this seed: " (%n seed)))
+
+(exception: #export (must-try-test-at-least-once) "")
+
+(def: #export (times amount test)
+  (-> Nat Test Test)
+  (cond (n/= 0 amount)
+        (fail (ex.construct must-try-test-at-least-once []))
+
+        (n/= 1 amount)
+        test
+
+        ## else
+        (do r.Monad<Random>
+          [seed r.nat]
+          (function (_ prng)
+            (let [[prng' instance] (r.run (r.pcg-32 [..pcg-32-magic-inc seed]) test)]
+              [prng' (do promise.Monad<Promise>
+                       [[counters documentation] instance]
+                       (if (failed? counters)
+                         (wrap [counters (times-failure seed documentation)])
+                         (product.right (r.run prng' (times (dec amount) test)))))])))))
+
+(def: (tally counters)
+  (-> Counters Text)
+  (let [successes (get@ #successes counters)
+        failures (get@ #failures counters)]
+    (ex.report ["Tests" (%n (n/+ successes failures))]
+               ["Successes" (%n successes)]
+               ["Failures" (%n failures)])))
+
+(def: failure-exit-code -1)
+(def: success-exit-code +0)
+
+(def: #export (run! test)
+  (-> Test (Promise Nothing))
+  (do promise.Monad<Promise>
+    [pre (promise.future instant.now)
+     #let [seed (instant.to-millis pre)
+           prng (r.pcg-32 [..pcg-32-magic-inc seed])]
+     [counters documentation] (|> test (r.run prng) product.right)
+     post (promise.future instant.now)
+     #let [duration (instant.span pre post)
+           _ (log! (format documentation text.new-line text.new-line
+                           "(" (%duration duration) ")" text.new-line
+                           (tally counters)))]]
+    (promise.future (io.exit (case (get@ #failures counters)
+                               0 ..success-exit-code
+                               _ ..failure-exit-code)))))
