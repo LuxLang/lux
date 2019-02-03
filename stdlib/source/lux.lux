@@ -3643,7 +3643,7 @@
     _
     (#Left "Wrong syntax for default")))
 
-(def: (text/split splitter input)
+(def: (text/split-all-with splitter input)
   (-> Text Text (List Text))
   (case (index-of splitter input)
     #None
@@ -3651,8 +3651,8 @@
 
     (#Some idx)
     (list& ("lux text clip" input 0 idx)
-           (text/split splitter
-                       ("lux text clip" input (n/+ 1 idx) ("lux text size" input))))))
+           (text/split-all-with splitter
+                                ("lux text clip" input (n/+ 1 idx) ("lux text size" input))))))
 
 (def: (nth idx xs)
   (All [a]
@@ -3894,9 +3894,17 @@
                         (list/join tokens'))]
     (wrap (list (record$ members)))))
 
-(def: (text/join parts)
-  (-> (List Text) Text)
-  (|> parts list/reverse (list/fold text/compose "")))
+(def: (text/join-with separator parts)
+  (-> Text (List Text) Text)
+  (case parts
+    #Nil
+    ""
+    
+    (#Cons head tail)
+    (list/fold (function (_ right left)
+                 ($_ text/compose left separator right))
+               head
+               tail)))
 
 (macro: #export (structure: tokens)
   {#.doc (text$ ($_ "lux text concat"
@@ -3947,7 +3955,7 @@
                                         #None))
                                     sig-args))
                   (^ (#Some params))
-                  (#Some (identifier$ ["" ($_ text/compose sig-name "<" (|> params (interpose ",") text/join) ">")]))
+                  (#Some (identifier$ ["" ($_ text/compose sig-name "<" (|> params (interpose ",") (text/join-with "")) ">")]))
 
                   _
                   #None)
@@ -4064,6 +4072,17 @@
       (fail "Wrong syntax for type:"))
     ))
 
+(do-template [<name> <to>]
+  [(def: #export (<name> value)
+     (-> (I64 Any) <to>)
+     (:coerce <to> value))]
+
+  [i64 I64]
+  [nat Nat]
+  [int Int]
+  [rev Rev]
+  )
+
 (type: Referrals
   #All
   (#Only (List Text))
@@ -4168,9 +4187,11 @@
   (-> Text Text Text)
   (replace-all "."))
 
+(def: #export module-separator "/")
+
 (def: (count-ups ups input)
   (-> Nat Text Nat)
-  (case ("lux text index" input "/" ups)
+  (case ("lux text index" input ..module-separator ups)
     #None
     ups
 
@@ -4179,41 +4200,71 @@
       (count-ups (n/+ 1 ups) input)
       ups)))
 
-(def: (list/drop amount a+)
+(def: (list/take amount list)
   (All [a] (-> Nat (List a) (List a)))
-  (case [amount a+]
+  (case [amount list]
     (^or [0 _] [_ #Nil])
-    a+
+    #Nil
 
-    [_ (#Cons _ a+')]
-    (list/drop (n/- 1 amount) a+')))
+    [_ (#Cons head tail)]
+    (#Cons head (list/take (n/- 1 amount) tail))))
+
+(def: (list/drop amount list)
+  (All [a] (-> Nat (List a) (List a)))
+  (case [amount list]
+    (^or [0 _] [_ #Nil])
+    list
+
+    [_ (#Cons _ tail)]
+    (list/drop (n/- 1 amount) tail)))
 
 (def: (clean-module nested? relative-root module)
   (-> Bit Text Text (Meta Text))
   (case (count-ups 0 module)
     0
     (return (if nested?
-              ($_ "lux text concat" relative-root "/" module)
+              ($_ "lux text concat" relative-root ..module-separator module)
               module))
     
     ups
-    (let [parts (text/split "/" relative-root)]
+    (let [parts (text/split-all-with ..module-separator relative-root)]
       (if (n/< (list/size parts) (n/- 1 ups))
         (let [prefix (|> parts
                          list/reverse
                          (list/drop (n/- 1 ups))
                          list/reverse
-                         (interpose "/")
-                         text/join)
+                         (interpose ..module-separator)
+                         (text/join-with ""))
               clean ("lux text clip" module ups ("lux text size" module))
               output (case ("lux text size" clean)
                        0 prefix
-                       _ ($_ text/compose prefix "/" clean))]
+                       _ ($_ text/compose prefix ..module-separator clean))]
           (return output))
         (fail ($_ "lux text concat"
                   "Cannot climb the module hierarchy..." ..new-line
                   "Importing module: " module ..new-line
                   "   Relative Root: " relative-root ..new-line))))))
+
+(def: (alter-domain alteration domain import)
+  (-> Int Text Importation Importation)
+  (let [[import-name import-alias import-refer] import
+        original (text/split-all-with ..module-separator import-name)
+        [pre post] (if (i/< +0 alteration)
+                     [(list) (list/drop (.nat (i/* -1 alteration)) original)]
+                     [(list/take (.nat alteration) original)
+                      (list/drop (.nat alteration) original)])
+        altered ($_ list/compose
+                    pre
+                    (case domain
+                      ""
+                      (list)
+
+                      _
+                      (list domain))
+                    post)]
+    {#import-name (text/join-with ..module-separator altered)
+     #import-alias import-alias
+     #import-refer import-refer}))
 
 (def: (parse-imports nested? relative-root imports)
   (-> Bit Text (List Code) (Meta (List Importation)))
@@ -4259,6 +4310,12 @@
                                                 #import-refer {#refer-defs referral
                                                                #refer-open openings}}
                                                sub-imports)))
+
+                                (^ [_ (#Record (list [[_ (#Tuple (list [_ (#Int alteration)] [_ (#Text domain)]))]
+                                                      parallel-tree]))])
+                                (do Monad<Meta>
+                                  [parallel-imports (parse-imports nested? relative-root (list parallel-tree))]
+                                  (wrap (list/map (alter-domain alteration domain) parallel-imports)))
 
                                 _
                                 (do Monad<Meta>
@@ -5175,17 +5232,6 @@
   (-> Name Text)
   (|>> name/encode (text/compose "#")))
 
-(do-template [<name> <to>]
-  [(def: #export <name>
-     (-> (I64 Any) <to>)
-     (|>> (:coerce <to>)))]
-
-  [i64 I64]
-  [nat Nat]
-  [int Int]
-  [rev Rev]
-  )
-
 (def: (repeat n x)
   (All [a] (-> Int a (List a)))
   (if (i/> +0 n)
@@ -5195,9 +5241,9 @@
 (def: (cursor-padding baseline [_ old-line old-column] [_ new-line new-column])
   (-> Nat Cursor Cursor Text)
   (if (n/= old-line new-line)
-    (text/join (repeat (.int (n/- old-column new-column)) " "))
-    (let [extra-lines (text/join (repeat (.int (n/- old-line new-line)) ..new-line))
-          space-padding (text/join (repeat (.int (n/- baseline new-column)) " "))]
+    (text/join-with "" (repeat (.int (n/- old-column new-column)) " "))
+    (let [extra-lines (text/join-with "" (repeat (.int (n/- old-line new-line)) ..new-line))
+          space-padding (text/join-with "" (repeat (.int (n/- baseline new-column)) " "))]
       (text/compose extra-lines space-padding))))
 
 (def: (text/size x)
@@ -5262,9 +5308,9 @@
   (case fragment
     (#Doc-Comment comment)
     (|> comment
-        (text/split ..new-line)
+        (text/split-all-with ..new-line)
         (list/map (function (_ line) ($_ text/compose "## " line ..new-line)))
-        text/join)
+        (text/join-with ""))
 
     (#Doc-Example example)
     (let [baseline (find-baseline-column example)
@@ -5287,7 +5333,7 @@
   (return (list (` [(~ cursor-code)
                     (#.Text (~ (|> tokens
                                    (list/map (|>> identify-doc-fragment doc-fragment->Text))
-                                   text/join
+                                   (text/join-with "")
                                    text$)))]))))
 
 (def: (interleave xs ys)
