@@ -7,7 +7,7 @@
      ["." promise (#+ Promise)]]
     [security
      ["." integrity (#+ Dirty)]
-     ["." capability (#+ Capability)]]]
+     ["!" capability (#+ Capability)]]]
    [data
     ["." maybe]
     ["." error (#+ Error) ("error/." Functor<Error>)]
@@ -104,32 +104,37 @@
   (-> (File IO) (File Promise))
   (`` (structure
        (~~ (do-template [<name>]
-             [(def: <name> (|>> (:: file <name>) promise.future))]
+             [(def: <name> (!.forge
+                            (|>> (!.use (:: file <name>)) promise.future)))]
 
              [size] [last-modified] [can-execute?] [content]
              [modify] [over-write]
              [append]
              [delete]))
 
-       (def: move (|>> (:: file move) (io/map (error/map async-file)) promise.future)))))
+       (def: move (!.forge
+                   (|>> (!.use (:: file move)) (io/map (error/map async-file)) promise.future))))))
 
 (def: (async-directory directory)
   (-> (Directory IO) (Directory Promise))
   (`` (structure (~~ (do-template [<name> <async>]
-                       [(def: <name> (|>> (:: directory <name>)
-                                          (io/map (error/map (list/map <async>)))
-                                          promise.future))]
+                       [(def: <name> (!.forge
+                                      (|>> (!.use (:: directory <name>))
+                                           (io/map (error/map (list/map <async>)))
+                                           promise.future)))]
 
                        [files       async-file]
                        [directories async-directory]))
 
-                 (def: discard (|>> (:: directory discard) promise.future)))))
+                 (def: discard (!.forge
+                                (|>> (!.use (:: directory discard)) promise.future))))))
 
 (def: #export (async system)
   (-> (System IO) (System Promise))
   (`` (structure
        (~~ (do-template [<name> <async>]
-             [(def: <name> (|>> (:: system <name>) (io/map (error/map <async>)) promise.future))]
+             [(def: <name> (!.forge
+                            (|>> (!.use (:: system <name>)) (io/map (error/map <async>)) promise.future)))]
 
              [file             async-file]
              [create-file      async-file]
@@ -226,108 +231,130 @@
                    (-> Path (File IO))
 
                    (~~ (do-template [<name> <flag>]
-                         [(def: (<name> data)
-                            (do io.Monad<Process>
-                              [stream (FileOutputStream::new (java/io/File::new path) <flag>)
-                               _ (OutputStream::write data stream)
-                               _ (OutputStream::flush stream)]
-                              (AutoCloseable::close stream)))]
+                         [(def: <name>
+                            (!.forge
+                             (function (<name> data)
+                               (do io.Monad<Process>
+                                 [stream (FileOutputStream::new (java/io/File::new path) <flag>)
+                                  _ (OutputStream::write data stream)
+                                  _ (OutputStream::flush stream)]
+                                 (AutoCloseable::close stream)))))]
 
                          [over-write  #0]
                          [append      #1]
                          ))
 
-                   (def: (content _)
-                     (do io.Monad<Process>
-                       [#let [file (java/io/File::new path)]
-                        size (java/io/File::length file)
-                        #let [data (binary.create (.nat size))]
-                        stream (FileInputStream::new file)
-                        bytes-read (InputStream::read data stream)
-                        _ (AutoCloseable::close stream)]
-                       (if (i/= size bytes-read)
-                         (wrap (integrity.taint data))
-                         (io.io (ex.throw cannot-read-all-data path)))))
+                   (def: content
+                     (!.forge
+                      (function (content _)
+                        (do io.Monad<Process>
+                          [#let [file (java/io/File::new path)]
+                           size (java/io/File::length file)
+                           #let [data (binary.create (.nat size))]
+                           stream (FileInputStream::new file)
+                           bytes-read (InputStream::read data stream)
+                           _ (AutoCloseable::close stream)]
+                          (if (i/= size bytes-read)
+                            (wrap (integrity.taint data))
+                            (io.io (ex.throw cannot-read-all-data path)))))))
 
-                   (def: (size _)
-                     (|> path
-                         java/io/File::new
-                         java/io/File::length
-                         (:: io.Monad<Process> map .nat)))
+                   (def: size
+                     (!.forge
+                      (function (size _)
+                        (|> path
+                            java/io/File::new
+                            java/io/File::length
+                            (:: io.Monad<Process> map .nat)))))
 
-                   (def: (last-modified _)
-                     (|> path
-                         java/io/File::new
-                         (java/io/File::lastModified)
-                         (:: io.Monad<Process> map (|>> duration.from-millis instant.absolute))))
+                   (def: last-modified
+                     (!.forge
+                      (function (last-modified _)
+                        (|> path
+                            java/io/File::new
+                            (java/io/File::lastModified)
+                            (:: io.Monad<Process> map (|>> duration.from-millis instant.absolute))))))
 
-                   (def: (can-execute? _)
-                     (|> path
-                         java/io/File::new
-                         java/io/File::canExecute))
+                   (def: can-execute?
+                     (!.forge
+                      (function (can-execute? _)
+                        (|> path
+                            java/io/File::new
+                            java/io/File::canExecute))))
 
-                   (def: (move destination)
-                     (do io.Monad<IO>
-                       [outcome (java/io/File::renameTo (java/io/File::new destination)
-                                                        (java/io/File::new path))]
-                       (case outcome
-                         (#error.Success #1)
-                         (wrap (#error.Success (File<IO> destination)))
+                   (def: move
+                     (!.forge
+                      (function (move destination)
+                        (do io.Monad<IO>
+                          [outcome (java/io/File::renameTo (java/io/File::new destination)
+                                                           (java/io/File::new path))]
+                          (case outcome
+                            (#error.Success #1)
+                            (wrap (#error.Success (File<IO> destination)))
 
-                         _
-                         (io.throw cannot-move [destination path]))))
+                            _
+                            (io.throw cannot-move [destination path]))))))
 
-                   (def: (modify time-stamp)
-                     (do io.Monad<IO>
-                       [outcome (java/io/File::setLastModified (|> time-stamp instant.relative duration.to-millis)
-                                                               (java/io/File::new path))]
-                       (case outcome
-                         (#error.Success #1)
-                         (wrap (#error.Success []))
+                   (def: modify
+                     (!.forge
+                      (function (modify time-stamp)
+                        (do io.Monad<IO>
+                          [outcome (java/io/File::setLastModified (|> time-stamp instant.relative duration.to-millis)
+                                                                  (java/io/File::new path))]
+                          (case outcome
+                            (#error.Success #1)
+                            (wrap (#error.Success []))
 
-                         _
-                         (io.throw cannot-modify [time-stamp path]))))
+                            _
+                            (io.throw cannot-modify [time-stamp path]))))))
 
-                   (def: (delete _)
-                     (!delete path cannot-delete-file)))
+                   (def: delete
+                     (!.forge
+                      (function (delete _)
+                        (!delete path cannot-delete-file)))))
 
                  (structure: (Directory<IO> path)
                    (-> Path (Directory IO))
 
                    (~~ (do-template [<name> <method> <capability>]
-                         [(def: (<name> _)
-                            (do io.Monad<Process>
-                              [?children (java/io/File::listFiles (java/io/File::new path))]
-                              (case ?children
-                                (#.Some children)
-                                (|> children
-                                    array.to-list
-                                    (monad.filter @ (|>> <method>))
-                                    (:: @ map (monad.map @ (|>> java/io/File::getAbsolutePath (:: @ map  <capability>))))
-                                    (:: @ join))
+                         [(def: <name>
+                            (!.forge
+                             (function (<name> _)
+                               (do io.Monad<Process>
+                                 [?children (java/io/File::listFiles (java/io/File::new path))]
+                                 (case ?children
+                                   (#.Some children)
+                                   (|> children
+                                       array.to-list
+                                       (monad.filter @ (|>> <method>))
+                                       (:: @ map (monad.map @ (|>> java/io/File::getAbsolutePath (:: @ map  <capability>))))
+                                       (:: @ join))
 
-                                #.None
-                                (io.throw not-a-directory [path]))))]
+                                   #.None
+                                   (io.throw not-a-directory [path]))))))]
 
                          [files       java/io/File::isFile      File<IO>]
                          [directories java/io/File::isDirectory Directory<IO>]
                          ))
 
-                   (def: (discard _)
-                     (!delete path cannot-discard-directory)))
+                   (def: discard
+                     (!.forge
+                      (function (discard _)
+                        (!delete path cannot-discard-directory)))))
 
                  (structure: #export _ (System IO)
                    (~~ (do-template [<name> <method> <capability> <exception>]
-                         [(def: (<name> path)
-                            (do io.Monad<IO>
-                              [#let [file (java/io/File::new path)]
-                               outcome (<method> file)]
-                              (case outcome
-                                (#error.Success #1)
-                                (wrap (#error.Success (<capability> path)))
+                         [(def: <name>
+                            (!.forge
+                             (function (<name> path)
+                               (do io.Monad<IO>
+                                 [#let [file (java/io/File::new path)]
+                                  outcome (<method> file)]
+                                 (case outcome
+                                   (#error.Success #1)
+                                   (wrap (#error.Success (<capability> path)))
 
-                                _
-                                (wrap (ex.throw <exception> [path])))))]
+                                   _
+                                   (wrap (ex.throw <exception> [path])))))))]
 
                          [file             java/io/File::isFile        ..File<IO>      cannot-find-file]
                          [create-file      java/io/File::createNewFile ..File<IO>      cannot-create-file]
@@ -343,14 +370,14 @@
   [(def: #export (<get> Monad<!> System<!> path)
      (All [!] (-> (Monad !) (System !) Path (! (Error (<signature> !)))))
      (do Monad<!>
-       [outcome (:: System<!> <create> path)]
+       [outcome (!.use (:: System<!> <create>) path)]
        (case outcome
          (#error.Success file)
          (wrap (#error.Success file))
          
          (#error.Failure error)
          (if (ex.match? <exception> error)
-           (:: System<!> <find> path)
+           (!.use (:: System<!> <find>) path)
            (wrap (#error.Failure error))))))]
 
   [get-file      File      create-file      file      ..cannot-create-file]
@@ -360,14 +387,14 @@
 (def: #export (exists? Monad<!> System<!> path)
   (All [!] (-> (Monad !) (System !) Path (! Bit)))
   (do Monad<!>
-    [?file (:: System<!> file path)]
+    [?file (!.use (:: System<!> file) path)]
     (case ?file
       (#error.Success file)
       (wrap true)
 
       (#error.Failure _)
       (do Monad<!>
-        [?directory (:: System<!> directory path)]
+        [?directory (!.use (:: System<!> directory) path)]
         (case ?directory
           (#error.Success directory)
           (wrap true)
