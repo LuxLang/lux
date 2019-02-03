@@ -250,6 +250,7 @@ Called by `imenu--generic-function'."
                     (type//unit (altRE "unit:" "scale:"))
                     (type//poly (altRE "poly:" "derived:"))
                     (type//dynamic (altRE ":dynamic" ":check"))
+                    (type//capability (altRE "capability:"))
                     ;; Data
                     (data//record (altRE "get@" "set@" "update@"))
                     (data//signature (altRE "signature:" "structure:" "open:" "structure" "::"))
@@ -275,7 +276,8 @@ Called by `imenu--generic-function'."
                                    type//abstract
                                    type//unit
                                    type//poly
-                                   type//dynamic))
+                                   type//dynamic
+                                   type//capability))
                       (data (altRE data//record
                                    data//signature
                                    data//implicit

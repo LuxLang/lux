@@ -7,7 +7,7 @@
      ["." promise (#+ Promise)]]
     [security
      ["." integrity (#+ Dirty)]
-     ["!" capability (#+ Capability)]]]
+     ["!" capability (#+ capability:)]]]
    [data
     ["." maybe]
     ["." error (#+ Error) ("error/." Functor<Error>)]
@@ -19,6 +19,8 @@
    [time
     ["." instant (#+ Instant)]
     ["." duration]]
+   [macro
+    ["." template]]
    [world
     ["." binary (#+ Binary)]]
    ["." io (#+ IO) ("io/." Functor<IO>)]
@@ -29,22 +31,17 @@
 
 (type: #export Path Text)
 
-(type: #export (Can-Open ! capability)
-  (Capability Path (! (Error (capability !)))))
+(capability: #export (Can-Open ! capability)
+  (can-open Path (! (Error (capability !)))))
 
-(do-template [<capability> <input> <output>]
-  [(type: #export (<capability> !)
-     (Capability <input> (! (Error <output>))))]
+(capability: #export (Can-Query ! o)
+  (can-query [] (! (Error o))))
 
-  [Can-Edit   [Binary] Any]
-  [Can-Delete []       Any]
-  )
+(capability: #export (Can-Modify ! i)
+  (can-modify [i] (! (Error Any))))
 
-(type: #export (Can-Query ! o)
-  (Capability [] (! (Error o))))
-
-(type: #export (Can-Modify ! i)
-  (Capability [i] (! (Error Any))))
+(capability: #export (Can-Delete !)
+  (can-delete [] (! (Error Any))))
 
 (`` (signature: #export (File !)
       (~~ (do-template [<name> <output>]
@@ -66,10 +63,8 @@
 
             [modify     Instant]
             [over-write Binary]
+            [append     Binary]
             ))
-
-      (: (Can-Edit !)
-         append)
 
       (: (Can-Delete !)
          delete)
@@ -103,43 +98,50 @@
 (def: (async-file file)
   (-> (File IO) (File Promise))
   (`` (structure
-       (~~ (do-template [<name>]
-             [(def: <name> (!.forge
-                            (|>> (!.use (:: file <name>)) promise.future)))]
+       (~~ (do-template [<forge> <name>+]
+             [(with-expansions [<rows> (template.splice <name>+)]
+                (do-template [<name>]
+                  [(def: <name> (<forge> (|>> (!.use (:: file <name>)) promise.future)))]
 
-             [size] [last-modified] [can-execute?] [content]
-             [modify] [over-write]
-             [append]
-             [delete]))
+                  <rows>))]
 
-       (def: move (!.forge
+             [..can-query
+              [[size] [last-modified] [can-execute?] [content]]]
+             
+             [..can-modify
+              [[modify] [over-write] [append]]]
+             
+             [..can-delete
+              [[delete]]]))
+
+       (def: move (..can-open
                    (|>> (!.use (:: file move)) (io/map (error/map async-file)) promise.future))))))
 
 (def: (async-directory directory)
   (-> (Directory IO) (Directory Promise))
   (`` (structure (~~ (do-template [<name> <async>]
-                       [(def: <name> (!.forge
+                       [(def: <name> (..can-query
                                       (|>> (!.use (:: directory <name>))
                                            (io/map (error/map (list/map <async>)))
                                            promise.future)))]
 
-                       [files       async-file]
+                       [files       ..async-file]
                        [directories async-directory]))
 
-                 (def: discard (!.forge
+                 (def: discard (..can-delete
                                 (|>> (!.use (:: directory discard)) promise.future))))))
 
 (def: #export (async system)
   (-> (System IO) (System Promise))
   (`` (structure
        (~~ (do-template [<name> <async>]
-             [(def: <name> (!.forge
+             [(def: <name> (..can-open
                             (|>> (!.use (:: system <name>)) (io/map (error/map <async>)) promise.future)))]
 
-             [file             async-file]
-             [create-file      async-file]
-             [directory        async-directory]
-             [create-directory async-directory]))
+             [file             ..async-file]
+             [create-file      ..async-file]
+             [directory        ..async-directory]
+             [create-directory ..async-directory]))
 
        (def: separator (:: system separator)))))
 
@@ -232,7 +234,7 @@
 
                    (~~ (do-template [<name> <flag>]
                          [(def: <name>
-                            (!.forge
+                            (..can-modify
                              (function (<name> data)
                                (do io.Monad<Process>
                                  [stream (FileOutputStream::new (java/io/File::new path) <flag>)
@@ -245,7 +247,7 @@
                          ))
 
                    (def: content
-                     (!.forge
+                     (..can-query
                       (function (content _)
                         (do io.Monad<Process>
                           [#let [file (java/io/File::new path)]
@@ -259,7 +261,7 @@
                             (io.io (ex.throw cannot-read-all-data path)))))))
 
                    (def: size
-                     (!.forge
+                     (..can-query
                       (function (size _)
                         (|> path
                             java/io/File::new
@@ -267,7 +269,7 @@
                             (:: io.Monad<Process> map .nat)))))
 
                    (def: last-modified
-                     (!.forge
+                     (..can-query
                       (function (last-modified _)
                         (|> path
                             java/io/File::new
@@ -275,14 +277,14 @@
                             (:: io.Monad<Process> map (|>> duration.from-millis instant.absolute))))))
 
                    (def: can-execute?
-                     (!.forge
+                     (..can-query
                       (function (can-execute? _)
                         (|> path
                             java/io/File::new
                             java/io/File::canExecute))))
 
                    (def: move
-                     (!.forge
+                     (..can-open
                       (function (move destination)
                         (do io.Monad<IO>
                           [outcome (java/io/File::renameTo (java/io/File::new destination)
@@ -295,7 +297,7 @@
                             (io.throw cannot-move [destination path]))))))
 
                    (def: modify
-                     (!.forge
+                     (..can-modify
                       (function (modify time-stamp)
                         (do io.Monad<IO>
                           [outcome (java/io/File::setLastModified (|> time-stamp instant.relative duration.to-millis)
@@ -308,7 +310,7 @@
                             (io.throw cannot-modify [time-stamp path]))))))
 
                    (def: delete
-                     (!.forge
+                     (..can-delete
                       (function (delete _)
                         (!delete path cannot-delete-file)))))
 
@@ -317,7 +319,7 @@
 
                    (~~ (do-template [<name> <method> <capability>]
                          [(def: <name>
-                            (!.forge
+                            (..can-query
                              (function (<name> _)
                                (do io.Monad<Process>
                                  [?children (java/io/File::listFiles (java/io/File::new path))]
@@ -337,14 +339,14 @@
                          ))
 
                    (def: discard
-                     (!.forge
+                     (..can-delete
                       (function (discard _)
                         (!delete path cannot-discard-directory)))))
 
                  (structure: #export _ (System IO)
                    (~~ (do-template [<name> <method> <capability> <exception>]
                          [(def: <name>
-                            (!.forge
+                            (..can-open
                              (function (<name> path)
                                (do io.Monad<IO>
                                  [#let [file (java/io/File::new path)]

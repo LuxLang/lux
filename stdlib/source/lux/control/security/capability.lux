@@ -1,23 +1,58 @@
 (.module:
   [lux #*
+   [control
+    [monad (#+ do)]
+    ["p" parser]]
+   [data
+    [text
+     format]
+    [collection
+     [list ("list/." Functor<List>)]]]
    [type
-    abstract]])
+    abstract]
+   ["." macro
+    ["." code]
+    ["s" syntax (#+ syntax:)
+     [common
+      ["." reader]
+      ["." writer]]]]])
 
-(abstract: #export (Capability input output)
+(abstract: #export (Capability brand input output)
   {#.doc (doc "Represents the capability to perform an operation."
               "This operation is assumed to have security implications.")}
 
   (-> input output)
 
-  (def: #export forge
-    (All [input output]
+  (def: default-forge
+    (All [brand input output]
       (-> (-> input output)
-          (Capability input output)))
+          (Capability brand input output)))
     (|>> :abstraction))
 
   (def: #export (use capability input)
-    (All [input output]
-      (-> (Capability input output)
+    (All [brand input output]
+      (-> (Capability brand input output)
           input
           output))
-    ((:representation capability) input)))
+    ((:representation capability) input))
+
+  (syntax: #export (capability: {export reader.export}
+                     {declaration reader.declaration}
+                     {annotations (p.maybe reader.annotations)}
+                     {[forge input output] (s.form ($_ p.and s.local-identifier s.any s.any))})
+    (do @
+      [this-module macro.current-module-name
+       #let [[name vars] declaration]
+       g!brand (:: @ map (|>> %code code.text)
+                   (macro.gensym (format (%name [this-module name]))))
+       #let [capability (` (..Capability (.primitive (~ g!brand)) (~ input) (~ output)))]]
+      (wrap (list (` (type: (~+ (writer.export export))
+                       (~ (writer.declaration declaration))
+                       (~ capability)))
+                  (` (def: (~ (code.local-identifier forge))
+                       (All [(~+ (list/map code.local-identifier vars))]
+                         (-> (-> (~ input) (~ output))
+                             (~ capability)))
+                       (~! ..default-forge)))
+                  ))))
+  )
