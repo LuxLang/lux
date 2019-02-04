@@ -1,0 +1,291 @@
+(.module:
+  [lux #*
+   [control
+    [hash (#+ Hash)]
+    [number (#+ Number)]
+    [enum (#+ Enum)]
+    [interval (#+ Interval)]
+    [monoid (#+ Monoid)]
+    [equivalence (#+ Equivalence)]
+    ["." order (#+ Order)]
+    [codec (#+ Codec)]]
+   [data
+    ["." error (#+ Error)]
+    ["." maybe]
+    [collection
+     ["." array (#+ Array)]]]
+   ["." function]]
+  [//
+   ["//." i64]
+   ["//." nat]
+   ["//." int]])
+
+(structure: #export equivalence (Equivalence Rev)
+  (def: = r/=))
+
+(structure: #export order (Order Rev)
+  (def: &equivalence ..equivalence)
+  (def: < r/<)
+  (def: <= r/<=)
+  (def: > r/>)
+  (def: >= r/>=))
+
+(structure: #export enum (Enum Rev)
+  (def: &order ..order)
+  (def: succ inc)
+  (def: pred dec))
+
+(structure: #export interval (Interval Rev)
+  (def: &enum ..enum)
+  (def: top (.rev -1))
+  (def: bottom (.rev 0)))
+
+(structure: #export number (Number Rev)
+  (def: + r/+)
+  (def: - r/-)
+  (def: * r/*)
+  (def: / r//)
+  (def: % r/%)
+  (def: (negate x) (r/- x (:coerce Rev -1)))
+  (def: abs function.identity)
+  (def: (signum x)
+    (:coerce Rev -1)))
+
+(do-template [<name> <compose> <identity>]
+  [(structure: #export <name> (Monoid Rev)
+     (def: identity <identity>)
+     (def: compose <compose>))]
+
+  [addition       r/+   (:: interval bottom)]
+  [multiplication r/*   (:: interval top)]
+  [maximum        r/max (:: interval bottom)]
+  [minimum        r/min (:: interval top)]
+  )
+
+(def: (de-prefix input)
+  (-> Text Text)
+  ("lux text clip" input 1 ("lux text size" input)))
+
+(do-template [<struct> <nat> <char-bit-size> <error>]
+  [(with-expansions [<error-output> (as-is (#error.Failure ("lux text concat" <error> repr)))]
+     (structure: #export <struct> (Codec Text Rev)
+       (def: (encode value)
+         (let [raw-output (de-prefix (:: <nat> encode (:coerce Nat value)))
+               max-num-chars (n// <char-bit-size> 64)
+               raw-size ("lux text size" raw-output)
+               zero-padding (loop [zeroes-left (n/- raw-size max-num-chars)
+                                   output ""]
+                              (if (n/= 0 zeroes-left)
+                                output
+                                (recur (dec zeroes-left)
+                                       ("lux text concat" "0" output))))
+               padded-output ("lux text concat" zero-padding raw-output)]
+           ("lux text concat" "." padded-output)))
+
+       (def: (decode repr)
+         (let [repr-size ("lux text size" repr)]
+           (if (n/>= 2 repr-size)
+             (case ("lux text char" repr 0)
+               (^ (char "."))
+               (case (:: <nat> decode (de-prefix repr))
+                 (#error.Success output)
+                 (#error.Success (:coerce Rev output))
+
+                 _
+                 <error-output>)
+               
+               _
+               <error-output>)
+             <error-output>)))))]
+
+  [binary //nat.binary 1 "Invalid binary syntax: "]
+  [octal  //nat.octal  3 "Invalid octal syntax: "]
+  [hex    //nat.hex    4 "Invalid hexadecimal syntax: "]
+  )
+
+## The following code allows one to encode/decode Rev numbers as text.
+## This is not a simple algorithm, and it requires subverting the Rev
+## abstraction a bit.
+## It takes into account the fact that Rev numbers are represented by
+## Lux as 64-bit integers.
+## A valid way to model them is as Lux's Nat type.
+## This is a somewhat hackish way to do things, but it allows one to
+## write the encoding/decoding algorithm once, in pure Lux, rather
+## than having to implement it on the compiler for every platform
+## targeted by Lux.
+(type: Digits (Array Nat))
+
+(def: (make-digits _)
+  (-> Any Digits)
+  (array.new //i64.width))
+
+(def: (digits-get idx digits)
+  (-> Nat Digits Nat)
+  (|> digits (array.read idx) (maybe.default 0)))
+
+(def: digits-put
+  (-> Nat Nat Digits Digits)
+  array.write)
+
+(def: (prepend left right)
+  (-> Text Text Text)
+  ("lux text concat" left right))
+
+(def: (digits-times-5! idx output)
+  (-> Nat Digits Digits)
+  (loop [idx idx
+         carry 0
+         output output]
+    (if (i/>= +0 (.int idx))
+      (let [raw (|> (digits-get idx output)
+                    (n/* 5)
+                    (n/+ carry))]
+        (recur (dec idx)
+               (n// 10 raw)
+               (digits-put idx (n/% 10 raw) output)))
+      output)))
+
+(def: (digits-power power)
+  (-> Nat Digits)
+  (loop [times power
+         output (|> (make-digits [])
+                    (digits-put power 1))]
+    (if (i/>= +0 (.int times))
+      (recur (dec times)
+             (digits-times-5! power output))
+      output)))
+
+(def: (digits-to-text digits)
+  (-> Digits Text)
+  (loop [idx (dec //i64.width)
+         all-zeroes? #1
+         output ""]
+    (if (i/>= +0 (.int idx))
+      (let [digit (digits-get idx digits)]
+        (if (and (n/= 0 digit)
+                 all-zeroes?)
+          (recur (dec idx) #1 output)
+          (recur (dec idx)
+                 #0
+                 ("lux text concat"
+                  (:: //int.decimal encode (.int digit))
+                  output))))
+      (if all-zeroes?
+        "0"
+        output))))
+
+(def: (digits-add param subject)
+  (-> Digits Digits Digits)
+  (loop [idx (dec //i64.width)
+         carry 0
+         output (make-digits [])]
+    (if (i/>= +0 (.int idx))
+      (let [raw ($_ n/+
+                    carry
+                    (digits-get idx param)
+                    (digits-get idx subject))]
+        (recur (dec idx)
+               (n// 10 raw)
+               (digits-put idx (n/% 10 raw) output)))
+      output)))
+
+(def: (text-to-digits input)
+  (-> Text (Maybe Digits))
+  (let [length ("lux text size" input)]
+    (if (n/<= //i64.width length)
+      (loop [idx 0
+             output (make-digits [])]
+        (if (n/< length idx)
+          (case ("lux text index" "+0123456789" ("lux text clip" input idx (inc idx)) 0)
+            #.None
+            #.None
+
+            (#.Some digit)
+            (recur (inc idx)
+                   (digits-put idx digit output)))
+          (#.Some output)))
+      #.None)))
+
+(def: (digits-lt param subject)
+  (-> Digits Digits Bit)
+  (loop [idx 0]
+    (and (n/< //i64.width idx)
+         (let [pd (digits-get idx param)
+               sd (digits-get idx subject)]
+           (if (n/= pd sd)
+             (recur (inc idx))
+             (n/< pd sd))))))
+
+(def: (digits-sub-once! idx param subject)
+  (-> Nat Nat Digits Digits)
+  (let [sd (digits-get idx subject)]
+    (if (n/>= param sd)
+      (digits-put idx (n/- param sd) subject)
+      (let [diff (|> sd
+                     (n/+ 10)
+                     (n/- param))]
+        (|> subject
+            (digits-put idx diff)
+            (digits-sub-once! (dec idx) 1))))))
+
+(def: (digits-sub! param subject)
+  (-> Digits Digits Digits)
+  (loop [idx (dec //i64.width)
+         output subject]
+    (if (i/>= +0 (.int idx))
+      (recur (dec idx)
+             (digits-sub-once! idx (digits-get idx param) output))
+      output)))
+
+(structure: #export decimal (Codec Text Rev)
+  (def: (encode input)
+    (let [input (:coerce Nat input)
+          last-idx (dec //i64.width)]
+      (if (n/= 0 input)
+        ".0"
+        (loop [idx last-idx
+               digits (make-digits [])]
+          (if (i/>= +0 (.int idx))
+            (if (//i64.set? idx input)
+              (let [digits' (digits-add (digits-power (n/- idx last-idx))
+                                        digits)]
+                (recur (dec idx)
+                       digits'))
+              (recur (dec idx)
+                     digits))
+            ("lux text concat" "." (digits-to-text digits))
+            )))))
+
+  (def: (decode input)
+    (let [length ("lux text size" input)
+          dotted? (case ("lux text index" input "." 0)
+                    (#.Some 0)
+                    #1
+
+                    _
+                    #0)]
+      (if (and dotted?
+               (n/<= (inc //i64.width) length))
+        (case (text-to-digits ("lux text clip" input 1 length))
+          (#.Some digits)
+          (loop [digits digits
+                 idx 0
+                 output 0]
+            (if (n/< //i64.width idx)
+              (let [power (digits-power idx)]
+                (if (digits-lt power digits)
+                  ## Skip power
+                  (recur digits (inc idx) output)
+                  (recur (digits-sub! power digits)
+                         (inc idx)
+                         (//i64.set (n/- idx (dec //i64.width)) output))))
+              (#error.Success (:coerce Rev output))))
+
+          #.None
+          (#error.Failure ("lux text concat" "Wrong syntax for Rev: " input)))
+        (#error.Failure ("lux text concat" "Wrong syntax for Rev: " input))))
+    ))
+
+(structure: #export hash (Hash Rev)
+  (def: &equivalence ..equivalence)
+  (def: hash .nat))

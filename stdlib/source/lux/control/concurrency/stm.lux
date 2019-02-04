@@ -15,7 +15,7 @@
   [//
    ["." atom (#+ Atom atom)]
    ["." promise (#+ Promise Resolver)]
-   ["." frp ("frp/." Functor<Channel>)]])
+   ["." frp ("frp/." functor)]])
 
 (type: #export (Observer a)
   (-> a (IO Any)))
@@ -39,11 +39,11 @@
     (All [a] (-> (Var a) (IO a)))
     (|> var
         atom.read
-        (:: io.Functor<IO> map product.left)))
+        (:: io.functor map product.left)))
 
   (def: (write! new-value (^:representation var))
     (All [a] (-> a (Var a) (IO Any)))
-    (do io.Monad<IO>
+    (do io.monad
       [(^@ old [_value _observers]) (atom.read var)
        succeeded? (atom.compare-and-swap old [new-value _observers] var)]
       (if succeeded?
@@ -55,7 +55,7 @@
   (def: #export (follow target)
     {#.doc "Creates a channel that will receive all changes to the value of the given var."}
     (All [a] (-> (Var a) (IO (frp.Channel a))))
-    (do io.Monad<IO>
+    (do io.monad
       [#let [[channel source] (frp.channel [])
              target (:representation target)]
        _ (atom.update (function (_ [value observers])
@@ -82,8 +82,8 @@
       (list.find (function (_ [_var _original _current])
                    (is? (:coerce (Var Any) var)
                         (:coerce (Var Any) _var))))
-      (:: maybe.Monad<Maybe> map (function (_ [_var _original _current])
-                                   _current))
+      (:: maybe.monad map (function (_ [_var _original _current])
+                            _current))
       (:assume)
       ))
 
@@ -137,8 +137,8 @@
       (let [[tx' a] (fa tx)]
         [tx' (f a)]))))
 
-(structure: #export _ (Apply STM)
-  (def: functor Functor<STM>)
+(structure: #export apply (Apply STM)
+  (def: &functor ..functor)
 
   (def: (apply ff fa)
     (function (_ tx)
@@ -146,8 +146,8 @@
             [tx'' a] (fa tx')]
         [tx'' (f a)]))))
 
-(structure: #export _ (Monad STM)
-  (def: functor Functor<STM>)
+(structure: #export monad (Monad STM)
+  (def: &functor ..functor)
 
   (def: (wrap a)
     (function (_ tx) [tx a]))
@@ -160,7 +160,7 @@
 (def: #export (update f var)
   {#.doc "Will update a Var's value, and return a tuple with the old and the new values."}
   (All [a] (-> (-> a a) (Var a) (STM [a a])))
-  (do Monad<STM>
+  (do ..monad
     [a (read var)
      #let [a' (f a)]
      _ (write a' var)]
@@ -198,12 +198,12 @@
 (def: (issue-commit commit)
   (All [a] (-> (Commit a) (IO Any)))
   (let [entry [commit (promise.promise [])]]
-    (do io.Monad<IO>
+    (do io.monad
       [|commits|&resolve (atom.read pending-commits)]
       (loop [[|commits| resolve] |commits|&resolve]
         (case (promise.poll |commits|)
           #.None
-          (do io.Monad<IO>
+          (do io.monad
             [resolved? (resolve entry)]
             (if resolved?
               (atom.write (product.right entry) pending-commits)
@@ -217,14 +217,14 @@
   (let [[stm-proc output resolve] commit
         [finished-tx value] (stm-proc fresh-tx)]
     (if (can-commit? finished-tx)
-      (do io.Monad<IO>
+      (do io.monad
         [_ (monad.map @ commit-var! finished-tx)]
         (resolve value))
       (issue-commit commit))))
 
 (def: init-processor!
   (IO Any)
-  (do io.Monad<IO>
+  (do io.monad
     [flag (atom.read commit-processor-flag)]
     (if flag
       (wrap [])
@@ -247,7 +247,7 @@
               "For this reason, it's important to note that transactions must be free from side-effects, such as I/O.")}
   (All [a] (-> (STM a) (Promise a)))
   (let [[output resolver] (promise.promise [])]
-    (exec (io.run (do io.Monad<IO>
+    (exec (io.run (do io.monad
                     [_ init-processor!]
                     (issue-commit [stm-proc output resolver])))
       output)))

@@ -4,23 +4,24 @@
     monad
     [equivalence (#+ Equivalence)]
     codec
-    ["p" parser ("parser/." Monad<Parser>)]
+    ["p" parser ("parser/." monad)]
     ["ex" exception (#+ exception:)]]
    [data
-    ["." number]
     ["." error (#+ Error)]
     ["." product]
-    ["." name ("name/." Equivalence<Name> Codec<Text,Name>)]
-    ["." text ("text/." Equivalence<Text> Monoid<Text>)
+    ["." name ("name/." equivalence codec)]
+    [number
+     ["." int]]
+    ["." text ("text/." equivalence monoid)
      ["l" lexer]]
     [collection
-     ["." list ("list/." Monad<List>)]
+     ["." list ("list/." monad)]
      ["d" dictionary]]]])
 
 (type: #export Tag Name)
 (type: #export Attrs (d.Dictionary Name Text))
 
-(def: #export attrs Attrs (d.new name.Hash<Name>))
+(def: #export attrs Attrs (d.new name.hash))
 
 (type: #export #rec XML
   (#Text Text)
@@ -37,14 +38,14 @@
 
 (def: xml-unicode-escape-char^
   (l.Lexer Text)
-  (|> (do p.Monad<Parser>
+  (|> (do p.monad
         [hex? (p.maybe (l.this "x"))
          code (case hex?
                 #.None
-                (p.codec number.Codec<Text,Int> (l.many l.decimal))
+                (p.codec int.decimal (l.many l.decimal))
 
                 (#.Some _)
-                (p.codec number.Hex@Codec<Text,Int> (l.many l.hexadecimal)))]
+                (p.codec int.decimal (l.many l.hexadecimal)))]
         (wrap (|> code .nat text.from-code)))
       (p.before (l.this ";"))
       (p.after (l.this "&#"))))
@@ -61,7 +62,7 @@
 
 (def: xml-identifier
   (l.Lexer Text)
-  (do p.Monad<Parser>
+  (do p.monad
     [head (p.either (l.one-of "_")
                     l.alpha)
      tail (l.some (p.either (l.one-of "_.-")
@@ -70,7 +71,7 @@
 
 (def: namespaced-symbol^
   (l.Lexer Name)
-  (do p.Monad<Parser>
+  (do p.monad
     [first-part xml-identifier
      ?second-part (<| p.maybe (p.after (l.this ":")) xml-identifier)]
     (case ?second-part
@@ -97,7 +98,7 @@
 
 (def: attrs^
   (l.Lexer Attrs)
-  (<| (:: p.Monad<Parser> map (d.from-list name.Hash<Name>))
+  (<| (:: p.monad map (d.from-list name.hash))
       p.some
       (p.and (spaced^ attr-name^))
       (p.after (l.this "="))
@@ -105,7 +106,7 @@
 
 (def: (close-tag^ expected)
   (-> Tag (l.Lexer []))
-  (do p.Monad<Parser>
+  (do p.monad
     [actual (|> tag^
                 spaced^
                 (p.after (l.this "/"))
@@ -149,14 +150,14 @@
        (function (_ node^)
          (p.either text^
                    (spaced^
-                    (do p.Monad<Parser>
+                    (do p.monad
                       [_ (l.this "<")
                        tag (spaced^ tag^)
                        attrs (spaced^ attrs^)
-                       #let [no-children^ (do p.Monad<Parser>
+                       #let [no-children^ (do p.monad
                                             [_ (l.this "/>")]
                                             (wrap (#Node tag attrs (list))))
-                             with-children^ (do p.Monad<Parser>
+                             with-children^ (do p.monad
                                               [_ (l.this ">")
                                                children (p.some node^)
                                                _ (close-tag^ tag)]
@@ -222,11 +223,11 @@
                       (text.join-with ""))
                   "</" tag ">")))))))
 
-(structure: #export _ (Codec Text XML)
+(structure: #export codec (Codec Text XML)
   (def: encode write)
   (def: decode read))
 
-(structure: #export _ (Equivalence XML)
+(structure: #export equivalence (Equivalence XML)
   (def: (= reference sample)
     (case [reference sample]
       [(#Text reference/value) (#Text sample/value)]
@@ -235,7 +236,7 @@
       [(#Node reference/tag reference/attrs reference/children)
        (#Node sample/tag sample/attrs sample/children)]
       (and (name/= reference/tag sample/tag)
-           (:: (d.Equivalence<Dictionary> text.Equivalence<Text>) = reference/attrs sample/attrs)
+           (:: (d.equivalence text.equivalence) = reference/attrs sample/attrs)
            (n/= (list.size reference/children)
                 (list.size sample/children))
            (|> (list.zip2 reference/children sample/children)
@@ -258,7 +259,7 @@
 
 (exception: #export (unconsumed-inputs {inputs (List XML)})
   (|> inputs
-      (list/map (:: Codec<Text,XML> encode))
+      (list/map (:: ..codec encode))
       (text.join-with blank-line)))
 
 (def: #export text
@@ -337,7 +338,7 @@
         (ex.throw unexpected-input [])
         
         (#Node _tag _attrs _children)
-        (do error.Monad<Error>
+        (do error.monad
           [output (run' _children reader)]
           (wrap [tail output]))))))
 

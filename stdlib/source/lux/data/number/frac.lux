@@ -1,0 +1,441 @@
+(.module:
+  [lux #*
+   [control
+    [hash (#+ Hash)]
+    [number (#+ Number)]
+    [enum (#+ Enum)]
+    [interval (#+ Interval)]
+    [monoid (#+ Monoid)]
+    [equivalence (#+ Equivalence)]
+    ["." order (#+ Order)]
+    [codec (#+ Codec)]]
+   [data
+    ["." error (#+ Error)]
+    ["." maybe]]
+   ["." math]]
+  [//
+   ["//." i64]
+   ["//." nat]
+   ["//." int]
+   ["//." rev]])
+
+(structure: #export equivalence (Equivalence Frac)
+  (def: = f/=))
+
+(structure: #export order (Order Frac)
+  (def: &equivalence ..equivalence)
+  (def: < f/<)
+  (def: <= f/<=)
+  (def: > f/>)
+  (def: >= f/>=))
+
+(structure: #export enum (Enum Frac)
+  (def: &order ..order)
+  (def: succ (f/+ ("lux frac smallest")))
+  (def: pred (f/- ("lux frac smallest"))))
+
+(structure: #export interval (Interval Frac)
+  (def: &enum ..enum)
+  (def: top ("lux frac max"))
+  (def: bottom ("lux frac min")))
+
+(structure: #export number (Number Frac)
+  (def: + f/+)
+  (def: - f/-)
+  (def: * f/*)
+  (def: / f//)
+  (def: % f/%)
+  (def: negate (f/* -1.0))
+  (def: (abs x)
+    (if (f/< +0.0 x)
+      (f/* -1.0 x)
+      x))
+  (def: (signum x)
+    (cond (f/= +0.0 x) +0.0
+          (f/< +0.0 x) -1.0
+          ## else
+          +1.0))
+  )
+
+(do-template [<name> <compose> <identity>]
+  [(structure: #export <name> (Monoid Frac)
+     (def: identity <identity>)
+     (def: compose <compose>))]
+
+  [addition       f/+   +0.0]
+  [multiplication f/*   +1.0]
+  [maximum        f/max (:: ..interval bottom)]
+  [minimum        f/min (:: ..interval top)]
+  )
+
+(do-template [<name> <numerator> <doc>]
+  [(def: #export <name>
+     {#.doc <doc>}
+     Frac
+     (f// +0.0 <numerator>))]
+
+  [not-a-number      +0.0 "Not a number."]
+  [positive-infinity +1.0 "Positive infinity."]
+  [negative-infinity -1.0 "Negative infinity."]
+  )
+
+(def: #export (not-a-number? number)
+  {#.doc "Tests whether a frac is actually not-a-number."}
+  (-> Frac Bit)
+  (not (f/= number number)))
+
+(def: #export (frac? value)
+  (-> Frac Bit)
+  (not (or (not-a-number? value)
+           (f/= positive-infinity value)
+           (f/= negative-infinity value))))
+
+(structure: #export decimal (Codec Text Frac)
+  (def: (encode x)
+    ("lux frac encode" [x]))
+
+  (def: (decode input)
+    (case ("lux frac decode" [input])
+      (#.Some value)
+      (#error.Success value)
+
+      #.None
+      (#error.Failure "Could not decode Frac"))))
+
+(do-template [<struct> <int> <base> <char-set> <error>]
+  [(structure: #export <struct> (Codec Text Frac)
+     (def: (encode value)
+       (let [whole (frac-to-int value)
+             whole-part (:: <int> encode whole)
+             decimal (:: ..number abs (f/% +1.0 value))
+             decimal-part (if (f/= +0.0 decimal)
+                            ".0"
+                            (loop [dec-left decimal
+                                   output ""]
+                              (if (f/= +0.0 dec-left)
+                                ("lux text concat" "." output)
+                                (let [shifted (f/* <base> dec-left)
+                                      digit-idx (|> shifted (f/% <base>) frac-to-int .nat)]
+                                  (recur (f/% +1.0 shifted)
+                                         ("lux text concat" output ("lux text clip" <char-set> digit-idx (inc digit-idx))))))))]
+         ("lux text concat" whole-part decimal-part)))
+
+     (def: (decode repr)
+       (case ("lux text index" repr "." 0)
+         (#.Some split-index)
+         (let [whole-part ("lux text clip" repr 0 split-index)
+               decimal-part ("lux text clip" repr (inc split-index) ("lux text size" repr))]
+           (case [(:: <int> decode whole-part)
+                  (:: <int> decode decimal-part)]
+             (^multi [(#error.Success whole) (#error.Success decimal)]
+                     (i/>= +0 decimal))
+             (let [sign (if (i/< +0 whole)
+                          -1.0
+                          +1.0)
+                   div-power (loop [muls-left ("lux text size" decimal-part)
+                                    output +1.0]
+                               (if (n/= 0 muls-left)
+                                 output
+                                 (recur (dec muls-left)
+                                        (f/* <base> output))))
+                   adjusted-decimal (|> decimal int-to-frac (f// div-power))
+                   dec-rev (case (:: //rev.hex decode ("lux text concat" "." decimal-part))
+                             (#error.Success dec-rev)
+                             dec-rev
+
+                             (#error.Failure error)
+                             (error! error))]
+               (#error.Success (f/+ (int-to-frac whole)
+                                    (f/* sign adjusted-decimal))))
+
+             _
+             (#error.Failure ("lux text concat" <error> repr))))
+
+         _
+         (#error.Failure ("lux text concat" <error> repr)))))]
+
+  [binary //int.binary +2.0 "01" "Invalid binary syntax: "]
+  )
+
+(def: (segment-digits chunk-size digits)
+  (-> Nat Text (List Text))
+  (case digits
+    ""
+    (list)
+
+    _
+    (let [num-digits ("lux text size" digits)]
+      (if (n/<= chunk-size num-digits)
+        (list digits)
+        (let [boundary (n/- chunk-size num-digits)
+              chunk ("lux text clip" digits boundary num-digits)
+              remaining ("lux text clip" digits 0 boundary)]
+          (list& chunk (segment-digits chunk-size remaining)))))))
+
+(def: (bin-segment-to-hex input)
+  (-> Text Text)
+  (case input
+    "0000" "0"
+    "0001" "1"
+    "0010" "2"
+    "0011" "3"
+    "0100" "4"
+    "0101" "5"
+    "0110" "6"
+    "0111" "7"
+    "1000" "8"
+    "1001" "9"
+    "1010" "A"
+    "1011" "B"
+    "1100" "C"
+    "1101" "D"
+    "1110" "E"
+    "1111" "F"
+    _ (undefined)))
+
+(def: (hex-segment-to-bin input)
+  (-> Text Text)
+  (case input
+    "0" "0000"
+    "1" "0001"
+    "2" "0010"
+    "3" "0011"
+    "4" "0100"
+    "5" "0101"
+    "6" "0110"
+    "7" "0111"
+    "8" "1000"
+    "9" "1001"
+    (^or "a" "A") "1010"
+    (^or "b" "B") "1011"
+    (^or "c" "C") "1100"
+    (^or "d" "D") "1101"
+    (^or "e" "E") "1110"
+    (^or "f" "F") "1111"
+    _ (undefined)))
+
+(def: (bin-segment-to-octal input)
+  (-> Text Text)
+  (case input
+    "000" "0"
+    "001" "1"
+    "010" "2"
+    "011" "3"
+    "100" "4"
+    "101" "5"
+    "110" "6"
+    "111" "7"
+    _ (undefined)))
+
+(def: (octal-segment-to-bin input)
+  (-> Text Text)
+  (case input
+    "0" "000"
+    "1" "001"
+    "2" "010"
+    "3" "011"
+    "4" "100"
+    "5" "101"
+    "6" "110"
+    "7" "111"
+    _ (undefined)))
+
+(def: (map f xs)
+  (All [a b] (-> (-> a b) (List a) (List b)))
+  (case xs
+    #.Nil
+    #.Nil
+    
+    (#.Cons x xs')
+    (#.Cons (f x) (map f xs'))))
+
+(def: (re-join-chunks xs)
+  (-> (List Text) Text)
+  (case xs
+    #.Nil
+    ""
+
+    (#.Cons x xs')
+    ("lux text concat" x (re-join-chunks xs'))))
+
+(do-template [<from> <from-translator> <to> <to-translator> <base-bits>]
+  [(def: (<from> on-left? input)
+     (-> Bit Text Text)
+     (let [max-num-chars (n// <base-bits> 64)
+           input-size ("lux text size" input)
+           zero-padding (let [num-digits-that-need-padding (n/% <base-bits> input-size)]
+                          (if (n/= 0 num-digits-that-need-padding)
+                            ""
+                            (loop [zeroes-left (n/- num-digits-that-need-padding
+                                                    <base-bits>)
+                                   output ""]
+                              (if (n/= 0 zeroes-left)
+                                output
+                                (recur (dec zeroes-left)
+                                       ("lux text concat" "0" output))))))
+           padded-input (if on-left?
+                          ("lux text concat" zero-padding input)
+                          ("lux text concat" input zero-padding))]
+       (|> padded-input
+           (segment-digits <base-bits>)
+           (map <from-translator>)
+           re-join-chunks)))
+
+   (def: <to>
+     (-> Text Text)
+     (|>> (segment-digits 1)
+          (map <to-translator>)
+          re-join-chunks))]
+
+  [binary-to-hex   bin-segment-to-hex   hex-to-binary   hex-segment-to-bin   4]
+  [binary-to-octal bin-segment-to-octal octal-to-binary octal-segment-to-bin 3]
+  )
+
+(do-template [<struct> <error> <from> <to>]
+  [(structure: #export <struct> (Codec Text Frac)
+     (def: (encode value)
+       (let [sign (:: ..number signum value)
+             raw-bin (:: ..binary encode value)
+             dot-idx (maybe.assume ("lux text index" raw-bin "." 0))
+             whole-part ("lux text clip" raw-bin
+                         (if (f/= -1.0 sign) 1 0)
+                         dot-idx)
+             decimal-part ("lux text clip" raw-bin (inc dot-idx) ("lux text size" raw-bin))
+             hex-output (|> (<from> #0 decimal-part)
+                            ("lux text concat" ".")
+                            ("lux text concat" (<from> #1 whole-part))
+                            ("lux text concat" (if (f/= -1.0 sign) "-" "")))]
+         hex-output))
+
+     (def: (decode repr)
+       (let [sign (case ("lux text index" repr "-" 0)
+                    (#.Some 0)
+                    -1.0
+
+                    _
+                    +1.0)]
+         (case ("lux text index" repr "." 0)
+           (#.Some split-index)
+           (let [whole-part ("lux text clip" repr 1 split-index)
+                 decimal-part ("lux text clip" repr (inc split-index) ("lux text size" repr))
+                 as-binary (|> (<to> decimal-part)
+                               ("lux text concat" ".")
+                               ("lux text concat" (<to> whole-part))
+                               ("lux text concat" (if (f/= -1.0 sign) "-" "+")))]
+             (case (:: ..binary decode as-binary)
+               (#error.Failure _)
+               (#error.Failure ("lux text concat" <error> repr))
+
+               output
+               output))
+
+           _
+           (#error.Failure ("lux text concat" <error> repr))))))]
+
+  [octal "Invalid octaladecimal syntax: " binary-to-octal octal-to-binary]
+  [hex   "Invalid hexadecimal syntax: "   binary-to-hex   hex-to-binary]
+  )
+
+(def: (log2 input)
+  (-> Frac Frac)
+  (f// (math.log +2.0)
+       (math.log input)))
+
+(def: double-bias Nat 1023)
+
+(def: mantissa-size Nat 52)
+(def: exponent-size Nat 11)
+
+(do-template [<hex> <name>]
+  [(def: <name> (|> <hex> (:: //nat.hex decode) error.assume .i64))]
+
+  ["7FF7FFFFFFFFFFFF" not-a-number-bits]
+  ["7FF0000000000000" positive-infinity-bits]
+  ["FFF0000000000000" negative-infinity-bits]
+  ["0000000000000000" positive-zero-bits]
+  ["8000000000000000" negative-zero-bits]
+  ["7FF" special-exponent-bits]
+  )
+
+(def: #export (frac-to-bits input)
+  (-> Frac I64)
+  (i64 (cond (not-a-number? input)
+             ..not-a-number-bits
+
+             (f/= positive-infinity input)
+             ..positive-infinity-bits
+
+             (f/= negative-infinity input)
+             ..negative-infinity-bits
+
+             (f/= +0.0 input)
+             (let [reciprocal (f// input +1.0)]
+               (if (f/= positive-infinity reciprocal)
+                 ## Positive zero
+                 ..positive-zero-bits
+                 ## Negative zero
+                 ..negative-zero-bits))
+
+             ## else
+             (let [sign (:: ..number signum input)
+                   input (:: ..number abs input)
+                   exponent (math.floor (log2 input))
+                   exponent-mask (|> 1 (//i64.left-shift exponent-size) dec) 
+                   mantissa (|> input
+                                ## Normalize
+                                (f// (math.pow exponent +2.0))
+                                ## Make it int-equivalent
+                                (f/* (math.pow +52.0 +2.0)))
+                   sign-bit (if (f/= -1.0 sign) 1 0)
+                   exponent-bits (|> exponent frac-to-int .nat (n/+ double-bias) (//i64.and exponent-mask))
+                   mantissa-bits (|> mantissa frac-to-int .nat)]
+               ($_ //i64.or
+                   (//i64.left-shift 63 sign-bit)
+                   (//i64.left-shift mantissa-size exponent-bits)
+                   (//i64.clear mantissa-size mantissa-bits)))
+             )))
+
+(do-template [<getter> <mask> <size> <offset>]
+  [(def: <mask> (|> 1 (//i64.left-shift <size>) dec (//i64.left-shift <offset>)))
+   (def: (<getter> input)
+     (-> (I64 Any) I64)
+     (|> input (//i64.and <mask>) (//i64.logical-right-shift <offset>) i64))]
+
+  [mantissa mantissa-mask mantissa-size 0]
+  [exponent exponent-mask exponent-size mantissa-size]
+  [sign     sign-mask     1            (n/+ exponent-size mantissa-size)]
+  )
+
+(def: #export (bits-to-frac input)
+  (-> (I64 Any) Frac)
+  (let [S (sign input)
+        E (exponent input)
+        M (mantissa input)]
+    (cond (n/= ..special-exponent-bits E)
+          (if (n/= 0 M)
+            (if (n/= 0 S)
+              ..positive-infinity
+              ..negative-infinity)
+            ..not-a-number)
+
+          (and (n/= 0 E) (n/= 0 M))
+          (if (n/= 0 S)
+            +0.0
+            (f/* -1.0 +0.0))
+
+          ## else
+          (let [normalized (|> M (//i64.set mantissa-size)
+                               .int int-to-frac
+                               (f// (math.pow +52.0 +2.0)))
+                power (math.pow (|> E (n/- double-bias)
+                                    .int int-to-frac)
+                                +2.0)
+                shifted (f/* power
+                             normalized)]
+            (if (n/= 0 S)
+              shifted
+              (f/* -1.0 shifted))))))
+
+(structure: #export hash (Hash Frac)
+  (def: &equivalence ..equivalence)
+  (def: hash frac-to-bits))

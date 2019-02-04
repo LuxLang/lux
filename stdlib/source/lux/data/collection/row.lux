@@ -15,8 +15,8 @@
     [number
      ["." i64]]
     [collection
-     ["." list ("list/." Fold<List> Functor<List> Monoid<List>)]
-     ["." array (#+ Array) ("array/." Functor<Array> Fold<Array>)]]]
+     ["." list ("list/." fold functor monoid)]
+     ["." array (#+ Array) ("array/." functor fold)]]]
    [macro (#+ with-gensyms)
     ["." code]
     ["s" syntax (#+ syntax: Syntax)]]])
@@ -141,7 +141,7 @@
           #.None
 
           (n/> branching-exponent level)
-          (do maybe.Monad<Maybe>
+          (do maybe.monad
             [base|hierarchy (array.read sub-idx hierarchy)
              sub (case base|hierarchy
                    (#Hierarchy sub)
@@ -250,7 +250,7 @@
 
 (def: #export (nth idx vec)
   (All [a] (-> Nat (Row a) (Maybe a)))
-  (do maybe.Monad<Maybe>
+  (do maybe.monad
     [base (base-for idx vec)]
     (array.read (branch-idx idx) base)))
 
@@ -297,7 +297,7 @@
             (set@ #tail (|> (array.new new-tail-size)
                             (array.copy new-tail-size 0 old-tail 0)))))
       (maybe.assume
-       (do maybe.Monad<Maybe>
+       (do maybe.monad
          [new-tail (base-for (n/- 2 vec-size) vec)
           #let [[level' root'] (let [init-level (get@ #level vec)]
                                  (loop [level init-level
@@ -345,28 +345,28 @@
   (wrap (list (` (from-list (list (~+ elems)))))))
 
 ## [Structures]
-(structure: #export (Equivalence<Node> Equivalence<a>) (All [a] (-> (Equivalence a) (Equivalence (Node a))))
+(structure: #export (node-equivalence Equivalence<a>) (All [a] (-> (Equivalence a) (Equivalence (Node a))))
   (def: (= v1 v2)
     (case [v1 v2]
       [(#Base b1) (#Base b2)]
-      (:: (array.Equivalence<Array> Equivalence<a>) = b1 b2)
+      (:: (array.equivalence Equivalence<a>) = b1 b2)
       
       [(#Hierarchy h1) (#Hierarchy h2)]
-      (:: (array.Equivalence<Array> (Equivalence<Node> Equivalence<a>)) = h1 h2)
+      (:: (array.equivalence (node-equivalence Equivalence<a>)) = h1 h2)
 
       _
       #0)))
 
-(structure: #export (Equivalence<Row> Equivalence<a>) (All [a] (-> (Equivalence a) (Equivalence (Row a))))
+(structure: #export (equivalence Equivalence<a>) (All [a] (-> (Equivalence a) (Equivalence (Row a))))
   (def: (= v1 v2)
     (and (n/= (get@ #size v1) (get@ #size v2))
-         (let [(^open "Node/.") (Equivalence<Node> Equivalence<a>)]
+         (let [(^open "Node/.") (node-equivalence Equivalence<a>)]
            (and (Node/= (#Base (get@ #tail v1))
                         (#Base (get@ #tail v2)))
                 (Node/= (#Hierarchy (get@ #root v1))
                         (#Hierarchy (get@ #root v2))))))))
 
-(structure: _ (Fold Node)
+(structure: node-fold (Fold Node)
   (def: (fold f init xs)
     (case xs
       (#Base base)
@@ -377,21 +377,22 @@
                   init
                   hierarchy))))
 
-(structure: #export _ (Fold Row)
+(structure: #export fold (Fold Row)
   (def: (fold f init xs)
-    (let [(^open ".") Fold<Node>]
+    (let [(^open ".") node-fold]
       (fold f
             (fold f
                   init
                   (#Hierarchy (get@ #root xs)))
             (#Base (get@ #tail xs))))))
 
-(structure: #export Monoid<Row> (All [a] (Monoid (Row a)))
+(structure: #export monoid (All [a] (Monoid (Row a)))
   (def: identity ..empty)
+  
   (def: (compose xs ys)
     (list/fold add xs (..to-list ys))))
 
-(structure: _ (Functor Node)
+(structure: node-functor (Functor Node)
   (def: (map f xs)
     (case xs
       (#Base base)
@@ -400,40 +401,40 @@
       (#Hierarchy hierarchy)
       (#Hierarchy (array/map (map f) hierarchy)))))
 
-(structure: #export _ (Functor Row)
+(structure: #export functor (Functor Row)
   (def: (map f xs)
     {#level (get@ #level xs)
      #size (get@ #size xs)
-     #root (|> xs (get@ #root) (array/map (:: Functor<Node> map f)))
+     #root (|> xs (get@ #root) (array/map (:: node-functor map f)))
      #tail (|> xs (get@ #tail) (array/map f))}))
 
-(structure: #export _ (Apply Row)
-  (def: functor Functor<Row>)
+(structure: #export apply (Apply Row)
+  (def: &functor ..functor)
 
   (def: (apply ff fa)
-    (let [(^open ".") Functor<Row>
-          (^open ".") Fold<Row>
-          (^open ".") Monoid<Row>
+    (let [(^open ".") ..functor
+          (^open ".") ..fold
+          (^open ".") ..monoid
           results (map (function (_ f) (map f fa))
                        ff)]
       (fold compose identity results))))
 
-(structure: #export _ (Monad Row)
-  (def: functor Functor<Row>)
+(structure: #export monad (Monad Row)
+  (def: &functor ..functor)
 
   (def: wrap (|>> row))
 
   (def: join
-    (let [(^open ".") Fold<Row>
-          (^open ".") Monoid<Row>]
+    (let [(^open ".") ..fold
+          (^open ".") ..monoid]
       (fold (function (_ post pre) (compose pre post)) identity))))
 
 ## TODO: This definition of 'reverse' shouldn't work correctly.
 ## Investigate if/why it does.
 (def: #export reverse
   (All [a] (-> (Row a) (Row a)))
-  (let [(^open ".") Fold<Row>
-        (^open ".") Monoid<Row>]
+  (let [(^open ".") ..fold
+        (^open ".") ..monoid]
     (fold add identity)))
 
 (do-template [<name> <array> <init> <op>]

@@ -2,14 +2,14 @@
   [lux #*
    [control
     monad
-    ["p" parser ("parser/." Monad<Parser>)]]
+    ["p" parser ("parser/." monad)]]
    [data
     ["." product]
     ["." error]
     ["." maybe]
-    ["." number (#+ hex) ("int/." Codec<Text,Int>)]
+    ["." number (#+ hex) ("int/." codec)]
     [collection
-     ["." list ("list/." Fold<List> Monad<List>)]]]
+     ["." list ("list/." fold monad)]]]
    ["." macro (#+ with-gensyms)
     ["." code]
     ["s" syntax (#+ syntax:)]]]
@@ -24,7 +24,7 @@
 
 (def: escaped-char^
   (l.Lexer Text)
-  (do p.Monad<Parser>
+  (do p.monad
     [? (l.this? "\")]
     (if ?
       l.any
@@ -32,7 +32,7 @@
 
 (def: (refine^ refinement^ base^)
   (All [a] (-> (l.Lexer a) (l.Lexer Text) (l.Lexer Text)))
-  (do p.Monad<Parser>
+  (do p.monad
     [output base^
      _ (l.local output refinement^)]
     (wrap output)))
@@ -48,7 +48,7 @@
 
 (def: (join-text^ part^)
   (-> (l.Lexer (List Text)) (l.Lexer Text))
-  (do p.Monad<Parser>
+  (do p.monad
     [parts part^]
     (wrap (//.join-with "" parts))))
 
@@ -58,7 +58,7 @@
 
 (def: name-part^
   (l.Lexer Text)
-  (do p.Monad<Parser>
+  (do p.monad
     [head (refine^ (l.not l.decimal)
                    name-char^)
      tail (l.some name-char^)]
@@ -74,13 +74,13 @@
 
 (def: (re-var^ current-module)
   (-> Text (l.Lexer Code))
-  (do p.Monad<Parser>
+  (do p.monad
     [name (l.enclosed ["\@<" ">"] (name^ current-module))]
     (wrap (` (: (l.Lexer Text) (~ (code.identifier name)))))))
 
 (def: re-range^
   (l.Lexer Code)
-  (do p.Monad<Parser>
+  (do p.monad
     [from (|> regex-char^ (:: @ map (|>> (//.nth 0) maybe.assume)))
      _ (l.this "-")
      to (|> regex-char^ (:: @ map (|>> (//.nth 0) maybe.assume)))]
@@ -88,19 +88,19 @@
 
 (def: re-char^
   (l.Lexer Code)
-  (do p.Monad<Parser>
+  (do p.monad
     [char escaped-char^]
     (wrap (` ((~! ..copy) (~ (code.text char)))))))
 
 (def: re-options^
   (l.Lexer Code)
-  (do p.Monad<Parser>
+  (do p.monad
     [options (l.many escaped-char^)]
     (wrap (` (l.one-of (~ (code.text options)))))))
 
 (def: re-user-class^'
   (l.Lexer Code)
-  (do p.Monad<Parser>
+  (do p.monad
     [negate? (p.maybe (l.this "^"))
      parts (p.many ($_ p.either
                        re-range^
@@ -111,7 +111,7 @@
 
 (def: re-user-class^
   (l.Lexer Code)
-  (do p.Monad<Parser>
+  (do p.monad
     [_ (wrap [])
      init re-user-class^'
      rest (p.some (p.after (l.this "&&") (l.enclosed ["[" "]"] re-user-class^')))]
@@ -149,7 +149,7 @@
 
 (def: re-system-class^
   (l.Lexer Code)
-  (do p.Monad<Parser>
+  (do p.monad
     []
     ($_ p.either
         (p.after (l.this ".") (wrap (` l.any)))
@@ -184,15 +184,15 @@
 (def: number^
   (l.Lexer Nat)
   (|> (l.many l.decimal)
-      (p.codec number.Codec<Text,Nat>)))
+      (p.codec number.codec)))
 
 (def: re-back-reference^
   (l.Lexer Code)
-  (p.either (do p.Monad<Parser>
+  (p.either (do p.monad
               [_ (l.this "\")
                id number^]
               (wrap (` ((~! ..copy) (~ (code.identifier ["" (int/encode (.int id))]))))))
-            (do p.Monad<Parser>
+            (do p.monad
               [_ (l.this "\k<")
                captured-name name-part^
                _ (l.this ">")]
@@ -209,7 +209,7 @@
 
 (def: (re-simple-quantified^ current-module)
   (-> Text (l.Lexer Code))
-  (do p.Monad<Parser>
+  (do p.monad
     [base (re-simple^ current-module)
      quantifier (l.one-of "?*+")]
     (case quantifier
@@ -226,7 +226,7 @@
 
 (def: (re-counted-quantified^ current-module)
   (-> Text (l.Lexer Code))
-  (do p.Monad<Parser>
+  (do p.monad
     [base (re-simple^ current-module)]
     (l.enclosed ["{" "}"]
                 ($_ p.either
@@ -265,7 +265,7 @@
       (-> Text (l.Lexer [Re-Group Code]))
       Text
       (l.Lexer [Nat Code]))
-  (do p.Monad<Parser>
+  (do p.monad
     [parts (p.many (p.or (re-complex^ current-module)
                          (re-scoped^ current-module)))
      #let [g!total (code.identifier ["" "0total"])
@@ -279,7 +279,7 @@
                                              [idx
                                               names
                                               (list& (list g!temp complex
-                                                           (' #let) (` [(~ g!total) (:: (~! //.Monoid<Text>) (~' compose) (~ g!total) (~ g!temp))]))
+                                                           (' #let) (` [(~ g!total) (:: (~! //.monoid) (~' compose) (~ g!total) (~ g!temp))]))
                                                      steps)]
                                              
                                              (#.Right [(#Capturing [?name num-captures]) scoped])
@@ -295,7 +295,7 @@
                                                [idx!
                                                 (list& name! names)
                                                 (list& (list name! scoped
-                                                             (' #let) (` [(~ g!total) (:: (~! //.Monoid<Text>) (~' compose) (~ g!total) (~ access))]))
+                                                             (' #let) (` [(~ g!total) (:: (~! //.monoid) (~' compose) (~ g!total) (~ access))]))
                                                        steps)])
                                              )))
                                       [+0
@@ -305,7 +305,7 @@
     (wrap [(if capturing?
              (list.size names)
              0)
-           (` (do p.Monad<Parser>
+           (` (do p.monad
                 [(~ (' #let)) [(~ g!total) ""]
                  (~+ (|> steps list.reverse list/join))]
                 ((~ (' wrap)) [(~ g!total) (~+ (list.reverse names))])))])
@@ -313,7 +313,7 @@
 
 (def: (unflatten^ lexer)
   (-> (l.Lexer Text) (l.Lexer [Text Any]))
-  (p.and lexer (:: p.Monad<Parser> wrap [])))
+  (p.and lexer (:: p.monad wrap [])))
 
 (def: (|||^ left right)
   (All [l r] (-> (l.Lexer [Text l]) (l.Lexer [Text r]) (l.Lexer [Text (| l r)])))
@@ -356,7 +356,7 @@
       (-> Text (l.Lexer [Re-Group Code]))
       Text
       (l.Lexer [Nat Code]))
-  (do p.Monad<Parser>
+  (do p.monad
     [#let [sub^ (re-sequential^ capturing? re-scoped^ current-module)]
      head sub^
      tail (p.some (p.after (l.this "|") sub^))
@@ -374,22 +374,22 @@
 (def: (re-scoped^ current-module)
   (-> Text (l.Lexer [Re-Group Code]))
   ($_ p.either
-      (do p.Monad<Parser>
+      (do p.monad
         [_ (l.this "(?:")
          [_ scoped] (re-alternative^ #0 re-scoped^ current-module)
          _ (l.this ")")]
         (wrap [#Non-Capturing scoped]))
-      (do p.Monad<Parser>
+      (do p.monad
         [complex (re-complex^ current-module)]
         (wrap [#Non-Capturing complex]))
-      (do p.Monad<Parser>
+      (do p.monad
         [_ (l.this "(?<")
          captured-name name-part^
          _ (l.this ">")
          [num-captures pattern] (re-alternative^ #1 re-scoped^ current-module)
          _ (l.this ")")]
         (wrap [(#Capturing [(#.Some captured-name) num-captures]) pattern]))
-      (do p.Monad<Parser>
+      (do p.monad
         [_ (l.this "(")
          [num-captures pattern] (re-alternative^ #1 re-scoped^ current-module)
          _ (l.this ")")]
@@ -397,7 +397,7 @@
 
 (def: (regex^ current-module)
   (-> Text (l.Lexer Code))
-  (:: p.Monad<Parser> map product.right (re-alternative^ #1 re-scoped^ current-module)))
+  (:: p.monad map product.right (re-alternative^ #1 re-scoped^ current-module)))
 
 ## [Syntax]
 (syntax: #export (regex {pattern s.text})

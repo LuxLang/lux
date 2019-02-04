@@ -8,14 +8,15 @@
    [data
     ["." product]
     ["." maybe]
-    ["." number (#+ hex)
+    [number (#+ hex)
      ["." i64]
      ["r" ratio]
-     ["c" complex]]
-    ["." text ("text/." Monoid<Text>)
-     ["." unicode (#+ Char Segment)]]
+     ["c" complex]
+     ["." frac]]
+    ["." text (#+ Char) ("text/." monoid)
+     ["." unicode (#+ Segment)]]
     [collection
-     ["." list ("list/." Fold<List>)]
+     ["." list ("list/." fold)]
      ["." array (#+ Array)]
      ["." dictionary (#+ Dictionary)]
      ["." queue (#+ Queue)]
@@ -35,14 +36,14 @@
   {#.doc "A producer of random values based on a PRNG."}
   (-> PRNG [PRNG a]))
 
-(structure: #export _ (Functor Random)
+(structure: #export functor (Functor Random)
   (def: (map f fa)
     (function (_ state)
       (let [[state' a] (fa state)]
         [state' (f a)]))))
 
-(structure: #export _ (Apply Random)
-  (def: functor Functor<Random>)
+(structure: #export apply (Apply Random)
+  (def: &functor ..functor)
 
   (def: (apply ff fa)
     (function (_ state)
@@ -50,8 +51,8 @@
             [state'' a] (fa state')]
         [state'' (f a)]))))
 
-(structure: #export _ (Monad Random)
-  (def: functor Functor<Random>)
+(structure: #export monad (Monad Random)
+  (def: &functor ..functor)
 
   (def: (wrap a)
     (function (_ state)
@@ -65,7 +66,7 @@
 (def: #export (filter pred gen)
   {#.doc "Retries the generator until the output satisfies a predicate."}
   (All [a] (-> (-> a Bit) (Random a) (Random a)))
-  (do Monad<Random>
+  (do ..monad
     [sample gen]
     (if (pred sample)
       (wrap sample)
@@ -74,7 +75,7 @@
 (def: #export (refine refiner gen)
   {#.doc "Retries the generator until the output can be refined."}
   (All [t r] (-> (Refiner t r) (Random t) (Random (Refined t r))))
-  (do Monad<Random>
+  (do ..monad
     [sample gen]
     (case (refiner sample)
       (#.Some refined)
@@ -101,7 +102,7 @@
 (do-template [<name> <type> <cast>]
   [(def: #export <name>
      (Random <type>)
-     (:: Monad<Random> map <cast> ..i64))]
+     (:: ..monad map <cast> ..i64))]
 
   [nat Nat .nat]
   [int Int .int]
@@ -110,7 +111,7 @@
 
 (def: #export frac
   (Random Frac)
-  (:: Monad<Random> map number.bits-to-frac nat))
+  (:: ..monad map frac.bits-to-frac ..nat))
 
 (def: #export (char set)
   (-> unicode.Set (Random Char))
@@ -120,7 +121,7 @@
         in-range (: (-> Char Char)
                     (|>> (n/% size) (n/+ start)))]
     (|> nat
-        (:: Monad<Random> map in-range)
+        (:: ..monad map in-range)
         (..filter (function (_ char)
                     (finger.found? (function (_ segment)
                                      (unicode.within? segment char))
@@ -129,8 +130,8 @@
 (def: #export (text char-gen size)
   (-> (Random Char) Nat (Random Text))
   (if (n/= 0 size)
-    (:: Monad<Random> wrap "")
-    (do Monad<Random>
+    (:: ..monad wrap "")
+    (do ..monad
       [x char-gen
        xs (text char-gen (dec size))]
       (wrap (text/compose (text.from-code x) xs)))))
@@ -150,7 +151,7 @@
 (do-template [<name> <type> <ctor> <gen>]
   [(def: #export <name>
      (Random <type>)
-     (do Monad<Random>
+     (do ..monad
        [left <gen>
         right <gen>]
        (wrap (<ctor> left right))))]
@@ -162,7 +163,7 @@
 (def: #export (and left right)
   {#.doc "Sequencing combinator."}
   (All [a b] (-> (Random a) (Random b) (Random [a b])))
-  (do Monad<Random>
+  (do ..monad
     [=left left
      =right right]
     (wrap [=left =right])))
@@ -170,7 +171,7 @@
 (def: #export (or left right)
   {#.doc "Heterogeneous alternative combinator."}
   (All [a b] (-> (Random a) (Random b) (Random (| a b))))
-  (do Monad<Random>
+  (do ..monad
     [? bit]
     (if ?
       (do @
@@ -183,7 +184,7 @@
 (def: #export (either left right)
   {#.doc "Homogeneous alternative combinator."}
   (All [a] (-> (Random a) (Random a) (Random a)))
-  (do Monad<Random>
+  (do ..monad
     [? bit]
     (if ?
       left
@@ -198,7 +199,7 @@
 
 (def: #export (maybe value-gen)
   (All [a] (-> (Random a) (Random (Maybe a))))
-  (do Monad<Random>
+  (do ..monad
     [some? bit]
     (if some?
       (do @
@@ -210,11 +211,11 @@
   [(def: #export (<name> size value-gen)
      (All [a] (-> Nat (Random a) (Random (<type> a))))
      (if (n/> 0 size)
-       (do Monad<Random>
+       (do ..monad
          [x value-gen
           xs (<name> (dec size) value-gen)]
          (wrap (<plus> x xs)))
-       (:: Monad<Random> wrap <zero>)))]
+       (:: ..monad wrap <zero>)))]
 
   [list     List   (.list)      #.Cons]
   [row Row row.empty row.add]
@@ -223,7 +224,7 @@
 (do-template [<name> <type> <ctor>]
   [(def: #export (<name> size value-gen)
      (All [a] (-> Nat (Random a) (Random (<type> a))))
-     (do Monad<Random>
+     (do ..monad
        [values (list size value-gen)]
        (wrap (|> values <ctor>))))]
 
@@ -235,7 +236,7 @@
 (def: #export (set Hash<a> size value-gen)
   (All [a] (-> (Hash a) Nat (Random a) (Random (Set a))))
   (if (n/> 0 size)
-    (do Monad<Random>
+    (do ..monad
       [xs (set Hash<a> (dec size) value-gen)]
       (loop [_ []]
         (do @
@@ -244,12 +245,12 @@
           (if (n/= size (set.size xs+))
             (wrap xs+)
             (recur [])))))
-    (:: Monad<Random> wrap (set.new Hash<a>))))
+    (:: ..monad wrap (set.new Hash<a>))))
 
 (def: #export (dictionary Hash<a> size key-gen value-gen)
   (All [k v] (-> (Hash k) Nat (Random k) (Random v) (Random (Dictionary k v))))
   (if (n/> 0 size)
-    (do Monad<Random>
+    (do ..monad
       [kv (dictionary Hash<a> (dec size) key-gen value-gen)]
       (loop [_ []]
         (do @
@@ -259,7 +260,7 @@
           (if (n/= size (dictionary.size kv+))
             (wrap kv+)
             (recur [])))))
-    (:: Monad<Random> wrap (dictionary.new Hash<a>))))
+    (:: ..monad wrap (dictionary.new Hash<a>))))
 
 (def: #export (run prng calc)
   (All [a] (-> PRNG (Random a) [PRNG a]))

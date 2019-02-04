@@ -3,23 +3,24 @@
    [control
     [functor (#+ Functor)]
     [apply (#+ Apply)]
-    ["." monad (#+ do Monad)]]
+    ["." monad (#+ Monad do)]]
    [data
     ["." product]
-    [name ("name/." Codec<Text,Name> Equivalence<Name>)]
+    [name ("name/." codec equivalence)]
     ["." maybe]
     ["." error (#+ Error)]
-    ["." number ("nat/." Codec<Text,Nat>)]
-    ["." text ("text/." Monoid<Text> Equivalence<Text>)]
+    [number
+     ["." nat ("nat/." decimal)]]
+    ["." text ("text/." monoid equivalence)]
     [collection
-     ["." list ("list/." Monoid<List> Monad<List>)]]]]
+     ["." list ("list/." monoid monad)]]]]
   [/
    ["." code]])
 
 ## (type: (Meta a)
 ##   (-> Lux (Error [Lux a])))
 
-(structure: #export _ (Functor Meta)
+(structure: #export functor (Functor Meta)
   (def: (map f fa)
     (function (_ compiler)
       (case (fa compiler)
@@ -29,8 +30,8 @@
         (#error.Success [compiler' a])
         (#error.Success [compiler' (f a)])))))
 
-(structure: #export _ (Apply Meta)
-  (def: functor Functor<Meta>)
+(structure: #export apply (Apply Meta)
+  (def: &functor ..functor)
 
   (def: (apply ff fa)
     (function (_ compiler)
@@ -46,8 +47,8 @@
         (#error.Failure msg)
         (#error.Failure msg)))))
 
-(structure: #export _ (Monad Meta)
-  (def: functor Functor<Meta>)
+(structure: #export monad (Monad Meta)
+  (def: &functor ..functor)
 
   (def: (wrap x)
     (function (_ compiler)
@@ -136,7 +137,7 @@
 
 (def: #export current-module
   (Meta Module)
-  (do Monad<Meta>
+  (do ..monad
     [this-module-name current-module-name]
     (find-module this-module-name)))
 
@@ -236,7 +237,7 @@
      {#.doc <desc>}
      (-> Code (List Text))
      (maybe.default (list)
-                    (do maybe.Monad<Maybe>
+                    (do maybe.monad
                       [_args (get-ann (name-of <tag>) anns)
                        args (parse-tuple _args)]
                       (monad.map @ parse-text args))))]
@@ -249,7 +250,7 @@
 (def: (find-macro' modules this-module module name)
   (-> (List [Text Module]) Text Text Text
       (Maybe Macro))
-  (do maybe.Monad<Maybe>
+  (do maybe.monad
     [$module (get module modules)
      [def-type def-anns def-value] (: (Maybe Definition) (|> (: Module $module) (get@ #.definitions) (get name)))]
     (if (and (macro? def-anns)
@@ -269,16 +270,16 @@
   (-> Name (Meta Name))
   (case name
     ["" name]
-    (do Monad<Meta>
+    (do ..monad
       [module-name current-module-name]
       (wrap [module-name name]))
 
     _
-    (:: Monad<Meta> wrap name)))
+    (:: ..monad wrap name)))
 
 (def: #export (find-macro full-name)
   (-> Name (Meta (Maybe Macro)))
-  (do Monad<Meta>
+  (do ..monad
     [[module name] (normalize full-name)
      this-module current-module-name]
     (: (Meta (Maybe Macro))
@@ -291,17 +292,17 @@
   (-> Code (Meta (List Code)))
   (case syntax
     [_ (#.Form (#.Cons [[_ (#.Identifier name)] args]))]
-    (do Monad<Meta>
+    (do ..monad
       [?macro (find-macro name)]
       (case ?macro
         (#.Some macro)
         (macro args)
         
         #.None
-        (:: Monad<Meta> wrap (list syntax))))
+        (:: ..monad wrap (list syntax))))
 
     _
-    (:: Monad<Meta> wrap (list syntax))))
+    (:: ..monad wrap (list syntax))))
 
 (def: #export (expand syntax)
   {#.doc (doc "Given code that requires applying a macro, expands repeatedly until no more direct macro-calls are left."
@@ -309,53 +310,53 @@
   (-> Code (Meta (List Code)))
   (case syntax
     [_ (#.Form (#.Cons [[_ (#.Identifier name)] args]))]
-    (do Monad<Meta>
+    (do ..monad
       [?macro (find-macro name)]
       (case ?macro
         (#.Some macro)
-        (do Monad<Meta>
+        (do ..monad
           [expansion (macro args)
-           expansion' (monad.map Monad<Meta> expand expansion)]
+           expansion' (monad.map ..monad expand expansion)]
           (wrap (list/join expansion')))
         
         #.None
-        (:: Monad<Meta> wrap (list syntax))))
+        (:: ..monad wrap (list syntax))))
 
     _
-    (:: Monad<Meta> wrap (list syntax))))
+    (:: ..monad wrap (list syntax))))
 
 (def: #export (expand-all syntax)
   {#.doc "Expands all macro-calls everywhere recursively, until only primitive/base code remains."}
   (-> Code (Meta (List Code)))
   (case syntax
     [_ (#.Form (#.Cons [[_ (#.Identifier name)] args]))]
-    (do Monad<Meta>
+    (do ..monad
       [?macro (find-macro name)]
       (case ?macro
         (#.Some macro)
-        (do Monad<Meta>
+        (do ..monad
           [expansion (macro args)
-           expansion' (monad.map Monad<Meta> expand-all expansion)]
+           expansion' (monad.map ..monad expand-all expansion)]
           (wrap (list/join expansion')))
         
         #.None
-        (do Monad<Meta>
-          [parts' (monad.map Monad<Meta> expand-all (list& (code.identifier name) args))]
+        (do ..monad
+          [parts' (monad.map ..monad expand-all (list& (code.identifier name) args))]
           (wrap (list (code.form (list/join parts')))))))
 
     [_ (#.Form (#.Cons [harg targs]))]
-    (do Monad<Meta>
+    (do ..monad
       [harg+ (expand-all harg)
-       targs+ (monad.map Monad<Meta> expand-all targs)]
+       targs+ (monad.map ..monad expand-all targs)]
       (wrap (list (code.form (list/compose harg+ (list/join (: (List (List Code)) targs+)))))))
 
     [_ (#.Tuple members)]
-    (do Monad<Meta>
-      [members' (monad.map Monad<Meta> expand-all members)]
+    (do ..monad
+      [members' (monad.map ..monad expand-all members)]
       (wrap (list (code.tuple (list/join members')))))
 
     _
-    (:: Monad<Meta> wrap (list syntax))))
+    (:: ..monad wrap (list syntax))))
 
 (def: #export count
   (Meta Nat)
@@ -371,7 +372,7 @@
     (#error.Success [(update@ #.seed inc compiler)
                      (|> compiler
                          (get@ #.seed)
-                         (:: number.Codec<Text,Nat> encode)
+                         (:: nat.decimal encode)
                          ($_ text/compose "__gensym__" prefix)
                          [""] code.identifier)])))
 
@@ -379,7 +380,7 @@
   (-> Code (Meta Text))
   (case ast
     [_ (#.Identifier [_ name])]
-    (:: Monad<Meta> wrap name)
+    (:: ..monad wrap name)
 
     _
     (fail (text/compose "Code is not a local identifier: " (code.to-text ast)))))
@@ -401,12 +402,12 @@
                   )))}
   (case tokens
     (^ (list [_ (#.Tuple identifiers)] body))
-    (do Monad<Meta>
+    (do ..monad
       [identifier-names (monad.map @ get-local-identifier identifiers)
        #let [identifier-defs (list/join (list/map (: (-> Text (List Code))
                                                      (function (_ name) (list (code.identifier ["" name]) (` (gensym (~ (code.text name)))))))
                                                   identifier-names))]]
-      (wrap (list (` ((~! do) (~! Monad<Meta>)
+      (wrap (list (` ((~! do) (~! ..monad)
                       [(~+ identifier-defs)]
                       (~ body))))))
 
@@ -416,7 +417,7 @@
 (def: #export (expand-1 token)
   {#.doc "Works just like expand, except that it ensures that the output is a single Code token."}
   (-> Code (Meta Code))
-  (do Monad<Meta>
+  (do ..monad
     [token+ (expand token)]
     (case token+
       (^ (list token'))
@@ -468,7 +469,7 @@
         (#error.Success [compiler type'])))
 
     _
-    (:: Monad<Meta> wrap type)))
+    (:: ..monad wrap type)))
 
 (def: #export (find-var-type name)
   {#.doc "Looks-up the type of a local variable somewhere in the environment."}
@@ -476,7 +477,7 @@
   (function (_ compiler)
     (let [test (: (-> [Text [Type Any]] Bit)
                   (|>> product.left (text/= name)))]
-      (case (do maybe.Monad<Maybe>
+      (case (do maybe.monad
               [scope (list.find (function (_ env)
                                   (or (list.any? test (: (List [Text [Type Any]])
                                                          (get@ [#.locals #.mappings] env)))
@@ -498,11 +499,11 @@
 (def: #export (find-def name)
   {#.doc "Looks-up a definition's whole data in the available modules (including the current one)."}
   (-> Name (Meta Definition))
-  (do Monad<Meta>
+  (do ..monad
     [name (normalize name)]
     (function (_ compiler)
       (case (: (Maybe Definition)
-               (do maybe.Monad<Maybe>
+               (do maybe.monad
                  [#let [[v-prefix v-name] name]
                   (^slots [#.definitions]) (get v-prefix (get@ #.modules compiler))]
                  (get v-name definitions)))
@@ -527,14 +528,14 @@
 (def: #export (find-def-type name)
   {#.doc "Looks-up a definition's type in the available modules (including the current one)."}
   (-> Name (Meta Type))
-  (do Monad<Meta>
+  (do ..monad
     [[def-type def-data def-value] (find-def name)]
     (clean-type def-type)))
 
 (def: #export (find-type name)
   {#.doc "Looks-up the type of either a local variable or a definition."}
   (-> Name (Meta Type))
-  (do Monad<Meta>
+  (do ..monad
     [#let [[_ _name] name]]
     (case name
       ["" _name]
@@ -547,7 +548,7 @@
 (def: #export (find-type-def name)
   {#.doc "Finds the value of a type definition (such as Int, Any or Lux)."}
   (-> Name (Meta Type))
-  (do Monad<Meta>
+  (do ..monad
     [[def-type def-data def-value] (find-def name)]
     (wrap (:coerce Type def-value))))
 
@@ -563,7 +564,7 @@
 (def: #export (exports module-name)
   {#.doc "All the exported definitions in a module."}
   (-> Text (Meta (List [Text Definition])))
-  (do Monad<Meta>
+  (do ..monad
     [definitions (definitions module-name)]
     (wrap (list.filter (function (_ [name [def-type def-anns def-value]])
                          (export? def-anns))
@@ -581,7 +582,7 @@
 (def: #export (tags-of type-name)
   {#.doc "All the tags associated with a type definition."}
   (-> Name (Meta (Maybe (List Name))))
-  (do Monad<Meta>
+  (do ..monad
     [#let [[module name] type-name]
      module (find-module module)]
     (case (get name (get@ #.types module))
@@ -611,19 +612,19 @@
 (def: #export (imported-modules module-name)
   {#.doc "All the modules imported by a specified module."}
   (-> Text (Meta (List Text)))
-  (do Monad<Meta>
+  (do ..monad
     [(^slots [#.imports]) (find-module module-name)]
     (wrap imports)))
 
 (def: #export (imported-by? import module)
   (-> Text Text (Meta Bit))
-  (do Monad<Meta>
+  (do ..monad
     [(^slots [#.imports]) (find-module module)]
     (wrap (list.any? (text/= import) imports))))
 
 (def: #export (imported? import)
   (-> Text (Meta Bit))
-  (let [(^open ".") Monad<Meta>]
+  (let [(^open ".") ..monad]
     (|> current-module-name
         (map find-module) join
         (map (|>> (get@ #.imports) (list.any? (text/= import)))))))
@@ -631,7 +632,7 @@
 (def: #export (resolve-tag tag)
   {#.doc "Given a tag, finds out what is its index, its related tag-list and it's associated type."}
   (-> Name (Meta [Nat (List Name) Type]))
-  (do Monad<Meta>
+  (do ..monad
     [#let [[module name] tag]
      =module (find-module module)
      this-module-name current-module-name
@@ -649,7 +650,7 @@
 (def: #export (tag-lists module)
   {#.doc "All the tag-lists defined in a module, with their associated types."}
   (-> Text (Meta (List [(List Name) Type])))
-  (do Monad<Meta>
+  (do ..monad
     [=module (find-module module)
      this-module-name current-module-name]
     (wrap (|> (get@ #.types =module)
@@ -677,7 +678,7 @@
 (def: #export (un-alias def-name)
   {#.doc "Given an aliased definition's name, returns the original definition being referenced."}
   (-> Name (Meta Name))
-  (do Monad<Meta>
+  (do ..monad
     [[_ def-anns _] (find-def def-name)]
     (case (get-identifier-ann (name-of #.alias) def-anns)
       (#.Some real-def-name)
@@ -718,7 +719,7 @@
                 _
                 #.None))
        (#.Some [omit? token])
-       (do Monad<Meta>
+       (do ..monad
          [cursor ..cursor
           output (<func> token)
           #let [_ (log! ($_ text/compose (name/encode (name-of <macro>)) " @ " (.cursor-description cursor)))

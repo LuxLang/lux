@@ -1,7 +1,7 @@
 (.module: {#.doc "Codecs for values in the JSON format."}
   [lux #*
    [control
-    [monad (#+ do Monad)]
+    [monad (#+ Monad do)]
     [equivalence (#+ Equivalence)]
     codec
     ["p" parser]]
@@ -11,16 +11,16 @@
     ["e" error]
     ["." sum]
     ["." product]
-    [number ("frac/." Codec<Text,Frac>) ("nat/." Codec<Text,Nat>)
+    [number ("frac/." codec) ("nat/." codec)
      ["." i64]]
-    ["." text ("text/." Equivalence<Text>)
+    ["." text ("text/." equivalence)
      ["l" lexer]
      format]
     [format
      ["//" json (#+ JSON)]]
     [collection
-     ["." list ("list/." Fold<List> Monad<List>)]
-     ["." row (#+ Row row) ("row/." Monad<Row>)]
+     ["." list ("list/." fold monad)]
+     ["." row (#+ Row row) ("row/." monad)]
      ["d" dictionary]]]
    [time
     ## ["i" instant]
@@ -47,7 +47,7 @@
 (def: low-mask Nat (|> 1 (i64.left-shift 32) dec))
 (def: high-mask Nat (|> low-mask (i64.left-shift 32)))
 
-(structure: _ (Codec JSON Nat)
+(structure: nat-codec (Codec JSON Nat)
   (def: (encode input)
     (let [high (|> input (i64.and high-mask) (i64.logical-right-shift 32))
           low (i64.and low-mask input)]
@@ -56,16 +56,16 @@
   (def: (decode input)
     (<| (//.run input)
         //.array
-        (do p.Monad<Parser>
+        (do p.monad
           [high //.number
            low //.number])
         (wrap (n/+ (|> high frac-to-int .nat (i64.left-shift 32))
                    (|> low frac-to-int .nat))))))
 
-(structure: _ (Codec JSON Int)
-  (def: encode (|>> .nat (:: Codec<JSON,Nat> encode)))
+(structure: int-codec (Codec JSON Int)
+  (def: encode (|>> .nat (:: nat-codec encode)))
   (def: decode
-    (|>> (:: Codec<JSON,Nat> decode) (:: e.Functor<Error> map .int))))
+    (|>> (:: nat-codec decode) (:: e.functor map .int))))
 
 (def: (nullable writer)
   {#.doc "Builds a JSON generator for potentially inexistent values."}
@@ -75,15 +75,15 @@
       #.None         #//.Null
       (#.Some value) (writer value))))
 
-(structure: Codec<JSON,Qty>
+(structure: qty-codec
   (All [unit] (Codec JSON (unit.Qty unit)))
   
   (def: encode
-    (|>> unit.out (:: Codec<JSON,Int> encode)))
+    (|>> unit.out (:: ..int-codec encode)))
   (def: decode
-    (|>> (:: Codec<JSON,Int> decode) (:: e.Functor<Error> map unit.in))))
+    (|>> (:: ..int-codec decode) (:: e.functor map unit.in))))
 
-(poly: Codec<JSON,?>//encode
+(poly: codec//encode
   (with-expansions
     [<basic> (do-template [<matcher> <encoder>]
                [(do @
@@ -94,8 +94,8 @@
 
                [(poly.exactly Any) (function ((~ g!_) (~ (code.identifier ["" "0"]))) #//.Null)]
                [(poly.sub Bit)     (|>> #//.Boolean)]
-               [(poly.sub Nat)     (:: (~! ..Codec<JSON,Nat>) (~' encode))]
-               [(poly.sub Int)     (:: (~! ..Codec<JSON,Int>) (~' encode))]
+               [(poly.sub Nat)     (:: (~! ..nat-codec) (~' encode))]
+               [(poly.sub Int)     (:: (~! ..int-codec) (~' encode))]
                [(poly.sub Frac)    (|>> #//.Number)]
                [(poly.sub Text)    (|>> #//.String)])
      <time> (do-template [<type> <codec>]
@@ -104,11 +104,11 @@
                  (wrap (` (: (~ (@JSON//encode inputT))
                              (|>> (:: <codec> (~' encode)) #//.String)))))]
 
-              ## [du.Duration du.Codec<Text,Duration>]
-              ## [i.Instant   i.Codec<Text,Instant>]
-              [da.Date     da.Codec<Text,Date>]
-              [da.Day      da.Codec<Text,Day>]
-              [da.Month    da.Codec<Text,Month>])]
+              ## [du.Duration du.codec]
+              ## [i.Instant   i.codec]
+              [da.Date     da.date-codec]
+              [da.Day      da.day-codec]
+              [da.Month    da.month-codec])]
     (do @
       [*env* poly.env
        #let [@JSON//encode (: (-> Type Code)
@@ -122,7 +122,7 @@
             [unitT (poly.apply (p.after (poly.exactly unit.Qty)
                                         poly.any))]
             (wrap (` (: (~ (@JSON//encode inputT))
-                        (:: (~! Codec<JSON,Qty>) (~' encode))))))
+                        (:: (~! qty-codec) (~' encode))))))
           (do @
             [#let [g!_ (code.local-identifier "_______")
                    g!key (code.local-identifier "_______key")
@@ -130,29 +130,29 @@
              [_ _ =val=] (poly.apply ($_ p.and
                                          (poly.exactly d.Dictionary)
                                          (poly.exactly .Text)
-                                         Codec<JSON,?>//encode))]
+                                         codec//encode))]
             (wrap (` (: (~ (@JSON//encode inputT))
                         (|>> d.entries
                              ((~! list/map) (function ((~ g!_) [(~ g!key) (~ g!val)])
                                               [(~ g!key) ((~ =val=) (~ g!val))]))
-                             (d.from-list text.Hash<Text>)
+                             (d.from-list text.hash)
                              #//.Object)))))
           (do @
             [[_ =sub=] (poly.apply ($_ p.and
                                        (poly.exactly .Maybe)
-                                       Codec<JSON,?>//encode))]
+                                       codec//encode))]
             (wrap (` (: (~ (@JSON//encode inputT))
                         ((~! ..nullable) (~ =sub=))))))
           (do @
             [[_ =sub=] (poly.apply ($_ p.and
                                        (poly.exactly .List)
-                                       Codec<JSON,?>//encode))]
+                                       codec//encode))]
             (wrap (` (: (~ (@JSON//encode inputT))
                         (|>> ((~! list/map) (~ =sub=)) row.from-list #//.Array)))))
           (do @
             [#let [g!_ (code.local-identifier "_______")
                    g!input (code.local-identifier "_______input")]
-             members (poly.variant (p.many Codec<JSON,?>//encode))]
+             members (poly.variant (p.many codec//encode))]
             (wrap (` (: (~ (@JSON//encode inputT))
                         (function ((~ g!_) (~ g!input))
                           (case (~ g!input)
@@ -162,7 +162,7 @@
                                                                           ((~ g!encode) (~ g!input))]))))
                                                      (list.enumerate members))))))))))
           (do @
-            [g!encoders (poly.tuple (p.many Codec<JSON,?>//encode))
+            [g!encoders (poly.tuple (p.many codec//encode))
              #let [g!_ (code.local-identifier "_______")
                    g!members (|> (list.size g!encoders)
                                  list.indices
@@ -174,7 +174,7 @@
                                                   (list.zip2 g!members g!encoders)))]))))))
           ## Type recursion
           (do @
-            [[selfC non-recC] (poly.recursive Codec<JSON,?>//encode)
+            [[selfC non-recC] (poly.recursive codec//encode)
              #let [g! (code.local-identifier "____________")]]
             (wrap (` (: (~ (@JSON//encode inputT))
                         ((~! ..rec-encode) (.function ((~ g!) (~ selfC))
@@ -182,11 +182,11 @@
           poly.recursive-self
           ## Type applications
           (do @
-            [partsC (poly.apply (p.many Codec<JSON,?>//encode))]
+            [partsC (poly.apply (p.many codec//encode))]
             (wrap (` ((~+ partsC)))))
           ## Polymorphism
           (do @
-            [[funcC varsC bodyC] (poly.polymorphic Codec<JSON,?>//encode)]
+            [[funcC varsC bodyC] (poly.polymorphic codec//encode)]
             (wrap (` (: (All [(~+ varsC)]
                           (-> (~+ (list/map (function (_ varC) (` (->  (~ varC) //.JSON)))
                                             varsC))
@@ -200,7 +200,7 @@
           (p.fail (format "Cannot create JSON encoder for: " (type.to-text inputT)))
           ))))
 
-(poly: Codec<JSON,?>//decode
+(poly: codec//decode
   (with-expansions
     [<basic> (do-template [<matcher> <decoder>]
                [(do @
@@ -210,8 +210,8 @@
 
                [(poly.exactly Any)  //.null]
                [(poly.sub Bit)      //.boolean]
-               [(poly.sub Nat)      (p.codec (~! ..Codec<JSON,Nat>) //.any)]
-               [(poly.sub Int)      (p.codec (~! ..Codec<JSON,Int>) //.any)]
+               [(poly.sub Nat)      (p.codec (~! ..nat-codec) //.any)]
+               [(poly.sub Int)      (p.codec (~! ..int-codec) //.any)]
                [(poly.sub Frac)     //.number]
                [(poly.sub Text)     //.string])
      <time> (do-template [<type> <codec>]
@@ -220,11 +220,11 @@
                  (wrap (` (: (~ (@JSON//decode inputT))
                              (p.codec <codec> //.string)))))]
 
-              ## [du.Duration du.Codec<Text,Duration>]
-              ## [i.Instant   i.Codec<Text,Instant>]
-              [da.Date     da.Codec<Text,Date>]
-              [da.Day      da.Codec<Text,Day>]
-              [da.Month    da.Codec<Text,Month>])]
+              ## [du.Duration du.codec]
+              ## [i.Instant   i.codec]
+              [da.Date     da.date-codec]
+              [da.Day      da.day-codec]
+              [da.Month    da.month-codec])]
     (do @
       [*env* poly.env
        #let [@JSON//decode (: (-> Type Code)
@@ -238,26 +238,26 @@
             [unitT (poly.apply (p.after (poly.exactly unit.Qty)
                                         poly.any))]
             (wrap (` (: (~ (@JSON//decode inputT))
-                        (p.codec (~! Codec<JSON,Qty>) //.any)))))
+                        (p.codec (~! qty-codec) //.any)))))
           (do @
             [[_ _ valC] (poly.apply ($_ p.and
                                         (poly.exactly d.Dictionary)
                                         (poly.exactly .Text)
-                                        Codec<JSON,?>//decode))]
+                                        codec//decode))]
             (wrap (` (: (~ (@JSON//decode inputT))
                         (//.object (~ valC))))))
           (do @
             [[_ subC] (poly.apply (p.and (poly.exactly .Maybe)
-                                         Codec<JSON,?>//decode))]
+                                         codec//decode))]
             (wrap (` (: (~ (@JSON//decode inputT))
                         (//.nullable (~ subC))))))
           (do @
             [[_ subC] (poly.apply (p.and (poly.exactly .List)
-                                         Codec<JSON,?>//decode))]
+                                         codec//decode))]
             (wrap (` (: (~ (@JSON//decode inputT))
                         (//.array (p.some (~ subC)))))))
           (do @
-            [members (poly.variant (p.many Codec<JSON,?>//decode))]
+            [members (poly.variant (p.many codec//decode))]
             (wrap (` (: (~ (@JSON//decode inputT))
                         ($_ p.or
                             (~+ (list/map (function (_ [tag memberC])
@@ -266,12 +266,12 @@
                                                    //.array)))
                                           (list.enumerate members))))))))
           (do @
-            [g!decoders (poly.tuple (p.many Codec<JSON,?>//decode))]
+            [g!decoders (poly.tuple (p.many codec//decode))]
             (wrap (` (: (~ (@JSON//decode inputT))
                         (//.array ($_ p.and (~+ g!decoders)))))))
           ## Type recursion
           (do @
-            [[selfC bodyC] (poly.recursive Codec<JSON,?>//decode)
+            [[selfC bodyC] (poly.recursive codec//decode)
              #let [g! (code.local-identifier "____________")]]
             (wrap (` (: (~ (@JSON//decode inputT))
                         (p.rec (.function ((~ g!) (~ selfC))
@@ -279,11 +279,11 @@
           poly.recursive-self
           ## Type applications
           (do @
-            [[funcC argsC] (poly.apply (p.and Codec<JSON,?>//decode (p.many Codec<JSON,?>//decode)))]
+            [[funcC argsC] (poly.apply (p.and codec//decode (p.many codec//decode)))]
             (wrap (` ((~ funcC) (~+ argsC)))))
           ## Polymorphism
           (do @
-            [[funcC varsC bodyC] (poly.polymorphic Codec<JSON,?>//decode)]
+            [[funcC varsC bodyC] (poly.polymorphic codec//decode)]
             (wrap (` (: (All [(~+ varsC)]
                           (-> (~+ (list/map (|>> (~) //.Reader (`)) varsC))
                               (//.Reader ((~ (poly.to-code *env* inputT)) (~+ varsC)))))
@@ -295,7 +295,7 @@
           (p.fail (format "Cannot create JSON decoder for: " (type.to-text inputT)))
           ))))
 
-(syntax: #export (Codec<JSON,?> inputT)
+(syntax: #export (codec inputT)
   {#.doc (doc "A macro for automatically producing JSON codecs."
               (type: Variant
                 (#Case0 Bit)
@@ -312,9 +312,9 @@
                  #tuple [Bit Frac Text]
                  #dict (Dictionary Text Frac)})
 
-              (derived: (Codec<JSON,?> Record)))}
+              (derived: (..codec Record)))}
   (with-gensyms [g!inputs]
     (wrap (list (` (: (Codec //.JSON (~ inputT))
-                      (structure (def: (~' encode) ((~! Codec<JSON,?>//encode) (~ inputT)))
-                                 (def: ((~' decode) (~ g!inputs)) (//.run (~ g!inputs) ((~! Codec<JSON,?>//decode) (~ inputT))))
+                      (structure (def: (~' encode) ((~! ..codec) (~ inputT)))
+                                 (def: ((~' decode) (~ g!inputs)) (//.run (~ g!inputs) ((~! ..codec) (~ inputT))))
                                  )))))))

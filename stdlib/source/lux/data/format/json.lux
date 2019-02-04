@@ -2,10 +2,10 @@
                        "For more information, please see: http://www.json.org/")}
   [lux #*
    [control
-    ["." monad (#+ do Monad)]
+    ["." monad (#+ Monad do)]
     [equivalence (#+ Equivalence)]
     codec
-    ["p" parser ("parser/." Monad<Parser>)]
+    ["p" parser ("parser/." monad)]
     ["ex" exception (#+ exception:)]]
    [data
     ["." bit]
@@ -13,14 +13,15 @@
     ["." error (#+ Error)]
     ["." sum]
     ["." product]
-    ["." number ("frac/." Codec<Text,Frac>) ("nat/." Codec<Text,Nat>)]
-    ["." text ("text/." Equivalence<Text> Monoid<Text>)
+    [number
+     ["." frac ("frac/." decimal)]]
+    ["." text ("text/." equivalence monoid)
      ["l" lexer]]
     [collection
-     ["." list ("list/." Fold<List> Monad<List>)]
-     ["." row (#+ Row row) ("row/." Monad<Row>)]
+     ["." list ("list/." fold monad)]
+     ["." row (#+ Row row) ("row/." monad)]
      ["." dictionary (#+ Dictionary)]]]
-   ["." macro (#+ Monad<Meta> with-gensyms)
+   ["." macro (#+ monad with-gensyms)
     ["s" syntax (#+ syntax:)]
     ["." code]]])
 
@@ -61,7 +62,7 @@
               (json ["this" "is" "an" "array"])
               (json {"this" "is"
                      "an" "object"}))}
-  (let [(^open ".") Monad<Meta>
+  (let [(^open ".") ..monad
         wrapper (function (_ x) (` (..json (~ x))))]
     (case token
       (^template [<ast-tag> <ctor> <json-tag>]
@@ -78,7 +79,7 @@
       (wrap (list (` (: JSON (#Array (row (~+ (list/map wrapper members))))))))
 
       [_ (#.Record pairs)]
-      (do Monad<Meta>
+      (do ..monad
         [pairs' (monad.map @
                            (function (_ [slot value])
                              (case slot
@@ -88,7 +89,7 @@
                                _
                                (macro.fail "Wrong syntax for JSON object.")))
                            pairs)]
-        (wrap (list (` (: JSON (#Object (dictionary.from-list text.Hash<Text> (list (~+ pairs')))))))))
+        (wrap (list (` (: JSON (#Object (dictionary.from-list text.hash (list (~+ pairs')))))))))
       
       _
       (wrap (list token))
@@ -150,7 +151,7 @@
   [get-object  #Object  Object  "objects"]
   )
 
-(structure: #export _ (Equivalence JSON)
+(structure: #export equivalence (Equivalence JSON)
   (def: (= x y)
     (case [x y]
       [#Null #Null]
@@ -159,16 +160,16 @@
       (^template [<tag> <struct>]
         [(<tag> x') (<tag> y')]
         (:: <struct> = x' y'))
-      ([#Boolean bit.Equivalence<Bit>]
-       [#Number  number.Equivalence<Frac>]
-       [#String  text.Equivalence<Text>])
+      ([#Boolean bit.equivalence]
+       [#Number  frac.equivalence]
+       [#String  text.equivalence])
 
       [(#Array xs) (#Array ys)]
       (and (n/= (row.size xs) (row.size ys))
            (list/fold (function (_ idx prev)
                         (and prev
                              (maybe.default #0
-                                            (do maybe.Monad<Maybe>
+                                            (do maybe.monad
                                               [x' (row.nth idx xs)
                                                y' (row.nth idx ys)]
                                               (wrap (= x' y'))))))
@@ -203,7 +204,7 @@
   [(def: <name> (-> <type> Text) <codec>)]
 
   [show-boolean Boolean encode-boolean]
-  [show-number  Number (:: number.Codec<Text,Frac> encode)]
+  [show-number  Number (:: frac.decimal encode)]
   [show-string  String text.encode])
 
 (def: (show-array show-json elems)
@@ -281,7 +282,7 @@
   [(def: #export <name>
      {#.doc (code.text ($_ text/compose "Reads a JSON value as " <desc> "."))}
      (Reader <type>)
-     (do p.Monad<Parser>
+     (do p.monad
        [head any]
        (case head
          (<tag> value)
@@ -300,7 +301,7 @@
   [(def: #export (<test> test)
      {#.doc (code.text ($_ text/compose "Asks whether a JSON value is a " <desc> "."))}
      (-> <type> (Reader Bit))
-     (do p.Monad<Parser>
+     (do p.monad
        [head any]
        (case head
          (<tag> value)
@@ -312,7 +313,7 @@
    (def: #export (<check> test)
      {#.doc (code.text ($_ text/compose "Ensures a JSON value is a " <desc> "."))}
      (-> <type> (Reader Any))
-     (do p.Monad<Parser>
+     (do p.monad
        [head any]
        (case head
          (<tag> value)
@@ -323,9 +324,9 @@
          _
          (fail ($_ text/compose "JSON value is not a " <desc> ".")))))]
 
-  [boolean? boolean! Bit  bit.Equivalence<Bit>     encode-boolean                      #Boolean "boolean"]
-  [number?  number!  Frac number.Equivalence<Frac> (:: number.Codec<Text,Frac> encode) #Number  "number"]
-  [string?  string!  Text text.Equivalence<Text>   text.encode                         #String  "string"]
+  [boolean? boolean! Bit  bit.equivalence  encode-boolean           #Boolean "boolean"]
+  [number?  number!  Frac frac.equivalence (:: frac.decimal encode) #Number  "number"]
+  [string?  string!  Text text.equivalence text.encode              #String  "string"]
   )
 
 (def: #export (nullable parser)
@@ -336,7 +337,7 @@
 (def: #export (array parser)
   {#.doc "Parses a JSON array."}
   (All [a] (-> (Reader a) (Reader a)))
-  (do p.Monad<Parser>
+  (do p.monad
     [head any]
     (case head
       (#Array values)
@@ -358,7 +359,7 @@
 (def: #export (object parser)
   {#.doc "Parses a JSON object. Use this with the 'field' combinator."}
   (All [a] (-> (Reader a) (Reader a)))
-  (do p.Monad<Parser>
+  (do p.monad
     [head any]
     (case head
       (#Object kvs)
@@ -398,7 +399,7 @@
 
           (#error.Failure error)
           (#error.Failure error))
-        (do error.Monad<Error>
+        (do error.monad
           [[inputs'' output] (recur inputs')]
           (wrap [(list& (#String key) value inputs'')
                  output])))
@@ -423,14 +424,14 @@
 
 (def: null~
   (l.Lexer Null)
-  (do p.Monad<Parser>
+  (do p.monad
     [_ (l.this "null")]
     (wrap [])))
 
 (do-template [<name> <token> <value>]
   [(def: <name>
      (l.Lexer Boolean)
-     (do p.Monad<Parser>
+     (do p.monad
        [_ (l.this <token>)]
        (wrap <value>)))]
 
@@ -444,7 +445,7 @@
 
 (def: number~
   (l.Lexer Number)
-  (do p.Monad<Parser>
+  (do p.monad
     [signed? (l.this? "-")
      digits (l.many l.decimal)
      decimals (p.default "0"
@@ -486,7 +487,7 @@
   (l.Lexer String)
   (<| (l.enclosed [text.double-quote text.double-quote])
       (loop [_ []])
-      (do p.Monad<Parser>
+      (do p.monad
         [chars (l.some (l.none-of (text/compose "\" text.double-quote)))
          stop l.peek])
       (if (text/= "\" stop)
@@ -498,7 +499,7 @@
 
 (def: (kv~ json~)
   (-> (-> Any (l.Lexer JSON)) (l.Lexer [String JSON]))
-  (do p.Monad<Parser>
+  (do p.monad
     [key string~
      _ space~
      _ (l.this ":")
@@ -509,7 +510,7 @@
 (do-template [<name> <type> <open> <close> <elem-parser> <prep>]
   [(def: (<name> json~)
      (-> (-> Any (l.Lexer JSON)) (l.Lexer <type>))
-     (do p.Monad<Parser>
+     (do p.monad
        [_ (l.this <open>)
         _ space~
         elems (p.sep-by data-sep <elem-parser>)
@@ -518,13 +519,13 @@
        (wrap (<prep> elems))))]
 
   [array~  Array  "[" "]" (json~ [])  row.from-list]
-  [object~ Object "{" "}" (kv~ json~) (dictionary.from-list text.Hash<Text>)]
+  [object~ Object "{" "}" (kv~ json~) (dictionary.from-list text.hash)]
   )
 
 (def: (json~' _)
   (-> Any (l.Lexer JSON))
   ($_ p.or null~ boolean~ number~ string~ (array~ json~') (object~ json~')))
 
-(structure: #export _ (Codec Text JSON)
+(structure: #export codec (Codec Text JSON)
   (def: encode show-json)
   (def: decode (function (_ input) (l.run input (json~' [])))))

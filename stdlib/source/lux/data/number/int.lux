@@ -1,0 +1,134 @@
+(.module:
+  [lux #*
+   [control
+    [hash (#+ Hash)]
+    [number (#+ Number)]
+    [enum (#+ Enum)]
+    [interval (#+ Interval)]
+    [monoid (#+ Monoid)]
+    [equivalence (#+ Equivalence)]
+    ["." order (#+ Order)]
+    [codec (#+ Codec)]]
+   [data
+    ["." error (#+ Error)]
+    ["." maybe]
+    [text (#+ Char)]]]
+  [//
+   ["." nat]])
+
+(structure: #export equivalence (Equivalence Int)
+  (def: = i/=))
+
+(structure: #export order (Order Int)
+  (def: &equivalence ..equivalence)
+  (def: < i/<)
+  (def: <= i/<=)
+  (def: > i/>)
+  (def: >= i/>=))
+
+(structure: #export enum (Enum Int)
+  (def: &order ..order)
+  (def: succ inc)
+  (def: pred dec))
+
+(structure: #export interval (Interval Int)
+  (def: &enum ..enum)
+  (def: top +9_223_372_036_854_775_807)
+  (def: bottom -9_223_372_036_854_775_808))
+
+(structure: #export number (Number Int)
+  (def: + i/+)
+  (def: - i/-)
+  (def: * i/*)
+  (def: / i//)
+  (def: % i/%)
+  (def: negate (i/* -1))
+  (def: (abs x)
+    (if (i/< +0 x)
+      (i/* -1 x)
+      x))
+  (def: (signum x)
+    (cond (i/= +0 x) +0
+          (i/< +0 x) -1
+          ## else
+          +1))
+  )
+
+(do-template [<name> <compose> <identity>]
+  [(structure: #export <name> (Monoid Int)
+     (def: identity <identity>)
+     (def: compose <compose>))]
+
+  [addition       i/+   +0]
+  [multiplication i/*   +1]
+  [maximum        i/max (:: ..interval bottom)]
+  [minimum        i/min (:: ..interval top)]
+  )
+
+(def: (int/sign!! value)
+  (-> Int Text)
+  (if (i/< +0 value)
+    "-"
+    "+"))
+
+(def: (int/sign?? representation)
+  (-> Text (Maybe Int))
+  (case ("lux text char" representation 0)
+    (^ (char "-"))
+    (#.Some -1)
+
+    (^ (char "+"))
+    (#.Some +1)
+
+    _
+    #.None))
+
+(def: (int-decode-loop input-size repr sign <base> <to-value> <error>)
+  (-> Nat Text Int Int (-> Char (Maybe Nat)) Text (Error Int))
+  (loop [idx 1
+         output +0]
+    (if (n/< input-size idx)
+      (case (<to-value> ("lux text char" repr idx))
+        #.None
+        (#error.Failure <error>)
+
+        (#.Some digit-value)
+        (recur (inc idx)
+               (|> output (i/* <base>) (i/+ (.int digit-value)))))
+      (#error.Success (i/* sign output)))))
+
+(do-template [<struct> <base> <to-character> <to-value> <error>]
+  [(structure: #export <struct> (Codec Text Int)
+     (def: (encode value)
+       (if (i/= +0 value)
+         "+0"
+         (loop [input (|> value (i// <base>) (:: ..number abs))
+                output (|> value (i/% <base>) (:: ..number abs) .nat
+                           <to-character>
+                           maybe.assume)]
+           (if (i/= +0 input)
+             ("lux text concat" (int/sign!! value) output)
+             (let [digit (maybe.assume (<to-character> (.nat (i/% <base> input))))]
+               (recur (i// <base> input)
+                      ("lux text concat" digit output)))))))
+
+     (def: (decode repr)
+       (let [input-size ("lux text size" repr)]
+         (if (n/> 1 input-size)
+           (case (int/sign?? repr)
+             (#.Some sign)
+             (int-decode-loop input-size repr sign <base> <to-value> <error>)
+
+             #.None
+             (#error.Failure <error>))
+           (#error.Failure <error>)))))]
+
+  [binary   +2 nat.binary-character      nat.binary-value      "Invalid binary syntax for Int: "]
+  [octal    +8 nat.octal-character       nat.octal-value       "Invalid octal syntax for Int: "]
+  [decimal +10 nat.decimal-character     nat.decimal-value     "Invalid syntax for Int: "]
+  [hex     +16 nat.hexadecimal-character nat.hexadecimal-value "Invalid hexadecimal syntax for Int: "]
+  )
+
+(structure: #export hash (Hash Int)
+  (def: &equivalence ..equivalence)
+  (def: hash .nat))

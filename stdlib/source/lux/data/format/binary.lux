@@ -4,19 +4,20 @@
     [monoid (#+ Monoid)]
     ["." fold]
     [monad (#+ do Monad)]
-    ["." parser (#+ Parser) ("parser/." Functor<Parser>)]
+    ["." parser (#+ Parser) ("parser/." functor)]
     ["ex" exception (#+ exception:)]
     [equivalence (#+ Equivalence)]]
    [data
     ["." error (#+ Error)]
-    ["." number
-     ["." i64]]
+    [number
+     ["." i64]
+     ["." frac]]
     [text
      ["." encoding]
      [format (#+ %n)]]
     [collection
      ["." list]
-     ["." row (#+ Row) ("row/." Functor<Row>)]]]
+     ["." row (#+ Row) ("row/." functor)]]]
    [type (#+ :share)]
    [world
     ["." binary (#+ Binary)]]])
@@ -52,7 +53,7 @@
   Mutation
   [0 (function (_ offset data) data)])
 
-(structure: #export _ (Monoid Mutation)
+(structure: #export monoid (Monoid Mutation)
   
   (def: identity
     ..no-op)
@@ -98,7 +99,6 @@
   (let [[valueS valueT] ((get@ #writer format) value)]
     (|> valueS binary.create (valueT 0))))
 
-## Primitives
 (do-template [<name> <size> <read> <write>]
   [(def: #export <name>
      (Format (I64 Any))
@@ -122,10 +122,9 @@
   [bits/64 size/64 binary.read/64 binary.write/64]
   )
 
-## Combinators
 (def: #export (or leftB rightB)
   (All [l r] (-> (Format l) (Format r) (Format (| l r))))
-  {#reader (do parser.Monad<Parser>
+  {#reader (do parser.monad
              [flag (get@ #reader bits/8)]
              (case flag
                0 (:: @ map (|>> #.Left) (get@ #reader leftB))
@@ -213,19 +212,19 @@
 (def: #export frac
   (Format Frac)
   (let [(^slots [#reader #writer]) ..bits/64]
-    {#reader (:: parser.Monad<Parser> map number.bits-to-frac reader)
-     #writer (|>> number.frac-to-bits writer)}))
+    {#reader (:: parser.monad map frac.bits-to-frac reader)
+     #writer (|>> frac.frac-to-bits writer)}))
 
 (do-template [<name> <bits> <size> <write>]
   [(def: #export <name>
      (Format Binary)
      (let [mask (..mask <size>)]
-       {#reader (do parser.Monad<Parser>
+       {#reader (do parser.monad
                   [size (:coerce (Reader Nat)
                                  ## TODO: Remove coercion.
                                  (get@ #reader <bits>))]
                   (function (_ [offset binary])
-                    (do error.Monad<Error>
+                    (do error.monad
                       [#let [end (n/+ size offset)]
                        output (binary.slice offset (.dec end) binary)]
                       (wrap [[end binary] output]))))
@@ -234,7 +233,7 @@
                     [(n/+ <size> size)
                      (function (_ offset binary)
                        (error.assume
-                        (do error.Monad<Error>
+                        (do error.monad
                           [_ (<write> offset size binary)]
                           (binary.copy size 0 value (n/+ <size> offset) binary))))]))}))]
 
@@ -248,7 +247,7 @@
   [(def: #export <name>
      (Format Text)
      (let [(^open "binary/.") <binary>]
-       {#reader (do parser.Monad<Parser>
+       {#reader (do parser.monad
                   [utf8 binary/reader]
                   (parser.lift (encoding.from-utf8 utf8)))
         #writer (|>> encoding.to-utf8 binary/writer)}))]
@@ -264,7 +263,7 @@
 (do-template [<name> <with-offset> <bits> <size> <write>]
   [(def: #export (<with-offset> extra-count valueF)
      (All [v] (-> Nat (Format v) (Format (Row v))))
-     {#reader (do parser.Monad<Parser>
+     {#reader (do parser.monad
                 [count (|> (get@ #reader <bits>)
                            ## TODO: Remove coercion.
                            (:coerce (Reader Nat))
@@ -276,11 +275,11 @@
                                       {(Row v)
                                        row.empty})]
                   (if (n/< count index)
-                    (do parser.Monad<Parser>
+                    (do parser.monad
                       [value (get@ #reader valueF)]
                       (recur (.inc index)
                              (row.add value output)))
-                    (:: parser.Monad<Parser> wrap output))))
+                    (:: parser.monad wrap output))))
       #writer (function (_ value)
                 (let [original-count (row.size value)
                       capped-count (i64.and (..mask <size>)
@@ -288,17 +287,17 @@
                       value (if (n/= original-count capped-count)
                               value
                               (|> value row.to-list (list.take capped-count) row.from-list))
-                      (^open "mutation/.") ..Monoid<Mutation>
+                      (^open "mutation/.") ..monoid
                       [size mutation] (|> value
                                           (row/map (get@ #writer valueF))
-                                          (:: row.Fold<Row> fold
+                                          (:: row.fold fold
                                               (function (_ post pre)
                                                 (mutation/compose pre post))
                                               mutation/identity))]
                   [(n/+ <size> size)
                    (function (_ offset binary)
                      (error.assume
-                      (do error.Monad<Error>
+                      (do error.monad
                         [_ (<write> offset (n/+ extra-count capped-count) binary)]
                         (wrap (mutation (n/+ <size> offset) binary)))))]))})
 

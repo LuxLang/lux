@@ -9,16 +9,14 @@
     [fold (#+ Fold)]
     [predicate (#+ Predicate)]]
    [data
-    bit
+    ["." bit]
     ["." product]]])
 
-## [Types]
 ## (type: (List a)
 ##   #Nil
 ##   (#Cons a (List a)))
 
-## [Functions]
-(structure: #export _ (Fold List)
+(structure: #export fold (Fold List)
   (def: (fold f init xs)
     (case xs
       #.Nil
@@ -27,8 +25,6 @@
       (#.Cons [x xs'])
       (fold f (f x init) xs'))))
 
-(open: "." Fold<List>)
-
 (def: #export (reverse xs)
   (All [a]
     (-> (List a) (List a)))
@@ -36,7 +32,7 @@
         #.Nil
         xs))
 
-(def: #export (filter predicate xs)
+(def: #export (filter keep? xs)
   (All [a]
     (-> (Predicate a) (List a) (List a)))
   (case xs
@@ -44,15 +40,22 @@
     #.Nil
     
     (#.Cons [x xs'])
-    (if (predicate x)
-      (#.Cons x (filter predicate xs'))
-      (filter predicate xs'))))
+    (if (keep? x)
+      (#.Cons x (filter keep? xs'))
+      (filter keep? xs'))))
 
-(def: #export (partition predicate xs)
+(def: #export (partition satisfies? list)
   {#.doc "Divide the list into all elements that satisfy a predicate, and all elements that do not."}
   (All [a] (-> (Predicate a) (List a) [(List a) (List a)]))
-  [(filter predicate xs)
-   (filter (complement predicate) xs)])
+  (case list
+    #.Nil
+    [#.Nil #.Nil]
+
+    (#.Cons head tail)
+    (let [[in out] (partition satisfies? tail)]
+      (if (satisfies? head)
+        [(list& head in) out]
+        [in (list& head out)]))))
 
 (def: #export (as-pairs xs)
   {#.doc (doc "Cut the list into pairs of 2."
@@ -266,8 +269,7 @@
       (#.Some x)
       (nth (dec i) xs'))))
 
-## [Structures]
-(structure: #export (Equivalence<List> Equivalence<a>)
+(structure: #export (equivalence Equivalence<a>)
   (All [a] (-> (Equivalence a) (Equivalence (List a))))
   (def: (= xs ys)
     (case [xs ys]
@@ -282,26 +284,25 @@
       #0
       )))
 
-(structure: #export Monoid<List> (All [a]
-                                   (Monoid (List a)))
+(structure: #export monoid (All [a] (Monoid (List a)))
   (def: identity #.Nil)
   (def: (compose xs ys)
     (case xs
       #.Nil          ys
       (#.Cons x xs') (#.Cons x (compose xs' ys)))))
 
-(open: "." Monoid<List>)
+(open: "." monoid)
 
-(structure: #export _ (Functor List)
+(structure: #export functor (Functor List)
   (def: (map f ma)
     (case ma
       #.Nil          #.Nil
       (#.Cons a ma') (#.Cons (f a) (map f ma')))))
 
-(open: "." Functor<List>)
+(open: "." ..functor)
 
-(structure: #export _ (Apply List)
-  (def: functor Functor<List>)
+(structure: #export apply (Apply List)
+  (def: &functor ..functor)
 
   (def: (apply ff fa)
     (case ff
@@ -311,15 +312,14 @@
       (#.Cons f ff')
       (compose (map f fa) (apply ff' fa)))))
 
-(structure: #export _ (Monad List)
-  (def: functor Functor<List>)
+(structure: #export monad (Monad List)
+  (def: &functor ..functor)
 
   (def: (wrap a)
     (#.Cons a #.Nil))
 
   (def: join (|>> reverse (fold compose identity))))
 
-## [Functions]
 (def: #export (sort < xs)
   (All [a] (-> (-> a a Bit) (List a) (List a)))
   (case xs
@@ -387,7 +387,6 @@
     (list)
     (|> size dec (n/range 0))))
 
-## [Syntax]
 (def: (identifier$ name)
   (-> Text Code)
   [["" 0 0] (#.Identifier "" name)])
@@ -422,7 +421,7 @@
   (case tokens
     (^ (list [_ (#.Nat num-lists)]))
     (if (n/> 0 num-lists)
-      (let [(^open ".") Functor<List>
+      (let [(^open ".") ..functor
             indices (..indices num-lists)
             type-vars (: (List Code) (map (|>> nat/encode identifier$) indices))
             zip-type (` (All [(~+ type-vars)]
@@ -466,7 +465,7 @@
   (case tokens
     (^ (list [_ (#.Nat num-lists)]))
     (if (n/> 0 num-lists)
-      (let [(^open ".") Functor<List>
+      (let [(^open ".") ..functor
             indices (..indices num-lists)
             g!return-type (identifier$ "0return-type0")
             g!func (identifier$ "0func0")
@@ -539,17 +538,17 @@
 
 (def: #export (concat xss)
   (All [a] (-> (List (List a)) (List a)))
-  (:: Monad<List> join xss))
+  (:: ..monad join xss))
 
-(structure: #export (ListT Monad<M>)
+(structure: #export (with-list monad)
   (All [M] (-> (Monad M) (Monad (All [a] (M (List a))))))
 
-  (def: functor (functor.compose (get@ #monad.functor Monad<M>) Functor<List>))
+  (def: &functor (functor.compose (get@ #monad.&functor monad) ..functor))
 
-  (def: wrap (|>> (:: Monad<List> wrap) (:: Monad<M> wrap)))
+  (def: wrap (|>> (:: ..monad wrap) (:: monad wrap)))
   
   (def: (join MlMla)
-    (do Monad<M>
+    (do monad
       [lMla MlMla
        ## TODO: Remove this version ASAP and use one below.
        lla (: (($ 0) (List (List ($ 1))))
@@ -558,9 +557,9 @@
        ]
       (wrap (concat lla)))))
 
-(def: #export (lift Monad<M>)
+(def: #export (lift monad)
   (All [M a] (-> (Monad M) (-> (M a) (M (List a)))))
-  (monad.lift Monad<M> (:: Monad<List> wrap)))
+  (monad.lift monad (:: ..monad wrap)))
 
 (def: (enumerate' idx xs)
   (All [a] (-> Nat (List a) (List [Nat a])))

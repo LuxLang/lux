@@ -3,18 +3,19 @@
    [control
     [functor (#+ Functor)]
     [apply (#+ Apply)]
-    ["." monad (#+ do Monad)]
+    ["." monad (#+ Monad do)]
     ["ex" exception (#+ exception:)]]
    [data
     ["." maybe]
     ["." product]
     ["." error (#+ Error)]
-    ["." number ("nat/." Codec<Text,Nat>)]
-    ["." text ("text/." Monoid<Text> Equivalence<Text>)]
+    [number
+     ["." nat ("nat/." decimal)]]
+    ["." text ("text/." monoid equivalence)]
     [collection
      ["." list]
      ["." set (#+ Set)]]]]
-  ["." // ("type/." Equivalence<Type>)])
+  ["." // ("type/." equivalence)])
 
 (template: (!n/= reference subject)
   ("lux i64 =" subject reference))
@@ -51,7 +52,7 @@
 (type: #export Type-Vars
   (List [Var (Maybe Type)]))
 
-(structure: #export _ (Functor Check)
+(structure: #export functor (Functor Check)
   (def: (map f fa)
     (function (_ context)
       (case (fa context)
@@ -61,8 +62,8 @@
         (#error.Failure error)
         (#error.Failure error)))))
 
-(structure: #export _ (Apply Check)
-  (def: functor Functor<Check>)
+(structure: #export apply (Apply Check)
+  (def: &functor ..functor)
 
   (def: (apply ff fa)
     (function (_ context)
@@ -80,8 +81,8 @@
         )))
   )
 
-(structure: #export _ (Monad Check)
-  (def: functor Functor<Check>)
+(structure: #export monad (Monad Check)
+  (def: &functor ..functor)
 
   (def: (wrap x)
     (function (_ context)
@@ -103,7 +104,7 @@
         )))
   )
 
-(open: "check/." Monad<Check>)
+(open: "check/." ..monad)
 
 (def: (var::get id plist)
   (-> Var Type-Vars (Maybe (Maybe Type)))
@@ -148,7 +149,6 @@
     #.Nil
     #.Nil))
 
-## [[Logic]]
 (def: #export (run context proc)
   (All [a] (-> Type-Context (Check a) (Error a)))
   (case (proc context)
@@ -241,7 +241,7 @@
   (-> Type Type (Check Type))
   (case funcT
     (#.Var func-id)
-    (do Monad<Check>
+    (do ..monad
       [?funcT' (read func-id)]
       (case ?funcT'
         (#.Some funcT')
@@ -260,7 +260,7 @@
 
 (type: #export Ring (Set Var))
 
-(def: empty-ring Ring (set.new number.Hash<Nat>))
+(def: empty-ring Ring (set.new nat.hash))
 
 ## TODO: Optimize this by not using sets anymore.
 (def: #export (ring start)
@@ -341,29 +341,29 @@
     (-> Var Type (Check a) (-> Type (Check a))
         (Check a)))
   ($_ either
-      (do Monad<Check>
+      (do ..monad
         [_ (..bind type id)]
         then)
-      (do Monad<Check>
+      (do ..monad
         [ring (..ring id)
          _ (assert "" (n/> 1 (set.size ring)))
          _ (monad.map @ (update type) (set.to-list ring))]
         then)
-      (do Monad<Check>
+      (do ..monad
         [?bound (read id)]
         (else (maybe.default (#.Var id) ?bound)))))
 
 ## TODO: "link-2" can be optimized...
 (def: (link-2 left right)
   (-> Var Var (Check Any))
-  (do Monad<Check>
+  (do ..monad
     [_ (..bind (#.Var right) left)]
     (..bind (#.Var left) right)))
 
 ## TODO: "link-3" can be optimized...
 (def: (link-3 interpose to from)
   (-> Var Var Var (Check Any))
-  (do Monad<Check>
+  (do ..monad
     [_ (update (#.Var interpose) from)]
     (update (#.Var to) interpose)))
 
@@ -375,7 +375,7 @@
       (Check (List Assumption)))
   (if (!n/= idE idA)
     (check/wrap assumptions)
-    (do Monad<Check>
+    (do ..monad
       [ebound (attempt (peek idE))
        abound (attempt (peek idA))]
       (case [ebound abound]
@@ -413,7 +413,7 @@
           (do @
             [ringE (..ring idE)
              ringA (..ring idA)]
-            (if (:: set.Equivalence<Set> = ringE ringA)
+            (if (:: set.equivalence = ringE ringA)
               (wrap assumptions)
               ## Fuse 2 rings
               (do @
@@ -464,43 +464,43 @@
       (Check (List Assumption)))
   (case [eFT aFT]
     (^or [(#.UnivQ _ _) (#.Ex _)] [(#.UnivQ _ _) (#.Var _)])
-    (do Monad<Check>
+    (do ..monad
       [eFT' (apply-type! eFT eAT)]
       (check' assumptions eFT' (#.Apply aAT aFT)))
 
     (^or [(#.Ex _) (#.UnivQ _ _)] [(#.Var _) (#.UnivQ _ _)])
-    (do Monad<Check>
+    (do ..monad
       [aFT' (apply-type! aFT aAT)]
       (check' assumptions (#.Apply eAT eFT) aFT'))
 
     (^or [(#.Ex _) _] [_ (#.Ex _)])
-    (do Monad<Check>
+    (do ..monad
       [assumptions (check' assumptions eFT aFT)]
       (check' assumptions eAT aAT))
 
     [(#.Var id) _]
-    (do Monad<Check>
+    (do ..monad
       [?rFT (read id)]
       (case ?rFT
         (#.Some rFT)
         (check' assumptions (#.Apply eAT rFT) (#.Apply aAT aFT))
 
         _
-        (do Monad<Check>
+        (do ..monad
           [assumptions (check' assumptions eFT aFT)
            e' (apply-type! aFT eAT)
            a' (apply-type! aFT aAT)]
           (check' assumptions e' a'))))
 
     [_ (#.Var id)]
-    (do Monad<Check>
+    (do ..monad
       [?rFT (read id)]
       (case ?rFT
         (#.Some rFT)
         (check' assumptions (#.Apply eAT eFT) (#.Apply aAT rFT))
 
         _
-        (do Monad<Check>
+        (do ..monad
           [assumptions (check' assumptions eFT aFT)
            e' (apply-type! eFT eAT)
            a' (apply-type! eFT aAT)]
@@ -545,19 +545,19 @@
         (let [new-assumption [expected actual]]
           (if (assumed? new-assumption assumptions)
             (check/wrap assumptions)
-            (do Monad<Check>
+            (do ..monad
               [expected' (apply-type! F A)]
               (check' (assume! new-assumption assumptions) expected' actual))))
 
         [_ (#.Apply A F)]
-        (do Monad<Check>
+        (do ..monad
           [actual' (apply-type! F A)]
           (check' assumptions expected actual'))
 
         ## TODO: Refactor-away as cold-code
         (^template [<tag> <instancer>]
           [(<tag> _) _]
-          (do Monad<Check>
+          (do ..monad
             [[_ paramT] <instancer>
              expected' (apply-type! expected paramT)]
             (check' assumptions expected' actual)))
@@ -567,7 +567,7 @@
         ## TODO: Refactor-away as cold-code
         (^template [<tag> <instancer>]
           [_ (<tag> _)]
-          (do Monad<Check>
+          (do ..monad
             [[_ paramT] <instancer>
              actual' (apply-type! actual paramT)]
             (check' assumptions expected actual')))
@@ -584,7 +584,7 @@
               (check/wrap assumptions)
               
               [(#.Cons e-head e-tail) (#.Cons a-head a-tail)]
-              (do Monad<Check>
+              (do ..monad
                 [assumptions' (check' assumptions e-head a-head)]
                 (recur assumptions' e-tail a-tail))
 
@@ -594,14 +594,14 @@
 
         (^template [<compose>]
           [(<compose> eL eR) (<compose> aL aR)]
-          (do Monad<Check>
+          (do ..monad
             [assumptions (check' assumptions eL aL)]
             (check' assumptions eR aR)))
         ([#.Sum]
          [#.Product])
         
         [(#.Function eI eO) (#.Function aI aO)]
-        (do Monad<Check>
+        (do ..monad
           [assumptions (check' assumptions aI eI)]
           (check' assumptions eO aO))
 
@@ -644,7 +644,7 @@
   (case inputT
     (#.Primitive name paramsT+)
     (|> paramsT+
-        (monad.map Monad<Check> clean)
+        (monad.map ..monad clean)
         (check/map (|>> (#.Primitive name))))
 
     (^or (#.Parameter _) (#.Ex _) (#.Named _))
@@ -652,14 +652,14 @@
 
     (^template [<tag>]
       (<tag> leftT rightT)
-      (do Monad<Check>
+      (do ..monad
         [leftT' (clean leftT)]
         (|> (clean rightT)
             (check/map (|>> (<tag> leftT'))))))
     ([#.Sum] [#.Product] [#.Function] [#.Apply])
 
     (#.Var id)
-    (do Monad<Check>
+    (do ..monad
       [?actualT (read id)]
       (case ?actualT
         (#.Some actualT)
@@ -670,7 +670,7 @@
 
     (^template [<tag>]
       (<tag> envT+ unquantifiedT)
-      (do Monad<Check>
+      (do ..monad
         [envT+' (monad.map @ clean envT+)]
         (wrap (<tag> envT+' unquantifiedT))))
     ([#.UnivQ] [#.ExQ])

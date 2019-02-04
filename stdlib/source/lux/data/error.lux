@@ -1,17 +1,15 @@
 (.module:
   [lux #*
    [control
-    ["F" functor]
-    ["A" apply]
-    ["M" monad (#+ do Monad)]]])
+    ["." functor (#+ Functor)]
+    [apply (#+ Apply)]
+    ["." monad (#+ Monad do)]]])
 
-## [Types]
 (type: #export (Error a)
   (#Failure Text)
   (#Success a))
 
-## [Structures]
-(structure: #export _ (F.Functor Error)
+(structure: #export functor (Functor Error)
   (def: (map f ma)
     (case ma
       (#Failure msg)
@@ -20,8 +18,8 @@
       (#Success datum)
       (#Success (f datum)))))
 
-(structure: #export _ (A.Apply Error)
-  (def: functor Functor<Error>)
+(structure: #export apply (Apply Error)
+  (def: &functor ..functor)
 
   (def: (apply ff fa)
     (case ff
@@ -37,8 +35,8 @@
       (#Failure msg))
     ))
 
-(structure: #export _ (Monad Error)
-  (def: functor Functor<Error>)
+(structure: #export monad (Monad Error)
+  (def: &functor ..functor)
 
   (def: (wrap a)
     (#Success a))
@@ -51,15 +49,16 @@
       (#Success ma)
       ma)))
 
-(structure: #export (ErrorT Monad<M>)
+(structure: #export (with-error monad)
+  ## TODO: Replace (All [a] (M (Error a))) with (functor.Then M Error)
   (All [M] (-> (Monad M) (Monad (All [a] (M (Error a))))))
   
-  (def: functor (F.compose (get@ #M.functor Monad<M>) Functor<Error>))
+  (def: &functor (functor.compose (get@ #monad.&functor monad) ..functor))
 
-  (def: wrap (|>> (:: Monad<Error> wrap) (:: Monad<M> wrap)))
+  (def: wrap (|>> (:: ..monad wrap) (:: monad wrap)))
   
   (def: (join MeMea)
-    (do Monad<M>
+    (do monad
       [eMea MeMea]
       (case eMea
         (#Failure error)
@@ -68,16 +67,16 @@
         (#Success Mea)
         Mea))))
 
-(def: #export (lift Monad<M>)
+(def: #export (lift monad)
   (All [M a] (-> (Monad M) (-> (M a) (M (Error a)))))
-  (M.lift Monad<M> (:: Monad<Error> wrap)))
+  (monad.lift monad (:: ..monad wrap)))
 
 (def: #export (succeed value)
   (All [a] (-> a (Error a)))
   (#Success value))
 
 (def: #export (fail message)
-  (All [a] (-> Text (Error a)))
+  (-> Text Error)
   (#Failure message))
 
 (def: #export (assume error)
@@ -92,10 +91,10 @@
 (macro: #export (default tokens compiler)
   {#.doc (doc "Allows you to provide a default value that will be used"
               "if a (Error x) value turns out to be #Failure."
-              (is? +10
-                   (default +20 (#Success +10)))
-              (is? +20
-                   (default +20 (#Failure "KABOOM!"))))}
+              (= "foo"
+                 (default "foo" (#Success "bar")))
+              (= "foo"
+                 (default "foo" (#Failure "KABOOM!"))))}
   (case tokens
     (^ (list else error))
     (#Success [compiler (list (` (case (~ error)

@@ -8,16 +8,16 @@
     ["." maybe]
     ["." product]
     ["." error (#+ Error)]
-    [bit ("bit/." Codec<Text,Bit>)]
+    [bit ("bit/." codec)]
     number
-    ["." text ("text/." Equivalence<Text> Monoid<Text>)
+    ["." text ("text/." equivalence monoid)
      format]
     [collection
      ["." array (#+ Array)]
-     ["." list ("list/." Monad<List> Fold<List> Monoid<List>)]]]
+     ["." list ("list/." monad fold monoid)]]]
    ["." function]
-   ["." type ("type/." Equivalence<Type>)]
-   ["." macro (#+ with-gensyms Functor<Meta> Monad<Meta>)
+   ["." type ("type/." equivalence)]
+   ["." macro (#+ with-gensyms)
     ["." code]
     ["s" syntax (#+ syntax: Syntax)]]
    ["." io]])
@@ -25,10 +25,8 @@
 (do-template [<name> <op> <from> <to>]
   [(def: #export (<name> value)
      {#.doc (doc "Type converter."
-                 "From:"
-                 <from>
-                 "To:"
-                 <to>)}
+                 (: <to>
+                    (<name> (: <from> foo))))}
      (-> (primitive <from>) (primitive <to>))
      (<op> value))]
 
@@ -352,7 +350,7 @@
 
 (def: (get-import name imports)
   (-> Text Class-Imports (Maybe Text))
-  (:: maybe.Functor<Maybe> map product.right
+  (:: maybe.functor map product.right
       (list.find (|>> product.left (text/= name))
                  imports)))
 
@@ -364,7 +362,7 @@
   (-> Lux Class-Imports)
   (case (macro.run compiler
                    (: (Meta Class-Imports)
-                      (do Monad<Meta>
+                      (do macro.monad
                         [current-module macro.current-module-name
                          definitions (macro.definitions current-module)]
                         (wrap (list/fold (: (-> [Text Definition] Class-Imports Class-Imports)
@@ -465,7 +463,7 @@
 
 (def: (qualify imports name)
   (-> Class-Imports Text Text)
-  (if (list.member? text.Equivalence<Text> java/lang/* name)
+  (if (list.member? text.equivalence java/lang/* name)
     (format "java/lang/" name)
     (maybe.default name (get-import name imports))))
 
@@ -517,21 +515,21 @@
 
 (def: (make-get-const-parser class-name field-name)
   (-> Text Text (Syntax Code))
-  (do p.Monad<Parser>
+  (do p.monad
     [#let [dotted-name (format "::" field-name)]
      _ (s.this (code.identifier ["" dotted-name]))]
     (wrap (`' ((~ (code.text (format "jvm getstatic" ":" class-name ":" field-name))))))))
 
 (def: (make-get-var-parser class-name field-name)
   (-> Text Text (Syntax Code))
-  (do p.Monad<Parser>
+  (do p.monad
     [#let [dotted-name (format "::" field-name)]
      _ (s.this (code.identifier ["" dotted-name]))]
     (wrap (`' ((~ (code.text (format "jvm getfield" ":" class-name ":" field-name))) _jvm_this)))))
 
 (def: (make-put-var-parser class-name field-name)
   (-> Text Text (Syntax Code))
-  (do p.Monad<Parser>
+  (do p.monad
     [#let [dotted-name (format "::" field-name)]
      [_ _ value] (: (Syntax [Any Any Code])
                     (s.form ($_ p.and (s.this (' :=)) (s.this (code.identifier ["" dotted-name])) s.any)))]
@@ -577,7 +575,7 @@
 
 (def: (make-constructor-parser params class-name arg-decls)
   (-> (List Type-Paramameter) Text (List ArgDecl) (Syntax Code))
-  (do p.Monad<Parser>
+  (do p.monad
     [args (: (Syntax (List Code))
              (s.form (p.after (s.this (' ::new!))
                               (s.tuple (p.exactly (list.size arg-decls) s.any)))))
@@ -587,7 +585,7 @@
 
 (def: (make-static-method-parser params class-name method-name arg-decls)
   (-> (List Type-Paramameter) Text Text (List ArgDecl) (Syntax Code))
-  (do p.Monad<Parser>
+  (do p.monad
     [#let [dotted-name (format "::" method-name "!")]
      args (: (Syntax (List Code))
              (s.form (p.after (s.this (code.identifier ["" dotted-name]))
@@ -599,7 +597,7 @@
 (do-template [<name> <jvm-op>]
   [(def: (<name> params class-name method-name arg-decls)
      (-> (List Type-Paramameter) Text Text (List ArgDecl) (Syntax Code))
-     (do p.Monad<Parser>
+     (do p.monad
        [#let [dotted-name (format "::" method-name "!")]
         args (: (Syntax (List Code))
                 (s.form (p.after (s.this (code.identifier ["" dotted-name]))
@@ -634,13 +632,13 @@
 ## Syntaxes
 (def: (full-class-name^ imports)
   (-> Class-Imports (Syntax Text))
-  (do p.Monad<Parser>
+  (do p.monad
     [name s.local-identifier]
     (wrap (qualify imports name))))
 
 (def: privacy-modifier^
   (Syntax PrivacyModifier)
-  (let [(^open ".") p.Monad<Parser>]
+  (let [(^open ".") p.monad]
     ($_ p.or
         (s.this (' #public))
         (s.this (' #private))
@@ -649,7 +647,7 @@
 
 (def: inheritance-modifier^
   (Syntax InheritanceModifier)
-  (let [(^open ".") p.Monad<Parser>]
+  (let [(^open ".") p.monad]
     ($_ p.or
         (s.this (' #final))
         (s.this (' #abstract))
@@ -668,21 +666,21 @@
 (def: (generic-type^ imports type-vars)
   (-> Class-Imports (List Type-Paramameter) (Syntax GenericType))
   ($_ p.either
-      (do p.Monad<Parser>
+      (do p.monad
         [_ (s.this (' ?))]
         (wrap (#GenericWildcard #.None)))
-      (s.tuple (do p.Monad<Parser>
+      (s.tuple (do p.monad
                  [_ (s.this (' ?))
                   bound-kind bound-kind^
                   bound (generic-type^ imports type-vars)]
                  (wrap (#GenericWildcard (#.Some [bound-kind bound])))))
-      (do p.Monad<Parser>
+      (do p.monad
         [name (full-class-name^ imports)
          _ (assert-no-periods name)]
-        (if (list.member? text.Equivalence<Text> (list/map product.left type-vars) name)
+        (if (list.member? text.equivalence (list/map product.left type-vars) name)
           (wrap (#GenericTypeVar name))
           (wrap (#GenericClass name (list)))))
-      (s.form (do p.Monad<Parser>
+      (s.form (do p.monad
                 [name (s.this (' Array))
                  component (generic-type^ imports type-vars)]
                 (case component
@@ -700,21 +698,21 @@
 
                   _
                   (wrap (#GenericArray component)))))
-      (s.form (do p.Monad<Parser>
+      (s.form (do p.monad
                 [name (full-class-name^ imports)
                  _ (assert-no-periods name)
                  params (p.some (generic-type^ imports type-vars))
                  _ (p.assert (format name " cannot be a type-parameter!")
-                             (not (list.member? text.Equivalence<Text> (list/map product.left type-vars) name)))]
+                             (not (list.member? text.equivalence (list/map product.left type-vars) name)))]
                 (wrap (#GenericClass name params))))
       ))
 
 (def: (type-param^ imports)
   (-> Class-Imports (Syntax Type-Paramameter))
-  (p.either (do p.Monad<Parser>
+  (p.either (do p.monad
               [param-name s.local-identifier]
               (wrap [param-name (list)]))
-            (s.tuple (do p.Monad<Parser>
+            (s.tuple (do p.monad
                        [param-name s.local-identifier
                         _ (s.this (' <))
                         bounds (p.many (generic-type^ imports (list)))]
@@ -726,11 +724,11 @@
 
 (def: (class-decl^ imports)
   (-> Class-Imports (Syntax Class-Declaration))
-  (p.either (do p.Monad<Parser>
+  (p.either (do p.monad
               [name (full-class-name^ imports)
                _ (assert-no-periods name)]
               (wrap [name (list)]))
-            (s.form (do p.Monad<Parser>
+            (s.form (do p.monad
                       [name (full-class-name^ imports)
                        _ (assert-no-periods name)
                        params (p.some (type-param^ imports))]
@@ -739,11 +737,11 @@
 
 (def: (super-class-decl^ imports type-vars)
   (-> Class-Imports (List Type-Paramameter) (Syntax Super-Class-Decl))
-  (p.either (do p.Monad<Parser>
+  (p.either (do p.monad
               [name (full-class-name^ imports)
                _ (assert-no-periods name)]
               (wrap [name (list)]))
-            (s.form (do p.Monad<Parser>
+            (s.form (do p.monad
                       [name (full-class-name^ imports)
                        _ (assert-no-periods name)
                        params (p.some (generic-type^ imports type-vars))]
@@ -755,7 +753,7 @@
 
 (def: (annotation^ imports)
   (-> Class-Imports (Syntax Annotation))
-  (p.either (do p.Monad<Parser>
+  (p.either (do p.monad
               [ann-name (full-class-name^ imports)]
               (wrap [ann-name (list)]))
             (s.form (p.and (full-class-name^ imports)
@@ -763,31 +761,31 @@
 
 (def: (annotations^' imports)
   (-> Class-Imports (Syntax (List Annotation)))
-  (do p.Monad<Parser>
+  (do p.monad
     [_ (s.this (' #ann))]
     (s.tuple (p.some (annotation^ imports)))))
 
 (def: (annotations^ imports)
   (-> Class-Imports (Syntax (List Annotation)))
-  (do p.Monad<Parser>
+  (do p.monad
     [anns?? (p.maybe (annotations^' imports))]
     (wrap (maybe.default (list) anns??))))
 
 (def: (throws-decl'^ imports type-vars)
   (-> Class-Imports (List Type-Paramameter) (Syntax (List GenericType)))
-  (do p.Monad<Parser>
+  (do p.monad
     [_ (s.this (' #throws))]
     (s.tuple (p.some (generic-type^ imports type-vars)))))
 
 (def: (throws-decl^ imports type-vars)
   (-> Class-Imports (List Type-Paramameter) (Syntax (List GenericType)))
-  (do p.Monad<Parser>
+  (do p.monad
     [exs? (p.maybe (throws-decl'^ imports type-vars))]
     (wrap (maybe.default (list) exs?))))
 
 (def: (method-decl^ imports type-vars)
   (-> Class-Imports (List Type-Paramameter) (Syntax [Member-Declaration MethodDecl]))
-  (s.form (do p.Monad<Parser>
+  (s.form (do p.monad
             [tvars (p.default (list) (type-params^ imports))
              name s.local-identifier
              anns (annotations^ imports)
@@ -804,18 +802,18 @@
   ($_ p.or
       (s.this (' #volatile))
       (s.this (' #final))
-      (:: p.Monad<Parser> wrap [])))
+      (:: p.monad wrap [])))
 
 (def: (field-decl^ imports type-vars)
   (-> Class-Imports (List Type-Paramameter) (Syntax [Member-Declaration FieldDecl]))
-  (p.either (s.form (do p.Monad<Parser>
+  (p.either (s.form (do p.monad
                       [_ (s.this (' #const))
                        name s.local-identifier
                        anns (annotations^ imports)
                        type (generic-type^ imports type-vars)
                        body s.any]
                       (wrap [[name #PublicPM anns] (#ConstantField [type body])])))
-            (s.form (do p.Monad<Parser>
+            (s.form (do p.monad
                       [pm privacy-modifier^
                        sm state-modifier^
                        name s.local-identifier
@@ -842,7 +840,7 @@
 
 (def: (constructor-method^ imports class-vars)
   (-> Class-Imports (List Type-Paramameter) (Syntax [Member-Declaration Method-Definition]))
-  (s.form (do p.Monad<Parser>
+  (s.form (do p.monad
             [pm privacy-modifier^
              strict-fp? (s.this? (' #strict))
              method-vars (p.default (list) (type-params^ imports))
@@ -860,7 +858,7 @@
 
 (def: (virtual-method-def^ imports class-vars)
   (-> Class-Imports (List Type-Paramameter) (Syntax [Member-Declaration Method-Definition]))
-  (s.form (do p.Monad<Parser>
+  (s.form (do p.monad
             [pm privacy-modifier^
              strict-fp? (s.this? (' #strict))
              final? (s.this? (' #final))
@@ -879,7 +877,7 @@
 
 (def: (overriden-method-def^ imports)
   (-> Class-Imports (Syntax [Member-Declaration Method-Definition]))
-  (s.form (do p.Monad<Parser>
+  (s.form (do p.monad
             [strict-fp? (s.this? (' #strict))
              owner-class (class-decl^ imports)
              method-vars (p.default (list) (type-params^ imports))
@@ -897,7 +895,7 @@
 
 (def: (static-method-def^ imports)
   (-> Class-Imports (Syntax [Member-Declaration Method-Definition]))
-  (s.form (do p.Monad<Parser>
+  (s.form (do p.monad
             [pm privacy-modifier^
              strict-fp? (s.this? (' #strict))
              _ (s.this (' #static))
@@ -916,7 +914,7 @@
 
 (def: (abstract-method-def^ imports)
   (-> Class-Imports (Syntax [Member-Declaration Method-Definition]))
-  (s.form (do p.Monad<Parser>
+  (s.form (do p.monad
             [pm privacy-modifier^
              _ (s.this (' #abstract))
              method-vars (p.default (list) (type-params^ imports))
@@ -933,7 +931,7 @@
 
 (def: (native-method-def^ imports)
   (-> Class-Imports (Syntax [Member-Declaration Method-Definition]))
-  (s.form (do p.Monad<Parser>
+  (s.form (do p.monad
             [pm privacy-modifier^
              _ (s.this (' #native))
              method-vars (p.default (list) (type-params^ imports))
@@ -964,17 +962,17 @@
 
 (def: class-kind^
   (Syntax Class-Kind)
-  (p.either (do p.Monad<Parser>
+  (p.either (do p.monad
               [_ (s.this (' #class))]
               (wrap #Class))
-            (do p.Monad<Parser>
+            (do p.monad
               [_ (s.this (' #interface))]
               (wrap #Interface))
             ))
 
 (def: import-member-alias^
   (Syntax (Maybe Text))
-  (p.maybe (do p.Monad<Parser>
+  (p.maybe (do p.monad
              [_ (s.this (' #as))]
              s.local-identifier)))
 
@@ -994,11 +992,11 @@
 (def: (import-member-decl^ imports owner-vars)
   (-> Class-Imports (List Type-Paramameter) (Syntax Import-Member-Declaration))
   ($_ p.either
-      (s.form (do p.Monad<Parser>
+      (s.form (do p.monad
                 [_ (s.this (' #enum))
                  enum-members (p.some s.local-identifier)]
                 (wrap (#EnumDecl enum-members))))
-      (s.form (do p.Monad<Parser>
+      (s.form (do p.monad
                 [tvars (p.default (list) (type-params^ imports))
                  _ (s.this (' new))
                  ?alias import-member-alias^
@@ -1016,7 +1014,7 @@
                                           #import-member-io?     io?}
                                          {}]))
                 ))
-      (s.form (do p.Monad<Parser>
+      (s.form (do p.monad
                 [kind (: (Syntax ImportMethodKind)
                          (p.or (s.this (' #static))
                                (wrap [])))
@@ -1039,7 +1037,7 @@
                                     {#import-method-name    name
                                      #import-method-return  return
                                      }]))))
-      (s.form (do p.Monad<Parser>
+      (s.form (do p.monad
                 [static? (s.this? (' #static))
                  name s.local-identifier
                  ?prim-mode (p.maybe primitive-mode^)
@@ -1207,7 +1205,7 @@
                     (code.to-text (pre-walk-replace replacer body)))))
     
     (#OverridenMethod strict-fp? class-decl type-vars arg-decls return-type body exs)
-    (let [super-replacer (parser->replacer (s.form (do p.Monad<Parser>
+    (let [super-replacer (parser->replacer (s.form (do p.monad
                                                      [_ (s.this (' ::super!))
                                                       args (s.tuple (p.exactly (list.size arg-decls) s.any))
                                                       #let [arg-decls' (: (List Text) (list/map (|>> product.right (simple-class$ (list)))
@@ -1324,7 +1322,7 @@
               "(::new! []) for calling the class's constructor."
               "(::resolve! container [value]) for calling the 'resolve' method."
               )}
-  (do Monad<Meta>
+  (do macro.monad
     [current-module macro.current-module-name
      #let [fully-qualified-class-name (format (sanitize current-module) "." full-class-name)
            field-parsers (list/map (field->parser fully-qualified-class-name) fields)
@@ -1522,7 +1520,7 @@
   (case member
     (^or (#ConstructorDecl [commons _]) (#MethodDecl [commons _]))
     (let [(^slots [#import-member-tvars #import-member-args]) commons]
-      (do Monad<Meta>
+      (do macro.monad
         [arg-inputs (monad.map @
                                (: (-> [Bit GenericType] (Meta [Bit Code]))
                                   (function (_ [maybe? _])
@@ -1542,7 +1540,7 @@
         (wrap [arg-inputs arg-classes arg-types])))
 
     _
-    (:: Monad<Meta> wrap [(list) (list) (list)])))
+    (:: macro.monad wrap [(list) (list) (list)])))
 
 (def: (decorate-return-maybe member return-term)
   (-> Import-Member-Declaration Code Code)
@@ -1628,7 +1626,7 @@
                        (list/map type-param->type-arg))]
     (case member
       (#EnumDecl enum-members)
-      (do Monad<Meta>
+      (do macro.monad
         [#let [enum-type (: Code
                             (case class-tvars
                               #.Nil
@@ -1648,7 +1646,7 @@
         (wrap (list/map getter-interop enum-members)))
       
       (#ConstructorDecl [commons _])
-      (do Monad<Meta>
+      (do macro.monad
         [#let [def-name (code.identifier ["" (format method-prefix member-separator (get@ #import-member-alias commons))])
                jvm-extension (code.text (format "jvm new" ":" full-name ":" (text.join-with "," arg-classes)))
                jvm-interop (|> (` ((~ jvm-extension)
@@ -1696,7 +1694,7 @@
                           ((~' wrap) (.list (.` (~ jvm-interop))))))))))
 
       (#FieldAccessDecl fad)
-      (do Monad<Meta>
+      (do macro.monad
         [#let [(^open ".") fad
                base-gtype (class->type import-field-mode type-params import-field-type)
                classC (class-decl-type$ class)
@@ -1757,7 +1755,7 @@
         method-prefix (if long-name?
                         full-name
                         (short-class-name full-name))]
-    (do Monad<Meta>
+    (do macro.monad
       [=args (member-def-arg-bindings type-params class member)]
       (member-def-interop type-params kind class =args member method-prefix))))
 
@@ -1774,7 +1772,7 @@
   (let [class-name (sanitize class-name)]
     (case (load-class class-name)
       (#.Right class)
-      (:: Monad<Meta> wrap (if (interface? class)
+      (:: macro.monad wrap (if (interface? class)
                              #Interface
                              #Class))
 
@@ -1835,7 +1833,7 @@
               (java/util/List::size [] my-list)
               Character$UnicodeScript::LATIN
               )}
-  (do Monad<Meta>
+  (do macro.monad
     [kind (class-kind class-decl)
      =members (monad.map @ (member-import$ (product.right class-decl) long-name? kind class-decl) members)]
     (wrap (list& (class-import$ long-name? class-decl) (list/join =members)))))
@@ -1869,10 +1867,10 @@
 (def: (type->class-name type)
   (-> Type (Meta Text))
   (if (type/= Any type)
-    (:: Monad<Meta> wrap "java.lang.Object")
+    (:: macro.monad wrap "java.lang.Object")
     (case type
       (#.Primitive name params)
-      (:: Monad<Meta> wrap name)
+      (:: macro.monad wrap name)
 
       (#.Apply A F)
       (case (type.apply (list A) F)
@@ -1893,7 +1891,7 @@
               (array-read 10 my-array))}
   (case array
     [_ (#.Identifier array-name)]
-    (do Monad<Meta>
+    (do macro.monad
       [array-type (macro.find-type array-name)
        array-jvm-type (type->class-name array-type)]
       (case array-jvm-type
@@ -1922,7 +1920,7 @@
               (array-write 10 my-object my-array))}
   (case array
     [_ (#.Identifier array-name)]
-    (do Monad<Meta>
+    (do macro.monad
       [array-type (macro.find-type array-name)
        array-jvm-type (type->class-name array-type)]
       (case array-jvm-type
@@ -1957,7 +1955,7 @@
               "Afterwards, closes all resources (assumed to be subclasses of java.io.Closeable), and returns the value resulting from running the body."
               (with-open [my-res1 (res1-constructor ___)
                           my-res2 (res1-constructor ___)]
-                (do io.Monad<IO>
+                (do io.monad
                   [foo (do-something my-res1)
                    bar (do-something-else my-res2)]
                   (do-one-last-thing foo bar))))}
@@ -1968,7 +1966,7 @@
           closes (list/map (function (_ res)
                              (` (try ("jvm invokevirtual:java.io.Closeable:close:" (~ (code.identifier ["" (product.left res)]))))))
                            bindings)]
-      (wrap (list (` (do (~! io.Monad<IO>)
+      (wrap (list (` (do (~! io.monad)
                        [(~+ inits)
                         (~ g!output) (~ body)
                         (~' #let) [(~ g!_) (exec (~+ (list.reverse closes)) [])]]
@@ -1991,7 +1989,7 @@
               =>
               "java.lang.String")}
   (-> Text (Meta Text))
-  (do Monad<Meta>
+  (do macro.monad
     [*compiler* get-compiler]
     (wrap (qualify (class-imports *compiler*) class))))
 
