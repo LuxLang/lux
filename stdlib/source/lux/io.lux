@@ -1,53 +1,65 @@
-## TODO: Make IO an abstract type.
 (.module: {#.doc "A method for abstracting I/O and effectful computations to make it safe while writing pure functional code."}
   [lux #*
    [control
     [functor (#+ Functor)]
     [apply (#+ Apply)]
-    [monad (#+ do Monad)]]])
+    [monad (#+ Monad do)]]
+   [type
+    abstract]
+   ["." macro (#+ with-gensyms)
+    ["s" syntax (#+ syntax:)]
+    ["." template]]])
 
-(type: #export (IO a)
+(abstract: #export (IO a)
   {#.doc "A type that represents synchronous, effectful computations that may interact with the outside world."}
-  (-> Nothing a))
+  (-> Nothing a)
 
-(macro: #export (io tokens state)
-  {#.doc (doc "Delays the evaluation of an expression, by wrapping it in an IO 'thunk'."
-              "Great for wrapping effectful computations (which will not be performed until the IO is 'run')."
-              (io (exec
-                    (log! msg)
-                    "Some value...")))}
-  (case tokens
-    (^ (list value))
-    (let [blank (: Code [["" 0 0] (#.Identifier ["" ""])])]
-      (#.Right [state (list (` ([(~ blank) (~ blank)] (~ value))))]))
+  (def: #export (label thunk)
+    (All [a] (-> (-> Nothing a) (IO a)))
+    (:abstraction thunk))
 
-    _
-    (#.Left "Wrong syntax for io")))
+  (template: (!io computation)
+    (:abstraction (template.with-locals [g!func g!arg]
+                    (function (g!func g!arg)
+                      computation))))
 
-(structure: #export functor (Functor IO)
-  (def: (map f ma)
-    (io (f (ma (:coerce Nothing []))))))
+  (template: (!execute io)
+    ## creatio ex nihilo
+    ((:representation io) (:coerce .Nothing [])))
 
-(structure: #export apply (Apply IO)
-  (def: &functor ..functor)
+  (syntax: #export (io computation)
+    {#.doc (doc "Delays the evaluation of an expression, by wrapping it in an IO 'thunk'."
+                "Great for wrapping effectful computations (which will not be performed until the IO is 'run')."
+                (io (exec
+                      (log! msg)
+                      "Some value...")))}
+    (with-gensyms [g!func g!arg]
+      (wrap (list (` ((~! ..label) (function ((~ g!func) (~ g!arg))
+                                     (~ computation))))))))
 
-  (def: (apply ff fa)
-    (io ((ff (:coerce Nothing [])) (fa (:coerce Nothing []))))))
+  (def: #export (exit code)
+    (-> Int (IO Nothing))
+    (!io ("lux io exit" code)))
 
-(structure: #export monad (Monad IO)
-  (def: &functor ..functor)
+  (def: #export run
+    {#.doc "A way to execute IO computations and perform their side-effects."}
+    (All [a] (-> (IO a) a))
+    (|>> !execute))
 
-  (def: (wrap x)
-    (io x))
-  
-  (def: (join mma)
-    (io ((mma (:coerce Nothing [])) (:coerce Nothing [])))))
+  (structure: #export functor (Functor IO)
+    (def: (map f)
+      (|>> !execute f !io)))
 
-(def: #export (run action)
-  {#.doc "A way to execute IO computations and perform their side-effects."}
-  (All [a] (-> (IO a) a))
-  (action (:coerce Nothing [])))
+  (structure: #export apply (Apply IO)
+    (def: &functor ..functor)
 
-(def: #export (exit code)
-  (-> Int (IO Nothing))
-  (io ("lux io exit" code)))
+    (def: (apply ff fa)
+      (!io ((!execute ff) (!execute fa)))))
+
+  (structure: #export monad (Monad IO)
+    (def: &functor ..functor)
+
+    (def: wrap (|>> !io))
+    
+    (def: join (|>> !execute !execute !io)))
+  )

@@ -66,9 +66,9 @@
                     (&/$Parameter 1))))
 
 (def IO
-  (&/$Named (&/T ["lux/codata" "IO"])
+  (&/$Named (&/T ["lux/io" "IO"])
             (&/$UnivQ empty-env
-                      (&/$Function Nothing (&/$Parameter 1)))))
+                      (&/$Primitive "lux/type/abstract.Abstraction lux/io.IO" (&/|list (&/$Parameter 1))))))
 
 (def List
   (&/$Named (&/T ["lux" "List"])
