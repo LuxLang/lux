@@ -16,9 +16,10 @@
   :scm {:name "git"
         :url "https://github.com/LuxLang/lux.git"}
 
-  :dependencies []
-  
   :source-paths ["source"]
-  :test-paths ["test"]
-  :lux {:tests {:jvm "test"}}
+  :profiles {:library {:dependencies []
+                       :test-paths ["test"]
+                       :lux {:tests {:jvm "test"}}}
+             :documentation {:dependencies []
+                             :lux {:program {:jvm "program/scriptum"}}}}
   )

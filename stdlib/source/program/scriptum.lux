@@ -1,0 +1,518 @@
+(.module:
+  [lux #*
+   [control
+    [pipe (#+ when>)]
+    ["." monad (#+ do)]
+    ["ex" exception (#+ exception:)]
+    [security
+     ["!" capability]]]
+   [cli (#+ program:)]
+   [data
+    ["." maybe]
+    ["." product]
+    ["." error (#+ Error)]
+    [format
+     ["md" markdown (#+ Markdown Span Block)]]
+    ["." text ("text/." equivalence)
+     format
+     ["." encoding]]
+    [collection
+     ["." sequence (#+ Sequence) ("sequence/." functor)]
+     ["." list ("list/." functor fold)]]]
+   ["." function]
+   ["." type]
+   ["." macro]
+   ["." io (#+ IO io)]
+   [world
+    ["." file (#+ File)]]])
+
+(def: name-options "abcdefghijklmnopqrstuvwxyz")
+(def: name-options-count (text.size name-options))
+
+(def: (parameter-type-name id)
+  (-> Nat Text)
+  (case (text.nth id ..name-options)
+    (#.Some char)
+    (text.from-code char)
+
+    #.None
+    (format (parameter-type-name (n// name-options-count id))
+            (parameter-type-name (n/% name-options-count id)))))
+
+(def: type-var-names
+  (Sequence Text)
+  (|> 0 (sequence.iterate inc) (sequence/map parameter-type-name)))
+
+(do-template [<name> <partition>]
+  [(def: (<name> id)
+     (-> Nat Bit)
+     (<partition> id))]
+
+  [type-func? n/even?]
+  [type-arg? n/odd?]
+  )
+
+(def: (arg-id level id)
+  (-> Nat Nat Nat)
+  (n/- (n// 2 id) level))
+
+(def: (parameter->name [type-func-name type-function-arguments] level id)
+  (-> [Text (List Text)] Nat Nat Text)
+  (if (type-arg? id)
+    (let [arg-id (..arg-id level id)]
+      (case (list.nth arg-id type-function-arguments)
+        (#.Some found)
+        found
+
+        _
+        (|> type-var-names
+            (sequence.filter (function (_ var-name)
+                               (not (list.member? text.equivalence type-function-arguments var-name))))
+            (sequence.nth arg-id))))      
+    type-func-name))
+
+(def: (level->args offset level)
+  (-> Nat Nat (List Text))
+  (if (n/= 0 level)
+    (list)
+    (|> level
+        dec
+        (list.n/range 0)
+        (list/map (|>> (n/+ (inc offset)) parameter-type-name)))))
+
+(def: (prefix-lines prefix lines)
+  (-> Text Text Text)
+  (|> lines
+      (text.split-all-with text.new-line)
+      (list/map (|>> (format prefix)))
+      (text.join-with text.new-line)))
+
+(def: (pprint-type-definition level type-func-info tags module signature? recursive-type? type)
+  (-> Nat [Text (List Text)] (List Name) Text Bit Bit Type Text)
+  (case tags
+    (^ (list [_ single-tag]))
+    (if signature?
+      (format "(: " (pprint-type-definition level type-func-info #.None module signature? recursive-type? type) text.new-line "   " single-tag ")")
+      (format "{#" single-tag " " (pprint-type-definition level type-func-info #.None module signature? recursive-type? type) "}"))
+
+    _
+    (case [recursive-type? type]
+      [_ (#.Primitive name params)]
+      (case params
+        #.Nil
+        (format "(primitive " (%t name) ")")
+
+        _
+        (format "(primitive " (%t name) " " (|> params (list/map (pprint-type-definition level type-func-info #.None module signature? recursive-type?)) (text.join-with " ")) ")"))
+
+      [_ (#.Sum _)]
+      (let [members (type.flatten-variant type)]
+        (case tags
+          #.Nil
+          (format "(| "
+                  (|> members
+                      (list/map (pprint-type-definition level type-func-info #.None module signature? recursive-type?))
+                      (text.join-with " "))
+                  ")")
+
+          _
+          (|> members
+              (list.zip2 tags)
+              (list/map (function (_ [[_ t-name] type])
+                          (case type
+                            (#.Product _)
+                            (let [types (type.flatten-tuple type)]
+                              (format "(#" t-name " "
+                                      (|> types
+                                          (list/map (pprint-type-definition level type-func-info #.None module signature? recursive-type?))
+                                          (text.join-with " "))
+                                      ")"))
+
+                            _
+                            (format "(#" t-name " " (pprint-type-definition level type-func-info #.None module signature? recursive-type? type) ")"))))
+              (text.join-with text.new-line))))
+
+      [_ (#.Product _)]
+      (let [members (type.flatten-tuple type)]
+        (case tags
+          #.Nil
+          (format "[" (|> members (list/map (pprint-type-definition level type-func-info #.None module signature? recursive-type?)) (text.join-with " ")) "]")
+
+          _
+          (let [member-docs (|> members
+                                (list.zip2 tags)
+                                (list/map (function (_ [[_ t-name] type])
+                                            (if signature?
+                                              (format "(: " (pprint-type-definition level type-func-info #.None module signature? recursive-type? type) text.new-line "   "  t-name ")")
+                                              (format "#" t-name " " (pprint-type-definition level type-func-info #.None module signature? recursive-type? type)))))
+                                (text.join-with (format text.new-line " ")))]
+            (if signature?
+              member-docs
+              (format "{" member-docs "}")))))
+
+      [_ (#.Function input output)]
+      (let [[ins out] (type.flatten-function type)]
+        (format  "(-> " (|> ins (list/map (pprint-type-definition level type-func-info #.None module signature? recursive-type?)) (text.join-with " "))
+                 " "
+                 (pprint-type-definition level type-func-info #.None module signature? recursive-type? out)
+                 ")"))
+
+      [_ (#.Parameter idx)]
+      (parameter->name type-func-info level idx)
+
+      (^template [<tag> <pre> <post>]
+        [_ (<tag> id)]
+        (format <pre> (%n id) <post>))
+      ([#.Var "⌈v:" "⌋"]
+       [#.Ex  "⟨e:" "⟩"])
+
+      (^template [<tag> <name> <flatten>]
+        [_ (<tag> _)]
+        (let [[level' body] (<flatten> type)
+              args (level->args level level')
+              body-doc (pprint-type-definition (n/+ level level') type-func-info tags module signature? recursive-type? body)]
+          (format "(" <name> " " "[" (text.join-with " " args) "]"
+                  (case tags
+                    #.Nil
+                    (format " " body-doc)
+
+                    _
+                    (format text.new-line (prefix-lines "  " body-doc)))
+                  ")")))
+      ([#.UnivQ "All" type.flatten-univ-q]
+       [#.ExQ   "Ex"  type.flatten-ex-q])
+
+      [true (#.Apply (#.Parameter 1) (#.Parameter 0))]
+      (product.left type-func-info)
+
+      [_ (#.Apply param fun)]
+      (let [[type-func type-arguments] (type.flatten-application type)]
+        (format  "(" (pprint-type-definition level type-func-info tags module signature? recursive-type? type-func) " " (|> type-arguments (list/map (pprint-type-definition level type-func-info #.None module signature? recursive-type?)) (text.join-with " ")) ")"))
+
+      [_ (#.Named [_module _name] type)]
+      (if (text/= module _module)
+        _name
+        (%name [_module _name]))
+      )))
+
+(def: (pprint-type level type-func-name module type)
+  (-> Nat Text Text Type Text)
+  (case type
+    (#.Primitive name params)
+    (case params
+      #.Nil
+      (format "(primitive " (%t name) ")")
+
+      _
+      (format "(primitive " (%t name) " " (|> params (list/map (pprint-type level type-func-name module)) (list.interpose " ") (text.join-with "")) ")"))
+
+    (#.Sum _)
+    (let [members (type.flatten-variant type)]
+      (format "(| " (|> members (list/map (pprint-type level type-func-name module)) (list.interpose " ") (text.join-with "")) ")"))
+
+    (#.Product _)
+    (let [members (type.flatten-tuple type)]
+      (format "[" (|> members (list/map (pprint-type level type-func-name module)) (list.interpose " ") (text.join-with "")) "]"))
+
+    (#.Function input output)
+    (let [[ins out] (type.flatten-function type)]
+      (format  "(-> "
+               (|> ins (list/map (pprint-type level type-func-name module)) (list.interpose " ") (text.join-with ""))
+               " "
+               (pprint-type level type-func-name module out)
+               ")"))
+
+    (#.Parameter idx)
+    (parameter->name [type-func-name (list)] level idx)
+
+    (^template [<tag> <pre> <post>]
+      (<tag> id)
+      (format <pre> (%n id) <post>))
+    ([#.Var "⌈" "⌋"]
+     [#.Ex  "⟨" "⟩"])
+
+    (^template [<tag> <name> <flatten>]
+      (<tag> _)
+      (let [[level' body] (<flatten> type)
+            args (level->args level level')
+            body-doc (pprint-type (n/+ level level') type-func-name module body)]
+        (format "(" <name> " " "[" (|> args (list.interpose " ") (text.join-with "")) "]"
+                (format " " body-doc)
+                ")")))
+    ([#.UnivQ "All" type.flatten-univ-q]
+     [#.ExQ   "Ex"  type.flatten-ex-q])
+
+    (#.Apply param fun)
+    (let [[type-func type-arguments] (type.flatten-application type)]
+      (format  "(" (pprint-type level type-func-name module type-func) " " (|> type-arguments (list/map (pprint-type level type-func-name module)) (list.interpose " ") (text.join-with "")) ")"))
+
+    (#.Named [_module _name] type)
+    (if (text/= module _module)
+      _name
+      (%name [_module _name]))
+    ))
+
+(type: (Mutation a)
+  (-> a a))
+
+(type: Value [Text Code Type])
+
+(type: Organization
+  {#types (List Value)
+   #macros (List [Text Code])
+   #structures (List Value)
+   #values (List Value)})
+
+(def: (lux-module? module-name)
+  (-> Text Bit)
+  (or (text/= "lux" module-name)
+      (text.starts-with? "lux/" module-name)))
+
+(def: (add-definition [name [def-type def-annotations def-value]] organization)
+  (-> [Text Definition] Organization Organization)
+  (cond (macro.type? def-annotations)
+        (update@ #types
+                 (: (Mutation (List Value))
+                    (|>> (#.Cons [name def-annotations (:coerce Type def-value)])))
+                 organization)
+
+        (macro.macro? def-annotations)
+        (update@ #macros
+                 (: (Mutation (List [Text Code]))
+                    (|>> (#.Cons [name def-annotations])))
+                 organization)
+
+        (macro.structure? def-annotations)
+        (update@ #structures
+                 (: (Mutation (List Value))
+                    (|>> (#.Cons [name def-annotations def-type])))
+                 organization)
+
+        ## else
+        (update@ #values
+                 (: (Mutation (List Value))
+                    (|>> (#.Cons [name def-annotations def-type])))
+                 organization)))
+
+(def: name-sort
+  (All [r] (-> [Text r] [Text r] Bit))
+  (let [text/< (:: text.order <)]
+    (function (_ [n1 _] [n2 _])
+      (text/< n1 n2))))
+
+(def: (organize-definitions defs)
+  (-> (List [Text Definition]) Organization)
+  (let [init {#types (list)
+              #macros (list)
+              #structures (list)
+              #values (list)}]
+    (|> (list/fold add-definition init defs)
+        (update@ #types (list.sort name-sort))
+        (update@ #macros (list.sort name-sort))
+        (update@ #structures (list.sort name-sort))
+        (update@ #values (list.sort name-sort)))))
+
+(def: (unravel-type-func level type)
+  (-> Nat Type Type)
+  (if (n/> 0 level)
+    (case type
+      (#.UnivQ _env _type)
+      (unravel-type-func (dec level) _type)
+
+      _
+      type)
+    type))
+
+(def: (unrecurse-type type)
+  (-> Type Type)
+  (case type
+    (#.Apply _ (#.UnivQ _env _type))
+    _type
+
+    _
+    type))
+
+(exception: #export (anonymous-type-definition {type Type})
+  (ex.report ["Type" (%type type)]))
+
+(def: (document-type module type def-annotations)
+  (-> Text Type Code (Meta (Markdown Block)))
+  (case type
+    (#.Named type-name type)
+    (do macro.monad
+      [tags (macro.tags-of type-name)
+       #let [[_ _name] type-name
+             recursive-type? (macro.recursive-type? def-annotations)
+             ## type (: Type
+             ##         (case [recursive-type? type]
+             ##           [#1 (#.Apply dummyT (#.UnivQ _closure recursiveT))]
+             ##           recursiveT
+
+             ##           _
+             ##           type))
+             type-arguments (macro.type-arguments def-annotations)
+             signature? (macro.signature? def-annotations)
+             usage (case type-arguments
+                     #.Nil
+                     _name
+
+                     _
+                     (format "(" (text.join-with " " (list& _name type-arguments)) ")"))
+             nesting (list.size type-arguments)]]
+      (wrap (md.code (format (if signature? "(signature: " "(type: ")
+                             (if recursive-type? "#rec " "")
+                             usage text.new-line
+                             (|> type
+                                 (unravel-type-func nesting)
+                                 (when> recursive-type? [unrecurse-type])
+                                 (pprint-type-definition (dec nesting) [_name type-arguments] (maybe.default (list) tags) module signature? recursive-type?)
+                                 (text.split-all-with text.new-line)
+                                 (list/map (|>> (format "  ")))
+                                 (text.join-with text.new-line))
+                             ")"))))
+
+    _
+    (macro.fail (ex.construct anonymous-type-definition type))))
+
+(def: (document-types module types)
+  (-> Text (List Value) (Meta (Markdown Block)))
+  (do macro.monad
+    [type-docs (monad.map @
+                          (: (-> Value (Meta (Markdown Block)))
+                             (function (_ [name def-annotations type])
+                               (do macro.monad
+                                 [#let [?doc (macro.get-documentation def-annotations)]
+                                  type-code (document-type module type def-annotations)]
+                                 (wrap ($_ md.then
+                                           (md.heading/3 name)
+                                           (case ?doc
+                                             (#.Some doc)
+                                             (md.paragraph (md.text doc))
+
+                                             _
+                                             md.empty)
+                                           type-code)))))
+                          types)]
+    (wrap (list/fold (function.flip md.then)
+                     (md.heading/2 "Types")
+                     type-docs))))
+
+(def: (document-macros module-name names)
+  (-> Text (List [Text Code]) (Markdown Block))
+  (|> names
+      (list/map (: (-> [Text Code] (Markdown Block))
+                   (function (_ [name def-annotations])
+                     ($_ md.then
+                         (md.heading/3 name)
+                         (<| (: (Markdown Block))
+                             (maybe.default md.empty)
+                             (do maybe.monad
+                               [documentation (macro.get-documentation def-annotations)]
+                               (wrap (md.code documentation))))))))
+      (list/fold (function.flip md.then)
+                 (md.heading/2 "Macros"))))
+
+(do-template [<singular> <plural> <header>]
+  [(def: (<singular> module type)
+     (-> Text Type (Markdown Block))
+     (md.code (pprint-type (dec 0) "?" module type)))
+
+   (def: (<plural> module values)
+     (-> Text (List Value) (Markdown Block))
+     (|> values
+         (list/map (function (_ [name def-annotations value-type])
+                     (let [?doc (macro.get-documentation def-annotations)
+                           usage (case (macro.function-arguments def-annotations)
+                                   #.Nil
+                                   name
+
+                                   args
+                                   (format "(" (text.join-with " " (list& name args)) ")"))]
+                       ($_ md.then
+                           (md.heading/3 usage)
+                           (case ?doc
+                             (#.Some doc)
+                             (md.code doc)
+
+                             _
+                             md.empty)
+                           (<singular> module value-type)))))
+         (list/fold (function.flip md.then)
+                    (md.heading/2 <header>))))]
+
+  [document-structure document-structures "Structures"]
+  [document-value     document-values     "Values"]
+  )
+
+(def: (enclose-lines pre+post block)
+  (-> [Text Text] Text Text)
+  (|> block
+      (text.split-all-with text.new-line)
+      (list/map (text.enclose pre+post))
+      (text.join-with text.new-line)))
+
+(def: (document-module [[module-name module] organization])
+  (-> [[Text Module] Organization] (Meta [Text (Markdown Block)]))
+  (do macro.monad
+    [#let [(^slots [#types #macros #structures #values]) organization
+           annotations (|> module
+                           (get@ #.module-annotations)
+                           (maybe.default (' {}))
+                           macro.get-documentation)
+           description (case annotations
+                         (#.Some doc-text)
+                         (md.quote (md.paragraph (md.text doc-text)))
+
+                         #.None
+                         md.empty)
+           empty-block (: (Markdown Block) md.empty)]
+     types-documentation (if (list.empty? types)
+                           (wrap empty-block)
+                           (document-types module-name types))
+     #let [documentation ($_ md.then
+                             types-documentation
+                             (if (list.empty? macros) empty-block (document-macros module-name macros))
+                             (if (list.empty? structures) empty-block (document-structures module-name structures))
+                             (if (list.empty? values) empty-block (document-values module-name values)))]]
+    (wrap [module-name
+           ($_ md.then
+               (md.heading/1 module-name)
+               description
+               documentation)])))
+
+(exception: #export (io-error {error Text})
+  error)
+
+(def: (save-documentation! [module-name documentation])
+  (-> [Text (Markdown Block)] (IO Any))
+  (let [path (format (text.replace-all "/" "_" module-name) ".md")]
+    (do io.monad
+      [outcome (do (error.with-error io.monad)
+                 [target (: (IO (Error (File IO)))
+                            (file.get-file io.monad file.system path))]
+                 (!.use (:: target over-write) (encoding.to-utf8 (md.markdown documentation))))]
+      (case outcome
+        (#error.Failure error)
+        (wrap (log! (ex.construct io-error error)))
+
+        (#error.Success _)
+        (wrap [])))))
+
+(macro: (gen-documentation! _)
+  (do macro.monad
+    [all-modules macro.modules
+     #let [lux-modules (|> all-modules
+                           (list.filter (function.compose lux-module? product.left))
+                           (list.sort name-sort))]
+     lux-exports (monad.map @ (function.compose macro.exports product.left)
+                            lux-modules)
+     module-documentation (|> (list/map organize-definitions lux-exports)
+                              (list.zip2 lux-modules)
+                              (monad.map @ document-module))
+     #let [_ (io.run (monad.map io.monad save-documentation! module-documentation))]]
+    (wrap (list))))
+
+(gen-documentation!)
+
+(program: args
+  (io (log! "Done!")))
