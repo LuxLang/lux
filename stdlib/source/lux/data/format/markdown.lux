@@ -1,0 +1,176 @@
+(.module:
+  [lux (#- and)
+   [data
+    ["." text
+     format]
+    [collection
+     ["." list ("list/." functor)]]]
+   [type
+    abstract]
+   [world
+    [net (#+ URL)]]])
+
+## https://www.markdownguide.org/basic-syntax/
+
+(def: sanitize
+  (-> Text Text)
+  (|>> (text.replace-all "\" "\\")
+       (text.replace-all "`" "\`")
+       (text.replace-all "*" "\*")
+       (text.replace-all "_" "\_")
+       (text.replace-all "{" "\{")
+       (text.replace-all "}" "\}")
+       (text.replace-all "[" "\[")
+       (text.replace-all "]" "\]")
+       (text.replace-all "(" "\(")
+       (text.replace-all ")" "\)")
+       (text.replace-all "#" "\#")
+       (text.replace-all "+" "\+")
+       (text.replace-all "-" "\-")
+       (text.replace-all "." "\.")
+       (text.replace-all "!" "\!")))
+
+(abstract: #export Span {} Any)
+(abstract: #export Block {} Any)
+
+(abstract: #export (Markdown brand)
+  {}
+
+  Text
+
+  (def: #export text
+    (-> Text (Markdown Span))
+    (|>> ..sanitize :abstraction))
+
+  (do-template [<name> <prefix>]
+    [(def: #export (<name> content)
+       (-> Text Markdown)
+       (:abstraction (format <prefix> (..sanitize content) text.new-line)))]
+
+    [heading/1 "#"]
+    [heading/2 "##"]
+    [heading/3 "###"]
+    [heading/4 "####"]
+    [heading/5 "#####"]
+    [heading/6 "######"]
+    )
+
+  (def: blank-line (format text.new-line text.new-line))
+
+  (def: (block content)
+    (-> Text (Markdown Block))
+    (:abstraction (format content ..blank-line)))
+
+  (def: #export paragraph
+    (-> (Markdown Span) (Markdown Block))
+    (|>> :representation ..block))
+
+  (def: #export break
+    (Markdown Span)
+    (:abstraction (format "  " text.new-line)))
+
+  (do-template [<name> <wrapper>]
+    [(def: #export <name>
+       (-> (Markdown Span) (Markdown Span))
+       (|>> :representation
+            (text.enclose [<wrapper> <wrapper>])
+            :abstraction))]
+
+    [bold "**"]
+    [italic "_"]
+    )
+
+  (def: (prefix with)
+    (-> Text (-> Text Text))
+    (|>> (text.split-all-with text.new-line)
+         (list/map (function (_ line)
+                     (if (text.empty? line)
+                       line
+                       (format with line))))
+         (text.join-with text.new-line)))
+
+  (def: indent
+    (-> Text Text)
+    (..prefix text.tab))
+
+  (def: #export quote
+    (-> (Markdown Block) (Markdown Block))
+    (|>> :representation
+         (..prefix "> ")
+         :abstraction))
+
+  (def: #export numbered-list
+    (-> (List [(Markdown Span) (Maybe (Markdown Block))])
+        (Markdown Block))
+    (|>> list.enumerate
+         (list/map (function (_ [idx [summary detail]])
+                     (format (%n (inc idx)) ". " (:representation summary) text.new-line
+                             (case detail
+                               (#.Some detail)
+                               (|> detail :representation ..indent (text.enclose [text.new-line text.new-line]))
+                               
+                               #.None
+                               ""))))
+         (text.join-with text.new-line)
+         ..block))
+
+  (def: #export bullet-list
+    (-> (List [(Markdown Span) (Maybe (Markdown Block))])
+        (Markdown Block))
+    (|>> (list/map (function (_ [summary detail])
+                     (format "*. " (:representation summary) text.new-line
+                             (case detail
+                               (#.Some detail)
+                               (|> detail :representation ..indent (text.enclose [text.new-line text.new-line]))
+                               
+                               #.None
+                               ""))))
+         (text.join-with text.new-line)
+         ..block))
+
+  (def: #export snippet
+    {#.doc "A snippet of code."}
+    (-> Text (Markdown Span))
+    (|>> ..sanitize (text.enclose ["`" "`"]) :abstraction))
+
+  (def: #export code
+    {#.doc "A block of code."}
+    (-> Text (Markdown Block))
+    (|>> ..indent ..block))
+
+  (def: #export (image description url)
+    (-> Text URL (Markdown Span))
+    (:abstraction (format "![" (..sanitize description) "](" url ")")))
+
+  (def: #export horizontal-rule
+    (Markdown Block)
+    (..block "___"))
+
+  (def: #export (link description url)
+    (-> (Markdown Span) URL (Markdown Span))
+    (:abstraction (format "[" (:representation description) "](" url ")")))
+
+  (type: #export Email Text)
+
+  (do-template [<name> <type>]
+    [(def: #export <name>
+       (-> <type> (Markdown Span))
+       (|>> (text.enclose ["<" ">"]) :abstraction))]
+
+    [url URL]
+    [email Email]
+    )
+
+  (do-template [<name> <brand> <infix>]
+    [(def: #export (<name> pre post)
+       (-> (Markdown <brand>) (Markdown <brand>) (Markdown <brand>))
+       (:abstraction (format (:representation pre) <infix> (:representation post))))]
+
+    [and Span " "]
+    [then Block ""]
+    )
+
+  (def: #export markdown
+    (-> (Markdown Any) Text)
+    (|>> :representation))
+  )
