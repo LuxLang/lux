@@ -1,25 +1,27 @@
-(defproject com.github.luxlang/stdlib "0.6.0-SNAPSHOT"
+(def version "0.6.0-SNAPSHOT")
+(def repo "https://github.com/LuxLang/lux")
+(def sonetype-releases "https://oss.sonatype.org/service/local/staging/deploy/maven2/")
+(def sonetype-snapshots "https://oss.sonatype.org/content/repositories/snapshots/")
+
+(defproject com.github.luxlang/stdlib #=(identity version)
   :description "Standard library for the Lux programming language."
-  :url "https://github.com/LuxLang/stdlib"
+  :url ~repo
   :license {:name "Lux License v0.1"
-            :url "https://github.com/LuxLang/lux/blob/master/license.txt"}
-  :plugins [[com.github.luxlang/lein-luxc "0.6.0-SNAPSHOT"]]
-  :deploy-repositories [["releases" {:url "https://oss.sonatype.org/service/local/staging/deploy/maven2/"
-                                     :creds :gpg}]
-                        ["snapshots" {:url "https://oss.sonatype.org/content/repositories/snapshots/"
-                                      :creds :gpg}]]
+            :url ~(str repo "/blob/master/license.txt")}
+  :plugins [[com.github.luxlang/lein-luxc ~version]]
+  :deploy-repositories [["releases" {:url ~sonetype-releases :creds :gpg}]
+                        ["snapshots" {:url ~sonetype-snapshots :creds :gpg}]]
   :pom-addition [:developers [:developer
                               [:name "Eduardo Julian"]
                               [:url "https://github.com/eduardoejp"]]]
-  :repositories [["snapshots" "https://oss.sonatype.org/content/repositories/snapshots/"]
-                 ["releases" "https://oss.sonatype.org/service/local/staging/deploy/maven2/"]]
+  :repositories [["releases" ~sonetype-releases]
+                 ["snapshots" ~sonetype-snapshots]]
   :scm {:name "git"
-        :url "https://github.com/LuxLang/lux.git"}
+        :url ~(str repo ".git")}
 
   :source-paths ["source"]
   :profiles {:library {:dependencies []
-                       :test-paths ["test"]
-                       :lux {:tests {:jvm "test"}}}
+                       :lux {:tests {:jvm "test/lux"}}}
              :documentation {:dependencies []
                              :lux {:program {:jvm "program/scriptum"}}}}
   )
