@@ -22,6 +22,9 @@
   :source-paths ["source"]
   :profiles {:library {:dependencies []
                        :lux {:tests {:jvm "test/lux"}}}
-             :documentation {:dependencies []
-                             :lux {:program {:jvm "program/scriptum"}}}}
+             :scriptum {:dependencies []
+                        :lux {:program {:jvm "program/scriptum"}}}
+             :licentia {:dependencies []
+                        :lux {:program {:jvm "program/licentia"}
+                              :tests {:jvm "test/licentia"}}}}
   )

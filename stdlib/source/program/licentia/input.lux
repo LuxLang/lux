@@ -1,0 +1,148 @@
+(.module:
+  [lux #*
+   [control
+    [monad (#+ do)]
+    ["ex" exception (#+ exception:)]
+    ["." parser]]
+   [data
+    [text
+     format]
+    [format
+     ["." json (#+ Reader)]]]]
+  [//
+   [license (#+ Identification
+                Termination
+                Liability
+                Distribution
+                Commercial
+                Extension
+                Entity Black-List
+                URL Attribution
+                License)
+    ["." time (#+ Period)]
+    ["." copyright]]])
+
+(def: identification
+  (Reader Identification)
+  (json.object
+    ($_ parser.and
+        (json.field "name" json.string)
+        (json.field "version" json.string))))
+
+(exception: #export (cannot-use-fractional-amount {amount Frac})
+  (ex.report ["Amount" (%f amount)]))
+
+(exception: #export (cannot-use-negative-amount {amount Int})
+  (ex.report ["Amount" (%i amount)]))
+
+(def: amount
+  (Reader Nat)
+  (do parser.monad
+    [amountF json.number
+     #let [amountI (frac-to-int amountF)]
+     _ (parser.assert (ex.construct cannot-use-fractional-amount amountF)
+                      (f/= amountF
+                           (int-to-frac amountI)))
+     _ (parser.assert (ex.construct cannot-use-negative-amount amountI)
+                      (i/> +0 amountI))]
+    (wrap (.nat amountI))))
+
+(exception: #export (invalid-period {period (Period Nat)})
+  (ex.report ["Start" (%n (get@ #time.start period))]
+             ["End" (%n (get@ #time.end period))]))
+
+(def: period
+  (Reader (Period Nat))
+  (json.object
+    (do parser.monad
+      [start (json.field "start" ..amount)
+       end (json.field "end" ..amount)
+       #let [period {#time.start start
+                     #time.end end}]
+       _ (parser.assert (ex.construct invalid-period period)
+                        (n/<= end start))]
+      (wrap period))))
+
+(def: copyright-holder
+  (Reader copyright.Holder)
+  (json.object
+    ($_ parser.and
+        (json.field "name" json.string)
+        (json.field "period" ..period))))
+
+(def: termination
+  (Reader Termination)
+  (json.object
+    ($_ parser.and
+        (json.field "patent retaliation?" json.boolean)
+        (json.field "termination period" ..amount)
+        (json.field "grace period" ..amount))))
+
+(def: liability
+  (Reader Liability)
+  (json.object
+    ($_ parser.and
+        (json.field "can accept?" json.boolean)
+        (json.field "disclaim high risk?" json.boolean))))
+
+(def: distribution
+  (Reader Distribution)
+  (json.object
+    ($_ parser.and
+        (json.field "can re-license?" json.boolean)
+        (json.field "can multi-license?" json.boolean))))
+
+(def: commercial
+  (Reader Commercial)
+  (json.object
+    ($_ parser.and
+        (json.field "can sell?" json.boolean)
+        (json.field "require contributor credit?" json.boolean)
+        (json.field "allow contributor endorsement?" json.boolean))))
+
+(def: extension
+  (Reader Extension)
+  (json.object
+    ($_ parser.and
+        (json.field "same license?" json.boolean)
+        (json.field "must be distinguishable?" json.boolean)
+        (json.field "notification period" (json.nullable ..period))
+        (json.field "must describe modifications?" json.boolean))))
+
+(def: entity
+  (Reader Entity)
+  json.string)
+
+(def: black-list
+  (Reader Black-List)
+  (json.object
+    ($_ parser.and
+        (json.field "justification" (json.nullable json.string))
+        (json.field "entities" (json.array (parser.many ..entity))))))
+
+(def: url
+  (Reader URL)
+  json.string)
+
+(def: attribution
+  (Reader Attribution)
+  (json.object
+    ($_ parser.and
+        (json.field "copyright-notice" json.string)
+        (json.field "phrase" (json.nullable json.string))
+        (json.field "url" ..url)
+        (json.field "image" (json.nullable ..url)))))
+
+(def: #export license
+  (Reader License)
+  (json.object
+    ($_ parser.and
+        (json.field "copyright-holders" (json.array (parser.many ..copyright-holder)))
+        (json.field "identification" (json.nullable ..identification))
+        (json.field "termination" ..termination)
+        (json.field "liability" ..liability)
+        (json.field "distribution" ..distribution)
+        (json.field "commercial" ..commercial)
+        (json.field "extension" ..extension)
+        (json.field "black-lists" (json.array (parser.some ..black-list)))
+        (json.field "attribution" (json.nullable ..attribution)))))

@@ -1,0 +1,347 @@
+(.module:
+  [lux #*
+   [cli (#+ program:)]
+   ["_" test (#+ Test)]
+   [io (#+ io)]
+   [control
+    [monad (#+ do)]]
+   [data
+    [bit ("bit/." equivalence)]
+    ["." maybe ("maybe/." functor)]
+    [number
+     [nat ("nat/." interval)]]
+    ["." text]
+    [collection
+     ["." list ("list/." functor)]]]
+   [math
+    ["r" random (#+ Random)]]]
+  {#program
+   [/
+    ["." license (#+ Identification
+                     Termination
+                     Liability
+                     Distribution
+                     Commercial
+                     Extension
+                     Entity Black-List
+                     URL Attribution
+                     License)
+     ["." time (#+ Period)]
+     ["." copyright]
+     ["." notice]
+     ["." definition]
+     ["." grant]
+     ["." limitation]
+     ["." submission]
+     ["." liability]
+     ["." distribution]
+     ["." commercial]
+     ["." extension]
+     ["." miscellaneous]
+     ["." black-list]]
+    ["." output]]})
+
+(def: period
+  (Random (Period Nat))
+  (do r.monad
+    [start (r.filter (|>> (n/= nat/top) not)
+                     r.nat)
+     #let [wiggle-room (n/- start nat/top)]
+     end (:: @ map
+             (|>> (n/% wiggle-room) (n/max 1))
+             r.nat)]
+    (wrap {#time.start start
+           #time.end end})))
+
+(def: copyright-holder
+  (Random copyright.Holder)
+  ($_ r.and
+      (r.ascii 10)
+      ..period))
+
+(def: identification
+  (Random Identification)
+  ($_ r.and
+      (r.ascii 10)
+      (r.ascii 10)))
+
+(def: termination
+  (Random Termination)
+  ($_ r.and
+      r.bit
+      r.nat
+      r.nat))
+
+(def: liability
+  (Random Liability)
+  ($_ r.and
+      r.bit
+      r.bit))
+
+(def: distribution
+  (Random Distribution)
+  ($_ r.and
+      r.bit
+      r.bit))
+
+(def: commercial
+  (Random Commercial)
+  ($_ r.and
+      r.bit
+      r.bit
+      r.bit))
+
+(def: extension
+  (Random Extension)
+  ($_ r.and
+      r.bit
+      r.bit
+      (r.maybe ..period)
+      r.bit))
+
+(def: entity
+  (Random Entity)
+  (r.ascii 10))
+
+(def: (variable-list max-size gen-element)
+  (All [a] (-> Nat (Random a) (Random (List a))))
+  (do r.monad
+    [amount (:: @ map (n/% (n/max 1 max-size))
+                r.nat)]
+    (r.list amount gen-element)))
+
+(def: black-list
+  (Random Black-List)
+  ($_ r.and
+      (r.maybe (r.ascii 10))
+      (variable-list 10 ..entity)))
+
+(def: url
+  (Random URL)
+  (r.ascii 10))
+
+(def: attribution
+  (Random Attribution)
+  ($_ r.and
+      (r.ascii 10)
+      (r.maybe (r.ascii 10))
+      ..url
+      (r.maybe ..url)))
+
+(def: license
+  (Random License)
+  ($_ r.and
+      (r.list 2 ..copyright-holder)
+      (r.maybe ..identification)
+      ..termination
+      ..liability
+      ..distribution
+      ..commercial
+      ..extension
+      (variable-list 3 ..black-list)
+      (r.maybe attribution)))
+
+(type: (Concern a)
+  (-> (-> Text Bit) a Test))
+
+(def: (about-grant present? termination)
+  (Concern Termination)
+  ($_ _.and
+      (_.test "Copyright grant is present."
+              (present? grant.copyright))
+      (_.test "Patent grant is present."
+              (present? (grant.patent (get@ #license.patent-retaliation? termination))))
+      (_.test "Effective date for the grants is present."
+              (present? grant.date))
+      (_.test "Patent grant is present."
+              (present? (grant.termination (get@ #license.termination-period termination)
+                                           (get@ #license.grace-period termination))))
+      (_.test "The termination period is accurately conveyed."
+              (present? (grant.grant-restoration-clause (get@ #license.termination-period termination))))
+      (_.test "The grace period is accurately conveyed."
+              (present? (grant.grace-period-clause (get@ #license.grace-period termination))))
+      (_.test "The grants are not retro-actively terminated."
+              (present? grant.no-retroactive-termination))
+      ))
+
+(def: (about-liability present? liability)
+  (Concern Liability)
+  ($_ _.and
+      (_.test "Warranty liability disclaimer is present."
+              (present? liability.warranty))
+      (_.test "Limitation of liability is present."
+              (present? liability.limitation))
+      (_.test "Litigation conditions are present."
+              (present? liability.litigation))
+      (_.test "Liability acceptance conditions may be present."
+              (bit/= (get@ #license.can-accept? liability)
+                     (present? liability.can-accept)))
+      (_.test "Liability acceptance conditions may be present."
+              (bit/= (get@ #license.disclaim-high-risk? liability)
+                     (present? liability.disclaim-high-risk)))
+      ))
+
+(def: (about-distribution present? distribution)
+  (Concern Distribution)
+  ($_ _.and
+      (_.test "Conditions for source-code distribution are present."
+              (present? distribution.source-code-form))
+      (_.test "Conditions for object-code distribution are present."
+              (present? distribution.object-form))
+      (_.test "Conditions for extension distribution are present."
+              (present? (distribution.extension distribution)))
+      ))
+
+(def: (about-commercial present? commercial)
+  (Concern Commercial)
+  ($_ _.and
+      (_.test "Non-commercial clause is present."
+              (bit/= (not (get@ #license.can-sell? commercial))
+                     (present? commercial.cannot-sell)))
+      (_.test "Contributor credit condition is present."
+              (bit/= (get@ #license.require-contributor-credit? commercial)
+                     (present? commercial.require-contributor-attribution)))
+      (_.test "Anti-endorsement condition is present."
+              (bit/= (not (get@ #license.allow-contributor-endorsement? commercial))
+                     (present? commercial.disallow-contributor-endorsement)))
+      ))
+
+(def: (about-extension present? extension)
+  (Concern Extension)
+  ($_ _.and
+      (_.test "The license is viral."
+              (bit/= (get@ #license.same-license? extension)
+                     (and (list.every? present? extension.sharing-requirement)
+                          (list.every? present? extension.license-conflict-resolution))))
+      (_.test "Extensions must be distinguishable from the original work."
+              (bit/= (get@ #license.must-be-distinguishable? extension)
+                     (present? extension.distinctness-requirement)))
+      (_.test "The community must be notified of new extensions."
+              (case (get@ #license.notification-period extension)
+                (#.Some period)
+                (present? (extension.notification-requirement period))
+
+                #.None
+                true))
+      (_.test "Must describe modifications."
+              (bit/= (get@ #license.must-describe-modifications? extension)
+                     (present? extension.description-requirement)))
+      ))
+
+(def: (about-attribution present? attribution)
+  (Concern Attribution)
+  ($_ _.and
+      (_.test "The attribution copyright notice is present."
+              (present? (get@ #license.copyright-notice attribution)))
+      (_.test "The attribution phrase is present."
+              (|> attribution
+                  (get@ #license.phrase)
+                  (maybe/map present?)
+                  (maybe.default true)))
+      (_.test "The attribution URL is present."
+              (present? (get@ #license.url attribution)))
+      (_.test "The attribution image is present."
+              (|> attribution
+                  (get@ #license.image)
+                  (maybe/map present?)
+                  (maybe.default true)))
+      ))
+
+(def: (about-miscellaneous present?)
+  (-> (-> Text Bit) Test)
+  ($_ _.and
+      (_.test "License constitutes the entire agreement."
+              (present? miscellaneous.entire-agreement))
+      (_.test "Disclaims relationship of parties."
+              (present? miscellaneous.relationship-of-parties))
+      (_.test "Explicitly allows independent development."
+              (present? miscellaneous.independent-development))
+      (_.test "Clarifies consent to breach does not waiver."
+              (present? miscellaneous.not-waiver))
+      (_.test "Provides severability."
+              (present? miscellaneous.severability))
+      (_.test "Covers export restrictions."
+              (present? miscellaneous.export-restrictions))
+      ))
+
+(def: test
+  Test
+  (do r.monad
+    [license ..license
+     #let [writ (output.license license)
+           present? (: (-> Text Bit)
+                       (function (_ snippet)
+                         (text.contains? snippet writ)))]]
+    ($_ _.and
+        (_.test "Copyright notices are present."
+                (list.every? (|>> notice.copyright-holder present?)
+                             (get@ #license.copyright-holders license)))
+        
+        (_.test "Identification is present (if the license is identified)."
+                (case (get@ #license.identification license)
+                  (#.Some identification)
+                  (and (present? (output.identification identification))
+                       (present? miscellaneous.new-versions))
+
+                  #.None
+                  (not (present? miscellaneous.new-versions))))
+
+        (_.test "Black-lists (if wanted by licensor) are explicitly enumerated and justified."
+                (list.every? (function (_ black-list)
+                               (let [black-list-is-justified? (case (get@ #license.justification black-list)
+                                                                (#.Some justification)
+                                                                (present? justification)
+
+                                                                #.None
+                                                                yes)
+                                     every-entity-is-mentioned? (|> black-list
+                                                                    (get@ #license.entities)
+                                                                    (list/map black-list.entity)
+                                                                    (list.every? present?))]
+                                 (and black-list-is-justified?
+                                      every-entity-is-mentioned?)))
+                             (get@ #license.black-lists license)))
+        
+        (_.test "All definitions are present."
+                (list.every? (|>> output.definition present?)
+                             definition.all))
+
+        (_.test "Acceptance of the license is demanded."
+                (present? limitation.acceptance))
+        
+        (..about-grant present? (get@ #license.termination license))
+        
+        (_.test "All limitations are present."
+                (present? output.limitation))
+        
+        (_.test "All assurances are present."
+                (present? output.assurance))
+        
+        (_.test "The terms of submission are present."
+                (present? submission.contribution))
+        
+        (..about-liability present? (get@ #license.liability license))
+
+        (..about-distribution present? (get@ #license.distribution license))
+
+        (..about-commercial present? (get@ #license.commercial license))
+
+        (..about-extension present? (get@ #license.extension license))
+
+        (case (get@ #license.attribution license)
+          (#.Some attribution)
+          (..about-attribution present? attribution)
+
+          #.None
+          (_.test "Attribution is missing."
+                  yes))
+
+        (..about-miscellaneous present?)
+
+        (_.test "License ending footer is present."
+                (present? notice.end-of-license))
+        )))
+
+(program: args
+  (io (_.run! (<| (_.times 100)
+                  ..test))))
