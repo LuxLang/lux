@@ -4,7 +4,6 @@
 (def sonetype-snapshots "https://oss.sonatype.org/content/repositories/snapshots/")
 
 (defproject com.github.luxlang/stdlib #=(identity version)
-  :description "Standard library for the Lux programming language."
   :url ~repo
   :license {:name "Lux License v0.1"
             :url ~(str repo "/blob/master/license.txt")}
@@ -20,11 +19,14 @@
         :url ~(str repo ".git")}
 
   :source-paths ["source"]
-  :profiles {:library {:dependencies []
+  :profiles {:library {:description "Standard library for the Lux programming language."
+                       :dependencies []
                        :lux {:tests {:jvm "test/lux"}}}
-             :scriptum {:dependencies []
+             :scriptum {:description "A documentation generator for Lux code."
+                        :dependencies []
                         :lux {:program {:jvm "program/scriptum"}}}
-             :licentia {:dependencies []
+             :licentia {:description "A program for producing free/open-source/reciprocal licenses."
+                        :dependencies []
                         :lux {:program {:jvm "program/licentia"}
                               :tests {:jvm "test/licentia"}}}}
   )
