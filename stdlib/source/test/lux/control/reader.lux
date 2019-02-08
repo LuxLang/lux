@@ -1,37 +1,56 @@
 (.module:
   [lux #*
-   ["." io]
+   ["." io (#+ IO)]
+   ["_" test (#+ Test)]
    [control
     [monad (#+ do)]
-    pipe
-    ["&" reader]]]
-  lux/test)
+    {[0 #test]
+     [/
+      [".T" functor (#+ Injection Comparison)]
+      [".T" apply]
+      [".T" monad]]}]
+   [data
+    [text
+     format]]
+   [math
+    ["r" random]]]
+  {1
+   ["." / (#+ Reader)]})
 
-(context: "Readers"
-  (let [(^open "&/.") &.apply
-        (^open "&/.") &.monad]
-    ($_ seq
-        (test "" (i/= +123 (&.run +123 &.ask)))
-        (test "" (i/= +246 (&.run +123 (&.local (i/* +2) &.ask))))
-        (test "" (i/= +134 (&.run +123 (&/map inc (i/+ +10)))))
-        (test "" (i/= +10 (&.run +123 (&/wrap +10))))
-        (test "" (i/= +30 (&.run +123 (&/apply (&/wrap (i/+ +10)) (&/wrap +20)))))
-        (test "" (i/= +30 (&.run +123 (do &.monad
-                                        [f (wrap i/+)
-                                         x (wrap +10)
-                                         y (wrap +20)]
-                                        (wrap (f x y)))))))))
+(def: (injection value)
+  (Injection (All [a r] (Reader r a)))
+  (function (_ env)
+    value))
 
-(context: "Monad transformer"
-  (let [(^open "io/.") io.monad]
-    (test "Can add reader functionality to any monad."
-          (|> (: (&.Reader Text (io.IO Int))
-                 (do (&.ReaderT io.monad)
-                   [a (&.lift (io/wrap +123))
-                    b (wrap +456)]
-                   (wrap (i/+ a b))))
-              (&.run "")
-              io.run
-              (case> +579 #1
-                     _    #0)))
-    ))
+(def: comparison
+  (Comparison (All [a r] (Reader r a)))
+  (function (_ == left right)
+    (== (/.run [] left) (/.run [] right))))
+
+(def: #export test
+  Test
+  (<| (_.context (%name (name-of /.Reader)))
+      (do r.monad
+        [sample r.nat
+         factor r.nat]
+        ($_ _.and
+            (_.test "Can query the environment."
+                    (n/= sample
+                         (/.run sample /.ask)))
+            (_.test "Can modify an environment locally."
+                    (n/= (n/* factor sample)
+                         (/.run sample (/.local (n/* factor) /.ask))))
+            (functorT.laws ..injection ..comparison /.functor)
+            (applyT.laws ..injection ..comparison /.apply)
+            (monadT.laws ..injection ..comparison /.monad)
+            
+            (let [(^open "io/.") io.monad]
+              (_.test "Can add reader functionality to any monad."
+                      (|> (: (/.Reader Any (IO Nat))
+                             (do (/.with-reader io.monad)
+                               [a (/.lift (io/wrap sample))
+                                b (wrap factor)]
+                               (wrap (n/* b a))))
+                          (/.run [])
+                          io.run
+                          (n/= (n/* factor sample)))))))))

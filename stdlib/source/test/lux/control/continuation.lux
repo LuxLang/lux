@@ -1,77 +1,88 @@
 (.module:
   [lux #*
+   ["_" test (#+ Test)]
    [control
-    ["M" monad (#+ do Monad)]
-    ["&" continuation]]
+    [monad (#+ do)]
+    {[0 #test]
+     [/
+      [".T" functor (#+ Injection Comparison)]
+      [".T" apply]
+      [".T" monad]]}]
    [data
-    ["." number]
+    [number
+     ["." nat]]
+    [text
+     format]
     [collection
      ["." list]]]
-   ["r" math/random]]
-  lux/test)
+   [math
+    ["r" random]]]
+  {1
+   ["." / (#+ Cont)]})
 
-(context: "Continuations"
-  (<| (times 100)
-      (do @
+(def: injection
+  (All [o] (Injection (All [i] (Cont i o))))
+  (|>> /.pending))
+
+(def: comparison
+  (Comparison Cont)
+  (function (_ == left right)
+    (== (/.run left) (/.run right))))
+
+(def: #export test
+  Test
+  (<| (_.context (%name (name-of /.Cont)))
+      (do r.monad
         [sample r.nat
-         #let [(^open "&/.") &.apply
-               (^open "&/.") &.monad]
+         #let [(^open "_/.") /.apply
+               (^open "_/.") /.monad]
          elems (r.list 3 r.nat)]
-        ($_ seq
-            (test "Can run continuations to compute their values."
-                  (n/= sample (&.run (&/wrap sample))))
+        ($_ _.and
+            (_.test "Can run continuations to compute their values."
+                    (n/= sample (/.run (_/wrap sample))))
 
-            (test "Can use functor."
-                  (n/= (inc sample) (&.run (&/map inc (&/wrap sample)))))
+            (functorT.laws ..injection ..comparison /.functor)
+            (applyT.laws ..injection ..comparison /.apply)
+            (monadT.laws ..injection ..comparison /.monad)
+            
+            (_.test "Can use the current-continuation as a escape hatch."
+                    (n/= (n/* 2 sample)
+                         (/.run (do /.monad
+                                  [value (/.call/cc
+                                          (function (_ k)
+                                            (do @
+                                              [temp (k sample)]
+                                              ## If this code where to run,
+                                              ## the output would be
+                                              ## (n/* 4 sample)
+                                              (k temp))))]
+                                  (wrap (n/* 2 value))))))
 
-            (test "Can use apply."
-                  (n/= (inc sample) (&.run (&/apply (&/wrap inc) (&/wrap sample)))))
+            (_.test "Can use the current-continuation to build a time machine."
+                    (n/= (n/+ 100 sample)
+                         (/.run (do /.monad
+                                  [[restart [output idx]] (/.portal [sample 0])]
+                                  (if (n/< 10 idx)
+                                    (restart [(n/+ 10 output) (inc idx)])
+                                    (wrap output))))))
 
-            (test "Can use monad."
-                  (n/= (inc sample) (&.run (do &.monad
-                                             [func (wrap inc)
-                                              arg (wrap sample)]
-                                             (wrap (func arg))))))
+            (_.test "Can use delimited continuations with shifting."
+                    (let [(^open "_/.") /.monad
+                          (^open "list/.") (list.equivalence nat.equivalence)
+                          visit (: (-> (List Nat)
+                                       (Cont (List Nat) (List Nat)))
+                                   (function (visit xs)
+                                     (case xs
+                                       #.Nil
+                                       (_/wrap #.Nil)
 
-            (test "Can use the current-continuation as a escape hatch."
-                  (n/= (n/* 2 sample)
-                       (&.run (do &.monad
-                                [value (&.call/cc
-                                        (function (_ k)
-                                          (do @
-                                            [temp (k sample)]
-                                            ## If this code where to run,
-                                            ## the output would be
-                                            ## (n/* 4 sample)
-                                            (k temp))))]
-                                (wrap (n/* 2 value))))))
-
-            (test "Can use the current-continuation to build a time machine."
-                  (n/= (n/+ 100 sample)
-                       (&.run (do &.monad
-                                [[restart [output idx]] (&.portal [sample 0])]
-                                (if (n/< 10 idx)
-                                  (restart [(n/+ 10 output) (inc idx)])
-                                  (wrap output))))))
-
-            (test "Can use delimited continuations with shifting."
-                  (let [(^open "&/.") &.monad
-                        (^open "L/.") (list.equivalence number.equivalence)
-                        visit (: (-> (List Nat)
-                                     (&.Cont (List Nat) (List Nat)))
-                                 (function (visit xs)
-                                   (case xs
-                                     #.Nil
-                                     (&/wrap #.Nil)
-
-                                     (#.Cons x xs')
-                                     (do &.monad
-                                       [output (&.shift (function (_ k)
-                                                          (do @
-                                                            [tail (k xs')]
-                                                            (wrap (#.Cons x tail)))))]
-                                       (visit output)))))]
-                    (L/= elems
-                         (&.run (&.reset (visit elems))))
-                    ))
+                                       (#.Cons x xs')
+                                       (do /.monad
+                                         [output (/.shift (function (_ k)
+                                                            (do @
+                                                              [tail (k xs')]
+                                                              (wrap (#.Cons x tail)))))]
+                                         (visit output)))))]
+                      (list/= elems
+                              (/.run (/.reset (visit elems))))))
             ))))
