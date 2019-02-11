@@ -1,0 +1,86 @@
+(.module:
+  [lux #*
+   [control
+    ["." monad (#+ do)]
+    [concurrency
+     ["." promise]
+     ["." frp (#+ Channel Sink)]]]
+   [data
+    ["." error]
+    [format
+     ["." context]]
+    [collection
+     ["." dictionary]]]
+   [platform
+    [compiler
+     ["." host]]]
+   ["." io (#+ IO)]
+   [host (#+ import:)]]
+  ["." // (#+ Data Client)
+   [// (#+ URL)]])
+
+(`` (for {(~~ (static host.jvm))
+          (as-is (import: #long java/lang/String)
+
+                 (import: #long java/io/Flushable
+                   (flush [] #io #try void))
+
+                 (import: #long java/lang/AutoCloseable
+                   (close [] #io #try void))
+
+                 (import: #long java/io/OutputStream
+                   (write [(Array byte)] #io #try void))
+
+                 (import: #long java/net/URLConnection
+                   (setRequestProperty [java/lang/String java/lang/String] #io #try void)
+                   (setDoOutput [boolean] #io #try void)
+                   (getOutputStream [] #io #try java/io/OutputStream)
+                   (connect [] #io #try void))
+
+                 (import: #long java/net/HttpURLConnection
+                   (setRequestMethod [java/lang/String] #io #try void)
+                   (disconnect [] #io #try void)
+                   (getResponseCode [] #io #try int))
+
+                 (import: #long java/net/URL
+                   (new [java/lang/String])
+                   (openConnection [] #io #try java/net/URLConnection)))}
+         ))
+
+(def: #export (request [method url headers body])
+  Client
+  (`` (for {(~~ (static host.jvm))
+            (promise.future
+             (do (error.with-error io.monad)
+               [conn (java/net/URL::openConnection (java/net/URL::new url))
+                #let [conn (:coerce java/net/HttpURLConnection conn)]
+                _ (java/net/HttpURLConnection::setRequestMethod (case method
+                                                                  #//.Post "POST"
+                                                                  #//.Get "GET"
+                                                                  #//.Put "PUT"
+                                                                  #//.Patch "PATCH"
+                                                                  #//.Delete "DELETE"
+                                                                  #//.Head "HEAD"
+                                                                  #//.Connect "CONNECT"
+                                                                  #//.Options "OPTIONS"
+                                                                  #//.Trace "TRACE")
+                                                                conn)
+                _ (|> headers
+                      dictionary.entries
+                      (monad.map @ (function (_ [name value])
+                                     (java/net/URLConnection::setRequestProperty name value conn))))
+                _ (java/net/URLConnection::setDoOutput true conn)
+                sink (java/net/URLConnection::getOutputStream conn)
+                _ (java/io/OutputStream::write body sink)
+                _ (java/io/Flushable::flush sink)
+                _ (java/lang/AutoCloseable::close sink)
+                _ (java/net/URLConnection::connect conn)
+                status (java/net/HttpURLConnection::getResponseCode conn)
+                #let [[channel source] (: [(Channel Data) (Sink Data)]
+                                          (frp.channel []))]
+                _ (:: source close)
+                _ (java/net/HttpURLConnection::disconnect conn)]
+               (wrap [(.nat status)
+                      {#//.headers context.empty
+                       #//.body    channel}])))}
+           )))
