@@ -1,14 +1,16 @@
 (.module:
   [lux (#- Source)
+   ["." io (#+ IO io)]
    [control
+    [predicate (#+ Predicate)]
+    [equivalence (#+ Equivalence)]
     [functor (#+ Functor)]
     [apply (#+ Apply)]
-    ["." monad (#+ do Monad)]
-    [predicate (#+ Predicate)]
-    [equivalence (#+ Equivalence)]]
-   ["." io (#+ IO)]
+    ["." monad (#+ Monad do)]
+    ["ex" exception (#+ exception:)]]
    [data
     [maybe ("maybe/." functor)]
+    ["." error (#+ Error)]
     [collection
      [list ("list/." monoid)]]]
    [type (#+ :share)
@@ -21,10 +23,12 @@
   {#.doc "An asynchronous channel to distribute values."}
   (Promise (Maybe [a (Channel a)])))
 
+(exception: #export channel-is-already-closed)
+
 (signature: #export (Source a)
-  (: (IO Bit)
+  (: (IO (Error Any))
      close)
-  (: (-> a (IO Bit))
+  (: (-> a (IO (Error Any)))
      feed))
 
 (def: (source resolve)
@@ -40,13 +44,13 @@
             stopped? (current #.None)]
            (if stopped?
              ## I closed the source.
-             (wrap true)
+             (wrap (ex.return []))
              ## Someone else interacted with the source.
              (do @
                [latter (atom.read source)]
                (if (is? current latter)
                  ## Someone else closed the source.
-                 (wrap true)
+                 (wrap (ex.throw channel-is-already-closed []))
                  ## Someone else fed the source while I was closing it.
                  (recur [])))))))
      
@@ -63,13 +67,15 @@
             fed? (current (#.Some [value next]))]
            (if fed?
              ## I fed the source.
-             (atom.compare-and-swap current resolve-next source)
+             (do @
+               [_ (atom.compare-and-swap current resolve-next source)]
+               (wrap (ex.return [])))
              ## Someone else interacted with the source.
              (do @
                [latter (atom.read source)]
                (if (is? current latter)
                  ## Someone else closed the source while I was feeding it.
-                 (wrap false)
+                 (wrap (ex.throw channel-is-already-closed []))
                  ## Someone else fed the source.
                  (recur []))))))))))
 
@@ -80,18 +86,18 @@
 
 (def: #export (listen listener channel)
   (All [a] (-> (-> a (IO Any)) (Channel a) (IO Any)))
-  (io.io (exec (: (Promise Any)
-                  (loop [channel channel]
-                    (do promise.monad
-                      [cons channel]
-                      (case cons
-                        (#.Some [head tail])
-                        (exec (io.run (listener head))
-                          (recur tail))
-                        
-                        #.None
-                        (wrap [])))))
-           [])))
+  (io (exec (: (Promise Any)
+               (loop [channel channel]
+                 (do promise.monad
+                   [cons channel]
+                   (case cons
+                     (#.Some [head tail])
+                     (exec (io.run (listener head))
+                       (recur tail))
+                     
+                     #.None
+                     (wrap [])))))
+        [])))
 
 (structure: #export functor (Functor Channel)
   (def: (map f)
@@ -190,7 +196,7 @@
 
 (def: #export (periodic milli-seconds)
   (-> Nat (Channel Any))
-  (poll milli-seconds (io.io [])))
+  (poll milli-seconds (io [])))
 
 (def: #export (iterate f init)
   (All [a] (-> (-> a (Promise (Maybe a))) a (Channel a)))
