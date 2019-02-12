@@ -1,31 +1,42 @@
 (.module:
   [lux #*
+   ["_" test (#+ Test)]
    [control
-    ["M" monad (#+ do)]
+    [monad (#+ do)]
     [equivalence (#+ Equivalence)]
-    ["&" parser]]
+    {[0 #test]
+     [/
+      [".T" functor (#+ Injection Comparison)]
+      [".T" apply]
+      [".T" monad]]}]
    [data
-    ["." error (#+ Error)]]
+    ["." error (#+ Error)]
+    [number
+     ["." nat]]
+    ["." text ("#/." equivalence)
+     format]
+    [collection
+     ["." list ("#/." functor)]]]
    [math
     ["r" random]]
-   ["." macro
+   [macro
     ["." code]
-    ["s" syntax (#+ syntax:)]]]
-  lux/test)
+    ["s" syntax (#+ Syntax syntax:)]]]
+  {1
+   ["." / (#+ Parser)]})
 
-## [Utils]
-(def: (should-fail input)
-  (All [a] (-> (Error a) Bit))
+(def: (should-fail expected input)
+  (All [a] (-> Text (Error a) Bit))
   (case input
-    (#error.Failure _)
-    #1
+    (#error.Failure actual)
+    (text/= expected actual)
     
     _
     #0))
 
 (def: (enforced? parser input)
-  (All [s] (-> (&.Parser s Any) s Bit))
-  (case (&.run input parser)
+  (All [s] (-> (Parser s Any) s Bit))
+  (case (/.run input parser)
     (#error.Success [_ []])
     #1
 
@@ -33,8 +44,8 @@
     #0))
 
 (def: (found? parser input)
-  (All [s] (-> (&.Parser s Bit) s Bit))
-  (case (&.run input parser)
+  (All [s] (-> (Parser s Bit) s Bit))
+  (case (/.run input parser)
     (#error.Success [_ #1])
     #1
 
@@ -50,128 +61,180 @@
     _
     #0))
 
-(syntax: (match pattern input)
+(syntax: (match pattern then input)
   (wrap (list (` (case (~ input)
                    (^ (#error.Success [(~' _) (~ pattern)]))
-                   #1
+                   (~ then)
 
                    (~' _)
                    #0)))))
 
-## [Tests]
-(context: "Assertions"
-  (test "Can make assertions while parsing."
-        (and (match []
-                    (&.run (list (code.bit #1) (code.int +123))
-                           (&.assert "yolo" #1)))
-             (fails? (&.run (list (code.bit #1) (code.int +123))
-                            (&.assert "yolo" #0))))))
+(def: combinators-0
+  Test
+  (do r.monad
+    [expected0 r.nat
+     variadic (:: @ map (|>> (n/max 1) (n/min 20)) r.nat)
+     expected+ (r.list variadic r.nat)
+     even0 (r.filter n/even? r.nat)
+     odd0 (r.filter n/odd? r.nat)
+     not0 r.bit]
+    ($_ _.and
+        (_.test "Can optionally succeed with some parser."
+                (and (|> (/.maybe s.nat)
+                         (/.run (list (code.nat expected0)))
+                         (match (#.Some actual)
+                                (n/= expected0 actual)))
+                     (|> (/.maybe s.nat)
+                         (/.run (list (code.int (.int expected0))))
+                         (match #.None
+                                #1))))
+        (_.test "Can apply a parser 0 or more times."
+                (and (|> (/.some s.nat)
+                         (/.run (list/map code.nat expected+))
+                         (match actual
+                                (:: (list.equivalence nat.equivalence) = expected+ actual)))
+                     (|> (/.some s.nat)
+                         (/.run (list/map (|>> .int code.int) expected+))
+                         (match #.Nil
+                                #1))))
+        (_.test "Can apply a parser 1 or more times."
+                (and (|> (/.many s.nat)
+                         (/.run (list/map code.nat expected+))
+                         (match actual
+                                (:: (list.equivalence nat.equivalence) = expected+ actual)))
+                     (|> (/.many s.nat)
+                         (/.run (list (code.nat expected0)))
+                         (match (list actual)
+                                (n/= expected0 actual)))
+                     (|> (/.many s.nat)
+                         (/.run (list/map (|>> .int code.int) expected+))
+                         fails?)))
+        (_.test "Can use either parser."
+                (let [even (/.filter n/even? s.nat)
+                      odd (/.filter n/odd? s.nat)]
+                  (and (|> (/.either even odd)
+                           (/.run (list (code.nat even0)))
+                           (match actual (n/= even0 actual)))
+                       (|> (/.either even odd)
+                           (/.run (list (code.nat odd0)))
+                           (match actual (n/= odd0 actual)))
+                       (|> (/.either even odd)
+                           (/.run (list (code.bit not0)))
+                           fails?))))
+        (_.test "Can create the opposite/negation of any parser."
+                (and (|> (/.not s.nat)
+                         (/.run (list (code.nat expected0)))
+                         fails?)
+                     (|> (/.not s.nat)
+                         (/.run (list (code.bit not0)))
+                         (match [] #1))))
+        )))
 
-(context: "Combinators [Part 1]"
-  ($_ seq
-      (test "Can optionally succeed with some parser."
-            (and (match (#.Some 123)
-                        (&.run (list (code.nat 123))
-                               (&.maybe s.nat)))
-                 (match #.None
-                        (&.run (list (code.int -123))
-                               (&.maybe s.nat)))))
+(def: combinators-1
+  Test
+  (do r.monad
+    [failure (r.ascii 1)
+     variadic (:: @ map (|>> (n/max 1) (n/min 20)) r.nat)
+     times (:: @ map (n/% variadic) r.nat)
+     expected+ (r.list variadic r.nat)
+     separator (r.ascii 1)]
+    ($_ _.and
+        (_.test "Can fail at will."
+                (|> (/.fail failure)
+                    (/.run (list))
+                    (should-fail failure)))
+        (_.test "Can apply a parser N times."
+                (and (|> (/.exactly times s.nat)
+                         (/.run (list/map code.nat expected+))
+                         (match actual
+                                (:: (list.equivalence nat.equivalence) =
+                                    (list.take times expected+)
+                                    actual)))
+                     (|> (/.exactly (inc variadic) s.nat)
+                         (/.run (list/map code.nat expected+))
+                         fails?)))
+        (_.test "Can apply a parser at-least N times."
+                (and (|> (/.at-least times s.nat)
+                         (/.run (list/map code.nat expected+))
+                         (match actual
+                                (:: (list.equivalence nat.equivalence) =
+                                    expected+
+                                    actual)))
+                     (|> (/.at-least (inc variadic) s.nat)
+                         (/.run (list/map code.nat expected+))
+                         fails?)))
+        (_.test "Can apply a parser at-most N times."
+                (and (|> (/.at-most times s.nat)
+                         (/.run (list/map code.nat expected+))
+                         (match actual
+                                (:: (list.equivalence nat.equivalence) =
+                                    (list.take times expected+)
+                                    actual)))
+                     (|> (/.at-most (inc variadic) s.nat)
+                         (/.run (list/map code.nat expected+))
+                         (match actual
+                                (:: (list.equivalence nat.equivalence) =
+                                    expected+
+                                    actual)))))
+        (_.test "Can apply a parser between N and M times."
+                (and (|> (/.between times variadic s.nat)
+                         (/.run (list/map code.nat expected+))
+                         (match actual
+                                (:: (list.equivalence nat.equivalence) =
+                                    expected+
+                                    actual)))
+                     (|> (/.between times variadic s.nat)
+                         (/.run (list/map code.nat (list.take times expected+)))
+                         (match actual
+                                (:: (list.equivalence nat.equivalence) =
+                                    (list.take times expected+)
+                                    actual)))))
+        (_.test "Can parse while taking separators into account."
+                (|> (/.sep-by (s.this (code.text separator)) s.nat)
+                    (/.run (list.interpose (code.text separator) (list/map code.nat expected+)))
+                    (match actual
+                           (:: (list.equivalence nat.equivalence) =
+                               expected+
+                               actual))))
+        (_.test "Can obtain the whole of the remaining input."
+                (|> /.remaining
+                    (/.run (list/map code.nat expected+))
+                    (match actual
+                           (:: (list.equivalence code.equivalence) =
+                               (list/map code.nat expected+)
+                               actual))))
+        )))
 
-      (test "Can apply a parser 0 or more times."
-            (and (match (list 123 456 789)
-                        (&.run (list (code.nat 123) (code.nat 456) (code.nat 789))
-                               (&.some s.nat)))
-                 (match (list)
-                        (&.run (list (code.int -123))
-                               (&.some s.nat)))))
+(def: (injection value)
+  (Injection (All [a i] (Parser i a)))
+  (:: /.monad wrap value))
 
-      (test "Can apply a parser 1 or more times."
-            (and (match (list 123 456 789)
-                        (&.run (list (code.nat 123) (code.nat 456) (code.nat 789))
-                               (&.many s.nat)))
-                 (match (list 123)
-                        (&.run (list (code.nat 123))
-                               (&.many s.nat)))
-                 (fails? (&.run (list (code.int -123))
-                                (&.many s.nat)))))
+(def: comparison
+  (Comparison (All [a i] (Parser i a)))
+  (function (_ == left right)
+    (case [(/.run [] left) (/.run [] right)]
+      [(#error.Success [_ left]) (#error.Success [_ right])]
+      (== left right)
 
-      (test "Can use either parser."
-            (let [positive (: (s.Syntax Int)
-                              (do &.monad
-                                [value s.int
-                                 _ (&.assert "" (i/> +0 value))]
-                                (wrap value)))]
-              (and (match +123
-                          (&.run (list (code.int +123) (code.int +456) (code.int +789))
-                                 (&.either positive s.int)))
-                   (match -123
-                          (&.run (list (code.int -123) (code.int +456) (code.int +789))
-                                 (&.either positive s.int)))
-                   (fails? (&.run (list (code.bit #1) (code.int +456) (code.int +789))
-                                  (&.either positive s.int))))))
+      _
+      false)))
 
-      (test "Can create the opposite/negation of any parser."
-            (and (fails? (&.run (list (code.int +123) (code.int +456) (code.int +789))
-                                (&.not s.int)))
-                 (match []
-                        (&.run (list (code.bit #1) (code.int +456) (code.int +789))
-                               (&.not s.int)))))
-      ))
-
-(context: "Combinators Part [2]"
-  ($_ seq
-      (test "Can fail at will."
-            (should-fail (&.run (list)
-                                (&.fail "Well, it really SHOULD fail..."))))
-      
-      (test "Can apply a parser N times."
-            (and (match (list +123 +456 +789)
-                        (&.run (list (code.int +123) (code.int +456) (code.int +789))
-                               (&.exactly 3 s.int)))
-                 (match (list +123 +456)
-                        (&.run (list (code.int +123) (code.int +456) (code.int +789))
-                               (&.exactly 2 s.int)))
-                 (fails? (&.run (list (code.int +123) (code.int +456) (code.int +789))
-                                (&.exactly 4 s.int)))))
-
-      (test "Can apply a parser at-least N times."
-            (and (match (list +123 +456 +789)
-                        (&.run (list (code.int +123) (code.int +456) (code.int +789))
-                               (&.at-least 3 s.int)))
-                 (match (list +123 +456 +789)
-                        (&.run (list (code.int +123) (code.int +456) (code.int +789))
-                               (&.at-least 2 s.int)))
-                 (fails? (&.run (list (code.int +123) (code.int +456) (code.int +789))
-                                (&.at-least 4 s.int)))))
-
-      (test "Can apply a parser at-most N times."
-            (and (match (list +123 +456 +789)
-                        (&.run (list (code.int +123) (code.int +456) (code.int +789))
-                               (&.at-most 3 s.int)))
-                 (match (list +123 +456)
-                        (&.run (list (code.int +123) (code.int +456) (code.int +789))
-                               (&.at-most 2 s.int)))
-                 (match (list +123 +456 +789)
-                        (&.run (list (code.int +123) (code.int +456) (code.int +789))
-                               (&.at-most 4 s.int)))))
-
-      (test "Can apply a parser between N and M times."
-            (and (match (list +123 +456 +789)
-                        (&.run (list (code.int +123) (code.int +456) (code.int +789))
-                               (&.between 3 10 s.int)))
-                 (fails? (&.run (list (code.int +123) (code.int +456) (code.int +789))
-                                (&.between 4 10 s.int)))))
-
-      (test "Can parse while taking separators into account."
-            (and (match (list +123 +456 +789)
-                        (&.run (list (code.int +123) (code.text "YOLO") (code.int +456) (code.text "YOLO") (code.int +789))
-                               (&.sep-by (s.this (' "YOLO")) s.int)))
-                 (match (list +123 +456)
-                        (&.run (list (code.int +123) (code.text "YOLO") (code.int +456) (code.int +789))
-                               (&.sep-by (s.this (' "YOLO")) s.int)))))
-
-      (test "Can obtain the whole of the remaining input."
-            (|> &.remaining
-                (&.run (list (code.int +123) (code.int +456) (code.int +789)))
-                (match (list [_ (#.Int +123)] [_ (#.Int +456)] [_ (#.Int +789)]))))
-      ))
+(def: #export test
+  Test
+  (do r.monad
+    [assertion (r.ascii 1)]
+    (<| (_.context (%name (name-of /.Parser)))
+        ($_ _.and
+            (_.test "Can make assertions while parsing."
+                    (and (|> (/.assert assertion #1)
+                             (/.run (list (code.bit #1) (code.int +123)))
+                             (match [] #1))
+                         (|> (/.assert assertion #0)
+                             (/.run (list (code.bit #1) (code.int +123)))
+                             fails?)))
+            ..combinators-0
+            ..combinators-1
+            (functorT.laws ..injection ..comparison /.functor)
+            (applyT.laws ..injection ..comparison /.apply)
+            (monadT.laws ..injection ..comparison /.monad)
+            ))))
