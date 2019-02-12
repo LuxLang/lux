@@ -16,19 +16,21 @@
    [control
     [remember (#+ to-do)]
     [monad (#+ do)]
-    ["." parser]]
+    ["." parser]
+    [security
+     ["!" capability]]]
    [data
     ["." maybe]
-    ["." error]
+    ["." error (#+ Error)]
     ["." text
      format
      ["." encoding]]
     [format
      ["." json]]]
    ["." cli (#+ program:)]
-   ["." io ("#/." monad)]
+   ["." io (#+ IO) ("#/." monad)]
    [world
-    ["." file (#+ File)]]
+    ["." file (#+ Path File)]]
    [host (#+ import:)]]
   [/
    ["/." input]
@@ -44,28 +46,32 @@
 (def: default-output-file "LICENSE")
 
 (def: (success-message output)
-  (-> File Text)
+  (-> Path Text)
   (format "Your license has been made!" text.new-line
           "Check the file " output "."))
 
 (program: [{input (cli.named "--input" cli.any)}
            {output (parser.default ..default-output-file
                                    (cli.named "--output" cli.any))}]
-  (do io.Monad<IO>
-    [?done (do io.Monad<Process>
-             [blob (:: file.JVM@System read input)
-              document (io/wrap (do error.Monad<Error>
-                                  [raw-json (encoding.from-utf8 blob)
-                                   json (|> raw-json
-                                            (:coerce java/lang/String)
-                                            java/lang/String::trim
-                                            (:: json.Codec<Text,JSON> decode))
-                                   license (json.run json /input.license)]
-                                  (wrap (/output.license license))))]
-             (:: file.JVM@System write (encoding.to-utf8 document) output))]
+  (do io.monad
+    [?done (: (IO (Error Any))
+              (do (error.with-error io.monad)
+                [file (!.use (:: file.system file) input)
+                 blob (!.use (:: file content) [])
+                 document (io/wrap (do error.monad
+                                     [raw-json (encoding.from-utf8 blob)
+                                      json (|> raw-json
+                                               (:coerce java/lang/String)
+                                               java/lang/String::trim
+                                               (:: json.codec decode))
+                                      license (json.run json /input.license)]
+                                     (wrap (/output.license license))))
+                 output-file (: (IO (Error (File IO)))
+                                (file.get-file io.monad file.system output))]
+                (!.use (:: output-file over-write) (encoding.to-utf8 document))))]
     (case ?done
       (#error.Success _)
       (wrap (log! (success-message output)))
 
-      (#error.Error message)
+      (#error.Failure message)
       (wrap (log! message)))))
