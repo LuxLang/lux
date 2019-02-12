@@ -1,0 +1,263 @@
+(.module:
+  [lux (#- Code or and function if cond undefined false true)
+   [control
+    [pipe (#+ case>)]]
+   [data
+    ["." text
+     format]
+    [collection
+     ["." list ("#/." functor fold)]]]
+   [macro
+    ["." template]]
+   [type
+    abstract]])
+
+(def: argument (text.enclose ["(" ")"]))
+(def: element (text.enclose ["[" "]"]))
+
+(abstract: #export (Code brand)
+  {}
+
+  Text
+
+  (def: #export code
+    (-> (Code Any) Text)
+    (|>> :representation))
+
+  (do-template [<type> <brand> <super>+]
+    [(abstract: #export (<brand> brand) {} Any)
+     (`` (type: #export <type> (|> Any <brand> (~~ (template.splice <super>+)))))]
+    
+    [Expression Expression' [Code]]
+    [Location Location' [Expression' Code]]
+    )
+
+  (do-template [<type> <brand> <super>+]
+    [(abstract: #export <brand> {} Any)
+     (`` (type: #export <type> (|> <brand> (~~ (template.splice <super>+)))))]
+
+    [Var Var' [Location' Expression' Code]]
+    [Access Access' [Location' Expression' Code]]
+    [Computation Computation' [Expression' Code]]
+    [Statement Statement' [Code]]
+    )
+
+  (do-template [<name> <literal>]
+    [(def: #export <name> Computation (|> <literal> ..argument :abstraction))]
+
+    [null "null"]
+    [undefined "undefined"]
+    [false "false"]
+    [true "true"]
+    )
+
+  (def: #export boolean
+    (-> Bit Computation)
+    (|>> (case>
+          #0 ..false
+          #1 ..true)))
+
+  (def: #export number
+    (-> Frac Computation)
+    (|>> %f ..argument :abstraction))
+
+  (def: sanitize
+    (-> Text Text)
+    (`` (|>> (~~ (do-template [<find> <replace>]
+                   [(text.replace-all <find> <replace>)]
+
+                   [text.tab "\t"]
+                   [text.vertical-tab "\v"]
+                   [text.null "\0"]
+                   [text.back-space "\b"]
+                   [text.form-feed "\f"]
+                   [text.new-line "\n"]
+                   [text.carriage-return "\r"]
+                   ["'" "\'"]
+                   [text.double-quote (format "\" text.double-quote)]
+                   ["\" "\\"]
+                   ))
+             )))
+
+  (def: #export string
+    (-> Text Computation)
+    (|>> ..sanitize %t ..argument :abstraction))
+
+  (def: argument-separator ", ")
+  (def: field-separator ": ")
+  (def: statement-suffix ";")
+
+  (def: #export array
+    (-> (List Expression) Computation)
+    (|>> (list/map ..code)
+         (text.join-with ..argument-separator)
+         ..element
+         ..argument
+         :abstraction))
+
+  (def: #export (at index array-or-object)
+    (-> Expression Expression Access)
+    (|> (format (:representation array-or-object) (..element (:representation index)))
+        ..argument
+        :abstraction))
+
+  (def: #export (the field object)
+    (-> Var Expression Access)
+    (:abstraction (format (:representation object) "." (:representation field))))
+
+  (def: #export (do method inputs object)
+    (-> Var (List Expression) Expression Access)
+    (|> (format (:representation (..the method object))
+                (|> inputs
+                    (list/map ..code)
+                    (text.join-with ..argument-separator)
+                    ..argument))
+        ..argument
+        :abstraction))
+
+  (def: #export object
+    (-> (List [Text Computation]) Computation)
+    (|>> (list/map (.function (_ [key val])
+                     (format (:representation (..string key)) ..field-separator (:representation val))))
+         (text.join-with ..argument-separator)
+         (text.enclose ["{" "}"])
+         ..argument
+         :abstraction))
+
+  (def: #export var
+    (-> Text Var)
+    (|>> :abstraction))
+
+  (def: #export (then pre post)
+    (-> Statement Statement Statement)
+    (:abstraction (format (:representation pre) " " (:representation post))))
+
+  (def: block (-> Statement Text) (|>> :representation (text.enclose ["{" "}"])))
+
+  (def: #export (function name inputs body)
+    (-> Var (List Var) Statement Computation)
+    (|> body
+        ..block
+        (format "function " (:representation name)
+                (|> inputs
+                    (list/map ..code)
+                    (text.join-with ..argument-separator)
+                    ..argument)
+                " ")
+        ..argument
+        :abstraction))
+
+  (def: #export (closure inputs body)
+    (-> (List Var) Statement Computation)
+    (|> body
+        ..block
+        (format "function"
+                (|> inputs
+                    (list/map ..code)
+                    (text.join-with ..argument-separator)
+                    ..argument)
+                " ")
+        ..argument
+        :abstraction))
+
+  (def: #export (apply function inputs)
+    (-> Expression (List Expression) Computation)
+    (|> inputs
+        (list/map ..code)
+        (text.join-with ..argument-separator)
+        ..argument
+        (format (:representation function))
+        :abstraction))
+
+  (do-template [<name> <op>]
+    [(def: #export (<name> param subject)
+       (-> Expression Expression Computation)
+       (|> (format (:representation subject) " " <op> " " (:representation param))
+           ..argument
+           :abstraction))]
+
+    [=  "==="]
+    [<  "<"]
+    [<= "<="]
+    [>  ">"]
+    [>= ">="]
+    
+    [+  "+"]
+    [-  "-"]
+    [*  "*"]
+    [/  "/"]
+    [%  "%"]
+
+    [or      "||"]
+    [and     "&&"]
+    [bit-or  "|"]
+    [bit-and "&"]
+    )
+
+  (def: #export (i32 value)
+    {#.doc "A 32-bit integer expression."}
+    (-> Int Computation)
+    (:abstraction (..argument (format (%i value) "|0"))))
+
+  (def: #export (? test then else)
+    (-> Expression Expression Expression Computation)
+    (|> (format (:representation test)
+                " ? " (:representation then)
+                " : " (:representation else))
+        ..argument
+        :abstraction))
+
+  (def: #export type-of
+    (-> Expression Computation)
+    (|>> :representation
+         (format "typeof ")
+         ..argument
+         :abstraction))
+
+  (def: #export use-strict
+    Statement
+    (:abstraction (format text.double-quote "use strict" text.double-quote ..statement-suffix)))
+
+  (def: #export (declare name)
+    (-> Var Statement)
+    (:abstraction (format "var " (:representation name) ..statement-suffix)))
+
+  (def: #export (define name value)
+    (-> Var Expression Statement)
+    (:abstraction (format "var " (:representation name) " = " (:representation value) ..statement-suffix)))
+
+  (def: #export (set name value)
+    (-> Location Expression Statement)
+    (:abstraction (format (:representation name) " = " (:representation value) ..statement-suffix)))
+
+  (def: #export (if test then! else!)
+    (-> Expression Statement Statement Statement)
+    (:abstraction (format "if(" (:representation test) ") "
+                          (..block then!)
+                          " else "
+                          (..block else!))))
+
+  (def: #export (while test body)
+    (-> Expression Statement Statement)
+    (:abstraction (format "while(" (:representation test) ") "
+                          (..block body))))
+
+  (def: #export (throw message)
+    (-> Expression Statement)
+    (:abstraction (format "throw Error(" (:representation message) ")" ..statement-suffix)))
+
+  (def: #export (return value)
+    (-> Expression Statement)
+    (:abstraction (format "return " (:representation value) ..statement-suffix)))
+
+  (def: #export (delete value)
+    (-> Location Statement)
+    (:abstraction (format "delete " (:representation value) ..statement-suffix)))
+  )
+
+(def: #export (cond clauses else!)
+  (-> (List [Expression Statement]) Statement Statement)
+  (list/fold (.function (_ [test then!] next!)
+               (..if test then! next!))
+             else!
+             (list.reverse clauses)))
