@@ -19,9 +19,9 @@
         :url ~(str repo ".git")}
 
   :source-paths ["source"]
-  :profiles {:library {:description "Standard library for the Lux programming language."
-                       :dependencies []
-                       :lux {:tests {:jvm "test/lux"}}}
+  :profiles {:bibliotheca {:description "Standard library for the Lux programming language."
+                           :dependencies []
+                           :lux {:tests {:jvm "test/lux"}}}
              :scriptum {:description "A documentation generator for Lux code."
                         :dependencies []
                         :lux {:program {:jvm "program/scriptum"}}}
