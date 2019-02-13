@@ -1,0 +1,718 @@
+(.module:
+  [lux #*
+   ["." function]
+   [control
+    [monad (#+ do)]
+    ["p" parser]]
+   [data
+    [number (#+ hex)]
+    ["." text
+     format]
+    [collection
+     ["." list ("#/." functor)]]]
+   ["." macro
+    ["." code]
+    ["s" syntax (#+ syntax:)]]
+   [host
+    ["_" js (#+ Expression Var Computation Statement)]]]
+  ["." ///
+   ["//." //
+    ["." synthesis]]]
+  )
+
+(do-template [<name> <base>]
+  [(type: #export <name>
+     (<base> Var Expression Statement))]
+
+  [Operation ///.Operation]
+  [Phase ///.Phase]
+  [Handler ///.Handler]
+  [Bundle ///.Bundle]
+  )
+
+(type: #export (Generator i)
+  (-> i Phase (Operation Expression)))
+
+(def: prefix Text "LuxRuntime")
+
+(def: #export variant-tag-field "_lux_tag")
+(def: #export variant-flag-field "_lux_flag")
+(def: #export variant-value-field "_lux_value")
+
+(def: #export unit Computation (_.string synthesis.unit))
+
+(def: #export (flag value)
+  (-> Bit Computation)
+  (if value
+    (_.string "")
+    _.null))
+
+(def: #export (variant tag last? value)
+  (-> Expression Expression Expression Computation)
+  (_.object (list [..variant-tag-field tag]
+                  [..variant-flag-field last?]
+                  [..variant-value-field value])))
+
+(def: none
+  Computation
+  (..variant (_.i32 +0) (flag #0) unit))
+
+(def: some
+  (-> Expression Computation)
+  (..variant (_.i32 +1) (flag #1)))
+
+(def: left
+  (-> Expression Computation)
+  (..variant (_.i32 +0) (flag #0)))
+
+(def: right
+  (-> Expression Computation)
+  (..variant (_.i32 +1) (flag #1)))
+
+(def: sanitize
+  (-> Text Text)
+  (|>> (text.replace-all "/" "_SL")
+       (text.replace-all "-" "_DS")
+       (text.replace-all "^" "_CR")
+       (text.replace-all "=" "_EQ")
+       (text.replace-all "+" "_PL")
+       (text.replace-all "*" "_ST")))
+
+(def: variable
+  (-> Text Var)
+  (|>> ..sanitize
+       _.var))
+
+(def: runtime-name
+  (-> Text Var)
+  (|>> ..sanitize
+       (format prefix "$")
+       _.var))
+
+(def: (feature name definition)
+  (-> Var (-> Var Expression) Statement)
+  (_.define name (definition name)))
+
+(syntax: (code-name {definition-name s.local-identifier})
+  (wrap (list (code.local-identifier (format "@" definition-name)))))
+
+(syntax: #export (with-vars {vars (s.tuple (p.some s.local-identifier))}
+                   body)
+  (wrap (list (` (let [(~+ (|> vars
+                               (list/map (function (_ var)
+                                           (list (code.local-identifier var)
+                                                 (` (_.var (~ (code.text var)))))))
+                               list.concat))]
+                   (~ body))))))
+
+(syntax: (runtime: {declaration (p.or s.local-identifier
+                                      (s.form (p.and s.local-identifier
+                                                     (p.some s.local-identifier))))}
+           code)
+  (case declaration
+    (#.Left name)
+    (macro.with-gensyms [g!_]
+      (let [nameC (code.local-identifier name)
+            code-nameC (code.local-identifier (format "@" name))
+            runtime-nameC (` (runtime-name (~ (code.text name))))]
+        (wrap (list (` (def: #export (~ nameC) Var (~ runtime-nameC)))
+                    (` (def: (~ code-nameC)
+                         Statement
+                         (..feature (~ runtime-nameC)
+                                    (function ((~ g!_) (~ nameC))
+                                      (~ code)))))))))
+    
+    (#.Right [name inputs])
+    (macro.with-gensyms [g!_]
+      (let [nameC (code.local-identifier name)
+            code-nameC (code.local-identifier (format "@" name))
+            runtime-nameC (` (runtime-name (~ (code.text name))))
+            inputsC (list/map code.local-identifier inputs)
+            inputs-typesC (list/map (function.constant (` _.Expression)) inputs)]
+        (wrap (list (` (def: #export ((~ nameC) (~+ inputsC))
+                         (-> (~+ inputs-typesC) Computation)
+                         (_.apply/* (~ runtime-nameC) (list (~+ inputsC)))))
+                    (` (def: (~ code-nameC)
+                         Statement
+                         (..feature (~ runtime-nameC)
+                                    (function ((~ g!_) (~ g!_))
+                                      (..with-vars [(~+ inputsC)]
+                                        (_.function (~ g!_) (list (~+ inputsC))
+                                          (~ code)))))))))))))
+
+(runtime: (lux//try op)
+  (with-vars [ex]
+    (_.try (_.return (_.apply/1 op ..unit))
+           [ex (_.return (|> ex (_.do "toString" (list))))])))
+
+(def: length (_.the "length"))
+
+(runtime: (lux//program-args)
+  (with-vars [process output idx]
+    (_.if (_.and (_.not (_.= (_.type-of process)
+                             _.undefined))
+                 (|> process (_.the "argv")))
+      ($_ _.then
+          (_.define output ..none)
+          (_.for idx
+                 (|> process (_.the "argv") ..length (_.- (_.i32 +1)))
+                 (_.>= (_.i32 +0) idx)
+                 (_.-- idx)
+                 (_.set output (..some (_.array (list (|> process (_.the "argv") (_.at idx))
+                                                      output)))))
+          (_.return output))
+      (_.return ..none))))
+
+(def: runtime//lux
+  Statement
+  ($_ _.then
+      @lux//try
+      @lux//program-args
+      ))
+
+(runtime: (product//left product index)
+  (with-vars [index-min-length]
+    ($_ _.then
+        (_.define index-min-length (_.+ (_.i32 +1) index))
+        (_.if (_.> index-min-length
+                   (..length product))
+          ## No need for recursion.
+          (_.return (_.at index product))
+          ## Needs recursion.
+          (_.return (product//left (_.at (|> product ..length (_.- (_.i32 +1)))
+                                         product)
+                                   (_.- (..length product)
+                                        index-min-length)))
+          ))))
+
+(runtime: (product//right product index)
+  (with-vars [index-min-length]
+    ($_ _.then
+        (_.define index-min-length (_.+ (_.i32 +1) index))
+        (_.cond (list [(_.= index-min-length
+                            (..length product))
+                       ## Last element.
+                       (_.return (_.at index product))]
+                      [(_.< index-min-length
+                            (..length product))
+                       ## Needs recursion.
+                       (_.return (product//right (_.at (|> product ..length (_.- (_.i32 +1)))
+                                                       product)
+                                                 (_.- (..length product)
+                                                      index-min-length)))])
+                ## Must slice
+                (_.return (_.do "slice" (list index) product))))))
+
+(runtime: (sum//get sum wanted-tag wants-last)
+  (let [no-match! (_.return _.null)
+        sum-tag (|> sum (_.the ..variant-tag-field))
+        sum-flag (|> sum (_.the ..variant-flag-field))
+        sum-value (|> sum (_.the ..variant-value-field))
+        is-last? (_.= ..unit sum-flag)
+        extact-match! (_.return sum-value)
+        test-recursion! (_.if is-last?
+                          ## Must recurse.
+                          (_.return (sum//get sum-value (_.- sum-tag wanted-tag) wants-last))
+                          no-match!)
+        extrac-sub-variant! (_.return (..variant (_.- wanted-tag sum-tag) sum-flag sum-value))]
+    (_.cond (list [(_.= wanted-tag sum-tag)
+                   (_.if (_.= wants-last sum-flag)
+                     extact-match!
+                     test-recursion!)]
+                  [(_.< wanted-tag sum-tag)
+                   test-recursion!]
+                  [(_.and (_.> wanted-tag sum-tag)
+                          (_.= ..unit wants-last))
+                   extrac-sub-variant!])
+            no-match!)))
+
+(def: runtime//structure
+  Statement
+  ($_ _.then
+      @product//left
+      @product//right
+      @sum//get
+      ))
+
+(def: #export i64-high-field Text "H")
+(def: #export i64-low-field Text "L")
+
+(runtime: (i64//new high low)
+  (_.return (_.object (list [..i64-high-field high]
+                            [..i64-low-field low]))))
+
+(runtime: i64//2^16
+  (_.left-shift (_.i32 +16) (_.i32 +1)))
+
+(runtime: i64//2^32
+  (_.* i64//2^16 i64//2^16))
+
+(runtime: i64//2^64
+  (_.* i64//2^32 i64//2^32))
+
+(runtime: i64//2^63
+  (|> i64//2^64 (_./ (_.i32 +2))))
+
+(runtime: (i64//unsigned-low i64)
+  (_.return (_.? (|> i64 (_.the ..i64-low-field) (_.>= (_.i32 +0)))
+                 (|> i64 (_.the ..i64-low-field))
+                 (|> i64 (_.the ..i64-low-field) (_.+ i64//2^32)))))
+
+(runtime: (i64//to-number i64)
+  (_.return (|> i64 (_.the ..i64-high-field) (_.* i64//2^32)
+                (_.+ (i64//unsigned-low i64)))))
+
+(runtime: i64//zero
+  (i64//new (_.i32 +0) (_.i32 +0)))
+
+(runtime: i64//min
+  (i64//new (_.i32 (hex "+80000000")) (_.i32 +0)))
+
+(runtime: i64//max
+  (i64//new (_.i32 (hex "+7FFFFFFF")) (_.i32 (hex "+FFFFFFFF"))))
+
+(runtime: i64//one
+  (i64//new (_.i32 +0) (_.i32 +1)))
+
+(runtime: (i64//= left right)
+  (_.return (_.and (_.= (_.the ..i64-high-field left)
+                        (_.the ..i64-high-field right))
+                   (_.= (_.the ..i64-low-field left)
+                        (_.the ..i64-low-field right)))))
+
+(runtime: (i64//+ left right)
+  (let [up-16 (_.left-shift (_.i32 +16))
+        high-16 (_.logic-right-shift (_.i32 +16))
+        low-16 (_.bit-and (_.i32 (hex "+FFFF")))
+        hh (|>> (_.the ..i64-high-field) high-16)
+        hl (|>> (_.the ..i64-high-field) low-16)
+        lh (|>> (_.the ..i64-low-field) high-16)
+        ll (|>> (_.the ..i64-low-field) low-16)]
+    (with-vars [l48 l32 l16 l00
+                r48 r32 r16 r00
+                x48 x32 x16 x00]
+      ($_ _.then
+          (_.define l48 (hh left))
+          (_.define l32 (hl left))
+          (_.define l16 (lh left))
+          (_.define l00 (ll left))
+
+          (_.define r48 (hh right))
+          (_.define r32 (hl right))
+          (_.define r16 (lh right))
+          (_.define r00 (ll right))
+
+          (_.define x00 (_.+ l00 r00))
+          (_.define x16 (high-16 x00))
+          (_.set x00 (low-16 x00))
+          (_.set x16 (|> x16 (_.+ l16) (_.+ r16)))
+          (_.define x32 (high-16 x16))
+          (_.set x16 (low-16 x16))
+          (_.set x32 (|> x32 (_.+ l32) (_.+ r32)))
+          (_.define x48 (|> (high-16 x32) (_.+ l48) (_.+ r48) low-16))
+          (_.set x32 (low-16 x32))
+
+          (_.return (i64//new (_.bit-or (up-16 x48) x32)
+                              (_.bit-or (up-16 x16) x00)))
+          ))))
+
+(do-template [<name> <op>]
+  [(runtime: (<name> left right)
+     (_.return (i64//new (<op> (_.the ..i64-high-field left)
+                               (_.the ..i64-high-field right))
+                         (<op> (_.the ..i64-low-field left)
+                               (_.the ..i64-low-field right)))))]
+
+  [i64//xor _.bit-xor]
+  [i64//or  _.bit-or]
+  [i64//and _.bit-and]
+  )
+
+(runtime: (i64//not value)
+  (_.return (i64//new (_.bit-not (_.the ..i64-high-field value))
+                      (_.bit-not (_.the ..i64-low-field value)))))
+
+(runtime: (i64//negate value)
+  (_.if (i64//= i64//min value)
+    (_.return i64//min)
+    (_.return (i64//+ (i64//not value) i64//one))))
+
+(runtime: i64//-one
+  (i64//negate i64//one))
+
+(runtime: (i64//from-number value)
+  (_.cond (list [(_.not-a-number? value)
+                 (_.return i64//zero)]
+                [(_.<= (_.negate i64//2^63) value)
+                 (_.return i64//min)]
+                [(|> value (_.+ (_.i32 +1)) (_.>= i64//2^63))
+                 (_.return i64//max)]
+                [(|> value (_.< (_.i32 +0)))
+                 (_.return (|> value _.negate i64//from-number i64//negate))])
+          (_.return (i64//new (_./ i64//2^32 value)
+                              (_.% i64//2^32 value)))))
+
+(def: (cap-shift! shift)
+  (-> Var Statement)
+  (_.set shift (|> shift (_.bit-and (_.i32 +63)))))
+
+(def: (no-shift! shift input)
+  (-> Var Var [Expression Statement])
+  [(|> shift (_.= (_.i32 +0)))
+   (_.return input)])
+
+(def: small-shift?
+  (-> Var Expression)
+  (|>> (_.< (_.i32 +32))))
+
+(runtime: (i64//left-shift input shift)
+  ($_ _.then
+      (..cap-shift! shift)
+      (_.cond (list (..no-shift! shift input)
+                    [(..small-shift? shift)
+                     (let [high (_.bit-or (|> input (_.the ..i64-high-field) (_.left-shift shift))
+                                          (|> input (_.the ..i64-low-field) (_.logic-right-shift (_.- shift (_.i32 +32)))))
+                           low (|> input (_.the ..i64-low-field) (_.left-shift shift))]
+                       (_.return (i64//new high low)))])
+              (let [high (|> input (_.the ..i64-low-field) (_.left-shift (_.- (_.i32 +32) shift)))]
+                (_.return (i64//new high (_.i32 +0)))))))
+
+(runtime: (i64//arithmetic-right-shift input shift)
+  ($_ _.then
+      (..cap-shift! shift)
+      (_.cond (list (..no-shift! shift input)
+                    [(..small-shift? shift)
+                     (let [high (|> input (_.the ..i64-high-field) (_.arithmetic-right-shift shift))
+                           low (|> input (_.the ..i64-low-field) (_.logic-right-shift shift)
+                                   (_.bit-or (|> input (_.the ..i64-high-field) (_.left-shift (_.- shift (_.i32 +32))))))]
+                       (_.return (i64//new high low)))])
+              (let [high (_.? (|> input (_.the ..i64-high-field) (_.>= (_.i32 +0)))
+                              (_.i32 +0)
+                              (_.i32 -1))
+                    low (|> input (_.the ..i64-high-field) (_.arithmetic-right-shift (_.- (_.i32 +32) shift)))]
+                (_.return (i64//new high low))))))
+
+(runtime: (i64//logic-right-shift input shift)
+  ($_ _.then
+      (..cap-shift! shift)
+      (_.cond (list (..no-shift! shift input)
+                    [(..small-shift? shift)
+                     (let [high (|> input (_.the ..i64-high-field) (_.logic-right-shift shift))
+                           low (|> input (_.the ..i64-low-field) (_.logic-right-shift shift)
+                                   (_.bit-or (|> input (_.the ..i64-high-field) (_.left-shift (_.- shift (_.i32 +32))))))]
+                       (_.return (i64//new high low)))]
+                    [(|> shift (_.= (_.i32 +32)))
+                     (_.return (i64//new (_.i32 +0) (|> input (_.the ..i64-high-field))))])
+              (_.return (i64//new (_.i32 +0)
+                                  (|> input (_.the ..i64-high-field) (_.logic-right-shift (_.- (_.i32 +32) shift))))))))
+
+(def: runtime//bit
+  Statement
+  ($_ _.then
+      @i64//and
+      @i64//or
+      @i64//xor
+      @i64//not
+      @i64//left-shift
+      @i64//arithmetic-right-shift
+      @i64//logic-right-shift
+      ))
+
+(runtime: (i64//- left right)
+  (_.return (i64//+ left (i64//negate right))))
+
+(runtime: (i64//* left right)
+  (let [negative? (|>> (_.the ..i64-high-field) (_.< (_.i32 +0)))]
+    (_.cond (list [(negative? left)
+                   (_.if (negative? right)
+                     ## Both are negative
+                     (_.return (i64//* (i64//negate left) (i64//negate right)))
+                     ## Left is negative
+                     (_.return (i64//negate (i64//* (i64//negate left) right))))]
+                  [(negative? right)
+                   ## Right is negative
+                   (_.return (i64//negate (i64//* left (i64//negate right))))])
+            ## Both are positive
+            (let [up-16 (_.left-shift (_.i32 +16))
+                  high-16 (_.logic-right-shift (_.i32 +16))
+                  low-16 (_.bit-and (_.i32 (hex "+FFFF")))
+                  hh (|>> (_.the ..i64-high-field) high-16)
+                  hl (|>> (_.the ..i64-high-field) low-16)
+                  lh (|>> (_.the ..i64-low-field) high-16)
+                  ll (|>> (_.the ..i64-low-field) low-16)]
+              (with-vars [l48 l32 l16 l00
+                          r48 r32 r16 r00
+                          x48 x32 x16 x00]
+                ($_ _.then
+                    (_.define l48 (hh left))
+                    (_.define l32 (hl left))
+                    (_.define l16 (lh left))
+                    (_.define l00 (ll left))
+
+                    (_.define r48 (hh right))
+                    (_.define r32 (hl right))
+                    (_.define r16 (lh right))
+                    (_.define r00 (ll right))
+
+                    (_.define x00 (_.* l00 r00))
+                    (_.define x16 (high-16 x00))
+                    (_.set x00 (low-16 x00))
+                    
+                    (_.set x16 (|> x16 (_.+ (_.* l16 r00))))
+                    (_.define x32 (high-16 x16)) (_.set x16 (low-16 x16))
+                    (_.set x16 (|> x16 (_.+ (_.* l00 r16))))
+                    (_.set x32 (|> x32 (_.+ (high-16 x16)))) (_.set x16 (low-16 x16))
+
+                    (_.set x32 (|> x32 (_.+ (_.* l32 r00))))
+                    (_.define x48 (high-16 x32)) (_.set x32 (low-16 x32))
+                    (_.set x32 (|> x32 (_.+ (_.* l16 r16))))
+                    (_.set x48 (|> x48 (_.+ (high-16 x32)))) (_.set x32 (low-16 x32))
+                    (_.set x32 (|> x32 (_.+ (_.* l00 r32))))
+                    (_.set x48 (|> x48 (_.+ (high-16 x32)))) (_.set x32 (low-16 x32))
+                    
+                    (_.set x48 (|> x48
+                                   (_.+ (_.* l48 r00))
+                                   (_.+ (_.* l32 r16))
+                                   (_.+ (_.* l16 r32))
+                                   (_.+ (_.* l00 r48))
+                                   low-16))
+
+                    (_.return (i64//new (_.bit-or (up-16 x48) x32)
+                                        (_.bit-or (up-16 x16) x00)))
+                    ))))))
+
+(runtime: (i64//< left right)
+  (let [negative? (|>> (_.the ..i64-high-field) (_.< (_.i32 +0)))]
+    (with-vars [-left? -right?]
+      ($_ _.then
+          (_.define -left? (negative? left))
+          (_.define -right? (negative? right))
+          (_.cond (list [(_.and -left? (_.not right))
+                         (_.return _.true)]
+                        [(_.and (_.not -left?) right)
+                         (_.return _.false)])
+                  (_.return (negative? (i64//- left right))))))))
+
+(def: (i64//<= subject param)
+  (-> Expression Expression Expression)
+  (_.or (i64//< subject param)
+        (i64//= subject param)))
+
+(runtime: (i64/// subject parameter)
+  (let [negative? (function (_ value)
+                    (i64//< value i64//zero))
+        valid-division-check [(i64//= i64//zero parameter)
+                              (_.throw (_.string "Cannot divide by zero!"))]
+        short-circuit-check [(i64//= i64//zero subject)
+                             (_.return i64//zero)]]
+    (_.cond (list valid-division-check
+                  short-circuit-check
+
+                  [(i64//= i64//min subject)
+                   (_.cond (list [(_.or (i64//= i64//one parameter)
+                                        (i64//= i64//-one parameter))
+                                  (_.return i64//min)]
+                                 [(i64//= i64//min parameter)
+                                  (_.return i64//one)])
+                           (with-vars [approximation]
+                             ($_ _.then
+                                 (_.define approximation (i64//left-shift (i64/// (i64//arithmetic-right-shift subject (_.i32 +1))
+                                                                                  parameter)
+                                                                          (_.i32 +1)))
+                                 (_.if (i64//= i64//zero approximation)
+                                   (_.return (_.? (negative? parameter)
+                                                  i64//one
+                                                  i64//-one))
+                                   (let [remainder (i64//- subject
+                                                           (i64//* parameter
+                                                                   approximation))
+                                         result (i64//+ approximation
+                                                        (i64/// remainder
+                                                                parameter))]
+                                     (_.return result))))))]
+                  [(i64//= i64//min parameter)
+                   (_.return i64//zero)]
+
+                  [(negative? subject)
+                   (_.return (_.? (negative? parameter)
+                                  (i64/// (i64//negate subject)
+                                          (i64//negate parameter))
+                                  (i64//negate (i64/// (i64//negate subject)
+                                                       parameter))))]
+
+                  [(negative? parameter)
+                   (_.return (i64//negate (i64/// subject (i64//negate parameter))))])
+            (with-vars [result remainder]
+              ($_ _.then
+                  (_.define result i64//zero)
+                  (_.define remainder subject)
+                  (_.while (i64//<= remainder parameter)
+                           (with-vars [approximate approximate-result approximate-remainder log2 delta]
+                             (let [rough-estimate (|> (i64//to-number remainder)
+                                                      (_./ (i64//to-number parameter))
+                                                      (_.apply/1 (_.var "Math.floor")))
+                                   approximate-result' (i64//from-number approximate)
+                                   approx-remainder (i64//* approximate-result parameter)]
+                               ($_ _.then
+                                   (_.define approximate (_.apply/2 (_.var "Math.max") (_.i32 +1) rough-estimate))
+                                   (_.define log2 (|> approximate
+                                                      (_.apply/1 (_.var "Math.log"))
+                                                      (_./ (_.var "Math.LN2"))
+                                                      (_.apply/1 (_.var "Math.ceil"))))
+                                   (_.define delta (_.? (_.<= (_.i32 +48) log2)
+                                                        (_.i32 +1)
+                                                        (_.apply/2 (_.var "Math.pow")
+                                                                   (_.i32 +2)
+                                                                   (_.- (_.i32 +48)
+                                                                        log2))))
+                                   (_.define approximate-result approximate-result')
+                                   (_.define approximate-remainder approx-remainder)
+                                   (_.while (_.or (negative? approximate-remainder)
+                                                  (i64//< remainder
+                                                          approximate-remainder))
+                                            ($_ _.then
+                                                (_.set approximate (_.- delta approximate))
+                                                (_.set approximate-result approximate-result')
+                                                (_.set approximate-remainder approx-remainder)))
+                                   (_.set result (i64//+ result
+                                                         (_.? (i64//= i64//zero approximate-result)
+                                                              i64//one
+                                                              approximate-result)))
+                                   (_.set remainder (i64//- remainder approximate-remainder))))))
+                  (_.return result)))
+            )))
+
+(runtime: (i64//% subject parameter)
+  (let [flat (i64//* (i64/// subject parameter)
+                     parameter)]
+    (_.return (i64//- subject flat))))
+
+(def: runtime//i64
+  Statement
+  ($_ _.then
+      @i64//2^16
+      @i64//2^32
+      @i64//2^64
+      @i64//2^63
+      @i64//unsigned-low
+      @i64//zero
+      @i64//new
+      @i64//min
+      @i64//max
+      @i64//one
+      @i64//=
+      @i64//+
+      @i64//negate
+      @i64//to-number
+      @i64//from-number
+      @i64//-
+      @i64//*
+      @i64//<
+      @i64///
+      @i64//%
+      runtime//bit
+      ))
+
+(runtime: (text//index text part start)
+  (with-vars [idx]
+    ($_ _.then
+        (_.define idx (|> text (_.do "indexOf" (list part (i64//to-number start)))))
+        (_.if (_.= (_.i32 -1) idx)
+          (_.return ..none)
+          (_.return (..some (i64//from-number idx)))))))
+
+(runtime: (text//clip text start end)
+  (let [out-of-bounds? (|>> (_.the ..i64-low-field) (_.> (..length text)))]
+    (_.if (_.or (out-of-bounds? start)
+                (out-of-bounds? end))
+      (_.return ..none)
+      (_.return (..some (|> text (_.do "substring" (list (_.the ..i64-low-field start)
+                                                         (_.the ..i64-low-field end)))))))))
+
+(runtime: (text//char text idx)
+  (with-vars [result]
+    ($_ _.then
+        (_.define result (|> text (_.do "charCodeAt" (list (_.the ..i64-low-field idx)))))
+        (_.if (_.not-a-number? result)
+          (_.return ..none)
+          (_.return (..some (i64//from-number result)))))))
+
+(def: runtime//text
+  Statement
+  ($_ _.then
+      @text//index
+      @text//clip
+      @text//char
+      ))
+
+(runtime: (io//log message)
+  (with-vars [console print]
+    (let [end! (_.return ..unit)]
+      (_.cond (list [(|> console _.type-of (_.= _.undefined) _.not
+                         (_.and (_.the "log" console)))
+                     ($_ _.then
+                         (_.statement (|> console (_.do "log" (list message))))
+                         end!)]
+                    [(|> print _.type-of (_.= _.undefined) _.not)
+                     ($_ _.then
+                         (_.statement (_.apply/1 print message))
+                         end!)])
+              end!))))
+
+(runtime: (io//error message)
+  (_.throw message))
+
+(def: runtime//io
+  Statement
+  ($_ _.then
+      @io//log
+      @io//error
+      ))
+
+(runtime: (js//get object field)
+  (with-vars [temp]
+    (_.if (|> temp (_.= _.undefined) _.not)
+      (_.return (..some temp))
+      (_.return ..none))))
+
+(runtime: (js//set object field input)
+  ($_ _.then
+      (_.set (_.at field object) input)
+      (_.return object)))
+
+(runtime: (js//delete object field)
+  ($_ _.then
+      (_.delete (_.at field object))
+      (_.return object)))
+
+(runtime: (js//call object method inputs)
+  (_.return (_.apply/2 (_.at method object) object inputs)))
+
+(def: runtime//js
+  Statement
+  ($_ _.then
+      @js//get
+      @js//set
+      @js//delete
+      @js//call
+      ))
+
+(def: runtime
+  Statement
+  ($_ _.then
+      runtime//lux
+      runtime//structure
+      runtime//i64
+      runtime//text
+      runtime//io
+      runtime//js
+      ))
+
+(def: #export artifact Text (format prefix ".js"))
+
+(def: #export translate
+  (Operation Any)
+  (///.with-buffer
+    (do ////.monad
+      [_ (///.save! ["" ..prefix] ..runtime)]
+      (///.save-buffer! ..artifact))))
