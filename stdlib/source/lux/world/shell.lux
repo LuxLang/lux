@@ -1,0 +1,161 @@
+(.module:
+  [lux #*
+   ["." io (#+ IO)]
+   ["jvm" host (#+ import:)]
+   [control
+    [monad (#+ do)]]
+   [data
+    [number (#+ hex)]
+    ["." product]
+    ["." maybe]
+    ["." error (#+ Error)]
+    ["." text
+     format
+     ["." encoding]]
+    [format
+     ["." context (#+ Context)]]
+    [collection
+     ["." array (#+ Array)]
+     ["." list ("#/." fold functor)]
+     ["." dictionary]]]
+   [tool
+    [compiler
+     ["." host]]]
+   [world
+    ["." console (#+ Console)]]])
+
+## https://en.wikipedia.org/wiki/Code_injection#Shell_injection
+(def: windows?
+  (-> Text Bit)
+  (text.starts-with? "windows"))
+
+(def: (sanitize-command windows?)
+  (-> Bit (-> Text Text))
+  (let [dangerous (format "\&#;`|*?~<>^()[]{}$"
+                          (text.from-code (hex "0A"))
+                          (text.from-code (hex "FF")))
+        dangerous (if windows?
+                    (format dangerous "%!")
+                    dangerous)
+        indices (list.n/range 0 (dec (text.size dangerous)))]
+    (function (_ unsafe)
+      (list/fold (function (_ index safer)
+                   (let [bad (|> dangerous (text.nth index) maybe.assume text.from-code)
+                         good (if windows?
+                                " "
+                                (format "\" bad))]
+                     (text.replace-all bad good safer)))
+                 unsafe
+                 indices))))
+
+(def: (sanitize-argument windows?)
+  (-> Bit (-> Text Text))
+  (if windows?
+    (|>> (text.replace-all "%" " ")
+         (text.replace-all "!" " ")
+         (text.replace-all text.double-quote " ")
+         (text.enclose' text.double-quote))
+    (|>> (text.replace-all "'" "\'")
+         (text.enclose' "'"))))
+
+(`` (for {(~~ (static host.jvm))
+          (as-is (import: #long java/lang/String
+                   (toLowerCase [] java/lang/String))
+
+                 (def: (arguments-array arguments)
+                   (-> (List Text) (Array java/lang/String))
+                   (product.right
+                    (list/fold (function (_ argument [idx output])
+                                 [(inc idx) (jvm.array-write idx argument output)])
+                               [0 (jvm.array java/lang/String (list.size arguments))]
+                               arguments)))
+
+                 (import: #long (java/util/Map k v)
+                   (put [k v] v))
+
+                 (def: (load-environment input target)
+                   (-> Context
+                       (java/util/Map java/lang/String java/lang/String)
+                       (java/util/Map java/lang/String java/lang/String))
+                   (list/fold (function (_ [key value] target')
+                                (exec (java/util/Map::put key value target')
+                                  target'))
+                              target
+                              (dictionary.entries input)))
+                 
+                 (import: #long java/io/Reader
+                   (read [] #io #try int))
+
+                 (import: #long java/io/BufferedReader
+                   (new [java/io/Reader])
+                   (readLine [] #io #try java/lang/String))
+
+                 (import: #long java/io/InputStream)
+                 
+                 (import: #long java/io/InputStreamReader
+                   (new [java/io/InputStream]))
+
+                 (import: #long java/io/OutputStream
+                   (write [(Array byte)] #io #try void))
+
+                 (import: #long java/lang/Process
+                   (getInputStream [] #io #try java/io/InputStream)
+                   (getOutputStream [] #io #try java/io/OutputStream)
+                   (destroy [] #io #try void))
+
+                 (def: (process-console process)
+                   (-> java/lang/Process (IO (Error (Console IO))))
+                   (do (error.with-error io.monad)
+                     [jvm-input (java/lang/Process::getInputStream process)
+                      #let [jvm-input (|> jvm-input
+                                          java/io/InputStreamReader::new
+                                          java/io/BufferedReader::new)]
+                      jvm-output (java/lang/Process::getOutputStream process)]
+                     (wrap (: (Console IO)
+                              (structure
+                               (def: can-read
+                                 (console.can-read
+                                  (function (_ _)
+                                    (|> jvm-input
+                                        java/io/Reader::read
+                                        (:: (error.with-error io.monad) map .nat)))))
+                               
+                               (def: can-read-line
+                                 (console.can-read
+                                  (function (_ _)
+                                    (|> jvm-input
+                                        java/io/BufferedReader::readLine))))
+                               
+                               (def: can-write
+                                 (console.can-write
+                                  (function (_ message)
+                                    (|> jvm-output
+                                        (java/io/OutputStream::write (encoding.to-utf8 message))))))
+                               
+                               (def: can-close
+                                 (console.can-close
+                                  (function (_ _)
+                                    (|> process
+                                        java/lang/Process::destroy)))))))))
+
+                 (import: #long java/lang/ProcessBuilder
+                   (new [(Array java/lang/String)])
+                   (environment [] #io #try (java/util/Map java/lang/String java/lang/String))
+                   (start [] #io #try java/lang/Process))
+
+                 (import: #long java/lang/System
+                   (#static getProperty [java/lang/String] #io #try java/lang/String))
+                 )}))
+
+(def: #export (execute environment command arguments)
+  (-> Context Text (List Text) (IO (Error (Console IO))))
+  (`` (for {(~~ (static host.jvm))
+            (do (error.with-error io.monad)
+              [windows? (:: @ map (|>> java/lang/String::toLowerCase ..windows?)
+                            (java/lang/System::getProperty "os.name"))
+               #let [builder (java/lang/ProcessBuilder::new (arguments-array (list& (sanitize-command windows? command)
+                                                                                    (list/map (sanitize-argument windows?) arguments))))]
+               environment (:: @ map (load-environment environment)
+                               (java/lang/ProcessBuilder::environment builder))
+               process (java/lang/ProcessBuilder::start builder)]
+              (process-console process))})))

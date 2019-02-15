@@ -6,12 +6,12 @@
     [concurrency
      ["." promise (#+ Promise)]]
     [security
-     [capability (#+ Capability)]]]
+     ["!" capability (#+ capability:)]]]
    [data
     ["." error (#+ Error)]
     ["." text
      format]]
-   ["." io (#+ IO Process io)]
+   ["." io (#+ IO io)]
    [host (#+ import:)]
    [tool
     [compiler
@@ -25,31 +25,36 @@
   [cannot-close]
   )
 
-(type: #export (Can-Read ! o)
-  (Capability [] (! (Error o))))
+(capability: #export (Can-Read ! o)
+  (can-read [] (! (Error o))))
 
-(type: #export (Can-Write ! i)
-  (Capability i (! (Error Any))))
+(capability: #export (Can-Write ! i)
+  (can-write i (! (Error Any))))
 
-(type: #export (Can-Close !)
-  (Capability [] (! (Error Any))))
+(capability: #export (Can-Close !)
+  (can-close [] (! (Error Any))))
 
 (signature: #export (Console !)
   (: (Can-Read ! Nat)
-     read)
+     can-read)
   (: (Can-Read ! Text)
-     read-line)
+     can-read-line)
   (: (Can-Write ! Text)
-     write)
+     can-write)
   (: (Can-Close !)
-     close))
+     can-close))
 
 (def: #export (async console)
   (-> (Console IO) (Console Promise))
-  (`` (structure (~~ (do-template [<capability>]
-                       [(def: <capability> (|>> (:: console <capability>) promise.future))]
+  (`` (structure (~~ (do-template [<capability> <forge>]
+                       [(def: <capability>
+                          (<forge>
+                           (|>> (!.use (:: console <capability>)) promise.future)))]
 
-                       [read] [read-line] [write] [close])))))
+                       [can-read ..can-read]
+                       [can-read-line ..can-read]
+                       [can-write ..can-write]
+                       [can-close ..can-close])))))
 
 (`` (for {(~~ (static host.jvm))
           (as-is (import: java/lang/String)
@@ -74,30 +79,37 @@
                      [?jvm-console (System::console)]
                      (case ?jvm-console
                        #.None
-                       (io.fail (ex.construct cannot-open []))
+                       (wrap (ex.throw cannot-open []))
 
                        (#.Some jvm-console)
                        (let [jvm-input (System::in)
                              jvm-output (System::out)]
-                         (<| io.from-io
-                             wrap
+                         (<| wrap
+                             ex.return
                              (: (Console IO)) ## TODO: Remove ASAP
                              (structure
-                              (def: (read _)
-                                (|> jvm-input
-                                    InputStream::read
-                                    (:: (error.with-error io.functor) map .nat)))
+                              (def: can-read
+                                (..can-read
+                                 (function (_ _)
+                                   (|> jvm-input
+                                       InputStream::read
+                                       (:: (error.with-error io.monad) map .nat)))))
                               
-                              (def: (read-line _)
-                                (java/io/Console::readLine jvm-console))
+                              (def: can-read-line
+                                (..can-read
+                                 (function (_ _)
+                                   (java/io/Console::readLine jvm-console))))
                               
-                              (def: (write message)
-                                (PrintStream::print message jvm-output))
+                              (def: can-write
+                                (..can-write
+                                 (function (_ message)
+                                   (PrintStream::print message jvm-output))))
                               
-                              (def: close
-                                (|>> (ex.construct cannot-close) io.fail)))))))))
+                              (def: can-close
+                                (..can-close
+                                 (|>> (ex.throw cannot-close) wrap))))))))))
           }))
 
-(def: #export (write-line message Console<!>)
+(def: #export (write-line message console)
   (All [!] (-> Text (Console !) (! Any)))
-  (:: Console<!> write (format message text.new-line)))
+  (!.use (:: console can-write) (format message text.new-line)))
