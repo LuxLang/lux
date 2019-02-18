@@ -1,16 +1,35 @@
 (.module:
   [lux #*
+   ["_" test (#+ Test)]
    [control
     [hash (#+ Hash)]
     [monad (#+ do)]
     [security
-     ["@" privacy (#+ Context Privilege Private with-privacy)]]]
+     ["!" capability]]
+    {[0 #test]
+     [/
+      [".T" functor (#+ Injection Comparison)]
+      [".T" apply]
+      [".T" monad]]}]
    [data
     ["." text ("#/." equivalence)
      format]]
    [math
     ["r" random]]]
-  lux/test)
+  {1
+   ["." / (#+ Context Can-Conceal Can-Reveal Privilege Private with-privacy)]})
+
+(def: (injection can-conceal)
+  (All [label]
+    (-> (Can-Conceal label) (Injection (All [value] (Private value label)))))
+  (!.use can-conceal))
+
+(def: (comparison can-reveal)
+  (All [label]
+    (-> (Can-Reveal label) (Comparison (All [value] (Private value label)))))
+  (function (_ == left right)
+    (== (!.use can-reveal left)
+        (!.use can-reveal right))))
 
 (type: Password (Private Text))
 
@@ -32,54 +51,37 @@
          (structure
           (def: &hash
             (structure
-             (def: eq
+             (def: &equivalence
                (structure (def: (= reference sample)
-                            (text/= (%/reveal reference)
-                                    (%/reveal sample)))))
+                            (text/= (!.use %/can-reveal reference)
+                                    (!.use %/can-reveal sample)))))
              (def: hash
-               (|>> %/reveal
+               (|>> (!.use %/can-reveal)
                     (:: text.hash hash)))))
           
           (def: password
-            %/conceal)
+            (!.use %/can-conceal))
 
-          (def: privilege privilege))))))
+          (def: privilege
+            privilege))))))
 
-(context: "Policy labels."
-  (do @
-    [#let [policy-0 (policy 0)]
-     raw-password (r.ascii 10)
-     #let [password (:: policy-0 password raw-password)]]
-    ($_ seq
-        (test "Can work with private values under the same label."
-              (and (:: policy-0 = password password)
-                   (n/= (:: text.hash hash raw-password)
-                        (:: policy-0 hash password))))
-        (let [policy-1 (policy 1)
-              delegate (@.delegation (:: policy-0 reveal) (:: policy-1 conceal))]
-          (test "Can use delegation to share private values between policies."
-                (:: policy-1 = (delegate password) (delegate password))))
-        )))
-
-(context: "Structures."
-  (do @
-    [#let [duplicate (: (-> Text Text)
-                        (function (_ raw) (format raw raw)))
-           policy-0 (policy 0)]
-     raw-password (r.ascii 10)
-     #let [password (:: policy-0 password raw-password)]
-     #let [check (:: policy-0 =
-                     (:: policy-0 password (duplicate raw-password)))
-           (^open "@/.") @.functor
-           (^open "@/.") @.apply
-           (^open "@/.") @.monad]]
-    ($_ seq
-        (test "Can use Functor."
-              (check (@/map duplicate password)))
-        (test "Can use Apply."
-              (check (@/apply (@/wrap duplicate) password)))
-        (test "Can use Monad."
-              (check (do @.monad
-                       [raw-password' (:: policy-0 password raw-password)]
-                       (wrap (duplicate raw-password')))))
-        )))
+(def: #export test
+  Test
+  (<| (_.context (%name (name-of /.Private)))
+      (do r.monad
+        [#let [policy-0 (policy [])]
+         raw-password (r.ascii 10)
+         #let [password (:: policy-0 password raw-password)]]
+        ($_ _.and
+            (_.test "Can work with private values under the same label."
+                    (and (:: policy-0 = password password)
+                         (n/= (:: text.hash hash raw-password)
+                              (:: policy-0 hash password))))
+            (let [policy-1 (policy [])
+                  delegate (/.delegation (:: policy-0 can-reveal) (:: policy-1 can-conceal))]
+              (_.test "Can use delegation to share private values between policies."
+                      (:: policy-1 = (delegate password) (delegate password))))
+            (functorT.laws (..injection (:: policy-0 can-conceal)) (..comparison (:: policy-0 can-reveal)) /.functor)
+            (applyT.laws (..injection (:: policy-0 can-conceal)) (..comparison (:: policy-0 can-reveal)) /.apply)
+            (monadT.laws (..injection (:: policy-0 can-conceal)) (..comparison (:: policy-0 can-reveal)) /.monad)
+            ))))
