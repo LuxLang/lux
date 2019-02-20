@@ -8,18 +8,23 @@
     ["." text
      format]
     [collection
-     ["." list ("#/." functor fold)]
-     [set (#+ Set)]]]]
+     ["." list ("#/." functor fold)]]]
+   [host
+    ["_" scheme (#+ Expression Computation Var)]]]
   [//
    ["." runtime (#+ Operation Phase)]
+   ["//." primitive]
    ["." reference]
-   ["/." /// ("#/." monad)
-    ["." synthesis (#+ Synthesis Path)]
-    [//
-     [reference (#+ Register)]
+   [//
+    [common
+     ["common-." reference]]
+    ["//." // ("#/." monad)
+     ["." synthesis (#+ Synthesis Path)]
      [//
-      [host
-       ["_" scheme (#+ Expression Computation Var)]]]]]])
+      [reference (#+ Register)]]]]])
+
+(def: register
+  (common-reference.local _.var))
 
 (def: #export (let translate [valueS register bodyS])
   (-> Phase [Synthesis Register Synthesis]
@@ -27,7 +32,7 @@
   (do ////.monad
     [valueO (translate valueS)
      bodyO (translate bodyS)]
-    (wrap (_.let (list [(reference.local' register) valueO])
+    (wrap (_.let (list [(..register register) valueO])
             bodyO))))
 
 (def: #export (record-get translate valueS pathP)
@@ -39,7 +44,7 @@
                        (.let [method (.if tail?
                                        runtime.product//right
                                        runtime.product//left)]
-                         (method source (_.int (:coerce Int idx)))))
+                         (method source (_.int (.int idx)))))
                      valueO
                      pathP))))
 
@@ -53,22 +58,21 @@
     (wrap (_.if testO thenO elseO))))
 
 (def: @savepoint (_.var "lux_pm_cursor_savepoint"))
-
 (def: @cursor (_.var "lux_pm_cursor"))
-
-(def: top _.length/1)
+(def: @temp (_.var "lux_pm_temp"))
+(def: @alt-error (_.var "alt_error"))
 
 (def: (push! value var)
   (-> Expression Var Computation)
   (_.set! var (_.cons/2 value var)))
 
-(def: (pop! var)
-  (-> Var Computation)
-  (_.set! var var))
-
 (def: (push-cursor! value)
   (-> Expression Computation)
   (push! value @cursor))
+
+(def: (pop! var)
+  (-> Var Computation)
+  (_.set! var var))
 
 (def: save-cursor!
   Computation
@@ -90,19 +94,14 @@
 
 (def: fail-pm! (_.raise/1 pm-error))
 
-(def: @temp (_.var "lux_pm_temp"))
-
-(exception: #export (unrecognized-path)
-  "")
-
-(def: $alt_error (_.var "alt_error"))
+(exception: #export unrecognized-path)
 
 (def: (pm-catch handler)
   (-> Expression Computation)
-  (_.lambda [(list $alt_error) #.None]
-       (_.if (|> $alt_error (_.eqv?/2 pm-error))
+  (_.lambda [(list @alt-error) #.None]
+       (_.if (|> @alt-error (_.eqv?/2 pm-error))
          handler
-         (_.raise/1 $alt_error))))
+         (_.raise/1 @alt-error))))
 
 (def: (pattern-matching' translate pathP)
   (-> Phase Path (Operation Expression))
@@ -114,17 +113,17 @@
     (/////wrap pop-cursor!)
 
     (#synthesis.Bind register)
-    (/////wrap (_.define (reference.local' register) [(list) #.None]
+    (/////wrap (_.define (..register register) [(list) #.None]
                          cursor-top))
 
     (^template [<tag> <format> <=>]
       (^ (<tag> value))
       (/////wrap (_.when (|> value <format> (<=> cursor-top) _.not/1)
                          fail-pm!)))
-    ([synthesis.path/bit  _.bool          _.eqv?/2]
-     [synthesis.path/i64  (<| _.int .int) _.=/2]
-     [synthesis.path/f64  _.float         _.=/2]
-     [synthesis.path/text _.string        _.eqv?/2])
+    ([synthesis.path/bit  //primitive.bit           _.eqv?/2]
+     [synthesis.path/i64  (<| //primitive.i64 .int) _.=/2]
+     [synthesis.path/f64  //primitive.f64           _.=/2]
+     [synthesis.path/text //primitive.text          _.eqv?/2])
 
     (^template [<pm> <flag> <prep>]
       (^ (<pm> idx))

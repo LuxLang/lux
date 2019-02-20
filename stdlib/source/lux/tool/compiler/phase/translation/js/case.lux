@@ -1,0 +1,175 @@
+(.module:
+  [lux (#- case let if)
+   [control
+    [monad (#+ do)]
+    ["ex" exception (#+ exception:)]]
+   [data
+    ["." number]
+    ["." text
+     format]
+    [collection
+     ["." list ("#/." functor fold)]]]
+   [host
+    ["_" js (#+ Expression Computation Var Statement)]]]
+  [//
+   ["//." runtime (#+ Operation Phase)]
+   ["//." reference]
+   ["//." primitive]
+   [//
+    [common
+     ["common-." reference]]
+    ["//." // ("#/." monad)
+     ["." synthesis (#+ Synthesis Path)]
+     [//
+      [reference (#+ Register)]]]]])
+
+(def: register
+  (common-reference.local _.var))
+
+(def: #export (let translate [valueS register bodyS])
+  (-> Phase [Synthesis Register Synthesis]
+      (Operation Computation))
+  (do ////.monad
+    [valueO (translate valueS)
+     bodyO (translate bodyS)]
+    (wrap (<| (_.closure (list))
+              ($_ _.then
+                  (_.define (..register register) valueO)
+                  (_.return bodyO))))))
+
+(def: #export (record-get translate valueS pathP)
+  (-> Phase Synthesis (List [Nat Bit])
+      (Operation Expression))
+  (do ////.monad
+    [valueO (translate valueS)]
+    (wrap (list/fold (function (_ [idx tail?] source)
+                       (.let [method (.if tail?
+                                       //runtime.product//right
+                                       //runtime.product//left)]
+                         (method source (_.i32 (.int idx)))))
+                     valueO
+                     pathP))))
+
+(def: #export (if translate [testS thenS elseS])
+  (-> Phase [Synthesis Synthesis Synthesis]
+      (Operation Computation))
+  (do ////.monad
+    [testO (translate testS)
+     thenO (translate thenS)
+     elseO (translate elseS)]
+    (wrap (_.? testO thenO elseO))))
+
+(def: @savepoint (_.var "lux_pm_cursor_savepoint"))
+(def: @cursor (_.var "lux_pm_cursor"))
+(def: @temp (_.var "lux_pm_temp"))
+(def: @alt-error (_.var "alt_error"))
+
+(def: (push-cursor! value)
+  (-> Expression Statement)
+  (_.statement (|> @cursor (_.do "push" (list value)))))
+
+(def: pop-cursor!
+  Statement
+  (_.statement (|> @cursor (_.do "pop" (list)))))
+
+(def: peek-cursor
+  Expression
+  (.let [idx (|> @cursor (_.the "length") (_.- (_.i32 -1)))]
+    (|> @cursor (_.at idx))))
+
+(def: save-cursor!
+  Statement
+  (.let [cursor (|> @cursor (_.do "slice" (list)))]
+    (_.statement (|> @savepoint (_.do "push" (list cursor))))))
+
+(def: restore-cursor!
+  Statement
+  (_.set @cursor (|> @savepoint (_.do "pop" (list)))))
+
+(def: pm-error (_.string "PM-ERROR"))
+(def: fail-pm! (_.throw pm-error))
+
+(exception: #export unrecognized-path)
+
+(def: (pm-catch on-catch!)
+  (-> Statement [Var Statement])
+  [@alt-error
+   (_.if (_.= ..pm-error @alt-error)
+     on-catch!
+     (_.throw @alt-error))])
+
+(def: (pattern-matching' translate pathP)
+  (-> Phase Path (Operation Statement))
+  (.case pathP
+    (^ (synthesis.path/then bodyS))
+    (do ////.monad
+      [body! (translate bodyS)]
+      (wrap (_.return body!)))
+
+    #synthesis.Pop
+    (/////wrap pop-cursor!)
+
+    (#synthesis.Bind register)
+    (/////wrap (_.define (..register register) ..peek-cursor))
+
+    (^template [<tag> <format> <=>]
+      (^ (<tag> value))
+      (/////wrap (_.when (|> value <format> (<=> ..peek-cursor) _.not)
+                         fail-pm!)))
+    ([synthesis.path/bit  //primitive.bit           _.=]
+     [synthesis.path/i64  (<| //primitive.i64 .int) //runtime.i64//=]
+     [synthesis.path/f64  //primitive.f64           _.=]
+     [synthesis.path/text //primitive.text          _.=])
+
+    (^template [<pm> <flag> <prep>]
+      (^ (<pm> idx))
+      (/////wrap ($_ _.then
+                     (_.set @temp (|> idx <prep> .int _.i32 (//runtime.sum//get ..peek-cursor <flag>)))
+                     (_.if (_.= _.null @temp)
+                       fail-pm!
+                       (push-cursor! @temp)))))
+    ([synthesis.side/left  _.null        (<|)]
+     [synthesis.side/right (_.string "") inc])
+
+    (^template [<pm> <getter> <prep>]
+      (^ (<pm> idx))
+      (/////wrap (|> idx <prep> .int _.i32 (<getter> ..peek-cursor) push-cursor!)))
+    ([synthesis.member/left  //runtime.product//left  (<|)]
+     [synthesis.member/right //runtime.product//right inc])
+
+    (^template [<tag> <computation>]
+      (^ (<tag> leftP rightP))
+      (do ////.monad
+        [left! (pattern-matching' translate leftP)
+         right! (pattern-matching' translate rightP)]
+        (wrap <computation>)))
+    ([synthesis.path/seq (_.then left! right!)]
+     [synthesis.path/alt (_.try ($_ _.then
+                                    ..save-cursor!
+                                    left!)
+                                (pm-catch ($_ _.then
+                                              ..restore-cursor!
+                                              right!)))])
+
+    _
+    (////.throw unrecognized-path [])))
+
+(def: (pattern-matching translate pathP)
+  (-> Phase Path (Operation Statement))
+  (do ////.monad
+    [pattern-matching! (pattern-matching' translate pathP)]
+    (wrap (_.try pattern-matching!
+                 (pm-catch (_.throw (_.string "Invalid expression for pattern-matching.")))))))
+
+(def: #export (case translate [valueS pathP])
+  (-> Phase [Synthesis Path] (Operation Computation))
+  (do ////.monad
+    [stack-init (translate valueS)
+     path! (pattern-matching translate pathP)
+     #let [closure (<| (_.closure (list))
+                       ($_ _.then
+                           (_.declare @temp)
+                           (_.define @cursor (_.array (list stack-init)))
+                           (_.define @savepoint (_.array (list)))
+                           path!))]]
+    (wrap (_.apply/* closure (list)))))
