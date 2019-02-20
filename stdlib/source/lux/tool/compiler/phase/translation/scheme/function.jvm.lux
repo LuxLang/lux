@@ -8,20 +8,22 @@
     [text
      format]
     [collection
-     ["." list ("#/." functor)]]]]
+     ["." list ("#/." functor)]]]
+   [host
+    ["_" scheme (#+ Expression Computation Var)]]]
   [//
    ["." runtime (#+ Operation Phase)]
    ["." reference]
+   ["//." case]
    ["/." //
+    [common
+     ["common-." reference]]
     ["//." // ("#/." monad)
      [analysis (#+ Variant Tuple Environment Arity Abstraction Application Analysis)]
      [synthesis (#+ Synthesis)]
      [//
       [reference (#+ Register Variable)]
-      ["." name]
-      [//
-       [host
-        ["_" scheme (#+ Expression Computation Var)]]]]]]])
+      ["." name]]]]])
 
 (def: #export (apply translate [functionS argsS+])
   (-> Phase (Application Synthesis) (Operation Computation))
@@ -30,18 +32,21 @@
      argsO+ (monad.map @ translate argsS+)]
     (wrap (_.apply/* functionO argsO+))))
 
+(def: #export capture
+  (common-reference.foreign _.var))
+
 (def: (with-closure function-name inits function-definition)
   (-> Text (List Expression) Computation (Operation Computation))
-  (let [@closure (_.var (format function-name "___CLOSURE"))]
-    (/////wrap
-     (case inits
-       #.Nil
-       function-definition
+  (/////wrap
+   (case inits
+     #.Nil
+     function-definition
 
-       _
+     _
+     (let [@closure (_.var (format function-name "___CLOSURE"))]
        (_.letrec (list [@closure
                         (_.lambda [(|> (list.enumerate inits)
-                                  (list/map (|>> product.left reference.foreign')))
+                                  (list/map (|>> product.left ..capture)))
                               #.None]
                              function-definition)])
                  (_.apply/* @closure inits))))))
@@ -50,7 +55,7 @@
 (def: @missing (_.var "missing"))
 
 (def: input
-  (|>> inc reference.local'))
+  (|>> inc //case.register))
 
 (def: #export (function translate [environment arity bodyS])
   (-> Phase (Abstraction Synthesis) (Operation Computation))
@@ -60,17 +65,18 @@
                                [function-name ///.context]
                                (///.with-anchor (_.var function-name)
                                  (translate bodyS))))
-     closureO+ (monad.map @ reference.variable environment)
+     closureO+ (: (Operation (List Expression))
+                  (monad.map @ (:: reference.system variable) environment))
      #let [arityO (|> arity .int _.int)
-           @num-args (_.var "num_args")
-           @function (_.var function-name)
            apply-poly (.function (_ args func)
-                        (_.apply/2 (_.global "apply") func args))]]
+                        (_.apply/2 (_.global "apply") func args))
+           @num-args (_.var "num_args")
+           @function (_.var function-name)]]
     (with-closure function-name closureO+
       (_.letrec (list [@function (_.lambda [(list) (#.Some @curried)]
                                       (_.let (list [@num-args (_.length/1 @curried)])
                                         (<| (_.if (|> @num-args (_.=/2 arityO))
-                                              (<| (_.let (list [(reference.local' 0) @function]))
+                                              (<| (_.let (list [(//case.register 0) @function]))
                                                   (_.let-values (list [[(|> (list.indices arity)
                                                                             (list/map ..input))
                                                                         #.None]
@@ -87,6 +93,6 @@
                                             ## (|> @num-args (_.</2 arityO))
                                             (_.lambda [(list) (#.Some @missing)]
                                                  (|> @function
-                                                     (apply-poly (_.append/2 @curried @missing)))))))])
-                @function))
-    ))
+                                                     (apply-poly (_.append/2 @curried @missing)))))
+                                        ))])
+                @function))))

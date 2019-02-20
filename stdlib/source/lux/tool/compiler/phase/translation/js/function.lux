@@ -1,0 +1,109 @@
+(.module:
+  [lux (#- function)
+   [control
+    ["." monad (#+ do)]
+    pipe]
+   [data
+    ["." product]
+    [text
+     format]
+    [collection
+     ["." list ("#/." functor fold)]]]
+   [host
+    ["_" js (#+ Expression Computation Var)]]]
+  [//
+   ["." runtime (#+ Operation Phase)]
+   ["." reference]
+   ["//." case]
+   ["/." //
+    [common
+     ["common-." reference]]
+    ["//." // ("#/." monad)
+     [analysis (#+ Variant Tuple Environment Arity Abstraction Application Analysis)]
+     [synthesis (#+ Synthesis)]
+     [//
+      [reference (#+ Register Variable)]
+      ["." name]]]]])
+
+(def: #export (apply translate [functionS argsS+])
+  (-> Phase (Application Synthesis) (Operation Computation))
+  (do ////.monad
+    [functionO (translate functionS)
+     argsO+ (monad.map @ translate argsS+)]
+    (wrap (_.apply/* functionO argsO+))))
+
+(def: #export capture
+  (common-reference.foreign _.var))
+
+(def: (with-closure inits function-definition)
+  (-> (List Expression) Computation (Operation Computation))
+  (/////wrap
+   (case inits
+     #.Nil
+     function-definition
+
+     _
+     (let [closure (_.closure (|> (list.enumerate inits)
+                                  (list/map (|>> product.left ..capture)))
+                              (_.return function-definition))]
+       (_.apply/* closure inits)))))
+
+(def: @curried (_.var "curried"))
+
+(def: input
+  (|>> inc //case.register))
+
+(def: @@arguments (_.var "arguments"))
+
+(def: #export (function translate [environment arity bodyS])
+  (-> Phase (Abstraction Synthesis) (Operation Computation))
+  (do ////.monad
+    [[function-name bodyO] (///.with-context
+                             (do @
+                               [function-name ///.context]
+                               (///.with-anchor (_.var function-name)
+                                 (translate bodyS))))
+     closureO+ (: (Operation (List Expression))
+                  (monad.map @ (:: reference.system variable) environment))
+     #let [arityO (|> arity .int _.i32)
+           @num-args (_.var "num_args")
+           @self (_.var function-name)
+           apply-poly (.function (_ args func)
+                        (|> func (_.do "apply" (list _.null args))))
+           initialize-self! (_.define (//case.register 0) @self)
+           initialize! (list/fold (.function (_ post pre!)
+                                    ($_ _.then
+                                        pre!
+                                        (_.define (..input post) (_.at (_.i32 (.int post)) @@arguments))))
+                                  initialize-self!
+                                  (list.indices arity))]]
+    (with-closure closureO+
+      (_.function @self (list)
+        ($_ _.then
+            (_.define @num-args (_.the "length" @@arguments))
+            (_.cond (list [(|> @num-args (_.= arityO))
+                           ($_ _.then
+                               initialize!
+                               (_.return bodyO))]
+                          [(|> @num-args (_.> arityO))
+                           (let [arity-inputs (|> (_.array (list))
+                                                  (_.the "slice")
+                                                  (_.do "call" (list @@arguments (_.i32 +0) arityO)))
+                                 extra-inputs (|> (_.array (list))
+                                                  (_.the "slice")
+                                                  (_.do "call" (list @@arguments arityO)))]
+                             (_.return (|> @self
+                                           (apply-poly arity-inputs)
+                                           (apply-poly extra-inputs))))])
+                    ## (|> @num-args (_.< arityO))
+                    (let [all-inputs (|> (_.array (list))
+                                         (_.the "slice")
+                                         (_.do "call" (list @@arguments)))]
+                      ($_ _.then
+                          (_.define @curried all-inputs)
+                          (_.return (_.closure (list)
+                                               (let [@missing all-inputs]
+                                                 (_.return (apply-poly (_.do ".concat" (list @missing) @curried)
+                                                                       @self))))))))
+            )))
+    ))
