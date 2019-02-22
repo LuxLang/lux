@@ -1,0 +1,120 @@
+(.module:
+  [lux #*
+   [control
+    ["." monad (#+ do)]]
+   [data
+    ["." product]
+    [collection
+     ["." dictionary]]]
+   [host
+    ["_" js]]]
+  [//
+   ["." common (#+ Nullary Binary Trinary Variadic)]
+   [//
+    ["///." runtime (#+ Handler Bundle)]
+    ["//." ///
+     ["." synthesis]
+     ["." extension
+      ["." bundle]]]]])
+
+(do-template [<name> <js>]
+  [(def: (<name> _) Nullary <js>)]
+
+  [js//null      _.null]
+  [js//undefined _.undefined]
+  [js//object    (_.object (list))]
+  )
+
+(def: (js//global name translate inputs)
+  Handler
+  (case inputs
+    (^ (list (synthesis.text global)))
+    (:: /////.monad wrap (_.var global))
+
+    _
+    (/////.throw extension.incorrect-syntax name)))
+
+(def: (js//call name translate inputs)
+  Handler
+  (case inputs
+    (^ (list& functionS argsS+))
+    (do /////.monad
+      [functionJS (translate functionS)
+       argsJS+ (monad.map @ translate argsS+)]
+      (wrap (_.apply/* functionJS argsJS+)))
+
+    _
+    (/////.throw extension.incorrect-syntax name)))
+
+(def: js
+  Bundle
+  (|> bundle.empty
+      (bundle.install "null" (common.nullary js//null))
+      (bundle.install "undefined" (common.nullary js//undefined))
+      (bundle.install "object" (common.nullary js//object))
+      (bundle.install "array" (common.variadic _.array))
+      (bundle.install "global" js//global)
+      (bundle.install "call" js//call)))
+
+(def: (object//new name translate inputs)
+  Handler
+  (case inputs
+    (^ (list& constructorS argsS+))
+    (do /////.monad
+      [constructorJS (translate constructorS)
+       argsJS+ (monad.map @ translate argsS+)]
+      (wrap (_.new constructorJS argsJS+)))
+
+    _
+    (/////.throw extension.incorrect-syntax name)))
+
+(def: (object//call name translate inputs)
+  Handler
+  (case inputs
+    (^ (list& objectS methodS argsS+))
+    (do /////.monad
+      [objectJS (translate objectS)
+       methodJS (translate methodS)
+       argsJS+ (monad.map @ translate argsS+)]
+      (wrap (|> objectJS
+                (_.at methodJS)
+                (_.do "apply" (list& objectJS argsJS+)))))
+
+    _
+    (/////.throw extension.incorrect-syntax name)))
+
+(def: (object//set [fieldJS valueJS objectJS])
+  Trinary
+  (///runtime.js//set objectJS fieldJS valueJS))
+
+(def: object
+  Bundle
+  (<| (bundle.prefix "object")
+      (|> bundle.empty
+          (bundle.install "new" object//new)
+          (bundle.install "call" object//call)
+          (bundle.install "read" (common.binary (product.uncurry ///runtime.js//get)))
+          (bundle.install "write" (common.trinary object//set))
+          (bundle.install "delete" (common.binary (product.uncurry ///runtime.js//delete)))
+          )))
+
+(def: (array//write [indexJS valueJS arrayJS])
+  Trinary
+  (///runtime.array//write indexJS valueJS arrayJS))
+
+(def: array
+  Bundle
+  (<| (bundle.prefix "array")
+      (|> bundle.empty
+          (bundle.install "read" (common.binary (product.uncurry ///runtime.array//read)))
+          (bundle.install "write" (common.trinary array//write))
+          (bundle.install "delete" (common.binary (product.uncurry ///runtime.array//delete)))
+          (bundle.install "length" (common.unary (_.the "length")))
+          )))
+
+(def: #export bundle
+  Bundle
+  (<| (bundle.prefix "js")
+      (|> ..js
+          (dictionary.merge ..object)
+          (dictionary.merge ..array))))

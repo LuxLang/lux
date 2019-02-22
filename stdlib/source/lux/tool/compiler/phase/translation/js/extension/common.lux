@@ -1,0 +1,231 @@
+(.module:
+  [lux #*
+   [control
+    ["." monad (#+ do)]
+    ["ex" exception (#+ exception:)]]
+   [data
+    ["e" error]
+    ["." product]
+    [number (#+ hex)]
+    [collection
+     ["." list ("#/." functor)]
+     ["." dictionary]]]
+   ["." macro (#+ with-gensyms)
+    ["." code]
+    ["s" syntax (#+ syntax:)]]
+   [host (#+ import:)
+    ["_" js (#+ Expression Computation)]]]
+  [///
+   ["///." runtime (#+ Operation Phase Handler Bundle)]
+   ["///." primitive]
+   ["//." ///
+    ["." synthesis (#+ Synthesis)]
+    ["." extension
+     ["." bundle]]]])
+
+(syntax: (Vector {size s.nat} elemT)
+  (wrap (list (` [(~+ (list.repeat size elemT))]))))
+
+(type: #export Nullary (-> (Vector 0 Expression) Computation))
+(type: #export Unary   (-> (Vector 1 Expression) Computation))
+(type: #export Binary  (-> (Vector 2 Expression) Computation))
+(type: #export Trinary (-> (Vector 3 Expression) Computation))
+(type: #export Variadic (-> (List Expression) Computation))
+
+(syntax: (arity: {name s.local-identifier} {arity s.nat})
+  (with-gensyms [g!_ g!extension g!name g!phase g!inputs]
+    (do @
+      [g!input+ (monad.seq @ (list.repeat arity (macro.gensym "input")))]
+      (wrap (list (` (def: #export ((~ (code.local-identifier name)) (~ g!extension))
+                       (-> (-> (..Vector (~ (code.nat arity)) Expression) Computation)
+                           Handler)
+                       (function ((~ g!_) (~ g!name) (~ g!phase) (~ g!inputs))
+                         (case (~ g!inputs)
+                           (^ (list (~+ g!input+)))
+                           (do /////.monad
+                             [(~+ (|> g!input+
+                                      (list/map (function (_ g!input)
+                                                  (list g!input (` ((~ g!phase) (~ g!input))))))
+                                      list.concat))]
+                             ((~' wrap) ((~ g!extension) [(~+ g!input+)])))
+
+                           (~' _)
+                           (/////.throw extension.incorrect-arity [(~ g!name) 1 (list.size (~ g!inputs))]))))))))))
+
+(arity: nullary 0)
+(arity: unary 1)
+(arity: binary 2)
+(arity: trinary 3)
+
+(def: #export (variadic extension)
+  (-> Variadic Handler)
+  (function (_ extension-name)
+    (function (_ phase inputsS)
+      (do /////.monad
+        [inputsI (monad.map @ phase inputsS)]
+        (wrap (extension inputsI))))))
+
+## [Procedures]
+## [[Bits]]
+(do-template [<name> <op>]
+  [(def: (<name> [subjectJS paramJS])
+     Binary
+     (<op> subjectJS (///runtime.i64//to-number paramJS)))]
+
+  [bit//left-shift             ///runtime.i64//left-shift]
+  [bit//arithmetic-right-shift ///runtime.i64//arithmetic-right-shift]
+  [bit//logical-right-shift    ///runtime.i64//logic-right-shift]
+  )
+
+## [[Numbers]]
+(import: #long java/lang/Double
+  (#static MIN_VALUE Double)
+  (#static MAX_VALUE Double))
+
+(do-template [<name> <const>]
+  [(def: (<name> _)
+     Nullary
+     (///primitive.f64 <const>))]
+
+  [frac//smallest (java/lang/Double::MIN_VALUE)]
+  [frac//min      (f/* -1.0 (java/lang/Double::MAX_VALUE))]
+  [frac//max      (java/lang/Double::MAX_VALUE)]
+  )
+
+(def: frac//decode
+  Unary
+  (|>> list
+       (_.apply/* (_.var "parseFloat"))
+       _.return
+       (_.closure (list))
+       ///runtime.lux//try))
+
+(def: int//char
+  Unary
+  (|>> ///runtime.i64//to-number
+       (list)
+       (_.apply/* (_.var "String.fromCharCode"))))
+
+## [[Text]]
+(def: (text//concat [subjectJS paramJS])
+  Binary
+  (|> subjectJS (_.do "concat" (list paramJS))))
+
+(do-template [<name> <runtime>]
+  [(def: (<name> [subjectJS paramJS extraJS])
+     Trinary
+     (<runtime> subjectJS paramJS extraJS))]
+
+  [text//clip  ///runtime.text//clip]
+  [text//index ///runtime.text//index]
+  )
+
+## [[IO]]
+(def: (io//log messageJS)
+  Unary
+  ($_ _.,
+      (///runtime.io//log messageJS)
+      ///runtime.unit))
+
+(def: (io//exit codeJS)
+  Unary
+  (let [@@process (_.var "process")
+        @@window (_.var "window")
+        @@location (_.var "location")]
+    ($_ _.or
+        ($_ _.and
+            (_.not (_.= _.undefined (_.type-of @@process)))
+            (_.the "exit" @@process)
+            (_.do "exit" (list (///runtime.i64//to-number codeJS)) @@process))
+        (_.do "close" (list) @@window)
+        (_.do "reload" (list) @@location))))
+
+(def: (io//current-time _)
+  Nullary
+  (|> (_.new (_.var "Date") (list))
+      (_.do "getTime" (list))
+      ///runtime.i64//from-number))
+
+## [Bundles]
+(def: lux-procs
+  Bundle
+  (|> bundle.empty
+      (bundle.install "is" (binary (product.uncurry _.=)))
+      (bundle.install "try" (unary ///runtime.lux//try))))
+
+(def: bit-procs
+  Bundle
+  (<| (bundle.prefix "bit")
+      (|> bundle.empty
+          (bundle.install "and" (binary (product.uncurry ///runtime.i64//and)))
+          (bundle.install "or" (binary (product.uncurry ///runtime.i64//or)))
+          (bundle.install "xor" (binary (product.uncurry ///runtime.i64//xor)))
+          (bundle.install "left-shift" (binary bit//left-shift))
+          (bundle.install "logical-right-shift" (binary bit//logical-right-shift))
+          (bundle.install "arithmetic-right-shift" (binary bit//arithmetic-right-shift))
+          )))
+
+(def: int-procs
+  Bundle
+  (<| (bundle.prefix "int")
+      (|> bundle.empty
+          (bundle.install "+" (binary (product.uncurry ///runtime.i64//+)))
+          (bundle.install "-" (binary (product.uncurry ///runtime.i64//-)))
+          (bundle.install "*" (binary (product.uncurry ///runtime.i64//*)))
+          (bundle.install "/" (binary (product.uncurry ///runtime.i64///)))
+          (bundle.install "%" (binary (product.uncurry ///runtime.i64//%)))
+          (bundle.install "=" (binary (product.uncurry ///runtime.i64//=)))
+          (bundle.install "<" (binary (product.uncurry ///runtime.i64//<)))
+          (bundle.install "to-frac" (unary ///runtime.i64//to-number))
+          (bundle.install "char" (unary int//char)))))
+
+(def: frac-procs
+  Bundle
+  (<| (bundle.prefix "frac")
+      (|> bundle.empty
+          (bundle.install "+" (binary (product.uncurry _.+)))
+          (bundle.install "-" (binary (product.uncurry _.-)))
+          (bundle.install "*" (binary (product.uncurry _.*)))
+          (bundle.install "/" (binary (product.uncurry _./)))
+          (bundle.install "%" (binary (product.uncurry _.%)))
+          (bundle.install "=" (binary (product.uncurry _.=)))
+          (bundle.install "<" (binary (product.uncurry _.<)))
+          (bundle.install "smallest" (nullary frac//smallest))
+          (bundle.install "min" (nullary frac//min))
+          (bundle.install "max" (nullary frac//max))
+          (bundle.install "to-int" (unary ///runtime.i64//from-number))
+          (bundle.install "encode" (unary (_.do "toString" (list))))
+          (bundle.install "decode" (unary frac//decode)))))
+
+(def: text-procs
+  Bundle
+  (<| (bundle.prefix "text")
+      (|> bundle.empty
+          (bundle.install "=" (binary (product.uncurry _.=)))
+          (bundle.install "<" (binary (product.uncurry _.<)))
+          (bundle.install "concat" (binary text//concat))
+          (bundle.install "index" (trinary text//index))
+          (bundle.install "size" (unary (_.the "length")))
+          (bundle.install "char" (binary (product.uncurry ///runtime.text//char)))
+          (bundle.install "clip" (trinary text//clip))
+          )))
+
+(def: io-procs
+  Bundle
+  (<| (bundle.prefix "io")
+      (|> bundle.empty
+          (bundle.install "log" (unary io//log))
+          (bundle.install "error" (unary ///runtime.io//error))
+          (bundle.install "exit" (unary io//exit))
+          (bundle.install "current-time" (nullary io//current-time)))))
+
+(def: #export bundle
+  Bundle
+  (<| (bundle.prefix "lux")
+      (|> lux-procs
+          (dictionary.merge bit-procs)
+          (dictionary.merge int-procs)
+          (dictionary.merge frac-procs)
+          (dictionary.merge text-procs)
+          (dictionary.merge io-procs)
+          )))
