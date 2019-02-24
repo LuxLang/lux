@@ -561,14 +561,18 @@
 
 (def: (java-type-to-class jvm-type)
   (-> java/lang/reflect/Type (Operation Text))
-  (cond (host.instance? Class jvm-type)
-        (/////wrap (Class::getName (:coerce Class jvm-type)))
+  (<| (case (host.check Class jvm-type)
+        (#.Some jvm-type)
+        (/////wrap (Class::getName jvm-type))
 
-        (host.instance? ParameterizedType jvm-type)
-        (java-type-to-class (ParameterizedType::getRawType (:coerce ParameterizedType jvm-type)))
+        _)
+      (case (host.check ParameterizedType jvm-type)
+        (#.Some jvm-type)
+        (java-type-to-class (ParameterizedType::getRawType jvm-type))
 
-        ## else
-        (////.throw cannot-convert-to-a-class jvm-type)))
+        _)
+      ## else
+      (////.throw cannot-convert-to-a-class jvm-type)))
 
 (type: Mappings
   (Dictionary Text Type))
@@ -577,8 +581,9 @@
 
 (def: (java-type-to-lux-type mappings java-type)
   (-> Mappings java/lang/reflect/Type (Operation Type))
-  (cond (host.instance? TypeVariable java-type)
-        (let [var-name (TypeVariable::getName (:coerce TypeVariable java-type))]
+  (<| (case (host.check TypeVariable java-type)
+        (#.Some java-type)
+        (let [var-name (TypeVariable::getName java-type)]
           (case (dictionary.get var-name mappings)
             (#.Some var-type)
             (/////wrap var-type)
@@ -586,17 +591,20 @@
             #.None
             (////.throw unknown-type-var var-name)))
 
-        (host.instance? WildcardType java-type)
-        (let [java-type (:coerce WildcardType java-type)]
-          (case [(array.read 0 (WildcardType::getUpperBounds java-type))
-                 (array.read 0 (WildcardType::getLowerBounds java-type))]
-            (^or [(#.Some bound) _] [_ (#.Some bound)])
-            (java-type-to-lux-type mappings bound)
-            
-            _
-            (/////wrap Any)))
-
-        (host.instance? Class java-type)
+        _)
+      (case (host.check WildcardType java-type)
+        (#.Some java-type)
+        (case [(array.read 0 (WildcardType::getUpperBounds java-type))
+               (array.read 0 (WildcardType::getLowerBounds java-type))]
+          (^or [(#.Some bound) _] [_ (#.Some bound)])
+          (java-type-to-lux-type mappings bound)
+          
+          _
+          (/////wrap Any))
+        
+        _)
+      (case (host.check Class java-type)
+        (#.Some java-type)
         (let [java-type (:coerce (Class Object) java-type)
               class-name (Class::getName java-type)]
           (/////wrap (case (array.size (Class::getTypeParameters java-type))
@@ -609,11 +617,13 @@
                            (list/map (|>> (n/* 2) inc #.Parameter))
                            (#.Primitive class-name)
                            (type.univ-q arity)))))
-
-        (host.instance? ParameterizedType java-type)
-        (let [java-type (:coerce ParameterizedType java-type)
-              raw (ParameterizedType::getRawType java-type)]
-          (if (host.instance? Class raw)
+        
+        _)
+      (case (host.check ParameterizedType java-type)
+        (#.Some java-type)
+        (let [raw (ParameterizedType::getRawType java-type)]
+          (case (host.check Class raw)
+            (#.Some raw)
             (do ////.monad
               [paramsT (|> java-type
                            ParameterizedType::getActualTypeArguments
@@ -621,17 +631,22 @@
                            (monad.map @ (java-type-to-lux-type mappings)))]
               (/////wrap (#.Primitive (Class::getName (:coerce (Class Object) raw))
                                       paramsT)))
-            (////.throw jvm-type-is-not-a-class raw)))
 
-        (host.instance? GenericArrayType java-type)
+            _
+            (////.throw jvm-type-is-not-a-class raw)))
+        
+        _)
+      (case (host.check GenericArrayType java-type)
+        (#.Some java-type)
         (do ////.monad
-          [innerT (|> (:coerce GenericArrayType java-type)
+          [innerT (|> java-type
                       GenericArrayType::getGenericComponentType
                       (java-type-to-lux-type mappings))]
           (wrap (#.Primitive "#Array" (list innerT))))
-
-        ## else
-        (////.throw cannot-convert-to-a-lux-type java-type)))
+        
+        _)
+      ## else
+      (////.throw cannot-convert-to-a-lux-type java-type)))
 
 (def: (correspond-type-params class type)
   (-> (Class Object) Type (Operation Mappings))
@@ -900,23 +915,36 @@
 
 (def: (java-type-to-parameter type)
   (-> java/lang/reflect/Type (Operation Text))
-  (cond (host.instance? Class type)
-        (/////wrap (Class::getName (:coerce Class type)))
-
-        (host.instance? ParameterizedType type)
-        (java-type-to-parameter (ParameterizedType::getRawType (:coerce ParameterizedType type)))
-
-        (or (host.instance? TypeVariable type)
-            (host.instance? WildcardType type))
+  (<| (case (host.check Class type)
+        (#.Some type)
+        (/////wrap (Class::getName type))
+        
+        _)
+      (case (host.check ParameterizedType type)
+        (#.Some type)
+        (java-type-to-parameter (ParameterizedType::getRawType type))
+        
+        _)
+      (case (host.check TypeVariable type)
+        (#.Some type)
         (/////wrap "java.lang.Object")
-
-        (host.instance? GenericArrayType type)
+        
+        _)
+      (case (host.check WildcardType type)
+        (#.Some type)
+        (/////wrap "java.lang.Object")
+        
+        _)
+      (case (host.check GenericArrayType type)
+        (#.Some type)
         (do ////.monad
-          [componentP (java-type-to-parameter (GenericArrayType::getGenericComponentType (:coerce GenericArrayType type)))]
+          [componentP (java-type-to-parameter (GenericArrayType::getGenericComponentType type))]
           (wrap (format componentP "[]")))
-
-        ## else
-        (////.throw cannot-convert-to-a-parameter type)))
+        
+        _)
+      
+      ## else
+      (////.throw cannot-convert-to-a-parameter type)))
 
 (type: Method-Style
   #Static

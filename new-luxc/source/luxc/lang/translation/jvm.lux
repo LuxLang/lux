@@ -1,26 +1,26 @@
 (.module:
   [lux (#- Definition)
    [control
+    pipe
     [monad (#+ do)]
     ["ex" exception (#+ exception:)]
-    pipe]
-   [concurrency
-    ["." atom (#+ Atom atom)]]
+    [concurrency
+     ["." atom (#+ Atom atom)]]]
    [data
     ["." error (#+ Error)]
-    ["." text ("text/." Hash<Text>)
+    ["." text ("#/." hash)
      format]
     [collection
      ["." array]
-     [list ("list/." Functor<List>)]
+     [list ("#/." functor)]
      ["." dictionary (#+ Dictionary)]]]
    ["." host (#+ import: do-to object)
     [jvm
-     ["." loader]]]
+     ["." loader (#+ Library)]]]
    ["." io (#+ IO io)]
    [world
     [binary (#+ Binary)]]
-   [platform
+   [tool
     [compiler
      ["." name]
      [phase
@@ -76,18 +76,17 @@
         #.None
         (ex.throw invalid-value class-name))
       
-      (#error.Error error)
+      (#error.Failure error)
       (ex.throw cannot-load [class-name error]))
     
-    (#error.Error error)
+    (#error.Failure error)
     (ex.throw invalid-field [class-name ..value-field error])))
 
-(def: module-separator "/")
 (def: class-path-separator ".")
 
-(def: (evaluate! store loader eval-class valueI)
-  (-> Store ClassLoader Text Inst (Error Any))
-  (let [bytecode-name (text.replace-all class-path-separator module-separator eval-class)
+(def: (evaluate! library loader eval-class valueI)
+  (-> Library ClassLoader Text Inst (Error Any))
+  (let [bytecode-name (text.replace-all class-path-separator .module-separator eval-class)
         bytecode (def.class #jvm.V1_6
                             #jvm.Public jvm.noneC
                             bytecode-name
@@ -101,24 +100,24 @@
                                              (|>> valueI
                                                   (inst.PUTSTATIC bytecode-name ..value-field ..$Object)
                                                   inst.RETURN))))]
-    (io.run (do (error.ErrorT io.Monad<IO>)
-              [_ (loader.store eval-class bytecode store)
+    (io.run (do (error.with-error io.monad)
+              [_ (loader.store eval-class bytecode library)
                class (loader.load eval-class loader)]
-              (:: io.Monad<IO> wrap (class-value eval-class class))))))
+              (:: io.monad wrap (class-value eval-class class))))))
 
-(def: (execute! store loader temp-label [class-name class-bytecode])
-  (-> Store ClassLoader Text Definition (Error Any))
-  (io.run (do (error.ErrorT io.Monad<IO>)
-            [_ (loader.store class-name class-bytecode store)]
+(def: (execute! library loader temp-label [class-name class-bytecode])
+  (-> Library ClassLoader Text Definition (Error Any))
+  (io.run (do (error.with-error io.monad)
+            [_ (loader.store class-name class-bytecode library)]
             (loader.load class-name loader))))
 
-(def: (define! store loader [module name] valueI)
-  (-> Store ClassLoader Name Inst (Error [Text Any]))
-  (let [class-name (format (text.replace-all module-separator class-path-separator module)
+(def: (define! library loader [module name] valueI)
+  (-> Library ClassLoader Name Inst (Error [Text Any]))
+  (let [class-name (format (text.replace-all .module-separator class-path-separator module)
                            class-path-separator (name.normalize name)
                            "___" (%n (text/hash name)))]
-    (do error.Monad<Error>
-      [value (evaluate! store loader class-name valueI)]
+    (do error.monad
+      [value (evaluate! library loader class-name valueI)]
       (wrap [class-name value]))))
 
 (def: #export init

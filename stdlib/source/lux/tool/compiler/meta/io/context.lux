@@ -1,16 +1,19 @@
 (.module:
   [lux (#- Module Code)
    [control
-    monad
-    ["ex" exception (#+ Exception exception:)]]
+    [monad (#+ Monad do)]
+    ["ex" exception (#+ Exception exception:)]
+    [security
+     ["!" capability]]]
    [data
-    ["." error]
-    [text
+    ["." error (#+ Error)]
+    ["." text ("#/." hash)
      format
      ["." encoding]]]
    [world
-    ["." file (#+ File)]
-    [binary (#+ Binary)]]]
+    ["." file (#+ Path File)]
+    [binary (#+ Binary)]]
+   [type (#+ :share)]]
   ["." // (#+ Context Code)
    [//
     [archive
@@ -48,60 +51,67 @@
   Extension
   (format partial-host-extension lux-extension))
 
-(def: #export (file System<m> context module)
-  (All [m] (-> (file.System m) Context Module File))
+(def: #export (path system context module)
+  (All [m] (-> (file.System m) Context Module Path))
   (|> module
-      (//.sanitize System<m>)
-      (format context (:: System<m> separator))))
+      (//.sanitize system)
+      (format context (:: system separator))))
 
-(def: (find-source-file System<m> contexts module extension)
+(def: (find-source-file monad system contexts module extension)
   (All [!]
-    (-> (file.System !) (List Context) Module Extension
-        (! (Maybe File))))
+    (-> (Monad !) (file.System !) (List Context) Module Extension
+        (! (Error [Path (File !)]))))
   (case contexts
     #.Nil
-    (:: (:: System<m> &monad) wrap #.None)
+    (:: monad wrap (ex.throw ..cannot-find-module [module]))
 
     (#.Cons context contexts')
-    (do (:: System<m> &monad)
-      [#let [file (format (..file System<m> context module) extension)]
-       ? (file.exists? System<m> file)]
-      (if ?
-        (wrap (#.Some file))
-        (find-source-file System<m> contexts' module extension)))))
+    (do monad
+      [#let [path (format (..path system context module) extension)]
+       file (!.use (:: system file) path)]
+      (case file
+        (#error.Success file)
+        (wrap (#error.Success [path file]))
 
-(def: (try System<m> computations exception message)
-  (All [m a e] (-> (file.System m) (List (m (Maybe a))) (Exception e) e (m a)))
-  (case computations
-    #.Nil
-    (:: System<m> throw exception message)
+        (#error.Failure error)
+        (find-source-file monad system contexts' module extension)))))
 
-    (#.Cons computation computations')
-    (do (:: System<m> &monad)
-      [outcome computation]
-      (case outcome
-        (#.Some output)
-        (wrap output)
-
-        #.None
-        (try System<m> computations' exception message)))))
-
-(def: #export (read System<m> contexts module)
+(def: #export (find-any-source-file monad system contexts module)
   (All [!]
-    (-> (file.System !) (List Context) Module
-        (! Input)))
-  (let [find-source-file' (find-source-file System<m> contexts module)]
-    (do (:: System<m> &monad)
-      [file (try System<m>
-                 (list (find-source-file' ..full-host-extension)
-                       (find-source-file' ..lux-extension))
-                 ..cannot-find-module [module])
-       binary (:: System<m> read file)]
-      (case (encoding.from-utf8 binary)
-        (#error.Success code)
-        (wrap {#////.module module
-               #////.file file
-               #////.code code})
-        
-        (#error.Failure _)
-        (:: System<m> throw ..cannot-read-module [module])))))
+    (-> (Monad !) (file.System !) (List Context) Module
+        (! (Error [Path (File !)]))))
+  (do monad
+    [outcome (find-source-file monad system contexts module ..full-host-extension)]
+    (case outcome
+      (#error.Success output)
+      (wrap outcome)
+
+      (#error.Failure error)
+      (find-source-file monad system contexts module ..lux-extension))))
+
+(def: #export (read monad system contexts module)
+  (All [!]
+    (-> (Monad !) (file.System !) (List Context) Module
+        (! (Error Input))))
+  (do (error.with-error monad)
+    [## TODO: Get rid of both ":share"s ASAP
+     path,file (:share [!]
+                       {(Monad !)
+                        monad}
+                       {(! (Error [Path (File !)]))
+                        (find-any-source-file monad system contexts module)})
+     #let [[path file] (:share [!]
+                               {(Monad !)
+                                monad}
+                               {[Path (File !)]
+                                path,file})]
+     binary (!.use (:: file content) [])]
+    (case (encoding.from-utf8 binary)
+      (#error.Success code)
+      (wrap {#////.module module
+             #////.file path
+             #////.hash (text/hash code)
+             #////.code code})
+      
+      (#error.Failure _)
+      (:: monad wrap (ex.throw ..cannot-read-module [module])))))

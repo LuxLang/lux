@@ -1,10 +1,10 @@
 (.module:
   [lux #*
    [control
-    [monad (#+ do)]]
+    [monad (#+ Monad do)]]
    [data
     ["." product]
-    ["." error]]
+    ["." error (#+ Error)]]
    [world
     ["." file (#+ File)]]]
   [//
@@ -21,10 +21,11 @@
       ["." context]]]]])
 
 (type: #export (Platform ! anchor expression statement)
-  {#host (translation.Host expression statement)
+  {#&monad (Monad !)
+   #&file-system (file.System !)
+   #host (translation.Host expression statement)
    #phase (translation.Phase anchor expression statement)
-   #runtime (translation.Operation anchor expression statement Any)
-   #file-system (file.System !)})
+   #runtime (translation.Operation anchor expression statement Any)})
 
 ## (def: (write-module target-dir file-name module-name module outputs)
 ##   (-> File Text Text Module Outputs (Process Any))
@@ -41,7 +42,7 @@
 
   (def: #export (initialize platform translation-bundle)
     (All [! anchor expression statement]
-      (-> <Platform> <Bundle> (! <State+>)))
+      (-> <Platform> <Bundle> (! (Error <State+>))))
     (|> platform
         (get@ #runtime)
         statement.lift-translation
@@ -49,8 +50,8 @@
                                 (get@ #phase platform)
                                 translation-bundle))
         (:: error.functor map product.left)
-        (:: (get@ #file-system platform) lift))
-    
+        (:: (get@ #&monad platform) wrap))
+
     ## (case (runtimeT.translate ## (initL.compiler (io.run js.init))
     ##        (initL.compiler (io.run hostL.init-host))
     ##        )
@@ -79,31 +80,37 @@
 
   (def: #export (compile platform configuration state)
     (All [! anchor expression statement]
-      (-> <Platform> Configuration <State+> (! Any)))
-    (do (:: (get@ #file-system platform) &monad)
-      [input (context.read (get@ #file-system platform)
-                           (get@ #cli.sources configuration)
-                           (get@ #cli.module configuration))
-       ## _ (&io.prepare-module target-dir (get@ #cli.module configuration))
-       ## _ (write-module target-dir file-name (get@ #cli.module configuration) module outputs)
-       ]
-      ## (case (compiler input)
-      ##   (#error.Failure error)
-      ##   (:: (get@ #file-system platform) lift (#error.Failure error))
-      
-      ##   (#error.Success))
-      (let [compiler (init.compiler syntax.prelude state)
-            compilation (compiler init.key (list) input)]
-        (case ((get@ #///.process compilation)
-               archive.empty)
-          (#error.Success more|done)
-          (case more|done
-            (#.Left more)
-            (:: (get@ #file-system platform) lift (#error.Failure "NOT DONE!"))
-            
-            (#.Right done)
-            (wrap []))
-          
-          (#error.Failure error)
-          (:: (get@ #file-system platform) lift (#error.Failure error))))))
+      (-> <Platform> Configuration <State+> (! (Error Any))))
+    (let [monad (get@ #&monad platform)]
+      (do monad
+        [input (context.read monad
+                             (get@ #&file-system platform)
+                             (get@ #cli.sources configuration)
+                             (get@ #cli.module configuration))
+         ## _ (&io.prepare-module target-dir (get@ #cli.module configuration))
+         ## _ (write-module target-dir file-name (get@ #cli.module configuration) module outputs)
+         ]
+        (wrap (do error.monad
+                [input input
+                 #let [compiler (init.compiler syntax.prelude state)
+                       compilation (compiler init.key (list) input)]]
+                (case ((get@ #///.process compilation)
+                       archive.empty)
+                  (#error.Success more|done)
+                  (case more|done
+                    (#.Left more)
+                    (#error.Failure "NOT DONE!")
+
+                    (#.Right done)
+                    (wrap []))
+
+                  (#error.Failure error)
+                  (#error.Failure error))))
+        
+        ## (case (compiler input)
+        ##   (#error.Failure error)
+        ##   (:: monad wrap (#error.Failure error))
+
+        ##   (#error.Success))
+        )))
   )

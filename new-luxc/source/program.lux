@@ -1,19 +1,19 @@
 (.module:
   [lux #*
+   [cli (#+ program:)]
    [control
     [monad (#+ do)]]
    [data
-    ["." error]
+    ["." error (#+ Error)]
     ["." text
      format]]
-   ["." io (#+ IO Process io)]
+   ["." io (#+ IO io)]
    [time
-    ["." instant]]
-   [cli (#+ program:)]
+    ["." instant (#+ Instant)]]
    [world
     ["." file (#+ File)]
     ["." console]]
-   [platform
+   [tool
     ["." compiler
      ["." cli (#+ Configuration)]
      [meta
@@ -26,9 +26,9 @@
      [default
       ["." platform (#+ Platform)]
       ["." init]
-      ["." syntax]]]]
-   ## ["." interpreter]
-   ]
+      ["." syntax]]]
+    ## ["." interpreter]
+    ]]
   [luxc
    [lang
     ["." host/jvm]
@@ -41,11 +41,11 @@
 
 (def: (or-crash! failure-description action)
   (All [a]
-    (-> Text (Process a) (IO a)))
-  (do io.Monad<IO>
+    (-> Text (IO (Error a)) (IO a)))
+  (do io.monad
     [?output action]
     (case ?output
-      (#error.Error error)
+      (#error.Failure error)
       (exec (log! (format text.new-line
                           failure-description text.new-line
                           error text.new-line))
@@ -56,38 +56,44 @@
 
 (def: (timed action)
   (All [a]
-    (-> (-> Any (Process a)) (Process a)))
-  (do io.Monad<Process>
-    [start (io.from-io instant.now)
+    (-> (-> Any (IO (Error a))) (IO (Error a))))
+  (do (error.with-error io.monad)
+    [start (: (IO (Error Instant))
+              (error.lift io.monad instant.now))
      result (action [])
-     finish (io.from-io instant.now)
+     finish (: (IO (Error Instant))
+               (error.lift io.monad instant.now))
      #let [elapsed-time (instant.span start finish)
            _ (log! (format text.new-line
                            "Elapsed time: " (%duration elapsed-time)))]]
     (wrap result)))
 
 (def: jvm-platform
-  (IO (Platform Process host/jvm.Anchor host/jvm.Inst host/jvm.Definition))
-  (do io.Monad<IO>
+  (IO (Platform IO host/jvm.Anchor host/jvm.Inst host/jvm.Definition))
+  (do io.monad
     [host jvm.init]
-    (wrap {#platform.host host
+    (wrap {#platform.&monad io.monad
+           #platform.&file-system file.system
+           #platform.host host
            #platform.phase expression.translate
-           #platform.runtime runtime.translate
-           #platform.file-system file.JVM@System})))
+           #platform.runtime runtime.translate})))
 
 (program: [{service cli.service}]
-  (do io.Monad<IO>
-    [platform ..jvm-platform
-     console (:: @ map error.assume console.open)]
+  (do io.monad
+    [platform (: (IO (Platform IO host/jvm.Anchor host/jvm.Inst host/jvm.Definition))
+                 ..jvm-platform)
+     console (:: @ map error.assume console.system)]
     (case service
       (#cli.Compilation configuration)
       (<| (or-crash! "Compilation failed:")
           ..timed
           (function (_ _)
-            (do (:: (get@ #platform.file-system platform) &monad)
-              [state (platform.initialize platform common.bundle)
-               _ (platform.compile platform (set@ #cli.module syntax.prelude configuration) state)
-               ## _ (compile platform configuration state)
+            (do (error.with-error io.monad)
+              [state (: (IO (Error (statement.State+ host/jvm.Anchor host/jvm.Inst host/jvm.Definition)))
+                        (platform.initialize platform common.bundle))
+               ## _ (platform.compile platform (set@ #cli.module syntax.prelude configuration) state)
+               _ (: (IO (Error Any))
+                    (platform.compile platform configuration state))
                ## _ (cache/io.clean target ...)
                ]
               (wrap (log! "Compilation complete!")))))
@@ -96,5 +102,5 @@
       ## TODO: Fix the interpreter...
       (undefined)
       ## (<| (or-crash! "Interpretation failed:")
-      ##     (interpreter.run io.Monad<Process> console platform configuration common.bundle))
+      ##     (interpreter.run (error.with-error io.monad) console platform configuration common.bundle))
       )))
