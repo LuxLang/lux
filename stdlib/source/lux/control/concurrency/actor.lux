@@ -7,7 +7,7 @@
    ["." io (#+ IO io) ("#/." monad)]
    [data
     ["." product]
-    ["." error]
+    ["." error (#+ Error)]
     [text
      format]
     [collection
@@ -24,8 +24,7 @@
     abstract]]
   [//
    ["." atom (#+ Atom atom)]
-   ["." promise (#+ Promise Resolver) ("#/." monad)]
-   ["." task (#+ Task)]])
+   ["." promise (#+ Promise Resolver) ("#/." monad)]])
 
 (exception: #export poisoned)
 
@@ -35,7 +34,7 @@
              ["Message" message-name]))
 
 (with-expansions
-  [<Message> (as-is (-> s (Actor s) (Task s)))
+  [<Message> (as-is (-> s (Actor s) (Promise (Error s))))
    <Obituary> (as-is [Text s (List <Message>)])
    <Mailbox> (as-is (Rec Mailbox
                       [(Promise [<Message> Mailbox])
@@ -79,7 +78,7 @@
 
     (type: #export (Behavior s)
       {#.doc "An actor's behavior when messages are received."}
-      {#handle (-> (Message s) s (Actor s) (Task s))
+      {#handle (-> (Message s) s (Actor s) (Promise (Error s)))
        #end (-> Text s (Promise Any))})
 
     (def: #export (spawn behavior init)
@@ -140,7 +139,7 @@
   )
 
 (def: (default-handle message state self)
-  (All [s] (-> (Message s) s (Actor s) (Task s)))
+  (All [s] (-> (Message s) s (Actor s) (Promise (Error s))))
   (message state self))
 
 (def: (default-end cause state)
@@ -157,7 +156,7 @@
               "but allows the actor to handle previous messages.")}
   (All [s] (-> (Actor s) (IO Bit)))
   (send (function (_ state self)
-          (task.throw poisoned []))
+          (promise.resolved (ex.throw ..poisoned [])))
         actor))
 
 (do-template [<with> <resolve> <tag> <desc>]
@@ -234,7 +233,7 @@
                 (List a)
 
                 ((handle message state self)
-                 (do task.monad
+                 (do (error.with promise.monad)
                    [#let [_ (log! "BEFORE")]
                     output (message state self)
                     #let [_ (log! "AFTER")]]
@@ -266,9 +265,9 @@
                                                      (~ (code.local-identifier messageN))
                                                      (~ (code.local-identifier stateN))
                                                      (~ (code.local-identifier selfN)))
-                                            (do task.monad
-                                              []
-                                              (~ bodyC))))))
+                                            ((~! do) ((~! error.with) (~! promise.monad))
+                                             []
+                                             (~ bodyC))))))
                         #..end (~ (case ?stop
                                     #.None
                                     (` (~! ..default-end))
@@ -277,9 +276,9 @@
                                     (` (function ((~ g!_)
                                                   (~ (code.local-identifier causeN))
                                                   (~ (code.local-identifier stateN)))
-                                         (do promise.monad
-                                           []
-                                           (~ bodyC))))))}))
+                                         ((~! do) (~! promise.monad)
+                                          []
+                                          (~ bodyC))))))}))
                   (` (def: (~+ (csw.export export)) ((~ g!new) (~ g!init))
                        (All [(~+ g!vars)]
                          (-> ((~ g!type) (~+ g!vars)) (io.IO ((~ g!actor) (~+ g!vars)))))
@@ -323,12 +322,12 @@
               (message: #export Counter
                 (count! [increment Nat] state self Nat)
                 (let [state' (n/+ increment state)]
-                  (task.return [state' state'])))
+                  (promise.resolved (#error.Success [state' state']))))
 
               (message: #export (Stack a)
                 (push [value a] state self (List a))
                 (let [state' (#.Cons value state)]
-                  (task.return [state' state']))))}
+                  (promise.resolved (#error.Success [state' state'])))))}
   (with-gensyms [g!_ g!return g!error g!task g!sent? g!resolve]
     (do @
       [current-module macro.current-module-name
@@ -361,30 +360,36 @@
                        (~ (|> annotations
                               (with-message actor-name)
                               csw.annotations))
-                       (All [(~+ g!all-vars)] (-> (~+ g!inputsT) (~ actorC) (Task (~ (get@ #output signature)))))
-                       (let [[(~ g!task) (~ g!resolve)] (: [(task.Task (~ g!outputT))
-                                                            (task.Resolver (~ g!outputT))]
-                                                           (task.task []))]
-                         (io.run (do io.monad
-                                   [(~ g!sent?) (..send (function ((~ g!_) (~ g!state) (~ g!self))
-                                                          (do promise.monad
-                                                            [(~ g!return) (: (Task [((~ g!type) (~+ g!actor-refs))
-                                                                                    (~ g!outputT)])
-                                                                             (do task.monad
-                                                                               []
-                                                                               (~ body)))]
-                                                            (case (~ g!return)
-                                                              (#.Right [(~ g!state) (~ g!return)])
-                                                              (exec (io.run ((~ g!resolve) (#.Right (~ g!return))))
-                                                                (task.return (~ g!state)))
+                       (All [(~+ g!all-vars)]
+                         (-> (~+ g!inputsT)
+                             (~ actorC)
+                             ((~! promise.Promise) ((~! error.Error) (~ (get@ #output signature))))))
+                       (let [[(~ g!task) (~ g!resolve)] (: [((~! promise.Promise) ((~! error.Error) (~ g!outputT)))
+                                                            (promise.Resolver ((~! error.Error) (~ g!outputT)))]
+                                                           (promise.promise []))]
+                         ((~! io.run) ((~! do) (~! io.monad)
+                                       [(~ g!sent?) (..send (function ((~ g!_) (~ g!state) (~ g!self))
+                                                              ((~! do) (~! promise.monad)
+                                                               [(~ g!return) (: ((~! promise.Promise)
+                                                                                 ((~! error.Error)
+                                                                                  [((~ g!type) (~+ g!actor-refs))
+                                                                                   (~ g!outputT)]))
+                                                                                ((~! do) ((~! error.with) (~! promise.monad))
+                                                                                 []
+                                                                                 (~ body)))]
+                                                               (case (~ g!return)
+                                                                 (#error.Success [(~ g!state) (~ g!return)])
+                                                                 (exec ((~! io.run) ((~ g!resolve) (#error.Success (~ g!return))))
+                                                                   ((~! promise.resolved) (#error.Success (~ g!state))))
 
-                                                              (#.Left (~ g!error))
-                                                              (exec (io.run ((~ g!resolve) (#.Left (~ g!error))))
-                                                                (task.fail (~ g!error))))
-                                                            ))
-                                                        (~ g!self))]
-                                   (if (~ g!sent?)
-                                     ((~' wrap) (~ g!task))
-                                     ((~' wrap) (task.throw ..dead [(~ (code.text (%name actor-name)))
-                                                                    (~ (code.text (%name message-name)))]))))))))
+                                                                 (#error.Failure (~ g!error))
+                                                                 (exec ((~! io.run) ((~ g!resolve) (#error.Failure (~ g!error))))
+                                                                   ((~! promise.resolved) (#error.Failure (~ g!error)))))
+                                                               ))
+                                                            (~ g!self))]
+                                       (if (~ g!sent?)
+                                         ((~' wrap) (~ g!task))
+                                         ((~' wrap) ((~! promise.resolved)
+                                                     ((~! ex.throw) ..dead [(~ (code.text (%name actor-name)))
+                                                                            (~ (code.text (%name message-name)))])))))))))
                   )))))
