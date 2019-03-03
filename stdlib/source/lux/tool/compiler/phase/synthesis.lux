@@ -1,468 +1,90 @@
 (.module:
-  [lux (#- i64 Scope)
+  [lux (#- primitive)
    [control
-    [monad (#+ do)]
-    [equivalence (#+ Equivalence)]
-    ["ex" exception (#+ exception:)]]
+    ["." monad (#+ do)]
+    [pipe (#+ case>)]]
    [data
-    ["." bit ("#/." equivalence)]
-    ["." text ("#/." equivalence)
-     format]
+    ["." maybe]
+    ["." error]
     [collection
      ["." list ("#/." functor)]
      ["." dictionary (#+ Dictionary)]]]]
-  ["." //
-   ["." extension (#+ Extension)]
-   [//
-    ["." reference (#+ Register Variable Reference)]
-    ["." analysis (#+ Environment Arity Composite Analysis)]]])
+  [/
+   ["/." function]
+   ["/." case]
+   ["." // ("#/." monad)
+    ["//." extension]
+    [//
+     ["." reference]
+     ["." analysis (#+ Analysis)]
+     ["/" synthesis (#+ Synthesis Phase)]]]])
 
-(type: #export Resolver (Dictionary Variable Variable))
-
-(type: #export State
-  {#locals Nat})
-
-(def: #export fresh-resolver
-  Resolver
-  (dictionary.new reference.hash))
-
-(def: #export init
-  State
-  {#locals 0})
-
-(type: #export Primitive
-  (#Bit Bit)
-  (#I64 (I64 Any))
-  (#F64 Frac)
-  (#Text Text))
-
-(type: #export Side
-  (Either Nat Nat))
-
-(type: #export Member
-  (Either Nat Nat))
-
-(type: #export Access
-  (#Side Side)
-  (#Member Member))
-
-(type: #export (Path' s)
-  #Pop
-  (#Test Primitive)
-  (#Access Access)
-  (#Bind Register)
-  (#Alt (Path' s) (Path' s))
-  (#Seq (Path' s) (Path' s))
-  (#Then s))
-
-(type: #export (Abstraction' s)
-  {#environment Environment
-   #arity Arity
-   #body s})
-
-(type: #export (Apply' s)
-  {#function s
-   #arguments (List s)})
-
-(type: #export (Branch s)
-  (#Let s Register s)
-  (#If s s s)
-  (#Case s (Path' s)))
-
-(type: #export (Scope s)
-  {#start Register
-   #inits (List s)
-   #iteration s})
-
-(type: #export (Loop s)
-  (#Scope (Scope s))
-  (#Recur (List s)))
-
-(type: #export (Function s)
-  (#Abstraction (Abstraction' s))
-  (#Apply s (List s)))
-
-(type: #export (Control s)
-  (#Branch (Branch s))
-  (#Loop (Loop s))
-  (#Function (Function s)))
-
-(type: #export #rec Synthesis
-  (#Primitive Primitive)
-  (#Structure (Composite Synthesis))
-  (#Reference Reference)
-  (#Control (Control Synthesis))
-  (#Extension (Extension Synthesis)))
-
-(do-template [<special> <general>]
-  [(type: #export <special>
-     (<general> ..State Analysis Synthesis))]
-
-  [State+    extension.State]
-  [Operation extension.Operation]
-  [Phase     extension.Phase]
-  [Handler   extension.Handler]
-  [Bundle    extension.Bundle]
-  )
-
-(type: #export Path
-  (Path' Synthesis))
-
-(def: #export path/pop
-  Path
-  #Pop)
-
-(do-template [<name> <tag>]
-  [(template: #export (<name> content)
-     (#..Test (<tag> content)))]
-
-  [path/bit  #..Bit]
-  [path/i64  #..I64]
-  [path/f64  #..F64]
-  [path/text #..Text]
-  )
-
-(do-template [<name> <kind>]
-  [(template: #export (<name> content)
-     (.<| #..Access
-          <kind>
-          content))]
-
-  [path/side   #..Side]
-  [path/member #..Member]
-  )
-
-(do-template [<name> <kind> <side>]
-  [(template: #export (<name> content)
-     (.<| #..Access
-          <kind>
-          <side>
-          content))]
-
-  [side/left    #..Side   #.Left]
-  [side/right   #..Side   #.Right]
-  [member/left  #..Member #.Left]
-  [member/right #..Member #.Right]
-  )
-
-(do-template [<name> <tag>]
-  [(template: #export (<name> content)
-     (<tag> content))]
-
-  [path/bind #..Bind]
-  [path/then #..Then]
-  )
-
-(do-template [<name> <tag>]
-  [(template: #export (<name> left right)
-     (<tag> [left right]))]
-
-  [path/alt  #..Alt]
-  [path/seq  #..Seq]
-  )
-
-(type: #export Abstraction
-  (Abstraction' Synthesis))
-
-(type: #export Apply
-  (Apply' Synthesis))
-
-(def: #export unit Text "")
-
-(do-template [<name> <type> <tag>]
-  [(def: #export (<name> value)
-     (-> <type> (All [a] (-> (Operation a) (Operation a))))
-     (extension.temporary (set@ <tag> value)))]
-
-  [with-locals      Nat      #locals]
-  )
-
-(def: #export (with-abstraction arity resolver)
-  (-> Arity Resolver
-      (All [a] (-> (Operation a) (Operation a))))
-  (extension.with-state {#locals arity}))
-
-(do-template [<name> <tag> <type>]
-  [(def: #export <name>
-     (Operation <type>)
-     (extension.read (get@ <tag>)))]
-
-  [locals      #locals      Nat]
-  )
-
-(def: #export with-new-local
-  (All [a] (-> (Operation a) (Operation a)))
-  (<<| (do //.monad
-         [locals ..locals])
-       (..with-locals (inc locals))))
-
-(do-template [<name> <tag>]
-  [(template: #export (<name> content)
-     (#..Primitive (<tag> content)))]
-
-  [bit  #..Bit]
-  [i64  #..I64]
-  [f64  #..F64]
-  [text #..Text]
-  )
-
-(do-template [<name> <tag>]
-  [(template: #export (<name> content)
-     (<| #..Structure
-         <tag>
-         content))]
-
-  [variant #analysis.Variant]
-  [tuple   #analysis.Tuple]
-  )
-
-(do-template [<name> <tag>]
-  [(template: #export (<name> content)
-     (.<| #..Reference
-          <tag>
-          content))]
-
-  [variable/local   reference.local]
-  [variable/foreign reference.foreign]
-  )
-
-(do-template [<name> <tag>]
-  [(template: #export (<name> content)
-     (.<| #..Reference
-          <tag>
-          content))]
-
-  [variable reference.variable]
-  [constant reference.constant]
-  )
-
-(do-template [<name> <family> <tag>]
-  [(template: #export (<name> content)
-     (.<| #..Control
-          <family>
-          <tag>
-          content))]
-
-  [branch/case          #..Branch   #..Case]
-  [branch/let           #..Branch   #..Let]
-  [branch/if            #..Branch   #..If]
-
-  [loop/recur           #..Loop     #..Recur]
-  [loop/scope           #..Loop     #..Scope]
-
-  [function/abstraction #..Function #..Abstraction]
-  [function/apply       #..Function #..Apply]
-  )
-
-(def: #export (%path' %then value)
-  (All [a] (-> (Format a) (Format (Path' a))))
-  (case value
-    #Pop
-    "_"
+(def: (primitive analysis)
+  (-> analysis.Primitive /.Primitive)
+  (case analysis
+    #analysis.Unit
+    (#/.Text /.unit)
     
-    (#Test primitive)
-    (format "(? "
-            (case primitive
-              (#Bit value)
-              (%b value)
-              
-              (#I64 value)
-              (%i (.int value))
-              
-              (#F64 value)
-              (%f value)
-              
-              (#Text value)
-              (%t value))
-            ")")
-    
-    (#Access access)
-    (case access
-      (#Side side)
-      (case side
-        (#.Left lefts)
-        (format "(" (%n lefts) " #0" ")")
-        
-        (#.Right lefts)
-        (format "(" (%n lefts) " #1" ")"))
-      
-      (#Member member)
-      (case member
-        (#.Left lefts)
-        (format "[" (%n lefts) " #0" "]")
-        
-        (#.Right lefts)
-        (format "[" (%n lefts) " #1" "]")))
-    
-    (#Bind register)
-    (format "(@ " (%n register) ")")
-    
-    (#Alt left right)
-    (format "(| " (%path' %then left) " " (%path' %then right) ")")
-    
-    (#Seq left right)
-    (format "(& " (%path' %then left) " " (%path' %then right) ")")
-    
-    (#Then then)
-    (|> (%then then)
-        (text.enclose ["(! " ")"]))))
+    (^template [<analysis> <synthesis>]
+      (<analysis> value)
+      (<synthesis> value))
+    ([#analysis.Bit  #/.Bit]
+     [#analysis.Frac #/.F64]
+     [#analysis.Text #/.Text])
 
-(def: #export (%synthesis value)
-  (Format Synthesis)
-  (case value
-    (#Primitive primitive)
-    (case primitive
-      (^template [<pattern> <format>]
-        (<pattern> value)
-        (<format> value))
-      ([#Bit  %b]
-       [#F64  %f]
-       [#Text %t])
-      
-      (#I64 value)
-      (%i (.int value)))
+    (^template [<analysis> <synthesis>]
+      (<analysis> value)
+      (<synthesis> (.i64 value)))
+    ([#analysis.Nat #/.I64]
+     [#analysis.Int #/.I64]
+     [#analysis.Rev #/.I64])))
 
-    (#Structure structure)
+(def: #export (phase analysis)
+  Phase
+  (case analysis
+    (#analysis.Primitive analysis')
+    (///wrap (#/.Primitive (..primitive analysis')))
+
+    (#analysis.Structure structure)
     (case structure
-      (#analysis.Variant [lefts right? content])
-      (|> (%synthesis content)
-          (format (%n lefts) " " (%b right?) " ")
-          (text.enclose ["(" ")"]))
-      
-      (#analysis.Tuple members)
-      (|> members
-          (list/map %synthesis)
-          (text.join-with " ")
-          (text.enclose ["[" "]"])))
+      (#analysis.Variant variant)
+      (do //.monad
+        [valueS (phase (get@ #analysis.value variant))]
+        (wrap (/.variant (set@ #analysis.value valueS variant))))
 
-    (#Reference reference)
-    (|> reference
-        reference.%reference
-        (text.enclose ["(#@ " ")"]))
+      (#analysis.Tuple tuple)
+      (|> tuple
+          (monad.map //.monad phase)
+          (///map (|>> /.tuple))))
+    
+    (#analysis.Reference reference)
+    (///wrap (#/.Reference reference))
 
-    (#Control control)
-    (case control
-      (#Function function)
-      (case function
-        (#Abstraction [environment arity body])
-        (|> (%synthesis body)
-            (format (%n arity) " ")
-            (format (|> environment
-                        (list/map reference.%variable)
-                        (text.join-with " ")
-                        (text.enclose ["[" "]"]))
-                    " ")
-            (text.enclose ["(" ")"]))
-        
-        (#Apply func args)
-        (|> (list/map %synthesis args)
-            (text.join-with " ")
-            (format (%synthesis func) " ")
-            (text.enclose ["(" ")"])))
+    (#analysis.Case inputA branchesAB+)
+    (/case.synthesize phase inputA branchesAB+)
 
-      (#Branch branch)
-      (case branch
-        (#Let input register body)
-        (|> (format (%synthesis input) " " (%n register) " " (%synthesis body))
-            (text.enclose ["(#let " ")"]))
-        
-        (#If test then else)
-        (|> (format (%synthesis test) " " (%synthesis then) " " (%synthesis else))
-            (text.enclose ["(#if " ")"]))
-        
-        (#Case input path)
-        (|> (format (%synthesis input) " " (%path' %synthesis path))
-            (text.enclose ["(#case " ")"])))
-      
-      ## (#Loop loop)
-      _
-      "???")
+    (^ (analysis.no-op value))
+    (phase value)
 
-    (#Extension [name args])
-    (|> (list/map %synthesis args)
-        (text.join-with " ")
-        (format (%t name))
-        (text.enclose ["(" ")"]))))
+    (#analysis.Apply _)
+    (/function.apply phase analysis)
 
-(def: #export %path
-  (Format Path)
-  (%path' %synthesis))
+    (#analysis.Function environmentA bodyA)
+    (/function.abstraction phase environmentA bodyA)
 
-(structure: #export primitive-equivalence (Equivalence Primitive)
-  (def: (= reference sample)
-    (case [reference sample]
-      (^template [<tag> <eq> <format>]
-        [(<tag> reference') (<tag> sample')]
-        (<eq> reference' sample'))
-      ([#Bit  bit/=  %b]
-       [#F64  f/=    %f]
-       [#Text text/= %t])
+    (#analysis.Extension name args)
+    (function (_ state)
+      (|> (//extension.apply phase [name args])
+          (//.run' state)
+          (case> (#error.Success output)
+                 (#error.Success output)
+                 
+                 (#error.Failure error)
+                 (<| (//.run' state)
+                     (do //.monad
+                       [argsS+ (monad.map @ phase args)]
+                       (wrap (#/.Extension [name argsS+])))))))
 
-      [(#I64 reference') (#I64 sample')]
-      (i/= (.int reference') (.int sample'))
-
-      _
-      false)))
-
-(structure: #export access-equivalence (Equivalence Access)
-  (def: (= reference sample)
-    (case [reference sample]
-      (^template [<tag>]
-        [(<tag> reference') (<tag> sample')]
-        (case [reference' sample']
-          (^template [<side>]
-            [(<side> reference'') (<side> sample'')]
-            (n/= reference'' sample''))
-          ([#.Left]
-           [#.Right])
-          
-          _
-          false))
-      ([#Side]
-       [#Member])
-
-      _
-      false)))
-
-(structure: #export (path'-equivalence Equivalence<a>)
-  (All [a] (-> (Equivalence a) (Equivalence (Path' a))))
-
-  (def: (= reference sample)
-    (case [reference sample]
-      [#Pop #Pop]
-      true
-
-      (^template [<tag> <equivalence>]
-        [(<tag> reference') (<tag> sample')]
-        (:: <equivalence> = reference' sample'))
-      ([#Test   primitive-equivalence]
-       [#Access access-equivalence]
-       [#Then   Equivalence<a>])
-      
-      [(#Bind reference') (#Bind sample')]
-      (n/= reference' sample')
-
-      (^template [<tag>]
-        [(<tag> leftR rightR) (<tag> leftS rightS)]
-        (and (= leftR leftS)
-             (= rightR rightS)))
-      ([#Alt]
-       [#Seq])
-
-      _
-      false)))
-
-(structure: #export equivalence (Equivalence Synthesis)
-  (def: (= reference sample)
-    (case [reference sample]
-      (^template [<tag> <equivalence>]
-        [(<tag> reference') (<tag> sample')]
-        (:: <equivalence> = reference' sample'))
-      ([#Primitive primitive-equivalence])
-
-      _
-      false)))
-
-(def: #export path-equivalence
-  (Equivalence Path)
-  (path'-equivalence equivalence))
+    _
+    (///wrap (undefined))
+    ))
