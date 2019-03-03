@@ -1,349 +1,131 @@
 (.module:
-  [lux (#- nat int rev)
+  [lux #*
    [control
-    [monad (#+ do)]]
+    [monad (#+ do)]
+    ["ex" exception (#+ exception:)]]
    [data
-    ["." product]
     ["." error]
-    ["." maybe]
-    ["." text ("#/." equivalence)
-     format]
-    [collection
-     ["." list ("#/." functor fold)]]]
-   ["." function]]
-  [//
-   ["." extension (#+ Extension)]
-   [//
-    ["." reference (#+ Register Variable Reference)]]])
+    [text
+     format]]
+   ["." macro]]
+  [/
+   ["/." type]
+   ["/." primitive]
+   ["/." structure]
+   ["/." reference]
+   ["/." case]
+   ["/." function]
+   ["/." macro (#+ Expander)]
+   ["." //
+    ["." extension]
+    [//
+     ["." reference]
+     ["/" analysis (#+ Analysis Operation Phase)]]]])
 
-(type: #export #rec Primitive
-  #Unit
-  (#Bit Bit)
-  (#Nat Nat)
-  (#Int Int)
-  (#Rev Rev)
-  (#Frac Frac)
-  (#Text Text))
+(exception: #export (unrecognized-syntax {code Code})
+  (ex.report ["Code" (%code code)]))
 
-(type: #export Tag Nat)
+## TODO: Had to split the 'compile' function due to compilation issues
+## with old-luxc. Must re-combine all the code ASAP
 
-(type: #export (Variant a)
-  {#lefts Nat
-   #right? Bit
-   #value a})
+(type: (Fix a)
+  (-> a a))
 
-(type: #export (Tuple a) (List a))
+(def: (compile|primitive else code')
+  (Fix (-> (Code' (Ann Cursor)) (Operation Analysis)))
+  (case code'
+    (^template [<tag> <analyser>]
+      (<tag> value)
+      (<analyser> value))
+    ([#.Bit  /primitive.bit]
+     [#.Nat  /primitive.nat]
+     [#.Int  /primitive.int]
+     [#.Rev  /primitive.rev]
+     [#.Frac /primitive.frac]
+     [#.Text /primitive.text])
 
-(type: #export (Composite a)
-  (#Variant (Variant a))
-  (#Tuple (Tuple a)))
+    _
+    (else code')))
 
-(type: #export #rec Pattern
-  (#Simple Primitive)
-  (#Complex (Composite Pattern))
-  (#Bind Register))
+(def: (compile|structure compile else code')
+  (-> Phase (Fix (-> (Code' (Ann Cursor)) (Operation Analysis))))
+  (case code'
+    (^template [<tag> <analyser>]
+      (^ (#.Form (list& [_ (<tag> tag)]
+                        values)))
+      (case values
+        (#.Cons value #.Nil)
+        (<analyser> compile tag value)
 
-(type: #export (Branch' e)
-  {#when Pattern
-   #then e})
+        _
+        (<analyser> compile tag (` [(~+ values)]))))
+    ([#.Nat /structure.sum]
+     [#.Tag /structure.tagged-sum])
 
-(type: #export (Match' e)
-  [(Branch' e) (List (Branch' e))])
+    (#.Tag tag)
+    (/structure.tagged-sum compile tag (' []))
 
-(type: #export Environment
-  (List Variable))
+    (^ (#.Tuple (list)))
+    /primitive.unit
 
-(type: #export #rec Analysis
-  (#Primitive Primitive)
-  (#Structure (Composite Analysis))
-  (#Reference Reference)
-  (#Case Analysis (Match' Analysis))
-  (#Function Environment Analysis)
-  (#Apply Analysis Analysis)
-  (#Extension (Extension Analysis)))
+    (^ (#.Tuple (list singleton)))
+    (compile singleton)
 
-(type: #export Branch
-  (Branch' Analysis))
+    (^ (#.Tuple elems))
+    (/structure.product compile elems)
 
-(type: #export Match
-  (Match' Analysis))
+    (^ (#.Record pairs))
+    (/structure.record compile pairs)
 
-(do-template [<name> <tag>]
-  [(template: #export (<name> content)
-     (<tag> content))]
+    _
+    (else code')))
 
-  [control/case #..Case]
-  )
+(def: (compile|others expander compile code')
+  (-> Expander Phase (-> (Code' (Ann Cursor)) (Operation Analysis)))
+  (case code'
+    (#.Identifier reference)
+    (/reference.reference reference)
 
-(do-template [<name> <type> <tag>]
-  [(def: #export <name>
-     (-> <type> Analysis)
-     (|>> <tag> #..Primitive))]
+    (^ (#.Form (list [_ (#.Record branches)] input)))
+    (/case.case compile input branches)
 
-  [bit  Bit  #..Bit]
-  [nat  Nat  #..Nat]
-  [int  Int  #..Int]
-  [rev  Rev  #..Rev]
-  [frac Frac #..Frac]
-  [text Text #..Text]
-  )
+    (^ (#.Form (list& [_ (#.Text extension-name)] extension-args)))
+    (extension.apply compile [extension-name extension-args])
 
-(type: #export Arity Nat)
+    (^ (#.Form (list [_ (#.Tuple (list [_ (#.Identifier ["" function-name])]
+                                       [_ (#.Identifier ["" arg-name])]))]
+                     body)))
+    (/function.function compile function-name arg-name body)
 
-(type: #export (Abstraction c) [Environment Arity c])
+    (^ (#.Form (list& functionC argsC+)))
+    (do //.monad
+      [[functionT functionA] (/type.with-inference
+                               (compile functionC))]
+      (case functionA
+        (#/.Reference (#reference.Constant def-name))
+        (do @
+          [?macro (extension.lift (macro.find-macro def-name))]
+          (case ?macro
+            (#.Some macro)
+            (do @
+              [expansion (extension.lift (/macro.expand-one expander def-name macro argsC+))]
+              (compile expansion))
 
-(type: #export (Application c) [c (List c)])
+            _
+            (/function.apply compile functionT functionA argsC+)))
 
-(def: (last? size tag)
-  (-> Nat Tag Bit)
-  (n/= (dec size) tag))
+        _
+        (/function.apply compile functionT functionA argsC+)))
 
-(template: #export (no-op value)
-  (|> 1 #reference.Local #reference.Variable #..Reference
-      (#..Function (list))
-      (#..Apply value)))
+    _
+    (//.throw unrecognized-syntax [.dummy-cursor code'])))
 
-(def: #export (apply [abstraction inputs])
-  (-> (Application Analysis) Analysis)
-  (list/fold (function (_ input abstraction')
-               (#Apply input abstraction'))
-             abstraction
-             inputs))
-
-(def: #export (application analysis)
-  (-> Analysis (Application Analysis))
-  (loop [abstraction analysis
-         inputs (list)]
-    (case abstraction
-      (#Apply input next)
-      (recur next (#.Cons input inputs))
-
-      _
-      [abstraction inputs])))
-
-(do-template [<name> <tag>]
-  [(template: #export (<name> content)
-     (.<| #..Reference
-          <tag>
-          content))]
-
-  [variable #reference.Variable]
-  [constant #reference.Constant]
-  )
-
-(do-template [<name> <tag>]
-  [(template: #export (<name> content)
-     (.<| #..Complex
-          <tag>
-          content))]
-
-  [pattern/variant #..Variant]
-  [pattern/tuple   #..Tuple]
-  )
-
-(do-template [<name> <tag>]
-  [(template: #export (<name> content)
-     (.<| #..Structure
-          <tag>
-          content))]
-
-  [variant #..Variant]
-  [tuple   #..Tuple]
-  )
-
-(template: #export (pattern/unit)
-  (#..Simple #..Unit))
-
-(do-template [<name> <tag>]
-  [(template: #export (<name> content)
-     (#..Simple (<tag> content)))]
-  
-  [pattern/bit  #..Bit]
-  [pattern/nat  #..Nat]
-  [pattern/int  #..Int]
-  [pattern/rev  #..Rev]
-  [pattern/frac #..Frac]
-  [pattern/text #..Text]
-  )
-
-(template: #export (pattern/bind register)
-  (#..Bind register))
-
-(def: #export (%analysis analysis)
-  (Format Analysis)
-  (case analysis
-    (#Primitive primitive)
-    (case primitive
-      #Unit
-      "[]"
-
-      (^template [<tag> <format>]
-        (<tag> value)
-        (<format> value))
-      ([#Bit %b]
-       [#Nat %n]
-       [#Int %i]
-       [#Rev %r]
-       [#Frac %f]
-       [#Text %t]))
-    
-    (#Structure structure)
-    (case structure
-      (#Variant [lefts right? value])
-      (format "(" (%n lefts) " " (%b right?) " " (%analysis value) ")")
-      
-      (#Tuple members)
-      (|> members
-          (list/map %analysis)
-          (text.join-with " ")
-          (text.enclose ["[" "]"])))
-    
-    (#Reference reference)
-    (case reference
-      (#reference.Variable variable)
-      (reference.%variable variable)
-      
-      (#reference.Constant constant)
-      (%name constant))
-    
-    (#Case analysis match)
-    "{?}"
-    
-    (#Function environment body)
-    (|> (%analysis body)
-        (format " ")
-        (format (|> environment
-                    (list/map reference.%variable)
-                    (text.join-with " ")
-                    (text.enclose ["[" "]"])))
-        (text.enclose ["(" ")"]))
-    
-    (#Apply _)
-    (|> analysis
-        ..application
-        #.Cons
-        (list/map %analysis)
-        (text.join-with " ")
-        (text.enclose ["(" ")"]))
-    
-    (#Extension name parameters)
-    (|> parameters
-        (list/map %analysis)
-        (text.join-with " ")
-        (format (%t name) " ")
-        (text.enclose ["(" ")"]))))
-
-(do-template [<special> <general>]
-  [(type: #export <special>
-     (<general> .Lux Code Analysis))]
-
-  [State+    extension.State]
-  [Operation extension.Operation]
-  [Phase     extension.Phase]
-  [Handler   extension.Handler]
-  [Bundle    extension.Bundle]
-  )
-
-(def: #export (with-source-code source action)
-  (All [a] (-> Source (Operation a) (Operation a)))
-  (function (_ [bundle state])
-    (let [old-source (get@ #.source state)]
-      (case (action [bundle (set@ #.source source state)])
-        (#error.Success [[bundle' state'] output])
-        (#error.Success [[bundle' (set@ #.source old-source state')]
-                         output])
-
-        (#error.Failure error)
-        (#error.Failure error)))))
-
-(def: fresh-bindings
-  (All [k v] (Bindings k v))
-  {#.counter 0
-   #.mappings (list)})
-
-(def: fresh-scope
-  Scope
-  {#.name     (list)
-   #.inner    0
-   #.locals   fresh-bindings
-   #.captured fresh-bindings})
-
-(def: #export (with-scope action)
-  (All [a] (-> (Operation a) (Operation [Scope a])))
-  (function (_ [bundle state])
-    (case (action [bundle (update@ #.scopes (|>> (#.Cons fresh-scope)) state)])
-      (#error.Success [[bundle' state'] output])
-      (case (get@ #.scopes state')
-        (#.Cons head tail)
-        (#error.Success [[bundle' (set@ #.scopes tail state')]
-                         [head output]])
-
-        #.Nil
-        (#error.Failure "Impossible error: Drained scopes!"))
-
-      (#error.Failure error)
-      (#error.Failure error))))
-
-(def: #export (with-current-module name)
-  (All [a] (-> Text (Operation a) (Operation a)))
-  (extension.localized (get@ #.current-module)
-                       (set@ #.current-module)
-                       (function.constant (#.Some name))))
-
-(def: #export (with-cursor cursor action)
-  (All [a] (-> Cursor (Operation a) (Operation a)))
-  (if (text/= "" (product.left cursor))
-    action
-    (function (_ [bundle state])
-      (let [old-cursor (get@ #.cursor state)]
-        (case (action [bundle (set@ #.cursor cursor state)])
-          (#error.Success [[bundle' state'] output])
-          (#error.Success [[bundle' (set@ #.cursor old-cursor state')]
-                           output])
-
-          (#error.Failure error)
-          (#error.Failure (format "@ " (%cursor cursor) text.new-line
-                                  error)))))))
-
-(do-template [<name> <type> <field> <value>]
-  [(def: #export (<name> value)
-     (-> <type> (Operation Any))
-     (extension.update (set@ <field> <value>)))]
-
-  [set-source-code    Source #.source         value]
-  [set-current-module Text   #.current-module (#.Some value)]
-  [set-cursor         Cursor #.cursor         value]
-  )
-
-(def: #export (cursor file)
-  (-> Text Cursor)
-  [file 1 0])
-
-(def: #export (source file code)
-  (-> Text Text Source)
-  [(cursor file) 0 code])
-
-(def: dummy-source
-  Source
-  [.dummy-cursor 0 ""])
-
-(def: type-context
-  Type-Context
-  {#.ex-counter 0
-   #.var-counter 0
-   #.var-bindings (list)})
-
-(def: #export (state info host)
-  (-> Info Any Lux)
-  {#.info            info
-   #.source          ..dummy-source
-   #.cursor          .dummy-cursor
-   #.current-module  #.None
-   #.modules         (list)
-   #.scopes          (list)
-   #.type-context    ..type-context
-   #.expected        #.None
-   #.seed            0
-   #.scope-type-vars (list)
-   #.extensions      []
-   #.host            host})
+(def: #export (phase expander)
+  (-> Expander Phase)
+  (function (compile code)
+    (let [[cursor code'] code]
+      ## The cursor must be set in the state for the sake
+      ## of having useful error messages.
+      (/.with-cursor cursor
+        (compile|primitive (compile|structure compile (compile|others expander compile))
+                           code')))))
