@@ -21,6 +21,7 @@
     ["." phase
      ["." analysis
       ["." module]
+      [macro (#+ Expander)]
       [".A" expression]]
      ["." synthesis
       [".S" expression]]
@@ -52,34 +53,36 @@
    #.version //.version
    #.mode #.Build})
 
-(def: refresh
+(def: (refresh expander)
   (All [anchor expression statement]
-    (statement.Operation anchor expression statement Any))
+    (-> Expander (statement.Operation anchor expression statement Any)))
   (do phase.monad
     [[bundle state] phase.get-state
-     #let [eval (evaluation.evaluator (get@ [#statement.synthesis #statement.state] state)
+     #let [eval (evaluation.evaluator expander
+                                      (get@ [#statement.synthesis #statement.state] state)
                                       (get@ [#statement.translation #statement.state] state)
                                       (get@ [#statement.translation #statement.phase] state))]]
-    (phase.set-state [statementE.bundle
+    (phase.set-state [bundle
                       (update@ [#statement.analysis #statement.state]
                                (: (-> analysis.State+ analysis.State+)
                                   (|>> product.right
                                        [(analysisE.bundle eval)]))
                                state)])))
 
-(def: #export (state host translate translation-bundle)
+(def: #export (state expander host translate translation-bundle)
   (All [anchor expression statement]
-    (-> (translation.Host expression statement)
+    (-> Expander
+        (translation.Host expression statement)
         (translation.Phase anchor expression statement)
         (translation.Bundle anchor expression statement)
         (statement.State+ anchor expression statement)))
   (let [synthesis-state [synthesisE.bundle synthesis.init]
         translation-state [translation-bundle (translation.state host)]
-        eval (evaluation.evaluator synthesis-state translation-state translate)
+        eval (evaluation.evaluator expander synthesis-state translation-state translate)
         analysis-state [(analysisE.bundle eval) (analysis.state ..info host)]]
     [statementE.bundle
      {#statement.analysis {#statement.state analysis-state
-                           #statement.phase expressionA.compile}
+                           #statement.phase (expressionA.phase expander)}
       #statement.synthesis {#statement.state synthesis-state
                             #statement.phase expressionS.phase}
       #statement.translation {#statement.state translation-state
@@ -126,22 +129,23 @@
     (|>> module.set-compiled
          statement.lift-analysis))
 
-  (def: (iteration reader)
-    (-> Reader <Operation>)
-    (do phase.monad
-      [code (statement.lift-analysis
-             (..read reader))
-       _ (totalS.phase code)]
-      ..refresh))
+  (def: (iteration expander reader)
+    (-> Expander Reader <Operation>)
+    (let [execute (totalS.phase expander)]
+      (do phase.monad
+        [code (statement.lift-analysis
+               (..read reader))
+         _ (execute code)]
+        (..refresh expander))))
 
-  (def: (loop module)
-    (-> Module <Operation>)
+  (def: (loop expander module)
+    (-> Expander Module <Operation>)
     (do phase.monad
       [reader (statement.lift-analysis
                (..reader module syntax.no-aliases))]
       (function (_ state)
         (.loop [state state]
-          (case (..iteration reader state)
+          (case (..iteration expander reader state)
             (#error.Success [state' output])
             (recur state')
 
@@ -150,12 +154,12 @@
               (#error.Success [state []])
               (ex.with-stack ///.cannot-compile module (#error.Failure error))))))))
 
-  (def: (compile hash input)
-    (-> Nat ///.Input <Operation>)
+  (def: (compile expander hash input)
+    (-> Expander Nat ///.Input <Operation>)
     (do phase.monad
       [#let [module (get@ #///.module input)]
        _ (..begin hash input)
-       _ (..loop module)]
+       _ (..loop expander module)]
       (..end module)))
 
   (def: (default-dependencies prelude input)
@@ -165,9 +169,9 @@
       (list prelude)))
   )
 
-(def: #export (compiler prelude state)
+(def: #export (compiler expander prelude state)
   (All [anchor expression statement]
-    (-> Module
+    (-> Expander Module
         (statement.State+ anchor expression statement)
         (Instancer .Module)))
   (function (_ key parameters input)
@@ -180,7 +184,7 @@
                                                               (: (All [anchor expression statement]
                                                                    (statement.Operation anchor expression statement .Module))
                                                                  (do phase.monad
-                                                                   [_ (compile hash input)]
+                                                                   [_ (compile expander hash input)]
                                                                    (statement.lift-analysis
                                                                     (extension.lift
                                                                      macro.current-module)))))

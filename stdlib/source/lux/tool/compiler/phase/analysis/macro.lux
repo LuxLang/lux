@@ -27,50 +27,59 @@
                            (list/map (|>> %code (format text.new-line text.tab)))
                            (text.join-with ""))]))
 
-(import: java/lang/reflect/Method
-  (invoke [Object (Array Object)] #try Object))
+(import: #long java/lang/reflect/Method
+  (invoke [java/lang/Object (Array java/lang/Object)] #try java/lang/Object))
 
-(import: (java/lang/Class c)
-  (getMethod [String (Array (Class Object))] #try Method))
+(import: #long (java/lang/Class c)
+  (getMethod [java/lang/String (Array (java/lang/Class java/lang/Object))] #try java/lang/reflect/Method))
 
-(import: java/lang/Object
-  (getClass [] (Class Object)))
+(import: #long java/lang/Object
+  (getClass [] (java/lang/Class java/lang/Object)))
 
 (def: _object-class
-  (Class Object)
-  (host.class-for Object))
+  (java/lang/Class java/lang/Object)
+  (host.class-for java/lang/Object))
 
 (def: _apply-args
-  (Array (Class Object))
-  (|> (host.array (Class Object) 2)
+  (Array (java/lang/Class java/lang/Object))
+  (|> (host.array (java/lang/Class java/lang/Object) 2)
       (host.array-write 0 _object-class)
       (host.array-write 1 _object-class)))
 
-(def: #export (expand name macro inputs)
-  (-> Name Macro (List Code) (Meta (List Code)))
+(type: #export Expander
+  (-> Macro (List Code) Lux (Error (Error [Lux (List Code)]))))
+
+(def: #export (jvm macro inputs lux)
+  Expander
+  (do error.monad
+    [apply-method (|> macro
+                      (:coerce java/lang/Object)
+                      (java/lang/Object::getClass)
+                      (java/lang/Class::getMethod "apply" _apply-args))]
+    (:coerce (Error (Error [Lux (List Code)]))
+             (java/lang/reflect/Method::invoke
+              (:coerce java/lang/Object macro)
+              (|> (host.array java/lang/Object 2)
+                  (host.array-write 0 (:coerce java/lang/Object inputs))
+                  (host.array-write 1 (:coerce java/lang/Object lux)))
+              apply-method))))
+
+(def: #export (expand expander name macro inputs)
+  (-> Expander Name Macro (List Code) (Meta (List Code)))
   (function (_ state)
     (do error.monad
-      [apply-method (|> macro
-                        (:coerce Object)
-                        (Object::getClass)
-                        (Class::getMethod "apply" _apply-args))
-       output (Method::invoke (:coerce Object macro)
-                              (|> (host.array Object 2)
-                                  (host.array-write 0 (:coerce Object inputs))
-                                  (host.array-write 1 (:coerce Object state)))
-                              apply-method)]
-      (case (:coerce (Error [Lux (List Code)])
-                     output)
+      [output (expander macro inputs state)]
+      (case output
         (#error.Success output)
         (#error.Success output)
         
         (#error.Failure error)
         ((///.throw expansion-failed [name inputs error]) state)))))
 
-(def: #export (expand-one name macro inputs)
-  (-> Name Macro (List Code) (Meta Code))
+(def: #export (expand-one expander name macro inputs)
+  (-> Expander Name Macro (List Code) (Meta Code))
   (do macro.monad
-    [expansion (expand name macro inputs)]
+    [expansion (expand expander name macro inputs)]
     (case expansion
       (^ (list single))
       (wrap single)
