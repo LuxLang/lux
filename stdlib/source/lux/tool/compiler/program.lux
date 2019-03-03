@@ -1,0 +1,94 @@
+(.module:
+  [lux #*
+   [type (#+ :share)]
+   [cli (#+ program:)]
+   ["." io (#+ IO io)]
+   [control
+    [monad (#+ do)]]
+   [data
+    ["." error (#+ Error)]
+    ["." text
+     format]]
+   [time
+    ["." instant (#+ Instant)]]
+   [world
+    ["." console]]
+   [tool
+    [compiler
+     [phase
+      [analysis
+       [macro (#+ Expander)]]
+      ["." translation]
+      ["." statement]]
+     [default
+      ["." platform (#+ Platform)]
+      ["." syntax]]]
+    ## ["." interpreter]
+    ]]
+  [//
+   ["." cli (#+ Service)]])
+
+(def: (or-crash! failure-description action)
+  (All [a]
+    (-> Text (IO (Error a)) (IO a)))
+  (do io.monad
+    [?output action]
+    (case ?output
+      (#error.Failure error)
+      (exec (log! (format text.new-line
+                          failure-description text.new-line
+                          error text.new-line))
+        (io.exit +1))
+
+      (#error.Success output)
+      (wrap output))))
+
+(def: (timed action)
+  (All [a]
+    (-> (-> Any (IO (Error a))) (IO (Error a))))
+  (do (error.with io.monad)
+    [start (: (IO (Error Instant))
+              (error.lift io.monad instant.now))
+     result (action [])
+     finish (: (IO (Error Instant))
+               (error.lift io.monad instant.now))
+     #let [elapsed-time (instant.span start finish)
+           _ (log! (format text.new-line
+                           "Elapsed time: " (%duration elapsed-time)))]]
+    (wrap result)))
+
+(def: #export (compiler expander platform bundle service)
+  (All [anchor expression statement]
+    (-> Expander
+        (IO (Platform IO anchor expression statement))
+        (translation.Bundle anchor expression statement)
+        Service
+        (IO Any)))
+  (do io.monad
+    [platform platform
+     console (:: @ map error.assume console.system)]
+    (case service
+      (#cli.Compilation configuration)
+      (<| (or-crash! "Compilation failed:")
+          ..timed
+          (function (_ _)
+            (do (error.with io.monad)
+              [state (:share [anchor expression statement]
+                             {(Platform IO anchor expression statement)
+                              platform}
+                             {(IO (Error (statement.State+ anchor expression statement)))
+                              (platform.initialize expander platform bundle)})
+               _ (: (IO (Error Any))
+                    (platform.compile expander platform (set@ #cli.module syntax.prelude configuration) state))
+               ## _ (: (IO (Error Any))
+               ##      (platform.compile expander platform configuration state))
+               ## _ (cache/io.clean target ...)
+               ]
+              (wrap (log! "Compilation complete!")))))
+      
+      (#cli.Interpretation configuration)
+      ## TODO: Fix the interpreter...
+      (undefined)
+      ## (<| (or-crash! "Interpretation failed:")
+      ##     (interpreter.run (error.with io.monad) console platform configuration bundle))
+      )))

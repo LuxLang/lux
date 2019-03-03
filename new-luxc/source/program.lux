@@ -3,104 +3,58 @@
    [cli (#+ program:)]
    [control
     [monad (#+ do)]]
-   [data
-    ["." error (#+ Error)]
-    ["." text
-     format]]
-   ["." io (#+ IO io)]
-   [time
-    ["." instant (#+ Instant)]]
+   ["." io (#+ IO)]
    [world
-    ["." file (#+ File)]
-    ["." console]]
+    ["." file]]
+   [host
+    ["." js]]
    [tool
-    ["." compiler
-     ["." cli (#+ Configuration)]
-     [meta
-      ["." archive]
-      [io
-       ["." context]]]
-     ["." phase
-      ["." translation]
+    [compiler
+     ["." cli]
+     ["/" program]
+     [phase
+      [analysis
+       [".A" macro]]
+      ["." translation
+       [".T" js
+        [".JS" runtime]
+        [".JS" expression]
+        [".JS" extension]]]
       ["." statement]]
      [default
-      ["." platform (#+ Platform)]
-      ["." init]
-      ["." syntax]]]
-    ## ["." interpreter]
-    ]]
+      ["." platform (#+ Platform)]]]]]
   [luxc
    [lang
-    ["." host/jvm]
+    [host
+     ["." jvm]]
     [translation
-     ["." jvm
-      ["." runtime]
-      ["." expression]
+     [".T" jvm
+      [".JVM" runtime]
+      [".JVM" expression]
       [procedure
-       ["." common]]]]]])
+       [".JVM" common]]]]]]
+  )
 
-(def: (or-crash! failure-description action)
-  (All [a]
-    (-> Text (IO (Error a)) (IO a)))
+(def: jvm
+  (IO (Platform IO jvm.Anchor jvm.Inst jvm.Definition))
   (do io.monad
-    [?output action]
-    (case ?output
-      (#error.Failure error)
-      (exec (log! (format text.new-line
-                          failure-description text.new-line
-                          error text.new-line))
-        (io.exit +1))
-
-      (#error.Success output)
-      (wrap output))))
-
-(def: (timed action)
-  (All [a]
-    (-> (-> Any (IO (Error a))) (IO (Error a))))
-  (do (error.with io.monad)
-    [start (: (IO (Error Instant))
-              (error.lift io.monad instant.now))
-     result (action [])
-     finish (: (IO (Error Instant))
-               (error.lift io.monad instant.now))
-     #let [elapsed-time (instant.span start finish)
-           _ (log! (format text.new-line
-                           "Elapsed time: " (%duration elapsed-time)))]]
-    (wrap result)))
-
-(def: jvm-platform
-  (IO (Platform IO host/jvm.Anchor host/jvm.Inst host/jvm.Definition))
-  (do io.monad
-    [host jvm.init]
+    [host jvmT.host]
     (wrap {#platform.&monad io.monad
            #platform.&file-system file.system
            #platform.host host
-           #platform.phase expression.translate
-           #platform.runtime runtime.translate})))
+           #platform.phase expressionJVM.translate
+           #platform.runtime runtimeJVM.translate})))
+
+(def: js
+  (IO (Platform IO js.Var js.Expression js.Statement))
+  (do io.monad
+    [host jsT.host]
+    (wrap {#platform.&monad io.monad
+           #platform.&file-system file.system
+           #platform.host host
+           #platform.phase expressionJS.translate
+           #platform.runtime runtimeJS.translate})))
 
 (program: [{service cli.service}]
-  (do io.monad
-    [platform (: (IO (Platform IO host/jvm.Anchor host/jvm.Inst host/jvm.Definition))
-                 ..jvm-platform)
-     console (:: @ map error.assume console.system)]
-    (case service
-      (#cli.Compilation configuration)
-      (<| (or-crash! "Compilation failed:")
-          ..timed
-          (function (_ _)
-            (do (error.with io.monad)
-              [state (: (IO (Error (statement.State+ host/jvm.Anchor host/jvm.Inst host/jvm.Definition)))
-                        (platform.initialize platform common.bundle))
-               ## _ (platform.compile platform (set@ #cli.module syntax.prelude configuration) state)
-               _ (: (IO (Error Any))
-                    (platform.compile platform configuration state))
-               ## _ (cache/io.clean target ...)
-               ]
-              (wrap (log! "Compilation complete!")))))
-      
-      (#cli.Interpretation configuration)
-      ## TODO: Fix the interpreter...
-      (undefined)
-      ## (<| (or-crash! "Interpretation failed:")
-      ##     (interpreter.run (error.with io.monad) console platform configuration common.bundle))
-      )))
+  ## (/.compiler ..js commonJVM.bundle service)
+  (/.compiler macroA.jvm ..js extensionJS.bundle service))
