@@ -69,6 +69,7 @@
     (`` (|>> (~~ (do-template [<find> <replace>]
                    [(text.replace-all <find> <replace>)]
 
+                   ["\" "\\"]
                    [text.tab "\t"]
                    [text.vertical-tab "\v"]
                    [text.null "\0"]
@@ -76,15 +77,15 @@
                    [text.form-feed "\f"]
                    [text.new-line "\n"]
                    [text.carriage-return "\r"]
-                   ["'" "\'"]
                    [text.double-quote (format "\" text.double-quote)]
-                   ["\" "\\"]
                    ))
              )))
 
   (def: #export string
     (-> Text Computation)
-    (|>> ..sanitize %t :abstraction))
+    (|>> ..sanitize
+         (text.enclose [text.double-quote text.double-quote])
+         :abstraction))
 
   (def: argument-separator ", ")
   (def: field-separator ": ")
@@ -95,8 +96,11 @@
     (|>> (list/map ..code)
          (text.join-with ..argument-separator)
          ..element
-         ..argument
          :abstraction))
+
+  (def: #export var
+    (-> Text Var)
+    (|>> :abstraction))
 
   (def: #export (at index array-or-object)
     (-> Expression Expression Access)
@@ -107,74 +111,6 @@
   (def: #export (the field object)
     (-> Text Expression Access)
     (:abstraction (format (:representation object) "." field)))
-
-  (def: #export (do method inputs object)
-    (-> Text (List Expression) Expression Computation)
-    (|> (format (:representation (..the method object))
-                (|> inputs
-                    (list/map ..code)
-                    (text.join-with ..argument-separator)
-                    ..argument))
-        ..argument
-        :abstraction))
-
-  (def: #export object
-    (-> (List [Text Expression]) Computation)
-    (|>> (list/map (.function (_ [key val])
-                     (format (:representation (..string key)) ..field-separator (:representation val))))
-         (text.join-with ..argument-separator)
-         (text.enclose ["{" "}"])
-         ..argument
-         :abstraction))
-
-  (def: #export var
-    (-> Text Var)
-    (|>> :abstraction))
-
-  (def: #export (, pre post)
-    (-> Expression Expression Computation)
-    (|> (format (:representation pre) ", " (:representation post))
-        ..argument
-        :abstraction))
-
-  (def: #export (then pre post)
-    (-> Statement Statement Statement)
-    (:abstraction (format (text.suffix ..statement-suffix
-                                       (:representation pre))
-                          " "
-                          (:representation post))))
-
-  (def: block
-    (-> Statement Text)
-    (|>> :representation
-         (text.suffix ..statement-suffix)
-         (text.enclose ["{" "}"])))
-
-  (def: #export (function name inputs body)
-    (-> Var (List Var) Statement Computation)
-    (|> body
-        ..block
-        (format "function " (:representation name)
-                (|> inputs
-                    (list/map ..code)
-                    (text.join-with ..argument-separator)
-                    ..argument)
-                " ")
-        ..argument
-        :abstraction))
-
-  (def: #export (closure inputs body)
-    (-> (List Var) Statement Computation)
-    (|> body
-        ..block
-        (format "function"
-                (|> inputs
-                    (list/map ..code)
-                    (text.join-with ..argument-separator)
-                    ..argument)
-                " ")
-        ..argument
-        :abstraction))
 
   (def: #export (apply/* function inputs)
     (-> Expression (List Expression) Computation)
@@ -205,6 +141,69 @@
     [apply/3 [_0 _1 _2] [Expression Expression Expression]
      []]
     )
+
+  (def: #export (do method inputs object)
+    (-> Text (List Expression) Expression Computation)
+    (apply/* (..the method object) inputs))
+
+  (def: #export object
+    (-> (List [Text Expression]) Computation)
+    (|>> (list/map (.function (_ [key val])
+                     (format (:representation (..string key)) ..field-separator (:representation val))))
+         (text.join-with ..argument-separator)
+         (text.enclose ["{" "}"])
+         ..argument
+         :abstraction))
+
+  (def: #export (, pre post)
+    (-> Expression Expression Computation)
+    (|> (format (:representation pre) ", " (:representation post))
+        ..argument
+        :abstraction))
+
+  (def: #export (then pre post)
+    (-> Statement Statement Statement)
+    (:abstraction (format (:representation pre)
+                          text.new-line
+                          (:representation post))))
+
+  (def: nest
+    (-> Text Text)
+    (text.replace-all text.new-line (format text.new-line text.tab)))
+
+  (def: block
+    (-> Statement Text)
+    (|>> :representation
+         (format text.new-line)
+         ..nest
+         (text.enclose ["{"
+                        (format text.new-line "}")])))
+
+  (def: #export (function name inputs body)
+    (-> Var (List Var) Statement Computation)
+    (|> body
+        ..block
+        (format "function " (:representation name)
+                (|> inputs
+                    (list/map ..code)
+                    (text.join-with ..argument-separator)
+                    ..argument)
+                " ")
+        ..argument
+        :abstraction))
+
+  (def: #export (closure inputs body)
+    (-> (List Var) Statement Computation)
+    (|> body
+        ..block
+        (format "function"
+                (|> inputs
+                    (list/map ..code)
+                    (text.join-with ..argument-separator)
+                    ..argument)
+                " ")
+        ..argument
+        :abstraction))
 
   (do-template [<name> <op>]
     [(def: #export (<name> param subject)
@@ -278,35 +277,35 @@
 
   (def: #export statement
     (-> Expression Statement)
-    (|>> :transmutation))
+    (|>> :representation (text.suffix ..statement-suffix) :abstraction))
 
   (def: #export use-strict
     Statement
-    (:abstraction (format text.double-quote "use strict" text.double-quote)))
+    (:abstraction (format text.double-quote "use strict" text.double-quote ..statement-suffix)))
 
   (def: #export (declare name)
     (-> Var Statement)
-    (:abstraction (format "var " (:representation name))))
+    (:abstraction (format "var " (:representation name) ..statement-suffix)))
 
   (def: #export (define name value)
     (-> Var Expression Statement)
-    (:abstraction (format "var " (:representation name) " = " (:representation value))))
+    (:abstraction (format "var " (:representation name) " = " (:representation value) ..statement-suffix)))
 
   (def: #export (set name value)
     (-> Location Expression Statement)
-    (:abstraction (format (:representation name) " = " (:representation value))))
+    (:abstraction (format (:representation name) " = " (:representation value) ..statement-suffix)))
 
   (def: #export (throw message)
     (-> Expression Statement)
-    (:abstraction (format "throw new Error(" (:representation message) ")")))
+    (:abstraction (format "throw " (:representation message) ..statement-suffix)))
 
   (def: #export (return value)
     (-> Expression Statement)
-    (:abstraction (format "return " (:representation value))))
+    (:abstraction (format "return " (:representation value) ..statement-suffix)))
 
   (def: #export (delete value)
     (-> Location Statement)
-    (:abstraction (format "delete " (:representation value))))
+    (:abstraction (format "delete " (:representation value) ..statement-suffix)))
 
   (def: #export (if test then! else!)
     (-> Expression Statement Statement Statement)
@@ -330,19 +329,19 @@
     (:abstraction (format "try "
                           (..block body)
                           " catch(" (:representation exception) ") "
-                          (..block body))))
+                          (..block catch))))
 
   (def: #export (for var init condition update iteration)
-    (-> Var Expression Expression Statement Statement Statement)
+    (-> Var Expression Expression Expression Statement Statement)
     (:abstraction (format "for(" (:representation (..define var init))
-                          ..statement-suffix " " (:representation condition)
+                          " " (:representation condition)
                           ..statement-suffix " " (:representation update)
                           ")"
                           (..block iteration))))
 
   (do-template [<name> <js>]
     [(def: #export <name>
-       (-> Location Statement)
+       (-> Location Expression)
        (|>> :representation
             (text.suffix <js>)
             :abstraction))]

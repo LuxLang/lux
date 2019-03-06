@@ -5,7 +5,8 @@
     [monad (#+ do)]
     ["p" parser]]
    [data
-    [number (#+ hex)]
+    [number (#+ hex)
+     ["." i64]]
     ["." text
      format]
     [collection
@@ -36,6 +37,15 @@
   (-> i Phase (Operation Expression)))
 
 (def: prefix Text "LuxRuntime")
+
+(def: #export high
+  (-> (I64 Any) (I64 Any))
+  (i64.logic-right-shift 32))
+
+(def: #export low
+  (-> (I64 Any) (I64 Any))
+  (let [mask (dec (i64.left-shift 32 1))]
+    (|>> (i64.and mask))))
 
 (def: #export variant-tag-field "_lux_tag")
 (def: #export variant-flag-field "_lux_flag")
@@ -138,7 +148,17 @@
     (_.try (_.return (_.apply/1 op ..unit))
            [ex (_.return (|> ex (_.do "toString" (list))))])))
 
-(def: length (_.the "length"))
+(def: length
+  (-> Expression Computation)
+  (_.the "length"))
+
+(def: last-index
+  (-> Expression Computation)
+  (|>> ..length (_.- (_.i32 +1))))
+
+(def: (last-element tuple)
+  (_.at (..last-index tuple)
+        tuple))
 
 (runtime: (lux//program-args)
   (with-vars [process output idx]
@@ -147,7 +167,7 @@
       ($_ _.then
           (_.define output ..none)
           (_.for idx
-                 (|> process (_.the "argv") ..length (_.- (_.i32 +1)))
+                 (|> process (_.the "argv") ..last-index)
                  (_.>= (_.i32 +0) idx)
                  (_.-- idx)
                  (_.set output (..some (_.array (list (|> process (_.the "argv") (_.at idx))
@@ -166,13 +186,12 @@
   (with-vars [index-min-length]
     ($_ _.then
         (_.define index-min-length (_.+ (_.i32 +1) index))
-        (_.if (_.> index-min-length
-                   (..length product))
+        (_.if (_.< (..length product)
+                   index-min-length)
           ## No need for recursion.
           (_.return (_.at index product))
           ## Needs recursion.
-          (_.return (product//left (_.at (|> product ..length (_.- (_.i32 +1)))
-                                         product)
+          (_.return (product//left (last-element product)
                                    (_.- (..length product)
                                         index-min-length)))
           ))))
@@ -188,14 +207,13 @@
                       [(_.< index-min-length
                             (..length product))
                        ## Needs recursion.
-                       (_.return (product//right (_.at (|> product ..length (_.- (_.i32 +1)))
-                                                       product)
+                       (_.return (product//right (last-element product)
                                                  (_.- (..length product)
                                                       index-min-length)))])
                 ## Must slice
                 (_.return (_.do "slice" (list index) product))))))
 
-(runtime: (sum//get sum wanted-tag wants-last)
+(runtime: (sum//get sum wants-last wanted-tag)
   (let [no-match! (_.return _.null)
         sum-tag (|> sum (_.the ..variant-tag-field))
         sum-flag (|> sum (_.the ..variant-flag-field))
@@ -272,7 +290,7 @@
                    (_.= (_.the ..i64-low-field left)
                         (_.the ..i64-low-field right)))))
 
-(runtime: (i64//+ left right)
+(runtime: (i64//+ subject parameter)
   (let [up-16 (_.left-shift (_.i32 +16))
         high-16 (_.logic-right-shift (_.i32 +16))
         low-16 (_.bit-and (_.i32 (hex "+FFFF")))
@@ -284,15 +302,15 @@
                 r48 r32 r16 r00
                 x48 x32 x16 x00]
       ($_ _.then
-          (_.define l48 (hh left))
-          (_.define l32 (hl left))
-          (_.define l16 (lh left))
-          (_.define l00 (ll left))
+          (_.define l48 (hh subject))
+          (_.define l32 (hl subject))
+          (_.define l16 (lh subject))
+          (_.define l00 (ll subject))
 
-          (_.define r48 (hh right))
-          (_.define r32 (hl right))
-          (_.define r16 (lh right))
-          (_.define r00 (ll right))
+          (_.define r48 (hh parameter))
+          (_.define r32 (hl parameter))
+          (_.define r16 (lh parameter))
+          (_.define r00 (ll parameter))
 
           (_.define x00 (_.+ l00 r00))
           (_.define x16 (high-16 x00))
@@ -309,11 +327,11 @@
           ))))
 
 (do-template [<name> <op>]
-  [(runtime: (<name> left right)
-     (_.return (i64//new (<op> (_.the ..i64-high-field left)
-                               (_.the ..i64-high-field right))
-                         (<op> (_.the ..i64-low-field left)
-                               (_.the ..i64-low-field right)))))]
+  [(runtime: (<name> subject parameter)
+     (_.return (i64//new (<op> (_.the ..i64-high-field subject)
+                               (_.the ..i64-high-field parameter))
+                         (<op> (_.the ..i64-low-field subject)
+                               (_.the ..i64-low-field parameter)))))]
 
   [i64//xor _.bit-xor]
   [i64//or  _.bit-or]
@@ -410,20 +428,20 @@
       @i64//logic-right-shift
       ))
 
-(runtime: (i64//- left right)
-  (_.return (i64//+ left (i64//negate right))))
+(runtime: (i64//- subject parameter)
+  (_.return (i64//+ subject (i64//negate parameter))))
 
-(runtime: (i64//* left right)
+(runtime: (i64//* subject parameter)
   (let [negative? (|>> (_.the ..i64-high-field) (_.< (_.i32 +0)))]
-    (_.cond (list [(negative? left)
-                   (_.if (negative? right)
+    (_.cond (list [(negative? subject)
+                   (_.if (negative? parameter)
                      ## Both are negative
-                     (_.return (i64//* (i64//negate left) (i64//negate right)))
-                     ## Left is negative
-                     (_.return (i64//negate (i64//* (i64//negate left) right))))]
-                  [(negative? right)
-                   ## Right is negative
-                   (_.return (i64//negate (i64//* left (i64//negate right))))])
+                     (_.return (i64//* (i64//negate subject) (i64//negate parameter)))
+                     ## Subject is negative
+                     (_.return (i64//negate (i64//* (i64//negate subject) parameter))))]
+                  [(negative? parameter)
+                   ## Parameter is negative
+                   (_.return (i64//negate (i64//* subject (i64//negate parameter))))])
             ## Both are positive
             (let [up-16 (_.left-shift (_.i32 +16))
                   high-16 (_.logic-right-shift (_.i32 +16))
@@ -436,15 +454,15 @@
                           r48 r32 r16 r00
                           x48 x32 x16 x00]
                 ($_ _.then
-                    (_.define l48 (hh left))
-                    (_.define l32 (hl left))
-                    (_.define l16 (lh left))
-                    (_.define l00 (ll left))
+                    (_.define l48 (hh subject))
+                    (_.define l32 (hl subject))
+                    (_.define l16 (lh subject))
+                    (_.define l00 (ll subject))
 
-                    (_.define r48 (hh right))
-                    (_.define r32 (hl right))
-                    (_.define r16 (lh right))
-                    (_.define r00 (ll right))
+                    (_.define r48 (hh parameter))
+                    (_.define r32 (hl parameter))
+                    (_.define r16 (lh parameter))
+                    (_.define r00 (ll parameter))
 
                     (_.define x00 (_.* l00 r00))
                     (_.define x16 (high-16 x00))
@@ -473,17 +491,17 @@
                                         (_.bit-or (up-16 x16) x00)))
                     ))))))
 
-(runtime: (i64//< left right)
+(runtime: (i64//< subject parameter)
   (let [negative? (|>> (_.the ..i64-high-field) (_.< (_.i32 +0)))]
-    (with-vars [-left? -right?]
+    (with-vars [-subject? -parameter?]
       ($_ _.then
-          (_.define -left? (negative? left))
-          (_.define -right? (negative? right))
-          (_.cond (list [(_.and -left? (_.not right))
+          (_.define -subject? (negative? subject))
+          (_.define -parameter? (negative? parameter))
+          (_.cond (list [(_.and -subject? (_.not -parameter?))
                          (_.return _.true)]
-                        [(_.and (_.not -left?) right)
+                        [(_.and (_.not -subject?) -parameter?)
                          (_.return _.false)])
-                  (_.return (negative? (i64//- left right))))))))
+                  (_.return (negative? (i64//- subject parameter))))))))
 
 (def: (i64//<= subject param)
   (-> Expression Expression Expression)
@@ -507,21 +525,21 @@
                                  [(i64//= i64//min parameter)
                                   (_.return i64//one)])
                            (with-vars [approximation]
-                             ($_ _.then
-                                 (_.define approximation (i64//left-shift (i64/// (i64//arithmetic-right-shift subject (_.i32 +1))
-                                                                                  parameter)
-                                                                          (_.i32 +1)))
-                                 (_.if (i64//= i64//zero approximation)
-                                   (_.return (_.? (negative? parameter)
-                                                  i64//one
-                                                  i64//-one))
-                                   (let [remainder (i64//- subject
-                                                           (i64//* parameter
-                                                                   approximation))
-                                         result (i64//+ approximation
-                                                        (i64/// remainder
-                                                                parameter))]
-                                     (_.return result))))))]
+                             (let [subject/2 (i64//arithmetic-right-shift subject (_.i32 +1))]
+                               ($_ _.then
+                                   (_.define approximation (i64//left-shift (i64/// subject/2
+                                                                                    parameter)
+                                                                            (_.i32 +1)))
+                                   (_.if (i64//= i64//zero approximation)
+                                     (_.return (_.? (negative? parameter)
+                                                    i64//one
+                                                    i64//-one))
+                                     (let [remainder (i64//- subject
+                                                             (i64//* parameter
+                                                                     approximation))]
+                                       (_.return (i64//+ approximation
+                                                         (i64/// remainder
+                                                                 parameter)))))))))]
                   [(i64//= i64//min parameter)
                    (_.return i64//zero)]
 
@@ -538,15 +556,15 @@
               ($_ _.then
                   (_.define result i64//zero)
                   (_.define remainder subject)
-                  (_.while (i64//<= remainder parameter)
+                  (_.while (i64//<= parameter remainder)
                            (with-vars [approximate approximate-result approximate-remainder log2 delta]
-                             (let [rough-estimate (|> (i64//to-number remainder)
-                                                      (_./ (i64//to-number parameter))
-                                                      (_.apply/1 (_.var "Math.floor")))
-                                   approximate-result' (i64//from-number approximate)
+                             (let [approximate-result' (i64//from-number approximate)
                                    approx-remainder (i64//* approximate-result parameter)]
                                ($_ _.then
-                                   (_.define approximate (_.apply/2 (_.var "Math.max") (_.i32 +1) rough-estimate))
+                                   (_.define approximate (|> (i64//to-number remainder)
+                                                             (_./ (i64//to-number parameter))
+                                                             (_.apply/1 (_.var "Math.floor"))
+                                                             (_.apply/2 (_.var "Math.max") (_.i32 +1))))
                                    (_.define log2 (|> approximate
                                                       (_.apply/1 (_.var "Math.log"))
                                                       (_./ (_.var "Math.LN2"))
@@ -614,12 +632,8 @@
           (_.return (..some (i64//from-number idx)))))))
 
 (runtime: (text//clip text start end)
-  (let [out-of-bounds? (|>> (_.the ..i64-low-field) (_.> (..length text)))]
-    (_.if (_.or (out-of-bounds? start)
-                (out-of-bounds? end))
-      (_.return ..none)
-      (_.return (..some (|> text (_.do "substring" (list (_.the ..i64-low-field start)
-                                                         (_.the ..i64-low-field end)))))))))
+  (_.return (|> text (_.do "substring" (list (_.the ..i64-low-field start)
+                                             (_.the ..i64-low-field end))))))
 
 (runtime: (text//char text idx)
   (with-vars [result]
@@ -638,18 +652,19 @@
       ))
 
 (runtime: (io//log message)
-  (with-vars [console print]
-    (let [end! (_.return ..unit)]
-      (_.cond (list [(|> console _.type-of (_.= _.undefined) _.not
-                         (_.and (_.the "log" console)))
-                     ($_ _.then
-                         (_.statement (|> console (_.do "log" (list message))))
-                         end!)]
-                    [(|> print _.type-of (_.= _.undefined) _.not)
-                     ($_ _.then
-                         (_.statement (_.apply/1 print message))
-                         end!)])
-              end!))))
+  (let [console (_.var "console")
+        print (_.var "print")
+        end! (_.return ..unit)]
+    (_.cond (list [(|> console _.type-of (_.= (_.string "undefined")) _.not
+                       (_.and (_.the "log" console)))
+                   ($_ _.then
+                       (_.statement (|> console (_.do "log" (list message))))
+                       end!)]
+                  [(|> print _.type-of (_.= (_.string "undefined")) _.not)
+                   ($_ _.then
+                       (_.statement (_.apply/1 print (_.apply/1 (_.var "JSON.stringify") message)))
+                       end!)])
+            end!)))
 
 (runtime: (io//error message)
   (_.throw message))
@@ -689,7 +704,7 @@
 
 (runtime: (array//read idx array)
   (let [fail! (_.return ..none)]
-    (_.if (_.< (_.the "length" array) idx)
+    (_.if (_.< (..length array) idx)
       (with-vars [temp]
         ($_ _.then
             (_.define temp (_.at idx array))
@@ -699,14 +714,14 @@
       fail!)))
 
 (runtime: (array//write idx value array)
-  (_.if (_.< (_.the "length" array) idx)
+  (_.if (_.< (..length array) idx)
     ($_ _.then
         (_.set (_.at idx array) value)
         (_.return (..some array)))
     (_.return ..none)))
 
 (runtime: (array//delete idx array)
-  (_.if (_.< (_.the "length" array) idx)
+  (_.if (_.< (..length array) idx)
     ($_ _.then
         (_.delete (_.at idx array))
         (_.return (..some array)))
