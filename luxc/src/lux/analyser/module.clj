@@ -273,7 +273,7 @@
                   (return* state (&/T [(&/T [module name]) $def]))
 
                   _
-                  ((&/fail-with-loc (str "[Analyser Error @ find-def] Cannot use unexported definition: " (str module &/+name-separator+ name)
+                  ((&/fail-with-loc (str "[Analyser Error @ find-def] Cannot use private definition: " (str module &/+name-separator+ name)
                                          " at module: " current-module))
                    state))))
             ((&/fail-with-loc (str "[Analyser Error @ find-def] Definition does not exist: " (str module &/+name-separator+ name)

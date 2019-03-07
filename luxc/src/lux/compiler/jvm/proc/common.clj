@@ -452,12 +452,12 @@
     
     "int"
     (case proc
-      "*"       (compile-int-mul compile ?values special-args)
-      "/"       (compile-int-div compile ?values special-args)
-      "%"       (compile-int-rem compile ?values special-args)
-      "<"       (compile-int-lt compile ?values special-args)
+      "*"    (compile-int-mul compile ?values special-args)
+      "/"    (compile-int-div compile ?values special-args)
+      "%"    (compile-int-rem compile ?values special-args)
+      "<"    (compile-int-lt compile ?values special-args)
       "frac" (compile-int-frac compile ?values special-args)
-      "char"    (compile-int-char compile ?values special-args)
+      "char" (compile-int-char compile ?values special-args)
       )
 
     "frac"
