@@ -1,11 +1,10 @@
 (.module:
   [lux #*
-   [io (#+ IO io)]
+   [cli (#+ program:)]
+   ["." io (#+ IO io)]
    [control
     [monad (#+ do)]
-    ["." exception (#+ exception:)]
-    [concurrency
-     ["." atom (#+ Atom atom)]]]
+    ["." exception (#+ exception:)]]
    [data
     ["." maybe]
     ["." error (#+ Error)]
@@ -18,16 +17,24 @@
      ["." list ("#/." functor)]]]
    [macro
     ["." template]]
+   [world
+    ["." file]]
    ["." host (#+ import: interface: do-to object)
     ["_" js]]
    [tool
     [compiler
+     ["." cli]
      ["." name]
+     ["/" program]
      [phase
       [macro (#+ Expander)]
-      ["." translation]]]]]
-  [/
-   ["/." runtime]])
+      ["." translation
+       [js
+        ["." runtime]
+        ["." expression]
+        ["." extension]]]]
+     [default
+      ["." platform (#+ Platform)]]]]])
 
 (import: #long java/lang/String)
 
@@ -77,15 +84,15 @@
   [(interface: <name>
      (getValue [] java/lang/Object))
 
-   (`` (import: (~~ (template.identifier ["lux/tool/compiler/phase/translation/js/" <name>]))
+   (`` (import: (~~ (template.identifier ["program/" <name>]))
          (getValue [] java/lang/Object)))]
 
   [IntValue]
   [StructureValue]
   )
 
-(exception: #export (unknown-member {member Text}
-                                    {object java/lang/Object})
+(exception: (unknown-member {member Text}
+                            {object java/lang/Object})
   (exception.report
    ["Member" member]
    ["Object" (java/lang/Object::toString object)]))
@@ -96,10 +103,10 @@
 
 (def: (js-int value)
   (-> Int jdk/nashorn/api/scripting/JSObject)
-  (object [] jdk/nashorn/api/scripting/AbstractJSObject [lux/tool/compiler/phase/translation/js/IntValue]
+  (object [] jdk/nashorn/api/scripting/AbstractJSObject [program/IntValue]
     []
     ## Methods
-    (lux/tool/compiler/phase/translation/js/IntValue
+    (program/IntValue
      (getValue) java/lang/Object
      (:coerce java/lang/Object value))
     ## (jdk/nashorn/api/scripting/AbstractJSObject
@@ -108,17 +115,17 @@
     (jdk/nashorn/api/scripting/AbstractJSObject
      (getMember {member java/lang/String}) java/lang/Object
      (case member
-       (^ (static /runtime.i64-high-field))
-       (|> value .nat /runtime.high jvm-int)
+       (^ (static runtime.i64-high-field))
+       (|> value .nat runtime.high jvm-int)
 
-       (^ (static /runtime.i64-low-field))
-       (|> value .nat /runtime.low jvm-int)
+       (^ (static runtime.i64-low-field))
+       (|> value .nat runtime.low jvm-int)
 
        _
        (error! (exception.construct unknown-member [member (:coerce java/lang/Object value)]))))
     ))
 
-(def: #export (inspect object)
+(def: (inspect object)
   (-> java/lang/Object Text)
   (<| (case (host.check java/lang/Boolean object)
         (#.Some value)
@@ -206,10 +213,10 @@
                              #.None)
                            ## else
                            (:coerce jdk/nashorn/api/scripting/JSObject sub-value))))]
-    (object [] jdk/nashorn/api/scripting/AbstractJSObject [lux/tool/compiler/phase/translation/js/StructureValue]
+    (object [] jdk/nashorn/api/scripting/AbstractJSObject [program/StructureValue]
       []
       ## Methods
-      (lux/tool/compiler/phase/translation/js/StructureValue
+      (program/StructureValue
        (getValue) java/lang/Object
        (:coerce (Array java/lang/Object) value))
       ## (jdk/nashorn/api/scripting/AbstractJSObject
@@ -232,10 +239,10 @@
          (:coerce java/lang/Object
                   (::slice js-object value))
 
-         (^ (static /runtime.variant-tag-field))
+         (^ (static runtime.variant-tag-field))
          (|> value (array.read 0) maybe.assume)
          
-         (^ (static /runtime.variant-flag-field))
+         (^ (static runtime.variant-flag-field))
          (case (array.read 1 value)
            (#.Some set!)
            set!
@@ -243,7 +250,7 @@
            _
            (host.null))
          
-         (^ (static /runtime.variant-value-field))
+         (^ (static runtime.variant-value-field))
          (|> value (array.read 2) maybe.assume js-object (:coerce java/lang/Object))
          
          _
@@ -258,22 +265,22 @@
            (:coerce java/lang/Object)))
       )))
 
-(exception: #export null-has-no-lux-representation)
-(exception: #export undefined-has-no-lux-representation)
+(exception: null-has-no-lux-representation)
+(exception: undefined-has-no-lux-representation)
 
-(exception: #export (unknown-kind-of-js-object {object java/lang/Object})
+(exception: (unknown-kind-of-js-object {object java/lang/Object})
   (exception.report
    ["Object" (java/lang/Object::toString object)]))
 
-(exception: #export (cannot-apply-a-non-function {object java/lang/Object})
+(exception: (cannot-apply-a-non-function {object java/lang/Object})
   (exception.report
    ["Object" (java/lang/Object::toString object)]))
 
 (def: (check-int js-object)
   (-> jdk/nashorn/api/scripting/ScriptObjectMirror
       (Maybe Int))
-  (case [(jdk/nashorn/api/scripting/JSObject::getMember [/runtime.i64-high-field] js-object)
-         (jdk/nashorn/api/scripting/JSObject::getMember [/runtime.i64-low-field] js-object)]
+  (case [(jdk/nashorn/api/scripting/JSObject::getMember [runtime.i64-high-field] js-object)
+         (jdk/nashorn/api/scripting/JSObject::getMember [runtime.i64-low-field] js-object)]
     (^multi [(#.Some high) (#.Some low)]
             [[(host.check java/lang/Number high)
               (host.check java/lang/Number low)]
@@ -293,9 +300,9 @@
   (-> (-> java/lang/Object (Error Any))
       jdk/nashorn/api/scripting/ScriptObjectMirror
       (Maybe Any))
-  (case [(jdk/nashorn/api/scripting/JSObject::getMember [/runtime.variant-tag-field] js-object)
-         (jdk/nashorn/api/scripting/JSObject::getMember [/runtime.variant-flag-field] js-object)
-         (jdk/nashorn/api/scripting/JSObject::getMember [/runtime.variant-value-field] js-object)]
+  (case [(jdk/nashorn/api/scripting/JSObject::getMember [runtime.variant-tag-field] js-object)
+         (jdk/nashorn/api/scripting/JSObject::getMember [runtime.variant-flag-field] js-object)
+         (jdk/nashorn/api/scripting/JSObject::getMember [runtime.variant-value-field] js-object)]
     (^multi [(#.Some tag) ?flag (#.Some value)]
             [(host.check java/lang/Number tag)
              (#.Some tag)]
@@ -403,7 +410,7 @@
                                                       (array.write 1 (to-js lux)))
                                                   macro))))
 
-(def: #export (expander macro inputs lux)
+(def: (expander macro inputs lux)
   Expander
   (case (ensure-macro macro)
     (#.Some macro)
@@ -452,10 +459,10 @@
        value (evaluate! interpreter global @global)]
       (wrap [global value]))))
 
-(type: #export Host
+(type: Host
   (translation.Host _.Expression _.Statement))
 
-(def: #export host
+(def: host
   (IO Host)
   (io (let [interpreter (javax/script/ScriptEngineFactory::getScriptEngine
                          (jdk/nashorn/api/scripting/NashornScriptEngineFactory::new))]
@@ -465,3 +472,16 @@
               (..evaluate! interpreter (name.normalize alias) input))
             (def: execute! (..execute! interpreter))
             (def: define! (..define! interpreter)))))))
+
+(def: platform
+  (IO (Platform IO _.Var _.Expression _.Statement))
+  (do io.monad
+    [host ..host]
+    (wrap {#platform.&monad io.monad
+           #platform.&file-system file.system
+           #platform.host host
+           #platform.phase expression.translate
+           #platform.runtime runtime.translate})))
+
+(program: [{service cli.service}]
+  (/.compiler ..expander ..platform extension.bundle service))
