@@ -31,6 +31,7 @@
   (do ////.monad
     [valueO (translate valueS)
      bodyO (translate bodyS)]
+    ## TODO: Find some way to do 'let' without paying the price of the closure.
     (wrap (_.apply/* (<| (_.closure (list))
                          ($_ _.then
                              (_.define (..register register) valueO)
@@ -86,17 +87,9 @@
   Statement
   (_.set @cursor (|> @savepoint (_.do "pop" (list)))))
 
-(def: pm-error (_.string "PM-ERROR"))
-(def: fail-pm! (_.throw pm-error))
+(def: fail-pm! _.break)
 
 (exception: #export unrecognized-path)
-
-(def: (pm-catch on-catch!)
-  (-> Statement [Var Statement])
-  [@alt-error
-   (_.if (_.= ..pm-error @alt-error)
-     on-catch!
-     (_.throw @alt-error))])
 
 (def: (pattern-matching' translate pathP)
   (-> Phase Path (Operation Statement))
@@ -144,12 +137,14 @@
          right! (pattern-matching' translate rightP)]
         (wrap <computation>)))
     ([synthesis.path/seq (_.then left! right!)]
-     [synthesis.path/alt (_.try ($_ _.then
-                                    ..save-cursor!
-                                    left!)
-                                (pm-catch ($_ _.then
-                                              ..restore-cursor!
-                                              right!)))])
+     [synthesis.path/alt ($_ _.then
+                             (_.do-while _.false
+                                         ($_ _.then
+                                             ..save-cursor!
+                                             left!))
+                             ($_ _.then
+                                 ..restore-cursor!
+                                 right!))])
 
     _
     (////.throw unrecognized-path [])))
@@ -158,8 +153,10 @@
   (-> Phase Path (Operation Statement))
   (do ////.monad
     [pattern-matching! (pattern-matching' translate pathP)]
-    (wrap (_.try pattern-matching!
-                 (pm-catch (_.throw (_.string "Invalid expression for pattern-matching.")))))))
+    (wrap ($_ _.then
+              (_.do-while _.false
+                          pattern-matching!)
+              (_.throw (_.string "Invalid expression for pattern-matching."))))))
 
 (def: #export (case translate [valueS pathP])
   (-> Phase [Synthesis Path] (Operation Computation))
