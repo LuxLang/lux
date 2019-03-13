@@ -15,10 +15,15 @@
    ["." init]
    ["." syntax]
    ["/." //
+    ["." analysis]
     ["." statement]
     ["." phase
      [macro (#+ Expander)]
-     ["." translation]]
+     ## TODO: Get rid of this import ASAP
+     [extension (#+)]
+     ["." translation]
+     [analysis
+      ["." module]]]
     ["." cli (#+ Configuration)]
     [meta
      ["." archive (#+ Archive)
@@ -96,7 +101,11 @@
                             ((init.compiler expander syntax.prelude) init.key (list))})]
       (loop [module (get@ #cli.module configuration)
              [archive state] [archive state]]
-        (let [import! (:share [! anchor expression statement]
+        (let [## [state _] (|> (analysis.set-current-module module)
+              ##               statement.lift-analysis
+              ##               (phase.run' state)
+              ##               error.assume)
+              import! (:share [! anchor expression statement]
                               {<Platform>
                                platform}
                               {(-> Module [Archive <State+>]
@@ -114,7 +123,27 @@
                    compilation (compiler (:coerce ///.Input input))]
               (do @
                 [archive+state' (monad.fold @
-                                            import!
+                                            (function (_ dependency archive+state')
+                                              (do @
+                                                [archive+state'' (import! dependency archive+state')
+                                                 #let [[archive'' state''] (:share [! anchor expression statement]
+                                                                                   {<Platform>
+                                                                                    platform}
+                                                                                   {[Archive <State+>]
+                                                                                    archive+state''})]]
+                                                (case (:share [! anchor expression statement]
+                                                              {<State+>
+                                                               state}
+                                                              {(Error [<State+> Any])
+                                                               ## TODO: Get rid of the 'let' below ASAP
+                                                               (let [lifted (statement.lift-analysis
+                                                                             (module.import dependency))]
+                                                                 (phase.run' state'' lifted))})
+                                                  (#error.Success [state''' _])
+                                                  (wrap [archive'' state'''])
+                                                  
+                                                  (#error.Failure error)
+                                                  (:: monad wrap (#error.Failure error)))))
                                             [archive state]
                                             (list.filter (bit.complement (archive.archived? archive))
                                                          (get@ #///.dependencies compilation)))
