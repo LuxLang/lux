@@ -226,6 +226,7 @@
 (defn package
   "(-> Text Text (List Text) Null)"
   [project platform module resources-dirs]
-  (case platform
-    "jvm" (package-jvm project module resources-dirs)
-    "js" nil))
+  (time
+   (case platform
+     "jvm" (package-jvm project module resources-dirs)
+     "js" nil)))
