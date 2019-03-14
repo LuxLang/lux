@@ -21,12 +21,12 @@
   :source-paths ["source"]
   :profiles {:bibliotheca {:description "Standard library for the Lux programming language."
                            :dependencies []
-                           :lux {:tests {:jvm "test/lux"}}}
+                           :lux {:test "test/lux"}}
              :scriptum {:description "A documentation generator for Lux code."
                         :dependencies []
-                        :lux {:program {:jvm "program/scriptum"}}}
+                        :lux {:program "program/scriptum"}}
              :licentia {:description "A program for producing free/open-source/reciprocal licenses."
                         :dependencies []
-                        :lux {:program {:jvm "program/licentia"}
-                              :tests {:jvm "test/licentia"}}}}
+                        :lux {:program "program/licentia"
+                              :test "test/licentia"}}}
   )

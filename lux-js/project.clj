@@ -24,5 +24,5 @@
                  [com.github.luxlang/stdlib ~version]]
   
   :source-paths ["source"]
-  :lux {:program {:jvm "program"}}
+  :lux {:program "program"}
   )

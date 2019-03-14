@@ -4,45 +4,23 @@
             (leiningen.lux [utils :as &utils]
                            [packager :as &packager])))
 
-(def missing-module-error "Please provide a test module in [:lux :tests]")
+(def missing-module-error "Please provide a test module in [:lux :test]")
 
 (defn test [project]
-  (if-let [tests-modules (get-in project [:lux :tests])]
-    (do (when-let [jvm-module (get-in tests-modules [:jvm])]
-          (when (&utils/run-process (&utils/compile-path project "jvm" jvm-module (concat (:test-paths project) (:source-paths project)))
-                                    nil
-                                    "[JVM COMPILATION BEGAN]"
-                                    "[JVM COMPILATION ENDED]")
-            (let [java-cmd (get project :java-cmd "java")
-                  jvm-opts (->> (get project :jvm-opts) (interpose " ") (reduce str ""))
-                  output-package (str (get project :target-path &utils/default-target-dir)
-                                      java.io.File/separator
-                                      &utils/default-jvm-output-dir
-                                      java.io.File/separator
-                                      (get project :jar-name &utils/output-package))]
-              (do (&packager/package project "jvm" jvm-module (get project :resource-paths (list)))
-                (&utils/run-process (str java-cmd " " jvm-opts " -jar " output-package)
-                                    nil
-                                    "[JVM TESTING BEGAN]"
-                                    "[JVM TESTING ENDED]")
-                true))))
-      (when-let [js-module (get-in tests-modules [:js])]
-        (when (&utils/run-process (&utils/compile-path project "js" js-module (concat (:test-paths project) (:source-paths project)))
-                                  nil
-                                  "[JS COMPILATION BEGAN]"
-                                  "[JS COMPILATION ENDED]")
-          (let [output-package (str (get project :target-path &utils/default-target-dir)
-                                    java.io.File/separator
-                                    &utils/default-js-output-dir
-                                    java.io.File/separator
-                                    "program.js")]
-            (do (&packager/package project "js" js-module (get project :resource-paths (list)))
-              (&utils/run-process (str "node " output-package)
-                                  nil
-                                  "[JS TESTING BEGAN]"
-                                  "[JS TESTING ENDED]")
-              true))))
-      (when (not (or (get-in tests-modules [:jvm])
-                     (get-in tests-modules [:js])))
-        (println missing-module-error)))
+  (if-let [test-module (get-in project [:lux :test])]
+    (when (&utils/run-process (&utils/compile-path project test-module (concat (:test-paths project) (:source-paths project)))
+                              nil
+                              "[COMPILATION BEGAN]"
+                              "[COMPILATION ENDED]")
+      (let [java-cmd (get project :java-cmd "java")
+            jvm-opts (->> (get project :jvm-opts) (interpose " ") (reduce str ""))
+            output-package (str (get project :target-path &utils/default-target-dir)
+                                java.io.File/separator
+                                (get project :jar-name &utils/output-package))]
+        (do (&packager/package project test-module (get project :resource-paths (list)))
+          (&utils/run-process (str java-cmd " " jvm-opts " -jar " output-package)
+                              nil
+                              "[TESTING BEGAN]"
+                              "[TESTING ENDED]")
+          true)))
     (println missing-module-error)))

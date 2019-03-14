@@ -8,13 +8,12 @@
                           [parallel :as &&parallel]
                           [jvm :as &&jvm])))
 
-(defn init! [platform resources-dirs ^String target-dir]
+(defn init! [resources-dirs ^String target-dir]
   (do (reset! &&core/!output-dir target-dir)
     (&&parallel/setup!)
     (&&io/init-libs!)
     (.mkdirs (new java.io.File target-dir))
-    (case platform
-      "jvm" (&&jvm/init! resources-dirs target-dir))))
+    (&&jvm/init! resources-dirs target-dir)))
 
 (def all-compilers
   &&jvm/all-compilers)
@@ -25,7 +24,6 @@
 (defn compile-module [source-dirs name]
   (&&jvm/compile-module source-dirs name))
 
-(defn compile-program [platform mode program-module resources-dir source-dirs target-dir]
-  (init! platform resources-dir target-dir)
-  (case platform
-    "jvm" (&&jvm/compile-program mode program-module resources-dir source-dirs target-dir)))
+(defn compile-program [mode program-module resources-dir source-dirs target-dir]
+  (init! resources-dir target-dir)
+  (&&jvm/compile-program mode program-module resources-dir source-dirs target-dir))

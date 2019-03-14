@@ -42,6 +42,6 @@
   
   :source-paths ["source"]
   :test-paths ["test"]
-  :lux {:program {:jvm "program"}
-        :tests {:jvm "tests"}}
+  :lux {:program "program"
+        :test "tests"}
   )

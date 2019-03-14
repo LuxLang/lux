@@ -9,7 +9,7 @@
 
 (def unit-separator (str (char 31)))
 
-(defn ^:private separate-paths
+(defn- separate-paths
   "(-> Text (List Text))"
   [resources-dirs]
   (-> resources-dirs
@@ -19,8 +19,8 @@
 
 (defn -main [& args]
   (|case (&/->list args)
-    (&/$Cons "release" (&/$Cons platform (&/$Cons program-module (&/$Cons resources-dirs (&/$Cons source-dirs (&/$Cons target-dir (&/$Nil)))))))
-    (time (&compiler/compile-program platform &/$Build program-module (separate-paths resources-dirs) (separate-paths source-dirs) target-dir))
+    (&/$Cons "release" (&/$Cons program-module (&/$Cons resources-dirs (&/$Cons source-dirs (&/$Cons target-dir (&/$Nil))))))
+    (time (&compiler/compile-program &/$Build program-module (separate-paths resources-dirs) (separate-paths source-dirs) target-dir))
 
     (&/$Cons "repl" (&/$Cons resources-dirs (&/$Cons source-dirs (&/$Cons target-dir (&/$Nil)))))
     (&repl/repl (separate-paths resources-dirs)

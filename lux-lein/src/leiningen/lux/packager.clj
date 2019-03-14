@@ -134,9 +134,7 @@
   [project module resources-dirs]
   (do (println "[JVM PACKAGING BEGAN]")
     (let [output-package-name (get project :jar-name &utils/output-package)
-          output-dir (&utils/prepare-path (str (get project :target-path &utils/default-target-dir)
-                                               java.io.File/separator
-                                               &utils/default-jvm-output-dir))
+          output-dir (&utils/prepare-path (get project :target-path &utils/default-target-dir))
           output-package (str output-dir java.io.File/separator output-package-name)
           !all-jar-files (atom {})
           includes-android? (boolean (some #(-> % first (= 'com.google.android/android))
@@ -172,9 +170,7 @@
                 (.closeEntry)))
             nil))
         (when (get-in project [:lux :android])
-          (let [output-dir-context (new File (str (get project :target-path &utils/default-target-dir)
-                                                  java.io.File/separator
-                                                  &utils/default-jvm-output-dir))
+          (let [output-dir-context (new File (get project :target-path &utils/default-target-dir))
                 output-dex "classes.dex"
                 _ (do (.delete (new File output-dex))
                     (&utils/run-process (str "dx --dex --output=" output-dex " " output-package-name)
@@ -225,8 +221,5 @@
 
 (defn package
   "(-> Text Text (List Text) Null)"
-  [project platform module resources-dirs]
-  (time
-   (case platform
-     "jvm" (package-jvm project module resources-dirs)
-     "js" nil)))
+  [project module resources-dirs]
+  (time (package-jvm project module resources-dirs)))
