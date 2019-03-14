@@ -33,20 +33,23 @@
               (->> (doseq [[name v] (get project :manifest)
                            :let [real-v (if (string? v) v (v project))]])))))))
 
+(def excluded-stale "leiningen.core.classpath.extract-native-dependencies")
+
 (defn ^:private write-class!
   "(-> Text File JarOutputStream Null)"
   [^String path ^File file ^JarOutputStream out]
-  (with-open [in (new BufferedInputStream (new FileInputStream file))]
-    (let [buffer (byte-array buffer-size)]
-      (doto out
-        (.putNextEntry (new JarEntry (str path "/" (.getName file))))
-        (-> (.write buffer 0 bytes-read)
-            (->> (when (not= -1 bytes-read))
-                 (loop [bytes-read (.read in buffer)])))
-        (.flush)
-        (.closeEntry)
-        ))
-    ))
+  (when (not (= excluded-stale (.getName file)))
+    (with-open [in (new BufferedInputStream (new FileInputStream file))]
+      (let [buffer (byte-array buffer-size)]
+        (doto out
+          (.putNextEntry (new JarEntry (str path "/" (.getName file))))
+          (-> (.write buffer 0 bytes-read)
+              (->> (when (not= -1 bytes-read))
+                   (loop [bytes-read (.read in buffer)])))
+          (.flush)
+          (.closeEntry)
+          ))
+      )))
 
 (defn ^:private write-module!
   "(-> File JarOutputStream Null)"
@@ -101,6 +104,7 @@
         (let [entry-name (.getName entry)]
           (if (and (not (.isDirectory entry))
                    (not (.startsWith entry-name "META-INF/maven/"))
+                   (not (.startsWith entry-name "META-INF/leiningen/"))
                    (not (some (fn [exclusion]
                                 (re-find exclusion entry-name))
                               (get project :uberjar-exclusions)))
@@ -127,6 +131,10 @@
         ))))
 
 (def default-manifest-file (str "." java.io.File/separator "AndroidManifest.xml"))
+(def jar-exclusions ["com/github/luxlang/luxc-jvm"
+                     "org/clojure/clojure"
+                     "org/clojure/core.match"
+                     "org/ow2/asm/asm-all"])
 
 ;; [Resources]
 (defn ^:private package-jvm
@@ -161,7 +169,8 @@
             (when (not (get-in project [:lux :android]))
               (write-resources! out resources-dirs))
             (doseq [^String file-path deps]
-              (add-jar! (new File file-path) project !all-jar-files))
+              (when (not-any? #(.contains file-path %) jar-exclusions)
+                (add-jar! (new File file-path) project !all-jar-files)))
             (doseq [[_ [entry-data entry]] @!all-jar-files]
               (doto out
                 (.putNextEntry (doto entry (.setCompressedSize -1)))
