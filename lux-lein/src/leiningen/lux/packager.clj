@@ -92,6 +92,8 @@
               (recur (.read is buffer 0 buffer-size)))))
         (.toByteArray os)))))
 
+(def excluded-extensions-re #"\.(lux|clj[cs]?)$")
+
 (defn ^:private add-jar! [^File jar-file project !all-jar-files]
   (with-open [is (->> jar-file (new FileInputStream) (new JarInputStream))]
     (loop [^JarEntry entry (.getNextJarEntry is)]
@@ -101,7 +103,8 @@
                    (not (.startsWith entry-name "META-INF/maven/"))
                    (not (some (fn [exclusion]
                                 (re-find exclusion entry-name))
-                              (get project :uberjar-exclusions))))
+                              (get project :uberjar-exclusions)))
+                   (not (re-find excluded-extensions-re entry-name)))
             (let [entry-data (read-stream is)
                   entry-data (or (some (fn [[pattern [read fuse write]]]
                                          (let [matches? (if (string? pattern)
@@ -225,5 +228,4 @@
   [project platform module resources-dirs]
   (case platform
     "jvm" (package-jvm project module resources-dirs)
-    "js" nil)
-  )
+    "js" nil))
