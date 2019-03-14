@@ -57,12 +57,12 @@
 (do-template [<name> <tag> <regex>]
   (def <name>
     (|do [[meta _ token] (&reader/read-regex <regex>)]
-      (return (&/T [meta (<tag> (string/replace token #"_" ""))]))))
+      (return (&/T [meta (<tag> (string/replace token #"," ""))]))))
 
-  lex-nat  $Nat  #"^[0-9][0-9_]*"
-  lex-int  $Int  #"^(-|\+)[0-9][0-9_]*"
-  lex-rev  $Rev  #"^\.[0-9][0-9_]*"
-  lex-frac $Frac #"^(-|\+)[0-9][0-9_]*\.[0-9][0-9_]*((e|E)(-|\+)[0-9][0-9_]*)?"
+  lex-nat  $Nat  #"^[0-9][0-9,]*"
+  lex-int  $Int  #"^(-|\+)[0-9][0-9,]*"
+  lex-rev  $Rev  #"^\.[0-9][0-9,]*"
+  lex-frac $Frac #"^(-|\+)[0-9][0-9,]*\.[0-9][0-9,]*((e|E)(-|\+)[0-9][0-9,]*)?"
   )
 
 (def +same-module-mark+ (str &/+name-separator+ &/+name-separator+))

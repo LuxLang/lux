@@ -217,7 +217,7 @@ Called by `imenu--generic-function'."
   (concat "#" normal))
 
 (defconst lux-font-lock-keywords
-  (let ((natural "[0-9][0-9_]*")
+  (let ((natural "[0-9][0-9,]*")
         (identifier_h "[a-zA-Z-\\+_=!@\\$%\\^&\\*<>;,/\\\\\\|':~\\?]")
         (identifier_t "[a-zA-Z0-9-\\+_=!@\\$%\\^&\\*<>;,/\\\\\\|':~\\?]")
         (sign (altRE "-" "\\+")))
