@@ -1,7 +1,7 @@
 (.module:
   [lux (#- Module loop)
    [control
-    [monad (#+ do)]
+    ["." monad (#+ do)]
     ["ex" exception (#+ exception:)]]
    [data
     ["." product]
@@ -115,13 +115,14 @@
 (with-expansions [<Operation> (as-is (All [anchor expression statement]
                                        (statement.Operation anchor expression statement Any)))]
 
-  (def: (begin hash input)
-    (-> Nat ///.Input <Operation>)
+  (def: (begin dependencies hash input)
+    (-> (List Module) Nat ///.Input <Operation>)
     (statement.lift-analysis
      (do phase.monad
        [#let [module (get@ #///.module input)]
         _ (module.create hash module)
-        _ (analysis.set-current-module module)]
+        _ (analysis.set-current-module module)
+        _ (monad.map @ module.import dependencies)]
        (analysis.set-source-code (analysis.source (get@ #///.module input) (get@ #///.code input))))))
 
   (def: end
@@ -154,11 +155,11 @@
               (#error.Success [state []])
               (ex.with-stack ///.cannot-compile module (#error.Failure error))))))))
 
-  (def: (compile expander hash input)
-    (-> Expander Nat ///.Input <Operation>)
+  (def: (compile expander dependencies hash input)
+    (-> Expander (List Module) Nat ///.Input <Operation>)
     (do phase.monad
       [#let [module (get@ #///.module input)]
-       _ (..begin hash input)
+       _ (..begin dependencies hash input)
        _ (..loop expander module)]
       (..end module)))
 
@@ -169,8 +170,8 @@
       (list prelude)))
   )
 
-(def: #export (compiler expander prelude)
-  (-> Expander Module
+(def: #export (compiler expander prelude module)
+  (-> Expander Module Module
       (All [anchor expression statement]
         (Instancer (statement.State+ anchor expression statement) .Module)))
   (function (_ key parameters input)
@@ -183,7 +184,7 @@
                                                               (: (All [anchor expression statement]
                                                                    (statement.Operation anchor expression statement .Module))
                                                                  (do phase.monad
-                                                                   [_ (compile expander hash input)]
+                                                                   [_ (compile expander dependencies hash input)]
                                                                    (statement.lift-analysis
                                                                     (extension.lift
                                                                      macro.current-module)))))
