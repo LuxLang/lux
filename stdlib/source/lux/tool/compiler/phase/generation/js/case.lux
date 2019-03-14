@@ -77,10 +77,15 @@
   Statement
   (_.statement ..peek-and-pop-cursor))
 
+(def: length
+  (|>> (_.the "length")))
+
+(def: last-index
+  (|>> ..length (_.- (_.i32 +1))))
+
 (def: peek-cursor
   Expression
-  (.let [idx (|> @cursor (_.the "length") (_.- (_.i32 +1)))]
-    (|> @cursor (_.at idx))))
+  (|> @cursor (_.at (last-index @cursor))))
 
 (def: save-cursor!
   Statement
@@ -92,6 +97,24 @@
   (_.set @cursor (|> @savepoint (_.do "pop" (list)))))
 
 (def: fail-pm! _.break)
+
+(def: (count-pops path)
+  (-> Path [Nat Path])
+  (.case path
+    (^ ($_ synthesis.path/seq
+           #synthesis.Pop
+           path'))
+    (.let [[pops post-pops] (count-pops path')]
+      [(inc pops) post-pops])
+
+    _
+    [0 path]))
+
+(def: (multi-pop-cursor! pops)
+  (-> Nat Statement)
+  (.let [popsJS (_.i32 (.int pops))]
+    (_.statement (|> @cursor (_.do "splice" (list (|> @cursor ..length (_.- popsJS))
+                                                  popsJS))))))
 
 (exception: #export unrecognized-path)
 
@@ -143,6 +166,17 @@
       (/////wrap ($_ _.then
                      (_.define (..register register) ..peek-and-pop-cursor)
                      then!)))
+
+    (^ ($_ synthesis.path/seq
+           #synthesis.Pop
+           #synthesis.Pop
+           nextP))
+    (.let [[extra-pops nextP'] (count-pops nextP)]
+      (do ////.monad
+        [next! (pattern-matching' generate nextP')]
+        (/////wrap ($_ _.then
+                       (multi-pop-cursor! (n/+ 2 extra-pops))
+                       next!))))
 
     (^template [<tag> <computation>]
       (^ (<tag> leftP rightP))
