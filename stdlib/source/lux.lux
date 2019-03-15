@@ -4061,6 +4061,7 @@
   #All
   (#Only (List Text))
   (#Exclude (List Text))
+  #Ignore
   #Nothing)
 
 (type: Openings
@@ -4106,6 +4107,10 @@
     (^or (^ (list& [_ (#Tag ["" "*"])] tokens'))
          (^ (list& [_ (#Tag ["" "all"])] tokens')))
     (return [#All tokens'])
+
+    (^or (^ (list& [_ (#Tag ["" "_"])] tokens'))
+         (^ (list& [_ (#Tag ["" "nothing"])] tokens')))
+    (return [#Ignore tokens'])
     
     _
     (return [#Nothing tokens])))
@@ -4157,9 +4162,14 @@
     #.None
     template))
 
-(def: de-alias
-  (-> Text Text Text)
-  (replace-all "."))
+(def: contextual-reference "#")
+(def: self-reference ".")
+
+(def: (de-alias context self aliased)
+  (-> Text Text Text Text)
+  (|> aliased
+      (replace-all ..self-reference self)
+      (replace-all ..contextual-reference context)))
 
 (def: #export module-separator "/")
 
@@ -4234,8 +4244,8 @@
      #import-alias import-alias
      #import-refer import-refer}))
 
-(def: (parse-imports nested? relative-root imports)
-  (-> Bit Text (List Code) (Meta (List Importation)))
+(def: (parse-imports nested? relative-root context-alias imports)
+  (-> Bit Text Text (List Code) (Meta (List Importation)))
   (do meta-monad
     [imports' (monad/map meta-monad
                          (: (-> Code (Meta (List Importation)))
@@ -4258,7 +4268,7 @@
                                    #let [[referral extra] referral+extra]
                                    openings+extra (parse-openings extra)
                                    #let [[openings extra] openings+extra]
-                                   sub-imports (parse-imports #1 import-name extra)]
+                                   sub-imports (parse-imports #1 import-name context-alias extra)]
                                   (wrap (case [referral openings]
                                           [#Nothing #Nil] sub-imports
                                           _               (list& {#import-name import-name
@@ -4273,32 +4283,35 @@
                                    referral+extra (parse-referrals extra)
                                    #let [[referral extra] referral+extra]
                                    openings+extra (parse-openings extra)
-                                   #let [[openings extra] openings+extra]
-                                   sub-imports (parse-imports #1 import-name extra)]
-                                  (wrap (list& {#import-name import-name
-                                                #import-alias (#Some (de-alias m-name alias))
-                                                #import-refer {#refer-defs referral
-                                                               #refer-open openings}}
-                                               sub-imports)))
+                                   #let [[openings extra] openings+extra
+                                         de-aliased (de-alias context-alias m-name alias)]
+                                   sub-imports (parse-imports #1 import-name de-aliased extra)]
+                                  (wrap (case [referral openings]
+                                          [#Ignore #Nil] sub-imports
+                                          _              (list& {#import-name import-name
+                                                                 #import-alias (#Some de-aliased)
+                                                                 #import-refer {#refer-defs referral
+                                                                                #refer-open openings}}
+                                                                sub-imports))))
 
                                 ## Parallel
                                 (^ [_ (#Record (list [[_ (#Tuple (list [_ (#Nat alteration)]
                                                                        [_ (#Tag ["" domain])]))]
                                                       parallel-tree]))])
                                 (do meta-monad
-                                  [parallel-imports (parse-imports nested? relative-root (list parallel-tree))]
+                                  [parallel-imports (parse-imports nested? relative-root context-alias (list parallel-tree))]
                                   (wrap (list/map (alter-domain alteration domain) parallel-imports)))
 
                                 (^ [_ (#Record (list [[_ (#Nat alteration)]
                                                       parallel-tree]))])
                                 (do meta-monad
-                                  [parallel-imports (parse-imports nested? relative-root (list parallel-tree))]
+                                  [parallel-imports (parse-imports nested? relative-root context-alias (list parallel-tree))]
                                   (wrap (list/map (alter-domain alteration "") parallel-imports)))
 
                                 (^ [_ (#Record (list [[_ (#Tag ["" domain])]
                                                       parallel-tree]))])
                                 (do meta-monad
-                                  [parallel-imports (parse-imports nested? relative-root (list parallel-tree))
+                                  [parallel-imports (parse-imports nested? relative-root context-alias (list parallel-tree))
                                    #let [alteration (list/size (text/split-all-with ..module-separator domain))]]
                                   (wrap (list/map (alter-domain alteration domain) parallel-imports)))
 
@@ -4564,7 +4577,7 @@
                          (function (recur source [tags members] target)
                            (let [pattern (record$ (list/map (function (_ [t-module t-name])
                                                               [(tag$ [t-module t-name])
-                                                               (identifier$ ["" (de-alias t-name alias)])])
+                                                               (identifier$ ["" (de-alias "" t-name alias)])])
                                                             tags))]
                              (do meta-monad
                                [enhanced-target (monad/fold meta-monad
@@ -4573,7 +4586,7 @@
                                                                 [m-structure (resolve-type-tags m-type)]
                                                                 (case m-structure
                                                                   (#Some m-tags&members)
-                                                                  (recur ["" (de-alias m-name alias)]
+                                                                  (recur ["" (de-alias "" m-name alias)]
                                                                          m-tags&members
                                                                          enhanced-target)
 
@@ -4687,7 +4700,7 @@
         (return (list/join decls')))
 
       _
-      (return (list (` ("lux def" (~ (identifier$ ["" (de-alias name alias)]))
+      (return (list (` ("lux def" (~ (identifier$ ["" (de-alias "" name alias)]))
                         (~ source+)
                         [(~ cursor-code) (#.Record #Nil)])))))))
 
@@ -4820,6 +4833,9 @@
                 _ (test-referrals module-name *defs -defs)]
                (wrap (filter (|>> (is-member? -defs) not) *defs)))
 
+             #Ignore
+             (wrap (list))
+
              #Nothing
              (wrap (list)))
      #let [defs (list/map (: (-> Text Code)
@@ -4864,10 +4880,13 @@
                            (#Exclude defs)
                            (list (form$ (list& (' #-) (list/map local-identifier$ defs))))
                            
+                           #Ignore
+                           (list)
+
                            #Nothing
                            (list)))
         openings (list/map (function (_ [alias structs])
-                             (form$ (list& (text$ (..replace-all "#" module-alias alias))
+                             (form$ (list& (text$ (..replace-all ..contextual-reference module-alias alias))
                                            (list/map local-identifier$ structs))))
                            r-opens)]
     (` (..refer (~ (text$ module-name))
@@ -4901,7 +4920,7 @@
                                  _
                                  [(list) tokens]))]
      current-module current-module-name
-     imports (parse-imports #0 current-module _imports)
+     imports (parse-imports #0 current-module "" _imports)
      #let [=imports (list/map (: (-> Importation Code)
                                  (function (_ [m-name m-alias =refer])
                                    (` [(~ (text$ m-name)) (~ (text$ (default "" m-alias)))])))
