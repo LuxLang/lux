@@ -5,7 +5,9 @@
     ["." exception (#+ exception:)]]
    [data
     [text
-     format]]
+     format]
+    [collection
+     ["." list ("#;." fold monoid)]]]
    ["." macro]]
   ["." //
    ["#." macro (#+ Expander)]
@@ -20,7 +22,7 @@
   (exception.report
    ["Statement" (%code code)]))
 
-(exception: #export (not-a-macro-call {code Code})
+(exception: #export (invalid-macro-call {code Code})
   (exception.report
    ["Code" (%code code)]))
 
@@ -28,35 +30,48 @@
   (exception.report
    ["Name" (%name name)]))
 
-(def: #export (phase expander)
-  (-> Expander Phase)
-  (let [analyze (analysisP.phase expander)]
-    (function (compile code)
-      (case code
-        (^ [_ (#.Form (list& [_ (#.Text name)] inputs))])
-        (//extension.apply compile [name inputs])
+(with-expansions [<lux_def_module> (as-is [|form-cursor| (#.Form (list& [|text-cursor| (#.Text "lux def module")] annotations))])]
+  (def: #export (phase expander)
+    (-> Expander Phase)
+    (let [analyze (analysisP.phase expander)]
+      (function (compile code)
+        (case code
+          (^ [_ (#.Form (list& [_ (#.Text name)] inputs))])
+          (do //.monad
+            [requirements (//extension.apply compile [name inputs])]
+            (wrap requirements))
 
-        (^ [_ (#.Form (list& macro inputs))])
-        (do //.monad
-          [expansion (/.lift-analysis
-                      (do @
-                        [macroA (type.with-type Macro
-                                  (analyze macro))]
-                        (case macroA
-                          (^ (///analysis.constant macro-name))
-                          (do @
-                            [?macro (//extension.lift (macro.find-macro macro-name))
-                             macro (case ?macro
-                                     (#.Some macro)
-                                     (wrap macro)
-                                     
-                                     #.None
-                                     (//.throw macro-was-not-found macro-name))]
-                            (//extension.lift (//macro.expand expander macro-name macro inputs)))
-                          
-                          _
-                          (//.throw not-a-macro-call code))))]
-          (monad.map @ compile expansion))
+          (^ [_ (#.Form (list& macro inputs))])
+          (do //.monad
+            [expansion (/.lift-analysis
+                        (do @
+                          [macroA (type.with-type Macro
+                                    (analyze macro))]
+                          (case macroA
+                            (^ (///analysis.constant macro-name))
+                            (do @
+                              [?macro (//extension.lift (macro.find-macro macro-name))
+                               macro (case ?macro
+                                       (#.Some macro)
+                                       (wrap macro)
+                                       
+                                       #.None
+                                       (//.throw macro-was-not-found macro-name))]
+                              (//extension.lift (//macro.expand expander macro-name macro inputs)))
+                            
+                            _
+                            (//.throw invalid-macro-call code))))
+             requirements (case expansion
+                            (^ (list& <lux_def_module> referrals))
+                            (do @
+                              [requirements (compile <lux_def_module>)]
+                              (wrap (update@ #/.referrals (list;compose referrals) requirements)))
 
-        _
-        (//.throw not-a-statement code)))))
+                            _
+                            (|> expansion
+                                (monad.map @ compile)
+                                (:: @ map (list;fold /.merge-requirements /.no-requirements))))]
+            (wrap requirements))
+
+          _
+          (//.throw not-a-statement code))))))

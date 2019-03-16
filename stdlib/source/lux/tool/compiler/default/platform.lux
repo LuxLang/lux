@@ -7,6 +7,8 @@
     ["." bit]
     ["." product]
     ["." error (#+ Error)]
+    [text
+     format]
     [collection
      ["." list]]]
    [world
@@ -15,6 +17,7 @@
    ["#." init]
    ["#." syntax]
    ["#/" //
+    ["#." analysis]
     ["#." statement]
     ["#." phase
      [macro (#+ Expander)]
@@ -48,12 +51,13 @@
 ##                (format module-name "/" cache.descriptor-name)
 ##                (encoding.to-utf8 (%code (cache/description.write file-name module))))))
 
-(with-expansions [<Platform> (as-is (Platform ! anchor expression statement))
+(with-expansions [<type-vars> (as-is [! anchor expression statement])
+                  <Platform> (as-is (Platform ! anchor expression statement))
                   <State+> (as-is (///statement.State+ anchor expression statement))
                   <Bundle> (as-is (generation.Bundle anchor expression statement))]
 
   (def: #export (initialize expander platform generation-bundle)
-    (All [! anchor expression statement]
+    (All <type-vars>
       (-> Expander <Platform> <Bundle> (! (Error <State+>))))
     (|> platform
         (get@ #runtime)
@@ -92,7 +96,7 @@
     )
 
   (def: #export (compile expander platform configuration archive state)
-    (All [! anchor expression statement]
+    (All <type-vars>
       (-> Expander <Platform> Configuration Archive <State+> (! (Error [Archive <State+>]))))
     (let [monad (get@ #&monad platform)
           source-module (get@ #cli.module configuration)
@@ -100,51 +104,72 @@
                            {<State+>
                             state}
                            {(///.Compiler <State+> .Module Any)
-                            ((//init.compiler expander //syntax.prelude source-module) //init.key (list))})]
+                            ((//init.compiler expander //syntax.prelude) //init.key (list))})]
       (loop [module source-module
              [archive state] [archive state]]
-        (let [import! (:share [! anchor expression statement]
-                              {<Platform>
-                               platform}
-                              {(-> Module [Archive <State+>]
-                                   (! (Error [Archive <State+>])))
-                               recur})]
-          (do (error.with monad)
-            [input (context.read monad
-                                 (get@ #&file-system platform)
-                                 (get@ #cli.sources configuration)
-                                 module)
-             ## _ (&io.prepare-module target-dir (get@ #cli.module configuration))
-             ## _ (write-module target-dir file-name (get@ #cli.module configuration) module outputs)
-             ]
-            (loop [state state
-                   compilation (compiler (:coerce ///.Input input))]
-              (do @
-                [archive+state' (monad.fold @
-                                            import!
-                                            [archive state]
-                                            (list.filter (bit.complement (archive.archived? archive))
-                                                         (get@ #///.dependencies compilation)))
-                 #let [[archive' state'] (:share [! anchor expression statement]
+        (if (archive.archived? archive module)
+          (:: monad wrap (#error.Success [archive state]))
+          (let [import! (:share <type-vars>
+                                {<Platform>
+                                 platform}
+                                {(-> Module [Archive <State+>]
+                                     (! (Error [Archive <State+>])))
+                                 recur})]
+            (do (error.with monad)
+              [input (context.read monad
+                                   (get@ #&file-system platform)
+                                   (get@ #cli.sources configuration)
+                                   module)
+               ## _ (&io.prepare-module target-dir (get@ #cli.module configuration))
+               ## _ (write-module target-dir file-name (get@ #cli.module configuration) module outputs)
+               ]
+              (loop [archive archive
+                     state state
+                     compilation (compiler (:coerce ///.Input input))]
+                (do @
+                  [#let [dependencies (get@ #///.dependencies compilation)]
+                   archive+state (monad.fold @
+                                             import!
+                                             [archive state]
+                                             (list.filter (bit.complement (archive.archived? archive))
+                                                          dependencies))
+                   #let [[archive state] (:share <type-vars>
                                                  {<Platform>
                                                   platform}
                                                  {[Archive <State+>]
-                                                  archive+state'})
-                       continue! (:share [! anchor expression statement]
-                                         {<Platform>
-                                          platform}
-                                         {(-> <State+> (///.Compilation <State+> .Module Any)
-                                              (! (Error [Archive <State+>])))
-                                          recur})]]
-                (case ((get@ #///.process compilation) state' archive')
-                  (#error.Success more|done)
-                  (case more|done
-                    (#.Left [state'' more])
-                    (continue! state'' more)
+                                                  archive+state})
+                         continue! (:share <type-vars>
+                                           {<Platform>
+                                            platform}
+                                           {(-> Archive <State+> (///.Compilation <State+> .Module Any)
+                                                (! (Error [Archive <State+>])))
+                                            recur})]]
+                  (case ((get@ #///.process compilation)
+                         (case dependencies
+                           #.Nil
+                           state
 
-                    (#.Right [state'' descriptor+document output])
-                    (wrap [(archive.add module descriptor+document archive') state'']))
+                           _
+                           ## TODO: The "///analysis.set-current-module" below shouldn't be necessary. Remove it ASAP.
+                           (|> (///analysis.set-current-module module)
+                               ///statement.lift-analysis
+                               (///phase.run' state)
+                               error.assume
+                               product.left))
+                         archive)
+                    (#error.Success [state more|done])
+                    (case more|done
+                      (#.Left more)
+                      (continue! archive state more)
 
-                  (#error.Failure error)
-                  (:: monad wrap (#error.Failure error))))))))))
+                      (#.Right [descriptor+document output])
+                      (case (archive.add module descriptor+document archive)
+                        (#error.Success archive)
+                        (wrap [archive state])
+                        
+                        (#error.Failure error)
+                        (:: monad wrap (#error.Failure error))))
+
+                    (#error.Failure error)
+                    (:: monad wrap (#error.Failure error)))))))))))
   )

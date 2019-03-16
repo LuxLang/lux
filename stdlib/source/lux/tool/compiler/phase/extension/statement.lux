@@ -1,15 +1,17 @@
 (.module:
   [lux #*
    [control
-    [monad (#+ do)]
-    pipe]
+    ["." monad (#+ do)]
+    ["p" parser]]
    [data
+    ["." error]
     [text
      format]
     [collection
      ["." list ("#;." functor)]
      ["." dictionary]]]
-   ["." macro]
+   ["." macro
+    ["s" syntax (#+ Syntax)]]
    [type (#+ :share :by-example)
     ["." check]]]
   ["." //
@@ -22,7 +24,7 @@
     ["#/" // #_
      ["#." analysis]
      ["#." synthesis (#+ Synthesis)]
-     ["#." statement (#+ Operation Handler Bundle)]]]])
+     ["#." statement (#+ Import Operation Handler Bundle)]]]])
 
 ## TODO: Inline "evaluate!'" into "evaluate!" ASAP
 (def: (evaluate!' generate code//type codeS)
@@ -135,9 +137,10 @@
                                                             #.None)
                                                           valueC)
          _ (..define short-name value//type annotationsV valueV)
-         #let [_ (log! (format "Definition " (%name full-name)))]]
-        (////statement.lift-generation
-         (///generation.learn full-name valueN)))
+         #let [_ (log! (format "Definition " (%name full-name)))]
+         _ (////statement.lift-generation
+            (///generation.learn full-name valueN))]
+        (wrap ////statement.no-requirements))
 
       _
       (///.throw //.invalid-syntax [extension-name]))))
@@ -148,6 +151,14 @@
     [definition (//.lift (macro.find-def def-name))]
     (module.define alias definition)))
 
+(def: imports
+  (Syntax (List Import))
+  (|> (s.tuple (p.and s.text s.text))
+      p.some
+      s.tuple
+      (p.after (s.this (' #.imports)))
+      s.record))
+
 (def: def::module
   Handler
   (function (_ extension-name phase inputsC+)
@@ -155,9 +166,23 @@
       (^ (list annotationsC))
       (do ///.monad
         [[_ annotationsT annotationsV] (evaluate! Code annotationsC)
+         imports (case (s.run (list (:coerce Code annotationsV))
+                              ..imports)
+                   (#error.Success imports)
+                   (wrap imports)
+                   
+                   (#error.Failure error)
+                   (///.throw //.invalid-syntax [extension-name]))
          _ (////statement.lift-analysis
-            (module.set-annotations (:coerce Code annotationsV)))]
-        (wrap []))
+            (do ///.monad
+              [_ (monad.map @ (function (_ [module alias])
+                                (do @
+                                  [_ (module.import module)]
+                                  (module.alias alias module)))
+                            imports)]
+              (module.set-annotations (:coerce Code annotationsV))))]
+        (wrap {#////statement.imports imports
+               #////statement.referrals (list)}))
 
       _
       (///.throw //.invalid-syntax [extension-name]))))
@@ -167,10 +192,12 @@
   (function (_ extension-name phase inputsC+)
     (case inputsC+
       (^ (list [_ (#.Identifier ["" alias])] [_ (#.Identifier def-name)]))
-      (//.lift
-       (///.sub [(get@ [#////statement.analysis #////statement.state])
-                 (set@ [#////statement.analysis #////statement.state])]
-                (alias! alias def-name)))
+      (do ///.monad
+        [_ (//.lift
+            (///.sub [(get@ [#////statement.analysis #////statement.state])
+                      (set@ [#////statement.analysis #////statement.state])]
+                     (alias! alias def-name)))]
+        (wrap ////statement.no-requirements))
 
       _
       (///.throw //.invalid-syntax [extension-name]))))
@@ -187,22 +214,23 @@
                                                           {(Handler anchor expression statement)
                                                            handler}
                                                           <type>)
-                                             valueC)]
-           (<| <scope>
-               (//.install name)
-               (:share [anchor expression statement]
-                       {(Handler anchor expression statement)
-                        handler}
-                       {<type>
-                        (:assume handlerV)})))
+                                             valueC)
+            _ (<| <scope>
+                  (//.install name)
+                  (:share [anchor expression statement]
+                          {(Handler anchor expression statement)
+                           handler}
+                          {<type>
+                           (:assume handlerV)}))]
+           (wrap ////statement.no-requirements))
 
          _
          (///.throw //.invalid-syntax [extension-name]))))]
 
-  [def::analysis   ////analysis.Handler                                 ////statement.lift-analysis]
-  [def::synthesis  ////synthesis.Handler                                ////statement.lift-synthesis]
+  [def::analysis   ////analysis.Handler                                ////statement.lift-analysis]
+  [def::synthesis  ////synthesis.Handler                               ////statement.lift-synthesis]
   [def::generation (///generation.Handler anchor expression statement) ////statement.lift-generation]
-  [def::statement  (////statement.Handler anchor expression statement)  (<|)]
+  [def::statement  (////statement.Handler anchor expression statement) (<|)]
   )
 
 (def: bundle::def

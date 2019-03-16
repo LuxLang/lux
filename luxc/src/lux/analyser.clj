@@ -141,7 +141,7 @@
             (&/with-cursor cursor
               (&&lux/analyse-program analyse optimize compile-program ?program)))
 
-          "lux module"
+          "lux def module"
           (|let [(&/$Cons ?meta (&/$Nil)) parameters]
             (&/with-cursor cursor
               (&&lux/analyse-module analyse optimize eval! compile-module ?meta)))
