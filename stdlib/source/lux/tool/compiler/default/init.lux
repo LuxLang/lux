@@ -93,17 +93,16 @@
 (type: Reader
   (-> Source (Error [Source Code])))
 
-(def: (reader current-module aliases)
-  (-> Module Aliases (///analysis.Operation Reader))
+(def: (reader current-module aliases [cursor offset source-code])
+  (-> Module Aliases Source (///analysis.Operation Reader))
   (function (_ [bundle state])
-    (let [[cursor offset source-code] (get@ #.source state)]
-      (#error.Success [[bundle state]
-                       (//syntax.parse current-module aliases ("lux text size" source-code))]))))
+    (#error.Success [[bundle state]
+                     (//syntax.parse current-module aliases ("lux text size" source-code))])))
 
-(def: (read reader)
-  (-> Reader (///analysis.Operation Code))
+(def: (read source reader)
+  (-> Source Reader (///analysis.Operation [Source Code]))
   (function (_ [bundle compiler])
-    (case (reader (get@ #.source compiler))
+    (case (reader source)
       (#error.Failure error)
       (#error.Failure error)
 
@@ -112,46 +111,48 @@
         (#error.Success [[bundle (|> compiler
                                      (set@ #.source source')
                                      (set@ #.cursor cursor))]
-                         output])))))
+                         [source' output]])))))
 
 (type: (Operation a)
   (All [anchor expression statement]
     (///statement.Operation anchor expression statement a)))
 
 (def: (begin dependencies hash input)
-  (-> (List Module) Nat ///.Input (Operation Any))
+  (-> (List Module) Nat ///.Input (Operation Source))
   (///statement.lift-analysis
    (do ///phase.monad
      [#let [module (get@ #///.module input)]
       _ (module.create hash module)
       _ (///analysis.set-current-module module)
-      _ (monad.map @ module.import dependencies)]
-     (///analysis.set-source-code (///analysis.source (get@ #///.module input) (get@ #///.code input))))))
+      _ (monad.map @ module.import dependencies)
+      #let [source (///analysis.source (get@ #///.module input) (get@ #///.code input))]
+      _ (///analysis.set-source-code source)]
+     (wrap source))))
 
 (def: end
   (-> Module (Operation Any))
   (|>> module.set-compiled
        ///statement.lift-analysis))
 
-(def: (iteration expander reader)
-  (-> Expander Reader (Operation Requirements))
+(def: (iteration expander reader source)
+  (-> Expander Reader Source (Operation [Source Requirements]))
   (let [execute! (statementP.phase expander)]
     (do ///phase.monad
-      [code (///statement.lift-analysis
-             (..read reader))
+      [[source code] (///statement.lift-analysis
+                      (..read source reader))
        requirements (execute! code)
        _ (..refresh expander)]
-      (wrap requirements))))
+      (wrap [source requirements]))))
 
-(def: (iterate expander module)
-  (-> Expander Module (Operation (Maybe Requirements)))
+(def: (iterate expander module source)
+  (-> Expander Module Source (Operation (Maybe [Source Requirements])))
   (do ///phase.monad
     [reader (///statement.lift-analysis
-             (..reader module //syntax.no-aliases))]
+             (..reader module //syntax.no-aliases source))]
     (function (_ state)
-      (case (..iteration expander reader state)
-        (#error.Success [state requirements])
-        (#error.Success [state (#.Some requirements)])
+      (case (///phase.run' state (..iteration expander reader source))
+        (#error.Success [state source&requirements])
+        (#error.Success [state (#.Some source&requirements)])
 
         (#error.Failure error)
         (if (ex.match? //syntax.end-of-file error)
@@ -175,14 +176,14 @@
          #///.process (function (_ state archive)
                         (do error.monad
                           [#let [hash (text;hash (get@ #///.code input))]
-                           [state _] (<| (///phase.run' state)
-                                         (..begin dependencies hash input))
+                           [state source] (<| (///phase.run' state)
+                                              (..begin dependencies hash input))
                            #let [module (get@ #///.module input)]]
                           (loop [iteration (<| (///phase.run' state)
-                                               (..iterate expander module))]
+                                               (..iterate expander module source))]
                             (do @
-                              [[state ?requirements] iteration]
-                              (case ?requirements
+                              [[state ?source&requirements] iteration]
+                              (case ?source&requirements
                                 #.None
                                 (do @
                                   [[state analysis-module] (<| (///phase.run' state)
@@ -201,7 +202,7 @@
                                          (#.Right [[descriptor (document.write key analysis-module)]
                                                    (dictionary.new text.hash)])]))
                                 
-                                (#.Some requirements)
+                                (#.Some [source requirements])
                                 (wrap [state
                                        (#.Left {#///.dependencies (|> requirements
                                                                       (get@ #///statement.imports)
@@ -211,7 +212,7 @@
                                                                           (do ///phase.monad
                                                                             [_ (monad.map @ execute! (get@ #///statement.referrals requirements))
                                                                              _ (..refresh expander)]
-                                                                            (..iterate expander module)))))})])
+                                                                            (..iterate expander module source)))))})])
                                 )))))}))))
 
 (def: #export key
