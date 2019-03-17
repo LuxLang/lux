@@ -559,6 +559,26 @@
         _ &type/reset-mappings]
     (return &/$Nil)))
 
+(def ^:private dummy-cursor
+  (&/T ["" -1 -1]))
+
+(defn ^:private alias-annotations [original-module original-name]
+  (&/T [dummy-cursor
+        (&/$Record (&/$Cons (&/T [(&/T [dummy-cursor (&/$Tag &&meta/alias-tag)])
+                                  (&/T [dummy-cursor (&/$Identifier (&/T [original-module original-name]))])])
+                            &/$Nil))]))
+
+(defn analyse-def-alias [?alias ?original]
+  (|let [[r-module r-name] ?original]
+    (|do [[_ [original-type original-anns original-value]] (&&module/find-def! r-module r-name)
+          module-name &/get-module-name
+          _ (&/without-repl-closure
+             (&&module/define module-name ?alias
+               original-type
+               (alias-annotations r-module r-name)
+               original-value))]
+      (return &/$Nil))))
+
 (defn ^:private merge-module-states
   "(-> Host Host Host)"
   [new old]

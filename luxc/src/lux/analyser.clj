@@ -136,6 +136,14 @@
             (&/with-cursor cursor
               (&&lux/analyse-def analyse optimize eval! compile-def ?name ?value ?meta)))
 
+          "lux def alias"
+          (|let [(&/$Cons [_ (&/$Identifier "" ?alias)]
+                          (&/$Cons [_ (&/$Identifier ?original)]
+                                   (&/$Nil)
+                                   )) parameters]
+            (&/with-cursor cursor
+              (&&lux/analyse-def-alias ?alias ?original)))
+
           "lux program"
           (|let [(&/$Cons ?program (&/$Nil)) parameters]
             (&/with-cursor cursor
