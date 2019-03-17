@@ -231,4 +231,4 @@
 (defn package
   "(-> Text Text (List Text) Null)"
   [project module resources-dirs]
-  (time (package-jvm project module resources-dirs)))
+  (package-jvm project module resources-dirs))
