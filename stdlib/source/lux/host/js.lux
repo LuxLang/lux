@@ -1,12 +1,12 @@
 (.module:
-  [lux (#- Code or and function if cond undefined for false true not)
+  [lux (#- Code or and function if cond undefined for comment false true not)
    [control
     [pipe (#+ case>)]]
    [data
     ["." text
      format]
     [collection
-     ["." list ("#;." functor fold)]]]
+     ["." list ("#@." functor fold)]]]
    [macro
     ["." template]]
    [type
@@ -31,6 +31,7 @@
     [Expression Expression' [Code]]
     [Computation Computation' [Expression' Code]]
     [Location Location' [Computation' Expression' Code]]
+    [Statement Statement' [Code]]
     )
 
   (do-template [<type> <brand> <super>+]
@@ -39,7 +40,8 @@
 
     [Var Var' [Location' Computation' Expression' Code]]
     [Access Access' [Location' Computation' Expression' Code]]
-    [Statement Statement' [Code]]
+    [Loop Loop' [Statement' Code]]
+    [Label Label' [Code]]
     )
 
   (do-template [<name> <literal>]
@@ -93,7 +95,7 @@
 
   (def: #export array
     (-> (List Expression) Computation)
-    (|>> (list;map ..code)
+    (|>> (list@map ..code)
          (text.join-with ..argument-separator)
          ..element
          :abstraction))
@@ -115,7 +117,7 @@
   (def: #export (apply/* function inputs)
     (-> Expression (List Expression) Computation)
     (|> inputs
-        (list;map ..code)
+        (list@map ..code)
         (text.join-with ..argument-separator)
         ..argument
         (format (:representation function))
@@ -148,7 +150,7 @@
 
   (def: #export object
     (-> (List [Text Expression]) Computation)
-    (|>> (list;map (.function (_ [key val])
+    (|>> (list@map (.function (_ [key val])
                      (format (:representation (..string key)) ..field-separator (:representation val))))
          (text.join-with ..argument-separator)
          (text.enclose ["{" "}"])
@@ -167,16 +169,16 @@
                           text.new-line
                           (:representation post))))
 
-  ## (def: indent
-  ##   (-> Text Text)
-  ##   (text.replace-all text.new-line (format text.new-line text.tab)))
+  (def: indent
+    (-> Text Text)
+    (text.replace-all text.new-line (format text.new-line text.tab)))
 
   (def: block
     (-> Statement Text)
     (let [close (format text.new-line "}")]
       (|>> :representation
            (format text.new-line)
-           ## ..indent
+           ..indent
            (text.enclose ["{"
                           close]))))
 
@@ -186,7 +188,7 @@
         ..block
         (format "function " (:representation name)
                 (|> inputs
-                    (list;map ..code)
+                    (list@map ..code)
                     (text.join-with ..argument-separator)
                     ..argument)
                 " ")
@@ -199,7 +201,7 @@
         ..block
         (format "function"
                 (|> inputs
-                    (list;map ..code)
+                    (list@map ..code)
                     (text.join-with ..argument-separator)
                     ..argument)
                 " ")
@@ -275,7 +277,7 @@
     (-> Expression (List Expression) Computation)
     (|> (format "new " (:representation constructor)
                 (|> inputs
-                    (list;map ..code)
+                    (list@map ..code)
                     (text.join-with ..argument-separator)
                     ..argument))
         ..argument
@@ -326,12 +328,12 @@
                           (..block then!))))
 
   (def: #export (while test body)
-    (-> Expression Statement Statement)
+    (-> Expression Statement Loop)
     (:abstraction (format "while(" (:representation test) ") "
                           (..block body))))
 
   (def: #export (do-while test body)
-    (-> Expression Statement Statement)
+    (-> Expression Statement Loop)
     (:abstraction (format "do " (..block body)
                           " while(" (:representation test) ")" ..statement-suffix)))
 
@@ -343,16 +345,33 @@
                           (..block catch))))
 
   (def: #export (for var init condition update iteration)
-    (-> Var Expression Expression Expression Statement Statement)
+    (-> Var Expression Expression Expression Statement Loop)
     (:abstraction (format "for(" (:representation (..define var init))
                           " " (:representation condition)
                           ..statement-suffix " " (:representation update)
                           ")"
                           (..block iteration))))
 
-  (def: #export break
-    Statement
-    (:abstraction (format "break" ..statement-suffix)))
+  (def: #export label
+    (-> Text Label)
+    (|>> :abstraction))
+
+  (def: #export (with-label label loop)
+    (-> Label Loop Statement)
+    (:abstraction (format (:representation label) ": " (:representation loop))))
+
+  (do-template [<keyword> <0> <1>]
+    [(def: #export <0>
+       Statement
+       (:abstraction (format <keyword> ..statement-suffix)))
+
+     (def: #export (<1> label)
+       (-> Label Statement)
+       (:abstraction (format <keyword> " " (:representation label) ..statement-suffix)))]
+
+    ["break"    break    break-at]
+    ["continue" continue continue-at]
+    )
 
   (do-template [<name> <js>]
     [(def: #export <name>
@@ -364,11 +383,15 @@
     [++ "++"]
     [-- "--"]
     )
+
+  (def: #export (comment commentary on)
+    (All [kind] (-> Text (Code kind) (Code kind)))
+    (:abstraction (format "/* "  commentary " */" " " (:representation on))))
   )
 
 (def: #export (cond clauses else!)
   (-> (List [Expression Statement]) Statement Statement)
-  (list;fold (.function (_ [test then!] next!)
+  (list@fold (.function (_ [test then!] next!)
                (..if test then! next!))
              else!
              (list.reverse clauses)))

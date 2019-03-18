@@ -4,26 +4,38 @@
    [cli (#+ program:)]
    ["." io (#+ IO io)]
    [control
-    [monad (#+ do)]]
+    [monad (#+ do)]
+    [security
+     ["!" capability]]]
    [data
+    ["." product]
     ["." error (#+ Error)]
     ["." text
-     format]]
+     format]
+    [collection
+     ["." dictionary]
+     ["." row]
+     ["." list ("#@." functor fold)]]]
    [time
     ["." instant (#+ Instant)]]
+   [host
+    ["_" js]]
    [world
+    ["." file]
     ["." console]]
    [tool
     [compiler
      ["." statement]
-     [phase
+     ["." phase
       [macro (#+ Expander)]
       ["." generation]]
      [default
       ["." platform (#+ Platform)]
       ["." syntax]]
      [meta
-      ["." archive (#+ Archive)]]]
+      ["." archive (#+ Archive)]
+      [packager
+       ["." script]]]]
     ## ["." interpreter]
     ]]
   [/
@@ -43,6 +55,37 @@
 
       (#error.Success output)
       (wrap output))))
+
+(def: (save-artifacts! system state)
+  (All [anchor expression statement]
+    (-> (file.System IO)
+        (statement.State+ anchor expression statement)
+        (IO (Error Any))))
+  (let [?outcome (phase.run' state
+                             (:share [anchor expression statement]
+                                     {(statement.State+ anchor expression statement)
+                                      state}
+                                     {(statement.Operation anchor expression statement
+                                                           (generation.Output statement))
+                                      (statement.lift-generation generation.output)}))]
+    (case ?outcome
+      (#error.Success [state output])
+      (exec (log! "all buffers | output:")
+        (log! (|> output
+                  dictionary.entries
+                  (list@map (function (_ [module buffer])
+                              (|> buffer
+                                  row.to-list
+                                  (list@map (|>> product.left %name (format text.new-line text.tab)))
+                                  (text.join-with "")
+                                  (format module))))
+                  (text.join-with text.new-line)))
+        (do (error.with io.monad)
+          [file (!.use (:: system create-file) "program.js")]
+          (!.use (:: file over-write) (script.package output))))
+
+      (#error.Failure error)
+      (:: io.monad wrap (#error.Failure error)))))
 
 (def: #export (compiler expander platform bundle program service)
   (All [anchor expression statement]
@@ -64,11 +107,12 @@
                             platform}
                            {(IO (Error (statement.State+ anchor expression statement)))
                             (platform.initialize expander platform bundle program)})
-             _ (:share [anchor expression statement]
-                       {(Platform IO anchor expression statement)
-                        platform}
-                       {(IO (Error [Archive (statement.State+ anchor expression statement)]))
-                        (platform.compile expander platform configuration archive.empty state)})
+             [archive state] (:share [anchor expression statement]
+                                     {(Platform IO anchor expression statement)
+                                      platform}
+                                     {(IO (Error [Archive (statement.State+ anchor expression statement)]))
+                                      (platform.compile expander platform configuration archive.empty state)})
+             _ (save-artifacts! (get@ #platform.&file-system platform) state)
              ## _ (cache/io.clean target ...)
              ]
             (wrap (log! "Compilation complete!"))))

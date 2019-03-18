@@ -1,5 +1,6 @@
 (.module:
   [lux (#- Module)
+   [type (#+ :share)]
    [control
     ["." monad (#+ do)]
     ["ex" exception (#+ exception:)]]
@@ -119,7 +120,10 @@
     (///statement.Operation anchor expression statement a)))
 
 (def: (begin dependencies hash input)
-  (-> (List Module) Nat ///.Input (Operation Source))
+  (-> (List Module) Nat ///.Input
+      (All [anchor expression statement]
+        (///statement.Operation anchor expression statement
+                                [Source (generation.Buffer statement)])))
   (///statement.lift-analysis
    (do ///phase.monad
      [#let [module (get@ #///.module input)]
@@ -128,32 +132,67 @@
       _ (monad.map @ module.import dependencies)
       #let [source (///analysis.source (get@ #///.module input) (get@ #///.code input))]
       _ (///analysis.set-source-code source)]
-     (wrap source))))
+     (wrap [source generation.empty-buffer]))))
 
-(def: end
+(def: (end module)
   (-> Module (Operation Any))
-  (|>> module.set-compiled
-       ///statement.lift-analysis))
+  (do ///phase.monad
+    [_ (///statement.lift-analysis
+        (module.set-compiled module))]
+    (///statement.lift-generation
+     (generation.save-buffer! module))))
 
-(def: (iteration expander reader source)
-  (-> Expander Reader Source (Operation [Source Requirements]))
-  (let [execute! (statementP.phase expander)]
-    (do ///phase.monad
-      [[source code] (///statement.lift-analysis
-                      (..read source reader))
-       requirements (execute! code)
-       _ (..refresh expander)]
-      (wrap [source requirements]))))
+## TODO: Inline ASAP
+(def: (get-current-buffer old-buffer)
+  (All [statement]
+    (-> (generation.Buffer statement)
+        (All [anchor expression]
+          (///statement.Operation anchor expression statement
+                                  (generation.Buffer statement)))))
+  (///statement.lift-generation
+   generation.buffer))
 
-(def: (iterate expander module source)
-  (-> Expander Module Source (Operation (Maybe [Source Requirements])))
+## TODO: Inline ASAP
+(def: (process-statement expander pre-buffer code)
+  (All [statement]
+    (-> Expander (generation.Buffer statement) Code
+        (All [anchor expression]
+          (///statement.Operation anchor expression statement
+                                  [Requirements (generation.Buffer statement)]))))
+  (do ///phase.monad
+    [_ (///statement.lift-generation
+        (generation.set-buffer pre-buffer))
+     requirements (let [execute! (statementP.phase expander)]
+                    (execute! code))
+     post-buffer (..get-current-buffer pre-buffer)]
+    (wrap [requirements post-buffer])))
+
+(def: (iteration expander reader source pre-buffer)
+  (All [statement]
+    (-> Expander Reader Source (generation.Buffer statement)
+        (All [anchor expression]
+          (///statement.Operation anchor expression statement
+                                  [Source Requirements (generation.Buffer statement)]))))
+  (do ///phase.monad
+    [[source code] (///statement.lift-analysis
+                    (..read source reader))
+     [requirements post-buffer] (process-statement expander pre-buffer code)
+     _ (..refresh expander)]
+    (wrap [source requirements post-buffer])))
+
+(def: (iterate expander module source pre-buffer)
+  (All [statement]
+    (-> Expander Module Source (generation.Buffer statement)
+        (All [anchor expression]
+          (///statement.Operation anchor expression statement
+                                  (Maybe [Source Requirements (generation.Buffer statement)])))))
   (do ///phase.monad
     [reader (///statement.lift-analysis
              (..reader module //syntax.no-aliases source))]
     (function (_ state)
-      (case (///phase.run' state (..iteration expander reader source))
-        (#error.Success [state source&requirements])
-        (#error.Success [state (#.Some source&requirements)])
+      (case (///phase.run' state (..iteration expander reader source pre-buffer))
+        (#error.Success [state source&requirements&buffer])
+        (#error.Success [state (#.Some source&requirements&buffer)])
 
         (#error.Failure error)
         (if (ex.match? //syntax.end-of-file error)
@@ -177,14 +216,14 @@
          #///.process (function (_ state archive)
                         (do error.monad
                           [#let [hash (text;hash (get@ #///.code input))]
-                           [state source] (<| (///phase.run' state)
-                                              (..begin dependencies hash input))
+                           [state [source buffer]] (<| (///phase.run' state)
+                                                       (..begin dependencies hash input))
                            #let [module (get@ #///.module input)]]
                           (loop [iteration (<| (///phase.run' state)
-                                               (..iterate expander module source))]
+                                               (..iterate expander module source buffer))]
                             (do @
-                              [[state ?source&requirements] iteration]
-                              (case ?source&requirements
+                              [[state ?source&requirements&buffer] iteration]
+                              (case ?source&requirements&buffer
                                 #.None
                                 (do @
                                   [[state analysis-module] (<| (///phase.run' state)
@@ -202,8 +241,8 @@
                                   (wrap [state
                                          (#.Right [[descriptor (document.write key analysis-module)]
                                                    (dictionary.new text.hash)])]))
-                                
-                                (#.Some [source requirements])
+
+                                (#.Some [source requirements buffer])
                                 (wrap [state
                                        (#.Left {#///.dependencies (|> requirements
                                                                       (get@ #///statement.imports)
@@ -213,7 +252,7 @@
                                                                           (do ///phase.monad
                                                                             [_ (monad.map @ execute! (get@ #///statement.referrals requirements))
                                                                              _ (..refresh expander)]
-                                                                            (..iterate expander module source)))))})])
+                                                                            (..iterate expander module source buffer)))))})])
                                 )))))}))))
 
 (def: #export key

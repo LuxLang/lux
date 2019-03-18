@@ -19,14 +19,6 @@
    [//
     [synthesis (#+ Synthesis)]]])
 
-(do-template [<name>]
-  [(exception: #export (<name>)
-     "")]
-
-  [no-active-buffer]
-  [no-anchor]
-  )
-
 (exception: #export (cannot-interpret {error Text})
   (exception.report
    ["Error" error]))
@@ -61,19 +53,19 @@
      evaluate!)
   (: (-> Text statement (Error Any))
      execute!)
-  (: (-> Name expression (Error [Text Any]))
+  (: (-> Name expression (Error [Text Any statement]))
      define!))
 
 (type: #export (Buffer statement) (Row [Name statement]))
 
-(type: #export (Outputs statement) (Dictionary Path (Buffer statement)))
+(type: #export (Output statement) (Dictionary Path (Buffer statement)))
 
 (type: #export (State anchor expression statement)
   {#context Context
    #anchor (Maybe anchor)
    #host (Host expression statement)
    #buffer (Maybe (Buffer statement))
-   #outputs (Outputs statement)
+   #output (Output statement)
    #counter Nat
    #name-cache (Dictionary Name Text)})
 
@@ -97,7 +89,7 @@
    #anchor #.None
    #host host
    #buffer #.None
-   #outputs (dictionary.new text.hash)
+   #output (dictionary.new text.hash)
    #counter 0
    #name-cache (dictionary.new name.hash)})
 
@@ -122,10 +114,14 @@
   (extension.read (|>> (get@ #context)
                        (get@ #scope-name))))
 
+(def: #export empty-buffer Buffer row.empty)
+
 (do-template [<tag>
               <with-declaration> <with-type> <with-value>
-              <get> <get-type> <exception>]
-  [(def: #export <with-declaration>
+              <set> <get> <get-type> <exception>]
+  [(exception: #export <exception>)
+
+   (def: #export <with-declaration>
      (All [anchor expression statement output] <with-type>)
      (function (_ body)
        (function (_ [bundle state])
@@ -146,27 +142,34 @@
          (#error.Success [stateE output])
 
          #.None
-         (exception.throw <exception> []))))]
+         (exception.throw <exception> []))))
+
+   (def: #export (<set> value)
+     (All [anchor expression statement]
+       (-> <get-type> (Operation anchor expression statement Any)))
+     (function (_ [bundle state])
+       (#error.Success [[bundle (set@ <tag> (#.Some value) state)]
+                        []])))]
 
   [#anchor
    (with-anchor anchor)
    (-> anchor (Operation anchor expression statement output)
        (Operation anchor expression statement output))
    anchor
-   anchor anchor no-anchor]
+   set-anchor anchor anchor no-anchor]
 
   [#buffer
    with-buffer
    (-> (Operation anchor expression statement output)
        (Operation anchor expression statement output))
-   row.empty
-   buffer (Buffer statement) no-active-buffer]
+   ..empty-buffer
+   set-buffer buffer (Buffer statement) no-active-buffer]
   )
 
-(def: #export outputs
+(def: #export output
   (All [anchor expression statement]
-    (Operation anchor expression statement (Outputs statement)))
-  (extension.read (get@ #outputs)))
+    (Operation anchor expression statement (Output statement)))
+  (extension.read (get@ #output)))
 
 (def: #export next
   (All [anchor expression statement]
@@ -194,7 +197,7 @@
 
 (def: #export (define! name code)
   (All [anchor expression statement]
-    (-> Name expression (Operation anchor expression statement [Text Any])))
+    (-> Name expression (Operation anchor expression statement [Text Any statement])))
   (function (_ (^@ stateE [bundle state]))
     (case (:: (get@ #host state) define! name code)
       (#error.Success output)
@@ -224,7 +227,7 @@
     (-> Path (Operation anchor expression statement Any)))
   (do //.monad
     [buffer ..buffer]
-    (extension.update (update@ #outputs (dictionary.put target buffer)))))
+    (extension.update (update@ #output (dictionary.put target buffer)))))
 
 (def: #export (remember lux-name)
   (All [anchor expression statement]
