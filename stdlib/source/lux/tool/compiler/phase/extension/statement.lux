@@ -1,5 +1,6 @@
 (.module:
   [lux #*
+   [io (#+ IO)]
    [control
     ["." monad (#+ do)]
     ["p" parser]]
@@ -18,10 +19,10 @@
   ["." //
    ["#." bundle]
    ["#/" //
+    ["#." generation]
     [analysis
      ["." module]
      ["." type]]
-    ["#." generation]
     ["#/" // #_
      ["#." analysis]
      ["#." synthesis (#+ Synthesis)]
@@ -169,11 +170,13 @@
                    (#error.Failure error)
                    (///.throw //.invalid-syntax [extension-name]))
          _ (////statement.lift-analysis
-            (do ///.monad
+            (do @
               [_ (monad.map @ (function (_ [module alias])
                                 (do @
                                   [_ (module.import module)]
-                                  (module.alias alias module)))
+                                  (case alias
+                                    "" (wrap [])
+                                    _ (module.alias alias module))))
                             imports)]
               (module.set-annotations (:coerce Code annotationsV))))]
         (wrap {#////statement.imports imports
@@ -243,21 +246,72 @@
   [def::statement  (////statement.Handler anchor expression statement) (<|)]
   )
 
-(def: bundle::def
-  Bundle
+## TODO; Both "prepare-program" and "define-program" exist only
+## because the old compiler couldn"t handle a fully-inlined definition
+## for "def::program". Inline them ASAP.
+(def: (prepare-program analyse synthesize programC)
+  (All [anchor expression statement output]
+    (-> ////analysis.Phase
+        ////synthesis.Phase
+        Code
+        (Operation anchor expression statement Synthesis)))
+  (do ///.monad
+    [[_ programA] (////statement.lift-analysis
+                   (////analysis.with-scope
+                     (type.with-fresh-env
+                       (type.with-type (type (-> (List Text) (IO Any)))
+                         (analyse programC)))))]
+    (////statement.lift-synthesis
+     (synthesize programA))))
+
+(def: (define-program generate program programS)
+  (All [anchor expression statement output]
+    (-> (///generation.Phase anchor expression statement)
+        (-> expression statement)
+        Synthesis
+        (///generation.Operation anchor expression statement Any)))
+  (///generation.with-buffer
+    (do ///.monad
+      [programG (generate programS)]
+      (///generation.save! ["" ""] (program programG)))))
+
+(def: (def::program program)
+  (All [anchor expression statement]
+    (-> (-> expression statement) (Handler anchor expression statement)))
+  (function (handler extension-name phase inputsC+)
+    (case inputsC+
+      (^ (list programC))
+      (do ///.monad
+        [state (//.lift ///.get-state)
+         #let [analyse (get@ [#////statement.analysis #////statement.phase] state)
+               synthesize (get@ [#////statement.synthesis #////statement.phase] state)
+               generate (get@ [#////statement.generation #////statement.phase] state)]
+         programS (prepare-program analyse synthesize programC)
+         _ (////statement.lift-generation
+            (define-program generate program programS))]
+        (wrap ////statement.no-requirements))
+
+      _
+      (///.throw //.invalid-syntax [extension-name]))))
+
+(def: (bundle::def program)
+  (All [anchor expression statement]
+    (-> (-> expression statement) (Bundle anchor expression statement)))
   (<| (//bundle.prefix "def")
       (|> //bundle.empty
-          (dictionary.put "module"      def::module)
-          (dictionary.put "alias"       def::alias)
-          (dictionary.put "analysis"    def::analysis)
-          (dictionary.put "synthesis"   def::synthesis)
+          (dictionary.put "module"     def::module)
+          (dictionary.put "alias"      def::alias)
+          (dictionary.put "analysis"   def::analysis)
+          (dictionary.put "synthesis"  def::synthesis)
           (dictionary.put "generation" def::generation)
-          (dictionary.put "statement"   def::statement)
+          (dictionary.put "statement"  def::statement)
+          (dictionary.put "program"    (def::program program))
           )))
 
-(def: #export bundle
-  Bundle
+(def: #export (bundle program)
+  (All [anchor expression statement]
+    (-> (-> expression statement) (Bundle anchor expression statement)))
   (<| (//bundle.prefix "lux")
       (|> //bundle.empty
           (dictionary.put "def" lux::def)
-          (dictionary.merge ..bundle::def))))
+          (dictionary.merge (..bundle::def program)))))

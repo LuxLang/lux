@@ -144,7 +144,7 @@
             (&/with-cursor cursor
               (&&lux/analyse-def-alias ?alias ?original)))
 
-          "lux program"
+          "lux def program"
           (|let [(&/$Cons ?program (&/$Nil)) parameters]
             (&/with-cursor cursor
               (&&lux/analyse-program analyse optimize compile-program ?program)))
