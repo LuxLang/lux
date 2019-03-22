@@ -1,61 +1,64 @@
 (.module:
   [lux #*
+   ["_" test (#+ Test)]
    ["." io]
    [control
+    pipe
     [monad (#+ do Monad)]
-    pipe]
+    {[0 #test]
+     [/
+      [".T" functor (#+ Injection Comparison)]
+      [".T" apply]
+      [".T" monad]
+      [".T" equivalence]]}]
    [data
-    ["/" error (#+ Error)]]]
-  lux/test)
+    text/format
+    [number
+     ["." nat]]]
+   [math
+    ["r" random (#+ Random)]]]
+  {1
+   ["." / (#+ Error)]})
 
-(context: "Errors"
-  (let [(^open "&;.") /.apply
-        (^open "&;.") /.monad]
-    ($_ seq
-        (test "Functor correctly handles both cases."
-              (and (|> (: (Error Int) (#/.Success +10))
-                       (&;map inc)
-                       (case> (#/.Success +11) #1 _ #0))
+(def: injection
+  (Injection Error)
+  (|>> #/.Success))
 
-                   (|> (: (Error Int) (#/.Failure "YOLO"))
-                       (&;map inc)
-                       (case> (#/.Failure "YOLO") #1 _ #0))
-                   ))
-        
-        (test "Apply correctly handles both cases."
-              (and (|> (&;wrap +20)
-                       (case> (#/.Success +20) #1 _ #0))
-                   (|> (&;apply (&;wrap inc) (&;wrap +10))
-                       (case> (#/.Success +11) #1 _ #0))
-                   (|> (&;apply (&;wrap inc) (#/.Failure "YOLO"))
-                       (case> (#/.Failure "YOLO") #1 _ #0))))
-        
-        (test "Monad correctly handles both cases."
-              (and (|> (do /.monad
-                         [f (wrap i/+)
-                          a (wrap +10)
-                          b (wrap +20)]
-                         (wrap (f a b)))
-                       (case> (#/.Success +30) #1 _ #0))
-                   (|> (do /.monad
-                         [f (wrap i/+)
-                          a (#/.Failure "YOLO")
-                          b (wrap +20)]
-                         (wrap (f a b)))
-                       (case> (#/.Failure "YOLO") #1 _ #0))
-                   ))
-        )))
+(def: comparison
+  (Comparison Error)
+  (function (_ ==)
+    (:: (/.equivalence ==) =)))
 
-(context: "Monad transformer"
-  (let [lift (/.lift io.monad)
-        (^open "io;.") io.monad]
-    (test "Can add error functionality to any monad."
-          (|> (io.run (do (/.ErrorT io.monad)
-                        [a (lift (io;wrap +123))
-                         b (wrap +456)]
-                        (wrap (i/+ a b))))
-              (case> (#/.Success +579)
-                     #1
-                     
-                     _
-                     #0)))))
+(def: #export (error element)
+  (All [a] (-> (Random a) (Random (Error a))))
+  ($_ r.or
+      (r.ascii 10)
+      element))
+
+(def: #export test
+  Test
+  (<| (_.context (%name (name-of /.Error)))
+      ($_ _.and
+          (equivalenceT.test (/.equivalence nat.equivalence) (..error r.nat))
+          (functorT.laws ..injection ..comparison /.functor)
+          (applyT.laws ..injection ..comparison /.apply)
+          (monadT.laws ..injection ..comparison /.monad)
+          (do r.monad
+            [left r.nat
+             right r.nat
+             #let [expected (n/+ left right)
+                   (^open "io@.") io.monad]]
+            (let []
+              (_.test "Can add error functionality to any monad."
+                      (let [lift (/.lift io.monad)]
+                        (|> (do (/.with io.monad)
+                              [a (lift (io@wrap left))
+                               b (wrap right)]
+                              (wrap (n/+ a b)))
+                            io.run
+                            (case> (#/.Success actual)
+                                   (n/= expected actual)
+
+                                   _
+                                   #0))))))
+          )))
