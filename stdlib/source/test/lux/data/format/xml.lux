@@ -1,23 +1,27 @@
 (.module:
-  [lux #*
+  [lux (#- char)
+   data/text/format
+   ["_" test (#+ Test)]
    [control
+    pipe
     [monad (#+ Monad do)]
     ["p" parser]
-    pipe]
+    {[0 #test]
+     [/
+      ["$." equivalence]
+      ["$." codec]]}]
    [data
     ["." name]
     ["E" error]
     ["." maybe]
-    ["." text ("#;." equivalence)
-     format]
-    [format
-     ["&" xml]]
+    ["." text ("#@." equivalence)]
     [collection
-     ["dict" dictionary]
-     ["." list ("#;." functor)]]]
+     ["." dictionary]
+     ["." list ("#@." functor)]]]
    [math
-    ["r" random ("#;." monad)]]]
-  lux/test)
+    ["r" random (#+ Random) ("#@." monad)]]]
+  {1
+   ["." / (#+ XML)]})
 
 (def: char-range
   Text
@@ -25,97 +29,84 @@
           "abcdefghijklmnopqrstuvwxyz"
           "ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
 
-(def: xml-char^
-  (r.Random Nat)
+(def: char
+  (Random Nat)
   (do r.monad
     [idx (|> r.nat (:: @ map (n/% (text.size char-range))))]
     (wrap (maybe.assume (text.nth idx char-range)))))
 
-(def: (size^ bottom top)
-  (-> Nat Nat (r.Random Nat))
+(def: (size bottom top)
+  (-> Nat Nat (Random Nat))
   (let [constraint (|>> (n/% top) (n/max bottom))]
-    (r;map constraint r.nat)))
+    (r@map constraint r.nat)))
 
-(def: (xml-text^ bottom top)
-  (-> Nat Nat (r.Random Text))
+(def: (text bottom top)
+  (-> Nat Nat (Random Text))
   (do r.monad
-    [size (size^ bottom top)]
-    (r.text xml-char^ size)))
+    [size (..size bottom top)]
+    (r.text ..char size)))
 
 (def: xml-identifier^
-  (r.Random Name)
-  (r.and (xml-text^ 0 10)
-         (xml-text^ 1 10)))
+  (Random Name)
+  (r.and (..text 0 10)
+         (..text 1 10)))
 
-(def: gen-xml
-  (r.Random &.XML)
-  (r.rec (function (_ gen-xml)
-           (r.or (xml-text^ 1 10)
+(def: #export xml
+  (Random XML)
+  (r.rec (function (_ xml)
+           (r.or (..text 1 10)
                  (do r.monad
-                   [size (size^ 0 2)]
+                   [size (..size 0 2)]
                    ($_ r.and
                        xml-identifier^
-                       (r.dictionary name.hash size xml-identifier^ (xml-text^ 0 10))
-                       (r.list size gen-xml)))))))
+                       (r.dictionary name.hash size xml-identifier^ (..text 0 10))
+                       (r.list size xml)))))))
 
-(context: "XML."
-  (<| (times 100)
-      (do @
-        [sample gen-xml
-         #let [(^open "&;.") &.equivalence
-               (^open "&;.") &.codec]]
-        ($_ seq
-            (test "Every XML is equal to itself."
-                  (&;= sample sample))
+(def: #export test
+  Test
+  (<| (_.context (%name (name-of /.XML)))
+      ($_ _.and
+          ($equivalence.spec /.equivalence ..xml)
+          ($codec.spec /.equivalence /.codec ..xml)
 
-            (test "Can encode/decode XML."
-                  (|> sample &;encode &;decode
-                      (case> (#.Right result)
-                             (&;= sample result)
-
-                             (#.Left error)
-                             #0)))
-            ))))
-
-(context: "Parsing."
-  (<| (times 100)
-      (do @
-        [text (xml-text^ 1 10)
-         num-children (|> r.nat (:: @ map (n/% 5)))
-         children (r.list num-children (xml-text^ 1 10))
-         tag xml-identifier^
-         attr xml-identifier^
-         value (xml-text^ 1 10)
-         #let [node (#&.Node tag
-                             (dict.put attr value &.attrs)
-                             (list;map (|>> #&.Text) children))]]
-        ($_ seq
-            (test "Can parse text."
-                  (E.default #0
-                             (do E.monad
-                               [output (&.run (#&.Text text)
-                                              &.text)]
-                               (wrap (text;= text output)))))
-            (test "Can parse attributes."
-                  (E.default #0
-                             (do E.monad
-                               [output (|> (&.attr attr)
-                                           (p.before &.ignore)
-                                           (&.run node))]
-                               (wrap (text;= value output)))))
-            (test "Can parse nodes."
-                  (E.default #0
-                             (do E.monad
-                               [_ (|> (&.node tag)
-                                      (p.before &.ignore)
-                                      (&.run node))]
-                               (wrap #1))))
-            (test "Can parse children."
-                  (E.default #0
-                             (do E.monad
-                               [outputs (|> (&.children (p.some &.text))
-                                            (&.run node))]
-                               (wrap (:: (list.equivalence text.equivalence) =
-                                         children
-                                         outputs)))))
-            ))))
+          (do r.monad
+            [text (..text 1 10)
+             num-children (|> r.nat (:: @ map (n/% 5)))
+             children (r.list num-children (..text 1 10))
+             tag xml-identifier^
+             attr xml-identifier^
+             value (..text 1 10)
+             #let [node (#/.Node tag
+                                 (dictionary.put attr value /.attrs)
+                                 (list@map (|>> #/.Text) children))]]
+            ($_ _.and
+                (_.test "Can parse text."
+                        (E.default #0
+                                   (do E.monad
+                                     [output (/.run (#/.Text text)
+                                                    /.text)]
+                                     (wrap (text@= text output)))))
+                (_.test "Can parse attributes."
+                        (E.default #0
+                                   (do E.monad
+                                     [output (|> (/.attr attr)
+                                                 (p.before /.ignore)
+                                                 (/.run node))]
+                                     (wrap (text@= value output)))))
+                (_.test "Can parse nodes."
+                        (E.default #0
+                                   (do E.monad
+                                     [_ (|> (/.node tag)
+                                            (p.before /.ignore)
+                                            (/.run node))]
+                                     (wrap #1))))
+                (_.test "Can parse children."
+                        (E.default #0
+                                   (do E.monad
+                                     [outputs (|> (/.children (p.some /.text))
+                                                  (/.run node))]
+                                     (wrap (:: (list.equivalence text.equivalence) =
+                                               children
+                                               outputs)))))
+                ))
+          )))
