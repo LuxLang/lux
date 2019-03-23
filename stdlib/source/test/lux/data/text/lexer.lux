@@ -1,205 +1,171 @@
 (.module:
   [lux #*
+   data/text/format
+   ["_" test (#+ Test)]
    [control
-    [monad (#+ do Monad)]
     pipe
+    [monad (#+ do Monad)]
     ["p" parser]]
    [data
     ["." error (#+ Error)]
-    ["." text ("#;." equivalence)
-     format
-     ["&" lexer]]
+    ["." text ("#@." equivalence)]
     [collection
      ["." list]]]
    [math
     ["r" random]]]
-  lux/test)
+  {1
+   ["." /]})
 
-## [Utils]
 (def: (should-fail input)
   (All [a] (-> (Error a) Bit))
   (case input
-    (#.Left _) #1
-    _          #0))
+    (#error.Failure _)
+    true
+    
+    _
+    false))
 
-(def: (should-passT test input)
+(def: (should-pass reference sample)
   (-> Text (Error Text) Bit)
-  (case input
-    (#.Right output)
-    (text;= test output)
-    
-    _
-    #0))
+  (|> sample
+      (:: error.functor map (text@= reference))
+      (error.default false)))
 
-(def: (should-passL test input)
-  (-> (List Text) (Error (List Text)) Bit)
-  (let [(^open "list;.") (list.equivalence text.equivalence)]
-    (case input
-      (#.Right output)
-      (list;= test output)
-      
-      _
-      #0)))
+(def: #export test
+  Test
+  (<| (_.context (%name (name-of /.Lexer)))
+      ($_ _.and
+          (_.test "Can detect the end of the input."
+                  (|> (/.run ""
+                             /.end)
+                      (case> (#.Right _) true _ false)))
+          (do r.monad
+            [size (|> r.nat (:: @ map (|>> (n/% 100) (n/max 10))))
+             sample (r.unicode size)
+             non-sample (|> (r.unicode size)
+                            (r.filter (|>> (text@= sample) not)))]
+            ($_ _.and
+                (_.test "Won't mistake non-empty text for no more input."
+                        (|> (/.run sample
+                                   /.end)
+                            (case> (#.Left _) true _ false)))
+                (_.test "Can find literal text fragments."
+                        (and (|> (/.run sample
+                                        (/.this sample))
+                                 (case> (#.Right []) true _ false))
+                             (|> (/.run non-sample
+                                        (/.this sample))
+                                 (case> (#.Left _) true _ false))))
+                ))
+          ($_ _.and
+              (_.test "Can lex anything"
+                      (and (should-pass "A" (/.run "A"
+                                                   /.any))
+                           (should-fail (/.run ""
+                                               /.any))))
 
-(def: (should-passE test input)
-  (-> (Either Text Text) (Error (Either Text Text)) Bit)
-  (case input
-    (#.Right output)
-    (case [test output]
-      [(#.Left test) (#.Left output)]
-      (text;= test output)
+              (_.test "Can lex characters ranges."
+                      (and (should-pass "Y" (/.run "Y"
+                                                   (/.range (char "X") (char "Z"))))
+                           (should-fail (/.run "M"
+                                               (/.range (char "X") (char "Z"))))))
+              
+              (_.test "Can lex upper-case and lower-case letters."
+                      (and (should-pass "Y" (/.run "Y"
+                                                   /.upper))
+                           (should-fail (/.run "m"
+                                               /.upper))
+                           
+                           (should-pass "y" (/.run "y"
+                                                   /.lower))
+                           (should-fail (/.run "M"
+                                               /.lower))))
 
-      [(#.Right test) (#.Right output)]
-      (text;= test output)
+              (_.test "Can lex numbers."
+                      (and (should-pass "1" (/.run "1"
+                                                   /.decimal))
+                           (should-fail (/.run " "
+                                               /.decimal))
 
-      _
-      #0)
-    
-    _
-    #0))
+                           (should-pass "7" (/.run "7"
+                                                   /.octal))
+                           (should-fail (/.run "8"
+                                               /.octal))
 
-## [Tests]
-(context: "End"
-  ($_ seq
-      (test "Can detect the end of the input."
-            (|> (&.run ""
-                       &.end)
-                (case> (#.Right _) #1 _ #0)))
-      
-      (test "Won't mistake non-empty text for no more input."
-            (|> (&.run "YOLO"
-                       &.end)
-                (case> (#.Left _) #1 _ #0)))
-      ))
+                           (should-pass "1" (/.run "1"
+                                                   /.hexadecimal))
+                           (should-pass "a" (/.run "a"
+                                                   /.hexadecimal))
+                           (should-pass "A" (/.run "A"
+                                                   /.hexadecimal))
+                           (should-fail (/.run " "
+                                               /.hexadecimal))
+                           ))
 
-(context: "Literals"
-  (<| (times 100)
-      (do @
-        [size (|> r.nat (:: @ map (|>> (n/% 100) (n/max 10))))
-         sample (r.unicode size)
-         non-sample (|> (r.unicode size)
-                        (r.filter (|>> (text;= sample) not)))]
-        ($_ seq
-            (test "Can find literal text fragments."
-                  (and (|> (&.run sample
-                                  (&.this sample))
-                           (case> (#.Right []) #1 _ #0))
-                       (|> (&.run non-sample
-                                  (&.this sample))
-                           (case> (#.Left _) #1 _ #0))))
-            ))))
+              (_.test "Can lex alphabetic characters."
+                      (and (should-pass "A" (/.run "A"
+                                                   /.alpha))
+                           (should-pass "a" (/.run "a"
+                                                   /.alpha))
+                           (should-fail (/.run "1"
+                                               /.alpha))))
 
-(context: "Custom lexers"
-  ($_ seq
-      (test "Can lex anything"
-            (and (should-passT "A" (&.run "A"
-                                          &.any))
-                 (should-fail (&.run ""
-                                     &.any))))
+              (_.test "Can lex alphanumeric characters."
+                      (and (should-pass "A" (/.run "A"
+                                                   /.alpha-num))
+                           (should-pass "a" (/.run "a"
+                                                   /.alpha-num))
+                           (should-pass "1" (/.run "1"
+                                                   /.alpha-num))
+                           (should-fail (/.run " "
+                                               /.alpha-num))))
 
-      (test "Can lex characters ranges."
-            (and (should-passT "Y" (&.run "Y"
-                                          (&.range (char "X") (char "Z"))))
-                 (should-fail (&.run "M"
-                                     (&.range (char "X") (char "Z"))))))
-      
-      (test "Can lex upper-case and lower-case letters."
-            (and (should-passT "Y" (&.run "Y"
-                                          &.upper))
-                 (should-fail (&.run "m"
-                                     &.upper))
-                 
-                 (should-passT "y" (&.run "y"
-                                          &.lower))
-                 (should-fail (&.run "M"
-                                     &.lower))))
+              (_.test "Can lex white-space."
+                      (and (should-pass " " (/.run " "
+                                                   /.space))
+                           (should-fail (/.run "8"
+                                               /.space))))
+              )
+          ($_ _.and
+              (_.test "Can combine lexers sequentially."
+                      (and (|> (/.run "YO"
+                                      (p.and /.any /.any))
+                               (case> (#.Right ["Y" "O"]) true
+                                      _ false))
+                           (should-fail (/.run "Y"
+                                               (p.and /.any /.any)))))
+              
+              (_.test "Can create the opposite of a lexer."
+                      (and (should-pass "a" (/.run "a"
+                                                   (/.not (p.or /.decimal /.upper))))
+                           (should-fail (/.run "A"
+                                               (/.not (p.or /.decimal /.upper))))))
+              
+              (_.test "Can select from among a set of characters."
+                      (and (should-pass "C" (/.run "C"
+                                                   (/.one-of "ABC")))
+                           (should-fail (/.run "D"
+                                               (/.one-of "ABC")))))
 
-      (test "Can lex numbers."
-            (and (should-passT "1" (&.run "1"
-                                          &.decimal))
-                 (should-fail (&.run " "
-                                     &.decimal))
+              (_.test "Can avoid a set of characters."
+                      (and (should-pass "D" (/.run "D"
+                                                   (/.none-of "ABC")))
+                           (should-fail (/.run "C"
+                                               (/.none-of "ABC")))))
+              
+              (_.test "Can lex using arbitrary predicates."
+                      (and (should-pass "D" (/.run "D"
+                                                   (/.satisfies (function (_ c) true))))
+                           (should-fail (/.run "C"
+                                               (/.satisfies (function (_ c) false))))))
+              
+              (_.test "Can apply a lexer multiple times."
+                      (and (should-pass "0123456789ABCDEF" (/.run "0123456789ABCDEF"
+                                                                  (/.many /.hexadecimal)))
+                           (should-fail (/.run "yolo"
+                                               (/.many /.hexadecimal)))
 
-                 (should-passT "7" (&.run "7"
-                                          &.octal))
-                 (should-fail (&.run "8"
-                                     &.octal))
-
-                 (should-passT "1" (&.run "1"
-                                          &.hexadecimal))
-                 (should-passT "a" (&.run "a"
-                                          &.hexadecimal))
-                 (should-passT "A" (&.run "A"
-                                          &.hexadecimal))
-                 (should-fail (&.run " "
-                                     &.hexadecimal))
-                 ))
-
-      (test "Can lex alphabetic characters."
-            (and (should-passT "A" (&.run "A"
-                                          &.alpha))
-                 (should-passT "a" (&.run "a"
-                                          &.alpha))
-                 (should-fail (&.run "1"
-                                     &.alpha))))
-
-      (test "Can lex alphanumeric characters."
-            (and (should-passT "A" (&.run "A"
-                                          &.alpha-num))
-                 (should-passT "a" (&.run "a"
-                                          &.alpha-num))
-                 (should-passT "1" (&.run "1"
-                                          &.alpha-num))
-                 (should-fail (&.run " "
-                                     &.alpha-num))))
-
-      (test "Can lex white-space."
-            (and (should-passT " " (&.run " "
-                                          &.space))
-                 (should-fail (&.run "8"
-                                     &.space))))
-      ))
-
-(context: "Combinators"
-  ($_ seq
-      (test "Can combine lexers sequentially."
-            (and (|> (&.run "YO"
-                            (p.and &.any &.any))
-                     (case> (#.Right ["Y" "O"]) #1
-                            _ #0))
-                 (should-fail (&.run "Y"
-                                     (p.and &.any &.any)))))
-      
-      (test "Can create the opposite of a lexer."
-            (and (should-passT "a" (&.run "a"
-                                          (&.not (p.or &.decimal &.upper))))
-                 (should-fail (&.run "A"
-                                     (&.not (p.or &.decimal &.upper))))))
-      
-      (test "Can select from among a set of characters."
-            (and (should-passT "C" (&.run "C"
-                                          (&.one-of "ABC")))
-                 (should-fail (&.run "D"
-                                     (&.one-of "ABC")))))
-
-      (test "Can avoid a set of characters."
-            (and (should-passT "D" (&.run "D"
-                                          (&.none-of "ABC")))
-                 (should-fail (&.run "C"
-                                     (&.none-of "ABC")))))
-      
-      (test "Can lex using arbitrary predicates."
-            (and (should-passT "D" (&.run "D"
-                                          (&.satisfies (function (_ c) #1))))
-                 (should-fail (&.run "C"
-                                     (&.satisfies (function (_ c) #0))))))
-      
-      (test "Can apply a lexer multiple times."
-            (and (should-passT "0123456789ABCDEF" (&.run "0123456789ABCDEF"
-                                                         (&.many &.hexadecimal)))
-                 (should-fail (&.run "yolo"
-                                     (&.many &.hexadecimal)))
-
-                 (should-passT "" (&.run ""
-                                         (&.some &.hexadecimal)))))
-      ))
+                           (should-pass "" (/.run ""
+                                                  (/.some /.hexadecimal)))))
+              )
+          )))
