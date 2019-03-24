@@ -1,18 +1,16 @@
 (.module:
   [lux #*
-   [control
-    [monad (#+ do)]]
+   data/text/format
+   ["_" test (#+ Test)]
+   ["r" math/random]
+   [control/monad (#+ do)]
    [data
     ["." product]
-    ["." bit ("#;." equivalence)]
-    ["." error]
-    [text
-     format]]
-   [math
-    ["r" random]
-    ["/" modular]]
-   ["." type ("#;." equivalence)]]
-  lux/test)
+    ["." bit ("#@." equivalence)]
+    ["." error]]
+   ["." type ("#@." equivalence)]]
+  {1
+   ["." /]})
 
 (def: %3 (/.modulus +3))
 (`` (type: Mod3 (~~ (:of %3))))
@@ -43,7 +41,7 @@
         (-> Int Int Bit)
         (-> (/.Mod m) (/.Mod m) Bit)))
   (function (_ param subject)
-    (bit;= (m/? param subject)
+    (bit@= (m/? param subject)
            (i/? (value param)
                 (value subject)))))
 
@@ -59,9 +57,10 @@
         (/.mod modulus)
         (/.m/= (m/! param subject)))))
 
-(context: "Modular arithmetic."
-  (<| (times 100)
-      (do @
+(def: #export test
+  Test
+  (<| (_.context (%name (name-of /.Mod)))
+      (do r.monad
         [_normalM modulusR
          _alternativeM (|> modulusR (r.filter (|>> (i/= _normalM) not)))
          #let [normalM (|> _normalM /.from-int error.assume)
@@ -69,82 +68,72 @@
          [_param param] (modR normalM)
          [_subject subject] (modR normalM)
          #let [copyM (|> normalM /.to-int /.from-int error.assume)]]
-        ($_ seq
-            (test "Every modulus has a unique type, even if the numeric value is the same as another."
-                  (and (type;= (:of normalM)
-                               (:of normalM))
-                       (not (type;= (:of normalM)
-                                    (:of alternativeM)))
-                       (not (type;= (:of normalM)
-                                    (:of copyM)))))
-            
-            (test "Can extract the original integer from the modulus."
-                  (i/= _normalM
-                       (/.to-int normalM)))
-            
-            (test "Can compare mod'ed values."
-                  (and (/.m/= subject subject)
-                       ((comparison /.m/= i/=) param subject)
-                       ((comparison /.m/< i/<) param subject)
-                       ((comparison /.m/<= i/<=) param subject)
-                       ((comparison /.m/> i/>) param subject)
-                       ((comparison /.m/>= i/>=) param subject)))
-            
-            (test "Mod'ed values are ordered."
-                  (and (bit;= (/.m/< param subject)
-                              (not (/.m/>= param subject)))
-                       (bit;= (/.m/> param subject)
-                              (not (/.m/<= param subject)))
-                       (bit;= (/.m/= param subject)
-                              (not (or (/.m/< param subject)
-                                       (/.m/> param subject))))))
-            
-            (test "Can do arithmetic."
-                  (and ((arithmetic normalM /.m/+ i/+) param subject)
-                       ((arithmetic normalM /.m/- i/-) param subject)
-                       ((arithmetic normalM /.m/* i/*) param subject)))
+        ($_ _.and
+            (_.test "Every modulus has a unique type, even if the numeric value is the same as another."
+                    (and (type@= (:of normalM)
+                                 (:of normalM))
+                         (not (type@= (:of normalM)
+                                      (:of alternativeM)))
+                         (not (type@= (:of normalM)
+                                      (:of copyM)))))
+            (_.test "Can extract the original integer from the modulus."
+                    (i/= _normalM
+                         (/.to-int normalM)))
+            (_.test "Can compare mod'ed values."
+                    (and (/.m/= subject subject)
+                         ((comparison /.m/= i/=) param subject)
+                         ((comparison /.m/< i/<) param subject)
+                         ((comparison /.m/<= i/<=) param subject)
+                         ((comparison /.m/> i/>) param subject)
+                         ((comparison /.m/>= i/>=) param subject)))
+            (_.test "Mod'ed values are ordered."
+                    (and (bit@= (/.m/< param subject)
+                                (not (/.m/>= param subject)))
+                         (bit@= (/.m/> param subject)
+                                (not (/.m/<= param subject)))
+                         (bit@= (/.m/= param subject)
+                                (not (or (/.m/< param subject)
+                                         (/.m/> param subject))))))
+            (_.test "Can do arithmetic."
+                    (and ((arithmetic normalM /.m/+ i/+) param subject)
+                         ((arithmetic normalM /.m/- i/-) param subject)
+                         ((arithmetic normalM /.m/* i/*) param subject)))
+            (_.test "Can sometimes find multiplicative inverse."
+                    (case (/.inverse subject)
+                      (#.Some subject^-1)
+                      (|> subject
+                          (/.m/* subject^-1)
+                          (/.m/= (/.mod normalM +1)))
+                      
+                      #.None
+                      #1))
+            (_.test "Can encode/decode to text."
+                    (let [(^open "mod/.") (/.codec normalM)]
+                      (case (|> subject mod/encode mod/decode)
+                        (#error.Success output)
+                        (/.m/= subject output)
 
-            (test "Can sometimes find multiplicative inverse."
-                  (case (/.inverse subject)
-                    (#.Some subject^-1)
-                    (|> subject
-                        (/.m/* subject^-1)
-                        (/.m/= (/.mod normalM +1)))
-                    
-                    #.None
-                    #1))
-
-            (test "Can encode/decode to text."
-                  (let [(^open "mod/.") (/.codec normalM)]
-                    (case (|> subject mod/encode mod/decode)
-                      (#error.Success output)
-                      (/.m/= subject output)
+                        (#error.Failure error)
+                        #0)))
+            (_.test "Can equalize 2 moduli if they are equal."
+                    (case (/.equalize (/.mod normalM _subject)
+                                      (/.mod copyM _param))
+                      (#error.Success paramC)
+                      (/.m/= param paramC)
 
                       (#error.Failure error)
-                      #0)))
+                      #0))
+            (_.test "Cannot equalize 2 moduli if they are the different."
+                    (case (/.equalize (/.mod normalM _subject)
+                                      (/.mod alternativeM _param))
+                      (#error.Success paramA)
+                      #0
 
-            (test "Can equalize 2 moduli if they are equal."
-                  (case (/.equalize (/.mod normalM _subject)
-                                    (/.mod copyM _param))
-                    (#error.Success paramC)
-                    (/.m/= param paramC)
-
-                    (#error.Failure error)
-                    #0))
-
-            (test "Cannot equalize 2 moduli if they are the different."
-                  (case (/.equalize (/.mod normalM _subject)
-                                    (/.mod alternativeM _param))
-                    (#error.Success paramA)
-                    #0
-
-                    (#error.Failure error)
-                    #1))
-
-            (test "All numbers are congruent to themselves."
-                  (/.congruent? normalM _subject _subject))
-
-            (test "If 2 numbers are congruent under a modulus, then they must also be equal under the same modulus."
-                  (bit;= (/.congruent? normalM _param _subject)
-                         (/.m/= param subject)))
+                      (#error.Failure error)
+                      #1))
+            (_.test "All numbers are congruent to themselves."
+                    (/.congruent? normalM _subject _subject))
+            (_.test "If 2 numbers are congruent under a modulus, then they must also be equal under the same modulus."
+                    (bit@= (/.congruent? normalM _param _subject)
+                           (/.m/= param subject)))
             ))))
