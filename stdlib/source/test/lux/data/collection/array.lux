@@ -1,143 +1,117 @@
 (.module:
   [lux #*
+   data/text/format
+   ["_" test (#+ Test)]
    [control
+    pipe
     [monad (#+ do Monad)]
-    pipe]
+    {[0 #test]
+     [/
+      ["$." equivalence]
+      ["$." monoid]
+      ["$." fold]
+      ["$." functor (#+ Injection)]]}]
    [data
-    ["." number]
     ["." maybe]
+    [number
+     ["." nat]]
     [collection
-     ["@" array (#+ Array)]
      ["." list]]]
    [math
-    ["r" random]]]
-  lux/test)
+    ["r" random (#+ Random)]]]
+  {1
+   ["." / (#+ Array)]})
+
+(def: injection
+  (Injection Array)
+  (|>> list /.from-list))
 
 (def: bounded-size
-  (r.Random Nat)
+  (Random Nat)
   (|> r.nat
       (:: r.monad map (|>> (n/% 100) (n/+ 1)))))
 
-(context: "Arrays and their copies"
-  (<| (times 100)
-      (do @
-        [size bounded-size
-         original (r.array size r.nat)
-         #let [clone (@.clone original)
-               copy (: (Array Nat)
-                       (@.new size))
-               manual-copy (: (Array Nat)
-                              (@.new size))]]
-        ($_ seq
-            (test "Size function must correctly return size of array."
-                  (n/= size (@.size original)))
-            (test "Cloning an array should yield and identical array, but not the same one."
-                  (and (:: (@.equivalence number.equivalence) = original clone)
-                       (not (is? original clone))))
-            (test "Full-range manual copies should give the same result as cloning."
-                  (exec (@.copy size 0 original 0 copy)
-                    (and (:: (@.equivalence number.equivalence) = original copy)
-                         (not (is? original copy)))))
-            (test "Array folding should go over all values."
-                  (exec (:: @.fold fold
-                            (function (_ x idx)
-                              (exec (@.write idx x manual-copy)
-                                (inc idx)))
-                            0
-                            original)
-                    (:: (@.equivalence number.equivalence) = original manual-copy)))
-            (test "Transformations between (full) arrays and lists shouldn't cause lose or change any values."
-                  (|> original
-                      @.to-list @.from-list
-                      (:: (@.equivalence number.equivalence) = original)))
-            ))))
+(def: #export test
+  Test
+  (<| (_.context (%name (name-of /.Array)))
+      (do r.monad
+        [size bounded-size]
+        ($_ _.and
+            ($equivalence.spec (/.equivalence nat.equivalence) (r.array size r.nat))
+            ($monoid.spec (/.equivalence nat.equivalence) /.monoid (r.array size r.nat))
+            ($functor.spec ..injection /.equivalence /.functor)
+            ($fold.spec ..injection /.equivalence /.fold)
 
-(context: "Array mutation"
-  (<| (times 100)
-      (do @
-        [size bounded-size
-         idx (:: @ map (n/% size) r.nat)
-         array (|> (r.array size r.nat)
-                   (r.filter (|>> @.to-list (list.any? n/odd?))))
-         #let [value (maybe.assume (@.read idx array))]]
-        ($_ seq
-            (test "Shouldn't be able to find a value in an unoccupied cell."
-                  (case (@.read idx (@.delete idx array))
-                    (#.Some _) #0
-                    #.None     #1))
-            (test "You should be able to access values put into the array."
-                  (case (@.read idx (@.write idx value array))
-                    (#.Some value') (n/= value' value)
-                    #.None          #0))
-            (test "All cells should be occupied on a full array."
-                  (and (n/= size (@.occupied array))
-                       (n/= 0 (@.vacant array))))
-            (test "Filtering mutates the array to remove invalid values."
-                  (exec (@.filter! n/even? array)
-                    (and (n/< size (@.occupied array))
-                         (n/> 0 (@.vacant array))
-                         (n/= size (n/+ (@.occupied array)
-                                        (@.vacant array))))))
-            ))))
-
-(context: "Finding values."
-  (<| (times 100)
-      (do @
-        [size bounded-size
-         array (|> (r.array size r.nat)
-                   (r.filter (|>> @.to-list (list.any? n/even?))))]
-        ($_ seq
-            (test "Can find values inside arrays."
-                  (|> (@.find n/even? array)
-                      (case> (#.Some _) #1
-                             #.None     #0)))
-            (test "Can find values inside arrays (with access to indices)."
-                  (|> (@.find+ (function (_ idx n)
-                                 (and (n/even? n)
-                                      (n/< size idx)))
-                               array)
-                      (case> (#.Some _) #1
-                             #.None     #0)))))))
-
-(context: "Functor"
-  (<| (times 100)
-      (do @
-        [size bounded-size
-         array (r.array size r.nat)]
-        (let [(^open ".") @.functor
-              (^open ".") (@.equivalence number.equivalence)]
-          ($_ seq
-              (test "Functor shouldn't alter original array."
-                    (let [copy (map id array)]
-                      (and (= array copy)
-                           (not (is? array copy)))))
-              (test "Functor should go over all available array elements."
-                    (let [there (map inc array)
-                          back-again (map dec there)]
-                      (and (not (= array there))
-                           (= array back-again)))))))))
-
-(context: "Monoid"
-  (<| (times 100)
-      (do @
-        [sizeL bounded-size
-         sizeR bounded-size
-         left (r.array sizeL r.nat)
-         right (r.array sizeR r.nat)
-         #let [(^open ".") @.monoid
-               (^open ".") (@.equivalence number.equivalence)
-               fusion (compose left right)]]
-        ($_ seq
-            (test "Appending two arrays should produce a new one twice as large."
-                  (n/= (n/+ sizeL sizeR) (@.size fusion)))
-            (test "First elements of fused array should equal the first array."
-                  (|> (: (Array Nat)
-                         (@.new sizeL))
-                      (@.copy sizeL 0 fusion 0)
-                      (= left)))
-            (test "Last elements of fused array should equal the second array."
-                  (|> (: (Array Nat)
-                         (@.new sizeR))
-                      (@.copy sizeR sizeL fusion 0)
-                      (= right)))
+            (do r.monad
+              [size bounded-size
+               original (r.array size r.nat)]
+              ($_ _.and
+                  (_.test "Size function must correctly return size of array."
+                          (n/= size (/.size original)))
+                  (_.test "Cloning an array should yield and identical array, but not the same one."
+                          (let [clone (/.clone original)]
+                            (and (:: (/.equivalence nat.equivalence) = original clone)
+                                 (not (is? original clone)))))
+                  (_.test "Full-range manual copies should give the same result as cloning."
+                          (let [copy (: (Array Nat)
+                                        (/.new size))]
+                            (exec (/.copy size 0 original 0 copy)
+                              (and (:: (/.equivalence nat.equivalence) = original copy)
+                                   (not (is? original copy))))))
+                  (_.test "Array folding should go over all values."
+                          (let [manual-copy (: (Array Nat)
+                                               (/.new size))]
+                            (exec (:: /.fold fold
+                                      (function (_ x idx)
+                                        (exec (/.write idx x manual-copy)
+                                          (inc idx)))
+                                      0
+                                      original)
+                              (:: (/.equivalence nat.equivalence) = original manual-copy))))
+                  (_.test "Transformations between (full) arrays and lists shouldn't cause lose or change any values."
+                          (|> original
+                              /.to-list /.from-list
+                              (:: (/.equivalence nat.equivalence) = original)))
+                  ))
+            (do r.monad
+              [size bounded-size
+               idx (:: @ map (n/% size) r.nat)
+               array (|> (r.array size r.nat)
+                         (r.filter (|>> /.to-list (list.any? n/odd?))))
+               #let [value (maybe.assume (/.read idx array))]]
+              ($_ _.and
+                  (_.test "Shouldn't be able to find a value in an unoccupied cell."
+                          (case (/.read idx (/.delete idx array))
+                            (#.Some _) false
+                            #.None     true))
+                  (_.test "You should be able to access values put into the array."
+                          (case (/.read idx (/.write idx value array))
+                            (#.Some value') (n/= value' value)
+                            #.None          false))
+                  (_.test "All cells should be occupied on a full array."
+                          (and (n/= size (/.occupied array))
+                               (n/= 0 (/.vacant array))))
+                  (_.test "Filtering mutates the array to remove invalid values."
+                          (exec (/.filter! n/even? array)
+                            (and (n/< size (/.occupied array))
+                                 (n/> 0 (/.vacant array))
+                                 (n/= size (n/+ (/.occupied array)
+                                                (/.vacant array))))))
+                  ))
+            (do r.monad
+              [size bounded-size
+               array (|> (r.array size r.nat)
+                         (r.filter (|>> /.to-list (list.any? n/even?))))]
+              ($_ _.and
+                  (_.test "Can find values inside arrays."
+                          (|> (/.find n/even? array)
+                              (case> (#.Some _) true
+                                     #.None     false)))
+                  (_.test "Can find values inside arrays (with access to indices)."
+                          (|> (/.find+ (function (_ idx n)
+                                         (and (n/even? n)
+                                              (n/< size idx)))
+                                       array)
+                              (case> (#.Some _) true
+                                     #.None     false)))))
             ))))

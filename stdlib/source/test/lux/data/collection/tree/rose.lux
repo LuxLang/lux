@@ -1,51 +1,55 @@
 (.module:
   [lux #*
+   data/text/format
+   ["_" test (#+ Test)]
    [control
-    [monad (#+ do Monad)]]
+    [monad (#+ do)]
+    {[0 #test]
+     [/
+      ["$." equivalence]
+      ["$." fold]
+      ["$." functor]]}]
    [data
-    ["." product]
-    ["." number]
-    ["." text ("#;." equivalence)
-     format]
+    [number
+     ["." nat]]
     [collection
-     ["." list ("#;." functor fold)]
-     [tree
-      ["&" rose]]]]
+     ["." list ("#@." functor fold)]]]
    [math
-    ["r" random]]]
-  lux/test)
+    ["r" random (#+ Random)]]]
+  {1
+   ["." / (#+ Tree)]})
 
-(def: gen-tree
-  (r.Random [Nat (&.Tree Nat)])
-  (r.rec
-   (function (_ gen-tree)
-     (r.either (:: r.monad map (|>> &.leaf [1]) r.nat)
-               (do r.monad
-                 [value r.nat
-                  num-children (|> r.nat (:: @ map (n/% 3)))
-                  children' (r.list num-children gen-tree)
-                  #let [size' (list;fold n/+ 0 (list;map product.left children'))
-                        children (list;map product.right children')]]
-                 (wrap [(inc size')
-                        (&.branch value children)]))
-               ))))
+(def: #export (tree size gen-value)
+  (All [a] (-> Nat (Random a) (Random (Tree a))))
+  (let [singleton (:: r.monad map /.leaf gen-value)]
+    (case size
+      0
+      singleton
+      
+      1
+      singleton
+      
+      _
+      (do r.monad
+        [value gen-value
+         children (r.list (n/+ 2 (n/% 2 size))
+                          (tree (n// 2 size) gen-value))]
+        (wrap (/.branch value children)))
+      )))
 
-(context: "Trees"
-  (<| (times 100)
-      (do @
-        [[size sample] gen-tree
-         #let [(^open "&;.") (&.equivalence number.equivalence)
-               (^open "&;.") &.fold
-               concat (function (_ addition partial) (format partial (%n addition)))]]
-        ($_ seq
-            (test "Can compare trees for equivalence."
-                  (&;= sample sample))
-
-            (test "Can flatten a tree to get all the nodes as a flat tree."
-                  (n/= size
-                       (list.size (&.flatten sample))))
-
-            (test "Can fold trees."
-                  (text;= (&;fold concat "" sample)
-                          (list;fold concat "" (&.flatten sample))))
+(def: #export test
+  Test
+  (<| (_.context (%name (name-of /.Tree)))
+      (do r.monad
+        [size (:: @ map (|>> (n/% 100) (n/max 10)) r.nat)]
+        ($_ _.and
+            ($equivalence.spec (/.equivalence nat.equivalence) (..tree size r.nat))
+            ($fold.spec /.leaf /.equivalence /.fold)
+            ($functor.spec /.leaf /.equivalence /.functor)
+            
+            (do @
+              [sample (..tree size r.nat)]
+              (_.test "Can flatten a tree to get all the nodes as a flat tree."
+                      (n/= size
+                           (list.size (/.flatten sample)))))
             ))))

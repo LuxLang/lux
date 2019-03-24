@@ -1,239 +1,193 @@
 (.module:
   [lux #*
+   data/text/format
+   ["_" test (#+ Test)]
    ["." io]
    [control
-    [monad (#+ do Monad)]
-    pipe]
+    pipe
+    [monad (#+ do)]
+    {[0 #test]
+     [/
+      ["$." equivalence]
+      ["$." monoid]
+      ["$." fold]
+      ["$." functor]
+      ["$." apply]
+      ["$." monad]]}]
    [data
-    ["." number]
     ["." bit]
     ["." product]
     ["." maybe]
-    [collection
-     ["&" list]]]
+    [number
+     ["." nat]
+     ["." int]]]
    [math
     ["r" random]]]
-  lux/test)
+  {1
+   ["." / ("#@." monad)]})
 
 (def: bounded-size
   (r.Random Nat)
   (|> r.nat
       (:: r.monad map (|>> (n/% 100) (n/+ 10)))))
 
-(context: "Lists: Part 1"
-  (<| (times 100)
-      (do @
+(def: signatures
+  Test
+  (do r.monad
+    [size bounded-size]
+    ($_ _.and
+        ($equivalence.spec (/.equivalence nat.equivalence) (r.list size r.nat))
+        ($monoid.spec (/.equivalence nat.equivalence) /.monoid (r.list size r.nat))
+        ($fold.spec /@wrap /.equivalence /.fold)
+        ($functor.spec /@wrap /.equivalence /.functor)
+        ($apply.spec /@wrap /.equivalence /.apply)
+        ($monad.spec /@wrap /.equivalence /.monad)
+
+        (do @
+          [parameter r.nat
+           subject r.nat]
+          (let [lift (/.lift io.monad)
+                (^open "io@.") io.monad
+                expected (n/+ parameter subject)]
+            (_.test "Can add list functionality to any monad."
+                    (|> (io.run (do (/.with io.monad)
+                                  [a (lift (io@wrap parameter))
+                                   b (wrap subject)]
+                                  (wrap (n/+ a b))))
+                        (case> (^ (list actual))
+                               (n/= expected actual)
+                               
+                               _
+                               false)))))
+        )))
+
+(def: #export test
+  Test
+  (<| (_.context (%name (name-of .List)))
+      (do r.monad
         [size bounded-size
+         #let [(^open "/@.") (/.equivalence nat.equivalence)
+               (^open "/@.") /.functor
+               (^open "/@.") /.monoid]
          idx (:: @ map (n/% size) r.nat)
          sample (r.list size r.nat)
          other-size bounded-size
          other-sample (r.list other-size r.nat)
-         separator r.nat
-         #let [(^open ".") (&.equivalence number.equivalence)
-               (^open "&;.") &.functor]]
-        ($_ seq
-            (test "The size function should correctly portray the size of the list."
-                  (n/= size (&.size sample)))
-
-            (test "The repeat function should produce as many elements as asked of it."
-                  (n/= size (&.size (&.repeat size []))))
-
-            (test "Reversing a list does not change it's size."
-                  (n/= (&.size sample)
-                       (&.size (&.reverse sample))))
+         separator r.nat]
+        ($_ _.and
+            ..signatures
             
-            (test "Reversing a list twice results in the original list."
-                  (= sample
-                     (&.reverse (&.reverse sample))))
+            (_.test "The size function should correctly portray the size of the list."
+                    (n/= size (/.size sample)))
+            (_.test "The repeat function should produce as many elements as asked of it."
+                    (n/= size (/.size (/.repeat size []))))
+            (_.test "Reversing a list does not change it's size."
+                    (n/= (/.size sample)
+                         (/.size (/.reverse sample))))
+            (_.test "Reversing a list twice results in the original list."
+                    (/@= sample
+                         (/.reverse (/.reverse sample))))
+            (_.test "Filtering by a predicate and its complement should result in a number of elements equal to the original list."
+                    (and (n/= (/.size sample)
+                              (n/+ (/.size (/.filter n/even? sample))
+                                   (/.size (/.filter (bit.complement n/even?) sample))))
+                         (let [[plus minus] (/.partition n/even? sample)]
+                           (n/= (/.size sample)
+                                (n/+ (/.size plus)
+                                     (/.size minus))))))
+            (_.test "If every element in a list satisfies a predicate, there can't be any that satisfy its complement."
+                    (if (/.every? n/even? sample)
+                      (and (not (/.any? (bit.complement n/even?) sample))
+                           (/.empty? (/.filter (bit.complement n/even?) sample)))
+                      (/.any? (bit.complement n/even?) sample)))
+            (_.test "Any element of the list can be considered its member."
+                    (let [elem (maybe.assume (/.nth idx sample))]
+                      (/.member? nat.equivalence sample elem)))
+            (_.test "Appending the head and the tail should yield the original list."
+                    (let [head (maybe.assume (/.head sample))
+                          tail (maybe.assume (/.tail sample))]
+                      (/@= sample
+                           (#.Cons head tail))))
+            (_.test "Appending the inits and the last should yield the original list."
+                    (let [inits (maybe.assume (/.inits sample))
+                          last (maybe.assume (/.last sample))]
+                      (/@= sample
+                           (/@compose inits (list last)))))
+            (_.test "Splitting a list into chunks and re-appending them should yield the original list."
+                    (let [[left right] (/.split idx sample)
+                          [left' right'] (/.split-with n/even? sample)]
+                      (and (/@= sample
+                                (/@compose left right))
+                           (/@= sample
+                                (/@compose left' right'))
+                           (/@= sample
+                                (/@compose (/.take idx sample)
+                                           (/.drop idx sample)))
+                           (/@= sample
+                                (/@compose (/.take-while n/even? sample)
+                                           (/.drop-while n/even? sample)))
+                           )))
+            (_.test "Segmenting the list in pairs should yield as many elements as N/2."
+                    (n/= (n// 2 size)
+                         (/.size (/.as-pairs sample))))
+            (_.test "Sorting a list shouldn't change it's size."
+                    (n/= (/.size sample)
+                         (/.size (/.sort n/< sample))))
+            (_.test "Sorting a list with one order should yield the reverse of sorting it with the opposite order."
+                    (/@= (/.sort n/< sample)
+                         (/.reverse (/.sort n/> sample))))
+            (_.test "If you zip 2 lists, the result's size will be that of the smaller list."
+                    (n/= (/.size (/.zip2 sample other-sample))
+                         (n/min (/.size sample) (/.size other-sample))))
+            (_.test "I can pair-up elements of a list in order."
+                    (let [zipped (/.zip2 sample other-sample)
+                          num-zipper (/.size zipped)]
+                      (and (|> zipped (/@map product.left) (/@= (/.take num-zipper sample)))
+                           (|> zipped (/@map product.right) (/@= (/.take num-zipper other-sample))))))
+            (_.test "You can generate indices for any size, and they will be in ascending order."
+                    (let [indices (/.indices size)]
+                      (and (n/= size (/.size indices))
+                           (/@= indices
+                                (/.sort n/< indices))
+                           (/.every? (n/= (dec size))
+                                     (/.zip2-with n/+
+                                                  indices
+                                                  (/.sort n/> indices)))
+                           )))
+            (_.test "The 'interpose' function places a value between every member of a list."
+                    (let [sample+ (/.interpose separator sample)]
+                      (and (n/= (|> size (n/* 2) dec)
+                                (/.size sample+))
+                           (|> sample+ /.as-pairs (/@map product.right) (/.every? (n/= separator))))))
+            (_.test "You can find any value that satisfies some criterium, if such values exist in the list."
+                    (case (/.find n/even? sample)
+                      (#.Some found)
+                      (and (n/even? found)
+                           (/.any? n/even? sample)
+                           (not (/.every? (bit.complement n/even?) sample)))
 
-            (test "Filtering by a predicate and its complement should result in a number of elements equal to the original list."
-                  (and (n/= (&.size sample)
-                            (n/+ (&.size (&.filter n/even? sample))
-                                 (&.size (&.filter (bit.complement n/even?) sample))))
-                       (let [[plus minus] (&.partition n/even? sample)]
-                         (n/= (&.size sample)
-                              (n/+ (&.size plus)
-                                   (&.size minus))))))
-
-            (test "If every element in a list satisfies a predicate, there can't be any that satisfy its complement."
-                  (if (&.every? n/even? sample)
-                    (and (not (&.any? (bit.complement n/even?) sample))
-                         (&.empty? (&.filter (bit.complement n/even?) sample)))
-                    (&.any? (bit.complement n/even?) sample)))
-
-            (test "Any element of the list can be considered its member."
-                  (let [elem (maybe.assume (&.nth idx sample))]
-                    (&.member? number.equivalence sample elem)))
+                      #.None
+                      (and (not (/.any? n/even? sample))
+                           (/.every? (bit.complement n/even?) sample))))
+            (_.test "You can iteratively construct a list, generating values until you're done."
+                    (/@= (/.n/range 0 (dec size))
+                         (/.iterate (function (_ n) (if (n/< size n) (#.Some (inc n)) #.None))
+                                    0)))
+            (_.test "Can enumerate all elements in a list."
+                    (let [enum-sample (/.enumerate sample)]
+                      (and (/@= (/.indices (/.size enum-sample))
+                                (/@map product.left enum-sample))
+                           (/@= sample
+                                (/@map product.right enum-sample)))))
+            (do r.monad
+              [from (|> r.nat (:: @ map (n/% 10)))
+               to (|> r.nat (:: @ map (n/% 10)))]
+              (_.test "Ranges can be constructed forward and backwards."
+                      (and (/@= (/.n/range from to)
+                                (/.reverse (/.n/range to from)))
+                           (let [from (.int from)
+                                 to (.int to)
+                                 (^open "/@.") (/.equivalence int.equivalence)]
+                             (/@= (/.i/range from to)
+                                  (/.reverse (/.i/range to from)))))))
             ))))
-
-(context: "Lists: Part 2"
-  (<| (times 100)
-      (do @
-        [size bounded-size
-         idx (:: @ map (n/% size) r.nat)
-         sample (r.list size r.nat)
-         other-size bounded-size
-         other-sample (r.list other-size r.nat)
-         separator r.nat
-         #let [(^open ".") (&.equivalence number.equivalence)
-               (^open "&;.") &.functor]]
-        ($_ seq
-            (test "Appending the head and the tail should yield the original list."
-                  (let [head (maybe.assume (&.head sample))
-                        tail (maybe.assume (&.tail sample))]
-                    (= sample
-                       (#.Cons head tail))))
-
-            (test "Appending the inits and the last should yield the original list."
-                  (let [(^open ".") &.monoid
-                        inits (maybe.assume (&.inits sample))
-                        last (maybe.assume (&.last sample))]
-                    (= sample
-                       (compose inits (list last)))))
-
-            (test "Functor should go over every element of the list."
-                  (let [(^open ".") &.functor
-                        there (map inc sample)
-                        back-again (map dec there)]
-                    (and (not (= sample there))
-                         (= sample back-again))))
-
-            (test "Splitting a list into chunks and re-appending them should yield the original list."
-                  (let [(^open ".") &.monoid
-                        [left right] (&.split idx sample)
-                        [left' right'] (&.split-with n/even? sample)]
-                    (and (= sample
-                            (compose left right))
-                         (= sample
-                            (compose left' right'))
-                         (= sample
-                            (compose (&.take idx sample)
-                                     (&.drop idx sample)))
-                         (= sample
-                            (compose (&.take-while n/even? sample)
-                                     (&.drop-while n/even? sample)))
-                         )))
-
-            (test "Segmenting the list in pairs should yield as many elements as N/2."
-                  (n/= (n// 2 size)
-                       (&.size (&.as-pairs sample))))
-
-            (test "Sorting a list shouldn't change it's size."
-                  (n/= (&.size sample)
-                       (&.size (&.sort n/< sample))))
-
-            (test "Sorting a list with one order should yield the reverse of sorting it with the opposite order."
-                  (= (&.sort n/< sample)
-                     (&.reverse (&.sort n/> sample))))
-            ))))
-
-(context: "Lists: Part 3"
-  (<| (times 100)
-      (do @
-        [size bounded-size
-         idx (:: @ map (n/% size) r.nat)
-         sample (r.list size r.nat)
-         other-size bounded-size
-         other-sample (r.list other-size r.nat)
-         separator r.nat
-         from (|> r.nat (:: @ map (n/% 10)))
-         to (|> r.nat (:: @ map (n/% 10)))
-         #let [(^open ".") (&.equivalence number.equivalence)
-               (^open "&;.") &.functor]]
-        ($_ seq
-            (test "If you zip 2 lists, the result's size will be that of the smaller list."
-                  (n/= (&.size (&.zip2 sample other-sample))
-                       (n/min (&.size sample) (&.size other-sample))))
-            
-            (test "I can pair-up elements of a list in order."
-                  (let [(^open ".") &.functor
-                        zipped (&.zip2 sample other-sample)
-                        num-zipper (&.size zipped)]
-                    (and (|> zipped (map product.left) (= (&.take num-zipper sample)))
-                         (|> zipped (map product.right) (= (&.take num-zipper other-sample))))))
-            
-            (test "You can generate indices for any size, and they will be in ascending order."
-                  (let [(^open ".") &.functor
-                        indices (&.indices size)]
-                    (and (n/= size (&.size indices))
-                         (= indices
-                            (&.sort n/< indices))
-                         (&.every? (n/= (dec size))
-                                   (&.zip2-with n/+
-                                                indices
-                                                (&.sort n/> indices)))
-                         )))
-
-            (test "The 'interpose' function places a value between every member of a list."
-                  (let [(^open ".") &.functor
-                        sample+ (&.interpose separator sample)]
-                    (and (n/= (|> size (n/* 2) dec)
-                              (&.size sample+))
-                         (|> sample+ &.as-pairs (map product.right) (&.every? (n/= separator))))))
-
-            (test "List append is a monoid."
-                  (let [(^open ".") &.monoid]
-                    (and (= sample (compose identity sample))
-                         (= sample (compose sample identity))
-                         (let [[left right] (&.split size (compose sample other-sample))]
-                           (and (= sample left)
-                                (= other-sample right))))))
-
-            (test "Apply allows you to create singleton lists, and apply lists of functions to lists of values."
-                  (let [(^open ".") &.monad
-                        (^open ".") &.apply]
-                    (and (= (list separator) (wrap separator))
-                         (= (map inc sample)
-                            (apply (wrap inc) sample)))))
-
-            (test "List concatenation is a monad."
-                  (let [(^open ".") &.monad
-                        (^open ".") &.monoid]
-                    (= (compose sample other-sample)
-                       (join (list sample other-sample)))))
-
-            (test "You can find any value that satisfies some criterium, if such values exist in the list."
-                  (case (&.find n/even? sample)
-                    (#.Some found)
-                    (and (n/even? found)
-                         (&.any? n/even? sample)
-                         (not (&.every? (bit.complement n/even?) sample)))
-
-                    #.None
-                    (and (not (&.any? n/even? sample))
-                         (&.every? (bit.complement n/even?) sample))))
-
-            (test "You can iteratively construct a list, generating values until you're done."
-                  (= (&.n/range 0 (dec size))
-                     (&.iterate (function (_ n) (if (n/< size n) (#.Some (inc n)) #.None))
-                                0)))
-
-            (test "Can enumerate all elements in a list."
-                  (let [enum-sample (&.enumerate sample)]
-                    (and (= (&.indices (&.size enum-sample))
-                            (&;map product.left enum-sample))
-                         (= sample
-                            (&;map product.right enum-sample)))))
-
-            (test "Ranges can be constructed forward and backwards."
-                  (and (let [(^open "list;.") (&.equivalence number.equivalence)]
-                         (list;= (&.n/range from to)
-                                 (&.reverse (&.n/range to from))))
-                       (let [(^open "list;.") (&.equivalence number.equivalence)
-                             from (.int from)
-                             to (.int to)]
-                         (list;= (&.i/range from to)
-                                 (&.reverse (&.i/range to from))))))
-            ))))
-
-## TODO: Add again once new-luxc becomes the standard compiler.
-(context: "Monad transformer"
-  (let [lift (&.lift io.monad)
-        (^open "io;.") io.monad]
-    (test "Can add list functionality to any monad."
-          (|> (io.run (do (&.ListT io.monad)
-                        [a (lift (io;wrap +123))
-                         b (wrap +456)]
-                        (wrap (i/+ a b))))
-              (case> (^ (list +579)) #1
-                     _               #0)))))

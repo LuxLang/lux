@@ -1,98 +1,113 @@
 (.module:
   [lux #*
+   data/text/format
+   ["_" test (#+ Test)]
    [control
-    [monad (#+ do Monad)]]
+    [monad (#+ do)]
+    [order (#+ Order)]
+    {[0 #test]
+     [/
+      ["$." equivalence]]}]
    [data
-    ["." number]
-    [text
-     format]
+    [number
+     ["." nat]]
     [collection
-     ["." set
-      ["&" ordered]]
      ["." list]]]
    [math
-    ["r" random]]]
-  lux/test)
+    ["r" random (#+ Random) ("#@." monad)]]]
+  {1
+   ["." / (#+ Set)
+    ["." //]]})
 
 (def: gen-nat
   (r.Random Nat)
   (|> r.nat
       (:: r.monad map (n/% 100))))
 
-(context: "Sets"
-  (<| (times 100)
-      (do @
-        [sizeL gen-nat
-         sizeR gen-nat
-         listL (|> (r.set number.hash sizeL gen-nat) (:: @ map set.to-list))
-         listR (|> (r.set number.hash sizeR gen-nat) (:: @ map set.to-list))
-         #let [(^open "&;.") &.equivalence
-               setL (&.from-list number.order listL)
-               setR (&.from-list number.order listR)
-               sortedL (list.sort n/< listL)
-               minL (list.head sortedL)
-               maxL (list.last sortedL)]]
-        ($_ seq
-            (test "I can query the size of a set."
-                  (n/= sizeL (&.size setL)))
+(def: #export (set &order gen-value size)
+  (All [a] (-> (Order a) (Random a) Nat (Random (Set a))))
+  (case size
+    0
+    (r@wrap (/.new &order))
 
-            (test "Can query minimum value."
-                  (case [(&.min setL) minL]
-                    [#.None #.None]
-                    #1
+    _
+    (do r.monad
+      [partial (set &order gen-value (dec size))
+       value (r.filter (|>> (/.member? partial) not)
+                       gen-value)]
+      (wrap (/.add value partial)))))
 
-                    [(#.Some reference) (#.Some sample)]
-                    (n/= reference sample)
+(def: #export test
+  Test
+  (<| (_.context (%name (name-of /.Set)))
+      ($_ _.and
+          (do r.monad
+            [size gen-nat]
+            ($_ _.and
+                ($equivalence.spec /.equivalence (..set nat.order r.nat size))
+                ))
+          (do r.monad
+            [sizeL gen-nat
+             sizeR gen-nat
+             listL (|> (r.set nat.hash sizeL gen-nat) (:: @ map //.to-list))
+             listR (|> (r.set nat.hash sizeR gen-nat) (:: @ map //.to-list))
+             #let [(^open "/@.") /.equivalence
+                   setL (/.from-list nat.order listL)
+                   setR (/.from-list nat.order listR)
+                   sortedL (list.sort n/< listL)
+                   minL (list.head sortedL)
+                   maxL (list.last sortedL)]]
+            ($_ _.and
+                (_.test "I can query the size of a set."
+                        (n/= sizeL (/.size setL)))
+                (_.test "Can query minimum value."
+                        (case [(/.min setL) minL]
+                          [#.None #.None]
+                          true
 
-                    _
-                    #0))
+                          [(#.Some reference) (#.Some sample)]
+                          (n/= reference sample)
 
-            (test "Can query maximum value."
-                  (case [(&.max setL) maxL]
-                    [#.None #.None]
-                    #1
+                          _
+                          false))
+                (_.test "Can query maximum value."
+                        (case [(/.max setL) maxL]
+                          [#.None #.None]
+                          true
 
-                    [(#.Some reference) (#.Some sample)]
-                    (n/= reference sample)
+                          [(#.Some reference) (#.Some sample)]
+                          (n/= reference sample)
 
-                    _
-                    #0))
-
-            (test "Converting sets to/from lists can't change their values."
-                  (|> setL
-                      &.to-list (&.from-list number.order)
-                      (&;= setL)))
-
-            (test "Order is preserved."
-                  (let [listL (&.to-list setL)
-                        (^open "L/.") (list.equivalence number.equivalence)]
-                    (L/= listL
-                         (list.sort n/< listL))))
-
-            (test "Every set is a sub-set of the union of itself with another."
-                  (let [setLR (&.union setL setR)]
-                    (and (&.sub? setLR setL)
-                         (&.sub? setLR setR))))
-
-            (test "Every set is a super-set of the intersection of itself with another."
-                  (let [setLR (&.intersection setL setR)]
-                    (and (&.super? setLR setL)
-                         (&.super? setLR setR))))
-
-            (test "Union with the empty set leaves a set unchanged."
-                  (&;= setL
-                       (&.union (&.new number.order)
-                                setL)))
-
-            (test "Intersection with the empty set results in the empty set."
-                  (let [empty-set (&.new number.order)]
-                    (&;= empty-set
-                         (&.intersection empty-set setL))))
-
-            (test "After substracting a set A from another B, no member of A can be a member of B."
-                  (let [sub (&.difference setR setL)]
-                    (not (list.any? (&.member? sub) (&.to-list setR)))))
-
-            (test "Every member of a set must be identifiable."
-                  (list.every? (&.member? setL) (&.to-list setL)))
-            ))))
+                          _
+                          false))
+                (_.test "Converting sets to/from lists can't change their values."
+                        (|> setL
+                            /.to-list (/.from-list nat.order)
+                            (/@= setL)))
+                (_.test "Order is preserved."
+                        (let [listL (/.to-list setL)
+                              (^open "list@.") (list.equivalence nat.equivalence)]
+                          (list@= listL
+                                  (list.sort n/< listL))))
+                (_.test "Every set is a sub-set of the union of itself with another."
+                        (let [setLR (/.union setL setR)]
+                          (and (/.sub? setLR setL)
+                               (/.sub? setLR setR))))
+                (_.test "Every set is a super-set of the intersection of itself with another."
+                        (let [setLR (/.intersection setL setR)]
+                          (and (/.super? setLR setL)
+                               (/.super? setLR setR))))
+                (_.test "Union with the empty set leaves a set unchanged."
+                        (/@= setL
+                             (/.union (/.new nat.order)
+                                      setL)))
+                (_.test "Intersection with the empty set results in the empty set."
+                        (let [empty-set (/.new nat.order)]
+                          (/@= empty-set
+                               (/.intersection empty-set setL))))
+                (_.test "After substracting a set A from another B, no member of A can be a member of B."
+                        (let [sub (/.difference setR setL)]
+                          (not (list.any? (/.member? sub) (/.to-list setR)))))
+                (_.test "Every member of a set must be identifiable."
+                        (list.every? (/.member? setL) (/.to-list setL)))
+                )))))
