@@ -1,25 +1,25 @@
 (.module:
   [lux #*
-   ["." io]
+   data/text/format
+   ["r" math/random (#+ Random)]
+   ["_" test (#+ Test)]
+   [control ["." monad (#+ do)]]
+   ["." io (#+ IO)]
    [control
-    [monad (#+ do)]
     ["ex" exception (#+ exception:)]
+    [concurrency
+     ["." promise (#+ Promise Resolver)]
+     ["." frp ("#@." functor)]]
     [security
-     ["." taint]]]
-   [concurrency
-    ["." promise (#+ Promise promise)]
-    ["." frp ("#;." functor)]]
+     ["!" capability]]]
    [data
-    ["." error]
-    ["." text
-     format]]
+    ["." error (#+ Error)]
+    ["." text]]
    [world
     ["." binary]
-    ["." net
-     ["@" tcp]]]
-   [math
-    ["r" random]]]
-  lux/test
+    ["." net]]]
+  {1
+   ["." /]}
   [///
    ["_." binary]])
 
@@ -32,40 +32,42 @@
           (|>> (n/% 1000)
                (n/+ 8000)))))
 
-(context: "TCP networking."
-  (do @
-    [port ..port
-     size (|> r.nat (:: @ map (|>> (n/% 100) (n/max 10))))
-     from (_binary.binary size)
-     to (_binary.binary size)]
-    ($_ seq
-        (wrap (do promise.monad
-                [#let [from-worked? (: (Promise Bit)
-                                       (promise #.Nil))]
-                 result (promise.future
-                         (do io.monad
-                           [[server-close server] (@.server port)
-                            #let [_ (frp;map (function (_ client)
-                                               (promise.future
-                                                (do @
-                                                  [[trasmission-size transmission] (:: client read size)
-                                                   #let [_ (io.run (promise.resolve (and (n/= size trasmission-size)
-                                                                                         (:: binary.equivalence = from (taint.trust transmission)))
-                                                                                    from-worked?))]]
-                                                  (:: client write to))))
-                                             server)]
-                            client (@.client localhost port)
-                            _ (:: client write from)
-                            ####################
-                            [trasmission-size transmission] (:: client read size)
-                            #let [to-worked? (and (n/= size trasmission-size)
-                                                  (:: binary.equivalence = to (taint.trust transmission)))]
-                            ####################
-                            _ (:: client close [])
-                            _ (io.from-io (promise.resolve [] server-close))]
-                           (wrap to-worked?)))
-                 from-worked? from-worked?]
-                (assert "Can communicate between client and server."
-                        (and from-worked?
-                             (error.default #0 result)))))
-        )))
+(def: #export test
+  Test
+  (<| (_.context (%name (name-of /._)))
+      (do r.monad
+        [port ..port
+         size (|> r.nat (:: @ map (|>> (n/% 100) (n/max 10))))
+         from (_binary.binary size)
+         to (_binary.binary size)]
+        ($_ _.and
+            (wrap (do promise.monad
+                    [#let [[from-worked? from-worked!] (: [(Promise Bit) (Resolver Bit)]
+                                                          (promise.promise []))]
+                     result (promise.future
+                             (do (error.with io.monad)
+                               [[close! server] (/.server port)
+                                #let [_ (frp@map (function (_ client)
+                                                   (promise.future
+                                                    (do @
+                                                      [[trasmission-size transmission] (!.use (:: client read) size)
+                                                       #let [_ (io.run (from-worked! (and (n/= size trasmission-size)
+                                                                                          (:: binary.equivalence = from transmission))))]]
+                                                      (!.use (:: client write) to))))
+                                                 server)]
+                                client (/.client localhost port)
+                                _ (!.use (:: client write) from)
+                                ####################
+                                [trasmission-size transmission] (!.use (:: client read) size)
+                                #let [to-worked? (and (n/= size trasmission-size)
+                                                      (:: binary.equivalence = to transmission))]
+                                ####################
+                                _ (!.use (:: client close) [])
+                                _ (: (IO (Error Bit))
+                                     (error.lift io.monad (close! [])))]
+                               (wrap to-worked?)))
+                     from-worked? from-worked?]
+                    (_.assert "Can communicate between client and server."
+                              (and from-worked?
+                                   (error.default #0 result)))))
+            ))))

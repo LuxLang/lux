@@ -1,22 +1,21 @@
 (.module:
   [lux #*
-   [control
-    ["." monad (#+ do)]]
+   data/text/format
+   ["r" math/random (#+ Random)]
+   ["_" test (#+ Test)]
+   [control ["." monad (#+ do)]
+    {[0 #test]
+     [/
+      ["$." equivalence]]}]
    [data
     ["." error (#+ Error)]
-    ["." number
-     ["." i64]]
+    [number
+     ["." i64]
+     ["." nat]]
     [collection
-     ["." list]]]
-   [world
-    ["/" binary]]
-   [math
-    ["r" random]]]
-  lux/test
-  [test
-   [lux
-    [control
-     ["_eq" equivalence]]]])
+     ["." list]]]]
+  {1
+   ["." / (#+ Binary)]})
 
 (def: (succeed result)
   (-> (Error Bit) Bit)
@@ -28,7 +27,7 @@
     output))
 
 (def: #export (binary size)
-  (-> Nat (r.Random /.Binary))
+  (-> Nat (Random Binary))
   (let [output (/.create size)]
     (loop [idx 0]
       (if (n/< size idx)
@@ -39,7 +38,7 @@
         (:: r.monad wrap output)))))
 
 (def: (bits-io bytes read write value)
-  (-> Nat (-> Nat /.Binary (Error Nat)) (-> Nat Nat /.Binary (Error Any)) Nat Bit)
+  (-> Nat (-> Nat Binary (Error Nat)) (-> Nat Nat Binary (Error Any)) Nat Bit)
   (let [binary (/.create 8)
         bits (n/* 8 bytes)
         capped-value (|> 1 (i64.left-shift bits) dec (i64.and value))]
@@ -49,9 +48,10 @@
         output (read 0 binary)]
        (wrap (n/= capped-value output))))))
 
-(context: "Binary."
-  (<| (times 100)
-      (do @
+(def: #export test
+  Test
+  (<| (_.context (%name (name-of /._)))
+      (do r.monad
         [#let [gen-size (|> r.nat (:: @ map (|>> (n/% 100) (n/max 8))))]
          binary-size gen-size
          random-binary (binary binary-size)
@@ -59,30 +59,29 @@
          #let [gen-idx (|> r.nat (:: @ map (n/% binary-size)))]
          [from to] (r.and gen-idx gen-idx)
          #let [[from to] [(n/min from to) (n/max from to)]]]
-        ($_ seq
-            ## TODO: De-comment...
-            ## (_eq.spec /.equivalence (:: @ map binary gen-size))
-            (test "Can get size of binary."
-                  (|> random-binary /.size (n/= binary-size)))
-            (test "Can read/write 8-bit values."
-                  (bits-io 1 /.read/8 /.write/8 value))
-            (test "Can read/write 16-bit values."
-                  (bits-io 2 /.read/16 /.write/16 value))
-            (test "Can read/write 32-bit values."
-                  (bits-io 4 /.read/32 /.write/32 value))
-            (test "Can read/write 64-bit values."
-                  (bits-io 8 /.read/64 /.write/64 value))
-            (test "Can slice binaries."
-                  (let [slice-size (|> to (n/- from) inc)
-                        random-slice (error.assume (/.slice from to random-binary))
-                        idxs (list.n/range 0 (dec slice-size))
-                        reader (function (_ binary idx) (/.read/8 idx binary))]
-                    (and (n/= slice-size (/.size random-slice))
-                         (case [(monad.map error.monad (reader random-slice) idxs)
-                                (monad.map error.monad (|>> (n/+ from) (reader random-binary)) idxs)]
-                           [(#error.Success slice-vals) (#error.Success binary-vals)]
-                           (:: (list.equivalence number.nat-equivalence) = slice-vals binary-vals)
+        ($_ _.and
+            ($equivalence.spec /.equivalence (binary binary-size))
+            (_.test "Can get size of binary."
+                    (|> random-binary /.size (n/= binary-size)))
+            (_.test "Can read/write 8-bit values."
+                    (bits-io 1 /.read/8 /.write/8 value))
+            (_.test "Can read/write 16-bit values."
+                    (bits-io 2 /.read/16 /.write/16 value))
+            (_.test "Can read/write 32-bit values."
+                    (bits-io 4 /.read/32 /.write/32 value))
+            (_.test "Can read/write 64-bit values."
+                    (bits-io 8 /.read/64 /.write/64 value))
+            (_.test "Can slice binaries."
+                    (let [slice-size (|> to (n/- from) inc)
+                          random-slice (error.assume (/.slice from to random-binary))
+                          idxs (list.n/range 0 (dec slice-size))
+                          reader (function (_ binary idx) (/.read/8 idx binary))]
+                      (and (n/= slice-size (/.size random-slice))
+                           (case [(monad.map error.monad (reader random-slice) idxs)
+                                  (monad.map error.monad (|>> (n/+ from) (reader random-binary)) idxs)]
+                             [(#error.Success slice-vals) (#error.Success binary-vals)]
+                             (:: (list.equivalence nat.equivalence) = slice-vals binary-vals)
 
-                           _
-                           #0))))
+                             _
+                             #0))))
             ))))

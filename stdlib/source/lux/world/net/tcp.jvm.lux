@@ -3,8 +3,10 @@
    [control
     monad
     [concurrency
-     ["." promise (#+ Promise promise)]
-     ["." frp]]]
+     ["." promise (#+ Promise Resolver)]
+     ["." frp (#+ Channel Sink)]]
+    [security
+     ["!" capability]]]
    [data
     ["." error (#+ Error)]]
    [world
@@ -53,10 +55,12 @@
 
 (def: #export (async tcp)
   (-> (TCP IO) (TCP Promise))
-  (`` (structure (~~ (do-template [<capability>]
-                       [(def: <capability> (|>> (:: tcp <capability>) promise.future))]
+  (`` (structure (~~ (do-template [<capability> <forge>]
+                       [(def: <capability> (<forge> (|>> (!.use (:: tcp <capability>)) promise.future)))]
 
-                       [read] [write] [close])))))
+                       [read //.can-read]
+                       [write //.can-write]
+                       [close //.can-close])))))
 
 (`` (for {(~~ (static host.jvm))
           (as-is (def: (tcp socket)
@@ -65,24 +69,30 @@
                      [input (Socket::getInputStream socket)
                       output (Socket::getOutputStream socket)]
                      (wrap (: (TCP IO)
-                              (structure (def: (read size)
-                                           (do (error.with io.monad)
-                                             [#let [data (binary.create size)]
-                                              bytes-read (InputStream::read data +0 (.int size) input)]
-                                             (wrap [(.nat bytes-read)
-                                                    data])))
+                              (structure (def: read
+                                           (//.can-read
+                                            (function (read size)
+                                              (do (error.with io.monad)
+                                                [#let [data (binary.create size)]
+                                                 bytes-read (InputStream::read data +0 (.int size) input)]
+                                                (wrap [(.nat bytes-read)
+                                                       data])))))
                                          
-                                         (def: (write data)
-                                           (do (error.with io.monad)
-                                             [_ (OutputStream::write data +0 (.int (binary.size data))
-                                                                     output)]
-                                             (Flushable::flush output)))
+                                         (def: write
+                                           (//.can-write
+                                            (function (write data)
+                                              (do (error.with io.monad)
+                                                [_ (OutputStream::write data +0 (.int (binary.size data))
+                                                                        output)]
+                                                (Flushable::flush output)))))
 
-                                         (def: (close _)
-                                           (do (error.with io.monad)
-                                             [_ (AutoCloseable::close input)
-                                              _ (AutoCloseable::close output)]
-                                             (AutoCloseable::close socket))))))))
+                                         (def: close
+                                           (//.can-close
+                                            (function (close _)
+                                              (do (error.with io.monad)
+                                                [_ (AutoCloseable::close input)
+                                                 _ (AutoCloseable::close output)]
+                                                (AutoCloseable::close socket))))))))))
 
                  (def: #export (client address port)
                    (-> //.Address //.Port (IO (Error (TCP IO))))
@@ -91,17 +101,17 @@
                      (io.io (tcp socket))))
 
                  (def: #export (server port)
-                   (-> //.Port (IO (Error [(Promise Any)
-                                           (frp.Channel (TCP IO))])))
+                   (-> //.Port (IO (Error [(Resolver Any)
+                                           (Channel (TCP IO))])))
                    (do (error.with io.monad)
                      [server (ServerSocket::new (.int port))
-                      #let [close-signal (: (Promise Any)
-                                            (promise #.None))
+                      #let [[close-signal close-resolver] (: [(Promise Any) (Resolver Any)]
+                                                             (promise.promise []))
                             _ (promise.await (function (_ _)
                                                (AutoCloseable::close server))
                                              close-signal)
-                            output (: (frp.Channel (TCP IO))
-                                      (frp.channel []))
+                            [output sink] (: [(Channel (TCP IO)) (Sink (TCP IO))]
+                                             (frp.channel []))
                             _ (: (Promise Any)
                                  (promise.future
                                   (loop [_ []]
@@ -115,6 +125,6 @@
                                         
                                         (#error.Success client)
                                         (do @
-                                          [_ (frp.publish output client)]
+                                          [_ (:: sink feed client)]
                                           (recur [])))))))]]
-                     (wrap [close-signal output]))))}))
+                     (wrap [close-resolver output]))))}))
