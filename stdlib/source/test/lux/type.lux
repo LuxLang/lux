@@ -1,39 +1,42 @@
 (.module:
-  [lux #*
+  [lux (#- type)
+   data/text/format
+   ["M" control/monad (#+ do)]
+   ["r" math/random (#+ Random)]
+   ["_" test (#+ Test)]
    [control
-    ["M" monad (#+ do Monad)]
     pipe]
    [data
     ["." maybe]
-    [text
-     format]
     [collection
-     ["." list]]]
-   [math
-    ["r" random]]
-   ["&" type]]
-  lux/test)
+     ["." list]]]]
+  {1
+   ["." / ("#@." equivalence)]}
+  ["." / #_
+   ["#." check]
+   ["#." dynamic]
+   ["#." implicit]
+   ["#." resource]])
 
-## [Utils]
-(def: #export gen-short
+(def: short
   (r.Random Text)
   (do r.monad
     [size (|> r.nat (:: @ map (n/% 10)))]
     (r.unicode size)))
 
-(def: #export gen-name
+(def: name
   (r.Random Name)
-  (r.and gen-short gen-short))
+  (r.and ..short ..short))
 
-(def: #export gen-type
+(def: #export type
   (r.Random Type)
-  (let [(^open "R;.") r.monad]
-    (r.rec (function (_ gen-type)
-             (let [pairG (r.and gen-type gen-type)
+  (let [(^open "R@.") r.monad]
+    (r.rec (function (_ recur)
+             (let [pairG (r.and recur recur)
                    idG r.nat
-                   quantifiedG (r.and (R;wrap (list)) gen-type)]
+                   quantifiedG (r.and (R@wrap (list)) recur)]
                ($_ r.or
-                   (r.and gen-short (R;wrap (list)))
+                   (r.and ..short (R@wrap (list)))
                    pairG
                    pairG
                    pairG
@@ -43,136 +46,122 @@
                    quantifiedG
                    quantifiedG
                    pairG
-                   (r.and gen-name gen-type)
+                   (r.and ..name recur)
                    ))))))
 
-## [Tests]
-(context: "Types"
-  (<| (times 100)
-      (do @
-        [sample gen-type]
-        (test "Every type is equal to itself."
-              (:: &.equivalence = sample sample)))))
-
-(context: "Type application"
-  (test "Can apply quantified types (universal and existential quantification)."
-        (and (maybe.default #0
-                            (do maybe.monad
-                              [partial (&.apply (list Bit) Ann)
-                               full (&.apply (list Int) partial)]
-                              (wrap (:: &.equivalence = full (#.Product Bit Int)))))
-             (|> (&.apply (list Bit) Text)
-                 (case> #.None #1 _ #0)))))
-
-(context: "Naming"
-  (let [base (#.Named ["" "a"] (#.Product Bit Int))
-        aliased (#.Named ["" "c"]
-                         (#.Named ["" "b"]
-                                  base))]
-    ($_ seq
-        (test "Can remove aliases from an already-named type."
-              (:: &.equivalence =
-                  base
-                  (&.un-alias aliased)))
-
-        (test "Can remove all names from a type."
-              (and (not (:: &.equivalence =
-                            base
-                            (&.un-name aliased)))
-                   (:: &.equivalence =
-                       (&.un-name base)
-                       (&.un-name aliased)))))))
-
-(context: "Type construction [structs]"
-  (<| (times 100)
-      (do @
-        [size (|> r.nat (:: @ map (n/% 3)))
-         members (|> gen-type
-                     (r.filter (function (_ type)
-                                 (case type
-                                   (^or (#.Sum _) (#.Product _))
-                                   #0
-
-                                   _
-                                   #1)))
-                     (list.repeat size)
-                     (M.seq @))
-         #let [(^open "&;.") &.equivalence
-               (^open "L;.") (list.equivalence &.equivalence)]]
-        (with-expansions
-          [<struct-tests> (do-template [<desc> <ctor> <dtor> <unit>]
-                            [(test (format "Can build and tear-down " <desc> " types.")
-                                   (let [flat (|> members <ctor> <dtor>)]
-                                     (or (L;= members flat)
-                                         (and (L;= (list) members)
-                                              (L;= (list <unit>) flat)))))]
-
-                            ["variant" &.variant &.flatten-variant Nothing]
-                            ["tuple"   &.tuple   &.flatten-tuple   Any]
-                            )]
-          ($_ seq
-              <struct-tests>
-              )))))
-
-(context: "Type construction [parameterized]"
-  (<| (times 100)
-      (do @
-        [size (|> r.nat (:: @ map (n/% 3)))
-         members (M.seq @ (list.repeat size gen-type))
-         extra (|> gen-type
-                   (r.filter (function (_ type)
-                               (case type
-                                 (^or (#.Function _) (#.Apply _))
-                                 #0
-
-                                 _
-                                 #1))))
-         #let [(^open "&;.") &.equivalence
-               (^open "L;.") (list.equivalence &.equivalence)]]
-        ($_ seq
-            (test "Can build and tear-down function types."
-                  (let [[inputs output] (|> (&.function members extra) &.flatten-function)]
-                    (and (L;= members inputs)
-                         (&;= extra output))))
-
-            (test "Can build and tear-down application types."
-                  (let [[tfunc tparams] (|> extra (&.application members) &.flatten-application)]
-                    (n/= (list.size members) (list.size tparams))))
-            ))))
-
-(context: "Type construction [higher order]"
-  (<| (times 100)
-      (do @
-        [size (|> r.nat (:: @ map (n/% 3)))
-         extra (|> gen-type
-                   (r.filter (function (_ type)
-                               (case type
-                                 (^or (#.UnivQ _) (#.ExQ _))
-                                 #0
-
-                                 _
-                                 #1))))
-         #let [(^open "&;.") &.equivalence]]
-        (with-expansions
-          [<quant-tests> (do-template [<desc> <ctor> <dtor>]
-                           [(test (format "Can build and tear-down " <desc> " types.")
-                                  (let [[flat-size flat-body] (|> extra (<ctor> size) <dtor>)]
-                                    (and (n/= size flat-size)
-                                         (&;= extra flat-body))))]
-
-                           ["universally-quantified"   &.univ-q &.flatten-univ-q]
-                           ["existentially-quantified" &.ex-q   &.flatten-ex-q]
-                           )]
-          ($_ seq
-              <quant-tests>
-              )))))
-
-(def: extraction
+(def: #export test
   Test
-  (_.test "Can extract types."
-          (let [example (: (Maybe Nat)
-                           #.Nonae)]
-            (type;= (type (List Nat))
-                    (:by-example [a]
-                                 {(Maybe a) example}
-                                 (List a))))))
+  (<| (_.context (%name (name-of /._)))
+      ($_ _.and
+          (do r.monad
+            [sample ..type]
+            (_.test "Every type is equal to itself."
+                    (:: /.equivalence = sample sample)))
+          (_.test "Can apply quantified types (universal and existential quantification)."
+                  (and (maybe.default #0
+                                      (do maybe.monad
+                                        [partial (/.apply (list Bit) Ann)
+                                         full (/.apply (list Int) partial)]
+                                        (wrap (:: /.equivalence = full (#.Product Bit Int)))))
+                       (|> (/.apply (list Bit) Text)
+                           (case> #.None #1 _ #0))))
+          (let [base (#.Named ["" "a"] (#.Product Bit Int))
+                aliased (#.Named ["" "c"]
+                                 (#.Named ["" "b"]
+                                          base))]
+            ($_ _.and
+                (_.test "Can remove aliases from an already-named type."
+                        (:: /.equivalence =
+                            base
+                            (/.un-alias aliased)))
+                (_.test "Can remove all names from a type."
+                        (and (not (:: /.equivalence =
+                                      base
+                                      (/.un-name aliased)))
+                             (:: /.equivalence =
+                                 (/.un-name base)
+                                 (/.un-name aliased))))))
+          (do r.monad
+            [size (|> r.nat (:: @ map (n/% 3)))
+             members (|> ..type
+                         (r.filter (function (_ type)
+                                     (case type
+                                       (^or (#.Sum _) (#.Product _))
+                                       #0
+
+                                       _
+                                       #1)))
+                         (list.repeat size)
+                         (M.seq @))
+             #let [(^open "/@.") /.equivalence
+                   (^open "list@.") (list.equivalence /.equivalence)]]
+            (`` ($_ _.and
+                    (~~ (do-template [<desc> <ctor> <dtor> <unit>]
+                          [(_.test (format "Can build and tear-down " <desc> " types.")
+                                   (let [flat (|> members <ctor> <dtor>)]
+                                     (or (list@= members flat)
+                                         (and (list@= (list) members)
+                                              (list@= (list <unit>) flat)))))]
+
+                          ["variant" /.variant /.flatten-variant Nothing]
+                          ["tuple"   /.tuple   /.flatten-tuple   Any]
+                          ))
+                    )))
+          (do r.monad
+            [size (|> r.nat (:: @ map (n/% 3)))
+             members (M.seq @ (list.repeat size ..type))
+             extra (|> ..type
+                       (r.filter (function (_ type)
+                                   (case type
+                                     (^or (#.Function _) (#.Apply _))
+                                     #0
+
+                                     _
+                                     #1))))
+             #let [(^open "/@.") /.equivalence
+                   (^open "list@.") (list.equivalence /.equivalence)]]
+            ($_ _.and
+                (_.test "Can build and tear-down function types."
+                        (let [[inputs output] (|> (/.function members extra) /.flatten-function)]
+                          (and (list@= members inputs)
+                               (/@= extra output))))
+
+                (_.test "Can build and tear-down application types."
+                        (let [[tfunc tparams] (|> extra (/.application members) /.flatten-application)]
+                          (n/= (list.size members) (list.size tparams))))
+                ))
+          (do r.monad
+            [size (|> r.nat (:: @ map (n/% 3)))
+             extra (|> ..type
+                       (r.filter (function (_ type)
+                                   (case type
+                                     (^or (#.UnivQ _) (#.ExQ _))
+                                     #0
+
+                                     _
+                                     #1))))
+             #let [(^open "/@.") /.equivalence]]
+            (`` ($_ _.and
+                    (~~ (do-template [<desc> <ctor> <dtor>]
+                          [(_.test (format "Can build and tear-down " <desc> " types.")
+                                   (let [[flat-size flat-body] (|> extra (<ctor> size) <dtor>)]
+                                     (and (n/= size flat-size)
+                                          (/@= extra flat-body))))]
+
+                          ["universally-quantified"   /.univ-q /.flatten-univ-q]
+                          ["existentially-quantified" /.ex-q   /.flatten-ex-q]
+                          ))
+                    )))
+          (_.test (%name (name-of /.:by-example))
+                  (let [example (: (Maybe Nat)
+                                   #.None)]
+                    (/@= (.type (List Nat))
+                         (/.:by-example [a]
+                                        {(Maybe a) example}
+                                        (List a)))))
+
+          /check.test
+          /dynamic.test
+          /implicit.test
+          /resource.test
+          )))
