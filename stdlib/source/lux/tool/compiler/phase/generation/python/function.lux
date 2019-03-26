@@ -1,0 +1,107 @@
+(.module:
+  [lux (#- function)
+   [control
+    ["." monad (#+ do)]
+    pipe]
+   [data
+    ["." product]
+    [text
+     format]
+    [collection
+     ["." list ("#@." functor fold)]]]
+   [host
+    ["_" python (#+ Expression Statement)]]]
+  ["." // #_
+   [runtime (#+ Operation Phase)]
+   ["#." reference]
+   ["#." case]
+   ["#/" //
+    ["#." reference]
+    ["#/" //
+     ["." // #_
+      [reference (#+ Register Variable)]
+      [analysis (#+ Variant Tuple Environment Arity Abstraction Application Analysis)]
+      [synthesis (#+ Synthesis)]]]]])
+
+(def: #export (apply generate [functionS argsS+])
+  (-> Phase (Application Synthesis) (Operation (Expression Any)))
+  (do ////.monad
+    [functionO (generate functionS)
+     argsO+ (monad.map @ generate argsS+)]
+    (wrap (_.apply/* functionO argsO+))))
+
+(def: #export capture
+  (///reference.foreign _.var))
+
+(def: (with-closure function-name inits function-definition)
+  (-> Text (List (Expression Any)) (Statement Any) (Operation (Expression Any)))
+  (case inits
+    #.Nil
+    (do ////.monad
+      [_ (///.save! ["" function-name]
+                    function-definition)]
+      (wrap (_.apply/* (_.var function-name) inits)))
+
+    _
+    (do ////.monad
+      [@closure (:: @ map (|>> %n (format "closure") _.var) ///.next)
+       _ (///.save! ["" (_.code @closure)]
+                    (_.def @closure
+                           (|> (list.enumerate inits)
+                               (list@map (|>> product.left ..capture)))
+                           ($_ _.then
+                               function-definition
+                               (_.return (_.var function-name)))))]
+      (wrap (_.apply/* @closure inits)))))
+
+(def: @curried (_.var "curried"))
+
+(def: input
+  (|>> inc //case.register))
+
+(def: #export (function generate [environment arity bodyS])
+  (-> Phase (Abstraction Synthesis) (Operation (Expression Any)))
+  (do ////.monad
+    [[function-name bodyO] (///.with-context
+                             (do @
+                               [function-name ///.context]
+                               (///.with-anchor (_.var function-name)
+                                 (generate bodyS))))
+     closureO+ (: (Operation (List (Expression Any)))
+                  (monad.map @ (:: //reference.system variable) environment))
+     #let [arityO (|> arity .int _.int)
+           @num-args (_.var "num_args")
+           @self (_.var function-name)
+           apply-poly (.function (_ args func)
+                        (_.apply-poly (list) args func))
+           initialize-self! (_.set (list (//case.register 0)) @self)
+           initialize! (list@fold (.function (_ post pre!)
+                                    ($_ _.then
+                                        pre!
+                                        (_.set (list (..input post)) (_.nth (|> post .int _.int) @curried))))
+                                  initialize-self!
+                                  (list.indices arity))]]
+    (with-closure function-name closureO+
+      (_.def @self (list)
+             ($_ _.then
+                 (_.set (list @num-args) (_.len/1 @curried))
+                 (_.cond (list [(|> @num-args (_.= arityO))
+                                ($_ _.then
+                                    initialize!
+                                    (_.return bodyO))]
+                               [(|> @num-args (_.> arityO))
+                                (let [arity-inputs (_.slice (_.int +0) arityO @curried)
+                                      extra-inputs (_.slice arityO @num-args @curried)]
+                                  (_.return (|> @self
+                                                (apply-poly arity-inputs)
+                                                (apply-poly extra-inputs))))])
+                         ## (|> @num-args (_.< arityO))
+                         (let [@next (_.var "next")
+                               @missing (_.var "missing")]
+                           ($_ _.then
+                               (_.def @next (list (_.poly @missing))
+                                      (_.return (|> @self (apply-poly (|> @curried (_.+ @missing))))))
+                               (_.return @next)
+                               )))
+                 )))
+    ))

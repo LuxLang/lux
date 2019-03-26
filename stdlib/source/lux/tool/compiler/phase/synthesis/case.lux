@@ -6,16 +6,17 @@
     ["." monad (#+ do)]]
    [data
     ["." product]
-    ["." bit ("#;." equivalence)]
-    ["." text ("#;." equivalence)
+    ["." bit ("#@." equivalence)]
+    ["." text ("#@." equivalence)
      format]
     [number
-     ["." frac ("#;." equivalence)]]
+     ["." frac ("#@." equivalence)]]
     [collection
-     ["." list ("#;." fold monoid)]]]]
-  ["." /// ("#;." monad)
+     ["." list ("#@." functor fold monoid)]
+     ["." set (#+ Set)]]]]
+  ["." /// ("#@." monad)
    ["#/" //
-    ["#." reference]
+    ["#." reference (#+ Variable)]
     ["#." analysis (#+ Pattern Match Analysis)]
     ["/" synthesis (#+ Path Synthesis Operation Phase)]]])
 
@@ -33,7 +34,7 @@
       
       (^template [<from> <to>]
         (<from> value)
-        (///;map (|>> (#/.Seq (#/.Test (|> value <to>))))
+        (///@map (|>> (#/.Seq (#/.Test (|> value <to>))))
                  thenC))
       ([#////analysis.Bit  #/.Bit]
        [#////analysis.Nat  (<| #/.I64 .i64)]
@@ -48,23 +49,23 @@
         thenC)
 
     (#////analysis.Complex (#////analysis.Variant [lefts right? value-pattern]))
-    (<| (///;map (|>> (#/.Seq (#/.Access (#/.Side (if right?
+    (<| (///@map (|>> (#/.Seq (#/.Access (#/.Side (if right?
                                                     (#.Right lefts)
                                                     (#.Left lefts)))))))
         (path' value-pattern end?)
-        (when> [(new> (not end?) [])] [(///;map ..clean-up)])
+        (when> [(new> (not end?) [])] [(///@map ..clean-up)])
         thenC)
 
     (#////analysis.Complex (#////analysis.Tuple tuple))
     (let [tuple::last (dec (list.size tuple))]
-      (list;fold (function (_ [tuple::lefts tuple::member] nextC)
+      (list@fold (function (_ [tuple::lefts tuple::member] nextC)
                    (let [right? (n/= tuple::last tuple::lefts)
                          end?' (and end? right?)]
-                     (<| (///;map (|>> (#/.Seq (#/.Access (#/.Member (if right?
+                     (<| (///@map (|>> (#/.Seq (#/.Access (#/.Member (if right?
                                                                        (#.Right (dec tuple::lefts))
                                                                        (#.Left tuple::lefts)))))))
                          (path' tuple::member end?')
-                         (when> [(new> (not end?') [])] [(///;map ..clean-up)])
+                         (when> [(new> (not end?') [])] [(///@map ..clean-up)])
                          nextC)))
                  thenC
                  (list.reverse (list.enumerate tuple))))
@@ -72,7 +73,7 @@
 
 (def: #export (path synthesize pattern bodyA)
   (-> Phase Pattern Analysis (Operation Path))
-  (path' pattern true (///;map (|>> #/.Then) (synthesize bodyA))))
+  (path' pattern true (///@map (|>> #/.Then) (synthesize bodyA))))
 
 (def: #export (weave leftP rightP)
   (-> Path Path Path)
@@ -96,10 +97,10 @@
         (if (<eq> leftV rightV)
           rightP
           <default>))
-      ([#/.Bit bit;=]
+      ([#/.Bit bit@=]
        [#/.I64 "lux i64 ="]
-       [#/.F64 frac;=]
-       [#/.Text text;=])
+       [#/.F64 frac@=]
+       [#/.Text text@=])
 
       (^template [<access> <side>]
         [(#/.Access (<access> (<side> leftL)))
@@ -157,14 +158,101 @@
                                                                list.reverse
                                                                (case> (#.Cons [lastP lastA] prevsPA)
                                                                       [[lastP lastA] prevsPA]
-
+                                                                      
                                                                       _
                                                                       (undefined)))]
                                (do @
                                  [lastSP (path synthesize^ lastP lastA)
                                   prevsSP+ (monad.map @ (product.uncurry (path synthesize^)) prevsPA)]
-                                 (wrap (/.branch/case [inputS (list;fold weave lastSP prevsSP+)])))))]
+                                 (wrap (/.branch/case [inputS (list@fold weave lastSP prevsSP+)])))))]
       (case [headB tailB+]
         <let>
         <if>
         <case>))))
+
+(def: #export (count-pops path)
+  (-> Path [Nat Path])
+  (case path
+    (^ (/.path/seq #/.Pop path'))
+    (let [[pops post-pops] (count-pops path')]
+      [(inc pops) post-pops])
+
+    _
+    [0 path]))
+
+(def: #export pattern-matching-error
+  "Invalid expression for pattern-matching.")
+
+(type: #export Storage
+  {#bindings (Set Variable)
+   #dependencies (Set Variable)})
+
+(def: empty
+  Storage
+  {#bindings (set.new ////reference.hash)
+   #dependencies (set.new ////reference.hash)})
+
+## TODO: Use this to declare all local variables at the beginning of
+## script functions.
+## That way, it should be possible to do cheap "let" expressions,
+## since the variable will exist before hand so no closure will need
+## to be created for it.
+## Apply this trick to JS, Python et al.
+(def: #export (storage path)
+  (-> Path Storage)
+  (loop for-path
+    [path path
+     path-storage ..empty]
+    (case path
+      (^ (/.path/bind register))
+      (update@ #bindings (set.add (#////reference.Local register))
+               path-storage)
+
+      (^or (^ (/.path/seq left right))
+           (^ (/.path/alt left right)))
+      (list@fold for-path path-storage (list left right))
+
+      (^ (/.path/then bodyS))
+      (loop for-synthesis
+        [bodyS bodyS
+         synthesis-storage path-storage]
+        (case bodyS
+          (^ (/.variant [lefts right? valueS]))
+          (for-synthesis valueS synthesis-storage)
+
+          (^ (/.tuple members))
+          (list@fold for-synthesis synthesis-storage members)
+
+          (#/.Reference (#////reference.Variable var))
+          (if (set.member? (get@ #bindings synthesis-storage) var)
+            synthesis-storage
+            (update@ #dependencies (set.add var) synthesis-storage))
+
+          (^ (/.function/apply [functionS argsS]))
+          (list@fold for-synthesis synthesis-storage (#.Cons functionS argsS))
+
+          (^ (/.function/abstraction [environment arity bodyS]))
+          (list@fold (function (_ variable storage)
+                       (for-synthesis (#/.Reference (#////reference.Variable variable))
+                                      storage))
+                     synthesis-storage
+                     environment)
+
+          (^ (/.branch/let [inputS register exprS]))
+          (list@fold for-synthesis
+                     (update@ #bindings (set.add (#////reference.Local register))
+                              synthesis-storage)
+                     (list inputS exprS))
+
+          (^ (/.branch/case [inputS pathS]))
+          (|> synthesis-storage (for-synthesis inputS) (for-path pathS))
+
+          (#/.Extension [extension argsS])
+          (list@fold for-synthesis synthesis-storage argsS)
+
+          _
+          synthesis-storage))
+
+      _
+      path-storage
+      )))

@@ -1,0 +1,402 @@
+(.module:
+  [lux (#- Code not or and list if cond int)
+   [control
+    pipe]
+   [data
+    [number
+     ["." frac]]
+    ["." text
+     format]
+    [collection
+     ["." list ("#@." functor fold)]]]
+   [macro
+    ["." template]
+    ["." code]
+    ["s" syntax (#+ syntax:)]]
+   [type
+    abstract]])
+
+(def: expression (-> Text Text) (text.enclose ["(" ")"]))
+
+(def: nest
+  (-> Text Text)
+  (|>> (format text.new-line)
+       (text.replace-all text.new-line (format text.new-line text.tab))))
+
+(abstract: #export (Code brand)
+  {}
+
+  Text
+
+  (def: #export manual
+    (-> Text Code)
+    (|>> :abstraction))
+
+  (def: #export code
+    (-> (Code Any) Text)
+    (|>> :representation))
+
+  (do-template [<type> <super>]
+    [(with-expansions [<brand> (template.identifier [<type> "'"])]
+       (`` (abstract: #export (<brand> brand) {} Any))
+       (`` (type: #export (<type> brand)
+             (<super> (<brand> brand)))))]
+    
+    [Expression Code]
+    [Computation Expression]
+    [Location Computation]
+    [Var Location]
+    [Statement Code]
+    )
+
+  (do-template [<type> <super>]
+    [(with-expansions [<brand> (template.identifier [<type> "'"])]
+       (`` (abstract: #export <brand> {} Any))
+       (`` (type: #export <type> (<super> <brand>))))]
+
+    [Literal Computation]
+    [Access Location]
+    [Loop Statement]
+    [Label Code]
+    )
+
+  (abstract: #export Single {} Any)
+  (abstract: #export Poly {} Any)
+  (abstract: #export Keyword {} Any)
+
+  (type: #export SVar (Var Single))
+  (type: #export PVar (Var Poly))
+  (type: #export KVar (Var Keyword))
+
+  (def: #export var
+    (-> Text SVar)
+    (|>> :abstraction))
+
+  (do-template [<name> <kind> <prefix>]
+    [(def: #export <name>
+       (-> SVar (Var <kind>))
+       (|>> :representation (format <prefix>) :abstraction))]
+
+    [poly    Poly    "*"]
+    [keyword Keyword "**"]
+    )
+
+  (def: #export none
+    Literal
+    (:abstraction "None"))
+
+  (def: #export bool
+    (-> Bit Literal)
+    (|>> (case> #0 "False"
+                #1 "True")
+         :abstraction))
+
+  (def: #export int
+    (-> Int Literal)
+    (|>> %i :abstraction))
+
+  (def: #export float
+    (-> Frac Literal)
+    (`` (|>> (cond> (~~ (do-template [<lux> <python>]
+                          [[(f/= <lux>)]
+                           [(new> (format "float(" text.double-quote <python> text.double-quote ")") [])]]
+
+                          [frac.positive-infinity "inf"]
+                          [frac.negative-infinity "-inf"]
+                          [frac.not-a-number "nan"]
+                          ))
+                    
+                    ## else
+                    [%f])
+             :abstraction)))
+
+  (def: #export string
+    (-> Text Literal)
+    (|>> (text.enclose' text.double-quote) :abstraction))
+
+  (def: (composite-literal left-delimiter right-delimiter entry-serializer)
+    (All [a]
+      (-> Text Text (-> a Text)
+          (-> (List a) Literal)))
+    (function (_ entries)
+      (<| :abstraction
+          ..expression
+          (format left-delimiter
+                  (|> entries (list@map entry-serializer) (text.join-with ","))
+                  right-delimiter))))
+
+  (do-template [<name> <pre> <post>]
+    [(def: #export <name>
+       (-> (List (Expression Any)) Literal)
+       (composite-literal <pre> <post> ..code))]
+
+    [tuple "(" ")"]
+    [list  "[" "]"]
+    )
+
+  (def: #export (slice from to list)
+    (-> (Expression Any) (Expression Any) (Expression Any) Access)
+    (<| :abstraction
+        ..expression
+        (format (:representation list) "[" (:representation from) ":" (:representation to) "]")))
+
+  (def: #export (slice-from from list)
+    (-> (Expression Any) (Expression Any) Access)
+    (<| :abstraction
+        ..expression
+        (format (:representation list) "[" (:representation from) ":]")))
+
+  (def: #export dict
+    (-> (List [(Expression Any) (Expression Any)]) (Computation Any))
+    (composite-literal "{" "}" (.function (_ [k v]) (format (:representation k) " : " (:representation v)))))
+
+  (def: #export (apply/* func args)
+    (-> (Expression Any) (List (Expression Any)) (Computation Any))
+    (<| :abstraction
+        ..expression
+        (format (:representation func) "(" (text.join-with "," (list@map ..code args)) ")")))
+
+  (do-template [<name> <kind> <prefix>]
+    [(def: (<name> var)
+       (-> (Expression Any) Text)
+       (format <prefix> (:representation var)))]
+
+    [splat-poly    Poly    "*"]
+    [splat-keyword Keyword "**"]
+    )
+
+  (do-template [<name> <splat>]
+    [(def: #export (<name> args extra func)
+       (-> (List (Expression Any)) (Expression Any) (Expression Any) (Computation Any))
+       (<| :abstraction
+           ..expression
+           (format (:representation func)
+                   (format "(" (|> args
+                                   (list@map (function (_ arg) (format (:representation arg) ", ")))
+                                   (text.join-with ""))
+                           (<splat> extra) ")"))))]
+
+    [apply-poly    splat-poly]
+    [apply-keyword splat-keyword]
+    )
+
+  (def: #export (the name object)
+    (-> Text (Expression Any) (Computation Any))
+    (:abstraction (format (:representation object) "." name)))
+
+  (def: #export (do method args object)
+    (-> Text (List (Expression Any)) (Expression Any) (Computation Any))
+    (..apply/* (..the method object) args))
+
+  (do-template [<name> <apply>]
+    [(def: #export (<name> args extra method)
+       (-> (List (Expression Any)) (Expression Any) Text
+           (-> (Expression Any) (Computation Any)))
+       (|>> (..the method) (<apply> args extra)))]
+
+    [do-poly    apply-poly]
+    [do-keyword apply-keyword]
+    )
+
+  (def: #export (nth idx array)
+    (-> (Expression Any) (Expression Any) Location)
+    (:abstraction (format (:representation array) "[" (:representation idx) "]")))
+
+  (def: #export (? test then else)
+    (-> (Expression Any) (Expression Any) (Expression Any) (Computation Any))
+    (<| :abstraction
+        ..expression
+        (format (:representation then) " if " (:representation test) " else " (:representation else))))
+
+  (do-template [<name> <op>]
+    [(def: #export (<name> param subject)
+       (-> (Expression Any) (Expression Any) (Computation Any))
+       (<| :abstraction
+           ..expression
+           (format (:representation subject) " " <op> " " (:representation param))))]
+
+    [is      "is"]
+    [=       "=="]
+    [<       "<"]
+    [<=      "<="]
+    [>       ">"]
+    [>=      ">="]
+    [+       "+"]
+    [-       "-"]
+    [*       "*"]
+    [/       "/"]
+    [%       "%"]
+    [**      "**"]
+    [bit-or  "|"]
+    [bit-and "&"]
+    [bit-xor "^"]
+    [bit-shl "<<"]
+    [bit-shr ">>"]
+
+    [or      "or"]
+    [and     "and"]
+    )
+
+  (def: #export (not subject)
+    (-> (Expression Any) (Computation Any))
+    (<| :abstraction
+        ..expression
+        (format "not " (:representation subject))))
+
+  (def: #export (lambda arguments body)
+    (-> (List (Var Any)) (Expression Any) (Computation Any))
+    (<| :abstraction
+        ..expression
+        (format "lambda " (|> arguments (list@map ..code) (text.join-with ", ")) ": "
+                (:representation body))))
+
+  (def: #export (set vars value)
+    (-> (List (Location Any)) (Expression Any) (Statement Any))
+    (:abstraction
+     (format (|> vars (list@map ..code) (text.join-with ", "))
+             " = "
+             (:representation value))))
+
+  (def: #export (delete where)
+    (-> (Location Any) (Statement Any))
+    (:abstraction (format "del " (:representation where))))
+
+  (def: #export (if test then! else!)
+    (-> (Expression Any) (Statement Any) (Statement Any) (Statement Any))
+    (:abstraction
+     (format "if " (:representation test) ":"
+             (..nest (:representation then!))
+             text.new-line "else:"
+             (..nest (:representation else!)))))
+
+  (def: #export (when test then!)
+    (-> (Expression Any) (Statement Any) (Statement Any))
+    (:abstraction
+     (format "if " (:representation test) ":"
+             (..nest (:representation then!)))))
+
+  (def: #export (then pre! post!)
+    (-> (Statement Any) (Statement Any) (Statement Any))
+    (:abstraction
+     (format (:representation pre!)
+             text.new-line
+             (:representation post!))))
+
+  (do-template [<keyword> <0>]
+    [(def: #export <0>
+       Statement
+       (:abstraction <keyword>))]
+
+    ["break"    break]
+    ["continue" continue]
+    )
+
+  (def: #export (while test body!)
+    (-> (Expression Any) (Statement Any) Loop)
+    (:abstraction
+     (format "while " (:representation test) ":"
+             (..nest (:representation body!)))))
+
+  (def: #export (for-in var inputs body!)
+    (-> SVar (Expression Any) (Statement Any) Loop)
+    (:abstraction
+     (format "for " (:representation var) " in " (:representation inputs) ":"
+             (..nest (:representation body!)))))
+
+  (def: #export (statement expression)
+    (-> (Expression Any) (Statement Any))
+    (:abstraction
+     (format (:representation expression) ";")))
+
+  (def: #export no-op!
+    (Statement Any)
+    (:abstraction text.new-line))
+
+  (type: #export Except
+    {#classes (List SVar)
+     #exception SVar
+     #handler (Statement Any)})
+  
+  (def: #export (try body! excepts)
+    (-> (Statement Any) (List Except) (Statement Any))
+    (:abstraction
+     (format "try:"
+             (..nest (:representation body!))
+             (|> excepts
+                 (list@map (function (_ [classes exception catch!])
+                             (format text.new-line "except (" (text.join-with "," (list@map ..code classes))
+                                     ") as " (:representation exception) ":"
+                                     (..nest (:representation catch!)))))
+                 (text.join-with "")))))
+
+  (do-template [<name> <keyword>]
+    [(def: #export (<name> message)
+       (-> (Expression Any) (Statement Any))
+       (:abstraction
+        (format <keyword> " " (:representation message))))]
+
+    [raise  "raise"]
+    [return "return"]
+    [print  "print"]
+    )
+  
+  (def: #export (def name args body)
+    (-> SVar (List (Ex [k] (Var k))) (Statement Any) (Statement Any))
+    (:abstraction
+     (format "def " (:representation name)
+             "(" (|> args (list@map ..code) (text.join-with ",")) "):"
+             (..nest (:representation body)))))
+
+  (def: #export (import module-name)
+    (-> Text (Statement Any))
+    (:abstraction (format "import " module-name)))
+  )
+
+(def: #export (cond clauses else!)
+  (-> (List [(Expression Any) (Statement Any)]) (Statement Any) (Statement Any))
+  (list@fold (.function (_ [test then!] next!)
+               (..if test then! next!))
+             else!
+             (list.reverse clauses)))
+
+(syntax: (arity-inputs {arity s.nat})
+  (wrap (case arity
+          0 (.list)
+          _ (|> (dec arity)
+                (list.n/range 0)
+                (list@map (|>> %n code.local-identifier))))))
+
+(syntax: (arity-types {arity s.nat})
+  (wrap (list.repeat arity (` (Expression Any)))))
+
+(do-template [<arity> <function>+]
+  [(with-expansions [<apply> (template.identifier ["apply/" <arity>])
+                     <inputs> (arity-inputs <arity>)
+                     <types> (arity-types <arity>)
+                     <definitions> (template.splice <function>+)]
+     (def: #export (<apply> function <inputs>)
+       (-> (Expression Any) <types> (Computation Any))
+       (..apply/* function (.list <inputs>)))
+
+     (do-template [<function>]
+       [(`` (def: #export (~~ (template.identifier [<function> "/" <arity>]))
+              (<apply> (..var <function>))))]
+
+       <definitions>))]
+
+  [1
+   [["str"]
+    ["ord"]
+    ["float"]
+    ["int"]
+    ["len"]
+    ["chr"]
+    ["repr"]
+    ["Exception"]]]
+
+  [2
+   []]
+
+  [3
+   []]
+  )

@@ -1,77 +1,29 @@
 (.module:
   [lux #*
    [control
-    ["." monad (#+ do)]
-    ["ex" exception (#+ exception:)]]
+    ["." monad (#+ do)]]
    [data
-    ["e" error]
     ["." product]
-    [number (#+ hex)]
     [collection
-     ["." list ("#;." functor)]
      ["." dictionary]]]
-   ["." macro (#+ with-gensyms)
-    ["." code]
-    ["s" syntax (#+ syntax:)]]
    [host (#+ import:)
-    ["_" js (#+ Expression Computation)]]]
+    ["_" js (#+ Expression)]]]
   ["." /// #_
    ["#." runtime (#+ Operation Phase Handler Bundle)]
    ["#." primitive]
-   ["#//" ///
-    ["#." extension
-     ["." bundle]]
-    ["#/" // #_
-     [synthesis (#+ Synthesis)]]]])
-
-(syntax: (Vector {size s.nat} elemT)
-  (wrap (list (` [(~+ (list.repeat size elemT))]))))
-
-(type: #export Nullary (-> (Vector 0 Expression) Computation))
-(type: #export Unary   (-> (Vector 1 Expression) Computation))
-(type: #export Binary  (-> (Vector 2 Expression) Computation))
-(type: #export Trinary (-> (Vector 3 Expression) Computation))
-(type: #export Variadic (-> (List Expression) Computation))
-
-(syntax: (arity: {name s.local-identifier} {arity s.nat})
-  (with-gensyms [g!_ g!extension g!name g!phase g!inputs]
-    (do @
-      [g!input+ (monad.seq @ (list.repeat arity (macro.gensym "input")))]
-      (wrap (list (` (def: #export ((~ (code.local-identifier name)) (~ g!extension))
-                       (-> (-> (..Vector (~ (code.nat arity)) Expression) Computation)
-                           Handler)
-                       (function ((~ g!_) (~ g!name) (~ g!phase) (~ g!inputs))
-                         (case (~ g!inputs)
-                           (^ (list (~+ g!input+)))
-                           (do /////.monad
-                             [(~+ (|> g!input+
-                                      (list;map (function (_ g!input)
-                                                  (list g!input (` ((~ g!phase) (~ g!input))))))
-                                      list.concat))]
-                             ((~' wrap) ((~ g!extension) [(~+ g!input+)])))
-
-                           (~' _)
-                           (/////.throw /////extension.incorrect-arity [(~ g!name) 1 (list.size (~ g!inputs))]))))))))))
-
-(arity: nullary 0)
-(arity: unary 1)
-(arity: binary 2)
-(arity: trinary 3)
-
-(def: #export (variadic extension)
-  (-> Variadic Handler)
-  (function (_ extension-name)
-    (function (_ phase inputsS)
-      (do /////.monad
-        [inputsI (monad.map @ phase inputsS)]
-        (wrap (extension inputsI))))))
+   [//
+    [extension (#+ Nullary Unary Binary Trinary
+                   nullary unary binary trinary)]
+    [//
+     [extension
+      ["." bundle]]]]])
 
 ## [Procedures]
 ## [[Bits]]
 (do-template [<name> <op>]
-  [(def: (<name> [paramJS subjectJS])
-     Binary
-     (<op> subjectJS (///runtime.i64//to-number paramJS)))]
+  [(def: (<name> [paramG subjectG])
+     (Binary Expression)
+     (<op> subjectG (///runtime.i64//to-number paramG)))]
 
   [i64//left-shift             ///runtime.i64//left-shift]
   [i64//arithmetic-right-shift ///runtime.i64//arithmetic-right-shift]
@@ -85,7 +37,7 @@
 
 (do-template [<name> <const>]
   [(def: (<name> _)
-     Nullary
+     (Nullary Expression)
      (///primitive.f64 <const>))]
 
   [frac//smallest (java/lang/Double::MIN_VALUE)]
@@ -94,7 +46,7 @@
   )
 
 (def: frac//decode
-  Unary
+  (Unary Expression)
   (|>> list
        (_.apply/* (_.var "parseFloat"))
        _.return
@@ -102,34 +54,34 @@
        ///runtime.lux//try))
 
 (def: int//char
-  Unary
+  (Unary Expression)
   (|>> ///runtime.i64//to-number
        (list)
        (_.apply/* (_.var "String.fromCharCode"))))
 
 ## [[Text]]
-(def: (text//concat [subjectJS paramJS])
-  Binary
-  (|> subjectJS (_.do "concat" (list paramJS))))
+(def: (text//concat [subjectG paramG])
+  (Binary Expression)
+  (|> subjectG (_.do "concat" (list paramG))))
 
 (do-template [<name> <runtime>]
-  [(def: (<name> [subjectJS paramJS extraJS])
-     Trinary
-     (<runtime> subjectJS paramJS extraJS))]
+  [(def: (<name> [subjectG paramG extraG])
+     (Trinary Expression)
+     (<runtime> subjectG paramG extraG))]
 
   [text//clip  ///runtime.text//clip]
   [text//index ///runtime.text//index]
   )
 
 ## [[IO]]
-(def: (io//log messageJS)
-  Unary
+(def: (io//log messageG)
+  (Unary Expression)
   ($_ _.,
-      (///runtime.io//log messageJS)
+      (///runtime.io//log messageG)
       ///runtime.unit))
 
-(def: (io//exit codeJS)
-  Unary
+(def: (io//exit codeG)
+  (Unary Expression)
   (let [@@process (_.var "process")
         @@window (_.var "window")
         @@location (_.var "location")]
@@ -137,12 +89,12 @@
         ($_ _.and
             (_.not (_.= _.undefined (_.type-of @@process)))
             (_.the "exit" @@process)
-            (_.do "exit" (list (///runtime.i64//to-number codeJS)) @@process))
+            (_.do "exit" (list (///runtime.i64//to-number codeG)) @@process))
         (_.do "close" (list) @@window)
         (_.do "reload" (list) @@location))))
 
 (def: (io//current-time _)
-  Nullary
+  (Nullary Expression)
   (|> (_.new (_.var "Date") (list))
       (_.do "getTime" (list))
       ///runtime.i64//from-number))
