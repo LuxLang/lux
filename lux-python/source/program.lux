@@ -1,0 +1,270 @@
+(.module:
+  [lux #*
+   [cli (#+ program:)]
+   ["." io (#+ IO io)]
+   [control
+    [monad (#+ do)]
+    ["." exception (#+ exception:)]]
+   [data
+    ["." maybe]
+    ["." error (#+ Error)]
+    [number
+     ["." i64]]
+    ["." text ("#@." hash)
+     format]
+    [collection
+     ["." array (#+ Array)]
+     ["." list ("#@." functor)]]]
+   [macro
+    ["." template]]
+   [world
+    ["." file]]
+   ["." host (#+ import: interface: do-to object)
+    ["_" python]]
+   [tool
+    [compiler
+     ["." name]
+     [phase
+      [macro (#+ Expander)]
+      ["." generation
+       ["." python
+        ["." runtime]
+        ["." extension]]]]
+     [default
+      ["." platform (#+ Platform)]]]]]
+  [program
+   ["/" compositor
+    ["/." cli]]])
+
+(import: #long java/lang/String)
+
+(import: #long java/lang/Object
+  (toString [] java/lang/String))
+
+(import: #long java/lang/Integer
+  (longValue [] java/lang/Long))
+
+(import: #long java/lang/Long
+  (intValue [] java/lang/Integer))
+
+(import: #long java/lang/Number
+  (intValue [] java/lang/Integer)
+  (longValue [] long)
+  (doubleValue [] double))
+
+(def: (inspect object)
+  (-> java/lang/Object Text)
+  (<| (case (host.check java/lang/Boolean object)
+        (#.Some value)
+        (%b value)
+        #.None)
+      (case (host.check java/lang/String object)
+        (#.Some value)
+        (%t value)
+        #.None)
+      (case (host.check java/lang/Long object)
+        (#.Some value)
+        (%i (.int value))
+        #.None)
+      (case (host.check java/lang/Number object)
+        (#.Some value)
+        (%f (java/lang/Number::doubleValue value))
+        #.None)
+      (case (host.check (Array java/lang/Object) object)
+        (#.Some value)
+        (let [value (:coerce (Array java/lang/Object) value)]
+          (case (array.read 0 value)
+            (^multi (#.Some tag)
+                    [(host.check java/lang/Integer tag)
+                     (#.Some tag)]
+                    [[(array.read 1 value)
+                      (array.read 2 value)]
+                     [last?
+                      (#.Some choice)]])
+            (let [last? (case last?
+                          (#.Some _) #1
+                          #.None #0)]
+              (|> (format (%n (.nat (java/lang/Integer::longValue tag)))
+                          " " (%b last?)
+                          " " (inspect choice))
+                  (text.enclose ["(" ")"])))
+
+            _
+            (|> value
+                array.to-list
+                (list@map inspect)
+                (text.join-with " ")
+                (text.enclose ["[" "]"]))))
+        #.None)
+      (java/lang/Object::toString object)))
+
+(import: #long org/python/core/PyType
+  (getName [] java/lang/String))
+
+(import: #long org/python/core/PyString
+  (new [java/lang/String]))
+
+(import: #long org/python/core/PyObject
+  (asLong [] long)
+  (asDouble [] double)
+  (asString [] java/lang/String)
+  (__nonzero__ [] boolean)
+  (__getitem__ [int] #try org/python/core/PyObject)
+  (__getitem__ #as __getitem__dict [org/python/core/PyObject] #try org/python/core/PyObject)
+  (__len__ [] int)
+  (getType [] org/python/core/PyType))
+
+(import: #long org/python/util/PythonInterpreter
+  (new [])
+  (exec [String] #try void)
+  (eval [String] #try PyObject))
+
+(type: Translator
+  (-> org/python/core/PyObject (Error Any)))
+
+(def: (tuple lux-object host-object)
+  (-> Translator Translator)
+  (let [size (|> host-object org/python/core/PyObject::__len__ .nat)]
+    (loop [idx 0
+           output (:coerce (Array Any) (array.new size))]
+      (if (n/< size idx)
+        (case (org/python/core/PyObject::__getitem__ (.int idx) host-object)
+          (#error.Failure error)
+          (#error.Failure error)
+          
+          (#error.Success value)
+          (case (lux-object value)
+            (#error.Failure error)
+            (#error.Failure error)
+
+            (#error.Success lux-value)
+            (recur (inc idx) (array.write idx lux-value output))))
+        (#error.Success output)))))
+
+(def: python-type
+  (-> org/python/core/PyObject Text)
+  (|>> org/python/core/PyObject::getType org/python/core/PyType::getName (:coerce Text)))
+
+(exception: (unknown-kind-of-object {object java/lang/Object})
+  (exception.report
+   ["Object" (java/lang/Object::toString object)]))
+
+(def: tag-field (org/python/core/PyString::new runtime.variant-tag-field))
+(def: flag-field (org/python/core/PyString::new runtime.variant-flag-field))
+(def: value-field (org/python/core/PyString::new runtime.variant-value-field))
+
+(def: (variant lux-object host-object)
+  (-> Translator Translator)
+  (case [(org/python/core/PyObject::__getitem__dict tag-field host-object)
+         (org/python/core/PyObject::__getitem__dict flag-field host-object)
+         (org/python/core/PyObject::__getitem__dict value-field host-object)]
+    (^or [(#error.Failure error) _ _] [_ (#error.Failure error) _] [_ _ (#error.Failure error)])
+    (#error.Failure error)
+    
+    (^multi [(#error.Success tag) (#error.Success flag) (#error.Success value)]
+            [(lux-object tag)
+             (#error.Success tag)]
+            [(lux-object value)
+             (#error.Success value)])
+    (#error.Success [(java/lang/Long::intValue (:coerce java/lang/Long tag))
+                     (: Any
+                        (case (python-type (:coerce org/python/core/PyObject flag))
+                          "NoneType"
+                          (host.null)
+
+                          _
+                          ""))
+                     value])
+
+    _
+    (exception.throw ..unknown-kind-of-object host-object)))
+
+(def: (lux-object host-object)
+  Translator
+  (case (python-type host-object)
+    "str"
+    (#error.Success (org/python/core/PyObject::asString host-object))
+    
+    "bool"
+    (#error.Success (org/python/core/PyObject::__nonzero__ host-object))
+
+    "float"
+    (#error.Success (org/python/core/PyObject::asDouble host-object))
+
+    (^or "int" "long")
+    (#error.Success (org/python/core/PyObject::asLong host-object))
+
+    "tuple"
+    (..tuple lux-object host-object)
+
+    "dict"
+    (..variant lux-object host-object)
+
+    "NoneType"
+    (#error.Success [])
+    
+    type
+    (exception.throw ..unknown-kind-of-object host-object)))
+
+(def: (expander macro inputs lux)
+  Expander
+  (#error.Failure "YOLO"))
+
+(def: separator "___")
+
+(type: Host
+  (generation.Host (_.Expression Any) (_.Statement Any)))
+
+(def: host
+  (IO Host)
+  (io (let [interpreter (org/python/util/PythonInterpreter::new)
+            evaluate! (: (-> Text (_.Expression Any) (Error Any))
+                         (function (evaluate! alias input)
+                           (do error.monad
+                             [output (org/python/util/PythonInterpreter::eval (_.code input) interpreter)]
+                             (..lux-object output))))
+            execute! (: (-> Text (_.Statement Any) (Error Nothing))
+                        (function (execute! alias input)
+                          (do error.monad
+                            [_ (org/python/util/PythonInterpreter::exec (_.code input) interpreter)]
+                            (wrap (:coerce Nothing [])))))]
+        (: Host
+           (structure
+            (def: evaluate! evaluate!)
+            (def: execute! execute!)
+            (def: (define! [module name] input)
+              (let [global (format (text.replace-all .module-separator ..separator module)
+                                   ..separator (name.normalize name)
+                                   "___" (%n (text@hash name)))
+                    @global (_.var global)]
+                (do error.monad
+                  [#let [definition (_.set (list @global) input)]
+                   _ (execute! global definition)
+                   value (evaluate! global @global)]
+                  (wrap [global value definition])))))))))
+
+(def: platform
+  (IO (Platform IO _.SVar (_.Expression Any) (_.Statement Any)))
+  (do io.monad
+    [host ..host]
+    (wrap {#platform.&monad io.monad
+           #platform.&file-system file.system
+           #platform.host host
+           #platform.phase python.generate
+           #platform.runtime runtime.generate})))
+
+(def: (program program)
+  (-> (_.Expression Any) (_.Statement Any))
+  ($_ _.then
+      (_.import "sys")
+      (_.when (_.= (_.string "main") (_.var "__name__"))
+              (_.statement (_.apply/2 program
+                                      (runtime.lux//program-args (|> (_.var "sys") (_.the "argv")))
+                                      _.none)))))
+
+(program: [{service /cli.service}]
+  (/.compiler ..expander
+              ..platform
+              extension.bundle
+              ..program
+              service))

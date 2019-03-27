@@ -29,8 +29,6 @@
                  ;; [net.sandius.rembulan/rembulan-compiler "0.1-SNAPSHOT"]
                  ;; ;; Ruby
                  ;; [org.jruby/jruby-complete "9.1.16.0"]
-                 ;; ;; Python
-                 ;; [org.python/jython-standalone "2.7.1"]
                  ;; ;; Scheme
                  ;; [kawa-scheme/kawa-core "2.4"]
                  ;; ;; Common Lisp
