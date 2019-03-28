@@ -3,6 +3,7 @@
    [cli (#+ program:)]
    ["." io (#+ IO io)]
    [control
+    pipe
     [monad (#+ do)]
     ["." exception (#+ exception:)]]
    [data
@@ -24,6 +25,7 @@
    [tool
     [compiler
      ["." name]
+     ["." synthesis]
      [phase
       [macro (#+ Expander)]
       ["." generation
@@ -38,8 +40,13 @@
 
 (import: #long java/lang/String)
 
+(import: #long (java/lang/Class a)
+  (getCanonicalName [] java/lang/String))
+
 (import: #long java/lang/Object
-  (toString [] java/lang/String))
+  (new [])
+  (toString [] java/lang/String)
+  (getClass [] (java/lang/Class java/lang/Object)))
 
 (import: #long java/lang/Integer
   (longValue [] java/lang/Long))
@@ -101,10 +108,19 @@
 (import: #long org/python/core/PyType
   (getName [] java/lang/String))
 
+(import: #long org/python/core/PyNone)
+(import: #long org/python/core/PyBoolean)
+(import: #long org/python/core/PyInteger)
+(import: #long org/python/core/PyLong)
+(import: #long org/python/core/PyFloat)
+(import: #long org/python/core/PyTuple)
+(import: #long org/python/core/PyList)
+
 (import: #long org/python/core/PyString
   (new [java/lang/String]))
 
 (import: #long org/python/core/PyObject
+  (asInt [] java/lang/Integer)
   (asLong [] long)
   (asDouble [] double)
   (asString [] java/lang/String)
@@ -114,6 +130,13 @@
   (__len__ [] int)
   (getType [] org/python/core/PyType))
 
+(import: #long org/python/core/PyFunction
+  (__call__ [(Array org/python/core/PyObject)] org/python/core/PyObject))
+
+(import: #long org/python/core/PyArray
+  (new [(java/lang/Class java/lang/Object) java/lang/Object])
+  (getArray [] java/lang/Object))
+
 (import: #long org/python/util/PythonInterpreter
   (new [])
   (exec [String] #try void)
@@ -122,7 +145,7 @@
 (type: Translator
   (-> org/python/core/PyObject (Error Any)))
 
-(def: (tuple lux-object host-object)
+(def: (read-tuple read host-object)
   (-> Translator Translator)
   (let [size (|> host-object org/python/core/PyObject::__len__ .nat)]
     (loop [idx 0
@@ -133,7 +156,7 @@
           (#error.Failure error)
           
           (#error.Success value)
-          (case (lux-object value)
+          (case (read value)
             (#error.Failure error)
             (#error.Failure error)
 
@@ -149,66 +172,109 @@
   (exception.report
    ["Object" (java/lang/Object::toString object)]))
 
-(def: tag-field (org/python/core/PyString::new runtime.variant-tag-field))
-(def: flag-field (org/python/core/PyString::new runtime.variant-flag-field))
-(def: value-field (org/python/core/PyString::new runtime.variant-value-field))
-
-(def: (variant lux-object host-object)
+(def: (read-variant read host-object)
   (-> Translator Translator)
-  (case [(org/python/core/PyObject::__getitem__dict tag-field host-object)
-         (org/python/core/PyObject::__getitem__dict flag-field host-object)
-         (org/python/core/PyObject::__getitem__dict value-field host-object)]
+  (case [(org/python/core/PyObject::__getitem__ +0 host-object)
+         (org/python/core/PyObject::__getitem__ +1 host-object)
+         (org/python/core/PyObject::__getitem__ +2 host-object)]
     (^or [(#error.Failure error) _ _] [_ (#error.Failure error) _] [_ _ (#error.Failure error)])
     (#error.Failure error)
     
     (^multi [(#error.Success tag) (#error.Success flag) (#error.Success value)]
-            [(lux-object tag)
+            [(read tag)
              (#error.Success tag)]
-            [(lux-object value)
+            [(read value)
              (#error.Success value)])
-    (#error.Success [(java/lang/Long::intValue (:coerce java/lang/Long tag))
+    (#error.Success [tag
                      (: Any
-                        (case (python-type (:coerce org/python/core/PyObject flag))
-                          "NoneType"
+                        (case (host.check org/python/core/PyNone flag)
+                          (#.Some _)
                           (host.null)
 
-                          _
-                          ""))
+                          #.None
+                          synthesis.unit))
                      value])
 
     _
     (exception.throw ..unknown-kind-of-object host-object)))
 
-(def: (lux-object host-object)
+(def: (read host-object)
   Translator
-  (case (python-type host-object)
-    "str"
-    (#error.Success (org/python/core/PyObject::asString host-object))
-    
-    "bool"
-    (#error.Success (org/python/core/PyObject::__nonzero__ host-object))
+  (`` (<| (~~ (do-template [<class> <processing>]
+                [(case (host.check <class> host-object)
+                   (#.Some host-object)
+                   (#error.Success (<| <processing> host-object))
 
-    "float"
-    (#error.Success (org/python/core/PyObject::asDouble host-object))
+                   _)]
 
-    (^or "int" "long")
-    (#error.Success (org/python/core/PyObject::asLong host-object))
+                [org/python/core/PyNone (new> [] [])]
+                [org/python/core/PyBoolean org/python/core/PyObject::__nonzero__]
+                [org/python/core/PyInteger org/python/core/PyObject::asInt]
+                [org/python/core/PyLong org/python/core/PyObject::asLong]
+                [org/python/core/PyFloat org/python/core/PyObject::asDouble]
+                [org/python/core/PyString org/python/core/PyObject::asString]
+                [org/python/core/PyFunction (|>)]
+                [org/python/core/PyArray org/python/core/PyArray::getArray]
+                [(Array java/lang/Object) (|>)]
+                ))
+          (~~ (do-template [<class> <processing>]
+                [(case (host.check <class> host-object)
+                   (#.Some host-object)
+                   (<| <processing> host-object)
 
-    "tuple"
-    (..tuple lux-object host-object)
+                   _)]
 
-    "dict"
-    (..variant lux-object host-object)
+                [org/python/core/PyTuple (..read-variant read)]
+                [org/python/core/PyList (..read-tuple read)]
+                ))
+          (exec (log! (java/lang/Class::getCanonicalName
+                       (java/lang/Object::getClass
+                        (:coerce java/lang/Object host-object))))
+            (log! (python-type host-object))
+            (exception.throw ..unknown-kind-of-object host-object)))))
 
-    "NoneType"
-    (#error.Success [])
-    
-    type
-    (exception.throw ..unknown-kind-of-object host-object)))
+(exception: (cannot-apply-a-non-function {object java/lang/Object})
+  (exception.report
+   ["Object" (java/lang/Object::toString object)]))
+
+(def: (ensure-macro macro)
+  (-> Macro (Maybe org/python/core/PyFunction))
+  (host.check org/python/core/PyFunction (:coerce java/lang/Object macro)))
+
+(def: object-class
+  (java/lang/Class java/lang/Object)
+  (java/lang/Object::getClass (java/lang/Object::new)))
+
+(def: to-host
+  (-> Any org/python/core/PyObject)
+  (|>> (:coerce java/lang/Object) (org/python/core/PyArray::new ..object-class)))
+
+(def: (call-macro inputs lux macro)
+  (-> (List Code) Lux org/python/core/PyFunction (Error (Error [Lux (List Code)])))
+  (<| (:coerce (Error (Error [Lux (List Code)])))
+      ..read
+      (org/python/core/PyFunction::__call__ (|> (host.array org/python/core/PyObject 2)
+                                                (host.array-write 0 (..to-host inputs))
+                                                (host.array-write 1 (..to-host lux)))
+                                            macro)))
 
 (def: (expander macro inputs lux)
   Expander
-  (#error.Failure "YOLO"))
+  (case (ensure-macro macro)
+    (#.Some macro)
+    (case (call-macro inputs lux macro)
+      (#error.Success output)
+      (|> output
+          (:coerce org/python/core/PyObject)
+          ..read
+          (:coerce (Error (Error [Lux (List Code)]))))
+
+      (#error.Failure error)
+      (#error.Failure error))
+
+    #.None
+    (exception.throw cannot-apply-a-non-function (:coerce java/lang/Object macro)))
+  )
 
 (def: separator "___")
 
@@ -222,7 +288,7 @@
                          (function (evaluate! alias input)
                            (do error.monad
                              [output (org/python/util/PythonInterpreter::eval (_.code input) interpreter)]
-                             (..lux-object output))))
+                             (..read output))))
             execute! (: (-> Text (_.Statement Any) (Error Nothing))
                         (function (execute! alias input)
                           (do error.monad
@@ -257,7 +323,7 @@
   (-> (_.Expression Any) (_.Statement Any))
   ($_ _.then
       (_.import "sys")
-      (_.when (_.= (_.string "main") (_.var "__name__"))
+      (_.when (_.= (_.string "__main__") (_.var "__name__"))
               (_.statement (_.apply/2 program
                                       (runtime.lux//program-args (|> (_.var "sys") (_.the "argv")))
                                       _.none)))))
