@@ -2,20 +2,18 @@
   [lux #*
    [control
     functor
-    comonad]
+    comonad
+    [equivalence (#+ Equivalence)]]
    [data
-    ["." maybe ("#;." monad)]
+    ["." maybe ("#@." monad)]
     [collection
-     ["." list ("#;." functor fold monoid)]
+     ["." list ("#@." functor fold monoid)]
      ["." stack (#+ Stack)]]]
    ["." macro
     ["." code]
     ["s" syntax (#+ Syntax syntax:)]]]
-  ["." // (#+ Tree) ("#;." functor)])
+  ["." // (#+ Tree) ("#@." functor)])
 
-## Adapted from the clojure.zip namespace in the Clojure standard library.
-
-## [Types]
 (type: #export (Zipper a)
   {#.doc "Tree zippers, for easy navigation and editing over trees."}
   {#parent (Maybe (Zipper a))
@@ -23,7 +21,25 @@
    #rights (Stack (Tree a))
    #node (Tree a)})
 
-## [Values]
+(structure: #export (equivalence ,equivalence)
+  (All [a]
+    (-> (Equivalence a)
+        (Equivalence (Zipper a))))
+  (def: (= reference sample)
+    (and (:: (//.equivalence ,equivalence) =
+             (get@ #node reference)
+             (get@ #node sample))
+         (:: (stack.equivalence (//.equivalence ,equivalence)) =
+             (get@ #lefts reference)
+             (get@ #lefts sample))
+         (:: (stack.equivalence (//.equivalence ,equivalence)) =
+             (get@ #rights reference)
+             (get@ #rights sample))
+         (:: (maybe.equivalence (equivalence ,equivalence)) =
+             (get@ #parent reference)
+             (get@ #parent sample))
+         )))
+
 (def: #export (zip tree)
   (All [a] (-> (Tree a) (Zipper a)))
   {#parent #.None
@@ -51,12 +67,7 @@
   (All [a] (-> (Zipper a) Bit))
   (|> zipper branch? not))
 
-(def: #export (end? zipper)
-  (All [a] (-> (Zipper a) Bit))
-  (and (list.empty? (get@ #rights zipper))
-       (list.empty? (children zipper))))
-
-(def: #export (root? zipper)
+(def: #export (start? zipper)
   (All [a] (-> (Zipper a) Bit))
   (case (get@ #parent zipper)
     #.None
@@ -71,11 +82,11 @@
     #.Nil
     zipper
 
-    (#.Cons chead ctail)
+    (#.Cons head tail)
     {#parent (#.Some zipper)
      #lefts stack.empty
-     #rights ctail
-     #node chead}))
+     #rights tail
+     #node head}))
 
 (def: #export (up zipper)
   (All [a] (-> (Zipper a) (Zipper a)))
@@ -88,26 +99,26 @@
         ## TODO: Remove once new-luxc becomes the standard compiler.
         (update@ #node (: (-> (Tree ($ 0)) (Tree ($ 0)))
                           (function (_ node)
-                            (set@ #//.children (list;compose (list.reverse (get@ #lefts zipper))
+                            (set@ #//.children (list@compose (list.reverse (get@ #lefts zipper))
                                                              (#.Cons (get@ #node zipper)
                                                                      (get@ #rights zipper)))
                                   node))))
         ## (update@ #node (function (_ node)
-        ##                  (set@ #//.children (list;compose (list.reverse (get@ #lefts zipper))
+        ##                  (set@ #//.children (list@compose (list.reverse (get@ #lefts zipper))
         ##                                                     (#.Cons (get@ #node zipper)
         ##                                                             (get@ #rights zipper)))
         ##                        node)))
         )))
 
-(def: #export (root zipper)
+(def: #export (start zipper)
   (All [a] (-> (Zipper a) (Zipper a)))
-  (loop [zipper zipper]
-    (case (get@ #parent zipper)
-      #.None     zipper
-      (#.Some _) (recur (up zipper)))))
+  (let [ancestor (..up zipper)]
+    (if (is? zipper ancestor)
+      zipper
+      (start ancestor))))
 
-(do-template [<one-name> <all-name> <side> <op-side>]
-  [(def: #export (<one-name> zipper)
+(do-template [<one> <all> <side> <op-side>]
+  [(def: #export (<one> zipper)
      (All [a] (-> (Zipper a) (Zipper a)))
      (case (get@ <side> zipper)
        #.Nil
@@ -120,27 +131,63 @@
            (set@ <side> side')
            (set@ #node next))))
 
-   (def: #export (<all-name> zipper)
+   (def: #export (<all> zipper)
      (All [a] (-> (Zipper a) (Zipper a)))
-     (list;fold (function (_ _) <one-name>) zipper (get@ <side> zipper)))]
+     (case (list.reverse (get@ <side> zipper))
+       #.Nil
+       zipper
+
+       (#.Cons last prevs)
+       (|> zipper
+           (set@ <side> #.Nil)
+           (set@ <op-side> (|> (get@ <op-side> zipper)
+                               (#.Cons (get@ #node zipper))
+                               (list@compose prevs)))
+           (set@ #node last))))]
 
   [right rightmost #rights #lefts]
   [left  leftmost  #lefts  #rights]
   )
 
-(do-template [<name> <h-side> <h-op> <v-op>]
-  [(def: #export (<name> zipper)
-     (All [a] (-> (Zipper a) (Zipper a)))
-     (case (get@ <h-side> zipper)
-       #.Nil
-       (<v-op> zipper)
+(def: #export (next zipper)
+  (All [a] (-> (Zipper a) (Zipper a)))
+  (let [forward (..down zipper)]
+    (if (is? zipper forward)
+      (loop [zipper zipper]
+        (let [jump (..right zipper)]
+          (if (is? zipper jump)
+            (let [backward (..up zipper)]
+              (if (is? zipper backward)
+                zipper
+                (recur backward)))
+            jump)))
+      forward)))
 
-       _
-       (<h-op> zipper)))]
+(def: #export (end zipper)
+  (All [a] (-> (Zipper a) (Zipper a)))
+  (case (get@ #rights zipper)
+    #.Nil
+    (case (get@ [#node #//.children] zipper)
+      #.Nil
+      zipper
+      
+      (#.Cons _)
+      (end (..down zipper)))
+    
+    (#.Cons _)
+    (end (..rightmost zipper))))
 
-  [next #rights right down]
-  [prev #lefts  left up]
-  )
+(def: #export (prev zipper)
+  (All [a] (-> (Zipper a) (Zipper a)))
+  (let [forward (..left zipper)]
+    (if (is? zipper forward)
+      (..up zipper)
+      (case (get@ [#node #//.children] forward)
+        #.Nil
+        forward
+        
+        (#.Cons _)
+        (..end (..down forward))))))
 
 (def: #export (set value zipper)
   (All [a] (-> a (Zipper a) (Zipper a)))
@@ -167,7 +214,7 @@
   (All [a] (-> a (Zipper a) (Zipper a)))
   (update@ [#node #//.children]
            (function (_ children)
-             (list;compose children
+             (list@compose children
                            ## TODO: Remove once new-luxc becomes the standard compiler.
                            (list (: (Tree ($ 0))
                                     (//.tree [value {}])))
@@ -216,10 +263,10 @@
 
 (structure: #export functor (Functor Zipper)
   (def: (map f fa)
-    {#parent (|> fa (get@ #parent) (maybe;map (map f)))
-     #lefts (|> fa (get@ #lefts) (list;map (//;map f)))
-     #rights (|> fa (get@ #rights) (list;map (//;map f)))
-     #node (//;map f (get@ #node fa))}))
+    {#parent (|> fa (get@ #parent) (maybe@map (map f)))
+     #lefts (|> fa (get@ #lefts) (list@map (//@map f)))
+     #rights (|> fa (get@ #rights) (list@map (//@map f)))
+     #node (//@map f (get@ #node fa))}))
 
 ## TODO: Add again once new-luxc becomes the standard compiler.
 ## (structure: #export comonad (CoMonad Zipper)
@@ -230,9 +277,9 @@
 ##   (def: (split wa)
 ##     (let [tree-splitter (function (tree-splitter tree)
 ##                           {#//.value (zip tree)
-##                            #//.children (list;map tree-splitter
+##                            #//.children (list@map tree-splitter
 ##                                                  (get@ #//.children tree))})]
-##       {#parent (|> wa (get@ #parent) (maybe;map split))
-##        #lefts (|> wa (get@ #lefts) (list;map tree-splitter))
-##        #rights (|> wa (get@ #rights) (list;map tree-splitter))
+##       {#parent (|> wa (get@ #parent) (maybe@map split))
+##        #lefts (|> wa (get@ #lefts) (list@map tree-splitter))
+##        #rights (|> wa (get@ #rights) (list@map tree-splitter))
 ##        #node (|> fa (get@ #node) tree-splitter)})))

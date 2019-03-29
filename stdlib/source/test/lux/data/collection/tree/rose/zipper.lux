@@ -21,19 +21,13 @@
    ["." / (#+ Zipper)]}
   )
 
-(def: (to-end zipper)
-  (All [a] (-> (Zipper a) (Zipper a)))
-  (loop [zipper zipper]
-    (if (/.end? zipper)
-      zipper
-      (recur (/.next zipper)))))
-
 (def: #export test
   Test
   (<| (_.context (%name (name-of /.Zipper)))
       (do r.monad
-        [size (:: @ map (|>> (n/% 100) (n/max 10)) r.nat)
+        [size (:: @ map (|>> (n/% 90) (n/+ 10)) r.nat)
          sample (//.tree size r.nat)
+         mid-val r.nat
          new-val r.nat
          pre-val r.nat
          post-val r.nat
@@ -44,74 +38,79 @@
                     (|> sample
                         /.zip /.unzip
                         (tree@= sample)))
-            (_.test "Creating a zipper gives you a root node."
-                    (|> sample /.zip /.root?))
+            (_.test "Creating a zipper gives you a start node."
+                    (|> sample /.zip /.start?))
             (_.test "Can move down inside branches. Can move up from lower nodes."
                     (let [zipper (/.zip sample)]
                       (if (/.branch? zipper)
                         (let [child (|> zipper /.down)]
                           (and (not (tree@= sample (/.unzip child)))
                                (|> child /.up (is? zipper) not)
-                               (|> child /.root (is? zipper) not)))
+                               (|> child /.start (is? zipper) not)))
                         (and (/.leaf? zipper)
                              (|> zipper (/.prepend-child new-val) /.branch?)))))
-            (_.test "Can prepend and append children."
-                    (let [zipper (/.zip sample)]
-                      (if (/.branch? zipper)
-                        (let [mid-val (|> zipper /.down /.value)
-                              zipper (|> zipper
-                                         (/.prepend-child pre-val)
-                                         (/.append-child post-val))]
-                          (and (|> zipper /.down /.value (is? pre-val))
-                               (|> zipper /.down /.right /.value (is? mid-val))
-                               (|> zipper /.down /.right /.right /.value (is? post-val))
-                               (|> zipper /.down /.rightmost /.leftmost /.value (is? pre-val))
-                               (|> zipper /.down /.right /.left /.value (is? pre-val))
-                               (|> zipper /.down /.rightmost /.value (is? post-val))))
-                        true)))
-            (_.test "Can insert children around a node (unless it's root)."
-                    (let [zipper (/.zip sample)]
-                      (if (/.branch? zipper)
-                        (let [mid-val (|> zipper /.down /.value)
-                              zipper (|> zipper
-                                         /.down
-                                         (/.insert-left pre-val)
-                                         maybe.assume
-                                         (/.insert-right post-val)
-                                         maybe.assume
-                                         /.up)]
-                          (and (|> zipper /.down /.value (is? pre-val))
-                               (|> zipper /.down /.right /.value (is? mid-val))
-                               (|> zipper /.down /.right /.right /.value (is? post-val))
-                               (|> zipper /.down /.rightmost /.leftmost /.value (is? pre-val))
-                               (|> zipper /.down /.right /.left /.value (is? pre-val))
-                               (|> zipper /.down /.rightmost /.value (is? post-val))))
-                        (and (|> zipper (/.insert-left pre-val) (case> (#.Some _) false
-                                                                       #.None     true))
-                             (|> zipper (/.insert-right post-val) (case> (#.Some _) false
-                                                                         #.None     true))))))
+            (do @
+              [branch-value r.nat
+               #let [zipper (|> (/.zip (rose.branch branch-value (list (rose.leaf mid-val))))
+                                (/.prepend-child pre-val)
+                                (/.append-child post-val))]]
+              (_.test "Can prepend and append children."
+                      (and (and (|> zipper /.down /.value (is? pre-val))
+                                (|> zipper /.down /.right /.left /.value (is? pre-val))
+                                (|> zipper /.down /.rightmost /.leftmost /.value (is? pre-val)))
+                           (|> zipper /.down /.right /.value (is? mid-val))
+                           (and (|> zipper /.down /.right /.right /.value (is? post-val))
+                                (|> zipper /.down /.rightmost /.value (is? post-val))))))
+            (do @
+              [branch-value r.nat
+               #let [zipper (/.zip (rose.branch branch-value (list (rose.leaf mid-val))))]]
+              (_.test "Can insert children around a node (unless it's start)."
+                      (and (let [zipper (|> zipper
+                                            /.down
+                                            (/.insert-left pre-val)
+                                            maybe.assume
+                                            (/.insert-right post-val)
+                                            maybe.assume
+                                            /.up)]
+                             (and (|> zipper /.down /.value (is? pre-val))
+                                  (|> zipper /.down /.right /.value (is? mid-val))
+                                  (|> zipper /.down /.right /.right /.value (is? post-val))
+                                  (|> zipper /.down /.rightmost /.leftmost /.value (is? pre-val))
+                                  (|> zipper /.down /.right /.left /.value (is? pre-val))
+                                  (|> zipper /.down /.rightmost /.value (is? post-val))))
+                           (and (|> zipper
+                                    (/.insert-left pre-val)
+                                    (case> (#.Some _) false
+                                           #.None     true))
+                                (|> zipper
+                                    (/.insert-right post-val)
+                                    (case> (#.Some _) false
+                                           #.None     true))))))
             (_.test "Can set and update the value of a node."
                     (|> sample /.zip (/.set new-val) /.value (n/= new-val)))
             (_.test "Zipper traversal follows the outline of the tree depth-first."
-                    (list@= (rose.flatten sample)
-                            (loop [zipper (/.zip sample)]
-                              (if (/.end? zipper)
-                                (list (/.value zipper))
-                                (#.Cons (/.value zipper)
-                                        (recur (/.next zipper)))))))
+                    (let [root (/.zip sample)]
+                      (list@= (rose.flatten sample)
+                              (loop [zipper (/.start root)]
+                                (let [zipper' (/.next zipper)]
+                                  (#.Cons (/.value zipper)
+                                          (if (:: (/.equivalence nat.equivalence) = root zipper')
+                                            (list)
+                                            (recur zipper'))))))))
             (_.test "Backwards zipper traversal yield reverse tree flatten."
-                    (list@= (list.reverse (rose.flatten sample))
-                            (loop [zipper (to-end (/.zip sample))]
-                              (if (/.root? zipper)
-                                (list (/.value zipper))
+                    (let [root (/.zip sample)]
+                      (list@= (list.reverse (rose.flatten sample))
+                              (loop [zipper (/.end root)]
                                 (#.Cons (/.value zipper)
-                                        (recur (/.prev zipper)))))))
-            (_.test "Can remove nodes (except root nodes)."
+                                        (if (:: (/.equivalence nat.equivalence) = root zipper)
+                                          (list)
+                                          (recur (/.prev zipper))))))))
+            (_.test "Can remove nodes (except start nodes)."
                     (let [zipper (/.zip sample)]
                       (if (/.branch? zipper)
-                        (and (|> zipper /.down /.root? not)
+                        (and (|> zipper /.down /.start? not)
                              (|> zipper /.down /.remove (case> #.None false
-                                                               (#.Some node) (/.root? node))))
+                                                               (#.Some node) (/.start? node))))
                         (|> zipper /.remove (case> #.None     true
                                                    (#.Some _) false)))))
             ))))
