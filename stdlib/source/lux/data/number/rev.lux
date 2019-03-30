@@ -40,37 +40,25 @@
   (def: top (.rev -1))
   (def: bottom (.rev 0)))
 
-(structure: #export number (Number Rev)
-  (def: + r/+)
-  (def: - r/-)
-  (def: * r/*)
-  (def: / r//)
-  (def: % r/%)
-  (def: (negate x) (r/- x (:coerce Rev -1)))
-  (def: abs function.identity)
-  (def: (signum x)
-    (:coerce Rev -1)))
-
 (do-template [<name> <compose> <identity>]
   [(structure: #export <name> (Monoid Rev)
-     (def: identity <identity>)
+     (def: identity (:: interval <identity>))
      (def: compose <compose>))]
 
-  [addition       r/+   (:: interval bottom)]
-  [multiplication r/*   (:: interval top)]
-  [maximum        r/max (:: interval bottom)]
-  [minimum        r/min (:: interval top)]
+  [addition r/+   bottom]
+  [maximum  r/max bottom]
+  [minimum  r/min top]
   )
 
 (def: (de-prefix input)
   (-> Text Text)
   ("lux text clip" input 1 ("lux text size" input)))
 
-(do-template [<struct> <nat> <char-bit-size> <error>]
+(do-template [<struct> <codec> <char-bit-size> <error>]
   [(with-expansions [<error-output> (as-is (#error.Failure ("lux text concat" <error> repr)))]
      (structure: #export <struct> (Codec Text Rev)
        (def: (encode value)
-         (let [raw-output (de-prefix (:: <nat> encode (:coerce Nat value)))
+         (let [raw-output (:: <codec> encode (:coerce Nat value))
                max-num-chars (n// <char-bit-size> 64)
                raw-size ("lux text size" raw-output)
                zero-padding (loop [zeroes-left (n/- raw-size max-num-chars)
@@ -78,16 +66,17 @@
                               (if (n/= 0 zeroes-left)
                                 output
                                 (recur (dec zeroes-left)
-                                       ("lux text concat" "0" output))))
-               padded-output ("lux text concat" zero-padding raw-output)]
-           ("lux text concat" "." padded-output)))
+                                       ("lux text concat" "0" output))))]
+           (|> raw-output
+               ("lux text concat" zero-padding)
+               ("lux text concat" "."))))
 
        (def: (decode repr)
          (let [repr-size ("lux text size" repr)]
-           (if (n/>= 2 repr-size)
+           (if (n/> 1 repr-size)
              (case ("lux text char" repr 0)
                (^ (char "."))
-               (case (:: <nat> decode (de-prefix repr))
+               (case (:: <codec> decode (de-prefix repr))
                  (#error.Success output)
                  (#error.Success (:coerce Rev output))
 
@@ -196,7 +185,7 @@
       (loop [idx 0
              output (make-digits [])]
         (if (n/< length idx)
-          (case ("lux text index" "+0123456789" ("lux text clip" input idx (inc idx)) 0)
+          (case ("lux text index" "0123456789" ("lux text clip" input idx (inc idx)) 0)
             #.None
             #.None
 
@@ -239,10 +228,12 @@
 
 (structure: #export decimal (Codec Text Rev)
   (def: (encode input)
-    (let [input (:coerce Nat input)
-          last-idx (dec //i64.width)]
-      (if (n/= 0 input)
-        ".0"
+    (case (:coerce Nat input)
+      0
+      ".0"
+
+      input
+      (let [last-idx (dec //i64.width)]
         (loop [idx last-idx
                digits (make-digits [])]
           (if (i/>= +0 (.int idx))
@@ -257,16 +248,16 @@
             )))))
 
   (def: (decode input)
-    (let [length ("lux text size" input)
-          dotted? (case ("lux text index" input "." 0)
+    (let [dotted? (case ("lux text index" input "." 0)
                     (#.Some 0)
                     #1
 
                     _
-                    #0)]
-      (if (and dotted?
-               (n/<= (inc //i64.width) length))
-        (case (text-to-digits ("lux text clip" input 1 length))
+                    #0)
+          within-limits? (n/<= (inc //i64.width)
+                               ("lux text size" input))]
+      (if (and dotted? within-limits?)
+        (case (text-to-digits (de-prefix input))
           (#.Some digits)
           (loop [digits digits
                  idx 0

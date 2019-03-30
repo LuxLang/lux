@@ -15,13 +15,12 @@
     [number
      ["." i64]]
     [collection
-     ["." list ("#;." fold functor monoid)]
-     ["." array (#+ Array) ("#;." functor fold)]]]
+     ["." list ("#@." fold functor monoid)]
+     ["." array (#+ Array) ("#@." functor fold)]]]
    [macro (#+ with-gensyms)
     ["." code]
     ["s" syntax (#+ syntax: Syntax)]]])
 
-## [Utils]
 (type: (Node a)
   (#Base (Array a))
   (#Hierarchy (Array (Node a))))
@@ -66,11 +65,11 @@
   (All [a] (-> Any (Hierarchy a)))
   (array.new full-node-size))
 
-(def: (tail-off vec-size)
+(def: (tail-off row-size)
   (-> Nat Nat)
-  (if (n/< full-node-size vec-size)
+  (if (n/< full-node-size row-size)
     0
-    (|> (dec vec-size)
+    (|> (dec row-size)
         (i64.logic-right-shift branching-exponent)
         (i64.left-shift branching-exponent))))
 
@@ -169,17 +168,15 @@
     (|> hierarchy
         array.to-list
         list.reverse
-        (list;fold (function (_ sub acc) (list;compose (to-list' sub) acc))
+        (list@fold (function (_ sub acc) (list@compose (to-list' sub) acc))
                    #.Nil))))
 
-## [Types]
 (type: #export (Row a)
   {#level Level
    #size Nat
    #root (Hierarchy a)
    #tail (Base a)})
 
-## [Exports]
 (def: #export empty
   Row
   {#level (level-up root-level)
@@ -191,48 +188,48 @@
   (All [a] (-> (Row a) Nat))
   (get@ #size row))
 
-(def: #export (add val vec)
+(def: #export (add val row)
   (All [a] (-> a (Row a) (Row a)))
   ## Check if there is room in the tail.
-  (let [vec-size (get@ #size vec)]
-    (if (|> vec-size (n/- (tail-off vec-size)) (n/< full-node-size))
+  (let [row-size (get@ #size row)]
+    (if (|> row-size (n/- (tail-off row-size)) (n/< full-node-size))
       ## If so, append to it.
-      (|> vec
+      (|> row
           (update@ #size inc)
           (update@ #tail (expand-tail val)))
       ## Otherwise, push tail into the tree
       ## --------------------------------------------------------
       ## Will the root experience an overflow with this addition?
-      (|> (if (n/> (i64.left-shift (get@ #level vec) 1)
-                   (i64.logic-right-shift branching-exponent vec-size))
+      (|> (if (n/> (i64.left-shift (get@ #level row) 1)
+                   (i64.logic-right-shift branching-exponent row-size))
             ## If so, a brand-new root must be established, that is
             ## 1-level taller.
-            (|> vec
+            (|> row
                 (set@ #root (|> (: (Hierarchy ($ 0))
                                    (new-hierarchy []))
                                 ## TODO: Remove version above once new-luxc becomes the standard compiler.
                                 ## (new-hierarchy [])
-                                (array.write 0 (#Hierarchy (get@ #root vec)))
-                                (array.write 1 (new-path (get@ #level vec) (get@ #tail vec)))))
+                                (array.write 0 (#Hierarchy (get@ #root row)))
+                                (array.write 1 (new-path (get@ #level row) (get@ #tail row)))))
                 (update@ #level level-up))
             ## Otherwise, just push the current tail onto the root.
-            (|> vec
-                (update@ #root (push-tail vec-size (get@ #level vec) (get@ #tail vec)))))
+            (|> row
+                (update@ #root (push-tail row-size (get@ #level row) (get@ #tail row)))))
           ## Finally, update the size of the row and grow a new
           ## tail with the new element as it's sole member.
           (update@ #size inc)
           (set@ #tail (new-tail val)))
       )))
 
-(def: (base-for idx vec)
+(def: (base-for idx row)
   (All [a] (-> Index (Row a) (Maybe (Base a))))
-  (let [vec-size (get@ #size vec)]
+  (let [row-size (get@ #size row)]
     (if (and (n/>= 0 idx)
-             (n/< vec-size idx))
-      (if (n/>= (tail-off vec-size) idx)
-        (#.Some (get@ #tail vec))
-        (loop [level (get@ #level vec)
-               hierarchy (get@ #root vec)]
+             (n/< row-size idx))
+      (if (n/>= (tail-off row-size) idx)
+        (#.Some (get@ #tail row))
+        (loop [level (get@ #level row)
+               hierarchy (get@ #root row)]
           (case [(n/> branching-exponent level)
                  (array.read (branch-idx (i64.logic-right-shift level idx)) hierarchy)]
             [#1 (#.Some (#Hierarchy sub))]
@@ -248,61 +245,61 @@
             (error! "Incorrect row structure."))))
       #.None)))
 
-(def: #export (nth idx vec)
+(def: #export (nth idx row)
   (All [a] (-> Nat (Row a) (Maybe a)))
   (do maybe.monad
-    [base (base-for idx vec)]
+    [base (base-for idx row)]
     (array.read (branch-idx idx) base)))
 
-(def: #export (put idx val vec)
+(def: #export (put idx val row)
   (All [a] (-> Nat a (Row a) (Row a)))
-  (let [vec-size (get@ #size vec)]
+  (let [row-size (get@ #size row)]
     (if (and (n/>= 0 idx)
-             (n/< vec-size idx))
-      (if (n/>= (tail-off vec-size) idx)
-        (|> vec
+             (n/< row-size idx))
+      (if (n/>= (tail-off row-size) idx)
+        (|> row
             ## (update@ #tail (|>> array.clone (array.write (branch-idx idx) val)))
             ## TODO: Remove once new-luxc becomes the standard compiler.
             (update@ #tail (: (-> (Base ($ 0)) (Base ($ 0)))
                               (|>> array.clone (array.write (branch-idx idx) val))))
             )
-        (|> vec
-            (update@ #root (put' (get@ #level vec) idx val))))
-      vec)))
+        (|> row
+            (update@ #root (put' (get@ #level row) idx val))))
+      row)))
 
-(def: #export (update idx f vec)
+(def: #export (update idx f row)
   (All [a] (-> Nat (-> a a) (Row a) (Row a)))
-  (case (nth idx vec)
+  (case (nth idx row)
     (#.Some val)
-    (put idx (f val) vec)
+    (put idx (f val) row)
 
     #.None
-    vec))
+    row))
 
-(def: #export (pop vec)
+(def: #export (pop row)
   (All [a] (-> (Row a) (Row a)))
-  (case (get@ #size vec)
+  (case (get@ #size row)
     0
     empty
 
     1
     empty
 
-    vec-size
-    (if (|> vec-size (n/- (tail-off vec-size)) (n/> 1))
-      (let [old-tail (get@ #tail vec)
+    row-size
+    (if (|> row-size (n/- (tail-off row-size)) (n/> 1))
+      (let [old-tail (get@ #tail row)
             new-tail-size (dec (array.size old-tail))]
-        (|> vec
+        (|> row
             (update@ #size dec)
             (set@ #tail (|> (array.new new-tail-size)
                             (array.copy new-tail-size 0 old-tail 0)))))
       (maybe.assume
        (do maybe.monad
-         [new-tail (base-for (n/- 2 vec-size) vec)
-          #let [[level' root'] (let [init-level (get@ #level vec)]
+         [new-tail (base-for (n/- 2 row-size) row)
+          #let [[level' root'] (let [init-level (get@ #level row)]
                                  (loop [level init-level
                                         root (maybe.default (new-hierarchy [])
-                                                            (pop-tail vec-size init-level (get@ #root vec)))]
+                                                            (pop-tail row-size init-level (get@ #root row)))]
                                    (if (n/> branching-exponent level)
                                      (case [(array.read 1 root) (array.read 0 root)]
                                        [#.None (#.Some (#Hierarchy sub-node))]
@@ -314,37 +311,35 @@
                                        _
                                        [level root])
                                      [level root])))]]
-         (wrap (|> vec
+         (wrap (|> row
                    (update@ #size dec)
                    (set@ #level level')
                    (set@ #root root')
                    (set@ #tail new-tail))))))
     ))
 
-(def: #export (to-list vec)
+(def: #export (to-list row)
   (All [a] (-> (Row a) (List a)))
-  (list;compose (to-list' (#Hierarchy (get@ #root vec)))
-                (to-list' (#Base (get@ #tail vec)))))
+  (list@compose (to-list' (#Hierarchy (get@ #root row)))
+                (to-list' (#Base (get@ #tail row)))))
 
 (def: #export from-list
   (All [a] (-> (List a) (Row a)))
-  (list;fold ..add ..empty))
+  (list@fold ..add ..empty))
 
-(def: #export (member? a/Equivalence vec val)
+(def: #export (member? a/Equivalence row val)
   (All [a] (-> (Equivalence a) (Row a) a Bit))
-  (list.member? a/Equivalence (to-list vec) val))
+  (list.member? a/Equivalence (to-list row) val))
 
 (def: #export empty?
   (All [a] (-> (Row a) Bit))
   (|>> (get@ #size) (n/= 0)))
 
-## [Syntax]
 (syntax: #export (row {elems (p.some s.any)})
   {#.doc (doc "Row literals."
               (row +10 +20 +30 +40))}
   (wrap (list (` (from-list (list (~+ elems)))))))
 
-## [Structures]
 (structure: #export (node-equivalence Equivalence<a>) (All [a] (-> (Equivalence a) (Equivalence (Node a))))
   (def: (= v1 v2)
     (case [v1 v2]
@@ -370,10 +365,10 @@
   (def: (fold f init xs)
     (case xs
       (#Base base)
-      (array;fold f init base)
+      (array@fold f init base)
       
       (#Hierarchy hierarchy)
-      (array;fold (function (_ node init') (fold f init' node))
+      (array@fold (function (_ node init') (fold f init' node))
                   init
                   hierarchy))))
 
@@ -390,23 +385,23 @@
   (def: identity ..empty)
   
   (def: (compose xs ys)
-    (list;fold add xs (..to-list ys))))
+    (list@fold add xs (..to-list ys))))
 
 (structure: node-functor (Functor Node)
   (def: (map f xs)
     (case xs
       (#Base base)
-      (#Base (array;map f base))
+      (#Base (array@map f base))
       
       (#Hierarchy hierarchy)
-      (#Hierarchy (array;map (map f) hierarchy)))))
+      (#Hierarchy (array@map (map f) hierarchy)))))
 
 (structure: #export functor (Functor Row)
   (def: (map f xs)
     {#level (get@ #level xs)
      #size (get@ #size xs)
-     #root (|> xs (get@ #root) (array;map (:: node-functor map f)))
-     #tail (|> xs (get@ #tail) (array;map f))}))
+     #root (|> xs (get@ #root) (array@map (:: node-functor map f)))
+     #tail (|> xs (get@ #tail) (array@map f))}))
 
 (structure: #export apply (Apply Row)
   (def: &functor ..functor)
@@ -429,13 +424,9 @@
           (^open ".") ..monoid]
       (fold (function (_ post pre) (compose pre post)) identity))))
 
-## TODO: This definition of 'reverse' shouldn't work correctly.
-## Investigate if/why it does.
 (def: #export reverse
   (All [a] (-> (Row a) (Row a)))
-  (let [(^open ".") ..fold
-        (^open ".") ..monoid]
-    (fold add identity)))
+  (|>> ..to-list list.reverse (list@fold add ..empty)))
 
 (do-template [<name> <array> <init> <op>]
   [(def: #export <name>

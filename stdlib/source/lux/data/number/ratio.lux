@@ -3,6 +3,7 @@
    [control
     [equivalence (#+ Equivalence)]
     [order (#+ Order)]
+    [monoid (#+ Monoid)]
     number
     codec
     monad
@@ -12,9 +13,8 @@
     ["." product]
     ["." maybe]
     [number
-     ["." nat ("#;." decimal)]]
-    ["." text ("#;." monoid)
-     format]]
+     ["." nat ("#@." decimal)]]
+    ["." text ("#@." monoid)]]
    ["." function]
    ["." math]
    ["." macro
@@ -25,6 +25,13 @@
   {#numerator Nat
    #denominator Nat})
 
+(def: (equalize parameter subject)
+  (-> Ratio Ratio [Nat Nat])
+  [(n/* (get@ #denominator subject)
+        (get@ #numerator parameter))
+   (n/* (get@ #denominator parameter)
+        (get@ #numerator subject))])
+
 (def: (normalize (^slots [#numerator #denominator]))
   (-> Ratio Ratio)
   (let [common (math.n/gcd numerator denominator)]
@@ -32,21 +39,19 @@
      #denominator (n// common denominator)}))
 
 (structure: #export equivalence (Equivalence Ratio)
-  (def: (= param input)
-    (and (n/= (get@ #numerator param)
-              (get@ #numerator input))
-         (n/= (get@ #denominator param)
-              (get@ #denominator input)))))
+  (def: (= parameter subject)
+    (and (n/= (get@ #numerator parameter)
+              (get@ #numerator subject))
+         (n/= (get@ #denominator parameter)
+              (get@ #denominator subject)))))
 
 (`` (structure: #export order (Order Ratio)
       (def: &equivalence ..equivalence)
 
       (~~ (do-template [<name> <op>]
-            [(def: (<name> param input)
-               (and (<op> (n/* (get@ #denominator input)
-                               (get@ #numerator param))
-                          (n/* (get@ #denominator param)
-                               (get@ #numerator input)))))]
+            [(def: (<name> parameter subject)
+               (let [[parameter' subject'] (..equalize parameter subject)]
+                 (<op> parameter' subject')))]
 
             [<  n/<]
             [<= n/<=]
@@ -66,46 +71,38 @@
   [max >]
   )
 
-(def: (- param input)
-  (normalize [(n/- (n/* (get@ #denominator input)
-                        (get@ #numerator param))
-                   (n/* (get@ #denominator param)
-                        (get@ #numerator input)))
-              (n/* (get@ #denominator param)
-                   (get@ #denominator input))]))
+(def: (- parameter subject)
+  (let [[parameter' subject'] (..equalize parameter subject)]
+    (normalize [(n/- parameter' subject')
+                (n/* (get@ #denominator parameter)
+                     (get@ #denominator subject))])))
 
 (structure: #export number
   (Number Ratio)
   
-  (def: (+ param input)
-    (normalize [(n/+ (n/* (get@ #denominator input)
-                          (get@ #numerator param))
-                     (n/* (get@ #denominator param)
-                          (get@ #numerator input)))
-                (n/* (get@ #denominator param)
-                     (get@ #denominator input))]))
+  (def: (+ parameter subject)
+    (let [[parameter' subject'] (..equalize parameter subject)]
+      (normalize [(n/+ parameter' subject')
+                  (n/* (get@ #denominator parameter)
+                       (get@ #denominator subject))])))
 
   (def: - ..-)
 
-  (def: (* param input)
-    (normalize [(n/* (get@ #numerator param)
-                     (get@ #numerator input))
-                (n/* (get@ #denominator param)
-                     (get@ #denominator input))]))
+  (def: (* parameter subject)
+    (normalize [(n/* (get@ #numerator parameter)
+                     (get@ #numerator subject))
+                (n/* (get@ #denominator parameter)
+                     (get@ #denominator subject))]))
 
-  (def: (/ param input)
-    (normalize [(n/* (get@ #denominator param)
-                     (get@ #numerator input))
-                (n/* (get@ #numerator param)
-                     (get@ #denominator input))]))
+  (def: (/ parameter subject)
+    (let [[parameter' subject'] (..equalize parameter subject)]
+      (normalize [subject' parameter'])))
 
-  (def: (% param input)
-    (let [quot (n// (n/* (get@ #denominator input)
-                         (get@ #numerator param))
-                    (n/* (get@ #denominator param)
-                         (get@ #numerator input)))]
-      (..- (update@ #numerator (n/* quot) param)
-           input)))
+  (def: (% parameter subject)
+    (let [[parameter' subject'] (..equalize parameter subject)
+          quot (n// parameter' subject')]
+      (..- (update@ #numerator (n/* quot) parameter)
+           subject)))
 
   (def: (negate (^slots [#numerator #denominator]))
     {#numerator denominator
@@ -120,31 +117,39 @@
 
 (def: separator Text ":")
 
-(def: part-encode
-  (-> Nat Text)
-  (|>> nat;encode (text.split 1) maybe.assume product.right))
-
 (structure: #export codec (Codec Text Ratio)
   (def: (encode (^slots [#numerator #denominator]))
-    ($_ text;compose (part-encode numerator) separator (part-encode denominator)))
+    ($_ text@compose (nat@encode numerator) separator (nat@encode denominator)))
 
   (def: (decode input)
     (case (text.split-with separator input)
       (#.Some [num denom])
       (do error.monad
-        [numerator (nat;decode num)
-         denominator (nat;decode denom)]
+        [numerator (nat@decode num)
+         denominator (nat@decode denom)]
         (wrap (normalize {#numerator numerator
                           #denominator denominator})))
       
       #.None
-      (#.Left (text;compose "Invalid syntax for ratio: " input)))))
+      (#.Left (text@compose "Invalid syntax for ratio: " input)))))
 
 (syntax: #export (ratio numerator {?denominator (p.maybe s.any)})
   {#.doc (doc "Rational literals."
               (ratio numerator denominator)
               "The denominator can be omitted if it's 1."
               (ratio numerator))}
-  (wrap (list (` ((~! normalize) {#..numerator (~ numerator)
-                                  #..denominator (~ (maybe.default (' 1)
-                                                                   ?denominator))})))))
+  (wrap (list (` ((~! ..normalize) {#..numerator (~ numerator)
+                                    #..denominator (~ (maybe.default (' 1)
+                                                                     ?denominator))})))))
+
+(do-template [<identity> <compose> <name>]
+  [(structure: #export <name>
+     (Monoid Ratio)
+
+     (def: identity (..ratio <identity>))
+     (def: compose (:: ..number <compose>))
+     )]
+  
+  [0 + addition]
+  [1 * multiplication]
+  )
