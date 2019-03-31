@@ -18,6 +18,7 @@
   :scm {:name "git"
         :url ~(str repo ".git")}
 
+  :manifest {"lux" ~version}
   :source-paths ["source"]
   :profiles {:bibliotheca {:description "Standard library for the Lux programming language."
                            :dependencies []

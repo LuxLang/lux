@@ -38,6 +38,7 @@
                  ;; [org.develnext.jphp/jphp-scripting "0.9.2"]
                  ]
   
+  :manifest {"lux" ~version}
   :source-paths ["source"]
   :test-paths ["test"]
   :lux {:program "program"

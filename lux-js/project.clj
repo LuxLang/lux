@@ -22,7 +22,8 @@
   :plugins [[com.github.luxlang/lein-luxc ~version]]
   :dependencies [[com.github.luxlang/luxc-jvm ~version]
                  [com.github.luxlang/stdlib ~version]]
-  
+
+  :manifest {"lux" ~version}
   :source-paths ["source"]
   :lux {:program "program"}
   )

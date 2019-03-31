@@ -23,7 +23,8 @@
   :dependencies [[com.github.luxlang/luxc-jvm ~version]
                  [com.github.luxlang/stdlib ~version]
                  [org.python/jython-standalone "2.7.1"]]
-  
+
+  :manifest {"lux" ~version}
   :source-paths ["source"]
   :lux {:program "program"}
   )
