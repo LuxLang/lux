@@ -4,16 +4,22 @@
     [monad (#+ do)]
     pipe]
    [data
+    ["." error]
+    [text ("text/." Equivalence<Text>)
+     format]
     [collection
-     ["." list]]]
+     ["." list ("list/." Functor<List> Fold<List>)]]]
    [math
     ["r" random (#+ Random)]]
    [compiler
     [default
      ["." reference]
-     [phase
+     ["." phase
       ["." analysis]
-      ["." synthesis (#+ Path Synthesis)]]]]
+      ["." synthesis (#+ Path Synthesis)
+       ["." case]
+       ["." expression]]
+      ["." extension/synthesis]]]]
    test]
   [test
    [luxc
@@ -39,7 +45,7 @@
                 [value r.i64]
                 (wrap [(synthesis.i64 value)
                        synthesis.path/pop]))
-              (~~ (do-template [<gen> <synth> <path>]
+              (~~ (template [<gen> <synth> <path>]
                     [(do r.Monad<Random>
                        [value <gen>]
                        (wrap [(<synth> value)
@@ -58,10 +64,11 @@
                               (list.concat (list (list.repeat idx unitS)
                                                  (list subS)
                                                  (list.repeat (|> size dec (n/- idx)) unitS))))
-                       caseP (synthesis.path/seq [(if (tail? size idx)
-                                                    (synthesis.member/right idx)
-                                                    (synthesis.member/left idx))
-                                                  subP])]]
+                       caseP ($_ synthesis.path/seq
+                                 (if (tail? size idx)
+                                   (synthesis.member/right idx)
+                                   (synthesis.member/left idx))
+                                 subP)]]
                 (wrap [caseS caseP]))
               (do r.Monad<Random>
                 [size ..size
@@ -72,11 +79,11 @@
                               {#analysis.lefts idx
                                #analysis.right? right?
                                #analysis.value subS})
-                       caseP (synthesis.path/seq
-                              [(if right?
-                                 (synthesis.side/right idx)
-                                 (synthesis.side/left idx))
-                               subP])]]
+                       caseP ($_ synthesis.path/seq
+                                 (if right?
+                                   (synthesis.side/right idx)
+                                   (synthesis.side/left idx))
+                                 subP)]]
                 (wrap [caseS caseP]))
               ))))
 
@@ -111,17 +118,166 @@
     (test "Case."
           (|> (run (synthesis.branch/case
                     [inputS
-                     (synthesis.path/alt [(synthesis.path/seq [pathS
-                                                               (synthesis.path/then (synthesis.f64 on-success))])
-                                          (synthesis.path/then (synthesis.f64 on-failure))])]))
+                     ($_ synthesis.path/alt
+                         ($_ synthesis.path/seq
+                             pathS
+                             (synthesis.path/then (synthesis.f64 on-success)))
+                         (synthesis.path/then (synthesis.f64 on-failure)))]))
               (&.check on-success)))))
+
+(def: special-input
+  Synthesis
+  (let [_cursor_ (: Synthesis
+                    (synthesis.tuple (list (synthesis.text "lux")
+                                           (synthesis.i64 +901)
+                                           (synthesis.i64 +13))))
+        _code_ (: (-> Synthesis Synthesis)
+                  (function (_ content)
+                    (synthesis.tuple (list _cursor_ content))))
+        _nil_ (: Synthesis
+                 (synthesis.variant [0 #0 (synthesis.text "")]))
+        _cons_ (: (-> Synthesis Synthesis Synthesis)
+                  (function (_ head tail)
+                    (synthesis.variant [0 #1 (synthesis.tuple (list head tail))])))
+        _list_ (: (-> (List Synthesis) Synthesis)
+                  (list/fold _cons_ _nil_))]
+    (let [__tuple__ (: (-> (List Synthesis) Synthesis)
+                       (|>> list.reverse _list_ [9 #0] synthesis.variant _code_))
+          __form__ (: (-> (List Synthesis) Synthesis)
+                      (|>> list.reverse _list_ [8 #0] synthesis.variant _code_))
+          __text__ (: (-> Text Synthesis)
+                      (function (_ value)
+                        (_code_ (synthesis.variant [5 #0 (synthesis.text value)]))))
+          __identifier__ (: (-> Name Synthesis)
+                            (function (_ [module short])
+                              (_code_ (synthesis.variant [6 #0 (synthesis.tuple (list (synthesis.text module)
+                                                                                      (synthesis.text short)))]))))
+          __tag__ (: (-> Name Synthesis)
+                     (function (_ [module short])
+                       (_code_ (synthesis.variant [7 #0 (synthesis.tuple (list (synthesis.text module)
+                                                                               (synthesis.text short)))]))))
+          __list__ (: (-> (List Synthesis) Synthesis)
+                      (list/fold (function (_ head tail)
+                                   (__form__ (list (__tag__ ["" "Cons"]) head tail)))
+                                 (__tag__ ["" "Nil"])))
+          __apply__ (: (-> Synthesis Synthesis Synthesis)
+                       (function (_ func arg)
+                         (__form__ (list func arg))))]
+      (|> _nil_
+          (_cons_ (__apply__ (__identifier__ ["" "form$"])
+                             (__list__ (list (__apply__ (__identifier__ ["" "tag$"])
+                                                        (__tuple__ (list (__text__ "lux")
+                                                                         (__text__ "Cons"))))
+                                             (__identifier__ ["" "export?-meta"])
+                                             (__identifier__ ["" "tail"])))))
+          (_cons_ (__tuple__ (list (__identifier__ ["" "tail"]))))
+          ))))
+
+(def: special-path
+  Path
+  (let [_nil_ (synthesis.path/side (#.Left 0))
+        _cons_ (synthesis.path/side (#.Right 0))
+        _head_ (synthesis.path/member (#.Left 0))
+        _tail_ (synthesis.path/member (#.Right 0))
+        _tuple_ (synthesis.path/side (#.Left 9))]
+    ($_ synthesis.path/alt
+        ($_ synthesis.path/seq
+            _cons_
+            _head_
+            _head_ (synthesis.path/bind 2) synthesis.path/pop
+            _tail_ _tuple_ _cons_
+            _head_ (synthesis.path/bind 3) synthesis.path/pop
+            _tail_ (synthesis.path/bind 4) synthesis.path/pop
+            synthesis.path/pop synthesis.path/pop synthesis.path/pop synthesis.path/pop
+            _tail_ _cons_
+            _head_ (synthesis.path/bind 5) synthesis.path/pop
+            _tail_ _nil_
+            ## THEN
+            (synthesis.path/then (synthesis.bit #1)))
+        ($_ synthesis.path/seq
+            (synthesis.path/bind 2)
+            ## THEN
+            (synthesis.path/then (synthesis.bit #0))))))
+
+(def: special-pattern
+  analysis.Pattern
+  (let [## [_ (#Tuple (#Cons arg args'))]
+        head (<| analysis.pattern/tuple (list (analysis.pattern/bind 2))
+                 analysis.pattern/variant [9 #0]
+                 analysis.pattern/variant [0 #1]
+                 analysis.pattern/tuple (list (analysis.pattern/bind 3)
+                                              (analysis.pattern/bind 4)))
+        ## (#Cons body #Nil)
+        tail (<| analysis.pattern/variant [0 #1]
+                 analysis.pattern/tuple (list (analysis.pattern/bind 5))
+                 analysis.pattern/variant [0 #0]
+                 (analysis.pattern/unit))]
+    ## (#Cons <head> <tail>)
+    (<| analysis.pattern/variant [0 #1]
+        (analysis.pattern/tuple (list head tail)))))
+
+(def: special-pattern-path
+  Path
+  ($_ synthesis.path/alt
+      (<| error.assume
+          (phase.run [extension/synthesis.bundle
+                      synthesis.init])
+          (case.path expression.synthesize
+                     special-pattern)
+          (analysis.bit #1))
+      ($_ synthesis.path/seq
+          (synthesis.path/bind 2)
+          ## THEN
+          (synthesis.path/then (synthesis.bit #0)))))
+
+(def: (special-spec run)
+  (-> Runner Test)
+  (do r.Monad<Random>
+    []
+    ($_ seq
+        (test "==="
+              (and (text/= (synthesis.%path special-path)
+                           (synthesis.%path special-pattern-path))
+                   (:: synthesis.Equivalence<Path> = special-path special-pattern-path)))
+        (test "CODE"
+              (|> (run special-input)
+                  (case> (#error.Success output)
+                         (exec (log! (|> output (:coerce (List Code)) (%list %code)))
+                           #1)
+                         
+                         (#error.Error error)
+                         (exec (log! error)
+                           #0))))
+        (test "PATTERN-MATCHING 0"
+              (|> (run (synthesis.branch/case [special-input
+                                               special-path]))
+                  (case> (#error.Success output)
+                         (exec (log! (format "output 0 = " (%b (:coerce Bit output))))
+                           #1)
+                         
+                         (#error.Error error)
+                         (exec (log! error)
+                           #0))))
+        (test "PATTERN-MATCHING 1"
+              (|> (run (synthesis.branch/case [special-input
+                                               special-pattern-path]))
+                  (case> (#error.Success output)
+                         (exec (log! (format "output 1 = " (%b (:coerce Bit output))))
+                           #1)
+                         
+                         (#error.Error error)
+                         (exec (log! error)
+                           #0))))
+        )))
 
 (def: (pattern-matching-spec run)
   (-> Runner Test)
   ($_ seq
-      (let-spec run)
-      (if-spec run)
-      (case-spec run)))
+      (special-spec run)
+      ## (let-spec run)
+      ## (if-spec run)
+      ## (case-spec run)
+      ))
 
 (context: "[JVM] Pattern-matching."
   (<| (times 100)

@@ -259,7 +259,7 @@ Called by `imenu--generic-function'."
                     ;; Code
                     (code//quotation (altRE "`" "`'" "'" "~" "~\\+" "~!" "~'"))
                     (code//super-quotation (altRE "``" "~~"))
-                    (code//template (altRE "do-template" "template:"))
+                    (code//template (altRE "template" "template:"))
                     ;; Miscellaneous
                     (actor (altRE "actor:" "message:" "on:"))
                     (jvm-host (altRE "class:" "interface:" "import:" "object" "do-to" "synchronized" "class-for"))
@@ -440,7 +440,7 @@ This function also returns nil meaning don't specify the indentation."
   (if 1)
   (cond 0)
   (loop 1)
-  (do-template 'defun)
+  (template 'defun)
   (All 'defun)
   (Ex 'defun)
   (Rec 'defun)
