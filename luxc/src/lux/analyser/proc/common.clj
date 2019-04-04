@@ -9,13 +9,13 @@
 (defn- analyse-lux-is [analyse exo-type ?values]
   (&type/with-var
     (fn [$var]
-      (|do [:let [(&/$Cons left (&/$Cons right (&/$Nil))) ?values]
-            =left (&&/analyse-1 analyse $var left)
-            =right (&&/analyse-1 analyse $var right)
+      (|do [:let [(&/$Cons reference (&/$Cons sample (&/$Nil))) ?values]
+            =reference (&&/analyse-1 analyse $var reference)
+            =sample (&&/analyse-1 analyse $var sample)
             _ (&type/check exo-type &type/Bit)
             _cursor &/cursor]
         (return (&/|list (&&/|meta exo-type _cursor
-                                   (&&/$proc (&/T ["lux" "is"]) (&/|list =left =right) (&/|list)))))))))
+                                   (&&/$proc (&/T ["lux" "is"]) (&/|list =sample =reference) (&/|list)))))))))
 
 (defn- analyse-lux-try [analyse exo-type ?values]
   (&type/with-var
@@ -31,40 +31,44 @@
 
 (do-template [<name> <proc> <input-type> <output-type>]
   (defn- <name> [analyse exo-type ?values]
-    (|do [:let [(&/$Cons x (&/$Cons y (&/$Nil))) ?values]
-          =x (&&/analyse-1 analyse <input-type> x)
-          =y (&&/analyse-1 analyse <input-type> y)
+    (|do [:let [(&/$Cons reference (&/$Cons sample (&/$Nil))) ?values]
+          =reference (&&/analyse-1 analyse <input-type> reference)
+          =sample (&&/analyse-1 analyse <input-type> sample)
           _ (&type/check exo-type <output-type>)
           _cursor &/cursor]
       (return (&/|list (&&/|meta exo-type _cursor
-                                 (&&/$proc (&/T <proc>) (&/|list =x =y) (&/|list)))))))
+                                 (&&/$proc (&/T <proc>) (&/|list =sample =reference) (&/|list)))))))
 
   analyse-text-eq     ["text" "="]      &type/Text &type/Bit
   analyse-text-lt     ["text" "<"]      &type/Text &type/Bit
-  analyse-text-concat ["text" "concat"] &type/Text &type/Text
   )
 
-(do-template [<name> <proc-name> <output-type>]
-  (defn- <name> [analyse exo-type ?values]
-    (|do [:let [(&/$Cons text (&/$Cons part (&/$Cons start (&/$Nil)))) ?values]
-          =text (&&/analyse-1 analyse &type/Text text)
-          =part (&&/analyse-1 analyse &type/Text part)
-          =start (&&/analyse-1 analyse &type/Nat start)
-          _ (&type/check exo-type <output-type>)
-          _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor
-                                 (&&/$proc (&/T ["text" <proc-name>])
-                                           (&/|list =text =part =start)
-                                           (&/|list)))))))
+(defn- analyse-text-concat [analyse exo-type ?values]
+  (|do [:let [(&/$Cons parameter (&/$Cons subject (&/$Nil))) ?values]
+        =parameter (&&/analyse-1 analyse &type/Text parameter)
+        =subject (&&/analyse-1 analyse &type/Text subject)
+        _ (&type/check exo-type &type/Text)
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$proc (&/T ["text" "concat"]) (&/|list =parameter =subject) (&/|list)))))))
 
-  analyse-text-index      "index"      (&/$Apply &type/Nat &type/Maybe)
-  )
+(defn- analyse-text-index [analyse exo-type ?values]
+  (|do [:let [(&/$Cons start (&/$Cons part (&/$Cons text (&/$Nil)))) ?values]
+        =start (&&/analyse-1 analyse &type/Nat start)
+        =part (&&/analyse-1 analyse &type/Text part)
+        =text (&&/analyse-1 analyse &type/Text text)
+        _ (&type/check exo-type (&/$Apply &type/Nat &type/Maybe))
+        _cursor &/cursor]
+    (return (&/|list (&&/|meta exo-type _cursor
+                               (&&/$proc (&/T ["text" "index"])
+                                         (&/|list =text =part =start)
+                                         (&/|list)))))))
 
 (defn- analyse-text-clip [analyse exo-type ?values]
-  (|do [:let [(&/$Cons text (&/$Cons from (&/$Cons to (&/$Nil)))) ?values]
-        =text (&&/analyse-1 analyse &type/Text text)
+  (|do [:let [(&/$Cons from (&/$Cons to (&/$Cons text (&/$Nil)))) ?values]
         =from (&&/analyse-1 analyse &type/Nat from)
         =to (&&/analyse-1 analyse &type/Nat to)
+        =text (&&/analyse-1 analyse &type/Text text)
         _ (&type/check exo-type &type/Text)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
@@ -135,31 +139,18 @@
   (let [inputT <input-type>
         outputT <output-type>]
     (defn- <name> [analyse exo-type ?values]
-      (|do [:let [(&/$Cons subjectC (&/$Cons paramC (&/$Nil))) ?values]
+      (|do [:let [(&/$Cons parameterC (&/$Cons subjectC (&/$Nil))) ?values]
+            parameterA (&&/analyse-1 analyse <input-type> parameterC)
             subjectA (&&/analyse-1 analyse <input-type> subjectC)
-            paramA (&&/analyse-1 analyse <input-type> paramC)
             _ (&type/check exo-type <output-type>)
             _cursor &/cursor]
         (return (&/|list (&&/|meta exo-type _cursor
-                                   (&&/$proc (&/T <proc>) (&/|list subjectA paramA) (&/|list))))))))
+                                   (&&/$proc (&/T <proc>) (&/|list subjectA parameterA) (&/|list))))))))
 
   analyse-i64-eq   ["i64" "="]  (&/$Apply &type/Any &type/I64)  &type/Bit
   analyse-i64-add  ["i64" "+"]  (&/$Apply &type/Any &type/I64)  &type/I64
   analyse-i64-sub  ["i64" "-"]  (&/$Apply &type/Any &type/I64)  &type/I64
-  )
-
-(do-template [<name> <proc> <input-type> <output-type>]
-  (let [inputT <input-type>
-        outputT <output-type>]
-    (defn- <name> [analyse exo-type ?values]
-      (|do [:let [(&/$Cons x (&/$Cons y (&/$Nil))) ?values]
-            =x (&&/analyse-1 analyse <input-type> x)
-            =y (&&/analyse-1 analyse <input-type> y)
-            _ (&type/check exo-type <output-type>)
-            _cursor &/cursor]
-        (return (&/|list (&&/|meta exo-type _cursor
-                                   (&&/$proc (&/T <proc>) (&/|list =x =y) (&/|list))))))))
-
+  
   analyse-int-mul  ["int" "*"]  &type/Int  &type/Int
   analyse-int-div  ["int" "/"]  &type/Int  &type/Int
   analyse-int-rem  ["int" "%"]  &type/Int  &type/Int
