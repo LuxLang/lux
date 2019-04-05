@@ -91,9 +91,9 @@
   )
 
 (defn- analyse-text-char [analyse exo-type ?values]
-  (|do [:let [(&/$Cons text (&/$Cons idx (&/$Nil))) ?values]
-        =text (&&/analyse-1 analyse &type/Text text)
+  (|do [:let [(&/$Cons idx (&/$Cons text (&/$Nil))) ?values]
         =idx (&&/analyse-1 analyse &type/Nat idx)
+        =text (&&/analyse-1 analyse &type/Text text)
         _ (&type/check exo-type &type/Nat)
         _cursor &/cursor]
     (return (&/|list (&&/|meta exo-type _cursor
