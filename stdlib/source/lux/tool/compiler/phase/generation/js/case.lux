@@ -104,6 +104,32 @@
     (_.statement (|> @cursor (_.do "splice" (list (|> @cursor ..length (_.- popsJS))
                                                   popsJS))))))
 
+(template [<name> <flag> <prep>]
+  [(def: (<name> simple? idx)
+     (-> Bit Nat Statement)
+     ($_ _.then
+         (_.set @temp (|> idx <prep> .int _.i32 (//runtime.sum//get ..peek-cursor <flag>)))
+         (_.if (_.= _.null @temp)
+           fail-pm!
+           (.if simple?
+             (_.statement _.null)
+             (push-cursor! @temp)))))]
+
+  [left-choice  _.null        (<|)]
+  [right-choice (_.string "") inc]
+  )
+
+(def: (alternation pre! post!)
+  (-> Statement Statement Statement)
+  ($_ _.then
+      (_.do-while _.false
+                  ($_ _.then
+                      ..save-cursor!
+                      pre!))
+      ($_ _.then
+          ..restore-cursor!
+          post!)))
+
 (def: (pattern-matching' generate pathP)
   (-> Phase Path (Operation Statement))
   (.case pathP
@@ -127,15 +153,16 @@
      [/////synthesis.path/f64  //primitive.f64           _.=]
      [/////synthesis.path/text //primitive.text          _.=])
 
-    (^template [<pm> <flag> <prep>]
-      (^ (<pm> idx))
-      (////@wrap ($_ _.then
-                     (_.set @temp (|> idx <prep> .int _.i32 (//runtime.sum//get ..peek-cursor <flag>)))
-                     (_.if (_.= _.null @temp)
-                       fail-pm!
-                       (push-cursor! @temp)))))
-    ([/////synthesis.side/left  _.null        (<|)]
-     [/////synthesis.side/right (_.string "") inc])
+    (^template [<complex> <simple> <choice>]
+      (^ (<complex> idx))
+      (////@wrap (<choice> false idx))
+
+      (^ (<simple> idx nextP))
+      (|> nextP
+          (pattern-matching' generate)
+          (:: ////.monad map (_.then (<choice> true idx)))))
+    ([/////synthesis.side/left  /////synthesis.simple-left-side  ..left-choice]
+     [/////synthesis.side/right /////synthesis.simple-right-side ..right-choice])
 
     (^template [<pm> <getter> <prep>]
       (^ (<pm> idx))
@@ -143,20 +170,14 @@
     ([/////synthesis.member/left  //runtime.product//left  (<|)]
      [/////synthesis.member/right //runtime.product//right inc])
 
-    (^ ($_ /////synthesis.path/seq
-           (#/////synthesis.Bind register)
-           #/////synthesis.Pop
-           thenP))
+    (^ (/////synthesis.!bind-top register thenP))
     (do ////.monad
       [then! (pattern-matching' generate thenP)]
       (////@wrap ($_ _.then
                      (_.define (..register register) ..peek-and-pop-cursor)
                      then!)))
 
-    (^ ($_ /////synthesis.path/seq
-           #/////synthesis.Pop
-           #/////synthesis.Pop
-           nextP))
+    (^ (/////synthesis.!multi-pop nextP))
     (.let [[extra-pops nextP'] (case.count-pops nextP)]
       (do ////.monad
         [next! (pattern-matching' generate nextP')]
@@ -164,21 +185,14 @@
                        (multi-pop-cursor! (n/+ 2 extra-pops))
                        next!))))
 
-    (^template [<tag> <computation>]
+    (^template [<tag> <combinator>]
       (^ (<tag> leftP rightP))
       (do ////.monad
         [left! (pattern-matching' generate leftP)
          right! (pattern-matching' generate rightP)]
-        (wrap <computation>)))
-    ([/////synthesis.path/seq (_.then left! right!)]
-     [/////synthesis.path/alt ($_ _.then
-                                  (_.do-while _.false
-                                              ($_ _.then
-                                                  ..save-cursor!
-                                                  left!))
-                                  ($_ _.then
-                                      ..restore-cursor!
-                                      right!))])
+        (wrap (<combinator> left! right!))))
+    ([/////synthesis.path/seq _.then]
+     [/////synthesis.path/alt alternation])
 
     _
     (////.throw unrecognized-path [])))
