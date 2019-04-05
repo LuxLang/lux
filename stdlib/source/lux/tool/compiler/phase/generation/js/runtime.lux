@@ -278,13 +278,13 @@
 (runtime: i64//one
   (i64//new (_.i32 +0) (_.i32 +1)))
 
-(runtime: (i64//= left right)
-  (_.return (_.and (_.= (_.the ..i64-high-field left)
-                        (_.the ..i64-high-field right))
-                   (_.= (_.the ..i64-low-field left)
-                        (_.the ..i64-low-field right)))))
+(runtime: (i64//= reference sample)
+  (_.return (_.and (_.= (_.the ..i64-high-field reference)
+                        (_.the ..i64-high-field sample))
+                   (_.= (_.the ..i64-low-field reference)
+                        (_.the ..i64-low-field sample)))))
 
-(runtime: (i64//+ subject parameter)
+(runtime: (i64//+ parameter subject)
   (let [up-16 (_.left-shift (_.i32 +16))
         high-16 (_.logic-right-shift (_.i32 +16))
         low-16 (_.bit-and (_.i32 (hex "+FFFF")))
@@ -339,7 +339,7 @@
 (runtime: (i64//negate value)
   (_.if (i64//= i64//min value)
     (_.return i64//min)
-    (_.return (i64//+ (i64//not value) i64//one))))
+    (_.return (i64//+ i64//one (i64//not value)))))
 
 (runtime: i64//-one
   (i64//negate i64//one))
@@ -422,20 +422,20 @@
       @i64//logic-right-shift
       ))
 
-(runtime: (i64//- subject parameter)
-  (_.return (i64//+ subject (i64//negate parameter))))
+(runtime: (i64//- parameter subject)
+  (_.return (i64//+ (i64//negate parameter) subject)))
 
-(runtime: (i64//* subject parameter)
+(runtime: (i64//* parameter subject)
   (let [negative? (|>> (_.the ..i64-high-field) (_.< (_.i32 +0)))]
     (_.cond (list [(negative? subject)
                    (_.if (negative? parameter)
                      ## Both are negative
-                     (_.return (i64//* (i64//negate subject) (i64//negate parameter)))
+                     (_.return (i64//* (i64//negate parameter) (i64//negate subject)))
                      ## Subject is negative
-                     (_.return (i64//negate (i64//* (i64//negate subject) parameter))))]
+                     (_.return (i64//negate (i64//* parameter (i64//negate subject)))))]
                   [(negative? parameter)
                    ## Parameter is negative
-                   (_.return (i64//negate (i64//* subject (i64//negate parameter))))])
+                   (_.return (i64//negate (i64//* (i64//negate parameter) subject)))])
             ## Both are positive
             (let [up-16 (_.left-shift (_.i32 +16))
                   high-16 (_.logic-right-shift (_.i32 +16))
@@ -485,7 +485,7 @@
                                         (_.bit-or (up-16 x16) x00)))
                     ))))))
 
-(runtime: (i64//< subject parameter)
+(runtime: (i64//< parameter subject)
   (let [negative? (|>> (_.the ..i64-high-field) (_.< (_.i32 +0)))]
     (with-vars [-subject? -parameter?]
       ($_ _.then
@@ -495,16 +495,16 @@
                          (_.return _.true)]
                         [(_.and (_.not -subject?) -parameter?)
                          (_.return _.false)])
-                  (_.return (negative? (i64//- subject parameter))))))))
+                  (_.return (negative? (i64//- parameter subject))))))))
 
-(def: (i64//<= subject param)
+(def: (i64//<= param subject)
   (-> Expression Expression Expression)
-  (_.or (i64//< subject param)
-        (i64//= subject param)))
+  (_.or (i64//< param subject)
+        (i64//= param subject)))
 
-(runtime: (i64/// subject parameter)
+(runtime: (i64/// parameter subject)
   (let [negative? (function (_ value)
-                    (i64//< value i64//zero))
+                    (i64//< i64//zero value))
         valid-division-check [(i64//= i64//zero parameter)
                               (_.throw (_.string "Cannot divide by zero!"))]
         short-circuit-check [(i64//= i64//zero subject)
@@ -521,39 +521,39 @@
                            (with-vars [approximation]
                              (let [subject/2 (i64//arithmetic-right-shift subject (_.i32 +1))]
                                ($_ _.then
-                                   (_.define approximation (i64//left-shift (i64/// subject/2
-                                                                                    parameter)
+                                   (_.define approximation (i64//left-shift (i64/// parameter
+                                                                                    subject/2)
                                                                             (_.i32 +1)))
                                    (_.if (i64//= i64//zero approximation)
                                      (_.return (_.? (negative? parameter)
                                                     i64//one
                                                     i64//-one))
-                                     (let [remainder (i64//- subject
-                                                             (i64//* parameter
-                                                                     approximation))]
-                                       (_.return (i64//+ approximation
-                                                         (i64/// remainder
-                                                                 parameter)))))))))]
+                                     (let [remainder (i64//- (i64//* approximation
+                                                                     parameter)
+                                                             subject)]
+                                       (_.return (i64//+ (i64/// parameter
+                                                                 remainder)
+                                                         approximation))))))))]
                   [(i64//= i64//min parameter)
                    (_.return i64//zero)]
 
                   [(negative? subject)
                    (_.return (_.? (negative? parameter)
-                                  (i64/// (i64//negate subject)
-                                          (i64//negate parameter))
-                                  (i64//negate (i64/// (i64//negate subject)
-                                                       parameter))))]
+                                  (i64/// (i64//negate parameter)
+                                          (i64//negate subject))
+                                  (i64//negate (i64/// parameter
+                                                       (i64//negate subject)))))]
 
                   [(negative? parameter)
-                   (_.return (i64//negate (i64/// subject (i64//negate parameter))))])
+                   (_.return (i64//negate (i64/// (i64//negate parameter) subject)))])
             (with-vars [result remainder]
               ($_ _.then
                   (_.define result i64//zero)
                   (_.define remainder subject)
-                  (_.while (i64//<= parameter remainder)
+                  (_.while (i64//<= remainder parameter)
                            (with-vars [approximate approximate-result approximate-remainder log2 delta]
                              (let [approximate-result' (i64//from-number approximate)
-                                   approx-remainder (i64//* approximate-result parameter)]
+                                   approx-remainder (i64//* parameter approximate-result)]
                                ($_ _.then
                                    (_.define approximate (|> (i64//to-number remainder)
                                                              (_./ (i64//to-number parameter))
@@ -572,24 +572,25 @@
                                    (_.define approximate-result approximate-result')
                                    (_.define approximate-remainder approx-remainder)
                                    (_.while (_.or (negative? approximate-remainder)
-                                                  (i64//< remainder
-                                                          approximate-remainder))
+                                                  (i64//< approximate-remainder
+                                                          remainder))
                                             ($_ _.then
                                                 (_.set approximate (_.- delta approximate))
                                                 (_.set approximate-result approximate-result')
                                                 (_.set approximate-remainder approx-remainder)))
-                                   (_.set result (i64//+ result
-                                                         (_.? (i64//= i64//zero approximate-result)
+                                   (_.set result (i64//+ (_.? (i64//= i64//zero approximate-result)
                                                               i64//one
-                                                              approximate-result)))
-                                   (_.set remainder (i64//- remainder approximate-remainder))))))
+                                                              approximate-result)
+                                                         result))
+                                   (_.set remainder (i64//- approximate-remainder remainder))))))
                   (_.return result)))
             )))
 
-(runtime: (i64//% subject parameter)
-  (let [flat (i64//* (i64/// subject parameter)
-                     parameter)]
-    (_.return (i64//- subject flat))))
+(runtime: (i64//% parameter subject)
+  (let [flat (|> subject
+                 (i64/// parameter)
+                 (i64//* parameter))]
+    (_.return (i64//- flat subject))))
 
 (def: runtime//i64
   Statement
@@ -617,7 +618,7 @@
       runtime//bit
       ))
 
-(runtime: (text//index text part start)
+(runtime: (text//index start part text)
   (with-vars [idx]
     ($_ _.then
         (_.define idx (|> text (_.do "indexOf" (list part (i64//to-number start)))))
@@ -625,11 +626,11 @@
           (_.return ..none)
           (_.return (..some (i64//from-number idx)))))))
 
-(runtime: (text//clip text start end)
+(runtime: (text//clip start end text)
   (_.return (|> text (_.do "substring" (list (_.the ..i64-low-field start)
                                              (_.the ..i64-low-field end))))))
 
-(runtime: (text//char text idx)
+(runtime: (text//char idx text)
   (with-vars [result]
     ($_ _.then
         (_.define result (|> text (_.do "charCodeAt" (list (_.the ..i64-low-field idx)))))
