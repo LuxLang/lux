@@ -69,34 +69,41 @@
 ;; Runtime infrastructure
 (defn ^:private compile-LuxRT-adt-methods [^ClassWriter =class]
   (|let [_ (let [$begin (new Label)
-                 $not-rec (new Label)]
-             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "product_getLeft" "([Ljava/lang/Object;I)Ljava/lang/Object;" nil nil)
+                 $not-rec (new Label)
+                 index-right #(doto %
+                                (.visitVarInsn Opcodes/ALOAD 0)
+                                (.visitInsn Opcodes/ARRAYLENGTH)
+                                (.visitLdcInsn (int 1))
+                                (.visitInsn Opcodes/ISUB))
+                 lefts #(doto %
+                          (.visitVarInsn Opcodes/ILOAD 1))
+                 left-index lefts
+                 access #(doto %
+                           (.visitVarInsn Opcodes/ALOAD 0)
+                           left-index
+                           (.visitInsn Opcodes/AALOAD))
+                 sub-lefts #(doto %
+                              ;; index-right, lefts
+                              (.visitInsn Opcodes/SWAP)
+                              (.visitInsn Opcodes/ISUB))
+                 sub-tuple #(doto %
+                              (.visitVarInsn Opcodes/ALOAD 0)
+                              index-right
+                              (.visitInsn Opcodes/AALOAD)
+                              (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;"))]
+             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "tuple_left" "([Ljava/lang/Object;I)Ljava/lang/Object;" nil nil)
                (.visitCode)
                (.visitLabel $begin)
-               (.visitVarInsn Opcodes/ALOAD 0) ;; tuple
-               (.visitInsn Opcodes/ARRAYLENGTH) ;; tuple-size
-               (.visitVarInsn Opcodes/ILOAD 1) ;; tuple-size, index
-               (.visitLdcInsn (int 1)) ;; tuple-size, index, offset-last-elem
-               (.visitInsn Opcodes/IADD) ;; tuple-size, index-last-elem
-               (.visitInsn Opcodes/DUP2) ;; tuple-size, index-last-elem, tuple-size, index-last-elem
-               (.visitJumpInsn Opcodes/IF_ICMPGT $not-rec) ;; tuple-size, index-last-elem
-               (.visitInsn Opcodes/SWAP) ;; index-last-elem, tuple-size
-               (.visitInsn Opcodes/ISUB) ;; sub-index
-               (.visitVarInsn Opcodes/ALOAD 0) ;; sub-index, tuple
-               (.visitInsn Opcodes/DUP) ;; sub-index, tuple, tuple
-               (.visitInsn Opcodes/ARRAYLENGTH) ;; sub-index, tuple, tuple-size
-               (.visitLdcInsn (int 1)) ;; sub-index, tuple, tuple-size, offset-last-elem
-               (.visitInsn Opcodes/ISUB) ;; sub-index, tuple, index-last-elem
-               (.visitInsn Opcodes/AALOAD) ;; sub-index, sub-tuple
-               (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-               (.visitVarInsn Opcodes/ASTORE 0) ;; sub-index
-               (.visitVarInsn Opcodes/ISTORE 1) ;;
+               index-right
+               lefts
+               (.visitInsn Opcodes/DUP2) (.visitJumpInsn Opcodes/IF_ICMPGT $not-rec)
+               sub-lefts (.visitVarInsn Opcodes/ISTORE 1)
+               sub-tuple (.visitVarInsn Opcodes/ASTORE 0)
                (.visitJumpInsn Opcodes/GOTO $begin)
-               (.visitLabel $not-rec) ;; tuple-size, index-last-elem
+               (.visitLabel $not-rec)
+               ;; index-right, lefts
                ;; (.visitInsn Opcodes/POP2) ;;
-               (.visitVarInsn Opcodes/ALOAD 0) ;; tuple
-               (.visitVarInsn Opcodes/ILOAD 1) ;; tuple, index
-               (.visitInsn Opcodes/AALOAD) ;; elem
+               access
                (.visitInsn Opcodes/ARETURN)
                (.visitMaxs 0 0)
                (.visitEnd)))

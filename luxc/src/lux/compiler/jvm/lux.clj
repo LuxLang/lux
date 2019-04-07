@@ -208,7 +208,7 @@
                               (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
                               (.visitLdcInsn (int idx))
                               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT"
-                                                (if tail? "product_getRight" "product_getLeft")
+                                                (if tail? "product_getRight" "tuple_left")
                                                 "([Ljava/lang/Object;I)Ljava/lang/Object;"))))
                         _path)]]
     (return nil)))
