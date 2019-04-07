@@ -1,12 +1,15 @@
 (.module:
   [lux (#- Definition)
+   [abstract
+    [monad (#+ do)]]
    [control
     pipe
-    [monad (#+ do)]
     ["ex" exception (#+ exception:)]
+    ["." io (#+ IO io)]
     [concurrency
      ["." atom (#+ Atom atom)]]]
    [data
+    ["." product]
     ["." error (#+ Error)]
     ["." text ("#/." hash)
      format]
@@ -17,14 +20,11 @@
    ["." host (#+ import: do-to object)
     [jvm
      ["." loader (#+ Library)]]]
-   ["." io (#+ IO io)]
    [world
     [binary (#+ Binary)]]
    [tool
     [compiler
-     ["." name]
-     [phase
-      ["." translation]]]]]
+     ["." name]]]]
   [///
    [host
     ["." jvm (#+ Inst Definition Host State)
@@ -85,7 +85,7 @@
 (def: class-path-separator ".")
 
 (def: (evaluate! library loader eval-class valueI)
-  (-> Library ClassLoader Text Inst (Error Any))
+  (-> Library ClassLoader Text Inst (Error [Any Definition]))
   (let [bytecode-name (text.replace-all class-path-separator .module-separator eval-class)
         bytecode (def.class #jvm.V1_6
                             #jvm.Public jvm.noneC
@@ -102,23 +102,31 @@
                                                   inst.RETURN))))]
     (io.run (do (error.with io.monad)
               [_ (loader.store eval-class bytecode library)
-               class (loader.load eval-class loader)]
-              (:: io.monad wrap (class-value eval-class class))))))
+               class (loader.load eval-class loader)
+               value (:: io.monad wrap (class-value eval-class class))]
+              (wrap [value
+                     [eval-class bytecode]])))))
 
 (def: (execute! library loader temp-label [class-name class-bytecode])
   (-> Library ClassLoader Text Definition (Error Any))
   (io.run (do (error.with io.monad)
-            [_ (loader.store class-name class-bytecode library)]
+            [existing-class? (|> (atom.read library)
+                                 (:: io.monad map (dictionary.contains? class-name))
+                                 (error.lift io.monad)
+                                 (: (IO (Error Bit))))
+             _ (if ?existing-class
+                 (wrap [])
+                 (loader.store class-name class-bytecode library))]
             (loader.load class-name loader))))
 
 (def: (define! library loader [module name] valueI)
-  (-> Library ClassLoader Name Inst (Error [Text Any]))
+  (-> Library ClassLoader Name Inst (Error [Text Any Definition]))
   (let [class-name (format (text.replace-all .module-separator class-path-separator module)
                            class-path-separator (name.normalize name)
                            "___" (%n (text/hash name)))]
     (do error.monad
-      [value (evaluate! library loader class-name valueI)]
-      (wrap [class-name value]))))
+      [[value definition] (evaluate! library loader class-name valueI)]
+      (wrap [class-name value definition]))))
 
 (def: #export host
   (IO Host)
@@ -128,9 +136,14 @@
            (structure
             (def: (evaluate! temp-label valueI)
               (let [eval-class (|> temp-label name.normalize (text.replace-all " " "$"))]
-                (..evaluate! library loader eval-class valueI)))
-            (def: execute! (..execute! library loader))
-            (def: define! (..define! library loader)))))))
+                (:: error.monad map product.left
+                    (..evaluate! library loader eval-class valueI))))
+            
+            (def: execute!
+              (..execute! library loader))
+            
+            (def: define!
+              (..define! library loader)))))))
 
 (def: #export runtime-class "LuxRuntime")
 (def: #export function-class "LuxFunction")

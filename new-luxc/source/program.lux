@@ -1,59 +1,148 @@
 (.module:
   [lux #*
-   [cli (#+ program:)]
-   [control
+   ["." host (#+ import:)]
+   [abstract
     [monad (#+ do)]]
-   ["." io (#+ IO)]
+   [control
+    [cli (#+ program:)]
+    ["." io (#+ IO)]]
+   [data
+    ["." error (#+ Error)]
+    [collection
+     [array (#+ Array)]]]
    [world
     ["." file]]
-   [host
-    ["." js]]
    [tool
     [compiler
-     ["." cli]
-     ["/" program]
      [phase
-      ["." macro]
-      ["." translation
-       [".T" js
-        [".JS" runtime]
-        [".JS" expression]
-        [".JS" extension]]]
-      ["." statement]]
+      ["." macro (#+ Expander)]]
      [default
       ["." platform (#+ Platform)]]]]]
+  [program
+   ["/" compositor
+    ["/." cli]]]
   [luxc
    [lang
     [host
-     ["." jvm]]
+     ["_" jvm
+      ["$t" type]
+      ["$d" def]
+      ["$i" inst]]]
     [translation
-     [".T" jvm
-      [".JVM" runtime]
-      [".JVM" expression]
+     ["." jvm
+      ["." runtime]
+      ["." expression]
       [procedure
-       [".JVM" common]]]]]]
-  )
+       ["." common]]]]]])
+
+(import: #long java/lang/reflect/Method
+  (invoke [java/lang/Object (Array java/lang/Object)] #try java/lang/Object))
+
+(import: #long (java/lang/Class c)
+  (getMethod [java/lang/String (Array (java/lang/Class java/lang/Object))] #try java/lang/reflect/Method))
+
+(import: #long java/lang/Object
+  (getClass [] (java/lang/Class java/lang/Object)))
+
+(def: _object-class
+  (java/lang/Class java/lang/Object)
+  (host.class-for java/lang/Object))
+
+(def: _apply-args
+  (Array (java/lang/Class java/lang/Object))
+  (|> (host.array (java/lang/Class java/lang/Object) 2)
+      (host.array-write 0 _object-class)
+      (host.array-write 1 _object-class)))
+
+(def: (expander macro inputs lux)
+  Expander
+  (do error.monad
+    [apply-method (|> macro
+                      (:coerce java/lang/Object)
+                      (java/lang/Object::getClass)
+                      (java/lang/Class::getMethod "apply" _apply-args))]
+    (:coerce (Error (Error [Lux (List Code)]))
+             (java/lang/reflect/Method::invoke
+              (:coerce java/lang/Object macro)
+              (|> (host.array java/lang/Object 2)
+                  (host.array-write 0 (:coerce java/lang/Object inputs))
+                  (host.array-write 1 (:coerce java/lang/Object lux)))
+              apply-method))))
 
 (def: jvm
-  (IO (Platform IO jvm.Anchor jvm.Inst jvm.Definition))
+  (IO (Platform IO _.Anchor _.Inst _.Definition))
   (do io.monad
-    [host jvmT.host]
+    [host jvm.host]
     (wrap {#platform.&monad io.monad
            #platform.&file-system file.system
            #platform.host host
-           #platform.phase expressionJVM.translate
-           #platform.runtime runtimeJVM.translate})))
+           #platform.phase expression.translate
+           #platform.runtime runtime.translate})))
 
-(def: js
-  (IO (Platform IO js.Var js.Expression js.Statement))
-  (do io.monad
-    [host jsT.host]
-    (wrap {#platform.&monad io.monad
-           #platform.&file-system file.system
-           #platform.host host
-           #platform.phase expressionJS.translate
-           #platform.runtime runtimeJS.translate})))
+(def: (program programI)
+  (-> _.Inst _.Definition)
+  (let [nilI runtime.noneI
+        num-inputsI (|>> ($i.ALOAD 0) $i.ARRAYLENGTH)
+        decI (|>> ($i.int +1) $i.ISUB)
+        headI (|>> $i.DUP
+                   ($i.ALOAD 0)
+                   $i.SWAP
+                   $i.AALOAD
+                   $i.SWAP
+                   $i.DUP_X2
+                   $i.POP)
+        pairI (|>> ($i.int +2)
+                   ($i.ANEWARRAY "java.lang.Object")
+                   $i.DUP_X1
+                   $i.SWAP
+                   ($i.int +0)
+                   $i.SWAP
+                   $i.AASTORE
+                   $i.DUP_X1
+                   $i.SWAP
+                   ($i.int +1)
+                   $i.SWAP
+                   $i.AASTORE)
+        consI (|>> ($i.int +1)
+                   ($i.string "")
+                   $i.DUP2_X1
+                   $i.POP2
+                   runtime.variantI)
+        prepare-input-listI (<| $i.with-label (function (_ @loop))
+                                $i.with-label (function (_ @end))
+                                (|>> nilI
+                                     num-inputsI
+                                     ($i.label @loop)
+                                     decI
+                                     $i.DUP
+                                     ($i.IFLT @end)
+                                     headI
+                                     pairI
+                                     consI
+                                     $i.SWAP
+                                     ($i.GOTO @loop)
+                                     ($i.label @end)
+                                     $i.POP
+                                     ($i.ASTORE 0)))
+        run-ioI (|>> ($i.CHECKCAST jvm.function-class)
+                     $i.NULL
+                     ($i.INVOKEVIRTUAL jvm.function-class runtime.apply-method (runtime.apply-signature 1) #0))
+        main-type ($t.method (list ($t.array 1 ($t.class "java.lang.String" (list))))
+                             #.None
+                             (list))
+        bytecode-name "_"]
+    [bytecode-name
+     ($d.class #_.V1_6
+               #_.Public _.finalC
+               bytecode-name
+               (list) ["java.lang.Object" (list)]
+               (list)
+               (|>> ($d.method #_.Public _.staticM "main" main-type
+                               (|>> prepare-input-listI
+                                    programI
+                                    run-ioI
+                                    $i.POP
+                                    $i.RETURN))))]))
 
-(program: [{service cli.service}]
-  ## (/.compiler macro.jvm ..jvm commonJVM.bundle service)
-  (/.compiler jsT.expander ..js extensionJS.bundle service))
+(program: [{service /cli.service}]
+  (/.compiler ..expander ..jvm common.bundle ..program service))
