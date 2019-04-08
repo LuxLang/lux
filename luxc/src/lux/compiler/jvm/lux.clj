@@ -206,9 +206,11 @@
                           (|let [[idx tail?] step]
                             (doto *writer*
                               (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-                              (.visitLdcInsn (int idx))
+                              (.visitLdcInsn (int (if tail?
+                                                    (dec idx)
+                                                    idx)))
                               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT"
-                                                (if tail? "product_getRight" "tuple_left")
+                                                (if tail? "tuple_right" "tuple_left")
                                                 "([Ljava/lang/Object;I)Ljava/lang/Object;"))))
                         _path)]]
     (return nil)))

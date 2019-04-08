@@ -108,27 +108,26 @@
       (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/Object" "equals" "(Ljava/lang/Object;)Z")
       (.visitJumpInsn Opcodes/IFEQ $else))
 
-    (&o/$TuplePM _idx+)
-    (|let [[_idx is-tail?] (|case _idx+
-                             (&/$Left _idx)
-                             (&/T [_idx false])
+    (&o/$TuplePM (&/$Left lefts))
+    (let [accessI (if (= 0 lefts)
+                    #(doto %
+                       (.visitInsn Opcodes/AALOAD))
+                    #(doto %
+                       (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "tuple_left" "([Ljava/lang/Object;I)Ljava/lang/Object;")))]
+      (doto writer
+        stack-peek
+        (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+        (.visitLdcInsn (int lefts))
+        accessI
+        (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")))
 
-                             (&/$Right _idx)
-                             (&/T [_idx true]))]
-      (if (= 0 _idx)
-        (doto writer
-          stack-peek
-          (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-          (.visitLdcInsn (int 0))
-          (.visitInsn Opcodes/AALOAD)
-          (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;"))
-        (doto writer
-          stack-peek
-          (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-          (.visitLdcInsn (int _idx))
-          (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" (if is-tail? "product_getRight" "tuple_left") "([Ljava/lang/Object;I)Ljava/lang/Object;")
-          (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
-          )))
+    (&o/$TuplePM (&/$Right _idx))
+    (doto writer
+      stack-peek
+      (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+      (.visitLdcInsn (int (dec _idx)))
+      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "tuple_right" "([Ljava/lang/Object;I)Ljava/lang/Object;")
+      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_push" "([Ljava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;"))
 
     (&o/$VariantPM _idx+)
     (|let [$success (new Label)
