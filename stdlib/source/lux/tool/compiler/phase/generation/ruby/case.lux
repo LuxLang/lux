@@ -11,7 +11,7 @@
      ["." list ("#@." functor fold)]
      ["." set]]]
    [host
-    ["_" python (#+ Expression SVar Statement)]]]
+    ["_" ruby (#+ Expression LVar Statement)]]]
   ["." // #_
    ["#." runtime (#+ Operation Phase)]
    ["#." reference]
@@ -26,10 +26,10 @@
       ["#." synthesis (#+ Synthesis Path)]]]]])
 
 (def: #export register
-  (///reference.local _.var))
+  (///reference.local _.local))
 
 (def: #export capture
-  (///reference.foreign _.var))
+  (///reference.foreign _.local))
 
 (def: #export (let generate [valueS register bodyS])
   (-> Phase [Synthesis Register Synthesis]
@@ -38,9 +38,10 @@
     [valueO (generate valueS)
      bodyO (generate bodyS)]
     ## TODO: Find some way to do 'let' without paying the price of the closure.
-    (wrap (_.apply/* (_.lambda (list (..register register))
-                          bodyO)
-                     (list valueO)))))
+    (wrap (|> bodyO
+              _.return
+              (_.lambda #.None (list (..register register)))
+              (_.apply/* (list valueO))))))
 
 (def: #export (record-get generate valueS pathP)
   (-> Phase Synthesis (List (Either Nat Nat))
@@ -67,13 +68,13 @@
      elseO (generate elseS)]
     (wrap (_.? testO thenO elseO))))
 
-(def: @savepoint (_.var "lux_pm_savepoint"))
-(def: @cursor (_.var "lux_pm_cursor"))
-(def: @temp (_.var "lux_pm_temp"))
+(def: @savepoint (_.local "lux_pm_savepoint"))
+(def: @cursor (_.local "lux_pm_cursor"))
+(def: @temp (_.local "lux_pm_temp"))
 
 (def: (push! value)
   (-> (Expression Any) (Statement Any))
-  (_.statement (|> @cursor (_.do "append" (list value)))))
+  (_.statement (|> @cursor (_.do "push" (list value)))))
 
 (def: peek-and-pop
   (Expression Any)
@@ -89,8 +90,8 @@
 
 (def: save!
   (Statement Any)
-  (.let [cursor (_.slice-from (_.int +0) @cursor)]
-    (_.statement (|> @savepoint (_.do "append" (list cursor))))))
+  (.let [cursor (_.array-range (_.int +0) (_.int -1) @cursor)]
+    (_.statement (|> @savepoint (_.do "push" (list cursor))))))
 
 (def: restore!
   (Statement Any)
@@ -102,7 +103,9 @@
 
 (def: (multi-pop! pops)
   (-> Nat (Statement Any))
-  (_.delete (_.slice-from (_.int (i/* -1 (.int pops))) @cursor)))
+  (_.statement (_.do "slice!" (list (_.int (i/* -1 (.int pops)))
+                                    (_.int (.int pops)))
+                 @cursor)))
 
 (template [<name> <flag> <prep>]
   [(def: (<name> simple? idx)
@@ -110,14 +113,13 @@
      ($_ _.then
          (_.set (list @temp) (|> idx <prep> .int _.int (//runtime.sum//get ..peek <flag>)))
          (.if simple?
-           (_.when (_.= _.none @temp)
+           (_.when (_.= _.nil @temp)
                    fail-pm!)
-           (_.if (_.= _.none @temp)
+           (_.if (_.= _.nil @temp)
              fail-pm!
-             (..push! @temp))
-           )))]
+             (..push! @temp)))))]
 
-  [left-choice  _.none        (<|)]
+  [left-choice  _.nil         (<|)]
   [right-choice (_.string "") inc]
   )
 
@@ -207,33 +209,16 @@
     (wrap ($_ _.then
               (_.while (_.bool true)
                        pattern-matching!)
-              (_.raise (_.Exception/1 (_.string case.pattern-matching-error)))))))
-
-(def: (gensym prefix)
-  (-> Text (Operation SVar))
-  (:: ////.monad map (|>> %n (format prefix) _.var) ///.next))
+              (_.statement (_.raise (_.string case.pattern-matching-error)))))))
 
 (def: #export (case generate [valueS pathP])
   (-> Phase [Synthesis Path] (Operation (Expression Any)))
   (do ////.monad
     [initG (generate valueS)
-     pattern-matching! (pattern-matching generate pathP)
-     @case (..gensym "case")
-     @init (..gensym "init")
-     #let [@dependencies+ (|> (case.storage pathP)
-                              (get@ #case.dependencies)
-                              set.to-list
-                              (list@map (function (_ variable)
-                                          (.case variable
-                                            (#reference.Local register)
-                                            (..register register)
-                                            
-                                            (#reference.Foreign register)
-                                            (..capture register)))))]
-     _ (///.save! ["" (_.code @case)]
-                  (_.def @case (list& @init @dependencies+)
-                         ($_ _.then
-                             (_.set (list @cursor) (_.list (list @init)))
-                             (_.set (list @savepoint) (_.list (list)))
-                             pattern-matching!)))]
-    (wrap (_.apply/* @case (list& initG @dependencies+)))))
+     pattern-matching! (pattern-matching generate pathP)]
+    (wrap (|> ($_ _.then
+                  (_.set (list @cursor) (_.array (list initG)))
+                  (_.set (list @savepoint) (_.array (list)))
+                  pattern-matching!)
+              (_.lambda #.None (list))
+              (_.do "call" (list))))))

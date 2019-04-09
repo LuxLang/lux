@@ -1,0 +1,159 @@
+(.module:
+  [lux #*
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    ["." function]]
+   [data
+    ["." product]
+    ["." text]
+    [collection
+     ["." dictionary]]]
+   [host (#+ import:)
+    ["_" ruby (#+ Expression)]]]
+  ["." /// #_
+   ["#." runtime (#+ Operation Phase Handler Bundle)]
+   ["#." primitive]
+   [//
+    [extension (#+ Nullary Unary Binary Trinary
+                   nullary unary binary trinary)]
+    [//
+     [extension
+      ["." bundle]]]]])
+
+(def: lux-procs
+  Bundle
+  (|> bundle.empty
+      (bundle.install "is" (binary (product.uncurry _.=)))
+      (bundle.install "try" (unary ///runtime.lux//try))))
+
+(def: keep-i64
+  (All [input]
+    (-> (-> input (Expression Any))
+        (-> input (Expression Any))))
+  (function.compose (_.bit-and (_.manual "0xFFFFFFFFFFFFFFFF"))))
+
+(def: i64-procs
+  Bundle
+  (<| (bundle.prefix "i64")
+      (|> bundle.empty
+          (bundle.install "and" (binary (product.uncurry _.bit-and)))
+          (bundle.install "or" (binary (product.uncurry _.bit-or)))
+          (bundle.install "xor" (binary (product.uncurry _.bit-xor)))
+          (bundle.install "left-shift" (binary (..keep-i64 (product.uncurry _.bit-shl))))
+          (bundle.install "logical-right-shift" (binary (product.uncurry ///runtime.i64//logic-right-shift)))
+          (bundle.install "arithmetic-right-shift" (binary (product.uncurry _.bit-shr)))
+          (bundle.install "=" (binary (product.uncurry _.=)))
+          (bundle.install "+" (binary (..keep-i64 (product.uncurry _.+))))
+          (bundle.install "-" (binary (..keep-i64 (product.uncurry _.-))))
+          )))
+
+(import: #long java/lang/Double
+  (#static MIN_VALUE Double)
+  (#static MAX_VALUE Double))
+
+(template [<name> <const>]
+  [(def: (<name> _)
+     (Nullary (Expression Any))
+     (_.float <const>))]
+
+  [frac//smallest (java/lang/Double::MIN_VALUE)]
+  [frac//min      (f/* -1.0 (java/lang/Double::MAX_VALUE))]
+  [frac//max      (java/lang/Double::MAX_VALUE)]
+  )
+
+(def: int-procs
+  Bundle
+  (<| (bundle.prefix "int")
+      (|> bundle.empty
+          (bundle.install "<" (binary (product.uncurry _.<)))
+          (bundle.install "*" (binary (..keep-i64 (product.uncurry _.*))))
+          (bundle.install "/" (binary (product.uncurry _./)))
+          (bundle.install "%" (binary (product.uncurry _.%)))
+          (bundle.install "frac" (unary (_./ (_.float +1.0))))
+          (bundle.install "char" (unary (_.do "chr" (list)))))))
+
+(def: frac-procs
+  Bundle
+  (<| (bundle.prefix "frac")
+      (|> bundle.empty
+          (bundle.install "+" (binary (product.uncurry _.+)))
+          (bundle.install "-" (binary (product.uncurry _.-)))
+          (bundle.install "*" (binary (product.uncurry _.*)))
+          (bundle.install "/" (binary (product.uncurry _./)))
+          (bundle.install "%" (binary (product.uncurry _.%)))
+          (bundle.install "=" (binary (product.uncurry _.=)))
+          (bundle.install "<" (binary (product.uncurry _.<)))
+          (bundle.install "smallest" (nullary frac//smallest))
+          (bundle.install "min" (nullary frac//min))
+          (bundle.install "max" (nullary frac//max))
+          (bundle.install "int" (unary (_.do "floor" (list))))
+          (bundle.install "encode" (unary (_.do "to_s" (list))))
+          (bundle.install "decode" (unary ///runtime.f64//decode)))))
+
+(def: (text//char [subjectO paramO])
+  (Binary (Expression Any))
+  (///runtime.text//char subjectO paramO))
+
+(def: (text//clip [paramO extraO subjectO])
+  (Trinary (Expression Any))
+  (///runtime.text//clip subjectO paramO extraO))
+
+(def: (text//index [startO partO textO])
+  (Trinary (Expression Any))
+  (///runtime.text//index textO partO startO))
+
+(def: text-procs
+  Bundle
+  (<| (bundle.prefix "text")
+      (|> bundle.empty
+          (bundle.install "=" (binary (product.uncurry _.=)))
+          (bundle.install "<" (binary (product.uncurry _.<)))
+          (bundle.install "concat" (binary (product.uncurry _.+)))
+          (bundle.install "index" (trinary text//index))
+          (bundle.install "size" (unary (_.the "length")))
+          (bundle.install "char" (binary (product.uncurry ///runtime.text//char)))
+          (bundle.install "clip" (trinary text//clip))
+          )))
+
+(def: (io//log! messageG)
+  (Unary (Expression Any))
+  (_.or (_.apply/* (list (|> messageG (_.+ (_.string text.new-line))))
+                   (_.local "puts"))
+        ///runtime.unit))
+
+(def: io//error!
+  (Unary (Expression Any))
+  _.raise)
+
+(def: (io//exit! code)
+  (Unary (Expression Any))
+  (_.apply/* (list code) (_.local "exit")))
+
+(def: (io//current-time! _)
+  (Nullary (Expression Any))
+  (|> (_.local "Time")
+      (_.do "now" (list))
+      (_.do "to_f" (list))
+      (_.* (_.float +1000.0))
+      (_.do "to_i" (list))))
+
+(def: io-procs
+  Bundle
+  (<| (bundle.prefix "io")
+      (|> bundle.empty
+          (bundle.install "log" (unary ..io//log!))
+          (bundle.install "error" (unary ..io//error!))
+          (bundle.install "exit" (unary ..io//exit!))
+          (bundle.install "current-time" (nullary ..io//current-time!)))))
+
+(def: #export bundle
+  Bundle
+  (<| (bundle.prefix "lux")
+      (|> lux-procs
+          (dictionary.merge ..i64-procs)
+          (dictionary.merge ..int-procs)
+          (dictionary.merge ..frac-procs)
+          (dictionary.merge ..text-procs)
+          (dictionary.merge ..io-procs)
+          )))
