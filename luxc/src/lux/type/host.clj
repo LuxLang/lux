@@ -74,36 +74,28 @@
 ;; [Utils]
 (defn ^:private trace-lineage* [^Class super-class ^Class sub-class]
   "(-> Class Class (List Class))"
-  ;; Either they're both interfaces, of they're both classes
+  ;; Either they're both interfaces, or they're both classes
   (let [valid-sub? #(if (or (= super-class %)
                             (.isAssignableFrom super-class %))
                       %
                       nil)]
-    (cond (.isInterface sub-class)
-          (loop [sub-class sub-class
-                 stack (&/|list)]
-            (let [super-interface (some valid-sub? (.getInterfaces sub-class))]
-              (if (= super-class super-interface)
-                (&/$Cons super-interface stack)
-                (recur super-interface (&/$Cons super-interface stack)))))
-
-          (.isInterface super-class)
-          (loop [sub-class sub-class
-                 stack (&/|list)]
-            (if-let [super-interface (some valid-sub? (.getInterfaces sub-class))]
-              (if (= super-class super-interface)
-                (&/$Cons super-interface stack)
-                (recur super-interface (&/$Cons super-interface stack)))
-              (let [super* (.getSuperclass sub-class)]
-                (recur super* (&/$Cons super* stack)))))
-
-          :else
-          (loop [sub-class sub-class
-                 stack (&/|list)]
-            (let [super* (.getSuperclass sub-class)]
-              (if (= super* super-class)
-                (&/$Cons super* stack)
-                (recur super* (&/$Cons super* stack))))))))
+    (if (or (.isInterface sub-class)
+            (.isInterface super-class))
+      (loop [sub-class sub-class
+             stack (&/|list)]
+        (if-let [super-interface (some valid-sub? (.getInterfaces sub-class))]
+          (if (= super-class super-interface)
+            (&/$Cons super-interface stack)
+            (recur super-interface (&/$Cons super-interface stack)))
+          (if-let [super* (.getSuperclass sub-class)]
+            (recur super* (&/$Cons super* stack))
+            stack)))
+      (loop [sub-class sub-class
+             stack (&/|list)]
+        (let [super* (.getSuperclass sub-class)]
+          (if (= super* super-class)
+            (&/$Cons super* stack)
+            (recur super* (&/$Cons super* stack))))))))
 
 (defn ^:private trace-lineage [^Class sub-class ^Class super-class]
   "(-> Class Class (List Class))"
