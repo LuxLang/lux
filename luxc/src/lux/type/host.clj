@@ -72,8 +72,9 @@
 (def rev-data-tag "#Rev")
 
 ;; [Utils]
-(defn ^:private trace-lineage* [^Class super-class ^Class sub-class]
+(defn ^:private trace-lineage*
   "(-> Class Class (List Class))"
+  [^Class super-class ^Class sub-class]
   ;; Either they're both interfaces, or they're both classes
   (let [valid-sub? #(if (or (= super-class %)
                             (.isAssignableFrom super-class %))
@@ -97,8 +98,9 @@
             (&/$Cons super* stack)
             (recur super* (&/$Cons super* stack))))))))
 
-(defn ^:private trace-lineage [^Class sub-class ^Class super-class]
+(defn ^:private trace-lineage
   "(-> Class Class (List Class))"
+  [^Class sub-class ^Class super-class]
   (if (= sub-class super-class)
     (&/|list)
     (&/|reverse (trace-lineage* super-class sub-class))))
@@ -121,8 +123,9 @@
                        "F" "float"
                        "D" "double"
                        "C" "char"))]
-  (defn class->type [^Class class]
+  (defn class->type
     "(-> Class Type)"
+    [^Class class]
     (let [gclass-name (.getName class)]
       (case gclass-name
         ("[Z" "[B" "[S" "[I" "[J" "[F" "[D" "[C")
@@ -141,8 +144,9 @@
                       (range (count (or arr-obrackets arr-pbrackets "")))))
             ))))))
 
-(defn instance-param [existential matchings refl-type]
+(defn instance-param
   "(-> (Lux Type) (List (, Text Type)) (^ java.lang.reflect.Type) (Lux Type))"
+  [existential matchings refl-type]
   (cond (instance? Class refl-type)
         (return (class->type refl-type))
 
@@ -201,8 +205,9 @@
           (principal-class bound)
           (&host-generics/->type-signature "java.lang.Object"))))
 
-(defn instance-gtype [existential matchings gtype]
+(defn instance-gtype
   "(-> (Lux Type) (List (, Text Type)) GenericType (Lux Type))"
+  [existential matchings gtype]
   (|case gtype
     (&/$GenericArray component-type)
     (|do [inner-type (instance-gtype existential matchings component-type)]
@@ -234,13 +239,15 @@
     existential))
 
 ;; [Utils]
-(defn ^:private translate-params [existential super-type-params sub-type-params params]
+(defn ^:private translate-params
   "(-> (List (^ java.lang.reflect.Type)) (List (^ java.lang.reflect.Type)) (List Type) (Lux (List Type)))"
+  [existential super-type-params sub-type-params params]
   (|let [matchings (match-params sub-type-params params)]
     (&/map% (partial instance-param existential matchings) super-type-params)))
 
-(defn ^:private raise* [existential sub+params ^Class super]
+(defn ^:private raise*
   "(-> (, Class (List Type)) Class (Lux (, Class (List Type))))"
+  [existential sub+params ^Class super]
   (|let [[^Class sub params] sub+params]
     (if (.isInterface super)
       (|do [:let [super-params (->> sub
@@ -341,8 +348,9 @@
       (catch Exception e
         (throw e)))))
 
-(defn gtype->gclass [gtype]
+(defn gtype->gclass
   "(-> GenericType GenericClass)"
+  [gtype]
   (cond (instance? Class gtype)
         (&/$GenericClass (.getName ^Class gtype) &/$Nil)
 
@@ -368,8 +376,9 @@
             (&/$GenericWildcard &/$None)))))
 
 (let [generic-type-sig "Ljava/lang/Object;"]
-  (defn gclass->sig [gclass]
+  (defn gclass->sig
     "(-> GenericClass Text)"
+    [gclass]
     (|case gclass
       (&/$GenericClass gclass-name (&/$Nil))
       (case gclass-name

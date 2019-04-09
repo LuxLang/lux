@@ -1,0 +1,447 @@
+(.module:
+  [lux #*
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    pipe
+    [cli (#+ program:)]
+    ["p" parser]
+    ["." exception (#+ exception:)]
+    ["." io (#+ IO io)]]
+   [data
+    ["." maybe]
+    ["." error (#+ Error)]
+    [number
+     ["." i64]]
+    ["." text ("#@." hash)
+     format]
+    [collection
+     ["." array (#+ Array)]
+     ["." list ("#@." functor)]]]
+   ["." macro
+    ["s" syntax (#+ syntax:)]
+    ["." code]
+    ["." template]]
+   [world
+    ["." file]]
+   ["." host (#+ import: interface: do-to object)
+    ["_" ruby]]
+   [tool
+    [compiler
+     ["." name]
+     ["." synthesis]
+     [phase
+      [macro (#+ Expander)]
+      ["." generation
+       ["." ruby
+        ["." runtime]
+        ["." extension]]]]
+     [default
+      ["." platform (#+ Platform)]]]]]
+  [program
+   ["/" compositor
+    ["/." cli]]])
+
+(import: #long java/lang/String)
+
+(import: #long (java/lang/Class a)
+  (getCanonicalName [] java/lang/String))
+
+(import: #long java/lang/Object
+  (new [])
+  (toString [] java/lang/String)
+  (getClass [] (java/lang/Class java/lang/Object)))
+
+(import: #long java/lang/Integer
+  (longValue [] java/lang/Long))
+
+(import: #long java/lang/Long
+  (intValue [] java/lang/Integer))
+
+(import: #long java/lang/Number
+  (intValue [] java/lang/Integer)
+  (longValue [] long)
+  (doubleValue [] double))
+
+(def: (inspect object)
+  (-> java/lang/Object Text)
+  (<| (case (host.check java/lang/Boolean object)
+        (#.Some value)
+        (%b value)
+        #.None)
+      (case (host.check java/lang/String object)
+        (#.Some value)
+        (%t value)
+        #.None)
+      (case (host.check java/lang/Long object)
+        (#.Some value)
+        (%i (.int value))
+        #.None)
+      (case (host.check java/lang/Number object)
+        (#.Some value)
+        (%f (java/lang/Number::doubleValue value))
+        #.None)
+      (case (host.check (Array java/lang/Object) object)
+        (#.Some value)
+        (let [value (:coerce (Array java/lang/Object) value)]
+          (case (array.read 0 value)
+            (^multi (#.Some tag)
+                    [(host.check java/lang/Integer tag)
+                     (#.Some tag)]
+                    [[(array.read 1 value)
+                      (array.read 2 value)]
+                     [last?
+                      (#.Some choice)]])
+            (let [last? (case last?
+                          (#.Some _) #1
+                          #.None #0)]
+              (|> (format (%n (.nat (java/lang/Integer::longValue tag)))
+                          " " (%b last?)
+                          " " (inspect choice))
+                  (text.enclose ["(" ")"])))
+
+            _
+            (|> value
+                array.to-list
+                (list@map inspect)
+                (text.join-with " ")
+                (text.enclose ["[" "]"]))))
+        #.None)
+      (java/lang/Object::toString object)))
+
+(import: #long org/jruby/RubyArray
+  (getLength [] int)
+  (get [int] #? Object))
+
+(import: #long org/jruby/RubyHash
+  (get [Object] #? Object))
+
+(import: #long org/jruby/runtime/builtin/IRubyObject)
+
+(import: #long org/jruby/runtime/ThreadContext)
+
+(template [<name>]
+  [(interface: <name>
+     (getValue [] java/lang/Object))
+
+   (`` (import: (~~ (template.identifier ["program/" <name>]))
+         (getValue [] java/lang/Object)))]
+
+  [StructureValue]
+  )
+
+(syntax: (method-inputs {input-classes (s.tuple (p.some s.any))})
+  (monad.map @ (function (_ class)
+                 (do @
+                   [var (macro.gensym "input")]
+                   (wrap (code.record (list [var class])))))
+             input-classes))
+
+(import: #long org/jruby/runtime/JavaSites$CheckedSites)
+
+(def: (lux-structure value)
+  (-> (Array java/lang/Object) org/jruby/runtime/builtin/IRubyObject)
+  (with-expansions [<checkers> (template [<name>]
+                                 [[<name> [] boolean]]
+
+                                 [isNil] [isTaint] [isClass] [isFrozen]
+                                 [isImmediate] [isModule] [isSpecialConst] [isTrue]
+                                 [isUntrusted] [hasVariables])
+                    <markers> (template [<name>]
+                                [[<name> [boolean] void]]
+
+                                [setFrozen] [setTaint] [setUntrusted])
+                    <nullaries> (template [<name>]
+                                  [[<name> [] org/jruby/runtime/builtin/IRubyObject]]
+
+                                  [dup] [checkArrayType] [inspect] [checkStringType]
+                                  [checkStringType19] [id] [rbClone] [anyToString])
+                    <class> (template [<name>]
+                              [[<name> [] org/jruby/RubyClass]]
+
+                              [getMetaClass] [getType] [getSingletonClass])
+                    <call> (template [<inputs>]
+                             [[callMethod <inputs>
+                               org/jruby/runtime/builtin/IRubyObject]]
+
+                             [[org/jruby/runtime/ThreadContext int java/lang/String]]
+                             [[org/jruby/runtime/ThreadContext int java/lang/String org/jruby/runtime/builtin/IRubyObject]]
+                             [[org/jruby/runtime/ThreadContext java/lang/String]]
+                             [[org/jruby/runtime/ThreadContext java/lang/String org/jruby/runtime/builtin/IRubyObject]]
+                             ## [[org/jruby/runtime/ThreadContext java/lang/String (Array org/jruby/runtime/builtin/IRubyObject)]]
+                             [[org/jruby/runtime/ThreadContext java/lang/String (Array org/jruby/runtime/builtin/IRubyObject) org/jruby/runtime/Block]]
+                             )
+                    <placeholders> (template [<name> <inputs> <output>]
+                                     [(org/jruby/runtime/builtin/IRubyObject
+                                       (<name> (~~ (method-inputs <inputs>)))
+                                       <output>
+                                       (error! (template.text ["UNIMPLEMENTED METHOD: " <name>])))]
+
+                                     [getJavaClass [] (java/lang/Class java/lang/Object)]
+                                     [asJavaString [] java/lang/String]
+                                     [getInstanceVariables [] org/jruby/runtime/builtin/InstanceVariables]
+                                     [convertToInteger [] org/jruby/RubyInteger]
+                                     [convertToInteger [java/lang/String] org/jruby/RubyInteger]
+                                     [convertToInteger [int java/lang/String] org/jruby/RubyInteger]
+                                     [convertToArray [] org/jruby/RubyArray]
+                                     [convertToHash [] org/jruby/RubyHash]
+                                     [convertToFloat [] org/jruby/RubyFloat]
+                                     [convertToString [] org/jruby/RubyString]
+                                     [asString [] org/jruby/RubyString]
+                                     [respondsTo [java/lang/String] boolean]
+                                     [respondsToMissing [java/lang/String] boolean]
+                                     [respondsToMissing [java/lang/String boolean] boolean]
+                                     [dataGetStruct [] java/lang/Object]
+                                     [dataGetStructChecked [] java/lang/Object]
+                                     [infectBy [org/jruby/runtime/builtin/IRubyObject] org/jruby/runtime/builtin/IRubyObject]
+                                     [eql [org/jruby/runtime/builtin/IRubyObject] boolean]
+                                     [toJava [(java/lang/Class java/lang/Object)] java/lang/Object]
+
+                                     [op_eqq
+                                      [org/jruby/runtime/ThreadContext
+                                       org/jruby/runtime/builtin/IRubyObject]
+                                      org/jruby/runtime/builtin/IRubyObject]
+                                     
+                                     [op_equal
+                                      [org/jruby/runtime/ThreadContext
+                                       org/jruby/runtime/builtin/IRubyObject]
+                                      org/jruby/runtime/builtin/IRubyObject]
+                                     
+                                     [callSuper
+                                      [org/jruby/runtime/ThreadContext
+                                       (Array org/jruby/runtime/builtin/IRubyObject)
+                                       org/jruby/runtime/Block]
+                                      org/jruby/runtime/builtin/IRubyObject]
+                                     
+                                     [checkCallMethod
+                                      [org/jruby/runtime/ThreadContext
+                                       java/lang/String]
+                                      org/jruby/runtime/builtin/IRubyObject]
+                                     
+                                     ## [checkCallMethod
+                                     ##  [org/jruby/runtime/ThreadContext
+                                     ##   org/jruby/runtime/JavaSites$CheckedSites]
+                                     ##  org/jruby/runtime/builtin/IRubyObject]
+
+                                     <checkers>
+                                     <markers>
+                                     <nullaries>
+                                     <class>
+                                     <call>
+                                     )]
+    (`` (object [] [program/StructureValue
+                    org/jruby/runtime/builtin/IRubyObject]
+          []
+          ## Methods
+          (program/StructureValue
+           (getValue)
+           java/lang/Object
+           (:coerce (Array java/lang/Object) value))
+          
+          (org/jruby/runtime/builtin/IRubyObject
+           (callMethod {thread-context org/jruby/runtime/ThreadContext}
+                       {member java/lang/String}
+                       {inputs (Array org/jruby/runtime/builtin/IRubyObject)})
+           org/jruby/runtime/builtin/IRubyObject
+           (exec
+             (log! (format "Was called: " (%t member)))
+             (error! "OOPS!")))
+
+          <placeholders>
+          ))))
+
+(import: #long org/jruby/RubyProc
+  (call [org/jruby/runtime/ThreadContext (Array org/jruby/runtime/builtin/IRubyObject)]
+        org/jruby/runtime/builtin/IRubyObject))
+
+(import: #long org/jruby/Ruby
+  (getCurrentContext [] org/jruby/runtime/ThreadContext))
+
+(import: #long org/jruby/javasupport/JavaArray
+  (new [org/jruby/Ruby java/lang/Object]))
+
+(type: Translator
+  (-> java/lang/Object (Error Any)))
+
+(def: (read-tuple read host-object)
+  (-> Translator org/jruby/RubyArray (Error Any))
+  (let [size (:coerce Nat (org/jruby/RubyArray::getLength host-object))]
+    (loop [idx 0
+           output (:coerce (Array Any) (array.new size))]
+      (if (n/< size idx)
+        (case (org/jruby/RubyArray::get (.int idx) host-object)
+          #.None
+          (recur (inc idx) output)
+          
+          (#.Some value)
+          (case (read value)
+            (#error.Failure error)
+            (#error.Failure error)
+
+            (#error.Success lux-value)
+            (recur (inc idx) (array.write idx lux-value output))))
+        (#error.Success output)))))
+
+(exception: (unknown-kind-of-object {object java/lang/Object})
+  (exception.report
+   ["Class" (java/lang/Object::toString (java/lang/Object::getClass object))]
+   ["Object" (java/lang/Object::toString object)]))
+
+(def: (read-variant read host-object)
+  (-> Translator org/jruby/RubyHash (Error Any))
+  (case [(org/jruby/RubyHash::get runtime.variant-tag-field host-object)
+         (org/jruby/RubyHash::get runtime.variant-flag-field host-object)
+         (org/jruby/RubyHash::get runtime.variant-value-field host-object)]
+    (^multi [(#.Some tag) ?flag (#.Some value)]
+            [(read value)
+             (#.Some value)])
+    (#error.Success [(java/lang/Long::intValue (:coerce java/lang/Long tag))
+                     (: Any (case ?flag
+                              (#.Some _)
+                              ""
+
+                              #.None
+                              (host.null)))
+                     value])
+
+    _
+    (exception.throw ..unknown-kind-of-object host-object)))
+
+(exception: #export nil-has-no-lux-representation)
+
+(def: (read host-object)
+  Translator
+  (`` (<| (if (host.null? host-object)
+            (exception.throw nil-has-no-lux-representation []))
+          (~~ (template [<class> <post-processing>]
+                [(case (host.check <class> host-object)
+                   (#.Some typed-object)
+                   (|> typed-object <post-processing>)
+
+                   _)]
+
+                [java/lang/Boolean #error.Success]
+                [java/lang/Long #error.Success]
+                [java/lang/Double #error.Success]
+                [java/lang/String #error.Success]
+                [org/jruby/RubyArray (read-tuple read)]
+                [org/jruby/RubyHash (read-variant read)]
+                [org/jruby/RubySymbol #error.Success]
+                [org/jruby/RubyProc #error.Success]
+                ))
+          (exception.throw ..unknown-kind-of-object host-object)
+          )))
+
+(exception: (cannot-apply-a-non-function {object java/lang/Object})
+  (exception.report
+   ["Non-function" (java/lang/Object::toString object)]))
+
+(import: #long org/jruby/embed/internal/LocalContextProvider
+  (getRuntime [] org/jruby/Ruby))
+
+(import: #long org/jruby/embed/ScriptingContainer
+  (new [])
+  (runScriptlet [java/lang/String] #try #? java/lang/Object)
+  (getProvider [] org/jruby/embed/internal/LocalContextProvider))
+
+## TODO; Figure out a way to not need "interpreter" to be a global variable.
+(def: interpreter (org/jruby/embed/ScriptingContainer::new))
+
+(def: ensure-macro
+  (-> Macro (Maybe org/jruby/RubyProc))
+  (|>> (:coerce java/lang/Object) (host.check org/jruby/RubyProc)))
+
+(template: (!ruby-runtime)
+  (|> ..interpreter
+      org/jruby/embed/ScriptingContainer::getProvider
+      org/jruby/embed/internal/LocalContextProvider::getRuntime))
+
+(template: (!ruby-thread-context)
+  (|> (!ruby-runtime)
+      org/jruby/Ruby::getCurrentContext))
+
+(def: to-host
+  (-> Any org/jruby/runtime/builtin/IRubyObject)
+  (|>> (:coerce (Array java/lang/Object))
+       ..lux-structure
+       ## (org/jruby/javasupport/JavaArray::new (!ruby-runtime))
+       ))
+
+(def: (call-macro inputs lux macro)
+  (-> (List Code) Lux org/jruby/RubyProc (Error (Error [Lux (List Code)])))
+  (<| :assume
+      ..read
+      (:coerce java/lang/Object)
+      (org/jruby/RubyProc::call (!ruby-thread-context)
+                                (|> (host.array org/jruby/runtime/builtin/IRubyObject 2)
+                                    (host.array-write 0 (..to-host inputs))
+                                    (host.array-write 1 (..to-host lux)))
+                                macro)))
+
+(def: (expander macro inputs lux)
+  Expander
+  (case (ensure-macro macro)
+    (#.Some macro)
+    (case (call-macro inputs lux macro)
+      (#error.Success output)
+      (|> output
+          (:coerce java/lang/Object)
+          ..read
+          (:coerce (Error (Error [Lux (List Code)]))))
+
+      (#error.Failure error)
+      (#error.Failure error))
+
+    #.None
+    (exception.throw cannot-apply-a-non-function (:coerce java/lang/Object macro))))
+
+(def: separator "___")
+
+(type: Host
+  (generation.Host (_.Expression Any) (_.Statement Any)))
+
+(def: host
+  (IO Host)
+  (io (let [run! (: (-> Text (_.Code Any) (Error Any))
+                    (function (_ dummy-name code)
+                      (do error.monad
+                        [output (org/jruby/embed/ScriptingContainer::runScriptlet (_.code code) ..interpreter)]
+                        (..read (maybe.default (:coerce java/lang/Object [])
+                                               output)))))]
+        (: Host
+           (structure
+            (def: evaluate! run!)
+            (def: execute! run!)
+            (def: (define! [module name] input)
+              (let [global (format (text.replace-all .module-separator ..separator module)
+                                   ..separator (name.normalize name)
+                                   "___" (%n (text@hash name)))
+                    @global (_.global global)]
+                (do error.monad
+                  [#let [definition (_.set (list @global) input)]
+                   _ (run! global definition)
+                   value (run! global @global)]
+                  (wrap [global value definition])))))))))
+
+(def: platform
+  (IO (Platform IO _.LVar (_.Expression Any) (_.Statement Any)))
+  (do io.monad
+    [host ..host]
+    (wrap {#platform.&monad io.monad
+           #platform.&file-system file.system
+           #platform.host host
+           #platform.phase ruby.generate
+           #platform.runtime runtime.generate})))
+
+(def: (program program)
+  (-> (_.Expression Any) (_.Statement Any))
+  (_.statement (_.apply/* (list (runtime.lux//program-args _.command-line-arguments)
+                                _.nil)
+                          program)))
+
+(program: [{service /cli.service}]
+  (/.compiler ..expander
+              ..platform
+              extension.bundle
+              ..program
+              service))
