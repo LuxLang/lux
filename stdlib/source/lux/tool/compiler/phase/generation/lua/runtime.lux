@@ -16,7 +16,7 @@
     ["." code]
     ["s" syntax (#+ syntax:)]]
    [host
-    ["_" python (#+ Expression SVar Computation Literal Statement)]]]
+    ["_" lua (#+ Expression Location Var Computation Literal Statement)]]]
   ["." ///
    ["//." //
     [//
@@ -26,7 +26,7 @@
 
 (template [<name> <base>]
   [(type: #export <name>
-     (<base> SVar (Expression Any) (Statement Any)))]
+     (<base> Var (Expression Any) Statement))]
 
   [Operation ///.Operation]
   [Phase ///.Phase]
@@ -42,11 +42,17 @@
   (-> Bit Literal)
   (if value
     (_.string "")
-    _.none))
+    _.nil))
+
+(def: #export variant-tag-field "_lux_tag")
+(def: #export variant-flag-field "_lux_flag")
+(def: #export variant-value-field "_lux_value")
 
 (def: (variant' tag last? value)
   (-> (Expression Any) (Expression Any) (Expression Any) Literal)
-  (_.tuple (list tag last? value)))
+  (_.table (list [..variant-tag-field tag]
+                 [..variant-flag-field last?]
+                 [..variant-value-field value])))
 
 (def: #export (variant tag last? value)
   (-> Nat Bit (Expression Any) Literal)
@@ -71,13 +77,13 @@
   (..variant 1 #1))
 
 (def: runtime-name
-  (-> Text SVar)
+  (-> Text Var)
   (|>> /////name.normalize
        (format ..prefix "_")
        _.var))
 
 (def: (feature name definition)
-  (-> SVar (-> SVar (Statement Any)) (Statement Any))
+  (-> Var (-> Var Statement) Statement)
   (definition name))
 
 (syntax: #export (with-vars {vars (s.tuple (p.some s.local-identifier))}
@@ -99,12 +105,12 @@
       (let [nameC (code.local-identifier name)
             code-nameC (code.local-identifier (format "@" name))
             runtime-nameC (` (runtime-name (~ (code.text name))))]
-        (wrap (list (` (def: #export (~ nameC) SVar (~ runtime-nameC)))
+        (wrap (list (` (def: #export (~ nameC) Var (~ runtime-nameC)))
                     (` (def: (~ code-nameC)
-                         (Statement Any)
+                         Statement
                          (..feature (~ runtime-nameC)
                                     (function ((~ g!_) (~ nameC))
-                                      (~ code)))))))))
+                                      (_.set (~ nameC) (~ code))))))))))
     
     (#.Right [name inputs])
     (macro.with-gensyms [g!_]
@@ -116,103 +122,61 @@
                                     inputs)]
         (wrap (list (` (def: #export ((~ nameC) (~+ inputsC))
                          (-> (~+ inputs-typesC) (Computation Any))
-                         (_.apply/* (~ runtime-nameC) (list (~+ inputsC)))))
+                         (_.apply/* (list (~+ inputsC)) (~ runtime-nameC))))
                     (` (def: (~ code-nameC)
-                         (Statement Any)
+                         Statement
                          (..feature (~ runtime-nameC)
                                     (function ((~ g!_) (~ g!_))
                                       (..with-vars [(~+ inputsC)]
-                                        (_.def (~ g!_) (list (~+ inputsC))
-                                               (~ code)))))))))))))
+                                        (_.function (~ g!_) (list (~+ inputsC))
+                                          (~ code)))))))))))))
 
-(runtime: (lux//try op)
-  (with-vars [error value]
-    (_.try ($_ _.then
-               (_.set (list value) (_.apply/* op (list unit)))
-               (_.return (right value)))
-           (list [(list (_.var "Exception")) error
-                  (_.return (left (_.str/1 error)))]))))
+(def: (nth index table)
+  (-> (Expression Any) (Expression Any) (Location Any))
+  (_.nth (_.+ (_.int +1) index) table))
 
-(runtime: (lux//program-args program-args)
-  (with-vars [inputs value]
-    ($_ _.then
-        (_.set (list inputs) none)
-        (<| (_.for-in value program-args)
-            (_.set (list inputs)
-                   (some (_.tuple (list value inputs)))))
-        (_.return inputs))))
-
-(def: runtime//lux
-  (Statement Any)
-  ($_ _.then
-      @lux//try
-      @lux//program-args))
-
-(runtime: (io//log! message)
-  ($_ _.then
-      (_.print message)
-      (_.return ..unit)))
-
-(runtime: (io//throw! message)
-  ($_ _.then
-      (_.raise (_.Exception/1 message))
-      (_.return ..unit)))
-
-(runtime: (io//exit! code)
-  ($_ _.then
-      (_.import "sys")
-      (_.statement (|> (_.var "sys") (_.do "exit" (list code))))
-      (_.return ..unit)))
-
-(runtime: (io//current-time! _)
-  ($_ _.then
-      (_.import "time")
-      (_.return (|> (_.var "time")
-                    (_.do "time" (list))
-                    (_.* (_.int +1,000))
-                    _.int/1))))
-
-(def: runtime//io
-  (Statement Any)
-  ($_ _.then
-      @io//log!
-      @io//throw!
-      @io//exit!
-      @io//current-time!))
-
-(def: last-index
-  (|>> _.len/1 (_.- (_.int +1))))
+(def: last-index (|>> _.length (_.- (_.int +1))))
 
 (runtime: (tuple//left lefts tuple)
-  (with-vars [last-index-right]
+  (with-vars [last-right]
     ($_ _.then
-        (_.set (list last-index-right) (..last-index tuple))
-        (_.if (_.> lefts last-index-right)
+        (_.let (list last-right) (..last-index tuple))
+        (_.if (_.> lefts last-right)
           ## No need for recursion
-          (_.return (_.nth lefts tuple))
+          (_.return (..nth lefts tuple))
           ## Needs recursion
-          (_.return (tuple//left (_.- last-index-right lefts)
-                                 (_.nth last-index-right tuple)))))))
+          (_.return (tuple//left (_.- last-right lefts)
+                                 (..nth last-right tuple)))))))
+
+(runtime: (array//sub from to array)
+  (with-vars [temp idx]
+    ($_ _.then
+        (_.let (list temp) (_.array (list)))
+        (_.for-step idx from (_.- (_.int +1) to) (_.int +1)
+                    (|> (_.var "table.insert")
+                        (_.apply/* (list temp (..nth idx array)))
+                        _.statement))
+        (_.return temp))))
 
 (runtime: (tuple//right lefts tuple)
-  (with-vars [last-index-right right-index]
+  (with-vars [last-right right-index]
     ($_ _.then
-        (_.set (list last-index-right) (..last-index tuple))
-        (_.set (list right-index) (_.+ (_.int +1) lefts))
-        (_.cond (list [(_.= right-index last-index-right)
-                       (_.return (_.nth right-index tuple))]
-                      [(_.> right-index last-index-right)
+        (_.let (list last-right) (..last-index tuple))
+        (_.let (list right-index) (_.+ (_.int +1) lefts))
+        (_.cond (list [(_.= right-index last-right)
+                       (_.return (..nth right-index tuple))]
+                      [(_.> right-index last-right)
                        ## Needs recursion.
-                       (_.return (tuple//right (_.- last-index-right lefts)
-                                               (_.nth last-index-right tuple)))])
-                (_.return (_.slice-from right-index tuple)))
+                       (_.return (tuple//right (_.- last-right lefts)
+                                               (..nth last-right tuple)))])
+                (_.return (array//sub right-index (_.length tuple) tuple)))
         )))
 
 (runtime: (sum//get sum wantsLast wantedTag)
-  (let [no-match! (_.return _.none)
-        sum-tag (_.nth (_.int +0) sum)
-        sum-flag (_.nth (_.int +1) sum)
-        sum-value (_.nth (_.int +2) sum)
+  (let [no-match! (_.return _.nil)
+        sum-tag (_.the ..variant-tag-field sum)
+        sum-flag (_.the ..variant-flag-field sum)
+        sum-value (_.the ..variant-value-field sum)
         is-last? (_.= (_.string "") sum-flag)
         test-recursion! (_.if is-last?
                           ## Must recurse.
@@ -232,30 +196,59 @@
 
             no-match!)))
 
+(runtime: (array//copy array)
+  (with-vars [temp idx]
+    ($_ _.then
+        (_.let (list temp) (_.array (list)))
+        (<| (_.for-step idx (_.int +1) (_.length array) (_.int +1))
+            (_.statement (|> (_.var "table.insert") (_.apply/* (list temp (_.nth idx array))))))
+        (_.return temp))))
+
+(runtime: (array//concat left right)
+  (with-vars [temp idx]
+    (let [copy! (function (_ input output)
+                  (<| (_.for-step idx (_.int +1) (_.the "n" input) (_.int +1))
+                      (_.statement (|> (_.var "table.insert") (_.apply/* (list output (_.nth idx input)))))))]
+      ($_ _.then
+          (_.let (list temp) (_.array (list)))
+          (copy! left temp)
+          (copy! right temp)
+          (_.return temp)))))
+
 (def: runtime//adt
-  (Statement Any)
+  Statement
   ($_ _.then
       @tuple//left
+      @array//sub
       @tuple//right
-      @sum//get))
+      @sum//get
+      @array//copy
+      @array//concat))
 
-(def: full-64-bits
-  Literal
-  (_.manual "0xFFFFFFFFFFFFFFFF"))
+(runtime: (lux//try risky)
+  (with-vars [success value]
+    ($_ _.then
+        (_.let (list success value) (|> risky (_.apply/* (list ..unit))
+                                        _.return (_.closure (list))
+                                        list _.apply/* (|> (_.var "pcall"))))
+        (_.if success
+          (_.return (..right value))
+          (_.return (..left value))))))
 
-(runtime: (i64//64 input)
-  (with-vars [capped]
-    (_.cond (list [(|> input (_.> full-64-bits))
-                   (_.return (|> input (_.bit-and full-64-bits) i64//64))]
-                  [(|> input (_.> (: Literal (_.manual "0x7FFFFFFFFFFFFFFF"))))
-                   ($_ _.then
-                       (_.set (list capped)
-                              (_.int/1 (|> (: Literal (_.manual "0x10000000000000000"))
-                                           (_.- input))))
-                       (_.if (|> capped (_.<= (: Literal (_.manual "9223372036854775807L"))))
-                         (_.return (|> capped (_.* (_.int -1))))
-                         (_.return (: Literal (_.manual "-9223372036854775808L")))))])
-            (_.return input))))
+(runtime: (lux//program-args raw)
+  (with-vars [tail head idx]
+    ($_ _.then
+        (_.let (list tail) ..none)
+        (<| (_.for-step idx (_.length raw) (_.int +1) (_.int -1))
+            (_.set (list tail) (..some (_.array (list (_.nth idx raw)
+                                                      tail)))))
+        (_.return tail))))
+
+(def: runtime//lux
+  Statement
+  ($_ _.then
+      @lux//try
+      @lux//program-args))
 
 (runtime: (i64//logic-right-shift param subject)
   (let [mask (|> (_.int +1)
@@ -266,92 +259,93 @@
                   (_.bit-and mask)))))
 
 (def: runtime//i64
-  (Statement Any)
+  Statement
   ($_ _.then
-      @i64//64
-      @i64//logic-right-shift))
-
-(runtime: (frac//decode input)
-  (with-vars [ex]
-    (_.try
-     (_.return (..some (_.float/1 input)))
-     (list [(list (_.var "Exception")) ex
-            (_.return ..none)]))))
-
-(def: runtime//frac
-  (Statement Any)
-  ($_ _.then
-      @frac//decode))
+      @i64//logic-right-shift
+      ))
 
 (runtime: (text//index subject param start)
   (with-vars [idx]
     ($_ _.then
-        (_.set (list idx) (|> subject (_.do "find" (list param start))))
-        (_.if (_.= (_.int -1) idx)
+        (_.let (list idx) (_.apply/* (list subject param start (_.bool #1))
+                                     (_.var "string.find")))
+        (_.if (_.= _.nil idx)
           (_.return ..none)
           (_.return (..some idx))))))
 
-(def: inc (|>> (_.+ (_.int +1))))
-
-(def: (within? top value)
-  (-> (Expression Any) (Expression Any) (Computation Any))
-  (_.and (|> value (_.>= (_.int +0)))
-         (|> value (_.< top))))
-
-(runtime: (text//clip @text @from @to)
-  (_.return (|> @text (_.slice @from (inc @to)))))
+(runtime: (text//clip text from to)
+  (with-vars [size]
+    ($_ _.then
+        (_.let (list size) (_.apply/* (list text) (_.var "string.len")))
+        (_.if (_.or (_.> size from)
+                    (_.> size to))
+          (_.return ..none)
+          (_.return (..some (_.apply/* (list text from to) (_.var "string.sub")))))
+        )))
 
 (runtime: (text//char idx text)
-  (_.if (|> idx (within? (_.len/1 text)))
-    (_.return (..some (_.ord/1 (|> text (_.slice idx (inc idx))))))
-    (_.return ..none)))
+  (with-vars [char]
+    ($_ _.then
+        (_.let (list char) (_.apply/* (list text idx) (_.var "string.byte")))
+        (_.if (_.= _.nil char)
+          (_.return ..none)
+          (_.return (..some char))))))
 
 (def: runtime//text
-  (Statement Any)
+  Statement
   ($_ _.then
       @text//index
       @text//clip
       @text//char))
 
+(runtime: (array//new size)
+  (with-vars [output idx]
+    ($_ _.then
+        (_.let (list output) (_.array (list)))
+        (_.for-step idx (_.int +1) size (_.int +1)
+                    (_.statement (_.apply/* (list output ..unit) (_.var "table.insert"))))
+        (_.return output))))
+
 (runtime: (array//get array idx)
   (with-vars [temp]
     ($_ _.then
-        (_.set (list temp) (_.nth idx array))
-        (_.if (_.= _.none temp)
+        (_.let (list temp) (..nth idx array))
+        (_.if (_.or (_.= _.nil temp)
+                    (_.= ..unit temp))
           (_.return ..none)
           (_.return (..some temp))))))
 
 (runtime: (array//put array idx value)
   ($_ _.then
-      (_.set (list (_.nth idx array)) value)
+      (_.set (list (..nth idx array)) value)
       (_.return array)))
 
 (def: runtime//array
-  (Statement Any)
+  Statement
   ($_ _.then
+      @array//new
       @array//get
-      @array//put))
+      @array//put
+      ))
 
 (runtime: (box//write value box)
   ($_ _.then
-      (_.set (list (_.nth (_.int +0) box)) value)
+      (_.set (list (_.nth (_.int +1) box)) value)
       (_.return ..unit)))
 
 (def: runtime//box
-  (Statement Any)
+  Statement
   @box//write)
 
 (def: runtime
-  (Statement Any)
+  Statement
   ($_ _.then
-      runtime//lux
       runtime//adt
+      runtime//lux
       runtime//i64
-      runtime//frac
       runtime//text
       runtime//array
       runtime//box
-      runtime//io
       ))
 
 (def: #export artifact ..prefix)
@@ -360,6 +354,5 @@
   (Operation Any)
   (///.with-buffer
     (do ////.monad
-      [_ (///.save! ["" ..prefix] (<| (_.comment "-*- coding: utf-8 -*-")
-                                      ..runtime))]
+      [_ (///.save! ["" ..prefix] ..runtime)]
       (///.save-buffer! ..artifact))))

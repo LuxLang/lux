@@ -1,0 +1,430 @@
+(.module:
+  [lux #*
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    pipe
+    [cli (#+ program:)]
+    ["p" parser]
+    ["." exception (#+ exception:)]
+    ["." io (#+ IO io)]]
+   [data
+    ["." maybe]
+    ["." error (#+ Error)]
+    [number
+     ["." i64]]
+    ["." text ("#@." hash)
+     format]
+    [collection
+     ["." array (#+ Array)]
+     ["." list ("#@." functor)]]]
+   ["." macro
+    ["s" syntax (#+ syntax:)]
+    ["." code]
+    ["." template]]
+   [world
+    ["." file]]
+   ["." host (#+ import: interface: do-to object)
+    ["_" lua]]
+   [tool
+    [compiler
+     ["." name]
+     ["." synthesis]
+     [phase
+      [macro (#+ Expander)]
+      ["." generation
+       ["." lua
+        ["." runtime]
+        ["." extension]]]]
+     [default
+      ["." platform (#+ Platform)]]]]]
+  [program
+   ["/" compositor
+    ["/." cli]]])
+
+(import: #long java/lang/String)
+
+(import: #long (java/lang/Class a)
+  (getCanonicalName [] java/lang/String))
+
+(import: #long java/lang/Object
+  (new [])
+  (toString [] java/lang/String)
+  (getClass [] (java/lang/Class java/lang/Object)))
+
+(import: #long java/lang/Integer
+  (longValue [] java/lang/Long))
+
+(import: #long java/lang/Long
+  (intValue [] java/lang/Integer))
+
+(import: #long java/lang/Number
+  (intValue [] java/lang/Integer)
+  (longValue [] long)
+  (doubleValue [] double))
+
+(def: (inspect object)
+  (-> java/lang/Object Text)
+  (<| (case (host.check java/lang/Boolean object)
+        (#.Some value)
+        (%b value)
+        #.None)
+      (case (host.check java/lang/String object)
+        (#.Some value)
+        (%t value)
+        #.None)
+      (case (host.check java/lang/Long object)
+        (#.Some value)
+        (%i (.int value))
+        #.None)
+      (case (host.check java/lang/Number object)
+        (#.Some value)
+        (%f (java/lang/Number::doubleValue value))
+        #.None)
+      (case (host.check (Array java/lang/Object) object)
+        (#.Some value)
+        (let [value (:coerce (Array java/lang/Object) value)]
+          (case (array.read 0 value)
+            (^multi (#.Some tag)
+                    [(host.check java/lang/Integer tag)
+                     (#.Some tag)]
+                    [[(array.read 1 value)
+                      (array.read 2 value)]
+                     [last?
+                      (#.Some choice)]])
+            (let [last? (case last?
+                          (#.Some _) #1
+                          #.None #0)]
+              (|> (format (%n (.nat (java/lang/Integer::longValue tag)))
+                          " " (%b last?)
+                          " " (inspect choice))
+                  (text.enclose ["(" ")"])))
+
+            _
+            (|> value
+                array.to-list
+                (list@map inspect)
+                (text.join-with " ")
+                (text.enclose ["[" "]"]))))
+        #.None)
+      (java/lang/Object::toString object)))
+
+(import: #long net/sandius/rembulan/StateContext)
+
+(import: #long net/sandius/rembulan/impl/StateContexts
+  (#static newDefaultInstance [] net/sandius/rembulan/StateContext))
+
+(import: #long net/sandius/rembulan/env/RuntimeEnvironment)
+
+(import: #long net/sandius/rembulan/env/RuntimeEnvironments
+  (#static system [] net/sandius/rembulan/env/RuntimeEnvironment))
+
+(import: #long net/sandius/rembulan/Table
+  (rawget #as get-idx [long] #? java/lang/Object)
+  (rawget #as get-key [java/lang/Object] #? java/lang/Object)
+  (rawlen [] long))
+
+(import: #long net/sandius/rembulan/ByteString
+  (decode [] java/lang/String))
+
+(import: #long net/sandius/rembulan/impl/DefaultTable)
+
+(import: #long net/sandius/rembulan/impl/ImmutableTable)
+
+(import: #long net/sandius/rembulan/impl/ImmutableTable$Builder
+  (new [])
+  (build [] net/sandius/rembulan/impl/ImmutableTable))
+
+(import: #long net/sandius/rembulan/lib/StandardLibrary
+  (#static in [net/sandius/rembulan/env/RuntimeEnvironment] net/sandius/rembulan/lib/StandardLibrary)
+  (installInto [net/sandius/rembulan/StateContext] net/sandius/rembulan/Table))
+
+(import: #long net/sandius/rembulan/Variable
+  (new [java/lang/Object]))
+
+(import: #long net/sandius/rembulan/runtime/LuaFunction)
+
+(import: #long net/sandius/rembulan/load/ChunkLoader
+  (loadTextChunk [net/sandius/rembulan/Variable
+                  java/lang/String
+                  java/lang/String]
+                 net/sandius/rembulan/runtime/LuaFunction))
+
+(import: #long net/sandius/rembulan/compiler/CompilerChunkLoader
+  (#static of [java/lang/String] net/sandius/rembulan/compiler/CompilerChunkLoader))
+
+(import: #long net/sandius/rembulan/runtime/SchedulingContext)
+
+(import: #long net/sandius/rembulan/runtime/SchedulingContextFactory)
+
+(import: #long net/sandius/rembulan/exec/DirectCallExecutor
+  (#static newExecutor [] net/sandius/rembulan/exec/DirectCallExecutor)
+  (schedulingContextFactory [] net/sandius/rembulan/runtime/SchedulingContextFactory)
+  (call [net/sandius/rembulan/StateContext
+         java/lang/Object
+         (Array java/lang/Object)]
+        #try (Array java/lang/Object)))
+
+(exception: (unknown-kind-of-object {object java/lang/Object})
+  (exception.report
+   ["Class" (java/lang/Object::toString (java/lang/Object::getClass object))]
+   ["Object" (java/lang/Object::toString object)]))
+
+(template [<name>]
+  [(interface: <name>
+     (getValue [] java/lang/Object))
+
+   (`` (import: #long (~~ (template.identifier ["program/" <name>]))
+         (getValue [] java/lang/Object)))]
+
+  [StructureValue]
+  )
+
+(def: (lux-structure value)
+  (-> (Array java/lang/Object) program/StructureValue)
+  (let [re-wrap (function (_ unwrapped)
+                  (case (host.check (Array java/lang/Object) unwrapped)
+                    (#.Some sub-value)
+                    (|> sub-value (:coerce (Array java/lang/Object)) lux-structure (:coerce java/lang/Object))
+                    
+                    #.None
+                    unwrapped))]
+    (object [] net/sandius/rembulan/impl/DefaultTable [program/StructureValue]
+      []
+      ## Methods
+      (program/StructureValue
+       (getValue)
+       java/lang/Object
+       (:coerce (Array java/lang/Object) value))
+
+      (net/sandius/rembulan/impl/DefaultTable
+       (rawlen)
+       long
+       (|> value array.size (:coerce java/lang/Long)))
+
+      (net/sandius/rembulan/impl/DefaultTable
+       (rawget {idx long})
+       java/lang/Object
+       (|> value (array.read (|> idx (:coerce Nat) dec)) maybe.assume re-wrap))
+
+      (net/sandius/rembulan/impl/DefaultTable
+       (rawget {field java/lang/Object})
+       java/lang/Object
+       (case (host.check net/sandius/rembulan/ByteString field)
+         (#.Some field)
+         (case (net/sandius/rembulan/ByteString::decode field)
+           (^ (static runtime.variant-tag-field))
+           (|> value (array.read 0) maybe.assume)
+           
+           (^ (static runtime.variant-flag-field))
+           (case (array.read 1 value)
+             (#.Some _)
+             ""
+
+             #.None
+             (host.null))
+           
+           (^ (static runtime.variant-value-field))
+           (|> value (array.read 2) maybe.assume re-wrap)
+
+           _
+           (error! (exception.construct unknown-kind-of-object field)))
+
+         #.None
+         (case (host.check java/lang/Long field)
+           (#.Some idx)
+           (|> value (array.read (|> idx (:coerce Nat) dec)) maybe.assume re-wrap)
+           
+           #.None
+           (error! (exception.construct unknown-kind-of-object field)))))
+      )))
+
+(type: Translator
+  (-> java/lang/Object (Error Any)))
+
+(def: (read-variant read host-object)
+  (-> Translator net/sandius/rembulan/impl/DefaultTable (Error Any))
+  (case [(net/sandius/rembulan/Table::get-key runtime.variant-tag-field host-object)
+         (net/sandius/rembulan/Table::get-key runtime.variant-flag-field host-object)
+         (net/sandius/rembulan/Table::get-key runtime.variant-value-field host-object)]
+    (^multi [(#.Some tag) ?flag (#.Some value)]
+            [(read value)
+             (#.Some value)])
+    (#error.Success [(java/lang/Long::intValue (:coerce java/lang/Long tag))
+                     (: Any (case ?flag (#.Some _) "" #.None (host.null)))
+                     value])
+
+    _
+    (exception.throw ..unknown-kind-of-object host-object)))
+
+(def: (read-tuple read host-object)
+  (-> Translator net/sandius/rembulan/impl/DefaultTable (Error Any))
+  (let [init-num-keys (.nat (net/sandius/rembulan/Table::rawlen host-object))]
+    (loop [num-keys init-num-keys
+           idx 0
+           output (: (Array java/lang/Object)
+                     (array.new init-num-keys))]
+      (if (n/< num-keys idx)
+        (case (net/sandius/rembulan/Table::get-idx (:coerce java/lang/Long (inc idx)) host-object)
+          #.None
+          (recur num-keys (inc idx) output)
+
+          (#.Some member)
+          (case (read member)
+            (#error.Success parsed-member)
+            (recur num-keys (inc idx) (array.write idx (:coerce java/lang/Object parsed-member) output))
+
+            (#error.Failure error)
+            (#error.Failure error)))
+        (#error.Success output)))))
+
+(exception: #export nil-has-no-lux-representation)
+
+(def: (read host-object)
+  Translator
+  (`` (<| (if (host.null? host-object)
+            (exception.throw nil-has-no-lux-representation []))
+          (~~ (template [<class> <post-processing>]
+                [(case (host.check <class> host-object)
+                   (#.Some typed-object)
+                   (|> typed-object <post-processing>)
+
+                   _)]
+
+                [java/lang/Boolean #error.Success]
+                [java/lang/Long #error.Success]
+                [java/lang/Double #error.Success]
+                [java/lang/String #error.Success]
+                [net/sandius/rembulan/runtime/LuaFunction #error.Success]
+                [net/sandius/rembulan/ByteString (<| #error.Success net/sandius/rembulan/ByteString::decode)]
+                [program/StructureValue (<| #error.Success program/StructureValue::getValue)]
+                ))
+          (case (host.check net/sandius/rembulan/impl/DefaultTable host-object)
+            (#.Some typed-object)
+            (case (read-variant read typed-object)
+              (#error.Success value)
+              (#error.Success value)
+
+              (#error.Failure error)
+              (case (read-tuple read typed-object)
+                (#error.Success value)
+                (#error.Success value)
+
+                (#error.Failure error)
+                (exception.throw ..unknown-kind-of-object host-object)))
+
+            _
+            (exception.throw ..unknown-kind-of-object host-object))
+          )))
+
+(exception: (cannot-apply-a-non-function {object java/lang/Object})
+  (exception.report
+   ["Non-function" (java/lang/Object::toString object)]))
+
+(def: ensure-macro
+  (-> Macro (Maybe net/sandius/rembulan/runtime/LuaFunction))
+  (|>> (:coerce java/lang/Object) (host.check net/sandius/rembulan/runtime/LuaFunction)))
+
+(type: Baggage [net/sandius/rembulan/StateContext net/sandius/rembulan/exec/DirectCallExecutor])
+
+(def: (call-macro [state-context executor] inputs lux macro)
+  (-> Baggage (List Code) Lux net/sandius/rembulan/runtime/LuaFunction (Error Any))
+  (do error.monad
+    [output (net/sandius/rembulan/exec/DirectCallExecutor::call state-context
+                                                                (:coerce java/lang/Object macro)
+                                                                (|> (array.new 2)
+                                                                    (array.write 0 ## (:coerce java/lang/Object inputs)
+                                                                                 ## (net/sandius/rembulan/impl/ImmutableTable$Builder::build (net/sandius/rembulan/impl/ImmutableTable$Builder::new))
+                                                                                 (:coerce java/lang/Object (lux-structure (:coerce (Array java/lang/Object) inputs))))
+                                                                    (array.write 1 ## (:coerce java/lang/Object lux)
+                                                                                 ## (net/sandius/rembulan/impl/ImmutableTable$Builder::build (net/sandius/rembulan/impl/ImmutableTable$Builder::new))
+                                                                                 (:coerce java/lang/Object (lux-structure (:coerce (Array java/lang/Object) lux)))))
+                                                                executor)]
+    (wrap (|> output (array.read 0) maybe.assume (:coerce java/lang/Object) ..read))))
+
+(def: (expander baggage macro inputs lux)
+  (-> Baggage Expander)
+  (case (ensure-macro macro)
+    (#.Some macro)
+    (case (call-macro baggage inputs lux macro)
+      (#error.Success output)
+      (|> output
+          (:coerce (Error (Error [Lux (List Code)]))))
+
+      (#error.Failure error)
+      (#error.Failure error))
+
+    #.None
+    (exception.throw cannot-apply-a-non-function (:coerce java/lang/Object macro)))
+  )
+
+(def: separator "___")
+
+(type: Host
+  (generation.Host (_.Expression Any) _.Statement))
+
+(def: host
+  (IO [Baggage Host])
+  (io (let [runtime-env (net/sandius/rembulan/env/RuntimeEnvironments::system)
+            std-lib (net/sandius/rembulan/lib/StandardLibrary::in runtime-env)
+            state-context (net/sandius/rembulan/impl/StateContexts::newDefaultInstance)
+            table (net/sandius/rembulan/lib/StandardLibrary::installInto state-context std-lib)
+            variable (net/sandius/rembulan/Variable::new table)
+            loader (net/sandius/rembulan/compiler/CompilerChunkLoader::of "_lux_definition")
+            executor (net/sandius/rembulan/exec/DirectCallExecutor::newExecutor)
+            scheduling-context (net/sandius/rembulan/exec/DirectCallExecutor::schedulingContextFactory executor)
+            run! (: (-> Text _.Statement (Error Any))
+                    (function (_ dummy-name code)
+                      (do error.monad
+                        [#let [lua-function (net/sandius/rembulan/load/ChunkLoader::loadTextChunk variable "lux compilation" (_.code code)
+                                                                                                  loader)]
+                         output (net/sandius/rembulan/exec/DirectCallExecutor::call state-context (:coerce java/lang/Object lua-function) (array.new 0)
+                                                                                    executor)]
+                        (case (array.read 0 output)
+                          #.None
+                          (wrap [])
+
+                          (#.Some value)
+                          (read value)))))]
+        [[state-context executor]
+         (: Host
+            (structure
+             (def: (evaluate! dummy-name code)
+               (run! dummy-name (_.return code)))
+             (def: execute! run!)
+             (def: (define! [module name] input)
+               (let [global (format (text.replace-all .module-separator ..separator module)
+                                    ..separator (name.normalize name)
+                                    "___" (%n (text@hash name)))
+                     @global (_.var global)]
+                 (do error.monad
+                   [#let [definition (_.set (list @global) input)]
+                    _ (run! global definition)
+                    value (run! global (_.return @global))]
+                   (wrap [global value definition]))))))])))
+
+(def: platform
+  (IO [Baggage (Platform IO _.Var (_.Expression Any) _.Statement)])
+  (do io.monad
+    [[baggage host] ..host]
+    (wrap [baggage
+           {#platform.&monad io.monad
+            #platform.&file-system file.system
+            #platform.host host
+            #platform.phase lua.generate
+            #platform.runtime runtime.generate}])))
+
+(def: (program program)
+  (-> (_.Expression Any) _.Statement)
+  (_.statement (_.apply/* (list (runtime.lux//program-args (_.var "arg"))
+                                _.nil)
+                          program)))
+
+(program: [{service /cli.service}]
+  (do io.monad
+    [[baggage platform] ..platform]
+    (/.compiler (..expander baggage)
+                (io platform)
+                extension.bundle
+                ..program
+                service)))

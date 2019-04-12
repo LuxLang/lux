@@ -11,7 +11,7 @@
      ["." list ("#@." functor fold)]
      ["." set]]]
    [host
-    ["_" ruby (#+ Expression Statement)]]]
+    ["_" lua (#+ Expression Var Statement)]]]
   ["." // #_
    ["#." runtime (#+ Operation Phase)]
    ["#." reference]
@@ -26,10 +26,10 @@
       ["#." synthesis (#+ Synthesis Path)]]]]])
 
 (def: #export register
-  (///reference.local _.local))
+  (///reference.local _.var))
 
 (def: #export capture
-  (///reference.foreign _.local))
+  (///reference.foreign _.var))
 
 (def: #export (let generate [valueS register bodyS])
   (-> Phase [Synthesis Register Synthesis]
@@ -40,8 +40,8 @@
     ## TODO: Find some way to do 'let' without paying the price of the closure.
     (wrap (|> bodyO
               _.return
-              (_.lambda #.None (list (..register register)))
-              (_.do "call" (list valueO))))))
+              (_.closure (list (..register register)))
+              (_.apply/* (list valueO))))))
 
 (def: #export (record-get generate valueS pathP)
   (-> Phase Synthesis (List (Either Nat Nat))
@@ -66,50 +66,49 @@
     [testO (generate testS)
      thenO (generate thenS)
      elseO (generate elseS)]
-    (wrap (_.? testO thenO elseO))))
+    (wrap (|> (_.if testO
+                (_.return thenO)
+                (_.return elseO))
+              (_.closure (list))
+              (_.apply/* (list))))))
 
-(def: @savepoint (_.local "lux_pm_savepoint"))
-(def: @cursor (_.local "lux_pm_cursor"))
-(def: @temp (_.local "lux_pm_temp"))
+(def: @savepoint (_.var "lux_pm_savepoint"))
+(def: @cursor (_.var "lux_pm_cursor"))
+(def: @temp (_.var "lux_pm_temp"))
 
 (def: (push! value)
-  (-> (Expression Any) (Statement Any))
-  (_.statement (|> @cursor (_.do "push" (list value)))))
+  (-> (Expression Any) Statement)
+  (_.statement (|> (_.var "table.insert") (_.apply/* (list @cursor value)))))
 
 (def: peek-and-pop
   (Expression Any)
-  (|> @cursor (_.do "pop" (list))))
+  (|> (_.var "table.remove") (_.apply/* (list @cursor))))
 
 (def: pop!
-  (Statement Any)
+  Statement
   (_.statement ..peek-and-pop))
 
 (def: peek
   (Expression Any)
-  (_.nth (_.int -1) @cursor))
+  (_.nth (_.length @cursor) @cursor))
 
 (def: save!
-  (Statement Any)
-  (.let [cursor (_.array-range (_.int +0) (_.int -1) @cursor)]
-    (_.statement (|> @savepoint (_.do "push" (list cursor))))))
+  Statement
+  (_.statement (|> (_.var "table.insert")
+                   (_.apply/* (list @savepoint
+                                    (//runtime.array//copy @cursor))))))
 
 (def: restore!
-  (Statement Any)
-  (_.set (list @cursor) (|> @savepoint (_.do "pop" (list)))))
+  Statement
+  (_.set (list @cursor) (|> (_.var "table.remove") (_.apply/* (list @savepoint)))))
 
 (def: fail! _.break)
 
 (exception: #export unrecognized-path)
 
-(def: (multi-pop! pops)
-  (-> Nat (Statement Any))
-  (_.statement (_.do "slice!" (list (_.int (i/* -1 (.int pops)))
-                                    (_.int (.int pops)))
-                 @cursor)))
-
 (template [<name> <flag> <prep>]
   [(def: (<name> simple? idx)
-     (-> Bit Nat (Statement Any))
+     (-> Bit Nat Statement)
      ($_ _.then
          (_.set (list @temp) (|> idx <prep> .int _.int (//runtime.sum//get ..peek <flag>)))
          (.if simple?
@@ -124,7 +123,7 @@
   )
 
 (def: (alternation pre! post!)
-  (-> (Statement Any) (Statement Any) (Statement Any))
+  (-> Statement Statement Statement)
   ($_ _.then
       (_.while (_.bool true)
                ($_ _.then
@@ -135,7 +134,7 @@
           post!)))
 
 (def: (pattern-matching' generate pathP)
-  (-> Phase Path (Operation (Statement Any)))
+  (-> Phase Path (Operation Statement))
   (.case pathP
     (^ (/////synthesis.path/then bodyS))
     (:: ////.monad map _.return (generate bodyS))
@@ -144,7 +143,7 @@
     (////@wrap ..pop!)
 
     (#/////synthesis.Bind register)
-    (////@wrap (_.set (list (..register register)) ..peek))
+    (////@wrap (_.let (list (..register register)) ..peek))
 
     (^template [<tag> <format>]
       (^ (<tag> value))
@@ -167,7 +166,7 @@
      [/////synthesis.side/right /////synthesis.simple-right-side ..right-choice])
 
     (^ (/////synthesis.member/left 0))
-    (////@wrap (|> ..peek (_.nth (_.int +0)) ..push!))
+    (////@wrap (|> ..peek (_.nth (_.int +1)) ..push!))
     
     (^template [<pm> <getter>]
       (^ (<pm> lefts))
@@ -179,16 +178,8 @@
     (do ////.monad
       [then! (pattern-matching' generate thenP)]
       (////@wrap ($_ _.then
-                     (_.set (list (..register register)) ..peek-and-pop)
+                     (_.let (list (..register register)) ..peek-and-pop)
                      then!)))
-
-    (^ (/////synthesis.!multi-pop nextP))
-    (.let [[extra-pops nextP'] (case.count-pops nextP)]
-      (do ////.monad
-        [next! (pattern-matching' generate nextP')]
-        (////@wrap ($_ _.then
-                       (..multi-pop! (n/+ 2 extra-pops))
-                       next!))))
 
     (^template [<tag> <combinator>]
       (^ (<tag> preP postP))
@@ -203,13 +194,13 @@
     (////.throw unrecognized-path [])))
 
 (def: (pattern-matching generate pathP)
-  (-> Phase Path (Operation (Statement Any)))
+  (-> Phase Path (Operation Statement))
   (do ////.monad
     [pattern-matching! (pattern-matching' generate pathP)]
     (wrap ($_ _.then
               (_.while (_.bool true)
                        pattern-matching!)
-              (_.statement (_.raise (_.string case.pattern-matching-error)))))))
+              (_.statement (|> (_.var "error") (_.apply/* (list (_.string case.pattern-matching-error)))))))))
 
 (def: #export (case generate [valueS pathP])
   (-> Phase [Synthesis Path] (Operation (Expression Any)))
@@ -217,8 +208,9 @@
     [initG (generate valueS)
      pattern-matching! (pattern-matching generate pathP)]
     (wrap (|> ($_ _.then
-                  (_.set (list @cursor) (_.array (list initG)))
-                  (_.set (list @savepoint) (_.array (list)))
+                  (_.local (list @temp))
+                  (_.let (list @cursor) (_.array (list initG)))
+                  (_.let (list @savepoint) (_.array (list)))
                   pattern-matching!)
-              (_.lambda #.None (list))
-              (_.do "call" (list))))))
+              (_.closure (list))
+              (_.apply/* (list))))))

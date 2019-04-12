@@ -23,10 +23,6 @@
 
   :dependencies [;; JVM Bytecode
                  [org.ow2.asm/asm-all "5.0.3"]
-                 ;; ;; Lua
-                 ;; [net.sandius.rembulan/rembulan-runtime "0.1-SNAPSHOT"]
-                 ;; [net.sandius.rembulan/rembulan-stdlib "0.1-SNAPSHOT"]
-                 ;; [net.sandius.rembulan/rembulan-compiler "0.1-SNAPSHOT"]
                  ;; ;; Scheme
                  ;; [kawa-scheme/kawa-core "2.4"]
                  ;; ;; Common Lisp

@@ -4,7 +4,7 @@
 (def sonatype-snapshots "https://oss.sonatype.org/content/repositories/snapshots/")
 
 (defproject com.github.luxlang/lux-python #=(identity version)
-  :description "A Ruby compiler for Lux."
+  :description "A Lua compiler for Lux."
   :url ~repo
   :license {:name "Lux License v0.1"
             :url ~(str repo "/blob/master/license.txt")}
@@ -22,7 +22,9 @@
   :plugins [[com.github.luxlang/lein-luxc ~version]]
   :dependencies [[com.github.luxlang/luxc-jvm ~version]
                  [com.github.luxlang/stdlib ~version]
-                 [org.jruby/jruby-complete "9.2.6.0"]]
+                 [net.sandius.rembulan/rembulan-runtime "0.1-SNAPSHOT"]
+                 [net.sandius.rembulan/rembulan-stdlib "0.1-SNAPSHOT"]
+                 [net.sandius.rembulan/rembulan-compiler "0.1-SNAPSHOT"]]
 
   :manifest {"lux" ~version}
   :source-paths ["source"]
