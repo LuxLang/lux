@@ -8,11 +8,12 @@
     ["p" parser]]
    [data
     [number (#+ hex)]
+    ["." error]
     ["." text ("#@." equivalence)
      ["." lexer (#+ Lexer)]]]
    [math
     ["r" random]]
-   [macro
+   ["." macro
     ["s" syntax (#+ syntax:)]]]
   {1
    ["." /]})
@@ -20,7 +21,7 @@
 (def: (should-pass regex input)
   (-> (Lexer Text) Text Bit)
   (|> (lexer.run input regex)
-      (case> (#.Right parsed)
+      (case> (#error.Success parsed)
              (text@= parsed input)
 
              _
@@ -29,24 +30,34 @@
 (def: (text-should-pass test regex input)
   (-> Text (Lexer Text) Text Bit)
   (|> (lexer.run input regex)
-      (case> (#.Right parsed)
+      (case> (#error.Success parsed)
              (text@= test parsed)
 
              _
-             #0)))
+             false)))
 
 (def: (should-fail regex input)
   (All [a] (-> (Lexer a) Text Bit))
   (|> (lexer.run input regex)
-      (case> (#.Left _) #1 _ #0)))
+      (case> (#error.Failure _)
+             true
+
+             _
+             false)))
 
 (syntax: (should-check pattern regex input)
-  (wrap (list (` (|> (lexer.run (~ input) (~ regex))
-                     (case> (^ (#.Right (~ pattern)))
-                            #1
+  (macro.with-gensyms [g!message g!_]
+    (wrap (list (` (|> (lexer.run (~ input) (~ regex))
+                       (case> (^ (#error.Success (~ pattern)))
+                              true
 
-                            (~' _)
-                            #0))))))
+                              (#error.Failure (~ g!message))
+                              (exec (log! (format "{{{Failure}}} " (~ g!message)))
+                                false)
+
+                              (~ g!_)
+                              (exec (log! (format "{{{Success}}} " "OH NO"))
+                                false))))))))
 
 (def: basics
   Test
@@ -177,7 +188,9 @@
   Test
   (let [number (/.regex "\d+")]
     (_.test "Can build complex regexs by combining simpler ones."
-            (should-check ["809-345-6789" "809" "345" "6789"] (/.regex "(\@<number>)-(\@<number>)-(\@<number>)") "809-345-6789"))))
+            (should-check ["809-345-6789" "809" "345" "6789"]
+                          (/.regex "(\@<number>)-(\@<number>)-(\@<number>)")
+                          "809-345-6789"))))
 
 (def: fuzzy-quantifiers
   Test
@@ -244,15 +257,14 @@
               (and (should-check ["a" (0 [])] (/.regex "a|b") "a")
                    (should-check ["b" (1 [])] (/.regex "a|b") "b")
                    (should-fail (/.regex "a|b") "c")))
-
       (_.test "Can have groups within alternations."
               (and (should-check ["abc" (0 ["b" "c"])] (/.regex "a(.)(.)|b(.)(.)") "abc")
                    (should-check ["bcd" (1 ["c" "d"])] (/.regex "a(.)(.)|b(.)(.)") "bcd")
                    (should-fail (/.regex "a(.)(.)|b(.)(.)") "cde")
 
-                   (should-check ["809-345-6789" (0 ["809" "345-6789" "345" "6789"])]
+                   (should-check ["123-456-7890" (0 ["123" "456-7890" "456" "7890"])]
                                  (/.regex "(\d{3})-((\d{3})-(\d{4}))|b(.)d")
-                                 "809-345-6789")))
+                                 "123-456-7890")))
       ))
 
 (def: pattern-matching

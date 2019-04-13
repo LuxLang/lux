@@ -17,7 +17,7 @@
   [luxc
    [lang
     [host
-     ["$" jvm (#+ Inst Method Def Operation)
+     ["$" jvm (#+ Label Inst Method Def Operation)
       ["$t" type]
       ["$d" def]
       ["_" inst]]]]]
@@ -133,12 +133,18 @@
 (def: pm-methods
   Def
   (let [tuple-sizeI (|>> (_.ALOAD 0) _.ARRAYLENGTH)
-        last-right-indexI (|>> tuple-sizeI (_.int +1) _.ISUB)
+        last-rightI (|>> tuple-sizeI (_.int +1) _.ISUB)
         leftsI (_.ILOAD 1)
         left-indexI leftsI
-        sub-tupleI (|>> (_.ALOAD 0) last-right-indexI _.AALOAD (_.CHECKCAST ($t.descriptor $Tuple)))
-
-        expected-last-sizeI (|>> (_.ILOAD 1) (_.int +1) _.IADD)]
+        sub-leftsI (|>> leftsI
+                        last-rightI
+                        _.ISUB)
+        sub-tupleI (|>> (_.ALOAD 0) last-rightI _.AALOAD (_.CHECKCAST ($t.descriptor $Tuple)))
+        recurI (: (-> Label Inst)
+                  (function (_ @loop)
+                    (|>> sub-leftsI (_.ISTORE 1)
+                         sub-tupleI (_.ASTORE 0)
+                         (_.GOTO @loop))))]
     (|>> ($d.method #$.Public $.staticM "pm_fail" ($t.method (list) #.None (list))
                     (|>> (_.NEW "java.lang.IllegalStateException")
                          _.DUP
@@ -175,7 +181,7 @@
                          _.AALOAD
                          _.ARETURN))
          ($d.method #$.Public $.staticM "pm_variant" ($t.method (list $Variant $Tag $Flag) (#.Some $Object) (list))
-                    (<| _.with-label (function (_ @begin))
+                    (<| _.with-label (function (_ @loop))
                         _.with-label (function (_ @just-return))
                         _.with-label (function (_ @then))
                         _.with-label (function (_ @further))
@@ -198,7 +204,7 @@
                               update-variantI (|>> (_.ALOAD 0) datumI (_.CHECKCAST ($t.descriptor $Variant)) (_.ASTORE 0))
                               failureI (|>> _.NULL _.ARETURN)
                               return-datumI (|>> (_.ALOAD 0) datumI _.ARETURN)])
-                        (|>> (_.label @begin)
+                        (|>> (_.label @loop)
                              (_.ILOAD 1) ## tag
                              (_.ALOAD 0) tagI ## tag, sumT
                              _.DUP2 (_.IF_ICMPEQ @then)
@@ -215,7 +221,7 @@
                              (_.IFNULL @wrong) ## tag, sumT
                              update-tagI
                              update-variantI
-                             (_.GOTO @begin)
+                             (_.GOTO @loop)
                              (_.label @just-return) ## tag, sumT
                              ## _.POP2
                              return-datumI
@@ -227,25 +233,19 @@
                              ## _.POP2
                              failureI)))
          ($d.method #$.Public $.staticM "tuple_left" ($t.method (list $Tuple $t.int) (#.Some $Object) (list))
-                    (<| _.with-label (function (_ @begin))
-                        _.with-label (function (_ @not-recursive))
-                        (let [left-accessI (|>> (_.ALOAD 0) left-indexI _.AALOAD)
-                              sub-leftsI (|>> _.SWAP _.ISUB)])
-                        (|>> (_.label @begin)
-                             last-right-indexI
-                             leftsI
-                             _.DUP2 (_.IF_ICMPGT @not-recursive)
-                             ## Recursive
-                             sub-leftsI (_.ISTORE 1)
-                             sub-tupleI (_.ASTORE 0)
-                             (_.GOTO @begin)
-                             (_.label @not-recursive)
-                             ## _.POP2
+                    (<| _.with-label (function (_ @loop))
+                        _.with-label (function (_ @recursive))
+                        (let [left-accessI (|>> (_.ALOAD 0) left-indexI _.AALOAD)])
+                        (|>> (_.label @loop)
+                             leftsI last-rightI (_.IF_ICMPGE @recursive)
                              left-accessI
-                             _.ARETURN)))
+                             _.ARETURN
+                             (_.label @recursive)
+                             ## Recursive
+                             (recurI @loop))))
          ($d.method #$.Public $.staticM "tuple_right" ($t.method (list $Tuple $t.int) (#.Some $Object) (list))
-                    (<| _.with-label (function (_ @begin))
-                        _.with-label (function (_ @tail))
+                    (<| _.with-label (function (_ @loop))
+                        _.with-label (function (_ @not-tail))
                         _.with-label (function (_ @slice))
                         (let [right-indexI (|>> leftsI
                                                 (_.int +1)
@@ -260,26 +260,21 @@
                                                               ($t.method (list $Object-Array $t.int $t.int)
                                                                          (#.Some $Object-Array)
                                                                          (list))
-                                                              #0))
-                              sub-leftsI (|>> leftsI
-                                              last-right-indexI
-                                              _.ISUB)])
-                        (|>> (_.label @begin)
-                             last-right-indexI
-                             right-indexI
-                             _.DUP2 (_.IF_ICMPEQ @tail)
+                                                              #0))])
+                        (|>> (_.label @loop)
+                             last-rightI right-indexI
+                             _.DUP2 (_.IF_ICMPNE @not-tail)
+                             ## _.POP
+                             right-accessI
+                             _.ARETURN
+                             (_.label @not-tail)
                              (_.IF_ICMPGT @slice)
                              ## Must recurse
-                             sub-tupleI (_.ASTORE 0)
-                             sub-leftsI (_.ISTORE 1)
-                             (_.GOTO @begin)
+                             (recurI @loop)
                              (_.label @slice)
                              sub-rightI
                              _.ARETURN
-                             (_.label @tail)
-                             ## _.POP
-                             right-accessI
-                             _.ARETURN)))
+                             )))
          )))
 
 (def: io-methods

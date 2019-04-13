@@ -73,44 +73,43 @@
          tuple-size #(doto %
                        (.visitVarInsn Opcodes/ALOAD 0)
                        (.visitInsn Opcodes/ARRAYLENGTH))
-         last-right-index #(doto %
-                             tuple-size
-                             (.visitLdcInsn (int 1))
-                             (.visitInsn Opcodes/ISUB))
+         last-right #(doto %
+                       tuple-size
+                       (.visitLdcInsn (int 1))
+                       (.visitInsn Opcodes/ISUB))
+         sub-lefts #(doto %
+                      lefts
+                      last-right
+                      (.visitInsn Opcodes/ISUB))
          sub-tuple #(doto %
                       (.visitVarInsn Opcodes/ALOAD 0)
-                      last-right-index
+                      last-right
                       (.visitInsn Opcodes/AALOAD)
                       (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;"))
+         recurI (fn [$begin]
+                  #(doto %
+                     sub-lefts (.visitVarInsn Opcodes/ISTORE 1)
+                     sub-tuple (.visitVarInsn Opcodes/ASTORE 0)
+                     (.visitJumpInsn Opcodes/GOTO $begin)))
          _ (let [$begin (new Label)
-                 $not-rec (new Label)
+                 $recursive (new Label)
                  left-index lefts
                  left-access #(doto %
                                 (.visitVarInsn Opcodes/ALOAD 0)
                                 left-index
-                                (.visitInsn Opcodes/AALOAD))
-                 sub-lefts #(doto %
-                              ;; last-right-index, lefts
-                              (.visitInsn Opcodes/SWAP)
-                              (.visitInsn Opcodes/ISUB))]
+                                (.visitInsn Opcodes/AALOAD))]
              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "tuple_left" "([Ljava/lang/Object;I)Ljava/lang/Object;" nil nil)
                (.visitCode)
                (.visitLabel $begin)
-               last-right-index
-               lefts
-               (.visitInsn Opcodes/DUP2) (.visitJumpInsn Opcodes/IF_ICMPGT $not-rec)
-               sub-tuple (.visitVarInsn Opcodes/ASTORE 0)
-               sub-lefts (.visitVarInsn Opcodes/ISTORE 1)
-               (.visitJumpInsn Opcodes/GOTO $begin)
-               (.visitLabel $not-rec)
-               ;; last-right-index, lefts
-               ;; (.visitInsn Opcodes/POP2) ;;
+               lefts last-right (.visitJumpInsn Opcodes/IF_ICMPGE $recursive)
                left-access
                (.visitInsn Opcodes/ARETURN)
+               (.visitLabel $recursive)
+               ((recurI $begin))
                (.visitMaxs 0 0)
                (.visitEnd)))
          _ (let [$begin (new Label)
-                 $is-last (new Label)
+                 $not-last (new Label)
                  $must-copy (new Label)
                  right-index #(doto %
                                 lefts
@@ -124,29 +123,20 @@
                               (.visitVarInsn Opcodes/ALOAD 0)
                               right-index
                               tuple-size
-                              (.visitMethodInsn Opcodes/INVOKESTATIC "java/util/Arrays" "copyOfRange" "([Ljava/lang/Object;II)[Ljava/lang/Object;"))
-                 sub-lefts #(doto %
-                              lefts
-                              last-right-index
-                              (.visitInsn Opcodes/ISUB))]
+                              (.visitMethodInsn Opcodes/INVOKESTATIC "java/util/Arrays" "copyOfRange" "([Ljava/lang/Object;II)[Ljava/lang/Object;"))]
              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "tuple_right" "([Ljava/lang/Object;I)Ljava/lang/Object;" nil nil)
                (.visitCode)
                (.visitLabel $begin)
-               last-right-index
-               right-index
-               (.visitInsn Opcodes/DUP2) (.visitJumpInsn Opcodes/IF_ICMPEQ $is-last)
+               last-right right-index
+               (.visitInsn Opcodes/DUP2) (.visitJumpInsn Opcodes/IF_ICMPNE $not-last)
+               right-access
+               (.visitInsn Opcodes/ARETURN)
+               (.visitLabel $not-last)
                (.visitJumpInsn Opcodes/IF_ICMPGT $must-copy)
                ;; Must recurse
-               sub-tuple (.visitVarInsn Opcodes/ASTORE 0)
-               sub-lefts (.visitVarInsn Opcodes/ISTORE 1)
-               (.visitJumpInsn Opcodes/GOTO $begin)
+               ((recurI $begin))
                (.visitLabel $must-copy)
                sub-right
-               (.visitInsn Opcodes/ARETURN)
-               (.visitLabel $is-last)
-               ;; last-right-index, right-index
-               ;; (.visitInsn Opcodes/POP)
-               right-access
                (.visitInsn Opcodes/ARETURN)
                (.visitMaxs 0 0)
                (.visitEnd)))
