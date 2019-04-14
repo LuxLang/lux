@@ -150,8 +150,8 @@
              ["Input" (format text.new-line
                               (input-at offset source-code))]))
 
-(type: Parser
-  (-> Source (Error [Source Code])))
+(type: (Parser a)
+  (-> Source (Error [Source a])))
 
 (template: (!with-char+ @source-code-size @source-code @offset @char @else @body)
   (if (!i/< (:coerce Int @source-code-size)
@@ -162,6 +162,14 @@
 
 (template: (!with-char @source-code @offset @char @else @body)
   (!with-char+ ("lux text size" @source-code) @source-code @offset @char @else @body))
+
+(template: (!letE <binding> <computation> <body>)
+  (case <computation>
+    (#error.Success <binding>)
+    <body>
+    
+    (#error.Failure error)
+    (#error.Failure error)))
 
 (def: close-signal "CLOSE")
 
@@ -183,7 +191,7 @@
 
 (template [<name> <close> <tag> <context>]
   [(`` (def: (<name> parse source)
-         (-> Parser Parser)
+         (-> (Parser Code) (Parser Code))
          (let [[_ _ source-code] source
                source-code//size ("lux text size" source-code)]
            (loop [source source
@@ -194,13 +202,9 @@
                
                (#error.Failure error)
                (let [[where offset _] source]
-                 (case (read-close (char (~~ (static <close>))) source-code//size source-code offset)
-                   (#error.Success offset')
-                   (#error.Success [[(update@ #.column inc where) offset' source-code]
-                                    [where (<tag> (list.reverse stack))]])
-
-                   (#error.Failure error)
-                   (#error.Failure error))))))))]
+                 (!letE offset' (read-close (char (~~ (static <close>))) source-code//size source-code offset)
+                        (#error.Success [[(update@ #.column inc where) offset' source-code]
+                                         [where (<tag> (list.reverse stack))]]))))))))]
 
   ## Form and tuple syntax is mostly the same, differing only in the
   ## delimiters involved.
@@ -210,30 +214,21 @@
   )
 
 (def: (parse-record parse source)
-  (-> Parser Parser)
+  (-> (Parser Code) (Parser Code))
   (let [[_ _ source-code] source
         source-code//size ("lux text size" source-code)]
     (loop [source source
            stack (: (List [Code Code]) #.Nil)]
       (case (parse source)
         (#error.Success [sourceF field])
-        (case (parse sourceF)
-          (#error.Success [sourceFV value])
-          (recur sourceFV (#.Cons [field value] stack))
-
-          (#error.Failure error)
-          (#error.Failure error))
+        (!letE [sourceFV value] (parse sourceF)
+               (recur sourceFV (#.Cons [field value] stack)))
 
         (#error.Failure error)
         (let [[where offset _] source]
-          (<| (!with-char+ source-code//size source-code offset closing-char (#error.Failure error))
-              (case (read-close (`` (char (~~ (static ..close-record)))) source-code//size source-code offset)
-                (#error.Success offset')
-                (#error.Success [[(update@ #.column inc where) offset' source-code]
-                                 [where (#.Record (list.reverse stack))]])
-
-                (#error.Failure error)
-                (#error.Failure error))))))))
+          (!letE offset' (read-close (`` (char (~~ (static ..close-record)))) source-code//size source-code offset)
+                 (#error.Success [[(update@ #.column inc where) offset' source-code]
+                                  [where (#.Record (list.reverse stack))]])))))))
 
 (template: (!guarantee-no-new-lines content body)
   (case ("lux text index" 0 (static text.new-line) content)
@@ -293,15 +288,11 @@
       (!digit? char)))
 
 (template: (!number-output <start> <end> <codec> <tag>)
-  (case (:: <codec> decode (!clip <start> <end> source-code))
-    (#error.Success output)
-    (#error.Success [[(update@ #.column (n/+ (!n/- <start> <end>)) where)
-                      <end>
-                      source-code]
-                     [where (<tag> output)]])
-
-    (#error.Failure error)
-    (#error.Failure error)))
+  (!letE output (:: <codec> decode (!clip <start> <end> source-code))
+         (#error.Success [[(update@ #.column (n/+ (!n/- <start> <end>)) where)
+                           <end>
+                           source-code]
+                          [where (<tag> output)]])))
 
 (def: no-exponent Offset 0)
 
@@ -309,7 +300,7 @@
                   <frac-output> (as-is (!number-output start end frac.decimal #.Frac))
                   <failure> (ex.throw unrecognized-input [where "Frac" source-code offset])]
   (def: (parse-frac source-code//size start [where offset source-code])
-    (-> Nat Offset Parser)
+    (-> Nat Offset (Parser Code))
     (loop [end offset
            exponent ..no-exponent]
       (<| (!with-char+ source-code//size source-code end char/0 <frac-output>)
@@ -332,7 +323,7 @@
                 <frac-output>))))
 
   (def: (parse-signed start [where offset source-code])
-    (-> Offset Parser)
+    (-> Offset (Parser Code))
     (let [source-code//size ("lux text size" source-code)]
       (loop [end offset]
         (<| (!with-char+ source-code//size source-code end char <int-output>)
@@ -370,7 +361,7 @@
                                              source-code]
                                             (!clip start end source-code)])]
   (def: (parse-name-part start [where offset source-code])
-    (-> Offset Source (Error [Source Text]))
+    (-> Offset (Parser Text))
     (let [source-code//size ("lux text size" source-code)]
       (loop [end offset]
         (<| (!with-char+ source-code//size source-code end char <output>)
@@ -391,18 +382,14 @@
 
   (template: (!parse-half-name @offset @char @module)
     (cond (!name-char?|head @char)
-          (case (..parse-name-part @offset [where (!inc @offset) source-code])
-            (#error.Success [source' name])
-            (#error.Success [source' [@module name]])
-            
-            (#error.Failure error)
-            (#error.Failure error))
+          (!letE [source' name] (..parse-name-part @offset [where (!inc @offset) source-code])
+                 (#error.Success [source' [@module name]]))
 
           ## else
           <failure>))
 
   (`` (def: (parse-short-name current-module [where offset/0 source-code])
-        (-> Text Source (Error [Source Name]))
+        (-> Text (Parser Name))
         (<| (!with-char source-code offset/0 char/0 <end-of-file>)
             (if (!n/= (char (~~ (static ..name-separator))) char/0)
               (let [offset/1 (!inc offset/0)]
@@ -411,40 +398,24 @@
               (!parse-half-name offset/0 char/0 ..prelude)))))
 
   (template: (!parse-short-name @current-module @source @where @tag)
-    (case (..parse-short-name @current-module @source)
-      (#error.Success [source' name])
-      (#error.Success [source' [@where (@tag name)]])
-      
-      (#error.Failure error)
-      (#error.Failure error)))
+    (!letE [source' name] (..parse-short-name @current-module @source)
+           (#error.Success [source' [@where (@tag name)]])))
 
   (with-expansions [<simple> (as-is (#error.Success [source' ["" simple]]))]
     (`` (def: (parse-full-name start source)
-          (-> Offset Source (Error [Source Name]))
-          (case (..parse-name-part start source)
-            (#error.Success [source' simple])
-            (let [[where' offset' source-code'] source']
-              (<| (!with-char source-code' offset' char/separator <simple>)
-                  (if (!n/= (char (~~ (static ..name-separator))) char/separator)
-                    (let [offset'' (!inc offset')]
-                      (case (..parse-name-part offset'' [where' offset'' source-code'])
-                        (#error.Success [source'' complex])
-                        (#error.Success [source'' [simple complex]])
-                        
-                        (#error.Failure error)
-                        (#error.Failure error)))
-                    <simple>)))
-            
-            (#error.Failure error)
-            (#error.Failure error)))))
+          (-> Offset (Parser Name))
+          (!letE [source' simple] (..parse-name-part start source)
+                 (let [[where' offset' source-code'] source']
+                   (<| (!with-char source-code' offset' char/separator <simple>)
+                       (if (!n/= (char (~~ (static ..name-separator))) char/separator)
+                         (let [offset'' (!inc offset')]
+                           (!letE [source'' complex] (..parse-name-part offset'' [where' offset'' source-code'])
+                                  (#error.Success [source'' [simple complex]])))
+                         <simple>)))))))
 
   (template: (!parse-full-name @offset @source @where @tag)
-    (case (..parse-full-name @offset @source)
-      (#error.Success [source' full-name])
-      (#error.Success [source' [@where (@tag full-name)]])
-      
-      (#error.Failure error)
-      (#error.Failure error)))
+    (!letE [source' full-name] (..parse-full-name @offset @source)
+           (#error.Success [source' [@where (@tag full-name)]])))
 
   (`` (template: (<<closers>>)
         [(~~ (static ..close-form))
@@ -461,7 +432,7 @@
                                                      (!inc offset/0)
                                                      source-code]))]
     (def: #export (parse current-module aliases source-code//size)
-      (-> Text Aliases Nat (-> Source (Error [Source Code])))
+      (-> Text Aliases Nat (Parser Code))
       ## The "exec []" is only there to avoid function fusion.
       ## This is to preserve the loop as much as possible and keep it tight.
       (exec []
