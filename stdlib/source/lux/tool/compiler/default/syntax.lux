@@ -144,14 +144,6 @@
 (exception: #export (text-cannot-contain-new-lines {text Text})
   (ex.report ["Text" (%t text)]))
 
-(exception: #export (invalid-escape-syntax)
-  "")
-
-(exception: #export (cannot-close-composite-expression {closing-char Char} {source-code Text} {offset Offset})
-  (ex.report ["Closing Character" (text.from-code closing-char)]
-             ["Input" (format text.new-line
-                              (input-at offset source-code))]))
-
 (type: (Parser a)
   (-> Source (Either [Source Text] [Source a])))
 
@@ -192,49 +184,21 @@
   (template.with-locals [g!close-signal]
     (template.text [g!close-signal])))
 
-(template: (!cannot-close close-char where offset source-code)
-  (#.Left [[where offset source-code]
-           (ex.construct cannot-close-composite-expression [close-char source-code offset])]))
-
-(with-expansions [<cannot-close> (!cannot-close closing-char where offset source-code)
-                  <horizontal> (as-is (!horizontal where offset source-code))]
-  (def: (read-close closing-char source)
-    (-> Char (Parser Any))
-    (loop [[where offset source-code] source]
-      (<| (!with-char+ ("lux text size" source-code) source-code offset char <cannot-close>
-            (if (!n/= closing-char char)
-              (#.Right [<horizontal> []])
-              (`` ("lux syntax char case!" char
-                   [[(~~ (static ..space))
-                     (~~ (static text.carriage-return))]
-                    (recur <horizontal>)
-
-                    [(~~ (static text.new-line))]
-                    (recur (!vertical where offset source-code))]
-
-                   ## else
-                   <cannot-close>))))))))
-
 (template [<name> <close> <tag> <context>]
-  [(with-expansions [<cannot-close> (!cannot-close (`` (char (~~ (static <close>)))) where' offset' source-code')]
-     (def: (<name> parse source)
-       (-> (Parser Code) (Parser Code))
-       (let [[where _ _] source]
-         (loop [source source
-                stack (: (List Code) #.Nil)]
-           (case (parse source)
-             (#.Right [source' top])
-             (recur source' (#.Cons top stack))
-             
-             (#.Left [source' error])
-             (if (is? ..close-signal error)
-               (let [[where' offset' source-code'] source']
-                 (<| (!with-char source-code' offset' @close <cannot-close>)
-                     (if (!n/= (`` (char (~~ (static <close>)))) @close)
-                       (#.Right [[where' (!inc offset') source-code']
-                                 [where (<tag> (list.reverse stack))]])
-                       <cannot-close>)))
-               (#.Left [source' error])))))))]
+  [(def: (<name> parse source)
+     (-> (Parser Code) (Parser Code))
+     (let [[where _ _] source]
+       (loop [source source
+              stack (: (List Code) #.Nil)]
+         (case (parse source)
+           (#.Right [source' top])
+           (recur source' (#.Cons top stack))
+           
+           (#.Left [source' error])
+           (if (is? <close> error)
+             (#.Right [source'
+                       [where (<tag> (list.reverse stack))]])
+             (#.Left [source' error]))))))]
 
   ## Form and tuple syntax is mostly the same, differing only in the
   ## delimiters involved.
@@ -243,26 +207,21 @@
   [parse-tuple ..close-tuple #.Tuple "Tuple"]
   )
 
-(with-expansions [<cannot-close> (!cannot-close (`` (char (~~ (static ..close-record)))) where' offset' source-code')]
-  (def: (parse-record parse source)
-    (-> (Parser Code) (Parser Code))
-    (let [[where _ _] source]
-      (loop [source source
-             stack (: (List [Code Code]) #.Nil)]
-        (case (parse source)
-          (#.Right [sourceF field])
-          (!letE [sourceFV value] (parse sourceF)
-                 (recur sourceFV (#.Cons [field value] stack)))
+(def: (parse-record parse source)
+  (-> (Parser Code) (Parser Code))
+  (let [[where _ _] source]
+    (loop [source source
+           stack (: (List [Code Code]) #.Nil)]
+      (case (parse source)
+        (#.Right [sourceF field])
+        (!letE [sourceFV value] (parse sourceF)
+               (recur sourceFV (#.Cons [field value] stack)))
 
-          (#.Left [source' error])
-          (if (is? ..close-signal error)
-            (let [[where' offset' source-code'] source']
-              (<| (!with-char source-code' offset' @close <cannot-close>)
-                  (if (!n/= (`` (char (~~ (static ..close-record)))) @close)
-                    (#.Right [[where' (!inc offset') source-code']
-                              [where (#.Record (list.reverse stack))]])
-                    <cannot-close>)))
-            (#.Left [source' error])))))))
+        (#.Left [source' error])
+        (if (is? ..close-record error)
+          (#.Right [source'
+                    [where (#.Record (list.reverse stack))]])
+          (#.Left [source' error]))))))
 
 (template: (!guarantee-no-new-lines where offset source-code content body)
   (case ("lux text index" 0 (static text.new-line) content)
@@ -419,8 +378,7 @@
   (#.Left [[where offset source-code]
            (ex.construct ..end-of-file current-module)]))
 
-(with-expansions [<close!> (#.Left [[where offset/0 source-code] ..close-signal])
-                  <consume-1> (as-is [where (!inc offset/0) source-code])
+(with-expansions [<consume-1> (as-is [where (!inc offset/0) source-code])
                   <consume-2> (as-is [where (!inc/2 offset/0) source-code])]
 
   (template: (!parse-half-name @offset @char @module)
@@ -462,15 +420,13 @@
     (!letE [source' full-name] (..parse-full-name @offset @source)
            (#.Right [source' [@where (@tag full-name)]])))
 
-  (`` (template: (<<closers>>)
-        [(~~ (static ..close-form))
-         (~~ (static ..close-tuple))
-         (~~ (static ..close-record))]))
-
   ## TODO: Grammar macro for specifying syntax.
   ## (grammar: lux-grammar
   ##   [expression ...]
   ##   [form "(" [#* expression] ")"])
+
+  (template: (!close closer)
+    (#.Left [<consume-1> closer]))
 
   (with-expansions [<recur> (as-is (parse current-module aliases source-code//size))
                     <horizontal-move> (as-is (recur (!horizontal where offset/0 source-code)))]
@@ -561,9 +517,14 @@
                       (!parse-signed source-code//size offset/0 where source-code
                                      (!end-of-file where offset/0 source-code current-module))
 
-                      ## Invalid characters at this point...
-                      (~~ (<<closers>>))
-                      <close!>]
+                      [(~~ (static ..close-form))]
+                      (!close ..close-form)
+                      
+                      [(~~ (static ..close-tuple))]
+                      (!close ..close-tuple)
+                      
+                      [(~~ (static ..close-record))]
+                      (!close ..close-record)]
 
                      ## else
                      (if (!digit? char/0)
