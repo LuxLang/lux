@@ -1,0 +1,101 @@
+(.module:
+  [lux #*
+   [abstract ["." monad (#+ do)]]
+   [data
+    text/format
+    ["." name]]
+   ["r" math/random (#+ Random) ("#@." monad)]
+   ["_" test (#+ Test)]
+   [control
+    pipe]
+   [data
+    ["." error ("#@." functor)]]]
+  ["." // #_
+   ["#." primitive]]
+  {1
+   ["." /
+    ["/#" //
+     ["/#" //
+      [extension
+       ["#." bundle]]
+      ["/#" //
+       ["#." reference]
+       ["#." analysis (#+ Branch Analysis)]
+       ["#." synthesis (#+ Synthesis)]]]]]})
+
+(def: dummy-vars
+  Test
+  (do r.monad
+    [maskedA //primitive.primitive
+     temp (|> r.nat (:: @ map (n/% 100)))
+     #let [maskA (////analysis.control/case
+                  [maskedA
+                   [[(#////analysis.Bind temp)
+                     (#////analysis.Reference (////reference.local temp))]
+                    (list)]])]]
+    (_.test "Dummy variables created to mask expressions get eliminated during synthesis."
+            (|> maskA
+                //.phase
+                (///.run [///bundle.empty ////synthesis.init])
+                (error@map (//primitive.corresponds? maskedA))
+                (error.default false)))))
+
+(def: let-expr
+  Test
+  (do r.monad
+    [registerA r.nat
+     inputA //primitive.primitive
+     outputA //primitive.primitive
+     #let [letA (////analysis.control/case
+                 [inputA
+                  [[(#////analysis.Bind registerA)
+                    outputA]
+                   (list)]])]]
+    (_.test "Can detect and reify simple 'let' expressions."
+            (|> letA
+                //.phase
+                (///.run [///bundle.empty ////synthesis.init])
+                (case> (^ (#error.Success (////synthesis.branch/let [inputS registerS outputS])))
+                       (and (n/= registerA registerS)
+                            (//primitive.corresponds? inputA inputS)
+                            (//primitive.corresponds? outputA outputS))
+
+                       _
+                       false)))))
+
+(def: if-expr
+  Test
+  (do r.monad
+    [then|else r.bit
+     inputA //primitive.primitive
+     thenA //primitive.primitive
+     elseA //primitive.primitive
+     #let [thenB (: Branch
+                    [(#////analysis.Simple (#////analysis.Bit true))
+                     thenA])
+           elseB (: Branch
+                    [(#////analysis.Simple (#////analysis.Bit false))
+                     elseA])
+           ifA (if then|else
+                 (////analysis.control/case [inputA [thenB (list elseB)]])
+                 (////analysis.control/case [inputA [elseB (list thenB)]]))]]
+    (_.test "Can detect and reify simple 'if' expressions."
+            (|> ifA
+                //.phase
+                (///.run [///bundle.empty ////synthesis.init])
+                (case> (^ (#error.Success (////synthesis.branch/if [inputS thenS elseS])))
+                       (and (//primitive.corresponds? inputA inputS)
+                            (//primitive.corresponds? thenA thenS)
+                            (//primitive.corresponds? elseA elseS))
+
+                       _
+                       false)))))
+
+(def: #export test
+  Test
+  (<| (_.context (name.module (name-of /._)))
+      ($_ _.and
+          ..dummy-vars
+          ..let-expr
+          ..if-expr
+          )))
