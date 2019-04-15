@@ -1,0 +1,108 @@
+(.module:
+  [lux (#- primitive)
+   [abstract ["." monad (#+ do)]]
+   [data
+    text/format
+    ["." name]]
+   ["r" math/random (#+ Random) ("#@." monad)]
+   ["_" test (#+ Test)]
+   [control
+    pipe
+    ["." exception (#+ exception:)]]
+   [data
+    ["." error (#+ Error)]]
+   ["." type ("#@." equivalence)]
+   [macro
+    ["." code]]]
+  {1
+   ["." /
+    ["/#" //
+     ["#." type]
+     ["/#" //
+      [macro (#+ Expander)]
+      [extension
+       ["#." analysis]]
+      ["/#" //
+       ["#." analysis (#+ Analysis Operation)]
+       [default
+        [evaluation (#+ Eval)]
+        ["." init]]]]]]})
+
+(def: #export (expander macro inputs state)
+  Expander
+  (#error.Failure "NOPE"))
+
+(def: #export (eval count type expression)
+  Eval
+  (function (_ state)
+    (#error.Failure "NO!")))
+
+(def: #export phase
+  ////analysis.Phase
+  (//.phase ..expander))
+
+(def: #export state
+  ////analysis.State+
+  [(///analysis.bundle ..eval) (////analysis.state init.info [])])
+
+(def: #export primitive
+  (Random [Type Code])
+  (`` ($_ r.either
+          (~~ (template [<type> <code-wrapper> <value-gen>]
+                [(r.and (r@wrap <type>) (r@map <code-wrapper> <value-gen>))]
+
+                [Any  code.tuple (r.list 0 (r@wrap (' [])))]
+                [Bit  code.bit   r.bit]
+                [Nat  code.nat   r.nat]
+                [Int  code.int   r.int]
+                [Rev  code.rev   r.rev]
+                [Frac code.frac  r.frac]
+                [Text code.text  (r.unicode 5)]
+                )))))
+
+(exception: (wrong-inference {expected Type} {inferred Type})
+  (exception.report
+   ["Expected" (%type expected)]
+   ["Inferred" (%type inferred)]))
+
+(def: (infer expected-type analysis)
+  (-> Type (Operation Analysis) (Error Analysis))
+  (|> analysis
+      //type.with-inference
+      (///.run ..state)
+      (case> (#error.Success [inferred-type output])
+             (if (is? expected-type inferred-type)
+               (#error.Success output)
+               (exception.throw wrong-inference [expected-type inferred-type]))
+
+             (#error.Failure error)
+             (#error.Failure error))))
+
+(def: #export test
+  (<| (_.context (name.module (name-of /._)))
+      (`` ($_ _.and
+              (_.test (%name (name-of #////analysis.Unit))
+                      (|> (infer Any (..phase (' [])))
+                          (case> (^ (#error.Success (#////analysis.Primitive (#////analysis.Unit output))))
+                                 (is? [] output)
+
+                                 _
+                                 false)))
+              (~~ (template [<type> <tag> <random> <constructor>]
+                    [(do r.monad
+                       [sample <random>]
+                       (_.test (%name (name-of <tag>))
+                               (|> (infer <type> (..phase (<constructor> sample)))
+                                   (case> (#error.Success (#////analysis.Primitive (<tag> output)))
+                                          (is? sample output)
+
+                                          _
+                                          false))))]
+
+                    [Bit  #////analysis.Bit  r.bit         code.bit]
+                    [Nat  #////analysis.Nat  r.nat         code.nat]
+                    [Int  #////analysis.Int  r.int         code.int]
+                    [Rev  #////analysis.Rev  r.rev         code.rev]
+                    [Frac #////analysis.Frac r.frac        code.frac]
+                    [Text #////analysis.Text (r.unicode 5) code.text]
+                    ))))))

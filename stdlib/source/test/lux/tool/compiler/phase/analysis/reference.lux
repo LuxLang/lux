@@ -1,0 +1,106 @@
+(.module:
+  [lux #*
+   [abstract ["." monad (#+ do)]]
+   [data
+    text/format
+    ["." name ("#@." equivalence)]]
+   ["r" math/random (#+ Random) ("#@." monad)]
+   ["_" test (#+ Test)]
+   [control
+    pipe]
+   [data
+    ["." error (#+ Error)]
+    ["." text ("#@." equivalence)]]
+   ["." type ("#@." equivalence)]
+   [macro
+    ["." code]]]
+  [//
+   ["_." primitive]]
+  {1
+   ["." /
+    ["/#" //
+     ["#." scope]
+     ["#." module]
+     ["#." type]
+     ["/#" //
+      ["/#" //
+       ["#." reference]
+       ["#." analysis (#+ Analysis Variant Tag Operation)]]]]]})
+
+(type: Check (-> (Error Any) Bit))
+
+(template [<name> <on-success> <on-failure>]
+  [(def: <name>
+     Check
+     (|>> (case> (#error.Success _)
+                 <on-success>
+
+                 (#error.Failure error)
+                 <on-failure>)))]
+
+  [success? true false]
+  [failure? false true]
+  )
+
+(def: (reach-test var-name [export? def-module] [import? dependent-module] check!)
+  (-> Text [Bit Text] [Bit Text] Check Bit)
+  (|> (do ///.monad
+        [_ (//module.with-module 0 def-module
+             (//module.define var-name [Any
+                                        (if export?
+                                          (' {#.export? #1})
+                                          (' {}))
+                                        []]))]
+        (//module.with-module 0 dependent-module
+          (do @
+            [_ (if import?
+                 (//module.import def-module)
+                 (wrap []))]
+            (//type.with-inference
+              (_primitive.phase (code.identifier [def-module var-name]))))))
+      (///.run _primitive.state)
+      check!))
+
+(def: #export test
+  (<| (_.context (name.module (name-of /._)))
+      (do r.monad
+        [[expectedT _] _primitive.primitive
+         def-module (r.unicode 5)
+         scope-name (r.unicode 5)
+         var-name (r.unicode 5)
+         dependent-module (|> (r.unicode 5)
+                              (r.filter (|>> (text@= def-module) not)))]
+        ($_ _.and
+            (_.test "Can analyse variable."
+                    (|> (//scope.with-scope scope-name
+                          (//scope.with-local [var-name expectedT]
+                            (//type.with-inference
+                              (_primitive.phase (code.local-identifier var-name)))))
+                        (///.run _primitive.state)
+                        (case> (^ (#error.Success [inferredT (#////analysis.Reference (////reference.local var))]))
+                               (and (type@= expectedT inferredT)
+                                    (n/= 0 var))
+
+                               _
+                               false)))
+            (_.test "Can analyse definition (in the same module)."
+                    (let [def-name [def-module var-name]]
+                      (|> (do ///.monad
+                            [_ (//module.define var-name [expectedT (' {}) []])]
+                            (//type.with-inference
+                              (_primitive.phase (code.identifier def-name))))
+                          (//module.with-module 0 def-module)
+                          (///.run _primitive.state)
+                          (case> (^ (#error.Success [_ inferredT (#////analysis.Reference (////reference.constant constant-name))]))
+                                 (and (type@= expectedT inferredT)
+                                      (name@= def-name constant-name))
+
+                                 _
+                                 false))))
+            (_.test "Can analyse definition (if exported from imported module)."
+                    (reach-test var-name [true def-module] [true dependent-module] success?))
+            (_.test "Cannot analyse definition (if not exported from imported module)."
+                    (reach-test var-name [false def-module] [true dependent-module] failure?))
+            (_.test "Cannot analyse definition (if exported from non-imported module)."
+                    (reach-test var-name [true def-module] [false dependent-module] failure?))
+            ))))
