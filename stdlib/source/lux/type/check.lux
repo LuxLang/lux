@@ -5,7 +5,7 @@
     [apply (#+ Apply)]
     ["." monad (#+ Monad do)]]
    [control
-    ["ex" exception (#+ exception:)]]
+    ["." exception (#+ Exception exception:)]]
    [data
     ["." maybe]
     ["." product]
@@ -25,23 +25,28 @@
   ("lux text =" reference subject))
 
 (exception: #export (unknown-type-var {id Nat})
-  (ex.report ["ID" (nat@encode id)]))
+  (exception.report
+   ["ID" (nat@encode id)]))
 
 (exception: #export (unbound-type-var {id Nat})
-  (ex.report ["ID" (nat@encode id)]))
+  (exception.report
+   ["ID" (nat@encode id)]))
 
 (exception: #export (invalid-type-application {funcT Type} {argT Type})
-  (ex.report ["Type function" (//.to-text funcT)]
-             ["Type argument" (//.to-text argT)]))
+  (exception.report
+   ["Type function" (//.to-text funcT)]
+   ["Type argument" (//.to-text argT)]))
 
 (exception: #export (cannot-rebind-var {id Nat} {type Type} {bound Type})
-  (ex.report ["Var" (nat@encode id)]
-             ["Wanted Type" (//.to-text type)]
-             ["Current Type" (//.to-text bound)]))
+  (exception.report
+   ["Var" (nat@encode id)]
+   ["Wanted Type" (//.to-text type)]
+   ["Current Type" (//.to-text bound)]))
 
 (exception: #export (type-check-failed {expected Type} {actual Type})
-  (ex.report ["Expected" (//.to-text expected)]
-             ["Actual" (//.to-text actual)]))
+  (exception.report
+   ["Expected" (//.to-text expected)]
+   ["Actual" (//.to-text actual)]))
 
 (type: #export Var Nat)
 
@@ -160,9 +165,9 @@
     (#error.Failure error)))
 
 (def: #export (throw exception message)
-  (All [e a] (-> (ex.Exception e) e (Check a)))
+  (All [e a] (-> (Exception e) e (Check a)))
   (function (_ context)
-    (ex.throw exception message)))
+    (exception.throw exception message)))
 
 (def: #export existential
   {#.doc "A producer of existential types."}
@@ -185,7 +190,7 @@
          (#error.Success [context <succeed>])
 
          #.None
-         (ex.throw unknown-type-var id))))]
+         (exception.throw unknown-type-var id))))]
 
   [bound? Bit          #0     #1]
   [read   (Maybe Type) #.None (#.Some bound)]
@@ -199,10 +204,10 @@
       (#error.Success [context bound])
 
       (#.Some _)
-      (ex.throw unbound-type-var id)
+      (exception.throw unbound-type-var id)
 
       _
-      (ex.throw unknown-type-var id))))
+      (exception.throw unknown-type-var id))))
 
 (def: #export (bind type id)
   (-> Type Var (Check Any))
@@ -213,10 +218,10 @@
                        []])
 
       (#.Some (#.Some bound))
-      (ex.throw cannot-rebind-var [id type bound])
+      (exception.throw cannot-rebind-var [id type bound])
       
       _
-      (ex.throw unknown-type-var id))))
+      (exception.throw unknown-type-var id))))
 
 (def: (update type id)
   (-> Type Var (Check Any))
@@ -227,7 +232,7 @@
                        []])
       
       _
-      (ex.throw unknown-type-var id))))
+      (exception.throw unknown-type-var id))))
 
 (def: #export var
   (Check [Var Type])
@@ -284,7 +289,7 @@
         (#error.Success [context output])
         
         #.None
-        (ex.throw unknown-type-var current)))))
+        (exception.throw unknown-type-var current)))))
 
 (def: #export fresh-context
   Type-Context
@@ -438,26 +443,6 @@
           _
           (check' assumptions etype atype))))))
 
-(def: (with-error-stack on-error check)
-  (All [a] (-> (-> Any Text) (Check a) (Check a)))
-  (function (_ context)
-    (case (check context)
-      (#error.Failure error)
-      (#error.Failure (case error
-                        ""
-                        (on-error [])
-
-                        _
-                        ($_ text@compose
-                            (on-error [])
-                            text.new-line text.new-line
-                            "-----------------------------------------"
-                            text.new-line text.new-line
-                            error)))
-
-      output
-      output)))
-
 ## TODO: "check-apply" can be optimized...
 (def: (check-apply check' assumptions [eAT eFT] [aAT aFT])
   (-> (-> (List Assumption) Type Type (Check (List Assumption))) (List Assumption)
@@ -510,14 +495,17 @@
     _
     (fail "")))
 
+(def: (with-stack exception parameter check)
+  (All [e a] (-> (Exception e) e (Check a) (Check a)))
+  (|>> check (exception.with-stack exception parameter)))
+
 ## TODO: "check'" can be optimized...
 (def: #export (check' assumptions expected actual)
   {#.doc "Type-check to ensure that the 'expected' type subsumes the 'actual' type."}
   (-> (List Assumption) Type Type (Check (List Assumption)))
   (if (is? expected actual)
     (check@wrap assumptions)
-    (with-error-stack
-      (function (_ _) (ex.construct type-check-failed [expected actual]))
+    (with-stack type-check-failed [expected actual]
       (case [expected actual]
         [(#.Var idE) (#.Var idA)]
         (check-vars check' assumptions idE idA)
