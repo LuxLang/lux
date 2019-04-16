@@ -13,7 +13,7 @@
 (defn read-file [source-dirs module-name]
   (|do [jvm? &/jvm?
         js? &/js?
-        :let [^String host-file-name (cond jvm? (str module-name ".jvm.lux")
+        :let [^String host-file-name (cond jvm? (str module-name ".old.lux")
                                            js? (str module-name ".js.lux")
                                            :else (assert false "[I/O Error] Unknown host platform."))
               ^String lux-file-name (str module-name ".lux")]]
