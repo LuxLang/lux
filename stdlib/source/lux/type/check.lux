@@ -55,6 +55,9 @@
 (type: #export (Check a)
   (-> Type-Context (Error [Type-Context a])))
 
+(type: #export (Checker a)
+  (-> (List Assumption) a a (Check (List Assumption))))
+
 (type: #export Type-Vars
   (List [Var (Maybe Type)]))
 
@@ -164,10 +167,21 @@
     (#error.Failure error)
     (#error.Failure error)))
 
+(def: #export (fail message)
+  (All [a] (-> Text (Check a)))
+  (function (_ context)
+    (#error.Failure message)))
+
+(def: #export (assert message test)
+  (-> Text Bit (Check Any))
+  (function (_ context)
+    (if test
+      (#error.Success [context []])
+      (#error.Failure message))))
+
 (def: #export (throw exception message)
   (All [e a] (-> (Exception e) e (Check a)))
-  (function (_ context)
-    (exception.throw exception message)))
+  (..fail (exception.construct exception message)))
 
 (def: #export existential
   {#.doc "A producer of existential types."}
@@ -192,9 +206,20 @@
          #.None
          (exception.throw unknown-type-var id))))]
 
-  [bound? Bit          #0     #1]
+  [bound? Bit          false  true]
   [read   (Maybe Type) #.None (#.Some bound)]
   )
+
+(def: #export (read! id)
+  (-> Var (Check Type))
+  (do ..monad
+    [?type (read id)]
+    (case ?type
+      (#.Some type)
+      (wrap type)
+
+      #.None
+      (..throw unbound-type-var id))))
 
 (def: (peek id)
   (-> Var (Check Type))
@@ -295,8 +320,7 @@
   Type-Context
   {#.var-counter 0
    #.ex-counter 0
-   #.var-bindings (list)
-   })
+   #.var-bindings (list)})
 
 (def: (attempt op)
   (All [a] (-> (Check a) (Check (Maybe a))))
@@ -308,27 +332,15 @@
       (#error.Failure _)
       (#error.Success [context #.None]))))
 
-(def: #export (fail message)
-  (All [a] (-> Text (Check a)))
-  (function (_ context)
-    (#error.Failure message)))
-
-(def: #export (assert message test)
-  (-> Text Bit (Check Any))
-  (function (_ context)
-    (if test
-      (#error.Success [context []])
-      (#error.Failure message))))
-
 (def: (either left right)
   (All [a] (-> (Check a) (Check a) (Check a)))
   (function (_ context)
     (case (left context)
-      (#error.Success [context' output])
-      (#error.Success [context' output])
-
       (#error.Failure _)
-      (right context))))
+      (right context)
+
+      output
+      output)))
 
 (def: (assumed? [e a] assumptions)
   (-> Assumption (List Assumption) Bit)
@@ -375,10 +387,7 @@
 
 ## TODO: "check-vars" can be optimized...
 (def: (check-vars check' assumptions idE idA)
-  (-> (-> (List Assumption) Type Type (Check (List Assumption)))
-      (List Assumption)
-      Var Var
-      (Check (List Assumption)))
+  (-> (Checker Type) (Checker Var))
   (if (!n/= idE idA)
     (check@wrap assumptions)
     (do ..monad
@@ -444,56 +453,91 @@
           (check' assumptions etype atype))))))
 
 ## TODO: "check-apply" can be optimized...
-(def: (check-apply check' assumptions [eAT eFT] [aAT aFT])
-  (-> (-> (List Assumption) Type Type (Check (List Assumption))) (List Assumption)
-      [Type Type] [Type Type]
-      (Check (List Assumption)))
-  (case [eFT aFT]
-    (^or [(#.UnivQ _ _) (#.Ex _)] [(#.UnivQ _ _) (#.Var _)])
-    (do ..monad
-      [eFT' (apply-type! eFT eAT)]
-      (check' assumptions eFT' (#.Apply aAT aFT)))
+(def: (check-apply check' assumptions expected actual)
+  (-> (Checker Type) (Checker [Type Type]))
+  (let [[expected-input expected-function] expected
+        [actual-input actual-function] actual]
+    (case [expected-function actual-function]
+      [(#.Ex exE) (#.Ex exA)]
+      (if (n/= exE exA)
+        (check' assumptions expected-input actual-input)
+        (fail ""))
 
-    (^or [(#.Ex _) (#.UnivQ _ _)] [(#.Var _) (#.UnivQ _ _)])
-    (do ..monad
-      [aFT' (apply-type! aFT aAT)]
-      (check' assumptions (#.Apply eAT eFT) aFT'))
+      [(#.UnivQ _ _) (#.Ex _)]
+      (do ..monad
+        [expected' (apply-type! expected-function expected-input)]
+        (check' assumptions expected' (#.Apply actual)))
 
-    (^or [(#.Ex _) _] [_ (#.Ex _)])
-    (do ..monad
-      [assumptions (check' assumptions eFT aFT)]
-      (check' assumptions eAT aAT))
+      [(#.Ex _) (#.UnivQ _ _)]
+      (do ..monad
+        [actual' (apply-type! actual-function actual-input)]
+        (check' assumptions (#.Apply expected) actual'))
 
-    [(#.Var id) _]
-    (do ..monad
-      [?rFT (read id)]
-      (case ?rFT
-        (#.Some rFT)
-        (check' assumptions (#.Apply eAT rFT) (#.Apply aAT aFT))
+      [(#.Apply [expected-input' expected-function']) (#.Ex _)]
+      (do ..monad
+        [expected-function'' (apply-type! expected-function' expected-input')]
+        (check' assumptions (#.Apply [expected-input expected-function'']) (#.Apply actual)))
 
-        _
-        (do ..monad
-          [assumptions (check' assumptions eFT aFT)
-           e' (apply-type! aFT eAT)
-           a' (apply-type! aFT aAT)]
-          (check' assumptions e' a'))))
+      [(#.Ex _) (#.Apply [actual-input' actual-function'])]
+      (do ..monad
+        [actual-function'' (apply-type! actual-function' actual-input')]
+        (check' assumptions (#.Apply expected) (#.Apply [actual-input actual-function''])))
 
-    [_ (#.Var id)]
-    (do ..monad
-      [?rFT (read id)]
-      (case ?rFT
-        (#.Some rFT)
-        (check' assumptions (#.Apply eAT eFT) (#.Apply aAT rFT))
+      (^or [(#.Ex _) _] [_ (#.Ex _)])
+      (do ..monad
+        [assumptions (check' assumptions expected-function actual-function)]
+        (check' assumptions expected-input actual-input))
 
-        _
-        (do ..monad
-          [assumptions (check' assumptions eFT aFT)
-           e' (apply-type! eFT eAT)
-           a' (apply-type! eFT aAT)]
-          (check' assumptions e' a'))))
+      [(#.Var id) _]
+      (function (_ context)
+        (case ((do ..monad
+                 [expected-function' (read! id)]
+                 (check' assumptions (#.Apply expected-input expected-function') (#.Apply actual)))
+               context)
+          (#error.Success output)
+          (#error.Success output)
 
-    _
-    (fail "")))
+          (#error.Failure error)
+          (case actual-function
+            (#.UnivQ _ _)
+            ((do ..monad
+               [actual' (apply-type! actual-function actual-input)]
+               (check' assumptions (#.Apply expected) actual'))
+             context)
+            
+            (#.Ex exA)
+            ((do ..monad
+               [assumptions (check' assumptions expected-function actual-function)]
+               (check' assumptions expected-input actual-input))
+             context)
+
+            _
+            ((do ..monad
+               [assumptions (check' assumptions expected-function actual-function)
+                expected' (apply-type! actual-function expected-input)
+                actual' (apply-type! actual-function actual-input)]
+               (check' assumptions expected' actual'))
+             context))))
+
+      [_ (#.Var id)]
+      (function (_ context)
+        (case ((do ..monad
+                 [actual-function' (read! id)]
+                 (check' assumptions (#.Apply expected) (#.Apply actual-input actual-function')))
+               context)
+          (#error.Success output)
+          (#error.Success output)
+
+          _
+          ((do ..monad
+             [assumptions (check' assumptions expected-function actual-function)
+              expected' (apply-type! expected-function expected-input)
+              actual' (apply-type! expected-function actual-input)]
+             (check' assumptions expected' actual'))
+           context)))
+
+      _
+      (fail ""))))
 
 (def: (with-stack exception parameter check)
   (All [e a] (-> (Exception e) e (Check a) (Check a)))
@@ -502,7 +546,7 @@
 ## TODO: "check'" can be optimized...
 (def: #export (check' assumptions expected actual)
   {#.doc "Type-check to ensure that the 'expected' type subsumes the 'actual' type."}
-  (-> (List Assumption) Type Type (Check (List Assumption)))
+  (Checker Type)
   (if (is? expected actual)
     (check@wrap assumptions)
     (with-stack type-check-failed [expected actual]
@@ -522,13 +566,13 @@
                  (function (_ bound)
                    (check' assumptions expected bound)))
 
-        (^template [<fe> <fa>]
-          [(#.Apply A1 <fe>) (#.Apply A2 <fa>)]
-          (check-apply check' assumptions [A1 <fe>] [A2 <fa>]))
+        (^template [<fE> <fA>]
+          [(#.Apply aE <fE>) (#.Apply aA <fA>)]
+          (check-apply check' assumptions [aE <fE>] [aA <fA>]))
         ([F1 (#.Ex ex)]
-         [(#.Ex ex) F2]
-         [F1 (#.Var id)]
-         [(#.Var id) F2])
+         [(#.Ex exE) fA]
+         [fE (#.Var idA)]
+         [(#.Var idE) fA])
         
         [(#.Apply A F) _]
         (let [new-assumption [expected actual]]
@@ -618,10 +662,10 @@
   (-> Type Type Bit)
   (case (run fresh-context (check' (list) expected actual))
     (#error.Failure _)
-    #0
+    false
 
     (#error.Success _)
-    #1))
+    true))
 
 (def: #export context
   (Check Type-Context)
