@@ -3,18 +3,19 @@
    [abstract
     [monad (#+ do)]]
    [control
-    ["." function]]
+    ["." function]
+    ["." exception (#+ Exception)]]
    [data
     ["." product]
     ["." error]
     ["." maybe]
-    ["." text ("#;." equivalence)
+    ["." text ("#@." equivalence)
      format]
     [collection
-     ["." list ("#;." functor fold)]]]]
+     ["." list ("#@." functor fold)]]]]
   [//
    ["." reference (#+ Register Variable Reference)]
-   [phase
+   ["." phase
     ["." extension (#+ Extension)]]])
 
 (type: #export #rec Primitive
@@ -106,7 +107,7 @@
 
 (def: #export (apply [abstraction inputs])
   (-> (Application Analysis) Analysis)
-  (list;fold (function (_ input abstraction')
+  (list@fold (function (_ input abstraction')
                (#Apply input abstraction'))
              abstraction
              inputs))
@@ -195,7 +196,7 @@
       
       (#Tuple members)
       (|> members
-          (list;map %analysis)
+          (list@map %analysis)
           (text.join-with " ")
           (text.enclose ["[" "]"])))
     
@@ -214,7 +215,7 @@
     (|> (%analysis body)
         (format " ")
         (format (|> environment
-                    (list;map reference.%variable)
+                    (list@map reference.%variable)
                     (text.join-with " ")
                     (text.enclose ["[" "]"])))
         (text.enclose ["(" ")"]))
@@ -223,13 +224,13 @@
     (|> analysis
         ..application
         #.Cons
-        (list;map %analysis)
+        (list@map %analysis)
         (text.join-with " ")
         (text.enclose ["(" ")"]))
     
     (#Extension name parameters)
     (|> parameters
-        (list;map %analysis)
+        (list@map %analysis)
         (text.join-with " ")
         (format (%t name) " ")
         (text.enclose ["(" ")"]))))
@@ -293,7 +294,7 @@
 
 (def: #export (with-cursor cursor action)
   (All [a] (-> Cursor (Operation a) (Operation a)))
-  (if (text;= "" (product.left cursor))
+  (if (text@= "" (product.left cursor))
     action
     (function (_ [bundle state])
       (let [old-cursor (get@ #.cursor state)]
@@ -303,8 +304,43 @@
                            output])
 
           (#error.Failure error)
-          (#error.Failure (format "@ " (%cursor cursor) text.new-line
-                                  error)))))))
+          (#error.Failure error))))))
+
+(def: (locate-error cursor error)
+  (-> Cursor Text Text)
+  (format "@ " (%cursor cursor) text.new-line
+          error))
+
+(def: #export (fail error)
+  (-> Text Operation)
+  (function (_ [bundle state])
+    (#error.Failure (locate-error (get@ #.cursor state) error))))
+
+(def: #export (throw exception parameters)
+  (All [e] (-> (Exception e) e Operation))
+  (..fail (exception.construct exception parameters)))
+
+(def: #export (fail' error)
+  (-> Text (phase.Operation Lux))
+  (function (_ state)
+    (#error.Failure (locate-error (get@ #.cursor state) error))))
+
+(def: #export (throw' exception parameters)
+  (All [e] (-> (Exception e) e (phase.Operation Lux)))
+  (..fail' (exception.construct exception parameters)))
+
+(def: #export (with-stack exception message action)
+  (All [e o] (-> (Exception e) e (Operation o) (Operation o)))
+  (function (_ bundle,state)
+    (case (action bundle,state)
+      (#error.Success output)
+      (#error.Success output)
+      
+      (#error.Failure error)
+      (let [[bundle state] bundle,state]
+        (#error.Failure (<| (locate-error (get@ #.cursor state))
+                            (exception.decorate (exception.construct exception message))
+                            error))))))
 
 (template [<name> <type> <field> <value>]
   [(def: #export (<name> value)
