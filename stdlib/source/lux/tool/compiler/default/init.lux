@@ -8,7 +8,7 @@
    [data
     ["." product]
     ["." error (#+ Error)]
-    ["." text ("#;." hash)
+    ["." text ("#@." hash)
      format]
     [collection
      ["." list ("#@." functor)]
@@ -181,15 +181,15 @@
      _ (..refresh expander)]
     (wrap [source requirements post-buffer])))
 
-(def: (iterate expander module source pre-buffer)
+(def: (iterate expander module source pre-buffer aliases)
   (All [statement]
-    (-> Expander Module Source (generation.Buffer statement)
+    (-> Expander Module Source (generation.Buffer statement) Aliases
         (All [anchor expression]
           (///statement.Operation anchor expression statement
                                   (Maybe [Source Requirements (generation.Buffer statement)])))))
   (do ///phase.monad
     [reader (///statement.lift-analysis
-             (..reader module //syntax.no-aliases source))]
+             (..reader module aliases source))]
     (function (_ state)
       (case (///phase.run' state (..iteration expander reader source pre-buffer))
         (#error.Success [state source&requirements&buffer])
@@ -202,9 +202,13 @@
 
 (def: (default-dependencies prelude input)
   (-> Module ///.Input (List Module))
-  (if (text;= prelude (get@ #///.module input))
+  (if (text@= prelude (get@ #///.module input))
     (list)
     (list prelude)))
+
+(def: module-aliases
+  (-> .Module Aliases)
+  (|>> (get@ #.module-aliases) (dictionary.from-list text.hash)))
 
 (def: #export (compiler expander prelude)
   (-> Expander Module
@@ -216,12 +220,12 @@
         {#///.dependencies dependencies
          #///.process (function (_ state archive)
                         (do error.monad
-                          [#let [hash (text;hash (get@ #///.code input))]
+                          [#let [hash (text@hash (get@ #///.code input))]
                            [state [source buffer]] (<| (///phase.run' state)
                                                        (..begin dependencies hash input))
                            #let [module (get@ #///.module input)]]
                           (loop [iteration (<| (///phase.run' state)
-                                               (..iterate expander module source buffer))]
+                                               (..iterate expander module source buffer //syntax.no-aliases))]
                             (do @
                               [[state ?source&requirements&buffer] iteration]
                               (case ?source&requirements&buffer
@@ -251,9 +255,13 @@
                                                 #///.process (function (_ state archive)
                                                                (recur (<| (///phase.run' state)
                                                                           (do ///phase.monad
-                                                                            [_ (monad.map @ execute! (get@ #///statement.referrals requirements))
+                                                                            [analysis-module (<| (: (Operation .Module))
+                                                                                                 ///statement.lift-analysis
+                                                                                                 extension.lift
+                                                                                                 macro.current-module)
+                                                                             _ (monad.map @ execute! (get@ #///statement.referrals requirements))
                                                                              _ (..refresh expander)]
-                                                                            (..iterate expander module source buffer)))))})])
+                                                                            (..iterate expander module source buffer (..module-aliases analysis-module))))))})])
                                 )))))}))))
 
 (def: #export key
