@@ -6,6 +6,7 @@
     [io (#+ IO)]
     ["p" parser]]
    [data
+    ["." product]
     ["." maybe]
     ["." error]
     [text
@@ -20,7 +21,9 @@
     ["." check]]]
   ["." //
    ["#." bundle]
+   ["#." analysis]
    ["#/" //
+    ["#." macro (#+ Expander)]
     ["#." generation]
     [analysis
      ["." module]
@@ -28,7 +31,9 @@
     ["#/" // #_
      ["#." analysis]
      ["#." synthesis (#+ Synthesis)]
-     ["#." statement (#+ Import Operation Handler Bundle)]]]])
+     ["#." statement (#+ Import Operation Handler Bundle)]
+     [default
+      ["#." evaluation]]]]])
 
 ## TODO: Inline "evaluate!'" into "evaluate!" ASAP
 (def: (evaluate!' generate code//type codeS)
@@ -123,8 +128,24 @@
          (module.declare-tags tags (macro.export? annotations) (:coerce Type value)))
        (wrap [])))))
 
-(def: lux::def
-  Handler
+(def: (refresh expander)
+  (All [anchor expression statement]
+    (-> Expander (Operation anchor expression statement Any)))
+  (do ///.monad
+    [[bundle state] ///.get-state
+     #let [eval (////evaluation.evaluator expander
+                                          (get@ [#////statement.synthesis #////statement.state] state)
+                                          (get@ [#////statement.generation #////statement.state] state)
+                                          (get@ [#////statement.generation #////statement.phase] state))]]
+    (///.set-state [bundle
+                    (update@ [#////statement.analysis #////statement.state]
+                             (: (-> ////analysis.State+ ////analysis.State+)
+                                (|>> product.right
+                                     [(//analysis.bundle eval)]))
+                             state)])))
+
+(def: (lux::def expander)
+  (-> Expander Handler)
   (function (_ extension-name phase inputsC+)
     (case inputsC+
       (^ (list [_ (#.Identifier ["" short-name])] valueC annotationsC))
@@ -142,7 +163,8 @@
          _ (..define short-name value//type annotationsV valueV)
          #let [_ (log! (format "Definition " (%name full-name)))]
          _ (////statement.lift-generation
-            (///generation.learn full-name valueN))]
+            (///generation.learn full-name valueN))
+         _ (..refresh expander)]
         (wrap ////statement.no-requirements))
 
       _
@@ -309,10 +331,10 @@
           (dictionary.put "program"    (def::program program))
           )))
 
-(def: #export (bundle program)
+(def: #export (bundle expander program)
   (All [anchor expression statement]
-    (-> (-> expression statement) (Bundle anchor expression statement)))
+    (-> Expander (-> expression statement) (Bundle anchor expression statement)))
   (<| (//bundle.prefix "lux")
       (|> //bundle.empty
-          (dictionary.put "def" lux::def)
+          (dictionary.put "def" (lux::def expander))
           (dictionary.merge (..bundle::def program)))))
