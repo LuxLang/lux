@@ -19,7 +19,7 @@
    ["." type
     ["." check]]
    ["." macro
-    ["s" syntax]]
+    ["s" syntax (#+ Syntax)]]
    ["." host (#+ import:)]]
   ["." // #_
    ["#." common]
@@ -30,7 +30,8 @@
       [".A" type]
       [".A" inference]]
      ["#/" // #_
-      ["#." analysis (#+ Analysis Operation Handler Bundle)]]]]])
+      ["#." analysis (#+ Analysis Operation Handler Bundle)]
+      ["#." synthesis]]]]])
 
 (type: Method-Signature
   {#method Type
@@ -73,7 +74,6 @@
   [unknown-class]
   [primitives-cannot-have-type-parameters]
   [primitives-are-not-objects]
-  [invalid-type-for-array-element]
 
   [unknown-field]
   [mistaken-field-owner]
@@ -131,7 +131,7 @@
 
 (def: bundle::conversion
   Bundle
-  (<| (///bundle.prefix "convert")
+  (<| (///bundle.prefix "conversion")
       (|> ///bundle.empty
           (///bundle.install "double-to-float" (//common.unary Double Float))
           (///bundle.install "double-to-int" (//common.unary Double Integer))
@@ -220,6 +220,33 @@
             ["char"    "java.lang.Character"])
       (dictionary.from-list text.hash)))
 
+(def: (array-type-info arrayT)
+  (-> Type (Operation [Nat Text]))
+  (loop [level 0
+         currentT arrayT]
+    (case currentT
+      (#.Apply inputT abstractionT)
+      (case (type.apply (list inputT) abstractionT)
+        (#.Some outputT)
+        (recur level outputT)
+
+        #.None
+        (/////analysis.throw non-array arrayT))
+
+      (^ (#.Primitive (static array.type-name) (list elemT)))
+      (recur (inc level) elemT)
+
+      (#.Primitive class #.Nil)
+      (////@wrap [level class])
+
+      (#.Primitive class _)
+      (if (dictionary.contains? class boxes)
+        (/////analysis.throw primitives-cannot-have-type-parameters class)
+        (////@wrap [level class]))
+      
+      _
+      (/////analysis.throw non-array arrayT))))
+
 (def: array::length
   Handler
   (function (_ extension-name analyse args)
@@ -229,8 +256,12 @@
         [_ (typeA.infer Nat)
          [var-id varT] (typeA.with-env check.var)
          arrayA (typeA.with-type (type (Array varT))
-                  (analyse arrayC))]
-        (wrap (#/////analysis.Extension extension-name (list arrayA))))
+                  (analyse arrayC))
+         varT (typeA.with-env (check.clean varT))
+         [array-nesting elem-class] (array-type-info (type (Array varT)))]
+        (wrap (#/////analysis.Extension extension-name (list (/////analysis.nat array-nesting)
+                                                             (/////analysis.text elem-class)
+                                                             arrayA))))
 
       _
       (/////analysis.throw ///.incorrect-arity [extension-name 1 (list.size args)]))))
@@ -244,26 +275,7 @@
         [lengthA (typeA.with-type Nat
                    (analyse lengthC))
          expectedT (///.lift macro.expected-type)
-         [level elem-class] (: (Operation [Nat Text])
-                               (loop [analysisT expectedT
-                                      level 0]
-                                 (case analysisT
-                                   (#.Apply inputT funcT)
-                                   (case (type.apply (list inputT) funcT)
-                                     (#.Some outputT)
-                                     (recur outputT level)
-
-                                     #.None
-                                     (/////analysis.throw non-array expectedT))
-
-                                   (^ (#.Primitive "#Array" (list elemT)))
-                                   (recur elemT (inc level))
-
-                                   (#.Primitive class _)
-                                   (wrap [level class])
-                                   
-                                   _
-                                   (/////analysis.throw non-array expectedT))))
+         [level elem-class] (array-type-info expectedT)
          _ (if (n/> 0 level)
              (wrap [])
              (/////analysis.throw non-array expectedT))]
@@ -292,8 +304,8 @@
     ([#.UnivQ]
      [#.ExQ])
 
-    (#.Apply inputT funcT)
-    (case (type.apply (list inputT) funcT)
+    (#.Apply inputT abstractionT)
+    (case (type.apply (list inputT) abstractionT)
       (#.Some outputT)
       (check-jvm outputT)
 
@@ -311,39 +323,25 @@
       (/////analysis.throw primitives-are-not-objects name)
       (////@wrap name))))
 
-(def: (box-array-element-type elemT)
-  (-> Type (Operation [Type Text]))
-  (case elemT
-    (#.Primitive name #.Nil)
-    (let [boxed-name (|> (dictionary.get name boxes)
-                         (maybe.default name))]
-      (////@wrap [(#.Primitive boxed-name #.Nil)
-                  boxed-name]))
-
-    (#.Primitive name _)
-    (if (dictionary.contains? name boxes)
-      (/////analysis.throw primitives-cannot-have-type-parameters name)
-      (////@wrap [elemT name]))
-
-    _
-    (/////analysis.throw invalid-type-for-array-element (%type elemT))))
-
 (def: array::read
   Handler
   (function (_ extension-name analyse args)
     (case args
-      (^ (list arrayC idxC))
+      (^ (list idxC arrayC))
       (do ////.monad
         [[var-id varT] (typeA.with-env check.var)
          _ (typeA.infer varT)
          arrayA (typeA.with-type (type (Array varT))
                   (analyse arrayC))
-         ?elemT (typeA.with-env
-                  (check.read var-id))
-         [elemT elem-class] (box-array-element-type (maybe.default varT ?elemT))
+         varT (typeA.with-env
+                (check.clean varT))
+         [nesting elem-class] (array-type-info varT)
          idxA (typeA.with-type Nat
                 (analyse idxC))]
-        (wrap (#/////analysis.Extension extension-name (list (/////analysis.text elem-class) idxA arrayA))))
+        (wrap (#/////analysis.Extension extension-name (list (/////analysis.nat (inc nesting))
+                                                             (/////analysis.text elem-class)
+                                                             idxA
+                                                             arrayA))))
 
       _
       (/////analysis.throw ///.incorrect-arity [extension-name 2 (list.size args)]))))
@@ -352,20 +350,24 @@
   Handler
   (function (_ extension-name analyse args)
     (case args
-      (^ (list arrayC idxC valueC))
+      (^ (list idxC valueC arrayC))
       (do ////.monad
         [[var-id varT] (typeA.with-env check.var)
          _ (typeA.infer (type (Array varT)))
          arrayA (typeA.with-type (type (Array varT))
                   (analyse arrayC))
-         ?elemT (typeA.with-env
-                  (check.read var-id))
-         [valueT elem-class] (box-array-element-type (maybe.default varT ?elemT))
+         varT (typeA.with-env
+                (check.clean varT))
+         [nesting elem-class] (array-type-info varT)
          idxA (typeA.with-type Nat
                 (analyse idxC))
-         valueA (typeA.with-type valueT
+         valueA (typeA.with-type varT
                   (analyse valueC))]
-        (wrap (#/////analysis.Extension extension-name (list (/////analysis.text elem-class) idxA valueA arrayA))))
+        (wrap (#/////analysis.Extension extension-name (list (/////analysis.nat (inc nesting))
+                                                             (/////analysis.text elem-class)
+                                                             idxA
+                                                             valueA
+                                                             arrayA))))
 
       _
       (/////analysis.throw ///.incorrect-arity [extension-name 3 (list.size args)]))))
@@ -533,7 +535,7 @@
           (wrap (#/////analysis.Extension extension-name (list (/////analysis.text class)))))
 
         _
-        (/////analysis.throw ///.invalid-syntax [extension-name args]))
+        (/////analysis.throw ///.invalid-syntax [extension-name %code args]))
 
       _
       (/////analysis.throw ///.incorrect-arity [extension-name 1 (list.size args)]))))
@@ -556,7 +558,7 @@
             (/////analysis.throw cannot-possibly-be-an-instance (format object-class " !<= "  class))))
 
         _
-        (/////analysis.throw ///.invalid-syntax [extension-name args]))
+        (/////analysis.throw ///.invalid-syntax [extension-name %code args]))
 
       _
       (/////analysis.throw ///.incorrect-arity [extension-name 2 (list.size args)]))))
@@ -644,7 +646,7 @@
           [innerT (|> java-type
                       GenericArrayType::getGenericComponentType
                       (java-type-to-lux-type mappings))]
-          (wrap (#.Primitive "#Array" (list innerT))))
+          (wrap (#.Primitive array.type-name (list innerT))))
         
         _)
       ## else
@@ -756,7 +758,7 @@
                                                    "           For value: " (%code valueC) text.new-line))))
 
       _
-      (/////analysis.throw ///.invalid-syntax [extension-name args]))))
+      (/////analysis.throw ///.invalid-syntax [extension-name %code args]))))
 
 (def: bundle::object
   Bundle
@@ -845,7 +847,7 @@
           (wrap (#/////analysis.Extension extension-name (list (/////analysis.text class) (/////analysis.text field)))))
 
         _
-        (/////analysis.throw ///.invalid-syntax [extension-name args]))
+        (/////analysis.throw ///.invalid-syntax [extension-name %code args]))
 
       _
       (/////analysis.throw ///.incorrect-arity [extension-name 2 (list.size args)]))))
@@ -867,7 +869,7 @@
           (wrap (#/////analysis.Extension extension-name (list (/////analysis.text class) (/////analysis.text field) valueA))))
 
         _
-        (/////analysis.throw ///.invalid-syntax [extension-name args]))
+        (/////analysis.throw ///.invalid-syntax [extension-name %code args]))
 
       _
       (/////analysis.throw ///.incorrect-arity [extension-name 3 (list.size args)]))))
@@ -886,7 +888,7 @@
           (wrap (#/////analysis.Extension extension-name (list (/////analysis.text class) (/////analysis.text field) objectA))))
 
         _
-        (/////analysis.throw ///.invalid-syntax [extension-name args]))
+        (/////analysis.throw ///.invalid-syntax [extension-name %code args]))
 
       _
       (/////analysis.throw ///.incorrect-arity [extension-name 3 (list.size args)]))))
@@ -910,7 +912,7 @@
           (wrap (#/////analysis.Extension extension-name (list (/////analysis.text class) (/////analysis.text field) valueA objectA))))
 
         _
-        (/////analysis.throw ///.invalid-syntax [extension-name args]))
+        (/////analysis.throw ///.invalid-syntax [extension-name %code args]))
 
       _
       (/////analysis.throw ///.incorrect-arity [extension-name 4 (list.size args)]))))
@@ -1163,6 +1165,10 @@
       candidates
       (/////analysis.throw too-many-candidates [class-name ..constructor-method candidates]))))
 
+(def: typed-input
+  (Syntax [Text Code])
+  (s.tuple (p.and s.text s.any)))
+
 (def: (decorate-inputs typesT inputsA)
   (-> (List Text) (List Analysis) (List Analysis))
   (|> inputsA
@@ -1174,24 +1180,26 @@
   Handler
   (function (_ extension-name analyse args)
     (case (: (Error [Text Text (List [Text Code])])
-             (s.run args ($_ p.and s.text s.text (p.some (s.tuple (p.and s.text s.any))))))
+             (s.run args ($_ p.and s.text s.text (p.some ..typed-input))))
       (#error.Success [class method argsTC])
       (do ////.monad
         [#let [argsT (list@map product.left argsTC)]
          [methodT exceptionsT] (method-candidate class method #Static argsT)
          [outputT argsA] (inferenceA.general analyse methodT (list@map product.right argsTC))
          outputJC (check-jvm outputT)]
-        (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text class) (/////analysis.text method)
-                                                              (/////analysis.text outputJC) (decorate-inputs argsT argsA)))))
+        (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text class)
+                                                              (/////analysis.text method)
+                                                              (/////analysis.text outputJC)
+                                                              (decorate-inputs argsT argsA)))))
 
       _
-      (/////analysis.throw ///.invalid-syntax [extension-name args]))))
+      (/////analysis.throw ///.invalid-syntax [extension-name %code args]))))
 
 (def: invoke::virtual
   Handler
   (function (_ extension-name analyse args)
     (case (: (Error [Text Text Code (List [Text Code])])
-             (s.run args ($_ p.and s.text s.text s.any (p.some (s.tuple (p.and s.text s.any))))))
+             (s.run args ($_ p.and s.text s.text s.any (p.some ..typed-input))))
       (#error.Success [class method objectC argsTC])
       (do ////.monad
         [#let [argsT (list@map product.left argsTC)]
@@ -1204,34 +1212,39 @@
                                  _
                                  (undefined))]
          outputJC (check-jvm outputT)]
-        (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text class) (/////analysis.text method)
-                                                              (/////analysis.text outputJC) objectA (decorate-inputs argsT argsA)))))
+        (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text class)
+                                                              (/////analysis.text method)
+                                                              (/////analysis.text outputJC)
+                                                              objectA
+                                                              (decorate-inputs argsT argsA)))))
 
       _
-      (/////analysis.throw ///.invalid-syntax [extension-name args]))))
+      (/////analysis.throw ///.invalid-syntax [extension-name %code args]))))
 
 (def: invoke::special
   Handler
   (function (_ extension-name analyse args)
-    (case (: (Error [(List Code) [Text Text Code (List [Text Code]) Any]])
-             (p.run args ($_ p.and s.text s.text s.any (p.some (s.tuple (p.and s.text s.any))) s.end!)))
-      (#error.Success [_ [class method objectC argsTC _]])
+    (case (: (Error [Text Text Code (List [Text Code])])
+             (s.run args ($_ p.and s.text s.text s.any (p.some ..typed-input))))
+      (#error.Success [class method objectC argsTC])
       (do ////.monad
         [#let [argsT (list@map product.left argsTC)]
          [methodT exceptionsT] (method-candidate class method #Special argsT)
          [outputT argsA] (inferenceA.general analyse methodT (list& objectC (list@map product.right argsTC)))
          outputJC (check-jvm outputT)]
-        (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text class) (/////analysis.text method)
-                                                              (/////analysis.text outputJC) (decorate-inputs argsT argsA)))))
+        (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text class)
+                                                              (/////analysis.text method)
+                                                              (/////analysis.text outputJC)
+                                                              (decorate-inputs argsT argsA)))))
 
       _
-      (/////analysis.throw ///.invalid-syntax [extension-name args]))))
+      (/////analysis.throw ///.invalid-syntax [extension-name %code args]))))
 
 (def: invoke::interface
   Handler
   (function (_ extension-name analyse args)
     (case (: (Error [Text Text Code (List [Text Code])])
-             (s.run args ($_ p.and s.text s.text s.any (p.some (s.tuple (p.and s.text s.any))))))
+             (s.run args ($_ p.and s.text s.text s.any (p.some ..typed-input))))
       (#error.Success [class-name method objectC argsTC])
       (do ////.monad
         [#let [argsT (list@map product.left argsTC)]
@@ -1242,26 +1255,29 @@
          [outputT argsA] (inferenceA.general analyse methodT (list& objectC (list@map product.right argsTC)))
          outputJC (check-jvm outputT)]
         (wrap (#/////analysis.Extension extension-name
-                                        (list& (/////analysis.text class-name) (/////analysis.text method) (/////analysis.text outputJC)
+                                        (list& (/////analysis.text class-name)
+                                               (/////analysis.text method)
+                                               (/////analysis.text outputJC)
                                                (decorate-inputs argsT argsA)))))
 
       _
-      (/////analysis.throw ///.invalid-syntax [extension-name args]))))
+      (/////analysis.throw ///.invalid-syntax [extension-name %code args]))))
 
 (def: invoke::constructor
   Handler
   (function (_ extension-name analyse args)
     (case (: (Error [Text (List [Text Code])])
-             (s.run args ($_ p.and s.text (p.some (s.tuple (p.and s.text s.any))))))
+             (s.run args ($_ p.and s.text (p.some ..typed-input))))
       (#error.Success [class argsTC])
       (do ////.monad
         [#let [argsT (list@map product.left argsTC)]
          [methodT exceptionsT] (constructor-candidate class argsT)
          [outputT argsA] (inferenceA.general analyse methodT (list@map product.right argsTC))]
-        (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text class) (decorate-inputs argsT argsA)))))
+        (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text class)
+                                                              (decorate-inputs argsT argsA)))))
 
       _
-      (/////analysis.throw ///.invalid-syntax [extension-name args]))))
+      (/////analysis.throw ///.invalid-syntax [extension-name %code args]))))
 
 (def: bundle::member
   Bundle

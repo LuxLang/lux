@@ -21,42 +21,75 @@
   {#.doc "Mutable arrays."}
   (#.Primitive ..type-name (#.Cons a #.Nil)))
 
-(def: #export (new size)
-  (All [a] (-> Nat (Array a)))
-  (`` (for {(~~ (static host.old))
-            (:assume ("jvm anewarray" "(java.lang.Object )" size))})))
-
-(def: #export (size xs)
-  (All [a] (-> (Array a) Nat))
-  (`` (for {(~~ (static host.old))
-            ("jvm arraylength" xs)})))
-
-(def: #export (read i xs)
-  (All [a]
-    (-> Nat (Array a) (Maybe a)))
-  (if (n/< (size xs) i)
+(with-expansions [<elem-type> (primitive "java.lang.Object")
+                  <array-type> (type (Array <elem-type>))]
+  (def: #export (new size)
+    (All [a] (-> Nat (Array a)))
     (`` (for {(~~ (static host.old))
-              (let [value ("jvm aaload" xs i)]
-                (if ("jvm object null?" value)
-                  #.None
-                  (#.Some value)))}))
-    #.None))
+              (:assume ("jvm anewarray" "(java.lang.Object )" size))
+
+              (~~ (static host.jvm))
+              (:assume
+               (: (Array (primitive "java.lang.Object"))
+                  ("jvm array new" size)))})))
+
+  (def: #export (size array)
+    (All [a] (-> (Array a) Nat))
+    (`` (for {(~~ (static host.old))
+              ("jvm arraylength" array)
+
+              (~~ (static host.jvm))
+              ("jvm array length" (:coerce <array-type> array))})))
+
+  (def: #export (read index array)
+    (All [a]
+      (-> Nat (Array a) (Maybe a)))
+    (if (n/< (size array) index)
+      (`` (for {(~~ (static host.old))
+                (let [value ("jvm aaload" array index)]
+                  (if ("jvm object null?" value)
+                    #.None
+                    (#.Some value)))
+
+                (~~ (static host.jvm))
+                (let [value ("jvm array read" index (:coerce <array-type> array))]
+                  (if ("jvm object null?" value)
+                    #.None
+                    (#.Some (:assume value))))}))
+      #.None))
+
+  (def: #export (write index value array)
+    (All [a]
+      (-> Nat a (Array a) (Array a)))
+    (`` (for {(~~ (static host.old))
+              ("jvm aastore" array index value)
+
+              (~~ (static host.jvm))
+              (:assume
+               ("jvm array write" index (:coerce <elem-type> value)
+                (:coerce <array-type> array)))})))
+
+  (def: #export (delete index array)
+    (All [a]
+      (-> Nat (Array a) (Array a)))
+    (if (n/< (size array) index)
+      (`` (for {(~~ (static host.old))
+                (write index (:assume ("jvm object null")) array)
+
+                (~~ (static host.jvm))
+                (write index (:assume (: <elem-type> ("jvm object null"))) array)}))
+      array))
+  )
 
 (def: #export (contains? index array)
   (All [a]
     (-> Nat (Array a) Bit))
   (case (..read index array)
     (#.Some _)
-    #1
+    true
 
     _
-    #0))
-
-(def: #export (write i x xs)
-  (All [a]
-    (-> Nat a (Array a) (Array a)))
-  (`` (for {(~~ (static host.old))
-            ("jvm aastore" xs i x)})))
+    false))
 
 (def: #export (update index transform array)
   (All [a]
@@ -74,14 +107,6 @@
   (write index
          (|> array (read index) (maybe.default default) transform)
          array))
-
-(def: #export (delete i xs)
-  (All [a]
-    (-> Nat (Array a) (Array a)))
-  (if (n/< (size xs) i)
-    (`` (for {(~~ (static host.old))
-              (write i (:assume ("jvm object null")) xs)}))
-    xs))
 
 (def: #export (copy length src-start src-array dest-start dest-array)
   (All [a]
@@ -221,14 +246,14 @@
                         (and prev
                              (case [(read idx xs) (read idx ys)]
                                [#.None #.None]
-                               #1
+                               true
 
                                [(#.Some x) (#.Some y)]
                                (,@= x y)
 
                                _
-                               #0)))
-                      #1
+                               false)))
+                      true
                       (list.indices sxs))))))
 
 (structure: #export monoid (All [a] (Monoid (Array a)))
@@ -287,6 +312,6 @@
              (recur (inc idx)))
            <init>))))]
 
-  [every? #1 and]
-  [any?   #0 or]
+  [every? true  and]
+  [any?   false or]
   )
