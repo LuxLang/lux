@@ -9,22 +9,21 @@
     ["." text
      format]
     [collection
-     ["." list ("#/." functor)]
      ["." dictionary]]]
-   ["." macro (#+ with-gensyms)
-    ["." code]
-    ["s" syntax (#+ syntax:)]]
    [tool
     [compiler
      ["." synthesis (#+ Synthesis)]
      ["." phase
+      [generation
+       [extension (#+ Nullary Unary Binary Trinary Variadic
+                      nullary unary binary trinary variadic)]]
       ["." extension
        ["." bundle]]]]]
    [host (#+ import:)]]
   [luxc
    [lang
     [host
-     ["$" jvm (#+ Label Inst Method Handler Bundle)
+     ["$" jvm (#+ Label Inst Method Bundle)
       ["_t" type]
       ["_" inst]]]]]
   ["." ///
@@ -34,55 +33,10 @@
   (#static MIN_VALUE Double)
   (#static MAX_VALUE Double))
 
-## [Types]
-(syntax: (Vector {size s.nat} elemT)
-  (wrap (list (` [(~+ (list.repeat size elemT))]))))
-
-(type: #export Nullary (-> (Vector 0 Inst) Inst))
-(type: #export Unary   (-> (Vector 1 Inst) Inst))
-(type: #export Binary  (-> (Vector 2 Inst) Inst))
-(type: #export Trinary (-> (Vector 3 Inst) Inst))
-(type: #export Variadic (-> (List Inst) Inst))
-
-## [Utils]
 (def: $Object-Array $.Type (_t.array 1 ///.$Object))
 (def: $String $.Type (_t.class "java.lang.String" (list)))
 (def: $CharSequence $.Type (_t.class "java.lang.CharSequence" (list)))
 
-(syntax: (arity: {name s.local-identifier} {arity s.nat})
-  (with-gensyms [g!_ g!extension g!extension-name g!phase g!inputs]
-    (do @
-      [g!inputC+ (monad.seq @ (list.repeat arity (macro.gensym "input")))
-       #let [arityC (code.nat arity)]]
-      (wrap (list (` (def: #export ((~ (code.local-identifier name)) (~ g!extension))
-                       (-> (-> (..Vector (~ arityC) Inst) Inst) ..Handler)
-                       (function ((~ g!_) (~ g!extension-name) (~ g!phase) (~ g!inputs))
-                         (case (~ g!inputs)
-                           (^ (list (~+ g!inputC+)))
-                           (do phase.monad
-                             [(~+ (|> g!inputC+
-                                      (list/map (function (_ g!input)
-                                                  (list g!input (` ((~ g!phase) (~ g!input))))))
-                                      list.concat))]
-                             ((~' wrap) ((~ g!extension) [(~+ g!inputC+)])))
-
-                           (~ g!_)
-                           (phase.fail (ex.construct extension.incorrect-arity
-                                                     [(~ g!extension-name) (~ arityC) (list.size (~ g!inputs))])))))))))))
-
-(arity: nullary 0)
-(arity: unary 1)
-(arity: binary 2)
-(arity: trinary 3)
-
-(def: #export (variadic extension)
-  (-> Variadic Handler)
-  (function (_ extension-name phase inputsS)
-    (do phase.monad
-      [inputsH (monad.map @ phase inputsS)]
-      (wrap (extension inputsH)))))
-
-## [Instructions]
 (def: lux-intI Inst (|>> _.I2L (_.wrap #$.Long)))
 (def: jvm-intI Inst (|>> (_.unwrap #$.Long) _.L2I))
 (def: check-stringI Inst (_.CHECKCAST "java.lang.String"))
@@ -102,26 +56,23 @@
 
 (def: unitI Inst (_.string synthesis.unit))
 
-## Extensions
-### Lux
 (def: (lux::is [referenceI sampleI])
-  Binary
+  (Binary Inst)
   (|>> referenceI
        sampleI
        (predicateI _.IF_ACMPEQ)))
 
 (def: (lux::try riskyI)
-  Unary
+  (Unary Inst)
   (|>> riskyI
        (_.CHECKCAST ///.function-class)
        (_.INVOKESTATIC ///.runtime-class "try"
                        (_t.method (list ///.$Function) (#.Some $Object-Array) (list))
                        #0)))
 
-### Bits
 (template [<name> <op>]
   [(def: (<name> [maskI inputI])
-     Binary
+     (Binary Inst)
      (|>> inputI (_.unwrap #$.Long)
           maskI (_.unwrap #$.Long)
           <op> (_.wrap #$.Long)))]
@@ -133,7 +84,7 @@
 
 (template [<name> <op>]
   [(def: (<name> [shiftI inputI])
-     Binary
+     (Binary Inst)
      (|>> inputI (_.unwrap #$.Long)
           shiftI jvm-intI
           <op>
@@ -144,10 +95,9 @@
   [bit::logical-right-shift    _.LUSHR]
   )
 
-### Numbers
 (template [<name> <const> <type>]
   [(def: (<name> _)
-     Nullary
+     (Nullary Inst)
      (|>> <const> (_.wrap <type>)))]
 
   [frac::smallest (_.double (Double::MIN_VALUE))            #$.Double]
@@ -157,7 +107,7 @@
 
 (template [<name> <type> <op>]
   [(def: (<name> [paramI subjectI])
-     Binary
+     (Binary Inst)
      (|>> subjectI (_.unwrap <type>)
           paramI (_.unwrap <type>)
           <op>
@@ -179,7 +129,7 @@
 (template [<eq> <lt> <unwrap> <cmp>]
   [(template [<name> <reference>]
      [(def: (<name> [paramI subjectI])
-        Binary
+        (Binary Inst)
         (|>> subjectI <unwrap>
              paramI <unwrap>
              <cmp>
@@ -195,7 +145,7 @@
 
 (template [<name> <prepare> <transform>]
   [(def: (<name> inputI)
-     Unary
+     (Unary Inst)
      (|>> inputI <prepare> <transform>))]
 
   [int::frac (_.unwrap #$.Long) (<| (_.wrap #$.Double) _.L2D)]
@@ -209,9 +159,8 @@
    (_.INVOKESTATIC ///.runtime-class "decode_frac" (_t.method (list $String) (#.Some $Object-Array) (list)) #0)]
   )
 
-### Text
 (def: (text::size inputI)
-  Unary
+  (Unary Inst)
   (|>> inputI
        ..check-stringI
        (_.INVOKEVIRTUAL "java.lang.String" "length" (_t.method (list) (#.Some _t.int) (list)) #0)
@@ -219,7 +168,7 @@
 
 (template [<name> <pre-subject> <pre-param> <op> <post>]
   [(def: (<name> [paramI subjectI])
-     Binary
+     (Binary Inst)
      (|>> subjectI <pre-subject>
           paramI <pre-param>
           <op> <post>))]
@@ -236,13 +185,13 @@
   )
 
 (def: (text::concat [leftI rightI])
-  Binary
+  (Binary Inst)
   (|>> leftI ..check-stringI
        rightI ..check-stringI
        (_.INVOKEVIRTUAL "java.lang.String" "concat" (_t.method (list $String) (#.Some $String) (list)) #0)))
 
 (def: (text::clip [startI endI subjectI])
-  Trinary
+  (Trinary Inst)
   (|>> subjectI ..check-stringI
        startI jvm-intI
        endI jvm-intI
@@ -250,7 +199,7 @@
 
 (def: index-method Method (_t.method (list $String _t.int) (#.Some _t.int) (list)))
 (def: (text::index [startI partI textI])
-  Trinary
+  (Trinary Inst)
   (<| _.with-label (function (_ @not-found))
       _.with-label (function (_ @end))
       (|>> textI ..check-stringI
@@ -268,10 +217,9 @@
            runtime.noneI
            (_.label @end))))
 
-### I/O
 (def: string-method Method (_t.method (list $String) #.None (list)))
 (def: (io::log messageI)
-  Unary
+  (Unary Inst)
   (|>> (_.GETSTATIC "java.lang.System" "out" (_t.class "java.io.PrintStream" (list)))
        messageI
        ..check-stringI
@@ -279,7 +227,7 @@
        unitI))
 
 (def: (io::error messageI)
-  Unary
+  (Unary Inst)
   (|>> (_.NEW "java.lang.Error")
        _.DUP
        messageI
@@ -288,17 +236,16 @@
        _.ATHROW))
 
 (def: (io::exit codeI)
-  Unary
+  (Unary Inst)
   (|>> codeI jvm-intI
        (_.INVOKESTATIC "java.lang.System" "exit" (_t.method (list _t.int) #.None (list)) #0)
        _.NULL))
 
 (def: (io::current-time _)
-  Nullary
+  (Nullary Inst)
   (|>> (_.INVOKESTATIC "java.lang.System" "currentTimeMillis" (_t.method (list) (#.Some _t.long) (list)) #0)
        (_.wrap #$.Long)))
 
-## Bundles
 (def: bundle::lux
   Bundle
   (|> (: Bundle bundle.empty)
