@@ -19,78 +19,6 @@
     ["." code]
     ["s" syntax (#+ Syntax syntax:)]]])
 
-(def: (beta-reduce env type)
-  (-> (List Type) Type Type)
-  (case type
-    (#.Primitive name params)
-    (#.Primitive name (list@map (beta-reduce env) params))
-    
-    (^template [<tag>]
-      (<tag> left right)
-      (<tag> (beta-reduce env left) (beta-reduce env right)))
-    ([#.Sum]      [#.Product]
-     [#.Function] [#.Apply])
-    
-    (^template [<tag>]
-      (<tag> old-env def)
-      (case old-env
-        #.Nil
-        (<tag> env def)
-
-        _
-        (<tag> (list@map (beta-reduce env) old-env) def)))
-    ([#.UnivQ]
-     [#.ExQ])
-    
-    (#.Parameter idx)
-    (maybe.default (error! (text@compose "Unknown type var: " (nat@encode idx)))
-                   (list.nth idx env))
-    
-    _
-    type
-    ))
-
-(structure: #export equivalence (Equivalence Type)
-  (def: (= x y)
-    (case [x y]
-      [(#.Primitive xname xparams) (#.Primitive yname yparams)]
-      (and (text@= xname yname)
-           (n/= (list.size yparams) (list.size xparams))
-           (list@fold (.function (_ [x y] prev) (and prev (= x y)))
-                      #1
-                      (list.zip2 xparams yparams)))
-
-      (^template [<tag>]
-        [(<tag> xid) (<tag> yid)]
-        (n/= yid xid))
-      ([#.Var] [#.Ex] [#.Parameter])
-
-      (^or [(#.Function xleft xright) (#.Function yleft yright)]
-           [(#.Apply xleft xright) (#.Apply yleft yright)])
-      (and (= xleft yleft)
-           (= xright yright))
-
-      [(#.Named xname xtype) (#.Named yname ytype)]
-      (and (name@= xname yname)
-           (= xtype ytype))
-
-      (^template [<tag>]
-        [(<tag> xL xR) (<tag> yL yR)]
-        (and (= xL yL) (= xR yR)))
-      ([#.Sum] [#.Product])
-      
-      (^or [(#.UnivQ xenv xbody) (#.UnivQ yenv ybody)]
-           [(#.ExQ xenv xbody) (#.ExQ yenv ybody)])
-      (and (n/= (list.size yenv) (list.size xenv))
-           (= xbody ybody)
-           (list@fold (.function (_ [x y] prev) (and prev (= x y)))
-                      #1
-                      (list.zip2 xenv yenv)))
-
-      _
-      #0
-      )))
-
 (template [<name> <tag>]
   [(def: #export (<name> type)
      (-> Type [Nat Type])
@@ -140,58 +68,6 @@
   [flatten-variant #.Sum]
   [flatten-tuple   #.Product]
   )
-
-(def: #export (apply params func)
-  (-> (List Type) Type (Maybe Type))
-  (case params
-    #.Nil
-    (#.Some func)
-
-    (#.Cons param params')
-    (case func
-      (^template [<tag>]
-        (<tag> env body)
-        (|> body
-            (beta-reduce (list& func param env))
-            (apply params')))
-      ([#.UnivQ] [#.ExQ])
-
-      (#.Apply A F)
-      (apply (list& A params) F)
-
-      (#.Named name unnamed)
-      (apply params unnamed)
-      
-      _
-      #.None)))
-
-(def: #export (to-code type)
-  (-> Type Code)
-  (case type
-    (#.Primitive name params)
-    (` (#.Primitive (~ (code.text name))
-                    (.list (~+ (list@map to-code params)))))
-
-    (^template [<tag>]
-      (<tag> idx)
-      (` (<tag> (~ (code.nat idx)))))
-    ([#.Var] [#.Ex] [#.Parameter])
-
-    (^template [<tag>]
-      (<tag> left right)
-      (` (<tag> (~ (to-code left))
-                (~ (to-code right)))))
-    ([#.Sum] [#.Product] [#.Function] [#.Apply])
-
-    (#.Named name sub-type)
-    (code.identifier name)
-
-    (^template [<tag>]
-      (<tag> env body)
-      (` (<tag> (.list (~+ (list@map to-code env)))
-                (~ (to-code body)))))
-    ([#.UnivQ] [#.ExQ])
-    ))
 
 (def: #export (to-text type)
   (-> Type Text)
@@ -248,6 +124,139 @@
 
     (#.Named [module name] type)
     ($_ text@compose module "." name)
+    ))
+
+(def: (beta-reduce env type)
+  (-> (List Type) Type Type)
+  (case type
+    (#.Primitive name params)
+    (#.Primitive name (list@map (beta-reduce env) params))
+    
+    (^template [<tag>]
+      (<tag> left right)
+      (<tag> (beta-reduce env left) (beta-reduce env right)))
+    ([#.Sum]      [#.Product]
+     [#.Function] [#.Apply])
+    
+    (^template [<tag>]
+      (<tag> old-env def)
+      (case old-env
+        #.Nil
+        (<tag> env def)
+
+        _
+        (<tag> (list@map (beta-reduce env) old-env) def)))
+    ([#.UnivQ]
+     [#.ExQ])
+    
+    (#.Parameter idx)
+    (maybe.default (error! ($_ text@compose
+                               "Unknown type parameter" text.new-line
+                               "      Index: " (nat@encode idx) text.new-line
+                               "Environment: " (|> env
+                                                   list.enumerate
+                                                   (list@map (.function (_ [index type])
+                                                               ($_ text@compose
+                                                                   (nat@encode index)
+                                                                   " " (..to-text type))))
+                                                   (text.join-with (text@compose text.new-line "             ")))))
+                   (list.nth idx env))
+    
+    _
+    type
+    ))
+
+(structure: #export equivalence (Equivalence Type)
+  (def: (= x y)
+    (case [x y]
+      [(#.Primitive xname xparams) (#.Primitive yname yparams)]
+      (and (text@= xname yname)
+           (n/= (list.size yparams) (list.size xparams))
+           (list@fold (.function (_ [x y] prev) (and prev (= x y)))
+                      #1
+                      (list.zip2 xparams yparams)))
+
+      (^template [<tag>]
+        [(<tag> xid) (<tag> yid)]
+        (n/= yid xid))
+      ([#.Var] [#.Ex] [#.Parameter])
+
+      (^or [(#.Function xleft xright) (#.Function yleft yright)]
+           [(#.Apply xleft xright) (#.Apply yleft yright)])
+      (and (= xleft yleft)
+           (= xright yright))
+
+      [(#.Named xname xtype) (#.Named yname ytype)]
+      (and (name@= xname yname)
+           (= xtype ytype))
+
+      (^template [<tag>]
+        [(<tag> xL xR) (<tag> yL yR)]
+        (and (= xL yL) (= xR yR)))
+      ([#.Sum] [#.Product])
+      
+      (^or [(#.UnivQ xenv xbody) (#.UnivQ yenv ybody)]
+           [(#.ExQ xenv xbody) (#.ExQ yenv ybody)])
+      (and (n/= (list.size yenv) (list.size xenv))
+           (= xbody ybody)
+           (list@fold (.function (_ [x y] prev) (and prev (= x y)))
+                      #1
+                      (list.zip2 xenv yenv)))
+
+      _
+      #0
+      )))
+
+(def: #export (apply params func)
+  (-> (List Type) Type (Maybe Type))
+  (case params
+    #.Nil
+    (#.Some func)
+
+    (#.Cons param params')
+    (case func
+      (^template [<tag>]
+        (<tag> env body)
+        (|> body
+            (beta-reduce (list& func param env))
+            (apply params')))
+      ([#.UnivQ] [#.ExQ])
+
+      (#.Apply A F)
+      (apply (list& A params) F)
+
+      (#.Named name unnamed)
+      (apply params unnamed)
+      
+      _
+      #.None)))
+
+(def: #export (to-code type)
+  (-> Type Code)
+  (case type
+    (#.Primitive name params)
+    (` (#.Primitive (~ (code.text name))
+                    (.list (~+ (list@map to-code params)))))
+
+    (^template [<tag>]
+      (<tag> idx)
+      (` (<tag> (~ (code.nat idx)))))
+    ([#.Var] [#.Ex] [#.Parameter])
+
+    (^template [<tag>]
+      (<tag> left right)
+      (` (<tag> (~ (to-code left))
+                (~ (to-code right)))))
+    ([#.Sum] [#.Product] [#.Function] [#.Apply])
+
+    (#.Named name sub-type)
+    (code.identifier name)
+
+    (^template [<tag>]
+      (<tag> env body)
+      (` (<tag> (.list (~+ (list@map to-code env)))
+                (~ (to-code body)))))
+    ([#.UnivQ] [#.ExQ])
     ))
 
 (def: #export (un-alias type)
