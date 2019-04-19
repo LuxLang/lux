@@ -1,0 +1,348 @@
+(.module:
+  [lux (#- function log!)
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    ["." exception (#+ exception:)]
+    ["." function]]
+   [data
+    ["." name ("#@." codec)]
+    ["." error (#+ Error)]
+    [number
+     ["." nat ("#@." decimal)]]
+    ["." text ("#@." monoid)
+     format]
+    [collection
+     ["." list ("#@." functor)]
+     ["." dictionary (#+ Dictionary)]]]
+   [macro
+    ["." code]]
+   ["." type ("#@." equivalence)
+    ["." check]]]
+  ["." // (#+ Parser)])
+
+(template [<name>]
+  [(exception: #export (<name> {type Type})
+     (exception.report
+      ["Type" (%type type)]))]
+
+  [not-existential]
+  [not-recursive]
+  [not-named]
+  [not-parameter]
+  [unknown-parameter]
+  [not-function]
+  [not-application]
+  [not-polymorphic]
+  [not-variant]
+  [not-tuple]
+  )
+
+(template [<name>]
+  [(exception: #export (<name> {expected Type} {actual Type})
+     (exception.report
+      ["Expected" (%type expected)]
+      ["Actual" (%type actual)]))]
+
+  [types-do-not-match]
+  [wrong-parameter]
+  )
+
+(exception: #export (unconsumed {remaining (List Type)})
+  (exception.report
+   ["Types" (|> remaining
+                (list@map (|>> %type (format text.new-line "* ")))
+                (text.join-with ""))]))
+
+(type: #export Env
+  (Dictionary Nat [Type Code]))
+
+(type: #export (Poly a)
+  (Parser [Env (List Type)] a))
+
+(def: #export fresh Env (dictionary.new nat.hash))
+
+(def: (run' env types poly)
+  (All [a] (-> Env (List Type) (Poly a) (Error a)))
+  (case (//.run [env types] poly)
+    (#error.Failure error)
+    (#error.Failure error)
+
+    (#error.Success [[env' remaining] output])
+    (case remaining
+      #.Nil
+      (#error.Success output)
+
+      _
+      (exception.throw unconsumed remaining))))
+
+(def: #export (run type poly)
+  (All [a] (-> Type (Poly a) (Error a)))
+  (run' fresh (list type) poly))
+
+(def: #export env
+  (Poly Env)
+  (.function (_ [env inputs])
+    (#error.Success [[env inputs] env])))
+
+(def: (with-env temp poly)
+  (All [a] (-> Env (Poly a) (Poly a)))
+  (.function (_ [env inputs])
+    (case (//.run [temp inputs] poly)
+      (#error.Failure error)
+      (#error.Failure error)
+
+      (#error.Success [[_ remaining] output])
+      (#error.Success [[env remaining] output]))))
+
+(def: #export peek
+  (Poly Type)
+  (.function (_ [env inputs])
+    (case inputs
+      #.Nil
+      (#error.Failure "Empty stream of types.")
+
+      (#.Cons headT tail)
+      (#error.Success [[env inputs] headT]))))
+
+(def: #export any
+  (Poly Type)
+  (.function (_ [env inputs])
+    (case inputs
+      #.Nil
+      (#error.Failure "Empty stream of types.")
+
+      (#.Cons headT tail)
+      (#error.Success [[env tail] headT]))))
+
+(def: #export (local types poly)
+  (All [a] (-> (List Type) (Poly a) (Poly a)))
+  (.function (_ [env pass-through])
+    (case (run' env types poly)
+      (#error.Failure error)
+      (#error.Failure error)
+
+      (#error.Success output)
+      (#error.Success [[env pass-through] output]))))
+
+(def: (label idx)
+  (-> Nat Code)
+  (code.local-identifier ($_ text@compose "label" text.tab (nat@encode idx))))
+
+(def: #export (with-extension type poly)
+  (All [a] (-> Type (Poly a) (Poly [Code a])))
+  (.function (_ [env inputs])
+    (let [current-id (dictionary.size env)
+          g!var (label current-id)]
+      (case (//.run [(dictionary.put current-id [type g!var] env)
+                     inputs]
+                    poly)
+        (#error.Failure error)
+        (#error.Failure error)
+
+        (#error.Success [[_ inputs'] output])
+        (#error.Success [[env inputs'] [g!var output]])))))
+
+(template [<name> <flattener> <tag> <exception>]
+  [(def: #export (<name> poly)
+     (All [a] (-> (Poly a) (Poly a)))
+     (do //.monad
+       [headT any]
+       (let [members (<flattener> (type.un-name headT))]
+         (if (n/> 1 (list.size members))
+           (local members poly)
+           (//.fail (exception.construct <exception> headT))))))]
+
+  [variant type.flatten-variant #.Sum     not-variant]
+  [tuple   type.flatten-tuple   #.Product not-tuple]
+  )
+
+(def: polymorphic'
+  (Poly [Nat Type])
+  (do //.monad
+    [headT any
+     #let [[num-arg bodyT] (type.flatten-univ-q (type.un-name headT))]]
+    (if (n/= 0 num-arg)
+      (//.fail (exception.construct not-polymorphic headT))
+      (wrap [num-arg bodyT]))))
+
+(def: #export (polymorphic poly)
+  (All [a] (-> (Poly a) (Poly [Code (List Code) a])))
+  (do //.monad
+    [headT any
+     funcI (:: @ map dictionary.size ..env)
+     [num-args non-poly] (local (list headT) polymorphic')
+     env ..env
+     #let [funcL (label funcI)
+           [all-varsL env'] (loop [current-arg 0
+                                   env' env
+                                   all-varsL (: (List Code) (list))]
+                              (if (n/< num-args current-arg)
+                                (if (n/= 0 current-arg)
+                                  (let [varL (label (inc funcI))]
+                                    (recur (inc current-arg)
+                                           (|> env'
+                                               (dictionary.put funcI [headT funcL])
+                                               (dictionary.put (inc funcI) [(#.Parameter (inc funcI)) varL]))
+                                           (#.Cons varL all-varsL)))
+                                  (let [partialI (|> current-arg (n/* 2) (n/+ funcI))
+                                        partial-varI (inc partialI)
+                                        partial-varL (label partial-varI)
+                                        partialC (` ((~ funcL) (~+ (|> (list.indices num-args)
+                                                                       (list@map (|>> (n/* 2) inc (n/+ funcI) label))
+                                                                       list.reverse))))]
+                                    (recur (inc current-arg)
+                                           (|> env'
+                                               (dictionary.put partialI [.Nothing partialC])
+                                               (dictionary.put partial-varI [(#.Parameter partial-varI) partial-varL]))
+                                           (#.Cons partial-varL all-varsL))))
+                                [all-varsL env']))]]
+    (|> (do @
+          [output poly]
+          (wrap [funcL all-varsL output]))
+        (local (list non-poly))
+        (with-env env'))))
+
+(def: #export (function in-poly out-poly)
+  (All [i o] (-> (Poly i) (Poly o) (Poly [i o])))
+  (do //.monad
+    [headT any
+     #let [[inputsT outputT] (type.flatten-function (type.un-name headT))]]
+    (if (n/> 0 (list.size inputsT))
+      (//.and (local inputsT in-poly)
+              (local (list outputT) out-poly))
+      (//.fail (exception.construct not-function headT)))))
+
+(def: #export (apply poly)
+  (All [a] (-> (Poly a) (Poly a)))
+  (do //.monad
+    [headT any
+     #let [[funcT paramsT] (type.flatten-application (type.un-name headT))]]
+    (if (n/= 0 (list.size paramsT))
+      (//.fail (exception.construct not-application headT))
+      (local (#.Cons funcT paramsT) poly))))
+
+(template [<name> <test>]
+  [(def: #export (<name> expected)
+     (-> Type (Poly Any))
+     (do //.monad
+       [actual any]
+       (if (<test> expected actual)
+         (wrap [])
+         (//.fail (exception.construct types-do-not-match [expected actual])))))]
+
+  [exactly type@=]
+  [sub     check.checks?]
+  [super   (function.flip check.checks?)]
+  )
+
+(def: #export (adjusted-idx env idx)
+  (-> Env Nat Nat)
+  (let [env-level (n// 2 (dictionary.size env))
+        parameter-level (n// 2 idx)
+        parameter-idx (n/% 2 idx)]
+    (|> env-level dec (n/- parameter-level) (n/* 2) (n/+ parameter-idx))))
+
+(def: #export parameter
+  (Poly Code)
+  (do //.monad
+    [env ..env
+     headT any]
+    (case headT
+      (#.Parameter idx)
+      (case (dictionary.get (adjusted-idx env idx) env)
+        (#.Some [poly-type poly-code])
+        (wrap poly-code)
+
+        #.None
+        (//.fail (exception.construct unknown-parameter headT)))
+
+      _
+      (//.fail (exception.construct not-parameter headT)))))
+
+(def: #export (parameter! id)
+  (-> Nat (Poly Any))
+  (do //.monad
+    [env ..env
+     headT any]
+    (case headT
+      (#.Parameter idx)
+      (if (n/= id (adjusted-idx env idx))
+        (wrap [])
+        (//.fail (exception.construct wrong-parameter [(#.Parameter id) headT])))
+
+      _
+      (//.fail (exception.construct not-parameter headT)))))
+
+(def: #export existential
+  (Poly Nat)
+  (do //.monad
+    [headT any]
+    (case headT
+      (#.Ex ex-id)
+      (wrap ex-id)
+
+      _
+      (//.fail (exception.construct not-existential headT)))))
+
+(def: #export named
+  (Poly [Name Type])
+  (do //.monad
+    [inputT any]
+    (case inputT
+      (#.Named name anonymousT)
+      (wrap [name anonymousT])
+
+      _
+      (//.fail (exception.construct not-named inputT)))))
+
+(def: #export (recursive poly)
+  (All [a] (-> (Poly a) (Poly [Code a])))
+  (do //.monad
+    [headT any]
+    (case (type.un-name headT)
+      (#.Apply (#.Named ["lux" "Nothing"] _) (#.UnivQ _ headT'))
+      (do @
+        [[recT _ output] (|> poly
+                             (with-extension .Nothing)
+                             (with-extension headT)
+                             (local (list headT')))]
+        (wrap [recT output]))
+
+      _
+      (//.fail (exception.construct not-recursive headT)))))
+
+(def: #export recursive-self
+  (Poly Code)
+  (do //.monad
+    [env ..env
+     headT any]
+    (case (type.un-name headT)
+      (^multi (#.Apply (#.Named ["lux" "Nothing"] _) (#.Parameter funcT-idx))
+              (n/= 0 (adjusted-idx env funcT-idx))
+              [(dictionary.get 0 env) (#.Some [self-type self-call])])
+      (wrap self-call)
+
+      _
+      (//.fail (exception.construct not-recursive headT)))))
+
+(def: #export recursive-call
+  (Poly Code)
+  (do //.monad
+    [env ..env
+     [funcT argsT] (apply (//.and any (//.many any)))
+     _ (local (list funcT) (..parameter! 0))
+     allC (let [allT (list& funcT argsT)]
+            (|> allT
+                (monad.map @ (function.constant ..parameter))
+                (local allT)))]
+    (wrap (` ((~+ allC))))))
+
+(def: #export log!
+  (All [a] (Poly a))
+  (do //.monad
+    [current any
+     #let [_ (.log! ($_ text@compose
+                        "{" (name@encode (name-of ..log)) "} "
+                        (%type current)))]]
+    (//.fail "LOGGING")))
