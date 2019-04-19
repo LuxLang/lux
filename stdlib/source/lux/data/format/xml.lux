@@ -6,7 +6,7 @@
     codec]
    [control
     ["p" parser ("#;." monad)
-     ["l" text]]
+     ["l" text (#+ Parser)]]
     ["ex" exception (#+ exception:)]]
    [data
     ["." error (#+ Error)]
@@ -29,7 +29,7 @@
   (#Node Tag Attrs (List XML)))
 
 (def: xml-standard-escape-char^
-  (l.Lexer Text)
+  (Parser Text)
   ($_ p.either
       (p.after (l.this "&lt;") (p;wrap "<"))
       (p.after (l.this "&gt;") (p;wrap ">"))
@@ -38,7 +38,7 @@
       (p.after (l.this "&quot;") (p;wrap text.double-quote))))
 
 (def: xml-unicode-escape-char^
-  (l.Lexer Text)
+  (Parser Text)
   (|> (do p.monad
         [hex? (p.maybe (l.this "x"))
          code (case hex?
@@ -52,17 +52,17 @@
       (p.after (l.this "&#"))))
 
 (def: xml-escape-char^
-  (l.Lexer Text)
+  (Parser Text)
   (p.either xml-standard-escape-char^
             xml-unicode-escape-char^))
 
 (def: xml-char^
-  (l.Lexer Text)
+  (Parser Text)
   (p.either (l.none-of ($_ text;compose "<>&'" text.double-quote))
             xml-escape-char^))
 
 (def: xml-identifier
-  (l.Lexer Text)
+  (Parser Text)
   (do p.monad
     [head (p.either (l.one-of "_")
                     l.alpha)
@@ -71,7 +71,7 @@
     (wrap ($_ text;compose head tail))))
 
 (def: namespaced-symbol^
-  (l.Lexer Name)
+  (Parser Name)
   (do p.monad
     [first-part xml-identifier
      ?second-part (<| p.maybe (p.after (l.this ":")) xml-identifier)]
@@ -86,19 +86,19 @@
 (def: attr-name^ namespaced-symbol^)
 
 (def: spaced^
-  (All [a] (-> (l.Lexer a) (l.Lexer a)))
+  (All [a] (-> (Parser a) (Parser a)))
   (let [white-space^ (p.some l.space)]
     (|>> (p.before white-space^)
          (p.after white-space^))))
 
 (def: attr-value^
-  (l.Lexer Text)
+  (Parser Text)
   (let [value^ (l.some xml-char^)]
     (p.either (l.enclosed [text.double-quote text.double-quote] value^)
               (l.enclosed ["'" "'"] value^))))
 
 (def: attrs^
-  (l.Lexer Attrs)
+  (Parser Attrs)
   (<| (:: p.monad map (d.from-list name.hash))
       p.some
       (p.and (spaced^ attr-name^))
@@ -106,7 +106,7 @@
       (spaced^ attr-value^)))
 
 (def: (close-tag^ expected)
-  (-> Tag (l.Lexer []))
+  (-> Tag (Parser []))
   (do p.monad
     [actual (|> tag^
                 spaced^
@@ -118,21 +118,21 @@
               (name;= expected actual))))
 
 (def: comment^
-  (l.Lexer Text)
+  (Parser Text)
   (|> (l.not (l.this "--"))
       l.some
       (l.enclosed ["<--" "-->"])
       spaced^))
 
 (def: xml-header^
-  (l.Lexer Attrs)
+  (Parser Attrs)
   (|> (spaced^ attrs^)
       (p.before (l.this "?>"))
       (p.after (l.this "<?xml"))
       spaced^))
 
 (def: cdata^
-  (l.Lexer Text)
+  (Parser Text)
   (let [end (l.this "]]>")]
     (|> (l.some (l.not end))
         (p.after end)
@@ -140,13 +140,13 @@
         spaced^)))
 
 (def: text^
-  (l.Lexer XML)
+  (Parser XML)
   (|> (p.either cdata^
                 (l.many xml-char^))
       (p;map (|>> #Text))))
 
 (def: xml^
-  (l.Lexer XML)
+  (Parser XML)
   (|> (p.rec
        (function (_ node^)
          (p.either text^
