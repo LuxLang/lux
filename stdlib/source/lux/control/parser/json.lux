@@ -1,0 +1,201 @@
+(.module:
+  [lux #*
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    ["." exception (#+ exception:)]]
+   [data
+    ["." bit]
+    ["." error (#+ Error)]
+    ["." text ("#@." equivalence monoid)]
+    [number
+     ["." frac]]
+    [collection
+     ["." list ("#@." functor)]
+     ["." row]
+     ["." dictionary (#+ Dictionary)]]
+    [format
+     ["/" json (#+ JSON)]]]
+   [macro
+    ["." code]]]
+  ["." // ("#@." functor)])
+
+(type: #export (Parser a)
+  {#.doc "JSON parser."}
+  (//.Parser (List JSON) a))
+
+(exception: #export (unconsumed-input {input (List JSON)})
+  (exception.report
+   ["Input" (exception.enumerate /.format input)]))
+
+(exception: #export empty-input)
+
+(def: #export (run json parser)
+  (All [a] (-> JSON (Parser a) (Error a)))
+  (case (//.run (list json) parser)
+    (#error.Success [remainder output])
+    (case remainder
+      #.Nil
+      (#error.Success output)
+
+      _
+      (exception.throw unconsumed-input remainder))
+    
+    (#error.Failure error)
+    (#error.Failure error)))
+
+(def: #export (fail error)
+  (All [a] (-> Text (Parser a)))
+  (function (_ inputs)
+    (#error.Failure error)))
+
+(def: #export any
+  {#.doc "Just returns the JSON input without applying any logic."}
+  (Parser JSON)
+  (<| (function (_ inputs))
+      (case inputs
+        #.Nil
+        (exception.throw empty-input [])
+        
+        (#.Cons head tail)
+        (#error.Success [tail head]))))
+
+(template [<name> <type> <tag> <desc>]
+  [(def: #export <name>
+     {#.doc (code.text ($_ text@compose "Reads a JSON value as " <desc> "."))}
+     (Parser <type>)
+     (do //.monad
+       [head any]
+       (case head
+         (<tag> value)
+         (wrap value)
+
+         _
+         (fail ($_ text@compose "JSON value is not " <desc> ".")))))]
+
+  [null    Any  #/.Null    "null"]
+  [boolean Bit  #/.Boolean "boolean"]
+  [number  Frac #/.Number  "number"]
+  [string  Text #/.String  "string"]
+  )
+
+(template [<test> <check> <type> <eq> <encoder> <tag> <desc>]
+  [(def: #export (<test> test)
+     {#.doc (code.text ($_ text@compose "Asks whether a JSON value is a " <desc> "."))}
+     (-> <type> (Parser Bit))
+     (do //.monad
+       [head any]
+       (case head
+         (<tag> value)
+         (wrap (:: <eq> = test value))
+
+         _
+         (fail ($_ text@compose "JSON value is not " <desc> ".")))))
+
+   (def: #export (<check> test)
+     {#.doc (code.text ($_ text@compose "Ensures a JSON value is a " <desc> "."))}
+     (-> <type> (Parser Any))
+     (do //.monad
+       [head any]
+       (case head
+         (<tag> value)
+         (if (:: <eq> = test value)
+           (wrap [])
+           (fail ($_ text@compose "Value mismatch: " (|> test <encoder>) " =/= " (|> value <encoder>))))
+
+         _
+         (fail ($_ text@compose "JSON value is not a " <desc> ".")))))]
+
+  [boolean? boolean! Bit  bit.equivalence  (<| /.format #/.Boolean) #/.Boolean "boolean"]
+  [number?  number!  Frac frac.equivalence (:: frac.decimal encode) #/.Number  "number"]
+  [string?  string!  Text text.equivalence text.encode              #/.String  "string"]
+  )
+
+(def: #export (nullable parser)
+  (All [a] (-> (Parser a) (Parser (Maybe a))))
+  (//.or null
+         parser))
+
+(def: #export (array parser)
+  {#.doc "Parses a JSON array."}
+  (All [a] (-> (Parser a) (Parser a)))
+  (do //.monad
+    [head any]
+    (case head
+      (#/.Array values)
+      (case (//.run (row.to-list values) parser)
+        (#error.Failure error)
+        (fail error)
+
+        (#error.Success [remainder output])
+        (case remainder
+          #.Nil
+          (wrap output)
+
+          _
+          (fail (exception.construct unconsumed-input remainder))))
+
+      _
+      (fail (text@compose "JSON value is not an array: " (/.format head))))))
+
+(def: #export (object parser)
+  {#.doc "Parses a JSON object. Use this with the 'field' combinator."}
+  (All [a] (-> (Parser a) (Parser a)))
+  (do //.monad
+    [head any]
+    (case head
+      (#/.Object kvs)
+      (case (//.run (|> kvs
+                        dictionary.entries
+                        (list@map (function (_ [key value])
+                                    (list (#/.String key) value)))
+                        list.concat)
+                    parser)
+        (#error.Failure error)
+        (fail error)
+
+        (#error.Success [remainder output])
+        (case remainder
+          #.Nil
+          (wrap output)
+
+          _
+          (fail (exception.construct unconsumed-input remainder))))
+      
+      _
+      (fail (text@compose "JSON value is not an object: " (/.format head))))))
+
+(def: #export (field field-name parser)
+  {#.doc "Parses a field inside a JSON object. Use this inside the 'object' combinator."}
+  (All [a] (-> Text (Parser a) (Parser a)))
+  (function (recur inputs)
+    (case inputs
+      (^ (list& (#/.String key) value inputs'))
+      (if (text@= key field-name)
+        (case (//.run (list value) parser)
+          (#error.Success [#.Nil output])
+          (#error.Success [inputs' output])
+
+          (#error.Success [inputs'' _])
+          (exception.throw unconsumed-input inputs'')
+
+          (#error.Failure error)
+          (#error.Failure error))
+        (do error.monad
+          [[inputs'' output] (recur inputs')]
+          (wrap [(list& (#/.String key) value inputs'')
+                 output])))
+
+      #.Nil
+      (exception.throw empty-input [])
+
+      _
+      (exception.throw unconsumed-input inputs))))
+
+(def: #export dictionary
+  {#.doc "Parses a dictionary-like JSON object."}
+  (All [a] (-> (Parser a) (Parser (Dictionary Text a))))
+  (|>> (//.and ..string)
+       //.some
+       object
+       (//@map (dictionary.from-list text.hash))))
