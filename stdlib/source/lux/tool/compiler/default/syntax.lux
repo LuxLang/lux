@@ -149,6 +149,14 @@
   (exception.report
    ["Text" (%t text)]))
 
+(template: (!failure parser where offset source-code)
+  (#.Left [[where offset source-code]
+           (exception.construct unrecognized-input [where (%name (name-of parser)) source-code offset])]))
+
+(template: (!end-of-file where offset source-code current-module)
+  (#.Left [[where offset source-code]
+           (exception.construct ..end-of-file current-module)]))
+
 (type: (Parser a)
   (-> Source (Either [Source Text] [Source a])))
 
@@ -249,8 +257,7 @@
                      (#.Text g!content)]])))
     
     _
-    (#.Left [[where offset source-code]
-             (exception.construct unrecognized-input [where "Text" source-code offset])])))
+    (!failure ..!read-text where offset source-code)))
 
 (def: digit-bottom Nat (!dec (char "0")))
 (def: digit-top Nat (!inc (char "9")))
@@ -306,8 +313,7 @@
 
 (with-expansions [<int-output> (as-is (!number-output start end int.decimal #.Int))
                   <frac-output> (as-is (!number-output start end frac.decimal #.Frac))
-                  <failure> (#.Left [[where offset source-code]
-                                     (exception.construct unrecognized-input [where "Frac" source-code offset])])]
+                  <failure> (!failure ..parse-frac where offset source-code)]
   (def: (parse-frac source-code//size start [where offset source-code])
     (-> Nat Offset (Parser Code))
     (loop [end offset
@@ -378,14 +384,6 @@
               (recur (!inc end))
               <output>))))))
 
-(template: (!failure where offset source-code)
-  (#.Left [[where offset source-code]
-           (exception.construct unrecognized-input [where "General" source-code offset])]))
-
-(template: (!end-of-file where offset source-code current-module)
-  (#.Left [[where offset source-code]
-           (exception.construct ..end-of-file current-module)]))
-
 (with-expansions [<consume-1> (as-is [where (!inc offset/0) source-code])
                   <consume-2> (as-is [where (!inc/2 offset/0) source-code])]
 
@@ -395,7 +393,7 @@
                  (#.Right [source' [@module name]]))
 
           ## else
-          (!failure where @offset source-code)))
+          (!failure ..!parse-half-name where @offset source-code)))
 
   (`` (def: (parse-short-name current-module [where offset/0 source-code])
         (-> Text (Parser Name))
@@ -421,10 +419,13 @@
                        (if (!n/= (char (~~ (static ..name-separator))) char/separator)
                          (let [offset'' (!inc offset')]
                            (!letE [source'' complex] (..parse-name-part offset'' [where' offset'' source-code'])
-                                  (#.Right [source'' [(|> aliases
-                                                          (dictionary.get simple)
-                                                          (maybe.default simple))
-                                                      complex]])))
+                                  (if ("lux text =" "" complex)
+                                    (let [[where offset source-code] source]
+                                      (!failure ..parse-full-name where offset source-code))
+                                    (#.Right [source'' [(|> aliases
+                                                            (dictionary.get simple)
+                                                            (maybe.default simple))
+                                                        complex]]))))
                          <simple>)))))))
 
   (template: (!parse-full-name @offset @source @where @aliases @tag)
@@ -520,7 +521,7 @@
                                    (!parse-full-name offset/1 <consume-2> where aliases #.Tag)
 
                                    ## else
-                                   (!failure where offset/0 source-code)))))
+                                   (!failure ..parse where offset/0 source-code)))))
 
                       ## Coincidentally (= name-separator frac-separator)
                       [(~~ (static ..name-separator))]
