@@ -1,5 +1,5 @@
 (.module:
-  [lux (#- type)
+  [lux (#- type int char)
    [abstract
     ["." monad (#+ Monad do)]
     ["." enum]]
@@ -17,56 +17,122 @@
      format]
     [collection
      ["." array (#+ Array)]
-     ["." list ("#@." monad fold monoid)]]]
+     ["." list ("#@." monad fold monoid)]
+     ["." dictionary (#+ Dictionary)]]]
    ["." type ("#@." equivalence)]
    ["." macro (#+ with-gensyms)
     ["." code]
     ["s" syntax (#+ syntax: Syntax)]]])
 
+(template [<name> <class>]
+  [(type: #export <name> (primitive <class>))]
+
+  ## Boxes
+  [Boolean   "java.lang.Boolean"]
+  [Byte      "java.lang.Byte"]
+  [Short     "java.lang.Short"]
+  [Integer   "java.lang.Integer"]
+  [Long      "java.lang.Long"]
+  [Float     "java.lang.Float"]
+  [Double    "java.lang.Double"]
+  [Character "java.lang.Character"]
+
+  ## Primitives
+  [boolean   "boolean"]
+  [byte      "byte"]
+  [short     "short"]
+  [int       "int"]
+  [long      "long"]
+  [float     "float"]
+  [double    "double"]
+  [char      "char"]
+  )
+
+(def: (get-static-field class field)
+  (-> Text Text Code)
+  (` ("jvm member static get"
+      (~ (code.text class))
+      (~ (code.text field)))))
+
+(def: (get-virtual-field class field object)
+  (-> Text Text Code Code)
+  (` ("jvm member virtual get"
+      (~ (code.text class))
+      (~ (code.text field))
+      (~ object))))
+
+(def: boxes
+  (Dictionary Text Text)
+  (|> (list ["boolean" "java.lang.Boolean"]
+            ["byte"    "java.lang.Byte"]
+            ["short"   "java.lang.Short"]
+            ["int"     "java.lang.Integer"]
+            ["long"    "java.lang.Long"]
+            ["float"   "java.lang.Float"]
+            ["double"  "java.lang.Double"]
+            ["char"    "java.lang.Character"])
+      (dictionary.from-list text.hash)))
+
+(def: (unbox unboxed boxed raw)
+  (-> Text Text Code Code)
+  (` (|> (~ raw)
+         (: (primitive (~ (code.text boxed))))
+         "jvm object cast"
+         (: (primitive (~ (code.text unboxed)))))))
+
+(def: (box unboxed boxed raw)
+  (-> Text Text Code Code)
+  (` (|> (~ raw)
+         (: (primitive (~ (code.text unboxed))))
+         "jvm object cast"
+         (: (primitive (~ (code.text boxed)))))))
+
 (template [<name> <op> <from> <to>]
-  [(def: #export (<name> value)
+  [(template: #export (<name> value)
      {#.doc (doc "Type converter."
                  (: <to>
                     (<name> (: <from> foo))))}
-     (-> (primitive <from>) (primitive <to>))
-     (<op> value))]
+     (|> value
+         (: <from>)
+         "jvm object cast"
+         <op>
+         "jvm object cast"
+         (: <to>)))]
 
-  [byte-to-long "jvm convert byte-to-long" "java.lang.Byte"      "java.lang.Long"]
+  [byte-to-long    "jvm conversion byte-to-long"    ..Byte      ..Long]
 
-  [short-to-long "jvm convert short-to-long" "java.lang.Short"     "java.lang.Long"]
+  [short-to-long   "jvm conversion short-to-long"   ..Short     ..Long]
   
-  [double-to-int "jvm convert double-to-int" "java.lang.Double"    "java.lang.Integer"]
-  [double-to-long "jvm convert double-to-long" "java.lang.Double"    "java.lang.Long"]
-  [double-to-float "jvm convert double-to-float" "java.lang.Double"    "java.lang.Float"]
+  [double-to-int   "jvm conversion double-to-int"   ..Double    ..Integer]
+  [double-to-long  "jvm conversion double-to-long"  ..Double    ..Long]
+  [double-to-float "jvm conversion double-to-float" ..Double    ..Float]
 
-  [float-to-int "jvm convert float-to-int" "java.lang.Float"     "java.lang.Integer"]
-  [float-to-long "jvm convert float-to-long" "java.lang.Float"     "java.lang.Long"]
-  [float-to-double "jvm convert float-to-double" "java.lang.Float"     "java.lang.Double"]
+  [float-to-int    "jvm conversion float-to-int"    ..Float     ..Integer]
+  [float-to-long   "jvm conversion float-to-long"   ..Float     ..Long]
+  [float-to-double "jvm conversion float-to-double" ..Float     ..Double]
   
-  [int-to-byte "jvm convert int-to-byte" "java.lang.Integer"   "java.lang.Byte"]
-  [int-to-short "jvm convert int-to-short" "java.lang.Integer"   "java.lang.Short"]
-  [int-to-long "jvm convert int-to-long" "java.lang.Integer"   "java.lang.Long"]
-  [int-to-float "jvm convert int-to-float" "java.lang.Integer"   "java.lang.Float"]
-  [int-to-double "jvm convert int-to-double" "java.lang.Integer"   "java.lang.Double"]
-  [int-to-char "jvm convert int-to-char" "java.lang.Integer"   "java.lang.Character"]
+  [int-to-byte     "jvm conversion int-to-byte"     ..Integer   ..Byte]
+  [int-to-short    "jvm conversion int-to-short"    ..Integer   ..Short]
+  [int-to-long     "jvm conversion int-to-long"     ..Integer   ..Long]
+  [int-to-float    "jvm conversion int-to-float"    ..Integer   ..Float]
+  [int-to-double   "jvm conversion int-to-double"   ..Integer   ..Double]
+  [int-to-char     "jvm conversion int-to-char"     ..Integer   ..Character]
 
-  [long-to-byte "jvm convert long-to-byte" "java.lang.Long"      "java.lang.Byte"]
-  [long-to-short "jvm convert long-to-short" "java.lang.Long"      "java.lang.Short"]
-  [long-to-int "jvm convert long-to-int" "java.lang.Long"      "java.lang.Integer"]
-  [long-to-float "jvm convert long-to-float" "java.lang.Long"      "java.lang.Float"]
-  [long-to-double "jvm convert long-to-double" "java.lang.Long"      "java.lang.Double"]
+  [long-to-byte    "jvm conversion long-to-byte"    ..Long      ..Byte]
+  [long-to-short   "jvm conversion long-to-short"   ..Long      ..Short]
+  [long-to-int     "jvm conversion long-to-int"     ..Long      ..Integer]
+  [long-to-float   "jvm conversion long-to-float"   ..Long      ..Float]
+  [long-to-double  "jvm conversion long-to-double"  ..Long      ..Double]
 
-  [char-to-byte "jvm convert char-to-byte" "java.lang.Character" "java.lang.Byte"]
-  [char-to-short "jvm convert char-to-short" "java.lang.Character" "java.lang.Short"]
-  [char-to-int "jvm convert char-to-int" "java.lang.Character" "java.lang.Integer"]
-  [char-to-long "jvm convert char-to-long" "java.lang.Character" "java.lang.Long"]
+  [char-to-byte    "jvm conversion char-to-byte"    ..Character ..Byte]
+  [char-to-short   "jvm conversion char-to-short"   ..Character ..Short]
+  [char-to-int     "jvm conversion char-to-int"     ..Character ..Integer]
+  [char-to-long    "jvm conversion char-to-long"    ..Character ..Long]
   )
 
-## [Utils]
 (def: constructor-method-name "<init>")
 (def: member-separator "::")
 
-## Types
 (type: JVM-Code Text)
 
 (type: BoundKind
@@ -224,7 +290,6 @@
 (type: Class-Imports
   (List [Text Text]))
 
-## Utils
 (def: (short-class-name name)
   (-> Text Text)
   (case (list.reverse (text.split-all-with "/" name))
@@ -381,7 +446,8 @@
 
 (def: java/lang/*
   (List Text)
-  (list ## Interfaces
+  (list
+   ## Interfaces
    "Appendable"
    "AutoCloseable"
    "CharSequence"
@@ -519,14 +585,14 @@
   (do p.monad
     [#let [dotted-name (format "::" field-name)]
      _ (s.this (code.identifier ["" dotted-name]))]
-    (wrap (`' ((~ (code.text (format "jvm getstatic" ":" class-name ":" field-name))))))))
+    (wrap (get-static-field class-name field-name))))
 
 (def: (make-get-var-parser class-name field-name)
   (-> Text Text (Syntax Code))
   (do p.monad
     [#let [dotted-name (format "::" field-name)]
      _ (s.this (code.identifier ["" dotted-name]))]
-    (wrap (`' ((~ (code.text (format "jvm getfield" ":" class-name ":" field-name))) _jvm_this)))))
+    (wrap (get-virtual-field class-name field-name (' _jvm_this)))))
 
 (def: (make-put-var-parser class-name field-name)
   (-> Text Text (Syntax Code))
@@ -574,6 +640,10 @@
     (p.either (make-get-var-parser class-name field-name)
               (make-put-var-parser class-name field-name))))
 
+(def: (decorate-input [class value])
+  (-> [Text Code] Code)
+  (` [(~ (code.text class)) (~ value)]))
+
 (def: (make-constructor-parser params class-name arg-decls)
   (-> (List Type-Paramameter) Text (List ArgDecl) (Syntax Code))
   (do p.monad
@@ -581,8 +651,10 @@
              (s.form (p.after (s.this (' ::new!))
                               (s.tuple (p.exactly (list.size arg-decls) s.any)))))
      #let [arg-decls' (: (List Text) (list@map (|>> product.right (simple-class$ params)) arg-decls))]]
-    (wrap (` ((~ (code.text (format "jvm new" ":" class-name ":" (text.join-with "," arg-decls'))))
-              (~+ args))))))
+    (wrap (` ("jvm member invoke constructor" (~ (code.text class-name))
+              (~+ (|> args
+                      (list.zip2 arg-decls')
+                      (list@map ..decorate-input))))))))
 
 (def: (make-static-method-parser params class-name method-name arg-decls)
   (-> (List Type-Paramameter) Text Text (List ArgDecl) (Syntax Code))
@@ -592,8 +664,10 @@
              (s.form (p.after (s.this (code.identifier ["" dotted-name]))
                               (s.tuple (p.exactly (list.size arg-decls) s.any)))))
      #let [arg-decls' (: (List Text) (list@map (|>> product.right (simple-class$ params)) arg-decls))]]
-    (wrap (`' ((~ (code.text (format "jvm invokestatic" ":" class-name ":" method-name ":" (text.join-with "," arg-decls'))))
-               (~+ args))))))
+    (wrap (` ("jvm member invoke static" (~ (code.text class-name)) (~ (code.text method-name))
+              (~+ (|> args
+                      (list.zip2 arg-decls')
+                      (list@map ..decorate-input))))))))
 
 (template [<name> <jvm-op>]
   [(def: (<name> params class-name method-name arg-decls)
@@ -604,11 +678,14 @@
                 (s.form (p.after (s.this (code.identifier ["" dotted-name]))
                                  (s.tuple (p.exactly (list.size arg-decls) s.any)))))
         #let [arg-decls' (: (List Text) (list@map (|>> product.right (simple-class$ params)) arg-decls))]]
-       (wrap (`' ((~ (code.text (format <jvm-op> ":" class-name ":" method-name ":" (text.join-with "," arg-decls'))))
-                  (~' _jvm_this) (~+ args))))))]
+       (wrap (` (<jvm-op> (~ (code.text class-name)) (~ (code.text method-name))
+                          (~' _jvm_this)
+                          (~+ (|> args
+                                  (list.zip2 arg-decls')
+                                  (list@map ..decorate-input))))))))]
 
-  [make-special-method-parser "jvm invokespecial"]
-  [make-virtual-method-parser "jvm invokevirtual"]
+  [make-special-method-parser "jvm member invoke special"]
+  [make-virtual-method-parser "jvm member invoke virtual"]
   )
 
 (def: (method->parser params class-name [[method-name _ _] meth-def])
@@ -630,7 +707,6 @@
     (#NativeMethod type-vars args return-type exs)
     (make-virtual-method-parser params class-name method-name args)))
 
-## Syntaxes
 (def: (full-class-name^ imports)
   (-> Class-Imports (Syntax Text))
   (do p.monad
@@ -1053,7 +1129,6 @@
                                          #import-field-type    gtype}))))
       ))
 
-## Generators
 (def: with-parens
   (-> JVM-Code JVM-Code)
   (text.enclose ["(" ")"]))
@@ -1209,13 +1284,16 @@
     (let [super-replacer (parser->replacer (s.form (do p.monad
                                                      [_ (s.this (' ::super!))
                                                       args (s.tuple (p.exactly (list.size arg-decls) s.any))
-                                                      #let [arg-decls' (: (List Text) (list@map (|>> product.right (simple-class$ (list)))
-                                                                                                arg-decls))]]
-                                                     (wrap (`' ((~ (code.text (format "jvm invokespecial"
-                                                                                      ":" (get@ #super-class-name super-class)
-                                                                                      ":" name
-                                                                                      ":" (text.join-with "," arg-decls'))))
-                                                                (~' _jvm_this) (~+ args)))))))]
+                                                      #let [arg-decls' (: (List Text)
+                                                                          (list@map (|>> product.right (simple-class$ (list)))
+                                                                                    arg-decls))]]
+                                                     (wrap (` ("jvm member invoke special"
+                                                               (~ (code.text (get@ #super-class-name super-class)))
+                                                               (~ (code.text name))
+                                                               (~' _jvm_this)
+                                                               (~+ (|> args
+                                                                       (list.zip2 arg-decls')
+                                                                       (list@map ..decorate-input)))))))))]
       (with-parens
         (spaced (list "override"
                       (class-decl$ class-decl)
@@ -1272,7 +1350,6 @@
   (-> Code Partial-Call Code)
   (` ((~ (code.identifier method)) (~+ args) (~ g!obj))))
 
-## [Syntax]
 (def: object-super-class
   Super-Class-Decl
   {#super-class-name   "java/lang/Object"
@@ -1546,18 +1623,24 @@
     _
     (:: macro.monad wrap [(list) (list) (list)])))
 
-(def: (decorate-return-maybe member return-term)
-  (-> Import-Member-Declaration Code Code)
+(def: (decorate-return-maybe member never-null? unboxed return-term)
+  (-> Import-Member-Declaration Bit Text Code Code)
   (case member
     (^or (#ConstructorDecl [commons _]) (#MethodDecl [commons _]))
-    (if (get@ #import-member-maybe? commons)
-      (` (??? (~ return-term)))
-      (let [g!temp (` ((~' ~') (~ (code.identifier ["" " Ω "]))))]
-        (` (let [(~ g!temp) (~ return-term)]
-             (if (not (null? (:coerce (primitive "java.lang.Object")
-                                      (~ g!temp))))
-               (~ g!temp)
-               (error! "Cannot produce null references from method calls."))))))
+    (cond (or never-null?
+              (dictionary.contains? unboxed ..boxes))
+          return-term
+
+          (get@ #import-member-maybe? commons)
+          (` (??? (~ return-term)))
+
+          ## else
+          (let [g!temp (` ((~' ~') (~ (code.identifier ["" " Ω "]))))]
+            (` (let [(~ g!temp) (~ return-term)]
+                 (if (not (null? (:coerce (primitive "java.lang.Object")
+                                          (~ g!temp))))
+                   (~ g!temp)
+                   (error! "Cannot produce null references from method calls."))))))
 
     _
     return-term))
@@ -1588,30 +1671,48 @@
   (-> Type-Paramameter Code)
   (code.identifier ["" name]))
 
-(template [<name> <byte> <short> <int> <float>]
-  [(def: (<name> mode [class expression])
+(template [<name> <unbox/box>
+           <byte> <for-byte>
+           <short> <for-short>
+           <int> <for-int>
+           <float> <for-float>]
+  [(def: (<name> mode [unboxed raw])
      (-> Primitive-Mode [Text Code] Code)
-     (case mode
-       #ManualPrM
-       expression
-       
-       #AutoPrM
-       (case class
-         "byte"  (` (<byte> (~ expression)))
-         "short" (` (<short> (~ expression)))
-         "int"   (` (<int> (~ expression)))
-         "float" (` (<float> (~ expression)))
-         _       expression)))]
+     (let [[unboxed refined] (case mode
+                               #ManualPrM
+                               [unboxed raw]
+                               
+                               #AutoPrM
+                               (case unboxed
+                                 "byte"  [<byte> (` (<for-byte> (~ raw)))]
+                                 "short" [<short> (` (<for-short> (~ raw)))]
+                                 "int"   [<int> (` (<for-int> (~ raw)))]
+                                 "float" [<float> (` (<for-float> (~ raw)))]
+                                 _       [unboxed raw]))]
+       (case (dictionary.get unboxed boxes)
+         (#.Some boxed)
+         (<unbox/box> unboxed boxed refined)
+         
+         #.None
+         refined)))]
 
-  [auto-convert-input  long-to-byte long-to-short long-to-int double-to-float]
-  [auto-convert-output byte-to-long short-to-long int-to-long float-to-double]
+  [auto-convert-input ..unbox
+   "byte" ..long-to-byte
+   "short" ..long-to-short
+   "int" ..long-to-int
+   "float" ..double-to-float]
+  [auto-convert-output ..box
+   "long" "jvm conversion byte-to-long"
+   "long" "jvm conversion short-to-long"
+   "long" "jvm conversion int-to-long"
+   "double" "jvm conversion float-to-double"]
   )
 
 (def: (un-quote quoted)
   (-> Code Code)
   (` ((~' ~) (~ quoted))))
 
-(def: (jvm-extension-inputs mode classes inputs)
+(def: (jvm-invoke-inputs mode classes inputs)
   (-> Primitive-Mode (List Text) (List [Bit Code]) (List Code))
   (|> inputs
       (list@map (function (_ [maybe? input])
@@ -1620,6 +1721,10 @@
                     (un-quote input))))
       (list.zip2 classes)
       (list@map (auto-convert-input mode))))
+
+(def: (with-class-type class expression)
+  (-> Text Code Code)
+  (` (.: (.primitive (~ (code.text class))) (~ expression))))
 
 (def: (member-def-interop type-params kind class [arg-function-inputs arg-classes arg-types] member method-prefix)
   (-> (List Type-Paramameter) Class-Kind Class-Declaration [(List [Bit Code]) (List Text) (List Code)] Import-Member-Declaration Text (Meta (List Code)))
@@ -1646,16 +1751,18 @@
                                    (let [getter-name (code.identifier ["" (format method-prefix member-separator name)])]
                                      (` (def: (~ getter-name)
                                           (~ enum-type)
-                                          ((~ (code.text (format "jvm getstatic" ":" full-name ":" name)))))))))]]
+                                          (~ (get-static-field full-name name)))))))]]
         (wrap (list@map getter-interop enum-members)))
       
       (#ConstructorDecl [commons _])
       (do macro.monad
         [#let [def-name (code.identifier ["" (format method-prefix member-separator (get@ #import-member-alias commons))])
-               jvm-extension (code.text (format "jvm new" ":" full-name ":" (text.join-with "," arg-classes)))
-               jvm-interop (|> (` ((~ jvm-extension)
-                                   (~+ (jvm-extension-inputs (get@ #import-member-mode commons) arg-classes arg-function-inputs))))
-                               (decorate-return-maybe member)
+               jvm-interop (|> (` ("jvm member invoke constructor"
+                                   (~ (code.text full-name))
+                                   (~+ (|> (jvm-invoke-inputs (get@ #import-member-mode commons) arg-classes arg-function-inputs)
+                                           (list.zip2 arg-classes)
+                                           (list@map ..decorate-input)))))
+                               (decorate-return-maybe member true full-name)
                                (decorate-return-try member)
                                (decorate-return-io member))]]
         (wrap (list (` ((~! syntax:) ((~ def-name) (~+ (list@map product.right arg-function-inputs)))
@@ -1670,25 +1777,30 @@
                  [jvm-op object-ast] (: [Text (List Code)]
                                         (case import-member-kind
                                           #StaticIMK
-                                          ["invokestatic"
+                                          ["jvm member invoke static"
                                            (list)]
 
                                           #VirtualIMK
                                           (case kind
                                             #Class
-                                            ["invokevirtual"
+                                            ["jvm member invoke virtual"
                                              (list g!obj)]
                                             
                                             #Interface
-                                            ["invokeinterface"
+                                            ["jvm member invoke interface"
                                              (list g!obj)]
                                             )))
-                 jvm-extension (code.text (format "jvm " jvm-op ":" full-name ":" import-method-name ":" (text.join-with "," arg-classes)))
-                 jvm-interop (|> [(simple-class$ (list) (get@ #import-method-return method))
-                                  (` ((~ jvm-extension) (~+ (list@map un-quote object-ast))
-                                      (~+ (jvm-extension-inputs (get@ #import-member-mode commons) arg-classes arg-function-inputs))))]
+                 method-return-class (simple-class$ (list) (get@ #import-method-return method))
+                 jvm-interop (|> [method-return-class
+                                  (` ((~ (code.text jvm-op))
+                                      (~ (code.text full-name))
+                                      (~ (code.text import-method-name))
+                                      (~+ (list@map un-quote object-ast))
+                                      (~+ (|> (jvm-invoke-inputs (get@ #import-member-mode commons) arg-classes arg-function-inputs)
+                                              (list.zip2 arg-classes)
+                                              (list@map ..decorate-input)))))]
                                  (auto-convert-output (get@ #import-member-mode commons))
-                                 (decorate-return-maybe member)
+                                 (decorate-return-maybe member false method-return-class)
                                  (decorate-return-try member)
                                  (decorate-return-io member))]]
           (wrap (list (` ((~! syntax:) ((~ def-name) (~+ (list@map product.right arg-function-inputs)) (~+ object-ast))
@@ -1715,10 +1827,8 @@
                                 getter-body (<| (auto-convert-output import-field-mode)
                                                 [(simple-class$ (list) import-field-type)
                                                  (if import-field-static?
-                                                   (let [jvm-extension (code.text (format "jvm getstatic" ":" full-name ":" import-field-name))]
-                                                     (` ((~ jvm-extension))))
-                                                   (let [jvm-extension (code.text (format "jvm getfield" ":" full-name ":" import-field-name))]
-                                                     (` ((~ jvm-extension) (~ (un-quote g!obj))))))])
+                                                   (get-static-field full-name import-field-name)
+                                                   (get-virtual-field full-name import-field-name (un-quote g!obj)))])
                                 getter-body (if import-field-maybe?
                                               (` ((~! ???) (~ getter-body)))
                                               getter-body)
@@ -1760,13 +1870,19 @@
       [=args (member-def-arg-bindings type-params class member)]
       (member-def-interop type-params kind class =args member method-prefix))))
 
-(def: (interface? class)
+(def: interface?
   (All [a] (-> (primitive "java.lang.Class" [a]) Bit))
-  ("jvm invokevirtual:java.lang.Class:isInterface:" class))
+  (|>> ("jvm member invoke virtual" "java.lang.Class" "isInterface")
+       "jvm object cast"
+       (: (primitive "java.lang.Boolean"))
+       (:coerce Bit)))
 
-(def: (load-class class-name)
+(def: load-class
   (-> Text (Error (primitive "java.lang.Class" [Any])))
-  (try ("jvm invokestatic:java.lang.Class:forName:java.lang.String" class-name)))
+  (|>> (:coerce (primitive "java.lang.String"))
+       ["java.lang.String"]
+       ("jvm member invoke static" "java.lang.Class" "forName")
+       try))
 
 (def: (class-kind [class-name _])
   (-> Class-Declaration (Meta Class-Kind))
