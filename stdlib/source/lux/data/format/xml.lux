@@ -1,28 +1,27 @@
-(.module: {#.doc "Functionality for reading, generating and processing values in the XML format."}
+(.module:
   [lux #*
    [abstract
-    monad
+    [monad (#+ do)]
     [equivalence (#+ Equivalence)]
-    codec]
+    [codec (#+ Codec)]]
    [control
-    ["p" parser ("#;." monad)
-     ["l" text (#+ Parser)]]
-    ["ex" exception (#+ exception:)]]
+    ["p" parser ("#@." monad)
+     ["l" text (#+ Parser)]]]
    [data
-    ["." error (#+ Error)]
+    [error (#+ Error)]
     ["." product]
-    ["." name ("#;." equivalence codec)]
+    ["." name ("#@." equivalence codec)]
     [number
      ["." int]]
-    ["." text ("#;." equivalence monoid)]
+    ["." text ("#@." equivalence monoid)]
     [collection
-     ["." list ("#;." monad)]
-     ["d" dictionary]]]])
+     ["." list ("#@." functor)]
+     ["." dictionary (#+ Dictionary)]]]])
 
 (type: #export Tag Name)
-(type: #export Attrs (d.Dictionary Name Text))
+(type: #export Attrs (Dictionary Name Text))
 
-(def: #export attrs Attrs (d.new name.hash))
+(def: #export attrs Attrs (dictionary.new name.hash))
 
 (type: #export #rec XML
   (#Text Text)
@@ -31,11 +30,11 @@
 (def: xml-standard-escape-char^
   (Parser Text)
   ($_ p.either
-      (p.after (l.this "&lt;") (p;wrap "<"))
-      (p.after (l.this "&gt;") (p;wrap ">"))
-      (p.after (l.this "&amp;") (p;wrap "&"))
-      (p.after (l.this "&apos;") (p;wrap "'"))
-      (p.after (l.this "&quot;") (p;wrap text.double-quote))))
+      (p.after (l.this "&lt;") (p@wrap "<"))
+      (p.after (l.this "&gt;") (p@wrap ">"))
+      (p.after (l.this "&amp;") (p@wrap "&"))
+      (p.after (l.this "&apos;") (p@wrap "'"))
+      (p.after (l.this "&quot;") (p@wrap text.double-quote))))
 
 (def: xml-unicode-escape-char^
   (Parser Text)
@@ -58,7 +57,7 @@
 
 (def: xml-char^
   (Parser Text)
-  (p.either (l.none-of ($_ text;compose "<>&'" text.double-quote))
+  (p.either (l.none-of ($_ text@compose "<>&'" text.double-quote))
             xml-escape-char^))
 
 (def: xml-identifier
@@ -68,7 +67,7 @@
                     l.alpha)
      tail (l.some (p.either (l.one-of "_.-")
                             l.alpha-num))]
-    (wrap ($_ text;compose head tail))))
+    (wrap ($_ text@compose head tail))))
 
 (def: namespaced-symbol^
   (Parser Name)
@@ -99,7 +98,7 @@
 
 (def: attrs^
   (Parser Attrs)
-  (<| (:: p.monad map (d.from-list name.hash))
+  (<| (:: p.monad map (dictionary.from-list name.hash))
       p.some
       (p.and (spaced^ attr-name^))
       (p.after (l.this "="))
@@ -112,10 +111,10 @@
                 spaced^
                 (p.after (l.this "/"))
                 (l.enclosed ["<" ">"]))]
-    (p.assert ($_ text;compose "Close tag does not match open tag." text.new-line
-                  "Expected: " (name;encode expected) text.new-line
-                  "  Actual: " (name;encode actual) text.new-line)
-              (name;= expected actual))))
+    (p.assert ($_ text@compose "Close tag does not match open tag." text.new-line
+                  "Expected: " (name@encode expected) text.new-line
+                  "  Actual: " (name@encode actual) text.new-line)
+              (name@= expected actual))))
 
 (def: comment^
   (Parser Text)
@@ -143,7 +142,7 @@
   (Parser XML)
   (|> (p.either cdata^
                 (l.many xml-char^))
-      (p;map (|>> #Text))))
+      (p@map (|>> #Text))))
 
 (def: xml^
   (Parser XML)
@@ -189,23 +188,23 @@
   (-> Tag Text)
   (case namespace
     "" name
-    _ ($_ text;compose namespace ":" name)))
+    _ ($_ text@compose namespace ":" name)))
 
 (def: (write-attrs attrs)
   (-> Attrs Text)
   (|> attrs
-      d.entries
-      (list;map (function (_ [key value])
-                  ($_ text;compose (write-tag key) "=" text.double-quote (sanitize-value value) text.double-quote)))
+      dictionary.entries
+      (list@map (function (_ [key value])
+                  ($_ text@compose (write-tag key) "=" text.double-quote (sanitize-value value) text.double-quote)))
       (text.join-with " ")))
 
 (def: xml-header
   Text
-  ($_ text;compose "<?xml version=" text.double-quote "1.0" text.double-quote " encoding=" text.double-quote "UTF-8" text.double-quote "?>"))
+  ($_ text@compose "<?xml version=" text.double-quote "1.0" text.double-quote " encoding=" text.double-quote "UTF-8" text.double-quote "?>"))
 
 (def: #export (write input)
   (-> XML Text)
-  ($_ text;compose xml-header
+  ($_ text@compose xml-header
       (loop [input input]
         (case input
           (#Text value)
@@ -213,14 +212,14 @@
           
           (#Node xml-tag xml-attrs xml-children)
           (let [tag (write-tag xml-tag)
-                attrs (if (d.empty? xml-attrs)
+                attrs (if (dictionary.empty? xml-attrs)
                         ""
-                        ($_ text;compose " " (write-attrs xml-attrs)))]
+                        ($_ text@compose " " (write-attrs xml-attrs)))]
             (if (list.empty? xml-children)
-              ($_ text;compose "<" tag attrs "/>")
-              ($_ text;compose "<" tag attrs ">"
+              ($_ text@compose "<" tag attrs "/>")
+              ($_ text@compose "<" tag attrs ">"
                   (|> xml-children
-                      (list;map recur)
+                      (list@map recur)
                       (text.join-with ""))
                   "</" tag ">")))))))
 
@@ -232,12 +231,12 @@
   (def: (= reference sample)
     (case [reference sample]
       [(#Text reference/value) (#Text sample/value)]
-      (text;= reference/value sample/value)
+      (text@= reference/value sample/value)
 
       [(#Node reference/tag reference/attrs reference/children)
        (#Node sample/tag sample/attrs sample/children)]
-      (and (name;= reference/tag sample/tag)
-           (:: (d.equivalence text.equivalence) = reference/attrs sample/attrs)
+      (and (name@= reference/tag sample/tag)
+           (:: (dictionary.equivalence text.equivalence) = reference/attrs sample/attrs)
            (n/= (list.size reference/children)
                 (list.size sample/children))
            (|> (list.zip2 reference/children sample/children)
@@ -245,114 +244,3 @@
 
       _
       #0)))
-
-(type: #export (Reader a)
-  (p.Parser (List XML) a))
-
-(exception: #export empty-input)
-(exception: #export unexpected-input)
-(exception: #export unknown-attribute)
-
-(exception: #export (wrong-tag {tag Name})
-  (name;encode tag))
-
-(def: blank-line ($_ text;compose text.new-line text.new-line))
-
-(exception: #export (unconsumed-inputs {inputs (List XML)})
-  (|> inputs
-      (list;map (:: ..codec encode))
-      (text.join-with blank-line)))
-
-(def: #export text
-  (Reader Text)
-  (function (_ docs)
-    (case docs
-      #.Nil
-      (ex.throw empty-input [])
-      
-      (#.Cons head tail)
-      (case head
-        (#Text value)
-        (#error.Success [tail value])
-        
-        (#Node _)
-        (ex.throw unexpected-input [])))))
-
-(def: #export (attr name)
-  (-> Name (Reader Text))
-  (function (_ docs)
-    (case docs
-      #.Nil
-      (ex.throw empty-input [])
-      
-      (#.Cons head _)
-      (case head
-        (#Text _)
-        (ex.throw unexpected-input [])
-        
-        (#Node tag attrs children)
-        (case (d.get name attrs)
-          #.None
-          (ex.throw unknown-attribute [])
-          
-          (#.Some value)
-          (#error.Success [docs value]))))))
-
-(def: (run' docs reader)
-  (All [a] (-> (List XML) (Reader a) (Error a)))
-  (case (p.run docs reader)
-    (#error.Success [remaining output])
-    (if (list.empty? remaining)
-      (#error.Success output)
-      (ex.throw unconsumed-inputs remaining))
-    
-    (#error.Failure error)
-    (#error.Failure error)))
-
-(def: #export (node tag)
-  (-> Name (Reader Any))
-  (function (_ docs)
-    (case docs
-      #.Nil
-      (ex.throw empty-input [])
-      
-      (#.Cons head _)
-      (case head
-        (#Text _)
-        (ex.throw unexpected-input [])
-        
-        (#Node _tag _attrs _children)
-        (if (name;= tag _tag)
-          (#error.Success [docs []])
-          (ex.throw wrong-tag tag))))))
-
-(def: #export (children reader)
-  (All [a] (-> (Reader a) (Reader a)))
-  (function (_ docs)
-    (case docs
-      #.Nil
-      (ex.throw empty-input [])
-      
-      (#.Cons head tail)
-      (case head
-        (#Text _)
-        (ex.throw unexpected-input [])
-        
-        (#Node _tag _attrs _children)
-        (do error.monad
-          [output (run' _children reader)]
-          (wrap [tail output]))))))
-
-(def: #export ignore
-  (Reader Any)
-  (function (_ docs)
-    (case docs
-      #.Nil
-      (ex.throw empty-input [])
-      
-      (#.Cons head tail)
-      (#error.Success [tail []]))))
-
-(def: #export (run document reader)
-  (All [a] (-> XML (Reader a) (Error a)))
-  (run' (list document) reader))
