@@ -4,9 +4,10 @@
     ["." monad (#+ Monad do)]
     ["." enum]]
    [control
-    ["p" parser]
     ["." function]
-    ["." io]]
+    ["." io]
+    ["p" parser
+     ["s" code (#+ Parser)]]]
    [data
     ["." maybe]
     ["." product]
@@ -22,7 +23,7 @@
    ["." type ("#@." equivalence)]
    ["." macro (#+ with-gensyms)
     ["." code]
-    ["s" syntax (#+ syntax: Syntax)]]])
+    [syntax (#+ syntax:)]]])
 
 (template [<name> <class>]
   [(type: #export <name> (primitive <class>))]
@@ -581,24 +582,24 @@
     ))
 
 (def: (make-get-const-parser class-name field-name)
-  (-> Text Text (Syntax Code))
+  (-> Text Text (Parser Code))
   (do p.monad
     [#let [dotted-name (format "::" field-name)]
      _ (s.this (code.identifier ["" dotted-name]))]
     (wrap (get-static-field class-name field-name))))
 
 (def: (make-get-var-parser class-name field-name)
-  (-> Text Text (Syntax Code))
+  (-> Text Text (Parser Code))
   (do p.monad
     [#let [dotted-name (format "::" field-name)]
      _ (s.this (code.identifier ["" dotted-name]))]
     (wrap (get-virtual-field class-name field-name (' _jvm_this)))))
 
 (def: (make-put-var-parser class-name field-name)
-  (-> Text Text (Syntax Code))
+  (-> Text Text (Parser Code))
   (do p.monad
     [#let [dotted-name (format "::" field-name)]
-     [_ _ value] (: (Syntax [Any Any Code])
+     [_ _ value] (: (Parser [Any Any Code])
                     (s.form ($_ p.and (s.this (' :=)) (s.this (code.identifier ["" dotted-name])) s.any)))]
     (wrap (`' ((~ (code.text (format "jvm putfield" ":" class-name ":" field-name))) _jvm_this (~ value))))))
 
@@ -621,7 +622,7 @@
     ast'))
 
 (def: (parser->replacer p ast)
-  (-> (Syntax Code) (-> Code Code))
+  (-> (Parser Code) (-> Code Code))
   (case (p.run (list ast) p)
     (#.Right [#.Nil ast'])
     ast'
@@ -631,7 +632,7 @@
     ))
 
 (def: (field->parser class-name [[field-name _ _] field])
-  (-> Text [Member-Declaration FieldDecl] (Syntax Code))
+  (-> Text [Member-Declaration FieldDecl] (Parser Code))
   (case field
     (#ConstantField _)
     (make-get-const-parser class-name field-name)
@@ -645,9 +646,9 @@
   (` [(~ (code.text class)) (~ value)]))
 
 (def: (make-constructor-parser params class-name arg-decls)
-  (-> (List Type-Paramameter) Text (List ArgDecl) (Syntax Code))
+  (-> (List Type-Paramameter) Text (List ArgDecl) (Parser Code))
   (do p.monad
-    [args (: (Syntax (List Code))
+    [args (: (Parser (List Code))
              (s.form (p.after (s.this (' ::new!))
                               (s.tuple (p.exactly (list.size arg-decls) s.any)))))
      #let [arg-decls' (: (List Text) (list@map (|>> product.right (simple-class$ params)) arg-decls))]]
@@ -657,10 +658,10 @@
                       (list@map ..decorate-input))))))))
 
 (def: (make-static-method-parser params class-name method-name arg-decls)
-  (-> (List Type-Paramameter) Text Text (List ArgDecl) (Syntax Code))
+  (-> (List Type-Paramameter) Text Text (List ArgDecl) (Parser Code))
   (do p.monad
     [#let [dotted-name (format "::" method-name "!")]
-     args (: (Syntax (List Code))
+     args (: (Parser (List Code))
              (s.form (p.after (s.this (code.identifier ["" dotted-name]))
                               (s.tuple (p.exactly (list.size arg-decls) s.any)))))
      #let [arg-decls' (: (List Text) (list@map (|>> product.right (simple-class$ params)) arg-decls))]]
@@ -671,10 +672,10 @@
 
 (template [<name> <jvm-op>]
   [(def: (<name> params class-name method-name arg-decls)
-     (-> (List Type-Paramameter) Text Text (List ArgDecl) (Syntax Code))
+     (-> (List Type-Paramameter) Text Text (List ArgDecl) (Parser Code))
      (do p.monad
        [#let [dotted-name (format "::" method-name "!")]
-        args (: (Syntax (List Code))
+        args (: (Parser (List Code))
                 (s.form (p.after (s.this (code.identifier ["" dotted-name]))
                                  (s.tuple (p.exactly (list.size arg-decls) s.any)))))
         #let [arg-decls' (: (List Text) (list@map (|>> product.right (simple-class$ params)) arg-decls))]]
@@ -689,7 +690,7 @@
   )
 
 (def: (method->parser params class-name [[method-name _ _] meth-def])
-  (-> (List Type-Paramameter) Text [Member-Declaration Method-Definition] (Syntax Code))
+  (-> (List Type-Paramameter) Text [Member-Declaration Method-Definition] (Parser Code))
   (case meth-def
     (#ConstructorMethod strict? type-vars args constructor-args return-expr exs)
     (make-constructor-parser params class-name args)
@@ -708,13 +709,13 @@
     (make-virtual-method-parser params class-name method-name args)))
 
 (def: (full-class-name^ imports)
-  (-> Class-Imports (Syntax Text))
+  (-> Class-Imports (Parser Text))
   (do p.monad
     [name s.local-identifier]
     (wrap (qualify imports name))))
 
 (def: privacy-modifier^
-  (Syntax PrivacyModifier)
+  (Parser PrivacyModifier)
   (let [(^open ".") p.monad]
     ($_ p.or
         (s.this (' #public))
@@ -723,7 +724,7 @@
         (wrap []))))
 
 (def: inheritance-modifier^
-  (Syntax InheritanceModifier)
+  (Parser InheritanceModifier)
   (let [(^open ".") p.monad]
     ($_ p.or
         (s.this (' #final))
@@ -731,17 +732,17 @@
         (wrap []))))
 
 (def: bound-kind^
-  (Syntax BoundKind)
+  (Parser BoundKind)
   (p.or (s.this (' <))
         (s.this (' >))))
 
 (def: (assert-no-periods name)
-  (-> Text (Syntax Any))
+  (-> Text (Parser Any))
   (p.assert "Names in class declarations cannot contain periods."
             (not (text.contains? "." name))))
 
 (def: (generic-type^ imports type-vars)
-  (-> Class-Imports (List Type-Paramameter) (Syntax GenericType))
+  (-> Class-Imports (List Type-Paramameter) (Parser GenericType))
   ($_ p.either
       (do p.monad
         [_ (s.this (' ?))]
@@ -785,7 +786,7 @@
       ))
 
 (def: (type-param^ imports)
-  (-> Class-Imports (Syntax Type-Paramameter))
+  (-> Class-Imports (Parser Type-Paramameter))
   (p.either (do p.monad
               [param-name s.local-identifier]
               (wrap [param-name (list)]))
@@ -796,11 +797,11 @@
                        (wrap [param-name bounds])))))
 
 (def: (type-params^ imports)
-  (-> Class-Imports (Syntax (List Type-Paramameter)))
+  (-> Class-Imports (Parser (List Type-Paramameter)))
   (s.tuple (p.some (type-param^ imports))))
 
 (def: (class-decl^ imports)
-  (-> Class-Imports (Syntax Class-Declaration))
+  (-> Class-Imports (Parser Class-Declaration))
   (p.either (do p.monad
               [name (full-class-name^ imports)
                _ (assert-no-periods name)]
@@ -813,7 +814,7 @@
             ))
 
 (def: (super-class-decl^ imports type-vars)
-  (-> Class-Imports (List Type-Paramameter) (Syntax Super-Class-Decl))
+  (-> Class-Imports (List Type-Paramameter) (Parser Super-Class-Decl))
   (p.either (do p.monad
               [name (full-class-name^ imports)
                _ (assert-no-periods name)]
@@ -825,11 +826,11 @@
                       (wrap [name params])))))
 
 (def: annotation-params^
-  (Syntax (List AnnotationParam))
+  (Parser (List AnnotationParam))
   (s.record (p.some (p.and s.local-tag s.any))))
 
 (def: (annotation^ imports)
-  (-> Class-Imports (Syntax Annotation))
+  (-> Class-Imports (Parser Annotation))
   (p.either (do p.monad
               [ann-name (full-class-name^ imports)]
               (wrap [ann-name (list)]))
@@ -837,31 +838,31 @@
                            annotation-params^))))
 
 (def: (annotations^' imports)
-  (-> Class-Imports (Syntax (List Annotation)))
+  (-> Class-Imports (Parser (List Annotation)))
   (do p.monad
     [_ (s.this (' #ann))]
     (s.tuple (p.some (annotation^ imports)))))
 
 (def: (annotations^ imports)
-  (-> Class-Imports (Syntax (List Annotation)))
+  (-> Class-Imports (Parser (List Annotation)))
   (do p.monad
     [anns?? (p.maybe (annotations^' imports))]
     (wrap (maybe.default (list) anns??))))
 
 (def: (throws-decl'^ imports type-vars)
-  (-> Class-Imports (List Type-Paramameter) (Syntax (List GenericType)))
+  (-> Class-Imports (List Type-Paramameter) (Parser (List GenericType)))
   (do p.monad
     [_ (s.this (' #throws))]
     (s.tuple (p.some (generic-type^ imports type-vars)))))
 
 (def: (throws-decl^ imports type-vars)
-  (-> Class-Imports (List Type-Paramameter) (Syntax (List GenericType)))
+  (-> Class-Imports (List Type-Paramameter) (Parser (List GenericType)))
   (do p.monad
     [exs? (p.maybe (throws-decl'^ imports type-vars))]
     (wrap (maybe.default (list) exs?))))
 
 (def: (method-decl^ imports type-vars)
-  (-> Class-Imports (List Type-Paramameter) (Syntax [Member-Declaration MethodDecl]))
+  (-> Class-Imports (List Type-Paramameter) (Parser [Member-Declaration MethodDecl]))
   (s.form (do p.monad
             [tvars (p.default (list) (type-params^ imports))
              name s.local-identifier
@@ -875,14 +876,14 @@
                                           #method-exs    exs}]))))
 
 (def: state-modifier^
-  (Syntax StateModifier)
+  (Parser StateModifier)
   ($_ p.or
       (s.this (' #volatile))
       (s.this (' #final))
       (:: p.monad wrap [])))
 
 (def: (field-decl^ imports type-vars)
-  (-> Class-Imports (List Type-Paramameter) (Syntax [Member-Declaration FieldDecl]))
+  (-> Class-Imports (List Type-Paramameter) (Parser [Member-Declaration FieldDecl]))
   (p.either (s.form (do p.monad
                       [_ (s.this (' #const))
                        name s.local-identifier
@@ -899,24 +900,24 @@
                       (wrap [[name pm anns] (#VariableField [sm type])])))))
 
 (def: (arg-decl^ imports type-vars)
-  (-> Class-Imports (List Type-Paramameter) (Syntax ArgDecl))
+  (-> Class-Imports (List Type-Paramameter) (Parser ArgDecl))
   (s.record (p.and s.local-identifier
                    (generic-type^ imports type-vars))))
 
 (def: (arg-decls^ imports type-vars)
-  (-> Class-Imports (List Type-Paramameter) (Syntax (List ArgDecl)))
+  (-> Class-Imports (List Type-Paramameter) (Parser (List ArgDecl)))
   (p.some (arg-decl^ imports type-vars)))
 
 (def: (constructor-arg^ imports type-vars)
-  (-> Class-Imports (List Type-Paramameter) (Syntax ConstructorArg))
+  (-> Class-Imports (List Type-Paramameter) (Parser ConstructorArg))
   (s.record (p.and (generic-type^ imports type-vars) s.any)))
 
 (def: (constructor-args^ imports type-vars)
-  (-> Class-Imports (List Type-Paramameter) (Syntax (List ConstructorArg)))
+  (-> Class-Imports (List Type-Paramameter) (Parser (List ConstructorArg)))
   (s.tuple (p.some (constructor-arg^ imports type-vars))))
 
 (def: (constructor-method^ imports class-vars)
-  (-> Class-Imports (List Type-Paramameter) (Syntax [Member-Declaration Method-Definition]))
+  (-> Class-Imports (List Type-Paramameter) (Parser [Member-Declaration Method-Definition]))
   (s.form (do p.monad
             [pm privacy-modifier^
              strict-fp? (s.this? (' #strict))
@@ -934,7 +935,7 @@
                    (#ConstructorMethod strict-fp? method-vars arg-decls constructor-args body exs)]))))
 
 (def: (virtual-method-def^ imports class-vars)
-  (-> Class-Imports (List Type-Paramameter) (Syntax [Member-Declaration Method-Definition]))
+  (-> Class-Imports (List Type-Paramameter) (Parser [Member-Declaration Method-Definition]))
   (s.form (do p.monad
             [pm privacy-modifier^
              strict-fp? (s.this? (' #strict))
@@ -953,7 +954,7 @@
                    (#VirtualMethod final? strict-fp? method-vars arg-decls return-type body exs)]))))
 
 (def: (overriden-method-def^ imports)
-  (-> Class-Imports (Syntax [Member-Declaration Method-Definition]))
+  (-> Class-Imports (Parser [Member-Declaration Method-Definition]))
   (s.form (do p.monad
             [strict-fp? (s.this? (' #strict))
              owner-class (class-decl^ imports)
@@ -971,7 +972,7 @@
                    (#OverridenMethod strict-fp? owner-class method-vars arg-decls return-type body exs)]))))
 
 (def: (static-method-def^ imports)
-  (-> Class-Imports (Syntax [Member-Declaration Method-Definition]))
+  (-> Class-Imports (Parser [Member-Declaration Method-Definition]))
   (s.form (do p.monad
             [pm privacy-modifier^
              strict-fp? (s.this? (' #strict))
@@ -990,7 +991,7 @@
                    (#StaticMethod strict-fp? method-vars arg-decls return-type body exs)]))))
 
 (def: (abstract-method-def^ imports)
-  (-> Class-Imports (Syntax [Member-Declaration Method-Definition]))
+  (-> Class-Imports (Parser [Member-Declaration Method-Definition]))
   (s.form (do p.monad
             [pm privacy-modifier^
              _ (s.this (' #abstract))
@@ -1007,7 +1008,7 @@
                    (#AbstractMethod method-vars arg-decls return-type exs)]))))
 
 (def: (native-method-def^ imports)
-  (-> Class-Imports (Syntax [Member-Declaration Method-Definition]))
+  (-> Class-Imports (Parser [Member-Declaration Method-Definition]))
   (s.form (do p.monad
             [pm privacy-modifier^
              _ (s.this (' #native))
@@ -1024,7 +1025,7 @@
                    (#NativeMethod method-vars arg-decls return-type exs)]))))
 
 (def: (method-def^ imports class-vars)
-  (-> Class-Imports (List Type-Paramameter) (Syntax [Member-Declaration Method-Definition]))
+  (-> Class-Imports (List Type-Paramameter) (Parser [Member-Declaration Method-Definition]))
   ($_ p.either
       (constructor-method^ imports class-vars)
       (virtual-method-def^ imports class-vars)
@@ -1034,11 +1035,11 @@
       (native-method-def^ imports)))
 
 (def: partial-call^
-  (Syntax Partial-Call)
+  (Parser Partial-Call)
   (s.form (p.and s.identifier (p.some s.any))))
 
 (def: class-kind^
-  (Syntax Class-Kind)
+  (Parser Class-Kind)
   (p.either (do p.monad
               [_ (s.this (' #class))]
               (wrap #Class))
@@ -1048,26 +1049,26 @@
             ))
 
 (def: import-member-alias^
-  (Syntax (Maybe Text))
+  (Parser (Maybe Text))
   (p.maybe (do p.monad
              [_ (s.this (' #as))]
              s.local-identifier)))
 
 (def: (import-member-args^ imports type-vars)
-  (-> Class-Imports (List Type-Paramameter) (Syntax (List [Bit GenericType])))
+  (-> Class-Imports (List Type-Paramameter) (Parser (List [Bit GenericType])))
   (s.tuple (p.some (p.and (s.this? (' #?)) (generic-type^ imports type-vars)))))
 
 (def: import-member-return-flags^
-  (Syntax [Bit Bit Bit])
+  (Parser [Bit Bit Bit])
   ($_ p.and (s.this? (' #io)) (s.this? (' #try)) (s.this? (' #?))))
 
 (def: primitive-mode^
-  (Syntax Primitive-Mode)
+  (Parser Primitive-Mode)
   (p.or (s.this (' #manual))
         (s.this (' #auto))))
 
 (def: (import-member-decl^ imports owner-vars)
-  (-> Class-Imports (List Type-Paramameter) (Syntax Import-Member-Declaration))
+  (-> Class-Imports (List Type-Paramameter) (Parser Import-Member-Declaration))
   ($_ p.either
       (s.form (do p.monad
                 [_ (s.this (' #enum))
@@ -1092,7 +1093,7 @@
                                          {}]))
                 ))
       (s.form (do p.monad
-                [kind (: (Syntax ImportMethodKind)
+                [kind (: (Parser ImportMethodKind)
                          (p.or (s.this (' #static))
                                (wrap [])))
                  tvars (p.default (list) (type-params^ imports))

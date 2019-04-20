@@ -1,13 +1,11 @@
 (.module:
-  [lux (#- nat int rev)
+  [lux #*
    [abstract
-    [equivalence (#+ Equivalence)]
-    ["." monad (#+ Monad do)]]
+    ["." monad (#+ do)]]
    [control
-    ["p" parser]]
+    ["<>" parser
+     ["</>" code]]]
    [data
-    ["." bit]
-    ["." name]
     ["." maybe]
     ["." error (#+ Error)]
     [number
@@ -19,181 +17,13 @@
     [collection
      ["." list ("#@." functor)]]]]
   ["." // (#+ with-gensyms)
-   ["." code ("#@." equivalence)]])
+   ["." code]])
 
 (def: (join-pairs pairs)
   (All [a] (-> (List [a a]) (List a)))
   (case pairs
     #.Nil                   #.Nil
     (#.Cons [[x y] pairs']) (list& x y (join-pairs pairs'))))
-
-(type: #export Syntax
-  {#.doc "A Lux syntax parser."}
-  (p.Parser (List Code)))
-
-(def: (remaining-inputs asts)
-  (-> (List Code) Text)
-  ($_ text@compose text.new-line "Remaining input: "
-      (|> asts (list@map code.to-text) (list.interpose " ") (text.join-with ""))))
-
-(def: #export any
-  {#.doc "Just returns the next input without applying any logic."}
-  (Syntax Code)
-  (function (_ tokens)
-    (case tokens
-      #.Nil                (#error.Failure "There are no tokens to parse!")
-      (#.Cons [t tokens']) (#error.Success [tokens' t]))))
-
-(template [<get-name> <type> <tag> <eq> <desc>]
-  [(def: #export <get-name>
-     {#.doc (code.text ($_ text@compose "Parses the next " <desc> " input Code."))}
-     (Syntax <type>)
-     (function (_ tokens)
-       (case tokens
-         (#.Cons [[_ (<tag> x)] tokens'])
-         (#error.Success [tokens' x])
-
-         _
-         (#error.Failure ($_ text@compose "Cannot parse " <desc> (remaining-inputs tokens))))))]
-
-  [   bit     Bit  #.Bit        bit.equivalence  "bit"]
-  [   nat     Nat  #.Nat        nat.equivalence  "nat"]
-  [   int     Int  #.Int        int.equivalence  "int"]
-  [   rev     Rev  #.Rev        rev.equivalence  "rev"]
-  [  frac     Frac #.Frac       frac.equivalence "frac"]
-  [  text     Text #.Text       text.equivalence "text"]
-  [identifier Name #.Identifier name.equivalence "identifier"]
-  [   tag     Name #.Tag        name.equivalence "tag"]
-  )
-
-(def: #export (this? ast)
-  {#.doc "Asks if the given Code is the next input."}
-  (-> Code (Syntax Bit))
-  (function (_ tokens)
-    (case tokens
-      (#.Cons [token tokens'])
-      (let [is-it? (code@= ast token)
-            remaining (if is-it?
-                        tokens'
-                        tokens)]
-        (#error.Success [remaining is-it?]))
-
-      _
-      (#error.Success [tokens #0]))))
-
-(def: #export (this ast)
-  {#.doc "Ensures the given Code is the next input."}
-  (-> Code (Syntax Any))
-  (function (_ tokens)
-    (case tokens
-      (#.Cons [token tokens'])
-      (if (code@= ast token)
-        (#error.Success [tokens' []])
-        (#error.Failure ($_ text@compose "Expected a " (code.to-text ast) " but instead got " (code.to-text token)
-                            (remaining-inputs tokens))))
-
-      _
-      (#error.Failure "There are no tokens to parse!"))))
-
-(template [<name> <tag> <desc>]
-  [(def: #export <name>
-     {#.doc (code.text ($_ text@compose "Parse a local " <desc> " (a " <desc> " that has no module prefix)."))}
-     (Syntax Text)
-     (function (_ tokens)
-       (case tokens
-         (#.Cons [[_ (<tag> ["" x])] tokens'])
-         (#error.Success [tokens' x])
-
-         _
-         (#error.Failure ($_ text@compose "Cannot parse local " <desc> (remaining-inputs tokens))))))]
-
-  [local-identifier #.Identifier "identifier"]
-  [   local-tag     #.Tag        "tag"]
-  )
-
-(template [<name> <tag> <desc>]
-  [(def: #export (<name> p)
-     {#.doc (code.text ($_ text@compose "Parse inside the contents of a " <desc> " as if they were the input Codes."))}
-     (All [a]
-       (-> (Syntax a) (Syntax a)))
-     (function (_ tokens)
-       (case tokens
-         (#.Cons [[_ (<tag> members)] tokens'])
-         (case (p members)
-           (#error.Success [#.Nil x]) (#error.Success [tokens' x])
-           _                          (#error.Failure ($_ text@compose "Syntax was expected to fully consume " <desc> (remaining-inputs tokens))))
-
-         _
-         (#error.Failure ($_ text@compose "Cannot parse " <desc> (remaining-inputs tokens))))))]
-
-  [ form  #.Form "form"]
-  [tuple #.Tuple "tuple"]
-  )
-
-(def: #export (record p)
-  {#.doc (code.text ($_ text@compose "Parse inside the contents of a record as if they were the input Codes."))}
-  (All [a]
-    (-> (Syntax a) (Syntax a)))
-  (function (_ tokens)
-    (case tokens
-      (#.Cons [[_ (#.Record pairs)] tokens'])
-      (case (p (join-pairs pairs))
-        (#error.Success [#.Nil x]) (#error.Success [tokens' x])
-        _                          (#error.Failure ($_ text@compose "Syntax was expected to fully consume record" (remaining-inputs tokens))))
-
-      _
-      (#error.Failure ($_ text@compose "Cannot parse record" (remaining-inputs tokens))))))
-
-(def: #export end!
-  {#.doc "Ensures there are no more inputs."}
-  (Syntax Any)
-  (function (_ tokens)
-    (case tokens
-      #.Nil (#error.Success [tokens []])
-      _     (#error.Failure ($_ text@compose "Expected list of tokens to be empty!" (remaining-inputs tokens))))))
-
-(def: #export end?
-  {#.doc "Checks whether there are no more inputs."}
-  (Syntax Bit)
-  (function (_ tokens)
-    (case tokens
-      #.Nil (#error.Success [tokens #1])
-      _     (#error.Success [tokens #0]))))
-
-(def: #export (lift outcome)
-  (All [a] (-> (Error a) (Syntax a)))
-  (function (_ input)
-    (case outcome
-      (#error.Failure error)
-      (#error.Failure error)
-
-      (#error.Success value)
-      (#error.Success [input value])
-      )))
-
-(def: #export (run inputs syntax)
-  (All [a] (-> (List Code) (Syntax a) (Error a)))
-  (case (syntax inputs)
-    (#error.Failure error)
-    (#error.Failure error)
-
-    (#error.Success [unconsumed value])
-    (case unconsumed
-      #.Nil
-      (#error.Success value)
-
-      _
-      (#error.Failure (text@compose "Unconsumed inputs: "
-                                    (|> (list@map code.to-text unconsumed)
-                                        (text.join-with ", ")))))))
-
-(def: #export (local inputs syntax)
-  {#.doc "Run a syntax parser with the given list of inputs, instead of the real ones."}
-  (All [a] (-> (List Code) (Syntax a) (Syntax a)))
-  (function (_ real)
-    (do error.monad
-      [value (run inputs syntax)]
-      (wrap [real value]))))
 
 (macro: #export (syntax: tokens)
   {#.doc (doc "A more advanced way to define macros than 'macro:'."
@@ -244,7 +74,7 @@
                                           (wrap [var parser])
 
                                           [_ (#.Identifier var-name)]
-                                          (wrap [(code.identifier var-name) (` (~! any))])
+                                          (wrap [(code.identifier var-name) (` (~! </>.any))])
 
                                           _
                                           (//.fail "Syntax pattern expects records or identifiers."))))
@@ -263,9 +93,9 @@
 
                              (#.Left (~ g!error))
                              (#.Left ((~! text.join-with) ": " (list (~ error-msg) (~ g!error))))}
-                            ((~! ..run) (~ g!tokens)
-                             (: ((~! ..Syntax) (Meta (List Code)))
-                                ((~! do) (~! p.monad)
+                            ((~! </>.run) (~ g!tokens)
+                             (: ((~! </>.Parser) (Meta (List Code)))
+                                ((~! do) (~! <>.monad)
                                  [(~+ (join-pairs vars+parsers))]
                                  ((~' wrap) ((~! do) (~! //.monad)
                                              []
