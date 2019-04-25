@@ -27,9 +27,6 @@
                  ;; [kawa-scheme/kawa-core "2.4"]
                  ;; ;; Common Lisp
                  ;; [org.abcl/abcl "1.5.0"]
-                 ;; ;; PHP 5
-                 ;; [org.develnext.jphp/jphp-core "0.9.2"]
-                 ;; [org.develnext.jphp/jphp-scripting "0.9.2"]
                  ]
   
   :manifest {"lux" ~version}

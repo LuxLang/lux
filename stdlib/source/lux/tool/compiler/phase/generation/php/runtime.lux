@@ -1,0 +1,305 @@
+(.module:
+  [lux (#- inc)
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["." function]
+    ["p" parser
+     ["s" code]]]
+   [data
+    [number (#+ hex)
+     ["." i64]]
+    ["." text
+     format]
+    [collection
+     ["." list ("#@." functor)]]]
+   ["." macro
+    ["." code]
+    [syntax (#+ syntax:)]]
+   [host
+    ["_" php (#+ Expression Var Global Computation Literal Statement)]]]
+  ["." ///
+   ["//." //
+    [//
+     ["/////." name]
+     ["." synthesis]]]]
+  )
+
+(template [<name> <base>]
+  [(type: #export <name>
+     (<base> Var (Expression Any) Statement))]
+
+  [Operation ///.Operation]
+  [Phase ///.Phase]
+  [Handler ///.Handler]
+  [Bundle ///.Bundle]
+  )
+
+(def: prefix Text "LuxRuntime")
+
+(def: #export unit (_.string synthesis.unit))
+
+(def: (flag value)
+  (-> Bit Literal)
+  (if value
+    (_.string "")
+    _.null))
+
+(def: #export variant-tag-field "_lux_tag")
+(def: #export variant-flag-field "_lux_flag")
+(def: #export variant-value-field "_lux_value")
+
+(def: (variant' tag last? value)
+  (-> (Expression Any) (Expression Any) (Expression Any) Literal)
+  (_.array/** (list [(_.string ..variant-tag-field) tag]
+                    [(_.string ..variant-flag-field) last?]
+                    [(_.string ..variant-value-field) value])))
+
+(def: #export (variant tag last? value)
+  (-> Nat Bit (Expression Any) Literal)
+  (variant' (_.int (.int tag))
+            (..flag last?)
+            value))
+
+(def: #export none
+  Literal
+  (..variant 0 #0 ..unit))
+
+(def: #export some
+  (-> (Expression Any) Literal)
+  (..variant 1 #1))
+
+(def: #export left
+  (-> (Expression Any) Literal)
+  (..variant 0 #0))
+
+(def: #export right
+  (-> (Expression Any) Literal)
+  (..variant 1 #1))
+
+(def: (runtime-name raw)
+  (-> Text [Global Var])
+  (let [refined (|> raw
+                    /////name.normalize
+                    (format ..prefix "_"))]
+    [(_.global refined) (_.var refined)]))
+
+(def: (feature name definition)
+  (-> [Global Var] (-> [Global Var] Statement) Statement)
+  (definition name))
+
+(syntax: #export (with-vars {vars (s.tuple (p.some s.local-identifier))}
+                   body)
+  (wrap (list (` (let [(~+ (|> vars
+                               (list@map (function (_ var)
+                                           (list (code.local-identifier var)
+                                                 (` (_.var (~ (code.text (/////name.normalize var))))))))
+                               list.concat))]
+                   (~ body))))))
+
+(syntax: (runtime: {declaration (p.or s.local-identifier
+                                      (s.form (p.and s.local-identifier
+                                                     (p.some s.local-identifier))))}
+           code)
+  (macro.with-gensyms [g!_ g!G g!L]
+    (case declaration
+      (#.Left name)
+      (let [code-nameC (code.local-identifier (format "@" name))
+            runtime-nameC (` (runtime-name (~ (code.text name))))]
+        (wrap (list (` (def: #export (~ (code.local-identifier name)) _.Global (~ runtime-nameC)))
+                    (` (def: (~ code-nameC)
+                         _.Statement
+                         (..feature (~ runtime-nameC)
+                                    (function ((~ g!_) [(~ g!G) (~ g!L)])
+                                      (_.; (_.set (~ g!G) (~ code))))))))))
+      
+      (#.Right [name inputs])
+      (let [code-nameC (code.local-identifier (format "@" name))
+            runtime-nameC (` (runtime-name (~ (code.text name))))
+            inputsC (list@map code.local-identifier inputs)
+            inputs-typesC (list@map (function.constant (` (_.Expression Any)))
+                                    inputs)]
+        (wrap (list (` (def: #export ((~ (code.local-identifier name)) (~+ inputsC))
+                         (-> (~+ inputs-typesC) (_.Computation Any))
+                         (.let [[(~ g!G) (~ g!L)] (~ runtime-nameC)]
+                           (_.apply/* (list (~+ inputsC)) (~ g!G)))))
+                    (` (def: (~ code-nameC)
+                         _.Statement
+                         (..feature (~ runtime-nameC)
+                                    (function ((~ g!_) [(~ g!G) (~ g!L)])
+                                      (..with-vars [(~+ inputsC)]
+                                        ($_ _.then
+                                            (<| _.;
+                                                (_.set (~ g!L))
+                                                (_.closure (list (_.reference (~ g!L)))
+                                                           (list (~+ (|> inputsC
+                                                                         (list@map (function (_ inputC)
+                                                                                     (` [#0 (~ inputC)]))))))
+                                                           (~ code)))
+                                            (_.; (_.set (~ g!G) (~ g!L)))
+                                            ))))))))))))
+
+(runtime: (lux//try op)
+  (with-vars [value]
+    (_.try ($_ _.then
+               (_.; (_.set value (_.apply/1 [..unit] op)))
+               (_.return (..right value)))
+           (list (with-vars [error]
+                   {#_.class (_.constant "Exception")
+                    #_.exception error
+                    #_.handler (_.return (..left (_.do "getMessage" (list) error)))})))))
+
+(runtime: (lux//program-args inputs)
+  (with-vars [head tail]
+    ($_ _.then
+        (_.; (_.set tail ..none))
+        (<| (_.for-each (_.array-reverse/1 inputs) head)
+            (_.; (_.set tail (..some (_.array/* (list head tail))))))
+        (_.return tail))))
+
+(def: runtime//lux
+  Statement
+  ($_ _.then
+      @lux//try
+      @lux//program-args))
+
+(runtime: (io//throw! message)
+  ($_ _.then
+      (_.throw (_.new (_.constant "Exception") (list message)))
+      (_.return ..unit)))
+
+(def: runtime//io
+  Statement
+  ($_ _.then
+      @io//throw!))
+
+(def: tuple-size
+  _.count/1)
+
+(def: last-index
+  (|>> ..tuple-size (_.- (_.int +1))))
+
+(with-expansions [<recur> (as-is ($_ _.then
+                                     (_.; (_.set lefts (_.- last-index-right lefts)))
+                                     (_.; (_.set tuple (_.nth last-index-right tuple)))))]
+  (runtime: (tuple//left lefts tuple)
+    (with-vars [last-index-right]
+      (<| (_.while (_.bool true))
+          ($_ _.then
+              (_.; (_.set last-index-right (..last-index tuple)))
+              (_.if (_.> lefts last-index-right)
+                ## No need for recursion
+                (_.return (_.nth lefts tuple))
+                ## Needs recursion
+                <recur>)))))
+
+  (runtime: (tuple//right lefts tuple)
+    (with-vars [last-index-right right-index]
+      (<| (_.while (_.bool true))
+          ($_ _.then
+              (_.; (_.set last-index-right (..last-index tuple)))
+              (_.; (_.set right-index (_.+ (_.int +1) lefts)))
+              (_.cond (list [(_.= right-index last-index-right)
+                             (_.return (_.nth right-index tuple))]
+                            [(_.> right-index last-index-right)
+                             ## Needs recursion.
+                             <recur>])
+                      (_.return (_.array-slice/2 [tuple right-index])))
+              )))))
+
+(runtime: (sum//get sum wantsLast wantedTag)
+  (let [no-match! (_.return _.null)
+        sum-tag (_.nth (_.string ..variant-tag-field) sum)
+        ## sum-tag (_.nth (_.int +0) sum)
+        sum-flag (_.nth (_.string ..variant-flag-field) sum)
+        ## sum-flag (_.nth (_.int +1) sum)
+        sum-value (_.nth (_.string ..variant-value-field) sum)
+        ## sum-value (_.nth (_.int +2) sum)
+        is-last? (_.= (_.string "") sum-flag)
+        test-recursion! (_.if is-last?
+                          ## Must recurse.
+                          (_.return (sum//get sum-value (_.- sum-tag wantedTag) wantsLast))
+                          no-match!)]
+    ($_ _.then
+        (_.echo (_.string "sum//get ")) (_.echo (_.count/1 sum))
+        (_.echo (_.string " ")) (_.echo (_.apply/1 [sum] (_.constant "gettype")))
+        (_.echo (_.string " ")) (_.echo sum-tag)
+        (_.echo (_.string " ")) (_.echo wantedTag)
+        (_.echo (_.string text.new-line))
+        (_.cond (list [(_.= sum-tag wantedTag)
+                       (_.if (_.= wantsLast sum-flag)
+                         (_.return sum-value)
+                         test-recursion!)]
+
+                      [(_.> sum-tag wantedTag)
+                       test-recursion!]
+
+                      [(_.and (_.< sum-tag wantedTag)
+                              (_.= (_.string "") wantsLast))
+                       (_.return (variant' (_.- wantedTag sum-tag) sum-flag sum-value))])
+                no-match!)
+        )))
+
+(def: runtime//adt
+  Statement
+  ($_ _.then
+      @tuple//left
+      @tuple//right
+      @sum//get))
+
+(runtime: (i64//logic-right-shift param subject)
+  (let [mask (|> (_.int +1)
+                 (_.bit-shl (_.- param (_.int +64)))
+                 (_.- (_.int +1)))]
+    (_.return (|> subject
+                  (_.bit-shr param)
+                  (_.bit-and mask)))))
+
+(def: runtime//i64
+  Statement
+  ($_ _.then
+      @i64//logic-right-shift
+      ))
+
+(runtime: (text//index subject param start)
+  (with-vars [idx]
+    ($_ _.then
+        (_.; (_.set idx (_.strpos/3 [subject param start])))
+        (_.if (_.= (_.bool false) idx)
+          (_.return ..none)
+          (_.return (..some idx))))))
+
+(def: runtime//text
+  Statement
+  ($_ _.then
+      @text//index
+      ))
+
+(def: check-necessary-conditions!
+  Statement
+  (let [condition (_.= (_.int +8)
+                       (_.constant "PHP_INT_SIZE"))
+        error-message (_.string (format "Cannot run program!" text.new-line
+                                        "Lux/PHP programs require 64-bit PHP builds!"))]
+    (_.when (_.not condition)
+            (_.throw (_.new (_.constant "Exception") (list error-message))))))
+
+(def: runtime
+  Statement
+  ($_ _.then
+      check-necessary-conditions!
+      runtime//lux
+      runtime//adt
+      runtime//i64
+      runtime//text
+      runtime//io
+      ))
+
+(def: #export artifact ..prefix)
+
+(def: #export generate
+  (Operation Any)
+  (///.with-buffer
+    (do ////.monad
+      [_ (///.save! true ["" ..prefix] ..runtime)]
+      (///.save-buffer! ..artifact))))

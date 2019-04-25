@@ -3,7 +3,7 @@
 (def sonatype-releases "https://oss.sonatype.org/service/local/staging/deploy/maven2/")
 (def sonatype-snapshots "https://oss.sonatype.org/content/repositories/snapshots/")
 
-(defproject com.github.luxlang/lux-ruby #=(identity version)
+(defproject com.github.luxlang/lux-php #=(identity version)
   :description "A Ruby compiler for Lux."
   :url ~repo
   :license {:name "Lux License v0.1"
@@ -15,14 +15,17 @@
                               [:url "https://github.com/eduardoejp"]]]
   
   :repositories [["releases" ~sonatype-releases]
-                 ["snapshots" ~sonatype-snapshots]]
+                 ["snapshots" ~sonatype-snapshots]
+                 ["jitpack" "https://jitpack.io"]]
   :deploy-repositories [["releases" {:url ~sonatype-releases :creds :gpg}]
                         ["snapshots" {:url ~sonatype-snapshots :creds :gpg}]]
   
   :plugins [[com.github.luxlang/lein-luxc ~version]]
   :dependencies [[com.github.luxlang/luxc-jvm ~version]
                  [com.github.luxlang/stdlib ~version]
-                 [org.jruby/jruby-complete "9.2.6.0"]]
+                 ;; PHP 5
+                 [org.develnext.jphp/jphp-core "0.9.2"]
+                 [org.develnext.jphp/jphp-scripting "0.9.2"]]
 
   :manifest {"lux" ~version}
   :source-paths ["source"]
