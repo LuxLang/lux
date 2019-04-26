@@ -1,0 +1,85 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   [abstract
+    [monad (#+ do)]]
+   [control
+    [pipe (#+ case>)]]
+   [data
+    ["." error]
+    ["." maybe]
+    ["." text ("#@." equivalence)
+     format]
+    [collection
+     ["." array (#+ Array)]
+     ["." list ("#@." functor)]]]
+   [math
+    ["r" random]]
+   ["." host (#+ import:)]
+   [tool
+    [compiler
+     ["." analysis]
+     ["." synthesis]]]]
+  ["." ///])
+
+(import: #long java/lang/Integer)
+
+(def: (variant run)
+  (-> ///.Runner Test)
+  (do r.monad
+    [num-tags (|> r.nat (:: @ map (|>> (n/% 10) (n/max 2))))
+     tag-in (|> r.nat (:: @ map (n/% num-tags)))
+     #let [last?-in (|> num-tags dec (n/= tag-in))]
+     value-in r.i64]
+    (_.test (%name (name-of synthesis.variant))
+            (|> (synthesis.variant {#analysis.lefts (if last?-in
+                                                      (dec tag-in)
+                                                      tag-in)
+                                    #analysis.right? last?-in
+                                    #analysis.value (synthesis.i64 value-in)})
+                (run "variant")
+                (case> (#error.Success valueT)
+                       (let [valueT (:coerce (Array Any) valueT)]
+                         (and (n/= 3 (array.size valueT))
+                              (let [tag-out (:coerce java/lang/Integer (maybe.assume (array.read 0 valueT)))
+                                    last?-out (array.read 1 valueT)
+                                    value-out (:coerce Any (maybe.assume (array.read 2 valueT)))
+                                    same-tag? (|> tag-out host.int-to-long (:coerce Nat) (n/= tag-in))
+                                    same-flag? (case last?-out
+                                                 (#.Some last?-out')
+                                                 (and last?-in (text@= "" (:coerce Text last?-out')))
+
+                                                 #.None
+                                                 (not last?-in))
+                                    same-value? (|> value-out (:coerce Int) (i/= value-in))]
+                                (and same-tag?
+                                     same-flag?
+                                     same-value?))))
+
+                       (#error.Failure error)
+                       false)))))
+
+(def: (tuple run)
+  (-> ///.Runner Test)
+  (do r.monad
+    [size (|> r.nat (:: @ map (|>> (n/% 10) (n/max 2))))
+     tuple-in (r.list size r.i64)]
+    (_.test (%name (name-of synthesis.tuple))
+            (|> (synthesis.tuple (list@map (|>> synthesis.i64) tuple-in))
+                (run "tuple")
+                (case> (#error.Success tuple-out)
+                       (let [tuple-out (:coerce (Array Any) tuple-out)]
+                         (and (n/= size (array.size tuple-out))
+                              (list.every? (function (_ [left right])
+                                             (i/= left (:coerce Int right)))
+                                           (list.zip2 tuple-in (array.to-list tuple-out)))))
+
+                       (#error.Failure error)
+                       false)))))
+
+(def: #export (spec runner)
+  (-> ///.Runner Test)
+  ($_ _.and
+      (..variant runner)
+      (..tuple runner)
+      ))

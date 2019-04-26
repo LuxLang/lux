@@ -1,0 +1,69 @@
+(.module:
+  [lux #*
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["." io (#+ IO)]]
+   [data
+    ["." error (#+ Error)]]
+   [tool
+    [compiler
+     ["." synthesis (#+ Synthesis)]
+     ["." statement]
+     ["." phase
+      ["." macro (#+ Expander)]
+      ["." generation (#+ Operation Bundle)]
+      [extension
+       ["." bundle]]]
+     [default
+      ["." platform (#+ Platform)]]]]])
+
+(type: #export Runner (-> Text Synthesis (Error Any)))
+(type: #export Definer (-> Name Synthesis (Error Any)))
+
+(def: #export (runner platform bundle expander program)
+  (All [anchor expression statement]
+    (-> (Platform IO anchor expression statement)
+        (Bundle anchor expression statement)
+        Expander
+        (-> expression statement)
+        Runner))
+  (function (_ evaluation-name expressionS)
+    (io.run
+     (do io.monad
+       [?state (platform.initialize expander platform bundle program)]
+       (wrap (do error.monad
+               [[bundle' state] ?state
+                expressionG (<| (phase.run (get@ [#statement.generation
+                                                  #statement.state]
+                                                 state))
+                                (do phase.monad
+                                  [_ (get@ #platform.runtime platform)]
+                                  ((get@ #platform.phase platform) expressionS)))]
+               (:: (get@ #platform.host platform) evaluate! evaluation-name
+                   expressionG)))))
+    ))
+
+## (def: #export (runner generate-runtime translate bundle state)
+##   (-> (Operation Any) Phase Bundle (IO State)
+##       Runner)
+##   (function (_ valueS)
+##     (|> (do phase.Monad<Operation>
+##           [_ generate-runtime
+##            program (translate valueS)]
+##           (translation.evaluate! "runner" program))
+##         translation.with-buffer
+##         (phase.run [bundle (io.run state)]))))
+
+## (def: #export (definer generate-runtime translate bundle state)
+##   (-> (Operation Any) Phase Bundle (IO State) Definer)
+##   (function (_ lux-name valueS)
+##     (|> (do phase.Monad<Operation>
+##           [_ generate-runtime
+##            valueH (translate valueS)
+##            [host-name host-value] (translation.define! lux-name valueH)
+##            _ (translation.learn lux-name host-name)
+##            program (translate (synthesis.constant lux-name))]
+##           (translation.evaluate! "definer" program))
+##         translation.with-buffer
+##         (phase.run [bundle (io.run state)]))))
