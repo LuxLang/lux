@@ -8,6 +8,7 @@
     ["." error (#+ Error)]]
    [tool
     [compiler
+     ["." reference]
      ["." synthesis (#+ Synthesis)]
      ["." statement]
      ["." phase
@@ -21,28 +22,11 @@
 (type: #export Runner (-> Text Synthesis (Error Any)))
 (type: #export Definer (-> Name Synthesis (Error Any)))
 
-(def: #export (runner platform bundle expander program)
+(type: #export (Instancer what)
   (All [anchor expression statement]
     (-> (Platform IO anchor expression statement)
-        (Bundle anchor expression statement)
-        Expander
-        (-> expression statement)
-        Runner))
-  (function (_ evaluation-name expressionS)
-    (io.run
-     (do io.monad
-       [?state (platform.initialize expander platform bundle program)]
-       (wrap (do error.monad
-               [[bundle' state] ?state
-                expressionG (<| (phase.run (get@ [#statement.generation
-                                                  #statement.state]
-                                                 state))
-                                (do phase.monad
-                                  [_ (get@ #platform.runtime platform)]
-                                  ((get@ #platform.phase platform) expressionS)))]
-               (:: (get@ #platform.host platform) evaluate! evaluation-name
-                   expressionG)))))
-    ))
+        (generation.State+ anchor expression statement)
+        what)))
 
 ## (def: #export (runner generate-runtime translate bundle state)
 ##   (-> (Operation Any) Phase Bundle (IO State)
@@ -54,6 +38,16 @@
 ##           (translation.evaluate! "runner" program))
 ##         translation.with-buffer
 ##         (phase.run [bundle (io.run state)]))))
+
+(def: (runner (^slots [#platform.runtime #platform.phase #platform.host]) state)
+  (Instancer Runner)
+  (function (_ evaluation-name expressionS)
+    (do error.monad
+      [expressionG (<| (phase.run state)
+                       (do phase.monad
+                         [_ runtime]
+                         (phase expressionS)))]
+      (:: host evaluate! evaluation-name expressionG))))
 
 ## (def: #export (definer generate-runtime translate bundle state)
 ##   (-> (Operation Any) Phase Bundle (IO State) Definer)
@@ -67,3 +61,34 @@
 ##           (translation.evaluate! "definer" program))
 ##         translation.with-buffer
 ##         (phase.run [bundle (io.run state)]))))
+
+(def: (definer (^slots [#platform.runtime #platform.phase #platform.host])
+               state)
+  (Instancer Definer)
+  (function (_ lux-name expressionS)
+    (do error.monad
+      [definitionG (<| (phase.run state)
+                       (do phase.monad
+                         [_ runtime
+                          expressionG (phase expressionS)
+                          [host-name host-value host-statement] (generation.define! lux-name expressionG)
+                          _ (generation.learn lux-name host-name)]
+                         (phase (synthesis.constant lux-name))))]
+      (:: host evaluate! "definer" definitionG))))
+
+(def: #export (executors platform bundle expander program)
+  (All [anchor expression statement]
+    (-> (Platform IO anchor expression statement)
+        (Bundle anchor expression statement)
+        Expander
+        (-> expression statement)
+        (IO (Error [Runner Definer]))))
+  (do io.monad
+    [?state (platform.initialize expander platform bundle program)]
+    (wrap (do error.monad
+            [[bundle' state] ?state
+             #let [state (get@ [#statement.generation
+                                #statement.state]
+                               state)]]
+            (wrap [(..runner platform state)
+                   (..definer platform state)])))))
