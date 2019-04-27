@@ -1,0 +1,339 @@
+(.module:
+  [lux (#- i64)
+   ["_" test (#+ Test)]
+   [abstract
+    [monad (#+ do)]]
+   [control
+    [pipe (#+ case>)]]
+   [data
+    ["." error (#+ Error)]
+    ["." bit ("#@." equivalence)]
+    [number
+     ["." i64]]
+    ["." text ("#@." equivalence)
+     format]
+    [collection
+     ["." list]]]
+   [math
+    ["r" random (#+ Random)]]
+   [tool
+    [compiler
+     ["." reference]
+     ["." synthesis]]]]
+  ["." // #_
+   ["#." case]
+   ["/#" // (#+ Runner)]])
+
+(def: sanitize
+  (-> Text Text)
+  (text.replace-all " " "_"))
+
+(def: (bit run)
+  (-> Runner Test)
+  (do r.monad
+    [param r.i64
+     subject r.i64]
+    (with-expansions [<binary> (template [<extension> <reference> <param-expr>]
+                                 [(_.test <extension>
+                                          (|> (#synthesis.Extension <extension> (list (synthesis.i64 param)
+                                                                                      (synthesis.i64 subject)))
+                                              (run (..sanitize <extension>))
+                                              (case> (#error.Success valueT)
+                                                     (n/= (<reference> param subject) (:coerce Nat valueT))
+
+                                                     (#error.Failure error)
+                                                     false)
+                                              (let [param <param-expr>])))]
+
+                                 ["lux i64 and"                 i64.and               param]
+                                 ["lux i64 or"                  i64.or                param]
+                                 ["lux i64 xor"                 i64.xor               param]
+                                 ["lux i64 left-shift"          i64.left-shift        (n/% 64 param)]
+                                 ["lux i64 logical-right-shift" i64.logic-right-shift (n/% 64 param)]
+                                 )]
+      ($_ _.and
+          <binary>
+          (_.test "lux i64 arithmetic-right-shift"
+                  (|> (#synthesis.Extension "lux i64 arithmetic-right-shift"
+                                            (list (synthesis.i64 subject)
+                                                  (synthesis.i64 param)))
+                      (run (..sanitize "lux i64 arithmetic-right-shift"))
+                      (case> (#error.Success valueT)
+                             ("lux i64 ="
+                              (i64.arithmetic-right-shift param subject)
+                              (:coerce I64 valueT))
+
+                             (#error.Failure error)
+                             false)
+                      (let [param (n/% 64 param)])))
+          ))))
+
+(def: (i64 run)
+  (-> Runner Test)
+  (do r.monad
+    [param (|> r.i64 (r.filter (|>> ("lux i64 =" 0) not)))
+     subject r.i64]
+    (`` ($_ _.and
+            (~~ (template [<extension> <type> <prepare> <comp> <subject-expr>]
+                  [(_.test <extension>
+                           (|> (#synthesis.Extension <extension> (list (synthesis.i64 subject)))
+                               (run (..sanitize <extension>))
+                               (case> (#error.Success valueT)
+                                      (<comp> (<prepare> subject) (:coerce <type> valueT))
+
+                                      (#error.Failure error)
+                                      false)
+                               (let [subject <subject-expr>])))]
+
+                  ["lux i64 to-f64" Frac int-to-frac f/= subject]
+                  ["lux i64 char"   Text (|>> (:coerce Nat) text.from-code) text@= (|> subject
+                                                                                       (:coerce Nat)
+                                                                                       (n/% (i64.left-shift 8 1))
+                                                                                       (:coerce Int))]
+                  ))
+            (~~ (template [<extension> <reference> <outputT> <comp>]
+                  [(_.test <extension>
+                           (|> (#synthesis.Extension <extension> (list (synthesis.i64 param)
+                                                                       (synthesis.i64 subject)))
+                               (run (..sanitize <extension>))
+                               (case> (#error.Success valueT)
+                                      (<comp> (<reference> param subject) (:coerce <outputT> valueT))
+
+                                      (#error.Failure error)
+                                      false)))]
+
+                  ["lux i64 +" i/+ Int  i/=]
+                  ["lux i64 -" i/- Int  i/=]
+                  ["lux i64 *" i/* Int  i/=]
+                  ["lux i64 /" i// Int  i/=]
+                  ["lux i64 %" i/% Int  i/=]
+                  ["lux i64 =" i/= Bit bit@=]
+                  ["lux i64 <" i/< Bit bit@=]
+                  ))
+            ))))
+
+(def: simple-frac
+  (Random Frac)
+  (|> r.nat (:: r.monad map (|>> (n/% 1000) .int int-to-frac))))
+
+(def: (f64 run)
+  (-> Runner Test)
+  (do r.monad
+    [param (|> ..simple-frac (r.filter (|>> (f/= +0.0) not)))
+     subject ..simple-frac]
+    (`` ($_ _.and
+            (~~ (template [<extension> <reference> <comp>]
+                  [(_.test <extension>
+                           (|> (#synthesis.Extension <extension> (list (synthesis.f64 param)
+                                                                       (synthesis.f64 subject)))
+                               (run (..sanitize <extension>))
+                               (//case.verify (<reference> param subject))))]
+
+                  ["lux f64 +" f/+ f/=]
+                  ["lux f64 -" f/- f/=]
+                  ["lux f64 *" f/* f/=]
+                  ["lux f64 /" f// f/=]
+                  ["lux f64 %" f/% f/=]
+                  ))
+            (~~ (template [<extension> <text>]
+                  [(_.test <extension>
+                           (|> (#synthesis.Extension <extension> (list (synthesis.f64 param)
+                                                                       (synthesis.f64 subject)))
+                               (run (..sanitize <extension>))
+                               (case> (#error.Success valueV)
+                                      (bit@= (<text> param subject)
+                                             (:coerce Bit valueV))
+
+                                      _
+                                      false)))]
+
+                  ["lux f64 =" f/=]
+                  ["lux f64 <" f/<]
+                  ))
+            (~~ (template [<extension> <reference>]
+                  [(_.test <extension>
+                           (|> (#synthesis.Extension <extension> (list))
+                               (run (..sanitize <extension>))
+                               (//case.verify <reference>)))]
+
+                  ["lux f64 min"      ("lux frac min")]
+                  ["lux f64 max"      ("lux frac max")]
+                  ["lux f64 smallest" ("lux frac smallest")]
+                  ))
+            (_.test "'lux f64 to-i64' && 'lux i64 to-f64'"
+                    (|> (run (..sanitize "lux f64 to-i64")
+                             (|> subject synthesis.f64
+                                 (list) (#synthesis.Extension "lux f64 to-i64")
+                                 (list) (#synthesis.Extension "lux i64 to-f64")))
+                        (//case.verify subject)))
+            ))))
+
+(def: (text run)
+  (-> Runner Test)
+  (do r.monad
+    [sample-size (|> r.nat (:: @ map (|>> (n/% 10) (n/max 1))))
+     sample-lower (r.ascii/lower-alpha sample-size)
+     sample-upper (r.ascii/upper-alpha sample-size)
+     sample-alpha (|> (r.ascii/alpha sample-size)
+                      (r.filter (|>> (text@= sample-upper) not)))
+     char-idx (|> r.nat (:: @ map (n/% sample-size)))
+     #let [sample-lowerS (synthesis.text sample-lower)
+           sample-upperS (synthesis.text sample-upper)
+           sample-alphaS (synthesis.text sample-alpha)
+           concatenatedS (#synthesis.Extension "lux text concat" (list sample-lowerS sample-upperS))
+           pre-rep-once (format sample-lower sample-upper)
+           post-rep-once (format sample-lower sample-alpha)
+           pre-rep-all (|> (list.repeat sample-size sample-lower) (text.join-with sample-upper))
+           post-rep-all (|> (list.repeat sample-size sample-lower) (text.join-with sample-alpha))]]
+    ($_ _.and
+        (_.test "Can compare texts for equality."
+                (and (|> (#synthesis.Extension "lux text =" (list sample-lowerS sample-lowerS))
+                         (run (..sanitize "lux text ="))
+                         (case> (#error.Success valueV)
+                                (:coerce Bit valueV)
+
+                                _
+                                false))
+                     (|> (#synthesis.Extension "lux text =" (list sample-upperS sample-lowerS))
+                         (run (..sanitize "lux text ="))
+                         (case> (#error.Success valueV)
+                                (not (:coerce Bit valueV))
+
+                                _
+                                false))))
+        (_.test "Can compare texts for order."
+                (|> (#synthesis.Extension "lux text <" (list sample-lowerS sample-upperS))
+                    (run (..sanitize "lux text <"))
+                    (case> (#error.Success valueV)
+                           (:coerce Bit valueV)
+
+                           (#error.Failure error)
+                           false)))
+        (_.test "Can get length of text."
+                (|> (#synthesis.Extension "lux text size" (list sample-lowerS))
+                    (run (..sanitize "lux text size"))
+                    (case> (#error.Success valueV)
+                           (n/= sample-size (:coerce Nat valueV))
+
+                           _
+                           false)))
+        (_.test "Can concatenate text."
+                (|> (#synthesis.Extension "lux text size" (list concatenatedS))
+                    (run (..sanitize "lux text size"))
+                    (case> (#error.Success valueV)
+                           (n/= (n/* 2 sample-size) (:coerce Nat valueV))
+
+                           _
+                           false)))
+        (_.test "Can find index of sub-text."
+                (and (|> (#synthesis.Extension "lux text index"
+                                               (list concatenatedS sample-lowerS
+                                                     (synthesis.i64 +0)))
+                         (run (..sanitize "lux text index"))
+                         (case> (^multi (#error.Success valueV)
+                                        [(:coerce (Maybe Nat) valueV) (#.Some valueV)])
+                                (n/= 0 valueV)
+
+                                _
+                                false))
+                     (|> (#synthesis.Extension "lux text index"
+                                               (list concatenatedS sample-upperS
+                                                     (synthesis.i64 +0)))
+                         (run (..sanitize "lux text index"))
+                         (case> (^multi (#error.Success valueV)
+                                        [(:coerce (Maybe Nat) valueV) (#.Some valueV)])
+                                (n/= sample-size valueV)
+
+                                _
+                                false))))
+        (let [test-clip (: (-> (I64 Any) (I64 Any) Text Bit)
+                           (function (_ from to expected)
+                             (|> (#synthesis.Extension "lux text clip"
+                                                       (list concatenatedS
+                                                             (synthesis.i64 from)
+                                                             (synthesis.i64 to)))
+                                 (run (..sanitize "lux text clip"))
+                                 (case> (^multi (#error.Success valueV)
+                                                [(:coerce (Maybe Text) valueV) (#.Some valueV)])
+                                        (text@= expected valueV)
+
+                                        _
+                                        false))))]
+          (_.test "Can clip text to extract sub-text."
+                  (and (test-clip 0 sample-size sample-lower)
+                       (test-clip sample-size (n/* 2 sample-size) sample-upper))))
+        (_.test "Can extract individual characters from text."
+                (|> (#synthesis.Extension "lux text char"
+                                          (list sample-lowerS
+                                                (synthesis.i64 char-idx)))
+                    (run (..sanitize "lux text char"))
+                    (case> (^multi (#error.Success valueV)
+                                   [(:coerce (Maybe Int) valueV) (#.Some valueV)])
+                           (text.contains? ("lux int char" valueV)
+                                           sample-lower)
+
+                           _
+                           false)))
+        )))
+
+(def: (io run)
+  (-> Runner Test)
+  (do r.monad
+    [message (r.ascii/alpha 5)]
+    ($_ _.and
+        (_.test "Can log messages."
+                (|> (#synthesis.Extension "lux io log"
+                                          (list (synthesis.text (format "LOG: " message))))
+                    (run (..sanitize "lux io log"))
+                    (case> (#error.Success valueV)
+                           true
+
+                           (#error.Failure error)
+                           false)))
+        (_.test "Can throw runtime errors."
+                (and (|> (#synthesis.Extension "lux try"
+                                               (list (synthesis.function/abstraction
+                                                      {#synthesis.environment (list)
+                                                       #synthesis.arity 1
+                                                       #synthesis.body (#synthesis.Extension "lux io error"
+                                                                                             (list (synthesis.text message)))})))
+                         (run (..sanitize "lux try"))
+                         (case> (^multi (#error.Success valueV)
+                                        [(:coerce (Error Text) valueV) (#error.Failure error)])
+                                (text.contains? message error)
+
+                                _
+                                false))
+                     (|> (#synthesis.Extension "lux try"
+                                               (list (synthesis.function/abstraction
+                                                      {#synthesis.environment (list)
+                                                       #synthesis.arity 1
+                                                       #synthesis.body (synthesis.text message)})))
+                         (run (..sanitize "lux try"))
+                         (case> (^multi (#error.Success valueV)
+                                        [(:coerce (Error Text) valueV) (#error.Success valueV)])
+                                (text@= message valueV)
+
+                                _
+                                false))))
+        (_.test "Can obtain current time in milli-seconds."
+                (|> (synthesis.tuple (list (#synthesis.Extension "lux io current-time" (list))
+                                           (#synthesis.Extension "lux io current-time" (list))))
+                    (run (..sanitize "lux io current-time"))
+                    (case> (#error.Success valueV)
+                           (let [[pre post] (:coerce [Nat Nat] valueV)]
+                             (n/>= pre post))
+
+                           (#error.Failure error)
+                           false)))
+        )))
+
+(def: #export (spec runner)
+  (-> Runner Test)
+  ($_ _.and
+      (..bit runner)
+      (..i64 runner)
+      (..f64 runner)
+      (..text runner)
+      (..io runner)
+      ))
