@@ -1,0 +1,92 @@
+(.module:
+  [lux (#- function)
+   ["_" test (#+ Test)]
+   [abstract
+    [monad (#+ do)]]
+   [control
+    [pipe (#+ case>)]]
+   [data
+    ["." maybe]
+    ["." error (#+ Error)]
+    [text
+     format]
+    [collection
+     ["." list ("#@." functor)]]]
+   [math
+    ["r" random (#+ Random) ("#@." monad)]]
+   [tool
+    [compiler
+     [analysis (#+ Arity)]
+     ["." reference (#+ Register)]
+     ["." synthesis (#+ Synthesis)]]]]
+  ["." // #_
+   ["#." case]
+   ["/#" //]])
+
+(def: max-arity Arity 10)
+
+(def: arity
+  (Random Arity)
+  (|> r.nat (r@map (|>> (n/% max-arity) (n/max 1)))))
+
+(def: (local arity)
+  (-> Arity (Random Register))
+  (|> r.nat (r@map (|>> (n/% arity) inc))))
+
+(def: function
+  (Random [Arity Register Synthesis])
+  (do r.monad
+    [arity ..arity
+     local (..local arity)]
+    (wrap [arity local
+           (synthesis.function/abstraction
+            {#synthesis.environment (list)
+             #synthesis.arity arity
+             #synthesis.body (synthesis.variable/local local)})])))
+
+(def: #export (spec run)
+  (-> ///.Runner Test)
+  (do r.monad
+    [[arity local functionS] ..function
+     partial-arity (|> r.nat (:: @ map (|>> (n/% arity) (n/max 1))))
+     inputs (r.list arity r.safe-frac)
+     #let [expectation (maybe.assume (list.nth (dec local) inputs))
+           inputsS (list@map (|>> synthesis.f64) inputs)]]
+    ($_ _.and
+        (_.test "Can read arguments."
+                (|> (synthesis.function/apply {#synthesis.function functionS
+                                               #synthesis.arguments inputsS})
+                    (run "with-local")
+                    (//case.verify expectation)))
+        (_.test "Can partially apply functions."
+                (or (n/= 1 arity)
+                    (let [preS (list.take partial-arity inputsS)
+                          postS (list.drop partial-arity inputsS)
+                          partialS (synthesis.function/apply {#synthesis.function functionS
+                                                              #synthesis.arguments preS})]
+                      (|> (synthesis.function/apply {#synthesis.function partialS
+                                                     #synthesis.arguments postS})
+                          (run "partial-application")
+                          (//case.verify expectation)))))
+        (_.test "Can read environment."
+                (or (n/= 1 arity)
+                    (let [environment (|> partial-arity
+                                          (list.n/range 1)
+                                          (list@map (|>> #reference.Local)))
+                          variableS (if (n/<= partial-arity local)
+                                      (synthesis.variable/foreign (dec local))
+                                      (synthesis.variable/local (|> local (n/- partial-arity))))
+                          inner-arity (n/- partial-arity arity)
+                          innerS (synthesis.function/abstraction
+                                  {#synthesis.environment environment
+                                   #synthesis.arity inner-arity
+                                   #synthesis.body variableS})
+                          outerS (synthesis.function/abstraction
+                                  {#synthesis.environment (list)
+                                   #synthesis.arity partial-arity
+                                   #synthesis.body innerS})]
+                      (|> (synthesis.function/apply {#synthesis.function outerS
+                                                     #synthesis.arguments inputsS})
+                          (run "with-foreign")
+                          (//case.verify expectation)))))
+        )))

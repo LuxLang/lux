@@ -1,52 +1,57 @@
 (.module:
   [lux (#- case)
+   ["_" test (#+ Test)]
+   [abstract
+    [monad (#+ do)]]
    [control
-    [monad (#+ do)]
-    pipe]
+    [pipe (#+ case>)]]
    [data
-    ["." error]
-    [text ("text/." Equivalence<Text>)
+    ["." error (#+ Error)]
+    ["." text ("#@." equivalence)
      format]
     [collection
-     ["." list ("list/." Functor<List> Fold<List>)]]]
+     ["." list ("#@." fold)]]]
    [math
     ["r" random (#+ Random)]]
-   [compiler
-    [default
+   [tool
+    [compiler
      ["." reference]
+     ["." analysis]
+     ["." synthesis (#+ Path Synthesis)]
      ["." phase
-      ["." analysis]
-      ["." synthesis (#+ Path Synthesis)
-       ["." case]
-       ["." expression]]
-      ["." extension/synthesis]]]]
-   test]
-  [test
-   [luxc
-    ["." common (#+ Runner)]]]
-  [//
-   ["&" function]])
+      ["#/." synthesis
+       ["." case]]
+      ["." extension/synthesis]]]]]
+  ["." ///])
 
 (def: limit Nat 10)
 
 (def: size
   (Random Nat)
-  (|> r.nat (:: r.Monad<Random> map (|>> (n/% ..limit) (n/max 2)))))
+  (|> r.nat (:: r.monad map (|>> (n/% ..limit) (n/max 2)))))
 
 (def: (tail? size idx)
   (-> Nat Nat Bit)
   (n/= (dec size) idx))
 
+(def: #export (verify expected)
+  (-> Frac (Error Any) Bit)
+  (|>> (case> (#error.Success actual)
+              (f/= expected (:coerce Frac actual))
+
+              (#error.Failure error)
+              false)))
+
 (def: case
   (Random [Synthesis Path])
   (<| r.rec (function (_ case))
       (`` ($_ r.either
-              (do r.Monad<Random>
+              (do r.monad
                 [value r.i64]
                 (wrap [(synthesis.i64 value)
                        synthesis.path/pop]))
               (~~ (template [<gen> <synth> <path>]
-                    [(do r.Monad<Random>
+                    [(do r.monad
                        [value <gen>]
                        (wrap [(<synth> value)
                               (<path> value)]))]
@@ -55,7 +60,7 @@
                     [r.i64         synthesis.i64  synthesis.path/i64]
                     [r.frac        synthesis.f64  synthesis.path/f64]
                     [(r.unicode 5) synthesis.text synthesis.path/text]))
-              (do r.Monad<Random>
+              (do r.monad
                 [size ..size
                  idx (|> r.nat (:: @ map (n/% size)))
                  [subS subP] case
@@ -70,7 +75,7 @@
                                    (synthesis.member/left idx))
                                  subP)]]
                 (wrap [caseS caseP]))
-              (do r.Monad<Random>
+              (do r.monad
                 [size ..size
                  idx (|> r.nat (:: @ map (n/% size)))
                  [subS subP] case
@@ -88,42 +93,45 @@
               ))))
 
 (def: (let-spec run)
-  (-> Runner Test)
-  (do r.Monad<Random>
-    [value &.safe-frac]
-    (test "Specialized \"let\"."
-          (|> (run (synthesis.branch/let [(synthesis.f64 value)
-                                          0
-                                          (synthesis.variable/local 0)]))
-              (&.check value)))))
+  (-> ///.Runner Test)
+  (do r.monad
+    [value r.safe-frac]
+    (_.test (%name (name-of synthesis.branch/let))
+            (|> (synthesis.branch/let [(synthesis.f64 value)
+                                       0
+                                       (synthesis.variable/local 0)])
+                (run "let-spec")
+                (verify value)))))
 
 (def: (if-spec run)
-  (-> Runner Test)
-  (do r.Monad<Random>
-    [on-true &.safe-frac
-     on-false (|> &.safe-frac (r.filter (|>> (f/= on-true) not)))
+  (-> ///.Runner Test)
+  (do r.monad
+    [on-true r.safe-frac
+     on-false (|> r.safe-frac (r.filter (|>> (f/= on-true) not)))
      verdict r.bit]
-    (test "Specialized \"if\"."
-          (|> (run (synthesis.branch/if [(synthesis.bit verdict)
-                                         (synthesis.f64 on-true)
-                                         (synthesis.f64 on-false)]))
-              (&.check (if verdict on-true on-false))))))
+    (_.test (%name (name-of synthesis.branch/if))
+            (|> (synthesis.branch/if [(synthesis.bit verdict)
+                                      (synthesis.f64 on-true)
+                                      (synthesis.f64 on-false)])
+                (run "if-spec")
+                (verify (if verdict on-true on-false))))))
 
 (def: (case-spec run)
-  (-> Runner Test)
-  (do r.Monad<Random>
+  (-> ///.Runner Test)
+  (do r.monad
     [[inputS pathS] ..case
-     on-success &.safe-frac
-     on-failure (|> &.safe-frac (r.filter (|>> (f/= on-success) not)))]
-    (test "Case."
-          (|> (run (synthesis.branch/case
-                    [inputS
-                     ($_ synthesis.path/alt
-                         ($_ synthesis.path/seq
-                             pathS
-                             (synthesis.path/then (synthesis.f64 on-success)))
-                         (synthesis.path/then (synthesis.f64 on-failure)))]))
-              (&.check on-success)))))
+     on-success r.safe-frac
+     on-failure (|> r.safe-frac (r.filter (|>> (f/= on-success) not)))]
+    (_.test (%name (name-of synthesis.branch/case))
+            (|> (synthesis.branch/case
+                 [inputS
+                  ($_ synthesis.path/alt
+                      ($_ synthesis.path/seq
+                          pathS
+                          (synthesis.path/then (synthesis.f64 on-success)))
+                      (synthesis.path/then (synthesis.f64 on-failure)))])
+                (run "case-spec")
+                (verify on-success)))))
 
 (def: special-input
   Synthesis
@@ -140,7 +148,7 @@
                   (function (_ head tail)
                     (synthesis.variant [0 #1 (synthesis.tuple (list head tail))])))
         _list_ (: (-> (List Synthesis) Synthesis)
-                  (list/fold _cons_ _nil_))]
+                  (list@fold _cons_ _nil_))]
     (let [__tuple__ (: (-> (List Synthesis) Synthesis)
                        (|>> list.reverse _list_ [9 #0] synthesis.variant _code_))
           __form__ (: (-> (List Synthesis) Synthesis)
@@ -157,7 +165,7 @@
                        (_code_ (synthesis.variant [7 #0 (synthesis.tuple (list (synthesis.text module)
                                                                                (synthesis.text short)))]))))
           __list__ (: (-> (List Synthesis) Synthesis)
-                      (list/fold (function (_ head tail)
+                      (list@fold (function (_ head tail)
                                    (__form__ (list (__tag__ ["" "Cons"]) head tail)))
                                  (__tag__ ["" "Nil"])))
           __apply__ (: (-> Synthesis Synthesis Synthesis)
@@ -222,7 +230,7 @@
       (<| error.assume
           (phase.run [extension/synthesis.bundle
                       synthesis.init])
-          (case.path expression.synthesize
+          (case.path phase/synthesis.phase
                      special-pattern)
           (analysis.bit #1))
       ($_ synthesis.path/seq
@@ -230,87 +238,47 @@
           ## THEN
           (synthesis.path/then (synthesis.bit #0)))))
 
+## TODO: Get rid of this ASAP
 (def: (special-spec run)
-  (-> Runner Test)
-  (do r.Monad<Random>
-    []
-    ($_ seq
-        (test "==="
-              (and (text/= (synthesis.%path special-path)
+  (-> ///.Runner Test)
+  ($_ _.and
+      (_.test "==="
+              (and (text@= (synthesis.%path special-path)
                            (synthesis.%path special-pattern-path))
-                   (:: synthesis.Equivalence<Path> = special-path special-pattern-path)))
-        (test "CODE"
-              (|> (run special-input)
+                   (:: synthesis.path-equivalence = special-path special-pattern-path)))
+      (_.test "CODE"
+              (|> special-input
+                  (run "special-input")
                   (case> (#error.Success output)
-                         (exec (log! (|> output (:coerce (List Code)) (%list %code)))
-                           #1)
+                         true
                          
-                         (#error.Error error)
-                         (exec (log! error)
-                           #0))))
-        (test "PATTERN-MATCHING 0"
-              (|> (run (synthesis.branch/case [special-input
-                                               special-path]))
+                         (#error.Failure error)
+                         false)))
+      (_.test "PATTERN-MATCHING 0"
+              (|> (synthesis.branch/case [special-input
+                                          special-path])
+                  (run "special-path")
                   (case> (#error.Success output)
-                         (exec (log! (format "output 0 = " (%b (:coerce Bit output))))
-                           #1)
+                         true
                          
-                         (#error.Error error)
-                         (exec (log! error)
-                           #0))))
-        (test "PATTERN-MATCHING 1"
-              (|> (run (synthesis.branch/case [special-input
-                                               special-pattern-path]))
+                         (#error.Failure error)
+                         false)))
+      (_.test "PATTERN-MATCHING 1"
+              (|> (synthesis.branch/case [special-input
+                                          special-pattern-path])
+                  (run "special-pattern-path")
                   (case> (#error.Success output)
-                         (exec (log! (format "output 1 = " (%b (:coerce Bit output))))
-                           #1)
+                         true
                          
-                         (#error.Error error)
-                         (exec (log! error)
-                           #0))))
-        )))
-
-(def: (pattern-matching-spec run)
-  (-> Runner Test)
-  ($_ seq
-      (special-spec run)
-      ## (let-spec run)
-      ## (if-spec run)
-      ## (case-spec run)
+                         (#error.Failure error)
+                         false)))
       ))
 
-(context: "[JVM] Pattern-matching."
-  (<| (times 100)
-      (pattern-matching-spec common.run-jvm)))
-
-## (context: "[JS] Pattern-matching."
-##   (<| (times 100)
-##       (pattern-matching-spec common.run-js)))
-
-## (context: "[Lua] Pattern-matching."
-##   (<| (times 100)
-##       (pattern-matching-spec common.run-lua)))
-
-## (context: "[Ruby] Pattern-matching."
-##   (<| (times 100)
-##       (pattern-matching-spec common.run-ruby)))
-
-## (context: "[Python] Function."
-##   (<| (times 100)
-##       (pattern-matching-spec common.run-python)))
-
-## (context: "[R] Pattern-matching."
-##   (<| (times 100)
-##       (pattern-matching-spec common.run-r)))
-
-## (context: "[Scheme] Pattern-matching."
-##   (<| (times 100)
-##       (pattern-matching-spec common.run-scheme)))
-
-## (context: "[Common Lisp] Pattern-matching."
-##   (<| (times 100)
-##       (pattern-matching-spec common.run-common-lisp)))
-
-## (context: "[PHP] Pattern-matching."
-##   (<| (times 100)
-##       (pattern-matching-spec common.run-php)))
+(def: #export (spec run)
+  (-> ///.Runner Test)
+  ($_ _.and
+      (..special-spec run)
+      (..let-spec run)
+      (..if-spec run)
+      (..case-spec run)
+      ))
