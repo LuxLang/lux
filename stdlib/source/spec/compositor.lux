@@ -1,72 +1,61 @@
 (.module:
   [lux #*
+   ["_" test (#+ Test)]
    [abstract
     [monad (#+ do)]]
    [control
     ["." io (#+ IO)]]
    [data
-    ["." error (#+ Error)]]
+    ["." error]]
+   [math
+    ["r" random]]
    [tool
     [compiler
-     ["." reference]
-     ["." synthesis (#+ Synthesis)]
-     ["." statement]
-     ["." phase
-      ["." macro (#+ Expander)]
-      ["." generation (#+ Operation Bundle)]
-      [extension
-       ["." bundle]]]
+     [phase
+      [macro (#+ Expander)]
+      [generation (#+ Bundle)]]
      [default
-      ["." platform (#+ Platform)]]]]])
+      [platform (#+ Platform)]]]]]
+  ["." / #_
+   ["#." common (#+ Runner Definer)]
+   ["#./" generation #_
+    ["#." primitive]
+    ["#." structure]
+    ["#." reference]
+    ["#." case]
+    ["#." function]
+    ["#." common]]])
 
-(type: #export Runner (-> Text Synthesis (Error Any)))
-(type: #export Definer (-> Name Synthesis (Error Any)))
+(def: (test runner definer)
+  (-> Runner Definer Test)
+  ($_ _.and
+      (/generation/primitive.spec runner)
+      (/generation/structure.spec runner)
+      (/generation/reference.spec runner definer)
+      (/generation/case.spec runner)
+      (/generation/function.spec runner)
+      (/generation/common.spec runner)
+      ))
 
-(type: #export (Instancer what)
+(def: #export (spec platform bundle expander program)
   (All [anchor expression statement]
-    (-> (Platform IO anchor expression statement)
-        (generation.State+ anchor expression statement)
-        what)))
-
-(def: (runner (^slots [#platform.runtime #platform.phase #platform.host]) state)
-  (Instancer Runner)
-  (function (_ evaluation-name expressionS)
-    (do error.monad
-      [expressionG (<| (phase.run state)
-                       generation.with-buffer
-                       (do phase.monad
-                         [_ runtime]
-                         (phase expressionS)))]
-      (:: host evaluate! evaluation-name expressionG))))
-
-(def: (definer (^slots [#platform.runtime #platform.phase #platform.host])
-               state)
-  (Instancer Definer)
-  (function (_ lux-name expressionS)
-    (do error.monad
-      [definitionG (<| (phase.run state)
-                       generation.with-buffer
-                       (do phase.monad
-                         [_ runtime
-                          expressionG (phase expressionS)
-                          [host-name host-value host-statement] (generation.define! lux-name expressionG)
-                          _ (generation.learn lux-name host-name)]
-                         (phase (synthesis.constant lux-name))))]
-      (:: host evaluate! "definer" definitionG))))
-
-(def: #export (executors platform bundle expander program)
-  (All [anchor expression statement]
-    (-> (Platform IO anchor expression statement)
+    (-> (IO (Platform IO anchor expression statement))
         (Bundle anchor expression statement)
         Expander
         (-> expression statement)
-        (IO (Error [Runner Definer]))))
-  (do io.monad
-    [?state (platform.initialize expander platform bundle program)]
-    (wrap (do error.monad
-            [[bundle' state] ?state
-             #let [state (get@ [#statement.generation
-                                #statement.state]
-                               state)]]
-            (wrap [(..runner platform state)
-                   (..definer platform state)])))))
+        Test))
+  (do r.monad
+    [_ (wrap [])
+     #let [?runner,definer (<| io.run
+                               (do io.monad
+                                 [platform platform])
+                               (/common.executors platform
+                                                  bundle
+                                                  expander
+                                                  program))]]
+    (case ?runner,definer
+      (#error.Success [runner definer])
+      (..test runner definer)
+
+      (#error.Failure error)
+      (_.fail error))))
