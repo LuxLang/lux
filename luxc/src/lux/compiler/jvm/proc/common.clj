@@ -448,18 +448,15 @@
       "logical-right-shift"    (compile-i64-logical-right-shift compile ?values special-args)
       "="                      (compile-i64-eq compile ?values special-args)
       "+"                      (compile-i64-add compile ?values special-args)
-      "-"                      (compile-i64-sub compile ?values special-args))
-    
-    "int"
-    (case proc
-      "*"    (compile-int-mul compile ?values special-args)
-      "/"    (compile-int-div compile ?values special-args)
-      "%"    (compile-int-rem compile ?values special-args)
-      "<"    (compile-int-lt compile ?values special-args)
-      "f64"  (compile-int-frac compile ?values special-args)
-      "char" (compile-int-char compile ?values special-args)
+      "-"                      (compile-i64-sub compile ?values special-args)
+      "*"                      (compile-int-mul compile ?values special-args)
+      "/"                      (compile-int-div compile ?values special-args)
+      "%"                      (compile-int-rem compile ?values special-args)
+      "<"                      (compile-int-lt compile ?values special-args)
+      "f64"                    (compile-int-frac compile ?values special-args)
+      "char"                   (compile-int-char compile ?values special-args)
       )
-
+    
     "f64"
     (case proc
       "+"         (compile-frac-add compile ?values special-args)

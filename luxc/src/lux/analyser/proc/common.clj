@@ -151,10 +151,10 @@
   analyse-i64-add  ["i64" "+"]  (&/$Apply &type/Any &type/I64)  &type/I64
   analyse-i64-sub  ["i64" "-"]  (&/$Apply &type/Any &type/I64)  &type/I64
   
-  analyse-int-mul  ["int" "*"]  &type/Int  &type/Int
-  analyse-int-div  ["int" "/"]  &type/Int  &type/Int
-  analyse-int-rem  ["int" "%"]  &type/Int  &type/Int
-  analyse-int-lt   ["int" "<"]  &type/Int  &type/Bit
+  analyse-int-mul  ["i64" "*"]  &type/Int  &type/Int
+  analyse-int-div  ["i64" "/"]  &type/Int  &type/Int
+  analyse-int-rem  ["i64" "%"]  &type/Int  &type/Int
+  analyse-int-lt   ["i64" "<"]  &type/Int  &type/Bit
 
   analyse-frac-add ["f64" "+"] &type/Frac &type/Frac
   analyse-frac-sub ["f64" "-"] &type/Frac &type/Frac
@@ -208,8 +208,8 @@
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T <op>) (&/|list =x) (&/|list)))))))
 
-  analyse-int-char  &type/Int  &type/Text   ["int" "char"]
-  analyse-int-frac  &type/Int  &type/Frac   ["int" "f64"]
+  analyse-int-char  &type/Int  &type/Text   ["i64" "char"]
+  analyse-int-frac  &type/Int  &type/Frac   ["i64" "f64"]
   analyse-frac-int  &type/Frac &type/Int    ["f64" "i64"]
 
   analyse-io-log    &type/Text &type/Any    ["io" "log"]
@@ -274,12 +274,12 @@
          "lux i64 -" (analyse-i64-sub analyse exo-type ?values)
          "lux i64 =" (analyse-i64-eq analyse exo-type ?values)
          
-         "lux int *" (analyse-int-mul analyse exo-type ?values)
-         "lux int /" (analyse-int-div analyse exo-type ?values)
-         "lux int %" (analyse-int-rem analyse exo-type ?values)
-         "lux int <" (analyse-int-lt analyse exo-type ?values)
-         "lux int f64" (analyse-int-frac analyse exo-type ?values)
-         "lux int char" (analyse-int-char analyse exo-type ?values)
+         "lux i64 *" (analyse-int-mul analyse exo-type ?values)
+         "lux i64 /" (analyse-int-div analyse exo-type ?values)
+         "lux i64 %" (analyse-int-rem analyse exo-type ?values)
+         "lux i64 <" (analyse-int-lt analyse exo-type ?values)
+         "lux i64 f64" (analyse-int-frac analyse exo-type ?values)
+         "lux i64 char" (analyse-int-char analyse exo-type ?values)
          
          "lux f64 +" (analyse-frac-add analyse exo-type ?values)
          "lux f64 -" (analyse-frac-sub analyse exo-type ?values)
