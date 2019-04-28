@@ -1,5 +1,7 @@
 (.module:
   [lux (#- char int)
+   ["." host (#+ import:)]
+   ["." macro]
    [abstract
     ["." monad (#+ do)]]
    [control
@@ -19,8 +21,9 @@
      ["." dictionary (#+ Dictionary)]]]
    ["." type
     ["." check]]
-   ["." macro]
-   ["." host (#+ import:)]]
+   [target
+    [jvm
+     ["_." type]]]]
   ["." // #_
    ["#." common]
    ["#/" //
@@ -85,11 +88,12 @@
 (template [<name>]
   [(exception: #export (<name> {class Text})
      (exception.report
-      ["Class" (%t class)]))]
+      ["Class/type" (%t class)]))]
 
   [unknown-class]
   [non-interface]
   [non-throwable]
+  [primitives-are-not-objects]
   )
 
 (template [<name>]
@@ -124,7 +128,6 @@
      message)]
 
   [primitives-cannot-have-type-parameters]
-  [primitives-are-not-objects]
 
   [mistaken-field-owner]
 
@@ -255,8 +258,8 @@
             ["char"    "java.lang.Character"])
       (dictionary.from-list text.hash)))
 
-(def: (array-type-info arrayT)
-  (-> Type (Operation [Nat Text]))
+(def: (array-type-info allow-primitives? arrayT)
+  (-> Bit Type (Operation [Nat Text]))
   (loop [level 0
          currentT arrayT]
     (case currentT
@@ -272,7 +275,10 @@
       (recur (inc level) elemT)
 
       (#.Primitive class #.Nil)
-      (////@wrap [level class])
+      (if (and (dictionary.contains? class boxes)
+               (not allow-primitives?))
+        (/////analysis.throw ..primitives-are-not-objects [class])
+        (////@wrap [level class]))
 
       (#.Primitive class _)
       (if (dictionary.contains? class boxes)
@@ -293,7 +299,7 @@
          arrayA (typeA.with-type (type (Array varT))
                   (analyse arrayC))
          varT (typeA.with-env (check.clean varT))
-         [array-nesting elem-class] (array-type-info (type (Array varT)))]
+         [array-nesting elem-class] (array-type-info true (type (Array varT)))]
         (wrap (#/////analysis.Extension extension-name (list (/////analysis.nat array-nesting)
                                                              (/////analysis.text elem-class)
                                                              arrayA))))
@@ -301,7 +307,21 @@
       _
       (/////analysis.throw ///.incorrect-arity [extension-name 1 (list.size args)]))))
 
-(def: array::new
+(def: (new-primitive-array-handler primitive-type)
+  (-> _type.Type Handler)
+  (function (_ extension-name analyse args)
+    (case args
+      (^ (list lengthC))
+      (do ////.monad
+        [lengthA (typeA.with-type ..int
+                   (analyse lengthC))
+         _ (typeA.infer (#.Primitive (_type.descriptor (_type.array 1 primitive-type)) (list)))]
+        (wrap (#/////analysis.Extension extension-name (list lengthA))))
+
+      _
+      (/////analysis.throw ///.incorrect-arity [extension-name 1 (list.size args)]))))
+
+(def: array::new::object
   Handler
   (function (_ extension-name analyse args)
     (case args
@@ -310,7 +330,7 @@
         [lengthA (typeA.with-type ..int
                    (analyse lengthC))
          expectedT (///.lift macro.expected-type)
-         [level elem-class] (array-type-info expectedT)
+         [level elem-class] (array-type-info false expectedT)
          _ (if (n/> 0 level)
              (wrap [])
              (/////analysis.throw non-array expectedT))]
@@ -355,10 +375,26 @@
   (do ////.monad
     [name (check-jvm objectT)]
     (if (dictionary.contains? name boxes)
-      (/////analysis.throw primitives-are-not-objects name)
+      (/////analysis.throw ..primitives-are-not-objects [name])
       (////@wrap name))))
 
-(def: array::read
+(def: (read-primitive-array-handler lux-type jvm-type)
+  (-> Type _type.Type Handler)
+  (function (_ extension-name analyse args)
+    (case args
+      (^ (list idxC arrayC))
+      (do ////.monad
+        [_ (typeA.infer lux-type)
+         idxA (typeA.with-type ..int
+                (analyse idxC))
+         arrayA (typeA.with-type (#.Primitive (_type.descriptor (_type.array 1 jvm-type)) (list))
+                  (analyse arrayC))]
+        (wrap (#/////analysis.Extension extension-name (list idxA arrayA))))
+
+      _
+      (/////analysis.throw ///.incorrect-arity [extension-name 2 (list.size args)]))))
+
+(def: array::read::object
   Handler
   (function (_ extension-name analyse args)
     (case args
@@ -370,7 +406,7 @@
                   (analyse arrayC))
          varT (typeA.with-env
                 (check.clean varT))
-         [nesting elem-class] (array-type-info varT)
+         [nesting elem-class] (array-type-info false varT)
          idxA (typeA.with-type ..int
                 (analyse idxC))]
         (wrap (#/////analysis.Extension extension-name (list (/////analysis.nat (inc nesting))
@@ -381,7 +417,28 @@
       _
       (/////analysis.throw ///.incorrect-arity [extension-name 2 (list.size args)]))))
 
-(def: array::write
+(def: (write-primitive-array-handler lux-type jvm-type)
+  (-> Type _type.Type Handler)
+  (let [array-type (#.Primitive (_type.descriptor (_type.array 1 jvm-type)) (list))]
+    (function (_ extension-name analyse args)
+      (case args
+        (^ (list idxC valueC arrayC))
+        (do ////.monad
+          [_ (typeA.infer array-type)
+           idxA (typeA.with-type ..int
+                  (analyse idxC))
+           valueA (typeA.with-type lux-type
+                    (analyse valueC))
+           arrayA (typeA.with-type array-type
+                    (analyse arrayC))]
+          (wrap (#/////analysis.Extension extension-name (list idxA
+                                                               valueA
+                                                               arrayA))))
+
+        _
+        (/////analysis.throw ///.incorrect-arity [extension-name 3 (list.size args)])))))
+
+(def: array::write::object
   Handler
   (function (_ extension-name analyse args)
     (case args
@@ -393,7 +450,7 @@
                   (analyse arrayC))
          varT (typeA.with-env
                 (check.clean varT))
-         [nesting elem-class] (array-type-info varT)
+         [nesting elem-class] (array-type-info false varT)
          idxA (typeA.with-type ..int
                 (analyse idxC))
          valueA (typeA.with-type varT
@@ -412,9 +469,39 @@
   (<| (///bundle.prefix "array")
       (|> ///bundle.empty
           (///bundle.install "length" array::length)
-          (///bundle.install "new" array::new)
-          (///bundle.install "read" array::read)
-          (///bundle.install "write" array::write)
+          (dictionary.merge (<| (///bundle.prefix "new")
+                                (|> ///bundle.empty
+                                    (///bundle.install "boolean" (new-primitive-array-handler _type.boolean))
+                                    (///bundle.install "byte" (new-primitive-array-handler _type.byte))
+                                    (///bundle.install "short" (new-primitive-array-handler _type.short))
+                                    (///bundle.install "int" (new-primitive-array-handler _type.int))
+                                    (///bundle.install "long" (new-primitive-array-handler _type.long))
+                                    (///bundle.install "float" (new-primitive-array-handler _type.float))
+                                    (///bundle.install "double" (new-primitive-array-handler _type.double))
+                                    (///bundle.install "char" (new-primitive-array-handler _type.char))
+                                    (///bundle.install "object" array::new::object))))
+          (dictionary.merge (<| (///bundle.prefix "read")
+                                (|> ///bundle.empty
+                                    (///bundle.install "boolean" (read-primitive-array-handler ..boolean _type.boolean))
+                                    (///bundle.install "byte" (read-primitive-array-handler ..byte _type.byte))
+                                    (///bundle.install "short" (read-primitive-array-handler ..short _type.short))
+                                    (///bundle.install "int" (read-primitive-array-handler ..int _type.int))
+                                    (///bundle.install "long" (read-primitive-array-handler ..long _type.long))
+                                    (///bundle.install "float" (read-primitive-array-handler ..float _type.float))
+                                    (///bundle.install "double" (read-primitive-array-handler ..double _type.double))
+                                    (///bundle.install "char" (read-primitive-array-handler ..char _type.char))
+                                    (///bundle.install "object" array::read::object))))
+          (dictionary.merge (<| (///bundle.prefix "write")
+                                (|> ///bundle.empty
+                                    (///bundle.install "boolean" (write-primitive-array-handler ..boolean _type.boolean))
+                                    (///bundle.install "byte" (write-primitive-array-handler ..byte _type.byte))
+                                    (///bundle.install "short" (write-primitive-array-handler ..short _type.short))
+                                    (///bundle.install "int" (write-primitive-array-handler ..int _type.int))
+                                    (///bundle.install "long" (write-primitive-array-handler ..long _type.long))
+                                    (///bundle.install "float" (write-primitive-array-handler ..float _type.float))
+                                    (///bundle.install "double" (write-primitive-array-handler ..double _type.double))
+                                    (///bundle.install "char" (write-primitive-array-handler ..char _type.char))
+                                    (///bundle.install "object" array::write::object))))
           )))
 
 (def: object::null
@@ -746,9 +833,9 @@
 
                         _
                         (do @
-                          [_ (////.assert primitives-are-not-objects from-name
+                          [_ (////.assert ..primitives-are-not-objects [from-name]
                                           (not (dictionary.contains? from-name boxes)))
-                           _ (////.assert primitives-are-not-objects to-name
+                           _ (////.assert ..primitives-are-not-objects [to-name]
                                           (not (dictionary.contains? to-name boxes)))
                            to-class (load-class to-name)]
                           (loop [[current-name currentT] [from-name valueT]]

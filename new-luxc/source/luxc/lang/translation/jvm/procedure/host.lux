@@ -296,7 +296,7 @@
               "char" _t.char
               _ (_t.class elem-class (list)))))
 
-(def: (array::length proc generate inputs)
+(def: (array::length extension-name generate inputs)
   Handler
   (case inputs
     (^ (list (synthesis.i64 nesting)
@@ -309,9 +309,22 @@
                  _.ARRAYLENGTH)))
 
     _
-    (phase.throw extension.invalid-syntax [proc %synthesis inputs])))
+    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
-(def: (array::new proc generate inputs)
+(def: (new-primitive-array-handler jvm-primitive)
+  (-> Type Handler)
+  (function (_ extension-name generate inputs)
+    (case inputs
+      (^ (list lengthS))
+      (do phase.monad
+        [lengthI (generate lengthS)]
+        (wrap (|>> lengthI
+                   (_.array (_t.array 1 jvm-primitive)))))
+
+      _
+      (phase.throw extension.invalid-syntax [extension-name %synthesis inputs]))))
+
+(def: (array::new::object extension-name generate inputs)
   Handler
   (case inputs
     (^ (list (synthesis.i64 nesting)
@@ -323,9 +336,25 @@
                  (_.array (array-java-type (.nat nesting) elem-class)))))
 
     _
-    (phase.throw extension.invalid-syntax [proc %synthesis inputs])))
+    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
-(def: (array::read proc generate inputs)
+(def: (read-primitive-array-handler jvm-primitive loadI)
+  (-> Type Inst Handler)
+  (function (_ extension-name generate inputs)
+    (case inputs
+      (^ (list idxS arrayS))
+      (do phase.monad
+        [arrayI (generate arrayS)
+         idxI (generate idxS)]
+        (wrap (|>> arrayI
+                   (_.CHECKCAST (_t.descriptor (_t.array 1 jvm-primitive)))
+                   idxI
+                   loadI)))
+
+      _
+      (phase.throw extension.invalid-syntax [extension-name %synthesis inputs]))))
+
+(def: (array::read::object extension-name generate inputs)
   Handler
   (case inputs
     (^ (list (synthesis.i64 nesting)
@@ -334,26 +363,35 @@
              arrayS))
     (do phase.monad
       [arrayI (generate arrayS)
-       idxI (generate idxS)
-       #let [loadI (case elem-class
-                     "boolean" _.BALOAD
-                     "byte" _.BALOAD
-                     "short" _.SALOAD
-                     "int" _.IALOAD
-                     "long" _.LALOAD
-                     "float" _.FALOAD
-                     "double" _.DALOAD
-                     "char" _.CALOAD
-                     _ _.AALOAD)]]
+       idxI (generate idxS)]
       (wrap (|>> arrayI
                  (_.CHECKCAST (_t.descriptor (array-java-type (.nat nesting) elem-class)))
                  idxI
-                 loadI)))
+                 _.AALOAD)))
 
     _
-    (phase.throw extension.invalid-syntax [proc %synthesis inputs])))
+    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
-(def: (array::write proc generate inputs)
+(def: (write-primitive-array-handler jvm-primitive storeI)
+  (-> Type Inst Handler)
+  (function (_ extension-name generate inputs)
+    (case inputs
+      (^ (list idxS valueS arrayS))
+      (do phase.monad
+        [arrayI (generate arrayS)
+         idxI (generate idxS)
+         valueI (generate valueS)]
+        (wrap (|>> arrayI
+                   (_.CHECKCAST (_t.descriptor (_t.array 1 jvm-primitive)))
+                   _.DUP
+                   idxI
+                   valueI
+                   storeI)))
+
+      _
+      (phase.throw extension.invalid-syntax [extension-name %synthesis inputs]))))
+
+(def: (array::write::object extension-name generate inputs)
   Handler
   (case inputs
     (^ (list (synthesis.i64 nesting)
@@ -364,35 +402,55 @@
     (do phase.monad
       [arrayI (generate arrayS)
        idxI (generate idxS)
-       valueI (generate valueS)
-       #let [storeI (case elem-class
-                      "boolean" _.BASTORE
-                      "byte" _.BASTORE
-                      "short" _.SASTORE
-                      "int" _.IASTORE
-                      "long" _.LASTORE
-                      "float" _.FASTORE
-                      "double" _.DASTORE
-                      "char" _.CASTORE
-                      _ _.AASTORE)]]
+       valueI (generate valueS)]
       (wrap (|>> arrayI
                  (_.CHECKCAST (_t.descriptor (array-java-type (.nat nesting) elem-class)))
                  _.DUP
                  idxI
                  valueI
-                 storeI)))
+                 _.AASTORE)))
 
     _
-    (phase.throw extension.invalid-syntax [proc %synthesis inputs])))
+    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
 (def: array
   Bundle
   (<| (bundle.prefix "array")
-      (|> (: Bundle bundle.empty)
+      (|> bundle.empty
           (bundle.install "length" array::length)
-          (bundle.install "new" array::new)
-          (bundle.install "read" array::read)
-          (bundle.install "write" array::write)
+          (dictionary.merge (<| (bundle.prefix "new")
+                                (|> bundle.empty
+                                    (bundle.install "boolean" (new-primitive-array-handler _t.boolean))
+                                    (bundle.install "byte" (new-primitive-array-handler _t.byte))
+                                    (bundle.install "short" (new-primitive-array-handler _t.short))
+                                    (bundle.install "int" (new-primitive-array-handler _t.int))
+                                    (bundle.install "long" (new-primitive-array-handler _t.long))
+                                    (bundle.install "float" (new-primitive-array-handler _t.float))
+                                    (bundle.install "double" (new-primitive-array-handler _t.double))
+                                    (bundle.install "char" (new-primitive-array-handler _t.char))
+                                    (bundle.install "object" array::new::object))))
+          (dictionary.merge (<| (bundle.prefix "read")
+                                (|> bundle.empty
+                                    (bundle.install "boolean" (read-primitive-array-handler _t.boolean _.BALOAD))
+                                    (bundle.install "byte" (read-primitive-array-handler _t.byte _.BALOAD))
+                                    (bundle.install "short" (read-primitive-array-handler _t.short _.SALOAD))
+                                    (bundle.install "int" (read-primitive-array-handler _t.int _.IALOAD))
+                                    (bundle.install "long" (read-primitive-array-handler _t.long _.LALOAD))
+                                    (bundle.install "float" (read-primitive-array-handler _t.float _.FALOAD))
+                                    (bundle.install "double" (read-primitive-array-handler _t.double _.DALOAD))
+                                    (bundle.install "char" (read-primitive-array-handler _t.char _.CALOAD))
+                                    (bundle.install "object" array::read::object))))
+          (dictionary.merge (<| (bundle.prefix "write")
+                                (|> bundle.empty
+                                    (bundle.install "boolean" (write-primitive-array-handler _t.boolean _.BASTORE))
+                                    (bundle.install "byte" (write-primitive-array-handler _t.byte _.BASTORE))
+                                    (bundle.install "short" (write-primitive-array-handler _t.short _.SASTORE))
+                                    (bundle.install "int" (write-primitive-array-handler _t.int _.IASTORE))
+                                    (bundle.install "long" (write-primitive-array-handler _t.long _.LASTORE))
+                                    (bundle.install "float" (write-primitive-array-handler _t.float _.FASTORE))
+                                    (bundle.install "double" (write-primitive-array-handler _t.double _.DASTORE))
+                                    (bundle.install "char" (write-primitive-array-handler _t.char _.CASTORE))
+                                    (bundle.install "object" array::write::object))))
           )))
 
 (def: (object::null _)
@@ -425,7 +483,7 @@
   (|>> exceptionI
        _.ATHROW))
 
-(def: (object::class proc generate inputs)
+(def: (object::class extension-name generate inputs)
   Handler
   (case inputs
     (^ (list (synthesis.text class)))
@@ -439,9 +497,9 @@
                                  false))))
 
     _
-    (phase.throw extension.invalid-syntax [proc %synthesis inputs])))
+    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
-(def: (object::instance? proc generate inputs)
+(def: (object::instance? extension-name generate inputs)
   Handler
   (case inputs
     (^ (list (synthesis.text class) objectS))
@@ -452,9 +510,9 @@
                  (_.wrap #_t.Boolean))))
 
     _
-    (phase.throw extension.invalid-syntax [proc %synthesis inputs])))
+    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
-(def: (object::cast proc generate inputs)
+(def: (object::cast extension-name generate inputs)
   Handler
   (case inputs
     (^ (list (synthesis.text from) (synthesis.text to) valueS))
@@ -481,7 +539,7 @@
         (wrap valueI)))
 
     _
-    (phase.throw extension.invalid-syntax [proc %synthesis inputs])))
+    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
 (def: object
   Bundle
@@ -508,7 +566,7 @@
             ["char" #_t.Char])
       (dictionary.from-list text.hash)))
 
-(def: (static::get proc generate inputs)
+(def: (static::get extension-name generate inputs)
   Handler
   (case inputs
     (^ (list (synthesis.text class)
@@ -524,9 +582,9 @@
         (wrap (_.GETSTATIC class field (_t.class unboxed (list))))))
 
     _
-    (phase.throw extension.invalid-syntax [proc %synthesis inputs])))
+    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
-(def: (static::put proc generate inputs)
+(def: (static::put extension-name generate inputs)
   Handler
   (case inputs
     (^ (list (synthesis.text class)
@@ -548,9 +606,9 @@
                    (_.string synthesis.unit)))))
 
     _
-    (phase.throw extension.invalid-syntax [proc %synthesis inputs])))
+    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
-(def: (virtual::get proc generate inputs)
+(def: (virtual::get extension-name generate inputs)
   Handler
   (case inputs
     (^ (list (synthesis.text class)
@@ -571,9 +629,9 @@
                    (_.GETFIELD class field (_t.class unboxed (list)))))))
 
     _
-    (phase.throw extension.invalid-syntax [proc %synthesis inputs])))
+    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
-(def: (virtual::put proc generate inputs)
+(def: (virtual::put extension-name generate inputs)
   Handler
   (case inputs
     (^ (list (synthesis.text class)
@@ -601,7 +659,7 @@
                    (_.PUTFIELD class field (_t.class unboxed (list)))))))
 
     _
-    (phase.throw extension.invalid-syntax [proc %synthesis inputs])))
+    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
 (def: base-type
   (l.Parser Type)
@@ -667,7 +725,7 @@
     #.None
     argI))
 
-(def: (invoke::static proc generate inputs)
+(def: (invoke::static extension-name generate inputs)
   Handler
   (case inputs
     (^ (list& (synthesis.text class)
@@ -683,10 +741,10 @@
                                  false))))
 
     _
-    (phase.throw extension.invalid-syntax [proc %synthesis inputs])))
+    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
 (template [<name> <invoke> <interface?>]
-  [(def: (<name> proc generate inputs)
+  [(def: (<name> extension-name generate inputs)
      Handler
      (case inputs
        (^ (list& (synthesis.text class)
@@ -706,14 +764,14 @@
                               <interface?>))))
 
        _
-       (phase.throw extension.invalid-syntax [proc %synthesis inputs])))]
+       (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))]
 
   [invoke::virtual _.INVOKEVIRTUAL false]
   [invoke::special _.INVOKESPECIAL false]
   [invoke::interface _.INVOKEINTERFACE true]
   )
 
-(def: (invoke::constructor proc generate inputs)
+(def: (invoke::constructor extension-name generate inputs)
   Handler
   (case inputs
     (^ (list& (synthesis.text class) argsS))
@@ -727,7 +785,7 @@
                                   false))))
 
     _
-    (phase.throw extension.invalid-syntax [proc %synthesis inputs])))
+    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
 (def: member
   Bundle
