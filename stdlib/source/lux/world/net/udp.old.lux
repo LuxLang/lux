@@ -1,5 +1,7 @@
 (.module:
   [lux #*
+   [host (#+ import:)]
+   ["@" target]
    [abstract
     monad]
    [control
@@ -15,39 +17,8 @@
     [collection
      ["." array]]]
    [world
-    ["." binary (#+ Binary)]]
-   [host (#+ import:)]
-   [tool
-    [compiler
-     ["." host]]]]
+    ["." binary (#+ Binary)]]]
   ["." // (#+ Location Can-Read Can-Write Can-Close)])
-
-(import: java/lang/AutoCloseable
-  (close [] #io #try void))
-
-(import: java/io/Flushable
-  (flush [] #io #try void))
-
-(import: java/net/InetAddress
-  (#static getAllByName [String] #io #try (Array InetAddress))
-  (getHostAddress [] String))
-
-(import: java/net/DatagramPacket
-  (new #as new|send [(Array byte) int int InetAddress int])
-  (new #as new|receive [(Array byte) int int])
-  (getAddress [] InetAddress)
-  (getPort [] int)
-  (getLength [] int))
-
-(import: java/net/DatagramSocket
-  (new #as new|client [] #io #try)
-  (new #as new|server [int] #io #try)
-  (receive [DatagramPacket] #io #try void)
-  (send [DatagramPacket] #io #try void))
-
-############################################################
-############################################################
-############################################################
 
 (exception: #export (cannot-resolve-address {address //.Address})
   (ex.report ["Address" address]))
@@ -74,53 +45,80 @@
                        [write //.can-write]
                        [close //.can-close])))))
 
-(`` (for {(~~ (static host.old))
-          (as-is (def: (resolve address)
-                   (-> //.Address (IO (Error InetAddress)))
-                   (do (error.with io.monad)
-                     [addresses (InetAddress::getAllByName address)]
-                     (: (IO (Error InetAddress))
-                        (case (array.size addresses)
-                          0 (io.io (ex.throw cannot-resolve-address address))
-                          1 (wrap (maybe.assume (array.read 0 addresses)))
-                          _ (io.io (ex.throw multiple-candidate-addresses address))))))
+(with-expansions [<for-jvm> (as-is (import: java/lang/AutoCloseable
+                                     (close [] #io #try void))
 
-                 (def: (udp socket)
-                   (-> DatagramSocket (UDP IO))
-                   (structure (def: read
-                                (//.can-read
-                                 (function (read size)
-                                   (let [data (binary.create size)
-                                         packet (DatagramPacket::new|receive data +0 (.int size))]
+                                   (import: java/io/Flushable
+                                     (flush [] #io #try void))
+
+                                   (import: java/net/InetAddress
+                                     (#static getAllByName [String] #io #try (Array InetAddress))
+                                     (getHostAddress [] String))
+
+                                   (import: java/net/DatagramPacket
+                                     (new #as new|send [(Array byte) int int InetAddress int])
+                                     (new #as new|receive [(Array byte) int int])
+                                     (getAddress [] InetAddress)
+                                     (getPort [] int)
+                                     (getLength [] int))
+
+                                   (import: java/net/DatagramSocket
+                                     (new #as new|client [] #io #try)
+                                     (new #as new|server [int] #io #try)
+                                     (receive [DatagramPacket] #io #try void)
+                                     (send [DatagramPacket] #io #try void))
+
+                                   (def: (resolve address)
+                                     (-> //.Address (IO (Error InetAddress)))
                                      (do (error.with io.monad)
-                                       [_ (DatagramSocket::receive packet socket)
-                                        #let [bytes-read (.nat (DatagramPacket::getLength packet))]]
-                                       (wrap [bytes-read
-                                              {#//.address (|> packet DatagramPacket::getAddress InetAddress::getHostAddress)
-                                               #//.port (.nat (DatagramPacket::getPort packet))}
-                                              data]))))))
+                                       [addresses (InetAddress::getAllByName address)]
+                                       (: (IO (Error InetAddress))
+                                          (case (array.size addresses)
+                                            0 (io.io (ex.throw cannot-resolve-address address))
+                                            1 (wrap (maybe.assume (array.read 0 addresses)))
+                                            _ (io.io (ex.throw multiple-candidate-addresses address))))))
 
-                              (def: write
-                                (//.can-write
-                                 (function (write [location data])
-                                   (do (error.with io.monad)
-                                     [address (resolve (get@ #//.address location))]
-                                     (DatagramSocket::send (DatagramPacket::new|send data +0 (.int (binary.size data)) address (.int (get@ #//.port location)))
-                                                           socket)))))
+                                   (def: (udp socket)
+                                     (-> DatagramSocket (UDP IO))
+                                     (structure (def: read
+                                                  (//.can-read
+                                                   (function (read size)
+                                                     (let [data (binary.create size)
+                                                           packet (DatagramPacket::new|receive data +0 (.int size))]
+                                                       (do (error.with io.monad)
+                                                         [_ (DatagramSocket::receive packet socket)
+                                                          #let [bytes-read (.nat (DatagramPacket::getLength packet))]]
+                                                         (wrap [bytes-read
+                                                                {#//.address (|> packet DatagramPacket::getAddress InetAddress::getHostAddress)
+                                                                 #//.port (.nat (DatagramPacket::getPort packet))}
+                                                                data]))))))
 
-                              (def: close
-                                (//.can-close
-                                 (function (close _)
-                                   (AutoCloseable::close socket))))))
+                                                (def: write
+                                                  (//.can-write
+                                                   (function (write [location data])
+                                                     (do (error.with io.monad)
+                                                       [address (resolve (get@ #//.address location))]
+                                                       (DatagramSocket::send (DatagramPacket::new|send data +0 (.int (binary.size data)) address (.int (get@ #//.port location)))
+                                                                             socket)))))
 
-                 (def: #export client
-                   (IO (Error (UDP IO)))
-                   (|> (DatagramSocket::new|client)
-                       (:: (error.with io.monad) map ..udp)))
+                                                (def: close
+                                                  (//.can-close
+                                                   (function (close _)
+                                                     (AutoCloseable::close socket))))))
 
-                 (def: #export server
-                   (-> //.Port (IO (Error (UDP IO))))
-                   (|>> .int
-                        DatagramSocket::new|server
-                        (:: (error.with io.monad) map ..udp)))
-                 )}))
+                                   (def: #export client
+                                     (IO (Error (UDP IO)))
+                                     (|> (DatagramSocket::new|client)
+                                         (:: (error.with io.monad) map ..udp)))
+
+                                   (def: #export server
+                                     (-> //.Port (IO (Error (UDP IO))))
+                                     (|>> .int
+                                          DatagramSocket::new|server
+                                          (:: (error.with io.monad) map ..udp)))
+                                   )]
+  (`` (for {(~~ (static @.old))
+            (as-is <for-jvm>)
+
+            (~~ (static @.jvm))
+            (as-is <for-jvm>)})))
