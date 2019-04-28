@@ -156,13 +156,13 @@
   analyse-int-rem  ["int" "%"]  &type/Int  &type/Int
   analyse-int-lt   ["int" "<"]  &type/Int  &type/Bit
 
-  analyse-frac-add ["frac" "+"] &type/Frac &type/Frac
-  analyse-frac-sub ["frac" "-"] &type/Frac &type/Frac
-  analyse-frac-mul ["frac" "*"] &type/Frac &type/Frac
-  analyse-frac-div ["frac" "/"] &type/Frac &type/Frac
-  analyse-frac-rem ["frac" "%"] &type/Frac &type/Frac
-  analyse-frac-eq  ["frac" "="] &type/Frac &type/Bit
-  analyse-frac-lt  ["frac" "<"] &type/Frac &type/Bit
+  analyse-frac-add ["f64" "+"] &type/Frac &type/Frac
+  analyse-frac-sub ["f64" "-"] &type/Frac &type/Frac
+  analyse-frac-mul ["f64" "*"] &type/Frac &type/Frac
+  analyse-frac-div ["f64" "/"] &type/Frac &type/Frac
+  analyse-frac-rem ["f64" "%"] &type/Frac &type/Frac
+  analyse-frac-eq  ["f64" "="] &type/Frac &type/Bit
+  analyse-frac-lt  ["f64" "<"] &type/Frac &type/Bit
   )
 
 (do-template [<encode> <encode-op> <decode> <decode-op> <type>]
@@ -183,7 +183,7 @@
           (return (&/|list (&&/|meta exo-type _cursor
                                      (&&/$proc (&/T <decode-op>) (&/|list =x) (&/|list)))))))))
 
-  analyse-frac-encode ["frac" "encode"] analyse-frac-decode ["frac" "decode"] &type/Frac
+  analyse-frac-encode ["f64" "encode"] analyse-frac-decode ["f64" "decode"] &type/Frac
   )
 
 (do-template [<name> <type> <op>]
@@ -194,9 +194,9 @@
       (return (&/|list (&&/|meta exo-type _cursor
                                  (&&/$proc (&/T <op>) (&/|list) (&/|list)))))))
 
-  analyse-frac-smallest           &type/Frac ["frac"  "smallest"]
-  analyse-frac-min                &type/Frac ["frac"  "min"]
-  analyse-frac-max                &type/Frac ["frac"  "max"]
+  analyse-frac-smallest           &type/Frac ["f64"  "smallest"]
+  analyse-frac-min                &type/Frac ["f64"  "min"]
+  analyse-frac-max                &type/Frac ["f64"  "max"]
   )
 
 (do-template [<name> <from-type> <to-type> <op>]
@@ -209,8 +209,8 @@
                                  (&&/$proc (&/T <op>) (&/|list =x) (&/|list)))))))
 
   analyse-int-char  &type/Int  &type/Text   ["int" "char"]
-  analyse-int-frac  &type/Int  &type/Frac   ["int" "frac"]
-  analyse-frac-int  &type/Frac &type/Int    ["frac" "int"]
+  analyse-int-frac  &type/Int  &type/Frac   ["int" "f64"]
+  analyse-frac-int  &type/Frac &type/Int    ["f64" "i64"]
 
   analyse-io-log    &type/Text &type/Any    ["io" "log"]
   analyse-io-error  &type/Text &type/Nothing ["io" "error"]
@@ -278,22 +278,22 @@
          "lux int /" (analyse-int-div analyse exo-type ?values)
          "lux int %" (analyse-int-rem analyse exo-type ?values)
          "lux int <" (analyse-int-lt analyse exo-type ?values)
-         "lux int frac" (analyse-int-frac analyse exo-type ?values)
+         "lux int f64" (analyse-int-frac analyse exo-type ?values)
          "lux int char" (analyse-int-char analyse exo-type ?values)
          
-         "lux frac +" (analyse-frac-add analyse exo-type ?values)
-         "lux frac -" (analyse-frac-sub analyse exo-type ?values)
-         "lux frac *" (analyse-frac-mul analyse exo-type ?values)
-         "lux frac /" (analyse-frac-div analyse exo-type ?values)
-         "lux frac %" (analyse-frac-rem analyse exo-type ?values)
-         "lux frac =" (analyse-frac-eq analyse exo-type ?values)
-         "lux frac <" (analyse-frac-lt analyse exo-type ?values)
-         "lux frac encode" (analyse-frac-encode analyse exo-type ?values)
-         "lux frac decode" (analyse-frac-decode analyse exo-type ?values)
-         "lux frac smallest" (analyse-frac-smallest analyse exo-type ?values)
-         "lux frac min" (analyse-frac-min analyse exo-type ?values)
-         "lux frac max" (analyse-frac-max analyse exo-type ?values)
-         "lux frac int" (analyse-frac-int analyse exo-type ?values)
+         "lux f64 +" (analyse-frac-add analyse exo-type ?values)
+         "lux f64 -" (analyse-frac-sub analyse exo-type ?values)
+         "lux f64 *" (analyse-frac-mul analyse exo-type ?values)
+         "lux f64 /" (analyse-frac-div analyse exo-type ?values)
+         "lux f64 %" (analyse-frac-rem analyse exo-type ?values)
+         "lux f64 =" (analyse-frac-eq analyse exo-type ?values)
+         "lux f64 <" (analyse-frac-lt analyse exo-type ?values)
+         "lux f64 encode" (analyse-frac-encode analyse exo-type ?values)
+         "lux f64 decode" (analyse-frac-decode analyse exo-type ?values)
+         "lux f64 smallest" (analyse-frac-smallest analyse exo-type ?values)
+         "lux f64 min" (analyse-frac-min analyse exo-type ?values)
+         "lux f64 max" (analyse-frac-max analyse exo-type ?values)
+         "lux f64 i64" (analyse-frac-int analyse exo-type ?values)
 
          ;; Special extensions for performance reasons
          ;; Will be replaced by custom extensions in the future.

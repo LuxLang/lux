@@ -456,11 +456,11 @@
       "/"    (compile-int-div compile ?values special-args)
       "%"    (compile-int-rem compile ?values special-args)
       "<"    (compile-int-lt compile ?values special-args)
-      "frac" (compile-int-frac compile ?values special-args)
+      "f64"  (compile-int-frac compile ?values special-args)
       "char" (compile-int-char compile ?values special-args)
       )
 
-    "frac"
+    "f64"
     (case proc
       "+"         (compile-frac-add compile ?values special-args)
       "-"         (compile-frac-sub compile ?values special-args)
@@ -472,7 +472,7 @@
       "smallest" (compile-frac-smallest compile ?values special-args)
       "max" (compile-frac-max compile ?values special-args)
       "min" (compile-frac-min compile ?values special-args)
-      "int"    (compile-frac-int compile ?values special-args)
+      "i64"    (compile-frac-int compile ?values special-args)
       "encode"    (compile-frac-encode compile ?values special-args)
       "decode"    (compile-frac-decode compile ?values special-args)
       )
