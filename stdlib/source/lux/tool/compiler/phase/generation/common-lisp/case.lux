@@ -1,0 +1,223 @@
+(.module:
+  [lux (#- case let if)
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["ex" exception (#+ exception:)]]
+   [data
+    ["." text
+     format]
+    [collection
+     ["." list ("#@." functor fold)]
+     ["." set]]]
+   [target
+    ["_" common-lisp (#+ Expression Var/1)]]]
+  ["." // #_
+   ["#." runtime (#+ Operation Phase)]
+   ["#." reference]
+   ["#." primitive]
+   ["#/" //
+    ["#." reference]
+    ["#/" // ("#@." monad)
+     [synthesis
+      ["." case]]
+     ["#/" // #_
+      ["." reference (#+ Register)]
+      ["#." synthesis (#+ Synthesis Path)]]]]])
+
+(def: #export register
+  (///reference.local _.var))
+
+(def: #export capture
+  (///reference.foreign _.var))
+
+(def: #export (let generate [valueS register bodyS])
+  (-> Phase [Synthesis Register Synthesis]
+      (Operation (Expression Any)))
+  (do ////.monad
+    [valueG (generate valueS)
+     bodyG (generate bodyS)]
+    (wrap (_.let (list [(..register register) valueG])
+            bodyG))))
+
+(def: #export (record-get generate valueS pathP)
+  (-> Phase Synthesis (List (Either Nat Nat))
+      (Operation (Expression Any)))
+  (do ////.monad
+    [valueG (generate valueS)]
+    (wrap (list@fold (function (_ side source)
+                       (.let [method (.case side
+                                       (^template [<side> <accessor>]
+                                         (<side> lefts)
+                                         (<accessor> (_.int (.int lefts))))
+                                       ([#.Left //runtime.tuple//left]
+                                        [#.Right //runtime.tuple//right]))]
+                         (method source)))
+                     valueG
+                     pathP))))
+
+(def: #export (if generate [testS thenS elseS])
+  (-> Phase [Synthesis Synthesis Synthesis]
+      (Operation (Expression Any)))
+  (do ////.monad
+    [testG (generate testS)
+     thenG (generate thenS)
+     elseG (generate elseS)]
+    (wrap (_.if testG thenG elseG))))
+
+(def: @savepoint (_.var "lux_pm_savepoint"))
+(def: @cursor (_.var "lux_pm_cursor"))
+(def: @temp (_.var "lux_pm_temp"))
+(def: @variant (_.var "lux_pm_variant"))
+(def: @return (_.var "lux_pm_return"))
+
+(def: (push! value)
+  (-> (Expression Any) (Expression Any))
+  (_.setq @cursor (_.cons/2 [value @cursor])))
+
+(def: pop!
+  (Expression Any)
+  (_.setq @cursor (_.cdr/1 @cursor)))
+
+(def: peek
+  (Expression Any)
+  (_.car/1 @cursor))
+
+(def: save!
+  (Expression Any)
+  (_.setq @savepoint (_.cons/2 [@cursor @savepoint])))
+
+(def: restore!
+  (Expression Any)
+  ($_ _.progn
+      (_.setq @cursor (_.car/1 @savepoint))
+      (_.setq @savepoint (_.cdr/1 @savepoint))))
+
+(def: fail-tag (_.tag "lux_pm_fail"))
+(def: done-tag (_.tag "lux_pm_done"))
+
+(def: fail! (_.go ..fail-tag))
+(def: return! (_.go ..done-tag))
+
+(exception: #export unrecognized-path)
+
+(def: (multi-pop! pops)
+  (-> Nat (Expression Any))
+  (_.setq @cursor (_.nthcdr/2 [(_.int (.int pops)) @cursor])))
+
+(template [<name> <flag> <prep>]
+  [(def: (<name> simple? idx)
+     (-> Bit Nat (Expression Any))
+     (.let [<failure-condition> (_.eq @variant @temp)]
+       (_.let (list [@variant ..peek])
+         ($_ _.progn
+             (_.setq @temp (|> idx <prep> .int _.int (//runtime.sum//get @variant <flag>)))
+             (.if simple?
+               (_.when <failure-condition>
+                       fail!)
+               (_.if <failure-condition>
+                 fail!
+                 (..push! @temp))
+               )))))]
+
+  [left-choice  _.nil         (<|)]
+  [right-choice (_.string "") inc]
+  )
+
+(def: (alternation pre! post!)
+  (-> (Expression Any) (Expression Any) (Expression Any))
+  (_.tagbody ($_ _.progn
+                 ..save!
+                 pre!)
+             (list [fail-tag
+                    ($_ _.progn
+                        ..restore!
+                        post!)])))
+
+(def: (pattern-matching' generate pathP)
+  (-> Phase Path (Operation (Expression Any)))
+  (.case pathP
+    (^ (/////synthesis.path/then bodyS))
+    (do ////.monad
+      [bodyG (generate bodyS)]
+      (wrap ($_ _.progn
+                (_.setq @return bodyG)
+                ..return!)))
+
+    #/////synthesis.Pop
+    (////@wrap ..pop!)
+
+    (#/////synthesis.Bind register)
+    (////@wrap (_.setq (..register register) ..peek))
+
+    (^template [<tag> <format> <=>]
+      (^ (<tag> value))
+      (////@wrap (_.if (|> value <format> (<=> ..peek))
+                   _.nil
+                   fail!)))
+    ([/////synthesis.path/bit //primitive.bit _.equal]
+     [/////synthesis.path/i64  //primitive.i64  _.=]
+     [/////synthesis.path/f64 //primitive.f64   _.=]
+     [/////synthesis.path/text //primitive.text _.string=])
+
+    (^template [<complex> <simple> <choice>]
+      (^ (<complex> idx))
+      (////@wrap (<choice> false idx))
+
+      (^ (<simple> idx nextP))
+      (|> nextP
+          (pattern-matching' generate)
+          (:: ////.monad map (_.progn (<choice> true idx)))))
+    ([/////synthesis.side/left  /////synthesis.simple-left-side  ..left-choice]
+     [/////synthesis.side/right /////synthesis.simple-right-side ..right-choice])
+
+    (^ (/////synthesis.member/left 0))
+    (////@wrap (..push! (_.elt/2 [..peek (_.int +0)])))
+    
+    (^template [<pm> <getter>]
+      (^ (<pm> lefts))
+      (////@wrap (|> ..peek (<getter> (_.int (.int lefts))) ..push!)))
+    ([/////synthesis.member/left  //runtime.tuple//left]
+     [/////synthesis.member/right //runtime.tuple//right])
+
+    (^ (/////synthesis.!multi-pop nextP))
+    (.let [[extra-pops nextP'] (case.count-pops nextP)]
+      (do ////.monad
+        [next! (pattern-matching' generate nextP')]
+        (////@wrap ($_ _.progn
+                       (..multi-pop! (n/+ 2 extra-pops))
+                       next!))))
+
+    (^template [<tag> <combinator>]
+      (^ (<tag> preP postP))
+      (do ////.monad
+        [pre! (pattern-matching' generate preP)
+         post! (pattern-matching' generate postP)]
+        (wrap (<combinator> pre! post!))))
+    ([/////synthesis.path/alt ..alternation]
+     [/////synthesis.path/seq _.progn])
+
+    _
+    (////.throw unrecognized-path [])))
+
+(def: (pattern-matching generate pathP)
+  (-> Phase Path (Operation (Expression Any)))
+  (do ////.monad
+    [pattern-matching! (pattern-matching' generate pathP)]
+    (wrap ($_ _.progn
+              (_.tagbody pattern-matching!
+                         (list [..fail-tag
+                                (_.error/1 (_.string "Invalid expression for pattern-matching."))]
+                               [..done-tag
+                                _.nil]))
+              @return))))
+
+(def: #export (case generate [valueS pathP])
+  (-> Phase [Synthesis Path] (Operation (Expression Any)))
+  (do ////.monad
+    [initG (generate valueS)
+     pattern-matching! (pattern-matching generate pathP)]
+    (wrap (_.let (list [@cursor (_.list/* (list initG))]
+                       [@savepoint (_.list/* (list))]
+                       [@temp _.nil])
+            pattern-matching!))))

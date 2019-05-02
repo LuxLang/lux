@@ -25,8 +25,6 @@
                  [org.ow2.asm/asm-all "5.0.3"]
                  ;; ;; Scheme
                  ;; [kawa-scheme/kawa-core "2.4"]
-                 ;; ;; Common Lisp
-                 ;; [org.abcl/abcl "1.5.0"]
                  ]
   
   :manifest {"lux" ~version}

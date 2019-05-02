@@ -1,0 +1,322 @@
+(.module:
+  [lux #*
+   ["." host (#+ import: interface: do-to object)]
+   [abstract
+    [monad (#+ do)]]
+   [control
+    [pipe (#+ new> case>)]
+    ["." exception (#+ exception:)]
+    ["." io (#+ IO io)]
+    [parser
+     [cli (#+ program:)]]]
+   [data
+    ["." maybe]
+    ["." error (#+ Error)]
+    [number
+     ["." i64]]
+    ["." text ("#/." hash)
+     format]
+    [collection
+     ["." array (#+ Array)]
+     ["." list ("#/." functor)]]]
+   [macro
+    ["." template]]
+   [world
+    ["." file]]
+   ["." debug]
+   [target
+    ["_" common-lisp]]
+   [tool
+    [compiler
+     ["." name]
+     ["." synthesis]
+     [phase
+      [macro (#+ Expander)]
+      ["." generation
+       ["." common-lisp
+        ["." runtime]
+        ["." extension]]]]
+     [default
+      ["." platform (#+ Platform)]]]]]
+  [program
+   ["/" compositor
+    ["/." cli]]])
+
+(import: #long java/lang/String)
+
+(import: #long (java/lang/Class a)
+  (#static forName [java/lang/String] #try (java/lang/Class java/lang/Object)))
+
+(import: #long java/lang/Object
+  (toString [] java/lang/String)
+  (getClass [] (java/lang/Class java/lang/Object)))
+
+(import: #long java/lang/Long
+  (intValue [] java/lang/Integer))
+
+(import: #long java/lang/Integer
+  (longValue [] long))
+
+(import: #long java/lang/Number
+  (intValue [] java/lang/Integer)
+  (longValue [] long)
+  (doubleValue [] double))
+
+(import: #long org/armedbear/lisp/LispObject
+  (length [] int)
+  (NTH [int] org/armedbear/lisp/LispObject)
+  (SVREF [int] org/armedbear/lisp/LispObject)
+  (elt [int] org/armedbear/lisp/LispObject)
+  (execute [org/armedbear/lisp/LispObject org/armedbear/lisp/LispObject] #try org/armedbear/lisp/LispObject))
+
+## The org/armedbear/lisp/Interpreter must be imported before the
+## other ones, because there is an order dependency in their static initialization.
+(import: #long org/armedbear/lisp/Interpreter
+  (#static getInstance [] org/armedbear/lisp/Interpreter)
+  (#static createInstance [] #? org/armedbear/lisp/Interpreter)
+  (eval [java/lang/String] #try org/armedbear/lisp/LispObject))
+
+(import: #long org/armedbear/lisp/Symbol
+  (#static T org/armedbear/lisp/Symbol))
+
+(import: #long org/armedbear/lisp/DoubleFloat
+  (new [double])
+  (doubleValue [] double))
+
+(import: #long org/armedbear/lisp/SimpleString
+  (new [java/lang/String])
+  (getStringValue [] java/lang/String))
+
+(import: #long org/armedbear/lisp/LispInteger)
+
+(import: #long org/armedbear/lisp/Bignum
+  (longValue [] long)
+  (#static getInstance [long] org/armedbear/lisp/LispInteger))
+
+(import: #long org/armedbear/lisp/Fixnum
+  (longValue [] long)
+  (#static getInstance [int] org/armedbear/lisp/Fixnum))
+
+(import: #long org/armedbear/lisp/Nil
+  (#static NIL org/armedbear/lisp/Symbol))
+
+(import: #long org/armedbear/lisp/SimpleVector)
+
+(import: #long org/armedbear/lisp/Cons)
+
+(import: #long org/armedbear/lisp/Closure)
+
+(interface: LuxADT
+  (getValue [] java/lang/Object))
+
+(import: #long program/LuxADT
+  (getValue [] java/lang/Object))
+
+(template [<name>]
+  [(exception: (<name> {object java/lang/Object})
+     (exception.report
+      ["Class" (java/lang/Object::toString (java/lang/Object::getClass object))]
+      ["Object" (java/lang/Object::toString object)]))]
+
+  [unknown-kind-of-object]
+  [cannot-apply-a-non-function]
+  )
+
+(def: host-bit
+  (-> Bit org/armedbear/lisp/LispObject)
+  (|>> (case> #0 (org/armedbear/lisp/Nil::NIL)
+              #1 (org/armedbear/lisp/Symbol::T))))
+
+(def: (host-value value)
+  (-> Any org/armedbear/lisp/LispObject)
+  (let [to-sub (: (-> Any org/armedbear/lisp/LispObject)
+                  (function (_ sub-value)
+                    (let [sub-value (:coerce java/lang/Object sub-value)]
+                      (`` (<| (~~ (template [<type> <then>]
+                                    [(case (host.check <type> sub-value)
+                                       (#.Some sub-value)
+                                       (`` (|> sub-value (~~ (template.splice <then>))))
+                                       #.None)]
+
+                                    [(Array java/lang/Object) [host-value]]
+                                    [java/lang/Boolean [..host-bit]]
+                                    [java/lang/Integer [java/lang/Integer::longValue org/armedbear/lisp/Fixnum::getInstance]]
+                                    [java/lang/Long [org/armedbear/lisp/Bignum::getInstance]]
+                                    [java/lang/Double [org/armedbear/lisp/DoubleFloat::new]]
+                                    [java/lang/String [org/armedbear/lisp/SimpleString::new]]
+                                    ))
+                              ## else
+                              (:coerce org/armedbear/lisp/LispObject sub-value))))))]
+    (`` (object [] org/armedbear/lisp/LispObject [program/LuxADT]
+          []
+          ## Methods
+          (program/LuxADT
+           (getValue) java/lang/Object
+           (:coerce java/lang/Object value))
+
+          (org/armedbear/lisp/LispObject
+           (length)
+           int
+           (|> value
+               (:coerce (Array java/lang/Object))
+               array.size
+               (:coerce java/lang/Long)
+               java/lang/Number::intValue))
+
+          (~~ (template [<name>]
+                [(org/armedbear/lisp/LispObject
+                  (<name> {idx int})
+                  org/armedbear/lisp/LispObject
+                  (case (array.read (|> idx java/lang/Integer::longValue (:coerce Nat))
+                                    (:coerce (Array java/lang/Object) value))
+                    (#.Some sub)
+                    (to-sub sub)
+
+                    #.None
+                    (org/armedbear/lisp/Nil::NIL)))]
+
+                [NTH] [SVREF] [elt]
+                ))
+          ))))
+
+(type: (Reader a)
+  (-> a (Error Any)))
+
+(def: (read-variant read host-object)
+  (-> (Reader org/armedbear/lisp/LispObject) (Reader org/armedbear/lisp/Cons))
+  (do error.monad
+    [tag (read (org/armedbear/lisp/LispObject::NTH +0 host-object))
+     value (read (org/armedbear/lisp/LispObject::NTH +2 host-object))]
+    (wrap [(java/lang/Long::intValue (:coerce java/lang/Long tag))
+           (case (host.check org/armedbear/lisp/Nil (org/armedbear/lisp/LispObject::NTH +1 host-object))
+             (#.Some _)
+             (: Any (host.null))
+
+             _
+             (: Any synthesis.unit))
+           value])))
+
+(def: (read-tuple read host-object)
+  (-> (Reader org/armedbear/lisp/LispObject) (Reader org/armedbear/lisp/SimpleVector))
+  (let [size (.nat (org/armedbear/lisp/LispObject::length host-object))]
+    (loop [idx 0
+           output (:coerce (Array Any) (array.new size))]
+      (if (n/< size idx)
+        ## TODO: Start using "SVREF" instead of "elt" ASAP
+        (case (read (org/armedbear/lisp/LispObject::elt (.int idx) host-object))
+          (#error.Failure error)
+          (#error.Failure error)
+
+          (#error.Success member)
+          (recur (inc idx) (array.write idx (:coerce Any member) output)))
+        (#error.Success output)))))
+
+(def: (read host-object)
+  (Reader org/armedbear/lisp/LispObject)
+  (`` (<| (~~ (template [<class> <post-processing>]
+                [(case (host.check <class> host-object)
+                   (#.Some host-object)
+                   (`` (|> host-object (~~ (template.splice <post-processing>))))
+
+                   #.None)]
+
+                [org/armedbear/lisp/Bignum [org/armedbear/lisp/Bignum::longValue #error.Success]]
+                [org/armedbear/lisp/Fixnum [org/armedbear/lisp/Fixnum::longValue #error.Success]]
+                [org/armedbear/lisp/DoubleFloat [org/armedbear/lisp/DoubleFloat::doubleValue #error.Success]]
+                [org/armedbear/lisp/SimpleString [org/armedbear/lisp/SimpleString::getStringValue #error.Success]]
+                [org/armedbear/lisp/Cons [(read-variant read)]]
+                [org/armedbear/lisp/SimpleVector [(read-tuple read)]]
+                [org/armedbear/lisp/Nil [(new> (#error.Success false) [])]]
+                [org/armedbear/lisp/Closure [#error.Success]]
+                [program/LuxADT [program/LuxADT::getValue #error.Success]]))
+          (case (host.check org/armedbear/lisp/Symbol host-object)
+            (#.Some host-object)
+            (if (is? (org/armedbear/lisp/Symbol::T) host-object)
+              (#error.Success true)
+              (exception.throw unknown-kind-of-object (:coerce java/lang/Object host-object)))
+
+            #.None)
+          ## else
+          (exception.throw unknown-kind-of-object (:coerce java/lang/Object host-object))
+          )))
+
+(def: ensure-macro
+  (-> Macro (Maybe org/armedbear/lisp/Closure))
+  (|>> (:coerce java/lang/Object) (host.check org/armedbear/lisp/Closure)))
+
+(def: (call-macro inputs lux macro)
+  (-> (List Code) Lux org/armedbear/lisp/Closure (Error (Error [Lux (List Code)])))
+  (do error.monad
+    [raw-output (org/armedbear/lisp/LispObject::execute (..host-value inputs) (..host-value lux) macro)]
+    (:coerce (Error (Error [Lux (List Code)]))
+             (..read raw-output))))
+
+(def: (expander macro inputs lux)
+  Expander
+  (case (ensure-macro macro)
+    (#.Some macro)
+    (call-macro inputs lux macro)
+
+    #.None
+    (exception.throw cannot-apply-a-non-function (:coerce java/lang/Object macro))))
+
+(def: separator "$")
+
+(type: Host
+  (generation.Host (_.Expression Any) (_.Expression Any)))
+
+(def: host
+  (IO Host)
+  (io (let [_ (org/armedbear/lisp/Interpreter::createInstance)
+            interpreter (org/armedbear/lisp/Interpreter::getInstance)]
+        (: Host
+           (structure
+            (def: (evaluate! alias input)
+              (do error.monad
+                [host-value (org/armedbear/lisp/Interpreter::eval (_.code input) interpreter)]
+                (read host-value)))
+            
+            (def: (execute! alias input)
+              (org/armedbear/lisp/Interpreter::eval (_.code input) interpreter))
+            
+            (def: (define! [module name] input)
+              (let [global (format (text.replace-all .module-separator ..separator module)
+                                   ..separator (name.normalize name)
+                                   "___" (%n (text/hash name)))
+                    @global (_.var global)]
+                (do error.monad
+                  [#let [definition (_.defparameter @global input)]
+                   _ (org/armedbear/lisp/Interpreter::eval (_.code definition) interpreter)
+                   host-value (org/armedbear/lisp/Interpreter::eval (_.code @global) interpreter)
+                   lux-value (read host-value)]
+                  (wrap [global lux-value definition])))))))))
+
+(def: platform
+  (IO (Platform IO _.Var/1 (_.Expression Any) (_.Expression Any)))
+  (do io.monad
+    [host ..host]
+    (wrap {#platform.&monad io.monad
+           #platform.&file-system file.system
+           #platform.host host
+           #platform.phase common-lisp.generate
+           #platform.runtime runtime.generate})))
+
+(def: program
+  (-> (_.Expression Any) (_.Expression Any))
+  (let [raw-inputs ($_ _.progn
+                       (_.conditional+ (list "clisp") (_.var "ext:*args*"))
+                       (_.conditional+ (list "sbcl") (_.var "sb-ext:*posix-argv*"))
+                       (_.conditional+ (list "clozure") (_.call/* (_.var "ccl::command-line-arguments") (list)))
+                       (_.conditional+ (list "gcl") (_.var "si:*command-args*"))
+                       (_.conditional+ (list "cmu") (_.var "extensions:*command-line-strings*"))
+                       (_.conditional+ (list "allegro") (_.call/* (_.var "sys:command-line-arguments") (list)))
+                       (_.conditional+ (list "lispworks") (_.var "sys:*line-arguments-list*"))
+                       (_.list/* (list)))]
+    (|>> (_.call/2 [(runtime.lux//program-args raw-inputs) _.nil]))))
+
+(program: [{service /cli.service}]
+  (/.compiler ..expander
+              ..platform
+              extension.bundle
+              ..program
+              service))

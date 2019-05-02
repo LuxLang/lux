@@ -1,0 +1,276 @@
+(.module:
+  [lux (#- inc)
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["." function]
+    ["p" parser
+     ["s" code]]]
+   [data
+    [number (#+ hex)
+     ["." i64]]
+    ["." text
+     format]
+    [collection
+     ["." list ("#@." functor)]]]
+   ["." macro
+    ["." code]
+    [syntax (#+ syntax:)]]
+   [target
+    ["_" common-lisp (#+ Expression Var/1 Computation Literal)]]]
+  ["." ///
+   ["//." //
+    [//
+     ["/////." name]
+     ["." synthesis]]]]
+  )
+
+(template [<name> <base>]
+  [(type: #export <name>
+     (<base> Var/1 (Expression Any) (Expression Any)))]
+
+  [Operation ///.Operation]
+  [Phase ///.Phase]
+  [Handler ///.Handler]
+  [Bundle ///.Bundle]
+  )
+
+(def: prefix "LuxRuntime")
+
+(def: #export unit (_.string synthesis.unit))
+
+(def: (flag value)
+  (-> Bit Literal)
+  (if value
+    (_.string "")
+    _.nil))
+
+(def: (variant' tag last? value)
+  (-> (Expression Any) (Expression Any) (Expression Any) (Computation Any))
+  (_.list/* (list tag last? value)))
+
+(def: #export (variant tag last? value)
+  (-> Nat Bit (Expression Any) (Computation Any))
+  (variant' (_.int (.int tag))
+            (flag last?)
+            value))
+
+(def: #export none
+  (Computation Any)
+  (..variant 0 false ..unit))
+
+(def: #export some
+  (-> (Expression Any) (Computation Any))
+  (..variant 1 true))
+
+(def: #export left
+  (-> (Expression Any) (Computation Any))
+  (..variant 0 false))
+
+(def: #export right
+  (-> (Expression Any) (Computation Any))
+  (..variant 1 true))
+
+(def: runtime-name
+  (-> Text Var/1)
+  (|>> /////name.normalize
+       (format ..prefix "_")
+       _.var))
+
+(def: (feature name definition)
+  (-> Var/1 (-> Var/1 (Expression Any)) (Expression Any))
+  (definition name))
+
+(syntax: #export (with-vars {vars (s.tuple (p.some s.local-identifier))}
+                   body)
+  (wrap (list (` (let [(~+ (|> vars
+                               (list@map (function (_ var)
+                                           (list (code.local-identifier var)
+                                                 (` (_.var (~ (code.text (/////name.normalize var))))))))
+                               list.concat))]
+                   (~ body))))))
+
+(syntax: (runtime: {declaration (p.or s.local-identifier
+                                      (s.form (p.and s.local-identifier
+                                                     (p.some s.local-identifier))))}
+           code)
+  (macro.with-gensyms [g!_ g!L]
+    (case declaration
+      (#.Left name)
+      (let [code-nameC (code.local-identifier (format "@" name))
+            runtime-nameC (` (runtime-name (~ (code.text name))))]
+        (wrap (list (` (def: #export (~ (code.local-identifier name)) _.Var/1 (~ runtime-nameC)))
+                    (` (def: (~ code-nameC)
+                         (_.Expression Any)
+                         (..feature (~ runtime-nameC)
+                                    (function ((~ g!_) (~ g!L))
+                                      (_.defparameter (~ g!L) (~ code)))))))))
+      
+      (#.Right [name inputs])
+      (let [code-nameC (code.local-identifier (format "@" name))
+            runtime-nameC (` (runtime-name (~ (code.text name))))
+            inputsC (list@map code.local-identifier inputs)
+            inputs-typesC (list@map (function.constant (` (_.Expression Any)))
+                                    inputs)]
+        (wrap (list (` (def: #export ((~ (code.local-identifier name)) (~+ inputsC))
+                         (-> (~+ inputs-typesC) (_.Computation Any))
+                         (_.call/* (~ runtime-nameC) (list (~+ inputsC)))))
+                    (` (def: (~ code-nameC)
+                         (_.Expression Any)
+                         (..feature (~ runtime-nameC)
+                                    (function ((~ g!_) (~ g!L))
+                                      (..with-vars [(~+ inputsC)]
+                                        (_.defun (~ g!L) (_.args (list (~+ inputsC)))
+                                                 (~ code)))))))))))))
+
+(runtime: (lux//try op)
+  (with-vars [error]
+    (_.handler-case
+     (list [(_.bool true) error
+            (..left (_.format/3 [_.nil (_.string "~A") error]))])
+     (..right (_.funcall/+ [op (list ..unit)])))))
+
+## TODO: Use Common Lisp's swiss-army loop macro instead.
+(runtime: (lux//program-args inputs)
+  (with-vars [loop input tail]
+    (_.labels (list [loop [(_.args (list input tail))
+                           (_.if (_.null/1 input)
+                             tail
+                             (_.funcall/+ [(_.function/1 loop)
+                                           (list (_.cdr/1 input)
+                                                 (..some (_.vector/* (list (_.car/1 input) tail))))]))]])
+              (_.funcall/+ [(_.function/1 loop)
+                            (list (_.reverse/1 inputs)
+                                  ..none)]))))
+
+(def: runtime//lux
+  ($_ _.progn
+      @lux//try
+      @lux//program-args))
+
+(def: last-index
+  (|>> _.length/1 (_.- (_.int +1))))
+
+(with-expansions [<recur> (as-is ($_ _.then
+                                     (_.; (_.set lefts (_.- last-index-right lefts)))
+                                     (_.; (_.set tuple (_.nth last-index-right tuple)))))]
+  (template: (!recur <side>)
+    (<side> (|> lefts (_.- last-index-right))
+            (_.elt/2 [tuple last-index-right])))
+  
+  (runtime: (tuple//left lefts tuple)
+    (with-vars [last-index-right]
+      (_.let (list [last-index-right (..last-index tuple)])
+        (_.if (_.> lefts last-index-right)
+          ## No need for recursion
+          (_.elt/2 [tuple lefts])
+          ## Needs recursion
+          (!recur tuple//left)))))
+
+  (runtime: (tuple//right lefts tuple)
+    (with-vars [last-index-right right-index]
+      (_.let (list [last-index-right (..last-index tuple)]
+                   [right-index (_.+ (_.int +1) lefts)])
+        (_.cond (list [(_.= right-index last-index-right)
+                       (_.elt/2 [tuple right-index])]
+                      [(_.> right-index last-index-right)
+                       ## Needs recursion.
+                       (!recur tuple//right)])
+                (_.subseq/3 [tuple right-index (_.length/1 tuple)]))
+        ))))
+
+## TODO: Find a way to extract parts of the sum without "nth", which
+## does a linear search, and is thus expensive.
+(runtime: (sum//get sum wantsLast wantedTag)
+  (let [no-match! sum
+        sum-tag (_.nth/2 [(_.int +0) sum])
+        sum-flag (_.nth/2 [(_.int +1) sum])
+        sum-value (_.nth/2 [(_.int +2) sum])
+        test-recursion! (_.if sum-flag
+                          ## Must recurse.
+                          (sum//get sum-value wantsLast (_.- sum-tag wantedTag))
+                          no-match!)]
+    (_.cond (list [(_.= sum-tag wantedTag)
+                   (_.if (_.equal wantsLast sum-flag)
+                     sum-value
+                     test-recursion!)]
+
+                  [(_.> sum-tag wantedTag)
+                   test-recursion!]
+
+                  [(_.and (_.< sum-tag wantedTag)
+                          wantsLast)
+                   (variant' (_.- wantedTag sum-tag) sum-flag sum-value)])
+
+            no-match!)))
+
+(def: runtime//adt
+  ($_ _.progn
+      @tuple//left
+      @tuple//right
+      @sum//get))
+
+(runtime: (i64//logic-right-shift shift input)
+  (_.if (_.= (_.int +0) shift)
+    input
+    (|> input
+        (_.ash (_.* (_.int -1) shift))
+        (_.logand (_.int (hex "+7FFFFFFFFFFFFFFF"))))))
+
+(def: runtime//i64
+  ($_ _.progn
+      @i64//logic-right-shift))
+
+(runtime: (text//clip from to text)
+  (_.subseq/3 [text from to]))
+
+(runtime: (text//index reference start space)
+  (with-vars [index]
+    (_.let (list [index (_.search/3 [reference space start])])
+      (_.if index
+        (..some index)
+        ..none))))
+
+(def: runtime//text
+  ($_ _.progn
+      @text//index
+      @text//clip))
+
+(runtime: (io//exit code)
+  ($_ _.progn
+      (_.conditional+ (list "sbcl")
+                      (_.call/* (_.var "sb-ext:quit") (list code)))
+      (_.conditional+ (list "clisp")
+                      (_.call/* (_.var "ext:exit") (list code)))
+      (_.conditional+ (list "ccl")
+                      (_.call/* (_.var "ccl:quit") (list code)))
+      (_.conditional+ (list "allegro")
+                      (_.call/* (_.var "excl:exit") (list code)))
+      (_.call/* (_.var "cl-user::quit") (list code))))
+
+(runtime: (io//current-time _)
+  (|> (_.get-universal-time/0 [])
+      (_.* (_.int +1,000))))
+
+(def: runtime//io
+  ($_ _.progn
+      @io//exit
+      @io//current-time))
+
+(def: runtime
+  ($_ _.progn
+      runtime//adt
+      runtime//lux
+      runtime//i64
+      runtime//text
+      runtime//io))
+
+(def: #export artifact ..prefix)
+
+(def: #export generate
+  (Operation Any)
+  (///.with-buffer
+    (do ////.monad
+      [_ (///.save! true ["" ..prefix]
+                    ..runtime)]
+      (///.save-buffer! ..artifact))))
