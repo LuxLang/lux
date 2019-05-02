@@ -69,7 +69,6 @@
 (def: @cursor (_.var "lux_pm_cursor"))
 (def: @temp (_.var "lux_pm_temp"))
 (def: @variant (_.var "lux_pm_variant"))
-(def: @return (_.var "lux_pm_return"))
 
 (def: (push! value)
   (-> (Expression Any) (Expression Any))
@@ -93,11 +92,10 @@
       (_.setq @cursor (_.car/1 @savepoint))
       (_.setq @savepoint (_.cdr/1 @savepoint))))
 
-(def: fail-tag (_.tag "lux_pm_fail"))
-(def: done-tag (_.tag "lux_pm_done"))
+(def: @fail (_.label "lux_pm_fail"))
+(def: @done (_.label "lux_pm_done"))
 
-(def: fail! (_.go ..fail-tag))
-(def: return! (_.go ..done-tag))
+(def: fail! (_.return-from ..@fail _.nil))
 
 (exception: #export unrecognized-path)
 
@@ -126,23 +124,18 @@
 
 (def: (alternation pre! post!)
   (-> (Expression Any) (Expression Any) (Expression Any))
-  (_.tagbody ($_ _.progn
-                 ..save!
-                 pre!)
-             (list [fail-tag
-                    ($_ _.progn
-                        ..restore!
-                        post!)])))
+  (_.progn (<| (_.block ..@fail)
+               (_.progn ..save!)
+               pre!)
+           ($_ _.progn
+               ..restore!
+               post!)))
 
 (def: (pattern-matching' generate pathP)
   (-> Phase Path (Operation (Expression Any)))
   (.case pathP
     (^ (/////synthesis.path/then bodyS))
-    (do ////.monad
-      [bodyG (generate bodyS)]
-      (wrap ($_ _.progn
-                (_.setq @return bodyG)
-                ..return!)))
+    (:: ////.monad map (_.return-from ..@done) (generate bodyS))
 
     #/////synthesis.Pop
     (////@wrap ..pop!)
@@ -204,13 +197,10 @@
   (-> Phase Path (Operation (Expression Any)))
   (do ////.monad
     [pattern-matching! (pattern-matching' generate pathP)]
-    (wrap ($_ _.progn
-              (_.tagbody pattern-matching!
-                         (list [..fail-tag
-                                (_.error/1 (_.string "Invalid expression for pattern-matching."))]
-                               [..done-tag
-                                _.nil]))
-              @return))))
+    (wrap (_.block ..@done
+                   (_.progn (_.block ..@fail
+                                     pattern-matching!)
+                            (_.error/1 (_.string case.pattern-matching-error)))))))
 
 (def: #export (case generate [valueS pathP])
   (-> Phase [Synthesis Path] (Operation (Expression Any)))
