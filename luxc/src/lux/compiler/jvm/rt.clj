@@ -289,16 +289,16 @@
   ^:private compile-LuxRT-frac-methods "decode_frac" "java/lang/Double" "parseDouble" "(Ljava/lang/String;)D" &&/wrap-double
   )
 
-(defn popI [writer]
-  (doto writer
-    (.visitLdcInsn (int 0))
-    (.visitInsn Opcodes/AALOAD)
-    (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")))
-
 (defn peekI [writer]
   (doto writer
-    (.visitLdcInsn (int 1))
+    (.visitLdcInsn (int 0))
     (.visitInsn Opcodes/AALOAD)))
+
+(defn popI [writer]
+  (doto writer
+    (.visitLdcInsn (int 1))
+    (.visitInsn Opcodes/AALOAD)
+    (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")))
 
 (defn ^:private compile-LuxRT-pm-methods [^ClassWriter =class]
   (|let [_ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "pm_fail" "()V" nil nil)
@@ -315,11 +315,11 @@
              (.visitLdcInsn (int 2))
              (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object")
              (.visitInsn Opcodes/DUP)
-             (.visitLdcInsn (int 0))
+             (.visitLdcInsn (int 1))
              (.visitVarInsn Opcodes/ALOAD 0)
              (.visitInsn Opcodes/AASTORE)
              (.visitInsn Opcodes/DUP)
-             (.visitLdcInsn (int 1))
+             (.visitLdcInsn (int 0))
              (.visitVarInsn Opcodes/ALOAD 1)
              (.visitInsn Opcodes/AASTORE)
              (.visitInsn Opcodes/ARETURN)
