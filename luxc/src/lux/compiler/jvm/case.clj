@@ -11,7 +11,8 @@
                  [host :as &host]
                  [optimizer :as &o])
             [lux.analyser.case :as &a-case]
-            [lux.compiler.jvm.base :as &&])
+            [lux.compiler.jvm.base :as &&]
+            [lux.compiler.jvm.rt :as &rt])
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -38,10 +39,11 @@
 (defn ^:private stack-peek [^MethodVisitor writer]
   (doto writer
     (.visitInsn Opcodes/DUP)
-    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;")))
+    &rt/peekI))
 
-(defn ^:private compile-pattern* [^MethodVisitor writer bodies stack-depth $else pm]
+(defn ^:private compile-pattern*
   "(-> MethodVisitor Case-Pattern (List Label) Int Label MethodVisitor)"
+  [^MethodVisitor writer bodies stack-depth $else pm]
   (|case pm
     (&o/$ExecPM _body-idx)
     (|case (&/|at _body-idx bodies)
@@ -54,14 +56,13 @@
       (assert false))
 
     (&o/$PopPM)
-    (doto writer
-      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_pop" "([Ljava/lang/Object;)[Ljava/lang/Object;"))
+    (&rt/popI writer)
 
     (&o/$BindPM _var-id)
     (doto writer
       stack-peek
       (.visitVarInsn Opcodes/ASTORE _var-id)
-      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "pm_stack_pop" "([Ljava/lang/Object;)[Ljava/lang/Object;"))
+      &rt/popI)
 
     (&o/$BitPM _value)
     (doto writer

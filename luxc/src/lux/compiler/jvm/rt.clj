@@ -289,6 +289,17 @@
   ^:private compile-LuxRT-frac-methods "decode_frac" "java/lang/Double" "parseDouble" "(Ljava/lang/String;)D" &&/wrap-double
   )
 
+(defn popI [writer]
+  (doto writer
+    (.visitLdcInsn (int 0))
+    (.visitInsn Opcodes/AALOAD)
+    (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")))
+
+(defn peekI [writer]
+  (doto writer
+    (.visitLdcInsn (int 1))
+    (.visitInsn Opcodes/AALOAD)))
+
 (defn ^:private compile-LuxRT-pm-methods [^ClassWriter =class]
   (|let [_ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "pm_fail" "()V" nil nil)
              (.visitCode)
@@ -311,23 +322,6 @@
              (.visitLdcInsn (int 1))
              (.visitVarInsn Opcodes/ALOAD 1)
              (.visitInsn Opcodes/AASTORE)
-             (.visitInsn Opcodes/ARETURN)
-             (.visitMaxs 0 0)
-             (.visitEnd))
-         _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "pm_stack_pop" "([Ljava/lang/Object;)[Ljava/lang/Object;" nil nil)
-             (.visitCode)
-             (.visitVarInsn Opcodes/ALOAD 0)
-             (.visitLdcInsn (int 0))
-             (.visitInsn Opcodes/AALOAD)
-             (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-             (.visitInsn Opcodes/ARETURN)
-             (.visitMaxs 0 0)
-             (.visitEnd))
-         _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "pm_stack_peek" "([Ljava/lang/Object;)Ljava/lang/Object;" nil nil)
-             (.visitCode)
-             (.visitVarInsn Opcodes/ALOAD 0)
-             (.visitLdcInsn (int 1))
-             (.visitInsn Opcodes/AALOAD)
              (.visitInsn Opcodes/ARETURN)
              (.visitMaxs 0 0)
              (.visitEnd))]
