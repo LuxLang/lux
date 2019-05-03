@@ -14,8 +14,9 @@
 (def ^:private tag-prefix "lux")
 
 ;; [Values]
-(defn meta-get [ident annotations]
+(defn meta-get
   "(-> Ident Code (Maybe Code))"
+  [ident annotations]
   (|case annotations
     [_ (&/$Record dict)]
     (loop [dict dict]
@@ -41,7 +42,6 @@
 
   type?-tag   "type?"
   alias-tag   "alias"
-  macro?-tag  "macro?"
   export?-tag "export?"
   tags-tag    "tags"
   imports-tag "imports"

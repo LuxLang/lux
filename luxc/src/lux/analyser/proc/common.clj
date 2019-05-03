@@ -22,12 +22,19 @@
     (fn [$var]
       (|do [:let [(&/$Cons op (&/$Nil)) ?values]
             =op (&&/analyse-1 analyse (&/$Apply $var &type/IO) op)
-            _ (&type/check exo-type (&/$Sum &type/Text ;; lux;Left
-                                            $var ;; lux;Right
+            _ (&type/check exo-type (&/$Sum &type/Text ;; lux.Left
+                                            $var ;; lux.Right
                                             ))
             _cursor &/cursor]
         (return (&/|list (&&/|meta exo-type _cursor
                                    (&&/$proc (&/T ["lux" "try"]) (&/|list =op) (&/|list)))))))))
+
+(defn- analyse-lux-macro [analyse exo-type ?values]
+  (|do [:let [(&/$Cons macro (&/$Nil)) ?values]
+        [[=macro*-type =cursor] =macro] (&&/analyse-1 analyse &type/Macro* macro)
+        _ (&type/check exo-type &type/Macro)]
+    (return (&/|list (&&/|meta exo-type =cursor
+                               =macro)))))
 
 (do-template [<name> <proc> <input-type> <output-type>]
   (defn- <name> [analyse exo-type ?values]
@@ -250,6 +257,7 @@
   (try (case proc
          "lux is"                   (analyse-lux-is analyse exo-type ?values)
          "lux try"                  (analyse-lux-try analyse exo-type ?values)
+         "lux macro" (analyse-lux-macro analyse exo-type ?values)
 
          "lux io log"                  (analyse-io-log analyse exo-type ?values)
          "lux io error"                (analyse-io-error analyse exo-type ?values)

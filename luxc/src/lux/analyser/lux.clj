@@ -18,8 +18,9 @@
 ;; [Utils]
 ;; TODO: Walk the type to set up the parameter-type, instead of doing a
 ;; rough calculation like this one.
-(defn ^:private count-univq [type]
+(defn ^:private count-univq
   "(-> Type Int)"
+  [type]
   (|case type
     (&/$UnivQ env type*)
     (inc (count-univq type*))
@@ -29,12 +30,14 @@
 
 ;; TODO: This technique will not work if the body of the type contains
 ;; nested quantifications that cannot be directly counted.
-(defn ^:private next-parameter-type [type]
+(defn ^:private next-parameter-type
   "(-> Type Type)"
+  [type]
   (&/$Parameter (->> (count-univq type) (* 2) (+ 1))))
 
-(defn ^:private embed-inferred-input [input output]
+(defn ^:private embed-inferred-input
   "(-> Type Type Type)"
+  [input output]
   (|case output
     (&/$UnivQ env output*)
     (&/$UnivQ env (embed-inferred-input input output*))
@@ -379,8 +382,7 @@
   (|case =fn
     [_ (&&/$def ?module ?name)]
     (|do [[real-name [?type ?meta ?value]] (&&module/find-def! ?module ?name)]
-      (|case (&&meta/meta-get &&meta/macro?-tag ?meta)
-        (&/$Some _)
+      (if (&type/type= &type/Macro ?type)
         (|do [macro-expansion (fn [state]
                                 (|case (macro-caller ?value ?args state)
                                   (&/$Right state* output)
@@ -390,15 +392,13 @@
                                   ((&/fail-with-loc error) state)))
               ;; module-name &/get-module-name
               ;; :let [[r-prefix r-name] real-name
-              ;;       _ (when (= "syntax:" r-name)
+              ;;       _ (when (= "macro:'" r-name)
               ;;           (->> (&/|map &/show-ast macro-expansion)
               ;;                (&/|interpose "\n")
               ;;                (&/fold str "")
               ;;                (println 'macro-expansion (&/ident->text real-name) "@" module-name)))]
               ]
           (&/flat-map% (partial analyse exo-type) macro-expansion))
-
-        _
         (do-analyse-apply analyse exo-type =fn ?args)))
     
     _
@@ -554,7 +554,6 @@
         =meta (&&/analyse-1 analyse &type/Code ?meta)
         ==meta (eval! (optimize =meta))
         _ (&&module/test-type module-name ?name ==meta (&&/expr-type* =value))
-        _ (&&module/test-macro module-name ?name ==meta (&&/expr-type* =value))
         _ (compile-def ?name (optimize =value) ==meta)
         _ &type/reset-mappings]
     (return &/$Nil)))
@@ -685,8 +684,9 @@
                    =asyncs)]
     (return &/$Nil)))
 
-(defn ^:private coerce [new-type analysis]
+(defn ^:private coerce
   "(-> Type Analysis Analysis)"
+  [new-type analysis]
   (|let [[[_type _cursor] _analysis] analysis]
     (&&/|meta new-type _cursor
               _analysis)))

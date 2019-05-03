@@ -180,11 +180,12 @@
             (let [w (&/$Apply Cursor Meta)]
               (&/$Apply (&/$Apply w Code*) w))))
 
-(def Macro)
+(def Macro*)
+(defn set-macro*-type! [type] (def Macro* type))
 
-(defn set-macro-type! [type]
-  (def Macro type)
-  nil)
+(def Macro
+  (&/$Named (&/T ["lux" "Macro"])
+            (&/$Primitive "#Macro" &/$Nil)))
 
 (defn bound? [id]
   (fn [state]
@@ -232,7 +233,7 @@
         
         (&/$None)
         (return* (&/update$ &/$type-context (fn [ts] (&/update$ &/$var-bindings #(&/|put id (&/$Some type) %)
-                                                                ts))
+                                                               ts))
                             state)
                  nil))
       ((&/fail-with-loc (str "[Type Error] Unknown type-var: " id " | " (->> state (&/get$ &/$type-context) (&/get$ &/$var-bindings) &/|length)))
@@ -242,7 +243,7 @@
   (fn [state]
     (if-let [tvar (->> state (&/get$ &/$type-context) (&/get$ &/$var-bindings) (&/|get id))]
       (return* (&/update$ &/$type-context (fn [ts] (&/update$ &/$var-bindings #(&/|put id (&/$Some type) %)
-                                                              ts))
+                                                             ts))
                           state)
                nil)
       ((&/fail-with-loc (str "[Type Error] Unknown type-var: " id " | " (->> state (&/get$ &/$type-context) (&/get$ &/$var-bindings) &/|length)))
@@ -386,8 +387,9 @@
      (unravel-app fun-type &/$Nil)))
 
 (do-template [<tag> <flatten> <at> <desc>]
-  (do (defn <flatten> [type]
+  (do (defn <flatten>
         "(-> Type (List Type))"
+        [type]
         (|case type
           (<tag> left right)
           (&/$Cons left (<flatten> right))
@@ -395,8 +397,9 @@
           _
           (&/|list type)))
 
-    (defn <at> [tag type]
+    (defn <at>
       "(-> Int Type (Lux Type))"
+      [tag type]
       (|case type
         (&/$Named ?name ?type)
         (<at> tag ?type)
@@ -417,8 +420,9 @@
   )
 
 (do-template [<name> <ctor> <unit>]
-  (defn <name> [types]
+  (defn <name>
     "(-> (List Type) Type)"
+    [types]
     (|case (&/|reverse types)
       (&/$Cons last prevs)
       (&/fold (fn [right left] (<ctor> left right)) last prevs)
@@ -857,8 +861,9 @@
   (|do [_ (check* init-fixpoints false expected actual)]
     (return nil)))
 
-(defn actual-type [type]
+(defn actual-type
   "(-> Type (Lux Type))"
+  [type]
   (|case type
     (&/$Apply ?param ?all)
     (|do [type* (apply-type ?all ?param)]
@@ -875,8 +880,9 @@
     (return type)
     ))
 
-(defn type-name [type]
+(defn type-name
   "(-> Type (Lux Ident))"
+  [type]
   (|case type
     (&/$Named name _)
     (return name)
@@ -885,8 +891,9 @@
     (&/fail-with-loc (str "[Type Error] Type is not named: " (show-type type)))
     ))
 
-(defn unknown? [type]
+(defn unknown?
   "(-> Type (Lux Bit))"
+  [type]
   (|case type
     (&/$Var id)
     (|do [? (bound? id)]
@@ -895,8 +902,9 @@
     _
     (return false)))
 
-(defn resolve-type [type]
+(defn resolve-type
   "(-> Type (Lux Type))"
+  [type]
   (|case type
     (&/$Var id)
     (|do [? (bound? id)]
@@ -907,8 +915,9 @@
     _
     (return type)))
 
-(defn tuple-types-for [size-members type]
+(defn tuple-types-for
   "(-> Int Type [Int (List Type)])"
+  [size-members type]
   (|let [?member-types (flatten-prod type)
          size-types (&/|length ?member-types)]
     (if (>= size-types size-members)

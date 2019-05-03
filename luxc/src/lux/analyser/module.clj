@@ -108,8 +108,8 @@
 
 (defn define [module name def-type def-meta def-value]
   (fn [state]
-    (when (and (= "Macro" name) (= "lux" module))
-      (&type/set-macro-type! def-value))
+    (when (and (= "Macro'" name) (= "lux" module))
+      (&type/set-macro*-type! def-value))
     (|case (&/get$ &/$scopes state)
       (&/$Cons ?env (&/$Nil))
       (return* (->> state
@@ -445,7 +445,6 @@
       (return nil)))
 
   test-type  &type/Type  &meta/type?-tag  "type"
-  test-macro &type/Macro &meta/macro?-tag "macro"
   )
 
 (defn fetch-imports [meta]
