@@ -189,6 +189,11 @@
   (let [[where::file where::line where::column] where]
     [where::file (!inc where::line) 0]))
 
+(template: (!forward length where)
+  ## (-> Nat Cursor Cursor)
+  (let [[where::file where::line where::column] where]
+    [where::file where::line (!n/+ length where::column)]))
+
 (template: (!vertical where offset source-code)
   [(!new-line where)
    (!inc offset)
@@ -201,8 +206,8 @@
 (template [<name> <close> <tag> <context>]
   [(def: (<name> parse source)
      (-> (Parser Code) (Parser Code))
-     (let [[where _ _] source]
-       (loop [source source
+     (let [[where offset source-code] source]
+       (loop [source (: Source [(!forward 1 where) offset source-code])
               stack (: (List Code) #.Nil)]
          (case (parse source)
            (#.Right [source' top])
@@ -223,8 +228,8 @@
 
 (def: (parse-record parse source)
   (-> (Parser Code) (Parser Code))
-  (let [[where _ _] source]
-    (loop [source source
+  (let [[where offset source-code] source]
+    (loop [source (: Source [(!forward 1 where) offset source-code])
            stack (: (List [Code Code]) #.Nil)]
       (case (parse source)
         (#.Right [sourceF field])
@@ -385,104 +390,97 @@
               (recur (!inc end))
               <output>))))))
 
+(template: (!parse-half-name @offset @char @module)
+  (cond (!name-char?|head @char)
+        (!letE [source' name] (..parse-name-part @offset [where (!inc @offset) source-code])
+               (#.Right [source' [@module name]]))
+
+        ## else
+        (!failure ..!parse-half-name where @offset source-code)))
+
+(`` (def: (parse-short-name current-module [where offset/0 source-code])
+      (-> Text (Parser Name))
+      (<| (!with-char source-code offset/0 char/0
+            (!end-of-file where offset/0 source-code current-module))
+          (if (!n/= (char (~~ (static ..name-separator))) char/0)
+            (let [offset/1 (!inc offset/0)]
+              (<| (!with-char source-code offset/1 char/1
+                    (!end-of-file where offset/1 source-code current-module))
+                  (!parse-half-name offset/1 char/1 current-module)))
+            (!parse-half-name offset/0 char/0 ..prelude)))))
+
+(template: (!parse-short-name @current-module @source @where @tag)
+  (!letE [source' name] (..parse-short-name @current-module @source)
+         (#.Right [source' [@where (@tag name)]])))
+
+(with-expansions [<simple> (as-is (#.Right [source' ["" simple]]))]
+  (`` (def: (parse-full-name aliases start source)
+        (-> Aliases Offset (Parser Name))
+        (!letE [source' simple] (..parse-name-part start source)
+               (let [[where' offset' source-code'] source']
+                 (<| (!with-char source-code' offset' char/separator <simple>)
+                     (if (!n/= (char (~~ (static ..name-separator))) char/separator)
+                       (let [offset'' (!inc offset')]
+                         (!letE [source'' complex] (..parse-name-part offset'' [(!forward 1 where') offset'' source-code'])
+                                (if ("lux text =" "" complex)
+                                  (let [[where offset source-code] source]
+                                    (!failure ..parse-full-name where offset source-code))
+                                  (#.Right [source'' [(|> aliases
+                                                          (dictionary.get simple)
+                                                          (maybe.default simple))
+                                                      complex]]))))
+                       <simple>)))))))
+
+(template: (!parse-full-name @offset @source @where @aliases @tag)
+  (!letE [source' full-name] (..parse-full-name @aliases @offset @source)
+         (#.Right [source' [@where (@tag full-name)]])))
+
+## TODO: Grammar macro for specifying syntax.
+## (grammar: lux-grammar
+##   [expression ...]
+##   [form "(" [#* expression] ")"])
+
 (with-expansions [<consume-1> (as-is [where (!inc offset/0) source-code])
-                  <consume-2> (as-is [where (!inc/2 offset/0) source-code])]
-
-  (template: (!parse-half-name @offset @char @module)
-    (cond (!name-char?|head @char)
-          (!letE [source' name] (..parse-name-part @offset [where (!inc @offset) source-code])
-                 (#.Right [source' [@module name]]))
-
-          ## else
-          (!failure ..!parse-half-name where @offset source-code)))
-
-  (`` (def: (parse-short-name current-module [where offset/0 source-code])
-        (-> Text (Parser Name))
-        (<| (!with-char source-code offset/0 char/0
-              (!end-of-file where offset/0 source-code current-module))
-            (if (!n/= (char (~~ (static ..name-separator))) char/0)
-              (let [offset/1 (!inc offset/0)]
-                (<| (!with-char source-code offset/1 char/1
-                      (!end-of-file where offset/1 source-code current-module))
-                    (!parse-half-name offset/1 char/1 current-module)))
-              (!parse-half-name offset/0 char/0 ..prelude)))))
-
-  (template: (!parse-short-name @current-module @source @where @tag)
-    (!letE [source' name] (..parse-short-name @current-module @source)
-           (#.Right [source' [@where (@tag name)]])))
-
-  (with-expansions [<simple> (as-is (#.Right [source' ["" simple]]))]
-    (`` (def: (parse-full-name aliases start source)
-          (-> Aliases Offset (Parser Name))
-          (!letE [source' simple] (..parse-name-part start source)
-                 (let [[where' offset' source-code'] source']
-                   (<| (!with-char source-code' offset' char/separator <simple>)
-                       (if (!n/= (char (~~ (static ..name-separator))) char/separator)
-                         (let [offset'' (!inc offset')]
-                           (!letE [source'' complex] (..parse-name-part offset'' [where' offset'' source-code'])
-                                  (if ("lux text =" "" complex)
-                                    (let [[where offset source-code] source]
-                                      (!failure ..parse-full-name where offset source-code))
-                                    (#.Right [source'' [(|> aliases
-                                                            (dictionary.get simple)
-                                                            (maybe.default simple))
-                                                        complex]]))))
-                         <simple>)))))))
-
-  (template: (!parse-full-name @offset @source @where @aliases @tag)
-    (!letE [source' full-name] (..parse-full-name @aliases @offset @source)
-           (#.Right [source' [@where (@tag full-name)]])))
-
-  ## TODO: Grammar macro for specifying syntax.
-  ## (grammar: lux-grammar
-  ##   [expression ...]
-  ##   [form "(" [#* expression] ")"])
+                  <move-1> (as-is [(!forward 1 where) (!inc offset/0) source-code])
+                  <consume-2> (as-is [where (!inc/2 offset/0) source-code])
+                  <recur> (as-is (parse current-module aliases source-code//size))
+                  <horizontal-move> (as-is (recur (!horizontal where offset/0 source-code)))]
 
   (template: (!close closer)
     (#.Left [<consume-1> closer]))
+  
+  (def: #export (parse current-module aliases source-code//size)
+    (-> Text Aliases Nat (Parser Code))
+    ## The "exec []" is only there to avoid function fusion.
+    ## This is to preserve the loop as much as possible and keep it tight.
+    (exec []
+      (function (recur [where offset/0 source-code])
+        (<| (!with-char+ source-code//size source-code offset/0 char/0
+              (!end-of-file where offset/0 source-code current-module))
+            ## TODO: Add ..space as just another case for "lux syntax char case!" ASAP.
+            ## It"s currently failing for some reason.
+            (with-expansions [<composites> (template [<open> <close> <parser>]
+                                             [[(~~ (static <open>))]
+                                              (<parser> <recur> <consume-1>)
 
-  (with-expansions [<recur> (as-is (parse current-module aliases source-code//size))
-                    <horizontal-move> (as-is (recur (!horizontal where offset/0 source-code)))]
-    (def: #export (parse current-module aliases source-code//size)
-      (-> Text Aliases Nat (Parser Code))
-      ## The "exec []" is only there to avoid function fusion.
-      ## This is to preserve the loop as much as possible and keep it tight.
-      (exec []
-        (function (recur [where offset/0 source-code])
-          (<| (!with-char+ source-code//size source-code offset/0 char/0
-                (!end-of-file where offset/0 source-code current-module))
-              ## TODO: Add ..space as just another case for "lux syntax char case!" ASAP.
-              ## It"s currently failing for some reason.
+                                              [(~~ (static <close>))]
+                                              (!close <close>)]
+
+                                             [..open-form ..close-form parse-form]
+                                             [..open-tuple ..close-tuple parse-tuple]
+                                             [..open-record ..close-record parse-record]
+                                             )]
               (`` (if (!n/= (char (~~ (static ..space))) char/0)
                     <horizontal-move>
                     ("lux syntax char case!" char/0
-                     [## New line
-                      [(~~ (static text.carriage-return))]
+                     [[(~~ (static text.carriage-return))]
                       <horizontal-move>
                       
+                      ## New line
                       [(~~ (static text.new-line))]
                       (recur (!vertical where offset/0 source-code))
 
-                      ## Form
-                      [(~~ (static ..open-form))]
-                      (parse-form <recur> <consume-1>)
-
-                      [(~~ (static ..close-form))]
-                      (!close ..close-form)
-
-                      ## Tuple
-                      [(~~ (static ..open-tuple))]
-                      (parse-tuple <recur> <consume-1>)
-
-                      [(~~ (static ..close-tuple))]
-                      (!close ..close-tuple)
-
-                      ## Record
-                      [(~~ (static ..open-record))]
-                      (parse-record <recur> <consume-1>)
-
-                      [(~~ (static ..close-record))]
-                      (!close ..close-record)
+                      <composites>
 
                       ## Text
                       [(~~ (static ..text-delimiter))]
@@ -530,8 +528,7 @@
                         (<| (!with-char+ source-code//size source-code offset/1 char/1
                               (!end-of-file where offset/1 source-code current-module))
                             (if (!digit? char/1)
-                              (let [offset/2 (!inc offset/1)]
-                                (!parse-rev source-code//size offset/0 where offset/2 source-code))
+                              (!parse-rev source-code//size offset/0 where (!inc offset/1) source-code)
                               (!parse-short-name current-module [where offset/1 source-code] where #.Identifier))))
 
                       [(~~ (static ..positive-sign))
@@ -542,11 +539,9 @@
                      ## else
                      (if (!digit? char/0)
                        ## Natural number
-                       (let [offset/1 (!inc offset/0)]
-                         (!parse-nat source-code//size offset/0 where offset/1 source-code))
+                       (!parse-nat source-code//size offset/0 where (!inc offset/0) source-code)
                        ## Identifier
                        (!parse-full-name offset/0 <consume-1> where aliases #.Identifier))
-                     )))
-              )))
-      ))
-  )
+                     ))))
+            )))
+    ))
