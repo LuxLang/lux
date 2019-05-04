@@ -251,19 +251,21 @@
     (#.Left [[where offset source-code]
              (exception.construct ..text-cannot-contain-new-lines content)])))
 
-(template: (!read-text where offset source-code)
+(def: (parse-text where offset source-code)
+  (-> Cursor Nat Text (Either [Source Text] [Source Code]))
   (case ("lux text index" offset (static ..text-delimiter) source-code)
     (#.Some g!end)
     (let [g!content (!clip offset g!end source-code)]
       (<| (!guarantee-no-new-lines where offset source-code g!content)
-          (#.Right [[(update@ #.column (n/+ (!n/- offset g!end)) where)
+          (#.Right [[(let [size (!n/- offset g!end)]
+                       (update@ #.column (|>> (!n/+ size) (!n/+ 2)) where))
                      (!inc g!end)
                      source-code]
                     [where
                      (#.Text g!content)]])))
     
     _
-    (!failure ..!read-text where offset source-code)))
+    (!failure ..parse-text where offset source-code)))
 
 (def: digit-bottom Nat (!dec (char "0")))
 (def: digit-top Nat (!inc (char "9")))
@@ -358,16 +360,17 @@
                   ## else
                   <int-output>))))))
 
-(template [<name> <codec> <tag>]
-  [(template: (<name> source-code//size start where offset source-code)
+(template [<parser> <codec> <tag>]
+  [(def: (<parser> source-code//size start where offset source-code)
+     (-> Nat Nat Cursor Nat Text (Either [Source Text] [Source Code]))
      (loop [g!end offset]
        (<| (!with-char+ source-code//size source-code g!end g!char (!number-output start g!end <codec> <tag>))
            (if (!digit?+ g!char)
              (recur (!inc g!end))
              (!number-output start g!end <codec> <tag>)))))]
 
-  [!parse-nat nat.decimal #.Nat]
-  [!parse-rev rev.decimal #.Rev]
+  [parse-nat nat.decimal #.Nat]
+  [parse-rev rev.decimal #.Rev]
   )
 
 (template: (!parse-signed source-code//size offset where source-code @aliases @end)
@@ -442,12 +445,12 @@
 
 (with-expansions [<consume-1> (as-is [where (!inc offset/0) source-code])
                   <move-1> (as-is [(!forward 1 where) (!inc offset/0) source-code])
-                  <consume-2> (as-is [where (!inc/2 offset/0) source-code])
+                  <move-2> (as-is [(!forward 1 where) (!inc/2 offset/0) source-code])
                   <recur> (as-is (parse current-module aliases source-code//size))
                   <horizontal-move> (as-is (recur (!horizontal where offset/0 source-code)))]
 
   (template: (!close closer)
-    (#.Left [<consume-1> closer]))
+    (#.Left [<move-1> closer]))
   
   (def: #export (parse current-module aliases source-code//size)
     (-> Text Aliases Nat (Parser Code))
@@ -457,8 +460,6 @@
       (function (recur [where offset/0 source-code])
         (<| (!with-char+ source-code//size source-code offset/0 char/0
               (!end-of-file where offset/0 source-code current-module))
-            ## TODO: Add ..space as just another case for "lux syntax char case!" ASAP.
-            ## It"s currently failing for some reason.
             (with-expansions [<composites> (template [<open> <close> <parser>]
                                              [[(~~ (static <open>))]
                                               (<parser> <recur> <consume-1>)
@@ -470,6 +471,8 @@
                                              [..open-tuple ..close-tuple parse-tuple]
                                              [..open-record ..close-record parse-record]
                                              )]
+              ## TODO: Add ..space as just another case for "lux syntax char case!" ASAP.
+              ## It"s currently failing for some reason.
               (`` (if (!n/= (char (~~ (static ..space))) char/0)
                     <horizontal-move>
                     ("lux syntax char case!" char/0
@@ -484,8 +487,7 @@
 
                       ## Text
                       [(~~ (static ..text-delimiter))]
-                      (let [offset/1 (!inc offset/0)]
-                        (!read-text where offset/1 source-code))
+                      (parse-text where (!inc offset/0) source-code)
 
                       ## Special code
                       [(~~ (static ..sigil))]
@@ -494,7 +496,7 @@
                               (!end-of-file where offset/1 source-code current-module))
                             ("lux syntax char case!" char/1
                              [[(~~ (static ..name-separator))]
-                              (!parse-short-name current-module <consume-2> where #.Tag)
+                              (!parse-short-name current-module <move-2> where #.Tag)
 
                               ## Single-line comment
                               [(~~ (static ..sigil))]
@@ -517,7 +519,7 @@
 
                              ## else
                              (cond (!name-char?|head char/1) ## Tag
-                                   (!parse-full-name offset/1 <consume-2> where aliases #.Tag)
+                                   (!parse-full-name offset/1 <move-2> where aliases #.Tag)
 
                                    ## else
                                    (!failure ..parse where offset/0 source-code)))))
@@ -528,7 +530,7 @@
                         (<| (!with-char+ source-code//size source-code offset/1 char/1
                               (!end-of-file where offset/1 source-code current-module))
                             (if (!digit? char/1)
-                              (!parse-rev source-code//size offset/0 where (!inc offset/1) source-code)
+                              (parse-rev source-code//size offset/0 where (!inc offset/1) source-code)
                               (!parse-short-name current-module [where offset/1 source-code] where #.Identifier))))
 
                       [(~~ (static ..positive-sign))
@@ -539,7 +541,7 @@
                      ## else
                      (if (!digit? char/0)
                        ## Natural number
-                       (!parse-nat source-code//size offset/0 where (!inc offset/0) source-code)
+                       (parse-nat source-code//size offset/0 where (!inc offset/0) source-code)
                        ## Identifier
                        (!parse-full-name offset/0 <consume-1> where aliases #.Identifier))
                      ))))
