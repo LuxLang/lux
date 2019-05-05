@@ -157,6 +157,7 @@
   (#VirtualMethod [Bit
                    Bit
                    (List Type-Paramameter)
+                   Text
                    (List ArgDecl)
                    GenericType
                    Code
@@ -164,6 +165,7 @@
   (#OverridenMethod [Bit
                      Class-Declaration
                      (List Type-Paramameter)
+                     Text
                      (List ArgDecl)
                      GenericType
                      Code
@@ -621,8 +623,8 @@
     (#StaticMethod strict? type-vars args return-type return-expr exs)
     (make-static-method-parser params class-name method-name args)
     
-    (^or (#VirtualMethod final? strict? type-vars args return-type return-expr exs)
-         (#OverridenMethod strict? owner-class type-vars args return-type return-expr exs))
+    (^or (#VirtualMethod final? strict? type-vars self-name args return-type return-expr exs)
+         (#OverridenMethod strict? owner-class type-vars self-name args return-type return-expr exs))
     (make-special-method-parser params class-name method-name args)
 
     (#AbstractMethod type-vars args return-type exs)
@@ -866,8 +868,10 @@
              final? (s.this? (' #final))
              method-vars (p.default (list) (type-params^ imports))
              #let [total-vars (list@compose class-vars method-vars)]
-             [name arg-decls] (s.form (p.and s.local-identifier
-                                             (arg-decls^ imports total-vars)))
+             [name this-name arg-decls] (s.form ($_ p.and
+                                                    s.local-identifier
+                                                    s.local-identifier
+                                                    (arg-decls^ imports total-vars)))
              return-type (generic-type^ imports total-vars)
              exs (throws-decl^ imports total-vars)
              annotations (annotations^ imports)
@@ -875,7 +879,10 @@
             (wrap [{#member-name name
                     #member-privacy pm
                     #member-anns annotations}
-                   (#VirtualMethod final? strict-fp? method-vars arg-decls return-type body exs)]))))
+                   (#VirtualMethod final? strict-fp?
+                                   method-vars
+                                   this-name arg-decls return-type
+                                   body exs)]))))
 
 (def: (overriden-method-def^ imports)
   (-> Class-Imports (Parser [Member-Declaration Method-Definition]))
@@ -884,8 +891,10 @@
              owner-class (class-decl^ imports)
              method-vars (p.default (list) (type-params^ imports))
              #let [total-vars (list@compose (product.right owner-class) method-vars)]
-             [name arg-decls] (s.form (p.and s.local-identifier
-                                             (arg-decls^ imports total-vars)))
+             [name this-name arg-decls] (s.form ($_ p.and
+                                                    s.local-identifier
+                                                    s.local-identifier
+                                                    (arg-decls^ imports total-vars)))
              return-type (generic-type^ imports total-vars)
              exs (throws-decl^ imports total-vars)
              annotations (annotations^ imports)
@@ -893,7 +902,10 @@
             (wrap [{#member-name name
                     #member-privacy #PublicPM
                     #member-anns annotations}
-                   (#OverridenMethod strict-fp? owner-class method-vars arg-decls return-type body exs)]))))
+                   (#OverridenMethod strict-fp?
+                                     owner-class method-vars
+                                     this-name arg-decls return-type
+                                     body exs)]))))
 
 (def: (static-method-def^ imports)
   (-> Class-Imports (Parser [Member-Declaration Method-Definition]))
@@ -1192,7 +1204,7 @@
                     (code.to-text (pre-walk-replace replacer body))
                     )))
     
-    (#VirtualMethod final? strict-fp? type-vars arg-decls return-type body exs)
+    (#VirtualMethod final? strict-fp? type-vars this-name arg-decls return-type body exs)
     (with-parens
       (spaced (list "virtual"
                     name
@@ -1204,9 +1216,10 @@
                     (with-brackets (spaced (list@map generic-type$ exs)))
                     (with-brackets (spaced (list@map arg-decl$ arg-decls)))
                     (generic-type$ return-type)
-                    (code.to-text (pre-walk-replace replacer body)))))
+                    (code.to-text (pre-walk-replace replacer (` (let [(~ (code.local-identifier this-name)) (~' _jvm_this)]
+                                                                  (~ body))))))))
     
-    (#OverridenMethod strict-fp? class-decl type-vars arg-decls return-type body exs)
+    (#OverridenMethod strict-fp? class-decl type-vars this-name arg-decls return-type body exs)
     (let [super-replacer (parser->replacer (s.form (do p.monad
                                                      [_ (s.this (' ::super!))
                                                       args (s.tuple (p.exactly (list.size arg-decls) s.any))
@@ -1227,7 +1240,8 @@
                       (with-brackets (spaced (list@map generic-type$ exs)))
                       (with-brackets (spaced (list@map arg-decl$ arg-decls)))
                       (generic-type$ return-type)
-                      (|> body
+                      (|> (` (let [(~ (code.local-identifier this-name)) (~' _jvm_this)]
+                               (~ body)))
                           (pre-walk-replace replacer)
                           (pre-walk-replace super-replacer)
                           (code.to-text))
@@ -1380,7 +1394,7 @@
               "An optional super-class can be specified before the 1st tuple. If not specified, java.lang.Object will be assumed."
               (object [] [Runnable]
                 []
-                (Runnable [] (run) void
+                (Runnable [] (run self) void
                           (exec (do-something some-value)
                             [])))
               )}
