@@ -134,8 +134,6 @@
 (def: constructor-method-name "<init>")
 (def: member-separator "::")
 
-(type: JVM-Code Text)
-
 (type: BoundKind
   #UpperBound
   #LowerBound)
@@ -223,6 +221,7 @@
   (#VirtualMethod [Bit
                    Bit
                    (List Type-Paramameter)
+                   Text
                    (List ArgDecl)
                    GenericType
                    Code
@@ -230,6 +229,7 @@
   (#OverridenMethod [Bit
                      Class-Declaration
                      (List Type-Paramameter)
+                     Text
                      (List ArgDecl)
                      GenericType
                      Code
@@ -698,8 +698,8 @@
     (#StaticMethod strict? type-vars args return-type return-expr exs)
     (make-static-method-parser params class-name method-name args)
     
-    (^or (#VirtualMethod final? strict? type-vars args return-type return-expr exs)
-         (#OverridenMethod strict? owner-class type-vars args return-type return-expr exs))
+    (^or (#VirtualMethod final? strict? type-vars self-name args return-type return-expr exs)
+         (#OverridenMethod strict? owner-class type-vars self-name args return-type return-expr exs))
     (make-special-method-parser params class-name method-name args)
 
     (#AbstractMethod type-vars args return-type exs)
@@ -942,8 +942,10 @@
              final? (s.this? (' #final))
              method-vars (p.default (list) (type-params^ imports))
              #let [total-vars (list@compose class-vars method-vars)]
-             [name arg-decls] (s.form (p.and s.local-identifier
-                                             (arg-decls^ imports total-vars)))
+             [name self-name arg-decls] (s.form ($_ p.and
+                                                    s.local-identifier
+                                                    s.local-identifier
+                                                    (arg-decls^ imports total-vars)))
              return-type (generic-type^ imports total-vars)
              exs (throws-decl^ imports total-vars)
              annotations (annotations^ imports)
@@ -951,7 +953,7 @@
             (wrap [{#member-name name
                     #member-privacy pm
                     #member-anns annotations}
-                   (#VirtualMethod final? strict-fp? method-vars arg-decls return-type body exs)]))))
+                   (#VirtualMethod final? strict-fp? method-vars self-name arg-decls return-type body exs)]))))
 
 (def: (overriden-method-def^ imports)
   (-> Class-Imports (Parser [Member-Declaration Method-Definition]))
@@ -960,8 +962,10 @@
              owner-class (class-decl^ imports)
              method-vars (p.default (list) (type-params^ imports))
              #let [total-vars (list@compose (product.right owner-class) method-vars)]
-             [name arg-decls] (s.form (p.and s.local-identifier
-                                             (arg-decls^ imports total-vars)))
+             [name self-name arg-decls] (s.form ($_ p.and
+                                                    s.local-identifier
+                                                    s.local-identifier
+                                                    (arg-decls^ imports total-vars)))
              return-type (generic-type^ imports total-vars)
              exs (throws-decl^ imports total-vars)
              annotations (annotations^ imports)
@@ -969,7 +973,7 @@
             (wrap [{#member-name name
                     #member-privacy #PublicPM
                     #member-anns annotations}
-                   (#OverridenMethod strict-fp? owner-class method-vars arg-decls return-type body exs)]))))
+                   (#OverridenMethod strict-fp? owner-class method-vars self-name arg-decls return-type body exs)]))))
 
 (def: (static-method-def^ imports)
   (-> Class-Imports (Parser [Member-Declaration Method-Definition]))
@@ -1130,158 +1134,141 @@
                                          #import-field-type    gtype}))))
       ))
 
-(def: with-parens
-  (-> JVM-Code JVM-Code)
-  (text.enclose ["(" ")"]))
-
-(def: with-brackets
-  (-> JVM-Code JVM-Code)
-  (text.enclose ["[" "]"]))
-
-(def: spaced
-  (-> (List JVM-Code) JVM-Code)
-  (text.join-with " "))
-
 (def: (privacy-modifier$ pm)
-  (-> PrivacyModifier JVM-Code)
+  (-> PrivacyModifier Code)
   (case pm
-    #PublicPM    "public"
-    #PrivatePM   "private"
-    #ProtectedPM "protected"
-    #DefaultPM   "default"))
+    #PublicPM    (' "public")
+    #PrivatePM   (' "private")
+    #ProtectedPM (' "protected")
+    #DefaultPM   (' "default")))
 
 (def: (inheritance-modifier$ im)
-  (-> InheritanceModifier JVM-Code)
+  (-> InheritanceModifier Code)
   (case im
-    #FinalIM    "final"
-    #AbstractIM "abstract"
-    #DefaultIM  "default"))
+    #FinalIM    (' "final")
+    #AbstractIM (' "abstract")
+    #DefaultIM  (' "default")))
 
 (def: (annotation-param$ [name value])
-  (-> AnnotationParam JVM-Code)
-  (format name "=" (code.to-text value)))
+  (-> AnnotationParam Code)
+  (` [(~ (code.text name)) (~ value)]))
 
 (def: (annotation$ [name params])
-  (-> Annotation JVM-Code)
-  (format "(" name " " "{" (text.join-with text.tab (list@map annotation-param$ params)) "}" ")"))
+  (-> Annotation Code)
+  (` ((~ (code.text name)) (~+ (list@map annotation-param$ params)))))
 
 (def: (bound-kind$ kind)
-  (-> BoundKind JVM-Code)
+  (-> BoundKind Code)
   (case kind
-    #UpperBound "<"
-    #LowerBound ">"))
+    #UpperBound (' "<")
+    #LowerBound (' ">")))
 
 (def: (generic-type$ gtype)
-  (-> GenericType JVM-Code)
+  (-> GenericType Code)
   (case gtype
     (#GenericTypeVar name)
-    name
+    (code.text name)
 
     (#GenericClass name params)
-    (format "(" (sanitize name) " " (spaced (list@map generic-type$ params)) ")")
+    (` ((~ (code.text (sanitize name))) (~+ (list@map generic-type$ params))))
     
     (#GenericArray param)
-    (format "(" array.type-name " " (generic-type$ param) ")")
+    (` [(~ (generic-type$ param))])
     
     (#GenericWildcard #.None)
-    "?"
+    (code.text "?")
 
     (#GenericWildcard (#.Some [bound-kind bound]))
-    (format (bound-kind$ bound-kind) (generic-type$ bound))))
+    (` [(~ (bound-kind$ bound-kind)) (~ (generic-type$ bound))])))
 
 (def: (type-param$ [name bounds])
-  (-> Type-Paramameter JVM-Code)
-  (format "(" name " " (spaced (list@map generic-type$ bounds)) ")"))
+  (-> Type-Paramameter Code)
+  (` [(~ (code.text name)) (~+ (list@map generic-type$ bounds))]))
 
 (def: (class-decl$ (^open "."))
-  (-> Class-Declaration JVM-Code)
-  (format "(" (sanitize class-name) " " (spaced (list@map type-param$ class-params)) ")"))
+  (-> Class-Declaration Code)
+  (` ((~ (code.text (sanitize class-name)))
+      (~+ (list@map type-param$ class-params)))))
 
 (def: (super-class-decl$ (^slots [#super-class-name #super-class-params]))
-  (-> Super-Class-Decl JVM-Code)
-  (format "(" (sanitize super-class-name) " " (spaced (list@map generic-type$ super-class-params)) ")"))
+  (-> Super-Class-Decl Code)
+  (` ((~ (code.text (sanitize super-class-name)))
+      (~+ (list@map generic-type$ super-class-params)))))
 
 (def: (method-decl$ [[name pm anns] method-decl])
-  (-> [Member-Declaration MethodDecl] JVM-Code)
+  (-> [Member-Declaration MethodDecl] Code)
   (let [(^slots [#method-tvars #method-inputs #method-output #method-exs]) method-decl]
-    (with-parens
-      (spaced (list name
-                    (with-brackets (spaced (list@map annotation$ anns)))
-                    (with-brackets (spaced (list@map type-param$ method-tvars)))
-                    (with-brackets (spaced (list@map generic-type$ method-exs)))
-                    (with-brackets (spaced (list@map generic-type$ method-inputs)))
-                    (generic-type$ method-output))
-              ))))
+    (` ((~ (code.text name))
+        [(~+ (list@map annotation$ anns))]
+        [(~+ (list@map type-param$ method-tvars))]
+        [(~+ (list@map generic-type$ method-exs))]
+        [(~+ (list@map generic-type$ method-inputs))]
+        (~ (generic-type$ method-output))))))
 
 (def: (state-modifier$ sm)
-  (-> StateModifier JVM-Code)
+  (-> StateModifier Code)
   (case sm
-    #VolatileSM "volatile"
-    #FinalSM    "final"
-    #DefaultSM  "default"))
+    #VolatileSM (' "volatile")
+    #FinalSM    (' "final")
+    #DefaultSM  (' "default")))
 
 (def: (field-decl$ [[name pm anns] field])
-  (-> [Member-Declaration FieldDecl] JVM-Code)
+  (-> [Member-Declaration FieldDecl] Code)
   (case field
     (#ConstantField class value)
-    (with-parens
-      (spaced (list "constant" name
-                    (with-brackets (spaced (list@map annotation$ anns)))
-                    (generic-type$ class)
-                    (code.to-text value))
-              ))
+    (` ("constant" (~ (code.text name))
+        [(~+ (list@map annotation$ anns))]
+        (~ (generic-type$ class))
+        (~ value)
+        ))
 
     (#VariableField sm class)
-    (with-parens
-      (spaced (list "variable" name
-                    (privacy-modifier$ pm)
-                    (state-modifier$ sm)
-                    (with-brackets (spaced (list@map annotation$ anns)))
-                    (generic-type$ class))
-              ))
+    (` ("variable" (~ (code.text name))
+        (~ (privacy-modifier$ pm))
+        (~ (state-modifier$ sm))
+        [(~+ (list@map annotation$ anns))]
+        (~ (generic-type$ class))
+        ))
     ))
 
 (def: (arg-decl$ [name type])
-  (-> ArgDecl JVM-Code)
-  (with-parens
-    (spaced (list name (generic-type$ type)))))
+  (-> ArgDecl Code)
+  (` [(~ (code.text name)) (~ (generic-type$ type))]))
 
 (def: (constructor-arg$ [class term])
-  (-> ConstructorArg JVM-Code)
-  (with-brackets
-    (spaced (list (generic-type$ class) (code.to-text term)))))
+  (-> ConstructorArg Code)
+  (` [(~ (generic-type$ class)) (~ term)]))
 
 (def: (method-def$ replacer super-class [[name pm anns] method-def])
-  (-> (-> Code Code) Super-Class-Decl [Member-Declaration Method-Definition] JVM-Code)
+  (-> (-> Code Code) Super-Class-Decl [Member-Declaration Method-Definition] Code)
   (case method-def
     (#ConstructorMethod strict-fp? type-vars arg-decls constructor-args body exs)
-    (with-parens
-      (spaced (list "init"
-                    (privacy-modifier$ pm)
-                    (bit@encode strict-fp?)
-                    (with-brackets (spaced (list@map annotation$ anns)))
-                    (with-brackets (spaced (list@map type-param$ type-vars)))
-                    (with-brackets (spaced (list@map generic-type$ exs)))
-                    (with-brackets (spaced (list@map arg-decl$ arg-decls)))
-                    (with-brackets (spaced (list@map constructor-arg$ constructor-args)))
-                    (code.to-text (pre-walk-replace replacer body))
-                    )))
+    (` ("init"
+        (~ (privacy-modifier$ pm))
+        (~ (code.bit strict-fp?))
+        [(~+ (list@map annotation$ anns))]
+        [(~+ (list@map type-param$ type-vars))]
+        [(~+ (list@map generic-type$ exs))]
+        [(~+ (list@map arg-decl$ arg-decls))]
+        [(~+ (list@map constructor-arg$ constructor-args))]
+        (~ (pre-walk-replace replacer body))
+        ))
     
-    (#VirtualMethod final? strict-fp? type-vars arg-decls return-type body exs)
-    (with-parens
-      (spaced (list "virtual"
-                    name
-                    (privacy-modifier$ pm)
-                    (bit@encode final?)
-                    (bit@encode strict-fp?)
-                    (with-brackets (spaced (list@map annotation$ anns)))
-                    (with-brackets (spaced (list@map type-param$ type-vars)))
-                    (with-brackets (spaced (list@map generic-type$ exs)))
-                    (with-brackets (spaced (list@map arg-decl$ arg-decls)))
-                    (generic-type$ return-type)
-                    (code.to-text (pre-walk-replace replacer body)))))
+    (#VirtualMethod final? strict-fp? type-vars self-name arg-decls return-type body exs)
+    (` ("virtual"
+        (~ (code.text name))
+        (~ (privacy-modifier$ pm))
+        (~ (code.bit final?))
+        (~ (code.bit strict-fp?))
+        [(~+ (list@map annotation$ anns))]
+        [(~+ (list@map type-param$ type-vars))]
+        (~ (code.text self-name))
+        [(~+ (list@map arg-decl$ arg-decls))]
+        (~ (generic-type$ return-type))
+        [(~+ (list@map generic-type$ exs))]
+        (~ (pre-walk-replace replacer body))))
     
-    (#OverridenMethod strict-fp? class-decl type-vars arg-decls return-type body exs)
+    (#OverridenMethod strict-fp? class-decl type-vars self-name arg-decls return-type body exs)
     (let [super-replacer (parser->replacer (s.form (do p.monad
                                                      [_ (s.this (' ::super!))
                                                       args (s.tuple (p.exactly (list.size arg-decls) s.any))
@@ -1295,56 +1282,52 @@
                                                                (~+ (|> args
                                                                        (list.zip2 arg-decls')
                                                                        (list@map ..decorate-input)))))))))]
-      (with-parens
-        (spaced (list "override"
-                      (class-decl$ class-decl)
-                      name
-                      (bit@encode strict-fp?)
-                      (with-brackets (spaced (list@map annotation$ anns)))
-                      (with-brackets (spaced (list@map type-param$ type-vars)))
-                      (with-brackets (spaced (list@map generic-type$ exs)))
-                      (with-brackets (spaced (list@map arg-decl$ arg-decls)))
-                      (generic-type$ return-type)
-                      (|> body
-                          (pre-walk-replace replacer)
-                          (pre-walk-replace super-replacer)
-                          (code.to-text))
-                      ))))
+      (` ("override"
+          (~ (class-decl$ class-decl))
+          (~ (code.text name))
+          (~ (code.bit strict-fp?))
+          [(~+ (list@map annotation$ anns))]
+          [(~+ (list@map type-param$ type-vars))]
+          (~ (code.text self-name))
+          [(~+ (list@map arg-decl$ arg-decls))]
+          (~ (generic-type$ return-type))
+          [(~+ (list@map generic-type$ exs))]
+          (~ (|> body
+                 (pre-walk-replace replacer)
+                 (pre-walk-replace super-replacer)))
+          )))
 
     (#StaticMethod strict-fp? type-vars arg-decls return-type body exs)
-    (with-parens
-      (spaced (list "static"
-                    name
-                    (privacy-modifier$ pm)
-                    (bit@encode strict-fp?)
-                    (with-brackets (spaced (list@map annotation$ anns)))
-                    (with-brackets (spaced (list@map type-param$ type-vars)))
-                    (with-brackets (spaced (list@map generic-type$ exs)))
-                    (with-brackets (spaced (list@map arg-decl$ arg-decls)))
-                    (generic-type$ return-type)
-                    (code.to-text (pre-walk-replace replacer body)))))
+    (` ("static"
+        (~ (code.text name))
+        (~ (privacy-modifier$ pm))
+        (~ (code.bit strict-fp?))
+        [(~+ (list@map annotation$ anns))]
+        [(~+ (list@map type-param$ type-vars))]
+        [(~+ (list@map generic-type$ exs))]
+        [(~+ (list@map arg-decl$ arg-decls))]
+        (~ (generic-type$ return-type))
+        (~ (pre-walk-replace replacer body))))
 
     (#AbstractMethod type-vars arg-decls return-type exs)
-    (with-parens
-      (spaced (list "abstract"
-                    name
-                    (privacy-modifier$ pm)
-                    (with-brackets (spaced (list@map annotation$ anns)))
-                    (with-brackets (spaced (list@map type-param$ type-vars)))
-                    (with-brackets (spaced (list@map generic-type$ exs)))
-                    (with-brackets (spaced (list@map arg-decl$ arg-decls)))
-                    (generic-type$ return-type))))
+    (` ("abstract"
+        (~ (code.text name))
+        (~ (privacy-modifier$ pm))
+        [(~+ (list@map annotation$ anns))]
+        [(~+ (list@map type-param$ type-vars))]
+        [(~+ (list@map generic-type$ exs))]
+        [(~+ (list@map arg-decl$ arg-decls))]
+        (~ (generic-type$ return-type))))
 
     (#NativeMethod type-vars arg-decls return-type exs)
-    (with-parens
-      (spaced (list "native"
-                    name
-                    (privacy-modifier$ pm)
-                    (with-brackets (spaced (list@map annotation$ anns)))
-                    (with-brackets (spaced (list@map type-param$ type-vars)))
-                    (with-brackets (spaced (list@map generic-type$ exs)))
-                    (with-brackets (spaced (list@map arg-decl$ arg-decls)))
-                    (generic-type$ return-type))))
+    (` ("native"
+        (~ (code.text name))
+        (~ (privacy-modifier$ pm))
+        [(~+ (list@map annotation$ anns))]
+        [(~+ (list@map type-param$ type-vars))]
+        [(~+ (list@map generic-type$ exs))]
+        [(~+ (list@map arg-decl$ arg-decls))]
+        (~ (generic-type$ return-type))))
     ))
 
 (def: (complete-call$ g!obj [method args])
@@ -1408,16 +1391,15 @@
            method-parsers (list@map (method->parser (product.right class-decl) fully-qualified-class-name) methods)
            replacer (parser->replacer (list@fold p.either
                                                  (p.fail "")
-                                                 (list@compose field-parsers method-parsers)))
-           def-code (format "jvm class:"
-                            (spaced (list (class-decl$ class-decl)
-                                          (super-class-decl$ super)
-                                          (with-brackets (spaced (list@map super-class-decl$ interfaces)))
-                                          (inheritance-modifier$ im)
-                                          (with-brackets (spaced (list@map annotation$ annotations)))
-                                          (with-brackets (spaced (list@map field-decl$ fields)))
-                                          (with-brackets (spaced (list@map (method-def$ replacer super) methods))))))]]
-    (wrap (list (` ((~ (code.text def-code))))))))
+                                                 (list@compose field-parsers method-parsers)))]]
+    (wrap (list (` ("jvm class"
+                    (~ (class-decl$ class-decl))
+                    (~ (super-class-decl$ super))
+                    [(~+ (list@map super-class-decl$ interfaces))]
+                    (~ (inheritance-modifier$ im))
+                    [(~+ (list@map annotation$ annotations))]
+                    [(~+ (list@map field-decl$ fields))]
+                    [(~+ (list@map (method-def$ replacer super) methods))]))))))
 
 (syntax: #export (interface:
                    {#let [imports (class-imports *compiler*)]}
@@ -1433,13 +1415,11 @@
   {#.doc (doc "Allows defining JVM interfaces."
               (interface: TestInterface
                 ([] foo [boolean String] void #throws [Exception])))}
-  (let [def-code (format "jvm interface:"
-                         (spaced (list (class-decl$ class-decl)
-                                       (with-brackets (spaced (list@map super-class-decl$ supers)))
-                                       (with-brackets (spaced (list@map annotation$ annotations)))
-                                       (spaced (list@map method-decl$ members)))))]
-    (wrap (list (` ((~ (code.text def-code))))))
-    ))
+  (wrap (list (` ("jvm class interface"
+                  (~ (class-decl$ class-decl))
+                  [(~+ (list@map super-class-decl$ supers))]
+                  [(~+ (list@map annotation$ annotations))]
+                  (~+ (list@map method-decl$ members)))))))
 
 (syntax: #export (object
                    {#let [imports (class-imports *compiler*)]}
@@ -1461,12 +1441,11 @@
                           (exec (do-something some-value)
                             [])))
               )}
-  (let [def-code (format "jvm anon-class:"
-                         (spaced (list (super-class-decl$ super)
-                                       (with-brackets (spaced (list@map super-class-decl$ interfaces)))
-                                       (with-brackets (spaced (list@map constructor-arg$ constructor-args)))
-                                       (with-brackets (spaced (list@map (method-def$ function.identity super) methods))))))]
-    (wrap (list (` ((~ (code.text def-code))))))))
+  (wrap (list (` ("jvm class anonymous"
+                  (~ (super-class-decl$ super))
+                  [(~+ (list@map super-class-decl$ interfaces))]
+                  [(~+ (list@map constructor-arg$ constructor-args))]
+                  [(~+ (list@map (method-def$ function.identity super) methods))])))))
 
 (syntax: #export (null)
   {#.doc (doc "Null object reference."
@@ -1713,6 +1692,17 @@
   (-> Code Code)
   (` ((~' ~) (~ quoted))))
 
+(def: (jvm-input [unboxed raw])
+  (-> [Text Code] [Text Code])
+  [unboxed (case unboxed
+             "byte" (` (.:coerce (.primitive "java.lang.Long") (.: .Int (~ raw))))
+             "short" (` (.:coerce (.primitive "java.lang.Long") (.: .Int (~ raw))))
+             "int" (` (.:coerce (.primitive "java.lang.Long") (.: .Int (~ raw))))
+             "long" (` (.:coerce (.primitive "java.lang.Long") (.: .Int (~ raw))))
+             "float" (` (.:coerce (.primitive "java.lang.Double") (.: .Frac (~ raw))))
+             "double" (` (.:coerce (.primitive "java.lang.Double") (.: .Frac (~ raw))))
+             _ (` ("jvm object cast" (~ raw))))])
+
 (def: (jvm-invoke-inputs mode classes inputs)
   (-> Primitive-Mode (List Text) (List [Bit Code]) (List Code))
   (|> inputs
@@ -1721,7 +1711,7 @@
                     (` ((~! !!!) (~ (un-quote input))))
                     (un-quote input))))
       (list.zip2 classes)
-      (list@map (auto-convert-input mode))))
+      (list@map (|>> jvm-input (auto-convert-input mode)))))
 
 (def: (with-class-type class expression)
   (-> Text Code Code)
@@ -1796,7 +1786,8 @@
                                   (` ((~ (code.text jvm-op))
                                       (~ (code.text full-name))
                                       (~ (code.text import-method-name))
-                                      (~+ (list@map un-quote object-ast))
+                                      (~+ (list@map (|>> un-quote ~ "jvm object cast" `)
+                                                    object-ast))
                                       (~+ (|> (jvm-invoke-inputs (get@ #import-member-mode commons) arg-classes arg-function-inputs)
                                               (list.zip2 arg-classes)
                                               (list@map ..decorate-input)))))]
@@ -1844,8 +1835,9 @@
                                (let [setter-call (if import-field-static?
                                                    (` ((~ setter-name) (~ g!value)))
                                                    (` ((~ setter-name) (~ g!value) (~ g!obj))))
-                                     setter-value (auto-convert-input import-field-mode
-                                                                      [(simple-class$ (list) import-field-type) (un-quote g!value)])
+                                     setter-value (|> [(simple-class$ (list) import-field-type) (un-quote g!value)]
+                                                      ..jvm-input
+                                                      (auto-convert-input import-field-mode))
                                      setter-value (if import-field-maybe?
                                                     (` ((~! !!!) (~ setter-value)))
                                                     setter-value)
@@ -1975,7 +1967,7 @@
      ["char"    "jvm cnewarray"])
 
     _
-    (wrap (list (` ("jvm anewarray" (~ (code.text (generic-type$ type))) (~ size)))))))
+    (wrap (list (` ("jvm anewarray" (~ (generic-type$ type)) (~ size)))))))
 
 (syntax: #export (array-length array)
   {#.doc (doc "Gives the length of an array."

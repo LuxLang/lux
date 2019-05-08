@@ -26,15 +26,22 @@
      ["_." type]]]]
   ["." // #_
    ["#." common]
-   ["#/" //
+   ["/#" //
     ["#." bundle]
-    ["#/" // ("#@." monad)
+    ["/#" // ("#@." monad)
      [analysis
       [".A" type]
-      [".A" inference]]
-     ["#/" // #_
+      [".A" inference]
+      ["." scope]]
+     ["/#" // #_
       ["#." analysis (#+ Analysis Operation Phase Handler Bundle)]
       ["#." synthesis]]]]])
+
+(def: inheritance-relationship-type-name "_jvm_inheritance")
+(def: (inheritance-relationship-type class super-class super-interfaces)
+  (-> Type Type (List Type) Type)
+  (#.Primitive ..inheritance-relationship-type-name
+               (list& class super-class super-interfaces)))
 
 (def: (custom [syntax handler])
   (All [s]
@@ -123,6 +130,12 @@
   [too-many-candidates]
   )
 
+(exception: #export (cannot-cast {from Type} {to Type} {value Code})
+  (exception.report
+   ["From" (%type from)]
+   ["To" (%type to)]
+   ["Value" (%code value)]))
+
 (template [<name>]
   [(exception: #export (<name> {message Text})
      message)]
@@ -130,8 +143,6 @@
   [primitives-cannot-have-type-parameters]
 
   [mistaken-field-owner]
-
-  [cannot-cast]
 
   [cannot-possibly-be-an-instance]
 
@@ -350,8 +361,11 @@
     (#.Named name unnamed)
     (check-jvm unnamed)
 
-    (#.Var id)
-    (////@wrap "java.lang.Object")
+    (^template [<tag>]
+      (<tag> id)
+      (////@wrap "java.lang.Object"))
+    ([#.Var]
+     [#.Ex])
 
     (^template [<tag>]
       (<tag> env unquantified)
@@ -547,8 +561,8 @@
       _
       (/////analysis.throw ///.incorrect-arity [extension-name 2 (list.size args)]))))
 
-(import: java/lang/Object
-  (equals [Object] boolean))
+(import: #long java/lang/Object
+  (equals [java/lang/Object] boolean))
 
 (import: java/lang/ClassLoader)
 
@@ -574,14 +588,14 @@
   (#static isAbstract [int] boolean))
 
 (import: java/lang/reflect/Field
-  (getDeclaringClass [] (java/lang/Class Object))
+  (getDeclaringClass [] (java/lang/Class java/lang/Object))
   (getModifiers [] int)
   (getGenericType [] java/lang/reflect/Type))
 
 (import: java/lang/reflect/Method
   (getName [] String)
   (getModifiers [] int)
-  (getDeclaringClass [] (Class Object))
+  (getDeclaringClass [] (java/lang/Class java/lang/Object))
   (getTypeParameters [] (Array (TypeVariable Method)))
   (getGenericParameterTypes [] (Array java/lang/reflect/Type))
   (getGenericReturnType [] java/lang/reflect/Type)
@@ -589,28 +603,28 @@
 
 (import: (java/lang/reflect/Constructor c)
   (getModifiers [] int)
-  (getDeclaringClass [] (Class c))
+  (getDeclaringClass [] (java/lang/Class c))
   (getTypeParameters [] (Array (TypeVariable (Constructor c))))
   (getGenericParameterTypes [] (Array java/lang/reflect/Type))
   (getGenericExceptionTypes [] (Array java/lang/reflect/Type)))
 
-(import: (java/lang/Class c)
+(import: #long (java/lang/Class c)
   (getName [] String)
   (getModifiers [] int)
-  (#static forName [String] #try (Class Object))
-  (isAssignableFrom [(Class Object)] boolean)
-  (getTypeParameters [] (Array (TypeVariable (Class c))))
+  (#static forName [String] #try (java/lang/Class java/lang/Object))
+  (isAssignableFrom [(java/lang/Class java/lang/Object)] boolean)
+  (getTypeParameters [] (Array (TypeVariable (java/lang/Class c))))
   (getGenericInterfaces [] (Array java/lang/reflect/Type))
-  (getGenericSuperclass [] java/lang/reflect/Type)
+  (getGenericSuperclass [] #? java/lang/reflect/Type)
   (getDeclaredField [String] #try Field)
-  (getConstructors [] (Array (Constructor Object)))
+  (getConstructors [] (Array (Constructor java/lang/Object)))
   (getDeclaredMethods [] (Array Method)))
 
 (def: (load-class name)
-  (-> Text (Operation (Class Object)))
+  (-> Text (Operation (java/lang/Class java/lang/Object)))
   (do ////.monad
     []
-    (case (Class::forName name)
+    (case (java/lang/Class::forName name)
       (#error.Success [class])
       (wrap class)
 
@@ -622,7 +636,7 @@
   (do ////.monad
     [super (load-class super)
      sub (load-class sub)]
-    (wrap (Class::isAssignableFrom sub super))))
+    (wrap (java/lang/Class::isAssignableFrom sub super))))
 
 (def: object::throw
   Handler
@@ -687,9 +701,9 @@
 
 (def: (java-type-to-class jvm-type)
   (-> java/lang/reflect/Type (Operation Text))
-  (<| (case (host.check Class jvm-type)
+  (<| (case (host.check java/lang/Class jvm-type)
         (#.Some jvm-type)
-        (////@wrap (Class::getName jvm-type))
+        (////@wrap (java/lang/Class::getName jvm-type))
 
         _)
       (case (host.check ParameterizedType jvm-type)
@@ -729,11 +743,11 @@
           (////@wrap Any))
         
         _)
-      (case (host.check Class java-type)
+      (case (host.check java/lang/Class java-type)
         (#.Some java-type)
-        (let [java-type (:coerce (Class Object) java-type)
-              class-name (Class::getName java-type)]
-          (////@wrap (case (array.size (Class::getTypeParameters java-type))
+        (let [java-type (:coerce (java/lang/Class java/lang/Object) java-type)
+              class-name (java/lang/Class::getName java-type)]
+          (////@wrap (case (array.size (java/lang/Class::getTypeParameters java-type))
                        0
                        (#.Primitive class-name (list))
                        
@@ -748,14 +762,14 @@
       (case (host.check ParameterizedType java-type)
         (#.Some java-type)
         (let [raw (ParameterizedType::getRawType java-type)]
-          (case (host.check Class raw)
+          (case (host.check java/lang/Class raw)
             (#.Some raw)
             (do ////.monad
               [paramsT (|> java-type
                            ParameterizedType::getActualTypeArguments
                            array.to-list
                            (monad.map @ (java-type-to-lux-type mappings)))]
-              (////@wrap (#.Primitive (Class::getName (:coerce (Class Object) raw))
+              (////@wrap (#.Primitive (java/lang/Class::getName (:coerce (java/lang/Class java/lang/Object) raw))
                                       paramsT)))
 
             _
@@ -775,11 +789,11 @@
       (/////analysis.throw cannot-convert-to-a-lux-type java-type)))
 
 (def: (correspond-type-params class type)
-  (-> (Class Object) Type (Operation Mappings))
+  (-> (java/lang/Class java/lang/Object) Type (Operation Mappings))
   (case type
     (#.Primitive name params)
-    (let [class-name (Class::getName class)
-          class-params (array.to-list (Class::getTypeParameters class))
+    (let [class-name (java/lang/Class::getName class)
+          class-params (array.to-list (java/lang/Class::getTypeParameters class))
           num-class-params (list.size class-params)
           num-type-params (list.size params)]
       (cond (not (text@= class-name name))
@@ -803,25 +817,58 @@
     _
     (/////analysis.throw non-jvm-type type)))
 
+(def: (class-candiate-parents from-name fromT to-name to-class)
+  (-> Text Type Text (java/lang/Class java/lang/Object) (Operation (List [[Text Type] Bit])))
+  (do ////.monad
+    [from-class (load-class from-name)
+     mapping (correspond-type-params from-class fromT)]
+    (monad.map @
+               (function (_ superJT)
+                 (do @
+                   [super-name (java-type-to-class superJT)
+                    super-class (load-class super-name)
+                    superT (java-type-to-lux-type mapping superJT)]
+                   (wrap [[super-name superT] (java/lang/Class::isAssignableFrom super-class to-class)])))
+               (case (java/lang/Class::getGenericSuperclass from-class)
+                 (#.Some super)
+                 (list& super (array.to-list (java/lang/Class::getGenericInterfaces from-class)))
+
+                 #.None
+                 (array.to-list (java/lang/Class::getGenericInterfaces from-class))))))
+
+(def: (inheritance-candiate-parents fromT to-class toT fromC)
+  (-> Type (java/lang/Class java/lang/Object) Type Code (Operation (List [[Text Type] Bit])))
+  (case fromT
+    (^ (#.Primitive _ (list& self-classT super-classT super-interfacesT+)))
+    (monad.map ////.monad
+               (function (_ superT)
+                 (do ////.monad
+                   [super-name (check-jvm superT)
+                    super-class (load-class super-name)]
+                   (wrap [[super-name superT]
+                          (java/lang/Class::isAssignableFrom super-class to-class)])))
+               (list& super-classT super-interfacesT+))
+
+    _
+    (/////analysis.throw cannot-cast [fromT toT fromC])))
+
 (def: object::cast
   Handler
   (function (_ extension-name analyse args)
     (case args
-      (^ (list valueC))
+      (^ (list fromC))
       (do ////.monad
         [toT (///.lift macro.expected-type)
          to-name (check-jvm toT)
-         [valueT valueA] (typeA.with-inference
-                           (analyse valueC))
-         from-name (check-jvm valueT)
+         [fromT fromA] (typeA.with-inference
+                         (analyse fromC))
+         from-name (check-jvm fromT)
          can-cast? (: (Operation Bit)
                       (case [from-name to-name]
                         (^template [<primitive> <object>]
                           (^or [<primitive> <object>]
                                [<object> <primitive>])
-                          (do @
-                            [_ (typeA.infer (#.Primitive to-name (list)))]
-                            (wrap #1)))
+                          (wrap #1))
                         (["boolean" "java.lang.Boolean"]
                          ["byte"    "java.lang.Byte"]
                          ["short"   "java.lang.Short"]
@@ -837,47 +884,35 @@
                                           (not (dictionary.contains? from-name boxes)))
                            _ (////.assert ..primitives-are-not-objects [to-name]
                                           (not (dictionary.contains? to-name boxes)))
-                           to-class (load-class to-name)]
-                          (loop [[current-name currentT] [from-name valueT]]
+                           to-class (load-class to-name)
+                           _ (if (text@= ..inheritance-relationship-type-name from-name)
+                               (wrap [])
+                               (do @
+                                 [from-class (load-class from-name)]
+                                 (////.assert cannot-cast [fromT toT fromC]
+                                              (java/lang/Class::isAssignableFrom from-class to-class))))]
+                          (loop [[current-name currentT] [from-name fromT]]
                             (if (text@= to-name current-name)
+                              (wrap #1)
                               (do @
-                                [_ (typeA.infer toT)]
-                                (wrap #1))
-                              (do @
-                                [current-class (load-class current-name)
-                                 _ (////.assert cannot-cast (format "From class/primitive: " current-name text.new-line
-                                                                    "  To class/primitive: " to-name text.new-line
-                                                                    "           For value: " (%code valueC) text.new-line)
-                                                (Class::isAssignableFrom current-class to-class))
-                                 candiate-parents (monad.map @
-                                                             (function (_ java-type)
-                                                               (do @
-                                                                 [class-name (java-type-to-class java-type)
-                                                                  class (load-class class-name)]
-                                                                 (wrap [[class-name java-type] (Class::isAssignableFrom class to-class)])))
-                                                             (list& (Class::getGenericSuperclass current-class)
-                                                                    (array.to-list (Class::getGenericInterfaces current-class))))]
+                                [candiate-parents (: (Operation (List [[Text Type] Bit]))
+                                                     (if (text@= ..inheritance-relationship-type-name current-name)
+                                                       (inheritance-candiate-parents currentT to-class toT fromC)
+                                                       (class-candiate-parents current-name currentT to-name to-class)))]
                                 (case (|> candiate-parents
                                           (list.filter product.right)
                                           (list@map product.left))
-                                  (#.Cons [next-name nextJT] _)
-                                  (do @
-                                    [mapping (correspond-type-params current-class currentT)
-                                     nextT (java-type-to-lux-type mapping nextJT)]
-                                    (recur [next-name nextT]))
+                                  (#.Cons [next-name nextT] _)
+                                  (recur [next-name nextT])
 
                                   #.Nil
-                                  (/////analysis.throw cannot-cast (format "From class/primitive: " from-name text.new-line
-                                                                           "  To class/primitive: " to-name text.new-line
-                                                                           "           For value: " (%code valueC) text.new-line)))
+                                  (/////analysis.throw cannot-cast [fromT toT fromC]))
                                 ))))))]
         (if can-cast?
           (wrap (#/////analysis.Extension extension-name (list (/////analysis.text from-name)
                                                                (/////analysis.text to-name)
-                                                               valueA)))
-          (/////analysis.throw cannot-cast (format "From class/primitive: " from-name text.new-line
-                                                   "  To class/primitive: " to-name text.new-line
-                                                   "           For value: " (%code valueC) text.new-line))))
+                                                               fromA)))
+          (/////analysis.throw cannot-cast [fromT toT fromC])))
 
       _
       (/////analysis.throw ///.invalid-syntax [extension-name %code args]))))
@@ -896,17 +931,17 @@
           )))
 
 (def: (find-field class-name field-name)
-  (-> Text Text (Operation [(Class Object) Field]))
+  (-> Text Text (Operation [(java/lang/Class java/lang/Object) Field]))
   (do ////.monad
     [class (load-class class-name)]
-    (case (Class::getDeclaredField field-name class)
+    (case (java/lang/Class::getDeclaredField field-name class)
       (#error.Success field)
       (let [owner (Field::getDeclaringClass field)]
         (if (is? owner class)
           (wrap [class field])
           (/////analysis.throw mistaken-field-owner
                                (format "       Field: " field-name text.new-line
-                                       " Owner Class: " (Class::getName owner) text.new-line
+                                       " Owner Class: " (java/lang/Class::getName owner) text.new-line
                                        "Target Class: " class-name text.new-line))))
 
       (#error.Failure _)
@@ -968,7 +1003,7 @@
       (do @
         [#let [fieldJT (Field::getGenericType fieldJ)
                var-names (|> class
-                             Class::getTypeParameters
+                             java/lang/Class::getTypeParameters
                              array.to-list
                              (list@map (|>> TypeVariable::getName)))]
          mappings (: (Operation Mappings)
@@ -1038,9 +1073,9 @@
 
 (def: (java-type-to-parameter type)
   (-> java/lang/reflect/Type (Operation Text))
-  (<| (case (host.check Class type)
+  (<| (case (host.check java/lang/Class type)
         (#.Some type)
-        (////@wrap (Class::getName type))
+        (////@wrap (java/lang/Class::getName type))
         
         _)
       (case (host.check ParameterizedType type)
@@ -1077,13 +1112,13 @@
   #Interface)
 
 (def: (check-method class method-name method-style arg-classes method)
-  (-> (Class Object) Text Method-Style (List Text) Method (Operation Bit))
+  (-> (java/lang/Class java/lang/Object) Text Method-Style (List Text) Method (Operation Bit))
   (do ////.monad
     [parameters (|> (Method::getGenericParameterTypes method)
                     array.to-list
                     (monad.map @ java-type-to-parameter))
      #let [modifiers (Method::getModifiers method)]]
-    (wrap (and (Object::equals class (Method::getDeclaringClass method))
+    (wrap (and (java/lang/Object::equals class (Method::getDeclaringClass method))
                (text@= method-name (Method::getName method))
                (case #Static
                  #Special
@@ -1093,7 +1128,7 @@
                  #1)
                (case method-style
                  #Special
-                 (not (or (Modifier::isInterface (Class::getModifiers class))
+                 (not (or (Modifier::isInterface (java/lang/Class::getModifiers class))
                           (Modifier::isAbstract modifiers)))
 
                  _
@@ -1106,12 +1141,12 @@
                           (list.zip2 arg-classes parameters))))))
 
 (def: (check-constructor class arg-classes constructor)
-  (-> (Class Object) (List Text) (Constructor Object) (Operation Bit))
+  (-> (java/lang/Class java/lang/Object) (List Text) (Constructor java/lang/Object) (Operation Bit))
   (do ////.monad
     [parameters (|> (Constructor::getGenericParameterTypes constructor)
                     array.to-list
                     (monad.map @ java-type-to-parameter))]
-    (wrap (and (Object::equals class (Constructor::getDeclaringClass constructor))
+    (wrap (and (java/lang/Object::equals class (Constructor::getDeclaringClass constructor))
                (n/= (list.size arg-classes) (list.size parameters))
                (list@fold (function (_ [expectedJC actualJC] prev)
                             (and prev
@@ -1145,7 +1180,7 @@
                       (list)
 
                       _
-                      (|> (Class::getTypeParameters owner)
+                      (|> (java/lang/Class::getTypeParameters owner)
                           array.to-list
                           (list@map (|>> TypeVariable::getName))))
         method-tvars (|> (Method::getTypeParameters method)
@@ -1166,15 +1201,15 @@
                                           inputsT
 
                                           _
-                                          (list& (#.Primitive (Class::getName owner) owner-tvarsT)
+                                          (list& (#.Primitive (java/lang/Class::getName owner) owner-tvarsT)
                                                  inputsT)))
                          outputT)]]
       (wrap [methodT exceptionsT]))))
 
 (def: (constructor-signature constructor)
-  (-> (Constructor Object) (Operation Method-Signature))
+  (-> (Constructor java/lang/Object) (Operation Method-Signature))
   (let [owner (Constructor::getDeclaringClass constructor)
-        owner-tvars (|> (Class::getTypeParameters owner)
+        owner-tvars (|> (java/lang/Class::getTypeParameters owner)
                         array.to-list
                         (list@map (|>> TypeVariable::getName)))
         method-tvars (|> (Constructor::getTypeParameters constructor)
@@ -1188,7 +1223,7 @@
        exceptionsT (|> (Constructor::getGenericExceptionTypes constructor)
                        array.to-list
                        (monad.map @ (java-type-to-lux-type mappings)))
-       #let [objectT (#.Primitive (Class::getName owner) owner-tvarsT)
+       #let [objectT (#.Primitive (java/lang/Class::getName owner) owner-tvarsT)
              constructorT (<| (type.univ-q (dictionary.size mappings))
                               (type.function inputsT)
                               objectT)]]
@@ -1217,7 +1252,7 @@
   (do ////.monad
     [class (load-class class-name)
      candidates (|> class
-                    Class::getDeclaredMethods
+                    java/lang/Class::getDeclaredMethods
                     array.to-list
                     (monad.map @ (: (-> Method (Operation Evaluation))
                                     (function (_ method)
@@ -1248,7 +1283,7 @@
   (do ////.monad
     [class (load-class class-name)
      candidates (|> class
-                    Class::getConstructors
+                    java/lang/Class::getConstructors
                     array.to-list
                     (monad.map @ (function (_ constructor)
                                    (do @
@@ -1334,7 +1369,7 @@
                  [#let [argsT (list@map product.left argsTC)]
                   class (load-class class-name)
                   _ (////.assert non-interface class-name
-                                 (Modifier::isInterface (Class::getModifiers class)))
+                                 (Modifier::isInterface (java/lang/Class::getModifiers class)))
                   [methodT exceptionsT] (method-candidate class-name method #Interface argsT)
                   [outputT argsA] (inferenceA.general analyse methodT (list& objectC (list@map product.right argsTC)))
                   outputJC (check-jvm outputT)]
@@ -1376,6 +1411,192 @@
                                     )))
           )))
 
+(type: #rec JVM-Type
+  [Text (List JVM-Type)])
+
+(def: (lux-type [name parameters])
+  (-> JVM-Type Type)
+  (case [name parameters]
+    ["void" #.Nil]
+    Any
+
+    [_ #.Nil]
+    (case (dictionary.get name boxes)
+      (#.Some box)
+      (#.Primitive box #.Nil)
+
+      #.None
+      (#.Primitive name #.Nil))
+    
+    _
+    (#.Primitive name (list@map lux-type parameters))))
+
+(def: jvm-type
+  (Parser JVM-Type)
+  (p.rec
+   (function (_ jvm-type)
+     (s.form (p.and s.text (p.some jvm-type))))))
+
+(def: constructor-arg
+  (Parser [JVM-Type Code])
+  (s.tuple (p.and ..jvm-type s.any)))
+
+(type: (Annotation-Parameter a)
+  [Text a])
+
+(def: annotation-parameter
+  (Parser (Annotation-Parameter Code))
+  (s.tuple (p.and s.text s.any)))
+
+(type: (Annotation a)
+  [Text (List (Annotation-Parameter a))])
+
+(def: annotation
+  (Parser (Annotation Code))
+  (s.form (p.and s.text (p.some ..annotation-parameter))))
+
+(type: Type-Parameter Text)
+
+(def: type-parameter
+  (Parser Type-Parameter)
+  s.text)
+
+(type: Argument
+  [Text JVM-Type])
+
+(def: argument
+  (Parser Argument)
+  (s.tuple (p.and s.text ..jvm-type)))
+
+(type: Overriden-Method
+  [JVM-Type Text Bit (List (Annotation Code)) (List Type-Parameter) Text (List Argument) JVM-Type (List JVM-Type) Code])
+
+(type: Method-Definition
+  (#Overriden-Method Overriden-Method))
+
+(def: overriden-method-definition
+  (Parser Overriden-Method)
+  (<| s.form
+      (p.after (s.this (` "override")))
+      ($_ p.and
+          ..jvm-type
+          s.text
+          s.bit
+          (s.tuple (p.some ..annotation))
+          (s.tuple (p.some ..type-parameter))
+          s.text
+          (s.tuple (p.some ..argument))
+          ..jvm-type
+          (s.tuple (p.some ..jvm-type))
+          s.any
+          )))
+
+(def: (jvm-type-analysis [name parameters])
+  (-> JVM-Type Analysis)
+  (/////analysis.tuple (list& (/////analysis.text name)
+                              (list@map jvm-type-analysis parameters))))
+
+(def: (annotation-parameter-analysis [name value])
+  (-> (Annotation-Parameter Analysis) Analysis)
+  (/////analysis.tuple (list (/////analysis.text name) value)))
+
+(def: (annotation-analysis [name parameters])
+  (-> (Annotation Analysis) Analysis)
+  (/////analysis.tuple (list& (/////analysis.text name)
+                              (list@map annotation-parameter-analysis parameters))))
+
+(def: type-parameter-analysis
+  (-> Type-Parameter Analysis)
+  /////analysis.text)
+
+(def: (constructor-arg-analysis [type term])
+  (-> [JVM-Type Analysis] Analysis)
+  (/////analysis.tuple (list (jvm-type-analysis type) term)))
+
+(def: lux-module-separator "/")
+(def: jvm-package-separator ".")
+
+(def: class::anonymous
+  Handler
+  (..custom [($_ p.and
+                 jvm-type
+                 (s.tuple (p.some jvm-type))
+                 (s.tuple (p.some ..constructor-arg))
+                 (s.tuple (p.some ..overriden-method-definition)))
+             (function (_ extension-name analyse [super-class
+                                                  super-interfaces
+                                                  constructor-args
+                                                  methods])
+               (do ////.monad
+                 [name (///.lift (do macro.monad
+                                   [where macro.current-module-name
+                                    id macro.count]
+                                   (wrap (format (text.replace-all ..lux-module-separator ..jvm-package-separator where)
+                                                 ..jvm-package-separator
+                                                 "anonymous-class" (%n id)))))
+                  #let [super-classT (lux-type super-class)
+                        super-interfaceT+ (list@map lux-type super-interfaces)
+                        selfT (inheritance-relationship-type (#.Primitive name (list))
+                                                             super-classT
+                                                             super-interfaceT+)]
+                  constructor-argsA (monad.map @ (function (_ [jvm-type term])
+                                                   (do @
+                                                     [termA (typeA.with-type (lux-type jvm-type)
+                                                              (analyse term))]
+                                                     (wrap [jvm-type termA])))
+                                               constructor-args)
+                  methodsA (monad.map @ (function (_ [parent-type method-name
+                                                      strict-fp? annotations type-parameters
+                                                      self-name arguments return-type exceptions
+                                                      body])
+                                          
+                                          (do @
+                                            [annotationsA (monad.map @ (function (_ [name parameters])
+                                                                         (do @
+                                                                           [parametersA (monad.map @ (function (_ [name value])
+                                                                                                       (do @
+                                                                                                         [valueA (analyse value)]
+                                                                                                         (wrap [name valueA])))
+                                                                                                   parameters)]
+                                                                           (wrap [name parametersA])))
+                                                                     annotations)
+                                             [scope bodyA] (|> arguments
+                                                               (list@map (function (_ [name jvmT])
+                                                                           [name (lux-type jvmT)]))
+                                                               (#.Cons [self-name selfT])
+                                                               list.reverse
+                                                               (list@fold scope.with-local (analyse body))
+                                                               (typeA.with-type (lux-type return-type))
+                                                               /////analysis.with-scope)]
+                                            (wrap (/////analysis.tuple (list (jvm-type-analysis parent-type)
+                                                                             (/////analysis.text method-name)
+                                                                             (/////analysis.bit strict-fp?)
+                                                                             (/////analysis.tuple (list@map annotation-analysis annotationsA))
+                                                                             (/////analysis.tuple (list@map type-parameter-analysis type-parameters))
+                                                                             (jvm-type-analysis return-type)
+                                                                             (/////analysis.tuple (list@map jvm-type-analysis
+                                                                                                            exceptions))
+                                                                             (#/////analysis.Function
+                                                                              (scope.environment scope)
+                                                                              bodyA)
+                                                                             )))))
+                                      methods)
+                  _ (typeA.infer selfT)]
+                 (wrap (#/////analysis.Extension extension-name
+                                                 (list (/////analysis.text name)
+                                                       (jvm-type-analysis super-class)
+                                                       (/////analysis.tuple (list@map jvm-type-analysis super-interfaces))
+                                                       (/////analysis.tuple (list@map constructor-arg-analysis
+                                                                                      constructor-argsA))
+                                                       (/////analysis.tuple methodsA))))))]))
+
+(def: bundle::class
+  Bundle
+  (<| (///bundle.prefix "class")
+      (|> ///bundle.empty
+          (///bundle.install "anonymous" class::anonymous)
+          )))
+
 (def: #export bundle
   Bundle
   (<| (///bundle.prefix "jvm")
@@ -1389,4 +1610,5 @@
           (dictionary.merge bundle::array)
           (dictionary.merge bundle::object)
           (dictionary.merge bundle::member)
+          (dictionary.merge bundle::class)
           )))
