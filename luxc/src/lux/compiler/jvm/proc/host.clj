@@ -173,8 +173,9 @@
     _
     (.visitInsn writer Opcodes/ARETURN)))
 
-(defn ^:private prepare-method-input [idx input ^MethodVisitor method-visitor]
+(defn ^:private prepare-method-input
   "(-> Int [Text GenericClass] MethodVisitor (Lux FrameTag))"
+  [idx input ^MethodVisitor method-visitor]
   (|case input
     [_ (&/$GenericClass name params)]
     (case name
@@ -225,8 +226,9 @@
     (return (&/T [(inc idx) (&/|list (&host-generics/gclass->class-name gclass))]))
     ))
 
-(defn ^:private prepare-method-inputs [idx inputs method-visitor]
+(defn ^:private prepare-method-inputs
   "(-> Int (List GenericClass) MethodVisitor (Lux (List FrameTag)))"
+  [idx inputs method-visitor]
   (|case inputs
     (&/$Nil)
     (return &/$Nil)
@@ -437,8 +439,9 @@
           (return nil)))))
   )
 
-(defn ^:private constant-inits [fields]
+(defn ^:private constant-inits
   "(-> (List FieldAnalysis) (List [Text GenericClass Analysis]))"
+  [fields]
   (&/fold &/|++
           &/$Nil
           (&/|map (fn [field]

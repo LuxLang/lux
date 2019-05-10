@@ -3,35 +3,45 @@
    [abstract
     ["." monad (#+ do)]]
    [control
-    ["ex" exception (#+ exception:)]
-    ["p" parser ("#@." monad)
-     ["l" text]]]
+    ["." exception (#+ exception:)]
+    ["<>" parser ("#@." monad)
+     ["<t>" text]
+     ["<s>" synthesis]]]
    [data
     ["." product]
+    ["." maybe]
     ["." error]
+    [number
+     ["." nat]]
     ["." text
      format]
     [collection
-     ["." list ("#@." functor)]
-     ["." dictionary (#+ Dictionary)]]]
+     ["." list ("#@." monad)]
+     ["." dictionary (#+ Dictionary)]
+     ["." set]]]
    [target
     [jvm
      ["_t" type (#+ Primitive Type Method)]]]
    [tool
     [compiler
-     ["." synthesis (#+ Synthesis %synthesis)]
+     [analysis (#+ Environment)]
+     ["." reference (#+ Variable)]
+     ["." synthesis (#+ Synthesis Path %synthesis)]
      ["." phase ("#@." monad)
-      [generation
+      ["." generation
        [extension (#+ Nullary Unary Binary
                       nullary unary binary)]]
       ["." extension
-       ["." bundle]]]]]
+       ["." bundle]
+       [analysis
+        ["/" jvm]]]]]]
    [host (#+ import:)]]
   [luxc
    [lang
     [host
-     ["$" jvm (#+ Label Inst Handler Bundle Operation)
-      ["_" inst]]]]])
+     ["$" jvm (#+ Label Inst Handler Bundle Operation Phase)
+      ["_" inst]
+      ["_." def]]]]])
 
 (template [<name>]
   [(exception: #export (<name> {message Text})
@@ -662,31 +672,31 @@
     (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
 (def: base-type
-  (l.Parser Type)
-  ($_ p.either
-      (p.after (l.this "boolean") (p@wrap _t.boolean))
-      (p.after (l.this "byte") (p@wrap _t.byte))
-      (p.after (l.this "short") (p@wrap _t.short))
-      (p.after (l.this "int") (p@wrap _t.int))
-      (p.after (l.this "long") (p@wrap _t.long))
-      (p.after (l.this "float") (p@wrap _t.float))
-      (p.after (l.this "double") (p@wrap _t.double))
-      (p.after (l.this "char") (p@wrap _t.char))
-      (p@map (function (_ name)
-               (_t.class name (list)))
-             (l.many (l.none-of "[")))
+  (<t>.Parser Type)
+  ($_ <>.either
+      (<>.after (<t>.this "boolean") (<>@wrap _t.boolean))
+      (<>.after (<t>.this "byte") (<>@wrap _t.byte))
+      (<>.after (<t>.this "short") (<>@wrap _t.short))
+      (<>.after (<t>.this "int") (<>@wrap _t.int))
+      (<>.after (<t>.this "long") (<>@wrap _t.long))
+      (<>.after (<t>.this "float") (<>@wrap _t.float))
+      (<>.after (<t>.this "double") (<>@wrap _t.double))
+      (<>.after (<t>.this "char") (<>@wrap _t.char))
+      (<>@map (function (_ name)
+                (_t.class name (list)))
+              (<t>.many (<t>.none-of "[")))
       ))
 
 (def: java-type
-  (l.Parser Type)
-  (do p.monad
+  (<t>.Parser Type)
+  (do <>.monad
     [raw base-type
-     nesting (p.some (l.this "[]"))]
+     nesting (<>.some (<t>.this "[]"))]
     (wrap (_t.array (list.size nesting) raw))))
 
 (def: (generate-type argD)
   (-> Text (Operation Type))
-  (case (l.run argD java-type)
+  (case (<t>.run argD java-type)
     (#error.Failure error)
     (phase.throw invalid-syntax-for-jvm-type argD)
 
@@ -808,6 +818,199 @@
                                     (bundle.install "constructor" invoke::constructor))))
           )))
 
+(def: (custom [parser handler])
+  (All [s]
+    (-> [(<s>.Parser s)
+         (-> Text Phase s (Operation Inst))]
+        Handler))
+  (function (_ extension-name phase input)
+    (case (<s>.run input parser)
+      (#error.Success input')
+      (handler extension-name phase input')
+
+      (#error.Failure error)
+      (phase.throw extension.invalid-syntax [extension-name %synthesis input]))))
+
+(def: jvm-type
+  (<s>.Parser /.JVM-Type)
+  (<>.rec
+   (function (_ jvm-type)
+     (<s>.tuple (<>.and <s>.text (<>.some jvm-type))))))
+
+(def: constructor-arg
+  (<s>.Parser (/.Constructor-Argument Synthesis))
+  (<s>.tuple (<>.and ..jvm-type <s>.any)))
+
+(def: annotation-parameter
+  (<s>.Parser (/.Annotation-Parameter Synthesis))
+  (<s>.tuple (<>.and <s>.text <s>.any)))
+
+(def: annotation
+  (<s>.Parser (/.Annotation Synthesis))
+  (<s>.tuple (<>.and <s>.text (<>.some ..annotation-parameter))))
+
+(def: type-parameter
+  (<s>.Parser /.Type-Parameter)
+  <s>.text)
+
+(def: argument
+  (<s>.Parser /.Argument)
+  (<s>.tuple (<>.and <s>.text ..jvm-type)))
+
+(def: overriden-method-definition
+  (<s>.Parser [Environment (/.Overriden-Method Synthesis)])
+  (<s>.tuple (do <>.monad
+               [ownerT ..jvm-type
+                name <s>.text
+                strict-fp? <s>.bit
+                annotations (<s>.tuple (<>.some ..annotation))
+                type-parameters (<s>.tuple (<>.some ..type-parameter))
+                self-name <s>.text
+                arguments (<s>.tuple (<>.some ..argument))
+                returnT ..jvm-type
+                exceptionsT (<s>.tuple (<>.some ..jvm-type))
+                [environment body] (<s>.function 1
+                                     (<s>.tuple <s>.any))]
+               (wrap [environment
+                      [ownerT name
+                       strict-fp? annotations type-parameters
+                       self-name arguments returnT exceptionsT
+                       body]]))))
+
+(def: (normalize-path normalize)
+  (-> (-> Synthesis Synthesis)
+      (-> Path Path))
+  (function (recur path)
+    (case path
+      (^ (synthesis.path/then bodyS))
+      (synthesis.path/then (normalize bodyS))
+
+      (^template [<tag>]
+        (^ (<tag> leftP rightP))
+        (<tag> (recur leftP) (recur rightP)))
+      ([#synthesis.Alt]
+       [#synthesis.Seq])
+
+      (^template [<tag>]
+        (^ (<tag> value))
+        path)
+      ([#synthesis.Pop]
+       [#synthesis.Test]
+       [#synthesis.Bind]
+       [#synthesis.Access]))))
+
+(def: (normalize-method-body mapping)
+  (-> (Dictionary Variable Variable) Synthesis Synthesis)
+  (function (recur body)
+    (case body
+      (^template [<tag>]
+        (^ (<tag> value))
+        body)
+      ([#synthesis.Primitive]
+       [synthesis.constant])
+
+      (^ (synthesis.variant [lefts right? sub]))
+      (synthesis.variant [lefts right? (recur sub)])
+
+      (^ (synthesis.tuple members))
+      (synthesis.tuple (list@map recur members))
+
+      (^ (synthesis.variable var))
+      (|> mapping
+          (dictionary.get var)
+          (maybe.default var)
+          synthesis.variable)
+
+      (^ (synthesis.branch/case [inputS pathS]))
+      (synthesis.branch/case [(recur inputS) (normalize-path recur pathS)])
+
+      (^ (synthesis.branch/let [inputS register outputS]))
+      (synthesis.branch/let [(recur inputS) register (recur outputS)])
+
+      (^ (synthesis.branch/if [testS thenS elseS]))
+      (synthesis.branch/if [(recur testS) (recur thenS) (recur elseS)])
+
+      (^ (synthesis.loop/scope [offset initsS+ bodyS]))
+      (synthesis.loop/scope [offset (list@map recur initsS+) (recur bodyS)])
+
+      (^ (synthesis.loop/recur updatesS+))
+      (synthesis.loop/recur (list@map recur updatesS+))
+
+      (^ (synthesis.function/abstraction [environment arity bodyS]))
+      (synthesis.function/abstraction [(|> environment (list@map (function (_ local)
+                                                                   (|> mapping
+                                                                       (dictionary.get local)
+                                                                       (maybe.default local)))))
+                                       arity
+                                       bodyS])
+
+      (^ (synthesis.function/apply [functionS inputsS+]))
+      (synthesis.function/apply [(recur functionS) (list@map recur inputsS+)])
+
+      (#synthesis.Extension [name inputsS+])
+      (#synthesis.Extension [name (list@map recur inputsS+)]))))
+
+(def: class::anonymous
+  Handler
+  (..custom
+   [($_ <>.and
+        <s>.text
+        ..jvm-type
+        (<s>.tuple (<>.some ..jvm-type))
+        (<s>.tuple (<>.some ..constructor-arg))
+        (<s>.tuple (<>.some ..overriden-method-definition)))
+    (function (_ extension-name generate [class-name
+                                          super-class super-interfaces
+                                          constructor-args
+                                          overriden-methods])
+      (do phase.monad
+        [#let [global-mapping (|> overriden-methods
+                                  ## Get all the environments.
+                                  (list@map product.left)
+                                  ## Combine them.
+                                  list@join
+                                  ## Remove duplicates.
+                                  (set.from-list reference.hash)
+                                  set.to-list
+                                  ## Give them names as "foreign" variables.
+                                  list.enumerate
+                                  (list@map (function (_ [id capture])
+                                              [capture (#reference.Foreign id)]))
+                                  (dictionary.from-list reference.hash))
+               normalized-methods (list@map (function (_ [environment
+                                                          [ownerT name
+                                                           strict-fp? annotations type-parameters
+                                                           self-name arguments returnT exceptionsT
+                                                           body]])
+                                              (let [local-mapping (|> environment
+                                                                      list.enumerate
+                                                                      (list@map (function (_ [foreign-id capture])
+                                                                                  [(#reference.Foreign foreign-id)
+                                                                                   (|> global-mapping
+                                                                                       (dictionary.get capture)
+                                                                                       maybe.assume)]))
+                                                                      (dictionary.from-list reference.hash))]
+                                                [ownerT name
+                                                 strict-fp? annotations type-parameters
+                                                 self-name arguments returnT exceptionsT
+                                                 (normalize-method-body local-mapping body)]))
+                                            overriden-methods)]
+         ## _ (generation.save! true ["" function-class]
+         ##                     [function-class
+         ##                      (def.class #$.V1_6 #$.Public $.finalC
+         ##                                 function-class (list)
+         ##                                 ($.simple-class //.function-class) (list)
+         ##                                 functionD)])
+         _ (phase.throw extension.invalid-syntax ["YOLO-TRON" %synthesis (list)])]
+        (wrap _.DUP)))]))
+
+(def: class
+  Bundle
+  (<| (bundle.prefix "class")
+      (|> (: Bundle bundle.empty)
+          (bundle.install "anonymous" class::anonymous)
+          )))
+
 (def: #export bundle
   Bundle
   (<| (bundle.prefix "jvm")
@@ -820,4 +1023,5 @@
           (dictionary.merge ..array)
           (dictionary.merge ..object)
           (dictionary.merge ..member)
+          (dictionary.merge ..class)
           )))
