@@ -1,5 +1,5 @@
 (.module:
-  [lux (#- Type int char)
+  [lux (#- Type primitive int char)
    [abstract
     ["." monad (#+ do)]]
    [control
@@ -21,7 +21,7 @@
      ["." set]]]
    [target
     [jvm
-     ["_t" type (#+ Primitive Type Method)]]]
+     ["_t" type (#+ Primitive Bound Generic Class Type Method Var Typed Argument Return)]]]
    [tool
     [compiler
      [analysis (#+ Environment)]
@@ -831,14 +831,58 @@
       (#error.Failure error)
       (phase.throw extension.invalid-syntax [extension-name %synthesis input]))))
 
+(def: var
+  (<s>.Parser Var)
+  <s>.text)
+
+(def: bound
+  (<s>.Parser Bound)
+  (<>.or (<s>.constant! ["" ">"])
+         (<s>.constant! ["" "<"])))
+
+(def: (class' generic)
+  (-> (<s>.Parser Generic) (<s>.Parser Class))
+  (<s>.tuple (<>.and <s>.text (<>.some generic))))
+
+(def: generic
+  (<s>.Parser Generic)
+  (<>.rec
+   (function (_ generic)
+     (let [wildcard (<>.or (<s>.constant! ["" "?"])
+                           (<s>.tuple (<>.and ..bound generic)))]
+       ($_ <>.or
+           ..var
+           wildcard
+           (class' generic))))))
+
+(def: class
+  (<s>.Parser Class)
+  (class' ..generic))
+
+(def: primitive
+  (<s>.Parser Primitive)
+  ($_ <>.or
+      (<s>.constant! ["" "boolean"])
+      (<s>.constant! ["" "byte"])
+      (<s>.constant! ["" "short"])
+      (<s>.constant! ["" "int"])
+      (<s>.constant! ["" "long"])
+      (<s>.constant! ["" "float"])
+      (<s>.constant! ["" "double"])
+      (<s>.constant! ["" "char"])
+      ))
+
 (def: jvm-type
-  (<s>.Parser /.JVM-Type)
+  (<s>.Parser Type)
   (<>.rec
    (function (_ jvm-type)
-     (<s>.tuple (<>.and <s>.text (<>.some jvm-type))))))
+     ($_ <>.or
+         ..primitive
+         ..generic
+         (<s>.tuple jvm-type)))))
 
 (def: constructor-arg
-  (<s>.Parser (/.Constructor-Argument Synthesis))
+  (<s>.Parser (Typed Synthesis))
   (<s>.tuple (<>.and ..jvm-type <s>.any)))
 
 (def: annotation-parameter
@@ -849,31 +893,32 @@
   (<s>.Parser (/.Annotation Synthesis))
   (<s>.tuple (<>.and <s>.text (<>.some ..annotation-parameter))))
 
-(def: type-parameter
-  (<s>.Parser /.Type-Parameter)
-  <s>.text)
-
 (def: argument
-  (<s>.Parser /.Argument)
+  (<s>.Parser Argument)
   (<s>.tuple (<>.and <s>.text ..jvm-type)))
+
+(def: return
+  (<s>.Parser Return)
+  (<>.or (<s>.constant! ["" "void"])
+         ..jvm-type))
 
 (def: overriden-method-definition
   (<s>.Parser [Environment (/.Overriden-Method Synthesis)])
   (<s>.tuple (do <>.monad
-               [ownerT ..jvm-type
+               [ownerT ..class
                 name <s>.text
                 strict-fp? <s>.bit
                 annotations (<s>.tuple (<>.some ..annotation))
-                type-parameters (<s>.tuple (<>.some ..type-parameter))
+                vars (<s>.tuple (<>.some ..var))
                 self-name <s>.text
                 arguments (<s>.tuple (<>.some ..argument))
-                returnT ..jvm-type
-                exceptionsT (<s>.tuple (<>.some ..jvm-type))
+                returnT ..return
+                exceptionsT (<s>.tuple (<>.some ..class))
                 [environment body] (<s>.function 1
                                      (<s>.tuple <s>.any))]
                (wrap [environment
                       [ownerT name
-                       strict-fp? annotations type-parameters
+                       strict-fp? annotations vars
                        self-name arguments returnT exceptionsT
                        body]]))))
 
@@ -955,8 +1000,8 @@
   (..custom
    [($_ <>.and
         <s>.text
-        ..jvm-type
-        (<s>.tuple (<>.some ..jvm-type))
+        ..class
+        (<s>.tuple (<>.some ..class))
         (<s>.tuple (<>.some ..constructor-arg))
         (<s>.tuple (<>.some ..overriden-method-definition)))
     (function (_ extension-name generate [class-name
@@ -979,7 +1024,7 @@
                                   (dictionary.from-list reference.hash))
                normalized-methods (list@map (function (_ [environment
                                                           [ownerT name
-                                                           strict-fp? annotations type-parameters
+                                                           strict-fp? annotations vars
                                                            self-name arguments returnT exceptionsT
                                                            body]])
                                               (let [local-mapping (|> environment
@@ -991,7 +1036,7 @@
                                                                                        maybe.assume)]))
                                                                       (dictionary.from-list reference.hash))]
                                                 [ownerT name
-                                                 strict-fp? annotations type-parameters
+                                                 strict-fp? annotations vars
                                                  self-name arguments returnT exceptionsT
                                                  (normalize-method-body local-mapping body)]))
                                             overriden-methods)]
@@ -1004,7 +1049,7 @@
          _ (phase.throw extension.invalid-syntax ["YOLO-TRON" %synthesis (list)])]
         (wrap _.DUP)))]))
 
-(def: class
+(def: bundle::class
   Bundle
   (<| (bundle.prefix "class")
       (|> (: Bundle bundle.empty)
@@ -1023,5 +1068,5 @@
           (dictionary.merge ..array)
           (dictionary.merge ..object)
           (dictionary.merge ..member)
-          (dictionary.merge ..class)
+          (dictionary.merge ..bundle::class)
           )))
