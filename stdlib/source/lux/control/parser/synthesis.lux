@@ -1,0 +1,105 @@
+(.module:
+  [lux (#- function i64)
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["." exception (#+ exception:)]]
+   [data
+    ["." error (#+ Error)]
+    [text
+     format]]
+   [tool
+    [compiler
+     [analysis (#+ Variant Tuple Environment Arity)]
+     ["/" synthesis (#+ Synthesis Abstraction)]]]]
+  ["." //])
+
+(def: Input Type (type (List Synthesis)))
+
+(exception: #export (cannot-parse {input ..Input})
+  (exception.report
+   ["Input" (exception.enumerate /.%synthesis input)]))
+
+(exception: #export (unconsumed-input {input ..Input})
+  (exception.report
+   ["Input" (exception.enumerate /.%synthesis input)]))
+
+(exception: #export (wrong-arity {expected Arity} {actual Arity})
+  (exception.report
+   ["Expected" (%n expected)]
+   ["Actual" (%n actual)]))
+
+(exception: #export empty-input)
+
+(type: #export Parser
+  (//.Parser ..Input))
+
+(def: #export (run input parser)
+  (All [a] (-> ..Input (Parser a) (Error a)))
+  (case (parser input)
+    (#error.Failure error)
+    (#error.Failure error)
+
+    (#error.Success [#.Nil value])
+    (#error.Success value)
+    
+    (#error.Success [unconsumed _])
+    (exception.throw ..unconsumed-input unconsumed)))
+
+(def: #export any
+  (Parser Synthesis)
+  (.function (_ input)
+    (case input
+      #.Nil
+      (exception.throw ..empty-input [])
+      
+      (#.Cons [head tail])
+      (#error.Success [tail head]))))
+
+(template [<name> <tag> <type>]
+  [(def: #export <name>
+     (Parser <type>)
+     (.function (_ input)
+       (case input
+         (^ (list& (<tag> x) input'))
+         (#error.Success [input' x])
+
+         _
+         (exception.throw ..cannot-parse input))))]
+
+  [bit /.bit Bit]
+  [i64 /.i64 (I64 Any)]
+  [f64 /.f64 Frac]
+  [text /.text Text]
+  [variant /.variant (Variant Synthesis)]
+  [local /.variable/local Nat]
+  [foreign /.variable/foreign Nat]
+  [constant /.constant Name]
+  [abstraction /.function/abstraction Abstraction]
+  )
+
+(def: #export (tuple parser)
+  (All [a] (-> (Parser a) (Parser a)))
+  (.function (_ input)
+    (case input
+      (^ (list& (/.tuple head) tail))
+      (do error.monad
+        [output (..run head parser)]
+        (#error.Success [tail output]))
+
+      _
+      (exception.throw ..cannot-parse input))))
+
+(def: #export (function expected parser)
+  (All [a] (-> Arity (Parser a) (Parser [Environment a])))
+  (.function (_ input)
+    (case input
+      (^ (list& (/.function/abstraction [environment actual body]) tail))
+      (if (n/= expected actual)
+        (do error.monad
+          [output (..run (list body) parser)]
+          (#error.Success [tail [environment output]]))
+        (exception.throw ..wrong-arity [expected actual]))
+
+      _
+      (exception.throw ..cannot-parse input))))
