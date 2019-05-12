@@ -28,8 +28,6 @@
   {#basis Offset
    #distance Offset})
 
-(def: cannot-lex-error Text "Cannot lex from empty text.")
-
 (def: (remaining offset tape)
   (-> Offset Text Text)
   (|> tape (/.split offset) maybe.assume product.right))
@@ -40,27 +38,35 @@
    ["Input size" (nat@encode (/.size tape))]
    ["Remaining input" (remaining offset tape)]))
 
-(def: #export (run input lexer)
-  (All [a] (-> Text (Parser a) (Error a)))
-  (case (lexer [start-offset input])
+(exception: #export (expected-to-fail {offset Offset} {tape Text})
+  (exception.report
+   ["Offset" (nat@encode offset)]
+   ["Input" (remaining offset tape)]))
+
+(exception: #export cannot-parse)
+(exception: #export cannot-slice)
+
+(def: #export (run parser input)
+  (All [a] (-> (Parser a) Text (Error a)))
+  (case (parser [start-offset input])
     (#error.Failure msg)
     (#error.Failure msg)
     
     (#error.Success [[end-offset _] output])
     (if (n/= end-offset (/.size input))
       (#error.Success output)
-      (exception.throw unconsumed-input [end-offset input]))))
+      (exception.throw ..unconsumed-input [end-offset input]))))
 
 (def: #export offset
   (Parser Offset)
   (function (_ (^@ input [offset tape]))
     (#error.Success [input offset])))
 
-(def: (with-slices lexer)
+(def: (with-slices parser)
   (-> (Parser (List Slice)) (Parser Slice))
   (do //.monad
     [offset ..offset
-     slices lexer]
+     slices parser]
     (wrap (list@fold (function (_ [slice::basis slice::distance]
                                   [total::basis total::distance])
                        [total::basis ("lux i64 +" slice::distance total::distance)])
@@ -77,7 +83,7 @@
       (#error.Success [[("lux i64 +" 1 offset) tape] (/.from-code output)])
 
       _
-      (#error.Failure cannot-lex-error))))
+      (exception.throw ..cannot-parse []))))
 
 (def: #export any!
   {#.doc "Just returns the next character without applying any logic."}
@@ -89,7 +95,7 @@
 
 (template [<name> <type> <any>]
   [(def: #export (<name> p)
-     {#.doc "Produce a character if the lexer fails."}
+     {#.doc "Produce a character if the parser fails."}
      (All [a] (-> (Parser a) (Parser <type>)))
      (function (_ input)
        (case (p input)
@@ -97,7 +103,7 @@
          (<any> input)
          
          _
-         (#error.Failure "Expected to fail@ yet succeeded."))))]
+         (exception.throw ..expected-to-fail input))))]
 
   [not  Text  ..any]
   [not! Slice ..any!]
@@ -130,15 +136,15 @@
       (#error.Success [input #0]))))
 
 (def: #export end
-  {#.doc "Ensure the lexer's input is empty."}
+  {#.doc "Ensure the parser's input is empty."}
   (Parser Any)
   (function (_ (^@ input [offset tape]))
     (if (n/= offset (/.size tape))
       (#error.Success [input []])
-      (exception.throw unconsumed-input [offset tape]))))
+      (exception.throw ..unconsumed-input input))))
 
 (def: #export end?
-  {#.doc "Ask if the lexer's input is empty."}
+  {#.doc "Ask if the parser's input is empty."}
   (Parser Bit)
   (function (_ (^@ input [offset tape]))
     (#error.Success [input (n/= offset (/.size tape))])))
@@ -152,7 +158,7 @@
       (#error.Success [input (/.from-code output)])
 
       _
-      (#error.Failure cannot-lex-error))))
+      (exception.throw ..cannot-parse []))))
 
 (def: #export get-input
   {#.doc "Get all of the remaining input (without consuming it)."}
@@ -216,7 +222,7 @@
                                  "be one of: " options))))
 
          _
-         (#error.Failure cannot-lex-error))))]
+         (exception.throw ..cannot-parse []))))]
 
   [one-of  ""     |>]
   [none-of " not" .not]
@@ -239,7 +245,7 @@
                                  "be one of: " options))))
 
          _
-         (#error.Failure cannot-lex-error))))]
+         (exception.throw ..cannot-parse []))))]
 
   [one-of!  ""     |>]
   [none-of! " not" .not]
@@ -256,7 +262,7 @@
         (#error.Failure ($_ /@compose "Character does not satisfy predicate: " (/.from-code output))))
 
       _
-      (#error.Failure cannot-lex-error))))
+      (exception.throw ..cannot-parse []))))
 
 (def: #export space
   {#.doc "Only lex white-space."}
@@ -278,30 +284,30 @@
     (wrap [left::basis ("lux i64 +" left::distance right::distance)])))
 
 (template [<name> <base> <doc-modifier>]
-  [(def: #export (<name> lexer)
+  [(def: #export (<name> parser)
      {#.doc (code.text ($_ /@compose "Lex " <doc-modifier> " characters as a single continuous text."))}
      (-> (Parser Text) (Parser Text))
-     (|> lexer <base> (:: //.monad map /.concat)))]
+     (|> parser <base> (:: //.monad map /.concat)))]
 
   [some //.some "some"]
   [many //.many "many"]
   )
 
 (template [<name> <base> <doc-modifier>]
-  [(def: #export (<name> lexer)
+  [(def: #export (<name> parser)
      {#.doc (code.text ($_ /@compose "Lex " <doc-modifier> " characters as a single continuous text."))}
      (-> (Parser Slice) (Parser Slice))
-     (with-slices (<base> lexer)))]
+     (with-slices (<base> parser)))]
 
   [some! //.some "some"]
   [many! //.many "many"]
   )
 
 (template [<name> <base> <doc-modifier>]
-  [(def: #export (<name> amount lexer)
+  [(def: #export (<name> amount parser)
      {#.doc (code.text ($_ /@compose "Lex " <doc-modifier> " N characters."))}
      (-> Nat (Parser Text) (Parser Text))
-     (|> lexer (<base> amount) (:: //.monad map /.concat)))]
+     (|> parser (<base> amount) (:: //.monad map /.concat)))]
 
   [exactly  //.exactly  "exactly"]
   [at-most  //.at-most  "at most"]
@@ -309,51 +315,51 @@
   )
 
 (template [<name> <base> <doc-modifier>]
-  [(def: #export (<name> amount lexer)
+  [(def: #export (<name> amount parser)
      {#.doc (code.text ($_ /@compose "Lex " <doc-modifier> " N characters."))}
      (-> Nat (Parser Slice) (Parser Slice))
-     (with-slices (<base> amount lexer)))]
+     (with-slices (<base> amount parser)))]
 
   [exactly!  //.exactly  "exactly"]
   [at-most!  //.at-most  "at most"]
   [at-least! //.at-least "at least"]
   )
 
-(def: #export (between from to lexer)
+(def: #export (between from to parser)
   {#.doc "Lex between N and M characters."}
   (-> Nat Nat (Parser Text) (Parser Text))
-  (|> lexer (//.between from to) (:: //.monad map /.concat)))
+  (|> parser (//.between from to) (:: //.monad map /.concat)))
 
-(def: #export (between! from to lexer)
+(def: #export (between! from to parser)
   {#.doc "Lex between N and M characters."}
   (-> Nat Nat (Parser Slice) (Parser Slice))
-  (with-slices (//.between from to lexer)))
+  (with-slices (//.between from to parser)))
 
-(def: #export (enclosed [start end] lexer)
+(def: #export (enclosed [start end] parser)
   (All [a] (-> [Text Text] (Parser a) (Parser a)))
-  (|> lexer
+  (|> parser
       (//.before (this end))
       (//.after (this start))))
 
-(def: #export (local local-input lexer)
-  {#.doc "Run a lexer with the given input, instead of the real one."}
+(def: #export (local local-input parser)
+  {#.doc "Run a parser with the given input, instead of the real one."}
   (All [a] (-> Text (Parser a) (Parser a)))
   (function (_ real-input)
-    (case (run local-input lexer)
+    (case (run parser local-input)
       (#error.Failure error)
       (#error.Failure error)
 
       (#error.Success value)
       (#error.Success [real-input value]))))
 
-(def: #export (slice lexer)
+(def: #export (slice parser)
   (-> (Parser Slice) (Parser Text))
   (do //.monad
-    [[basis distance] lexer]
+    [[basis distance] parser]
     (function (_ (^@ input [offset tape]))
       (case (/.clip basis ("lux i64 +" basis distance) tape)
         (#.Some output)
         (#error.Success [input output])
 
         #.None
-        (#error.Failure "Cannot slice.")))))
+        (exception.throw ..cannot-slice [])))))

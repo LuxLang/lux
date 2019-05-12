@@ -29,7 +29,7 @@
      ["#" type (#+ Primitive Var Bound Class Generic Type Argument Return Typed)]]]])
 
 (template [<name> <class>]
-  [(type: #export <name> (#.Primitive <class> #.Nil))]
+  [(def: #export <name> .Type (#.Primitive <class> #.Nil))]
 
   ## Boxes
   [Boolean   "java.lang.Boolean"]
@@ -460,13 +460,44 @@
   (-> [Text Code] Code)
   (` [(~ (code.text class)) (~ value)]))
 
+(def: (simple-class type)
+  (-> Type Text)
+  (case type
+    (#jvm.Primitive prim)
+    (case prim
+      #jvm.Boolean "boolean"
+      #jvm.Byte    "byte"
+      #jvm.Short   "short"
+      #jvm.Int     "int"
+      #jvm.Long    "long"
+      #jvm.Float   "float"
+      #jvm.Double  "double"
+      #jvm.Char    "char")
+
+    (#jvm.Array sub)
+    (sanitize (jvm.descriptor type))
+
+    (#jvm.Generic generic)
+    (case generic
+      (#jvm.Class class params)
+      (sanitize class)
+
+      (^or (#jvm.Var name)
+           (#jvm.Wildcard #.None)
+           (#jvm.Wildcard (#.Some [#jvm.Lower bound])))
+      "java.lang.Object"
+
+      (#jvm.Wildcard (#.Some [#jvm.Upper bound]))
+      (simple-class (#jvm.Generic bound)))
+    ))
+
 (def: (make-constructor-parser class-name arguments)
   (-> Text (List Argument) (Parser Code))
   (do p.monad
     [args (: (Parser (List Code))
              (s.form (p.after (s.this! (' ::new!))
                               (s.tuple (p.exactly (list.size arguments) s.any)))))
-     #let [arguments' (list@map (|>> product.right jvm.signature) arguments)]]
+     #let [arguments' (list@map (|>> product.right ..simple-class) arguments)]]
     (wrap (` ("jvm member invoke constructor" (~ (code.text class-name))
               (~+ (|> args
                       (list.zip2 arguments')
@@ -479,7 +510,7 @@
      args (: (Parser (List Code))
              (s.form (p.after (s.this! (code.identifier ["" dotted-name]))
                               (s.tuple (p.exactly (list.size arguments) s.any)))))
-     #let [arguments' (list@map (|>> product.right jvm.signature) arguments)]]
+     #let [arguments' (list@map (|>> product.right ..simple-class) arguments)]]
     (wrap (` ("jvm member invoke static" (~ (code.text class-name)) (~ (code.text method-name))
               (~+ (|> args
                       (list.zip2 arguments')
@@ -493,7 +524,7 @@
         args (: (Parser (List Code))
                 (s.form (p.after (s.this! (code.identifier ["" dotted-name]))
                                  (s.tuple (p.exactly (list.size arguments) s.any)))))
-        #let [arguments' (list@map (|>> product.right jvm.signature) arguments)]]
+        #let [arguments' (list@map (|>> product.right ..simple-class) arguments)]]
        (wrap (` (<jvm-op> (~ (code.text class-name)) (~ (code.text method-name))
                           (~' _jvm_this)
                           (~+ (|> args
@@ -1111,7 +1142,7 @@
     (let [super-replacer (parser->replacer (s.form (do p.monad
                                                      [_ (s.this! (' ::super!))
                                                       args (s.tuple (p.exactly (list.size arguments) s.any))
-                                                      #let [arguments' (list@map (|>> product.right jvm.signature) arguments)]]
+                                                      #let [arguments' (list@map (|>> product.right ..simple-class) arguments)]]
                                                      (wrap (` ("jvm member invoke special"
                                                                (~ (code.text (product.left super-class)))
                                                                (~ (code.text name))
@@ -1344,7 +1375,7 @@
                 (#.Some value-as-string)
                 #.None))}
   (with-gensyms [g!_ g!unchecked]
-    (let [class-name (jvm.signature class)
+    (let [class-name (..simple-class class)
           class-type (` (.primitive (~ (code.text class-name))))
           check-type (` (.Maybe (~ class-type)))
           check-code (` (if ((~ (code.text (format "jvm instanceof" ":" class-name))) (~ g!unchecked))
@@ -1424,7 +1455,7 @@
                                     (with-gensyms [arg-name]
                                       (wrap [maybe? arg-name]))))
                                import-member-args)
-         #let [arg-classes (list@map (|>> product.right jvm.signature) import-member-args)
+         #let [arg-classes (list@map (|>> product.right ..simple-class) import-member-args)
                arg-types (list@map (: (-> [Bit Type] Code)
                                       (function (_ [maybe? arg])
                                         (let [arg-type (jvm-type (get@ #import-member-mode commons) arg)]
@@ -1610,7 +1641,7 @@
                                        jvm.void-descriptor
 
                                        (#.Some return)
-                                       (jvm.signature return))
+                                       (..simple-class return))
                  jvm-interop (|> [method-return-class
                                   (` ((~ (code.text jvm-op))
                                       (~ (code.text full-name))
@@ -1643,7 +1674,7 @@
                                               (` ((~ getter-name)))
                                               (` ((~ getter-name) (~ g!obj))))
                                 getter-body (<| (auto-convert-output import-field-mode)
-                                                [(jvm.signature import-field-type)
+                                                [(..simple-class import-field-type)
                                                  (if import-field-static?
                                                    (get-static-field full-name import-field-name)
                                                    (get-virtual-field full-name import-field-name (un-quote g!obj)))])
@@ -1661,7 +1692,7 @@
                                (let [setter-call (if import-field-static?
                                                    (` ((~ setter-name) (~ g!value)))
                                                    (` ((~ setter-name) (~ g!value) (~ g!obj))))
-                                     setter-value (|> [(jvm.signature import-field-type) (un-quote g!value)]
+                                     setter-value (|> [(..simple-class import-field-type) (un-quote g!value)]
                                                       ..jvm-input
                                                       (auto-convert-input import-field-mode))
                                      setter-value (if import-field-maybe?
@@ -1884,7 +1915,7 @@
                             {type (..type^ imports (list))})
   {#.doc (doc "Loads the class as a java.lang.Class object."
               (class-for java/lang/String))}
-  (wrap (list (` ("jvm object class" (~ (code.text (jvm.signature type))))))))
+  (wrap (list (` ("jvm object class" (~ (code.text (..simple-class type))))))))
 
 (def: get-compiler
   (Meta Lux)

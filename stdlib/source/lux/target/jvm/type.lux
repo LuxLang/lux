@@ -1,6 +1,10 @@
 (.module:
   [lux (#- Type int char)
+   [control
+    ["<>" parser
+     ["<t>" text (#+ Parser)]]]
    [data
+    [error (#+ Error)]
     ["." maybe ("#@." functor)]
     ["." text
      format]
@@ -23,8 +27,30 @@
 
 (def: array-prefix "[")
 (def: object-prefix "L")
+(def: var-prefix "T")
+(def: wildcard-descriptor "*")
+(def: lower-prefix "-")
+(def: upper-prefix "+")
 (def: object-suffix ";")
 (def: object-class "java.lang.Object")
+
+(def: valid-var-characters/head
+  (format "abcdefghijklmnopqrstuvwxyz"
+          "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+          "_"))
+
+(def: valid-var-characters/tail
+  (format valid-var-characters/head
+          "0123456789"))
+
+(def: syntax-package-separator ".")
+(def: binary-package-separator "/")
+
+(def: valid-class-characters/head
+  (format valid-var-characters/head ..binary-package-separator))
+
+(def: valid-class-characters/tail
+  (format valid-var-characters/tail ..binary-package-separator))
 
 (type: #export Bound
   #Lower
@@ -104,7 +130,7 @@
 
 (def: #export binary-name
   (-> Text Text)
-  (text.replace-all "." "/"))
+  (text.replace-all ..syntax-package-separator ..binary-package-separator))
 
 (def: #export (descriptor type)
   (-> Type Text)
@@ -180,17 +206,78 @@
         (format ..object-prefix (binary-name class) =params ..object-suffix))
 
       (#Var name)
-      (format "T" name ..object-suffix)
+      (format ..var-prefix name ..object-suffix)
 
       (#Wildcard #.None)
-      "*"
+      ..wildcard-descriptor
 
       (^template [<tag> <prefix>]
         (#Wildcard (#.Some [<tag> bound]))
         (format <prefix> (signature (#Generic bound))))
-      ([#Upper "+"]
-       [#Lower "-"]))
+      ([#Lower ..lower-prefix]
+       [#Upper ..upper-prefix]))
     ))
+
+(template [<name> <head> <tail>]
+  [(def: <name>
+     (Parser Text)
+     (<t>.slice (<t>.and! (<t>.one-of! <head>)
+                          (<t>.some! (<t>.one-of! <tail>)))))]
+
+  [parse-class-name valid-class-characters/head valid-class-characters/tail]
+  [parse-var-name valid-var-characters/head valid-var-characters/tail]
+  )
+
+(def: parse-var
+  (Parser Var)
+  (|> ..parse-var-name
+      (<>.after (<t>.this ..var-prefix))
+      (<>.before (<t>.this ..object-suffix))))
+
+(def: parse-bound
+  (Parser Bound)
+  ($_ <>.or
+      (<t>.this ..lower-prefix)
+      (<t>.this ..upper-prefix)))
+
+(def: parse-generic
+  (Parser Generic)
+  (<>.rec
+   (function (_ recur)
+     ($_ <>.or
+         ..parse-var
+         ($_ <>.or
+             (<t>.this ..wildcard-descriptor)
+             (<>.and ..parse-bound recur)
+             )
+         (|> (<>.and ..parse-class-name
+                     (|> (<>.some recur)
+                         (<>.after (<t>.this "<"))
+                         (<>.before (<t>.this ">"))
+                         (<>.default (list))))
+             (<>.after (<t>.this ..object-prefix))
+             (<>.before (<t>.this ..object-suffix)))
+         ))))
+
+(def: #export parse-signature
+  (-> Text (Error Type))
+  (<t>.run (<>.rec
+            (function (_ recur)
+              ($_ <>.or
+                  ($_ <>.or
+                      (<t>.this ..boolean-descriptor)
+                      (<t>.this ..byte-descriptor)
+                      (<t>.this ..short-descriptor)
+                      (<t>.this ..int-descriptor)
+                      (<t>.this ..long-descriptor)
+                      (<t>.this ..float-descriptor)
+                      (<t>.this ..double-descriptor)
+                      (<t>.this ..char-descriptor)
+                      )
+                  ..parse-generic
+                  (<>.after (<t>.this ..array-prefix)
+                            recur)
+                  )))))
 
 (def: #export (method args return exceptions)
   (-> (List Type) (Maybe Type) (List Generic) Method)

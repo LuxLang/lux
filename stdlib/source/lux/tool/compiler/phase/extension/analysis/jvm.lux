@@ -164,7 +164,7 @@
 ## TODO: Get rid of this template block and use the definition in
 ## lux/host.jvm.lux ASAP
 (template [<name> <class>]
-  [(type: #export <name> (.primitive <class>))]
+  [(def: #export <name> .Type (#.Primitive <class> #.Nil))]
 
   ## Boxes
   [Boolean   "java.lang.Boolean"]
@@ -368,9 +368,6 @@
     (#.Primitive name _)
     (////@wrap name)
 
-    (#.Named name unnamed)
-    (check-jvm unnamed)
-
     (^template [<tag>]
       (<tag> id)
       (////@wrap "java.lang.Object"))
@@ -401,6 +398,12 @@
     (if (dictionary.contains? name boxes)
       (/////analysis.throw ..primitives-are-not-objects [name])
       (////@wrap name))))
+
+(def: (check-return type)
+  (-> .Type (Operation Text))
+  (if (is? .Any type)
+    (////@wrap "void")
+    (check-jvm type)))
 
 (def: (read-primitive-array-handler lux-type jvm-type)
   (-> .Type Type Handler)
@@ -759,7 +762,12 @@
               class-name (java/lang/Class::getName java-type)]
           (////@wrap (case (array.size (java/lang/Class::getTypeParameters java-type))
                        0
-                       (#.Primitive class-name (list))
+                       (case class-name
+                         "void"
+                         Any
+
+                         _
+                         (#.Primitive class-name (list)))
                        
                        arity
                        (|> (list.indices arity)
@@ -796,7 +804,7 @@
         
         _)
       ## else
-      (/////analysis.throw cannot-convert-to-a-lux-type java-type)))
+      (/////analysis.throw ..cannot-convert-to-a-lux-type java-type)))
 
 (def: (correspond-type-params class type)
   (-> (java/lang/Class java/lang/Object) .Type (Operation Mapping))
@@ -1127,28 +1135,34 @@
     [parameters (|> (Method::getGenericParameterTypes method)
                     array.to-list
                     (monad.map @ java-type-to-parameter))
-     #let [modifiers (Method::getModifiers method)]]
-    (wrap (and (java/lang/Object::equals class (Method::getDeclaringClass method))
-               (text@= method-name (Method::getName method))
-               (case #Static
-                 #Special
-                 (Modifier::isStatic modifiers)
+     #let [modifiers (Method::getModifiers method)]
+     #let [correct-class? (java/lang/Object::equals class (Method::getDeclaringClass method))
+           correct-method? (text@= method-name (Method::getName method))
+           static-matches? (case method-style
+                             #Static
+                             (Modifier::isStatic modifiers)
 
-                 _
-                 #1)
-               (case method-style
-                 #Special
-                 (not (or (Modifier::isInterface (java/lang/Class::getModifiers class))
-                          (Modifier::isAbstract modifiers)))
+                             _
+                             #1)
+           special-matches? (case method-style
+                              #Special
+                              (not (or (Modifier::isInterface (java/lang/Class::getModifiers class))
+                                       (Modifier::isAbstract modifiers)))
 
-                 _
-                 #1)
-               (n/= (list.size arg-classes) (list.size parameters))
-               (list@fold (function (_ [expectedJC actualJC] prev)
-                            (and prev
-                                 (text@= expectedJC actualJC)))
-                          #1
-                          (list.zip2 arg-classes parameters))))))
+                              _
+                              #1)
+           arity-matches? (n/= (list.size arg-classes) (list.size parameters))
+           inputs-match? (list@fold (function (_ [expectedJC actualJC] prev)
+                                      (and prev
+                                           (text@= expectedJC actualJC)))
+                                    #1
+                                    (list.zip2 arg-classes parameters))]]
+    (wrap (and correct-class?
+               correct-method?
+               static-matches?
+               special-matches?
+               arity-matches?
+               inputs-match?))))
 
 (def: (check-constructor class arg-classes constructor)
   (-> (java/lang/Class java/lang/Object) (List Text) (Constructor java/lang/Object) (Operation Bit))
@@ -1330,7 +1344,7 @@
                  [#let [argsT (list@map product.left argsTC)]
                   [methodT exceptionsT] (method-candidate class method #Static argsT)
                   [outputT argsA] (inferenceA.general analyse methodT (list@map product.right argsTC))
-                  outputJC (check-jvm outputT)]
+                  outputJC (check-return outputT)]
                  (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text class)
                                                                        (/////analysis.text method)
                                                                        (/////analysis.text outputJC)
@@ -1350,7 +1364,7 @@
 
                                           _
                                           (undefined))]
-                  outputJC (check-jvm outputT)]
+                  outputJC (check-return outputT)]
                  (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text class)
                                                                        (/////analysis.text method)
                                                                        (/////analysis.text outputJC)
@@ -1365,7 +1379,7 @@
                  [#let [argsT (list@map product.left argsTC)]
                   [methodT exceptionsT] (method-candidate class method #Special argsT)
                   [outputT argsA] (inferenceA.general analyse methodT (list& objectC (list@map product.right argsTC)))
-                  outputJC (check-jvm outputT)]
+                  outputJC (check-return outputT)]
                  (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text class)
                                                                        (/////analysis.text method)
                                                                        (/////analysis.text outputJC)
@@ -1382,7 +1396,7 @@
                                  (Modifier::isInterface (java/lang/Class::getModifiers class)))
                   [methodT exceptionsT] (method-candidate class-name method #Interface argsT)
                   [outputT argsA] (inferenceA.general analyse methodT (list& objectC (list@map product.right argsTC)))
-                  outputJC (check-jvm outputT)]
+                  outputJC (check-return outputT)]
                  (wrap (#/////analysis.Extension extension-name
                                                  (list& (/////analysis.text class-name)
                                                         (/////analysis.text method)
