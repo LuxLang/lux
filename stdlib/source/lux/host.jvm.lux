@@ -42,14 +42,14 @@
   [Character "java.lang.Character"]
 
   ## Primitives
-  [boolean   "boolean"]
-  [byte      "byte"]
-  [short     "short"]
-  [int       "int"]
-  [long      "long"]
-  [float     "float"]
-  [double    "double"]
-  [char      "char"]
+  [boolean   jvm.boolean-reflection]
+  [byte      jvm.byte-reflection]
+  [short     jvm.short-reflection]
+  [int       jvm.int-reflection]
+  [long      jvm.long-reflection]
+  [float     jvm.float-reflection]
+  [double    jvm.double-reflection]
+  [char      jvm.char-reflection]
   )
 
 (def: (get-static-field class field)
@@ -67,29 +67,40 @@
 
 (def: boxes
   (Dictionary Text Text)
-  (|> (list ["boolean" "java.lang.Boolean"]
-            ["byte"    "java.lang.Byte"]
-            ["short"   "java.lang.Short"]
-            ["int"     "java.lang.Integer"]
-            ["long"    "java.lang.Long"]
-            ["float"   "java.lang.Float"]
-            ["double"  "java.lang.Double"]
-            ["char"    "java.lang.Character"])
+  (|> (list [jvm.boolean-descriptor "java.lang.Boolean"]
+            [jvm.byte-descriptor    "java.lang.Byte"]
+            [jvm.short-descriptor   "java.lang.Short"]
+            [jvm.int-descriptor     "java.lang.Integer"]
+            [jvm.long-descriptor    "java.lang.Long"]
+            [jvm.float-descriptor   "java.lang.Float"]
+            [jvm.double-descriptor  "java.lang.Double"]
+            [jvm.char-descriptor    "java.lang.Character"])
       (dictionary.from-list text.hash)))
 
-(def: (unbox unboxed boxed raw)
-  (-> Text Text Code Code)
-  (` (|> (~ raw)
-         (: (primitive (~ (code.text boxed))))
-         "jvm object cast"
-         (: (primitive (~ (code.text unboxed)))))))
+(def: reflections
+  (Dictionary Text Text)
+  (|> (list [jvm.boolean-descriptor jvm.boolean-reflection]
+            [jvm.byte-descriptor    jvm.byte-reflection]
+            [jvm.short-descriptor   jvm.short-reflection]
+            [jvm.int-descriptor     jvm.int-reflection]
+            [jvm.long-descriptor    jvm.long-reflection]
+            [jvm.float-descriptor   jvm.float-reflection]
+            [jvm.double-descriptor  jvm.double-reflection]
+            [jvm.char-descriptor    jvm.char-reflection])
+      (dictionary.from-list text.hash)))
 
-(def: (box unboxed boxed raw)
-  (-> Text Text Code Code)
-  (` (|> (~ raw)
-         (: (primitive (~ (code.text unboxed))))
-         "jvm object cast"
-         (: (primitive (~ (code.text boxed)))))))
+(template [<name> <pre> <post>]
+  [(def: (<name> unboxed boxed raw)
+     (-> Text Text Code Code)
+     (let [unboxed (|> reflections (dictionary.get unboxed) (maybe.default unboxed))]
+       (` (|> (~ raw)
+              (: (primitive (~ (code.text <pre>))))
+              "jvm object cast"
+              (: (primitive (~ (code.text <post>))))))))]
+
+  [unbox boxed unboxed]
+  [box unboxed boxed]
+  )
 
 (template [<name> <op> <from> <to>]
   [(template: #export (<name> value)
@@ -460,44 +471,13 @@
   (-> [Text Code] Code)
   (` [(~ (code.text class)) (~ value)]))
 
-(def: (simple-class type)
-  (-> Type Text)
-  (case type
-    (#jvm.Primitive prim)
-    (case prim
-      #jvm.Boolean "boolean"
-      #jvm.Byte    "byte"
-      #jvm.Short   "short"
-      #jvm.Int     "int"
-      #jvm.Long    "long"
-      #jvm.Float   "float"
-      #jvm.Double  "double"
-      #jvm.Char    "char")
-
-    (#jvm.Array sub)
-    (sanitize (jvm.descriptor type))
-
-    (#jvm.Generic generic)
-    (case generic
-      (#jvm.Class class params)
-      (sanitize class)
-
-      (^or (#jvm.Var name)
-           (#jvm.Wildcard #.None)
-           (#jvm.Wildcard (#.Some [#jvm.Lower bound])))
-      "java.lang.Object"
-
-      (#jvm.Wildcard (#.Some [#jvm.Upper bound]))
-      (simple-class (#jvm.Generic bound)))
-    ))
-
 (def: (make-constructor-parser class-name arguments)
   (-> Text (List Argument) (Parser Code))
   (do p.monad
     [args (: (Parser (List Code))
              (s.form (p.after (s.this! (' ::new!))
                               (s.tuple (p.exactly (list.size arguments) s.any)))))
-     #let [arguments' (list@map (|>> product.right ..simple-class) arguments)]]
+     #let [arguments' (list@map (|>> product.right jvm.signature) arguments)]]
     (wrap (` ("jvm member invoke constructor" (~ (code.text class-name))
               (~+ (|> args
                       (list.zip2 arguments')
@@ -510,7 +490,7 @@
      args (: (Parser (List Code))
              (s.form (p.after (s.this! (code.identifier ["" dotted-name]))
                               (s.tuple (p.exactly (list.size arguments) s.any)))))
-     #let [arguments' (list@map (|>> product.right ..simple-class) arguments)]]
+     #let [arguments' (list@map (|>> product.right jvm.signature) arguments)]]
     (wrap (` ("jvm member invoke static" (~ (code.text class-name)) (~ (code.text method-name))
               (~+ (|> args
                       (list.zip2 arguments')
@@ -524,7 +504,7 @@
         args (: (Parser (List Code))
                 (s.form (p.after (s.this! (code.identifier ["" dotted-name]))
                                  (s.tuple (p.exactly (list.size arguments) s.any)))))
-        #let [arguments' (list@map (|>> product.right ..simple-class) arguments)]]
+        #let [arguments' (list@map (|>> product.right jvm.signature) arguments)]]
        (wrap (` (<jvm-op> (~ (code.text class-name)) (~ (code.text method-name))
                           (~' _jvm_this)
                           (~+ (|> args
@@ -627,14 +607,14 @@
 (def: primitive^
   (Parser Primitive)
   ($_ p.or
-      (s.identifier! ["" "boolean"])
-      (s.identifier! ["" "byte"])
-      (s.identifier! ["" "short"])
-      (s.identifier! ["" "int"])
-      (s.identifier! ["" "long"])
-      (s.identifier! ["" "float"])
-      (s.identifier! ["" "double"])
-      (s.identifier! ["" "char"])
+      (s.identifier! ["" jvm.boolean-reflection])
+      (s.identifier! ["" jvm.byte-reflection])
+      (s.identifier! ["" jvm.short-reflection])
+      (s.identifier! ["" jvm.int-reflection])
+      (s.identifier! ["" jvm.long-reflection])
+      (s.identifier! ["" jvm.float-reflection])
+      (s.identifier! ["" jvm.double-reflection])
+      (s.identifier! ["" jvm.char-reflection])
       ))
 
 (def: (type^ imports type-vars)
@@ -1031,14 +1011,14 @@
   (case type
     (#jvm.Primitive primitive)
     (case primitive
-      #jvm.Boolean (code.local-identifier "boolean")
-      #jvm.Byte (code.local-identifier "byte")
-      #jvm.Short (code.local-identifier "short")
-      #jvm.Int (code.local-identifier "int")
-      #jvm.Long (code.local-identifier "long")
-      #jvm.Float (code.local-identifier "float")
-      #jvm.Double (code.local-identifier "double")
-      #jvm.Char (code.local-identifier "char"))
+      #jvm.Boolean (code.local-identifier jvm.boolean-reflection)
+      #jvm.Byte (code.local-identifier jvm.byte-reflection)
+      #jvm.Short (code.local-identifier jvm.short-reflection)
+      #jvm.Int (code.local-identifier jvm.int-reflection)
+      #jvm.Long (code.local-identifier jvm.long-reflection)
+      #jvm.Float (code.local-identifier jvm.float-reflection)
+      #jvm.Double (code.local-identifier jvm.double-reflection)
+      #jvm.Char (code.local-identifier jvm.char-reflection))
     
     (#jvm.Generic generic)
     (generic$ generic)
@@ -1142,7 +1122,7 @@
     (let [super-replacer (parser->replacer (s.form (do p.monad
                                                      [_ (s.this! (' ::super!))
                                                       args (s.tuple (p.exactly (list.size arguments) s.any))
-                                                      #let [arguments' (list@map (|>> product.right ..simple-class) arguments)]]
+                                                      #let [arguments' (list@map (|>> product.right jvm.signature) arguments)]]
                                                      (wrap (` ("jvm member invoke special"
                                                                (~ (code.text (product.left super-class)))
                                                                (~ (code.text name))
@@ -1375,7 +1355,7 @@
                 (#.Some value-as-string)
                 #.None))}
   (with-gensyms [g!_ g!unchecked]
-    (let [class-name (..simple-class class)
+    (let [class-name (jvm.signature class)
           class-type (` (.primitive (~ (code.text class-name))))
           check-type (` (.Maybe (~ class-type)))
           check-code (` (if ((~ (code.text (format "jvm instanceof" ":" class-name))) (~ g!unchecked))
@@ -1455,7 +1435,7 @@
                                     (with-gensyms [arg-name]
                                       (wrap [maybe? arg-name]))))
                                import-member-args)
-         #let [arg-classes (list@map (|>> product.right ..simple-class) import-member-args)
+         #let [arg-classes (list@map (|>> product.right jvm.signature) import-member-args)
                arg-types (list@map (: (-> [Bit Type] Code)
                                       (function (_ [maybe? arg])
                                         (let [arg-type (jvm-type (get@ #import-member-mode commons) arg)]
@@ -1523,11 +1503,20 @@
                                
                                #AutoPrM
                                (case unboxed
-                                 "byte"  [<byte> (` (<for-byte> (~ raw)))]
-                                 "short" [<short> (` (<for-short> (~ raw)))]
-                                 "int"   [<int> (` (<for-int> (~ raw)))]
-                                 "float" [<float> (` (<for-float> (~ raw)))]
-                                 _       [unboxed raw]))]
+                                 (^ (static jvm.byte-descriptor))
+                                 [<byte> (` (<for-byte> (~ raw)))]
+                                 
+                                 (^ (static jvm.short-descriptor))
+                                 [<short> (` (<for-short> (~ raw)))]
+                                 
+                                 (^ (static jvm.int-descriptor))
+                                 [<int> (` (<for-int> (~ raw)))]
+                                 
+                                 (^ (static jvm.float-descriptor))
+                                 [<float> (` (<for-float> (~ raw)))]
+                                 
+                                 _
+                                 [unboxed raw]))]
        (case (dictionary.get unboxed boxes)
          (#.Some boxed)
          (<unbox/box> unboxed boxed refined)
@@ -1536,15 +1525,15 @@
          refined)))]
 
   [auto-convert-input ..unbox
-   "byte" ..long-to-byte
-   "short" ..long-to-short
-   "int" ..long-to-int
-   "float" ..double-to-float]
+   jvm.byte-descriptor ..long-to-byte
+   jvm.short-descriptor ..long-to-short
+   jvm.int-descriptor ..long-to-int
+   jvm.float-descriptor ..double-to-float]
   [auto-convert-output ..box
-   "long" "jvm conversion byte-to-long"
-   "long" "jvm conversion short-to-long"
-   "long" "jvm conversion int-to-long"
-   "double" "jvm conversion float-to-double"]
+   jvm.long-descriptor "jvm conversion byte-to-long"
+   jvm.long-descriptor "jvm conversion short-to-long"
+   jvm.long-descriptor "jvm conversion int-to-long"
+   jvm.double-descriptor "jvm conversion float-to-double"]
   )
 
 (def: (un-quote quoted)
@@ -1554,13 +1543,26 @@
 (def: (jvm-input [unboxed raw])
   (-> [Text Code] [Text Code])
   [unboxed (case unboxed
-             "byte" (` (.:coerce (.primitive "java.lang.Long") (.: .Int (~ raw))))
-             "short" (` (.:coerce (.primitive "java.lang.Long") (.: .Int (~ raw))))
-             "int" (` (.:coerce (.primitive "java.lang.Long") (.: .Int (~ raw))))
-             "long" (` (.:coerce (.primitive "java.lang.Long") (.: .Int (~ raw))))
-             "float" (` (.:coerce (.primitive "java.lang.Double") (.: .Frac (~ raw))))
-             "double" (` (.:coerce (.primitive "java.lang.Double") (.: .Frac (~ raw))))
-             _ (` ("jvm object cast" (~ raw))))])
+             (^ (static jvm.byte-descriptor))
+             (` (.:coerce (.primitive "java.lang.Long") (.: .Int (~ raw))))
+             
+             (^ (static jvm.short-descriptor))
+             (` (.:coerce (.primitive "java.lang.Long") (.: .Int (~ raw))))
+             
+             (^ (static jvm.int-descriptor))
+             (` (.:coerce (.primitive "java.lang.Long") (.: .Int (~ raw))))
+             
+             (^ (static jvm.long-descriptor))
+             (` (.:coerce (.primitive "java.lang.Long") (.: .Int (~ raw))))
+             
+             (^ (static jvm.float-descriptor))
+             (` (.:coerce (.primitive "java.lang.Double") (.: .Frac (~ raw))))
+             
+             (^ (static jvm.double-descriptor))
+             (` (.:coerce (.primitive "java.lang.Double") (.: .Frac (~ raw))))
+             
+             _
+             (` ("jvm object cast" (~ raw))))])
 
 (def: (jvm-invoke-inputs mode classes inputs)
   (-> Primitive-Mode (List Text) (List [Bit Code]) (List Code))
@@ -1641,7 +1643,7 @@
                                        jvm.void-descriptor
 
                                        (#.Some return)
-                                       (..simple-class return))
+                                       (jvm.signature return))
                  jvm-interop (|> [method-return-class
                                   (` ((~ (code.text jvm-op))
                                       (~ (code.text full-name))
@@ -1674,7 +1676,7 @@
                                               (` ((~ getter-name)))
                                               (` ((~ getter-name) (~ g!obj))))
                                 getter-body (<| (auto-convert-output import-field-mode)
-                                                [(..simple-class import-field-type)
+                                                [(jvm.signature import-field-type)
                                                  (if import-field-static?
                                                    (get-static-field full-name import-field-name)
                                                    (get-virtual-field full-name import-field-name (un-quote g!obj)))])
@@ -1692,7 +1694,7 @@
                                (let [setter-call (if import-field-static?
                                                    (` ((~ setter-name) (~ g!value)))
                                                    (` ((~ setter-name) (~ g!value) (~ g!obj))))
-                                     setter-value (|> [(..simple-class import-field-type) (un-quote g!value)]
+                                     setter-value (|> [(jvm.signature import-field-type) (un-quote g!value)]
                                                       ..jvm-input
                                                       (auto-convert-input import-field-mode))
                                      setter-value (if import-field-maybe?
@@ -1730,7 +1732,7 @@
 (def: load-class
   (-> Text (Error (primitive "java.lang.Class" [Any])))
   (|>> (:coerce (primitive "java.lang.String"))
-       ["java.lang.String"]
+       ["Ljava/lang/String;"]
        ("jvm member invoke static" "java.lang.Class" "forName")
        try))
 
@@ -1915,7 +1917,7 @@
                             {type (..type^ imports (list))})
   {#.doc (doc "Loads the class as a java.lang.Class object."
               (class-for java/lang/String))}
-  (wrap (list (` ("jvm object class" (~ (code.text (..simple-class type))))))))
+  (wrap (list (` ("jvm object class" (~ (code.text (jvm.signature type))))))))
 
 (def: get-compiler
   (Meta Lux)

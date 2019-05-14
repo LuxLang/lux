@@ -113,6 +113,11 @@
 
 1. https://github.com/Pext/Pext
 
+# Collaborative editing
+
+1. https://hackernoon.com/building-conclave-a-decentralized-real-time-collaborative-text-editor-a6ab438fe79f
+1. https://github.com/xi-editor/xi-editor/issues/1187
+
 # Exemplar
 
 ## General
@@ -156,7 +161,6 @@
 1. http://www.graspjs.com/
 1. http://kakoune.org/
 1. https://github.com/argimenes/standoff-properties-editor
-1. https://hackernoon.com/building-conclave-a-decentralized-real-time-collaborative-text-editor-a6ab438fe79f
 1. https://www.conyedit.com/
 1. https://developer.mozilla.org/en-US/docs/Web/API/Document/execCommand
 1. [YOW! Lambda Jam 2018 - Colin Fleming - Developing an IDE for Clojure code](https://www.youtube.com/watch?v=2sPYiGxU4kA)
