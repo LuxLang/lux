@@ -31,6 +31,8 @@
       ["." generation
        [extension (#+ Nullary Unary Binary
                       nullary unary binary)]]
+      [analysis
+       [".A" reference]]
       ["." extension
        ["." bundle]
        [analysis
@@ -39,17 +41,27 @@
   [luxc
    [lang
     [host
-     ["$" jvm (#+ Label Inst Handler Bundle Operation Phase)
+     ["$" jvm (#+ Label Inst Def Handler Bundle Operation Phase)
       ["_" inst]
-      ["_." def]]]]])
+      ["_." def]]]]]
+  ["." /// #_
+   ["#." reference]
+   ["#." function]])
 
-(template [<name>]
-  [(exception: #export (<name> {message Text})
-     message)]
+(exception: #export invalid-syntax-for-argument-generation)
 
-  [invalid-syntax-for-jvm-type]
-  [invalid-syntax-for-argument-generation]
-  )
+(def: (custom [parser handler])
+  (All [s]
+    (-> [(<s>.Parser s)
+         (-> Text Phase s (Operation Inst))]
+        Handler))
+  (function (_ extension-name phase input)
+    (case (<s>.run input parser)
+      (#error.Success input')
+      (handler extension-name phase input')
+
+      (#error.Failure error)
+      (phase.throw extension.invalid-syntax [extension-name %synthesis input]))))
 
 (template [<name> <inst>]
   [(def: <name>
@@ -306,7 +318,17 @@
                "char" jvm.char
                _ (jvm.class elem-class (list)))))
 
-(def: (array::length extension-name generate inputs)
+(def: (primitive-array-length-handler jvm-primitive)
+  (-> Type Handler)
+  (..custom [<s>.any
+             (function (_ extension-name generate arrayS)
+               (do phase.monad
+                 [arrayI (generate arrayS)]
+                 (wrap (|>> arrayI
+                            (_.CHECKCAST (jvm.descriptor (jvm.array 1 jvm-primitive)))
+                            _.ARRAYLENGTH))))]))
+
+(def: (array::length::object extension-name generate inputs)
   Handler
   (case inputs
     (^ (list (synthesis.i64 nesting)
@@ -427,7 +449,17 @@
   Bundle
   (<| (bundle.prefix "array")
       (|> bundle.empty
-          (bundle.install "length" array::length)
+          (dictionary.merge (<| (bundle.prefix "length")
+                                (|> bundle.empty
+                                    (bundle.install "boolean" (primitive-array-length-handler jvm.boolean))
+                                    (bundle.install "byte" (primitive-array-length-handler jvm.byte))
+                                    (bundle.install "short" (primitive-array-length-handler jvm.short))
+                                    (bundle.install "int" (primitive-array-length-handler jvm.int))
+                                    (bundle.install "long" (primitive-array-length-handler jvm.long))
+                                    (bundle.install "float" (primitive-array-length-handler jvm.float))
+                                    (bundle.install "double" (primitive-array-length-handler jvm.double))
+                                    (bundle.install "char" (primitive-array-length-handler jvm.char))
+                                    (bundle.install "object" array::length::object))))
           (dictionary.merge (<| (bundle.prefix "new")
                                 (|> bundle.empty
                                     (bundle.install "boolean" (new-primitive-array-handler jvm.boolean))
@@ -671,62 +703,30 @@
     _
     (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
-(def: base-type
-  (<t>.Parser Type)
-  ($_ <>.either
-      (<>.after (<t>.this "boolean") (<>@wrap jvm.boolean))
-      (<>.after (<t>.this "byte") (<>@wrap jvm.byte))
-      (<>.after (<t>.this "short") (<>@wrap jvm.short))
-      (<>.after (<t>.this "int") (<>@wrap jvm.int))
-      (<>.after (<t>.this "long") (<>@wrap jvm.long))
-      (<>.after (<t>.this "float") (<>@wrap jvm.float))
-      (<>.after (<t>.this "double") (<>@wrap jvm.double))
-      (<>.after (<t>.this "char") (<>@wrap jvm.char))
-      (<>@map (function (_ name)
-                (jvm.class name (list)))
-              (<t>.many (<t>.none-of "[")))
-      ))
-
-(def: java-type
-  (<t>.Parser Type)
-  (do <>.monad
-    [raw base-type
-     nesting (<>.some (<t>.this "[]"))]
-    (wrap (jvm.array (list.size nesting) raw))))
-
-(def: (generate-type argD)
-  (-> Text (Operation Type))
-  (case (<t>.run java-type argD)
-    (#error.Failure error)
-    (phase.throw invalid-syntax-for-jvm-type argD)
-
-    (#error.Success type)
-    (phase@wrap type)))
-
 (def: (generate-arg generate argS)
   (-> (-> Synthesis (Operation Inst)) Synthesis
       (Operation [Type Inst]))
   (case argS
     (^ (synthesis.tuple (list (synthesis.text argD) argS)))
     (do phase.monad
-      [argD (phase.lift (:: error.monad map
-                            jvm.reflection-class
-                            (jvm.parse-signature argD)))
-       argT (generate-type argD)
+      [argT (phase.lift (<t>.run jvm.parse-signature argD))
        argI (generate argS)]
       (wrap [argT argI]))
 
     _
-    (phase.throw invalid-syntax-for-argument-generation "")))
+    (phase.throw invalid-syntax-for-argument-generation [])))
 
 (def: (method-return-type description)
   (-> Text (Operation (Maybe Type)))
   (case description
-    "void"
+    (^ (static jvm.void-descriptor))
     (phase@wrap #.None)
 
     _
-    (phase@map (|>> #.Some) (generate-type description))))
+    (|> description
+        (<t>.run jvm.parse-signature)
+        phase.lift
+        (phase@map (|>> #.Some)))))
 
 (def: (prepare-argI [type argI])
   (-> [Type Inst] Inst)
@@ -738,46 +738,35 @@
     #.None
     argI))
 
-(def: (invoke::static extension-name generate inputs)
+(def: invoke::static
   Handler
-  (case inputs
-    (^ (list& (synthesis.text class)
-              (synthesis.text method)
-              (synthesis.text unboxed)
-              argsS))
-    (do phase.monad
-      [argsTI (monad.map @ (generate-arg generate) argsS)
-       returnT (method-return-type unboxed)]
-      (wrap (|>> (_.fuse (list@map ..prepare-argI argsTI))
-                 (_.INVOKESTATIC class method
-                                 (jvm.method (list@map product.left argsTI) returnT (list))
-                                 false))))
-
-    _
-    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
+  (..custom
+   [($_ <>.and <s>.text <s>.text <s>.text (<>.some <s>.any))
+    (function (_ extension-name generate [class method unboxed argsS])
+      (do phase.monad
+        [argsTI (monad.map @ (generate-arg generate) argsS)
+         returnT (method-return-type unboxed)]
+        (wrap (|>> (_.fuse (list@map ..prepare-argI argsTI))
+                   (_.INVOKESTATIC class method
+                                   (jvm.method (list@map product.left argsTI) returnT (list))
+                                   false)))))]))
 
 (template [<name> <invoke> <interface?>]
-  [(def: (<name> extension-name generate inputs)
+  [(def: <name>
      Handler
-     (case inputs
-       (^ (list& (synthesis.text class)
-                 (synthesis.text method)
-                 (synthesis.text unboxed)
-                 objectS
-                 argsS))
-       (do phase.monad
-         [objectI (generate objectS)
-          argsTI (monad.map @ (generate-arg generate) argsS)
-          returnT (method-return-type unboxed)]
-         (wrap (|>> objectI
-                    (_.CHECKCAST class)
-                    (_.fuse (list@map ..prepare-argI argsTI))
-                    (<invoke> class method
-                              (jvm.method (list@map product.left argsTI) returnT (list))
-                              <interface?>))))
-
-       _
-       (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))]
+     (..custom
+      [($_ <>.and <s>.text <s>.text <s>.text <s>.any (<>.some <s>.any))
+       (function (_ extension-name generate [class method unboxed objectS argsS])
+         (do phase.monad
+           [objectI (generate objectS)
+            argsTI (monad.map @ (generate-arg generate) argsS)
+            returnT (method-return-type unboxed)]
+           (wrap (|>> objectI
+                      (_.CHECKCAST class)
+                      (_.fuse (list@map ..prepare-argI argsTI))
+                      (<invoke> class method
+                                (jvm.method (list@map product.left argsTI) returnT (list))
+                                <interface?>)))))]))]
 
   [invoke::virtual _.INVOKEVIRTUAL false]
   [invoke::special _.INVOKESPECIAL false]
@@ -820,19 +809,6 @@
                                     (bundle.install "interface" invoke::interface)
                                     (bundle.install "constructor" invoke::constructor))))
           )))
-
-(def: (custom [parser handler])
-  (All [s]
-    (-> [(<s>.Parser s)
-         (-> Text Phase s (Operation Inst))]
-        Handler))
-  (function (_ extension-name phase input)
-    (case (<s>.run input parser)
-      (#error.Success input')
-      (handler extension-name phase input')
-
-      (#error.Failure error)
-      (phase.throw extension.invalid-syntax [extension-name %synthesis input]))))
 
 (def: var
   (<s>.Parser Var)
@@ -902,7 +878,7 @@
 
 (def: return
   (<s>.Parser Return)
-  (<>.or (<s>.constant! ["" "void"])
+  (<>.or (<s>.constant! ["" jvm.void-descriptor])
          ..jvm-type))
 
 (def: overriden-method-definition
@@ -998,6 +974,39 @@
       (#synthesis.Extension [name inputsS+])
       (#synthesis.Extension [name (list@map recur inputsS+)]))))
 
+(def: $Object (jvm.class jvm.object-class (list)))
+
+(def: (anonymous-init-method env)
+  (-> Environment Method)
+  (jvm.method (list.repeat (list.size env) $Object)
+              #.None
+              (list)))
+
+(def: (with-anonymous-init class env)
+  (-> Text Environment Def)
+  (let [store-capturedI (|> env
+                            list.size
+                            list.indices
+                            (list@map (.function (_ register)
+                                        (|>> (_.ALOAD 0)
+                                             (_.ALOAD (inc register))
+                                             (_.PUTFIELD class (///reference.foreign-name register) $Object))))
+                            _.fuse)]
+    (_def.method #$.Public $.noneM "<init>" (anonymous-init-method env)
+                 (|>> (_.ALOAD 0)
+                      (_.INVOKESPECIAL jvm.object-class "<init>" (jvm.method (list) #.None (list)) #0)
+                      store-capturedI
+                      _.RETURN))))
+
+(def: (anonymous-instance class env)
+  (-> Text Environment (Operation Inst))
+  (do phase.monad
+    [captureI+ (monad.map @ ///reference.variable env)]
+    (wrap (|>> (_.NEW class)
+               _.DUP
+               (_.fuse captureI+)
+               (_.INVOKESPECIAL class "<init>" (anonymous-init-method env) #0)))))
+
 (def: class::anonymous
   Handler
   (..custom
@@ -1012,14 +1021,15 @@
                                           constructor-args
                                           overriden-methods])
       (do phase.monad
-        [#let [global-mapping (|> overriden-methods
-                                  ## Get all the environments.
-                                  (list@map product.left)
-                                  ## Combine them.
-                                  list@join
-                                  ## Remove duplicates.
-                                  (set.from-list reference.hash)
-                                  set.to-list
+        [#let [total-environment (|> overriden-methods
+                                     ## Get all the environments.
+                                     (list@map product.left)
+                                     ## Combine them.
+                                     list@join
+                                     ## Remove duplicates.
+                                     (set.from-list reference.hash)
+                                     set.to-list)
+               global-mapping (|> total-environment
                                   ## Give them names as "foreign" variables.
                                   list.enumerate
                                   (list@map (function (_ [id capture])
@@ -1043,14 +1053,13 @@
                                                  self-name arguments returnT exceptionsT
                                                  (normalize-method-body local-mapping body)]))
                                             overriden-methods)]
-         ## _ (generation.save! true ["" function-class]
-         ##                     [function-class
-         ##                      (def.class #$.V1_6 #$.Public $.finalC
-         ##                                 function-class (list)
-         ##                                 ($.simple-class //.function-class) (list)
-         ##                                 functionD)])
-         _ (phase.throw extension.invalid-syntax ["YOLO-TRON" %synthesis (list)])]
-        (wrap _.DUP)))]))
+         _ (generation.save! true ["" class-name]
+                             [class-name
+                              (_def.class #$.V1_6 #$.Public $.finalC
+                                          class-name (list)
+                                          super-class super-interfaces
+                                          (|>> (///function.with-environment total-environment)))])]
+        (anonymous-instance class-name total-environment)))]))
 
 (def: bundle::class
   Bundle

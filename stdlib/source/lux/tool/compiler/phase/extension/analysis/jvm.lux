@@ -6,7 +6,8 @@
     ["." monad (#+ do)]]
    [control
     ["p" parser
-     ["s" code (#+ Parser)]]
+     ["s" code (#+ Parser)]
+     ["<t>" text]]
     ["." exception (#+ exception:)]
     pipe]
    [data
@@ -52,6 +53,117 @@
   ["_jvm_lower" lower-relationship-name lower-relationship-type]
   ["_jvm_upper" upper-relationship-name upper-relationship-type]
   )
+
+## TODO: Get rid of this template block and use the definition in
+## lux/host.jvm.lux ASAP
+(template [<name> <class>]
+  [(def: #export <name> .Type (#.Primitive <class> #.Nil))]
+
+  ## Boxes
+  [Boolean   "java.lang.Boolean"]
+  [Byte      "java.lang.Byte"]
+  [Short     "java.lang.Short"]
+  [Integer   "java.lang.Integer"]
+  [Long      "java.lang.Long"]
+  [Float     "java.lang.Float"]
+  [Double    "java.lang.Double"]
+  [Character "java.lang.Character"]
+  [String    "java.lang.String"]
+
+  ## Primitives
+  [boolean   jvm.boolean-reflection]
+  [byte      jvm.byte-reflection]
+  [short     jvm.short-reflection]
+  [int       jvm.int-reflection]
+  [long      jvm.long-reflection]
+  [float     jvm.float-reflection]
+  [double    jvm.double-reflection]
+  [char      jvm.char-reflection]
+  )
+
+(type: Mapping
+  (Dictionary Var .Type))
+
+(def: fresh-mapping Mapping (dictionary.new text.hash))
+
+(exception: #export (unknown-jvm-type-var {var Var})
+  (exception.report
+   ["Var" (%t var)]))
+
+(def: (generic-type mapping generic)
+  (-> Mapping Generic (Check .Type))
+  (case generic
+    (#jvm.Var var)
+    (case (dictionary.get var mapping)
+      #.None
+      (check.throw ..unknown-jvm-type-var var)
+      
+      (#.Some type)
+      (check@wrap type))
+    
+    (#jvm.Wildcard wildcard)
+    (case wildcard
+      #.None
+      (do check.monad
+        [[id type] check.existential]
+        (wrap type))
+      
+      (#.Some [bound limit])
+      (do check.monad
+        [limitT (generic-type mapping limit)]
+        (case bound
+          #jvm.Lower
+          (wrap (lower-relationship-type limitT))
+          
+          #jvm.Upper
+          (wrap (upper-relationship-type limitT)))))
+    
+    (#jvm.Class name parameters)
+    (do check.monad
+      [parametersT+ (monad.map @ (generic-type mapping) parameters)]
+      (wrap (#.Primitive name parametersT+)))))
+
+(def: (class-type mapping [name parameters])
+  (-> Mapping Class (Check .Type))
+  (do check.monad
+    [parametersT+ (monad.map @ (generic-type mapping) parameters)]
+    (wrap (#.Primitive name parametersT+))))
+
+(def: (jvm-type mapping type)
+  (-> Mapping Type (Check .Type))
+  (case type
+    (#jvm.Primitive primitive)
+    (check@wrap (case primitive
+                  #jvm.Boolean ..boolean
+                  #jvm.Byte ..byte
+                  #jvm.Short ..short
+                  #jvm.Int ..int
+                  #jvm.Long ..long
+                  #jvm.Float ..float
+                  #jvm.Double ..double
+                  #jvm.Char ..char))
+    
+    (#jvm.Generic generic)
+    (generic-type mapping generic)
+    
+    (#jvm.Array type)
+    (case type
+      (#jvm.Primitive primitive)
+      (check@wrap (#.Primitive (jvm.descriptor (jvm.array 1 type)) (list)))
+
+      _
+      (do check.monad
+        [elementT (jvm-type mapping type)]
+        (wrap (.type (Array elementT)))))))
+
+(def: (return-type mapping type)
+  (-> Mapping Return (Check .Type))
+  (case type
+    #.None
+    (check@wrap Any)
+
+    (#.Some type)
+    (jvm-type mapping type)))
 
 (def: (custom [syntax handler])
   (All [s]
@@ -161,33 +273,6 @@
   [cannot-correspond-type-with-a-class]
   )
 
-## TODO: Get rid of this template block and use the definition in
-## lux/host.jvm.lux ASAP
-(template [<name> <class>]
-  [(def: #export <name> .Type (#.Primitive <class> #.Nil))]
-
-  ## Boxes
-  [Boolean   "java.lang.Boolean"]
-  [Byte      "java.lang.Byte"]
-  [Short     "java.lang.Short"]
-  [Integer   "java.lang.Integer"]
-  [Long      "java.lang.Long"]
-  [Float     "java.lang.Float"]
-  [Double    "java.lang.Double"]
-  [Character "java.lang.Character"]
-  [String    "java.lang.String"]
-
-  ## Primitives
-  [boolean   "boolean"]
-  [byte      "byte"]
-  [short     "short"]
-  [int       "int"]
-  [long      "long"]
-  [float     "float"]
-  [double    "double"]
-  [char      "char"]
-  )
-
 (def: bundle::conversion
   Bundle
   (<| (///bundle.prefix "conversion")
@@ -237,8 +322,8 @@
              (///bundle.install "ushr" (//common.binary <type> Integer <type>))
              )))]
 
-  [bundle::int  "int"  ..long]
-  [bundle::long "long" ..long]
+  [bundle::int  jvm.int-reflection  ..long]
+  [bundle::long jvm.long-reflection ..long]
   )
 
 (template [<name> <prefix> <type>]
@@ -255,13 +340,13 @@
              (///bundle.install "<" (//common.binary <type> <type> Bit))
              )))]
 
-  [bundle::float  "float"  ..float]
-  [bundle::double "double" ..double]
+  [bundle::float  jvm.float-reflection  ..float]
+  [bundle::double jvm.double-reflection ..double]
   )
 
 (def: bundle::char
   Bundle
-  (<| (///bundle.prefix "char")
+  (<| (///bundle.prefix jvm.char-reflection)
       (|> ///bundle.empty
           (///bundle.install "=" (//common.binary ..char ..char Bit))
           (///bundle.install "<" (//common.binary ..char ..char Bit))
@@ -269,14 +354,14 @@
 
 (def: #export boxes
   (Dictionary Text Text)
-  (|> (list ["boolean" "java.lang.Boolean"]
-            ["byte"    "java.lang.Byte"]
-            ["short"   "java.lang.Short"]
-            ["int"     "java.lang.Integer"]
-            ["long"    "java.lang.Long"]
-            ["float"   "java.lang.Float"]
-            ["double"  "java.lang.Double"]
-            ["char"    "java.lang.Character"])
+  (|> (list [jvm.boolean-reflection "java.lang.Boolean"]
+            [jvm.byte-reflection    "java.lang.Byte"]
+            [jvm.short-reflection   "java.lang.Short"]
+            [jvm.int-reflection     "java.lang.Integer"]
+            [jvm.long-reflection    "java.lang.Long"]
+            [jvm.float-reflection   "java.lang.Float"]
+            [jvm.double-reflection  "java.lang.Double"]
+            [jvm.char-reflection    "java.lang.Character"])
       (dictionary.from-list text.hash)))
 
 (def: (array-type-info allow-primitives? arrayT)
@@ -303,13 +388,27 @@
 
       (#.Primitive class _)
       (if (dictionary.contains? class boxes)
-        (/////analysis.throw primitives-cannot-have-type-parameters class)
+        (/////analysis.throw ..primitives-cannot-have-type-parameters class)
         (////@wrap [level class]))
       
       _
       (/////analysis.throw non-array arrayT))))
 
-(def: array::length
+(def: (primitive-array-length-handler primitive-type)
+  (-> Type Handler)
+  (function (_ extension-name analyse args)
+    (case args
+      (^ (list arrayC))
+      (do ////.monad
+        [_ (typeA.infer ..int)
+         arrayA (typeA.with-type (#.Primitive (jvm.descriptor (jvm.array 1 primitive-type)) (list))
+                  (analyse arrayC))]
+        (wrap (#/////analysis.Extension extension-name (list arrayA))))
+
+      _
+      (/////analysis.throw ///.incorrect-arity [extension-name 1 (list.size args)]))))
+
+(def: array::length::object
   Handler
   (function (_ extension-name analyse args)
     (case args
@@ -363,14 +462,47 @@
       (/////analysis.throw ///.incorrect-arity [extension-name 1 (list.size args)]))))
 
 (def: (check-jvm objectT)
-  (-> .Type (Operation Text))
+  (-> .Type (Operation Type))
   (case objectT
-    (#.Primitive name _)
-    (////@wrap name)
+    (#.Primitive name #.Nil)
+    (case name
+      (^ (static jvm.boolean-reflection)) (////@wrap jvm.boolean)
+      (^ (static jvm.byte-reflection)) (////@wrap jvm.byte)
+      (^ (static jvm.short-reflection)) (////@wrap jvm.short)
+      (^ (static jvm.int-reflection)) (////@wrap jvm.int)
+      (^ (static jvm.long-reflection)) (////@wrap jvm.long)
+      (^ (static jvm.float-reflection)) (////@wrap jvm.float)
+      (^ (static jvm.double-reflection)) (////@wrap jvm.double)
+      (^ (static jvm.char-reflection)) (////@wrap jvm.char)
+      _ (if (text.starts-with? jvm.array-prefix name)
+          (////.lift (<t>.run jvm.parse-signature name))
+          (////@wrap (jvm.class name (list)))))
+
+    (^ (#.Primitive (static array.type-name)
+                    (list elementT)))
+    (|> elementT
+        check-jvm
+        (////@map (jvm.array 1)))
+    
+    (#.Primitive name parameters)
+    (do ////.monad
+      [parameters (monad.map @ check-jvm parameters)
+       parameters (monad.map @ (function (_ parameter)
+                                 (case parameter
+                                   (#jvm.Generic generic)
+                                   (wrap generic)
+
+                                   _
+                                   (/////analysis.throw ..primitives-cannot-have-type-parameters name)))
+                             parameters)]
+      (////@wrap (jvm.class name parameters)))
+
+    (#.Named name anonymous)
+    (check-jvm anonymous)
 
     (^template [<tag>]
       (<tag> id)
-      (////@wrap "java.lang.Object"))
+      (////@wrap (jvm.class "java.lang.Object" (list))))
     ([#.Var]
      [#.Ex])
 
@@ -394,16 +526,16 @@
 (def: (check-object objectT)
   (-> .Type (Operation Text))
   (do ////.monad
-    [name (check-jvm objectT)]
-    (if (dictionary.contains? name boxes)
+    [name (:: @ map jvm.reflection-class (check-jvm objectT))]
+    (if (dictionary.contains? name ..boxes)
       (/////analysis.throw ..primitives-are-not-objects [name])
       (////@wrap name))))
 
 (def: (check-return type)
   (-> .Type (Operation Text))
   (if (is? .Any type)
-    (////@wrap "void")
-    (check-jvm type)))
+    (////@wrap jvm.void-descriptor)
+    (////@map jvm.signature (check-jvm type))))
 
 (def: (read-primitive-array-handler lux-type jvm-type)
   (-> .Type Type Handler)
@@ -495,39 +627,49 @@
   Bundle
   (<| (///bundle.prefix "array")
       (|> ///bundle.empty
-          (///bundle.install "length" array::length)
+          (dictionary.merge (<| (///bundle.prefix "length")
+                                (|> ///bundle.empty
+                                    (///bundle.install jvm.boolean-reflection (primitive-array-length-handler jvm.boolean))
+                                    (///bundle.install jvm.byte-reflection (primitive-array-length-handler jvm.byte))
+                                    (///bundle.install jvm.short-reflection (primitive-array-length-handler jvm.short))
+                                    (///bundle.install jvm.int-reflection (primitive-array-length-handler jvm.int))
+                                    (///bundle.install jvm.long-reflection (primitive-array-length-handler jvm.long))
+                                    (///bundle.install jvm.float-reflection (primitive-array-length-handler jvm.float))
+                                    (///bundle.install jvm.double-reflection (primitive-array-length-handler jvm.double))
+                                    (///bundle.install jvm.char-reflection (primitive-array-length-handler jvm.char))
+                                    (///bundle.install "object" array::length::object))))
           (dictionary.merge (<| (///bundle.prefix "new")
                                 (|> ///bundle.empty
-                                    (///bundle.install "boolean" (new-primitive-array-handler jvm.boolean))
-                                    (///bundle.install "byte" (new-primitive-array-handler jvm.byte))
-                                    (///bundle.install "short" (new-primitive-array-handler jvm.short))
-                                    (///bundle.install "int" (new-primitive-array-handler jvm.int))
-                                    (///bundle.install "long" (new-primitive-array-handler jvm.long))
-                                    (///bundle.install "float" (new-primitive-array-handler jvm.float))
-                                    (///bundle.install "double" (new-primitive-array-handler jvm.double))
-                                    (///bundle.install "char" (new-primitive-array-handler jvm.char))
+                                    (///bundle.install jvm.boolean-reflection (new-primitive-array-handler jvm.boolean))
+                                    (///bundle.install jvm.byte-reflection (new-primitive-array-handler jvm.byte))
+                                    (///bundle.install jvm.short-reflection (new-primitive-array-handler jvm.short))
+                                    (///bundle.install jvm.int-reflection (new-primitive-array-handler jvm.int))
+                                    (///bundle.install jvm.long-reflection (new-primitive-array-handler jvm.long))
+                                    (///bundle.install jvm.float-reflection (new-primitive-array-handler jvm.float))
+                                    (///bundle.install jvm.double-reflection (new-primitive-array-handler jvm.double))
+                                    (///bundle.install jvm.char-reflection (new-primitive-array-handler jvm.char))
                                     (///bundle.install "object" array::new::object))))
           (dictionary.merge (<| (///bundle.prefix "read")
                                 (|> ///bundle.empty
-                                    (///bundle.install "boolean" (read-primitive-array-handler ..boolean jvm.boolean))
-                                    (///bundle.install "byte" (read-primitive-array-handler ..byte jvm.byte))
-                                    (///bundle.install "short" (read-primitive-array-handler ..short jvm.short))
-                                    (///bundle.install "int" (read-primitive-array-handler ..int jvm.int))
-                                    (///bundle.install "long" (read-primitive-array-handler ..long jvm.long))
-                                    (///bundle.install "float" (read-primitive-array-handler ..float jvm.float))
-                                    (///bundle.install "double" (read-primitive-array-handler ..double jvm.double))
-                                    (///bundle.install "char" (read-primitive-array-handler ..char jvm.char))
+                                    (///bundle.install jvm.boolean-reflection (read-primitive-array-handler ..boolean jvm.boolean))
+                                    (///bundle.install jvm.byte-reflection (read-primitive-array-handler ..byte jvm.byte))
+                                    (///bundle.install jvm.short-reflection (read-primitive-array-handler ..short jvm.short))
+                                    (///bundle.install jvm.int-reflection (read-primitive-array-handler ..int jvm.int))
+                                    (///bundle.install jvm.long-reflection (read-primitive-array-handler ..long jvm.long))
+                                    (///bundle.install jvm.float-reflection (read-primitive-array-handler ..float jvm.float))
+                                    (///bundle.install jvm.double-reflection (read-primitive-array-handler ..double jvm.double))
+                                    (///bundle.install jvm.char-reflection (read-primitive-array-handler ..char jvm.char))
                                     (///bundle.install "object" array::read::object))))
           (dictionary.merge (<| (///bundle.prefix "write")
                                 (|> ///bundle.empty
-                                    (///bundle.install "boolean" (write-primitive-array-handler ..boolean jvm.boolean))
-                                    (///bundle.install "byte" (write-primitive-array-handler ..byte jvm.byte))
-                                    (///bundle.install "short" (write-primitive-array-handler ..short jvm.short))
-                                    (///bundle.install "int" (write-primitive-array-handler ..int jvm.int))
-                                    (///bundle.install "long" (write-primitive-array-handler ..long jvm.long))
-                                    (///bundle.install "float" (write-primitive-array-handler ..float jvm.float))
-                                    (///bundle.install "double" (write-primitive-array-handler ..double jvm.double))
-                                    (///bundle.install "char" (write-primitive-array-handler ..char jvm.char))
+                                    (///bundle.install jvm.boolean-reflection (write-primitive-array-handler ..boolean jvm.boolean))
+                                    (///bundle.install jvm.byte-reflection (write-primitive-array-handler ..byte jvm.byte))
+                                    (///bundle.install jvm.short-reflection (write-primitive-array-handler ..short jvm.short))
+                                    (///bundle.install jvm.int-reflection (write-primitive-array-handler ..int jvm.int))
+                                    (///bundle.install jvm.long-reflection (write-primitive-array-handler ..long jvm.long))
+                                    (///bundle.install jvm.float-reflection (write-primitive-array-handler ..float jvm.float))
+                                    (///bundle.install jvm.double-reflection (write-primitive-array-handler ..double jvm.double))
+                                    (///bundle.install jvm.char-reflection (write-primitive-array-handler ..char jvm.char))
                                     (///bundle.install "object" array::write::object))))
           )))
 
@@ -727,11 +869,6 @@
       ## else
       (/////analysis.throw cannot-convert-to-a-class jvm-type)))
 
-(type: Mapping
-  (Dictionary Var .Type))
-
-(def: fresh-mapping Mapping (dictionary.new text.hash))
-
 (def: (java-type-to-lux-type mapping java-type)
   (-> Mapping java/lang/reflect/Type (Operation .Type))
   (<| (case (host.check TypeVariable java-type)
@@ -760,17 +897,25 @@
         (#.Some java-type)
         (let [java-type (:coerce (java/lang/Class java/lang/Object) java-type)
               class-name (java/lang/Class::getName java-type)]
-          (////@wrap (case (array.size (java/lang/Class::getTypeParameters java-type))
-                       0
-                       (case class-name
-                         "void"
-                         Any
+          (case (array.size (java/lang/Class::getTypeParameters java-type))
+            0
+            (case class-name
+              (^ (static jvm.void-reflection))
+              (////@wrap Any)
 
-                         _
-                         (#.Primitive class-name (list)))
-                       
-                       arity
-                       (|> (list.indices arity)
+              _
+              (if (text.starts-with? jvm.array-prefix class-name)
+                (case (<t>.run jvm.parse-signature (jvm.binary-name class-name))
+                  (#error.Success jtype)
+                  (typeA.with-env
+                    (jvm-type fresh-mapping jtype))
+                  
+                  (#error.Failure error)
+                  (/////analysis.fail error))
+                (////@wrap (#.Primitive class-name (list)))))
+            
+            arity
+            (////@wrap (|> (list.indices arity)
                            list.reverse
                            (list@map (|>> (n/* 2) inc #.Parameter))
                            (#.Primitive class-name)
@@ -832,8 +977,11 @@
                            (dictionary.from-list text.hash)))
             ))
 
+    (#.Named name anonymousT)
+    (correspond-type-params class anonymousT)
+
     _
-    (/////analysis.throw non-jvm-type type)))
+    (/////analysis.throw ..non-jvm-type type)))
 
 (def: (class-candiate-parents from-name fromT to-name to-class)
   (-> Text .Type Text (java/lang/Class java/lang/Object) (Operation (List [[Text .Type] Bit])))
@@ -861,7 +1009,7 @@
     (monad.map ////.monad
                (function (_ superT)
                  (do ////.monad
-                   [super-name (check-jvm superT)
+                   [super-name (:: @ map jvm.reflection-class (check-jvm superT))
                     super-class (load-class super-name)]
                    (wrap [[super-name superT]
                           (java/lang/Class::isAssignableFrom super-class to-class)])))
@@ -877,24 +1025,24 @@
       (^ (list fromC))
       (do ////.monad
         [toT (///.lift macro.expected-type)
-         to-name (check-jvm toT)
+         to-name (:: @ map jvm.reflection-class (check-jvm toT))
          [fromT fromA] (typeA.with-inference
                          (analyse fromC))
-         from-name (check-jvm fromT)
+         from-name (:: @ map jvm.reflection-class (check-jvm fromT))
          can-cast? (: (Operation Bit)
                       (case [from-name to-name]
                         (^template [<primitive> <object>]
-                          (^or [<primitive> <object>]
-                               [<object> <primitive>])
+                          (^or (^ [(static <primitive>) <object>])
+                               (^ [<object> (static <primitive>)]))
                           (wrap #1))
-                        (["boolean" "java.lang.Boolean"]
-                         ["byte"    "java.lang.Byte"]
-                         ["short"   "java.lang.Short"]
-                         ["int"     "java.lang.Integer"]
-                         ["long"    "java.lang.Long"]
-                         ["float"   "java.lang.Float"]
-                         ["double"  "java.lang.Double"]
-                         ["char"    "java.lang.Character"])
+                        ([jvm.boolean-reflection "java.lang.Boolean"]
+                         [jvm.byte-reflection    "java.lang.Byte"]
+                         [jvm.short-reflection   "java.lang.Short"]
+                         [jvm.int-reflection     "java.lang.Integer"]
+                         [jvm.long-reflection    "java.lang.Long"]
+                         [jvm.float-reflection   "java.lang.Float"]
+                         [jvm.double-reflection  "java.lang.Double"]
+                         [jvm.char-reflection    "java.lang.Character"])
 
                         _
                         (do @
@@ -1131,7 +1279,7 @@
 
 (def: reflection-arguments
   (-> (List Text) (Operation (List Text)))
-  (|>> (monad.map error.monad jvm.parse-signature)
+  (|>> (monad.map error.monad (<t>.run jvm.parse-signature))
        (:: error.monad map (list@map jvm.reflection-class))
        ////.lift))
 
@@ -1403,12 +1551,19 @@
                   _ (////.assert non-interface class-name
                                  (Modifier::isInterface (java/lang/Class::getModifiers class)))
                   [methodT exceptionsT] (method-candidate class-name method #Interface argsT)
-                  [outputT argsA] (inferenceA.general analyse methodT (list& objectC (list@map product.right argsTC)))
+                  [outputT allA] (inferenceA.general analyse methodT (list& objectC (list@map product.right argsTC)))
+                  #let [[objectA argsA] (case allA
+                                          (#.Cons objectA argsA)
+                                          [objectA argsA]
+
+                                          _
+                                          (undefined))]
                   outputJC (check-return outputT)]
                  (wrap (#/////analysis.Extension extension-name
                                                  (list& (/////analysis.text class-name)
                                                         (/////analysis.text method)
                                                         (/////analysis.text outputJC)
+                                                        objectA
                                                         (decorate-inputs argsT argsA))))))]))
 
 (def: invoke::constructor
@@ -1470,96 +1625,17 @@
   (Parser Class)
   (s.form (p.and s.text (p.some ..generic))))
 
-(exception: #export (unknown-jvm-type-var {var Var})
-  (exception.report
-   ["Var" (%t var)]))
-
-(def: (generic-type mapping generic)
-  (-> Mapping Generic (Check .Type))
-  (case generic
-    (#jvm.Var var)
-    (case (dictionary.get var mapping)
-      #.None
-      (check.throw unknown-jvm-type-var var)
-      
-      (#.Some type)
-      (check@wrap type))
-    
-    (#jvm.Wildcard wildcard)
-    (case wildcard
-      #.None
-      (do check.monad
-        [[id type] check.existential]
-        (wrap type))
-      
-      (#.Some [bound limit])
-      (do check.monad
-        [limitT (generic-type mapping limit)]
-        (case bound
-          #jvm.Lower
-          (wrap (lower-relationship-type limitT))
-          
-          #jvm.Upper
-          (wrap (upper-relationship-type limitT)))))
-    
-    (#jvm.Class name parameters)
-    (do check.monad
-      [parametersT+ (monad.map @ (generic-type mapping) parameters)]
-      (wrap (#.Primitive name parametersT+)))))
-
-(def: (class-type mapping [name parameters])
-  (-> Mapping Class (Check .Type))
-  (do check.monad
-    [parametersT+ (monad.map @ (generic-type mapping) parameters)]
-    (wrap (#.Primitive name parametersT+))))
-
-(def: (jvm-type mapping type)
-  (-> Mapping Type (Check .Type))
-  (case type
-    (#jvm.Primitive primitive)
-    (check@wrap (case primitive
-                  #jvm.Boolean ..boolean
-                  #jvm.Byte ..byte
-                  #jvm.Short ..short
-                  #jvm.Int ..int
-                  #jvm.Long ..long
-                  #jvm.Float ..float
-                  #jvm.Double ..double
-                  #jvm.Char ..char))
-    
-    (#jvm.Generic generic)
-    (generic-type mapping generic)
-    
-    (#jvm.Array type)
-    (case type
-      (#jvm.Primitive primitive)
-      (check@wrap (#.Primitive (jvm.descriptor (jvm.array 1 type)) (list)))
-
-      _
-      (do check.monad
-        [elementT (jvm-type mapping type)]
-        (wrap (.type (Array elementT)))))))
-
-(def: (return-type mapping type)
-  (-> Mapping Return (Check .Type))
-  (case type
-    #.None
-    (check@wrap Any)
-
-    (#.Some type)
-    (jvm-type mapping type)))
-
 (def: primitive
   (Parser Primitive)
   ($_ p.or
-      (s.identifier! ["" "boolean"])
-      (s.identifier! ["" "byte"])
-      (s.identifier! ["" "short"])
-      (s.identifier! ["" "int"])
-      (s.identifier! ["" "long"])
-      (s.identifier! ["" "float"])
-      (s.identifier! ["" "double"])
-      (s.identifier! ["" "char"])
+      (s.identifier! ["" jvm.boolean-reflection])
+      (s.identifier! ["" jvm.byte-reflection])
+      (s.identifier! ["" jvm.short-reflection])
+      (s.identifier! ["" jvm.int-reflection])
+      (s.identifier! ["" jvm.long-reflection])
+      (s.identifier! ["" jvm.float-reflection])
+      (s.identifier! ["" jvm.double-reflection])
+      (s.identifier! ["" jvm.char-reflection])
       ))
 
 (def: type
@@ -1595,7 +1671,7 @@
 
 (def: return
   (Parser Return)
-  (p.or (s.identifier! ["" "void"])
+  (p.or (s.identifier! ["" jvm.void-reflection])
         ..type))
 
 (type: #export (Overriden-Method a)
@@ -1677,14 +1753,14 @@
   (case type
     (#jvm.Primitive primitive)
     (case primitive
-      #jvm.Boolean (/////analysis.constant ["" "boolean"])
-      #jvm.Byte (/////analysis.constant ["" "byte"])
-      #jvm.Short (/////analysis.constant ["" "short"])
-      #jvm.Int (/////analysis.constant ["" "int"])
-      #jvm.Long (/////analysis.constant ["" "long"])
-      #jvm.Float (/////analysis.constant ["" "float"])
-      #jvm.Double (/////analysis.constant ["" "double"])
-      #jvm.Char (/////analysis.constant ["" "char"]))
+      #jvm.Boolean (/////analysis.constant ["" jvm.boolean-reflection])
+      #jvm.Byte (/////analysis.constant ["" jvm.byte-reflection])
+      #jvm.Short (/////analysis.constant ["" jvm.short-reflection])
+      #jvm.Int (/////analysis.constant ["" jvm.int-reflection])
+      #jvm.Long (/////analysis.constant ["" jvm.long-reflection])
+      #jvm.Float (/////analysis.constant ["" jvm.float-reflection])
+      #jvm.Double (/////analysis.constant ["" jvm.double-reflection])
+      #jvm.Char (/////analysis.constant ["" jvm.char-reflection]))
     
     (#jvm.Generic generic)
     (generic-analysis generic)
@@ -1696,7 +1772,7 @@
   (-> Return Analysis)
   (case return
     #.None
-    (/////analysis.constant ["" "void"])
+    (/////analysis.constant ["" jvm.void-descriptor])
     
     (#.Some type)
     (type-analysis type)))

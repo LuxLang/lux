@@ -9,13 +9,13 @@
     ["." text
      format]
     [collection
-     ["." list ("#/." functor monoid)]]]
+     ["." list ("#@." functor monoid)]]]
    [target
-    [jvm
-     ["." type (#+ Type Method)]]]
+    ["." jvm #_
+     ["#" type (#+ Type Method)]]]
    [tool
     [compiler
-     [analysis (#+ Arity)]
+     [analysis (#+ Arity Environment)]
      [synthesis (#+ Synthesis Abstraction Apply)]
      ["_." reference (#+ Register Variable)]
      ["." phase
@@ -30,9 +30,8 @@
    ["." runtime]
    ["." reference]])
 
-
 (def: arity-field Text "arity")
-(def: $Object Type (type.class "java.lang.Object" (list)))
+(def: $Object Type (jvm.class "java.lang.Object" (list)))
 
 (def: (poly-arg? arity)
   (-> Arity Bit)
@@ -40,29 +39,29 @@
 
 (def: (reset-method class)
   (-> Text Method)
-  (type.method (list) (#.Some (type.class class (list))) (list)))
+  (jvm.method (list) (#.Some (jvm.class class (list))) (list)))
 
 (def: (captured-args env)
-  (-> (List Variable) (List Type))
+  (-> Environment (List Type))
   (list.repeat (list.size env) $Object))
 
 (def: (init-method env arity)
-  (-> (List Variable) Arity Method)
+  (-> Environment Arity Method)
   (if (poly-arg? arity)
-    (type.method (list.concat (list (captured-args env)
-                                    (list type.int)
-                                    (list.repeat (dec arity) $Object)))
-                 #.None
-                 (list))
-    (type.method (captured-args env) #.None (list))))
+    (jvm.method (list.concat (list (captured-args env)
+                                   (list jvm.int)
+                                   (list.repeat (dec arity) $Object)))
+                #.None
+                (list))
+    (jvm.method (captured-args env) #.None (list))))
 
 (def: (implementation-method arity)
-  (type.method (list.repeat arity $Object) (#.Some $Object) (list)))
+  (jvm.method (list.repeat arity $Object) (#.Some $Object) (list)))
 
 (def: get-amount-of-partialsI
   Inst
   (|>> (_.ALOAD 0)
-       (_.GETFIELD //.function-class runtime.partials-field type.int)))
+       (_.GETFIELD //.function-class runtime.partials-field jvm.int)))
 
 (def: (load-fieldI class field)
   (-> Text Text Inst)
@@ -72,7 +71,7 @@
 (def: (inputsI start amount)
   (-> Register Nat Inst)
   (|> (list.n/range start (n/+ start (dec amount)))
-      (list/map _.ALOAD)
+      (list@map _.ALOAD)
       _.fuse))
 
 (def: (applysI start amount)
@@ -97,24 +96,24 @@
       (list.repeat amount)
       _.fuse))
 
-(def: (with-captured env)
-  (-> (List Variable) Def)
-  (|> (list.enumerate env)
-      (list/map (.function (_ [env-idx env-source])
-                  (def.field #$.Private $.finalF (reference.foreign-name env-idx) $Object)))
-      def.fuse))
+(def: #export with-environment
+  (-> Environment Def)
+  (|>> list.enumerate
+       (list@map (.function (_ [env-idx env-source])
+                   (def.field #$.Private $.finalF (reference.foreign-name env-idx) $Object)))
+       def.fuse))
 
 (def: (with-partial arity)
   (-> Arity Def)
   (if (poly-arg? arity)
     (|> (list.n/range 0 (n/- 2 arity))
-        (list/map (.function (_ idx)
+        (list@map (.function (_ idx)
                     (def.field #$.Private $.finalF (reference.partial-name idx) $Object)))
         def.fuse)
     function.identity))
 
 (def: (instance class arity env)
-  (-> Text Arity (List Variable) (Operation Inst))
+  (-> Text Arity Environment (Operation Inst))
   (do phase.monad
     [captureI+ (monad.map @ reference.variable env)
      #let [argsI (if (poly-arg? arity)
@@ -129,14 +128,14 @@
                (_.INVOKESPECIAL class "<init>" (init-method env arity) #0)))))
 
 (def: (with-reset class arity env)
-  (-> Text Arity (List Variable) Def)
+  (-> Text Arity Environment Def)
   (def.method #$.Public $.noneM "reset" (reset-method class)
               (if (poly-arg? arity)
                 (let [env-size (list.size env)
                       captureI (|> (case env-size
                                      0 (list)
                                      _ (list.n/range 0 (dec env-size)))
-                                   (list/map (.function (_ source)
+                                   (list@map (.function (_ source)
                                                (|>> (_.ALOAD 0)
                                                     (_.GETFIELD class (reference.foreign-name source) $Object))))
                                    _.fuse)
@@ -161,7 +160,7 @@
 
 (def: function-init-method
   Method
-  (type.method (list type.int) #.None (list)))
+  (jvm.method (list jvm.int) #.None (list)))
 
 (def: (function-init arity env-size)
   (-> Arity Nat Inst)
@@ -172,21 +171,21 @@
          (_.INVOKESPECIAL //.function-class "<init>" function-init-method #0))))
 
 (def: (with-init class env arity)
-  (-> Text (List Variable) Arity Def)
+  (-> Text Environment Arity Def)
   (let [env-size (list.size env)
         offset-partial (: (-> Nat Nat)
                           (|>> inc (n/+ env-size)))
         store-capturedI (|> (case env-size
                               0 (list)
                               _ (list.n/range 0 (dec env-size)))
-                            (list/map (.function (_ register)
+                            (list@map (.function (_ register)
                                         (|>> (_.ALOAD 0)
                                              (_.ALOAD (inc register))
                                              (_.PUTFIELD class (reference.foreign-name register) $Object))))
                             _.fuse)
         store-partialI (if (poly-arg? arity)
                          (|> (list.n/range 0 (n/- 2 arity))
-                             (list/map (.function (_ idx)
+                             (list@map (.function (_ idx)
                                          (let [register (offset-partial idx)]
                                            (|>> (_.ALOAD 0)
                                                 (_.ALOAD (inc register))
@@ -201,18 +200,18 @@
                      _.RETURN))))
 
 (def: (with-apply class env function-arity @begin bodyI apply-arity)
-  (-> Text (List Variable) Arity Label Inst Arity
+  (-> Text Environment Arity Label Inst Arity
       Def)
   (let [num-partials (dec function-arity)
         @default ($.new-label [])
-        @labels (list/map $.new-label (list.repeat num-partials []))
+        @labels (list@map $.new-label (list.repeat num-partials []))
         arity-over-extent (|> (.int function-arity) (i/- (.int apply-arity)))
-        casesI (|> (list/compose @labels (list @default))
+        casesI (|> (list@compose @labels (list @default))
                    (list.zip2 (list.n/range 0 num-partials))
-                   (list/map (.function (_ [stage @label])
+                   (list@map (.function (_ [stage @label])
                                (let [load-partialsI (if (n/> 0 stage)
                                                       (|> (list.n/range 0 (dec stage))
-                                                          (list/map (|>> reference.partial-name (load-fieldI class)))
+                                                          (list@map (|>> reference.partial-name (load-fieldI class)))
                                                           _.fuse)
                                                       function.identity)]
                                  (cond (i/= arity-over-extent (.int stage))
@@ -242,7 +241,7 @@
                                              load-capturedI (|> (case env-size
                                                                   0 (list)
                                                                   _ (list.n/range 0 (dec env-size)))
-                                                                (list/map (|>> reference.foreign-name (load-fieldI class)))
+                                                                (list@map (|>> reference.foreign-name (load-fieldI class)))
                                                                 _.fuse)]
                                          (|>> (_.label @label)
                                               (_.NEW class)
@@ -262,20 +261,20 @@
                      (_.TABLESWITCH +0 (|> num-partials dec .int)
                                     @default @labels)
                      casesI
-                     (_.INVOKESTATIC //.runtime-class "apply_fail" (type.method (list) #.None (list)) #0)
+                     (_.INVOKESTATIC //.runtime-class "apply_fail" (jvm.method (list) #.None (list)) #0)
                      _.NULL
                      _.ARETURN
                      ))))
 
 (def: #export (with-function @begin class env arity bodyI)
-  (-> Label Text (List Variable) Arity Inst
+  (-> Label Text Environment Arity Inst
       (Operation [Def Inst]))
   (let [env-size (list.size env)
         applyD (: Def
                   (if (poly-arg? arity)
                     (|> (n/min arity runtime.num-apply-variants)
                         (list.n/range 1)
-                        (list/map (with-apply class env arity @begin bodyI))
+                        (list@map (with-apply class env arity @begin bodyI))
                         (list& (with-implementation arity @begin bodyI))
                         def.fuse)
                     (def.method #$.Public $.strictM runtime.apply-method (runtime.apply-signature 1)
@@ -284,7 +283,7 @@
                                      _.ARETURN))))
         functionD (: Def
                      (|>> (def.int-field #$.Public ($_ $.++F $.staticF $.finalF) arity-field (.int arity))
-                          (with-captured env)
+                          (with-environment env)
                           (with-partial arity)
                           (with-init class env arity)
                           (with-reset class arity env)
@@ -323,7 +322,7 @@
     [functionI (translate functionS)
      argsI (monad.map @ translate argsS)
      #let [applyI (|> (segment runtime.num-apply-variants argsI)
-                      (list/map (.function (_ chunkI+)
+                      (list@map (.function (_ chunkI+)
                                   (|>> (_.CHECKCAST //.function-class)
                                        (_.fuse chunkI+)
                                        (_.INVOKEVIRTUAL //.function-class runtime.apply-method (runtime.apply-signature (list.size chunkI+)) #0))))

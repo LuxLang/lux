@@ -1811,27 +1811,27 @@
                         {type (..type^ imports (list))}
                         size)
   {#.doc (doc "Create an array of the given type, with the given size."
-              (array Object 10))}
-  (case type
-    (^template [<primitive> <array-op>]
-      (^ (#jvm.Primitive <primitive>))
-      (wrap (list (` (<array-op> (~ size))))))
-    ([#jvm.Boolean "jvm znewarray"]
-     [#jvm.Byte    "jvm bnewarray"]
-     [#jvm.Short   "jvm snewarray"]
-     [#jvm.Int     "jvm inewarray"]
-     [#jvm.Long    "jvm lnewarray"]
-     [#jvm.Float   "jvm fnewarray"]
-     [#jvm.Double  "jvm dnewarray"]
-     [#jvm.Char    "jvm cnewarray"])
+              (array java/lang/Object 10))}
+  (let [g!size (` (|>  (~ size)
+                       (.: .Nat)
+                       (.:coerce (.primitive "java.lang.Long"))
+                       "jvm object cast"
+                       "jvm conversion long-to-int"))]
+    (case type
+      (^template [<primitive> <array-op>]
+        (^ (#jvm.Primitive <primitive>))
+        (wrap (list (` (<array-op> (~ g!size))))))
+      ([#jvm.Boolean "jvm array new boolean"]
+       [#jvm.Byte    "jvm array new byte"]
+       [#jvm.Short   "jvm array new short"]
+       [#jvm.Int     "jvm array new int"]
+       [#jvm.Long    "jvm array new long"]
+       [#jvm.Float   "jvm array new float"]
+       [#jvm.Double  "jvm array new double"]
+       [#jvm.Char    "jvm array new char"])
 
-    _
-    (wrap (list (` ("jvm anewarray" (~ (type$ type)) (~ size)))))))
-
-(syntax: #export (array-length array)
-  {#.doc (doc "Gives the length of an array."
-              (array-length my-array))}
-  (wrap (list (` ("jvm arraylength" (~ array))))))
+      _
+      (wrap (list (` ("jvm array new object" (~ (type$ type)) (~ g!size))))))))
 
 (def: (type->class-name type)
   (-> .Type (Meta Text))
@@ -1855,6 +1855,35 @@
       _
       (macro.fail (format "Cannot convert to JVM type: " (type.to-text type))))))
 
+(syntax: #export (array-length array)
+  {#.doc (doc "Gives the length of an array."
+              (array-length my-array))}
+  (case array
+    [_ (#.Identifier array-name)]
+    (do macro.monad
+      [array-type (macro.find-type array-name)
+       array-jvm-type (type->class-name array-type)
+       #let [g!extension (code.text (case array-jvm-type
+                                      "[Z" "jvm array length boolean"
+                                      "[B" "jvm array length byte"
+                                      "[S" "jvm array length short"
+                                      "[I" "jvm array length int"
+                                      "[J" "jvm array length long"
+                                      "[F" "jvm array length float"
+                                      "[D" "jvm array length double"
+                                      "[C" "jvm array length char"
+                                      _ "jvm array length object"))]]
+      (wrap (list (` (.|> ((~ g!extension) (~ array))
+                          "jvm conversion int-to-long"
+                          "jvm object cast"
+                          (.: (.primitive "java.lang.Long"))
+                          (.:coerce .Nat))))))
+
+    _
+    (with-gensyms [g!array]
+      (wrap (list (` (let [(~ g!array) (~ array)]
+                       (..array-length (~ g!array)))))))))
+
 (syntax: #export (array-read idx array)
   {#.doc (doc "Loads an element from an array."
               (array-read 10 my-array))}
@@ -1862,22 +1891,29 @@
     [_ (#.Identifier array-name)]
     (do macro.monad
       [array-type (macro.find-type array-name)
-       array-jvm-type (type->class-name array-type)]
+       array-jvm-type (type->class-name array-type)
+       #let [g!idx (` (.|> (~ idx)
+                           (.: .Nat)
+                           (.:coerce (.primitive "java.lang.Long"))
+                           "jvm object cast"
+                           "jvm conversion long-to-int"))]]
       (case array-jvm-type
-        (^template [<type> <array-op>]
+        (^template [<type> <array-op> <box>]
           <type>
-          (wrap (list (` (<array-op> (~ array) (~ idx))))))
-        (["[Z" "jvm zaload"]
-         ["[B" "jvm baload"]
-         ["[S" "jvm saload"]
-         ["[I" "jvm iaload"]
-         ["[J" "jvm jaload"]
-         ["[F" "jvm faload"]
-         ["[D" "jvm daload"]
-         ["[C" "jvm caload"])
+          (wrap (list (` (.|> (<array-op> (~ g!idx) (~ array))
+                              "jvm object cast"
+                              (.: (.primitive <box>)))))))
+        (["[Z" "jvm array read boolean" "java.lang.Boolean"]
+         ["[B" "jvm array read byte" "java.lang.Byte"]
+         ["[S" "jvm array read short" "java.lang.Short"]
+         ["[I" "jvm array read int" "java.lang.Integer"]
+         ["[J" "jvm array read long" "java.lang.Long"]
+         ["[F" "jvm array read float" "java.lang.Float"]
+         ["[D" "jvm array read double" "java.lang.Double"]
+         ["[C" "jvm array read char" "java.lang.Character"])
 
         _
-        (wrap (list (` ("jvm aaload" (~ array) (~ idx)))))))
+        (wrap (list (` ("jvm array read object" (~ g!idx) (~ array)))))))
 
     _
     (with-gensyms [g!array]
@@ -1891,22 +1927,30 @@
     [_ (#.Identifier array-name)]
     (do macro.monad
       [array-type (macro.find-type array-name)
-       array-jvm-type (type->class-name array-type)]
+       array-jvm-type (type->class-name array-type)
+       #let [g!idx (` (.|> (~ idx)
+                           (.: .Nat)
+                           (.:coerce (.primitive "java.lang.Long"))
+                           "jvm object cast"
+                           "jvm conversion long-to-int"))]]
       (case array-jvm-type
-        (^template [<type> <array-op>]
+        (^template [<type> <array-op> <box>]
           <type>
-          (wrap (list (` (<array-op> (~ array) (~ idx) (~ value))))))
-        (["[Z" "jvm zastore"]
-         ["[B" "jvm bastore"]
-         ["[S" "jvm sastore"]
-         ["[I" "jvm iastore"]
-         ["[J" "jvm jastore"]
-         ["[F" "jvm fastore"]
-         ["[D" "jvm dastore"]
-         ["[C" "jvm castore"])
+          (let [g!value (` (.|> (~ value)
+                                (.:coerce (.primitive <box>))
+                                "jvm object cast"))]
+            (wrap (list (` (<array-op> (~ g!idx) (~ g!value) (~ array)))))))
+        (["[Z" "jvm array write boolean" "java.lang.Boolean"]
+         ["[B" "jvm array write byte" "java.lang.Byte"]
+         ["[S" "jvm array write short" "java.lang.Short"]
+         ["[I" "jvm array write int" "java.lang.Integer"]
+         ["[J" "jvm array write long" "java.lang.Long"]
+         ["[F" "jvm array write float" "java.lang.Float"]
+         ["[D" "jvm array write double" "java.lang.Double"]
+         ["[C" "jvm array write char" "java.lang.Character"])
 
         _
-        (wrap (list (` ("jvm aastore" (~ array) (~ idx) (~ value)))))))
+        (wrap (list (` ("jvm array write object" (~ g!idx) (~ value) (~ array)))))))
 
     _
     (with-gensyms [g!array]
