@@ -22,8 +22,9 @@
      ["." list ("#@." monad fold monoid)]
      ["." dictionary (#+ Dictionary)]]]
    ["." macro (#+ with-gensyms)
+    [syntax (#+ syntax:)]
     ["." code]
-    [syntax (#+ syntax:)]]
+    ["." template]]
    [target
     ["." jvm #_
      ["#" type (#+ Primitive Var Bound Class Generic Type Argument Return Typed)]]]])
@@ -1490,79 +1491,63 @@
   (-> Var Code)
   code.local-identifier)
 
-(template [<name> <unbox/box>
-           <byte> <for-byte>
-           <short> <for-short>
-           <int> <for-int>
-           <float> <for-float>]
+(template [<input?> <name> <unbox/box> <special+>]
   [(def: (<name> mode [unboxed raw])
      (-> Primitive-Mode [Text Code] Code)
-     (let [[unboxed refined] (case mode
-                               #ManualPrM
-                               [unboxed raw]
-                               
-                               #AutoPrM
-                               (case unboxed
-                                 (^ (static jvm.byte-descriptor))
-                                 [<byte> (` (<for-byte> (~ raw)))]
-                                 
-                                 (^ (static jvm.short-descriptor))
-                                 [<short> (` (<for-short> (~ raw)))]
-                                 
-                                 (^ (static jvm.int-descriptor))
-                                 [<int> (` (<for-int> (~ raw)))]
-                                 
-                                 (^ (static jvm.float-descriptor))
-                                 [<float> (` (<for-float> (~ raw)))]
-                                 
-                                 _
-                                 [unboxed raw]))]
-       (case (dictionary.get unboxed boxes)
-         (#.Some boxed)
-         (<unbox/box> unboxed boxed refined)
-         
-         #.None
-         refined)))]
+     (let [[unboxed refined post] (: [Text Code (List Code)]
+                                     (case mode
+                                       #ManualPrM
+                                       [unboxed raw (list)]
+                                       
+                                       #AutoPrM
+                                       (`` (case unboxed
+                                             (^template [<old> <new> <pre> <post>]
+                                               (^ (static <old>))
+                                               (with-expansions [<post>' (template.splice <post>)]
+                                                 [<new>
+                                                  (` (.|> (~ raw) (~+ <pre>)))
+                                                  (list <post>')]))
+                                             ((~~ (template.splice <special+>)))
+                                             
+                                             _
+                                             [unboxed
+                                              (if <input?>
+                                                (` ("jvm object cast" (~ raw)))
+                                                raw)
+                                              (list)]))))
+           unboxed/boxed (case (dictionary.get unboxed boxes)
+                           (#.Some boxed)
+                           (<unbox/box> unboxed boxed refined)
+                           
+                           #.None
+                           refined)
+           post-processed (case post
+                            #.Nil
+                            unboxed/boxed
 
-  [auto-convert-input ..unbox
-   jvm.byte-descriptor ..long-to-byte
-   jvm.short-descriptor ..long-to-short
-   jvm.int-descriptor ..long-to-int
-   jvm.float-descriptor ..double-to-float]
-  [auto-convert-output ..box
-   jvm.long-descriptor "jvm conversion byte-to-long"
-   jvm.long-descriptor "jvm conversion short-to-long"
-   jvm.long-descriptor "jvm conversion int-to-long"
-   jvm.double-descriptor "jvm conversion float-to-double"]
+                            _
+                            (` (.|> (~ unboxed/boxed) (~+ post))))]
+       post-processed))]
+
+  [#1 auto-convert-input ..unbox
+   [[jvm.byte-descriptor jvm.byte-descriptor (list (` (.: .Int)) (` (.:coerce (.primitive "java.lang.Long"))) (` ..long-to-byte)) []]
+    [jvm.short-descriptor jvm.short-descriptor (list (` (.: .Int)) (` (.:coerce (.primitive "java.lang.Long"))) (` ..long-to-short)) []]
+    [jvm.int-descriptor jvm.int-descriptor (list (` (.: .Int)) (` (.:coerce (.primitive "java.lang.Long"))) (` ..long-to-int)) []]
+    [jvm.long-descriptor jvm.long-descriptor (list (` (.: .Int)) (` (.:coerce (.primitive "java.lang.Long")))) []]
+    [jvm.float-descriptor jvm.float-descriptor (list (` (.: .Frac)) (` (.:coerce (.primitive "java.lang.Double"))) (` ..double-to-float)) []]
+    [jvm.double-descriptor jvm.double-descriptor (list (` (.: .Frac)) (` (.:coerce (.primitive "java.lang.Double")))) []]]]
+  [#0 auto-convert-output ..box
+   [[jvm.byte-descriptor jvm.long-descriptor (list (` "jvm conversion byte-to-long")) [(` (.: (.primitive "java.lang.Long"))) (` (.:coerce .Int))]]
+    [jvm.short-descriptor jvm.long-descriptor (list (` "jvm conversion short-to-long")) [(` (.: (.primitive "java.lang.Long"))) (` (.:coerce .Int))]]
+    [jvm.int-descriptor jvm.long-descriptor (list (` "jvm conversion int-to-long")) [(` (.: (.primitive "java.lang.Long"))) (` (.:coerce .Int))]]
+    [jvm.long-descriptor jvm.long-descriptor (list) [(` (.: (.primitive "java.lang.Long"))) (` (.:coerce .Int))]]
+    [jvm.float-descriptor jvm.double-descriptor (list (` "jvm conversion float-to-double")) [(` (.: (.primitive "java.lang.Double"))) (` (.:coerce .Frac))]]
+    [jvm.double-descriptor jvm.double-descriptor (list) [(` (.: (.primitive "java.lang.Double"))) (` (.:coerce .Frac))]]]]
   )
 
 (def: (un-quote quoted)
   (-> Code Code)
   (` ((~' ~) (~ quoted))))
-
-(def: (jvm-input [unboxed raw])
-  (-> [Text Code] [Text Code])
-  [unboxed (case unboxed
-             (^ (static jvm.byte-descriptor))
-             (` (.:coerce (.primitive "java.lang.Long") (.: .Int (~ raw))))
-             
-             (^ (static jvm.short-descriptor))
-             (` (.:coerce (.primitive "java.lang.Long") (.: .Int (~ raw))))
-             
-             (^ (static jvm.int-descriptor))
-             (` (.:coerce (.primitive "java.lang.Long") (.: .Int (~ raw))))
-             
-             (^ (static jvm.long-descriptor))
-             (` (.:coerce (.primitive "java.lang.Long") (.: .Int (~ raw))))
-             
-             (^ (static jvm.float-descriptor))
-             (` (.:coerce (.primitive "java.lang.Double") (.: .Frac (~ raw))))
-             
-             (^ (static jvm.double-descriptor))
-             (` (.:coerce (.primitive "java.lang.Double") (.: .Frac (~ raw))))
-             
-             _
-             (` ("jvm object cast" (~ raw))))])
 
 (def: (jvm-invoke-inputs mode classes inputs)
   (-> Primitive-Mode (List Text) (List [Bit Code]) (List Code))
@@ -1572,7 +1557,7 @@
                     (` ((~! !!!) (~ (un-quote input))))
                     (un-quote input))))
       (list.zip2 classes)
-      (list@map (|>> jvm-input (auto-convert-input mode)))))
+      (list@map (auto-convert-input mode))))
 
 (def: (with-class-type class expression)
   (-> Text Code Code)
@@ -1695,7 +1680,6 @@
                                                    (` ((~ setter-name) (~ g!value)))
                                                    (` ((~ setter-name) (~ g!value) (~ g!obj))))
                                      setter-value (|> [(jvm.signature import-field-type) (un-quote g!value)]
-                                                      ..jvm-input
                                                       (auto-convert-input import-field-mode))
                                      setter-value (if import-field-maybe?
                                                     (` ((~! !!!) (~ setter-value)))

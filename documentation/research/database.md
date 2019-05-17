@@ -168,6 +168,7 @@
 1. https://www.slideshare.net/RoiLipman/graph-algebra
 1. https://juxt.pro/crux/docs/index.html
 1. https://github.com/juxt/crux
+1. [The Crux of Bitemporality - Jon Pither](https://www.youtube.com/watch?v=3Stja6YUB94)
 
 ## Column
 
