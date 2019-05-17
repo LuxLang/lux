@@ -1,10 +1,12 @@
 (.module:
   [lux (#- i64)
+   ["." host (#+ import:)]
+   ["@" target]
    [abstract
     [monad (#+ do)]
     [equivalence (#+ Equivalence)]]
    [control
-    ["ex" exception (#+ exception:)]]
+    ["." exception (#+ exception:)]]
    [data
     ["." maybe]
     ["." error (#+ Error)]
@@ -13,31 +15,47 @@
     [text
      format]
     [collection
-     [array (#+ Array)]]]
-   ["." host (#+ import:)]])
+     [array (#+ Array)]]]])
 
 (exception: #export (index-out-of-bounds {size Nat} {index Nat})
-  (ex.report ["Size" (%n size)]
-             ["Index" (%n index)]))
+  (exception.report
+   ["Size" (%n size)]
+   ["Index" (%n index)]))
 
 (template [<name>]
   [(exception: #export (<name> {size Nat} {from Nat} {to Nat})
-     (ex.report ["Size" (%n size)]
-                ["From" (%n from)]
-                ["To" (%n to)]))]
+     (exception.report
+      ["Size" (%n size)]
+      ["From" (%n from)]
+      ["To" (%n to)]))]
 
   [slice-out-of-bounds]
   [inverted-slice]
   )
 
-(type: #export Binary (host.type (Array byte)))
+(`` (for {(~~ (static @.old))
+          (as-is (type: #export Binary (host.type (Array byte)))
 
-(import: java/lang/System
-  (#static arraycopy [Object int Object int int] #try void))
+                 (import: #long java/lang/Object)
 
-(import: java/util/Arrays
-  (#static copyOfRange [(Array byte) int int] (Array byte))
-  (#static equals [(Array byte) (Array byte)] boolean))
+                 (import: #long java/lang/System
+                   (#static arraycopy [java/lang/Object int java/lang/Object int int] #try void))
+
+                 (import: #long java/util/Arrays
+                   (#static copyOfRange [(Array byte) int int] (Array byte))
+                   (#static equals [(Array byte) (Array byte)] boolean)))
+
+          (~~ (static @.jvm))
+          (as-is (type: #export Binary (host.type [byte]))
+
+                 (import: #long java/lang/Object)
+                 
+                 (import: #long java/lang/System
+                   (#static arraycopy [java/lang/Object int java/lang/Object int int] #try void))
+
+                 (import: #long java/util/Arrays
+                   (#static copyOfRange [[byte] int int] [byte])
+                   (#static equals [[byte] [byte]] boolean)))}))
 
 (def: byte-mask
   I64
@@ -49,24 +67,36 @@
 
 (def: byte
   (-> (I64 Any) (primitive "java.lang.Byte"))
-  (|>> .int host.long-to-byte))
+  (`` (for {(~~ (static @.old))
+            (|>> .int host.long-to-byte)
+
+            (~~ (static @.jvm))
+            (|>> .int (:coerce (primitive "java.lang.Long")) host.long-to-byte)})))
 
 (template: (!size binary)
-  (host.array-length binary))
+  (`` (for {(~~ (static @.old))
+            (host.array-length binary)
+
+            (~~ (static @.jvm))
+            (host.array-length binary)})))
 
 (def: #export size
   (-> Binary Nat)
   (|>> !size))
 
-(def: #export (create size)
+(def: #export create
   (-> Nat Binary)
-  (host.array byte size))
+  (`` (for {(~~ (static @.old))
+            (|>> (host.array byte))
+
+            (~~ (static @.jvm))
+            (|>> (host.array byte))})))
 
 (def: #export (read/8 idx binary)
   (-> Nat Binary (Error I64))
   (if (n/< (..!size binary) idx)
     (#error.Success (..i64 (host.array-read idx binary)))
-    (ex.throw index-out-of-bounds [(..!size binary) idx])))
+    (exception.throw index-out-of-bounds [(..!size binary) idx])))
 
 (def: #export (read/16 idx binary)
   (-> Nat Binary (Error I64))
@@ -74,7 +104,7 @@
     (#error.Success ($_ i64.or
                         (i64.left-shift 8 (..i64 (host.array-read idx binary)))
                         (..i64 (host.array-read (n/+ 1 idx) binary))))
-    (ex.throw index-out-of-bounds [(..!size binary) idx])))
+    (exception.throw index-out-of-bounds [(..!size binary) idx])))
 
 (def: #export (read/32 idx binary)
   (-> Nat Binary (Error I64))
@@ -84,7 +114,7 @@
                         (i64.left-shift 16 (..i64 (host.array-read (n/+ 1 idx) binary)))
                         (i64.left-shift 8 (..i64 (host.array-read (n/+ 2 idx) binary)))
                         (..i64 (host.array-read (n/+ 3 idx) binary))))
-    (ex.throw index-out-of-bounds [(..!size binary) idx])))
+    (exception.throw index-out-of-bounds [(..!size binary) idx])))
 
 (def: #export (read/64 idx binary)
   (-> Nat Binary (Error I64))
@@ -98,7 +128,7 @@
                         (i64.left-shift 16 (..i64 (host.array-read (n/+ 5 idx) binary)))
                         (i64.left-shift 8 (..i64 (host.array-read (n/+ 6 idx) binary)))
                         (..i64 (host.array-read (n/+ 7 idx) binary))))
-    (ex.throw index-out-of-bounds [(..!size binary) idx])))
+    (exception.throw index-out-of-bounds [(..!size binary) idx])))
 
 (def: #export (write/8 idx value binary)
   (-> Nat (I64 Any) Binary (Error Binary))
@@ -106,7 +136,7 @@
     (exec (|> binary
               (host.array-write idx (..byte value)))
       (#error.Success binary))
-    (ex.throw index-out-of-bounds [(..!size binary) idx])))
+    (exception.throw index-out-of-bounds [(..!size binary) idx])))
 
 (def: #export (write/16 idx value binary)
   (-> Nat (I64 Any) Binary (Error Binary))
@@ -115,7 +145,7 @@
               (host.array-write idx (..byte (i64.logic-right-shift 8 value)))
               (host.array-write (n/+ 1 idx) (..byte value)))
       (#error.Success binary))
-    (ex.throw index-out-of-bounds [(..!size binary) idx])))
+    (exception.throw index-out-of-bounds [(..!size binary) idx])))
 
 (def: #export (write/32 idx value binary)
   (-> Nat (I64 Any) Binary (Error Binary))
@@ -126,7 +156,7 @@
               (host.array-write (n/+ 2 idx) (..byte (i64.logic-right-shift 8 value)))
               (host.array-write (n/+ 3 idx) (..byte value)))
       (#error.Success binary))
-    (ex.throw index-out-of-bounds [(..!size binary) idx])))
+    (exception.throw index-out-of-bounds [(..!size binary) idx])))
 
 (def: #export (write/64 idx value binary)
   (-> Nat (I64 Any) Binary (Error Binary))
@@ -141,20 +171,20 @@
               (host.array-write (n/+ 6 idx) (..byte (i64.logic-right-shift 8 value)))
               (host.array-write (n/+ 7 idx) (..byte value)))
       (#error.Success binary))
-    (ex.throw index-out-of-bounds [(..!size binary) idx])))
+    (exception.throw index-out-of-bounds [(..!size binary) idx])))
 
 (def: #export (slice from to binary)
   (-> Nat Nat Binary (Error Binary))
   (let [size (..!size binary)]
     (cond (not (n/<= to from))
-          (ex.throw inverted-slice [size from to])
+          (exception.throw inverted-slice [size from to])
 
           (not (and (n/< size from)
                     (n/< size to)))
-          (ex.throw slice-out-of-bounds [size from to])
+          (exception.throw slice-out-of-bounds [size from to])
 
           ## else
-          (#error.Success (Arrays::copyOfRange binary (:coerce Int from) (:coerce Int (inc to)))))))
+          (#error.Success (java/util/Arrays::copyOfRange binary (.int from) (.int (inc to)))))))
 
 (def: #export (slice' from binary)
   (-> Nat Binary (Error Binary))
@@ -162,10 +192,14 @@
 
 (structure: #export equivalence (Equivalence Binary)
   (def: (= reference sample)
-    (Arrays::equals reference sample)))
+    (`` (for {(~~ (static @.old))
+              (java/util/Arrays::equals reference sample)
+
+              (~~ (static @.jvm))
+              (java/util/Arrays::equals reference sample)}))))
 
 (def: #export (copy bytes source-offset source target-offset target)
   (-> Nat Nat Binary Nat Binary (Error Binary))
   (do error.monad
-    [_ (System::arraycopy source (.int source-offset) target (.int target-offset) (.int bytes))]
+    [_ (java/lang/System::arraycopy source (.int source-offset) target (.int target-offset) (.int bytes))]
     (wrap target)))

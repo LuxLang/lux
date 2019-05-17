@@ -5,7 +5,7 @@
    [abstract
     ["." monad (#+ Monad do)]]
    [control
-    ["ex" exception (#+ Exception exception:)]
+    ["." exception (#+ Exception exception:)]
     ["." io (#+ IO) ("#;." functor)]
     [concurrency
      ["." promise (#+ Promise)]]
@@ -160,7 +160,8 @@
 
 (template [<name>]
   [(exception: #export (<name> {file Path})
-     (ex.report ["Path" file]))]
+     (exception.report
+      ["Path" file]))]
 
   [cannot-create-file]
   [cannot-find-file]
@@ -175,199 +176,382 @@
   )
 
 (exception: #export (cannot-move {target Path} {source Path})
-  (ex.report ["Source" source]
-             ["Target" target]))
+  (exception.report
+   ["Source" source]
+   ["Target" target]))
 
 (exception: #export (cannot-modify {instant Instant} {file Path})
-  (ex.report ["Instant" (%instant instant)]
-             ["Path" file]))
+  (exception.report
+   ["Instant" (%instant instant)]
+   ["Path" file]))
 
-(with-expansions [<for-jvm> (as-is (import: #long java/io/File
-                                     (new [String])
-                                     (~~ (template [<name>]
-                                           [(<name> [] #io #try boolean)]
+(`` (for {(~~ (static @.old))
+          (as-is (import: #long java/lang/String)
 
-                                           [createNewFile] [mkdir]
-                                           [exists] [delete]
-                                           [isFile] [isDirectory]
-                                           [canRead] [canWrite] [canExecute]))
-                                     
-                                     (length [] #io #try long)
-                                     (listFiles [] #io #try #? (Array java/io/File))
-                                     (getAbsolutePath [] #io #try String)
-                                     (renameTo [java/io/File] #io #try boolean)
-                                     (lastModified [] #io #try long)
-                                     (setLastModified [long] #io #try boolean)
-                                     (#static separator String))
+                 (import: #long java/io/File
+                   (new [java/lang/String])
+                   (~~ (template [<name>]
+                         [(<name> [] #io #try boolean)]
 
-                                   (template: (!delete path exception)
-                                     (do io.monad
-                                       [outcome (java/io/File::delete (java/io/File::new path))]
-                                       (case outcome
-                                         (#error.Success #1)
-                                         (wrap (#error.Success []))
+                         [createNewFile] [mkdir]
+                         [exists] [delete]
+                         [isFile] [isDirectory]
+                         [canRead] [canWrite] [canExecute]))
+                   
+                   (length [] #io #try long)
+                   (listFiles [] #io #try #? (Array java/io/File))
+                   (getAbsolutePath [] #io #try java/lang/String)
+                   (renameTo [java/io/File] #io #try boolean)
+                   (lastModified [] #io #try long)
+                   (setLastModified [long] #io #try boolean)
+                   (#static separator java/lang/String))
 
-                                         _
-                                         (io.io (ex.throw exception [path])))))
+                 (template: (!delete path exception)
+                   (do io.monad
+                     [outcome (java/io/File::delete (java/io/File::new path))]
+                     (case outcome
+                       (#error.Success #1)
+                       (wrap (#error.Success []))
 
-                                   (import: java/lang/AutoCloseable
-                                     (close [] #io #try void))
+                       _
+                       (io.io (exception.throw exception [path])))))
 
-                                   (import: java/io/OutputStream
-                                     (write [(Array byte)] #io #try void)
-                                     (flush [] #io #try void))
+                 (import: #long java/lang/AutoCloseable
+                   (close [] #io #try void))
 
-                                   (import: java/io/FileOutputStream
-                                     (new [java/io/File boolean] #io #try))
+                 (import: java/io/OutputStream
+                   (write [(Array byte)] #io #try void)
+                   (flush [] #io #try void))
 
-                                   (import: java/io/InputStream
-                                     (read [(Array byte)] #io #try int))
+                 (import: java/io/FileOutputStream
+                   (new [java/io/File boolean] #io #try))
 
-                                   (import: java/io/FileInputStream
-                                     (new [java/io/File] #io #try))
+                 (import: java/io/InputStream
+                   (read [(Array byte)] #io #try int))
 
-                                   (structure: (file path)
-                                     (-> Path (File IO))
+                 (import: java/io/FileInputStream
+                   (new [java/io/File] #io #try))
 
-                                     (~~ (template [<name> <flag>]
-                                           [(def: <name>
-                                              (..can-modify
-                                               (function (<name> data)
-                                                 (do (error.with io.monad)
-                                                   [stream (FileOutputStream::new (java/io/File::new path) <flag>)
-                                                    _ (OutputStream::write data stream)
-                                                    _ (OutputStream::flush stream)]
-                                                   (AutoCloseable::close stream)))))]
+                 (structure: (file path)
+                   (-> Path (File IO))
 
-                                           [over-write  #0]
-                                           [append      #1]
-                                           ))
+                   (~~ (template [<name> <flag>]
+                         [(def: <name>
+                            (..can-modify
+                             (function (<name> data)
+                               (do (error.with io.monad)
+                                 [stream (FileOutputStream::new (java/io/File::new path) <flag>)
+                                  _ (OutputStream::write data stream)
+                                  _ (OutputStream::flush stream)]
+                                 (java/lang/AutoCloseable::close stream)))))]
 
-                                     (def: content
-                                       (..can-query
-                                        (function (content _)
-                                          (do (error.with io.monad)
-                                            [#let [file (java/io/File::new path)]
-                                             size (java/io/File::length file)
-                                             #let [data (binary.create (.nat size))]
-                                             stream (FileInputStream::new file)
-                                             bytes-read (InputStream::read data stream)
-                                             _ (AutoCloseable::close stream)]
-                                            (if (i/= size bytes-read)
-                                              (wrap data)
-                                              (io.io (ex.throw cannot-read-all-data path)))))))
+                         [over-write  #0]
+                         [append      #1]
+                         ))
 
-                                     (def: size
-                                       (..can-query
-                                        (function (size _)
-                                          (|> path
-                                              java/io/File::new
-                                              java/io/File::length
-                                              (:: (error.with io.monad) map .nat)))))
+                   (def: content
+                     (..can-query
+                      (function (content _)
+                        (do (error.with io.monad)
+                          [#let [file (java/io/File::new path)]
+                           size (java/io/File::length file)
+                           #let [data (binary.create (.nat size))]
+                           stream (FileInputStream::new file)
+                           bytes-read (InputStream::read data stream)
+                           _ (java/lang/AutoCloseable::close stream)]
+                          (if (i/= size bytes-read)
+                            (wrap data)
+                            (io.io (exception.throw cannot-read-all-data path)))))))
 
-                                     (def: last-modified
-                                       (..can-query
-                                        (function (last-modified _)
-                                          (|> path
-                                              java/io/File::new
-                                              (java/io/File::lastModified)
-                                              (:: (error.with io.monad) map (|>> duration.from-millis instant.absolute))))))
+                   (def: size
+                     (..can-query
+                      (function (size _)
+                        (|> path
+                            java/io/File::new
+                            java/io/File::length
+                            (:: (error.with io.monad) map .nat)))))
 
-                                     (def: can-execute?
-                                       (..can-query
-                                        (function (can-execute? _)
-                                          (|> path
-                                              java/io/File::new
-                                              java/io/File::canExecute))))
+                   (def: last-modified
+                     (..can-query
+                      (function (last-modified _)
+                        (|> path
+                            java/io/File::new
+                            (java/io/File::lastModified)
+                            (:: (error.with io.monad) map (|>> duration.from-millis instant.absolute))))))
 
-                                     (def: move
-                                       (..can-open
-                                        (function (move destination)
-                                          (do io.monad
-                                            [outcome (java/io/File::renameTo (java/io/File::new destination)
-                                                                             (java/io/File::new path))]
-                                            (case outcome
-                                              (#error.Success #1)
-                                              (wrap (#error.Success (file destination)))
+                   (def: can-execute?
+                     (..can-query
+                      (function (can-execute? _)
+                        (|> path
+                            java/io/File::new
+                            java/io/File::canExecute))))
 
-                                              _
-                                              (io.io (ex.throw cannot-move [destination path])))))))
+                   (def: move
+                     (..can-open
+                      (function (move destination)
+                        (do io.monad
+                          [outcome (java/io/File::renameTo (java/io/File::new destination)
+                                                           (java/io/File::new path))]
+                          (case outcome
+                            (#error.Success #1)
+                            (wrap (#error.Success (file destination)))
 
-                                     (def: modify
-                                       (..can-modify
-                                        (function (modify time-stamp)
-                                          (do io.monad
-                                            [outcome (java/io/File::setLastModified (|> time-stamp instant.relative duration.to-millis)
-                                                                                    (java/io/File::new path))]
-                                            (case outcome
-                                              (#error.Success #1)
-                                              (wrap (#error.Success []))
+                            _
+                            (io.io (exception.throw cannot-move [destination path])))))))
 
-                                              _
-                                              (io.io (ex.throw cannot-modify [time-stamp path])))))))
+                   (def: modify
+                     (..can-modify
+                      (function (modify time-stamp)
+                        (do io.monad
+                          [outcome (java/io/File::setLastModified (|> time-stamp instant.relative duration.to-millis)
+                                                                  (java/io/File::new path))]
+                          (case outcome
+                            (#error.Success #1)
+                            (wrap (#error.Success []))
 
-                                     (def: delete
-                                       (..can-delete
-                                        (function (delete _)
-                                          (!delete path cannot-delete-file)))))
+                            _
+                            (io.io (exception.throw cannot-modify [time-stamp path])))))))
 
-                                   (structure: (directory path)
-                                     (-> Path (Directory IO))
+                   (def: delete
+                     (..can-delete
+                      (function (delete _)
+                        (!delete path cannot-delete-file)))))
 
-                                     (~~ (template [<name> <method> <capability>]
-                                           [(def: <name>
-                                              (..can-query
-                                               (function (<name> _)
-                                                 (do (error.with io.monad)
-                                                   [?children (java/io/File::listFiles (java/io/File::new path))]
-                                                   (case ?children
-                                                     (#.Some children)
-                                                     (|> children
-                                                         array.to-list
-                                                         (monad.filter @ (|>> <method>))
-                                                         (:: @ map (monad.map @ (|>> java/io/File::getAbsolutePath (:: @ map <capability>))))
-                                                         (:: @ join))
+                 (structure: (directory path)
+                   (-> Path (Directory IO))
 
-                                                     #.None
-                                                     (io.io (ex.throw not-a-directory [path])))))))]
+                   (~~ (template [<name> <method> <capability>]
+                         [(def: <name>
+                            (..can-query
+                             (function (<name> _)
+                               (do (error.with io.monad)
+                                 [?children (java/io/File::listFiles (java/io/File::new path))]
+                                 (case ?children
+                                   (#.Some children)
+                                   (|> children
+                                       array.to-list
+                                       (monad.filter @ (|>> <method>))
+                                       (:: @ map (monad.map @ (|>> java/io/File::getAbsolutePath (:: @ map <capability>))))
+                                       (:: @ join))
 
-                                           [files       java/io/File::isFile      file]
-                                           [directories java/io/File::isDirectory directory]
-                                           ))
+                                   #.None
+                                   (io.io (exception.throw not-a-directory [path])))))))]
 
-                                     (def: discard
-                                       (..can-delete
-                                        (function (discard _)
-                                          (!delete path cannot-discard-directory)))))
+                         [files       java/io/File::isFile      file]
+                         [directories java/io/File::isDirectory directory]
+                         ))
 
-                                   (structure: #export system (System IO)
-                                     (~~ (template [<name> <method> <capability> <exception>]
-                                           [(def: <name>
-                                              (..can-open
-                                               (function (<name> path)
-                                                 (do io.monad
-                                                   [#let [file (java/io/File::new path)]
-                                                    outcome (<method> file)]
-                                                   (case outcome
-                                                     (#error.Success #1)
-                                                     (wrap (#error.Success (<capability> path)))
+                   (def: discard
+                     (..can-delete
+                      (function (discard _)
+                        (!delete path cannot-discard-directory)))))
 
-                                                     _
-                                                     (wrap (ex.throw <exception> [path])))))))]
+                 (structure: #export system (System IO)
+                   (~~ (template [<name> <method> <capability> <exception>]
+                         [(def: <name>
+                            (..can-open
+                             (function (<name> path)
+                               (do io.monad
+                                 [#let [file (java/io/File::new path)]
+                                  outcome (<method> file)]
+                                 (case outcome
+                                   (#error.Success #1)
+                                   (wrap (#error.Success (<capability> path)))
 
-                                           [file             java/io/File::isFile        ..file      cannot-find-file]
-                                           [create-file      java/io/File::createNewFile ..file      cannot-create-file]
-                                           [directory        java/io/File::isDirectory   ..directory cannot-find-directory]
-                                           [create-directory java/io/File::mkdir         ..directory cannot-create-directory]
-                                           ))
+                                   _
+                                   (wrap (exception.throw <exception> [path])))))))]
 
-                                     (def: separator (java/io/File::separator))
-                                     ))]
-  (`` (for {(~~ (static @.old))
-            (as-is <for-jvm>)
+                         [file             java/io/File::isFile        ..file      cannot-find-file]
+                         [create-file      java/io/File::createNewFile ..file      cannot-create-file]
+                         [directory        java/io/File::isDirectory   ..directory cannot-find-directory]
+                         [create-directory java/io/File::mkdir         ..directory cannot-create-directory]
+                         ))
 
-            (~~ (static @.jvm))
-            (as-is <for-jvm>)})))
+                   (def: separator (java/io/File::separator))
+                   ))
+
+          (~~ (static @.jvm))
+          (as-is (import: #long java/lang/String)
+                 (import: #long java/lang/Boolean)
+
+                 (import: #long java/io/File
+                   (new [java/lang/String])
+                   (~~ (template [<name>]
+                         [(<name> [] #io #try boolean)]
+
+                         [createNewFile] [mkdir]
+                         [exists] [delete]
+                         [isFile] [isDirectory]
+                         [canRead] [canWrite] [canExecute]))
+                   
+                   (length [] #io #try long)
+                   (listFiles [] #io #try #? [java/io/File])
+                   (getAbsolutePath [] #io #try java/lang/String)
+                   (renameTo [java/io/File] #io #try boolean)
+                   (lastModified [] #io #try long)
+                   (setLastModified [long] #io #try boolean)
+                   (#static separator java/lang/String))
+
+                 (template: (!delete path exception)
+                   (do io.monad
+                     [outcome (java/io/File::delete (java/io/File::new path))]
+                     (case outcome
+                       (#error.Success #1)
+                       (wrap (#error.Success []))
+
+                       _
+                       (io.io (exception.throw exception [path])))))
+
+                 (import: #long java/lang/AutoCloseable
+                   (close [] #io #try void))
+
+                 (import: java/io/OutputStream
+                   (write [[byte]] #io #try void)
+                   (flush [] #io #try void))
+
+                 (import: java/io/FileOutputStream
+                   (new [java/io/File boolean] #io #try))
+
+                 (import: java/io/InputStream
+                   (read [[byte]] #io #try int))
+
+                 (import: java/io/FileInputStream
+                   (new [java/io/File] #io #try))
+
+                 (def: (file path)
+                   (-> Path (File IO))
+                   (structure
+                    (~~ (template [<name> <flag>]
+                          [(def: <name>
+                             (..can-modify
+                              (function (<name> data)
+                                (do (error.with io.monad)
+                                  [stream (FileOutputStream::new (java/io/File::new path) <flag>)
+                                   _ (OutputStream::write data stream)
+                                   _ (OutputStream::flush stream)]
+                                  (java/lang/AutoCloseable::close stream)))))]
+                          
+                          [over-write  #0]
+                          [append      #1]
+                          ))
+
+                    (def: content
+                      (..can-query
+                       (function (content _)
+                         (do (error.with io.monad)
+                           [#let [file (java/io/File::new path)]
+                            size (java/io/File::length file)
+                            #let [data (binary.create (.nat size))]
+                            stream (FileInputStream::new file)
+                            bytes-read (InputStream::read data stream)
+                            _ (java/lang/AutoCloseable::close stream)]
+                           (if (i/= size bytes-read)
+                             (wrap data)
+                             (io.io (exception.throw cannot-read-all-data path)))))))
+
+                    (def: size
+                      (..can-query
+                       (function (size _)
+                         (|> (java/io/File::new path)
+                             java/io/File::length
+                             (:: (error.with io.monad) map .nat)))))
+
+                    (def: last-modified
+                      (..can-query
+                       (function (last-modified _)
+                         (|> (java/io/File::new path)
+                             java/io/File::lastModified
+                             (:: (error.with io.monad) map (|>> duration.from-millis instant.absolute))))))
+
+                    (def: can-execute?
+                      (..can-query
+                       (function (can-execute? _)
+                         (java/io/File::canExecute (java/io/File::new path)))))
+
+                    (def: move
+                      (..can-open
+                       (function (move destination)
+                         (do io.monad
+                           [outcome (java/io/File::renameTo (java/io/File::new destination)
+                                                            (java/io/File::new path))]
+                           (case outcome
+                             (#error.Success #1)
+                             (wrap (#error.Success (file destination)))
+
+                             _
+                             (io.io (exception.throw cannot-move [destination path])))))))
+
+                    (def: modify
+                      (..can-modify
+                       (function (modify time-stamp)
+                         (do io.monad
+                           [outcome (java/io/File::setLastModified (|> time-stamp instant.relative duration.to-millis)
+                                                                   (java/io/File::new path))]
+                           (case outcome
+                             (#error.Success #1)
+                             (wrap (#error.Success []))
+
+                             _
+                             (io.io (exception.throw cannot-modify [time-stamp path])))))))
+
+                    (def: delete
+                      (..can-delete
+                       (function (delete _)
+                         (!delete path cannot-delete-file))))))
+
+                 (structure: (directory path)
+                   (-> Path (Directory IO))
+
+                   (~~ (template [<name> <method> <capability>]
+                         [(def: <name>
+                            (..can-query
+                             (function (<name> _)
+                               (do (error.with io.monad)
+                                 [?children (java/io/File::listFiles (java/io/File::new path))]
+                                 (case ?children
+                                   (#.Some children)
+                                   (|> children
+                                       array.to-list
+                                       (monad.filter @ (|>> <method>))
+                                       (:: @ map (monad.map @ (|>> java/io/File::getAbsolutePath
+                                                                   (:: @ map <capability>))))
+                                       (:: @ join))
+
+                                   #.None
+                                   (io.io (exception.throw not-a-directory [path])))))))]
+
+                         [files       java/io/File::isFile      file]
+                         [directories java/io/File::isDirectory directory]
+                         ))
+
+                   (def: discard
+                     (..can-delete
+                      (function (discard _)
+                        (!delete path cannot-discard-directory)))))
+
+                 (structure: #export system (System IO)
+                   (~~ (template [<name> <method> <capability> <exception>]
+                         [(def: <name>
+                            (..can-open
+                             (function (<name> path)
+                               (do io.monad
+                                 [#let [file (java/io/File::new path)]
+                                  outcome (<method> file)]
+                                 (case outcome
+                                   (#error.Success #1)
+                                   (wrap (#error.Success (<capability> path)))
+
+                                   _
+                                   (wrap (exception.throw <exception> [path])))))))]
+
+                         [file             java/io/File::isFile        ..file      cannot-find-file]
+                         [create-file      java/io/File::createNewFile ..file      cannot-create-file]
+                         [directory        java/io/File::isDirectory   ..directory cannot-find-directory]
+                         [create-directory java/io/File::mkdir         ..directory cannot-create-directory]
+                         ))
+
+                   (def: separator (java/io/File::separator))
+                   ))}))
 
 (template [<get> <signature> <create> <find> <exception>]
   [(def: #export (<get> monad system path)
@@ -379,7 +563,7 @@
          (wrap (#error.Success file))
          
          (#error.Failure error)
-         (if (ex.match? <exception> error)
+         (if (exception.match? <exception> error)
            (!.use (:: system <find>) path)
            (wrap (#error.Failure error))))))]
 
