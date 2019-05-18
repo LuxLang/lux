@@ -177,7 +177,7 @@
 1. https://tratt.net/laurie/blog/entries/an_editor_for_composed_programs.html
 1. [Hjalfi makes smalltalk (in Javascript)](https://www.youtube.com/watch?v=JDunc6Cr7YQ)
 
-## Structured Editing
+## Structured editing
 
 1. [Deuce: A Lightweight User Interface for Structured Editing](https://arxiv.org/abs/1707.00015)
 1. ["Structured Editing for Elm* in Elm" by Ravi Chugh](https://www.youtube.com/watch?v=-TFL6E1uSHE)
@@ -186,4 +186,8 @@
 ## Tree editor
 
 1. http://justinpombrio.net/tree-editors/survey.html
+
+## Image editor
+
+1. https://www.ludigraphix.org/
 

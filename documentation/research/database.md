@@ -51,6 +51,7 @@
 1. [Beating hash tables with trees? The ART-ful radix trie](https://www.the-paper-trail.org/post/art-paper-notes/)
 1. https://www.ristret.com/s/gnd4yr/brief_history_log_structured_merge_trees
 1. [Getting The Most Out Of Your PostgreSQL Indexes](https://pgdash.io/blog/postgres-indexes.html?p)
+1. http://databasearchitects.blogspot.com/2019/05/why-use-learning-when-you-can-fit.html
 
 # Relational Algebra
 
@@ -247,6 +248,10 @@
 # Data Visualization
 
 1. https://www.tadviewer.com/
+
+# Security
+
+1. [The ZombieLoad Pragmatist: Tips for Surviving in a Post-Meltdown World](https://www.scylladb.com/2019/05/17/the-zombieload-pragmatist/)
 
 # _Temporary cache_
 
