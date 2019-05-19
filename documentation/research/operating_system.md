@@ -232,6 +232,7 @@
 
 1. [Memory Systems and Memory-Centric Computing Systems](http://people.inf.ethz.ch/omutlu/acaces2018.html)
 1. https://en.wikipedia.org/wiki/Page_replacement_algorithm
+1. [Compress Objects, Not Cache Lines:An Object-Based Compressed Memory Hierarchy](https://people.csail.mit.edu/poantsai/papers/2019.zippads.asplos.pdf)
 
 # Hardware
 

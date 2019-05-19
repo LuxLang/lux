@@ -52,6 +52,7 @@
 1. https://www.ristret.com/s/gnd4yr/brief_history_log_structured_merge_trees
 1. [Getting The Most Out Of Your PostgreSQL Indexes](https://pgdash.io/blog/postgres-indexes.html?p)
 1. http://databasearchitects.blogspot.com/2019/05/why-use-learning-when-you-can-fit.html
+1. https://priyankvex.wordpress.com/2019/05/19/a-tale-on-concatenated-indexes-master-roshi-and-gokus-fireside-chat/
 
 # Relational Algebra
 
