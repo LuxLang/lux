@@ -106,6 +106,7 @@
 1. http://queue.acm.org/detail.cfm?id=1317400
 1. The Art of Unix Programming &&& http://www.catb.org/esr/writings/taoup/html/index.html
 1. https://shivambharuka.wordpress.com/2017/10/25/arrakis-the-operating-system-is-the-control-plane/
+1. [Arrakis: The Operating System is the Control Plane](https://www.usenix.org/system/files/conference/osdi14/osdi14-paper-peter_simon.pdf)
 1. https://sortix.org/os-test/
 1. https://existentialtype.wordpress.com/2016/07/11/pclsring-in-semantics/
 1. Database/Operating System Co-Design &&& https://www.research-collection.ethz.ch/handle/20.500.11850/136
@@ -185,6 +186,7 @@
 1. [OS-level Attacks and Defenses: from Software to Hardware-based Exploits](http://tuprints.ulb.tu-darmstadt.de/8482/1/gens_diss.pdf)
 1. [Time Protection: The Missing OS Abstraction](https://ts.data61.csiro.au/publications/csiro_full_text//Ge_YCH_19.pdf)
 1. [Light-weight Contexts: An OS Abstraction for Safety and Performance](https://www.usenix.org/system/files/conference/osdi16/osdi16-litton.pdf)
+1. https://natsys-lab.blogspot.com/2019/05/goodbye-fast-system-calls.html
 
 # Driver
 

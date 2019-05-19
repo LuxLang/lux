@@ -1,0 +1,109 @@
+(.module:
+  [lux (#- type)
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    ["." exception (#+ exception:)]]
+   [data
+    ["." text
+     format]
+    [collection
+     [array (#+ Array)]
+     ["." dictionary (#+ Dictionary)]]]
+   [type
+    abstract
+    ["." check (#+ Check) ("#@." monad)]]]
+  ["." //
+   ["#." reflection]])
+
+(template [<name>]
+  [(abstract: #export (<name> class) {} Any)]
+
+  [Lower] [Upper]
+  )
+
+(type: #export Mapping
+  (Dictionary //.Var Type))
+
+(def: #export fresh
+  Mapping
+  (dictionary.new text.hash))
+
+(exception: #export (unknown-var {var //.Var})
+  (exception.report
+   ["Var" (%t var)]))
+
+(def: (generic mapping input)
+  (-> Mapping //.Generic (Check Type))
+  (case input
+    (#//.Var var)
+    (case (dictionary.get var mapping)
+      #.None
+      (check.throw ..unknown-var var)
+      
+      (#.Some type)
+      (check@wrap type))
+    
+    (#//.Wildcard wildcard)
+    (case wildcard
+      #.None
+      (do check.monad
+        [[id type] check.existential]
+        (wrap type))
+      
+      (#.Some [bound limit])
+      (do check.monad
+        [limitT (generic mapping limit)]
+        (case bound
+          (^template [<tag> <ctor>]
+            <tag>
+            (wrap (.type (<ctor> limitT))))
+          ([#//.Lower ..Lower]
+           [#//.Upper ..Upper]))))
+    
+    (#//.Class name parameters)
+    (do check.monad
+      [parametersT+ (monad.map @ (generic mapping) parameters)]
+      (wrap (#.Primitive name parametersT+)))))
+
+(def: #export (class mapping [name parameters])
+  (-> Mapping //.Class (Check Type))
+  (do check.monad
+    [parametersT+ (monad.map @ (..generic mapping) parameters)]
+    (wrap (#.Primitive name parametersT+))))
+
+(def: #export (type mapping input)
+  (-> Mapping //.Type (Check Type))
+  (case input
+    (#//.Primitive primitive)
+    (check@wrap (case primitive
+                  #//.Boolean (#.Primitive //reflection.boolean #.Nil)
+                  #//.Byte (#.Primitive //reflection.byte #.Nil)
+                  #//.Short (#.Primitive //reflection.short #.Nil)
+                  #//.Int (#.Primitive //reflection.int #.Nil)
+                  #//.Long (#.Primitive //reflection.long #.Nil)
+                  #//.Float (#.Primitive //reflection.float #.Nil)
+                  #//.Double (#.Primitive //reflection.double #.Nil)
+                  #//.Char (#.Primitive //reflection.char #.Nil)))
+    
+    (#//.Generic generic)
+    (..generic mapping generic)
+    
+    (#//.Array elementT)
+    (case elementT
+      (#//.Primitive primitive)
+      (check@wrap (#.Primitive (//.descriptor (//.array 1 input)) #.Nil))
+
+      _
+      (do check.monad
+        [elementT (type mapping input)]
+        (wrap (.type (Array elementT)))))))
+
+(def: #export (return mapping input)
+  (-> Mapping //.Return (Check Type))
+  (case input
+    #.None
+    (check@wrap Any)
+
+    (#.Some input)
+    (..type mapping input)))

@@ -1,0 +1,320 @@
+(.module:
+  [lux (#- type)
+   ["." host (#+ import:)]
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    ["." exception (#+ exception:)]
+    [parser
+     ["<t>" text]]]
+   [data
+    ["." error (#+ Error)]
+    ["." text ("#@." equivalence)
+     format]
+    [collection
+     ["." list ("#@." fold functor)]
+     ["." array]
+     ["." dictionary]]]]
+  [//
+   ["/" type
+    ["#." lux (#+ Mapping)]
+    ["." reflection]]])
+
+(import: #long java/lang/String)
+
+(import: #long java/lang/Object
+  (toString [] java/lang/String))
+
+(import: #long java/lang/reflect/Type
+  (getTypeName [] java/lang/String))
+
+(import: #long java/lang/reflect/GenericArrayType
+  (getGenericComponentType [] java/lang/reflect/Type))
+
+(import: #long java/lang/reflect/ParameterizedType
+  (getRawType [] java/lang/reflect/Type)
+  (getActualTypeArguments [] (Array java/lang/reflect/Type)))
+
+(import: #long (java/lang/reflect/TypeVariable d)
+  (getName [] java/lang/String)
+  (getBounds [] (Array java/lang/reflect/Type)))
+
+(import: #long (java/lang/reflect/WildcardType d)
+  (getLowerBounds [] (Array java/lang/reflect/Type))
+  (getUpperBounds [] (Array java/lang/reflect/Type)))
+
+(import: #long java/lang/reflect/Modifier
+  (#static isStatic [int] boolean)
+  (#static isFinal [int] boolean)
+  (#static isInterface [int] boolean)
+  (#static isAbstract [int] boolean))
+
+(import: #long java/lang/reflect/Field
+  (getDeclaringClass [] (java/lang/Class java/lang/Object))
+  (getModifiers [] int)
+  (getGenericType [] java/lang/reflect/Type))
+
+(import: #long java/lang/reflect/Method
+  (getName [] java/lang/String)
+  (getModifiers [] int)
+  (getDeclaringClass [] (java/lang/Class java/lang/Object))
+  (getTypeParameters [] (Array (java/lang/reflect/TypeVariable java/lang/reflect/Method)))
+  (getGenericParameterTypes [] (Array java/lang/reflect/Type))
+  (getGenericReturnType [] java/lang/reflect/Type)
+  (getGenericExceptionTypes [] (Array java/lang/reflect/Type)))
+
+(import: #long (java/lang/reflect/Constructor c)
+  (getModifiers [] int)
+  (getDeclaringClass [] (java/lang/Class c))
+  (getTypeParameters [] (Array (java/lang/reflect/TypeVariable (java/lang/reflect/Constructor c))))
+  (getGenericParameterTypes [] (Array java/lang/reflect/Type))
+  (getGenericExceptionTypes [] (Array java/lang/reflect/Type)))
+
+(import: #long (java/lang/Class c)
+  (#static forName [java/lang/String] #try (java/lang/Class java/lang/Object))
+  (getName [] java/lang/String)
+  (getModifiers [] int)
+  (isAssignableFrom [(java/lang/Class java/lang/Object)] boolean)
+  (getTypeParameters [] (Array (java/lang/reflect/TypeVariable (java/lang/Class c))))
+  (getGenericInterfaces [] (Array java/lang/reflect/Type))
+  (getGenericSuperclass [] #? java/lang/reflect/Type)
+  (getDeclaredField [java/lang/String] #try java/lang/reflect/Field)
+  (getConstructors [] (Array (java/lang/reflect/Constructor java/lang/Object)))
+  (getDeclaredMethods [] (Array java/lang/reflect/Method)))
+
+(exception: #export (unknown-class {class Text})
+  (exception.report
+   ["Class" (%t class)]))
+
+(template [<name>]
+  [(exception: #export (<name> {jvm-type java/lang/reflect/Type})
+     (exception.report
+      ["Type" (java/lang/reflect/Type::getTypeName jvm-type)]))]
+
+  [not-a-class]
+  [cannot-convert-to-a-parameter]
+  [cannot-convert-to-a-lux-type]
+  )
+
+(def: #export (load name)
+  (-> Text (Error (java/lang/Class java/lang/Object)))
+  (case (java/lang/Class::forName name)
+    (#error.Success [class])
+    (#error.Success class)
+
+    (#error.Failure error)
+    (exception.throw ..unknown-class name)))
+
+(def: #export (sub? super sub)
+  (-> Text Text (Error Bit))
+  (do error.monad
+    [super (..load super)
+     sub (..load sub)]
+    (wrap (java/lang/Class::isAssignableFrom sub super))))
+
+(def: #export (generic reflection)
+  (-> java/lang/reflect/Type (Error /.Generic))
+  (<| (case (host.check java/lang/reflect/TypeVariable reflection)
+        (#.Some reflection)
+        (#error.Success (#/.Var (java/lang/reflect/TypeVariable::getName reflection)))
+        _)
+      (case (host.check java/lang/reflect/WildcardType reflection)
+        (#.Some reflection)
+        (case [(array.read 0 (java/lang/reflect/WildcardType::getLowerBounds reflection))
+               (array.read 0 (java/lang/reflect/WildcardType::getUpperBounds reflection))]
+          (^template [<pattern> <kind>]
+            <pattern>
+            (do error.monad
+              [bound (generic bound)]
+              (wrap (#/.Wildcard (#.Some [<kind> bound])))))
+          ([[_ (#.Some bound)] #/.Upper]
+           [[(#.Some bound) _] #/.Lower])
+          
+          [#.None #.None]
+          (#error.Success (#/.Wildcard #.None)))
+        _)
+      (case (host.check java/lang/Class reflection)
+        (#.Some class)
+        (let [class-name (|> class
+                             (:coerce (java/lang/Class java/lang/Object))
+                             java/lang/Class::getName)]
+          (case class-name
+            (^template [<reflection>]
+              (^ (static <reflection>))
+              (exception.throw ..not-a-class reflection))
+            ([reflection.boolean] [reflection.byte] [reflection.short] [reflection.int]
+             [reflection.long] [reflection.float] [reflection.double] [reflection.char])
+
+            _
+            (if (text.starts-with? /.array-prefix class-name)
+              (exception.throw ..not-a-class reflection)
+              (#error.Success (#/.Class class-name  (list))))))
+        _)
+      (case (host.check java/lang/reflect/ParameterizedType reflection)
+        (#.Some reflection)
+        (let [raw (java/lang/reflect/ParameterizedType::getRawType reflection)]
+          (case (host.check java/lang/Class raw)
+            (#.Some raw)
+            (do error.monad
+              [paramsT (|> reflection
+                           java/lang/reflect/ParameterizedType::getActualTypeArguments
+                           array.to-list
+                           (monad.map @ generic))]
+              (wrap (#/.Class (|> raw
+                                  (:coerce (java/lang/Class java/lang/Object))
+                                  java/lang/Class::getName)
+                              paramsT)))
+
+            _
+            (exception.throw ..not-a-class raw)))
+        _)
+      ## else
+      (exception.throw ..cannot-convert-to-a-lux-type reflection)))
+
+(def: #export (type reflection)
+  (-> java/lang/reflect/Type (Error /.Type))
+  (<| (case (host.check java/lang/Class reflection)
+        (#.Some reflection)
+        (case (|> reflection
+                  (:coerce (java/lang/Class java/lang/Object))
+                  java/lang/Class::getName)
+          (^template [<reflection> <type>]
+            (^ (static <reflection>))
+            (#error.Success <type>))
+          ([reflection.boolean /.boolean]
+           [reflection.byte /.byte]
+           [reflection.short /.short]
+           [reflection.int /.int]
+           [reflection.long /.long]
+           [reflection.float /.float]
+           [reflection.double /.double]
+           [reflection.char /.char])
+
+          class-name
+          (if (text.starts-with? /.array-prefix class-name)
+            (<t>.run /.parse-signature (/.binary-name class-name))
+            (#error.Success (/.class class-name (list)))))
+        _)
+      (case (host.check java/lang/reflect/GenericArrayType reflection)
+        (#.Some reflection)
+        (|> reflection
+            java/lang/reflect/GenericArrayType::getGenericComponentType
+            type
+            (:: error.monad map (/.array 1)))
+        _)
+      ## else
+      (:: error.monad map (|>> #/.Generic)
+          (..generic reflection))))
+
+(def: #export (return reflection)
+  (-> java/lang/reflect/Type (Error /.Return))
+  (case (host.check java/lang/Class reflection)
+    (#.Some class)
+    (case (|> class
+              (:coerce (java/lang/Class java/lang/Object))
+              java/lang/Class::getName)
+      (^ (static reflection.void))
+      (#error.Success #.None)
+
+      _
+      (:: error.monad map (|>> #.Some)
+          (..type reflection)))
+
+    #.None
+    (:: error.monad map (|>> #.Some)
+        (..type reflection))))
+
+(exception: #export (cannot-correspond {class (java/lang/Class java/lang/Object)}
+                                       {type Type})
+  (exception.report
+   ["Class" (java/lang/Object::toString class)]
+   ["Type" (%type type)]))
+
+(exception: #export (type-parameter-mismatch {expected Nat}
+                                             {actual Nat}
+                                             {class (java/lang/Class java/lang/Object)}
+                                             {type Type})
+  (exception.report
+   ["Expected" (%n expected)]
+   ["Actual" (%n actual)]
+   ["Class" (java/lang/Object::toString class)]
+   ["Type" (%type type)]))
+
+(exception: #export (non-jvm-type {type Type})
+  (exception.report
+   ["Type" (%type type)]))
+
+(def: #export (correspond class type)
+  (-> (java/lang/Class java/lang/Object) Type (Error Mapping))
+  (case type
+    (#.Primitive name params)
+    (let [class-name (java/lang/Class::getName class)
+          class-params (array.to-list (java/lang/Class::getTypeParameters class))
+          num-class-params (list.size class-params)
+          num-type-params (list.size params)]
+      (if (text@= class-name name)
+        (if (n/= num-class-params num-type-params)
+          (|> params
+              (list.zip2 (list@map (|>> java/lang/reflect/TypeVariable::getName)
+                                   class-params))
+              (list@fold (function (_ [name paramT] mapping)
+                           (dictionary.put name paramT mapping))
+                         /lux.fresh)
+              #error.Success)
+          (exception.throw ..type-parameter-mismatch [num-class-params num-type-params class type]))
+        (exception.throw ..cannot-correspond [class type])))
+
+    (#.Named name anonymousT)
+    (correspond class anonymousT)
+
+    _
+    (exception.throw ..non-jvm-type [type])))
+
+(exception: #export (mistaken-field-owner {field java/lang/reflect/Field}
+                                          {owner (java/lang/Class java/lang/Object)}
+                                          {target (java/lang/Class java/lang/Object)})
+  (exception.report
+   ["Field" (java/lang/Object::toString field)]
+   ["Owner" (java/lang/Object::toString owner)]
+   ["Target" (java/lang/Object::toString target)]))
+
+(template [<name>]
+  [(exception: #export (<name> {field Text}
+                               {class (java/lang/Class java/lang/Object)})
+     (exception.report
+      ["Field" (%t field)]
+      ["Class" (java/lang/Object::toString class)]))]
+
+  [unknown-field]
+  [not-a-static-field]
+  [not-a-virtual-field]
+  )
+
+(def: #export (field field target)
+  (-> Text (java/lang/Class java/lang/Object) (Error java/lang/reflect/Field))
+  (case (java/lang/Class::getDeclaredField field target)
+    (#error.Success field)
+    (let [owner (java/lang/reflect/Field::getDeclaringClass field)]
+      (if (is? owner target)
+        (#error.Success field)
+        (exception.throw ..mistaken-field-owner [field owner target])))
+
+    (#error.Failure _)
+    (exception.throw ..unknown-field [field target])))
+
+(template [<name> <exception> <then?> <else?>]
+  [(def: #export (<name> field class)
+     (-> Text (java/lang/Class java/lang/Object) (Error [Bit /.Type]))
+     (do error.monad
+       [fieldJ (..field field class)
+        #let [modifiers (java/lang/reflect/Field::getModifiers fieldJ)]]
+       (case (java/lang/reflect/Modifier::isStatic modifiers)
+         <then?> (|> fieldJ
+                     java/lang/reflect/Field::getGenericType
+                     ..type
+                     (:: @ map (|>> [(java/lang/reflect/Modifier::isFinal modifiers)])))
+         <else?> (exception.throw <exception> [field class]))))]
+
+  [static-field ..not-a-static-field #1 #0]
+  [virtual-field ..not-a-virtual-field #0 #1]
+  )
