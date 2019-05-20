@@ -1,12 +1,15 @@
 (.module:
   [lux (#- Type int char)
+   [abstract
+    [equivalence (#+ Equivalence)]]
    [control
     ["<>" parser
      ["<t>" text (#+ Parser)]]]
    [data
     [error (#+ Error)]
+    ["." product]
     ["." maybe ("#@." functor)]
-    ["." text
+    ["." text ("#@." equivalence)
      format]
     [collection
      ["." list ("#@." functor)]]]])
@@ -56,6 +59,20 @@
   #Lower
   #Upper)
 
+## TODO: Replace with polytypism.
+(structure: #export bound-equivalence
+  (Equivalence Bound)
+  (def: (= parameter subject)
+    (case [parameter subject]
+      (^template [<tag>]
+        [<tag> <tag>]
+        true)
+      ([#Lower]
+       [#Upper])
+
+      _
+      false)))
+
 (type: #export Primitive
   #Boolean
   #Byte
@@ -65,6 +82,26 @@
   #Float
   #Double
   #Char)
+
+## TODO: Replace with polytypism.
+(structure: #export primitive-equivalence
+  (Equivalence Primitive)
+  (def: (= parameter subject)
+    (case [parameter subject]
+      (^template [<tag>]
+        [<tag> <tag>]
+        true)
+      ([#Boolean]
+       [#Byte]
+       [#Short]
+       [#Int]
+       [#Long]
+       [#Float]
+       [#Double]
+       [#Char])
+
+      _
+      false)))
 
 (type: #export Var Text)
 
@@ -78,6 +115,24 @@
     <Class>)
   )
 
+(structure: #export generic-equivalence
+  (Equivalence Generic)
+  (def: (= parameter subject)
+    (case [parameter subject]
+      [(#Var parameter) (#Var subject)]
+      (text@= parameter subject)
+
+      [(#Wildcard parameter) (#Wildcard subject)]
+      (:: (maybe.equivalence (product.equivalence bound-equivalence =))
+          = parameter subject)
+
+      [(#Class [nameP paramsP]) (#Class [nameS paramsS])]
+      (and (text@= nameP nameS)
+           (:: (list.equivalence =) = paramsP paramsS))
+
+      _
+      false)))
+
 (type: #export Parameter
   [Text Class (List Class)])
 
@@ -86,16 +141,43 @@
   (#Generic Generic)
   (#Array Type))
 
+(structure: #export type-equivalence
+  (Equivalence Type)
+  (def: (= parameter subject)
+    (case [parameter subject]
+      [(#Primitive parameter) (#Primitive subject)]
+      (:: ..primitive-equivalence = parameter subject)
+
+      [(#Generic parameter) (#Generic subject)]
+      (:: ..generic-equivalence = parameter subject)
+
+      [(#Array parameter) (#Array subject)]
+      (= parameter subject)
+
+      _
+      false)))
+
 (type: #export Argument
   [Text Type])
 
 (type: #export Return
   (Maybe Type))
 
+(def: #export return-equivalence
+  (Equivalence Return)
+  (maybe.equivalence ..type-equivalence))
+
 (type: #export Method
   {#args (List Type)
    #return Return
    #exceptions (List Generic)})
+
+(structure: #export method-equivalence
+  (Equivalence Method)
+  (def: (= [argsP returnP exceptionsP] [argsS returnS exceptionsS])
+    (and (:: (list.equivalence ..type-equivalence) = argsP argsS)
+         (:: ..return-equivalence = returnP returnS)
+         (:: (list.equivalence ..generic-equivalence) = exceptionsP exceptionsS))))
 
 (type: #export (Typed a)
   [Type a])

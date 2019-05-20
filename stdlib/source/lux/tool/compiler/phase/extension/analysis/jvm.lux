@@ -26,6 +26,7 @@
     ["." jvm #_
      [".!" reflection]
      ["#" type (#+ Var Bound Primitive Generic Class Type Argument Return Method Typed)
+      ("method@." method-equivalence)
       ["." box]
       ["." reflection]
       [".T" lux (#+ Mapping)]]]]]
@@ -928,7 +929,7 @@
     [parameters (|> (java/lang/reflect/Method::getGenericParameterTypes method)
                     array.to-list
                     (monad.map error.monad reflection!.type)
-                    (:: error.monad map (list@map jvm.signature))
+                    (:: error.monad map (list@map jvm.descriptor))
                     ////.lift)
      #let [modifiers (java/lang/reflect/Method::getModifiers method)
            correct-class? (java/lang/Object::equals class (java/lang/reflect/Method::getDeclaringClass method))
@@ -965,7 +966,7 @@
     [parameters (|> (java/lang/reflect/Constructor::getGenericParameterTypes constructor)
                     array.to-list
                     (monad.map error.monad reflection!.type)
-                    (:: error.monad map (list@map jvm.signature))
+                    (:: error.monad map (list@map jvm.descriptor))
                     ////.lift)]
     (wrap (and (java/lang/Object::equals class (java/lang/reflect/Constructor::getDeclaringClass constructor))
                (n/= (list.size arg-classes) (list.size parameters))
@@ -1431,35 +1432,54 @@
   (-> (Typed Analysis) Analysis)
   (/////analysis.tuple (list (type-analysis type) term)))
 
-(def: abstract-methods
-  (-> (java/lang/Class java/lang/Object)
-      (Error (List [Text Method])))
-  (|>> java/lang/Class::getDeclaredMethods
-       array.to-list
-       (list.filter (|>> java/lang/reflect/Method::getModifiers java/lang/reflect/Modifier::isAbstract))
-       (monad.map error.monad
-                  (function (_ method)
-                    (do error.monad
-                      [inputs (|> (java/lang/reflect/Method::getGenericParameterTypes method)
-                                  array.to-list
-                                  (monad.map @ reflection!.type))
-                       return (|> method
-                                  java/lang/reflect/Method::getGenericReturnType
-                                  reflection!.return)
-                       exceptions (|> (java/lang/reflect/Method::getGenericExceptionTypes method)
-                                      array.to-list
-                                      (monad.map @ reflection!.generic))]
-                      (wrap [(java/lang/reflect/Method::getName method)
-                             (jvm.method inputs return exceptions)]))))))
+(template [<name> <filter>]
+  [(def: <name>
+     (-> (java/lang/Class java/lang/Object)
+         (Error (List [Text Method])))
+     (|>> java/lang/Class::getDeclaredMethods
+          array.to-list
+          <filter>
+          (monad.map error.monad
+                     (function (_ method)
+                       (do error.monad
+                         [inputs (|> (java/lang/reflect/Method::getGenericParameterTypes method)
+                                     array.to-list
+                                     (monad.map @ reflection!.type))
+                          return (|> method
+                                     java/lang/reflect/Method::getGenericReturnType
+                                     reflection!.return)
+                          exceptions (|> (java/lang/reflect/Method::getGenericExceptionTypes method)
+                                         array.to-list
+                                         (monad.map @ reflection!.generic))]
+                         (wrap [(java/lang/reflect/Method::getName method)
+                                (jvm.method inputs return exceptions)]))))))]
+
+  [abstract-methods (list.filter (|>> java/lang/reflect/Method::getModifiers java/lang/reflect/Modifier::isAbstract))]
+  [methods (<|)]
+  )
 
 (def: jvm-package-separator ".")
 
-(def: all-abstract-methods
-  (-> (List Class) (Error (List [Text Method])))
-  (|>> (monad.map error.monad (|>> product.left reflection!.load))
-       (error@map (monad.map error.monad ..abstract-methods))
-       error@join
-       (error@map list@join)))
+(template [<name> <methods>]
+  [(def: <name>
+     (-> (List Class) (Error (List [Text Method])))
+     (|>> (monad.map error.monad (|>> product.left reflection!.load))
+          (error@map (monad.map error.monad <methods>))
+          error@join
+          (error@map list@join)))]
+
+  [all-abstract-methods ..abstract-methods]
+  [all-methods ..methods]
+  )
+
+(template [<name>]
+  [(exception: #export (<name> {methods (List Text)})
+     (exception.report
+      ["Methods" (exception.enumerate %t methods)]))]
+
+  [missing-abstract-methods]
+  [invalid-overriden-methods]
+  )
 
 (def: class::anonymous
   Handler
@@ -1546,7 +1566,38 @@
                                                                              )))))
                                       methods)
                   required-abstract-methods (////.lift (all-abstract-methods (list& super-class super-interfaces)))
-                  _ (typeA.infer selfT)]
+                  available-methods (////.lift (all-methods (list& super-class super-interfaces)))
+                  #let [overriden-methods (list@map (function (_ [parent-type method-name
+                                                                  strict-fp? annotations vars
+                                                                  self-name arguments return exceptions
+                                                                  body])
+                                                      [method-name (jvm.method (list@map product.right arguments)
+                                                                               return
+                                                                               (list@map (|>> #jvm.Class) exceptions))])
+                                                    methods)
+                        missing-abstract-methods (list.filter (function (_ [abstract-method-name abstract-methodJT])
+                                                                (|> overriden-methods
+                                                                    (list.filter (function (_ [method-name methodJT])
+                                                                                   (and (text@= method-name abstract-method-name)
+                                                                                        (method@= abstract-methodJT methodJT))))
+                                                                    list.size
+                                                                    (n/= 1)
+                                                                    not))
+                                                              required-abstract-methods)
+                        invalid-overriden-methods (list.filter (function (_ [method-name methodJT])
+                                                                 (|> available-methods
+                                                                     (list.filter (function (_ [abstract-method-name abstract-methodJT])
+                                                                                    (and (text@= method-name abstract-method-name)
+                                                                                         (method@= abstract-methodJT methodJT))))
+                                                                     list.size
+                                                                     (n/= 1)
+                                                                     not))
+                                                               overriden-methods)]
+                  _ (typeA.infer selfT)
+                  _ (////.assert ..missing-abstract-methods (list@map product.left missing-abstract-methods)
+                                 (list.empty? missing-abstract-methods))
+                  _ (////.assert ..invalid-overriden-methods (list@map product.left invalid-overriden-methods)
+                                 (list.empty? invalid-overriden-methods))]
                  (wrap (#/////analysis.Extension extension-name
                                                  (list (/////analysis.text name)
                                                        (class-analysis super-class)

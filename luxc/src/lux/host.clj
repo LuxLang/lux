@@ -27,8 +27,9 @@
 
 (def ->package ->module-class)
 
-(defn unfold-array [type]
+(defn unfold-array
   "(-> Type (, Int Type))"
+  [type]
   (|case type
     (&/$Primitive "#Array" (&/$Cons param (&/$Nil)))
     (|let [[count inner] (unfold-array param)]
@@ -39,8 +40,9 @@
 
 (let [ex-type-class (str "L" (&host-generics/->bytecode-class-name "java.lang.Object") ";")
       object-array (str "[" "L" (&host-generics/->bytecode-class-name "java.lang.Object") ";")]
-  (defn ->java-sig [^objects type]
+  (defn ->java-sig
     "(-> Type (Lux Text))"
+    [^objects type]
     (|case type
       (&/$Primitive ?name params)
       (cond (= &host-type/array-data-tag ?name) (|do [:let [[level base] (unfold-array type)]
@@ -145,8 +147,9 @@
         (return (&/T [exs gvars gargs])))
       (&/fail-with-loc (str "[Host Error] Constructor does not exist: " target " " (->> args &/->seq print-str))))))
 
-(defn abstract-methods [class-loader super-class]
+(defn abstract-methods
   "(-> ClassLoader SuperClassDecl (Lux (List (, Text (List Text)))))"
+  [class-loader super-class]
   (|let [[super-name super-params] super-class]
     (return (&/->list (for [^Method =method (.getDeclaredMethods (Class/forName super-name true class-loader))
                             :when (Modifier/isAbstract (.getModifiers =method))]
@@ -362,8 +365,9 @@
     (assert false (println-str 'compile-dummy-method (&/adt->text method-def)))
     ))
 
-(defn privacy-modifier->flag [privacy-modifier]
+(defn privacy-modifier->flag
   "(-> PrivacyModifier Int)"
+  [privacy-modifier]
   (|case privacy-modifier
     (&/$PublicPM)    Opcodes/ACC_PUBLIC
     (&/$PrivatePM)   Opcodes/ACC_PRIVATE
@@ -371,15 +375,17 @@
     (&/$DefaultPM)   0
     ))
 
-(defn state-modifier->flag [state-modifier]
+(defn state-modifier->flag
   "(-> StateModifier Int)"
+  [state-modifier]
   (|case state-modifier
     (&/$DefaultSM)  0
     (&/$VolatileSM) Opcodes/ACC_VOLATILE
     (&/$FinalSM)    Opcodes/ACC_FINAL))
 
-(defn inheritance-modifier->flag [inheritance-modifier]
+(defn inheritance-modifier->flag
   "(-> InheritanceModifier Int)"
+  [inheritance-modifier]
   (|case inheritance-modifier
     (&/$DefaultIM)  0
     (&/$AbstractIM) Opcodes/ACC_ABSTRACT
