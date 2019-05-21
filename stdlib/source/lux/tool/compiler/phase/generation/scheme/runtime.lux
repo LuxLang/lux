@@ -38,8 +38,6 @@
 
 (def: unit (_.string /////synthesis.unit))
 
-(def: #export variant-tag "lux-variant")
-
 (def: (flag value)
   (-> Bit Computation)
   (if value
@@ -48,8 +46,7 @@
 
 (def: (variant' tag last? value)
   (-> Expression Expression Expression Computation)
-  (<| (_.cons/2 (_.symbol ..variant-tag))
-      (_.cons/2 tag)
+  (<| (_.cons/2 tag)
       (_.cons/2 last?)
       value))
 
@@ -102,15 +99,15 @@
                      _.Computation
                      (~ (case argsC+
                           #.Nil
-                          (` (_.define (~ @runtime) [(list) #.None] (~ definition)))
+                          (` (_.define-constant (~ @runtime) [(list) #.None] (~ definition)))
 
                           _
                           (` (let [(~+ (|> (list.zip2 argsC+ argsLC+)
                                            (list;map (function (_ [left right])
                                                        (list left right)))
                                            list;join))]
-                               (_.define (~ @runtime) [(list (~+ argsLC+)) #.None]
-                                         (~ definition))))))))))))
+                               (_.define-function (~ @runtime) [(list (~+ argsLC+)) #.None]
+                                                  (~ definition))))))))))))
 
 (runtime: (slice offset length list)
   (<| (_.if (_.null?/1 list)
@@ -156,58 +153,40 @@
   (_.begin (list @@lux//try
                  @@lux//program-args)))
 
-(def: minimum-index-length
+(def: last-index
   (-> Expression Computation)
-  (|>> (_.+/2 (_.int +1))))
+  (|>> _.length/1 (_.-/2 (_.int +1))))
 
-(def: product-element
-  (-> Expression Expression Computation)
-  (function.flip _.vector-ref/2))
-
-(def: (product-tail product)
-  (-> Expression Computation)
-  (_.vector-ref/2 product (|> (_.length/1 product) (_.-/2 (_.int +1)))))
-
-(def: (updated-index min-length product)
-  (-> Expression Expression Computation)
-  (|> min-length (_.-/2 (_.length/1 product))))
-
-(runtime: (product//left product index)
-  (let [@index_min_length (_.var "index_min_length")]
+(runtime: (tuple//left lefts tuple)
+  (with-vars [last-index-right]
     (_.begin
-     (list (_.define @index_min_length [(list) #.None]
-                     (minimum-index-length index))
-           (_.if (|> product _.length/1 (_.>/2 @index_min_length))
+     (list (_.define-constant last-index-right (..last-index tuple))
+           (_.if (_.>/2 lefts last-index-right)
              ## No need for recursion
-             (product-element index product)
+             (_.vector-ref/2 tuple lefts)
              ## Needs recursion
-             (product//left (product-tail product)
-                            (updated-index @index_min_length product)))))))
+             (tuple//left (_.-/2 last-index-right lefts)
+                          (_.vector-ref/2 tuple last-index-right)))))))
 
-(runtime: (product//right product index)
-  (let [@index_min_length (_.var "index_min_length")
-        @product_length (_.var "product_length")
-        @slice (_.var "slice")
-        last-element? (|> @product_length (_.=/2 @index_min_length))
-        needs-recursion? (|> @product_length (_.</2 @index_min_length))]
+(runtime: (tuple//right lefts tuple)
+  (with-vars [last-index-right right-index @slice]
     (_.begin
-     (list
-      (_.define @index_min_length [(list) #.None] (minimum-index-length index))
-      (_.define @product_length [(list) #.None] (_.length/1 product))
-      (<| (_.if last-element?
-            (product-element index product))
-          (_.if needs-recursion?
-            (product//right (product-tail product)
-                            (updated-index @index_min_length product)))
-          ## Must slice
-          (_.begin
-           (list (_.define @slice [(list) #.None]
-                           (_.make-vector/1 (|> @product_length (_.-/2 index))))
-                 (_.vector-copy!/5 @slice (_.int +0) product index @product_length)
-                 @slice)))))))
+     (list (_.define-constant last-index-right (..last-index tuple))
+           (_.define-constant right-index (_.+/2 (_.int +1) lefts))
+           (_.cond (list [(_.=/2 right-index last-index-right)
+                          (_.vector-ref/2 tuple right-index)]
+                         [(_.>/2 right-index last-index-right)
+                          ## Needs recursion.
+                          (tuple//right (_.-/2 last-index-right lefts)
+                                        (_.vector-ref/2 tuple last-index-right))])
+                   (_.begin
+                    (list (_.define-constant @slice (_.make-vector/1 (_.-/2 right-index (_.length/1 tuple))))
+                          (_.vector-copy!/5 @slice (_.int +0) tuple right-index (_.length/1 tuple))
+                          @slice))))
+     )))
 
 (runtime: (sum//get sum last? wanted-tag)
-  (with-vars [variant-tag sum-tag sum-flag sum-value]
+  (with-vars [sum-tag sum-flag sum-value]
     (let [no-match _.nil
           is-last? (|> sum-flag (_.eqv?/2 (_.string "")))
           test-recursion (_.if is-last?
@@ -216,8 +195,10 @@
                                      (|> wanted-tag (_.-/2 sum-tag))
                                      last?)
                            no-match)]
-      (<| (_.let-values (list [[(list variant-tag sum-tag sum-flag sum-value) #.None]
-                               (_.apply/* (_.global "apply") (list (_.global "values") sum))]))
+      (<| (_.let (list [sum-tag (_.car/1 sum)]
+                       [sum-value (_.cdr/1 sum)]))
+          (_.let (list [sum-flag (_.car/1 sum-value)]
+                       [sum-value (_.cdr/1 sum-value)]))
           (_.if (|> wanted-tag (_.=/2 sum-tag))
             (_.if (|> sum-flag (_.eqv?/2 last?))
               sum-value
@@ -231,11 +212,11 @@
 
 (def: runtime//adt
   Computation
-  (_.begin (list @@product//left
-                 @@product//right
+  (_.begin (list @@tuple//left
+                 @@tuple//right
                  @@sum//get)))
 
-(runtime: (bit//logical-right-shift shift input)
+(runtime: (i64//logical-right-shift shift input)
   (_.if (_.=/2 (_.int +0) shift)
     input
     (|> input
@@ -244,7 +225,7 @@
 
 (def: runtime//bit
   Computation
-  (_.begin (list @@bit//logical-right-shift)))
+  (_.begin (list @@i64//logical-right-shift)))
 
 (runtime: (frac//decode input)
   (with-vars [@output]
@@ -258,42 +239,6 @@
   Computation
   (_.begin
    (list @@frac//decode)))
-
-(def: (check-index-out-of-bounds array idx body)
-  (-> Expression Expression Expression Computation)
-  (_.if (|> idx (_.<=/2 (_.length/1 array)))
-    body
-    (_.raise/1 (_.string "Array index out of bounds!"))))
-
-(runtime: (array//get array idx)
-  (with-vars [@temp]
-    (<| (check-index-out-of-bounds array idx)
-        (_.let (list [@temp (_.vector-ref/2 array idx)])
-          (_.if (|> @temp (_.eqv?/2 _.nil))
-            ..none
-            (..some @temp))))))
-
-(runtime: (array//put array idx value)
-  (<| (check-index-out-of-bounds array idx)
-      (_.begin
-       (list (_.vector-set!/3 array idx value)
-             array))))
-
-(def: runtime//array
-  Computation
-  (_.begin
-   (list @@array//get
-         @@array//put)))
-
-(runtime: (box//write value box)
-  (_.begin
-   (list
-    (_.vector-set!/3 box (_.int +0) value)
-    ..unit)))
-
-(def: runtime//box
-  Computation
-  (_.begin (list @@box//write)))
 
 (runtime: (io//current-time _)
   (|> (_.apply/* (_.global "current-second") (list))
@@ -310,8 +255,6 @@
                  runtime//bit
                  runtime//adt
                  runtime//frac
-                 runtime//array
-                 runtime//box
                  runtime//io
                  )))
 

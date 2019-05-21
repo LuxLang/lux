@@ -1,15 +1,14 @@
 (.module:
   [lux (#- Code int or and if function cond let)
    [control
-    [pipe (#+ new> cond> case>)]
-    ["." function]]
+    [pipe (#+ new> cond> case>)]]
    [data
     [number
      ["." frac]]
     ["." text
      format]
     [collection
-     ["." list ("#;." functor fold)]]]
+     ["." list ("#@." functor fold)]]]
    [macro
     ["." template]]
    [type
@@ -44,25 +43,25 @@
 
   (def: #export var (-> Text Var) (|>> :abstraction))
 
-  (def: (arguments [vars rest])
+  (def: (arguments [mandatory rest])
     (-> Arguments (Code Any))
     (case rest
       (#.Some rest)
-      (case vars
+      (case mandatory
         #.Nil
         rest
 
         _
         (|> (format " . " (:representation rest))
-            (format (|> vars
-                        (list;map ..code)
+            (format (|> mandatory
+                        (list@map ..code)
                         (text.join-with " ")))
             (text.enclose ["(" ")"])
             :abstraction))
       
       #.None
-      (|> vars
-          (list;map ..code)
+      (|> mandatory
+          (list@map ..code)
           (text.join-with " ")
           (text.enclose ["(" ")"])
           :abstraction)))
@@ -129,14 +128,15 @@
     (|>> :abstraction))
 
   (def: form
-    (-> (List (Code Any)) Text)
-    (|>> (list;map ..code)
+    (-> (List (Code Any)) Code)
+    (|>> (list@map ..code)
          (text.join-with " ")
-         (text.enclose ["(" ")"])))
+         (text.enclose ["(" ")"])
+         :abstraction))
   
   (def: #export (apply/* func args)
     (-> Expression (List Expression) Computation)
-    (:abstraction (..form (#.Cons func args))))
+    (..form (#.Cons func args)))
   
   (template [<name> <function>]
     [(def: #export <name>
@@ -193,7 +193,7 @@
      [[append/2 "append"]
       [cons/2 "cons"]
       [make-vector/2 "make-vector"]
-      [vector-ref/2 "vector-ref"]
+      ## [vector-ref/2 "vector-ref"]
       [list-tail/2 "list-tail"]
       [map/2 "map"]
       [string-ref/2 "string-ref"]
@@ -206,6 +206,23 @@
     [apply/5 [_0 _1 _2 _3 _4] [Expression Expression Expression Expression Expression]
      [[vector-copy!/5 "vector-copy!"]]]
     )
+
+  ## TODO: define "vector-ref/2" like a normal apply/2 function.
+  ## "vector-ref/2" as an 'invoke' is problematic, since it only works
+  ## in Kawa.
+  ## However, the way Kawa defines "vector-ref" causes trouble,
+  ## because it does a runtime type-check which throws an error when
+  ## it checks against custom values/objects/classes made for
+  ## JVM<->Scheme interop.
+  ## There are 2 ways to deal with this:
+  ## 0. To fork Kawa, and get rid of the type-check so the normal
+  ## "vector-ref" can be used instead.
+  ## 1. To carry on, and then, when it's time to compile the compiler
+  ## itself into Scheme, switch from 'invoke' to normal 'vector-ref'.
+  ## Either way, the 'invoke' needs to go away.
+  (def: #export (vector-ref/2 vector index)
+    (-> Expression Expression Computation)
+    (..form (list (..var "invoke") vector (..symbol "getRaw") index)))
 
   (template [<lux-name> <scheme-name>]
     [(def: #export (<lux-name> param subject)
@@ -238,7 +255,7 @@
   (template [<lux-name> <scheme-name>]
     [(def: #export <lux-name>
        (-> (List Expression) Computation)
-       (|>> (list& (..global <scheme-name>)) ..form :abstraction))]
+       (|>> (list& (..global <scheme-name>)) ..form))]
 
     [or "or"]
     [and "and"]
@@ -247,20 +264,17 @@
   (template [<lux-name> <scheme-name> <var> <pre>]
     [(def: #export (<lux-name> bindings body)
        (-> (List [<var> Expression]) Expression Computation)
-       (:abstraction
-        (..form (list (..global <scheme-name>)
-                      (|> bindings
-                          (list;map (.function (_ [binding/name binding/value])
-                                      (:abstraction
-                                       (..form (list (<pre> binding/name)
-                                                     binding/value)))))
-                          ..form
-                          :abstraction)
-                      body))))]
+       (..form (list (..global <scheme-name>)
+                     (|> bindings
+                         (list@map (.function (_ [binding/name binding/value])
+                                     (..form (list (|> binding/name <pre>)
+                                                   binding/value))))
+                         ..form)
+                     body)))]
 
-    [let           "let"           Var       function.identity]
-    [let*          "let*"          Var       function.identity]
-    [letrec        "letrec"        Var       function.identity]
+    [let           "let"           Var       (<|)]
+    [let*          "let*"          Var       (<|)]
+    [letrec        "letrec"        Var       (<|)]
     [let-values    "let-values"    Arguments ..arguments]
     [let*-values   "let*-values"   Arguments ..arguments]
     [letrec-values "letrec-values" Arguments ..arguments]
@@ -268,17 +282,15 @@
 
   (def: #export (if test then else)
     (-> Expression Expression Expression Computation)
-    (:abstraction
-     (..form (list (..global "if") test then else))))
+    (..form (list (..global "if") test then else)))
 
   (def: #export (when test then)
     (-> Expression Expression Computation)
-    (:abstraction
-     (..form (list (..global "when") test then))))
+    (..form (list (..global "when") test then)))
 
   (def: #export (cond clauses else)
     (-> (List [Expression Expression]) Expression Computation)
-    (|> (list;fold (.function (_ [test then] next)
+    (|> (list@fold (.function (_ [test then] next)
                      (if test then next))
                    else
                    (list.reverse clauses))
@@ -287,31 +299,31 @@
 
   (def: #export (lambda arguments body)
     (-> Arguments Expression Computation)
-    (:abstraction
-     (..form (list (..global "lambda")
-                   (..arguments arguments)
-                   body))))
+    (..form (list (..global "lambda")
+                  (..arguments arguments)
+                  body)))
 
-  (def: #export (define name arguments body)
+  (def: #export (define-function name arguments body)
     (-> Var Arguments Expression Computation)
-    (:abstraction
-     (..form (list (..global "define")
-                   (|> arguments
-                       (update@ #mandatory (|>> (#.Cons name)))
-                       ..arguments)
-                   body))))
+    (..form (list (..global "define")
+                  (|> arguments
+                      (update@ #mandatory (|>> (#.Cons name)))
+                      ..arguments)
+                  body)))
+
+  (def: #export (define-constant name value)
+    (-> Var Expression Computation)
+    (..form (list (..global "define") name value)))
 
   (def: #export begin
     (-> (List Expression) Computation)
-    (|>> (#.Cons (..global "begin")) ..form :abstraction))
+    (|>> (#.Cons (..global "begin")) ..form))
 
   (def: #export (set! name value)
     (-> Var Expression Computation)
-    (:abstraction
-     (..form (list (..global "set!") name value))))
+    (..form (list (..global "set!") name value)))
 
   (def: #export (with-exception-handler handler body)
     (-> Expression Expression Computation)
-    (:abstraction
-     (..form (list (..global "with-exception-handler") handler body))))
+    (..form (list (..global "with-exception-handler") handler body)))
   )
