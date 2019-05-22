@@ -254,12 +254,6 @@
   (|do [_ (return nil)
         :let [def-class (&&/load-class! class-loader (&host-generics/->class-name current-class))
               def-type (&a/expr-type* ?body)
-              is-type? (|case (&a-meta/meta-get &a-meta/type?-tag ?meta)
-                         (&/$Some [_ (&/$Bit true)])
-                         true
-
-                         _
-                         false)
               def-meta ?meta]
         def-value (try (return (-> def-class (.getField &/value-field) (.get nil)))
                     (catch Throwable t
@@ -268,7 +262,8 @@
                                       (throwable->text t)))))
         _ (&/without-repl-closure
            (&a-module/define module-name ?name def-type def-meta def-value))]
-    (|case (&/T [is-type? (&a-meta/meta-get &a-meta/tags-tag def-meta)])
+    (|case (&/T [(&type/type= &type/Type def-type)
+                 (&a-meta/meta-get &a-meta/tags-tag def-meta)])
       [true (&/$Some [_ (&/$Tuple tags*)])]
       (|do [:let [was-exported? (|case (&a-meta/meta-get &a-meta/export?-tag def-meta)
                                   (&/$Some _)

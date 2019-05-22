@@ -40,7 +40,6 @@
 (do-template [<name> <tag-name>]
   (def <name> (&/T [tag-prefix <tag-name>]))
 
-  type?-tag   "type?"
   alias-tag   "alias"
   export?-tag "export?"
   tags-tag    "tags"

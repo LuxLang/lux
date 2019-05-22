@@ -147,8 +147,7 @@
     (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
       (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
         (|let [[?type ?meta ?value] $def]
-          (|case (&meta/meta-get &meta/type?-tag ?meta)
-            (&/$Some _)
+          (if (&type/type= &type/Type ?type)
             (return* state (&/T [(|case (&meta/meta-get &meta/export?-tag ?meta)
                                    (&/$Some _)
                                    true
@@ -156,8 +155,6 @@
                                    _
                                    false)
                                  ?value]))
-
-            _
             ((&/fail-with-loc (str "[Analyser Error] Not a type: " (&/ident->text (&/T [module name]))
                                    "\nMETA: " (&/show-ast ?meta)))
              state)))
@@ -286,17 +283,6 @@
                                " at module: " current-module))
          state))
       )))
-
-(defn ensure-type-def
-  "(-> DefData (Lux Type))"
-  [def-data]
-  (|let [[?type ?meta ?value] def-data]
-    (|case (&meta/meta-get &meta/type?-tag ?meta)
-      (&/$Some _)
-      (return ?type)
-
-      _
-      (&/fail-with-loc (str "[Analyser Error] Not a type definition: " (&/adt->text def-data))))))
 
 (defn defined? [module name]
   (&/try-all% (&/|list (|do [_ (find-def! module name)]
@@ -433,19 +419,6 @@
                                   _
                                   (&/T [k "" _def-data])
                                   )))))))))
-
-(do-template [<name> <type> <tag> <desc>]
-  (defn <name> [module name meta type]
-    (|case (&meta/meta-get <tag> meta)
-      (&/$Some [_ (&/$Bit true)])
-      (&/try-all% (&/|list (&type/check <type> type)
-                           (&/fail-with-loc (str "[Analyser Error] Cannot tag as lux;" <desc> "? if it's not a " <desc> ": " (str module &/+name-separator+ name)))))
-
-      _
-      (return nil)))
-
-  test-type  &type/Type  &meta/type?-tag  "type"
-  )
 
 (defn fetch-imports [meta]
   (|case (&meta/meta-get &meta/imports-tag meta)

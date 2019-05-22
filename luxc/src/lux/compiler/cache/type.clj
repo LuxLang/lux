@@ -20,7 +20,7 @@
 (defn serialize-type
   "(-> Type Text)"
   [type]
-  (if (clojure.lang.Util/identical &type/Type type)
+  (if (&type/type= &type/Type type)
     "T"
     (|case type
       (&/$Primitive name params)

@@ -268,8 +268,8 @@
 (defn ^:private analyse-global [analyse exo-type module name]
   (|do [[[r-module r-name] [endo-type ?meta ?value]] (&&module/find-def module name)
         ;; This is a small shortcut to optimize analysis of typing code.
-        _ (if (and (clojure.lang.Util/identical &type/Type endo-type)
-                   (clojure.lang.Util/identical &type/Type exo-type))
+        _ (if (and (&type/type= &type/Type endo-type)
+                   (&type/type= &type/Type exo-type))
             (return nil)
             (&type/check exo-type endo-type))
         _cursor &/cursor]
@@ -553,7 +553,6 @@
                   (&&/analyse-1+ analyse ?value)))
         =meta (&&/analyse-1 analyse &type/Code ?meta)
         ==meta (eval! (optimize =meta))
-        _ (&&module/test-type module-name ?name ==meta (&&/expr-type* =value))
         _ (compile-def ?name (optimize =value) ==meta)
         _ &type/reset-mappings]
     (return &/$Nil)))
