@@ -420,9 +420,9 @@
                                   (&/T [k "" _def-data])
                                   )))))))))
 
-(defn fetch-imports [meta]
-  (|case (&meta/meta-get &meta/imports-tag meta)
-    (&/$Some [_ (&/$Tuple _parts)])
+(defn fetch-imports [imports]
+  (|case imports
+    [_ (&/$Tuple _parts)]
     (&/map% (fn [_part]
               (|case _part
                 [_ (&/$Tuple (&/$Cons [[_ (&/$Text _module)]
@@ -435,7 +435,7 @@
             _parts)
 
     _
-    (&/fail-with-loc "[Analyser Error] No import meta-data.")))
+    (&/fail-with-loc "[Analyser Error] Incorrect import syntax.")))
 
 (def ^{:doc "(Lux (List [Text (List Text)]))"}
   tag-groups

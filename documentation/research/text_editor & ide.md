@@ -1,3 +1,7 @@
+# Residential programming
+
+1. [Residential Programming without Mutable State - Thomas Getgood](https://www.youtube.com/watch?v=Kgw9fblSOx4)
+
 # Good Ideas
 
 1. https://medium.com/@NikitaVoloboev/write-once-never-write-again-c2fa1f6c4e8

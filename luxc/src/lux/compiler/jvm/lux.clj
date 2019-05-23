@@ -253,19 +253,18 @@
 (defn ^:private install-def! [class-loader current-class module-name ?name ?body ?meta]
   (|do [_ (return nil)
         :let [def-class (&&/load-class! class-loader (&host-generics/->class-name current-class))
-              def-type (&a/expr-type* ?body)
-              def-meta ?meta]
+              def-type (&a/expr-type* ?body)]
         def-value (try (return (-> def-class (.getField &/value-field) (.get nil)))
                     (catch Throwable t
                       (&/assert! false
                                  (str "Error during value initialization:\n"
                                       (throwable->text t)))))
         _ (&/without-repl-closure
-           (&a-module/define module-name ?name def-type def-meta def-value))]
+           (&a-module/define module-name ?name def-type ?meta def-value))]
     (|case (&/T [(&type/type= &type/Type def-type)
-                 (&a-meta/meta-get &a-meta/tags-tag def-meta)])
+                 (&a-meta/meta-get &a-meta/tags-tag ?meta)])
       [true (&/$Some [_ (&/$Tuple tags*)])]
-      (|do [:let [was-exported? (|case (&a-meta/meta-get &a-meta/export?-tag def-meta)
+      (|do [:let [was-exported? (|case (&a-meta/meta-get &a-meta/export?-tag ?meta)
                                   (&/$Some _)
                                   true
 
@@ -303,11 +302,10 @@
           (if (= 1 (&/|length ?meta*))
             (|do [:let [current-class (&host-generics/->class-name (str (&host/->module-class r-module) "/" (&host/def-name r-name)))
                         def-class (&&/load-class! class-loader current-class)
-                        def-meta ?meta
                         def-value (-> def-class (.getField &/value-field) (.get nil))]
                   def-type (&a-module/def-type r-module r-name)
                   _ (&/without-repl-closure
-                     (&a-module/define module-name ?name def-type def-meta def-value))]
+                     (&a-module/define module-name ?name def-type ?meta def-value))]
               (return nil))
             (&/fail-with-loc (str "[Compilation Error] Aliases cannot contain meta-data: " (str module-name &/+name-separator+ ?name)))))
 

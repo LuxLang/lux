@@ -640,13 +640,13 @@
         (return (doto (promise)
                   (deliver (&/$Right _compiler))))))))
 
-(defn analyse-module [analyse optimize eval! compile-module ?meta]
+(defn analyse-module [analyse optimize eval! compile-module ?meta ?imports]
   (|do [_ &/ensure-statement
         =anns (&&/analyse-1 analyse &type/Code ?meta)
         ==anns (eval! (optimize =anns))
         module-name &/get-module-name
         _ (&&module/set-anns ==anns module-name)
-        _imports (&&module/fetch-imports ==anns)
+        _imports (&&module/fetch-imports ?imports)
         current-module &/get-module-name
         =asyncs (&/map% (fn [_import]
                           (|let [[path alias] _import]

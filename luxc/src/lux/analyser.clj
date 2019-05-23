@@ -150,9 +150,9 @@
               (&&lux/analyse-program analyse optimize compile-program ?program)))
 
           "lux def module"
-          (|let [(&/$Cons ?meta (&/$Nil)) parameters]
+          (|let [(&/$Cons ?meta (&/$Cons ?imports (&/$Nil))) parameters]
             (&/with-cursor cursor
-              (&&lux/analyse-module analyse optimize eval! compile-module ?meta)))
+              (&&lux/analyse-module analyse optimize eval! compile-module ?meta ?imports)))
 
           "lux in-module"
           (|let [(&/$Cons [_ (&/$Text ?module)] (&/$Cons ?expr (&/$Nil))) parameters]

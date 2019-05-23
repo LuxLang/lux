@@ -40,20 +40,8 @@
 (def Text (&/$Named (&/T ["lux" "Text"]) (&/$Primitive "#Text" &/$Nil)))
 (def Ident (&/$Named (&/T ["lux" "Ident"]) (&/$Product Text Text)))
 
-(do-template [<name> <tag>]
-  (defn <name> [elemT]
-    (&/$Primitive <tag> (&/|list elemT)))
-
-  Array "#Array"
-  Atom  "#Atom"
-  )
-
-(do-template [<name> <tag>]
-  (defn <name> [threadT elemT]
-    (&/$Primitive <tag> (&/|list threadT elemT)))
-
-  Box  "#Box"
-  )
+(defn Array [elemT]
+  (&/$Primitive "#Array" (&/|list elemT)))
 
 (def Nothing
   (&/$Named (&/T ["lux" "Nothing"])
