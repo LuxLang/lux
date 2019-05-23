@@ -42,5 +42,4 @@
 
   alias-tag   "alias"
   export?-tag "export?"
-  tags-tag    "tags"
   )

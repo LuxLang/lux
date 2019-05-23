@@ -542,7 +542,7 @@
   (|do [output (analyse-function** analyse exo-type ?self ?arg ?body)]
     (return (&/|list output))))
 
-(defn analyse-def [analyse optimize eval! compile-def ?name ?value ?meta]
+(defn analyse-def* [analyse optimize eval! compile-def ?name ?value ?meta & [?expected-type]]
   (|do [_ &/ensure-statement
         module-name &/get-module-name
         ? (&&module/defined? module-name ?name)
@@ -550,11 +550,39 @@
                      (str "[Analyser Error] Cannot re-define " (str module-name &/+name-separator+ ?name)))
         =value (&/without-repl-closure
                 (&/with-scope ?name
-                  (&&/analyse-1+ analyse ?value)))
+                  (if ?expected-type
+                    (&/with-expected-type ?expected-type
+                      (&&/analyse-1 analyse ?expected-type ?value))
+                    (&&/analyse-1+ analyse ?value))))
         =meta (&&/analyse-1 analyse &type/Code ?meta)
         ==meta (eval! (optimize =meta))
-        _ (compile-def ?name (optimize =value) ==meta)
+        def-value (compile-def ?name (optimize =value) ==meta)
         _ &type/reset-mappings]
+    (return (&/T [module-name (&&/expr-type* =value) def-value ==meta]))))
+
+(defn analyse-def [analyse optimize eval! compile-def ?name ?value ?meta]
+  (|do [_ (analyse-def* analyse optimize eval! compile-def ?name ?value ?meta)]
+    (return &/$Nil)))
+
+(defn analyse-def-type-tagged [analyse optimize eval! compile-def ?name ?value ?meta tags*]
+  (|do [[module-name def-type def-value ==meta] (analyse-def* analyse optimize eval! compile-def ?name ?value ?meta &type/Type)
+        _ (&/assert! (&type/type= &type/Type def-type)
+                     "[Analyser Error] Cannot define tags for non-type.")
+        :let [was-exported? (|case (&&meta/meta-get &&meta/export?-tag ==meta)
+                              (&/$Some _)
+                              true
+
+                              _
+                              false)]
+        tags (&/map% (fn [tag*]
+                       (|case tag*
+                         [_ (&/$Text tag)]
+                         (return tag)
+
+                         _
+                         (&/fail-with-loc "[Analyser Error] Incorrect format for tags.")))
+                     tags*)
+        _ (&&module/declare-tags module-name tags was-exported? def-value)]
     (return &/$Nil)))
 
 (def ^:private dummy-cursor

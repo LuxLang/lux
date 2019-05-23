@@ -261,34 +261,7 @@
                                       (throwable->text t)))))
         _ (&/without-repl-closure
            (&a-module/define module-name ?name def-type ?meta def-value))]
-    (|case (&/T [(&type/type= &type/Type def-type)
-                 (&a-meta/meta-get &a-meta/tags-tag ?meta)])
-      [true (&/$Some [_ (&/$Tuple tags*)])]
-      (|do [:let [was-exported? (|case (&a-meta/meta-get &a-meta/export?-tag ?meta)
-                                  (&/$Some _)
-                                  true
-
-                                  _
-                                  false)]
-            tags (&/map% (fn [tag*]
-                           (|case tag*
-                             [_ (&/$Text tag)]
-                             (return tag)
-
-                             _
-                             (&/fail-with-loc "[Compiler Error] Incorrect format for tags.")))
-                         tags*)
-            _ (&a-module/declare-tags module-name tags was-exported? def-value)]
-        (return nil))
-
-      [false (&/$Some _)]
-      (&/fail-with-loc "[Compiler Error] Cannot define tags for non-type.")
-
-      [true (&/$Some _)]
-      (&/fail-with-loc "[Compiler Error] Incorrect format for tags.")
-
-      [_ (&/$None)]
-      (return nil))))
+    (return def-value)))
 
 (let [class-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
       field-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC)]
@@ -341,9 +314,9 @@
                         (return nil)))
                   :let [_ (.visitEnd =class)]
                   _ (&&/save-class! def-name (.toByteArray =class))
-                  _ (install-def! class-loader current-class module-name ?name ?body ?meta)
+                  def-value (install-def! class-loader current-class module-name ?name ?body ?meta)
                   :let [_ (println 'DEF (str module-name &/+name-separator+ ?name))]]
-              (return nil)))
+              (return def-value)))
 
           _
           (|do [[file-name _ _] &/cursor
@@ -368,9 +341,9 @@
                       (return nil)))
                 :let [_ (.visitEnd =class)]
                 _ (&&/save-class! def-name (.toByteArray =class))
-                _ (install-def! class-loader current-class module-name ?name ?body ?meta)
+                def-value (install-def! class-loader current-class module-name ?name ?body ?meta)
                 :let [_ (println 'DEF (str module-name &/+name-separator+ ?name))]]
-            (return nil)))
+            (return def-value)))
         ))))
 
 (defn compile-program [compile ?program]

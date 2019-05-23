@@ -31,7 +31,7 @@
     ["#/" // #_
      ["#." analysis]
      ["#." synthesis (#+ Synthesis)]
-     ["#." statement (#+ Import Operation Handler Bundle)]
+     ["#." statement (#+ Import Requirements Phase Operation Handler Bundle)]
      [default
       ["#." evaluation]]]]])
 
@@ -57,16 +57,14 @@
      #let [analyse (get@ [#////statement.analysis #////statement.phase] state)
            synthesize (get@ [#////statement.synthesis #////statement.phase] state)
            generate (get@ [#////statement.generation #////statement.phase] state)]
-     [_ code//type codeA] (////statement.lift-analysis
-                           (////analysis.with-scope
-                             (typeA.with-fresh-env
-                               (typeA.with-type type
-                                 (do @
-                                   [codeA (analyse codeC)]
-                                   (wrap [type codeA]))))))
+     [_ codeA] (////statement.lift-analysis
+                (////analysis.with-scope
+                  (typeA.with-fresh-env
+                    (typeA.with-type type
+                      (analyse codeC)))))
      codeS (////statement.lift-synthesis
             (synthesize codeA))]
-    (evaluate!' generate code//type codeS)))
+    (evaluate!' generate type codeS)))
 
 ## TODO: Inline "definition'" into "definition" ASAP
 (def: (definition' generate name code//type codeS)
@@ -83,9 +81,9 @@
       _ (///generation.save! false name statement)]
      (wrap [code//type codeT target-name value]))))
 
-(def: (definition name codeC)
+(def: (definition name expected codeC)
   (All [anchor expression statement]
-    (-> Name Code
+    (-> Name (Maybe Type) Code
         (Operation anchor expression statement [Type expression Text Any])))
   (do ///.monad
     [state (//.lift ///.get-state)
@@ -95,30 +93,22 @@
      [_ code//type codeA] (////statement.lift-analysis
                            (////analysis.with-scope
                              (typeA.with-fresh-env
-                               (do @
-                                 [[code//type codeA] (typeA.with-inference (analyse codeC))
-                                  code//type (typeA.with-env
-                                               (check.clean code//type))]
-                                 (wrap [code//type codeA])))))
+                               (case expected
+                                 #.None
+                                 (do @
+                                   [[code//type codeA] (typeA.with-inference (analyse codeC))
+                                    code//type (typeA.with-env
+                                                 (check.clean code//type))]
+                                   (wrap [code//type codeA]))
+
+                                 (#.Some expected)
+                                 (do @
+                                   [codeA (typeA.with-type expected
+                                            (analyse codeC))]
+                                   (wrap [expected codeA]))))))
      codeS (////statement.lift-synthesis
             (synthesize codeA))]
     (definition' generate name code//type codeS)))
-
-(def: (define short-name type annotations value)
-  (All [anchor expression statement]
-    (-> Text Type Code Any
-        (Operation anchor expression statement Any)))
-  (////statement.lift-analysis
-   (do ///.monad
-     [_ (module.define short-name [type annotations value])]
-     (if (type@= .Type type)
-       (case (macro.declared-tags annotations)
-         #.Nil
-         (wrap [])
-
-         tags
-         (module.declare-tags tags (macro.export? annotations) (:coerce Type value)))
-       (wrap [])))))
 
 (def: (refresh expander)
   (All [anchor expression statement]
@@ -145,10 +135,11 @@
         [current-module (////statement.lift-analysis
                          (//.lift macro.current-module-name))
          #let [full-name [current-module short-name]]
-         [_ annotationsT annotationsV] (evaluate! Code annotationsC)
-         #let [annotationsV (:coerce Code annotationsV)]
-         [value//type valueT valueN valueV] (..definition full-name valueC)
-         _ (..define short-name value//type annotationsV valueV)
+         [_ annotationsT annotations] (evaluate! Code annotationsC)
+         #let [annotations (:coerce Code annotations)]
+         [type valueT valueN value] (..definition full-name #.None valueC)
+         _ (////statement.lift-analysis
+            (module.define short-name [type annotations value]))
          #let [_ (log! (format "Definition " (%name full-name)))]
          _ (////statement.lift-generation
             (///generation.learn full-name valueN))
@@ -158,6 +149,44 @@
       _
       (///.throw //.invalid-syntax [extension-name %code inputsC+]))))
 
+(def: (custom [syntax handler])
+  (All [anchor expression statement s]
+    (-> [(Parser s)
+         (-> Text
+             (Phase anchor expression statement)
+             s
+             (Operation anchor expression statement Requirements))]
+        (Handler anchor expression statement)))
+  (function (_ extension-name phase inputs)
+    (case (s.run syntax inputs)
+      (#error.Success inputs)
+      (handler extension-name phase inputs)
+
+      (#error.Failure error)
+      (///.throw //.invalid-syntax [extension-name %code inputs]))))
+
+(def: (def::type-tagged expander)
+  (-> Expander Handler)
+  (..custom
+   [($_ p.and s.local-identifier s.any s.any (s.tuple (p.some s.text)))
+    (function (_ extension-name phase [short-name valueC annotationsC tags])
+      (do ///.monad
+        [current-module (////statement.lift-analysis
+                         (//.lift macro.current-module-name))
+         #let [full-name [current-module short-name]]
+         [_ annotationsT annotations] (evaluate! Code annotationsC)
+         #let [annotations (:coerce Code annotations)]
+         [type valueT valueN value] (..definition full-name (#.Some .Type) valueC)
+         _ (////statement.lift-analysis
+            (do ///.monad
+              [_ (module.define short-name [type annotations value])]
+              (module.declare-tags tags (macro.export? annotations) (:coerce Type value))))
+         #let [_ (log! (format "Definition " (%name full-name)))]
+         _ (////statement.lift-generation
+            (///generation.learn full-name valueN))
+         _ (..refresh expander)]
+        (wrap ////statement.no-requirements)))]))
+
 (def: imports
   (Parser (List Import))
   (|> (s.tuple (p.and s.text s.text))
@@ -166,17 +195,11 @@
 
 (def: def::module
   Handler
-  (function (_ extension-name phase inputsC+)
-    (case inputsC+
-      (^ (list annotationsC importsC))
+  (..custom
+   [($_ p.and s.any ..imports)
+    (function (_ extension-name phase [annotationsC imports])
       (do ///.monad
-        [imports (case (s.run ..imports (list importsC))
-                   (#error.Success imports)
-                   (wrap imports)
-                   
-                   (#error.Failure error)
-                   (///.throw //.invalid-syntax [extension-name %code (list annotationsC importsC)]))
-         [_ annotationsT annotationsV] (evaluate! Code annotationsC)
+        [[_ annotationsT annotationsV] (evaluate! Code annotationsC)
          #let [annotationsV (:coerce Code annotationsV)]
          _ (////statement.lift-analysis
             (do @
@@ -189,10 +212,7 @@
                             imports)]
               (module.set-annotations annotationsV)))]
         (wrap {#////statement.imports imports
-               #////statement.referrals (list)}))
-
-      _
-      (///.throw //.invalid-syntax [extension-name %code inputsC+]))))
+               #////statement.referrals (list)})))]))
 
 ## TODO: Reify aliasing as a feature of the compiler, instead of
 ## manifesting it implicitly through definition annotations.
@@ -302,18 +322,19 @@
       _
       (///.throw //.invalid-syntax [extension-name %code inputsC+]))))
 
-(def: (bundle::def program)
+(def: (bundle::def expander program)
   (All [anchor expression statement]
-    (-> (-> expression statement) (Bundle anchor expression statement)))
+    (-> Expander (-> expression statement) (Bundle anchor expression statement)))
   (<| (//bundle.prefix "def")
       (|> //bundle.empty
-          (dictionary.put "module"     def::module)
-          (dictionary.put "alias"      def::alias)
-          (dictionary.put "analysis"   def::analysis)
-          (dictionary.put "synthesis"  def::synthesis)
+          (dictionary.put "module" def::module)
+          (dictionary.put "alias" def::alias)
+          (dictionary.put "type tagged" (def::type-tagged expander))
+          (dictionary.put "analysis" def::analysis)
+          (dictionary.put "synthesis" def::synthesis)
           (dictionary.put "generation" def::generation)
-          (dictionary.put "statement"  def::statement)
-          (dictionary.put "program"    (def::program program))
+          (dictionary.put "statement" def::statement)
+          (dictionary.put "program" (def::program program))
           )))
 
 (def: #export (bundle expander program)
@@ -322,4 +343,4 @@
   (<| (//bundle.prefix "lux")
       (|> //bundle.empty
           (dictionary.put "def" (lux::def expander))
-          (dictionary.merge (..bundle::def program)))))
+          (dictionary.merge (..bundle::def expander program)))))

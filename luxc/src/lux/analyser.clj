@@ -144,6 +144,16 @@
             (&/with-cursor cursor
               (&&lux/analyse-def-alias ?alias ?original)))
 
+          "lux def type tagged"
+          (|let [(&/$Cons [_ (&/$Identifier "" ?name)]
+                          (&/$Cons ?value
+                                   (&/$Cons ?meta
+                                            (&/$Cons [_ (&/$Tuple ?tags)]
+                                                     (&/$Nil)))
+                                   )) parameters]
+            (&/with-cursor cursor
+              (&&lux/analyse-def-type-tagged analyse optimize eval! compile-def ?name ?value ?meta ?tags)))
+
           "lux def program"
           (|let [(&/$Cons ?program (&/$Nil)) parameters]
             (&/with-cursor cursor
