@@ -31,12 +31,15 @@
                     (.start (new Thread
                                  (fn []
                                    (let [out-str (with-out-str
-                                                   (|case (&/run-state (compile-module* module-name)
-                                                                       compiler)
-                                                     (&/$Right post-compiler _)
-                                                     (deliver task (&/$Right post-compiler))
+                                                   (try (|case (&/run-state (compile-module* module-name)
+                                                                            compiler)
+                                                          (&/$Right post-compiler _)
+                                                          (deliver task (&/$Right post-compiler))
 
-                                                     (&/$Left ?error)
-                                                     (deliver task (&/$Left ?error))))]
+                                                          (&/$Left ?error)
+                                                          (deliver task (&/$Left ?error)))
+                                                     (catch Throwable ex
+                                                       (.printStackTrace ex)
+                                                       (deliver task (&/$Left "")))))]
                                      (&/|log! out-str))))))]]
       (return task))))

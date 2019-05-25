@@ -106,7 +106,7 @@
                           state)
                nil))))
 
-(defn define [module name def-type def-meta def-value]
+(defn define [module name exported? def-type def-meta def-value]
   (fn [state]
     (when (and (= "Macro'" name) (= "lux" module))
       (&type/set-macro*-type! def-value))
@@ -118,7 +118,7 @@
                                  (&/|update module
                                             (fn [m]
                                               (&/update$ $defs
-                                                         #(&/|put name (&/T [def-type def-meta def-value]) %)
+                                                         #(&/|put name (&/T [exported? def-type def-meta def-value]) %)
                                                          m))
                                             ms))))
                nil)
@@ -133,7 +133,7 @@
   (fn [state]
     (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
       (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
-        (|let [[?type ?meta ?value] $def]
+        (|let [[exported? ?type ?meta ?value] $def]
           (return* state ?type))
         ((&/fail-with-loc (str "[Analyser Error] Unknown definition: " (str module &/+name-separator+ name)))
          state))
@@ -146,15 +146,9 @@
   (fn [state]
     (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
       (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
-        (|let [[?type ?meta ?value] $def]
+        (|let [[exported? ?type ?meta ?value] $def]
           (if (&type/type= &type/Type ?type)
-            (return* state (&/T [(|case (&meta/meta-get &meta/export?-tag ?meta)
-                                   (&/$Some _)
-                                   true
-
-                                   _
-                                   false)
-                                 ?value]))
+            (return* state (&/T [exported? ?value]))
             ((&/fail-with-loc (str "[Analyser Error] Not a type: " (&/ident->text (&/T [module name]))
                                    "\nMETA: " (&/show-ast ?meta)))
              state)))
@@ -230,7 +224,7 @@
     (fn [state]
       (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
         (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
-          (|let [[?type ?meta ?value] $def]
+          (|let [[exported? ?type ?meta ?value] $def]
             (if (.equals ^Object current-module module)
               (|case (&meta/meta-get &meta/alias-tag ?meta)
                 (&/$Some [_ (&/$Identifier [?r-module ?r-name])])
@@ -256,7 +250,7 @@
               (imports? state module current-module))
         (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
           (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
-            (|let [[?type ?meta ?value] $def]
+            (|let [[exported? ?type ?meta ?value] $def]
               (if (.equals ^Object current-module module)
                 (|case (&meta/meta-get &meta/alias-tag ?meta)
                   (&/$Some [_ (&/$Identifier [?r-module ?r-name])])
@@ -265,11 +259,8 @@
 
                   _
                   (return* state (&/T [(&/T [module name]) $def])))
-                (|case (&meta/meta-get &meta/export?-tag ?meta)
-                  (&/$Some [_ (&/$Bit true)])
+                (if exported?
                   (return* state (&/T [(&/T [module name]) $def]))
-
-                  _
                   ((&/fail-with-loc (str "[Analyser Error @ find-def] Cannot use private definition: " (str module &/+name-separator+ name)
                                          " at module: " current-module))
                    state))))
@@ -411,7 +402,7 @@
                (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $defs)
                     (&/|map (fn [kv]
                               (|let [[k _def-data] kv
-                                     [_ ?def-meta _] _def-data]
+                                     [_ _ ?def-meta _] _def-data]
                                 (|case (&meta/meta-get &meta/alias-tag ?def-meta)
                                   (&/$Some [_ (&/$Identifier [?r-module ?r-name])])
                                   (&/T [k (str ?r-module &/+name-separator+ ?r-name) _def-data])

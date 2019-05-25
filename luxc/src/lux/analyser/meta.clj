@@ -41,5 +41,4 @@
   (def <name> (&/T [tag-prefix <tag-name>]))
 
   alias-tag   "alias"
-  export?-tag "export?"
   )

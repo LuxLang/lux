@@ -210,6 +210,7 @@
 1. https://medium.com/@hugo.oliveira.rocha/what-they-dont-tell-you-about-event-sourcing-6afc23c69e9a
 1. https://vvvvalvalval.github.io/posts/2018-11-12-datomic-event-sourcing-without-the-hassle.html
 1. https://chriskiehl.com/article/event-sourcing-is-hard
+1. https://medium.com/serialized-io/apache-kafka-is-not-for-event-sourcing-81735c3cf5c
 
 # Architecture
 

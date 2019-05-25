@@ -131,10 +131,11 @@
           (|let [(&/$Cons [_ (&/$Identifier "" ?name)]
                           (&/$Cons ?value
                                    (&/$Cons ?meta
-                                            (&/$Nil))
+                                            (&/$Cons [_ (&/$Bit exported?)]
+                                                     (&/$Nil)))
                                    )) parameters]
             (&/with-cursor cursor
-              (&&lux/analyse-def analyse optimize eval! compile-def ?name ?value ?meta)))
+              (&&lux/analyse-def analyse optimize eval! compile-def ?name ?value ?meta exported?)))
 
           "lux def alias"
           (|let [(&/$Cons [_ (&/$Identifier "" ?alias)]
@@ -149,10 +150,11 @@
                           (&/$Cons ?value
                                    (&/$Cons ?meta
                                             (&/$Cons [_ (&/$Tuple ?tags)]
-                                                     (&/$Nil)))
+                                                     (&/$Cons [_ (&/$Bit exported?)]
+                                                              (&/$Nil))))
                                    )) parameters]
             (&/with-cursor cursor
-              (&&lux/analyse-def-type-tagged analyse optimize eval! compile-def ?name ?value ?meta ?tags)))
+              (&&lux/analyse-def-type-tagged analyse optimize eval! compile-def ?name ?value ?meta ?tags exported?)))
 
           "lux def program"
           (|let [(&/$Cons ?program (&/$Nil)) parameters]

@@ -266,7 +266,7 @@
       )))
 
 (defn ^:private analyse-global [analyse exo-type module name]
-  (|do [[[r-module r-name] [endo-type ?meta ?value]] (&&module/find-def module name)
+  (|do [[[r-module r-name] [exported? endo-type ?meta ?value]] (&&module/find-def module name)
         ;; This is a small shortcut to optimize analysis of typing code.
         _ (if (and (&type/type= &type/Type endo-type)
                    (&type/type= &type/Type exo-type))
@@ -381,7 +381,7 @@
 (defn analyse-apply [analyse cursor exo-type macro-caller =fn ?args]
   (|case =fn
     [_ (&&/$def ?module ?name)]
-    (|do [[real-name [?type ?meta ?value]] (&&module/find-def! ?module ?name)]
+    (|do [[real-name [exported? ?type ?meta ?value]] (&&module/find-def! ?module ?name)]
       (if (&type/type= &type/Macro ?type)
         (|do [macro-expansion (fn [state]
                                 (|case (macro-caller ?value ?args state)
@@ -390,13 +390,13 @@
 
                                   (&/$Left error)
                                   ((&/fail-with-loc error) state)))
-              ;; module-name &/get-module-name
+              module-name &/get-module-name
               ;; :let [[r-prefix r-name] real-name
-              ;;       _ (when (= "macro:'" r-name)
-              ;;           (->> (&/|map &/show-ast macro-expansion)
-              ;;                (&/|interpose "\n")
+              ;;       _ (when (= "module:" r-name)
+              ;;           (->> macro-expansion
+              ;;                (&/|map (fn [ast] (str (&/show-ast ast) "\n")))
               ;;                (&/fold str "")
-              ;;                (println 'macro-expansion (&/ident->text real-name) "@" module-name)))]
+              ;;                (&/|log! (str 'macro-expansion " " (&/ident->text real-name) " @ " module-name "\n"))))]
               ]
           (&/flat-map% (partial analyse exo-type) macro-expansion))
         (do-analyse-apply analyse exo-type =fn ?args)))
@@ -542,7 +542,7 @@
   (|do [output (analyse-function** analyse exo-type ?self ?arg ?body)]
     (return (&/|list output))))
 
-(defn analyse-def* [analyse optimize eval! compile-def ?name ?value ?meta & [?expected-type]]
+(defn analyse-def* [analyse optimize eval! compile-def ?name ?value ?meta exported? & [?expected-type]]
   (|do [_ &/ensure-statement
         module-name &/get-module-name
         ? (&&module/defined? module-name ?name)
@@ -556,24 +556,18 @@
                     (&&/analyse-1+ analyse ?value))))
         =meta (&&/analyse-1 analyse &type/Code ?meta)
         ==meta (eval! (optimize =meta))
-        def-value (compile-def ?name (optimize =value) ==meta)
+        def-value (compile-def ?name (optimize =value) ==meta exported?)
         _ &type/reset-mappings]
-    (return (&/T [module-name (&&/expr-type* =value) def-value ==meta]))))
+    (return (&/T [module-name (&&/expr-type* =value) def-value]))))
 
-(defn analyse-def [analyse optimize eval! compile-def ?name ?value ?meta]
-  (|do [_ (analyse-def* analyse optimize eval! compile-def ?name ?value ?meta)]
+(defn analyse-def [analyse optimize eval! compile-def ?name ?value ?meta exported?]
+  (|do [_ (analyse-def* analyse optimize eval! compile-def ?name ?value ?meta exported?)]
     (return &/$Nil)))
 
-(defn analyse-def-type-tagged [analyse optimize eval! compile-def ?name ?value ?meta tags*]
-  (|do [[module-name def-type def-value ==meta] (analyse-def* analyse optimize eval! compile-def ?name ?value ?meta &type/Type)
+(defn analyse-def-type-tagged [analyse optimize eval! compile-def ?name ?value ?meta tags* exported?]
+  (|do [[module-name def-type def-value] (analyse-def* analyse optimize eval! compile-def ?name ?value ?meta exported? &type/Type)
         _ (&/assert! (&type/type= &type/Type def-type)
                      "[Analyser Error] Cannot define tags for non-type.")
-        :let [was-exported? (|case (&&meta/meta-get &&meta/export?-tag ==meta)
-                              (&/$Some _)
-                              true
-
-                              _
-                              false)]
         tags (&/map% (fn [tag*]
                        (|case tag*
                          [_ (&/$Text tag)]
@@ -582,7 +576,7 @@
                          _
                          (&/fail-with-loc "[Analyser Error] Incorrect format for tags.")))
                      tags*)
-        _ (&&module/declare-tags module-name tags was-exported? def-value)]
+        _ (&&module/declare-tags module-name tags exported? def-value)]
     (return &/$Nil)))
 
 (def ^:private dummy-cursor
@@ -596,10 +590,10 @@
 
 (defn analyse-def-alias [?alias ?original]
   (|let [[r-module r-name] ?original]
-    (|do [[_ [original-type original-anns original-value]] (&&module/find-def! r-module r-name)
+    (|do [[_ [exported? original-type original-anns original-value]] (&&module/find-def! r-module r-name)
           module-name &/get-module-name
           _ (&/without-repl-closure
-             (&&module/define module-name ?alias
+             (&&module/define module-name ?alias false
                original-type
                (alias-annotations r-module r-name)
                original-value))]
@@ -694,12 +688,6 @@
                                 (try-async-compilation path compile-module))))))
                         _imports)
         _compiler get-compiler
-        ;; Some type-vars in the typing environment stay in
-        ;; the environment forever, making type-checking slower.
-        ;; The merging process for compilers more-or-less "fixes" the
-        ;; problem by resetting the typing enviroment, but ideally
-        ;; those type-vars should not survive in the first place.
-        ;; TODO: MUST FIX
         _ (&/fold% (fn [compiler _async]
                      (|case @_async
                        (&/$Right _new-compiler)

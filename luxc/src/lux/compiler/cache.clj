@@ -104,12 +104,12 @@
                                                    (make-identifier (&/T [__module __name]))])))]
           (|do [def-type (&a-module/def-type __module __name)
                 def-value (load-def-value __module __name)]
-            (&a-module/define module _name def-type def-anns def-value)))
-      3 (let [[_name _type _anns] parts
+            (&a-module/define module _name false def-type def-anns def-value)))
+      4 (let [[_name _exported? _type _anns] parts
               [def-anns _] (&&&ann/deserialize _anns)
               [def-type _] (&&&type/deserialize-type _type)]
           (|do [def-value (load-def-value module _name)]
-            (&a-module/define module _name def-type def-anns def-value))))))
+            (&a-module/define module _name (= "1" _exported?) def-type def-anns def-value))))))
 
 (defn ^:private uninstall-cache [module]
   (|do [_ (delete module)]

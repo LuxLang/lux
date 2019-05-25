@@ -50,9 +50,12 @@
         tag-groups &a-module/tag-groups
         :let [def-entries (->> defs
                                (&/|map (fn [_def]
-                                         (|let [[?name ?alias [?def-type ?def-anns ?def-value]] _def]
+                                         (|let [[?name ?alias [exported? ?def-type ?def-anns ?def-value]] _def]
                                            (if (= "" ?alias)
-                                             (str ?name datum-separator (&&&type/serialize-type ?def-type) datum-separator (&&&ann/serialize ?def-anns))
+                                             (str ?name
+                                                  datum-separator (if exported? "1" "0")
+                                                  datum-separator (&&&type/serialize-type ?def-type)
+                                                  datum-separator (&&&ann/serialize ?def-anns))
                                              (str ?name datum-separator ?alias)))))
                                (&/|interpose entry-separator)
                                (&/fold str ""))

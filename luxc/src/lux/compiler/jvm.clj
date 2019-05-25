@@ -185,33 +185,33 @@
           :let [file-hash (hash file-content)
                 compile-module!! (&&parallel/parallel-compilation (partial compile-module source-dirs))]]
       (&/|eitherL (&&cache/load name)
-                  (let [compiler-step (&analyser/analyse &optimizer/optimize eval! compile-module!! all-compilers)]
-                    (|do [module-exists? (&a-module/exists? name)]
-                      (if module-exists?
-                        (&/fail-with-loc (str "[Compiler Error] Cannot re-define a module: " name))
-                        (|do [_ (activate-module! name file-hash)
-                              :let [module-class-name (str (&host/->module-class name) "/_")
-                                    =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                                             (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
-                                                     module-class-name nil "java/lang/Object" nil)
-                                             (.visitSource file-name nil))]
-                              _ (if (= "lux" name)
-                                  (|do [_ &&rt/compile-Function-class
-                                        _ &&rt/compile-LuxRT-class]
-                                    (return nil))
-                                  (return nil))]
-                          (fn [state]
-                            (|case ((&/with-writer =class
-                                      (&/exhaust% compiler-step))
-                                    (&/set$ &/$source (&reader/from name file-content) state))
-                              (&/$Right ?state _)
-                              (&/run-state (|do [:let [_ (.visitEnd =class)]
-                                                 _ (save-module! name file-hash (.toByteArray =class))]
-                                             (return file-hash))
-                                           ?state)
-                              
-                              (&/$Left ?message)
-                              (&/fail* ?message))))))))
+                  (|do [module-exists? (&a-module/exists? name)]
+                    (if module-exists?
+                      (&/fail-with-loc (str "[Compiler Error] Cannot re-define a module: " name))
+                      (|do [_ (activate-module! name file-hash)
+                            :let [module-class-name (str (&host/->module-class name) "/_")
+                                  =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                                           (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
+                                                   module-class-name nil "java/lang/Object" nil)
+                                           (.visitSource file-name nil))]
+                            _ (if (= "lux" name)
+                                (|do [_ &&rt/compile-Function-class
+                                      _ &&rt/compile-LuxRT-class]
+                                  (return nil))
+                                (return nil))
+                            :let [compiler-step (&analyser/analyse &optimizer/optimize eval! compile-module!! all-compilers)]]
+                        (fn [state]
+                          (|case ((&/with-writer =class
+                                    (&/exhaust% compiler-step))
+                                  (&/set$ &/$source (&reader/from name file-content) state))
+                            (&/$Right ?state _)
+                            (&/run-state (|do [:let [_ (.visitEnd =class)]
+                                               _ (save-module! name file-hash (.toByteArray =class))]
+                                           (return file-hash))
+                                         ?state)
+                            
+                            (&/$Left ?message)
+                            (&/fail* ?message)))))))
       )))
 
 (let [define-class (doto (.getDeclaredMethod java.lang.ClassLoader "defineClass" (into-array [String

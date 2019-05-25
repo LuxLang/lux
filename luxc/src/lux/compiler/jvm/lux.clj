@@ -117,7 +117,7 @@
 (defn compile-apply [compile ?fn ?args]
   (|case ?fn
     [_ (&o/$def ?module ?name)]
-    (|do [[_ [_ _ func-obj]] (&a-module/find-def! ?module ?name)
+    (|do [[_ [_ _ _ func-obj]] (&a-module/find-def! ?module ?name)
           class-loader &/loader
           :let [func-class (class func-obj)
                 func-arity (.get ^Field (.getDeclaredField func-class &&/arity-field) nil)
@@ -250,7 +250,7 @@
       (str base "\n\n" "Caused by: " (throwable->text cause))
       base)))
 
-(defn ^:private install-def! [class-loader current-class module-name ?name ?body ?meta]
+(defn ^:private install-def! [class-loader current-class module-name ?name ?body ?meta exported?]
   (|do [_ (return nil)
         :let [def-class (&&/load-class! class-loader (&host-generics/->class-name current-class))
               def-type (&a/expr-type* ?body)]
@@ -260,12 +260,12 @@
                                  (str "Error during value initialization:\n"
                                       (throwable->text t)))))
         _ (&/without-repl-closure
-           (&a-module/define module-name ?name def-type ?meta def-value))]
+           (&a-module/define module-name ?name exported? def-type ?meta def-value))]
     (return def-value)))
 
 (let [class-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
       field-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC)]
-  (defn compile-def [compile ?name ?body ?meta]
+  (defn compile-def [compile ?name ?body ?meta exported?]
     (|do [module-name &/get-module-name
           class-loader &/loader]
       (|case (&a-meta/meta-get &a-meta/alias-tag ?meta)
@@ -278,7 +278,7 @@
                         def-value (-> def-class (.getField &/value-field) (.get nil))]
                   def-type (&a-module/def-type r-module r-name)
                   _ (&/without-repl-closure
-                     (&a-module/define module-name ?name def-type ?meta def-value))]
+                     (&a-module/define module-name ?name false def-type ?meta def-value))]
               (return nil))
             (&/fail-with-loc (str "[Compilation Error] Aliases cannot contain meta-data: " (str module-name &/+name-separator+ ?name)))))
 
@@ -314,7 +314,7 @@
                         (return nil)))
                   :let [_ (.visitEnd =class)]
                   _ (&&/save-class! def-name (.toByteArray =class))
-                  def-value (install-def! class-loader current-class module-name ?name ?body ?meta)
+                  def-value (install-def! class-loader current-class module-name ?name ?body ?meta exported?)
                   :let [_ (println 'DEF (str module-name &/+name-separator+ ?name))]]
               (return def-value)))
 
@@ -341,7 +341,7 @@
                       (return nil)))
                 :let [_ (.visitEnd =class)]
                 _ (&&/save-class! def-name (.toByteArray =class))
-                def-value (install-def! class-loader current-class module-name ?name ?body ?meta)
+                def-value (install-def! class-loader current-class module-name ?name ?body ?meta exported?)
                 :let [_ (println 'DEF (str module-name &/+name-separator+ ?name))]]
             (return def-value)))
         ))))
