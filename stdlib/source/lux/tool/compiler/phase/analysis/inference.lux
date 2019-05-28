@@ -170,17 +170,42 @@
       (/.throw cannot-infer [inferT args]))
     ))
 
+(def: (substitute-bound target sub)
+  (-> Nat Type Type Type)
+  (function (recur base)
+    (case base
+      (#.Primitive name parameters)
+      (#.Primitive name (list@map recur parameters))
+
+      (^template [<tag>]
+        (<tag> left right)
+        (<tag> (recur left) (recur right)))
+      ([#.Sum] [#.Product] [#.Function] [#.Apply])
+      
+      (#.Parameter index)
+      (if (n/= target index)
+        sub
+        base)
+
+      (^template [<tag>]
+        (<tag> environment quantified)
+        (<tag> (list@map recur environment) quantified))
+      ([#.UnivQ] [#.ExQ])
+
+      _
+      base)))
+
 ## Turns a record type into the kind of function type suitable for inference.
-(def: #export (record inferT)
-  (-> Type (Operation Type))
+(def: (record' target originalT inferT)
+  (-> Nat Type Type (Operation Type))
   (case inferT
     (#.Named name unnamedT)
-    (record unnamedT)
+    (record' target originalT unnamedT)
 
     (^template [<tag>]
       (<tag> env bodyT)
       (do ///.monad
-        [bodyT+ (record bodyT)]
+        [bodyT+ (record' (n/+ 2 target) originalT bodyT)]
         (wrap (<tag> env bodyT+))))
     ([#.UnivQ]
      [#.ExQ])
@@ -188,16 +213,22 @@
     (#.Apply inputT funcT)
     (case (type.apply (list inputT) funcT)
       (#.Some outputT)
-      (record outputT)
+      (record' target originalT outputT)
 
       #.None
       (/.throw invalid-type-application inferT))
 
     (#.Product _)
-    (///@wrap (type.function (type.flatten-tuple inferT) inferT))
+    (///@wrap (|> inferT
+                  (type.function (type.flatten-tuple inferT))
+                  (substitute-bound target originalT)))
 
     _
     (/.throw not-a-record-type inferT)))
+
+(def: #export (record inferT)
+  (-> Type (Operation Type))
+  (record' (n/- 2 0) inferT inferT))
 
 ## Turns a variant type into the kind of function type suitable for inference.
 (def: #export (variant tag expected-size inferT)
