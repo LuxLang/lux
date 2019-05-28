@@ -31,7 +31,7 @@
       ["." reflection]
       [".T" lux (#+ Mapping)]]]]]
   ["." // #_
-   ["#." common]
+   ["#." common (#+ custom)]
    ["/#" //
     ["#." bundle]
     ["/#" // ("#@." monad)
@@ -40,6 +40,7 @@
       [".A" inference]
       ["." scope]]
      ["/#" // #_
+      [reference (#+)]
       ["#." analysis (#+ Analysis Operation Phase Handler Bundle)]
       ["#." synthesis]]]]])
 
@@ -75,19 +76,6 @@
   [double    reflection.double]
   [char      reflection.char]
   )
-
-(def: (custom [syntax handler])
-  (All [s]
-    (-> [(Parser s)
-         (-> Text Phase s (Operation Analysis))]
-        Handler))
-  (function (_ extension-name analyse args)
-    (case (s.run syntax args)
-      (#error.Success inputs)
-      (handler extension-name analyse inputs)
-
-      (#error.Failure error)
-      (/////analysis.throw ///.invalid-syntax [extension-name %code args]))))
 
 (type: Member
   {#class Text
@@ -253,13 +241,16 @@
   (loop [level 0
          currentT arrayT]
     (case currentT
+      (#.Named name anonymous)
+      (recur level anonymous)
+      
       (#.Apply inputT abstractionT)
       (case (type.apply (list inputT) abstractionT)
         (#.Some outputT)
         (recur level outputT)
 
         #.None
-        (/////analysis.throw non-array arrayT))
+        (/////analysis.throw ..non-array arrayT))
 
       (^ (#.Primitive (static array.type-name) (list elemT)))
       (recur (inc level) elemT)
@@ -274,9 +265,12 @@
       (if (dictionary.contains? class boxes)
         (/////analysis.throw ..primitives-cannot-have-type-parameters class)
         (////@wrap [level class]))
+
+      (#.Ex _)
+      (////@wrap [level "java.lang.Object"])
       
       _
-      (/////analysis.throw non-array arrayT))))
+      (/////analysis.throw ..non-array arrayT))))
 
 (def: (primitive-array-length-handler primitive-type)
   (-> Type Handler)
@@ -337,7 +331,7 @@
          [level elem-class] (array-type-info false expectedT)
          _ (if (n/> 0 level)
              (wrap [])
-             (/////analysis.throw non-array expectedT))]
+             (/////analysis.throw ..non-array expectedT))]
         (wrap (#/////analysis.Extension extension-name (list (/////analysis.nat (dec level))
                                                              (/////analysis.text elem-class)
                                                              lengthA))))
@@ -449,10 +443,10 @@
                   (analyse arrayC))
          varT (typeA.with-env
                 (check.clean varT))
-         [nesting elem-class] (array-type-info false varT)
+         [nesting elem-class] (array-type-info false (.type (Array varT)))
          idxA (typeA.with-type ..int
                 (analyse idxC))]
-        (wrap (#/////analysis.Extension extension-name (list (/////analysis.nat (inc nesting))
+        (wrap (#/////analysis.Extension extension-name (list (/////analysis.nat nesting)
                                                              (/////analysis.text elem-class)
                                                              idxA
                                                              arrayA))))
@@ -493,12 +487,12 @@
                   (analyse arrayC))
          varT (typeA.with-env
                 (check.clean varT))
-         [nesting elem-class] (array-type-info false varT)
+         [nesting elem-class] (array-type-info false (.type (Array varT)))
          idxA (typeA.with-type ..int
                 (analyse idxC))
          valueA (typeA.with-type varT
                   (analyse valueC))]
-        (wrap (#/////analysis.Extension extension-name (list (/////analysis.nat (inc nesting))
+        (wrap (#/////analysis.Extension extension-name (list (/////analysis.nat nesting)
                                                              (/////analysis.text elem-class)
                                                              idxA
                                                              valueA
@@ -640,26 +634,18 @@
 
 (def: object::instance?
   Handler
-  (function (_ extension-name analyse args)
-    (case args
-      (^ (list classC objectC))
-      (case classC
-        [_ (#.Text class)]
-        (do ////.monad
-          [_ (typeA.infer Bit)
-           [objectT objectA] (typeA.with-inference
-                               (analyse objectC))
-           object-class (check-object objectT)
-           ? (////.lift (reflection!.sub? class object-class))]
-          (if ?
-            (wrap (#/////analysis.Extension extension-name (list (/////analysis.text class))))
-            (/////analysis.throw cannot-possibly-be-an-instance (format object-class " !<= "  class))))
-
-        _
-        (/////analysis.throw ///.invalid-syntax [extension-name %code args]))
-
-      _
-      (/////analysis.throw ///.incorrect-arity [extension-name 2 (list.size args)]))))
+  (..custom
+   [($_ p.and s.text s.any)
+    (function (_ extension-name analyse [sub-class objectC])
+      (do ////.monad
+        [_ (typeA.infer Bit)
+         [objectT objectA] (typeA.with-inference
+                             (analyse objectC))
+         object-class (check-object objectT)
+         ? (////.lift (reflection!.sub? object-class sub-class))]
+        (if ?
+          (wrap (#/////analysis.Extension extension-name (list (/////analysis.text sub-class) objectA)))
+          (/////analysis.throw cannot-possibly-be-an-instance (format sub-class " !<= "  object-class)))))]))
 
 (import: #long java/lang/Object
   (equals [java/lang/Object] boolean))
@@ -736,7 +722,10 @@
                  (list& super (array.to-list (java/lang/Class::getGenericInterfaces from-class)))
 
                  #.None
-                 (array.to-list (java/lang/Class::getGenericInterfaces from-class))))))
+                 (if (java/lang/reflect/Modifier::isInterface (java/lang/Class::getModifiers from-class))
+                   (#.Cons (:coerce java/lang/reflect/Type (host.class-for java/lang/Object))
+                           (array.to-list (java/lang/Class::getGenericInterfaces from-class)))
+                   (array.to-list (java/lang/Class::getGenericInterfaces from-class)))))))
 
 (def: (inheritance-candidate-parents fromT to-class toT fromC)
   (-> .Type (java/lang/Class java/lang/Object) .Type Code (Operation (List [[Text .Type] Bit])))
@@ -835,86 +824,90 @@
 
 (def: static::get
   Handler
-  (..custom [..member
-             (function (_ extension-name analyse [class field])
-               (do ////.monad
-                 [[final? fieldJT] (////.lift
-                                    (do error.monad
-                                      [class (reflection!.load class)]
-                                      (reflection!.static-field field class)))
-                  fieldT (reflection-type luxT.fresh fieldJT)
-                  _ (typeA.infer fieldT)]
-                 (wrap (<| (#/////analysis.Extension extension-name)
-                           (list (/////analysis.text class)
-                                 (/////analysis.text field)
-                                 (/////analysis.text (reflection.class fieldJT)))))))]))
+  (..custom
+   [..member
+    (function (_ extension-name analyse [class field])
+      (do ////.monad
+        [[final? fieldJT] (////.lift
+                           (do error.monad
+                             [class (reflection!.load class)]
+                             (reflection!.static-field field class)))
+         fieldT (reflection-type luxT.fresh fieldJT)
+         _ (typeA.infer fieldT)]
+        (wrap (<| (#/////analysis.Extension extension-name)
+                  (list (/////analysis.text class)
+                        (/////analysis.text field)
+                        (/////analysis.text (reflection.class fieldJT)))))))]))
 
 (def: static::put
   Handler
-  (..custom [($_ p.and ..member s.any)
-             (function (_ extension-name analyse [[class field] valueC])
-               (do ////.monad
-                 [_ (typeA.infer Any)
-                  [final? fieldJT] (////.lift
-                                    (do error.monad
-                                      [class (reflection!.load class)]
-                                      (reflection!.static-field field class)))
-                  fieldT (reflection-type luxT.fresh fieldJT)
-                  _ (////.assert ..cannot-set-a-final-field [class field]
-                                 (not final?))
-                  valueA (typeA.with-type fieldT
-                           (analyse valueC))]
-                 (wrap (<| (#/////analysis.Extension extension-name)
-                           (list (/////analysis.text class)
-                                 (/////analysis.text field)
-                                 valueA)))))]))
+  (..custom
+   [($_ p.and ..member s.any)
+    (function (_ extension-name analyse [[class field] valueC])
+      (do ////.monad
+        [_ (typeA.infer Any)
+         [final? fieldJT] (////.lift
+                           (do error.monad
+                             [class (reflection!.load class)]
+                             (reflection!.static-field field class)))
+         fieldT (reflection-type luxT.fresh fieldJT)
+         _ (////.assert ..cannot-set-a-final-field [class field]
+                        (not final?))
+         valueA (typeA.with-type fieldT
+                  (analyse valueC))]
+        (wrap (<| (#/////analysis.Extension extension-name)
+                  (list (/////analysis.text class)
+                        (/////analysis.text field)
+                        valueA)))))]))
 
 (def: virtual::get
   Handler
-  (..custom [($_ p.and ..member s.any)
-             (function (_ extension-name analyse [[class field] objectC])
-               (do ////.monad
-                 [[objectT objectA] (typeA.with-inference
-                                      (analyse objectC))
-                  [mapping fieldJT] (////.lift
-                                     (do error.monad
-                                       [class (reflection!.load class)
-                                        [final? fieldJT] (reflection!.virtual-field field class)
-                                        mapping (reflection!.correspond class objectT)]
-                                       (wrap [mapping fieldJT])))
-                  fieldT (typeA.with-env
-                           (luxT.type mapping fieldJT))
-                  _ (typeA.infer fieldT)]
-                 (wrap (<| (#/////analysis.Extension extension-name)
-                           (list (/////analysis.text class)
-                                 (/////analysis.text field)
-                                 objectA)))))]))
+  (..custom
+   [($_ p.and ..member s.any)
+    (function (_ extension-name analyse [[class field] objectC])
+      (do ////.monad
+        [[objectT objectA] (typeA.with-inference
+                             (analyse objectC))
+         [mapping fieldJT] (////.lift
+                            (do error.monad
+                              [class (reflection!.load class)
+                               [final? fieldJT] (reflection!.virtual-field field class)
+                               mapping (reflection!.correspond class objectT)]
+                              (wrap [mapping fieldJT])))
+         fieldT (typeA.with-env
+                  (luxT.type mapping fieldJT))
+         _ (typeA.infer fieldT)]
+        (wrap (<| (#/////analysis.Extension extension-name)
+                  (list (/////analysis.text class)
+                        (/////analysis.text field)
+                        objectA)))))]))
 
 (def: virtual::put
   Handler
-  (..custom [($_ p.and ..member s.any s.any)
-             (function (_ extension-name analyse [[class field] valueC objectC])
-               (do ////.monad
-                 [[objectT objectA] (typeA.with-inference
-                                      (analyse objectC))
-                  _ (typeA.infer objectT)
-                  [final? mapping fieldJT] (////.lift
-                                            (do error.monad
-                                              [class (reflection!.load class)
-                                               [final? fieldJT] (reflection!.virtual-field field class)
-                                               mapping (reflection!.correspond class objectT)]
-                                              (wrap [final? mapping fieldJT])))
-                  fieldT (typeA.with-env
-                           (luxT.type mapping fieldJT))
-                  _ (////.assert cannot-set-a-final-field [class field]
-                                 (not final?))
-                  valueA (typeA.with-type fieldT
-                           (analyse valueC))]
-                 (wrap (<| (#/////analysis.Extension extension-name)
-                           (list (/////analysis.text class)
-                                 (/////analysis.text field)
-                                 valueA
-                                 objectA)))))]))
+  (..custom
+   [($_ p.and ..member s.any s.any)
+    (function (_ extension-name analyse [[class field] valueC objectC])
+      (do ////.monad
+        [[objectT objectA] (typeA.with-inference
+                             (analyse objectC))
+         _ (typeA.infer objectT)
+         [final? mapping fieldJT] (////.lift
+                                   (do error.monad
+                                     [class (reflection!.load class)
+                                      [final? fieldJT] (reflection!.virtual-field field class)
+                                      mapping (reflection!.correspond class objectT)]
+                                     (wrap [final? mapping fieldJT])))
+         fieldT (typeA.with-env
+                  (luxT.type mapping fieldJT))
+         _ (////.assert cannot-set-a-final-field [class field]
+                        (not final?))
+         valueA (typeA.with-type fieldT
+                  (analyse valueC))]
+        (wrap (<| (#/////analysis.Extension extension-name)
+                  (list (/////analysis.text class)
+                        (/////analysis.text field)
+                        valueA
+                        objectA)))))]))
 
 (type: Method-Style
   #Static
@@ -1017,9 +1010,9 @@
                    ////@join)
        outputT (|> method
                    java/lang/reflect/Method::getGenericReturnType
-                   reflection!.type
+                   reflection!.return
                    ////.lift
-                   (////@map (reflection-type mapping))
+                   (////@map (..reflection-return mapping))
                    ////@join)
        exceptionsT (|> (java/lang/reflect/Method::getGenericExceptionTypes method)
                        array.to-list
@@ -1139,93 +1132,98 @@
 (def: (decorate-inputs typesT inputsA)
   (-> (List Text) (List Analysis) (List Analysis))
   (|> inputsA
-      (list.zip2 (list@map /////analysis.text typesT))
+      (list.zip2 (list@map (|>> /////analysis.text) typesT))
       (list@map (function (_ [type value])
                   (/////analysis.tuple (list type value))))))
 
 (def: invoke::static
   Handler
-  (..custom [($_ p.and ..member (p.some ..typed-input))
-             (function (_ extension-name analyse [[class method] argsTC])
-               (do ////.monad
-                 [#let [argsT (list@map product.left argsTC)]
-                  [methodT exceptionsT] (method-candidate class method #Static argsT)
-                  [outputT argsA] (inferenceA.general analyse methodT (list@map product.right argsTC))
-                  outputJC (check-return outputT)]
-                 (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text class)
-                                                                       (/////analysis.text method)
-                                                                       (/////analysis.text outputJC)
-                                                                       (decorate-inputs argsT argsA))))))]))
+  (..custom
+   [($_ p.and ..member (p.some ..typed-input))
+    (function (_ extension-name analyse [[class method] argsTC])
+      (do ////.monad
+        [#let [argsT (list@map product.left argsTC)]
+         [methodT exceptionsT] (method-candidate class method #Static argsT)
+         [outputT argsA] (inferenceA.general analyse methodT (list@map product.right argsTC))
+         outputJC (check-return outputT)]
+        (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text class)
+                                                              (/////analysis.text method)
+                                                              (/////analysis.text outputJC)
+                                                              (decorate-inputs argsT argsA))))))]))
 
 (def: invoke::virtual
   Handler
-  (..custom [($_ p.and ..member s.any (p.some ..typed-input))
-             (function (_ extension-name analyse [[class method] objectC argsTC])
-               (do ////.monad
-                 [#let [argsT (list@map product.left argsTC)]
-                  [methodT exceptionsT] (method-candidate class method #Virtual argsT)
-                  [outputT allA] (inferenceA.general analyse methodT (list& objectC (list@map product.right argsTC)))
-                  #let [[objectA argsA] (case allA
-                                          (#.Cons objectA argsA)
-                                          [objectA argsA]
+  (..custom
+   [($_ p.and ..member s.any (p.some ..typed-input))
+    (function (_ extension-name analyse [[class method] objectC argsTC])
+      (do ////.monad
+        [#let [argsT (list@map product.left argsTC)]
+         [methodT exceptionsT] (method-candidate class method #Virtual argsT)
+         [outputT allA] (inferenceA.general analyse methodT (list& objectC (list@map product.right argsTC)))
+         #let [[objectA argsA] (case allA
+                                 (#.Cons objectA argsA)
+                                 [objectA argsA]
 
-                                          _
-                                          (undefined))]
-                  outputJC (check-return outputT)]
-                 (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text class)
-                                                                       (/////analysis.text method)
-                                                                       (/////analysis.text outputJC)
-                                                                       objectA
-                                                                       (decorate-inputs argsT argsA))))))]))
+                                 _
+                                 (undefined))]
+         outputJC (check-return outputT)]
+        (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text class)
+                                                              (/////analysis.text method)
+                                                              (/////analysis.text outputJC)
+                                                              objectA
+                                                              (decorate-inputs argsT argsA))))))]))
 
 (def: invoke::special
   Handler
-  (..custom [($_ p.and ..member s.any (p.some ..typed-input))
-             (function (_ extension-name analyse [[class method] objectC argsTC])
-               (do ////.monad
-                 [#let [argsT (list@map product.left argsTC)]
-                  [methodT exceptionsT] (method-candidate class method #Special argsT)
-                  [outputT argsA] (inferenceA.general analyse methodT (list& objectC (list@map product.right argsTC)))
-                  outputJC (check-return outputT)]
-                 (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text class)
-                                                                       (/////analysis.text method)
-                                                                       (/////analysis.text outputJC)
-                                                                       (decorate-inputs argsT argsA))))))]))
+  (..custom
+   [($_ p.and ..member s.any (p.some ..typed-input))
+    (function (_ extension-name analyse [[class method] objectC argsTC])
+      (do ////.monad
+        [#let [argsT (list@map product.left argsTC)]
+         [methodT exceptionsT] (method-candidate class method #Special argsT)
+         [outputT argsA] (inferenceA.general analyse methodT (list& objectC (list@map product.right argsTC)))
+         outputJC (check-return outputT)]
+        (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text class)
+                                                              (/////analysis.text method)
+                                                              (/////analysis.text outputJC)
+                                                              (decorate-inputs argsT argsA))))))]))
 
 (def: invoke::interface
   Handler
-  (..custom [($_ p.and ..member s.any (p.some ..typed-input))
-             (function (_ extension-name analyse [[class-name method] objectC argsTC])
-               (do ////.monad
-                 [#let [argsT (list@map product.left argsTC)]
-                  class (////.lift (reflection!.load class-name))
-                  _ (////.assert non-interface class-name
-                                 (java/lang/reflect/Modifier::isInterface (java/lang/Class::getModifiers class)))
-                  [methodT exceptionsT] (method-candidate class-name method #Interface argsT)
-                  [outputT allA] (inferenceA.general analyse methodT (list& objectC (list@map product.right argsTC)))
-                  #let [[objectA argsA] (case allA
-                                          (#.Cons objectA argsA)
-                                          [objectA argsA]
+  (..custom
+   [($_ p.and ..member s.any (p.some ..typed-input))
+    (function (_ extension-name analyse [[class-name method] objectC argsTC])
+      (do ////.monad
+        [#let [argsT (list@map product.left argsTC)]
+         class (////.lift (reflection!.load class-name))
+         _ (////.assert non-interface class-name
+                        (java/lang/reflect/Modifier::isInterface (java/lang/Class::getModifiers class)))
+         [methodT exceptionsT] (method-candidate class-name method #Interface argsT)
+         [outputT allA] (inferenceA.general analyse methodT (list& objectC (list@map product.right argsTC)))
+         #let [[objectA argsA] (case allA
+                                 (#.Cons objectA argsA)
+                                 [objectA argsA]
 
-                                          _
-                                          (undefined))]
-                  outputJC (check-return outputT)]
-                 (wrap (#/////analysis.Extension extension-name
-                                                 (list& (/////analysis.text class-name)
-                                                        (/////analysis.text method)
-                                                        (/////analysis.text outputJC)
-                                                        objectA
-                                                        (decorate-inputs argsT argsA))))))]))
+                                 _
+                                 (undefined))]
+         outputJC (check-return outputT)]
+        (wrap (#/////analysis.Extension extension-name
+                                        (list& (/////analysis.text class-name)
+                                               (/////analysis.text method)
+                                               (/////analysis.text outputJC)
+                                               objectA
+                                               (decorate-inputs argsT argsA))))))]))
 
 (def: invoke::constructor
-  (..custom [($_ p.and s.text (p.some ..typed-input))
-             (function (_ extension-name analyse [class argsTC])
-               (do ////.monad
-                 [#let [argsT (list@map product.left argsTC)]
-                  [methodT exceptionsT] (constructor-candidate class argsT)
-                  [outputT argsA] (inferenceA.general analyse methodT (list@map product.right argsTC))]
-                 (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text class)
-                                                                       (decorate-inputs argsT argsA))))))]))
+  (..custom
+   [($_ p.and s.text (p.some ..typed-input))
+    (function (_ extension-name analyse [class argsTC])
+      (do ////.monad
+        [#let [argsT (list@map product.left argsTC)]
+         [methodT exceptionsT] (constructor-candidate class argsT)
+         [outputT argsA] (inferenceA.general analyse methodT (list@map product.right argsTC))]
+        (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text class)
+                                                              (decorate-inputs argsT argsA))))))]))
 
 (def: bundle::member
   Bundle
@@ -1397,7 +1395,7 @@
 
 (def: var-analysis
   (-> Var Analysis)
-  /////analysis.text)
+  (|>> /////analysis.text))
 
 (def: (type-analysis type)
   (-> Type Analysis)
@@ -1483,128 +1481,129 @@
 
 (def: class::anonymous
   Handler
-  (..custom [($_ p.and
-                 ..class
-                 (s.tuple (p.some ..class))
-                 (s.tuple (p.some ..typed))
-                 (s.tuple (p.some ..overriden-method-definition)))
-             (function (_ extension-name analyse [super-class
-                                                  super-interfaces
-                                                  constructor-args
-                                                  methods])
-               (do ////.monad
-                 [name (///.lift (do macro.monad
-                                   [where macro.current-module-name
-                                    id macro.count]
-                                   (wrap (format (text.replace-all .module-separator ..jvm-package-separator where)
-                                                 ..jvm-package-separator
-                                                 "anonymous-class" (%n id)))))
-                  super-classT (typeA.with-env
-                                 (luxT.class luxT.fresh super-class))
-                  super-interfaceT+ (typeA.with-env
-                                      (monad.map check.monad
-                                                 (luxT.class luxT.fresh)
-                                                 super-interfaces))
-                  #let [selfT (inheritance-relationship-type (#.Primitive name (list))
-                                                             super-classT
-                                                             super-interfaceT+)]
-                  constructor-argsA+ (monad.map @ (function (_ [type term])
-                                                    (do @
-                                                      [argT (typeA.with-env
-                                                              (luxT.type luxT.fresh type))
-                                                       termA (typeA.with-type argT
-                                                               (analyse term))]
-                                                      (wrap [type termA])))
-                                                constructor-args)
-                  methodsA (monad.map @ (function (_ [parent-type method-name
-                                                      strict-fp? annotations vars
-                                                      self-name arguments return exceptions
-                                                      body])
+  (..custom
+   [($_ p.and
+        ..class
+        (s.tuple (p.some ..class))
+        (s.tuple (p.some ..typed))
+        (s.tuple (p.some ..overriden-method-definition)))
+    (function (_ extension-name analyse [super-class
+                                         super-interfaces
+                                         constructor-args
+                                         methods])
+      (do ////.monad
+        [name (///.lift (do macro.monad
+                          [where macro.current-module-name
+                           id macro.count]
+                          (wrap (format (text.replace-all .module-separator ..jvm-package-separator where)
+                                        ..jvm-package-separator
+                                        "anonymous-class" (%n id)))))
+         super-classT (typeA.with-env
+                        (luxT.class luxT.fresh super-class))
+         super-interfaceT+ (typeA.with-env
+                             (monad.map check.monad
+                                        (luxT.class luxT.fresh)
+                                        super-interfaces))
+         #let [selfT (inheritance-relationship-type (#.Primitive name (list))
+                                                    super-classT
+                                                    super-interfaceT+)]
+         constructor-argsA+ (monad.map @ (function (_ [type term])
+                                           (do @
+                                             [argT (typeA.with-env
+                                                     (luxT.type luxT.fresh type))
+                                              termA (typeA.with-type argT
+                                                      (analyse term))]
+                                             (wrap [type termA])))
+                                       constructor-args)
+         methodsA (monad.map @ (function (_ [parent-type method-name
+                                             strict-fp? annotations vars
+                                             self-name arguments return exceptions
+                                             body])
 
-                                          (do @
-                                            [annotationsA (monad.map @ (function (_ [name parameters])
-                                                                         (do @
-                                                                           [parametersA (monad.map @ (function (_ [name value])
-                                                                                                       (do @
-                                                                                                         [valueA (analyse value)]
-                                                                                                         (wrap [name valueA])))
-                                                                                                   parameters)]
-                                                                           (wrap [name parametersA])))
-                                                                     annotations)
-                                             returnT (typeA.with-env
-                                                       (luxT.return luxT.fresh return))
-                                             arguments' (typeA.with-env
-                                                          (monad.map check.monad
-                                                                     (function (_ [name jvmT])
-                                                                       (do check.monad
-                                                                         [luxT (luxT.type luxT.fresh jvmT)]
-                                                                         (wrap [name luxT])))
-                                                                     arguments))
-                                             [scope bodyA] (|> arguments'
-                                                               (#.Cons [self-name selfT])
-                                                               list.reverse
-                                                               (list@fold scope.with-local (analyse body))
-                                                               (typeA.with-type returnT)
-                                                               /////analysis.with-scope)]
-                                            (wrap (/////analysis.tuple (list (class-analysis parent-type)
-                                                                             (/////analysis.text method-name)
-                                                                             (/////analysis.bit strict-fp?)
-                                                                             (/////analysis.tuple (list@map annotation-analysis annotationsA))
-                                                                             (/////analysis.tuple (list@map var-analysis vars))
-                                                                             (/////analysis.text self-name)
-                                                                             (/////analysis.tuple (list@map (function (_ [argument argumentJT])
-                                                                                                              (/////analysis.tuple
-                                                                                                               (list (/////analysis.text argument)
-                                                                                                                     (type-analysis argumentJT))))
-                                                                                                            arguments))
-                                                                             (return-analysis return)
-                                                                             (/////analysis.tuple (list@map class-analysis
-                                                                                                            exceptions))
-                                                                             (#/////analysis.Function
-                                                                              (scope.environment scope)
-                                                                              (/////analysis.tuple (list bodyA)))
-                                                                             )))))
-                                      methods)
-                  required-abstract-methods (////.lift (all-abstract-methods (list& super-class super-interfaces)))
-                  available-methods (////.lift (all-methods (list& super-class super-interfaces)))
-                  #let [overriden-methods (list@map (function (_ [parent-type method-name
-                                                                  strict-fp? annotations vars
-                                                                  self-name arguments return exceptions
-                                                                  body])
-                                                      [method-name (jvm.method (list@map product.right arguments)
-                                                                               return
-                                                                               (list@map (|>> #jvm.Class) exceptions))])
-                                                    methods)
-                        missing-abstract-methods (list.filter (function (_ [abstract-method-name abstract-methodJT])
-                                                                (|> overriden-methods
-                                                                    (list.filter (function (_ [method-name methodJT])
-                                                                                   (and (text@= method-name abstract-method-name)
-                                                                                        (method@= abstract-methodJT methodJT))))
-                                                                    list.size
-                                                                    (n/= 1)
-                                                                    not))
-                                                              required-abstract-methods)
-                        invalid-overriden-methods (list.filter (function (_ [method-name methodJT])
-                                                                 (|> available-methods
-                                                                     (list.filter (function (_ [abstract-method-name abstract-methodJT])
-                                                                                    (and (text@= method-name abstract-method-name)
-                                                                                         (method@= abstract-methodJT methodJT))))
-                                                                     list.size
-                                                                     (n/= 1)
-                                                                     not))
-                                                               overriden-methods)]
-                  _ (typeA.infer selfT)
-                  _ (////.assert ..missing-abstract-methods (list@map product.left missing-abstract-methods)
-                                 (list.empty? missing-abstract-methods))
-                  _ (////.assert ..invalid-overriden-methods (list@map product.left invalid-overriden-methods)
-                                 (list.empty? invalid-overriden-methods))]
-                 (wrap (#/////analysis.Extension extension-name
-                                                 (list (/////analysis.text name)
-                                                       (class-analysis super-class)
-                                                       (/////analysis.tuple (list@map class-analysis super-interfaces))
-                                                       (/////analysis.tuple (list@map typed-analysis constructor-argsA+))
-                                                       (/////analysis.tuple methodsA))))
-                 ))]))
+                                 (do @
+                                   [annotationsA (monad.map @ (function (_ [name parameters])
+                                                                (do @
+                                                                  [parametersA (monad.map @ (function (_ [name value])
+                                                                                              (do @
+                                                                                                [valueA (analyse value)]
+                                                                                                (wrap [name valueA])))
+                                                                                          parameters)]
+                                                                  (wrap [name parametersA])))
+                                                            annotations)
+                                    returnT (typeA.with-env
+                                              (luxT.return luxT.fresh return))
+                                    arguments' (typeA.with-env
+                                                 (monad.map check.monad
+                                                            (function (_ [name jvmT])
+                                                              (do check.monad
+                                                                [luxT (luxT.type luxT.fresh jvmT)]
+                                                                (wrap [name luxT])))
+                                                            arguments))
+                                    [scope bodyA] (|> arguments'
+                                                      (#.Cons [self-name selfT])
+                                                      list.reverse
+                                                      (list@fold scope.with-local (analyse body))
+                                                      (typeA.with-type returnT)
+                                                      /////analysis.with-scope)]
+                                   (wrap (/////analysis.tuple (list (class-analysis parent-type)
+                                                                    (/////analysis.text method-name)
+                                                                    (/////analysis.bit strict-fp?)
+                                                                    (/////analysis.tuple (list@map annotation-analysis annotationsA))
+                                                                    (/////analysis.tuple (list@map var-analysis vars))
+                                                                    (/////analysis.text self-name)
+                                                                    (/////analysis.tuple (list@map (function (_ [argument argumentJT])
+                                                                                                     (/////analysis.tuple
+                                                                                                      (list (/////analysis.text argument)
+                                                                                                            (type-analysis argumentJT))))
+                                                                                                   arguments))
+                                                                    (return-analysis return)
+                                                                    (/////analysis.tuple (list@map class-analysis
+                                                                                                   exceptions))
+                                                                    (#/////analysis.Function
+                                                                     (scope.environment scope)
+                                                                     (/////analysis.tuple (list bodyA)))
+                                                                    )))))
+                             methods)
+         required-abstract-methods (////.lift (all-abstract-methods (list& super-class super-interfaces)))
+         available-methods (////.lift (all-methods (list& super-class super-interfaces)))
+         #let [overriden-methods (list@map (function (_ [parent-type method-name
+                                                         strict-fp? annotations vars
+                                                         self-name arguments return exceptions
+                                                         body])
+                                             [method-name (jvm.method (list@map product.right arguments)
+                                                                      return
+                                                                      (list@map (|>> #jvm.Class) exceptions))])
+                                           methods)
+               missing-abstract-methods (list.filter (function (_ [abstract-method-name abstract-methodJT])
+                                                       (|> overriden-methods
+                                                           (list.filter (function (_ [method-name methodJT])
+                                                                          (and (text@= method-name abstract-method-name)
+                                                                               (method@= abstract-methodJT methodJT))))
+                                                           list.size
+                                                           (n/= 1)
+                                                           not))
+                                                     required-abstract-methods)
+               invalid-overriden-methods (list.filter (function (_ [method-name methodJT])
+                                                        (|> available-methods
+                                                            (list.filter (function (_ [abstract-method-name abstract-methodJT])
+                                                                           (and (text@= method-name abstract-method-name)
+                                                                                (method@= abstract-methodJT methodJT))))
+                                                            list.size
+                                                            (n/= 1)
+                                                            not))
+                                                      overriden-methods)]
+         _ (typeA.infer selfT)
+         _ (////.assert ..missing-abstract-methods (list@map product.left missing-abstract-methods)
+                        (list.empty? missing-abstract-methods))
+         _ (////.assert ..invalid-overriden-methods (list@map product.left invalid-overriden-methods)
+                        (list.empty? invalid-overriden-methods))]
+        (wrap (#/////analysis.Extension extension-name
+                                        (list (/////analysis.text name)
+                                              (class-analysis super-class)
+                                              (/////analysis.tuple (list@map class-analysis super-interfaces))
+                                              (/////analysis.tuple (list@map typed-analysis constructor-argsA+))
+                                              (/////analysis.tuple methodsA))))
+        ))]))
 
 (def: bundle::class
   Bundle

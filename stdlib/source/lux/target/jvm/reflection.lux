@@ -1,6 +1,7 @@
 (.module:
   [lux (#- type)
    ["." host (#+ import:)]
+   ["." type]
    [abstract
     ["." monad (#+ do)]]
    [control
@@ -100,7 +101,7 @@
 (def: #export (load name)
   (-> Text (Error (java/lang/Class java/lang/Object)))
   (case (java/lang/Class::forName name)
-    (#error.Success [class])
+    (#error.Success class)
     (#error.Success class)
 
     (#error.Failure error)
@@ -140,7 +141,7 @@
           ([[_ (#.Some bound)] #/.Upper]
            [[(#.Some bound) _] #/.Lower])
           
-          [#.None #.None]
+          _
           (#error.Success (#/.Wildcard #.None)))
         _)
       (case (host.check java/lang/Class reflection)
@@ -218,21 +219,21 @@
 
 (def: #export (return reflection)
   (-> java/lang/reflect/Type (Error /.Return))
-  (case (host.check java/lang/Class reflection)
-    (#.Some class)
-    (case (|> class
-              (:coerce (java/lang/Class java/lang/Object))
-              java/lang/Class::getName)
-      (^ (static reflection.void))
-      (#error.Success #.None)
+  (with-expansions [<else> (as-is (:: error.monad map (|>> #.Some)
+                                      (..type reflection)))]
+    (case (host.check java/lang/Class reflection)
+      (#.Some class)
+      (case (|> class
+                (:coerce (java/lang/Class java/lang/Object))
+                java/lang/Class::getName)
+        (^ (static reflection.void))
+        (#error.Success #.None)
 
-      _
-      (:: error.monad map (|>> #.Some)
-          (..type reflection)))
+        _
+        <else>)
 
-    #.None
-    (:: error.monad map (|>> #.Some)
-        (..type reflection))))
+      #.None
+      <else>)))
 
 (exception: #export (cannot-correspond {class (java/lang/Class java/lang/Object)}
                                        {type Type})
@@ -276,6 +277,14 @@
 
     (#.Named name anonymousT)
     (correspond class anonymousT)
+
+    (#.Apply inputT abstractionT)
+    (case (type.apply (list inputT) abstractionT)
+      (#.Some outputT)
+      (correspond class outputT)
+
+      #.None
+      (exception.throw ..non-jvm-type [type]))
 
     _
     (exception.throw ..non-jvm-type [type])))
