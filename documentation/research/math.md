@@ -31,6 +31,8 @@
 
 1. [APPLICATION OF DUAL QUATERNIONS ON SELECTED PROBLEMS](https://otik.uk.zcu.cz/bitstream/11025/28563/1/phd_Application%20of%20dual%20quaternions%20on%20selected%20problems.pdf)
 1. https://www.3dgep.com/understanding-quaternions/
+1. https://probablydance.com/2017/08/05/intuitive-quaternions/
+1. [Quaternion algebras](https://math.dartmouth.edu/~jvoight/quat.html)
 
 # _Compendium of resources_
 
@@ -145,6 +147,7 @@
 1. [Extending the Algebraic Manipulability of Differentials](https://arxiv.org/abs/1801.09553)
 1. https://en.wikipedia.org/wiki/Fractional_calculus
 1. https://medium.com/@notaredpanda/fractional-calculus-48192f4e9c9f
+1. [Fractional Calculus: Theory and Applications](https://www.mdpi.com/books/pdfview/book/755)
 1. [EXTENDING THE ALGEBRAIC MANIPULABILITYOF DIFFERENTIALS](http://online.watsci.org/abstract_pdf/2019v26/v26n3a-pdf/4.pdf)
 1. [Finite Calculus: A Tutorial for Solving Nasty Sums](https://www.cs.purdue.edu/homes/dgleich/publications/Gleich%202005%20-%20finite%20calculus.pdf)
 1. http://jliszka.github.io/2013/10/24/exact-numeric-nth-derivatives.html
@@ -252,6 +255,7 @@
 
 # **Temp Cache**
 
+1. https://www.juliahomotopycontinuation.org/
 1. https://marginalrevolution.com/marginalrevolution/2018/05/one-parameter-equation-can-exactly-fit-scatter-plot.html
 1. https://plato.stanford.edu/entries/mathematics-inconsistent/
 1. http://immersivemath.com/ila/index.html?m=1
@@ -275,7 +279,6 @@
 1. https://www.artofproblemsolving.com/wiki/index.php/Modular_arithmetic/Introduction
 1. [Mathematics for Computer Science](https://courses.csail.mit.edu/6.042/spring17/mcs.pdf)
 1. http://www.paultaylor.eu/ASD/foufct/
-1. https://probablydance.com/2017/08/05/intuitive-quaternions/
 1. [Toward the Unification of Physics and Number Theory](http://www.quantumgravityresearch.org/wp-content/uploads/2017/02/Toward-the-Unification-of-Physics2-1.pdf)
 1. https://jeremykun.com/2014/03/13/programming-with-finite-fields/
 1. https://courses.cs.washington.edu/courses/cse590b/13au/
