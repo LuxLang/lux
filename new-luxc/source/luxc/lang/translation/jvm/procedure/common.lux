@@ -3,19 +3,23 @@
    [abstract
     ["." monad (#+ do)]]
    [control
-    ["p" parser]
+    ["<>" parser
+     ["<s>" synthesis (#+ Parser)]]
     ["ex" exception (#+ exception:)]]
    [data
+    ["." product]
+    ["." error]
     ["." text
      format]
     [collection
+     ["." list ("#@." monad)]
      ["." dictionary]]]
    [target
     [jvm
      ["_t" type (#+ Type Method)]]]
    [tool
     [compiler
-     ["." synthesis (#+ Synthesis)]
+     ["." synthesis (#+ Synthesis %synthesis)]
      ["." phase
       [generation
        [extension (#+ Nullary Unary Binary Trinary Variadic
@@ -26,10 +30,23 @@
   [luxc
    [lang
     [host
-     ["$" jvm (#+ Label Inst Bundle)
+     ["$" jvm (#+ Label Inst Def Handler Bundle Operation Phase)
       ["_" inst]]]]]
   ["." ///
    ["." runtime]])
+
+(def: #export (custom [parser handler])
+  (All [s]
+    (-> [(Parser s)
+         (-> Text Phase s (Operation Inst))]
+        Handler))
+  (function (_ extension-name phase input)
+    (case (<s>.run input parser)
+      (#error.Success input')
+      (handler extension-name phase input')
+
+      (#error.Failure error)
+      (phase.throw extension.invalid-syntax [extension-name %synthesis input]))))
 
 (import: java/lang/Double
   (#static MIN_VALUE Double)
@@ -57,6 +74,47 @@
            )))
 
 (def: unitI Inst (_.string synthesis.unit))
+
+## TODO: Get rid of this ASAP
+(def: lux::syntax-char-case!
+  (..custom [($_ <>.and
+                 <s>.any
+                 <s>.any
+                 (<>.some (<s>.tuple ($_ <>.and
+                                         (<s>.tuple (<>.many <s>.i64))
+                                         <s>.any))))
+             (function (_ extension-name phase [input else conditionals])
+               (<| _.with-label (function (_ @end))
+                   _.with-label (function (_ @else))
+                   (do phase.monad
+                     [inputG (phase input)
+                      elseG (phase else)
+                      conditionalsG+ (: (Operation (List [(List [Int Label])
+                                                          Inst]))
+                                        (monad.map @ (function (_ [chars branch])
+                                                       (do @
+                                                         [branchG (phase branch)]
+                                                         (wrap (<| _.with-label (function (_ @branch))
+                                                                   [(list@map (function (_ char)
+                                                                                [(.int char) @branch])
+                                                                              chars)
+                                                                    (|>> (_.label @branch)
+                                                                         branchG
+                                                                         (_.GOTO @end))]))))
+                                                   conditionals))
+                      #let [table (|> conditionalsG+
+                                      (list@map product.left)
+                                      list@join)
+                            conditionalsG (|> conditionalsG+
+                                              (list@map product.right)
+                                              _.fuse)]]
+                     (wrap (|>> inputG (_.unwrap #_t.Long) _.L2I
+                                (_.LOOKUPSWITCH @else table)
+                                conditionalsG
+                                (_.label @else)
+                                elseG
+                                (_.label @end)
+                                )))))]))
 
 (def: (lux::is [referenceI sampleI])
   (Binary Inst)
@@ -251,6 +309,7 @@
 (def: bundle::lux
   Bundle
   (|> (: Bundle bundle.empty)
+      (bundle.install "syntax char case!" lux::syntax-char-case!)
       (bundle.install "is" (binary lux::is))
       (bundle.install "try" (unary lux::try))))
 

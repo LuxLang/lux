@@ -6,7 +6,7 @@
     ["." exception (#+ exception:)]
     ["<>" parser ("#@." monad)
      ["<t>" text]
-     ["<s>" synthesis]]]
+     ["<s>" synthesis (#+ Parser)]]]
    [data
     ["." product]
     ["." maybe]
@@ -46,24 +46,13 @@
      ["$" jvm (#+ Label Inst Def Handler Bundle Operation Phase)
       ["_" inst]
       ["_." def]]]]]
-  ["." /// #_
-   ["#." reference]
-   ["#." function]])
+  ["." // #_
+   [common (#+ custom)]
+   ["/#" // #_
+    ["#." reference]
+    ["#." function]]])
 
 (exception: #export invalid-syntax-for-argument-generation)
-
-(def: (custom [parser handler])
-  (All [s]
-    (-> [(<s>.Parser s)
-         (-> Text Phase s (Operation Inst))]
-        Handler))
-  (function (_ extension-name phase input)
-    (case (<s>.run input parser)
-      (#error.Success input')
-      (handler extension-name phase input')
-
-      (#error.Failure error)
-      (phase.throw extension.invalid-syntax [extension-name %synthesis input]))))
 
 (template [<name> <inst>]
   [(def: <name>
@@ -322,13 +311,14 @@
 
 (def: (primitive-array-length-handler jvm-primitive)
   (-> Type Handler)
-  (..custom [<s>.any
-             (function (_ extension-name generate arrayS)
-               (do phase.monad
-                 [arrayI (generate arrayS)]
-                 (wrap (|>> arrayI
-                            (_.CHECKCAST (jvm.descriptor (jvm.array 1 jvm-primitive)))
-                            _.ARRAYLENGTH))))]))
+  (..custom
+   [<s>.any
+    (function (_ extension-name generate arrayS)
+      (do phase.monad
+        [arrayI (generate arrayS)]
+        (wrap (|>> arrayI
+                   (_.CHECKCAST (jvm.descriptor (jvm.array 1 jvm-primitive)))
+                   _.ARRAYLENGTH))))]))
 
 (def: (array::length::object extension-name generate inputs)
   Handler
@@ -543,18 +533,16 @@
     _
     (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
-(def: (object::instance? extension-name generate inputs)
+(def: object::instance?
   Handler
-  (case inputs
-    (^ (list (synthesis.text class) objectS))
-    (do phase.monad
-      [objectI (generate objectS)]
-      (wrap (|>> objectI
-                 (_.INSTANCEOF class)
-                 (_.wrap #jvm.Boolean))))
-
-    _
-    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
+  (..custom
+   [($_ <>.and <s>.text <s>.any)
+    (function (_ extension-name generate [class objectS])
+      (do phase.monad
+        [objectI (generate objectS)]
+        (wrap (|>> objectI
+                   (_.INSTANCEOF class)
+                   (_.wrap #jvm.Boolean)))))]))
 
 (def: (object::cast extension-name generate inputs)
   Handler
@@ -813,20 +801,20 @@
           )))
 
 (def: var
-  (<s>.Parser Var)
+  (Parser Var)
   <s>.text)
 
 (def: bound
-  (<s>.Parser Bound)
+  (Parser Bound)
   (<>.or (<s>.constant! ["" ">"])
          (<s>.constant! ["" "<"])))
 
 (def: (class' generic)
-  (-> (<s>.Parser Generic) (<s>.Parser Class))
+  (-> (Parser Generic) (Parser Class))
   (<s>.tuple (<>.and <s>.text (<>.some generic))))
 
 (def: generic
-  (<s>.Parser Generic)
+  (Parser Generic)
   (<>.rec
    (function (_ generic)
      (let [wildcard (<>.or (<s>.constant! ["" "?"])
@@ -837,11 +825,11 @@
            (class' generic))))))
 
 (def: class
-  (<s>.Parser Class)
+  (Parser Class)
   (class' ..generic))
 
 (def: primitive
-  (<s>.Parser Primitive)
+  (Parser Primitive)
   ($_ <>.or
       (<s>.constant! ["" reflection.boolean])
       (<s>.constant! ["" reflection.byte])
@@ -854,7 +842,7 @@
       ))
 
 (def: jvm-type
-  (<s>.Parser Type)
+  (Parser Type)
   (<>.rec
    (function (_ jvm-type)
      ($_ <>.or
@@ -863,28 +851,28 @@
          (<s>.tuple jvm-type)))))
 
 (def: constructor-arg
-  (<s>.Parser (Typed Synthesis))
+  (Parser (Typed Synthesis))
   (<s>.tuple (<>.and ..jvm-type <s>.any)))
 
 (def: annotation-parameter
-  (<s>.Parser (/.Annotation-Parameter Synthesis))
+  (Parser (/.Annotation-Parameter Synthesis))
   (<s>.tuple (<>.and <s>.text <s>.any)))
 
 (def: annotation
-  (<s>.Parser (/.Annotation Synthesis))
+  (Parser (/.Annotation Synthesis))
   (<s>.tuple (<>.and <s>.text (<>.some ..annotation-parameter))))
 
 (def: argument
-  (<s>.Parser Argument)
+  (Parser Argument)
   (<s>.tuple (<>.and <s>.text ..jvm-type)))
 
 (def: return
-  (<s>.Parser Return)
+  (Parser Return)
   (<>.or (<s>.constant! ["" jvm.void-descriptor])
          ..jvm-type))
 
 (def: overriden-method-definition
-  (<s>.Parser [Environment (/.Overriden-Method Synthesis)])
+  (Parser [Environment (/.Overriden-Method Synthesis)])
   (<s>.tuple (do <>.monad
                [ownerT ..class
                 name <s>.text

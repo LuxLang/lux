@@ -3,12 +3,17 @@
    [abstract
     ["." monad (#+ do)]]
    [control
-    [io (#+ IO)]]
+    [io (#+ IO)]
+    ["." exception (#+ exception:)]
+    ["<>" parser
+     ["<c>" code (#+ Parser)]]]
    [data
+    ["." maybe]
+    ["." error]
     ["." text
      format]
     [collection
-     ["." list]
+     ["." list ("#@." functor)]
      ["." dictionary (#+ Dictionary)]]]
    [type
     ["." check]]
@@ -23,7 +28,20 @@
     ["#/" //
      [default
       [evaluation (#+ Eval)]]
-     ["#." analysis (#+ Analysis Handler Bundle)]]]])
+     ["#." analysis (#+ Analysis Operation Phase Handler Bundle)]]]])
+
+(def: #export (custom [syntax handler])
+  (All [s]
+    (-> [(Parser s)
+         (-> Text Phase s (Operation Analysis))]
+        Handler))
+  (function (_ extension-name analyse args)
+    (case (<c>.run syntax args)
+      (#error.Success inputs)
+      (handler extension-name analyse inputs)
+
+      (#error.Failure error)
+      (/////analysis.throw ///.invalid-syntax [extension-name %code args]))))
 
 (def: (simple inputsT+ outputT)
   (-> (List Type) Type Handler)
@@ -56,6 +74,47 @@
 (def: #export (trinary subjectT param0T param1T outputT)
   (-> Type Type Type Type Handler)
   (simple (list subjectT param0T param1T) outputT))
+
+## TODO: Get rid of this ASAP
+(as-is
+ (exception: #export (char-text-must-be-size-1 {text Text})
+   (exception.report
+    ["Text" (%t text)]))
+ 
+ (def: text-char
+   (Parser text.Char)
+   (do <>.monad
+     [raw <c>.text]
+     (case (text.size raw)
+       1 (wrap (|> raw (text.nth 0) maybe.assume))
+       _ (<>.fail (exception.construct ..char-text-must-be-size-1 [raw])))))
+
+ (def: lux::syntax-char-case!
+   (..custom [($_ <>.and
+                  <c>.any
+                  (<c>.tuple (<>.some (<>.and (<c>.tuple (<>.many ..text-char))
+                                              <c>.any)))
+                  <c>.any)
+              (function (_ extension-name phase [input conditionals else])
+                (do ////.monad
+                  [input (typeA.with-type text.Char
+                           (phase input))
+                   expectedT (///.lift macro.expected-type)
+                   conditionals (monad.map @ (function (_ [cases branch])
+                                               (do @
+                                                 [branch (typeA.with-type expectedT
+                                                           (phase branch))]
+                                                 (wrap [cases branch])))
+                                           conditionals)
+                   else (typeA.with-type expectedT
+                          (phase else))]
+                  (wrap (|> conditionals
+                            (list@map (function (_ [cases branch])
+                                        (/////analysis.tuple
+                                         (list (/////analysis.tuple (list@map (|>> /////analysis.nat) cases))
+                                               branch))))
+                            (list& input else)
+                            (#/////analysis.Extension extension-name)))))])))
 
 ## "lux is" represents reference/pointer equality.
 (def: lux::is
@@ -143,6 +202,7 @@
 (def: (bundle::lux eval)
   (-> Eval Bundle)
   (|> ///bundle.empty
+      (///bundle.install "syntax char case!" lux::syntax-char-case!)
       (///bundle.install "is" lux::is)
       (///bundle.install "try" lux::try)
       (///bundle.install "check" (lux::check eval))
