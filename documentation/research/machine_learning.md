@@ -22,6 +22,7 @@
 
 # Deep learning
 
+1. https://github.com/microsoft/tensorwatch
 1. https://d2l.ai/
 1. https://hadrienj.github.io/posts/Deep-Learning-Book-Series-Introduction/
 1. http://nlp.seas.harvard.edu/NamedTensor

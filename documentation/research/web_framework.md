@@ -121,6 +121,7 @@
 
 # Rendering
 
+1. https://medium.com/@ryansolid/the-fastest-way-to-render-the-dom-e3b226b15ca3
 1. https://github.com/Famous/engine
 1. https://redom.js.org/
 1. https://svelte.dev/blog/virtual-dom-is-pure-overhead

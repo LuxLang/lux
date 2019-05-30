@@ -10,6 +10,7 @@
 
 ## Operating system
 
+1. https://medium.com/@jasonyuan/introducing-mercury-os-f4de45a04289
 1. http://lsneff.me/why-nebulet/ ||| https://github.com/nebulet/nebulet
 1. http://exposnitc.github.io/index.html
 1. https://www.gocosmos.org/

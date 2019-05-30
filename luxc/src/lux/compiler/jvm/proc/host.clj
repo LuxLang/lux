@@ -165,7 +165,7 @@
       &&/unwrap-char
       (.visitInsn Opcodes/IRETURN))
 
-    (&/$GenericClass _class-name (&/$Nil))
+    (&/$GenericClass _class-name _)
     (doto writer
       (.visitTypeInsn Opcodes/CHECKCAST (&host-generics/->bytecode-class-name _class-name))
       (.visitInsn Opcodes/ARETURN))

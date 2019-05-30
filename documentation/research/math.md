@@ -1,3 +1,7 @@
+# Proof theory
+
+1. [Mathematical Components](https://math-comp.github.io/mcb/)
+
 # Statistics
 
 1. https://www.statisticsdonewrong.com/
@@ -69,6 +73,7 @@
 
 # Linear Algebra
 
+1. [Covectors are Different than Vectors, Usually](http://infohost.nmt.edu/~parendt/Phys509/notes/2diracnot/node4.html)
 1. [Introduction to Applied Linear Algebra: Vectors, Matrices, and Least Squares](https://web.stanford.edu/~boyd/vmls/vmls.pdf)
 1. [Linear Algebra Done Wrong.](http://www.math.brown.edu/~treil/papers/LADW/LADW.html)
 1. [Linear Algebra Done Right](http://linear.axler.net/)
@@ -143,6 +148,7 @@
 
 # Calculus
 
+1. [Calculus on Manifolds](http://strangebeautiful.com/other-texts/spivak-calc-manifolds.pdf)
 1. [Calculus BLUE](https://www.youtube.com/watch?v=Jes5jwLl1q8&list=PL8erL0pXF3JYm7VaTdKDaWc8Q3FuP8Sa7)
 1. [Extending the Algebraic Manipulability of Differentials](https://arxiv.org/abs/1801.09553)
 1. https://en.wikipedia.org/wiki/Fractional_calculus

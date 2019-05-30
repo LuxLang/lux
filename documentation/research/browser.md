@@ -28,6 +28,10 @@
 1. [Secure Browser Architecture Based on Hardware Virtualization](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.664.9527&rep=rep1&type=pdf)
 1. https://medium.com/personal-capital-tech-blog/why-we-write-post-only-apis-f15108fb6558
 
+# Performance
+
+1. https://github.com/slightlyoff/never_slow_mode
+
 # Reference
 
 1. http://news.mit.edu/2018/system-patches-private-browsing-0223

@@ -1,5 +1,6 @@
 (.module:
   [lux #*
+   ["@" target]
    [abstract
     [monad (#+ do)]]
    [control
@@ -45,7 +46,7 @@
   (invoke [java/lang/Object [java/lang/Object]] #try java/lang/Object))
 
 (import: #long (java/lang/Class a)
-  (getDeclaredMethod [java/lang/String [(java/lang/Class java/lang/Object)]] #try java/lang/reflect/Method))
+  (getDeclaredMethod [java/lang/String [(java/lang/Class java/lang/Object)]] java/lang/reflect/Method))
 
 (import: #long java/lang/Integer
   (#static TYPE (java/lang/Class java/lang/Integer)))
@@ -68,10 +69,9 @@
                                                      (java/lang/Integer::TYPE)))
                         (host.array-write 3 (:coerce <elemT>
                                                      (java/lang/Integer::TYPE))))]
-      (do-to (error.assume
-              (java/lang/Class::getDeclaredMethod "defineClass"
-                                                  signature
-                                                  (host.class-for java/lang/ClassLoader)))
+      (do-to (java/lang/Class::getDeclaredMethod "defineClass"
+                                                 signature
+                                                 (host.class-for java/lang/ClassLoader))
         (java/lang/reflect/AccessibleObject::setAccessible true)))))
 
 (def: #export (define class-name bytecode loader)
@@ -81,9 +81,14 @@
                                          (:coerce java/lang/Object
                                                   bytecode)
                                          (:coerce java/lang/Object
-                                                  (host.long-to-int +0))
+                                                  (|> 0
+                                                      (:coerce (primitive "java.lang.Long"))
+                                                      host.long-to-int))
                                          (:coerce java/lang/Object
-                                                  (host.long-to-int (.int (binary.size bytecode))))))]
+                                                  (|> bytecode
+                                                      binary.size
+                                                      (:coerce (primitive "java.lang.Long"))
+                                                      host.long-to-int))))]
     (java/lang/reflect/Method::invoke loader signature java/lang/ClassLoader::defineClass)))
 
 (def: #export (new-library _)
@@ -92,22 +97,30 @@
 
 (def: #export (memory library)
   (-> Library java/lang/ClassLoader)
-  (object [] java/lang/ClassLoader []
-    []
-    (java/lang/ClassLoader (findClass self {class-name java/lang/String}) java/lang/Class
-                           (let [classes (|> library atom.read io.run)]
-                             (case (dictionary.get class-name classes)
-                               (#.Some bytecode)
-                               (case (|> self
-                                         (..define class-name bytecode))
-                                 (#error.Success class)
-                                 (:assume class)
+  (`` (with-expansions [<cast> (for {(~~ (static @.old))
+                                     (<|)
+                                     
+                                     (~~ (static @.jvm))
+                                     "jvm object cast"})]
+        (<| <cast>
+            (object [] java/lang/ClassLoader []
+              []
+              (java/lang/ClassLoader (findClass self {class-name java/lang/String})
+                                     (java/lang/Class [? < java/lang/Object])
+                                     #throws [java/lang/ClassNotFoundException]
+                                     (let [class-name (:coerce Text class-name)
+                                           classes (|> library atom.read io.run)]
+                                       (case (dictionary.get class-name classes)
+                                         (#.Some bytecode)
+                                         (case (..define class-name bytecode (<| <cast> self))
+                                           (#error.Success class)
+                                           (:assume class)
 
-                                 (#error.Failure error)
-                                 (error! (ex.construct ..cannot-define [class-name error])))
+                                           (#error.Failure error)
+                                           (error! (ex.construct ..cannot-define [class-name error])))
 
-                               #.None
-                               (error! (ex.construct ..unknown [class-name (dictionary.keys classes)])))))))
+                                         #.None
+                                         (error! (ex.construct ..unknown [class-name (dictionary.keys classes)]))))))))))
 
 (def: #export (store name bytecode library)
   (-> Text Binary Library (IO (Error Any)))
