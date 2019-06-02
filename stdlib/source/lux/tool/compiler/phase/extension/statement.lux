@@ -4,6 +4,7 @@
     ["." monad (#+ do)]]
    [control
     [io (#+ IO)]
+    ["." exception (#+ exception:)]
     ["p" parser
      ["s" code (#+ Parser)]]]
    [data
@@ -139,7 +140,7 @@
          #let [annotations (:coerce Code annotations)]
          [type valueT valueN value] (..definition full-name #.None valueC)
          _ (////statement.lift-analysis
-            (module.define short-name [exported? type annotations value]))
+            (module.define short-name (#.Right [exported? type annotations value])))
          #let [_ (log! (format "Definition " (%name full-name)))]
          _ (////statement.lift-generation
             (///generation.learn full-name valueN))
@@ -179,7 +180,7 @@
          [type valueT valueN value] (..definition full-name (#.Some .Type) valueC)
          _ (////statement.lift-analysis
             (do ///.monad
-              [_ (module.define short-name [exported? type annotations value])]
+              [_ (module.define short-name (#.Right [exported? type annotations value]))]
               (module.declare-tags tags exported? (:coerce Type value))))
          #let [_ (log! (format "Definition " (%name full-name)))]
          _ (////statement.lift-generation
@@ -214,36 +215,35 @@
         (wrap {#////statement.imports imports
                #////statement.referrals (list)})))]))
 
-## TODO: Reify aliasing as a feature of the compiler, instead of
-## manifesting it implicitly through definition annotations.
-(def: (alias-annotations original)
-  (-> Name Code)
-  (` {#.alias (~ (code.identifier original))}))
+(exception: #export (cannot-alias-an-alias {local Alias} {foreign Alias} {target Name})
+  (exception.report
+   ["Local alias" (%name local)]
+   ["Foreign alias" (%name foreign)]
+   ["Target definition" (%name target)]))
 
 (def: (define-alias alias original)
   (-> Text Name (////analysis.Operation Any))
   (do ///.monad
-    [[exported? original-type original-annotations original-value]
-     (//.lift (macro.find-def original))]
-    (module.define alias [false
-                          original-type
-                          (alias-annotations original)
-                          original-value])))
+    [current-module (//.lift macro.current-module-name)
+     constant (//.lift (macro.find-def original))]
+    (case constant
+      (#.Left de-aliased)
+      (///.throw ..cannot-alias-an-alias [[current-module alias] original de-aliased])
+      
+      (#.Right [exported? original-type original-annotations original-value])
+      (module.define alias (#.Left original)))))
 
 (def: def::alias
   Handler
-  (function (_ extension-name phase inputsC+)
-    (case inputsC+
-      (^ (list [_ (#.Identifier ["" alias])] [_ (#.Identifier def-name)]))
+  (..custom
+   [($_ p.and s.local-identifier s.identifier)
+    (function (_ extension-name phase [alias def-name])
       (do ///.monad
         [_ (//.lift
             (///.sub [(get@ [#////statement.analysis #////statement.state])
                       (set@ [#////statement.analysis #////statement.state])]
                      (define-alias alias def-name)))]
-        (wrap ////statement.no-requirements))
-
-      _
-      (///.throw //.invalid-syntax [extension-name %code inputsC+]))))
+        (wrap ////statement.no-requirements)))]))
 
 (template [<mame> <type> <scope>]
   [(def: <mame>

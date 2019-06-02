@@ -13,8 +13,7 @@
                  [optimizer :as &o])
             [lux.host.generics :as &host-generics]
             (lux.analyser [base :as &a]
-                          [module :as &a-module]
-                          [meta :as &a-meta])
+                          [module :as &a-module])
             (lux.compiler.jvm [base :as &&]
                               [function :as &&function]))
   (:import (org.objectweb.asm Opcodes
@@ -268,71 +267,26 @@
   (defn compile-def [compile ?name ?body ?meta exported?]
     (|do [module-name &/get-module-name
           class-loader &/loader]
-      (|case (&a-meta/meta-get &a-meta/alias-tag ?meta)
-        (&/$Some [_ (&/$Identifier [r-module r-name])])
-        (|case ?meta
-          [_ (&/$Record ?meta*)]
-          (if (= 1 (&/|length ?meta*))
-            (|do [:let [current-class (&host-generics/->class-name (str (&host/->module-class r-module) "/" (&host/def-name r-name)))
-                        def-class (&&/load-class! class-loader current-class)
-                        def-value (-> def-class (.getField &/value-field) (.get nil))]
-                  def-type (&a-module/def-type r-module r-name)
-                  _ (&/without-repl-closure
-                     (&a-module/define module-name ?name false def-type ?meta def-value))]
-              (return nil))
-            (&/fail-with-loc (str "[Compilation Error] Aliases cannot contain meta-data: " (str module-name &/+name-separator+ ?name)))))
-
-        (&/$Some _)
-        (&/fail-with-loc "[Compilation Error] Invalid syntax for lux;alias meta-data. Must be an identifier.")
-        
-        _
-        (|case (de-ann ?body)
-          [_ (&o/$function _ _ __scope _ _)]
-          (|let [[_ (&o/$function _ _arity _scope _captured ?body+)] (&o/shift-function-body (&/|tail __scope) __scope
-                                                                                             false
-                                                                                             (de-ann ?body))]
-            (|do [[file-name _ _] &/cursor
-                  :let [datum-sig "Ljava/lang/Object;"
-                        def-name (&host/def-name ?name)
-                        current-class (str (&host/->module-class module-name) "/" def-name)
-                        =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
-                                 (.visit &host/bytecode-version class-flags
-                                         current-class nil &&/function-class (into-array String []))
-                                 (-> (.visitField field-flags &/value-field datum-sig nil nil)
-                                     (doto (.visitEnd)))
-                                 (.visitSource file-name nil))]
-                  instancer (&&function/compile-function compile (&/$Some =class) _arity _scope _captured ?body+)
-                  _ (&/with-writer (.visitMethod =class Opcodes/ACC_STATIC "<clinit>" "()V" nil nil)
-                      (|do [^MethodVisitor **writer** &/get-writer
-                            :let [_ (.visitCode **writer**)]
-                            _ instancer
-                            :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/value-field datum-sig)]
-                            :let [_ (doto **writer**
-                                      (.visitInsn Opcodes/RETURN)
-                                      (.visitMaxs 0 0)
-                                      (.visitEnd))]]
-                        (return nil)))
-                  :let [_ (.visitEnd =class)]
-                  _ (&&/save-class! def-name (.toByteArray =class))
-                  def-value (install-def! class-loader current-class module-name ?name ?body ?meta exported?)
-                  :let [_ (println 'DEF (str module-name &/+name-separator+ ?name))]]
-              (return def-value)))
-
-          _
+      (|case (de-ann ?body)
+        [_ (&o/$function _ _ __scope _ _)]
+        (|let [[_ (&o/$function _ _arity _scope _captured ?body+)] (&o/shift-function-body (&/|tail __scope) __scope
+                                                                                           false
+                                                                                           (de-ann ?body))]
           (|do [[file-name _ _] &/cursor
                 :let [datum-sig "Ljava/lang/Object;"
                       def-name (&host/def-name ?name)
                       current-class (str (&host/->module-class module-name) "/" def-name)
                       =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                                (.visit &host/bytecode-version class-flags
-                                       current-class nil "java/lang/Object" (into-array String []))
+                                       current-class nil &&/function-class (into-array String []))
                                (-> (.visitField field-flags &/value-field datum-sig nil nil)
                                    (doto (.visitEnd)))
                                (.visitSource file-name nil))]
+                instancer (&&function/compile-function compile (&/$Some =class) _arity _scope _captured ?body+)
                 _ (&/with-writer (.visitMethod =class Opcodes/ACC_STATIC "<clinit>" "()V" nil nil)
                     (|do [^MethodVisitor **writer** &/get-writer
                           :let [_ (.visitCode **writer**)]
-                          _ (compile nil ?body)
+                          _ instancer
                           :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/value-field datum-sig)]
                           :let [_ (doto **writer**
                                     (.visitInsn Opcodes/RETURN)
@@ -344,7 +298,33 @@
                 def-value (install-def! class-loader current-class module-name ?name ?body ?meta exported?)
                 :let [_ (println 'DEF (str module-name &/+name-separator+ ?name))]]
             (return def-value)))
-        ))))
+
+        _
+        (|do [[file-name _ _] &/cursor
+              :let [datum-sig "Ljava/lang/Object;"
+                    def-name (&host/def-name ?name)
+                    current-class (str (&host/->module-class module-name) "/" def-name)
+                    =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
+                             (.visit &host/bytecode-version class-flags
+                                     current-class nil "java/lang/Object" (into-array String []))
+                             (-> (.visitField field-flags &/value-field datum-sig nil nil)
+                                 (doto (.visitEnd)))
+                             (.visitSource file-name nil))]
+              _ (&/with-writer (.visitMethod =class Opcodes/ACC_STATIC "<clinit>" "()V" nil nil)
+                  (|do [^MethodVisitor **writer** &/get-writer
+                        :let [_ (.visitCode **writer**)]
+                        _ (compile nil ?body)
+                        :let [_ (.visitFieldInsn **writer** Opcodes/PUTSTATIC current-class &/value-field datum-sig)]
+                        :let [_ (doto **writer**
+                                  (.visitInsn Opcodes/RETURN)
+                                  (.visitMaxs 0 0)
+                                  (.visitEnd))]]
+                    (return nil)))
+              :let [_ (.visitEnd =class)]
+              _ (&&/save-class! def-name (.toByteArray =class))
+              def-value (install-def! class-loader current-class module-name ?name ?body ?meta exported?)
+              :let [_ (println 'DEF (str module-name &/+name-separator+ ?name))]]
+          (return def-value))))))
 
 (defn compile-program [compile ?program]
   (|do [module-name &/get-module-name

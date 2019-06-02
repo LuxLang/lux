@@ -1,7 +1,7 @@
 (.module:
   [lux #*
    [abstract
-    ["." monad (#+ do Monad)]
+    ["." monad (#+ Monad do)]
     ["eq" equivalence]]
    [control
     ["p" parser
@@ -111,13 +111,20 @@
      [idx tag-list sig-type] (macro.resolve-tag member)]
     (wrap [idx sig-type])))
 
-(def: (prepare-definitions this-module-name definitions)
-  (-> Text (List [Text Definition]) (List [Name Type]))
-  (|> definitions
-      (list.filter (function (_ [name [exported? def-type def-anns def-value]])
-                     (macro.structure? def-anns)))
-      (list@map (function (_ [name [exported? def-type def-anns def-value]])
-                  [[this-module-name name] def-type]))))
+(def: (prepare-definitions source-module target-module constants)
+  (-> Text Text (List [Text Global]) (List [Name Type]))
+  (do list.monad
+    [[name constant] constants]
+    (case constant
+      (#.Left _)
+      (list)
+      
+      (#.Right [exported? def-type def-anns def-value])
+      (if (and (macro.structure? def-anns)
+               (or (text@= target-module source-module)
+                   exported?))
+        (list [[source-module name] def-type])
+        (list)))))
 
 (def: local-env
   (Meta (List [Name Type]))
@@ -137,7 +144,7 @@
   (do macro.monad
     [this-module-name macro.current-module-name
      definitions (macro.definitions this-module-name)]
-    (wrap (prepare-definitions this-module-name definitions))))
+    (wrap (prepare-definitions this-module-name this-module-name definitions))))
 
 (def: import-structs
   (Meta (List [Name Type]))
@@ -146,8 +153,8 @@
      imp-mods (macro.imported-modules this-module-name)
      export-batches (monad.map @ (function (_ imp-mod)
                                    (do @
-                                     [exports (macro.exports imp-mod)]
-                                     (wrap (prepare-definitions imp-mod exports))))
+                                     [exports (macro.definitions imp-mod)]
+                                     (wrap (prepare-definitions imp-mod this-module-name exports))))
                                imp-mods)]
     (wrap (list@join export-batches))))
 

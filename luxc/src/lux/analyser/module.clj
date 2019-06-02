@@ -7,8 +7,7 @@
             (lux [base :as & :refer [defvariant deftuple |let |do return return* |case]]
                  [type :as &type]
                  [host :as &host])
-            [lux.host.generics :as &host-generics]
-            (lux.analyser [meta :as &meta])))
+            [lux.host.generics :as &host-generics]))
 
 ;; [Utils]
 ;; ModuleState
@@ -106,6 +105,25 @@
                           state)
                nil))))
 
+(defn define-alias [module name de-aliased]
+  (fn [state]
+    (|case (&/get$ &/$scopes state)
+      (&/$Cons ?env (&/$Nil))
+      (return* (->> state
+                    (&/update$ &/$modules
+                               (fn [ms]
+                                 (&/|update module
+                                            (fn [m]
+                                              (&/update$ $defs
+                                                         #(&/|put name (&/$Left de-aliased) %)
+                                                         m))
+                                            ms))))
+               nil)
+      
+      _
+      ((&/fail-with-loc (str "[Analyser Error] Cannot create a new global definition outside of a global environment: " (str module &/+name-separator+ name)))
+       state))))
+
 (defn define [module name exported? def-type def-meta def-value]
   (fn [state]
     (when (and (= "Macro'" name) (= "lux" module))
@@ -118,7 +136,7 @@
                                  (&/|update module
                                             (fn [m]
                                               (&/update$ $defs
-                                                         #(&/|put name (&/T [exported? def-type def-meta def-value]) %)
+                                                         #(&/|put name (&/$Right (&/T [exported? def-type def-meta def-value])) %)
                                                          m))
                                             ms))))
                nil)
@@ -127,26 +145,17 @@
       ((&/fail-with-loc (str "[Analyser Error] Cannot create a new global definition outside of a global environment: " (str module &/+name-separator+ name)))
        state))))
 
-(defn def-type
-  "(-> Text Text (Lux Type))"
-  [module name]
-  (fn [state]
-    (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
-      (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
-        (|let [[exported? ?type ?meta ?value] $def]
-          (return* state ?type))
-        ((&/fail-with-loc (str "[Analyser Error] Unknown definition: " (str module &/+name-separator+ name)))
-         state))
-      ((&/fail-with-loc (str "[Analyser Error] Unknown module: " module))
-       state))))
-
 (defn type-def
   "(-> Text Text (Lux [Bit Type]))"
   [module name]
   (fn [state]
     (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
       (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
-        (|let [[exported? ?type ?meta ?value] $def]
+        (|case $def
+          (&/$Left [o-module o-name])
+          ((type-def o-module o-name) state)
+          
+          (&/$Right [exported? ?type ?meta ?value])
           (if (&type/type= &type/Type ?type)
             (return* state (&/T [exported? ?value]))
             ((&/fail-with-loc (str "[Analyser Error] Not a type: " (&/ident->text (&/T [module name]))
@@ -224,56 +233,50 @@
     (fn [state]
       (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
         (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
-          (|let [[exported? ?type ?meta ?value] $def]
-            (if (.equals ^Object current-module module)
-              (|case (&meta/meta-get &meta/alias-tag ?meta)
-                (&/$Some [_ (&/$Identifier [?r-module ?r-name])])
-                ((find-def! ?r-module ?r-name)
-                 state)
+          (|case $def
+            (&/$Left [?r-module ?r-name])
+            ((find-def! ?r-module ?r-name)
+             state)
 
-                _
-                (return* state (&/T [(&/T [module name]) $def])))
-              (return* state (&/T [(&/T [module name]) $def]))))
+            (&/$Right $def*)
+            (return* state (&/T [(&/T [module name]) $def*])))
           ((&/fail-with-loc (str "[Analyser Error @ find-def!] Definition does not exist: " (str module &/+name-separator+ name)
                                  " at module: " current-module))
            state))
         ((&/fail-with-loc (str "[Analyser Error @ find-def!] Module does not exist: " module
                                " at module: " current-module))
-         state))
-      )))
+         state)))))
 
 (defn find-def [module name]
   (|do [current-module &/get-module-name]
     (fn [state]
-      (if (or (= "lux" module)
-              (= current-module module)
-              (imports? state module current-module))
-        (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
-          (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
-            (|let [[exported? ?type ?meta ?value] $def]
-              (if (.equals ^Object current-module module)
-                (|case (&meta/meta-get &meta/alias-tag ?meta)
-                  (&/$Some [_ (&/$Identifier [?r-module ?r-name])])
-                  ((find-def ?r-module ?r-name)
-                   state)
-
-                  _
-                  (return* state (&/T [(&/T [module name]) $def])))
-                (if exported?
-                  (return* state (&/T [(&/T [module name]) $def]))
-                  ((&/fail-with-loc (str "[Analyser Error @ find-def] Cannot use private definition: " (str module &/+name-separator+ name)
-                                         " at module: " current-module))
-                   state))))
-            ((&/fail-with-loc (str "[Analyser Error @ find-def] Definition does not exist: " (str module &/+name-separator+ name)
-                                   " at module: " current-module))
-             state))
-          ((&/fail-with-loc (str "[Analyser Error @ find-def] Module does not exist: " module
+      (if-let [$module (->> state (&/get$ &/$modules) (&/|get module))]
+        (if-let [$def (->> $module (&/get$ $defs) (&/|get name))]
+          (|case $def
+            (&/$Left [?r-module ?r-name])
+            (if (.equals ^Object current-module module)
+              ((find-def! ?r-module ?r-name)
+               state)
+              ((&/fail-with-loc (str "[Analyser Error @ find-def] Cannot use (private) alias: " (str module &/+name-separator+ name)
+                                     " at module: " current-module))
+               state))
+            
+            (&/$Right [exported? ?type ?meta ?value])
+            (if (or (.equals ^Object current-module module)
+                    (and exported?
+                         (or (.equals ^Object module "lux")
+                             (imports? state module current-module))))
+              (return* state (&/T [(&/T [module name])
+                                   (&/T [exported? ?type ?meta ?value])]))
+              ((&/fail-with-loc (str "[Analyser Error @ find-def] Cannot use private definition: " (str module &/+name-separator+ name)
+                                     " at module: " current-module))
+               state)))
+          ((&/fail-with-loc (str "[Analyser Error @ find-def] Definition does not exist: " (str module &/+name-separator+ name)
                                  " at module: " current-module))
            state))
-        ((&/fail-with-loc (str "[Analyser Error @ find-def] Unknown module: " module
+        ((&/fail-with-loc (str "[Analyser Error @ find-def] Module does not exist: " module
                                " at module: " current-module))
-         state))
-      )))
+         state)))))
 
 (defn defined? [module name]
   (&/try-all% (&/|list (|do [_ (find-def! module name)]
@@ -398,18 +401,7 @@
 (def defs
   (|do [module &/get-module-name]
     (fn [state]
-      (return* state
-               (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $defs)
-                    (&/|map (fn [kv]
-                              (|let [[k _def-data] kv
-                                     [_ _ ?def-meta _] _def-data]
-                                (|case (&meta/meta-get &meta/alias-tag ?def-meta)
-                                  (&/$Some [_ (&/$Identifier [?r-module ?r-name])])
-                                  (&/T [k (str ?r-module &/+name-separator+ ?r-name) _def-data])
-                                  
-                                  _
-                                  (&/T [k "" _def-data])
-                                  )))))))))
+      (return* state (->> state (&/get$ &/$modules) (&/|get module) (&/get$ $defs))))))
 
 (defn fetch-imports [imports]
   (|case imports

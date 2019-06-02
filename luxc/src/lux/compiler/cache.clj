@@ -8,8 +8,7 @@
                  [type :as &type]
                  [host :as &host])
             (lux.analyser [base :as &a]
-                          [module :as &a-module]
-                          [meta :as &a-meta])
+                          [module :as &a-module])
             (lux.compiler [core :as &&core]
                           [io :as &&io])
             (lux.compiler.cache [type :as &&&type]
@@ -99,12 +98,8 @@
   (let [parts (.split _def-entry &&core/datum-separator)]
     (case (alength parts)
       2 (let [[_name _alias] parts
-              [_ __module __name] (re-find #"^(.*)\.(.*)$" _alias)
-              def-anns (make-record (&/|list (&/T [(make-tag &a-meta/alias-tag)
-                                                   (make-identifier (&/T [__module __name]))])))]
-          (|do [def-type (&a-module/def-type __module __name)
-                def-value (load-def-value __module __name)]
-            (&a-module/define module _name false def-type def-anns def-value)))
+              [__module __name] (.split _alias &/+name-separator+)]
+          (&a-module/define-alias module _name (&/T [__module __name])))
       4 (let [[_name _exported? _type _anns] parts
               [def-anns _] (&&&ann/deserialize _anns)
               [def-type _] (&&&type/deserialize-type _type)]

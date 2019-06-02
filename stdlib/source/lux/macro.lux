@@ -206,15 +206,6 @@
   [signature?      #.sig?      "a signature"]
   )
 
-(def: #export (aliased? annotations)
-  (-> Code Bit)
-  (case (get-identifier-ann (name-of #.alias) annotations)
-    (#.Some _)
-    #1
-
-    #.None
-    #0))
-
 (template [<name> <tag> <type>]
   [(def: (<name> input)
      (-> Code (Maybe <type>))
@@ -257,14 +248,17 @@
       (Maybe Macro))
   (do maybe.monad
     [$module (get module modules)
-     [exported? def-type def-anns def-value] (: (Maybe Definition) (|> (: Module $module) (get@ #.definitions) (get name)))]
-    (if (macro-type? def-type)
-      (#.Some (:coerce Macro def-value))
-      (case (get-identifier-ann (name-of #.alias) def-anns)
-        (#.Some [r-module r-name])
-        (find-macro' modules this-module r-module r-name)
-
-        _
+     definition (: (Maybe Global)
+                   (|> (: Module $module)
+                       (get@ #.definitions)
+                       (get name)))]
+    (case definition
+      (#.Left [r-module r-name])
+      (find-macro' modules this-module r-module r-name)
+      
+      (#.Right [exported? def-type def-anns def-value])
+      (if (macro-type? def-type)
+        (#.Some (:coerce Macro def-value))
         #.None))))
 
 (def: #export (normalize name)
@@ -501,11 +495,11 @@
 
 (def: #export (find-def name)
   {#.doc "Looks-up a definition's whole data in the available modules (including the current one)."}
-  (-> Name (Meta Definition))
+  (-> Name (Meta Global))
   (do ..monad
     [name (normalize name)]
     (function (_ compiler)
-      (case (: (Maybe Definition)
+      (case (: (Maybe Global)
                (do maybe.monad
                  [#let [[v-prefix v-name] name]
                   (^slots [#.definitions]) (get v-prefix (get@ #.modules compiler))]
@@ -533,8 +527,13 @@
   {#.doc "Looks-up a definition's type in the available modules (including the current one)."}
   (-> Name (Meta Type))
   (do ..monad
-    [[exported? def-type def-data def-value] (find-def name)]
-    (clean-type def-type)))
+    [definition (find-def name)]
+    (case definition
+      (#.Left de-aliased)
+      (find-def-type de-aliased)
+      
+      (#.Right [exported? def-type def-data def-value])
+      (clean-type def-type))))
 
 (def: #export (find-type name)
   {#.doc "Looks-up the type of either a local variable or a definition."}
@@ -553,26 +552,40 @@
   {#.doc "Finds the value of a type definition (such as Int, Any or Lux)."}
   (-> Name (Meta Type))
   (do ..monad
-    [[exported? def-type def-data def-value] (find-def name)]
-    (wrap (:coerce Type def-value))))
+    [definition (find-def name)]
+    (case definition
+      (#.Left de-aliased)
+      (find-type-def de-aliased)
+      
+      (#.Right [exported? def-type def-data def-value])
+      (wrap (:coerce Type def-value)))))
 
 (def: #export (definitions module-name)
   {#.doc "The entire list of definitions in a module (including the non-exported/private ones)."}
-  (-> Text (Meta (List [Text Definition])))
+  (-> Text (Meta (List [Text Global])))
   (function (_ compiler)
     (case (get module-name (get@ #.modules compiler))
-      #.None          (#error.Failure ($_ text@compose "Unknown module: " module-name))
-      (#.Some module) (#error.Success [compiler (get@ #.definitions module)])
-      )))
+      #.None
+      (#error.Failure ($_ text@compose "Unknown module: " module-name))
+      
+      (#.Some module)
+      (#error.Success [compiler (get@ #.definitions module)]))))
 
 (def: #export (exports module-name)
   {#.doc "All the exported definitions in a module."}
   (-> Text (Meta (List [Text Definition])))
   (do ..monad
-    [definitions (definitions module-name)]
-    (wrap (list.filter (function (_ [name [exported? def-type def-anns def-value]])
-                         exported?)
-                       definitions))))
+    [constants (definitions module-name)]
+    (wrap (do list.monad
+            [[name definition] constants]
+            (case definition
+              (#.Left _)
+              (list)
+
+              (#.Right [exported? def-type def-data def-value])
+              (if exported?
+                (wrap [name [exported? def-type def-data def-value]])
+                (list)))))))
 
 (def: #export modules
   {#.doc "All the available modules (including the current one)."}
@@ -689,13 +702,13 @@
   {#.doc "Given an aliased definition's name, returns the original definition being referenced."}
   (-> Name (Meta Name))
   (do ..monad
-    [[_ _ def-anns _] (find-def def-name)]
-    (case (get-identifier-ann (name-of #.alias) def-anns)
-      (#.Some real-def-name)
-      (wrap real-def-name)
+    [constant (find-def def-name)]
+    (wrap (case constant
+            (#.Left real-def-name)
+            real-def-name
 
-      _
-      (wrap def-name))))
+            (#.Right _)
+            def-name))))
 
 (def: #export get-compiler
   {#.doc "Obtains the current state of the compiler."}

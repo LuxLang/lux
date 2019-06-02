@@ -1,3 +1,8 @@
+# Period
+
+1. https://en.wikipedia.org/wiki/Ring_of_periods
+1. [PERIODS](http://www.ihes.fr/~maxim/TEXTS/Periods.pdf)
+
 # Proof theory
 
 1. [Mathematical Components](https://math-comp.github.io/mcb/)
@@ -40,6 +45,7 @@
 
 # _Compendium of resources_
 
+1. [ALL IN ONE MATHEMATICS CHEAT SHEET](https://ourway.keybase.pub/mathematics_cheat_sheet.pdf)
 1. https://github.com/llSourcell/learn_math_fast
 1. https://www.algorithm-archive.org/
 1. [3b1b featured creators #1](https://www.youtube.com/watch?v=VcgJro0sTiM)

@@ -11,6 +11,7 @@
 1. Hovering/selecting an input to a function inside a function-call should display the name of the input in the function declaration. This would help understand the purpose of the value while in the function call without needing Lux/the-language to have named inputs as a feature.
 1. https://www.emacswiki.org/emacs/UndoTree
 1. https://jameshfisher.com/2014/05/11/your-syntax-highlighter-is-wrong/
+1. https://medium.com/@evnbr/coding-in-color-3a6db2743a1e
 
 # Voice
 

@@ -12,8 +12,7 @@
                           [case :as &&case]
                           [env :as &&env]
                           [module :as &&module]
-                          [record :as &&record]
-                          [meta :as &&meta])))
+                          [record :as &&record])))
 
 ;; [Utils]
 ;; TODO: Walk the type to set up the parameter-type, instead of doing a
@@ -579,24 +578,12 @@
         _ (&&module/declare-tags module-name tags exported? def-value)]
     (return &/$Nil)))
 
-(def ^:private dummy-cursor
-  (&/T ["" -1 -1]))
-
-(defn ^:private alias-annotations [original-module original-name]
-  (&/T [dummy-cursor
-        (&/$Record (&/$Cons (&/T [(&/T [dummy-cursor (&/$Tag &&meta/alias-tag)])
-                                  (&/T [dummy-cursor (&/$Identifier (&/T [original-module original-name]))])])
-                            &/$Nil))]))
-
 (defn analyse-def-alias [?alias ?original]
   (|let [[r-module r-name] ?original]
-    (|do [[_ [exported? original-type original-anns original-value]] (&&module/find-def! r-module r-name)
+    (|do [_ (&&module/find-def r-module r-name)
           module-name &/get-module-name
           _ (&/without-repl-closure
-             (&&module/define module-name ?alias false
-               original-type
-               (alias-annotations r-module r-name)
-               original-value))]
+             (&&module/define-alias module-name ?alias ?original))]
       (return &/$Nil))))
 
 (defn ^:private merge-module-states

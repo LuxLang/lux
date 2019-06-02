@@ -419,6 +419,28 @@
                  #Nil))
  #1)
 
+## (type: Alias
+##   Name)
+("lux def" Alias
+ ("lux check type"
+  (#Named ["lux" "Alias"]
+          Name))
+ (record$ #Nil)
+ #1)
+
+## (type: Global
+##   (| Alias
+##      Definition))
+("lux def" Global
+ ("lux check type"
+  (#Named ["lux" "Global"]
+          (#Sum Alias
+                Definition)))
+ (record$ (#Cons [(tag$ ["lux" "doc"])
+                  (text$ "Represents all the data associated with a global constant.")]
+                 #Nil))
+ #1)
+
 ## (type: (Bindings k v)
 ##   {#counter Nat
 ##    #mappings (List [k v])})
@@ -525,7 +547,7 @@
 ## (type: Module
 ##   {#module-hash        Nat
 ##    #module-aliases     (List [Text Text])
-##    #definitions        (List [Text Definition])
+##    #definitions        (List [Text Global])
 ##    #imports            (List Text)
 ##    #tags               (List [Text [Nat (List Name) Bit Type]])
 ##    #types              (List [Text [(List Name) Bit Type]])
@@ -538,7 +560,7 @@
           (#Product ## "lux.module-aliases"
            (#Apply (#Product Text Text) List)
            (#Product ## "lux.definitions"
-            (#Apply (#Product Text Definition) List)
+            (#Apply (#Product Text Global) List)
             (#Product ## "lux.imports"
              (#Apply Text List)
              (#Product ## "lux.tags"
@@ -1724,13 +1746,13 @@
                  #seed seed #expected  expected #cursor  cursor #extensions extensions
                  #scope-type-vars scope-type-vars} state]
                ({(#Some {#module-hash _ #module-aliases _ #definitions definitions #imports _ #tags tags #types types #module-annotations _ #module-state _})
-                 ({(#Some [exported? def-type def-meta def-value])
-                   ({(#Some [_ (#Identifier real-name)])
+                 ({(#Some constant)
+                   ({(#Left real-name)
                      (#Right [state real-name])
-
-                     _
+                     
+                     (#Right [exported? def-type def-meta def-value])
                      (#Right [state full-name])}
-                    (get-meta ["lux" "alias"] def-meta))
+                    constant)
 
                    #None
                    (#Left ($_ text@compose "Unknown definition: " (name@encode full-name)))}
@@ -2527,19 +2549,18 @@
            [$module (get module modules)
             gdef (let' [{#module-hash _ #module-aliases _ #definitions bindings #imports _ #tags tags #types types #module-annotations _ #module-state _} ("lux check" Module $module)]
                        (get name bindings))]
-           (let' [[exported? def-type def-meta def-value] ("lux check" Definition gdef)]
-                 (if (macro-type? def-type)
-                   (if exported?
-                     (#Some ("lux coerce" Macro def-value))
-                     (if (text@= module current-module)
-                       (#Some ("lux coerce" Macro def-value))
-                       #None))
-                   ({(#Some [_ (#Identifier [r-module r-name])])
-                     (find-macro' modules current-module r-module r-name)
+           ({(#Left [r-module r-name])
+             (find-macro' modules current-module r-module r-name)
 
-                     _
-                     #None}
-                    (get-meta ["lux" "alias"] def-meta))))))
+             (#Right [exported? def-type def-meta def-value])
+             (if (macro-type? def-type)
+               (if exported?
+                 (#Some ("lux coerce" Macro def-value))
+                 (if (text@= module current-module)
+                   (#Some ("lux coerce" Macro def-value))
+                   #None))
+               #None)}
+            ("lux check" Global gdef))))
 
 (def:''' (normalize name)
          #Nil
@@ -4227,12 +4248,17 @@
                   modules)]
     (case (get module modules)
       (#Some =module)
-      (let [to-alias (list@map (: (-> [Text Definition]
+      (let [to-alias (list@map (: (-> [Text Global]
                                       (List Text))
-                                  (function (_ [name [exported? def-type def-meta def-value]])
-                                    (if exported?
-                                      (list name)
-                                      (list))))
+                                  (function (_ [name definition])
+                                    (case definition
+                                      (#Left _)
+                                      (list)
+
+                                      (#Right [exported? def-type def-meta def-value])
+                                      (if exported?
+                                        (list name)
+                                        (list)))))
                                (let [{#module-hash _ #module-aliases _ #definitions definitions #imports _ #tags tags #types types #module-annotations _ #module-state _} =module]
                                  definitions))]
         (#Right state (list@join to-alias)))
@@ -4307,8 +4333,13 @@
         #None
         #None
 
-        (#Some [exported? def-type def-meta def-value])
-        (#Some def-type)))))
+        (#Some definition)
+        (case definition
+          (#Left de-aliased)
+          (find-def-type de-aliased state)
+          
+          (#Right [exported? def-type def-meta def-value])
+          (#Some def-type))))))
 
 (def: (find-def-value name state)
   (-> Name (Meta [Type Any]))
@@ -4326,8 +4357,13 @@
         #None
         (#Left (text@compose "Unknown definition: " (name@encode name)))
 
-        (#Some [exported? def-type def-meta def-value])
-        (#Right [state [def-type def-value]])))))
+        (#Some definition)
+        (case definition
+          (#Left de-aliased)
+          (find-def-value de-aliased state)
+          
+          (#Right [exported? def-type def-meta def-value])
+          (#Right [state [def-type def-value]]))))))
 
 (def: (find-type-var idx bindings)
   (-> Nat (List [Nat (Maybe Type)]) (Maybe Type))

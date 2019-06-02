@@ -9,8 +9,7 @@
                  [host :as &host])
             [lux.host.generics :as &host-generics]
             (lux.analyser [base :as &a]
-                          [module :as &a-module]
-                          [meta :as &a-meta])
+                          [module :as &a-module])
             (lux.compiler [core :as &&core]
                           [io :as &&io])
             (lux.compiler.jvm [base :as &&]))
