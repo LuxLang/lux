@@ -1,0 +1,262 @@
+(.module:
+  [lux (#- Definition)
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    ["<>" parser
+     ["<c>" code (#+ Parser)]]]
+   [data
+    ["." product]
+    [text
+     format]
+    [collection
+     ["." list ("#@." functor fold)]
+     ["." dictionary]]]
+   [type
+    ["." check (#+ Check)]]
+   [target
+    [jvm
+     ["." type (#+ Var Parameter Class Argument Typed Return)
+      [".T" lux]]]]
+   [tool
+    [compiler
+     ["." statement (#+ Handler Bundle)]
+     ["." phase
+      ["." generation]
+      [analysis
+       [".A" type]]
+      ["." extension
+       ["." bundle]
+       [analysis
+        ["." jvm]]
+       [statement
+        ["/" lux]]]]]]]
+  [luxc
+   [lang
+    [host
+     ["$" jvm (#+ Anchor Inst Definition Operation Phase)
+      ["_" inst]
+      ["_." def]]]]])
+
+(type: Declaration
+  [Text (List Text)])
+
+(def: declaration
+  (Parser Declaration)
+  (<c>.form (<>.and <c>.text (<>.some <c>.text))))
+
+(type: Inheritance
+  #FinalI
+  #AbstractI
+  #DefaultI)
+
+(def: inheritance
+  (Parser Inheritance)
+  ($_ <>.or
+      (<c>.text! "final")
+      (<c>.text! "abstract")
+      (<c>.text! "default")))
+
+(type: State
+  #VolatileS
+  #FinalS
+  #DefaultS)
+
+(def: state
+  (Parser State)
+  ($_ <>.or
+      (<c>.text! "volatile")
+      (<c>.text! "final")
+      (<c>.text! "default")))
+
+(type: Annotation Any)
+
+(def: annotation
+  (Parser Annotation)
+  <c>.any)
+
+(type: Constant
+  [Text (List Annotation) type.Type Code])
+
+(def: constant
+  (Parser Constant)
+  (<| <c>.form
+      (<>.after (<c>.text! "constant"))
+      ($_ <>.and
+          <c>.text
+          (<c>.tuple (<>.some ..annotation))
+          jvm.type
+          <c>.any
+          )))
+
+(type: Variable
+  [Text jvm.Visibility State (List Annotation) type.Type])
+
+(def: variable
+  (Parser Variable)
+  (<| <c>.form
+      (<>.after (<c>.text! "variable"))
+      ($_ <>.and
+          <c>.text
+          jvm.visibility
+          ..state
+          (<c>.tuple (<>.some ..annotation))
+          jvm.type
+          )))
+
+(type: Field
+  (#Constant Constant)
+  (#Variable Variable))
+
+(def: field
+  (Parser Field)
+  ($_ <>.or
+      ..constant
+      ..variable
+      ))
+
+(type: Method-Definition
+  (#Constructor (jvm.Constructor Code))
+  (#Virtual-Method (jvm.Virtual-Method Code))
+  (#Static-Method (jvm.Static-Method Code))
+  (#Overriden-Method (jvm.Overriden-Method Code)))
+
+(def: method
+  (Parser Method-Definition)
+  ($_ <>.or
+      jvm.constructor-definition
+      jvm.virtual-method-definition
+      jvm.static-method-definition
+      jvm.overriden-method-definition
+      ))
+
+(def: (parameter name)
+  (-> Text Parameter)
+  [name [type.object-class (list)] (list)])
+
+(def: string-descriptor (type.descriptor (type.class "java.lang.String" (list))))
+
+(def: parameter-types
+  (-> (List Var) (Check (List [Var Type])))
+  (monad.map check.monad
+             (function (_ parameterJ)
+               (do check.monad
+                 [[_ parameterT] check.var]
+                 (wrap [parameterJ parameterT])))))
+
+(def: jvm::class
+  (Handler Anchor Inst Definition)
+  (/.custom
+   [($_ <>.and
+        ..declaration
+        jvm.class
+        (<c>.tuple (<>.some jvm.class))
+        ..inheritance
+        (<c>.tuple (<>.some ..annotation))
+        (<c>.tuple (<>.some ..field))
+        (<c>.tuple (<>.some ..method)))
+    (function (_ extension phase
+                 [[name parameters]
+                  super-class
+                  super-interfaces
+                  inheritance
+                  ## TODO: Handle annotations.
+                  annotations
+                  fields
+                  methods])
+      (do phase.monad
+        [parameters (statement.lift-analysis
+                     (typeA.with-env
+                       (parameter-types parameters)))
+         #let [mapping (list@fold (function (_ [parameterJ parameterT] mapping)
+                                    (dictionary.put parameterJ parameterT mapping))
+                                  luxT.fresh
+                                  parameters)
+               field-definitions (|> fields
+                                     (list@map (function (_ field)
+                                                 (case field
+                                                   ## TODO: Handle annotations.
+                                                   (#Constant [name annotations type value])
+                                                   (case [(type.descriptor type) value]
+                                                     (^template [<descriptor> <tag> <field>]
+                                                       (^ [(static <descriptor>) [_ (<tag> value)]])
+                                                       (<field> #$.Public $.finalF name value))
+                                                     ([type.boolean-descriptor #.Bit _def.boolean-field]
+                                                      [type.byte-descriptor #.Int _def.byte-field]
+                                                      [type.short-descriptor #.Int _def.short-field]
+                                                      [type.int-descriptor #.Int _def.int-field]
+                                                      [type.long-descriptor #.Int _def.long-field]
+                                                      [type.float-descriptor #.Frac _def.float-field]
+                                                      [type.double-descriptor #.Frac _def.double-field]
+                                                      [type.char-descriptor #.Nat _def.char-field]
+                                                      [string-descriptor #.Text _def.string-field])
+                                                     
+                                                     ## TODO: Handle constants better.
+                                                     _
+                                                     (undefined))
+
+                                                   ## TODO: Handle annotations.
+                                                   (#Variable [name visibility state annotations type])
+                                                   (_def.field visibility
+                                                               (case state
+                                                                 ## TODO: Handle transient & static.
+                                                                 #VolatileS $.volatileF
+                                                                 #FinalS $.finalF
+                                                                 #DefaultS $.noneF)
+                                                               name
+                                                               type))))
+                                     _def.fuse)]
+         super-classT (statement.lift-analysis
+                       (typeA.with-env
+                         (luxT.class mapping super-class)))
+         super-interfaceT+ (statement.lift-analysis
+                            (typeA.with-env
+                              (monad.map check.monad
+                                         (luxT.class mapping)
+                                         super-interfaces)))
+         #let [selfT (jvm.inheritance-relationship-type (#.Primitive name (list@map product.right parameters))
+                                                        super-classT
+                                                        super-interfaceT+)]
+         state (extension.lift phase.get-state)
+         #let [analyse (get@ [#statement.analysis #statement.phase] state)
+               synthesize (get@ [#statement.synthesis #statement.phase] state)
+               generate (get@ [#statement.generation #statement.phase] state)]
+         methods (monad.map @ (function (_ methodC)
+                                (do @
+                                  [methodA (statement.lift-analysis
+                                            (case methodC
+                                              (#Constructor method)
+                                              (jvm.analyse-constructor-method analyse selfT mapping method)
+                                              
+                                              (#Virtual-Method method)
+                                              (jvm.analyse-virtual-method analyse selfT mapping method)
+                                              
+                                              (#Static-Method method)
+                                              (jvm.analyse-static-method analyse mapping method)
+                                              
+                                              (#Overriden-Method method)
+                                              (jvm.analyse-overriden-method analyse selfT mapping method)))]
+                                  (statement.lift-synthesis
+                                   (synthesize methodA))))
+                            methods)
+         _ (statement.lift-generation
+            (generation.save! true ["" name]
+                              [name
+                               (_def.class #$.V1_6 #$.Public
+                                           (case inheritance
+                                             #FinalI $.finalC
+                                             ## TODO: Handle abstract classes.
+                                             #AbstractI (undefined)
+                                             #DefaultI $.noneC)
+                                           name (list@map (|>> product.left ..parameter) parameters)
+                                           super-class super-interfaces
+                                           (|>> field-definitions))]))
+         #let [_ (log! (format "Class " name))]]
+        (wrap statement.no-requirements)))]))
+
+(def: #export bundle
+  (Bundle Anchor Inst Definition)
+  (<| (bundle.prefix "jvm")
+      (|> bundle.empty
+          (dictionary.put "class" jvm::class)
+          )))

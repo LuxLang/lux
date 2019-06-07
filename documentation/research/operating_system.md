@@ -83,6 +83,7 @@
 
 # Reference
 
+1. [Rethinking files](https://www.devever.net/~hl/objectworld)
 1. [Writing an OS in Rust (Second Edition)](https://os.phil-opp.com/)
 1. https://archiveos.org/
 1. https://lwn.net/Articles/615809/

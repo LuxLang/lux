@@ -207,6 +207,7 @@
 (type: Method-Definition
   (#ConstructorMethod [Bit
                        (List Var)
+                       Text
                        (List Argument)
                        (List (Typed Code))
                        Code
@@ -526,7 +527,7 @@
 (def: (method->parser class-name [[method-name _ _] meth-def])
   (-> Text [Member-Declaration Method-Definition] (Parser Code))
   (case meth-def
-    (#ConstructorMethod strict? type-vars args constructor-args return-expr exs)
+    (#ConstructorMethod strict? type-vars self-name args constructor-args return-expr exs)
     (make-constructor-parser class-name args)
     
     (#StaticMethod strict? type-vars args return-type return-expr exs)
@@ -753,8 +754,10 @@
              strict-fp? (p.parses? (s.this! (' #strict)))
              method-vars (p.default (list) ..vars^)
              #let [total-vars (list@compose class-vars method-vars)]
-             [_ arguments] (s.form (p.and (s.this! (' new))
-                                          (arguments^ imports total-vars)))
+             [_ self-name arguments] (s.form ($_ p.and
+                                                 (s.this! (' new))
+                                                 s.local-identifier
+                                                 (arguments^ imports total-vars)))
              constructor-args (constructor-args^ imports total-vars)
              exs (throws-decl^ imports total-vars)
              annotations (annotations^ imports)
@@ -762,7 +765,7 @@
             (wrap [{#member-name constructor-method-name
                     #member-privacy pm
                     #member-anns annotations}
-                   (#ConstructorMethod strict-fp? method-vars arguments constructor-args body exs)]))))
+                   (#ConstructorMethod strict-fp? method-vars self-name arguments constructor-args body exs)]))))
 
 (def: (virtual-method-def^ imports class-vars)
   (-> Class-Imports (List Var) (Parser [Member-Declaration Method-Definition]))
@@ -1100,13 +1103,14 @@
 (def: (method-def$ replacer super-class [[name pm anns] method-def])
   (-> (-> Code Code) Class [Member-Declaration Method-Definition] Code)
   (case method-def
-    (#ConstructorMethod strict-fp? type-vars arguments constructor-args body exs)
+    (#ConstructorMethod strict-fp? type-vars self-name arguments constructor-args body exs)
     (` ("init"
         (~ (privacy-modifier$ pm))
         (~ (code.bit strict-fp?))
         [(~+ (list@map annotation$ anns))]
         [(~+ (list@map var$ type-vars))]
         [(~+ (list@map class$ exs))]
+        (~ (code.text self-name))
         [(~+ (list@map argument$ arguments))]
         [(~+ (list@map constructor-arg$ constructor-args))]
         (~ (pre-walk-replace replacer body))
@@ -1248,7 +1252,12 @@
                                                  (p.fail "")
                                                  (list@compose field-parsers method-parsers)))]]
     (wrap (list (` ("jvm class"
-                    (~ (declaration$ declaration))
+                    (~ (declaration$ (update@ #class-name
+                                              (|>> (format (text.replace-all ..binary-class-separator
+                                                                             ..syntax-class-separator
+                                                                             current-module)
+                                                           ..syntax-class-separator))
+                                              declaration)))
                     (~ (class$ super))
                     [(~+ (list@map class$ interfaces))]
                     (~ (inheritance-modifier$ im))
