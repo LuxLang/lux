@@ -5,6 +5,7 @@
 
 # Reference
 
+1. http://willcrichton.net/notes/probabilistic-programming-under-the-hood/
 1. [Ask HN: What companies are using probabilistic programming?](https://news.ycombinator.com/item?id=17220861)
 1. https://www-forbes-com.cdn.ampproject.org/v/s/www.forbes.com/sites/quora/2018/05/18/even-the-most-advanced-computer-programmers-have-probably-never-heard-of-this-concept/amp/?amp_js_v=a1&amp_gsa=1#amp_tf=From%20%251%24s&ampshare=https%3A%2F%2Fwww.forbes.com%2Fsites%2Fquora%2F2018%2F05%2F18%2Feven-the-most-advanced-computer-programmers-have-probably-never-heard-of-this-concept%2Famp%2F%23amp_tf%3DFrom%2520%25251%2524s&ampshare=https%3A%2F%2Fwww.forbes.com%2Fsites%2Fquora%2F2018%2F05%2F18%2Feven-the-most-advanced-computer-programmers-have-probably-never-heard-of-this-concept%2F&ampshare=https%3A%2F%2Fwww.forbes.com%2Fsites%2Fquora%2F2018%2F05%2F18%2Feven-the-most-advanced-computer-programmers-have-probably-never-heard-of-this-concept%2F
 1. [Deep Probabilistic Programming Languages: A Qualitative Study](https://arxiv.org/abs/1804.06458)

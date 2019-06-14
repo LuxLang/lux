@@ -1,3 +1,7 @@
+# Intepreter
+
+1. [Jitk: A Trustworthy In-Kernel Interpreter Infrastructure](https://css.csail.mit.edu/jitk/)
+
 # Architecture
 
 1. [TabulaROSA: Tabular Operating System Architecture for Massively Parallel Heterogeneous Compute Engines](https://arxiv.org/abs/1807.05308)

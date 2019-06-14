@@ -34,6 +34,7 @@
 
 # Reference
 
+1. https://evertpot.com/tabs-are-the-wrong-abstraction/
 1. http://news.mit.edu/2018/system-patches-private-browsing-0223
 1. https://vivaldi.com/blog/vivaldi-makes-history/?hl=en-us&version=1.8.770.56&os=W10.0.14393
 1. https://hacks.mozilla.org/2017/08/inside-a-super-fast-css-engine-quantum-css-aka-stylo/

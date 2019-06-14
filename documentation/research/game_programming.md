@@ -143,6 +143,8 @@
 
 # NPC artificial intelligence
 
+1. https://en.wikipedia.org/wiki/Monte_Carlo_tree_search
+1. http://www.roguelikeradio.com/2018/02/episode-144-ai.html
 1. https://www.red3d.com/cwr/boids/
 1. https://www.blog.drewcutchins.com/blog/2018-8-16-flocking
 1. http://www.gabrielgambetta.com/generic-search.html
@@ -167,6 +169,7 @@
 
 # Design
 
+1. [Level Design Patterns in 2D Games](http://akhalifa.com/documents/level-design-patterns.pdf)
 1. https://en.wikipedia.org/wiki/Rules_of_Play
 
 # Voxel

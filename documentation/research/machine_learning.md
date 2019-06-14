@@ -6,6 +6,7 @@
 
 # Reference
 
+1. https://nostalgebraist.tumblr.com/post/185326092369/the-transformer-explained
 1. [HyperE: Hyperbolic Embeddings for Entities](https://hazyresearch.github.io/hyperE/)
 1. https://www.samcoope.com/posts/playing_around_with_noise_as_targets
 1. https://lobste.rs/s/hgejxf/why_is_machine_learning_most_often

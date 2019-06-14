@@ -1439,9 +1439,12 @@
   )
 
 (template [<name>]
-  [(exception: #export (<name> {methods (List Text)})
+  [(exception: #export (<name> {methods (List [Text Method])})
      (exception.report
-      ["Methods" (exception.enumerate %t methods)]))]
+      ["Methods" (exception.enumerate
+                  (function (_ [name method])
+                    (format (%t name) " " (jvm.method-signature method)))
+                  methods)]))]
 
   [missing-abstract-methods]
   [invalid-overriden-methods]
@@ -1811,30 +1814,132 @@
 (type: #export (Method-Definition a)
   (#Overriden-Method (Overriden-Method a)))
 
+(def: #export parameter-types
+  (-> (List Var) (Check (List [Var .Type])))
+  (monad.map check.monad
+             (function (_ parameterJ)
+               (do check.monad
+                 [[_ parameterT] check.existential]
+                 (wrap [parameterJ parameterT])))))
+
+(def: (mismatched-methods super-set sub-set)
+  (-> (List [Text Method]) (List [Text Method]) (List [Text Method]))
+  (list.filter (function (_ [sub-name subJT])
+                 (|> super-set
+                     (list.filter (function (_ [super-name superJT])
+                                    (and (text@= super-name sub-name)
+                                         (method@= superJT subJT))))
+                     list.size
+                     (n/= 1)
+                     not))
+               sub-set))
+
+(exception: #export (class-parameter-mismatch {expected (List Text)}
+                                              {actual (List jvm.Generic)})
+  (exception.report
+   ["Expected (amount)" (%n (list.size expected))]
+   ["Expected (parameters)" (exception.enumerate %t expected)]
+   ["Actual (amount)" (%n (list.size actual))]
+   ["Actual (parameters)" (exception.enumerate (|>> #jvm.Generic jvm.signature) actual)]))
+
+(type: Renamer (Dictionary Text Text))
+
+(def: (re-map-super [name actual-parameters])
+  (-> Class (Operation Renamer))
+  (do ////.monad
+    [class (////.lift (reflection!.load name))
+     #let [expected-parameters (|> (java/lang/Class::getTypeParameters class)
+                                   array.to-list
+                                   (list@map (|>> java/lang/reflect/TypeVariable::getName)))]
+     _ (////.assert ..class-parameter-mismatch [expected-parameters actual-parameters]
+                    (n/= (list.size expected-parameters)
+                         (list.size actual-parameters)))]
+    (wrap (|> (list.zip2 expected-parameters actual-parameters)
+              (list@fold (function (_ [expected actual] mapping)
+                           (case actual
+                             (#jvm.Var actual)
+                             (dictionary.put actual expected mapping)
+                             
+                             _
+                             mapping))
+                         (dictionary.new text.hash))))))
+
+(def: (re-map-generic mapping generic)
+  (-> Renamer jvm.Generic jvm.Generic)
+  (case generic
+    (#jvm.Var var)
+    (#jvm.Var (|> mapping (dictionary.get var) (maybe.default var)))
+    
+    (#jvm.Wildcard wildcard)
+    (case wildcard
+      #.None
+      generic
+      
+      (#.Some [bound limit])
+      (#jvm.Wildcard (#.Some [bound (re-map-generic mapping limit)])))
+    
+    (#jvm.Class name parameters)
+    (#jvm.Class name (list@map (re-map-generic mapping) parameters))))
+
+(def: (re-map-type mapping type)
+  (-> Renamer jvm.Type jvm.Type)
+  (case type
+    (#jvm.Primitive primitive)
+    type
+    
+    (#jvm.Generic generic)
+    (#jvm.Generic (re-map-generic mapping generic))
+    
+    (#jvm.Array type)
+    (#jvm.Array (re-map-type mapping type))))
+
+(def: (re-map-return mapping return)
+  (-> Renamer jvm.Return jvm.Return)
+  (case return
+    #.None
+    return
+
+    (#.Some return)
+    (#.Some (re-map-type mapping return))))
+
+(def: (re-map-method mapping [inputs output exceptions])
+  (-> Renamer jvm.Method jvm.Method)
+  [(list@map (re-map-type mapping) inputs)
+   (re-map-return mapping output)
+   (list@map (re-map-generic mapping) exceptions)])
+
 (def: class::anonymous
   Handler
   (..custom
    [($_ <>.and
+        (<c>.tuple (<>.some ..var))
         ..class
         (<c>.tuple (<>.some ..class))
         (<c>.tuple (<>.some ..typed))
         (<c>.tuple (<>.some ..overriden-method-definition)))
-    (function (_ extension-name analyse [super-class
+    (function (_ extension-name analyse [parameters
+                                         super-class
                                          super-interfaces
                                          constructor-args
                                          methods])
       (do ////.monad
-        [name (///.lift (do macro.monad
+        [parameters (typeA.with-env
+                      (..parameter-types parameters))
+         #let [mapping (list@fold (function (_ [parameterJ parameterT] mapping)
+                                    (dictionary.put parameterJ parameterT mapping))
+                                  luxT.fresh
+                                  parameters)]
+         name (///.lift (do macro.monad
                           [where macro.current-module-name
                            id macro.count]
                           (wrap (format (text.replace-all .module-separator ..jvm-package-separator where)
                                         ..jvm-package-separator
                                         "anonymous-class" (%n id)))))
          super-classT (typeA.with-env
-                        (luxT.class luxT.fresh super-class))
+                        (luxT.class mapping super-class))
          super-interfaceT+ (typeA.with-env
                              (monad.map check.monad
-                                        (luxT.class luxT.fresh)
+                                        (luxT.class mapping)
                                         super-interfaces))
          #let [selfT (inheritance-relationship-type (#.Primitive name (list))
                                                     super-classT
@@ -1842,44 +1947,31 @@
          constructor-argsA+ (monad.map @ (function (_ [type term])
                                            (do @
                                              [argT (typeA.with-env
-                                                     (luxT.type luxT.fresh type))
+                                                     (luxT.type mapping type))
                                               termA (typeA.with-type argT
                                                       (analyse term))]
                                              (wrap [type termA])))
                                        constructor-args)
-         methodsA (monad.map @ (analyse-overriden-method analyse selfT luxT.fresh) methods)
+         methodsA (monad.map @ (analyse-overriden-method analyse selfT mapping) methods)
          required-abstract-methods (////.lift (all-abstract-methods (list& super-class super-interfaces)))
          available-methods (////.lift (all-methods (list& super-class super-interfaces)))
-         #let [overriden-methods (list@map (function (_ [parent-type method-name
-                                                         strict-fp? annotations vars
-                                                         self-name arguments return exceptions
-                                                         body])
-                                             [method-name (jvm.method (list@map product.right arguments)
-                                                                      return
-                                                                      (list@map (|>> #jvm.Class) exceptions))])
-                                           methods)
-               missing-abstract-methods (list.filter (function (_ [abstract-method-name abstract-methodJT])
-                                                       (|> overriden-methods
-                                                           (list.filter (function (_ [method-name methodJT])
-                                                                          (and (text@= method-name abstract-method-name)
-                                                                               (method@= abstract-methodJT methodJT))))
-                                                           list.size
-                                                           (n/= 1)
-                                                           not))
-                                                     required-abstract-methods)
-               invalid-overriden-methods (list.filter (function (_ [method-name methodJT])
-                                                        (|> available-methods
-                                                            (list.filter (function (_ [abstract-method-name abstract-methodJT])
-                                                                           (and (text@= method-name abstract-method-name)
-                                                                                (method@= abstract-methodJT methodJT))))
-                                                            list.size
-                                                            (n/= 1)
-                                                            not))
-                                                      overriden-methods)]
+         overriden-methods (monad.map @ (function (_ [parent-type method-name
+                                                      strict-fp? annotations vars
+                                                      self-name arguments return exceptions
+                                                      body])
+                                          (do @
+                                            [re-mapping (re-map-super parent-type)]
+                                            (wrap [method-name (re-map-method re-mapping
+                                                                              (jvm.method (list@map product.right arguments)
+                                                                                          return
+                                                                                          (list@map (|>> #jvm.Class) exceptions)))])))
+                                      methods)
+         #let [missing-abstract-methods (mismatched-methods overriden-methods required-abstract-methods)
+               invalid-overriden-methods (mismatched-methods available-methods overriden-methods)]
          _ (typeA.infer selfT)
-         _ (////.assert ..missing-abstract-methods (list@map product.left missing-abstract-methods)
+         _ (////.assert ..missing-abstract-methods missing-abstract-methods
                         (list.empty? missing-abstract-methods))
-         _ (////.assert ..invalid-overriden-methods (list@map product.left invalid-overriden-methods)
+         _ (////.assert ..invalid-overriden-methods invalid-overriden-methods
                         (list.empty? invalid-overriden-methods))]
         (wrap (#/////analysis.Extension extension-name
                                         (list (/////analysis.text name)

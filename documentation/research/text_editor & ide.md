@@ -42,6 +42,7 @@
 
 # Reference
 
+1. https://www.simplethread.com/editor-plugins-belong-in-lock-file/
 1. [How to Design an IDE-Friendly Language with Peter Gromov @donnerpeter](https://www.youtube.com/watch?v=lubc8udiP_8)
 1. https://shaunlebron.github.io/parinfer/
 1. https://www.reddit.com/r/emacs/comments/6ztnj9/what_are_the_things_that_you_do_not_like_in_emacs/?st=j7kdafu2&sh=af9ca25d

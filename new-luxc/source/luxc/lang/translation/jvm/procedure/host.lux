@@ -985,8 +985,8 @@
               #.None
               (list)))
 
-(def: (with-anonymous-init class env)
-  (-> Text Environment Def)
+(def: (with-anonymous-init class env super-class constructor-argsI)
+  (-> Text Environment Class (List (Typed Inst)) Def)
   (let [store-capturedI (|> env
                             list.size
                             list.indices
@@ -997,7 +997,11 @@
                             _.fuse)]
     (_def.method #$.Public $.noneM "<init>" (anonymous-init-method env)
                  (|>> (_.ALOAD 0)
-                      (_.INVOKESPECIAL jvm.object-class "<init>" (jvm.method (list) #.None (list)) #0)
+                      ((_.fuse (list@map product.right constructor-argsI)))
+                      (_.INVOKESPECIAL (product.left super-class)
+                                       "<init>"
+                                       (jvm.method (list@map product.left constructor-argsI) #.None (list))
+                                       #0)
                       store-capturedI
                       _.RETURN))))
 
@@ -1056,6 +1060,12 @@
                                                  self-name arguments returnT exceptionsT
                                                  (normalize-method-body local-mapping body)]))
                                             overriden-methods)]
+         constructor-argsI (monad.map @
+                                      (function (_ [argJT argS])
+                                        (do @
+                                          [argG (generate argS)]
+                                          (wrap [argJT argG])))
+                                      constructor-args)
          method-definitions (|> normalized-methods
                                 (monad.map @ (function (_ [ownerT name
                                                            strict-fp? annotations vars
@@ -1072,7 +1082,31 @@
                                                                                 returnT
                                                                                 (list@map (|>> #jvm.Class)
                                                                                           exceptionsT))
-                                                                    bodyG)))))
+                                                                    (let [returnI (case returnT
+                                                                                    (#.Some returnT)
+                                                                                    (case returnT
+                                                                                      (#jvm.Primitive returnT)
+                                                                                      (case returnT
+                                                                                        (^or #jvm.Boolean
+                                                                                             #jvm.Byte #jvm.Short #jvm.Int
+                                                                                             #jvm.Char)
+                                                                                        _.IRETURN
+                                                                                        
+                                                                                        #jvm.Long
+                                                                                        _.LRETURN
+                                                                                        
+                                                                                        #jvm.Float
+                                                                                        _.FRETURN
+                                                                                        
+                                                                                        #jvm.Double
+                                                                                        _.DRETURN)
+                                                                                      
+                                                                                      _
+                                                                                      _.ARETURN)
+
+                                                                                    #.None
+                                                                                    _.RETURN)]
+                                                                      (|>> bodyG returnI)))))))
                                 (:: @ map _def.fuse))
          _ (generation.save! true ["" class-name]
                              [class-name
@@ -1080,6 +1114,7 @@
                                           class-name (list)
                                           super-class super-interfaces
                                           (|>> (///function.with-environment total-environment)
+                                               (..with-anonymous-init class-name total-environment super-class constructor-argsI)
                                                method-definitions))])]
         (anonymous-instance class-name total-environment)))]))
 
