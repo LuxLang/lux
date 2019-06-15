@@ -232,6 +232,7 @@
 
 # Combinatorics
 
+1. http://andy.kitchen/combinations.html
 1. [Combinatorial Algorithms](http://www2.denizyuret.com/bib/kreher/donald1999combinatorial/combinatorialA.pdf)
 
 # Vector

@@ -1,5 +1,7 @@
 # Reference
 
+1. https://github.com/daybrush/scenejs
+1. https://blog.ionicframework.com/announcing-capacitor-1-0/
 1. http://joneisen.me/talk-frelp-ui/#/
 1. http://meiosis.js.org/
 1. https://medium.com/samsung-internet-dev/disappearing-frameworks-ed921f411c38
