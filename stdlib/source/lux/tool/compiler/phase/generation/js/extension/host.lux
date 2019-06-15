@@ -1,0 +1,106 @@
+(.module:
+  [lux #*
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    ["<>" parser
+     ["<s>" synthesis (#+ Parser)]]]
+   [data
+    ["." error]
+    [collection
+     ["." dictionary]]]
+   [target
+    ["_" js (#+ Expression)]]]
+  ["." // #_
+   ["#." common]
+   ["/#" // #_
+    ["#." runtime (#+ Operation Phase Handler Bundle
+                      with-vars)]
+    ["#." primitive]
+    ["/#" // #_
+     [extension (#+ Nullary Unary Binary Trinary
+                    nullary unary binary trinary)]
+     ["/#" //
+      ["." extension
+       ["." bundle]]
+      [//
+       [synthesis (#+ %synthesis)]]]]]])
+
+(def: #export (custom [parser handler])
+  (All [s]
+    (-> [(Parser s)
+         (-> Text Phase s (Operation Expression))]
+        Handler))
+  (function (_ extension-name phase input)
+    (case (<s>.run input parser)
+      (#error.Success input')
+      (handler extension-name phase input')
+
+      (#error.Failure error)
+      (/////.throw extension.invalid-syntax [extension-name %synthesis input]))))
+
+(def: array::new
+  (Unary Expression)
+  (|>> ///runtime.i64//to-number list (_.new (_.var "Array"))))
+
+(def: array::length
+  (Unary Expression)
+  (|>> (_.the "length") ///runtime.i64//from-number))
+
+(def: (array::read [indexG arrayG])
+  (Binary Expression)
+  (_.at indexG arrayG))
+
+(def: (array::write [indexG valueG arrayG])
+  (Trinary Expression)
+  (///runtime.array//write indexG valueG arrayG))
+
+(def: (array::delete [indexG arrayG])
+  (Binary Expression)
+  (///runtime.array//delete indexG arrayG))
+
+(def: array
+  Bundle
+  (<| (bundle.prefix "array")
+      (|> bundle.empty
+          (bundle.install "new" (unary array::new))
+          (bundle.install "length" (unary array::length))
+          (bundle.install "read" (binary array::read))
+          (bundle.install "write" (trinary array::write))
+          (bundle.install "delete" (binary array::delete))
+          )))
+
+(def: js::constant
+  (..custom
+   [<s>.text
+    (function (_ extension phase name)
+      (do /////.monad
+        []
+        (wrap (_.var name))))]))
+
+(def: js::apply
+  (..custom
+   [($_ <>.and <s>.any (<>.some <s>.any))
+    (function (_ extension phase [abstractionS inputsS])
+      (do /////.monad
+        [abstractionG (phase abstractionS)
+         inputsG (monad.map @ phase inputsS)]
+        (wrap (_.apply/* abstractionG inputsG))))]))
+
+(def: js::undefined?
+  (..custom
+   [<s>.any
+    (function (_ extension phase valueS)
+      (|> valueS
+          phase
+          (:: /////.monad map (_.= _.undefined))))]))
+
+(def: #export bundle
+  Bundle
+  (<| (bundle.prefix "js")
+      (|> bundle.empty
+          (bundle.install "constant" js::constant)
+          (bundle.install "apply" js::apply)
+          (bundle.install "undefined?" js::undefined?)
+          (dictionary.merge ..array)
+          )))

@@ -29,7 +29,10 @@
      ["." name]
      [phase
       [macro (#+ Expander)]
-      ["." extension/bundle]
+      ["." extension #_
+       ["#/." bundle]
+       ["." analysis #_
+        ["#/." js]]]
       ["." generation
        ["." js
         ["." runtime]
@@ -42,8 +45,11 @@
 
 (import: #long java/lang/String)
 
+(import: #long (java/lang/Class a))
+
 (import: #long java/lang/Object
-  (toString [] java/lang/String))
+  (toString [] java/lang/String)
+  (getClass [] (java/lang/Class java/lang/Object)))
 
 (import: #long java/lang/Long
   (intValue [] java/lang/Integer))
@@ -220,8 +226,9 @@
 (exception: null-has-no-lux-representation)
 (exception: undefined-has-no-lux-representation)
 
-(exception: (unknown-kind-of-js-object {object java/lang/Object})
+(exception: (unknown-kind-of-host-object {object java/lang/Object})
   (exception.report
+   ["Class" (java/lang/Object::toString (java/lang/Object::getClass object))]
    ["Object" (java/lang/Object::toString object)]))
 
 (exception: (cannot-apply-a-non-function {object java/lang/Object})
@@ -272,23 +279,27 @@
       jdk/nashorn/api/scripting/ScriptObjectMirror
       (Maybe (Array java/lang/Object)))
   (if (jdk/nashorn/api/scripting/JSObject::isArray js-object)
-    (let [init-num-keys (.nat (jdk/nashorn/api/scripting/ScriptObjectMirror::size js-object))]
-      (loop [num-keys init-num-keys
-             idx 0
+    (let [num-keys (.nat (jdk/nashorn/api/scripting/ScriptObjectMirror::size js-object))]
+      (loop [idx 0
              output (: (Array java/lang/Object)
-                       (array.new init-num-keys))]
+                       (array.new num-keys))]
         (if (n/< num-keys idx)
           (case (jdk/nashorn/api/scripting/JSObject::getMember (%n idx) js-object)
             (#.Some member)
-            (case (lux-object member)
-              (#error.Success parsed-member)
-              (recur num-keys (inc idx) (array.write idx (:coerce java/lang/Object parsed-member) output))
+            (case (host.check jdk/nashorn/internal/runtime/Undefined member)
+              (#.Some _)
+              (recur (inc idx) output)
 
-              (#error.Failure error)
-              #.None)
+              #.None
+              (case (lux-object member)
+                (#error.Success parsed-member)
+                (recur (inc idx) (array.write idx (:coerce java/lang/Object parsed-member) output))
+
+                (#error.Failure error)
+                #.None))
 
             #.None
-            (recur num-keys (inc idx) output))
+            (recur (inc idx) output))
           (#.Some output))))
     #.None))
 
@@ -335,10 +346,10 @@
                   #.None
                   (if (jdk/nashorn/api/scripting/JSObject::isFunction js-object)
                     (exception.return js-object)
-                    (exception.throw unknown-kind-of-js-object (:coerce java/lang/Object js-object))))))
+                    (exception.throw ..unknown-kind-of-host-object (:coerce java/lang/Object js-object))))))
             #.None)
           ## else
-          (exception.throw unknown-kind-of-js-object (:coerce java/lang/Object js-object))
+          (exception.throw ..unknown-kind-of-host-object (:coerce java/lang/Object js-object))
           )))
 
 (def: (ensure-macro macro)
@@ -449,7 +460,9 @@
 
 (program: [{service /cli.service}]
   (/.compiler @.js
+              ".js"
               ..expander
+              analysis/js.bundle
               ..platform
               extension.bundle
               extension/bundle.empty
