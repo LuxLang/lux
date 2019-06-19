@@ -21,6 +21,7 @@
 
 # Polynomials
 
+1. https://brainbomb.org/0-1-efficient-metholds-for-evaluting-polynomials/
 1. https://en.wikipedia.org/wiki/Horner%27s_method
 
 # Chaos Theory

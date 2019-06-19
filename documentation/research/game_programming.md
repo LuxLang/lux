@@ -96,6 +96,7 @@
 1. https://www.babylonjs.com/
 1. https://github.com/lettier/3d-game-shaders-for-beginners
 1. [What good are hundreds of lights without hundreds of shadows?](https://worldoffries.wordpress.com/2019/03/26/what-good-is-hundreds-of-lights-with-out-hundreds-of-shadows/)
+1. [Ray Tracing with Metal](https://developer.apple.com/videos/play/wwdc2019/613/)
 
 # Idea
 

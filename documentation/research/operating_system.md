@@ -169,6 +169,7 @@
 
 # Shared libraries | Dynamic Loading
 
+1. https://amir.rachum.com/blog/2016/09/17/shared-libraries/
 1. https://www.kix.in/2008/06/19/an-alternative-to-shared-libraries/
 1. https://www.akkadia.org/drepper/no_static_linking.html
 1. https://amir.rachum.com/blog/2016/09/17/shared-libraries/

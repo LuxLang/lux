@@ -252,6 +252,11 @@
 
 1. https://www.tadviewer.com/
 
+# Privacy
+
+1. https://blog.acolyer.org/2019/06/17/towards-multiverse-databases/
+1. [Towards Multiverse Databases](https://people.csail.mit.edu/malte/pub/papers/2019-hotos-multiversedb.pdf)
+
 # Security
 
 1. [The ZombieLoad Pragmatist: Tips for Surviving in a Post-Meltdown World](https://www.scylladb.com/2019/05/17/the-zombieload-pragmatist/)

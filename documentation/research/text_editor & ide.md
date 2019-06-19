@@ -42,6 +42,7 @@
 
 # Reference
 
+1. [Why ContentEditable is Terrible](https://medium.engineering/why-contenteditable-is-terrible-122d8a40e480)
 1. [Broot: A better way to navigate directories](https://github.com/Canop/broot)
 1. https://www.simplethread.com/editor-plugins-belong-in-lock-file/
 1. [How to Design an IDE-Friendly Language with Peter Gromov @donnerpeter](https://www.youtube.com/watch?v=lubc8udiP_8)

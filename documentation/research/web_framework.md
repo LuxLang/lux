@@ -100,6 +100,7 @@
 
 # Styling
 
+1. https://every-layout.dev/
 1. https://github.com/diegohaz/reuse
 1. https://wiki.csswg.org/ideas/mistakes
 1. https://developer.mozilla.org/en-US/docs/Web/CSS/Layout_cookbook
