@@ -1,6 +1,6 @@
 (.module:
   [lux #*
-   [host (#+ import:)]
+   ["." host (#+ import:)]
    ["@" target]
    [abstract
     ["." monad (#+ Monad do)]]
@@ -12,13 +12,14 @@
     [security
      ["!" capability (#+ capability:)]]]
    [data
+    ["." product]
     ["." maybe]
     ["." error (#+ Error) ("#;." functor)]
     ["." text
      format]
     [collection
-     ["." array]
-     ["." list ("#;." functor)]]]
+     ["." array (#+ Array)]
+     ["." list ("#@." functor)]]]
    [time
     ["." instant (#+ Instant)]
     ["." duration]]
@@ -120,7 +121,7 @@
   (`` (structure (~~ (template [<name> <async>]
                        [(def: <name> (..can-query
                                       (|>> (!.use (:: directory <name>))
-                                           (io;map (error;map (list;map <async>)))
+                                           (io;map (error;map (list@map <async>)))
                                            promise.future)))]
 
                        [files       ..async-file]
@@ -175,17 +176,17 @@
   [not-a-directory]
   )
 
-(exception: #export (cannot-move {target Path} {source Path})
-  (exception.report
-   ["Source" source]
-   ["Target" target]))
+(with-expansions [<for-jvm> (as-is (exception: #export (cannot-move {target Path} {source Path})
+                                     (exception.report
+                                      ["Source" source]
+                                      ["Target" target]))
 
-(exception: #export (cannot-modify {instant Instant} {file Path})
-  (exception.report
-   ["Instant" (%instant instant)]
-   ["Path" file]))
+                                   (exception: #export (cannot-modify {instant Instant} {file Path})
+                                     (exception.report
+                                      ["Instant" (%instant instant)]
+                                      ["Path" file]))
 
-(with-expansions [<for-jvm> (as-is (import: #long java/lang/String)
+                                   (import: #long java/lang/String)
 
                                    (import: #long java/io/File
                                      (new [java/lang/String])
@@ -372,7 +373,188 @@
             (as-is <for-jvm>)
 
             (~~ (static @.jvm))
-            (as-is <for-jvm>)})))
+            (as-is <for-jvm>)
+
+            (~~ (static @.js))
+            (as-is (import: Buffer
+                     (#static from [Binary] ..Buffer))
+                   
+                   (import: NodeJsError
+                     (code host.String))
+                   
+                   (import: FileDescriptor)
+
+                   (import: Stats
+                     (size host.Number)
+                     (mtimeMs host.Number)
+                     (isFile [] #try host.Boolean)
+                     (isDirectory [] #try host.Boolean))
+
+                   (import: FsConstants
+                     (F_OK host.Number)
+                     (R_OK host.Number)
+                     (W_OK host.Number)
+                     (X_OK host.Number))
+                   
+                   (import: Fs
+                     (constants FsConstants)
+                     (readFileSync [host.String] #try Binary)
+                     (appendFileSync [host.String Buffer] #try Any)
+                     (writeFileSync [host.String Buffer] #try Any)
+                     (statSync [host.String] #try Stats)
+                     (accessSync [host.String host.Number] #try Any)
+                     (renameSync [host.String host.String] #try Any)
+                     (utimesSync [host.String host.Number host.Number] #try Any)
+                     (unlink [host.String] #try Any)
+                     (readdirSync [host.String] #try (Array host.String))
+                     (mkdirSync [host.String] #try Any)
+                     (rmdirSync [host.String] #try Any))
+
+                   (import: JsPath
+                     (sep host.String))
+                   
+                   (import: (#static require [host.String] Any))
+
+                   (template: (!fs)
+                     (:coerce ..Fs (..require "fs")))
+
+                   (structure: (file path)
+                     (-> Path (File IO))
+
+                     (~~ (template [<name> <method>]
+                           [(def: <name>
+                              (..can-modify
+                               (function (<name> data)
+                                 (io.io (<method> [path (Buffer::from data)] (!fs))))))]
+
+                           [over-write  Fs::writeFileSync]
+                           [append      Fs::appendFileSync]
+                           ))
+
+                     (def: content
+                       (..can-query
+                        (function (content _)
+                          (io.io (Fs::readFileSync [path] (!fs))))))
+
+                     (def: size
+                       (..can-query
+                        (function (size _)
+                          (|> (Fs::statSync [path] (!fs))
+                              (:: error.monad map (|>> Stats::size frac-to-nat))
+                              io.io))))
+
+                     (def: last-modified
+                       (..can-query
+                        (function (last-modified _)
+                          (|> (Fs::statSync [path] (!fs))
+                              (:: error.monad map (|>> Stats::mtimeMs
+                                                       frac-to-int
+                                                       duration.from-millis
+                                                       instant.absolute))
+                              io.io))))
+
+                     (def: can-execute?
+                       (..can-query
+                        (function (can-execute? _)
+                          (io.io (do error.monad
+                                   [_ (Fs::accessSync [path (|> (!fs) Fs::constants FsConstants::F_OK)] (!fs))]
+                                   (wrap (case (Fs::accessSync [path (|> (!fs) Fs::constants FsConstants::X_OK)] (!fs))
+                                           (#error.Success _)
+                                           true
+
+                                           (#error.Failure _)
+                                           false)))))))
+
+                     (def: move
+                       (..can-open
+                        (function (move destination)
+                          (io.io (do error.monad
+                                   [_ (Fs::renameSync [path destination] (!fs))]
+                                   (wrap (file destination)))))))
+
+                     (def: modify
+                       (..can-modify
+                        (function (modify time-stamp)
+                          (io.io (let [when (|> time-stamp instant.relative duration.to-millis int-to-frac)]
+                                   (Fs::utimesSync [path when when] (!fs)))))))
+
+                     (def: delete
+                       (..can-delete
+                        (function (delete _)
+                          (io.io (Fs::unlink [path] (!fs)))))))
+
+                   (structure: (directory path)
+                     (-> Path (Directory IO))
+
+                     (~~ (template [<name> <method> <capability>]
+                           [(def: <name>
+                              (..can-query
+                               (function (<name> _)
+                                 (io.io (let [fs (!fs)]
+                                          (do error.monad
+                                            [subs (Fs::readdirSync [path] fs)
+                                             subs (monad.map @ (function (_ sub)
+                                                                 (do @
+                                                                   [stats (Fs::statSync [sub] fs)
+                                                                    verdict (<method> [] stats)]
+                                                                   (wrap [verdict sub])))
+                                                             (array.to-list subs))]
+                                            (wrap (|> subs
+                                                      (list.filter product.left)
+                                                      (list@map (|>> product.right <capability>))))))))))]
+
+                           [files       Stats::isFile      ..file]
+                           [directories Stats::isDirectory directory]
+                           ))
+
+                     (def: discard
+                       (..can-delete
+                        (function (discard _)
+                          (io.io (Fs::rmdirSync [path] (!fs)))))))
+
+                   (structure: #export system (System IO)
+                     (~~ (template [<name> <method> <capability> <exception>]
+                           [(def: <name>
+                              (..can-open
+                               (function (<name> path)
+                                 (io.io (do error.monad
+                                          [stats (Fs::statSync [path] (!fs))
+                                           verdict (<method> [] stats)]
+                                          (if verdict
+                                            (wrap (<capability> path))
+                                            (exception.throw <exception> [path])))))))]
+
+                           [file             Stats::isFile        ..file      ..cannot-find-file]
+                           [directory        Stats::isDirectory   ..directory ..cannot-find-directory]
+                           ))
+
+                     (~~ (template [<name> <capability> <exception> <prep>]
+                           [(def: <name>
+                              (..can-open
+                               (function (<name> path)
+                                 (io.io (let [fs (!fs)]
+                                          (case (Fs::accessSync [path (|> (!fs) Fs::constants FsConstants::F_OK)] fs)
+                                            (#error.Success _)
+                                            (exception.throw <exception> [path])
+                                            
+                                            (#error.Failure _)
+                                            (do error.monad
+                                              [_ (|> fs <prep>)]
+                                              (wrap (<capability> path)))))))))]
+
+                           [create-file ..file ..cannot-create-file (Fs::appendFileSync [path (Buffer::from (binary.create 0))])]
+                           [create-directory ..directory ..cannot-create-directory (Fs::mkdirSync [path])]
+                           ))
+
+                     (def: separator
+                       (if host.on-node-js?
+                         (|> (..require "path")
+                             (:coerce JsPath)
+                             JsPath::sep)
+                         "/"))
+                     )
+                   )
+            })))
 
 (template [<get> <signature> <create> <find> <exception>]
   [(def: #export (<get> monad system path)

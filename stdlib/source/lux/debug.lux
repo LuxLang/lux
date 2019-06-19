@@ -1,5 +1,6 @@
 (.module:
   [lux #*
+   ["@" target]
    ["." type]
    ["." host (#+ import:)]
    [abstract
@@ -16,9 +17,9 @@
      format]
     [format
      [xml (#+ XML)]
-     [json (#+ JSON)]]
+     ["." json]]
     [collection
-     ["." array (#+ Array)]
+     ["." array]
      ["." list ("#@." functor)]]]
    [time
     [instant (#+ Instant)]
@@ -27,69 +28,126 @@
    [macro
     ["." template]]])
 
-(import: #long java/lang/String)
+(with-expansions [<for-jvm> (as-is (import: #long java/lang/String)
 
-(import: #long (java/lang/Class a)
-  (getCanonicalName [] java/lang/String))
+                                   (import: #long (java/lang/Class a)
+                                     (getCanonicalName [] java/lang/String))
 
-(import: #long java/lang/Object
-  (new [])
-  (toString [] java/lang/String)
-  (getClass [] (java/lang/Class java/lang/Object)))
+                                   (import: #long java/lang/Object
+                                     (new [])
+                                     (toString [] java/lang/String)
+                                     (getClass [] (java/lang/Class java/lang/Object)))
 
-(import: #long java/lang/Integer
-  (longValue [] long))
+                                   (import: #long java/lang/Integer
+                                     (longValue [] long))
 
-(import: #long java/lang/Long
-  (intValue [] int))
+                                   (import: #long java/lang/Long
+                                     (intValue [] int))
 
-(import: #long java/lang/Number
-  (intValue [] int)
-  (longValue [] long)
-  (doubleValue [] double))
+                                   (import: #long java/lang/Number
+                                     (intValue [] int)
+                                     (longValue [] long)
+                                     (doubleValue [] double)))]
+  (`` (for {(~~ (static @.old))
+            (as-is <for-jvm>)
+
+            (~~ (static @.jvm))
+            (as-is <for-jvm>)
+
+            (~~ (static @.js))
+            (as-is (import: JSON
+                     (#static stringify [.Any] host.String))
+                   (import: Array
+                     (#static isArray [.Any] host.Boolean)))})))
+
+(type: Inspector (-> Any Text))
+
+(def: (inspect-tuple inspect)
+  (-> Inspector Inspector)
+  (|>> (:coerce (array.Array Any))
+       array.to-list
+       (list@map inspect)
+       (text.join-with " ")
+       (text.enclose ["[" "]"])))
 
 (def: #export (inspect value)
-  (-> Any Text)
-  (let [object (:coerce java/lang/Object value)]
-    (`` (<| (~~ (template [<class> <processing>]
-                  [(case (host.check <class> object)
-                     (#.Some value)
-                     (`` (|> value (~~ (template.splice <processing>))))
-                     #.None)]
+  Inspector
+  (with-expansions [<for-jvm> (let [object (:coerce java/lang/Object value)]
+                                (`` (<| (~~ (template [<class> <processing>]
+                                              [(case (host.check <class> object)
+                                                 (#.Some value)
+                                                 (`` (|> value (~~ (template.splice <processing>))))
+                                                 #.None)]
 
-                  [java/lang/Boolean [(:coerce .Bit) %b]]
-                  [java/lang/String [(:coerce .Text) %t]]
-                  [java/lang/Long [(:coerce .Int) %i]]
-                  [java/lang/Number [java/lang/Number::doubleValue %f]]
-                  ))
-            (case (host.check [java/lang/Object] object)
-              (#.Some value)
-              (let [value (:coerce (Array java/lang/Object) value)]
-                (case (array.read 0 value)
-                  (^multi (#.Some tag)
-                          [(host.check java/lang/Integer tag)
-                           (#.Some tag)]
-                          [[(array.read 1 value)
-                            (array.read 2 value)]
-                           [last?
-                            (#.Some choice)]])
-                  (let [last? (case last?
-                                (#.Some _) #1
-                                #.None #0)]
-                    (|> (format (%n (.nat (java/lang/Integer::longValue tag)))
-                                " " (%b last?)
-                                " " (inspect choice))
-                        (text.enclose ["(" ")"])))
+                                              [java/lang/Boolean [(:coerce .Bit) %b]]
+                                              [java/lang/String [(:coerce .Text) %t]]
+                                              [java/lang/Long [(:coerce .Int) %i]]
+                                              [java/lang/Number [java/lang/Number::doubleValue %f]]
+                                              ))
+                                        (case (host.check [java/lang/Object] object)
+                                          (#.Some value)
+                                          (let [value (:coerce (array.Array java/lang/Object) value)]
+                                            (case (array.read 0 value)
+                                              (^multi (#.Some tag)
+                                                      [(host.check java/lang/Integer tag)
+                                                       (#.Some tag)]
+                                                      [[(array.read 1 value)
+                                                        (array.read 2 value)]
+                                                       [last?
+                                                        (#.Some choice)]])
+                                              (let [last? (case last?
+                                                            (#.Some _) #1
+                                                            #.None #0)]
+                                                (|> (format (%n (.nat (java/lang/Integer::longValue tag)))
+                                                            " " (%b last?)
+                                                            " " (inspect choice))
+                                                    (text.enclose ["(" ")"])))
 
-                  _
-                  (|> value
-                      array.to-list
-                      (list@map inspect)
-                      (text.join-with " ")
-                      (text.enclose ["[" "]"]))))
-              #.None)
-            (java/lang/Object::toString object)))
-    ))
+                                              _
+                                              (inspect-tuple inspect value)))
+                                          #.None)
+                                        (java/lang/Object::toString object))))]
+    (`` (for {(~~ (static @.old))
+              <for-jvm>
+
+              (~~ (static @.jvm))
+              <for-jvm>
+
+              (~~ (static @.js))
+              (~~ (case (host.type-of value)
+                    (^template [<type-of> <then>]
+                      <type-of>
+                      (`` (|> value (~~ (template.splice <then>)))))
+                    (["boolean" [(:coerce .Bit) %b]]
+                     ["string" [(:coerce .Text) %t]]
+                     ["number" [(:coerce .Frac) %f]]
+                     ["undefined" [JSON::stringify]])
+                    
+                    "object"
+                    (let [variant-tag ("js object get" "_lux_tag" value)
+                          variant-flag ("js object get" "_lux_flag" value)
+                          variant-value ("js object get" "_lux_value" value)]
+                      (cond (not (or ("js object undefined?" variant-tag)
+                                     ("js object undefined?" variant-flag)
+                                     ("js object undefined?" variant-value)))
+                            (|> (format (JSON::stringify variant-tag)
+                                        " " (%b (not ("js object null?" variant-flag)))
+                                        " " (inspect variant-value))
+                                (text.enclose ["(" ")"]))
+
+                            (not (or ("js object undefined?" ("js object get" "_lux_low" value))
+                                     ("js object undefined?" ("js object get" "_lux_high" value))))
+                            (|> value (:coerce .Int) %i)
+
+                            (Array::isArray value)
+                            (inspect-tuple inspect value)
+                            
+                            ## else
+                            (JSON::stringify value)))
+
+                    _
+                    (undefined)))
+              }))))
 
 (exception: #export (cannot-represent-value {type Type})
   (exception.report
@@ -129,7 +187,7 @@
                 [Instant %instant]
                 [Duration %duration]
                 [Date %date]
-                [JSON %json]
+                [json.JSON %json]
                 [XML %xml]))
 
           (do <>.monad

@@ -3,6 +3,7 @@
    [abstract
     [monad (#+ do)]]
    [control
+    ["." io]
     ["<>" parser
      ["<c>" code (#+ Parser)]]]
    [data
@@ -34,9 +35,9 @@
 (template [<name> <type>]
   [(type: #export <name> <type>)]
 
-  [String  Text]
-  [Number  Frac]
   [Boolean Bit]
+  [Number  Frac]
+  [String  Text]
   )
 
 (type: Nullable [Bit Code])
@@ -63,14 +64,29 @@
                 <c>.local-identifier
                 ..nullable)))
 
-(type: Method [Text (List Nullable) Nullable])
+(type: Common-Method [Text (List Nullable) Bit Nullable])
+(type: Static-Method Common-Method)
+(type: Virtual-Method Common-Method)
+
+(type: Method
+  (#Static Static-Method)
+  (#Virtual Virtual-Method))
+
+(def: common-method
+  (Parser Common-Method)
+  ($_ <>.and
+      <c>.local-identifier
+      (<c>.tuple (<>.some ..nullable))
+      (<>.parses? (<c>.this! (' #try)))
+      ..nullable))
+
+(def: static-method
+  (<c>.form (<>.after (<c>.this! (' #static)) ..common-method)))
 
 (def: method
   (Parser Method)
-  (<c>.form ($_ <>.and
-                <c>.local-identifier
-                (<c>.tuple (<>.some ..nullable))
-                ..nullable)))
+  (<>.or ..static-method
+         (<c>.form ..common-method)))
 
 (type: Member
   (#Constructor Constructor)
@@ -117,47 +133,126 @@
            (#.Some (~ g!temp)))))
     output))
 
-(syntax: #export (import: {class <c>.local-identifier}
-                   {members (<>.some member)})
-  (with-gensyms [g!object g!temp]
-    (let [g!type (code.local-identifier class)
-          qualify (: (-> Text Code)
-                     (|>> (format class "::") code.local-identifier))]
-      (wrap (list& (` (type: (~ g!type) (..Object (primitive (~ (code.text class))))))
-                   (list@map (function (_ member)
-                               (case member
-                                 (#Constructor inputsT)
-                                 (let [g!inputs (input-variables inputsT)]
-                                   (` (def: ((~ (qualify "new"))
-                                             [(~+ (list@map product.right g!inputs))])
-                                        (-> [(~+ (list@map nullable-type inputsT))]
-                                            (~ g!type))
-                                        (:assume
-                                         ("js object new"
-                                          ("js constant" (~ (code.text class)))
-                                          [(~+ (list@map (with-null g!temp) g!inputs))])))))
-                                 
-                                 (#Field [field fieldT])
-                                 (` (def: ((~ (qualify field))
-                                           (~ g!object))
-                                      (-> (~ g!type)
-                                          (~ (nullable-type fieldT)))
-                                      (:assume
-                                       (~ (without-null g!temp fieldT (` ("js object get" (~ (code.text field)) (~ g!object))))))))
-                                 
-                                 (#Method [method inputsT outputT])
-                                 (let [g!inputs (input-variables inputsT)]
-                                   (` (def: ((~ (qualify method))
-                                             [(~+ (list@map product.right g!inputs))]
-                                             (~ g!object))
-                                        (-> [(~+ (list@map nullable-type inputsT))]
-                                            (~ g!type)
-                                            (~ (nullable-type outputT)))
-                                        (:assume
-                                         (~ (without-null g!temp
-                                                          outputT
-                                                          (` ("js object do"
-                                                              (~ (code.text method))
-                                                              (~ g!object)
-                                                              [(~+ (list@map (with-null g!temp) g!inputs))]))))))))))
-                             members))))))
+(type: Import
+  (#Class [Text (List Member)])
+  (#Function Static-Method))
+
+(def: import
+  ($_ <>.or
+      ($_ <>.and
+          <c>.local-identifier
+          (<>.some member))
+      ..static-method
+      ))
+
+(def: (with-try try? without-try)
+  (-> Bit Code Code)
+  (if try?
+    (` ("lux try"
+        ((~! io.io) (~ without-try))))
+    without-try))
+
+(def: (try-type try? rawT)
+  (-> Bit Code Code)
+  (if try?
+    (` (.Either .Text (~ rawT)))
+    rawT))
+
+(def: (make-function g!method g!temp source inputsT try? outputT)
+  (-> Code Code Text (List Nullable) Bit Nullable Code)
+  (let [g!inputs (input-variables inputsT)]
+    (` (def: ((~ g!method)
+              [(~+ (list@map product.right g!inputs))])
+         (-> [(~+ (list@map nullable-type inputsT))]
+             (~ (try-type try? (nullable-type outputT))))
+         (:assume
+          (~ (<| (with-try try?)
+                 (without-null g!temp outputT)
+                 (` ("js apply"
+                     ("js constant" (~ (code.text source)))
+                     (~+ (list@map (with-null g!temp) g!inputs)))))))))))
+
+(syntax: #export (import: {import ..import})
+  (with-gensyms [g!temp]
+    (case import
+      (#Class [class members])
+      (with-gensyms [g!object]
+        (let [qualify (: (-> Text Code)
+                         (|>> (format class "::") code.local-identifier))
+              g!type (code.local-identifier class)]
+          (wrap (list& (` (type: (~ g!type) (..Object (primitive (~ (code.text class))))))
+                       (list@map (function (_ member)
+                                   (case member
+                                     (#Constructor inputsT)
+                                     (let [g!inputs (input-variables inputsT)]
+                                       (` (def: ((~ (qualify "new"))
+                                                 [(~+ (list@map product.right g!inputs))])
+                                            (-> [(~+ (list@map nullable-type inputsT))]
+                                                (~ g!type))
+                                            (:assume
+                                             ("js object new"
+                                              ("js constant" (~ (code.text class)))
+                                              [(~+ (list@map (with-null g!temp) g!inputs))])))))
+                                     
+                                     (#Field [field fieldT])
+                                     (` (def: ((~ (qualify field))
+                                               (~ g!object))
+                                          (-> (~ g!type)
+                                              (~ (nullable-type fieldT)))
+                                          (:assume
+                                           (~ (without-null g!temp fieldT (` ("js object get" (~ (code.text field)) (~ g!object))))))))
+                                     
+                                     (#Method method)
+                                     (case method
+                                       (#Static [method inputsT try? outputT])
+                                       (make-function (qualify method) g!temp method inputsT try? outputT)
+                                       
+                                       (#Virtual [method inputsT try? outputT])
+                                       (let [g!inputs (input-variables inputsT)]
+                                         (` (def: ((~ (qualify method))
+                                                   [(~+ (list@map product.right g!inputs))]
+                                                   (~ g!object))
+                                              (-> [(~+ (list@map nullable-type inputsT))]
+                                                  (~ g!type)
+                                                  (~ (try-type try? (nullable-type outputT))))
+                                              (:assume
+                                               (~ (<| (with-try try?)
+                                                      (without-null g!temp outputT)
+                                                      (` ("js object do"
+                                                          (~ (code.text method))
+                                                          (~ g!object)
+                                                          [(~+ (list@map (with-null g!temp) g!inputs))])))))))))))
+                                 members)))))
+      
+      (#Function [name inputsT try? outputT])
+      (wrap (list (make-function (code.local-identifier name) g!temp name inputsT try? outputT)))
+      )))
+
+(syntax: #export (type-of object)
+  (wrap (list (` ("js type-of" (~ object))))))
+
+(def: #export on-browser?
+  Bit
+  (case (..type-of ("js constant" "window"))
+    "undefined"
+    false
+
+    _
+    true))
+
+(def: #export on-node-js?
+  Bit
+  (case (..type-of ("js constant" "process"))
+    "undefined"
+    false
+
+    _
+    (case (:coerce .Text
+                   ("js apply"
+                    ("js constant" "Object.prototype.toString.call")
+                    ("js constant" "process")))
+      "[object process]"
+      true
+
+      _
+      false)))

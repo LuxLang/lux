@@ -1,8 +1,10 @@
 (.module:
-  [lux (#- Code or and function if cond undefined for comment false true not)
+  [lux (#- Code or and function if cond undefined for comment not int)
    [control
     [pipe (#+ case>)]]
    [data
+    [number
+     ["." frac]]
     ["." text
      format]
     [collection
@@ -40,31 +42,39 @@
 
     [Var Var' [Location' Computation' Expression' Code]]
     [Access Access' [Location' Computation' Expression' Code]]
+    [Literal Literal' [Computation' Expression' Code]]
     [Loop Loop' [Statement' Code]]
     [Label Label' [Code]]
     )
 
   (template [<name> <literal>]
-    [(def: #export <name> Computation (:abstraction <literal>))]
+    [(def: #export <name> Literal (:abstraction <literal>))]
 
     [null "null"]
     [undefined "undefined"]
-    [false "false"]
-    [true "true"]
-    [positive-infinity "Infinity"]
-    [negative-infinity "-Infinity"]
-    [not-a-number "NaN"]
     )
 
   (def: #export boolean
-    (-> Bit Computation)
+    (-> Bit Literal)
     (|>> (case>
-          #0 ..false
-          #1 ..true)))
+          #0 "false"
+          #1 "true")
+         :abstraction))
 
-  (def: #export number
-    (-> Frac Computation)
-    (|>> %f ..argument :abstraction))
+  (def: #export (number value)
+    (-> Frac Literal)
+    (:abstraction
+     (.cond (frac.not-a-number? value)
+            "NaN"
+
+            (f/= frac.positive-infinity value)
+            "Infinity"
+            
+            (f/= frac.negative-infinity value)
+            "-Infinity"
+
+            ## else
+            (|> value %f ..argument))))
 
   (def: sanitize
     (-> Text Text)
@@ -84,7 +94,7 @@
              )))
 
   (def: #export string
-    (-> Text Computation)
+    (-> Text Literal)
     (|>> ..sanitize
          (text.enclose [text.double-quote text.double-quote])
          :abstraction))
@@ -235,6 +245,12 @@
     [i32 Int %i]
     )
 
+  (def: #export (int value)
+    (-> Int Literal)
+    (:abstraction (.if (i/< +0 value)
+                    (%i value)
+                    (%n (.nat value)))))
+
   (def: #export (? test then else)
     (-> Expression Expression Expression Computation)
     (|> (format (:representation test)
@@ -372,6 +388,27 @@
   (def: #export (comment commentary on)
     (All [kind] (-> Text (Code kind) (Code kind)))
     (:abstraction (format "/* "  commentary " */" " " (:representation on))))
+
+  (def: #export (switch input cases default)
+    (-> Expression (List [(List Literal) Statement]) (Maybe Statement) Statement)
+    (:abstraction (format "switch (" (:representation input) ")" text.new-line
+                          (|> (format (|> cases
+                                          (list@map (.function (_ [when then])
+                                                      (format (|> when
+                                                                  (list@map (|>> :representation (text.enclose ["case " ":"])))
+                                                                  (text.join-with text.new-line))
+                                                              text.new-line
+                                                              (:representation then))))
+                                          (text.join-with text.new-line))
+                                      text.new-line
+                                      (case default
+                                        (#.Some default)
+                                        (format "default:" text.new-line
+                                                (:representation default))
+                                        
+                                        #.None ""))
+                              :abstraction
+                              ..block))))
   )
 
 (def: #export (cond clauses else!)
