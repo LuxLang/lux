@@ -1,0 +1,165 @@
+(.module:
+  [lux (#- Code)
+   [type (#+ :share)]
+   [abstract
+    ["." equivalence (#+ Equivalence)]]
+   [control
+    ["<>" parser]]
+   [data
+    [format
+     [".F" binary (#+ Reader Writer Format) ("#@." monoid)]]
+    [collection
+     ["." row (#+ Row) ("#@." functor fold)]]]
+   [world
+    ["." binary (#+ Binary)]]]
+  ["." /// #_
+   [constant (#+ Class)]
+   ["#." encoding (#+ U2)]
+   ["#." index (#+ Index)]])
+
+(type: #export Label U2)
+
+(def: #export label-equivalence
+  (Equivalence Label)
+  ///encoding.u2-equivalence)
+
+(def: #export label-format
+  (Format Label)
+  ///encoding.u2-format)
+
+(type: #export Exception
+  {#start-pc Label
+   #end-pc Label
+   #handler-pc Label
+   #catch-type (Index Class)})
+
+(def: #export exception-equivalence
+  (Equivalence Exception)
+  ($_ equivalence.product
+      ..label-equivalence
+      ..label-equivalence
+      ..label-equivalence
+      ///index.equivalence
+      ))
+
+## https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-4.html#jvms-4.7.3
+(def: exception-frame-length
+  ($_ n/+
+      ## u2 start_pc;
+      ///encoding.u2-bytes
+      ## u2 end_pc;
+      ///encoding.u2-bytes
+      ## u2 handler_pc;
+      ///encoding.u2-bytes
+      ## u2 catch_type;
+      ///encoding.u2-bytes
+      ))
+
+(def: exception-format
+  (Format Exception)
+  ($_ binaryF.and
+      ..label-format
+      ..label-format
+      ..label-format
+      ///index.format
+      ))
+
+(type: #export (Code Attribute)
+  {#max-stack U2
+   #max-locals U2
+   #code Binary
+   #exception-table (Row Exception)
+   #attributes (Row Attribute)})
+
+(def: #export (length length code)
+  (All [Attribute] (-> (-> Attribute Nat) (Code Attribute) Nat))
+  ($_ n/+
+      ## u2 max_stack;
+      ///encoding.u2-bytes
+      ## u2 max_locals;
+      ///encoding.u2-bytes
+      ## u4 code_length;
+      ///encoding.u4-bytes
+      ## u1 code[code_length];
+      (binary.size (get@ #code code))
+      ## u2 exception_table_length;
+      ///encoding.u2-bytes
+      ## exception_table[exception_table_length];
+      (|> code
+          (get@ #exception-table)
+          row.size
+          (n/* ..exception-frame-length))
+      ## u2 attributes_count;
+      ///encoding.u2-bytes
+      ## attribute_info attributes[attributes_count];
+      (|> code
+          (get@ #attributes)
+          (row@map length)
+          (row@fold n/+ 0))))
+
+(def: #export (equivalence attribute-equivalence)
+  (All [attribute]
+    (-> (Equivalence attribute) (Equivalence (Code attribute))))
+  ($_ equivalence.product
+      ///encoding.u2-equivalence
+      ///encoding.u2-equivalence
+      binary.equivalence
+      (row.equivalence ..exception-equivalence)
+      (row.equivalence attribute-equivalence)
+      ))
+
+## https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-4.html#jvms-4.7.3
+(def: #export (reader reader)
+  (All [Attribute] (-> (Reader Attribute) (Reader (Code Attribute))))
+  (let [u2-reader (get@ #binaryF.reader
+                        ///encoding.u2-format)]
+    ($_ <>.and
+        ## u2 max_stack;
+        u2-reader
+        ## u2 max_locals;
+        u2-reader
+        ## u4 code_length;
+        ## u1 code[code_length];
+        (get@ #binaryF.reader
+              binaryF.binary/32)
+        ## u2 exception_table_length;
+        ## exception_table[exception_table_length];
+        (get@ #binaryF.reader
+              (binaryF.row/16 ..exception-format))
+        ## u2 attributes_count;
+        ## attribute_info attributes[attributes_count];
+        (get@ #binaryF.reader
+              (binaryF.row/16 {#binaryF.reader reader
+                               ## TODO: Get rid of this dirty hack ASAP
+                               #binaryF.writer (function (_ _value)
+                                                 binaryF.no-op)}))
+        )))
+
+(def: #export (writer writer code)
+  (All [Attribute] (-> (Writer Attribute) (Writer (Code Attribute))))
+  ($_ binaryF@compose
+      ## u2 max_stack;
+      ((get@ #binaryF.writer ///encoding.u2-format)
+       (get@ #max-stack code))
+      ## u2 max_locals;
+      ((get@ #binaryF.writer ///encoding.u2-format)
+       (get@ #max-locals code))
+      ## u4 code_length;
+      ## u1 code[code_length];
+      ((get@ #binaryF.writer binaryF.binary/32)
+       (get@ #code code))
+      ## u2 exception_table_length;
+      ## exception_table[exception_table_length];
+      ((get@ #binaryF.writer (binaryF.row/16 exception-format))
+       (get@ #exception-table code))
+      ## u2 attributes_count;
+      ## attribute_info attributes[attributes_count];
+      ((get@ #binaryF.writer (binaryF.row/16 {## TODO: Get rid of this dirty hack ASAP
+                                              #binaryF.reader (:share [Attribute]
+                                                                      {(Writer Attribute)
+                                                                       writer}
+                                                                      {(Reader Attribute)
+                                                                       (<>.fail "")})
+                                              #binaryF.writer writer}))
+       (get@ #attributes code))
+      ))
