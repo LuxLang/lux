@@ -1,5 +1,6 @@
 # Reference
 
+1. https://edgedb.com/blog/a-path-to-a-10x-database/
 1. https://cstack.github.io/db_tutorial/
 1. http://www.sql-workbench.eu/dbms_comparison.html
 1. http://www.interdb.jp/pg/index.html

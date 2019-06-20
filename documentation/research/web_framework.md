@@ -96,6 +96,7 @@
 
 # State-management
 
+1. https://github.com/keajs/kea
 1. https://github.com/isocroft/Radixx
 
 # Styling

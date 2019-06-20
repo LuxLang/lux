@@ -85,6 +85,10 @@
 1. https://grapheneproject.io/
 1. https://ops.city/
 
+## Real-time
+
+1. https://en.wikipedia.org/wiki/VxWorks
+
 # Reference
 
 1. [Rethinking files](https://www.devever.net/~hl/objectworld)
