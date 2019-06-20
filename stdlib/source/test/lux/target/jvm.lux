@@ -17,51 +17,81 @@
      ["." dictionary]
      ["." row]]]
    [world
-    ["." file (#+ File)]
-    [binary (#+ Binary)]]
+    [binary (#+ Binary)]
+    ["." file (#+ File)]]
    [math
-    ["r" random]]
+    ["r" random (#+ Random) ("#@." monad)]]
    ["_" test (#+ Test)]]
   {1
    ["." / #_
     ["#." loader (#+ Library)]
     ["#." version]
     ["#." name]
-    ["#." descriptor]
+    ["#." descriptor (#+ Descriptor Value)]
     ["#." field]
     ["#." class]
     [modifier
      ["#.M" inner]]]})
 
-(def: (write-class! name bytecode)
-  (-> Text Binary (IO Text))
-  (let [file-path (format name ".class")]
-    (do io.monad
-      [outcome (do (error.with @)
-                 [file (: (IO (Error (File IO)))
-                          (file.get-file io.monad file.system file-path))]
-                 (!.use (:: file over-write) bytecode))]
-      (wrap (case outcome
-              (#error.Success definition)
-              (format "Wrote: " (%t file-path))
-              
-              (#error.Failure error)
-              error)))))
+## (def: (write-class! name bytecode)
+##   (-> Text Binary (IO Text))
+##   (let [file-path (format name ".class")]
+##     (do io.monad
+##       [outcome (do (error.with @)
+##                  [file (: (IO (Error (File IO)))
+##                           (file.get-file io.monad file.system file-path))]
+##                  (!.use (:: file over-write) bytecode))]
+##       (wrap (case outcome
+##               (#error.Success definition)
+##               (format "Wrote: " (%t file-path))
+
+##               (#error.Failure error)
+##               error)))))
+
+(def: descriptor
+  (Random (Descriptor (Value Any)))
+  (r.rec
+   (function (_ descriptor)
+     ($_ r.either
+         (r@wrap /descriptor.boolean)
+         (r@wrap /descriptor.byte)
+         (r@wrap /descriptor.short)
+         (r@wrap /descriptor.int)
+         (r@wrap /descriptor.long)
+         (r@wrap /descriptor.float)
+         (r@wrap /descriptor.double)
+         (r@wrap /descriptor.char)
+         (r@map (|>> (text.join-with /name.external-separator)
+                     /name.internal
+                     /descriptor.object)
+                (r.list 3 (r.ascii/upper-alpha 10)))
+         (r@map /descriptor.array descriptor)
+         ))))
+
+(def: field
+  (Random [Text (Descriptor (Value Any))])
+  ($_ r.and
+      (r.ascii/lower-alpha 10)
+      ..descriptor
+      ))
 
 (def: class
   Test
   (do r.monad
     [_ (wrap [])
-     #let [package "my.package"
-           name "MyClass"
-           full-name (format package "." name)
+     super-package (r.ascii/lower-alpha 10)
+     package (r.ascii/lower-alpha 10)
+     name (r.ascii/upper-alpha 10)
+     [field0 descriptor0] ..field
+     [field1 descriptor1] ..field
+     #let [full-name (format super-package "." package "." name)
            input (/class.class /version.v6_0 /class.public
-                               (/name.internal "java.lang.Object")
                                (/name.internal full-name)
+                               (/name.internal "java.lang.Object")
                                (list (/name.internal "java.io.Serializable")
                                      (/name.internal "java.lang.Runnable"))
-                               (list (/field.field /field.public "foo" /descriptor.long (row.row))
-                                     (/field.field /field.public "bar" /descriptor.double (row.row)))
+                               (list (/field.field /field.public field0 descriptor0 (row.row))
+                                     (/field.field /field.public field1 descriptor1 (row.row)))
                                (row.row)
                                (row.row))
            bytecode (binary.write /class.format input)
