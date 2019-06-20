@@ -1,17 +1,17 @@
 (.module:
   [lux (#- static)
    [abstract
-    ["." equivalence (#+ Equivalence)]
     [monoid (#+)]
+    ["." equivalence (#+ Equivalence)]
     ["." monad (#+ do)]]
    [control
-    [parser (#+)]
-    ["." state (#+ State)]]
+    ["." state (#+ State)]
+    ["<>" parser]]
    [data
     [number (#+)
      [i64 (#+)]]
     [format
-     ["." binary (#+ Format)]]
+     [".F" binary (#+ Reader Writer Format) ("#@." monoid)]]
     [collection
      ["." row (#+ Row)]]]
    [type
@@ -51,13 +51,32 @@
       //index.equivalence
       (row.equivalence //attribute.equivalence)))
 
-(def: #export format
-  (Format Field)
-  ($_ binary.and
-      ..modifier-format
-      //index.format
-      //index.format
-      (binary.row/16 //attribute.format)))
+(def: #export (reader pool)
+  (-> Pool (Reader Field))
+  ($_ <>.and
+      (get@ #binaryF.reader ..modifier-format)
+      (get@ #binaryF.reader //index.format)
+      (get@ #binaryF.reader //index.format)
+      (get@ #binaryF.reader
+            (binaryF.row/16 {#binaryF.reader (//attribute.reader pool)
+                             ## TODO: Get rid of this dirty hack ASAP
+                             #binaryF.writer (function (_ _) binaryF.no-op)}))))
+
+(def: #export (writer field)
+  (Writer Field)
+  (let [attribute-format (: (Format Attribute)
+                            {## TODO: Get rid of this dirty hack ASAP
+                             #binaryF.reader (<>.fail "")
+                             #binaryF.writer //attribute.writer})]
+    (`` ($_ binaryF@compose
+            (~~ (template [<format> <slot>]
+                  [((get@ #binaryF.writer <format>) (get@ <slot> field))]
+
+                  [..modifier-format #modifier]
+                  [//index.format #name]
+                  [//index.format #descriptor]
+                  [(binaryF.row/16 attribute-format) #attributes]))
+            ))))
 
 (def: #export (field modifier name descriptor attributes)
   (-> Modifier UTF8 (Descriptor (Value Any)) (Row Attribute)

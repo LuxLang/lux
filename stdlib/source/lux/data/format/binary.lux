@@ -7,8 +7,10 @@
     [equivalence (#+ Equivalence)]]
    [control
     ["." parser (#+ Parser) ("#;." functor)]
+    ["." function]
     ["ex" exception (#+ exception:)]]
    [data
+    ["." product]
     ["." error (#+ Error)]
     [number
      ["." i64]
@@ -48,11 +50,11 @@
   (Parser [Offset Binary]))
 
 (type: #export Mutation
-  [Size (-> Offset Binary Binary)])
+  [Size (-> [Offset Binary] [Offset Binary])])
 
 (def: #export no-op
   Mutation
-  [0 (function (_ offset data) data)])
+  [0 function.identity])
 
 (structure: #export monoid (Monoid Mutation)
   
@@ -61,10 +63,7 @@
   
   (def: (compose [sizeL mutL] [sizeR mutR])
     [(n/+ sizeL sizeR)
-     (function (_ offset data)
-       (|> data
-           (mutL offset)
-           (mutR (n/+ sizeL offset))))]))
+     (|>> mutL mutR)]))
 
 (type: #export (Writer a)
   (-> a Mutation))
@@ -98,7 +97,7 @@
 (def: #export (write format value)
   (All [a] (-> (Format a) a Binary))
   (let [[valueS valueT] ((get@ #writer format) value)]
-    (|> valueS binary.create (valueT 0))))
+    (|> valueS binary.create [0] valueT product.right)))
 
 (template [<name> <size> <read> <write>]
   [(def: #export <name>
@@ -112,10 +111,11 @@
                   (#error.Failure error)))
       #writer (function (_ value)
                 [<size>
-                 (function (_ offset binary)
-                   (|> binary
-                       (<write> offset value)
-                       error.assume))])})]
+                 (function (_ [offset binary])
+                   [(n/+ <size> offset)
+                    (|> binary
+                        (<write> offset value)
+                        error.assume)])])})]
 
   [bits/8  size/8  binary.read/8  binary.write/8]
   [bits/16 size/16 binary.read/16 binary.write/16]
@@ -136,32 +136,31 @@
                (#.Left leftV)
                (let [[leftS leftT] ((get@ #writer leftB) leftV)]
                  [(.inc leftS)
-                  (function (_ offset binary)
+                  (function (_ [offset binary])
                     (|> binary
                         (binary.write/8 offset 0)
                         error.assume
-                        (leftT (.inc offset))))])
+                        [(.inc offset)]
+                        leftT))])
                
                (#.Right rightV)
                (let [[rightS rightT] ((get@ #writer rightB) rightV)]
                  [(.inc rightS)
-                  (function (_ offset binary)
+                  (function (_ [offset binary])
                     (|> binary
                         (binary.write/8 offset 1)
                         error.assume
-                        (rightT (.inc offset))))])
+                        [(.inc offset)]
+                        rightT))])
                ))})
 
 (def: #export (and preB postB)
   (All [a b] (-> (Format a) (Format b) (Format [a b])))
   {#reader (parser.and (get@ #reader preB) (get@ #reader postB))
    #writer (function (_ [preV postV])
-             (let [[preS preT] ((get@ #writer preB) preV)
-                   [postS postT] ((get@ #writer postB) postV)]
-               [(n/+ preS postS)
-                (function (_ offset)
-                  (|>> (preT offset)
-                       (postT (n/+ preS offset))))]))})
+             (:: ..monoid compose
+                 ((get@ #writer preB) preV)
+                 ((get@ #writer postB) postV)))})
 
 (def: #export (rec body)
   (All [a] (-> (-> (Format a) (Format a)) (Format a)))
@@ -201,10 +200,11 @@
                (#error.Failure error)))
    #writer (function (_ value)
              [1
-              (function (_ offset binary)
-                (|> binary
-                    (binary.write/8 offset (if value 1 0))
-                    error.assume))])})
+              (function (_ [offset binary])
+                [(n/+ 1 offset)
+                 (|> binary
+                     (binary.write/8 offset (if value 1 0))
+                     error.assume)])])})
 
 (def: #export nat (Format Nat) (:assume ..bits/64))
 (def: #export int (Format Int) (:assume ..bits/64))
@@ -230,13 +230,15 @@
                        output (binary.slice offset (.dec end) binary)]
                       (wrap [[end binary] output]))))
         #writer (function (_ value)
-                  (let [size (|> value binary.size (i64.and mask))]
-                    [(n/+ <size> size)
-                     (function (_ offset binary)
-                       (error.assume
-                        (do error.monad
-                          [_ (<write> offset size binary)]
-                          (binary.copy size 0 value (n/+ <size> offset) binary))))]))}))]
+                  (let [size (|> value binary.size (i64.and mask))
+                        size' (n/+ <size> size)]
+                    [size'
+                     (function (_ [offset binary])
+                       [(n/+ size' offset)
+                        (error.assume
+                         (do error.monad
+                           [_ (<write> offset size binary)]
+                           (binary.copy size 0 value (n/+ <size> offset) binary)))])]))}))]
 
   [binary/8  ..bits/8  ..size/8  binary.write/8]
   [binary/16 ..bits/16 ..size/16 binary.write/16]
@@ -296,11 +298,11 @@
                                                 (mutation;compose pre post))
                                               mutation;identity))]
                   [(n/+ <size> size)
-                   (function (_ offset binary)
+                   (function (_ [offset binary])
                      (error.assume
                       (do error.monad
                         [_ (<write> offset (n/+ extra-count capped-count) binary)]
-                        (wrap (mutation (n/+ <size> offset) binary)))))]))})
+                        (wrap (mutation [(n/+ <size> offset) binary])))))]))})
 
    (def: #export <name>
      (All [v] (-> (Format v) (Format (Row v))))

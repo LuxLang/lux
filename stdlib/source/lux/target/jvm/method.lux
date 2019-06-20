@@ -5,13 +5,13 @@
     [monoid (#+)]
     ["." monad (#+ do)]]
    [control
-    [parser (#+)]
+    ["<>" parser]
     ["." state (#+ State)]]
    [data
     [number (#+)
      [i64 (#+)]]
     [format
-     ["." binary (#+ Format)]]
+     [".F" binary (#+ Reader Writer Format) ("#@." monoid)]]
     [collection
      ["." row (#+ Row)]]]
    [type
@@ -19,7 +19,8 @@
   ["." // #_
    [encoding (#+)]
    [modifier (#+ modifiers:)]
-   ["#." constant (#+ UTF8)]
+   ["#." constant (#+ UTF8)
+    [pool (#+ Pool)]]
    ["#." index (#+ Index)]
    ["#." attribute (#+ Attribute)]
    ["#." descriptor (#+ Descriptor)]])
@@ -53,10 +54,29 @@
       //index.equivalence
       (row.equivalence //attribute.equivalence)))
 
-(def: #export format
-  (Format Method)
-  ($_ binary.and
-      ..modifier-format
-      //index.format
-      //index.format
-      (binary.row/16 //attribute.format)))
+(def: #export (reader pool)
+  (-> Pool (Reader Method))
+  ($_ <>.and
+      (get@ #binaryF.reader ..modifier-format)
+      (get@ #binaryF.reader //index.format)
+      (get@ #binaryF.reader //index.format)
+      (get@ #binaryF.reader
+            (binaryF.row/16 {#binaryF.reader (//attribute.reader pool)
+                             ## TODO: Get rid of this dirty hack ASAP
+                             #binaryF.writer (function (_ _) binaryF.no-op)}))))
+
+(def: #export (writer field)
+  (Writer Method)
+  (let [attribute-format (: (Format Attribute)
+                            {## TODO: Get rid of this dirty hack ASAP
+                             #binaryF.reader (<>.fail "")
+                             #binaryF.writer //attribute.writer})]
+    (`` ($_ binaryF@compose
+            (~~ (template [<format> <slot>]
+                  [((get@ #binaryF.writer <format>) (get@ <slot> field))]
+
+                  [..modifier-format #modifier]
+                  [//index.format #name]
+                  [//index.format #descriptor]
+                  [(binaryF.row/16 attribute-format) #attributes]))
+            ))))

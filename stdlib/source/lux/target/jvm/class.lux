@@ -1,17 +1,17 @@
 (.module:
   [lux #*
    [abstract
-    ["." equivalence (#+ Equivalence)]
     [monoid (#+)]
+    ["." equivalence (#+ Equivalence)]
     ["." monad (#+ do)]]
    [control
-    [parser (#+)]
+    ["<>" parser]
     ["." state (#+ State)]]
    [data
     [number (#+)
      [i64 (#+)]]
     [format
-     ["." binary (#+ Format)]]
+     [".F" binary (#+ Reader Writer Format) ("#@." monoid)]]
     [collection
      ["." row (#+ Row)]]]
    [type
@@ -112,17 +112,70 @@
      #methods methods
      #attributes attributes}))
 
+(def: #export reader
+  (Reader Class)
+  (do <>.monad
+    [magic (get@ #binaryF.reader //magic.format)
+     minor-version (get@ #binaryF.reader //version.format)
+     major-version (get@ #binaryF.reader //version.format)
+     constant-pool (get@ #binaryF.reader //constant/pool.format)
+     modifier (get@ #binaryF.reader ..modifier-format)
+     this (get@ #binaryF.reader //index.format)
+     super (get@ #binaryF.reader //index.format)
+     interfaces (get@ #binaryF.reader (binaryF.row/16 //index.format))
+     fields (get@ #binaryF.reader (binaryF.row/16 (: (Format Field)
+                                                     {#binaryF.reader (//field.reader constant-pool)
+                                                      ## TODO: Get rid of this dirty hack ASAP
+                                                      #binaryF.writer (function (_ _) binaryF.no-op)})))
+     methods (get@ #binaryF.reader (binaryF.row/16 (: (Format Method)
+                                                      {#binaryF.reader (//method.reader constant-pool)
+                                                       ## TODO: Get rid of this dirty hack ASAP
+                                                       #binaryF.writer (function (_ _) binaryF.no-op)})))
+     attributes (get@ #binaryF.reader (binaryF.row/16 (: (Format Attribute)
+                                                         {#binaryF.reader (//attribute.reader constant-pool)
+                                                          ## TODO: Get rid of this dirty hack ASAP
+                                                          #binaryF.writer (function (_ _) binaryF.no-op)})))]
+    (wrap {#magic magic
+           #minor-version minor-version
+           #major-version major-version
+           #constant-pool constant-pool
+           #modifier modifier
+           #this this
+           #super super
+           #interfaces interfaces
+           #fields fields
+           #methods methods
+           #attributes attributes})))
+
+(def: #export (writer class)
+  (Writer Class)
+  (`` ($_ binaryF@compose
+          (~~ (template [<format> <slot>]
+                [((get@ #binaryF.writer <format>) (get@ <slot> class))]
+
+                [//magic.format #magic]
+                [//version.format #minor-version]
+                [//version.format #major-version]
+                [//constant/pool.format #constant-pool]
+                [..modifier-format #modifier]
+                [//index.format #this]
+                [//index.format #super]
+                [(binaryF.row/16 //index.format) #interfaces]))
+          (~~ (template [<type> <writer> <slot>]
+                [((get@ #binaryF.writer
+                        (binaryF.row/16 (: (Format <type>)
+                                           {## TODO: Get rid of this dirty hack ASAP
+                                            #binaryF.reader (<>.fail "")
+                                            #binaryF.writer <writer>})))
+                  (get@ <slot> class))]
+
+                [Field //field.writer #fields]
+                [Method //method.writer #methods]
+                [Attribute //attribute.writer #attributes]
+                ))
+          )))
+
 (def: #export format
   (Format Class)
-  ($_ binary.and
-      //magic.format
-      //version.format
-      //version.format
-      //constant/pool.format
-      ..modifier-format
-      //index.format
-      //index.format
-      (binary.row/16 //index.format)
-      (binary.row/16 //field.format)
-      (binary.row/16 //method.format)
-      (binary.row/16 //attribute.format)))
+  {#binaryF.reader ..reader
+   #binaryF.writer ..writer})

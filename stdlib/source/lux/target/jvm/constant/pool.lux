@@ -4,9 +4,12 @@
     ["." equivalence (#+ Equivalence)]
     [monad (#+ do)]]
    [control
-    ["." state (#+ State)]]
+    ["." state (#+ State)]
+    ["." exception (#+ exception:)]]
    [data
-    ["." text ("#;." equivalence)]
+    ["." error (#+ Error)]
+    ["." text ("#;." equivalence)
+     ["%" format]]
     [format
      ["." binary (#+ Format)]]
     [collection
@@ -28,7 +31,7 @@
   (Equivalence Pool)
   (row.equivalence //.equivalence))
 
-(template: (!add <value> <tag> <=>)
+(template: (!add <tag> <=> <value>)
   (function (_ pool)
     (with-expansions [<index> (as-is (index.index (encoding.to-u2 (n/+ offset idx))))
                       <try-again> (as-is (recur (.inc idx)))]
@@ -49,13 +52,86 @@
           [(row.add (<tag> <value>) pool)
            <index>])))))
 
+(template: (!raw-index <index>)
+  (|> <index> index.number encoding.from-u2 .nat))
+
+(exception: #export (invalid-index {index (Index Any)}
+                                   {maximum Nat})
+  (exception.report
+   ["Index" (|> index !raw-index %.%n)]
+   ["Maximum" (%.%n maximum)]))
+
+(exception: #export (invalid-constant {index (Index Any)}
+                                      {tag Name})
+  (exception.report
+   ["Index" (|> index !raw-index %.%n)]
+   ["Expected tag" (%.%name tag)]))
+
+(template: (!fetch <tag> <index>)
+  (function (_ pool)
+    (case (row.nth (|> <index> !raw-index (n/- offset))
+                   pool)
+      (#.Some entry)
+      (case entry
+        (<tag> value)
+        [pool (#error.Success value)]
+
+        _
+        [pool (exception.throw ..invalid-constant [<index> (name-of <tag>)])])
+
+      #.None
+      [pool (exception.throw ..invalid-index [<index> (row.size pool)])])))
+
+(exception: #export (cannot-find {tag Name} {value Text})
+  (exception.report
+   ["Expected tag" (%.%name tag)]
+   ["Value" value]))
+
+(template: (!find <tag> <=> <%> <expected>)
+  (function (_ pool)
+    (with-expansions [<index> (as-is (index.index (encoding.to-u2 (n/+ offset idx))))
+                      <try-again> (as-is (recur (.inc idx)))]
+      (loop [idx 0]
+        (case (row.nth idx pool)
+          (#.Some entry)
+          (case entry
+            (<tag> actual)
+            (if (<=> actual <expected>)
+              [pool
+               (#error.Success <index>)]
+              <try-again>)
+            
+            _
+            <try-again>)
+          
+          #.None
+          [pool
+           (exception.throw ..cannot-find [(name-of <tag>) (<%> <expected>)])])))))
+
+(type: (Adder of)
+  (-> of (State Pool (Index of))))
+
+(type: (Fetcher of)
+  (-> (Index of) (State Pool (Error of))))
+
+(type: (Finder of)
+  (-> of (State Pool (Error (Index of)))))
+
 (def: #export (utf8 value)
-  (-> UTF8 (State Pool (Index UTF8)))
-  (!add value #//.UTF8 text;=))
+  (Adder UTF8)
+  (!add #//.UTF8 text;= value))
+
+(def: #export (fetch-utf8 index)
+  (Fetcher UTF8)
+  (!fetch #//.UTF8 index))
+
+(def: #export (find-utf8 reference)
+  (Finder UTF8)
+  (!find #//.UTF8 text;= %.%t reference))
 
 (def: (class' value)
-  (-> Class (State Pool (Index Class)))
-  (!add value #//.Class //;=))
+  (Adder Class)
+  (!add #//.Class //;= value))
 
 (def: #export (class name)
   (-> UTF8 (State Pool (Index Class)))
@@ -68,7 +144,7 @@
     (-> (Descriptor kind)
         (State Pool (Index (Descriptor kind)))))
   (let [value (descriptor.descriptor value)]
-    (!add value #//.UTF8 text;=)))
+    (!add #//.UTF8 text;= value)))
 
 (def: #export format
   (Format Pool)

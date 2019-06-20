@@ -1,17 +1,21 @@
 (.module:
   [lux (#- Info Code' Code)
    [abstract
-    ["." equivalence (#+ Equivalence)]
-    [monad (#+ do)]]
+    [monad (#+ do)]
+    ["." equivalence (#+ Equivalence)]]
    [control
-    ["." state (#+ State)]]
+    ["." state (#+ State)]
+    ["." exception (#+ exception:)]
+    ["<>" parser]]
    [data
+    ["." product]
+    ["." error]
     [format
-     ["." binary (#+ Format)]]
+     [".F" binary (#+ Reader Writer Format) ("#@." monoid)]]
     [collection
-     ["." row (#+ Row)]]]
+     ["." row (#+ Row) ("#@." functor fold)]]]
    [world
-    [binary (#+ Binary)]]]
+    ["." binary (#+ Binary)]]]
   ["." // #_
    ["#." encoding (#+ U2 U4)]
    ["#." index (#+ Index)]
@@ -32,33 +36,61 @@
       //encoding.u4-equivalence
       Equivalence<about>))
 
-(def: (info-format about)
+(def: (info-writer writer)
   (All [about]
-    (-> (Format about)
-        (Format (Info about))))
-  ($_ binary.and
-      //index.format
-      //encoding.u4-format
-      about))
+    (-> (Writer about)
+        (Writer (Info about))))
+  (function (_ [name length info])
+    (let [[nameS nameT] ((get@ #binaryF.writer //index.format) name)
+          [lengthS lengthT] ((get@ #binaryF.writer //encoding.u4-format) length)
+          [infoS infoT] (writer info)]
+      [($_ n/+ nameS lengthS infoS)
+       (|>> nameT lengthT infoT)])))
 
 (type: #export Constant
-  (Info (Index (Value Any))))
+  (Index (Value Any)))
 
 (def: #export constant-equivalence
   (Equivalence Constant)
-  (..info-equivalence //index.equivalence))
+  //index.equivalence)
 
 (def: constant-format
   (Format Constant)
-  (..info-format //index.format))
+  //index.format)
 
 (type: #export Label U2)
+
+(def: #export label-equivalence
+  (Equivalence Label)
+  //encoding.u2-equivalence)
+
+(def: #export label-format
+  (Format Label)
+  //encoding.u2-format)
 
 (type: #export Exception
   {#start-pc Label
    #end-pc Label
    #handler-pc Label
    #catch-type (Index Class)})
+
+(def: #export exception-equivalence
+  (Equivalence Exception)
+  ($_ equivalence.product
+      ..label-equivalence
+      ..label-equivalence
+      ..label-equivalence
+      //index.equivalence
+      ))
+
+(def: exception-format
+  (Format Exception)
+  ($_ binaryF.and
+      ..label-format
+      ..label-format
+      ..label-format
+      //index.format
+      ))
 
 (type: #export (Code' Attribute)
   {#max-stack U2
@@ -67,37 +99,204 @@
    #exception-table (Row Exception)
    #attributes (Row Attribute)})
 
-(with-expansions [<Code> (as-is (Info (Code' Attribute)))]
-  (type: #export #rec Attribute
-    (#Constant Constant)
-    ## (#Code <Code>)
-    )
+(def: (code'-equivalence attribute-equivalence)
+  (All [attribute]
+    (-> (Equivalence attribute) (Equivalence (Code' attribute))))
+  ($_ equivalence.product
+      //encoding.u2-equivalence
+      //encoding.u2-equivalence
+      binary.equivalence
+      (row.equivalence ..exception-equivalence)
+      (row.equivalence attribute-equivalence)
+      ))
 
-  ## (type: #export Code
-  ##   <Code>)
+(with-expansions [<Code> (as-is (Code' Attribute))]
+  (type: #export #rec Attribute
+    (#Constant (Info Constant))
+    (#Code (Info <Code>)))
+
+  (type: #export Code
+    <Code>)
   )
+
+## https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-4.html#jvms-4.7.3
+(def: (code-reader reader)
+  (-> (Reader Attribute) (Reader Code))
+  (let [u2-reader (get@ #binaryF.reader
+                        //encoding.u2-format)]
+    ($_ <>.and
+        ## u2 max_stack;
+        u2-reader
+        ## u2 max_locals;
+        u2-reader
+        ## u4 code_length;
+        ## u1 code[code_length];
+        (get@ #binaryF.reader
+              binaryF.binary/32)
+        ## u2 exception_table_length;
+        ## exception_table[exception_table_length];
+        (get@ #binaryF.reader
+              (binaryF.row/16 ..exception-format))
+        ## u2 attributes_count;
+        ## attribute_info attributes[attributes_count];
+        (get@ #binaryF.reader
+              (binaryF.row/16 {#binaryF.reader reader
+                               ## TODO: Get rid of this dirty hack ASAP
+                               #binaryF.writer (function (_ _value)
+                                                 binaryF.no-op)}))
+        )))
 
 (def: #export equivalence
   (Equivalence Attribute)
-  ..constant-equivalence)
+  (equivalence.rec
+   (function (_ equivalence)
+     ($_ equivalence.sum
+         (info-equivalence ..constant-equivalence)
+         (info-equivalence (..code'-equivalence equivalence))))))
+
+(def: #export code-equivalence
+  (Equivalence Code)
+  (code'-equivalence ..equivalence))
+
+## https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-4.html#jvms-4.7.3
+(def: exception-frame-length
+  ($_ n/+
+      ## u2 start_pc;
+      //encoding.u2-bytes
+      ## u2 end_pc;
+      //encoding.u2-bytes
+      ## u2 handler_pc;
+      //encoding.u2-bytes
+      ## u2 catch_type;
+      //encoding.u2-bytes
+      ))
+
+(def: fixed-attribute-length
+  ($_ n/+
+      ## u2 attribute_name_index;
+      //encoding.u2-bytes
+      ## u4 attribute_length;
+      //encoding.u4-bytes
+      ))
+
+(def: constant-length
+  //encoding.u2-bytes)
+
+(def: (length attribute)
+  (-> Attribute Nat)
+  (case attribute
+    (^template [<tag>]
+      (<tag> [name length info])
+      (|> length //encoding.from-u4 .nat (n/+ fixed-attribute-length)))
+    ([#Constant] [#Code])))
+
+(def: constant-name "ConstantValue")
+
+(def: (constant' @name index)
+  (-> (Index UTF8) Constant Attribute)
+  (#Constant {#name @name
+              #length (//encoding.to-u4 ..constant-length)
+              #info index}))
 
 (def: #export (constant index)
-  (-> (Index (Value Any))
-      (State Pool Attribute))
+  (-> Constant (State Pool Attribute))
   (do state.monad
-    [@name (//constant/pool.utf8 "ConstantValue")]
-    (wrap {#name @name
-           #length (//encoding.to-u4 //encoding.u2-bytes)
-           #info index})))
+    [@name (//constant/pool.utf8 ..constant-name)]
+    (wrap (constant' @name index))))
 
-## (def: #export (code specification)
-##   (-> Code' (State Pool Attribute))
-##   (do state.monad
-##     [@name (//constant/pool.utf8 "Code")]
-##     (wrap (#Code {#name @name
-##                   #length (undefined)
-##                   #info specification}))))
+(def: code-name "Code")
 
-(def: #export format
-  (Format Attribute)
-  ..constant-format)
+(def: (code' @name specification)
+  (-> (Index UTF8) Code Attribute)
+  (#Code {#name @name
+          ## https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-4.html#jvms-4.7.3
+          #length (//encoding.to-u4
+                   ($_ n/+
+                       ## u2 max_stack;
+                       //encoding.u2-bytes
+                       ## u2 max_locals;
+                       //encoding.u2-bytes
+                       ## u4 code_length;
+                       //encoding.u4-bytes
+                       ## u1 code[code_length];
+                       (binary.size (get@ #code specification))
+                       ## u2 exception_table_length;
+                       //encoding.u2-bytes
+                       ## exception_table[exception_table_length];
+                       (|> specification
+                           (get@ #exception-table)
+                           row.size
+                           (n/* exception-frame-length))
+                       ## u2 attributes_count;
+                       //encoding.u2-bytes
+                       ## attribute_info attributes[attributes_count];
+                       (|> specification
+                           (get@ #attributes)
+                           (row@map ..length)
+                           (row@fold n/+ 0))))
+          #info specification}))
+
+(def: #export (code specification)
+  (-> Code (State Pool Attribute))
+  (do state.monad
+    [@name (//constant/pool.utf8 ..code-name)]
+    (wrap (code' @name specification))))
+
+(exception: #export invalid-attribute)
+
+(def: #export (reader pool)
+  (-> Pool (Reader Attribute))
+  (let [?@constant (|> ..constant-name
+                       //constant/pool.find-utf8
+                       (state.run pool)
+                       product.right)
+        ?@code (|> ..code-name
+                   //constant/pool.find-utf8
+                   (state.run pool)
+                   product.right)
+        (^open "_@.") (error.equivalence //index.equivalence)]
+    (<>.rec
+     (function (_ reader)
+       (do <>.monad
+         [@name (get@ #binaryF.reader //index.format)
+          length (get@ #binaryF.reader //encoding.u4-format)]
+         (cond (_@= ?@constant (#error.Success @name))
+               (:: @ map (..constant' @name) (get@ #binaryF.reader ..constant-format))
+               
+               (_@= ?@code (#error.Success @name))
+               (:: @ map (..code' @name) (code-reader reader))
+
+               ## else
+               (<>.fail (exception.construct ..invalid-attribute []))))))))
+
+(def: constant-writer
+  (Writer Constant)
+  (get@ #binaryF.writer //index.format))
+
+(def: (code-writer' writer code)
+  (-> (Writer Attribute) (Writer Code))
+  (let [format (: (Format Attribute)
+                  {## TODO: Get rid of this dirty hack ASAP
+                   #binaryF.reader (<>.fail "")
+                   #binaryF.writer writer})]
+    ($_ binaryF@compose
+        ((get@ #binaryF.writer //encoding.u2-format)
+         (get@ #max-stack code))
+        ((get@ #binaryF.writer //encoding.u2-format)
+         (get@ #max-locals code))
+        ((get@ #binaryF.writer binaryF.binary/32)
+         (get@ #code code))
+        ((get@ #binaryF.writer (binaryF.row/16 exception-format))
+         (get@ #exception-table code))
+        ((get@ #binaryF.writer (binaryF.row/16 format))
+         (get@ #attributes code))
+        )))
+
+(def: #export (writer value)
+  (Writer Attribute)
+  (case value
+    (#Constant attribute)
+    ((info-writer constant-writer) attribute)
+    
+    (#Code attribute)
+    ((info-writer (code-writer' writer)) attribute)))
