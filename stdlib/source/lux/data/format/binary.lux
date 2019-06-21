@@ -7,7 +7,8 @@
     [monad (#+ Monad do)]
     [equivalence (#+ Equivalence)]]
    [control
-    ["." parser (#+ Parser) ("#;." functor)]
+    ["<>" parser ("#@." monad)
+     ["/" binary (#+ Offset Size Parser)]]
     ["." function]
     ["ex" exception (#+ exception:)]]
    [data
@@ -22,31 +23,11 @@
      ["%" format]]
     [collection
      ["." list]
-     ["." row (#+ Row) ("#;." functor)]]]])
-
-(exception: #export (binary-was-not-fully-read {length Nat} {read Nat})
-  (ex.report ["Binary length" (%.nat length)]
-             ["Read bytes" (%.nat read)]))
-
-(exception: #export (invalid-tag {range Nat} {byte Nat})
-  (ex.report ["Range" (%.nat range)]
-             ["Byte" (%.nat byte)]))
-
-(type: #export Offset Nat)
-
-(type: #export Size Nat)
-
-(def: #export size/8 Size 1)
-(def: #export size/16 Size 2)
-(def: #export size/32 Size 4)
-(def: #export size/64 Size 8)
+     ["." row (#+ Row) ("#@." functor)]]]])
 
 (def: mask
   (-> Size (I64 Any))
   (|>> (n/* i64.bits-per-byte) i64.mask))
-
-(type: #export Reader
-  (Parser [Offset Binary]))
 
 (type: #export Mutation
   [Size (-> [Offset Binary] [Offset Binary])])
@@ -68,7 +49,7 @@
   (-> a Mutation))
 
 (type: #export (Format a)
-  {#reader (Reader a)
+  {#reader (Parser a)
    #writer (Writer a)})
 
 (def: #export (adapt post-read pre-write format)
@@ -77,37 +58,19 @@
         (-> a' a)
         (Format a)
         (Format a')))
-  (let [(^open "_;.") format]
-    {#reader (|> _;reader (parser;map post-read))
-     #writer (|>> pre-write _;writer)}))
-
-(def: #export (read format input)
-  (All [a] (-> (Format a) Binary (Error a)))
-  (case ((get@ #reader format) [0 input])
-    (#error.Failure msg)
-    (#error.Failure msg)
-    
-    (#error.Success [[end _] output])
-    (let [length (binary.size input)]
-      (if (n/= end length)
-        (#error.Success output)
-        (ex.throw binary-was-not-fully-read [length end])))))
+  (let [(^open "_@.") format]
+    {#reader (|> _@reader (<>@map post-read))
+     #writer (|>> pre-write _@writer)}))
 
 (def: #export (write format value)
   (All [a] (-> (Format a) a Binary))
   (let [[valueS valueT] ((get@ #writer format) value)]
     (|> valueS binary.create [0] valueT product.right)))
 
-(template [<name> <size> <read> <write>]
+(template [<name> <size> <parser> <write>]
   [(def: #export <name>
      (Format (I64 Any))
-     {#reader (function (_ [offset binary])
-                (case (<read> offset binary)
-                  (#error.Success data)
-                  (#error.Success [(n/+ <size> offset) binary] data)
-                  
-                  (#error.Failure error)
-                  (#error.Failure error)))
+     {#reader <parser>
       #writer (function (_ value)
                 [<size>
                  (function (_ [offset binary])
@@ -116,20 +79,16 @@
                         (<write> offset value)
                         error.assume)])])})]
 
-  [bits/8  size/8  binary.read/8  binary.write/8]
-  [bits/16 size/16 binary.read/16 binary.write/16]
-  [bits/32 size/32 binary.read/32 binary.write/32]
-  [bits/64 size/64 binary.read/64 binary.write/64]
+  [bits/8  /.size/8  /.bits/8  binary.write/8]
+  [bits/16 /.size/16 /.bits/16 binary.write/16]
+  [bits/32 /.size/32 /.bits/32 binary.write/32]
+  [bits/64 /.size/64 /.bits/64 binary.write/64]
   )
 
 (def: #export (or leftB rightB)
   (All [l r] (-> (Format l) (Format r) (Format (| l r))))
-  {#reader (do parser.monad
-             [flag (get@ #reader bits/8)]
-             (case flag
-               0 (:: @ map (|>> #.Left) (get@ #reader leftB))
-               1 (:: @ map (|>> #.Right) (get@ #reader rightB))
-               _ (parser.lift (ex.throw invalid-tag [2 (.nat flag)]))))
+  {#reader (/.or (get@ #reader leftB)
+                 (get@ #reader rightB))
    #writer (function (_ altV)
              (case altV
                (#.Left leftV)
@@ -155,7 +114,7 @@
 
 (def: #export (and preB postB)
   (All [a b] (-> (Format a) (Format b) (Format [a b])))
-  {#reader (parser.and (get@ #reader preB) (get@ #reader postB))
+  {#reader (<>.and (get@ #reader preB) (get@ #reader postB))
    #writer (function (_ [preV postV])
              (:: ..monoid compose
                  ((get@ #writer preB) preV)
@@ -172,8 +131,7 @@
 
 (def: #export (ignore default)
   (All [a] (-> a (Format a)))
-  {#reader (function (_ input)
-             (#error.Success [input default]))
+  {#reader (<>@wrap default)
    #writer (function (_ value)
              ..no-op)})
 
@@ -183,20 +141,7 @@
 
 (def: #export bit
   (Format Bit)
-  {#reader (function (_ [offset binary])
-             (case (binary.read/8 offset binary)
-               (#error.Success data)
-               (case (: Nat data)
-                 (^template [<nat> <bit>]
-                   <nat> (#error.Success [(inc offset) binary] <bit>))
-                 ([0 #0]
-                  [1 #1])
-                 
-                 _
-                 (ex.throw invalid-tag [2 data]))
-               
-               (#error.Failure error)
-               (#error.Failure error)))
+  {#reader /.bit
    #writer (function (_ value)
              [1
               (function (_ [offset binary])
@@ -211,24 +156,16 @@
 
 (def: #export frac
   (Format Frac)
-  (let [(^slots [#reader #writer]) ..bits/64]
-    {#reader (:: parser.monad map frac.bits-to-frac reader)
+  (let [(^slots [#writer]) ..bits/64]
+    {#reader /.frac
      #writer (|>> frac.frac-to-bits writer)}))
 
-(template [<name> <bits> <size> <write>]
+(template [<name> <bits> <size> <parser> <write>]
   [(def: #export <name>
      (Format Binary)
-     (let [mask (..mask <size>)]
-       {#reader (do parser.monad
-                  [size (:coerce (Reader Nat)
-                                 ## TODO: Remove coercion.
-                                 (get@ #reader <bits>))]
-                  (function (_ [offset binary])
-                    (do error.monad
-                      [#let [end (n/+ size offset)]
-                       output (binary.slice offset (.dec end) binary)]
-                      (wrap [[end binary] output]))))
-        #writer (function (_ value)
+     {#reader <parser>
+      #writer (let [mask (..mask <size>)]
+                (function (_ value)
                   (let [size (|> value binary.size (i64.and mask))
                         size' (n/+ <size> size)]
                     [size'
@@ -237,51 +174,33 @@
                         (error.assume
                          (do error.monad
                            [_ (<write> offset size binary)]
-                           (binary.copy size 0 value (n/+ <size> offset) binary)))])]))}))]
+                           (binary.copy size 0 value (n/+ <size> offset) binary)))])])))})]
 
-  [binary/8  ..bits/8  ..size/8  binary.write/8]
-  [binary/16 ..bits/16 ..size/16 binary.write/16]
-  [binary/32 ..bits/32 ..size/32 binary.write/32]
-  [binary/64 ..bits/64 ..size/64 binary.write/64]
+  [binary/8  ..bits/8  /.size/8  /.binary/8 binary.write/8]
+  [binary/16 ..bits/16 /.size/16 /.binary/16 binary.write/16]
+  [binary/32 ..bits/32 /.size/32 /.binary/32 binary.write/32]
+  [binary/64 ..bits/64 /.size/64 /.binary/64 binary.write/64]
   )
 
-(template [<name> <binary>]
+(template [<name> <parser> <binary>]
   [(def: #export <name>
      (Format Text)
-     (let [(^open "binary/.") <binary>]
-       {#reader (do parser.monad
-                  [utf8 binary/reader]
-                  (parser.lift (encoding.from-utf8 utf8)))
-        #writer (|>> encoding.to-utf8 binary/writer)}))]
+     {#reader <parser>
+      #writer (let [(^open "binary@.") <binary>]
+                (|>> encoding.to-utf8 binary@writer))})]
 
-  [utf8/8  ..binary/8]
-  [utf8/16 ..binary/16]
-  [utf8/32 ..binary/32]
-  [utf8/64 ..binary/64]
+  [utf8/8  /.utf8/8 ..binary/8]
+  [utf8/16 /.utf8/16 ..binary/16]
+  [utf8/32 /.utf8/32 ..binary/32]
+  [utf8/64 /.utf8/64 ..binary/64]
   )
 
 (def: #export text ..utf8/64)
 
-(template [<name> <with-offset> <bits> <size> <write>]
+(template [<name> <with-offset> <bits> <size> <parser> <write>]
   [(def: #export (<with-offset> extra-count valueF)
      (All [v] (-> Nat (Format v) (Format (Row v))))
-     {#reader (do parser.monad
-                [count (|> (get@ #reader <bits>)
-                           ## TODO: Remove coercion.
-                           (:coerce (Reader Nat))
-                           (:: @ map (n/- extra-count)))]
-                (loop [index 0
-                       output (:share [v]
-                                      {(Format v)
-                                       valueF}
-                                      {(Row v)
-                                       row.empty})]
-                  (if (n/< count index)
-                    (do parser.monad
-                      [value (get@ #reader valueF)]
-                      (recur (.inc index)
-                             (row.add value output)))
-                    (:: parser.monad wrap output))))
+     {#reader (<parser> extra-count (get@ #reader valueF))
       #writer (function (_ value)
                 (let [original-count (row.size value)
                       capped-count (i64.and (..mask <size>)
@@ -289,13 +208,13 @@
                       value (if (n/= original-count capped-count)
                               value
                               (|> value row.to-list (list.take capped-count) row.from-list))
-                      (^open "mutation;.") ..monoid
+                      (^open "mutation@.") ..monoid
                       [size mutation] (|> value
-                                          (row;map (get@ #writer valueF))
+                                          (row@map (get@ #writer valueF))
                                           (:: row.fold fold
                                               (function (_ post pre)
-                                                (mutation;compose pre post))
-                                              mutation;identity))]
+                                                (mutation@compose pre post))
+                                              mutation@identity))]
                   [(n/+ <size> size)
                    (function (_ [offset binary])
                      (error.assume
@@ -307,10 +226,10 @@
      (All [v] (-> (Format v) (Format (Row v))))
      (<with-offset> 0))]
 
-  [row/8  row/8'  ..bits/8  ..size/8  binary.write/8]
-  [row/16 row/16' ..bits/16 ..size/16 binary.write/16]
-  [row/32 row/32' ..bits/32 ..size/32 binary.write/32]
-  [row/64 row/64' ..bits/64 ..size/64 binary.write/64]
+  [row/8  row/8'  ..bits/8  /.size/8  /.row/8' binary.write/8]
+  [row/16 row/16' ..bits/16 /.size/16 /.row/16' binary.write/16]
+  [row/32 row/32' ..bits/32 /.size/32 /.row/32' binary.write/32]
+  [row/64 row/64' ..bits/64 /.size/64 /.row/64' binary.write/64]
   )
 
 (def: #export maybe
