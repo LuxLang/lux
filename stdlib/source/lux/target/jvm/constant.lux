@@ -4,14 +4,15 @@
     [monad (#+ do)]
     ["." equivalence (#+ Equivalence)]]
    [control
-    ["." parser]]
+    ["<>" parser ("#@." functor)
+     ["<2>" binary (#+ Parser)]]]
    [data
     [number
      ["." int]
      ["." frac]]
     ["." text]
     [format
-     ["." binary (#+ Format) ("#;." monoid)]]
+     [".F" binary (#+ Writer) ("#@." monoid)]]
     [collection
      ["." row (#+ Row)]]]
    [type
@@ -26,9 +27,13 @@
 
 (type: #export UTF8 Text)
 
-(def: utf8-format
-  (Format UTF8)
-  binary.utf8/16)
+(def: utf8-parser
+  (Parser UTF8)
+  <2>.utf8/16)
+
+(def: utf8-writer
+  (Writer UTF8)
+  binaryF.utf8/16)
 
 (abstract: #export Class
   {}
@@ -45,11 +50,13 @@
         (|>> :representation)
         //index.equivalence))
 
-  (def: class-format
-    (Format Class)
-    (binary.adapt (|>> :abstraction)
-                  (|>> :representation)
-                  //index.format))
+  (def: class-parser
+    (Parser Class)
+    (<>@map (|>> :abstraction) //index.parser))
+
+  (def: class-writer
+    (Writer Class)
+    (|>> :representation //index.writer))
   )
 
 (abstract: #export (Value kind)
@@ -84,16 +91,17 @@
     [string  String  (Index UTF8)]
     )
 
-  (template [<name> <type> <read> <write> <base>]
-    [(def: <name>
-       (Format <type>)
-       (binary.adapt (|>> <read> :abstraction)
-                     (|>> :representation <write>)
-                     <base>))]
+  (template [<parser-name> <writer-name> <type> <read> <write> <parser> <writer>]
+    [(def: <parser-name>
+       (Parser <type>)
+       (<>@map (|>> <read> :abstraction) <parser>))
+     (def: <writer-name>
+       (Writer <type>)
+       (|>> :representation <write> <writer>))]
 
-    [long-format Long .int (<|) binary.bits/64]
-    [double-format Double frac.bits-to-frac frac.frac-to-bits binary.bits/64]
-    [string-format String (<|) (<|) //index.format]
+    [long-parser long-writer Long .int (<|) <2>.bits/64 binaryF.bits/64]
+    [double-parser double-writer Double frac.bits-to-frac frac.frac-to-bits <2>.bits/64 binaryF.bits/64]
+    [string-parser string-writer String (<|) (<|) //index.parser //index.writer]
     )
   )
 
@@ -105,21 +113,27 @@
   {#class (Index Class)
    #name-and-type (Index Name-And-Type)})
 
-(template [<type> <equivalence> <format>]
+(template [<type> <equivalence> <parser> <writer>]
   [(def: #export <equivalence>
      (Equivalence <type>)
      ($_ equivalence.product
          //index.equivalence
          //index.equivalence))
 
-   (def: #export <format>
-     (Format <type>)
-     ($_ binary.and
-         //index.format
-         //index.format))]
+   (def: #export <parser>
+     (Parser <type>)
+     ($_ <>.and
+         //index.parser
+         //index.parser))
 
-  [Name-And-Type name-and-type-equivalence name-and-type-format]
-  [Reference reference-equivalence reference-format]
+   (def: #export <writer>
+     (Writer <type>)
+     ($_ binaryF.and
+         //index.writer
+         //index.writer))]
+
+  [Name-And-Type name-and-type-equivalence name-and-type-parser name-and-type-writer]
+  [Reference reference-equivalence reference-parser reference-writer]
   )
 
 (type: #export Constant
@@ -177,38 +191,56 @@
   ##     )
   )
 
-(def: #export format
-  (Format Constant)
-  (with-expansions [<constants> (as-is [#UTF8             /tag.utf8             ..utf8-format]
+(def: #export parser
+  (Parser Constant)
+  (with-expansions [<constants> (as-is [#UTF8             /tag.utf8             ..utf8-parser]
                                        ## TODO: Integer
                                        ## TODO: Float
-                                       [#Long             /tag.long             ..long-format]
-                                       [#Double           /tag.double           ..double-format]
-                                       [#Class            /tag.class            ..class-format]
-                                       [#String           /tag.string           ..string-format]
-                                       [#Field            /tag.field            ..reference-format]
-                                       [#Method           /tag.method           ..reference-format]
-                                       [#Interface-Method /tag.interface-method ..reference-format]
-                                       [#Name-And-Type    /tag.name-and-type    ..name-and-type-format]
+                                       [#Long             /tag.long             ..long-parser]
+                                       [#Double           /tag.double           ..double-parser]
+                                       [#Class            /tag.class            ..class-parser]
+                                       [#String           /tag.string           ..string-parser]
+                                       [#Field            /tag.field            ..reference-parser]
+                                       [#Method           /tag.method           ..reference-parser]
+                                       [#Interface-Method /tag.interface-method ..reference-parser]
+                                       [#Name-And-Type    /tag.name-and-type    ..name-and-type-parser]
                                        ## TODO: Method-Handle
                                        ## TODO: Method-Type
                                        ## TODO: Invoke-Dynamic
                                        )]
-    {#binary.reader (do parser.monad
-                      [tag (get@ #binary.reader /tag.format)]
-                      (`` (cond (~~ (template [<case> <tag> <format>]
-                                      [(/tag;= <tag> tag)
-                                       (:: @ map (|>> <case>) (get@ #binary.reader <format>))]
+    (do <>.monad
+      [tag /tag.parser]
+      (`` (cond (~~ (template [<case> <tag> <parser>]
+                      [(/tag;= <tag> tag)
+                       (:: @ map (|>> <case>) <parser>)]
 
-                                      <constants>))
-                                
-                                ## else
-                                (parser.fail "Cannot parse constant."))))
-     #binary.writer (function (_ value)
-                      (case value
-                        (^template [<case> <tag> <format>]
-                          (<case> value)
-                          (binary;compose ((get@ #binary.writer /tag.format) <tag>)
-                                          ((get@ #binary.writer <format>) value)))
-                        (<constants>)
-                        ))}))
+                      <constants>))
+                
+                ## else
+                (<>.fail "Cannot parse constant."))))))
+
+(def: #export writer
+  (Writer Constant)
+  (with-expansions [<constants> (as-is [#UTF8             /tag.utf8             ..utf8-writer]
+                                       ## TODO: Integer
+                                       ## TODO: Float
+                                       [#Long             /tag.long             ..long-writer]
+                                       [#Double           /tag.double           ..double-writer]
+                                       [#Class            /tag.class            ..class-writer]
+                                       [#String           /tag.string           ..string-writer]
+                                       [#Field            /tag.field            ..reference-writer]
+                                       [#Method           /tag.method           ..reference-writer]
+                                       [#Interface-Method /tag.interface-method ..reference-writer]
+                                       [#Name-And-Type    /tag.name-and-type    ..name-and-type-writer]
+                                       ## TODO: Method-Handle
+                                       ## TODO: Method-Type
+                                       ## TODO: Invoke-Dynamic
+                                       )]
+    (function (_ value)
+      (case value
+        (^template [<case> <tag> <writer>]
+          (<case> value)
+          (binaryF@compose (/tag.writer <tag>)
+                           (<writer> value)))
+        (<constants>)
+        ))))
