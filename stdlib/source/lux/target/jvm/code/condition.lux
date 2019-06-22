@@ -1,0 +1,75 @@
+(.module:
+  [lux #*
+   [abstract
+    [monad (#+ do)]
+    [monoid (#+ Monoid)]]
+   [control
+    ["." exception (#+ exception:)]]
+   [data
+    [number (#+ hex)]
+    ["." error (#+ Error)]
+    ["." binary]
+    [text
+     ["%" format (#+ format)]]
+    [format
+     [".F" binary (#+ Mutation Specification)]]]]
+  ["." // #_
+   ["#." resources (#+ Resources)]
+   ["/#" // #_
+    [encoding
+     ["#." unsigned (#+ U1 U2)]]]])
+
+(type: #export Environment
+  {#resources Resources
+   #stack U2})
+
+(type: #export Condition
+  (-> Environment (Error Environment)))
+
+(structure: #export monoid
+  (Monoid Condition)
+
+  (def: identity (|>> #error.Success))
+
+  (def: (compose left right)
+    (function (_ environment)
+      (do error.monad
+        [environment (left environment)]
+        (right environment)))))
+
+(def: #export (produces amount env)
+  (-> Nat Condition)
+  (let [stack (n/+ amount
+                   (///unsigned.nat (get@ #stack env)))
+        max-stack (n/max stack
+                         (///unsigned.nat (get@ [#resources #//resources.max-stack] env)))]
+    (|> env
+        (set@ #stack (///unsigned.u2 stack))
+        (set@ [#resources #//resources.max-stack] (///unsigned.u2 max-stack))
+        #error.Success)))
+
+(exception: #export (cannot-pop-stack {stack-size Nat}
+                                      {wanted-pops Nat})
+  (exception.report
+   ["Stack Size" (%.nat stack-size)]
+   ["Wanted Pops" (%.nat wanted-pops)]))
+
+(def: #export (consumes wanted-pops env)
+  (-> Nat Condition)
+  (let [stack-size (///unsigned.nat (get@ #stack env))]
+    (if (n/<= stack-size wanted-pops)
+      (#error.Success (update@ #stack
+                               (|>> ///unsigned.nat (n/- wanted-pops) ///unsigned.u2)
+                               env))
+      (exception.throw ..cannot-pop-stack [stack-size wanted-pops]))))
+
+(type: #export Local U1)
+
+(def: #export (has-local local environment)
+  (-> Local Condition)
+  (let [max-locals (n/max (///unsigned.nat (get@ [#resources #//resources.max-locals] environment))
+                          (///unsigned.nat local))]
+    (|> environment
+        (set@ [#resources #//resources.max-locals]
+              (///unsigned.u2 max-locals))
+        #error.Success)))

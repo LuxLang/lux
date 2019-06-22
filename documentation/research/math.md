@@ -39,6 +39,7 @@
 
 # Quaternions
 
+1. [How Quaternions Produce 3D Rotation](https://penguinmaths.blogspot.com/2019/06/how-quaternions-produce-3d-rotation.html)
 1. [APPLICATION OF DUAL QUATERNIONS ON SELECTED PROBLEMS](https://otik.uk.zcu.cz/bitstream/11025/28563/1/phd_Application%20of%20dual%20quaternions%20on%20selected%20problems.pdf)
 1. https://www.3dgep.com/understanding-quaternions/
 1. https://probablydance.com/2017/08/05/intuitive-quaternions/
@@ -80,6 +81,7 @@
 
 # Linear Algebra
 
+1. [Thirty-three Miniatures: Mathematical and Algorithmic Applications of Linear Algebra](https://kam.mff.cuni.cz/~matousek/stml-53-matousek-1.pdf)
 1. [Covectors are Different than Vectors, Usually](http://infohost.nmt.edu/~parendt/Phys509/notes/2diracnot/node4.html)
 1. [Introduction to Applied Linear Algebra: Vectors, Matrices, and Least Squares](https://web.stanford.edu/~boyd/vmls/vmls.pdf)
 1. [Linear Algebra Done Wrong.](http://www.math.brown.edu/~treil/papers/LADW/LADW.html)

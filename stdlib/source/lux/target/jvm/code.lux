@@ -1,0 +1,328 @@
+(.module:
+  [lux #*
+   [abstract
+    [monad (#+ do)]
+    [monoid (#+ Monoid)]]
+   [control
+    ["." exception (#+ exception:)]]
+   [data
+    [number (#+ hex)]
+    ["." error (#+ Error)]
+    ["." binary]
+    [text
+     ["%" format (#+ format)]]
+    [format
+     [".F" binary (#+ Mutation Specification)]]]
+   [macro
+    ["." template]]]
+  ["." // #_
+   ["#." index (#+ Index)]
+   [constant (#+ Class Field)]
+   [encoding
+    ["#." unsigned (#+ U1 U2 U4)]]]
+  ["." / #_
+   ["#." resources (#+ Resources)]
+   ["#" condition (#+ Environment Condition Local) ("#@." monoid)]
+   ["#." label (#+ Label Wide-Label)]])
+
+(type: #export Instruction
+  (-> [Environment Specification] (Error [Environment Specification])))
+
+(def: (instruction condition transform)
+  (-> Condition (-> Specification Specification) Instruction)
+  (function (_ [environment specification])
+    (do error.monad
+      [environment' (condition environment)]
+      (wrap [environment'
+             (transform specification)]))))
+
+(def: (nullary' code)
+  (-> Nat Mutation)
+  (function (_ [offset binary])
+    [(n/+ 1 offset)
+     (error.assume
+      (binary.write/8 offset code binary))]))
+
+(def: (nullary code [size mutation])
+  (-> Nat (-> Specification Specification))
+  [(n/+ 1 size)
+   (|>> mutation ((nullary' code)))])
+
+(def: (unary/1' code input0)
+  (-> Nat U1 Mutation)
+  (function (_ [offset binary])
+    [(n/+ 2 offset)
+     (error.assume
+      (do error.monad
+        [_ (binary.write/8 offset code binary)]
+        (binary.write/8 (n/+ 1 offset) (//unsigned.nat input0) binary)))]))
+
+(def: (unary/1 code input0 [size mutation])
+  (-> Nat U1 (-> Specification Specification))
+  [(n/+ 2 size)
+   (|>> mutation ((unary/1' code input0)))])
+
+(def: (unary/2' code input0)
+  (-> Nat U2 Mutation)
+  (function (_ [offset binary])
+    [(n/+ 3 offset)
+     (error.assume
+      (do error.monad
+        [_ (binary.write/8 offset code binary)]
+        (binary.write/16 (n/+ 1 offset) (//unsigned.nat input0) binary)))]))
+
+(def: (unary/2 code input0 [size mutation])
+  (-> Nat U2 (-> Specification Specification))
+  [(n/+ 3 size)
+   (|>> mutation ((unary/2' code input0)))])
+
+(def: (unary/4' code input0)
+  (-> Nat U4 Mutation)
+  (function (_ [offset binary])
+    [(n/+ 5 offset)
+     (error.assume
+      (do error.monad
+        [_ (binary.write/8 offset code binary)]
+        (binary.write/16 (n/+ 1 offset) (//unsigned.nat input0) binary)))]))
+
+(def: (unary/4 code input0 [size mutation])
+  (-> Nat U4 (-> Specification Specification))
+  [(n/+ 5 size)
+   (|>> mutation ((unary/4' code input0)))])
+
+## https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-6.html#jvms-6.5
+(with-expansions [<constants> (template [<code> <name> <output-size>]
+                                [[<code> <name> [] [] 0 <output-size> []]]
+
+                                ["01" aconst-null 1]
+
+                                ["02" iconst-m1 1]
+                                ["03" iconst-0 1]
+                                ["04" iconst-1 1]
+                                ["05" iconst-2 1]
+                                ["06" iconst-3 1]
+                                ["07" iconst-4 1]
+                                ["08" iconst-5 1]
+
+                                ["0B" fconst-0 1]
+                                ["0C" fconst-1 1]
+                                ["0D" fconst-2 1]
+                                
+                                ["0E" dconst-0 2]
+                                ["0F" dconst-1 2])
+                  <local-loads> (template [<code> <name> <output-size>]
+                                  [[<code> <name> [[local Local]] [local] 0 <output-size> [[local]]]]
+
+                                  ["17" fload 1]
+                                  ["18" dload 2]
+                                  ["19" aload 1])
+                  <simple-local-loads> (template [<code> <name> <output-size> <local-end>]
+                                         [[<code> <name> [] [] 0 <output-size> [[(//unsigned.u1 <local-end>)]]]]
+
+                                         ["22" fload-0 1 0]
+                                         ["23" fload-1 1 1]
+                                         ["24" fload-2 1 2]
+                                         ["25" fload-3 1 3]
+                                         
+                                         ["26" dload-0 2 1]
+                                         ["27" dload-1 2 2]
+                                         ["28" dload-2 2 3]
+                                         ["29" dload-3 2 4]
+                                         
+                                         ["2A" aload-0 1 0]
+                                         ["2B" aload-1 1 1]
+                                         ["2C" aload-2 1 2]
+                                         ["2D" aload-3 1 3])
+                  <local-stores> (template [<code> <name> <input-size>]
+                                   [[<code> <name> [[local Local]] [local] <input-size> 0 [[local]]]]
+
+                                   ["38" fstore 1]
+                                   ["39" dstore 2]
+                                   ["3A" astore 1])
+                  <simple-local-stores> (template [<code> <name> <input-size> <local-end>]
+                                          [[<code> <name> [] [] <input-size> 0 [[(//unsigned.u1 <local-end>)]]]]
+
+                                          ["43" fstore-0 1 0]
+                                          ["44" fstore-1 1 1]
+                                          ["45" fstore-2 1 2]
+                                          ["46" fstore-3 1 3]
+
+                                          ["47" dstore-0 2 1]
+                                          ["48" dstore-1 2 2]
+                                          ["49" dstore-2 2 3]
+                                          ["4A" dstore-3 2 4]
+                                          
+                                          ["4B" astore-0 1 0]
+                                          ["4C" astore-1 1 1]
+                                          ["4D" astore-2 1 2]
+                                          ["4E" astore-3 1 3])
+                  <array-loads> (template [<code> <name> <output-size>]
+                                  [[<code> <name> [] [] 2 <output-size> []]]
+
+                                  ["2e" iaload 1]
+                                  ["30" faload 1]
+                                  ["31" daload 2]
+                                  ["32" aaload 1]
+                                  ["33" baload 1]
+                                  ["34" caload 1])
+                  <array-stores> (template [<code> <name> <input-size>]
+                                   [[<code> <name> [] [] <input-size> 0 []]]
+
+                                   ["4f" iastore 3]
+                                   ["51" fastore 3]
+                                   ["52" dastore 4]
+                                   ["53" aastore 3]
+                                   ["54" bastore 3]
+                                   ["55" castore 3])
+                  <arithmetic> (template [<code> <name> <input-size> <output-size>]
+                                 [[<code> <name> [] [] <input-size> <output-size> []]]
+
+                                 ["60" iadd 2 1]
+                                 ["6c" idiv 2 1]
+                                 ["7e" iand 2 1]
+                                 
+                                 ["62" fadd 2 1]
+                                 ["66" fsub 2 1]
+                                 ["6A" fmul 2 1]
+                                 ["6E" fdiv 2 1]
+                                 ["72" frem 2 1]
+                                 ["76" fneg 1 1]
+                                 
+                                 ["63" dadd 4 2]
+                                 ["67" dsub 4 2]
+                                 ["6B" dmul 4 2]
+                                 ["6F" ddiv 4 2]
+                                 ["73" drem 4 2]
+                                 ["77" dneg 2 2])
+                  <conversions> (template [<code> <name> <input-size> <output-size>]
+                                  [[<code> <name> [] [] <input-size> <output-size> []]]
+
+                                  ["8B" f2i 1 1]
+                                  ["8C" f2l 1 2]
+                                  ["8D" f2d 1 2]
+                                  
+                                  ["8E" d2i 2 1]
+                                  ["8F" d2l 2 2]
+                                  ["90" d2f 2 1]
+
+                                  ["85" i2l 1 2]
+                                  ["86" i2f 1 1]
+                                  ["87" i2d 1 2]
+                                  ["91" i2b 1 1]
+                                  ["92" i2c 1 1]
+                                  ["93" i2s 1 1])
+                  <comparisons> (template [<code> <name> <input-size>]
+                                  [[<code> <name> [] [] <input-size> 1 []]]
+
+                                  ["95" fcmpl 2]
+                                  ["96" fcmpg 2]
+
+                                  ["97" dcmpl 4]
+                                  ["98" dcmpg 4])
+                  <returns> (template [<code> <name> <input-size>]
+                              [[<code> <name> [] [] <input-size> 0 []]]
+
+                              ["AE" freturn 1]
+                              ["AF" dreturn 2]
+                              ["B0" areturn 1]
+                              )
+                  <jumps> (template [<code> <name> <input-size>]
+                            [[<code> <name> [[label Label]] [label] <input-size> 0 []]]
+
+                            ["99" ifeq 2]
+                            ["9A" ifne 2]
+                            ["9B" iflt 2]
+                            ["9C" ifge 2]
+                            ["9D" ifgt 2]
+                            ["9E" ifle 2]
+                            
+                            ["9F" if-icmpeq 2]
+                            ["A0" if-icmpne 2]
+                            ["A1" if-icmplt 2]
+                            ["A2" if-icmpge 2]
+                            ["A3" if-icmpgt 2]
+                            ["A4" if-icmple 2]
+                            
+                            ["A5" if-acmpeq 2]
+                            ["A6" if-acmpne 2]
+                            
+                            ["A7" goto 2]
+
+                            ["C6" ifnull 1]
+                            ["C7" ifnonnull 1])]
+  (template [<arity> <definitions>]
+    [(with-expansions [<definitions>' (template.splice <definitions>)]
+       (template [<code> <name> <instruction-inputs> <arity-inputs> <consumes> <produces> <locals>]
+         [(with-expansions [<inputs>' (template.splice <instruction-inputs>)
+                            <input-types> (template [<input-name> <input-type>]
+                                            [<input-type>]
+
+                                            <inputs>')
+                            <input-names> (template [<input-name> <input-type>]
+                                            [<input-name>]
+
+                                            <inputs>')
+                            <locals>' (template.splice <locals>)]
+            (def: #export (<name> <input-names>)
+              (-> <input-types> Instruction)
+              (..instruction
+               (`` ($_ /@compose
+                       (/.consumes <consumes>)
+                       (/.produces <produces>)
+                       (~~ (template [<local>]
+                             [(/.has-local <local>)]
+
+                             <locals>'))))
+               (`` (<arity> (hex <code>) (~~ (template.splice <arity-inputs>)))))))]
+
+         <definitions>'
+         ))]
+
+    [..nullary
+     [["00" nop [] [] 0 0 []]
+      ["59" dup [] [] 1 2 []]
+      ["5A" dup-x1 [] [] 2 3 []]
+      ["5B" dup-x2 [] [] 3 4 []]
+      ["5C" dup2 [] [] 2 4 []]
+      ["5D" dup2-x1 [] [] 3 5 []]
+      ["5E" dup2-x2 [] [] 4 6 []]
+      <constants>
+      <simple-local-loads>
+      <array-loads>
+      <simple-local-stores>
+      <array-stores>
+      <arithmetic>
+      <conversions>
+      <comparisons>
+      <returns>
+      ["BE" arraylength [] [] 1 1 []]
+      ["BF" athrow [] [] 1 0 []]]]
+
+    [..unary/1
+     [["10" bipush  [[byte U1]] [byte] 0 1 []]
+      <local-loads>
+      <local-stores>]]
+
+    [..unary/2
+     [<jumps>
+      ["BD" anewarray [[index (Index Class)]] [(//index.number index)] 1 1 []]
+      ["C0" checkcast [[index (Index Class)]] [(//index.number index)] 1 1 []]
+      ["B2" getstatic/1 [[index (Index Field)]] [(//index.number index)] 0 1 []]
+      ["B2" getstatic/2 [[index (Index Field)]] [(//index.number index)] 0 2 []]
+      ["B4" getfield/1 [[index (Index Field)]] [(//index.number index)] 1 1 []]
+      ["B4" getfield/2 [[index (Index Field)]] [(//index.number index)] 1 2 []]]]
+
+    [..unary/4
+     [["C8" goto-w [[label Wide-Label]] [label] 0 0 []]]]
+    ))
+
+(structure: #export monoid
+  (Monoid Instruction)
+
+  (def: identity ..nop)
+
+  (def: (compose left right)
+    (function (_ input)
+      (do error.monad
+        [temp (left input)]
+        (right temp)))))
