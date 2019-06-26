@@ -1,0 +1,99 @@
+(.module:
+  [lux #*
+   [abstract
+    [monoid (#+ Monoid)]
+    [monad (#+ Monad do)]]
+   [control
+    ["." state (#+ State)]
+    ["." writer (#+ Writer)]
+    ["." function]]
+   [data
+    ["." error (#+ Error)]
+    [number
+     ["." nat]]
+    [collection
+     ["." dictionary (#+ Dictionary)]]]]
+  ["." / #_
+   ["#." instruction (#+ Instruction) ("#@." monoid)]
+   [//
+    [encoding
+     [unsigned (#+ U2)]]]])
+
+(type: #export Label Nat)
+
+(type: #export Jump U2)
+
+(type: #export Address Nat)
+
+(type: Resolver (Dictionary Label Address))
+
+(type: Tracker
+  {#program-counter Address
+   #next-label Label
+   #known-labels Resolver})
+
+(def: fresh
+  Tracker
+  {#program-counter 0
+   #next-label 0
+   #known-labels (dictionary.new nat.hash)})
+
+(type: #export Partial
+  (-> Resolver (Error Instruction)))
+
+(def: partial-identity
+  Partial
+  (function.constant (#error.Success /instruction.nop)))
+
+(structure: partial-monoid
+  (Monoid Partial)
+
+  (def: identity ..partial-identity)
+
+  (def: (compose left right)
+    (cond (is? ..partial-identity left)
+          right
+
+          (is? ..partial-identity right)
+          left
+
+          ## else
+          (function (_ resolver)
+            (do error.monad
+              [left (left resolver)
+               right (right resolver)]
+              (wrap (/instruction@compose left right)))))))
+
+(type: #export (Program a)
+  (State Tracker (Writer Partial a)))
+
+(def: #export new-label
+  (Program Label)
+  (function (_ tracker)
+    [(update@ #next-label inc tracker)
+     [..partial-identity
+      (get@ #next-label tracker)]]))
+
+(def: #export (set-label label)
+  (-> Label (Program Any))
+  (function (_ tracker)
+    [(update@ #known-labels
+              (dictionary.put label (get@ #program-counter tracker))
+              tracker)
+     [..partial-identity
+      []]]))
+
+(def: #export monad
+  ## TODO: Remove the coercion. It was added because the type-checker
+  ## seems to have a bug that is being triggered here.
+  (:coerce (Monad Program)
+           (writer.with ..partial-monoid
+                        (: (Monad (State Tracker))
+                           state.monad))))
+
+(def: #export (resolve program)
+  (All [a] (-> (Program a) (Error [Instruction a])))
+  (let [[tracker [partial output]] (state.run ..fresh program)]
+    (do error.monad
+      [instruction (partial (get@ #known-labels tracker))]
+      (wrap [instruction output]))))

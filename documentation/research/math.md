@@ -143,6 +143,7 @@
 
 # Abstract Algebra
 
+1. [A Brief Guide to A Few Algebraic Structures](https://argumatronic.com//posts/2019-06-21-algebra-cheatsheet.html)
 1. [DUALITY FOR GROUPS](https://projecteuclid.org/download/pdf_1/euclid.bams/1183515045)
 1. https://gowers.wordpress.com/2011/11/20/normal-subgroups-and-quotient-groups/
 1. [Abstract Algebra: Theory and Applications](http://abstract.ups.edu/)
