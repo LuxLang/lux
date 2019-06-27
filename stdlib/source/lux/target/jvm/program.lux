@@ -6,22 +6,28 @@
    [control
     ["." state (#+ State)]
     ["." writer (#+ Writer)]
-    ["." function]]
+    ["." function]
+    ["." exception (#+ exception:)]]
    [data
     ["." error (#+ Error)]
+    [text
+     ["%" format]]
     [number
      ["." nat]]
     [collection
      ["." dictionary (#+ Dictionary)]]]]
   ["." / #_
-   ["#." instruction (#+ Instruction) ("#@." monoid)]
-   [//
+   ["#." condition (#+ Local)]
+   ["#." jump (#+ Jump Big-Jump)]
+   ["#." instruction (#+ Primitive-Array-Type Instruction) ("#@." monoid)]
+   ["/#" // #_
+    ["#." index]
     [encoding
-     [unsigned (#+ U2)]]]])
+     ["#." unsigned (#+ U1 U2)]]
+    ["#." constant (#+ UTF8)
+     ["#/."pool (#+ Pool)]]]])
 
 (type: #export Label Nat)
-
-(type: #export Jump U2)
 
 (type: #export Address Nat)
 
@@ -65,21 +71,23 @@
               (wrap (/instruction@compose left right)))))))
 
 (type: #export (Program a)
-  (State Tracker (Writer Partial a)))
+  (State [Pool Tracker] (Writer Partial a)))
 
 (def: #export new-label
   (Program Label)
-  (function (_ tracker)
-    [(update@ #next-label inc tracker)
+  (function (_ [pool tracker])
+    [[pool
+      (update@ #next-label inc tracker)]
      [..partial-identity
       (get@ #next-label tracker)]]))
 
 (def: #export (set-label label)
   (-> Label (Program Any))
-  (function (_ tracker)
-    [(update@ #known-labels
-              (dictionary.put label (get@ #program-counter tracker))
-              tracker)
+  (function (_ [pool tracker])
+    [[pool
+      (update@ #known-labels
+               (dictionary.put label (get@ #program-counter tracker))
+               tracker)]
      [..partial-identity
       []]]))
 
@@ -88,12 +96,352 @@
   ## seems to have a bug that is being triggered here.
   (:coerce (Monad Program)
            (writer.with ..partial-monoid
-                        (: (Monad (State Tracker))
+                        (: (Monad (State [Pool Tracker]))
                            state.monad))))
 
-(def: #export (resolve program)
-  (All [a] (-> (Program a) (Error [Instruction a])))
-  (let [[tracker [partial output]] (state.run ..fresh program)]
+(def: #export (resolve pool program)
+  (All [a] (-> Pool (Program a) (Error [Pool Instruction a])))
+  (let [[[pool tracker] [partial output]] (state.run [pool ..fresh] program)]
     (do error.monad
       [instruction (partial (get@ #known-labels tracker))]
-      (wrap [instruction output]))))
+      (wrap [pool instruction output]))))
+
+(def: (nullary instruction)
+  (-> Instruction (Program Any))
+  (function (_ [pool tracker])
+    [[pool tracker]
+     [(function.constant (#error.Success instruction))
+      []]]))
+
+(template [<name> <instruction>]
+  [(def: #export <name> (nullary <instruction>))]
+
+  [nop /instruction.nop]
+  [aconst-null /instruction.aconst-null]
+
+  [iconst-m1 /instruction.iconst-m1]
+  [iconst-0 /instruction.iconst-0]
+  [iconst-1 /instruction.iconst-1]
+  [iconst-2 /instruction.iconst-2]
+  [iconst-3 /instruction.iconst-3]
+  [iconst-4 /instruction.iconst-4]
+  [iconst-5 /instruction.iconst-5]
+
+  [lconst-0 /instruction.lconst-0]
+  [lconst-1 /instruction.lconst-1]
+
+  [fconst-0 /instruction.fconst-0]
+  [fconst-1 /instruction.fconst-1]
+  [fconst-2 /instruction.fconst-2]
+  
+  [dconst-0 /instruction.dconst-0]
+  [dconst-1 /instruction.dconst-1]
+
+  [pop /instruction.pop]
+  [pop2 /instruction.pop2]
+  
+  [dup /instruction.dup]
+  [dup-x1 /instruction.dup-x1]
+  [dup-x2 /instruction.dup-x2]
+  [dup2 /instruction.dup2]
+  [dup2-x1 /instruction.dup2-x1]
+  [dup2-x2 /instruction.dup2-x2]
+  
+  [swap /instruction.swap]
+
+  [istore-0 /instruction.istore-0]
+  [istore-1 /instruction.istore-1]
+  [istore-2 /instruction.istore-2]
+  [istore-3 /instruction.istore-3]
+
+  [lstore-0 /instruction.lstore-0]
+  [lstore-1 /instruction.lstore-1]
+  [lstore-2 /instruction.lstore-2]
+  [lstore-3 /instruction.lstore-3]
+
+  [fstore-0 /instruction.fstore-0]
+  [fstore-1 /instruction.fstore-1]
+  [fstore-2 /instruction.fstore-2]
+  [fstore-3 /instruction.fstore-3]
+
+  [dstore-0 /instruction.dstore-0]
+  [dstore-1 /instruction.dstore-1]
+  [dstore-2 /instruction.dstore-2]
+  [dstore-3 /instruction.dstore-3]
+  
+  [astore-0 /instruction.astore-0]
+  [astore-1 /instruction.astore-1]
+  [astore-2 /instruction.astore-2]
+  [astore-3 /instruction.astore-3]
+
+  [iaload /instruction.iaload]
+  [laload /instruction.laload]
+  [faload /instruction.faload]
+  [daload /instruction.daload]
+  [aaload /instruction.aaload]
+  [baload /instruction.baload]
+  [caload /instruction.caload]
+  [saload /instruction.saload]
+
+  [iastore /instruction.iastore]
+  [lastore /instruction.lastore]
+  [fastore /instruction.fastore]
+  [dastore /instruction.dastore]
+  [aastore /instruction.aastore]
+  [bastore /instruction.bastore]
+  [castore /instruction.castore]
+  [sastore /instruction.sastore]
+
+  [iadd /instruction.iadd]
+  [isub /instruction.isub]
+  [imul /instruction.imul]
+  [idiv /instruction.idiv]
+  [irem /instruction.irem]
+  [ineg /instruction.ineg]
+  [ishl /instruction.ishl]
+  [ishr /instruction.ishr]
+  [iushr /instruction.iushr]
+  [iand /instruction.iand]
+  [ior /instruction.ior]
+  [ixor /instruction.ixor]
+
+  [ladd /instruction.ladd]
+  [lsub /instruction.lsub]
+  [lmul /instruction.lmul]
+  [ldiv /instruction.ldiv]
+  [lrem /instruction.lrem]
+  [lneg /instruction.lneg]
+  [land /instruction.land]
+  [lor /instruction.lor]
+  [lxor /instruction.lxor]
+  
+  [fadd /instruction.fadd]
+  [fsub /instruction.fsub]
+  [fmul /instruction.fmul]
+  [fdiv /instruction.fdiv]
+  [frem /instruction.frem]
+  [fneg /instruction.fneg]
+  
+  [dadd /instruction.dadd]
+  [dsub /instruction.dsub]
+  [dmul /instruction.dmul]
+  [ddiv /instruction.ddiv]
+  [drem /instruction.drem]
+  [dneg /instruction.dneg]
+
+  [lshl /instruction.lshl]
+  [lshr /instruction.lshr]
+  [lushr /instruction.lushr]
+
+  [l2i /instruction.l2i]
+  [l2f /instruction.l2f]
+  [l2d /instruction.l2d]
+  
+  [f2i /instruction.f2i]
+  [f2l /instruction.f2l]
+  [f2d /instruction.f2d]
+  
+  [d2i /instruction.d2i]
+  [d2l /instruction.d2l]
+  [d2f /instruction.d2f]
+
+  [i2l /instruction.i2l]
+  [i2f /instruction.i2f]
+  [i2d /instruction.i2d]
+  [i2b /instruction.i2b]
+  [i2c /instruction.i2c]
+  [i2s /instruction.i2s]
+
+  [lcmp /instruction.lcmp]
+  
+  [fcmpl /instruction.fcmpl]
+  [fcmpg /instruction.fcmpg]
+
+  [dcmpl /instruction.dcmpl]
+  [dcmpg /instruction.dcmpg]
+
+  [ireturn /instruction.ireturn]
+  [lreturn /instruction.lreturn]
+  [freturn /instruction.freturn]
+  [dreturn /instruction.dreturn]
+  [areturn /instruction.areturn]
+  [return /instruction.return]
+
+  [arraylength /instruction.arraylength]
+  
+  [athrow /instruction.athrow]
+  
+  [monitorenter /instruction.monitorenter]
+  [monitorexit /instruction.monitorexit]
+  )
+
+(def: #export (bipush byte)
+  (-> U1 (Program Any))
+  (function (_ [pool tracker])
+    [[pool tracker]
+     [(function.constant (#error.Success (/instruction.bipush byte)))
+      []]]))
+
+(def: (lift on-pool)
+  (All [a]
+    (-> (State Pool a)
+        (Program a)))
+  (function (_ [pool tracker])
+    (let [[pool' output] (state.run pool on-pool)]
+      [[pool' tracker]
+       [..partial-identity
+        output]])))
+
+(def: max-u1
+  (|> //unsigned.max-u1 //unsigned.nat //unsigned.u2))
+
+(template [<name> <type> <constant> <ldc>]
+  [(def: #export (<name> value)
+     (-> <type> (Program Any))
+     (do ..monad
+       [index (..lift (<constant> value))
+        #let [index' (//index.number index)]]
+       (..nullary (if (:: //unsigned.order < ..max-u1 index')
+                    (/instruction.ldc (|> index' //unsigned.nat //unsigned.u1))
+                    (<ldc> index)))))]
+
+  [ldc/long //constant.Long //constant/pool.long /instruction.ldc2-w/long]
+  [ldc/double //constant.Double //constant/pool.double /instruction.ldc2-w/double]
+  )
+
+(template [<name> <instruction> <input>]
+  [(def: #export <name>
+     (-> <input> (Program Any))
+     (|>> <instruction> nullary))]
+
+  [iload /instruction.iload Local]
+  [lload /instruction.lload Local]
+  [fload /instruction.fload Local]
+  [dload /instruction.dload Local]
+  [aload /instruction.aload Local]
+
+  [istore /instruction.istore Local]
+  [lstore /instruction.lstore Local]
+  [fstore /instruction.fstore Local]
+  [dstore /instruction.dstore Local]
+  [astore /instruction.astore Local]
+
+  [ret /instruction.ret Local]
+
+  [newarray /instruction.newarray Primitive-Array-Type]
+
+  [sipush /instruction.sipush U2]
+  )
+
+(exception: #export (unknown-label {label Label})
+  (exception.report
+   ["Label" (%.nat label)]))
+
+(exception: #export (cannot-do-a-big-jump {label Label}
+                                          {@from Address}
+                                          {jump Big-Jump})
+  (exception.report
+   ["Label" (%.nat label)]
+   ["Start" (%.nat @from)]
+   ["Target" (|> jump //unsigned.nat .int %.int)]))
+
+(def: (jump @from @to)
+  (-> Address Address (Either Jump Big-Jump))
+  (let [jump (.int (n/- @to @from))
+        big? (n/> (//unsigned.nat //unsigned.max-u2)
+                  (.nat (i/* (if (i/>= +0 jump)
+                               +1
+                               -1)
+                             jump)))]
+    (if big?
+      (#.Right (//unsigned.u4 (.nat jump)))
+      (#.Left (//unsigned.u2 (.nat jump))))))
+
+(template [<name> <instruction>]
+  [(def: #export (<name> label)
+     (-> Label (Program Any))
+     (function (_ [pool tracker])
+       (let [@from (get@ #program-counter tracker)]
+         [[pool tracker]
+          [(function (_ resolver)
+             (case (dictionary.get label resolver)
+               (#.Some @to)
+               (case (jump @from @to)
+                 (#.Left jump)
+                 (#error.Success (<instruction> jump))
+
+                 (#.Right jump)
+                 (exception.throw ..cannot-do-a-big-jump [label @from jump]))
+
+               #.None
+               (exception.throw ..unknown-label [label])))
+           []]])))]
+
+  [ifeq /instruction.ifeq]
+  [ifne /instruction.ifne]
+  [iflt /instruction.iflt]
+  [ifge /instruction.ifge]
+  [ifgt /instruction.ifgt]
+  [ifle /instruction.ifle]
+  
+  [if-icmpeq /instruction.if-icmpeq]
+  [if-icmpne /instruction.if-icmpne]
+  [if-icmplt /instruction.if-icmplt]
+  [if-icmpge /instruction.if-icmpge]
+  [if-icmpgt /instruction.if-icmpgt]
+  [if-icmple /instruction.if-icmple]
+  
+  [if-acmpeq /instruction.if-acmpeq]
+  [if-acmpne /instruction.if-acmpne]
+  
+  [ifnull /instruction.ifnull]
+  [ifnonnull /instruction.ifnonnull]
+  )
+
+(template [<name> <normal-instruction> <wide-instruction>]
+  [(def: #export (<name> label)
+     (-> Label (Program Any))
+     (function (_ [pool tracker])
+       (let [@from (get@ #program-counter tracker)]
+         [[pool tracker]
+          [(function (_ resolver)
+             (case (dictionary.get label resolver)
+               (#.Some @to)
+               (case (jump @from @to)
+                 (#.Left jump)
+                 (#error.Success (<normal-instruction> jump))
+
+                 (#.Right jump)
+                 (#error.Success (<wide-instruction> jump)))
+
+               #.None
+               (exception.throw ..unknown-label [label])))
+           []]])))]
+
+  [goto /instruction.goto /instruction.goto-w]
+  [jsr /instruction.jsr /instruction.jsr-w]
+  )
+
+(template [<name> <instruction>]
+  [(def: #export (<name> class)
+     (-> UTF8 (Program Any))
+     (do ..monad
+       ## TODO: Make sure it"s impossible to have indexes greater than U2.
+       [index (..lift (//constant/pool.class class))]
+       (..nullary (<instruction> index))))]
+
+  [new /instruction.new]
+  [anewarray /instruction.anewarray]
+  [checkcast /instruction.checkcast]
+  [instanceof /instruction.instanceof]
+  )
+
+(def: #export (iinc register increase)
+  (-> Local U1 (Program Any))
+  (..nullary (/instruction.iinc register increase)))
+
+(def: #export (multianewarray class count)
+  (-> UTF8 U1 (Program Any))
+  (do ..monad
+    [index (..lift (//constant/pool.class class))]
+    (..nullary (/instruction.multianewarray index count))))
