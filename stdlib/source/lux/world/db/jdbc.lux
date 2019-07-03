@@ -4,6 +4,7 @@
     [functor (#+ Functor)]
     [apply (#+ Apply)]
     [monad (#+ Monad do)]
+    ["." try (#+ Try)]
     ["ex" exception]
     [concurrency
      ["." promise (#+ Promise) ("#;." monad)]]
@@ -11,7 +12,6 @@
      ["!" capability (#+ capability:)]]]
    [data
     ["." product]
-    ["." error (#+ Error)]
     [text
      ["%" format (#+ format)]]
     [collection
@@ -63,17 +63,17 @@
 
 (template [<name> <forge> <output>]
   [(capability: #export (<name> ! i)
-     (<forge> (Statement i) (! (Error <output>))))]
+     (<forge> (Statement i) (! (Try <output>))))]
 
   [Can-Execute can-execute Nat]
   [Can-Insert  can-insert  (List ID)]
   )
 
 (capability: #export (Can-Query ! i o)
-  (can-query [(Statement i) (Output o)] (! (Error (List o)))))
+  (can-query [(Statement i) (Output o)] (! (Try (List o)))))
 
 (capability: #export (Can-Close !)
-  (can-close Any (! (Error Any))))
+  (can-close Any (! (Try Any))))
 
 (signature: #export (DB !)
   (: (Can-Execute !)
@@ -88,9 +88,9 @@
 (def: (with-statement statement conn action)
   (All [i a]
     (-> (Statement i) java/sql/Connection
-        (-> java/sql/PreparedStatement (IO (Error a)))
-        (IO (Error a))))
-  (do (error.with io.monad)
+        (-> java/sql/PreparedStatement (IO (Try a)))
+        (IO (Try a))))
+  (do (try.with io.monad)
     [prepared (io.io (java/sql/Connection::prepareStatement (sql.sql (get@ #sql statement))
                                                             (java/sql/Statement::RETURN_GENERATED_KEYS)
                                                             conn))
@@ -111,8 +111,8 @@
              [query can-query])))))
 
 (def: #export (connect creds)
-  (-> Credentials (IO (Error (DB IO))))
-  (do (error.with io.monad)
+  (-> Credentials (IO (Try (DB IO))))
+  (do (try.with io.monad)
     [connection (java/sql/DriverManager::getConnection (get@ #url creds)
                                                        (get@ #user creds)
                                                        (get@ #password creds))]
@@ -123,7 +123,7 @@
                  (function (execute statement)
                    (with-statement statement connection
                      (function (_ prepared)
-                       (do (error.with io.monad)
+                       (do (try.with io.monad)
                          [row-count (java/sql/PreparedStatement::executeUpdate prepared)]
                          (wrap (.nat row-count))))))))
 
@@ -132,7 +132,7 @@
                  (function (insert statement)
                    (with-statement statement connection
                      (function (_ prepared)
-                       (do (error.with io.monad)
+                       (do (try.with io.monad)
                          [_ (java/sql/PreparedStatement::executeUpdate prepared)
                           result-set (io.io (java/sql/Statement::getGeneratedKeys prepared))]
                          (/output.rows /output.long result-set)))))))
@@ -147,7 +147,7 @@
                  (function (query [statement output])
                    (with-statement statement connection
                      (function (_ prepared)
-                       (do (error.with io.monad)
+                       (do (try.with io.monad)
                          [result-set (java/sql/PreparedStatement::executeQuery prepared)]
                          (/output.rows output result-set)))))))
               )))))
@@ -155,9 +155,9 @@
 (def: #export (with-db creds action)
   (All [a]
     (-> Credentials
-        (-> (DB IO) (IO (Error a)))
-        (IO (Error a))))
-  (do (error.with io.monad)
+        (-> (DB IO) (IO (Try a)))
+        (IO (Try a))))
+  (do (try.with io.monad)
     [db (..connect creds)
      result (action db)
      _ (!.use (:: db close) [])]
@@ -166,9 +166,9 @@
 (def: #export (with-async-db creds action)
   (All [a]
     (-> Credentials
-        (-> (DB Promise) (Promise (Error a)))
-        (Promise (Error a))))
-  (do (error.with promise.monad)
+        (-> (DB Promise) (Promise (Try a)))
+        (Promise (Try a))))
+  (do (try.with promise.monad)
     [db (promise.future (..connect creds))
      result (action (..async db))
      _ (promise;wrap (io.run (!.use (:: db close) [])))]

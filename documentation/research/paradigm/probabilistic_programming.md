@@ -5,6 +5,7 @@
 
 # Inference
 
+1. [Gen: A general-purpose probabilistic programming system with programmable inference.](https://probcomp.github.io/Gen/)
 1. [Probabilistic Programming with Programmable Inference](https://people.csail.mit.edu/rinard/paper/pldi18.pdf)
 1. https://www.microsoft.com/en-us/research/blog/dowhy-a-library-for-causal-inference/
 

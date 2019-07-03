@@ -4,9 +4,8 @@
     [functor (#+ Functor)]
     [apply (#+ Apply)]
     [monad (#+ Monad do)]
-    ["ex" exception]]
-   [data
-    ["." error (#+ Error)]]
+    ["ex" exception]
+    ["." try (#+ Try)]]
    [time
     ["." instant (#+ Instant)]]
    ["." io (#+ IO)]
@@ -48,17 +47,17 @@
       (close [] #io #try void)))
 
 (type: #export (Output a)
-  (-> [Nat java/sql/ResultSet] (Error [Nat a])))
+  (-> [Nat java/sql/ResultSet] (Try [Nat a])))
 
 (structure: #export functor (Functor Output)
   (def: (map f fa)
     (function (_ idx+rs)
       (case (fa idx+rs)
-        (#error.Failure error)
-        (#error.Failure error)
+        (#try.Failure error)
+        (#try.Failure error)
         
-        (#error.Success [idx' value])
-        (#error.Success [idx' (f value)])))))
+        (#try.Success [idx' value])
+        (#try.Success [idx' (f value)])))))
 
 (structure: #export apply (Apply Output)
   (def: &functor ..functor)
@@ -66,16 +65,16 @@
   (def: (apply ff fa)
     (function (_ [idx rs])
       (case (ff [idx rs])
-        (#error.Success [idx' f])
+        (#try.Success [idx' f])
         (case (fa [idx' rs])
-          (#error.Success [idx'' a])
-          (#error.Success [idx'' (f a)])
+          (#try.Success [idx'' a])
+          (#try.Success [idx'' (f a)])
 
-          (#error.Failure msg)
-          (#error.Failure msg))
+          (#try.Failure msg)
+          (#try.Failure msg))
 
-        (#error.Failure msg)
-        (#error.Failure msg)))))
+        (#try.Failure msg)
+        (#try.Failure msg)))))
 
 (structure: #export monad (Monad Output)
   (def: &functor ..functor)
@@ -87,16 +86,16 @@
   (def: (join mma)
     (function (_ [idx rs])
       (case (mma [idx rs])
-        (#error.Failure error)
-        (#error.Failure error)
+        (#try.Failure error)
+        (#try.Failure error)
         
-        (#error.Success [idx' ma])
+        (#try.Success [idx' ma])
         (ma [idx' rs])))))
 
 (def: #export (fail error)
   (All [a] (-> Text (Output a)))
   (function (_ [idx result-set])
-    (#error.Failure error)))
+    (#try.Failure error)))
 
 (def: #export (and left right)
   (All [a b]
@@ -111,11 +110,11 @@
      (Output <type>)
      (function (_ [idx result-set])
        (case (<method-name> [(.int idx)] result-set)
-         (#error.Failure error)
-         (#error.Failure error)
+         (#try.Failure error)
+         (#try.Failure error)
 
-         (#error.Success value)
-         (#error.Success [(inc idx) value]))))]
+         (#try.Success value)
+         (#try.Success [(inc idx) value]))))]
 
   [boolean java/sql/ResultSet::getBoolean Bit]
 
@@ -136,12 +135,12 @@
      (Output Instant)
      (function (_ [idx result-set])
        (case (<method-name> [(.int idx)] result-set)
-         (#error.Failure error)
-         (#error.Failure error)
+         (#try.Failure error)
+         (#try.Failure error)
 
-         (#error.Success value)
-         (#error.Success [(inc idx)
-                          (instant.from-millis (java/util/Date::getTime value))]))))]
+         (#try.Success value)
+         (#try.Success [(inc idx)
+                        (instant.from-millis (java/util/Date::getTime value))]))))]
 
   [date       java/sql/ResultSet::getDate]
   [time       java/sql/ResultSet::getTime]
@@ -149,41 +148,41 @@
   )
 
 (def: #export (rows output results)
-  (All [a] (-> (Output a) java/sql/ResultSet (IO (Error (List a)))))
+  (All [a] (-> (Output a) java/sql/ResultSet (IO (Try (List a)))))
   (case (java/sql/ResultSet::next results)
-    (#error.Success has-next?)
+    (#try.Success has-next?)
     (if has-next?
       (case (output [1 results])
         (#.Some [_ head])
         (do io.monad
           [?tail (rows output results)]
           (case ?tail
-            (#error.Success tail)
+            (#try.Success tail)
             (wrap (ex.return (#.Cons head tail)))
 
-            (#error.Failure error)
+            (#try.Failure error)
             (do io.monad
               [temp (java/sql/ResultSet::close results)]
-              (wrap (do error.monad
+              (wrap (do try.monad
                       [_ temp]
-                      (error.fail error))))))
+                      (try.fail error))))))
 
-        (#error.Failure error)
+        (#try.Failure error)
         (do io.monad
           [temp (java/sql/ResultSet::close results)]
-          (wrap (do error.monad
+          (wrap (do try.monad
                   [_ temp]
-                  (error.fail error)))))
+                  (try.fail error)))))
       (do io.monad
         [temp (java/sql/ResultSet::close results)]
-        (wrap (do error.monad
+        (wrap (do try.monad
                 [_ temp]
                 (wrap (list))))))
 
-    (#error.Failure error)
+    (#try.Failure error)
     (do io.monad
       [temp (java/sql/ResultSet::close results)]
-      (wrap (do error.monad
+      (wrap (do try.monad
               [_ temp]
-              (error.fail error))))
+              (try.fail error))))
     ))

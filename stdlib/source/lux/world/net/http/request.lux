@@ -3,6 +3,7 @@
    [control
     pipe
     ["." monad (#+ do)]
+    ["." try (#+ Try)]
     [concurrency
      ["." promise (#+ Promise)]
      ["." frp]]
@@ -10,7 +11,6 @@
      ["<.>" json]]]
    [data
     ["." maybe]
-    ["." error (#+ Error)]
     ["." number]
     ["." text
      ["." encoding]]
@@ -29,11 +29,11 @@
 
 (def: (merge inputs)
   (-> (List Binary) Binary)
-  (let [[_ output] (error.assume
-                    (monad.fold error.monad
+  (let [[_ output] (try.assume
+                    (monad.fold try.monad
                                 (function (_ input [offset output])
                                   (let [amount (binary.size input)]
-                                    (:: error.functor map (|>> [(n/+ amount offset)])
+                                    (:: try.functor map (|>> [(n/+ amount offset)])
                                         (binary.copy amount 0 input offset output))))
                                 [0 (|> inputs
                                        (list;map binary.size)
@@ -43,7 +43,7 @@
     output))
 
 (def: (read-text-body body)
-  (-> Body (Promise (Error Text)))
+  (-> Body (Promise (Try Text)))
   (do promise.monad
     [blobs (frp.consume body)]
     (wrap (encoding.from-utf8 (merge blobs)))))
@@ -55,14 +55,14 @@
   (function (_ (^@ request [identification protocol resource message]))
     (do promise.monad
       [?raw (read-text-body (get@ #//.body message))]
-      (case (do error.monad
+      (case (do try.monad
               [raw ?raw
                content (:: json.codec decode raw)]
               (json.run content reader))
-        (#error.Success input)
+        (#try.Success input)
         (server input request)
         
-        (#error.Failure error)
+        (#try.Failure error)
         (promise.resolved ..failure)))))
 
 (def: #export (text server)
@@ -71,10 +71,10 @@
     (do promise.monad
       [?raw (read-text-body (get@ #//.body message))]
       (case ?raw
-        (#error.Success content)
+        (#try.Success content)
         (server content request)
         
-        (#error.Failure error)
+        (#try.Failure error)
         (promise.resolved ..failure)))))
 
 (def: #export (query property server)
@@ -84,15 +84,15 @@
           [uri query] (|> full
                           (text.split-with "?")
                           (maybe.default [full ""]))]
-      (case (do error.monad
+      (case (do try.monad
               [query (//query.parameters query)
                input (context.run query property)]
               (wrap [[identification protocol (set@ #//.uri uri resource) message]
                      input]))
-        (#error.Success [request input])
+        (#try.Success [request input])
         (server input request)
         
-        (#error.Failure error)
+        (#try.Failure error)
         (promise.resolved ..failure)))))
 
 (def: #export (form property server)
@@ -100,27 +100,27 @@
   (function (_ (^@ request [identification protocol resource message]))
     (do promise.monad
       [?body (read-text-body (get@ #//.body message))]
-      (case (do error.monad
+      (case (do try.monad
               [body ?body
                form (//query.parameters body)]
               (context.run form property))
-        (#error.Success input)
+        (#try.Success input)
         (server input request)
         
-        (#error.Failure error)
+        (#try.Failure error)
         (promise.resolved ..failure)))))
 
 (def: #export (cookies property server)
   (All [a] (-> (Property a) (-> a Server) Server))
   (function (_ (^@ request [identification protocol resource message]))
-    (case (do error.monad
+    (case (do try.monad
             [cookies (|> (get@ #//.headers message)
                          (dictionary.get "Cookie")
                          (maybe.default "")
                          //cookie.get)]
             (context.run cookies property))
-      (#error.Success input)
+      (#try.Success input)
       (server input request)
       
-      (#error.Failure error)
+      (#try.Failure error)
       (promise.resolved ..failure))))

@@ -184,6 +184,7 @@
 
 # Graph Theory
 
+1. [Graphs and Geometry](http://web.cs.elte.hu/~lovasz/bookxx/geomgraphbook/geombook2019.01.11.pdf)
 1. [Graph-Based Algorithms for Boolean Function Manipulation](http://mtv.ece.ucsb.edu/courses/ece156B_14/randy_obdd86.pdf)
 1. [better geometry through graph theory](http://ideolalia.com/2018/08/28/artifex.html)
 
@@ -232,6 +233,7 @@
 
 # Linear programming
 
+1. https://en.wikibooks.org/wiki/GLPK
 1. https://white.ucc.asn.au/2018/05/28/Optimizing-your-diet-with-JuMP.html
 
 # Combinatorics
@@ -270,6 +272,10 @@
 # Spherical trigonometry
 
 1. https://en.wikipedia.org/wiki/Haversine_formula
+
+# Hyperbolic geometry
+
+1. [Hyperbolic Functions and Non-Hyperbolic Claims](https://elliptigon.com/hyperbolic-functions-explained/)
 
 # **Temp Cache**
 

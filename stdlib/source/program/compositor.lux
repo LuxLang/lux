@@ -5,13 +5,13 @@
     [monad (#+ do)]]
    [control
     ["." io (#+ IO io)]
+    ["." try (#+ Try)]
     [parser
      [cli (#+ program:)]]
     [security
      ["!" capability]]]
    [data
     ["." product]
-    ["." error (#+ Error)]
     ["." text
      ["%" format (#+ format)]]
     [collection
@@ -44,24 +44,24 @@
 
 (def: (or-crash! failure-description action)
   (All [a]
-    (-> Text (IO (Error a)) (IO a)))
+    (-> Text (IO (Try a)) (IO a)))
   (do io.monad
     [?output action]
     (case ?output
-      (#error.Failure error)
+      (#try.Failure error)
       (exec (log! (format text.new-line
                           failure-description text.new-line
                           error text.new-line))
         (io.exit +1))
 
-      (#error.Success output)
+      (#try.Success output)
       (wrap output))))
 
 (def: (save-artifacts! system state)
   (All [anchor expression statement]
     (-> (file.System IO)
         (statement.State+ anchor expression statement)
-        (IO (Error Any))))
+        (IO (Try Any))))
   (let [?outcome (phase.run' state
                              (:share [anchor expression statement]
                                      {(statement.State+ anchor expression statement)
@@ -70,14 +70,14 @@
                                                            (generation.Output statement))
                                       (statement.lift-generation generation.output)}))]
     (case ?outcome
-      (#error.Success [state output])
-      (do (error.with io.monad)
-        [file (: (IO (Error (File IO)))
+      (#try.Success [state output])
+      (do (try.with io.monad)
+        [file (: (IO (Try (File IO)))
                  (file.get-file io.monad system "program.js"))]
         (!.use (:: file over-write) (script.package output)))
 
-      (#error.Failure error)
-      (:: io.monad wrap (#error.Failure error)))))
+      (#try.Failure error)
+      (:: io.monad wrap (#try.Failure error)))))
 
 (def: #export (compiler target partial-host-extension expander host-analysis platform generation-bundle host-statement-bundle program service)
   (All [anchor expression statement]
@@ -93,20 +93,20 @@
         (IO Any)))
   (do io.monad
     [platform platform
-     console (:: @ map error.assume console.system)]
+     console (:: @ map try.assume console.system)]
     (case service
       (#cli.Compilation configuration)
       (<| (or-crash! "Compilation failed:")
-          (do (error.with io.monad)
+          (do (try.with io.monad)
             [state (:share [anchor expression statement]
                            {(Platform IO anchor expression statement)
                             platform}
-                           {(IO (Error (statement.State+ anchor expression statement)))
+                           {(IO (Try (statement.State+ anchor expression statement)))
                             (platform.initialize target expander host-analysis platform generation-bundle host-statement-bundle program)})
              [archive state] (:share [anchor expression statement]
                                      {(Platform IO anchor expression statement)
                                       platform}
-                                     {(IO (Error [Archive (statement.State+ anchor expression statement)]))
+                                     {(IO (Try [Archive (statement.State+ anchor expression statement)]))
                                       (platform.compile partial-host-extension expander platform configuration archive.empty state)})
              _ (save-artifacts! (get@ #platform.&file-system platform) state)
              ## _ (cache/io.clean target ...)
@@ -117,5 +117,5 @@
       ## TODO: Fix the interpreter...
       (undefined)
       ## (<| (or-crash! "Interpretation failed:")
-      ##     (interpreter.run (error.with io.monad) console platform configuration generation-bundle))
+      ##     (interpreter.run (try.with io.monad) console platform configuration generation-bundle))
       )))

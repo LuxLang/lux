@@ -5,15 +5,16 @@
     [apply (#+ Apply)]
     [monad (#+ Monad do)]
     [codec (#+ Codec)]]
+   [control
+    ["." try (#+ Try)]]
    [data
     [collection
      ["." list ("#@." functor monoid)]]
-    ["." product]
-    ["." error (#+ Error)]]])
+    ["." product]]])
 
 (type: #export (Parser s a)
   {#.doc "A generic parser."}
-  (-> s (Error [s a])))
+  (-> s (Try [s a])))
 
 (structure: #export functor
   (All [s] (Functor (Parser s)))
@@ -21,11 +22,11 @@
   (def: (map f ma)
     (function (_ input)
       (case (ma input)
-        (#error.Failure msg)
-        (#error.Failure msg)
+        (#try.Failure msg)
+        (#try.Failure msg)
 
-        (#error.Success [input' a])
-        (#error.Success [input' (f a)])))))
+        (#try.Success [input' a])
+        (#try.Success [input' (f a)])))))
 
 (structure: #export apply
   (All [s] (Apply (Parser s)))
@@ -35,16 +36,16 @@
   (def: (apply ff fa)
     (function (_ input)
       (case (ff input)
-        (#error.Success [input' f])
+        (#try.Success [input' f])
         (case (fa input')
-          (#error.Success [input'' a])
-          (#error.Success [input'' (f a)])
+          (#try.Success [input'' a])
+          (#try.Success [input'' (f a)])
 
-          (#error.Failure msg)
-          (#error.Failure msg))
+          (#try.Failure msg)
+          (#try.Failure msg))
 
-        (#error.Failure msg)
-        (#error.Failure msg)))))
+        (#try.Failure msg)
+        (#try.Failure msg)))))
 
 (structure: #export monad
   (All [s] (Monad (Parser s)))
@@ -53,15 +54,15 @@
 
   (def: (wrap x)
     (function (_ input)
-      (#error.Success [input x])))
+      (#try.Success [input x])))
 
   (def: (join mma)
     (function (_ input)
       (case (mma input)
-        (#error.Failure msg)
-        (#error.Failure msg)
+        (#try.Failure msg)
+        (#try.Failure msg)
 
-        (#error.Success [input' ma])
+        (#try.Success [input' ma])
         (ma input')))))
 
 (def: #export (assert message test)
@@ -69,8 +70,8 @@
   (All [s] (-> Text Bit (Parser s Any)))
   (function (_ input)
     (if test
-      (#error.Success [input []])
-      (#error.Failure message))))
+      (#try.Success [input []])
+      (#try.Failure message))))
 
 (def: #export (maybe p)
   {#.doc "Optionality combinator."}
@@ -78,15 +79,15 @@
     (-> (Parser s a) (Parser s (Maybe a))))
   (function (_ input)
     (case (p input)
-      (#error.Failure _)
-      (#error.Success [input #.None])
+      (#try.Failure _)
+      (#try.Success [input #.None])
       
-      (#error.Success [input' x])
-      (#error.Success [input' (#.Some x)]))))
+      (#try.Success [input' x])
+      (#try.Success [input' (#.Some x)]))))
 
 (def: #export (run p input)
   (All [s a]
-    (-> (Parser s a) s (Error [s a])))
+    (-> (Parser s a) s (Try [s a])))
   (p input))
 
 (def: #export (some p)
@@ -95,10 +96,10 @@
     (-> (Parser s a) (Parser s (List a))))
   (function (_ input)
     (case (p input)
-      (#error.Failure _)
-      (#error.Success [input (list)])
+      (#try.Failure _)
+      (#try.Success [input (list)])
 
-      (#error.Success [input' x])
+      (#try.Success [input' x])
       (run (do ..monad
              [xs (some p)]
              (wrap (list& x xs)))
@@ -128,10 +129,10 @@
     (-> (Parser s a) (Parser s b) (Parser s (| a b))))
   (function (_ tokens)
     (case (p1 tokens)
-      (#error.Success [tokens' x1])
-      (#error.Success [tokens' (0 x1)])
+      (#try.Success [tokens' x1])
+      (#try.Success [tokens' (0 x1)])
       
-      (#error.Failure _)
+      (#try.Failure _)
       (run (do ..monad
              [x2 p2]
              (wrap (1 x2)))
@@ -144,7 +145,7 @@
     (-> (Parser s a) (Parser s a) (Parser s a)))
   (function (_ tokens)
     (case (pl tokens)
-      (#error.Failure _)
+      (#try.Failure _)
       (pr tokens)
       
       output
@@ -175,10 +176,10 @@
   (if (n/> 0 n)
     (function (_ input)
       (case (p input)
-        (#error.Failure msg)
-        (#error.Success [input (list)])
+        (#try.Failure msg)
+        (#try.Success [input (list)])
 
-        (#error.Success [input' x])
+        (#try.Success [input' x])
         (run (do ..monad
                [xs (at-most (dec n) p)]
                (wrap (#.Cons x xs)))
@@ -213,42 +214,42 @@
   (All [s a] (-> (Parser s a) (Parser s Any)))
   (function (_ input)
     (case (p input)
-      (#error.Failure msg)
-      (#error.Success [input []])
+      (#try.Failure msg)
+      (#try.Success [input []])
       
       _
-      (#error.Failure "Expected to fail; yet succeeded."))))
+      (#try.Failure "Expected to fail; yet succeeded."))))
 
 (def: #export (fail message)
   (All [s a] (-> Text (Parser s a)))
   (function (_ input)
-    (#error.Failure message)))
+    (#try.Failure message)))
 
 (def: #export (lift operation)
-  (All [s a] (-> (Error a) (Parser s a)))
+  (All [s a] (-> (Try a) (Parser s a)))
   (function (_ input)
     (case operation
-      (#error.Success output)
-      (#error.Success [input output])
+      (#try.Success output)
+      (#try.Success [input output])
       
-      (#error.Failure error)
-      (#error.Failure error))))
+      (#try.Failure error)
+      (#try.Failure error))))
 
 (def: #export (default value parser)
   {#.doc "If the given parser fails, returns the default value."}
   (All [s a] (-> a (Parser s a) (Parser s a)))
   (function (_ input)
     (case (parser input)
-      (#error.Failure error)
-      (#error.Success [input value])
+      (#try.Failure error)
+      (#try.Success [input value])
 
-      (#error.Success [input' output])
-      (#error.Success [input' output]))))
+      (#try.Success [input' output])
+      (#try.Success [input' output]))))
 
 (def: #export remaining
   (All [s] (Parser s s))
   (function (_ inputs)
-    (#error.Success [inputs inputs])))
+    (#try.Success [inputs inputs])))
 
 (def: #export (rec parser)
   {#.doc "Combinator for recursive parser."}
@@ -280,23 +281,23 @@
   (All [s a] (-> (Parser s a) (Parser s Bit)))
   (function (_ input)
     (case (parser input)
-      (#error.Failure error)
-      (#error.Success [input false])
+      (#try.Failure error)
+      (#try.Success [input false])
 
-      (#error.Success [input' _])
-      (#error.Success [input' true]))))
+      (#try.Success [input' _])
+      (#try.Success [input' true]))))
 
 (def: #export (codec Codec<a,z> parser)
   (All [s a z] (-> (Codec a z) (Parser s a) (Parser s z)))
   (function (_ input)
     (case (parser input)
-      (#error.Failure error)
-      (#error.Failure error)
+      (#try.Failure error)
+      (#try.Failure error)
 
-      (#error.Success [input' to-decode])
+      (#try.Success [input' to-decode])
       (case (:: Codec<a,z> decode to-decode)
-        (#error.Failure error)
-        (#error.Failure error)
+        (#try.Failure error)
+        (#try.Failure error)
         
-        (#error.Success value)
-        (#error.Success [input' value])))))
+        (#try.Success value)
+        (#try.Success [input' value])))))

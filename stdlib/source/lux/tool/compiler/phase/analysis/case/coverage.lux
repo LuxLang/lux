@@ -4,10 +4,10 @@
     equivalence
     ["." monad (#+ do)]]
    [control
+    ["." try (#+ Try) ("#@." monad)]
     ["ex" exception (#+ exception:)]]
    [data
     ["." bit ("#@." equivalence)]
-    ["." error (#+ Error) ("#@." monad)]
     ["." maybe]
     [number
      ["." nat]]
@@ -214,15 +214,15 @@
 ## pattern-matching expression is exhaustive and whether it contains
 ## redundant patterns.
 (def: #export (merge addition so-far)
-  (-> Coverage Coverage (Error Coverage))
+  (-> Coverage Coverage (Try Coverage))
   (case [addition so-far]
     [#Partial #Partial]
-    (error@wrap #Partial)
+    (try@wrap #Partial)
 
     ## 2 bit coverages are exhaustive if they complement one another.
     (^multi [(#Bit sideA) (#Bit sideSF)]
             (xor sideA sideSF))
-    (error@wrap #Exhaustive)
+    (try@wrap #Exhaustive)
 
     [(#Variant allA casesA) (#Variant allSF casesSF)]
     (let [addition-cases (cases allSF)
@@ -236,7 +236,7 @@
             (ex.throw redundant-pattern [so-far addition])
 
             ## else
-            (do error.monad
+            (do try.monad
               [casesM (monad.fold @
                                   (function (_ [tagA coverageA] casesSF')
                                     (case (dictionary.get tagA casesSF')
@@ -266,7 +266,7 @@
     (case [(coverage/= leftSF leftA) (coverage/= rightSF rightA)]
       ## Same prefix
       [#1 #0]
-      (do error.monad
+      (do try.monad
         [rightM (merge rightA rightSF)]
         (if (exhaustive? rightM)
           ## If all that follows is exhaustive, then it can be safely dropped
@@ -277,13 +277,13 @@
 
       ## Same suffix
       [#0 #1]
-      (do error.monad
+      (do try.monad
         [leftM (merge leftA leftSF)]
         (wrap (#Seq leftM rightA)))
 
       ## The 2 sequences cannot possibly be merged.
       [#0 #0]
-      (error@wrap (#Alt so-far addition))
+      (try@wrap (#Alt so-far addition))
 
       ## There is nothing the addition adds to the coverage.
       [#1 #1]
@@ -295,7 +295,7 @@
 
     ## The addition completes the coverage.
     [#Exhaustive _]
-    (error@wrap #Exhaustive)
+    (try@wrap #Exhaustive)
     
     ## The left part will always match, so the addition is redundant.
     (^multi [(#Seq left right) single]
@@ -305,7 +305,7 @@
     ## The right part is not necessary, since it can always match the left.
     (^multi [single (#Seq left right)]
             (coverage/= left single))
-    (error@wrap single)
+    (try@wrap single)
 
     ## When merging a new coverage against one based on Alt, it may be
     ## that one of the many coverages in the Alt is complementary to
@@ -317,10 +317,10 @@
     ## This process must be repeated until no further productive
     ## merges can be done.
     [_ (#Alt leftS rightS)]
-    (do error.monad
+    (do try.monad
       [#let [fuse-once (: (-> Coverage (List Coverage)
-                              (Error [(Maybe Coverage)
-                                      (List Coverage)]))
+                              (Try [(Maybe Coverage)
+                                    (List Coverage)]))
                           (function (_ coverageA possibilitiesSF)
                             (loop [altsSF possibilitiesSF]
                               (case altsSF
@@ -329,7 +329,7 @@
                                 
                                 (#.Cons altSF altsSF')
                                 (case (merge coverageA altSF)
-                                  (#error.Success altMSF)
+                                  (#try.Success altMSF)
                                   (case altMSF
                                     (#Alt _)
                                     (do @
@@ -339,8 +339,8 @@
                                     _
                                     (wrap [(#.Some altMSF) altsSF']))
                                   
-                                  (#error.Failure error)
-                                  (error.fail error))
+                                  (#try.Failure error)
+                                  (try.fail error))
                                 ))))]
        [successA possibilitiesSF] (fuse-once addition (flatten-alt so-far))]
       (loop [successA successA
@@ -366,4 +366,4 @@
       ## The addition cannot possibly improve the coverage.
       (ex.throw redundant-pattern [so-far addition])
       ## There are now 2 alternative paths.
-      (error@wrap (#Alt so-far addition)))))
+      (try@wrap (#Alt so-far addition)))))

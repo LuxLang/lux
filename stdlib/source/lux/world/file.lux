@@ -5,6 +5,7 @@
    [abstract
     ["." monad (#+ Monad do)]]
    [control
+    ["." try (#+ Try) ("#;." functor)]
     ["." exception (#+ Exception exception:)]
     ["." io (#+ IO) ("#;." functor)]
     [concurrency
@@ -14,7 +15,6 @@
    [data
     ["." product]
     ["." maybe]
-    ["." error (#+ Error) ("#;." functor)]
     ["." binary (#+ Binary)]
     ["." text
      ["%" format (#+ format)]]
@@ -30,16 +30,16 @@
 (type: #export Path Text)
 
 (capability: #export (Can-Open ! capability)
-  (can-open Path (! (Error (capability !)))))
+  (can-open Path (! (Try (capability !)))))
 
 (capability: #export (Can-Query ! o)
-  (can-query [] (! (Error o))))
+  (can-query [] (! (Try o))))
 
 (capability: #export (Can-Modify ! i)
-  (can-modify [i] (! (Error Any))))
+  (can-modify [i] (! (Try Any))))
 
 (capability: #export (Can-Delete !)
-  (can-delete [] (! (Error Any))))
+  (can-delete [] (! (Try Any))))
 
 (`` (signature: #export (File !)
       (~~ (template [<name> <output>]
@@ -113,14 +113,14 @@
               [[delete]]]))
 
        (def: move (..can-open
-                   (|>> (!.use (:: file move)) (io;map (error;map async-file)) promise.future))))))
+                   (|>> (!.use (:: file move)) (io;map (try;map async-file)) promise.future))))))
 
 (def: (async-directory directory)
   (-> (Directory IO) (Directory Promise))
   (`` (structure (~~ (template [<name> <async>]
                        [(def: <name> (..can-query
                                       (|>> (!.use (:: directory <name>))
-                                           (io;map (error;map (list@map <async>)))
+                                           (io;map (try;map (list@map <async>)))
                                            promise.future)))]
 
                        [files       ..async-file]
@@ -134,7 +134,7 @@
   (`` (structure
        (~~ (template [<name> <async>]
              [(def: <name> (..can-open
-                            (|>> (!.use (:: system <name>)) (io;map (error;map <async>)) promise.future)))]
+                            (|>> (!.use (:: system <name>)) (io;map (try;map <async>)) promise.future)))]
 
              [file             ..async-file]
              [create-file      ..async-file]
@@ -209,8 +209,8 @@
                                      (do io.monad
                                        [outcome (java/io/File::delete (java/io/File::new path))]
                                        (case outcome
-                                         (#error.Success #1)
-                                         (wrap (#error.Success []))
+                                         (#try.Success #1)
+                                         (wrap (#try.Success []))
 
                                          _
                                          (io.io (exception.throw exception [path])))))
@@ -238,7 +238,7 @@
                                            [(def: <name>
                                               (..can-modify
                                                (function (<name> data)
-                                                 (do (error.with io.monad)
+                                                 (do (try.with io.monad)
                                                    [stream (FileOutputStream::new (java/io/File::new path) <flag>)
                                                     _ (OutputStream::write data stream)
                                                     _ (OutputStream::flush stream)]
@@ -251,7 +251,7 @@
                                      (def: content
                                        (..can-query
                                         (function (content _)
-                                          (do (error.with io.monad)
+                                          (do (try.with io.monad)
                                             [#let [file (java/io/File::new path)]
                                              size (java/io/File::length file)
                                              #let [data (binary.create (.nat size))]
@@ -268,7 +268,7 @@
                                           (|> path
                                               java/io/File::new
                                               java/io/File::length
-                                              (:: (error.with io.monad) map .nat)))))
+                                              (:: (try.with io.monad) map .nat)))))
 
                                      (def: last-modified
                                        (..can-query
@@ -276,7 +276,7 @@
                                           (|> path
                                               java/io/File::new
                                               (java/io/File::lastModified)
-                                              (:: (error.with io.monad) map (|>> duration.from-millis instant.absolute))))))
+                                              (:: (try.with io.monad) map (|>> duration.from-millis instant.absolute))))))
 
                                      (def: can-execute?
                                        (..can-query
@@ -292,8 +292,8 @@
                                             [outcome (java/io/File::renameTo (java/io/File::new destination)
                                                                              (java/io/File::new path))]
                                             (case outcome
-                                              (#error.Success #1)
-                                              (wrap (#error.Success (file destination)))
+                                              (#try.Success #1)
+                                              (wrap (#try.Success (file destination)))
 
                                               _
                                               (io.io (exception.throw cannot-move [destination path])))))))
@@ -305,8 +305,8 @@
                                             [outcome (java/io/File::setLastModified (|> time-stamp instant.relative duration.to-millis)
                                                                                     (java/io/File::new path))]
                                             (case outcome
-                                              (#error.Success #1)
-                                              (wrap (#error.Success []))
+                                              (#try.Success #1)
+                                              (wrap (#try.Success []))
 
                                               _
                                               (io.io (exception.throw cannot-modify [time-stamp path])))))))
@@ -323,7 +323,7 @@
                                            [(def: <name>
                                               (..can-query
                                                (function (<name> _)
-                                                 (do (error.with io.monad)
+                                                 (do (try.with io.monad)
                                                    [?children (java/io/File::listFiles (java/io/File::new path))]
                                                    (case ?children
                                                      (#.Some children)
@@ -354,8 +354,8 @@
                                                    [#let [file (java/io/File::new path)]
                                                     outcome (<method> file)]
                                                    (case outcome
-                                                     (#error.Success #1)
-                                                     (wrap (#error.Success (<capability> path)))
+                                                     (#try.Success #1)
+                                                     (wrap (#try.Success (<capability> path)))
 
                                                      _
                                                      (wrap (exception.throw <exception> [path])))))))]
@@ -377,9 +377,6 @@
             (~~ (static @.js))
             (as-is (import: Buffer
                      (#static from [Binary] ..Buffer))
-                   
-                   (import: NodeJsError
-                     (code host.String))
                    
                    (import: FileDescriptor)
 
@@ -439,35 +436,35 @@
                        (..can-query
                         (function (size _)
                           (|> (Fs::statSync [path] (!fs))
-                              (:: error.monad map (|>> Stats::size frac-to-nat))
+                              (:: try.monad map (|>> Stats::size frac-to-nat))
                               io.io))))
 
                      (def: last-modified
                        (..can-query
                         (function (last-modified _)
                           (|> (Fs::statSync [path] (!fs))
-                              (:: error.monad map (|>> Stats::mtimeMs
-                                                       frac-to-int
-                                                       duration.from-millis
-                                                       instant.absolute))
+                              (:: try.monad map (|>> Stats::mtimeMs
+                                                     frac-to-int
+                                                     duration.from-millis
+                                                     instant.absolute))
                               io.io))))
 
                      (def: can-execute?
                        (..can-query
                         (function (can-execute? _)
-                          (io.io (do error.monad
+                          (io.io (do try.monad
                                    [_ (Fs::accessSync [path (|> (!fs) Fs::constants FsConstants::F_OK)] (!fs))]
                                    (wrap (case (Fs::accessSync [path (|> (!fs) Fs::constants FsConstants::X_OK)] (!fs))
-                                           (#error.Success _)
+                                           (#try.Success _)
                                            true
 
-                                           (#error.Failure _)
+                                           (#try.Failure _)
                                            false)))))))
 
                      (def: move
                        (..can-open
                         (function (move destination)
-                          (io.io (do error.monad
+                          (io.io (do try.monad
                                    [_ (Fs::renameSync [path destination] (!fs))]
                                    (wrap (file destination)))))))
 
@@ -490,7 +487,7 @@
                               (..can-query
                                (function (<name> _)
                                  (io.io (let [fs (!fs)]
-                                          (do error.monad
+                                          (do try.monad
                                             [subs (Fs::readdirSync [path] fs)
                                              subs (monad.map @ (function (_ sub)
                                                                  (do @
@@ -516,7 +513,7 @@
                            [(def: <name>
                               (..can-open
                                (function (<name> path)
-                                 (io.io (do error.monad
+                                 (io.io (do try.monad
                                           [stats (Fs::statSync [path] (!fs))
                                            verdict (<method> [] stats)]
                                           (if verdict
@@ -533,11 +530,11 @@
                                (function (<name> path)
                                  (io.io (let [fs (!fs)]
                                           (case (Fs::accessSync [path (|> (!fs) Fs::constants FsConstants::F_OK)] fs)
-                                            (#error.Success _)
+                                            (#try.Success _)
                                             (exception.throw <exception> [path])
                                             
-                                            (#error.Failure _)
-                                            (do error.monad
+                                            (#try.Failure _)
+                                            (do try.monad
                                               [_ (|> fs <prep>)]
                                               (wrap (<capability> path)))))))))]
 
@@ -557,17 +554,17 @@
 
 (template [<get> <signature> <create> <find> <exception>]
   [(def: #export (<get> monad system path)
-     (All [!] (-> (Monad !) (System !) Path (! (Error (<signature> !)))))
+     (All [!] (-> (Monad !) (System !) Path (! (Try (<signature> !)))))
      (do monad
        [outcome (!.use (:: system <create>) path)]
        (case outcome
-         (#error.Success file)
-         (wrap (#error.Success file))
+         (#try.Success file)
+         (wrap (#try.Success file))
          
-         (#error.Failure error)
+         (#try.Failure error)
          (if (exception.match? <exception> error)
            (!.use (:: system <find>) path)
-           (wrap (#error.Failure error))))))]
+           (wrap (#try.Failure error))))))]
 
   [get-file      File      create-file      file      ..cannot-create-file]
   [get-directory Directory create-directory directory ..cannot-create-directory]
@@ -578,15 +575,15 @@
   (do monad
     [?file (!.use (:: system file) path)]
     (case ?file
-      (#error.Success file)
+      (#try.Success file)
       (wrap true)
 
-      (#error.Failure _)
+      (#try.Failure _)
       (do monad
         [?directory (!.use (:: system directory) path)]
         (case ?directory
-          (#error.Success directory)
+          (#try.Success directory)
           (wrap true)
 
-          (#error.Failure _)
+          (#try.Failure _)
           (wrap false))))))

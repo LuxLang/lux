@@ -3,10 +3,11 @@
    [type (#+ :share)]
    [abstract
     ["." monad (#+ Monad do)]]
+   [control
+    ["." try (#+ Try)]]
    [data
     ["." bit]
     ["." product]
-    ["." error (#+ Error)]
     [text
      ["%" format (#+ format)]]
     [collection
@@ -44,7 +45,7 @@
 
 ## (def: (write-module target-dir file-name module-name module outputs)
 ##   (-> File Text Text Module Outputs (Process Any))
-##   (do (error.with io.monad)
+##   (do (try.with io.monad)
 ##     [_ (monad.map @ (product.uncurry (&io.write target-dir))
 ##                   (dictionary.entries outputs))]
 ##     (&io.write target-dir
@@ -65,7 +66,7 @@
           <Bundle>
           (///statement.Bundle anchor expression statement)
           (-> expression statement)
-          (! (Error <State+>))))
+          (! (Try <State+>))))
     (|> platform
         (get@ #runtime)
         ///statement.lift-generation
@@ -77,13 +78,13 @@
                                      generation-bundle
                                      host-statement-bundle
                                      program))
-        (:: error.functor map product.left)
+        (:: try.functor map product.left)
         (:: (get@ #&monad platform) wrap))
 
     ## (case (runtimeT.generate ## (initL.compiler (io.run js.init))
     ##        (initL.compiler (io.run hostL.init-host))
     ##        )
-    ##   ## (#error.Success [state disk-write])
+    ##   ## (#try.Success [state disk-write])
     ##   ## (do @
     ##   ##   [_ (&io.prepare-target target)
     ##   ##    _ disk-write
@@ -92,7 +93,7 @@
     ##   ##   (wrap (|> state
     ##   ##             (set@ [#.info #.mode] #.Build))))
 
-    ##   (#error.Success [state [runtime-bc function-bc]])
+    ##   (#try.Success [state [runtime-bc function-bc]])
     ##   (do @
     ##     [_ (&io.prepare-target target)
     ##      ## _ (&io.write target (format hostL.runtime-class ".class") runtime-bc)
@@ -102,13 +103,13 @@
     ##     (wrap (|> state
     ##               (set@ [#.info #.mode] #.Build))))
 
-    ##   (#error.Failure error)
+    ##   (#try.Failure error)
     ##   (io.fail error))
     )
 
   (def: #export (compile partial-host-extension expander platform configuration archive state)
     (All <type-vars>
-      (-> Text Expander <Platform> Configuration Archive <State+> (! (Error [Archive <State+>]))))
+      (-> Text Expander <Platform> Configuration Archive <State+> (! (Try [Archive <State+>]))))
     (let [monad (get@ #&monad platform)
           source-module (get@ #cli.module configuration)
           compiler (:share [anchor expression statement]
@@ -119,14 +120,14 @@
       (loop [module source-module
              [archive state] [archive state]]
         (if (archive.archived? archive module)
-          (:: monad wrap (#error.Success [archive state]))
+          (:: monad wrap (#try.Success [archive state]))
           (let [import! (:share <type-vars>
                                 {<Platform>
                                  platform}
                                 {(-> Module [Archive <State+>]
-                                     (! (Error [Archive <State+>])))
+                                     (! (Try [Archive <State+>])))
                                  recur})]
-            (do (error.with monad)
+            (do (try.with monad)
               [input (context.read monad
                                    (get@ #&file-system platform)
                                    (get@ #cli.sources configuration)
@@ -154,7 +155,7 @@
                                            {<Platform>
                                             platform}
                                            {(-> Archive <State+> (///.Compilation <State+> .Module Any)
-                                                (! (Error [Archive <State+>])))
+                                                (! (Try [Archive <State+>])))
                                             recur})]]
                   (case ((get@ #///.process compilation)
                          (case dependencies
@@ -166,22 +167,22 @@
                            (|> (///analysis.set-current-module module)
                                ///statement.lift-analysis
                                (///phase.run' state)
-                               error.assume
+                               try.assume
                                product.left))
                          archive)
-                    (#error.Success [state more|done])
+                    (#try.Success [state more|done])
                     (case more|done
                       (#.Left more)
                       (continue! archive state more)
 
                       (#.Right [descriptor+document output])
                       (case (archive.add module descriptor+document archive)
-                        (#error.Success archive)
+                        (#try.Success archive)
                         (wrap [archive state])
                         
-                        (#error.Failure error)
-                        (:: monad wrap (#error.Failure error))))
+                        (#try.Failure error)
+                        (:: monad wrap (#try.Failure error))))
 
-                    (#error.Failure error)
-                    (:: monad wrap (#error.Failure error)))))))))))
+                    (#try.Failure error)
+                    (:: monad wrap (#try.Failure error)))))))))))
   )

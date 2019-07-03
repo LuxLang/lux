@@ -4,11 +4,12 @@
     [functor (#+ Functor)]
     [apply (#+ Apply)]
     ["." monad (#+ Monad do)]]
+   [control
+    ["." try (#+ Try)]]
    [data
     ["." product]
     ["." name ("#@." codec equivalence)]
     ["." maybe]
-    ["." error (#+ Error)]
     [number
      ["." nat ("#@." decimal)]]
     ["." text ("#@." monoid equivalence)]
@@ -18,17 +19,17 @@
    ["." code]])
 
 ## (type: (Meta a)
-##   (-> Lux (Error [Lux a])))
+##   (-> Lux (Try [Lux a])))
 
 (structure: #export functor (Functor Meta)
   (def: (map f fa)
     (function (_ compiler)
       (case (fa compiler)
-        (#error.Failure msg)
-        (#error.Failure msg)
+        (#try.Failure msg)
+        (#try.Failure msg)
 
-        (#error.Success [compiler' a])
-        (#error.Success [compiler' (f a)])))))
+        (#try.Success [compiler' a])
+        (#try.Success [compiler' (f a)])))))
 
 (structure: #export apply (Apply Meta)
   (def: &functor ..functor)
@@ -36,31 +37,31 @@
   (def: (apply ff fa)
     (function (_ compiler)
       (case (ff compiler)
-        (#error.Success [compiler' f])
+        (#try.Success [compiler' f])
         (case (fa compiler')
-          (#error.Success [compiler'' a])
-          (#error.Success [compiler'' (f a)])
+          (#try.Success [compiler'' a])
+          (#try.Success [compiler'' (f a)])
 
-          (#error.Failure msg)
-          (#error.Failure msg))
+          (#try.Failure msg)
+          (#try.Failure msg))
 
-        (#error.Failure msg)
-        (#error.Failure msg)))))
+        (#try.Failure msg)
+        (#try.Failure msg)))))
 
 (structure: #export monad (Monad Meta)
   (def: &functor ..functor)
 
   (def: (wrap x)
     (function (_ compiler)
-      (#error.Success [compiler x])))
+      (#try.Success [compiler x])))
   
   (def: (join mma)
     (function (_ compiler)
       (case (mma compiler)
-        (#error.Failure msg)
-        (#error.Failure msg)
+        (#try.Failure msg)
+        (#try.Failure msg)
 
-        (#error.Success [compiler' ma])
+        (#try.Success [compiler' ma])
         (ma compiler')))))
 
 (def: (get k plist)
@@ -76,63 +77,63 @@
       (get k plist'))))
 
 (def: #export (run' compiler action)
-  (All [a] (-> Lux (Meta a) (Error [Lux a])))
+  (All [a] (-> Lux (Meta a) (Try [Lux a])))
   (action compiler))
 
 (def: #export (run compiler action)
-  (All [a] (-> Lux (Meta a) (Error a)))
+  (All [a] (-> Lux (Meta a) (Try a)))
   (case (action compiler)
-    (#error.Failure error)
-    (#error.Failure error)
+    (#try.Failure error)
+    (#try.Failure error)
 
-    (#error.Success [_ output])
-    (#error.Success output)))
+    (#try.Success [_ output])
+    (#try.Success output)))
 
 (def: #export (either left right)
   {#.doc "Pick whichever computation succeeds."}
   (All [a] (-> (Meta a) (Meta a) (Meta a)))
   (function (_ compiler)
     (case (left compiler)
-      (#error.Failure error)
+      (#try.Failure error)
       (right compiler)
 
-      (#error.Success [compiler' output])
-      (#error.Success [compiler' output]))))
+      (#try.Success [compiler' output])
+      (#try.Success [compiler' output]))))
 
 (def: #export (assert message test)
   {#.doc "Fails with the given message if the test is #0."}
   (-> Text Bit (Meta Any))
   (function (_ compiler)
     (if test
-      (#error.Success [compiler []])
-      (#error.Failure message))))
+      (#try.Success [compiler []])
+      (#try.Failure message))))
 
 (def: #export (fail msg)
   {#.doc "Fails with the given message."}
   (All [a]
     (-> Text (Meta a)))
   (function (_ _)
-    (#error.Failure msg)))
+    (#try.Failure msg)))
 
 (def: #export (find-module name)
   (-> Text (Meta Module))
   (function (_ compiler)
     (case (get name (get@ #.modules compiler))
       (#.Some module)
-      (#error.Success [compiler module])
+      (#try.Success [compiler module])
 
       _
-      (#error.Failure ($_ text@compose "Unknown module: " name)))))
+      (#try.Failure ($_ text@compose "Unknown module: " name)))))
 
 (def: #export current-module-name
   (Meta Text)
   (function (_ compiler)
     (case (get@ #.current-module compiler)
       (#.Some current-module)
-      (#error.Success [compiler current-module])
+      (#try.Success [compiler current-module])
 
       _
-      (#error.Failure "No current module.")
+      (#try.Failure "No current module.")
       )))
 
 (def: #export current-module
@@ -281,7 +282,7 @@
      this-module current-module-name]
     (: (Meta (Maybe Macro))
        (function (_ compiler)
-         (#error.Success [compiler (find-macro' (get@ #.modules compiler) this-module module name)])))))
+         (#try.Success [compiler (find-macro' (get@ #.modules compiler) this-module module name)])))))
 
 (def: #export (expand-once syntax)
   {#.doc (doc "Given code that requires applying a macro, does it once and returns the result."
@@ -358,20 +359,20 @@
 (def: #export count
   (Meta Nat)
   (function (_ compiler)
-    (#error.Success [(update@ #.seed inc compiler)
-                     (get@ #.seed compiler)])))
+    (#try.Success [(update@ #.seed inc compiler)
+                   (get@ #.seed compiler)])))
 
 (def: #export (gensym prefix)
   {#.doc (doc "Generates a unique name as an Code node (ready to be used in code templates)."
               "A prefix can be given (or just be empty text) to better identify the code for debugging purposes.")}
   (-> Text (Meta Code))
   (function (_ compiler)
-    (#error.Success [(update@ #.seed inc compiler)
-                     (|> compiler
-                         (get@ #.seed)
-                         (:: nat.decimal encode)
-                         ($_ text@compose "__gensym__" prefix)
-                         [""] code.identifier)])))
+    (#try.Success [(update@ #.seed inc compiler)
+                   (|> compiler
+                       (get@ #.seed)
+                       (:: nat.decimal encode)
+                       ($_ text@compose "__gensym__" prefix)
+                       [""] code.identifier)])))
 
 (def: (get-local-identifier ast)
   (-> Code (Meta Text))
@@ -426,12 +427,12 @@
 (def: #export (module-exists? module)
   (-> Text (Meta Bit))
   (function (_ compiler)
-    (#error.Success [compiler (case (get module (get@ #.modules compiler))
-                                (#.Some _)
-                                #1
-                                
-                                #.None
-                                #0)])))
+    (#try.Success [compiler (case (get module (get@ #.modules compiler))
+                              (#.Some _)
+                              #1
+                              
+                              #.None
+                              #0)])))
 
 (def: (try-both f x1 x2)
   (All [a b]
@@ -460,10 +461,10 @@
                 (get@ [#.type-context #.var-bindings])
                 (find-type-var var))
         (^or #.None (#.Some (#.Var _)))
-        (#error.Success [compiler type])
+        (#try.Success [compiler type])
 
         (#.Some type')
-        (#error.Success [compiler type'])))
+        (#try.Success [compiler type'])))
 
     _
     (:: ..monad wrap type)))
@@ -491,7 +492,7 @@
         ((clean-type var-type) compiler)
 
         #.None
-        (#error.Failure ($_ text@compose "Unknown variable: " name))))))
+        (#try.Failure ($_ text@compose "Unknown variable: " name))))))
 
 (def: #export (find-def name)
   {#.doc "Looks-up a definition's whole data in the available modules (including the current one)."}
@@ -505,23 +506,23 @@
                   (^slots [#.definitions]) (get v-prefix (get@ #.modules compiler))]
                  (get v-name definitions)))
         (#.Some definition)
-        (#error.Success [compiler definition])
+        (#try.Success [compiler definition])
 
         _
         (let [current-module (|> compiler (get@ #.current-module) (maybe.default "???"))
               separator ($_ text@compose text.new-line "                    ")]
-          (#error.Failure ($_ text@compose
-                              "Unknown definition: " (name@encode name) text.new-line
-                              "    Current module: " current-module text.new-line
-                              (case (get current-module (get@ #.modules compiler))
-                                (#.Some this-module)
-                                ($_ text@compose
-                                    "           Imports: " (|> this-module (get@ #.imports) (text.join-with separator)) text.new-line
-                                    "           Aliases: " (|> this-module (get@ #.module-aliases) (list@map (function (_ [alias real]) ($_ text@compose alias " => " real))) (text.join-with separator)) text.new-line)
+          (#try.Failure ($_ text@compose
+                            "Unknown definition: " (name@encode name) text.new-line
+                            "    Current module: " current-module text.new-line
+                            (case (get current-module (get@ #.modules compiler))
+                              (#.Some this-module)
+                              ($_ text@compose
+                                  "           Imports: " (|> this-module (get@ #.imports) (text.join-with separator)) text.new-line
+                                  "           Aliases: " (|> this-module (get@ #.module-aliases) (list@map (function (_ [alias real]) ($_ text@compose alias " => " real))) (text.join-with separator)) text.new-line)
 
-                                _
-                                "")
-                              " All Known modules: " (|> compiler (get@ #.modules) (list@map product.left) (text.join-with separator)) text.new-line)))))))
+                              _
+                              "")
+                            " All Known modules: " (|> compiler (get@ #.modules) (list@map product.left) (text.join-with separator)) text.new-line)))))))
 
 (def: #export (find-def-type name)
   {#.doc "Looks-up a definition's type in the available modules (including the current one)."}
@@ -566,10 +567,10 @@
   (function (_ compiler)
     (case (get module-name (get@ #.modules compiler))
       #.None
-      (#error.Failure ($_ text@compose "Unknown module: " module-name))
+      (#try.Failure ($_ text@compose "Unknown module: " module-name))
       
       (#.Some module)
-      (#error.Success [compiler (get@ #.definitions module)]))))
+      (#try.Success [compiler (get@ #.definitions module)]))))
 
 (def: #export (exports module-name)
   {#.doc "All the exported definitions in a module."}
@@ -594,7 +595,7 @@
     (|> compiler
         (get@ #.modules)
         [compiler]
-        #error.Success)))
+        #try.Success)))
 
 (def: #export (tags-of type-name)
   {#.doc "All the tags associated with a type definition."}
@@ -613,7 +614,7 @@
   {#.doc "The cursor of the current expression being analyzed."}
   (Meta Cursor)
   (function (_ compiler)
-    (#error.Success [compiler (get@ #.cursor compiler)])))
+    (#try.Success [compiler (get@ #.cursor compiler)])))
 
 (def: #export expected-type
   {#.doc "The expected type of the current expression being analyzed."}
@@ -621,10 +622,10 @@
   (function (_ compiler)
     (case (get@ #.expected compiler)
       (#.Some type)
-      (#error.Success [compiler type])
+      (#try.Success [compiler type])
 
       #.None
-      (#error.Failure "Not expecting any type."))))
+      (#try.Failure "Not expecting any type."))))
 
 (def: #export (imported-modules module-name)
   {#.doc "All the modules imported by a specified module."}
@@ -689,14 +690,14 @@
   (function (_ compiler)
     (case (list.inits (get@ #.scopes compiler))
       #.None
-      (#error.Failure "No local environment")
+      (#try.Failure "No local environment")
 
       (#.Some scopes)
-      (#error.Success [compiler
-                       (list@map (|>> (get@ [#.locals #.mappings])
-                                      (list@map (function (_ [name [type _]])
-                                                  [name type])))
-                                 scopes)]))))
+      (#try.Success [compiler
+                     (list@map (|>> (get@ [#.locals #.mappings])
+                                    (list@map (function (_ [name [type _]])
+                                                [name type])))
+                               scopes)]))))
 
 (def: #export (un-alias def-name)
   {#.doc "Given an aliased definition's name, returns the original definition being referenced."}
@@ -714,12 +715,12 @@
   {#.doc "Obtains the current state of the compiler."}
   (Meta Lux)
   (function (_ compiler)
-    (#error.Success [compiler compiler])))
+    (#try.Success [compiler compiler])))
 
 (def: #export type-context
   (Meta Type-Context)
   (function (_ compiler)
-    (#error.Success [compiler (get@ #.type-context compiler)])))
+    (#try.Success [compiler (get@ #.type-context compiler)])))
 
 (template [<macro> <func>]
   [(macro: #export (<macro> tokens)
