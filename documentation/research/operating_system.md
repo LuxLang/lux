@@ -1,3 +1,7 @@
+# Code-generation
+
+1. [It’s Time for a Modern Synthesis Kernel](https://blog.regehr.org/archives/1676)
+
 # Intepreter
 
 1. [Jitk: A Trustworthy In-Kernel Interpreter Infrastructure](https://css.csail.mit.edu/jitk/)

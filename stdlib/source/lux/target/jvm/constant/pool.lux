@@ -24,12 +24,13 @@
     abstract]
    [macro
     ["." template]]]
-  ["." // (#+ UTF8 Class Long Double Constant)
+  ["." // (#+ UTF8 Class Long Double Constant Name-And-Type Reference)
    [//
     [encoding
-     ["." unsigned]]
-    ["." index (#+ Index)]
-    ["." descriptor (#+ Descriptor)]]])
+     ["#." name (#+ Internal External)]
+     ["#." unsigned]]
+    ["#." index (#+ Index)]
+    ["#." descriptor (#+ Field Method Descriptor)]]])
 
 (def: offset 1)
 
@@ -41,7 +42,7 @@
 
 (template: (!add <tag> <=> <value>)
   (function (_ pool)
-    (with-expansions [<index> (as-is (index.index (unsigned.u2 (n/+ offset idx))))
+    (with-expansions [<index> (as-is (//index.index (//unsigned.u2 (n/+ offset idx))))
                       <try-again> (as-is (recur (.inc idx)))]
       (loop [idx 0]
         (case (row.nth idx pool)
@@ -61,7 +62,7 @@
            <index>])))))
 
 (template: (!raw-index <index>)
-  (|> <index> index.number unsigned.nat .nat))
+  (|> <index> //index.number //unsigned.nat .nat))
 
 (exception: #export (invalid-index {index (Index Any)}
                                    {maximum Nat})
@@ -97,7 +98,7 @@
 
 (template: (!find <tag> <=> <%> <expected>)
   (function (_ pool)
-    (with-expansions [<index> (as-is (index.index (unsigned.u2 (n/+ offset idx))))
+    (with-expansions [<index> (as-is (//index.index (//unsigned.u2 (n/+ offset idx))))
                       <try-again> (as-is (recur (.inc idx)))]
       (loop [idx 0]
         (case (row.nth idx pool)
@@ -143,22 +144,48 @@
   [utf8 UTF8 #//.UTF8 text.equivalence %.text]
   )
 
-(def: (class' value)
-  (Adder Class)
-  (!add #//.Class //.class-equivalence value))
-
 (def: #export (class name)
-  (-> UTF8 (State Pool (Index Class)))
+  (-> Internal (State Pool (Index Class)))
   (do state.monad
-    [@name (utf8 name)]
-    (class' (//.class @name))))
+    [@name (utf8 (//name.read name))
+     #let [value (//.class @name)]]
+    (!add #//.Class //.class-equivalence value)))
 
 (def: #export (descriptor value)
   (All [kind]
     (-> (Descriptor kind)
         (State Pool (Index (Descriptor kind)))))
-  (let [value (descriptor.descriptor value)]
+  (let [value (//descriptor.descriptor value)]
     (!add #//.UTF8 text.equivalence value)))
+
+(type: #export (Member of)
+  {#name UTF8
+   #descriptor (Descriptor of)})
+
+(def: #export (name-and-type [name descriptor])
+  (All [of]
+    (-> (Member of) (State Pool (Index (Name-And-Type of)))))
+  (do state.monad
+    [@name (utf8 name)
+     @descriptor (..descriptor descriptor)]
+    (!add #//.Name-And-Type //.name-and-type-equivalence
+          {#//.name @name
+           #//.descriptor @descriptor})))
+
+(template [<name> <tag> <of>]
+  [(def: #export (<name> class member)
+     (-> External (Member <of>) (State Pool (Index (Reference <of>))))
+     (do state.monad
+       [@class (..class (//name.internal class))
+        @name-and-type (name-and-type member)]
+       (!add <tag> //.reference-equivalence
+             {#//.class @class
+              #//.name-and-type @name-and-type})))]
+
+  [field #//.Field Field]
+  [method #//.Method Method]
+  [interface-method #//.Interface-Method Method]
+  )
 
 (def: #export parser
   (Parser Pool)
