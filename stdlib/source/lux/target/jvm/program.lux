@@ -11,7 +11,7 @@
     ["." exception (#+ exception:)]]
    [data
     [text
-     ["%" format]]
+     ["%" format (#+ format)]]
     [number
      ["." nat]]
     [collection
@@ -103,12 +103,13 @@
                         (: (Monad (State [Pool Tracker]))
                            state.monad))))
 
-(def: #export (resolve pool program)
-  (All [a] (-> Pool (Program a) (Try [Pool Instruction a])))
-  (let [[[pool tracker] [partial output]] (state.run [pool ..fresh] program)]
-    (do try.monad
-      [instruction (partial (get@ #known-labels tracker))]
-      (wrap [pool instruction output]))))
+(def: #export (resolve program)
+  (All [a] (-> (Program a) (State Pool (Try [Instruction a]))))
+  (function (_ pool)
+    (let [[[pool tracker] [partial output]] (state.run [pool ..fresh] program)]
+      [pool (do try.monad
+              [instruction (partial (get@ #known-labels tracker))]
+              (wrap [instruction output]))])))
 
 (def: (nullary instruction)
   (-> Instruction (Program Any))
@@ -309,6 +310,16 @@
                     (/instruction.ldc (|> index' //unsigned.nat //unsigned.u1))
                     (<ldc> index)))))]
 
+  [ldc/string //constant.UTF8 //constant/pool.string /instruction.ldc-w/string]
+  )
+
+(template [<name> <type> <constant> <ldc>]
+  [(def: #export (<name> value)
+     (-> <type> (Program Any))
+     (do ..monad
+       [index (..lift (<constant> value))]
+       (..nullary (<ldc> index))))]
+
   [ldc/long //constant.Long //constant/pool.long /instruction.ldc2-w/long]
   [ldc/double //constant.Double //constant/pool.double /instruction.ldc2-w/double]
   )
@@ -477,8 +488,7 @@
               index
               (|> inputs
                   (list@map descriptor-size)
-                  (list@fold //unsigned.u1/+ (//unsigned.u1 0))
-                  (//unsigned.u1/+ (//unsigned.u1 (if <static?> 0 1))))
+                  (list@fold //unsigned.u1/+ (//unsigned.u1 (if <static?> 0 1))))
               (descriptor-size output)))))]
 
   [#1 invokestatic /instruction.invokestatic]
