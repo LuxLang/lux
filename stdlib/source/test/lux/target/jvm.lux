@@ -1,11 +1,10 @@
 (.module:
   [lux #*
+   ["." host (#+ import:)]
    [abstract/monad (#+ do)]
    [control
     ["." io (#+ IO)]
     ["." try (#+ Try)]
-    [parser
-     ["<2>" binary]]
     [concurrency
      ["." atom]]
     [security
@@ -17,26 +16,32 @@
     [format
      [".F" binary]]
     [collection
+     ["." array]
      ["." dictionary]
      ["." row]]]
    [world
     ["." file (#+ File)]]
    [math
-    ["r" random (#+ Random) ("#@." monad)]]
+    ["." random (#+ Random) ("#@." monad)]]
    ["_" test (#+ Test)]]
   {1
    ["." / #_
-    ["#." program]
-    
     ["#." loader (#+ Library)]
     ["#." version]
     ["#." descriptor (#+ Descriptor Value)]
+    ["#." modifier ("#@." monoid)]
     ["#." field]
+    ["#." method]
     ["#." class]
+    ["#." attribute
+     ["#/." code]]
+    ["#." constant
+     ["#/." pool]]
     [encoding
      ["#." name]]
-    [modifier
-     ["#.M" inner]]]})
+    ["#." program
+     ["#/." condition (#+ Environment)]
+     ["#/." instruction]]]})
 
 ## (def: (write-class! name bytecode)
 ##   (-> Text Binary (IO Text))
@@ -53,64 +58,123 @@
 ##               (#try.Failure error)
 ##               error)))))
 
+(import: #long java/lang/String)
+
+(import: #long java/lang/reflect/Method
+  (invoke [java/lang/Object [java/lang/Object]] #try java/lang/Object))
+
+(import: #long (java/lang/Class c)
+  (getDeclaredMethod [java/lang/String [(java/lang/Class java/lang/Object)]] java/lang/reflect/Method))
+
+(import: #long java/lang/Object
+  (getClass [] (java/lang/Class java/lang/Object))
+  (toString [] java/lang/String))
+
+(import: #long java/lang/Long
+  (#static TYPE (java/lang/Class java/lang/Long)))
+
 (def: descriptor
   (Random (Descriptor (Value Any)))
-  (r.rec
+  (random.rec
    (function (_ descriptor)
-     ($_ r.either
-         (r@wrap /descriptor.boolean)
-         (r@wrap /descriptor.byte)
-         (r@wrap /descriptor.short)
-         (r@wrap /descriptor.int)
-         (r@wrap /descriptor.long)
-         (r@wrap /descriptor.float)
-         (r@wrap /descriptor.double)
-         (r@wrap /descriptor.char)
-         (r@map (|>> (text.join-with /name.external-separator)
-                     /name.internal
-                     /descriptor.object)
-                (r.list 3 (r.ascii/upper-alpha 10)))
-         (r@map /descriptor.array descriptor)
+     ($_ random.either
+         (random@wrap /descriptor.boolean)
+         (random@wrap /descriptor.byte)
+         (random@wrap /descriptor.short)
+         (random@wrap /descriptor.int)
+         (random@wrap /descriptor.long)
+         (random@wrap /descriptor.float)
+         (random@wrap /descriptor.double)
+         (random@wrap /descriptor.char)
+         (random@map (|>> (text.join-with /name.external-separator) /descriptor.object)
+                     (random.list 3 (random.ascii/upper-alpha 10)))
+         (random@map /descriptor.array descriptor)
          ))))
 
 (def: field
   (Random [Text (Descriptor (Value Any))])
-  ($_ r.and
-      (r.ascii/lower-alpha 10)
+  ($_ random.and
+      (random.ascii/lower-alpha 10)
       ..descriptor
       ))
 
+(def: class-name
+  (Random Text)
+  (do random.monad
+    [super-package (random.ascii/lower-alpha 10)
+     package (random.ascii/lower-alpha 10)
+     name (random.ascii/upper-alpha 10)]
+    (wrap (format super-package "." package "." name))))
+
+(def: (get-method name class)
+  (-> Text (java/lang/Class java/lang/Object) java/lang/reflect/Method)
+  (java/lang/Class::getDeclaredMethod name
+                                      (host.array (java/lang/Class java/lang/Object) 0)
+                                      class))
+
+(def: method
+  Test
+  (do random.monad
+    [class-name ..class-name
+     method-name (random.ascii/upper-alpha 10)
+     expected random.int
+     #let [inputsJT (list)
+           outputJT (/descriptor.object "java.lang.Object")]]
+    (_.test "Can compile a method."
+            (let [bytecode (|> (/class.class /version.v6_0 /class.public
+                                             (/name.internal class-name)
+                                             (/name.internal "java.lang.Object")
+                                             (list)
+                                             (list)
+                                             (list (/method.method ($_ /modifier@compose
+                                                                       /method.public
+                                                                       /method.static)
+                                                                   method-name
+                                                                   (/descriptor.method inputsJT outputJT)
+                                                                   (list)
+                                                                   (do /program.monad
+                                                                     [_ (/program.ldc/long (/constant.long expected))
+                                                                      _ (/program.invokestatic "java.lang.Long" "valueOf"
+                                                                                               (list /descriptor.long)
+                                                                                               (/descriptor.object "java.lang.Long"))]
+                                                                     /program.areturn)))
+                                             (row.row))
+                               (binaryF.run /class.writer))
+                  loader (/loader.memory (/loader.new-library []))]
+              (case (do try.monad
+                      [_ (/loader.define class-name bytecode loader)
+                       class (io.run (/loader.load class-name loader))
+                       method (host.try (get-method method-name class))
+                       output (java/lang/reflect/Method::invoke (host.null) (host.array java/lang/Object 0) method)]
+                      (wrap (:coerce Int output)))
+                (#try.Success actual)
+                (i/= expected actual)
+                
+                (#try.Failure error)
+                false)))))
+
 (def: class
   Test
-  (do r.monad
-    [_ (wrap [])
-     super-package (r.ascii/lower-alpha 10)
-     package (r.ascii/lower-alpha 10)
-     name (r.ascii/upper-alpha 10)
+  (do random.monad
+    [class-name ..class-name
      [field0 descriptor0] ..field
      [field1 descriptor1] ..field
-     #let [full-name (format super-package "." package "." name)
-           input (/class.class /version.v6_0 /class.public
-                               (/name.internal full-name)
+     #let [input (/class.class /version.v6_0 /class.public
+                               (/name.internal class-name)
                                (/name.internal "java.lang.Object")
                                (list (/name.internal "java.io.Serializable")
                                      (/name.internal "java.lang.Runnable"))
                                (list (/field.field /field.public field0 descriptor0 (row.row))
                                      (/field.field /field.public field1 descriptor1 (row.row)))
-                               (row.row)
+                               (list)
                                (row.row))
            bytecode (binaryF.run /class.writer input)
            loader (/loader.memory (/loader.new-library []))]]
     ($_ _.and
-        (_.test "Can read a generated class."
-                (case (<2>.run /class.parser bytecode)
-                  (#try.Success output)
-                  (:: /class.equivalence = input output)
-                  
-                  (#try.Failure _)
-                  false))
         (_.test "Can generate a class."
-                (case (/loader.define full-name bytecode loader)
+                (case (do try.monad
+                        [_ (/loader.define class-name bytecode loader)]
+                        (io.run (/loader.load class-name loader)))
                   (#try.Success definition)
                   true
                   
@@ -120,5 +184,8 @@
 
 (def: #export test
   Test
-  (<| (_.context "Class")
-      ..class))
+  (<| (_.context (%.name (name-of .._)))
+      ($_ _.and
+          ..class
+          ..method
+          )))
