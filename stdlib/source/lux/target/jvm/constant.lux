@@ -1,11 +1,13 @@
 (.module:
   [lux #*
-   [host (#+ import:)]
+   ["." host (#+ import:)]
+   ["@" target]
    [abstract
     [monad (#+ do)]
     ["." equivalence (#+ Equivalence)]]
    [data
     [number
+     ["." i64]
      ["." int]
      ["." frac]]
     ["." text]
@@ -14,14 +16,16 @@
     [collection
      ["." row (#+ Row)]]]
    [type
-    abstract]]
+    abstract]
+   [macro
+    ["." template]]]
   ["." / #_
    ["#." tag ("#;." equivalence)]
-   ["." // #_
+   ["/#" // #_
     ["#." descriptor (#+ Descriptor)]
     ["#." index (#+ Index)]
     [encoding
-     [unsigned (#+ U4)]]]])
+     ["#." unsigned (#+ U4)]]]])
 
 (type: #export UTF8 Text)
 
@@ -48,6 +52,29 @@
     (Writer Class)
     (|>> :representation //index.writer))
   )
+
+(def: sign-mask Int (|> +1 (i64.left-shift 63)))
+(def: number-mask Int (|> +1 (i64.left-shift 31) dec))
+
+(def: #export (i32 i64)
+  (-> Int U4)
+  (|> (i64.or (|> i64 (i64.and sign-mask) (i64.arithmetic-right-shift 32))
+              (|> i64 (i64.and number-mask)))
+      .nat
+      //unsigned.u4))
+
+(import: #long java/lang/Float
+  (#static floatToRawIntBits #manual [float] int))
+
+(structure: #export float-equivalence
+  (Equivalence java/lang/Float)
+
+  (def: (= parameter subject)
+    (`` (for {(~~ (static @.old))
+              ("jvm feq" parameter subject)
+              
+              (~~ (static @.jvm))
+              ("jvm float =" parameter subject)}))))
 
 (import: #long java/lang/Double
   (#static doubleToRawLongBits [double] long))
@@ -78,8 +105,8 @@
        (|>> :abstraction))]
 
     [integer Integer U4]
+    [float   Float   java/lang/Float]
     [long    Long    .Int]
-    [float   Float   Nothing]
     [double  Double  Frac]
     [string  String  (Index UTF8)]
     )
@@ -87,11 +114,15 @@
   (template [<writer-name> <type> <write> <writer>]
     [(def: <writer-name>
        (Writer <type>)
-       (|>> :representation <write> <writer>))]
+       (`` (|>> :representation
+                (~~ (template.splice <write>))
+                (~~ (template.splice <writer>)))))]
 
-    [long-writer Long (<|) binaryF.bits/64]
-    [double-writer Double java/lang/Double::doubleToRawLongBits binaryF.bits/64]
-    [string-writer String (<|) //index.writer]
+    [integer-writer Integer [//unsigned.nat] [binaryF.bits/32]]
+    [float-writer Float [java/lang/Float::floatToRawIntBits host.int-to-long] [..i32 //unsigned.nat binaryF.bits/32]]
+    [long-writer Long [] [binaryF.bits/64]]
+    [double-writer Double [java/lang/Double::doubleToRawLongBits] [binaryF.bits/64]]
+    [string-writer String [] [//index.writer]]
     )
   )
 
@@ -122,6 +153,8 @@
 
 (type: #export Constant
   (#UTF8 UTF8)
+  (#Integer Integer)
+  (#Float Float)
   (#Long Long)
   (#Double Double)
   (#Class Class)
@@ -151,7 +184,9 @@
          [(<tag> reference) (<tag> sample)]
          (:: <equivalence> = reference sample))
        ([#UTF8 text.equivalence]
+        [#Integer (..value-equivalence //unsigned.equivalence)]
         [#Long (..value-equivalence int.equivalence)]
+        [#Float (..value-equivalence float-equivalence)]
         [#Double (..value-equivalence frac.equivalence)]
         [#Class ..class-equivalence]
         [#String (..value-equivalence //index.equivalence)]
@@ -187,8 +222,8 @@
 (def: #export writer
   (Writer Constant)
   (with-expansions [<constants> (as-is [#UTF8             /tag.utf8             ..utf8-writer]
-                                       ## TODO: Integer
-                                       ## TODO: Float
+                                       [#Integer          /tag.integer          ..integer-writer]
+                                       [#Float            /tag.float            ..float-writer]
                                        [#Long             /tag.long             ..long-writer]
                                        [#Double           /tag.double           ..double-writer]
                                        [#Class            /tag.class            ..class-writer]
