@@ -2,11 +2,10 @@
   [lux #*
    [abstract
     [hash (#+ Hash)]
-    [number (#+ Number)]
     [monoid (#+ Monoid)]
     [equivalence (#+ Equivalence)]
-    ["." order (#+ Order)]
-    [codec (#+ Codec)]]
+    [codec (#+ Codec)]
+    ["." order (#+ Order)]]
    [control
     ["." try (#+ Try)]]
    [data
@@ -25,31 +24,39 @@
   (def: &equivalence ..equivalence)
   (def: < f/<))
 
-(structure: #export number (Number Frac)
-  (def: + f/+)
-  (def: - f/-)
-  (def: * f/*)
-  (def: / f//)
-  (def: % f/%)
-  (def: negate (f/* -1.0))
-  (def: (abs x)
-    (if (f/< +0.0 x)
-      (f/* -1.0 x)
-      x))
-  (def: (signum x)
-    (cond (f/= +0.0 x) +0.0
-          (f/< +0.0 x) -1.0
-          ## else
-          +1.0))
-  )
+(def: #export + (-> Frac Frac Frac) f/+)
+
+(def: #export - (-> Frac Frac Frac) f/-)
+
+(def: #export * (-> Frac Frac Frac) f/*)
+
+(def: #export / (-> Frac Frac Frac) f//)
+
+(def: #export % (-> Frac Frac Frac) f/%)
+
+(def: #export negate (-> Frac Frac) (f/* -1.0))
+
+(def: #export (abs x)
+  (-> Frac Frac)
+  (if (f/< +0.0 x)
+    (..* -1.0 x)
+    x))
+
+(def: #export (signum x)
+  (-> Frac Frac)
+  (cond (f/= +0.0 x) +0.0
+        (f/< +0.0 x) -1.0
+        ## else
+        +1.0))
+
 
 (template [<name> <compose> <identity>]
   [(structure: #export <name> (Monoid Frac)
      (def: identity <identity>)
      (def: compose <compose>))]
 
-  [addition       f/+   +0.0]
-  [multiplication f/*   +1.0]
+  [addition       ..+   +0.0]
+  [multiplication ..*   +1.0]
   [maximum        f/max ("lux f64 min")]
   [minimum        f/min ("lux f64 max")]
   )
@@ -58,7 +65,7 @@
   [(def: #export <name>
      {#.doc <doc>}
      Frac
-     (f// +0.0 <numerator>))]
+     (../ +0.0 <numerator>))]
 
   [not-a-number      +0.0 "Not a number."]
   [positive-infinity +1.0 "Positive infinity."]
@@ -95,16 +102,16 @@
      (def: (encode value)
        (let [whole (frac-to-int value)
              whole-part (:: <int> encode whole)
-             decimal (:: ..number abs (f/% +1.0 value))
+             decimal (|> value (..% +1.0) ..abs)
              decimal-part (if (f/= +0.0 decimal)
                             ".0"
                             (loop [dec-left decimal
                                    output ""]
                               (if (f/= +0.0 dec-left)
                                 ("lux text concat" "." output)
-                                (let [shifted (f/* <base> dec-left)
-                                      digit-idx (|> shifted (f/% <base>) frac-to-int .nat)]
-                                  (recur (f/% +1.0 shifted)
+                                (let [shifted (..* <base> dec-left)
+                                      digit-idx (|> shifted (..% <base>) frac-to-int .nat)]
+                                  (recur (..% +1.0 shifted)
                                          ("lux text concat" output ("lux text clip" digit-idx (inc digit-idx) <char-set>)))))))]
          ("lux text concat" whole-part decimal-part)))
 
@@ -125,16 +132,16 @@
                                (if (n/= 0 muls-left)
                                  output
                                  (recur (dec muls-left)
-                                        (f/* <base> output))))
-                   adjusted-decimal (|> decimal int-to-frac (f// div-power))
+                                        (..* <base> output))))
+                   adjusted-decimal (|> decimal int-to-frac (../ div-power))
                    dec-rev (case (:: //rev.hex decode ("lux text concat" "." decimal-part))
                              (#try.Success dec-rev)
                              dec-rev
 
                              (#try.Failure error)
                              (error! error))]
-               (#try.Success (f/+ (int-to-frac whole)
-                                  (f/* sign adjusted-decimal))))
+               (#try.Success (..+ (int-to-frac whole)
+                                  (..* sign adjusted-decimal))))
 
              _
              (#try.Failure ("lux text concat" <error> repr))))
@@ -282,7 +289,7 @@
 (template [<struct> <error> <from> <to>]
   [(structure: #export <struct> (Codec Text Frac)
      (def: (encode value)
-       (let [sign (:: ..number signum value)
+       (let [sign (..signum value)
              raw-bin (:: ..binary encode value)
              dot-idx (maybe.assume ("lux text index" 0 "." raw-bin))
              whole-part ("lux text clip" (if (f/= -1.0 sign) 1 0) dot-idx raw-bin)
@@ -324,7 +331,7 @@
 
 (def: (log2 input)
   (-> Frac Frac)
-  (f// (math.log +2.0)
+  (../ (math.log +2.0)
        (math.log input)))
 
 (def: double-bias Nat 1023)
@@ -355,7 +362,7 @@
              ..negative-infinity-bits
 
              (f/= +0.0 input)
-             (let [reciprocal (f// input +1.0)]
+             (let [reciprocal (../ input +1.0)]
                (if (f/= positive-infinity reciprocal)
                  ## Positive zero
                  ..positive-zero-bits
@@ -363,16 +370,17 @@
                  ..negative-zero-bits))
 
              ## else
-             (let [sign (:: ..number signum input)
-                   input (:: ..number abs input)
+             (let [input (..abs input)
                    exponent (math.floor (log2 input))
                    exponent-mask (|> 1 (//i64.left-shift exponent-size) dec) 
                    mantissa (|> input
                                 ## Normalize
-                                (f// (math.pow exponent +2.0))
+                                (../ (math.pow exponent +2.0))
                                 ## Make it int-equivalent
-                                (f/* (math.pow +52.0 +2.0)))
-                   sign-bit (if (f/= -1.0 sign) 1 0)
+                                (..* (math.pow +52.0 +2.0)))
+                   sign-bit (if (f/= -1.0 (..signum input))
+                              1
+                              0)
                    exponent-bits (|> exponent frac-to-int .nat (n/+ double-bias) (//i64.and exponent-mask))
                    mantissa-bits (|> mantissa frac-to-int .nat)]
                ($_ //i64.or
@@ -407,20 +415,20 @@
           (and (n/= 0 E) (n/= 0 M))
           (if (n/= 0 S)
             +0.0
-            (f/* -1.0 +0.0))
+            (..* -1.0 +0.0))
 
           ## else
           (let [normalized (|> M (//i64.set mantissa-size)
                                .int int-to-frac
-                               (f// (math.pow +52.0 +2.0)))
+                               (../ (math.pow +52.0 +2.0)))
                 power (math.pow (|> E (n/- double-bias)
                                     .int int-to-frac)
                                 +2.0)
-                shifted (f/* power
+                shifted (..* power
                              normalized)]
             (if (n/= 0 S)
               shifted
-              (f/* -1.0 shifted))))))
+              (..* -1.0 shifted))))))
 
 (structure: #export hash (Hash Frac)
   (def: &equivalence ..equivalence)
