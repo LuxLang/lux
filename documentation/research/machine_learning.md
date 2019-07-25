@@ -6,6 +6,7 @@
 
 # Reference
 
+1. [Layer rotation: a surprisingly powerful indicator of generalization in deep networks](https://arxiv.org/abs/1806.01603v2)
 1. https://nostalgebraist.tumblr.com/post/185326092369/the-transformer-explained
 1. [HyperE: Hyperbolic Embeddings for Entities](https://hazyresearch.github.io/hyperE/)
 1. https://www.samcoope.com/posts/playing_around_with_noise_as_targets

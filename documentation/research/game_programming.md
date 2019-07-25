@@ -1,3 +1,14 @@
+# Ethics
+
+1. [Ethics in Game Design - PAX Prime 2012](https://www.youtube.com/watch?v=sIS5cJzeLGA)
+
+# Grinding
+
+1. [When Games Idolize Busywork](https://medium.com/@fischerdesign/when-games-idolize-busywork-8454bfe769ff)
+1. [PAX West 2016 - The Grind - Full Panel](https://www.youtube.com/watch?v=32DCEzpcVEY)
+1. [A Brief History of Leveling Systems](https://theludite.com/2014/08/03/a-brief-history-of-leveling-systems/)
+1. [Leveling Systems Part Two: Where We Could Go From Here](https://theludite.com/2014/08/28/leveling-systems-part-two-where-we-could-go-from-here/)
+
 # Engine
 
 1. https://www.raylib.com/index.html
@@ -48,6 +59,8 @@
 
 # Rendering
 
+1. [Lazy Incremental Computation for Efficient Scene Graph Rendering](https://www.cg.tuwien.ac.at/courses/RendEng/2015/RendEng-2015-11-16-paper2.pdf)
+1. [3D Wireframes in SVG](https://prideout.net/blog/svg_wireframes/)
 1. https://zzz.dog/
 1. https://www.marmoset.co/posts/basic-theory-of-physically-based-rendering/
 1. https://roughjs.com/

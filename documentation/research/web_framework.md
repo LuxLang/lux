@@ -101,6 +101,7 @@
 
 # Styling
 
+1. [Index fun](https://psuter.net/2019/07/07/z-index)
 1. [Constraint layouts](https://blog.gtk.org/2019/07/02/constraint-layouts/)
 1. https://every-layout.dev/
 1. https://github.com/diegohaz/reuse

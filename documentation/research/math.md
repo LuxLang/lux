@@ -1,3 +1,7 @@
+# Trigonometry
+
+1. [Approximating the Sine Function](http://datagenetics.com/blog/july12019/index.html)
+
 # Period
 
 1. https://en.wikipedia.org/wiki/Ring_of_periods
@@ -39,6 +43,7 @@
 
 # Quaternions
 
+1. [Stepping into a New Dimension: Using Quaternions to See the Invisible](https://medium.com/@vieyrasoftware/stepping-into-a-new-dimension-using-quaternions-to-see-the-invisible-478087c9ebbf)
 1. [How Quaternions Produce 3D Rotation](https://penguinmaths.blogspot.com/2019/06/how-quaternions-produce-3d-rotation.html)
 1. [APPLICATION OF DUAL QUATERNIONS ON SELECTED PROBLEMS](https://otik.uk.zcu.cz/bitstream/11025/28563/1/phd_Application%20of%20dual%20quaternions%20on%20selected%20problems.pdf)
 1. https://www.3dgep.com/understanding-quaternions/
@@ -108,6 +113,7 @@
 
 # Category Theory
 
+1. [Categorical Query Language](https://www.categoricaldata.net/)
 1. [Abstract and Concrete Categories: The Joy of Cats](http://katmat.math.uni-bremen.de/acc/acc.pdf)
 1. https://bartoszmilewski.com/
 1. [YOW! Lambda Jam 2018 - Mark Hopkins -All of Basic Category Theory](https://www.youtube.com/watch?v=9u1q3lH7VbE)
@@ -279,6 +285,8 @@
 
 # **Temp Cache**
 
+1. [Quadratic splines are useful too](https://wordsandbuttons.online/quadric_splines_are_useful_too.html)
+1. [Derivations of Applied Mathematics](http://www.derivations.org/)
 1. https://www.juliahomotopycontinuation.org/
 1. https://marginalrevolution.com/marginalrevolution/2018/05/one-parameter-equation-can-exactly-fit-scatter-plot.html
 1. https://plato.stanford.edu/entries/mathematics-inconsistent/
