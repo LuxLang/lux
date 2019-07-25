@@ -20,15 +20,139 @@
    ["#." nat]
    ["#." int]])
 
-(def: #export + (-> Rev Rev Rev) r/+)
+(def: #export (= reference sample)
+  {#.doc "Rev(olution) equivalence."}
+  (-> Rev Rev Bit)
+  ("lux i64 =" reference sample))
 
-(def: #export - (-> Rev Rev Rev) r/-)
+(def: #export (< reference sample)
+  {#.doc "Rev(olution) less-than."}
+  (-> Rev Rev Bit)
+  (n/< ("lux coerce" Nat reference)
+       ("lux coerce" Nat sample)))
 
-(def: #export * (-> Rev Rev Rev) r/*)
+(def: #export (<= reference sample)
+  {#.doc "Rev(olution) less-than-equal."}
+  (-> Rev Rev Bit)
+  (if (n/< ("lux coerce" Nat reference)
+           ("lux coerce" Nat sample))
+    #1
+    ("lux i64 =" reference sample)))
 
-(def: #export / (-> Rev Rev Rev) r//)
+(def: #export (> reference sample)
+  {#.doc "Rev(olution) greater-than."}
+  (-> Rev Rev Bit)
+  (..< sample reference))
 
-(def: #export % (-> Rev Rev Rev) r/%)
+(def: #export (>= reference sample)
+  {#.doc "Rev(olution) greater-than-equal."}
+  (-> Rev Rev Bit)
+  (if (..< sample reference)
+    #1
+    ("lux i64 =" reference sample)))
+
+(template [<name> <test> <doc>]
+  [(def: #export (<name> left right)
+     {#.doc <doc>}
+     (-> Rev Rev Rev)
+     (if (<test> right left)
+       left
+       right))]
+
+  [min ..< "Rev(olution) minimum."]
+  [max ..> "Rev(olution) maximum."]
+  )
+
+(template [<name> <op> <doc>]
+  [(def: #export (<name> param subject)
+     {#.doc <doc>}
+     (-> Rev Rev Rev)
+     (<op> param subject))]
+
+  [+ "lux i64 +" "Rev(olution) addition."]
+  [- "lux i64 -" "Rev(olution) substraction."]
+  )
+
+(def: high
+  (-> (I64 Any) I64)
+  (|>> ("lux i64 logical-right-shift" 32)))
+
+(def: low
+  (-> (I64 Any) I64)
+  (let [mask (|> 1 ("lux i64 left-shift" 32) ("lux i64 -" 1))]
+    (|>> ("lux i64 and" mask))))
+
+(def: #export (* param subject)
+  {#.doc "Rev(olution) multiplication."}
+  (-> Rev Rev Rev)
+  (let [subjectH (..high subject)
+        subjectL (..low subject)
+        paramH (..high param)
+        paramL (..low param)
+        bottom (|> subjectL
+                   ("lux i64 *" paramL)
+                   ("lux i64 logical-right-shift" 32))
+        middle ("lux i64 +"
+                ("lux i64 *" paramL subjectH)
+                ("lux i64 *" paramH subjectL))
+        top ("lux i64 *" subjectH paramH)]
+    (|> bottom
+        ("lux i64 +" middle)
+        ..high
+        ("lux i64 +" top))))
+
+(def: least-significant-bit-mask (I64 Any) 1)
+
+(def: (without-trailing-zeroes count remaining)
+  (-> Nat Nat [Nat Nat])
+  (if (|> remaining
+          ("lux i64 and" least-significant-bit-mask)
+          ("lux i64 =" 0))
+    (without-trailing-zeroes
+     ("lux i64 +" 1 count)
+     ("lux i64 logical-right-shift" 1 remaining))
+    [count remaining]))
+
+(def: #export (/ param subject)
+  {#.doc "Rev(olution) division."}
+  (-> Rev Rev Rev)
+  (if ("lux i64 =" +0 param)
+    (error! "Cannot divide Rev by zero!")
+    (let [[trailing-zeroes remaining] (without-trailing-zeroes 0 (:coerce Nat param))
+          [trailing-zeroes denominator] (: [Nat Nat]
+                                           (if ("lux i64 =" +0 trailing-zeroes)
+                                             [1 ("lux i64 logical-right-shift" 1 remaining)]
+                                             [trailing-zeroes remaining]))
+          shift ("lux i64 -" trailing-zeroes 64)
+          numerator ("lux i64 left-shift" shift 1)]
+      (|> (:coerce Int numerator)
+          ("lux i64 /" ("lux coerce" Int denominator))
+          ("lux i64 *" ("lux coerce" Int subject))
+          (:coerce Rev)))))
+
+(def: #export (% param subject)
+  {#.doc "Rev(olution) remainder."}
+  (-> Rev Rev Rev)
+  (|> (:coerce Nat subject)
+      (n/% (:coerce Nat param))
+      (:coerce Rev)))
+
+(def: #export (scale param subject)
+  {#.doc "Rev(olution) scale."}
+  (-> Nat Rev Rev)
+  (|> (:coerce Int subject)
+      ("lux i64 *" ("lux coerce" Int param))
+      (:coerce Rev)))
+
+(def: #export (reciprocal numerator)
+  {#.doc "Rev(olution) reciprocal of a Nat(ural)."}
+  (-> Nat Rev)
+  (:coerce Rev
+           (let [[trailing-zeroes remaining] (without-trailing-zeroes 0 numerator)]
+             (n// remaining
+                  ({0 (:coerce Nat -1)
+                    _ ("lux i64 left-shift" (n/- trailing-zeroes 64) 1)}
+                   trailing-zeroes)))))
 
 (def: #export (/% param subject)
   (-> Rev Rev [Rev Rev])
@@ -47,11 +171,11 @@
   (|>> to-significand ("lux f64 /" frac-denominator)))
 
 (structure: #export equivalence (Equivalence Rev)
-  (def: = r/=))
+  (def: = ..=))
 
 (structure: #export order (Order Rev)
   (def: &equivalence ..equivalence)
-  (def: < r/<))
+  (def: < ..<))
 
 (structure: #export enum (Enum Rev)
   (def: &order ..order)
@@ -69,8 +193,8 @@
      (def: compose <compose>))]
 
   [addition ..+   bottom]
-  [maximum  r/max bottom]
-  [minimum  r/min top]
+  [maximum  ..max bottom]
+  [minimum  ..min top]
   )
 
 (def: (de-prefix input)
