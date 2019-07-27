@@ -1,3 +1,8 @@
+# Static analysis
+
+1. [Cam Tenny - Beyond the Paper - End-to-End Program Analysis](https://www.youtube.com/watch?v=hmDz0Rv6hKI)
+1. https://www.curry-on.org/2019/sessions/beyond-the-paper-end-to-end-program-analysis.html
+
 # Programming language
 
 1. [Secure Compilation](https://blog.sigplan.org/2019/07/01/secure-compilation/)
