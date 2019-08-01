@@ -1,5 +1,6 @@
 # Reference
 
+1. [DDD and Messaging Architectures: An overview of my different series on patterns in distributed systems.](http://verraes.net/2019/05/ddd-msg-arch/)
 1. https://replicated.cc/
 1. http://www.the-paper-trail.org/post/2014-08-09-distributed-systems-theory-for-the-distributed-systems-engineer/
 1. https://courses.engr.illinois.edu/cs525/sp2018/index.html

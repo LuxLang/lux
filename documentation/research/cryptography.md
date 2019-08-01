@@ -1,5 +1,7 @@
 # Constant-time programming
 
+1. [Verifying Constant-Time Implementations](https://michael-emmi.github.io/papers/conf-uss-AlmeidaBBDE16.pdf)
+1. https://www.bearssl.org/ctmul.html
 1. [FaCT: A Flexible, Constant-Time Programming Language](https://cseweb.ucsd.edu/~dstefan/pubs/cauligi:2017:fact.pdf)
 1. [FaCT: A DSL for Timing-Sensitive Computation](https://ranjitjhala.github.io/static/fact_dsl.pdf)
 1. ["FaCT: A New Language for Constant-Time Programming" by Sunjay Cauligi](https://www.youtube.com/watch?v=kbn9UCRK2Qg)

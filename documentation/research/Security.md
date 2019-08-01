@@ -28,6 +28,7 @@
 
 # Reference
 
+1. [Good Practices for Capability URLs](https://www.w3.org/TR/capability-urls/)
 1. [Secure Socket API](https://securesocketapi.org/)
 1. [Mind your Language(s): A discussion about languages and security](https://www.ssi.gouv.fr/uploads/IMG/pdf/Mind_Your_Languages_-_version_longue.pdf)
 1. https://www.microsoft.com/en-us/research/blog/scaling-the-everest-of-software-security-with-dr-jonathan-protzenko/

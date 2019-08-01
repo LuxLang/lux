@@ -38,9 +38,8 @@
 
 # Optimization
 
-1. Relaxed Operator Fusion for In-Memory Databases: Making Compilation, Vectorization, and Prefetching Work Together At Last
-
-	https://db.cs.cmu.edu/papers/2017/p1-menon.pdf
+1. [Hera - High Efficiency Reliable Access to data stores](https://github.com/paypal/hera)
+1. [Relaxed Operator Fusion for In-Memory Databases: Making Compilation, Vectorization, and Prefetching Work Together At Last](https://db.cs.cmu.edu/papers/2017/p1-menon.pdf)
 1. https://medium.com/connect-the-dots/optimizing-queries-in-rethinkdb-584d7f660cb
 1. https://blog.acolyer.org/2019/01/18/towards-a-hands-free-query-optimizer-through-deep-learning/
 1. http://blog.felipe.rs/2019/01/29/demystifying-join-algorithms/
@@ -107,6 +106,7 @@
 
 ## General
 
+1. https://github.com/Workiva/eva/
 1. https://learndb.net/
 1. http://orientdb.com/
 1. https://ignite.apache.org/

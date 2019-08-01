@@ -189,6 +189,7 @@
 
 # System Calls
 
+1. [1001 Ways of Implementing a System Call](https://x86.lol/generic/2019/07/04/kernel-entry.html)
 1. https://eli.thegreenplace.net/2018/basics-of-futexes/
 1. [FlexSC: Flexible System Call Scheduling with Exception-Less System Calls](https://www.usenix.org/legacy/event/osdi10/tech/full_papers/Soares.pdf)
 

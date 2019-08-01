@@ -14,6 +14,8 @@
 
 # Reference
 
+1. [Multiverse Debugging: Non-Deterministic Debugging for Non-Deterministic Programs](https://stefan-marr.de/2019/07/what-if-we-could-see-all-concurrency-bugs-in-the-debugger/)
+1. [Writing a Debugger](http://system.joekain.com/debugger/)
 1. https://en.wikipedia.org/wiki/Jinx_Debugger
 1. http://www.mattzeunert.com/2017/12/07/better-types-of-debuggers.html
 1. https://www.youtube.com/watch?v=ipDhvd1NsmE

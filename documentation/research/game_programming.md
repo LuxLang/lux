@@ -59,6 +59,8 @@
 
 # Rendering
 
+1. [WebGL2 Fundamentals](https://webgl2fundamentals.org/)
+1. [Tiles to Curves: Fun With Voronoi Graphs (part 1)](https://www.gamedev.net/articles/programming/general-and-gameplay-programming/tiles-to-curves-fun-with-voronoi-graphs-part-1-r5150/)
 1. [Lazy Incremental Computation for Efficient Scene Graph Rendering](https://www.cg.tuwien.ac.at/courses/RendEng/2015/RendEng-2015-11-16-paper2.pdf)
 1. [3D Wireframes in SVG](https://prideout.net/blog/svg_wireframes/)
 1. https://zzz.dog/

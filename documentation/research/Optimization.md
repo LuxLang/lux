@@ -1,3 +1,7 @@
+# For the compiler
+
+1. [Self Hosting a Million-Lines-Per-Second Parser](https://bjou-lang.org/blog/7-10-2019-self-hosting-a-million-lines-per-second-parser/7-10-2019-self-hosting-a-million-lines-per-second-parser.html)
+
 # Reference
 
 1. https://docs.google.com/presentation/d/1tpeJZFObkeick4CF-mx0L3CeCgvT15B96aJeRpxEPcE/preview?slide=id.p
