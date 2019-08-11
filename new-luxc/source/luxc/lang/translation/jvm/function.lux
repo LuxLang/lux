@@ -6,8 +6,9 @@
     [pipe (#+ when> new>)]
     ["." function]]
    [data
-    ["." text
-     format]
+    [number
+     ["n" nat]
+     ["i" int]]
     [collection
      ["." list ("#@." functor monoid)]]]
    [target
@@ -15,7 +16,8 @@
      ["#" type (#+ Type Method)]]]
    [tool
     [compiler
-     [analysis (#+ Arity Environment)]
+     [arity (#+ Arity)]
+     [analysis (#+ Environment)]
      [synthesis (#+ Synthesis Abstraction Apply)]
      [reference (#+ Register)]
      ["." phase
@@ -35,7 +37,7 @@
 
 (def: (poly-arg? arity)
   (-> Arity Bit)
-  (n/> 1 arity))
+  (n.> 1 arity))
 
 (def: (reset-method class)
   (-> Text Method)
@@ -70,15 +72,15 @@
 
 (def: (inputsI start amount)
   (-> Register Nat Inst)
-  (|> (list.n/range start (n/+ start (dec amount)))
+  (|> (list.n/range start (n.+ start (dec amount)))
       (list@map _.ALOAD)
       _.fuse))
 
 (def: (applysI start amount)
   (-> Register Nat Inst)
-  (let [max-args (n/min amount runtime.num-apply-variants)
-        later-applysI (if (n/> runtime.num-apply-variants amount)
-                        (applysI (n/+ runtime.num-apply-variants start) (n/- runtime.num-apply-variants amount))
+  (let [max-args (n.min amount runtime.num-apply-variants)
+        later-applysI (if (n.> runtime.num-apply-variants amount)
+                        (applysI (n.+ runtime.num-apply-variants start) (n.- runtime.num-apply-variants amount))
                         function.identity)]
     (|>> (_.CHECKCAST //.function-class)
          (inputsI start max-args)
@@ -106,7 +108,7 @@
 (def: (with-partial arity)
   (-> Arity Def)
   (if (poly-arg? arity)
-    (|> (list.n/range 0 (n/- 2 arity))
+    (|> (list.n/range 0 (n.- 2 arity))
         (list@map (.function (_ idx)
                     (def.field #$.Private $.finalF (reference.partial-name idx) $Object)))
         def.fuse)
@@ -164,7 +166,7 @@
 
 (def: (function-init arity env-size)
   (-> Arity Nat Inst)
-  (if (n/= 1 arity)
+  (if (n.= 1 arity)
     (|>> (_.int +0)
          (_.INVOKESPECIAL //.function-class "<init>" function-init-method #0))
     (|>> (_.ILOAD (inc env-size))
@@ -174,7 +176,7 @@
   (-> Text Environment Arity Def)
   (let [env-size (list.size env)
         offset-partial (: (-> Nat Nat)
-                          (|>> inc (n/+ env-size)))
+                          (|>> inc (n.+ env-size)))
         store-capturedI (|> (case env-size
                               0 (list)
                               _ (list.n/range 0 (dec env-size)))
@@ -184,7 +186,7 @@
                                              (_.PUTFIELD class (reference.foreign-name register) $Object))))
                             _.fuse)
         store-partialI (if (poly-arg? arity)
-                         (|> (list.n/range 0 (n/- 2 arity))
+                         (|> (list.n/range 0 (n.- 2 arity))
                              (list@map (.function (_ idx)
                                          (let [register (offset-partial idx)]
                                            (|>> (_.ALOAD 0)
@@ -205,28 +207,28 @@
   (let [num-partials (dec function-arity)
         @default ($.new-label [])
         @labels (list@map $.new-label (list.repeat num-partials []))
-        arity-over-extent (|> (.int function-arity) (i/- (.int apply-arity)))
+        arity-over-extent (|> (.int function-arity) (i.- (.int apply-arity)))
         casesI (|> (list@compose @labels (list @default))
                    (list.zip2 (list.n/range 0 num-partials))
                    (list@map (.function (_ [stage @label])
-                               (let [load-partialsI (if (n/> 0 stage)
+                               (let [load-partialsI (if (n.> 0 stage)
                                                       (|> (list.n/range 0 (dec stage))
                                                           (list@map (|>> reference.partial-name (load-fieldI class)))
                                                           _.fuse)
                                                       function.identity)]
-                                 (cond (i/= arity-over-extent (.int stage))
+                                 (cond (i.= arity-over-extent (.int stage))
                                        (|>> (_.label @label)
                                             (_.ALOAD 0)
-                                            (when> [(new> (n/> 0 stage) [])]
+                                            (when> [(new> (n.> 0 stage) [])]
                                                    [(_.INVOKEVIRTUAL class "reset" (reset-method class) #0)])
                                             load-partialsI
                                             (inputsI 1 apply-arity)
                                             (_.INVOKEVIRTUAL class "impl" (implementation-method function-arity) #0)
                                             _.ARETURN)
 
-                                       (i/> arity-over-extent (.int stage))
-                                       (let [args-to-completion (|> function-arity (n/- stage))
-                                             args-left (|> apply-arity (n/- args-to-completion))]
+                                       (i.> arity-over-extent (.int stage))
+                                       (let [args-to-completion (|> function-arity (n.- stage))
+                                             args-left (|> apply-arity (n.- args-to-completion))]
                                          (|>> (_.label @label)
                                               (_.ALOAD 0)
                                               (_.INVOKEVIRTUAL class "reset" (reset-method class) #0)
@@ -236,7 +238,7 @@
                                               (applysI (inc args-to-completion) args-left)
                                               _.ARETURN))
 
-                                       ## (i/< arity-over-extent (.int stage))
+                                       ## (i.< arity-over-extent (.int stage))
                                        (let [env-size (list.size env)
                                              load-capturedI (|> (case env-size
                                                                   0 (list)
@@ -251,7 +253,7 @@
                                               (inc-intI apply-arity)
                                               load-partialsI
                                               (inputsI 1 apply-arity)
-                                              (nullsI (|> num-partials (n/- apply-arity) (n/- stage)))
+                                              (nullsI (|> num-partials (n.- apply-arity) (n.- stage)))
                                               (_.INVOKESPECIAL class "<init>" (init-method env function-arity) #0)
                                               _.ARETURN))
                                        ))))
@@ -272,7 +274,7 @@
   (let [env-size (list.size env)
         applyD (: Def
                   (if (poly-arg? arity)
-                    (|> (n/min arity runtime.num-apply-variants)
+                    (|> (n.min arity runtime.num-apply-variants)
                         (list.n/range 1)
                         (list@map (with-apply class env arity @begin bodyI))
                         (list& (with-implementation arity @begin bodyI))
@@ -293,13 +295,13 @@
       [instanceI (instance class arity env)]
       (wrap [functionD instanceI]))))
 
-(def: #export (function translate [env arity bodyS])
+(def: #export (function generate [env arity bodyS])
   (-> Phase Abstraction (Operation Inst))
   (do phase.monad
     [@begin _.make-label
      [function-class bodyI] (generation.with-context
                               (generation.with-anchor [@begin 1]
-                                (translate bodyS)))
+                                (generate bodyS)))
      [functionD instanceI] (with-function @begin function-class env arity bodyI)
      _ (generation.save! true ["" function-class]
                          [function-class
@@ -309,19 +311,13 @@
                                      functionD)])]
     (wrap instanceI)))
 
-(def: (segment size elems)
-  (All [a] (-> Nat (List a) (List (List a))))
-  (let [[pre post] (list.split size elems)]
-    (if (list.empty? post)
-      (list pre)
-      (list& pre (segment size post)))))
-
-(def: #export (call translate [functionS argsS])
+(def: #export (call generate [functionS argsS])
   (-> Phase Apply (Operation Inst))
   (do phase.monad
-    [functionI (translate functionS)
-     argsI (monad.map @ translate argsS)
-     #let [applyI (|> (segment runtime.num-apply-variants argsI)
+    [functionI (generate functionS)
+     argsI (monad.map @ generate argsS)
+     #let [applyI (|> argsI
+                      (list.split-all runtime.num-apply-variants)
                       (list@map (.function (_ chunkI+)
                                   (|>> (_.CHECKCAST //.function-class)
                                        (_.fuse chunkI+)
