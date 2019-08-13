@@ -188,6 +188,7 @@
 
 ## Structured editing
 
+1. [豆腐 (Tofu): meaningful code editing](https://gregoor.github.io/tofu/)
 1. [Tiled Text](http://www.tiledtext.com/projects/tiledtext)
 1. [Deuce: A Lightweight User Interface for Structured Editing](https://arxiv.org/abs/1707.00015)
 1. ["Structured Editing for Elm* in Elm" by Ravi Chugh](https://www.youtube.com/watch?v=-TFL6E1uSHE)

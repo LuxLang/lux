@@ -1,3 +1,7 @@
+# Input
+
+1. [High-performance input handling on the web](https://nolanlawson.com/2019/08/11/high-performance-input-handling-on-the-web/)
+
 # Reference
 
 1. https://github.com/daybrush/scenejs
@@ -101,6 +105,7 @@
 
 # Styling
 
+1. [The importance of the CSS user-select property](https://www.malgol.com/the-importance-of-the-css-user-select-property/)
 1. [Index fun](https://psuter.net/2019/07/07/z-index)
 1. [Constraint layouts](https://blog.gtk.org/2019/07/02/constraint-layouts/)
 1. https://every-layout.dev/

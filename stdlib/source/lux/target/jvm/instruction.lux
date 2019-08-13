@@ -2,7 +2,7 @@
   [lux #*
    [abstract
     [monoid (#+ Monoid)]
-    [monad (#+ Monad do)]]
+    ["." monad (#+ Monad do)]]
    [control
     ["." state (#+ State)]
     ["." writer (#+ Writer)]
@@ -10,6 +10,8 @@
     ["." try (#+ Try)]
     ["." exception (#+ exception:)]]
    [data
+    ["." product]
+    ["." maybe]
     [text
      ["%" format (#+ format)]]
     [number
@@ -28,7 +30,7 @@
     [encoding
      ["#." name (#+ External)]
      ["#." unsigned (#+ U1 U2)]
-     ["#." signed]]
+     ["#." signed (#+ S4)]]
     ["#." constant (#+ UTF8)
      ["#/."pool (#+ Pool)]]]])
 
@@ -439,6 +441,66 @@
   [goto /bytecode.goto /bytecode.goto-w]
   [jsr /bytecode.jsr /bytecode.jsr-w]
   )
+
+(def: (big-jump jump)
+  (-> (Either Jump Big-Jump) Big-Jump)
+  (case jump
+    (#.Left small)
+    (/jump.lift small)
+
+    (#.Right big)
+    big))
+
+(exception: #export invalid-tableswitch)
+
+(def: #export (tableswitch minimum default cases)
+  (-> S4 Label (List Label) (Instruction Any))
+  (function (_ [pool tracker])
+    (let [@from (get@ #program-counter tracker)]
+      [[pool tracker]
+       [(function (_ resolver)
+          (let [get (: (-> Label (Maybe Address))
+                       (function (_ label)
+                         (dictionary.get label resolver)))]
+            (case (do maybe.monad
+                    [@default (get default)
+                     @cases (monad.map @ get cases)
+                     #let [>default (big-jump (jump @from @default))
+                           >cases (list@map (|>> (jump @from) big-jump)
+                                            @cases)]]
+                    (wrap (/bytecode.tableswitch minimum >default >cases)))
+              (#.Some bytecode)
+              (#try.Success bytecode)
+
+              #.None
+              (exception.throw ..invalid-tableswitch []))))
+        []]])))
+
+(exception: #export invalid-lookupswitch)
+
+(def: #export (lookupswitch default cases)
+  (-> Label (List [S4 Label]) (Instruction Any))
+  (function (_ [pool tracker])
+    (let [@from (get@ #program-counter tracker)]
+      [[pool tracker]
+       [(function (_ resolver)
+          (let [get (: (-> Label (Maybe Address))
+                       (function (_ label)
+                         (dictionary.get label resolver)))]
+            (case (do maybe.monad
+                    [@default (get default)
+                     @cases (monad.map @ (|>> product.right get) cases)
+                     #let [>default (big-jump (jump @from @default))
+                           >cases (|> @cases
+                                      (list@map (|>> (jump @from) big-jump))
+                                      (list.zip2 (list@map product.left cases)))]]
+                    (wrap (/bytecode.lookupswitch >default >cases)))
+              (#.Some bytecode)
+              (#try.Success bytecode)
+
+              #.None
+              (exception.throw ..invalid-lookupswitch []))))
+        []]])))
 
 (template [<name> <bytecode>]
   [(def: #export (<name> class)

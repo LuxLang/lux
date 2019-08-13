@@ -48,6 +48,7 @@
 
 # Quaternions
 
+1. [Dual Quaternions for Mere Mortals](https://www.jeremyong.com/math/2019/08/05/dual-quaternions-for-mere-mortals/)
 1. [Stepping into a New Dimension: Using Quaternions to See the Invisible](https://medium.com/@vieyrasoftware/stepping-into-a-new-dimension-using-quaternions-to-see-the-invisible-478087c9ebbf)
 1. [How Quaternions Produce 3D Rotation](https://penguinmaths.blogspot.com/2019/06/how-quaternions-produce-3d-rotation.html)
 1. [APPLICATION OF DUAL QUATERNIONS ON SELECTED PROBLEMS](https://otik.uk.zcu.cz/bitstream/11025/28563/1/phd_Application%20of%20dual%20quaternions%20on%20selected%20problems.pdf)
