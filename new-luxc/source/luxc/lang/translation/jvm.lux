@@ -1,10 +1,11 @@
 (.module:
-  [lux (#- Type Definition)
+  [lux (#- Definition)
    ["." host (#+ import: do-to object)]
    [abstract
     [monad (#+ do)]]
    [control
     pipe
+    ["." try (#+ Try)]
     ["." exception (#+ exception:)]
     ["." io (#+ IO io)]
     [concurrency
@@ -12,7 +13,6 @@
    [data
     [binary (#+ Binary)]
     ["." product]
-    ["." error (#+ Error)]
     ["." text ("#@." hash)
      ["%" format (#+ format)]]
     [collection
@@ -21,7 +21,7 @@
    [target
     [jvm
      ["." loader (#+ Library)]
-     ["." type (#+ Type)]]]
+     ["." descriptor]]]
    [tool
     [compiler
      ["." name]]]]
@@ -48,7 +48,7 @@
 (type: #export ByteCode Binary)
 
 (def: #export value-field Text "_value")
-(def: #export $Object Type (type.class "java.lang.Object" (list)))
+(def: #export $Value (descriptor.class "java.lang.Object"))
 
 (exception: #export (cannot-load {class Text} {error Text})
   (exception.report
@@ -66,28 +66,28 @@
    ["Class" class]))
 
 (def: (class-value class-name class)
-  (-> Text (Class Object) (Error Any))
+  (-> Text (Class Object) (Try Any))
   (case (Class::getField ..value-field class)
-    (#error.Success field)
+    (#try.Success field)
     (case (Field::get #.None field)
-      (#error.Success ?value)
+      (#try.Success ?value)
       (case ?value
         (#.Some value)
-        (#error.Success value)
+        (#try.Success value)
         
         #.None
         (exception.throw invalid-value class-name))
       
-      (#error.Failure error)
+      (#try.Failure error)
       (exception.throw cannot-load [class-name error]))
     
-    (#error.Failure error)
+    (#try.Failure error)
     (exception.throw invalid-field [class-name ..value-field error])))
 
 (def: class-path-separator ".")
 
 (def: (evaluate! library loader eval-class valueI)
-  (-> Library ClassLoader Text Inst (Error [Any Definition]))
+  (-> Library ClassLoader Text Inst (Try [Any Definition]))
   (let [bytecode-name (text.replace-all class-path-separator .module-separator eval-class)
         bytecode (def.class #jvm.V1_6
                             #jvm.Public jvm.noneC
@@ -95,14 +95,14 @@
                             (list) ["java.lang.Object" (list)]
                             (list)
                             (|>> (def.field #jvm.Public ($_ jvm.++F jvm.finalF jvm.staticF)
-                                            ..value-field ..$Object)
+                                            ..value-field ..$Value)
                                  (def.method #jvm.Public ($_ jvm.++M jvm.staticM jvm.strictM)
                                              "<clinit>"
-                                             (type.method (list) #.None (list))
+                                             (descriptor.method [(list) descriptor.void])
                                              (|>> valueI
-                                                  (inst.PUTSTATIC bytecode-name ..value-field ..$Object)
+                                                  (inst.PUTSTATIC (descriptor.class bytecode-name) ..value-field ..$Value)
                                                   inst.RETURN))))]
-    (io.run (do (error.with io.monad)
+    (io.run (do (try.with io.monad)
               [_ (loader.store eval-class bytecode library)
                class (loader.load eval-class loader)
                value (:: io.monad wrap (class-value eval-class class))]
@@ -110,23 +110,23 @@
                      [eval-class bytecode]])))))
 
 (def: (execute! library loader temp-label [class-name class-bytecode])
-  (-> Library ClassLoader Text Definition (Error Any))
-  (io.run (do (error.with io.monad)
+  (-> Library ClassLoader Text Definition (Try Any))
+  (io.run (do (try.with io.monad)
             [existing-class? (|> (atom.read library)
                                  (:: io.monad map (dictionary.contains? class-name))
-                                 (error.lift io.monad)
-                                 (: (IO (Error Bit))))
+                                 (try.lift io.monad)
+                                 (: (IO (Try Bit))))
              _ (if existing-class?
                  (wrap [])
                  (loader.store class-name class-bytecode library))]
             (loader.load class-name loader))))
 
 (def: (define! library loader [module name] valueI)
-  (-> Library ClassLoader Name Inst (Error [Text Any Definition]))
+  (-> Library ClassLoader Name Inst (Try [Text Any Definition]))
   (let [class-name (format (text.replace-all .module-separator class-path-separator module)
                            class-path-separator (name.normalize name)
                            "___" (%.nat (text@hash name)))]
-    (do error.monad
+    (do try.monad
       [[value definition] (evaluate! library loader class-name valueI)]
       (wrap [class-name value definition]))))
 
@@ -138,7 +138,7 @@
            (structure
             (def: (evaluate! temp-label valueI)
               (let [eval-class (|> temp-label name.normalize (text.replace-all " " "$"))]
-                (:: error.monad map product.left
+                (:: try.monad map product.left
                     (..evaluate! library loader eval-class valueI))))
             
             (def: execute!
@@ -150,6 +150,6 @@
 (def: #export runtime-class "LuxRuntime")
 (def: #export function-class "LuxFunction")
 
-(def: #export $Variant Type (type.array 1 ..$Object))
-(def: #export $Tuple Type (type.array 1 ..$Object))
-(def: #export $Function Type (type.class ..function-class (list)))
+(def: #export $Variant (descriptor.array ..$Value))
+(def: #export $Tuple (descriptor.array ..$Value))
+(def: #export $Function (descriptor.class ..function-class))

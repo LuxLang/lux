@@ -12,8 +12,8 @@
     [collection
      ["." list ("#@." functor monoid)]]]
    [target
-    ["." jvm #_
-     ["#" type (#+ Type Method)]]]
+    [jvm
+     ["." descriptor (#+ Descriptor Class Method Value)]]]
    [tool
     [compiler
      [arity (#+ Arity)]
@@ -33,42 +33,40 @@
    ["." reference]])
 
 (def: arity-field Text "arity")
-(def: $Object Type (jvm.class "java.lang.Object" (list)))
 
 (def: (poly-arg? arity)
   (-> Arity Bit)
   (n.> 1 arity))
 
-(def: (reset-method class)
-  (-> Text Method)
-  (jvm.method (list) (#.Some (jvm.class class (list))) (list)))
+(def: reset-method
+  (-> (Descriptor Class) (Descriptor Method))
+  (|>> [(list)] descriptor.method))
 
 (def: (captured-args env)
-  (-> Environment (List Type))
-  (list.repeat (list.size env) $Object))
+  (-> Environment (List (Descriptor Value)))
+  (list.repeat (list.size env) //.$Value))
 
 (def: (init-method env arity)
-  (-> Environment Arity Method)
+  (-> Environment Arity (Descriptor Method))
   (if (poly-arg? arity)
-    (jvm.method (list.concat (list (captured-args env)
-                                   (list jvm.int)
-                                   (list.repeat (dec arity) $Object)))
-                #.None
-                (list))
-    (jvm.method (captured-args env) #.None (list))))
+    (descriptor.method [(list.concat (list (captured-args env)
+                                           (list descriptor.int)
+                                           (list.repeat (dec arity) //.$Value)))
+                        descriptor.void])
+    (descriptor.method [(captured-args env) descriptor.void])))
 
 (def: (implementation-method arity)
-  (jvm.method (list.repeat arity $Object) (#.Some $Object) (list)))
+  (descriptor.method [(list.repeat arity //.$Value) //.$Value]))
 
 (def: get-amount-of-partialsI
   Inst
   (|>> (_.ALOAD 0)
-       (_.GETFIELD //.function-class runtime.partials-field jvm.int)))
+       (_.GETFIELD //.$Function runtime.partials-field descriptor.int)))
 
 (def: (load-fieldI class field)
-  (-> Text Text Inst)
+  (-> (Descriptor Class) Text Inst)
   (|>> (_.ALOAD 0)
-       (_.GETFIELD class field $Object)))
+       (_.GETFIELD class field //.$Value)))
 
 (def: (inputsI start amount)
   (-> Register Nat Inst)
@@ -82,9 +80,9 @@
         later-applysI (if (n.> runtime.num-apply-variants amount)
                         (applysI (n.+ runtime.num-apply-variants start) (n.- runtime.num-apply-variants amount))
                         function.identity)]
-    (|>> (_.CHECKCAST //.function-class)
+    (|>> (_.CHECKCAST //.$Function)
          (inputsI start max-args)
-         (_.INVOKEVIRTUAL //.function-class runtime.apply-method (runtime.apply-signature max-args) #0)
+         (_.INVOKEVIRTUAL //.$Function runtime.apply-method (runtime.apply-signature max-args) #0)
          later-applysI)))
 
 (def: (inc-intI by)
@@ -102,7 +100,7 @@
   (-> Environment Def)
   (|>> list.enumerate
        (list@map (.function (_ [env-idx env-source])
-                   (def.field #$.Private $.finalF (reference.foreign-name env-idx) $Object)))
+                   (def.field #$.Private $.finalF (reference.foreign-name env-idx) //.$Value)))
        def.fuse))
 
 (def: (with-partial arity)
@@ -110,12 +108,12 @@
   (if (poly-arg? arity)
     (|> (list.n/range 0 (n.- 2 arity))
         (list@map (.function (_ idx)
-                    (def.field #$.Private $.finalF (reference.partial-name idx) $Object)))
+                    (def.field #$.Private $.finalF (reference.partial-name idx) //.$Value)))
         def.fuse)
     function.identity))
 
 (def: (instance class arity env)
-  (-> Text Arity Environment (Operation Inst))
+  (-> (Descriptor Class) Arity Environment (Operation Inst))
   (do phase.monad
     [captureI+ (monad.map @ reference.variable env)
      #let [argsI (if (poly-arg? arity)
@@ -130,7 +128,7 @@
                (_.INVOKESPECIAL class "<init>" (init-method env arity) #0)))))
 
 (def: (with-reset class arity env)
-  (-> Text Arity Environment Def)
+  (-> (Descriptor Class) Arity Environment Def)
   (def.method #$.Public $.noneM "reset" (reset-method class)
               (if (poly-arg? arity)
                 (let [env-size (list.size env)
@@ -139,7 +137,7 @@
                                      _ (list.n/range 0 (dec env-size)))
                                    (list@map (.function (_ source)
                                                (|>> (_.ALOAD 0)
-                                                    (_.GETFIELD class (reference.foreign-name source) $Object))))
+                                                    (_.GETFIELD class (reference.foreign-name source) //.$Value))))
                                    _.fuse)
                       argsI (|> (nullsI (dec arity))
                                 (list (_.int +0))
@@ -161,19 +159,18 @@
                    _.ARETURN)))
 
 (def: function-init-method
-  Method
-  (jvm.method (list jvm.int) #.None (list)))
+  (descriptor.method [(list descriptor.int) descriptor.void]))
 
 (def: (function-init arity env-size)
   (-> Arity Nat Inst)
   (if (n.= 1 arity)
     (|>> (_.int +0)
-         (_.INVOKESPECIAL //.function-class "<init>" function-init-method #0))
+         (_.INVOKESPECIAL //.$Function "<init>" function-init-method #0))
     (|>> (_.ILOAD (inc env-size))
-         (_.INVOKESPECIAL //.function-class "<init>" function-init-method #0))))
+         (_.INVOKESPECIAL //.$Function "<init>" function-init-method #0))))
 
 (def: (with-init class env arity)
-  (-> Text Environment Arity Def)
+  (-> (Descriptor Class) Environment Arity Def)
   (let [env-size (list.size env)
         offset-partial (: (-> Nat Nat)
                           (|>> inc (n.+ env-size)))
@@ -183,7 +180,7 @@
                             (list@map (.function (_ register)
                                         (|>> (_.ALOAD 0)
                                              (_.ALOAD (inc register))
-                                             (_.PUTFIELD class (reference.foreign-name register) $Object))))
+                                             (_.PUTFIELD class (reference.foreign-name register) //.$Value))))
                             _.fuse)
         store-partialI (if (poly-arg? arity)
                          (|> (list.n/range 0 (n.- 2 arity))
@@ -191,7 +188,7 @@
                                          (let [register (offset-partial idx)]
                                            (|>> (_.ALOAD 0)
                                                 (_.ALOAD (inc register))
-                                                (_.PUTFIELD class (reference.partial-name idx) $Object)))))
+                                                (_.PUTFIELD class (reference.partial-name idx) //.$Value)))))
                              _.fuse)
                          function.identity)]
     (def.method #$.Public $.noneM "<init>" (init-method env arity)
@@ -202,7 +199,7 @@
                      _.RETURN))))
 
 (def: (with-apply class env function-arity @begin bodyI apply-arity)
-  (-> Text Environment Arity Label Inst Arity
+  (-> (Descriptor Class) Environment Arity Label Inst Arity
       Def)
   (let [num-partials (dec function-arity)
         @default ($.new-label [])
@@ -263,7 +260,7 @@
                      (_.TABLESWITCH +0 (|> num-partials dec .int)
                                     @default @labels)
                      casesI
-                     (_.INVOKESTATIC //.runtime-class "apply_fail" (jvm.method (list) #.None (list)) #0)
+                     (_.INVOKESTATIC runtime.$Runtime "apply_fail" (descriptor.method [(list) descriptor.void]) #0)
                      _.NULL
                      _.ARETURN
                      ))))
@@ -271,12 +268,13 @@
 (def: #export (with-function @begin class env arity bodyI)
   (-> Label Text Environment Arity Inst
       (Operation [Def Inst]))
-  (let [env-size (list.size env)
+  (let [classD (descriptor.class class)
+        env-size (list.size env)
         applyD (: Def
                   (if (poly-arg? arity)
                     (|> (n.min arity runtime.num-apply-variants)
                         (list.n/range 1)
-                        (list@map (with-apply class env arity @begin bodyI))
+                        (list@map (with-apply classD env arity @begin bodyI))
                         (list& (with-implementation arity @begin bodyI))
                         def.fuse)
                     (def.method #$.Public $.strictM runtime.apply-method (runtime.apply-signature 1)
@@ -287,12 +285,12 @@
                      (|>> (def.int-field #$.Public ($_ $.++F $.staticF $.finalF) arity-field (.int arity))
                           (with-environment env)
                           (with-partial arity)
-                          (with-init class env arity)
-                          (with-reset class arity env)
+                          (with-init classD env arity)
+                          (with-reset classD arity env)
                           applyD
                           ))]
     (do phase.monad
-      [instanceI (instance class arity env)]
+      [instanceI (instance classD arity env)]
       (wrap [functionD instanceI]))))
 
 (def: #export (function generate [env arity bodyS])
@@ -319,9 +317,9 @@
      #let [applyI (|> argsI
                       (list.split-all runtime.num-apply-variants)
                       (list@map (.function (_ chunkI+)
-                                  (|>> (_.CHECKCAST //.function-class)
+                                  (|>> (_.CHECKCAST //.$Function)
                                        (_.fuse chunkI+)
-                                       (_.INVOKEVIRTUAL //.function-class runtime.apply-method (runtime.apply-signature (list.size chunkI+)) #0))))
+                                       (_.INVOKEVIRTUAL //.$Function runtime.apply-method (runtime.apply-signature (list.size chunkI+)) #0))))
                       _.fuse)]]
     (wrap (|>> functionI
                applyI))))

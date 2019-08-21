@@ -10,7 +10,7 @@
      ["n" nat]]]
    [target
     [jvm
-     ["$t" type]]]
+     ["." descriptor]]]
    [tool
     [compiler
      ["." synthesis (#+ Path Synthesis)]
@@ -20,8 +20,10 @@
     [host
      ["$" jvm (#+ Label Inst Operation Phase)
       ["_" inst]]]]]
-  ["." // (#+ $Object)
+  ["." //
    ["." runtime]])
+
+(def: $Runtime (descriptor.class //.runtime-class))
 
 (def: (pop-altI stack-depth)
   (-> Nat Inst)
@@ -40,12 +42,7 @@
 
 (def: pushI
   Inst
-  (|>> (_.INVOKESTATIC //.runtime-class
-                       "pm_push"
-                       ($t.method (list runtime.$Stack $Object)
-                                  (#.Some runtime.$Stack)
-                                  (list))
-                       #0)))
+  (|>> (_.INVOKESTATIC $Runtime "pm_push" (descriptor.method [(list runtime.$Stack //.$Value) runtime.$Stack]) #0)))
 
 (def: (path' phase stack-depth @else @end path)
   (-> Phase Nat Label Label Path (Operation Inst))
@@ -60,19 +57,19 @@
     (^ (synthesis.path/bit value))
     (operation@wrap (.let [jumpI (.if value _.IFEQ _.IFNE)]
                       (|>> peekI
-                           (_.unwrap #$t.Boolean)
+                           (_.unwrap descriptor.boolean)
                            (jumpI @else))))
     
     (^ (synthesis.path/i64 value))
     (operation@wrap (|>> peekI
-                         (_.unwrap #$t.Long)
+                         (_.unwrap descriptor.long)
                          (_.long (.int value))
                          _.LCMP
                          (_.IFNE @else)))
     
     (^ (synthesis.path/f64 value))
     (operation@wrap (|>> peekI
-                         (_.unwrap #$t.Double)
+                         (_.unwrap descriptor.double)
                          (_.double value)
                          _.DCMPL
                          (_.IFNE @else)))
@@ -80,11 +77,9 @@
     (^ (synthesis.path/text value))
     (operation@wrap (|>> peekI
                          (_.string value)
-                         (_.INVOKEVIRTUAL "java.lang.Object"
+                         (_.INVOKEVIRTUAL (descriptor.class "java.lang.Object")
                                           "equals"
-                                          ($t.method (list $Object)
-                                                     (#.Some $t.boolean)
-                                                     (list))
+                                          (descriptor.method [(list //.$Value) descriptor.boolean])
                                           #0)
                          (_.IFEQ @else)))
     
@@ -95,20 +90,15 @@
                  bodyI
                  (_.GOTO @end))))
     
-    
     (^template [<pattern> <flag> <prepare>]
       (^ (<pattern> idx))
       (operation@wrap (<| _.with-label (function (_ @success))
                           _.with-label (function (_ @fail))
                           (|>> peekI
-                               (_.CHECKCAST ($t.descriptor runtime.$Variant))
+                               (_.CHECKCAST //.$Variant)
                                (_.int (.int (<prepare> idx)))
                                <flag>
-                               (_.INVOKESTATIC //.runtime-class "pm_variant"
-                                               ($t.method (list runtime.$Variant runtime.$Tag runtime.$Flag)
-                                                          (#.Some runtime.$Datum)
-                                                          (list))
-                                               #0)
+                               (_.INVOKESTATIC $Runtime "pm_variant" (descriptor.method [(list //.$Variant runtime.$Tag runtime.$Flag) runtime.$Value]) #0)
                                _.DUP
                                (_.IFNULL @fail)
                                (_.GOTO @success)
@@ -126,28 +116,18 @@
                                      _.AALOAD
                                      
                                      lefts
-                                     (_.INVOKESTATIC //.runtime-class
-                                                     "tuple_left"
-                                                     ($t.method (list runtime.$Tuple $t.int)
-                                                                (#.Some $Object)
-                                                                (list))
-                                                     #0))]
+                                     (_.INVOKESTATIC $Runtime "tuple_left" (descriptor.method [(list //.$Tuple runtime.$Index) //.$Value]) #0))]
                       (|>> peekI
-                           (_.CHECKCAST ($t.descriptor runtime.$Tuple))
+                           (_.CHECKCAST //.$Tuple)
                            (_.int (.int lefts))
                            accessI
                            pushI)))
 
     (^ (synthesis.member/right lefts))
     (operation@wrap (|>> peekI
-                         (_.CHECKCAST ($t.descriptor runtime.$Tuple))
+                         (_.CHECKCAST //.$Tuple)
                          (_.int (.int lefts))
-                         (_.INVOKESTATIC //.runtime-class
-                                         "tuple_right"
-                                         ($t.method (list runtime.$Tuple $t.int)
-                                                    (#.Some $Object)
-                                                    (list))
-                                         #0)
+                         (_.INVOKESTATIC $Runtime "tuple_right" (descriptor.method [(list //.$Tuple runtime.$Index) //.$Value]) #0)
                          pushI))
 
     ## Extra optimization
@@ -157,7 +137,7 @@
     (do phase.monad
       [then! (path' phase stack-depth @else @end thenP)]
       (wrap (|>> peekI
-                 (_.CHECKCAST ($t.descriptor runtime.$Tuple))
+                 (_.CHECKCAST //.$Tuple)
                  (_.int +0)
                  _.AALOAD
                  (_.ASTORE register)
@@ -171,14 +151,9 @@
       (do phase.monad
         [then! (path' phase stack-depth @else @end thenP)]
         (wrap (|>> peekI
-                   (_.CHECKCAST ($t.descriptor runtime.$Tuple))
+                   (_.CHECKCAST //.$Tuple)
                    (_.int (.int lefts))
-                   (_.INVOKESTATIC //.runtime-class
-                                   <getter>
-                                   ($t.method (list runtime.$Tuple $t.int)
-                                              (#.Some $Object)
-                                              (list))
-                                   #0)
+                   (_.INVOKESTATIC $Runtime <getter> (descriptor.method [(list //.$Tuple runtime.$Index) //.$Value]) #0)
                    (_.ASTORE register)
                    then!))))
     ([synthesis.member/left  "tuple_left"]
@@ -211,10 +186,7 @@
     (wrap (|>> pathI
                (_.label @else)
                _.POP
-               (_.INVOKESTATIC //.runtime-class
-                               "pm_fail"
-                               ($t.method (list) #.None (list))
-                               #0)
+               (_.INVOKESTATIC $Runtime "pm_fail" (descriptor.method [(list) descriptor.void]) #0)
                _.NULL
                (_.GOTO @end)))))
 
@@ -227,7 +199,7 @@
     (wrap (<| _.with-label (function (_ @else))
               _.with-label (function (_ @end))
               (|>> testI
-                   (_.unwrap #$t.Boolean)
+                   (_.unwrap descriptor.boolean)
                    (_.IFEQ @else)
                    thenI
                    (_.GOTO @end)

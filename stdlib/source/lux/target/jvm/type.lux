@@ -12,7 +12,10 @@
     ["." text ("#@." equivalence)
      ["%" format (#+ format)]]
     [collection
-     ["." list ("#@." functor)]]]])
+     ["." list ("#@." functor)]]]]
+  ["." // #_
+   [encoding
+    ["#." name]]])
 
 (template [<descriptor> <definition>]
   [(def: #export <definition> <descriptor>)]
@@ -31,7 +34,7 @@
 (def: #export array-prefix "[")
 (def: object-prefix "L")
 (def: var-prefix "T")
-(def: wildcard-descriptor "*")
+(def: wildcard-signature "*")
 (def: lower-prefix "-")
 (def: upper-prefix "+")
 (def: object-suffix ";")
@@ -46,14 +49,11 @@
   (format valid-var-characters/head
           "0123456789"))
 
-(def: syntax-package-separator ".")
-(def: binary-package-separator "/")
-
 (def: valid-class-characters/head
-  (format valid-var-characters/head ..binary-package-separator))
+  (format valid-var-characters/head //name.internal-separator))
 
 (def: valid-class-characters/tail
-  (format valid-var-characters/tail ..binary-package-separator))
+  (format valid-var-characters/tail //name.internal-separator))
 
 (type: #export Bound
   #Lower
@@ -210,59 +210,6 @@
     0 elemT
     _ (#Array (array (dec depth) elemT))))
 
-(template [<name> <from> <to>]
-  [(def: #export <name>
-     (-> Text Text)
-     (text.replace-all <from> <to>))]
-
-  [binary-name ..syntax-package-separator ..binary-package-separator]
-  [syntax-name ..binary-package-separator ..syntax-package-separator]
-  )
-
-(def: #export (descriptor type)
-  (-> Type Text)
-  (case type
-    (#Primitive prim)
-    (case prim
-      #Boolean ..boolean-descriptor
-      #Byte    ..byte-descriptor
-      #Short   ..short-descriptor
-      #Int     ..int-descriptor
-      #Long    ..long-descriptor
-      #Float   ..float-descriptor
-      #Double  ..double-descriptor
-      #Char    ..char-descriptor)
-
-    (#Array sub)
-    (format ..array-prefix (descriptor sub))
-
-    (#Generic generic)
-    (case generic
-      (#Class class params)
-      (format ..object-prefix (binary-name class) ..object-suffix)
-
-      (^or (#Var name) (#Wildcard ?bound))
-      (descriptor (#Generic (#Class ..object-class (list)))))
-    ))
-
-(def: #export (class-name type)
-  (-> Type (Maybe Text))
-  (case type
-    (#Primitive prim)
-    #.None
-
-    (#Array sub)
-    (#.Some (descriptor type))
-
-    (#Generic generic)
-    (case generic
-      (#Class class params)
-      (#.Some class)
-
-      (^or (#Var name) (#Wildcard ?bound))
-      (#.Some ..object-class))
-    ))
-
 (def: #export (signature type)
   (-> Type Text)
   (case type
@@ -290,13 +237,13 @@
                                   (list@map (|>> #Generic signature))
                                   (text.join-with ""))
                               ">"))]
-        (format ..object-prefix (binary-name class) =params ..object-suffix))
+        (format ..object-prefix (|> class //name.internal //name.read) =params ..object-suffix))
 
       (#Var name)
       (format ..var-prefix name ..object-suffix)
 
       (#Wildcard #.None)
-      ..wildcard-descriptor
+      ..wildcard-signature
 
       (^template [<tag> <prefix>]
         (#Wildcard (#.Some [<tag> bound]))
@@ -312,7 +259,7 @@
          (<t>.slice (<t>.and! (<t>.one-of! <head>)
                               (<t>.some! (<t>.one-of! <tail>))))))]
 
-  [parse-class-name valid-class-characters/head valid-class-characters/tail ..syntax-name]
+  [parse-class-name valid-class-characters/head valid-class-characters/tail (|>> //name.internal //name.external)]
   [parse-var-name valid-var-characters/head valid-var-characters/tail function.identity]
   )
 
@@ -335,7 +282,7 @@
      ($_ <>.or
          ..parse-var
          ($_ <>.or
-             (<t>.this ..wildcard-descriptor)
+             (<t>.this ..wildcard-signature)
              (<>.and ..parse-bound recur)
              )
          (|> (<>.and ..parse-class-name
@@ -371,22 +318,12 @@
   (-> (List Type) (Maybe Type) (List Generic) Method)
   {#args args #return return #exceptions exceptions})
 
-(def: method-args
-  (text.enclose ["(" ")"]))
-
-(def: #export (method-descriptor method)
-  (-> Method Text)
-  (format (|> (get@ #args method) (list@map descriptor) (text.join-with "") ..method-args)
-          (case (get@ #return method)
-            #.None
-            ..void-descriptor
-
-            (#.Some return)
-            (descriptor return))))
-
 (def: #export (method-signature method)
   (-> Method Text)
-  (format (|> (get@ #args method) (list@map signature) (text.join-with "") ..method-args)
+  (format (|> (get@ #args method)
+              (list@map signature)
+              (text.join-with "")
+              (text.enclose ["(" ")"]))
           (case (get@ #return method)
             #.None
             ..void-descriptor

@@ -1,5 +1,5 @@
 (.module:
-  [lux (#- Type)
+  [lux #*
    [abstract
     [monad (#+ do)]]
    [data
@@ -8,7 +8,8 @@
    ["." math]
    [target
     [jvm
-     ["$t" type (#+ Type Method)]]]
+     ["." descriptor (#+ Descriptor)]
+     ["$t" type]]]
    [tool
     [compiler
      [arity (#+ Arity)]
@@ -23,33 +24,36 @@
       ["_" inst]]]]]
   ["." // (#+ ByteCode)])
 
-(def: $Object Type ($t.class "java.lang.Object" (list)))
-(def: $Object-Array Type ($t.array 1 $Object))
-(def: $String Type ($t.class "java.lang.String" (list)))
-(def: #export $Stack Type ($t.array 1 $Object))
-(def: #export $Tuple Type $Object-Array)
-(def: #export $Variant Type $Object-Array)
-(def: #export $Tag Type $t.int)
-(def: #export $Flag Type $Object)
-(def: #export $Datum Type $Object)
-(def: #export $Function Type ($t.class //.function-class (list)))
-(def: $Throwable Type ($t.class "java.lang.Throwable" (list)))
-(def: $Runtime Type ($t.class "java.lang.Runtime" (list)))
+(def: $Text (descriptor.class "java.lang.String"))
+(def: #export $Tag descriptor.int)
+(def: #export $Flag (descriptor.class "java.lang.Object"))
+(def: #export $Value (descriptor.class "java.lang.Object"))
+(def: #export $Index descriptor.int)
+(def: #export $Stack (descriptor.array $Value))
+(def: $Throwable (descriptor.class "java.lang.Throwable"))
+(def: #export $Runtime (descriptor.class "java.lang.Runtime"))
+
+(def: nullary-init-methodT
+  (descriptor.method [(list) descriptor.void]))
+
+(def: throw-methodT
+  (descriptor.method [(list) descriptor.void]))
 
 (def: #export logI
   Inst
-  (let [outI (_.GETSTATIC "java.lang.System" "out" ($t.class "java.io.PrintStream" (list)))
-        printI (function (_ method) (_.INVOKEVIRTUAL "java.io.PrintStream" method ($t.method (list $Object) #.None (list)) #0))]
+  (let [PrintStream (descriptor.class "java.io.PrintStream")
+        outI (_.GETSTATIC (descriptor.class "java.lang.System") "out" PrintStream)
+        printI (function (_ method)
+                 (_.INVOKEVIRTUAL PrintStream method (descriptor.method [(list $Value) descriptor.void]) #0))]
     (|>> outI (_.string "LOG: ") (printI "print")
          outI _.SWAP (printI "println"))))
 
 (def: variant-method
-  Method
-  ($t.method (list $t.int $Object $Object) (#.Some $Object-Array) (list)))
+  (descriptor.method [(list $Tag $Flag $Value) //.$Variant]))
 
 (def: #export variantI
   Inst
-  (_.INVOKESTATIC //.runtime-class "variant_make" variant-method #0))
+  (_.INVOKESTATIC (descriptor.class //.runtime-class) "variant_make" variant-method #0))
 
 (def: #export leftI
   Inst
@@ -81,7 +85,7 @@
   (<| _.with-label (function (_ @from))
       _.with-label (function (_ @to))
       _.with-label (function (_ @handler))
-      (|>> (_.try @from @to @handler "java.lang.Exception")
+      (|>> (_.try @from @to @handler (descriptor.class "java.lang.Exception"))
            (_.label @from)
            unsafeI
            someI
@@ -93,27 +97,25 @@
 
 (def: #export string-concatI
   Inst
-  (_.INVOKEVIRTUAL "java.lang.String" "concat" ($t.method (list $String) (#.Some $String) (list)) #0))
+  (_.INVOKEVIRTUAL $Text "concat" (descriptor.method [(list $Text) $Text]) #0))
 
 (def: #export partials-field Text "partials")
 (def: #export apply-method Text "apply")
 (def: #export num-apply-variants Nat 8)
 
 (def: #export (apply-signature arity)
-  (-> Arity Method)
-  ($t.method (list.repeat arity $Object) (#.Some $Object) (list)))
+  (-> Arity (Descriptor descriptor.Method))
+  (descriptor.method [(list.repeat arity $Value) $Value]))
 
 (def: adt-methods
   Def
-  (let [store-tagI (|>> _.DUP (_.int +0) (_.ILOAD 0) (_.wrap #$t.Int) _.AASTORE)
+  (let [store-tagI (|>> _.DUP (_.int +0) (_.ILOAD 0) (_.wrap descriptor.int) _.AASTORE)
         store-flagI (|>> _.DUP (_.int +1) (_.ALOAD 1) _.AASTORE)
         store-valueI (|>> _.DUP (_.int +2) (_.ALOAD 2) _.AASTORE)]
     (|>> ($d.method #$.Public $.staticM "variant_make"
-                    ($t.method (list $t.int $Object $Object)
-                               (#.Some $Variant)
-                               (list))
+                    (descriptor.method [(list $Tag $Flag $Value) //.$Variant])
                     (|>> (_.int +3)
-                         (_.array $Object)
+                         (_.array //.$Variant)
                          store-tagI
                          store-flagI
                          store-valueI
@@ -123,21 +125,29 @@
 
 (def: frac-methods
   Def
-  (|>> ($d.method #$.Public $.staticM "decode_frac" ($t.method (list $String) (#.Some $Object-Array) (list))
+  (|>> ($d.method #$.Public $.staticM "decode_frac" (descriptor.method [(list $Text) //.$Variant])
                   (try-methodI
                    (|>> (_.ALOAD 0)
-                        (_.INVOKESTATIC "java.lang.Double" "parseDouble" ($t.method (list $String) (#.Some $t.double) (list)) #0)
-                        (_.wrap #$t.Double))))
+                        (_.INVOKESTATIC (descriptor.class "java.lang.Double") "parseDouble" (descriptor.method [(list $Text) descriptor.double]) #0)
+                        (_.wrap descriptor.double))))
        ))
 
 (def: #export popI
   (|>> (_.int +1)
        _.AALOAD
-       (_.CHECKCAST ($t.descriptor $Stack))))
+       (_.CHECKCAST $Stack)))
 
 (def: #export peekI
   (|>> (_.int +0)
        _.AALOAD))
+
+(def: (illegal-state-exception message)
+  (-> Text Inst)
+  (let [IllegalStateException (descriptor.class "java.lang.IllegalStateException")]
+    (|>> (_.NEW IllegalStateException)
+         _.DUP
+         (_.string message)
+         (_.INVOKESPECIAL IllegalStateException "<init>" (descriptor.method [(list $Text) descriptor.void]) #0))))
 
 (def: pm-methods
   Def
@@ -148,27 +158,21 @@
         sub-leftsI (|>> leftsI
                         last-rightI
                         _.ISUB)
-        sub-tupleI (|>> (_.ALOAD 0) last-rightI _.AALOAD (_.CHECKCAST ($t.descriptor $Tuple)))
+        sub-tupleI (|>> (_.ALOAD 0) last-rightI _.AALOAD (_.CHECKCAST //.$Tuple))
         recurI (: (-> Label Inst)
                   (function (_ @loop)
                     (|>> sub-leftsI (_.ISTORE 1)
                          sub-tupleI (_.ASTORE 0)
                          (_.GOTO @loop))))]
-    (|>> ($d.method #$.Public $.staticM "pm_fail" ($t.method (list) #.None (list))
-                    (|>> (_.NEW "java.lang.IllegalStateException")
-                         _.DUP
-                         (_.string "Invalid expression for pattern-matching.")
-                         (_.INVOKESPECIAL "java.lang.IllegalStateException" "<init>" ($t.method (list $String) #.None (list)) #0)
+    (|>> ($d.method #$.Public $.staticM "pm_fail" throw-methodT
+                    (|>> (illegal-state-exception "Invalid expression for pattern-matching.")
                          _.ATHROW))
-         ($d.method #$.Public $.staticM "apply_fail" ($t.method (list) #.None (list))
-                    (|>> (_.NEW "java.lang.IllegalStateException")
-                         _.DUP
-                         (_.string "Error while applying function.")
-                         (_.INVOKESPECIAL "java.lang.IllegalStateException" "<init>" ($t.method (list $String) #.None (list)) #0)
+         ($d.method #$.Public $.staticM "apply_fail" throw-methodT
+                    (|>> (illegal-state-exception "Error while applying function.")
                          _.ATHROW))
-         ($d.method #$.Public $.staticM "pm_push" ($t.method (list $Stack $Object) (#.Some $Stack) (list))
+         ($d.method #$.Public $.staticM "pm_push" (descriptor.method [(list $Stack $Value) $Stack])
                     (|>> (_.int +2)
-                         (_.ANEWARRAY "java.lang.Object")
+                         (_.ANEWARRAY $Stack)
                          _.DUP
                          (_.int +1)
                          (_.ALOAD 0)
@@ -178,7 +182,7 @@
                          (_.ALOAD 1)
                          _.AASTORE
                          _.ARETURN))
-         ($d.method #$.Public $.staticM "pm_variant" ($t.method (list $Variant $Tag $Flag) (#.Some $Object) (list))
+         ($d.method #$.Public $.staticM "pm_variant" (descriptor.method [(list //.$Variant $Tag $Flag) $Value])
                     (<| _.with-label (function (_ @loop))
                         _.with-label (function (_ @just-return))
                         _.with-label (function (_ @then))
@@ -189,7 +193,7 @@
                                                (function (_ idx)
                                                  (|>> (_.int (.int idx)) _.AALOAD)))
                               tagI (: Inst
-                                      (|>> (variant-partI 0) (_.unwrap #$t.Int)))
+                                      (|>> (variant-partI 0) (_.unwrap descriptor.int)))
                               flagI (variant-partI 1)
                               datumI (variant-partI 2)
                               shortenI (|>> (_.ALOAD 0) tagI ## Get tag
@@ -199,7 +203,7 @@
                                             variantI ## Build sum
                                             _.ARETURN)
                               update-tagI (|>> _.ISUB (_.ISTORE 1))
-                              update-variantI (|>> (_.ALOAD 0) datumI (_.CHECKCAST ($t.descriptor $Variant)) (_.ASTORE 0))
+                              update-variantI (|>> (_.ALOAD 0) datumI (_.CHECKCAST //.$Variant) (_.ASTORE 0))
                               failureI (|>> _.NULL _.ARETURN)
                               return-datumI (|>> (_.ALOAD 0) datumI _.ARETURN)])
                         (|>> (_.label @loop)
@@ -230,7 +234,7 @@
                              (_.label @wrong) ## tag, sumT
                              ## _.POP2
                              failureI)))
-         ($d.method #$.Public $.staticM "tuple_left" ($t.method (list $Tuple $t.int) (#.Some $Object) (list))
+         ($d.method #$.Public $.staticM "tuple_left" (descriptor.method [(list //.$Tuple $Index) $Value])
                     (<| _.with-label (function (_ @loop))
                         _.with-label (function (_ @recursive))
                         (let [left-accessI (|>> (_.ALOAD 0) left-indexI _.AALOAD)])
@@ -241,7 +245,7 @@
                              (_.label @recursive)
                              ## Recursive
                              (recurI @loop))))
-         ($d.method #$.Public $.staticM "tuple_right" ($t.method (list $Tuple $t.int) (#.Some $Object) (list))
+         ($d.method #$.Public $.staticM "tuple_right" (descriptor.method [(list //.$Tuple $Index) $Value])
                     (<| _.with-label (function (_ @loop))
                         _.with-label (function (_ @not-tail))
                         _.with-label (function (_ @slice))
@@ -254,10 +258,9 @@
                               sub-rightI (|>> (_.ALOAD 0)
                                               right-indexI
                                               tuple-sizeI
-                                              (_.INVOKESTATIC "java.util.Arrays" "copyOfRange"
-                                                              ($t.method (list $Object-Array $t.int $t.int)
-                                                                         (#.Some $Object-Array)
-                                                                         (list))
+                                              (_.INVOKESTATIC (descriptor.class "java.util.Arrays") "copyOfRange"
+                                                              (descriptor.method [(list //.$Tuple $Index $Index)
+                                                                                  //.$Tuple])
                                                               #0))])
                         (|>> (_.label @loop)
                              last-rightI right-indexI
@@ -277,26 +280,28 @@
 
 (def: io-methods
   Def
-  (let [string-writerI (|>> (_.NEW "java.io.StringWriter")
+  (let [StringWriter (descriptor.class "java.io.StringWriter")
+        PrintWriter (descriptor.class "java.io.PrintWriter")
+        string-writerI (|>> (_.NEW StringWriter)
                             _.DUP
-                            (_.INVOKESPECIAL "java.io.StringWriter" "<init>" ($t.method (list) #.None (list)) #0))
-        print-writerI (|>> (_.NEW "java.io.PrintWriter")
+                            (_.INVOKESPECIAL StringWriter "<init>" nullary-init-methodT #0))
+        print-writerI (|>> (_.NEW PrintWriter)
                            _.SWAP
                            _.DUP2
                            _.POP
                            _.SWAP
-                           (_.boolean #1)
-                           (_.INVOKESPECIAL "java.io.PrintWriter" "<init>" ($t.method (list ($t.class "java.io.Writer" (list)) $t.boolean) #.None (list)) #0)
+                           (_.boolean true)
+                           (_.INVOKESPECIAL PrintWriter "<init>" (descriptor.method [(list (descriptor.class "java.io.Writer") descriptor.boolean) descriptor.void]) #0)
                            )]
-    (|>> ($d.method #$.Public $.staticM "try" ($t.method (list $Function) (#.Some $Variant) (list))
+    (|>> ($d.method #$.Public $.staticM "try" (descriptor.method [(list //.$Function) //.$Variant])
                     (<| _.with-label (function (_ @from))
                         _.with-label (function (_ @to))
                         _.with-label (function (_ @handler))
-                        (|>> (_.try @from @to @handler "java.lang.Throwable")
+                        (|>> (_.try @from @to @handler $Throwable)
                              (_.label @from)
                              (_.ALOAD 0)
                              _.NULL
-                             (_.INVOKEVIRTUAL //.function-class apply-method (apply-signature 1) #0)
+                             (_.INVOKEVIRTUAL //.$Function apply-method (apply-signature 1) #0)
                              rightI
                              _.ARETURN
                              (_.label @to)
@@ -304,8 +309,8 @@
                              string-writerI ## TW
                              _.DUP2 ## TWTW
                              print-writerI ## TWTP
-                             (_.INVOKEVIRTUAL "java.lang.Throwable" "printStackTrace" ($t.method (list ($t.class "java.io.PrintWriter" (list))) #.None (list)) #0) ## TW
-                             (_.INVOKEVIRTUAL "java.io.StringWriter" "toString" ($t.method (list) (#.Some $String) (list)) #0) ## TS
+                             (_.INVOKEVIRTUAL $Throwable "printStackTrace" (descriptor.method [(list (descriptor.class "java.io.PrintWriter")) descriptor.void]) #0) ## TW
+                             (_.INVOKEVIRTUAL StringWriter "toString" (descriptor.method [(list) $Text]) #0) ## TS
                              _.SWAP _.POP leftI
                              _.ARETURN)))
          )))
@@ -330,21 +335,21 @@
                                                          (list/map _.ALOAD)
                                                          _.fuse)]
                                             (|>> preI
-                                                 (_.INVOKEVIRTUAL //.function-class apply-method (apply-signature (dec arity)) #0)
-                                                 (_.CHECKCAST //.function-class)
+                                                 (_.INVOKEVIRTUAL //.$Function apply-method (apply-signature (dec arity)) #0)
+                                                 (_.CHECKCAST //.$Function)
                                                  (_.ALOAD arity)
-                                                 (_.INVOKEVIRTUAL //.function-class apply-method (apply-signature 1) #0)
+                                                 (_.INVOKEVIRTUAL //.$Function apply-method (apply-signature 1) #0)
                                                  _.ARETURN)))))
                    (list& ($d.abstract-method #$.Public $.noneM apply-method (apply-signature 1)))
                    $d.fuse)
         bytecode ($d.abstract #$.V1_6 #$.Public $.noneC //.function-class (list) ["java.lang.Object" (list)] (list)
-                              (|>> ($d.field #$.Public $.finalF partials-field $t.int)
-                                   ($d.method #$.Public $.noneM "<init>" ($t.method (list $t.int) #.None (list))
+                              (|>> ($d.field #$.Public $.finalF partials-field descriptor.int)
+                                   ($d.method #$.Public $.noneM "<init>" (descriptor.method [(list descriptor.int) descriptor.void])
                                               (|>> (_.ALOAD 0)
-                                                   (_.INVOKESPECIAL "java.lang.Object" "<init>" ($t.method (list) #.None (list)) #0)
+                                                   (_.INVOKESPECIAL (descriptor.class "java.lang.Object") "<init>" nullary-init-methodT #0)
                                                    (_.ALOAD 0)
                                                    (_.ILOAD 1)
-                                                   (_.PUTFIELD //.function-class partials-field $t.int)
+                                                   (_.PUTFIELD //.$Function partials-field descriptor.int)
                                                    _.RETURN))
                                    applyI))]
     (do phase.monad

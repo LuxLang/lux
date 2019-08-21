@@ -3,12 +3,12 @@
    [abstract
     ["." monad (#+ do)]]
    [control
+    ["." try]
     ["<>" parser
      ["<s>" synthesis (#+ Parser)]]
     ["ex" exception (#+ exception:)]]
    [data
     ["." product]
-    ["." error]
     [number
      ["f" frac]]
     [collection
@@ -16,7 +16,7 @@
      ["." dictionary]]]
    [target
     [jvm
-     ["_t" type (#+ Type Method)]]]
+     ["." descriptor]]]
    [tool
     [compiler
      ["." synthesis (#+ Synthesis %synthesis)]
@@ -42,36 +42,38 @@
         Handler))
   (function (_ extension-name phase input)
     (case (<s>.run input parser)
-      (#error.Success input')
+      (#try.Success input')
       (handler extension-name phase input')
 
-      (#error.Failure error)
+      (#try.Failure error)
       (phase.throw extension.invalid-syntax [extension-name %synthesis input]))))
 
 (import: java/lang/Double
   (#static MIN_VALUE Double)
   (#static MAX_VALUE Double))
 
-(def: $Object-Array Type (_t.array 1 ///.$Object))
-(def: $String Type (_t.class "java.lang.String" (list)))
-(def: $CharSequence Type (_t.class "java.lang.CharSequence" (list)))
+(def: $String (descriptor.class "java.lang.String"))
+(def: $CharSequence (descriptor.class "java.lang.CharSequence"))
+(def: $System (descriptor.class "java.lang.System"))
+(def: $Object (descriptor.class "java.lang.Object"))
 
-(def: lux-intI Inst (|>> _.I2L (_.wrap #_t.Long)))
-(def: jvm-intI Inst (|>> (_.unwrap #_t.Long) _.L2I))
-(def: check-stringI Inst (_.CHECKCAST "java.lang.String"))
+(def: lux-intI Inst (|>> _.I2L (_.wrap descriptor.long)))
+(def: jvm-intI Inst (|>> (_.unwrap descriptor.long) _.L2I))
+(def: check-stringI Inst (_.CHECKCAST $String))
 
 (def: (predicateI tester)
   (-> (-> Label Inst)
       Inst)
-  (<| _.with-label (function (_ @then))
-      _.with-label (function (_ @end))
-      (|>> (tester @then)
-           (_.GETSTATIC "java.lang.Boolean" "FALSE" (_t.class "java.lang.Boolean" (list)))
-           (_.GOTO @end)
-           (_.label @then)
-           (_.GETSTATIC "java.lang.Boolean" "TRUE" (_t.class "java.lang.Boolean" (list)))
-           (_.label @end)
-           )))
+  (let [$Boolean (descriptor.class "java.lang.Boolean")]
+    (<| _.with-label (function (_ @then))
+        _.with-label (function (_ @end))
+        (|>> (tester @then)
+             (_.GETSTATIC $Boolean "FALSE" $Boolean)
+             (_.GOTO @end)
+             (_.label @then)
+             (_.GETSTATIC $Boolean "TRUE" $Boolean)
+             (_.label @end)
+             ))))
 
 (def: unitI Inst (_.string synthesis.unit))
 
@@ -108,7 +110,7 @@
                             conditionalsG (|> conditionalsG+
                                               (list@map product.right)
                                               _.fuse)]]
-                     (wrap (|>> inputG (_.unwrap #_t.Long) _.L2I
+                     (wrap (|>> inputG (_.unwrap descriptor.long) _.L2I
                                 (_.LOOKUPSWITCH @else table)
                                 conditionalsG
                                 (_.label @else)
@@ -125,17 +127,17 @@
 (def: (lux::try riskyI)
   (Unary Inst)
   (|>> riskyI
-       (_.CHECKCAST ///.function-class)
-       (_.INVOKESTATIC ///.runtime-class "try"
-                       (_t.method (list ///.$Function) (#.Some $Object-Array) (list))
+       (_.CHECKCAST ///.$Function)
+       (_.INVOKESTATIC runtime.$Runtime "try"
+                       (descriptor.method [(list ///.$Function) ///.$Variant])
                        #0)))
 
 (template [<name> <op>]
   [(def: (<name> [maskI inputI])
      (Binary Inst)
-     (|>> inputI (_.unwrap #_t.Long)
-          maskI (_.unwrap #_t.Long)
-          <op> (_.wrap #_t.Long)))]
+     (|>> inputI (_.unwrap descriptor.long)
+          maskI (_.unwrap descriptor.long)
+          <op> (_.wrap descriptor.long)))]
 
   [i64::and _.LAND]
   [i64::or  _.LOR]
@@ -145,10 +147,10 @@
 (template [<name> <op>]
   [(def: (<name> [shiftI inputI])
      (Binary Inst)
-     (|>> inputI (_.unwrap #_t.Long)
+     (|>> inputI (_.unwrap descriptor.long)
           shiftI jvm-intI
           <op>
-          (_.wrap #_t.Long)))]
+          (_.wrap descriptor.long)))]
 
   [i64::left-shift             _.LSHL]
   [i64::arithmetic-right-shift _.LSHR]
@@ -160,9 +162,9 @@
      (Nullary Inst)
      (|>> <const> (_.wrap <type>)))]
 
-  [frac::smallest (_.double (Double::MIN_VALUE))            #_t.Double]
-  [frac::min      (_.double (f.* -1.0 (Double::MAX_VALUE))) #_t.Double]
-  [frac::max      (_.double (Double::MAX_VALUE))            #_t.Double]
+  [f64::smallest (_.double (Double::MIN_VALUE))            descriptor.double]
+  [f64::min      (_.double (f.* -1.0 (Double::MAX_VALUE))) descriptor.double]
+  [f64::max      (_.double (Double::MAX_VALUE))            descriptor.double]
   )
 
 (template [<name> <type> <op>]
@@ -173,25 +175,25 @@
           <op>
           (_.wrap <type>)))]
 
-  [i64::+  #_t.Long   _.LADD]
-  [i64::-  #_t.Long   _.LSUB]
-  [i64::*  #_t.Long   _.LMUL]
-  [i64::/  #_t.Long   _.LDIV]
-  [i64::%  #_t.Long   _.LREM]
+  [i64::+ descriptor.long   _.LADD]
+  [i64::- descriptor.long   _.LSUB]
+  [i64::* descriptor.long   _.LMUL]
+  [i64::/ descriptor.long   _.LDIV]
+  [i64::% descriptor.long   _.LREM]
   
-  [frac::+ #_t.Double _.DADD]
-  [frac::- #_t.Double _.DSUB]
-  [frac::* #_t.Double _.DMUL]
-  [frac::/ #_t.Double _.DDIV]
-  [frac::% #_t.Double _.DREM]
+  [f64::+ descriptor.double _.DADD]
+  [f64::- descriptor.double _.DSUB]
+  [f64::* descriptor.double _.DMUL]
+  [f64::/ descriptor.double _.DDIV]
+  [f64::% descriptor.double _.DREM]
   )
 
-(template [<eq> <lt> <unwrap> <cmp>]
+(template [<eq> <lt> <descriptor> <cmp>]
   [(template [<name> <reference>]
      [(def: (<name> [paramI subjectI])
         (Binary Inst)
-        (|>> subjectI <unwrap>
-             paramI <unwrap>
+        (|>> subjectI (_.unwrap <descriptor>)
+             paramI (_.unwrap <descriptor>)
              <cmp>
              (_.int <reference>)
              (predicateI _.IF_ICMPEQ)))]
@@ -199,8 +201,8 @@
      [<eq> +0]
      [<lt> -1])]
 
-  [i64::= i64::< (_.unwrap #_t.Long)   _.LCMP]
-  [frac::= frac::< (_.unwrap #_t.Double) _.DCMPG]
+  [i64::= i64::< descriptor.long   _.LCMP]
+  [f64::= f64::< descriptor.double _.DCMPG]
   )
 
 (template [<name> <prepare> <transform>]
@@ -208,22 +210,22 @@
      (Unary Inst)
      (|>> inputI <prepare> <transform>))]
 
-  [i64::f64 (_.unwrap #_t.Long) (<| (_.wrap #_t.Double) _.L2D)]
-  [i64::char (_.unwrap #_t.Long)
-   ((|>> _.L2I _.I2C (_.INVOKESTATIC "java.lang.Character" "toString" (_t.method (list _t.char) (#.Some $String) (list)) #0)))]
+  [i64::f64 (_.unwrap descriptor.long) (<| (_.wrap descriptor.double) _.L2D)]
+  [i64::char (_.unwrap descriptor.long)
+   ((|>> _.L2I _.I2C (_.INVOKESTATIC (descriptor.class "java.lang.Character") "toString" (descriptor.method [(list descriptor.char) $String]) #0)))]
 
-  [frac::i64 (_.unwrap #_t.Double) (<| (_.wrap #_t.Long) _.D2L)]
-  [frac::encode (_.unwrap #_t.Double)
-   (_.INVOKESTATIC "java.lang.Double" "toString" (_t.method (list _t.double) (#.Some $String) (list)) #0)]
-  [frac::decode ..check-stringI
-   (_.INVOKESTATIC ///.runtime-class "decode_frac" (_t.method (list $String) (#.Some $Object-Array) (list)) #0)]
+  [f64::i64 (_.unwrap descriptor.double) (<| (_.wrap descriptor.long) _.D2L)]
+  [f64::encode (_.unwrap descriptor.double)
+   (_.INVOKESTATIC (descriptor.class "java.lang.Double") "toString" (descriptor.method [(list descriptor.double) $String]) #0)]
+  [f64::decode ..check-stringI
+   (_.INVOKESTATIC runtime.$Runtime "decode_frac" (descriptor.method [(list $String) ///.$Variant]) #0)]
   )
 
 (def: (text::size inputI)
   (Unary Inst)
   (|>> inputI
        ..check-stringI
-       (_.INVOKEVIRTUAL "java.lang.String" "length" (_t.method (list) (#.Some _t.int) (list)) #0)
+       (_.INVOKEVIRTUAL $String "length" (descriptor.method [(list) descriptor.int]) #0)
        lux-intI))
 
 (template [<name> <pre-subject> <pre-param> <op> <post>]
@@ -234,13 +236,13 @@
           <op> <post>))]
 
   [text::= (<|) (<|)
-   (_.INVOKEVIRTUAL "java.lang.Object" "equals" (_t.method (list ///.$Object) (#.Some _t.boolean) (list)) #0)
-   (_.wrap #_t.Boolean)]
+   (_.INVOKEVIRTUAL $Object "equals" (descriptor.method [(list $Object) descriptor.boolean]) #0)
+   (_.wrap descriptor.boolean)]
   [text::< ..check-stringI ..check-stringI
-   (_.INVOKEVIRTUAL "java.lang.String" "compareTo" (_t.method (list $String) (#.Some _t.int) (list)) #0)
+   (_.INVOKEVIRTUAL $String "compareTo" (descriptor.method [(list $String) descriptor.int]) #0)
    (predicateI _.IFLT)]
   [text::char ..check-stringI jvm-intI
-   (_.INVOKEVIRTUAL "java.lang.String" "charAt" (_t.method (list _t.int) (#.Some _t.char) (list)) #0)
+   (_.INVOKEVIRTUAL $String "charAt" (descriptor.method [(list descriptor.int) descriptor.char]) #0)
    lux-intI]
   )
 
@@ -248,16 +250,16 @@
   (Binary Inst)
   (|>> leftI ..check-stringI
        rightI ..check-stringI
-       (_.INVOKEVIRTUAL "java.lang.String" "concat" (_t.method (list $String) (#.Some $String) (list)) #0)))
+       (_.INVOKEVIRTUAL $String "concat" (descriptor.method [(list $String) $String]) #0)))
 
 (def: (text::clip [startI endI subjectI])
   (Trinary Inst)
   (|>> subjectI ..check-stringI
        startI jvm-intI
        endI jvm-intI
-       (_.INVOKEVIRTUAL "java.lang.String" "substring" (_t.method (list _t.int _t.int) (#.Some $String) (list)) #0)))
+       (_.INVOKEVIRTUAL $String "substring" (descriptor.method [(list descriptor.int descriptor.int) $String]) #0)))
 
-(def: index-method Method (_t.method (list $String _t.int) (#.Some _t.int) (list)))
+(def: index-method (descriptor.method [(list $String descriptor.int) descriptor.int]))
 (def: (text::index [startI partI textI])
   (Trinary Inst)
   (<| _.with-label (function (_ @not-found))
@@ -265,7 +267,7 @@
       (|>> textI ..check-stringI
            partI ..check-stringI
            startI jvm-intI
-           (_.INVOKEVIRTUAL "java.lang.String" "indexOf" index-method #0)
+           (_.INVOKEVIRTUAL $String "indexOf" index-method #0)
            _.DUP
            (_.int -1)
            (_.IF_ICMPEQ @not-found)
@@ -277,34 +279,36 @@
            runtime.noneI
            (_.label @end))))
 
-(def: string-method Method (_t.method (list $String) #.None (list)))
+(def: string-method (descriptor.method [(list $String) descriptor.void]))
 (def: (io::log messageI)
   (Unary Inst)
-  (|>> (_.GETSTATIC "java.lang.System" "out" (_t.class "java.io.PrintStream" (list)))
-       messageI
-       ..check-stringI
-       (_.INVOKEVIRTUAL "java.io.PrintStream" "println" string-method #0)
-       unitI))
+  (let [$PrintStream (descriptor.class "java.io.PrintStream")]
+    (|>> (_.GETSTATIC $System "out" $PrintStream)
+         messageI
+         ..check-stringI
+         (_.INVOKEVIRTUAL $PrintStream "println" string-method #0)
+         unitI)))
 
 (def: (io::error messageI)
   (Unary Inst)
-  (|>> (_.NEW "java.lang.Error")
-       _.DUP
-       messageI
-       ..check-stringI
-       (_.INVOKESPECIAL "java.lang.Error" "<init>" string-method #0)
-       _.ATHROW))
+  (let [$Error (descriptor.class "java.lang.Error")]
+    (|>> (_.NEW $Error)
+         _.DUP
+         messageI
+         ..check-stringI
+         (_.INVOKESPECIAL $Error "<init>" string-method #0)
+         _.ATHROW)))
 
 (def: (io::exit codeI)
   (Unary Inst)
   (|>> codeI jvm-intI
-       (_.INVOKESTATIC "java.lang.System" "exit" (_t.method (list _t.int) #.None (list)) #0)
+       (_.INVOKESTATIC $System "exit" (descriptor.method [(list descriptor.int) descriptor.void]) #0)
        _.NULL))
 
 (def: (io::current-time _)
   (Nullary Inst)
-  (|>> (_.INVOKESTATIC "java.lang.System" "currentTimeMillis" (_t.method (list) (#.Some _t.long) (list)) #0)
-       (_.wrap #_t.Long)))
+  (|>> (_.INVOKESTATIC $System "currentTimeMillis" (descriptor.method [(list) descriptor.long]) #0)
+       (_.wrap descriptor.long)))
 
 (def: bundle::lux
   Bundle
@@ -337,19 +341,19 @@
   Bundle
   (<| (bundle.prefix "f64")
       (|> (: Bundle bundle.empty)
-          (bundle.install "+" (binary frac::+))
-          (bundle.install "-" (binary frac::-))
-          (bundle.install "*" (binary frac::*))
-          (bundle.install "/" (binary frac::/))
-          (bundle.install "%" (binary frac::%))
-          (bundle.install "=" (binary frac::=))
-          (bundle.install "<" (binary frac::<))
-          (bundle.install "smallest" (nullary frac::smallest))
-          (bundle.install "min" (nullary frac::min))
-          (bundle.install "max" (nullary frac::max))
-          (bundle.install "i64" (unary frac::i64))
-          (bundle.install "encode" (unary frac::encode))
-          (bundle.install "decode" (unary frac::decode)))))
+          (bundle.install "+" (binary f64::+))
+          (bundle.install "-" (binary f64::-))
+          (bundle.install "*" (binary f64::*))
+          (bundle.install "/" (binary f64::/))
+          (bundle.install "%" (binary f64::%))
+          (bundle.install "=" (binary f64::=))
+          (bundle.install "<" (binary f64::<))
+          (bundle.install "smallest" (nullary f64::smallest))
+          (bundle.install "min" (nullary f64::min))
+          (bundle.install "max" (nullary f64::max))
+          (bundle.install "i64" (unary f64::i64))
+          (bundle.install "encode" (unary f64::encode))
+          (bundle.install "decode" (unary f64::decode)))))
 
 (def: bundle::text
   Bundle

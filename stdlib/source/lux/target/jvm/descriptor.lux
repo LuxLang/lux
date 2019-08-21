@@ -1,7 +1,12 @@
 (.module:
   [lux (#- int char)
+   [abstract
+    [equivalence (#+ Equivalence)]]
    [data
-    ["." text
+    ["." maybe]
+    [number
+     ["n" nat]]
+    ["." text ("#@." equivalence)
      ["%" format (#+ format)]]
     [collection
      ["." list ("#@." functor)]]]
@@ -25,53 +30,65 @@
 
   Text
 
-  (type: #export (Value kind) (Return (Value' kind)))
+  (type: #export Value (<| Return Value' Any))
   (type: #export Void (Return Void'))
 
-  (type: #export Field (Value Any))
+  (type: #export Field Value)
 
-  (template [<refined>]
-    [(with-expansions [<raw> (template.identifier [<refined> "'"])]
+  (abstract: #export (Object' brand) {} Any)
+  (type: #export Object (<| Return Value' Object' Any))
+
+  (template [<parents> <child>]
+    [(with-expansions [<raw> (template.identifier [<child> "'"])]
        (abstract: #export <raw> {} Any)
-       (type: #export <refined> (Value <raw>)))]
+       (type: #export <child>
+         (`` (<| Return Value' (~~ (template.splice <parents>)) <raw>))))]
 
-    [Primitive]
-    [Object]
-    [Array]
+    [[] Primitive]
+    [[Object'] Class]
+    [[Object'] Array]
     )
 
-  (template [<sigil> <name> <kind>]
+  (template [<sigil> <kind> <name>]
     [(def: #export <name>
        (Descriptor <kind>)
        (:abstraction <sigil>))]
 
-    ["Z" boolean Primitive]
-    ["B" byte Primitive]
-    ["S" short Primitive]
-    ["I" int Primitive]
-    ["J" long Primitive]
-    ["F" float Primitive]
-    ["D" double Primitive]
-    ["C" char Primitive]
-    ["V" void Void]
+    ["Z" Primitive boolean]
+    ["B" Primitive byte]
+    ["S" Primitive short]
+    ["I" Primitive int]
+    ["J" Primitive long]
+    ["F" Primitive float]
+    ["D" Primitive double]
+    ["C" Primitive char]
+    ["V" Void void]
     )
 
-  (def: #export object
-    (-> External (Descriptor Object))
+  (def: class-prefix "L")
+  (def: class-suffix ";")
+
+  (def: #export class
+    (-> External (Descriptor Class))
     (|>> //name.internal
          //name.read
-         (text.enclose ["L" ";"])
+         (text.enclose [..class-prefix ..class-suffix])
          :abstraction))
 
+  (def: #export var (..class "java.lang.Object"))
+  (def: #export wildcard (..class "java.lang.Object"))
+
+  (def: array-prefix "[")
+
   (def: #export array
-    (-> (Descriptor (Value Any))
+    (-> (Descriptor Value)
         (Descriptor Array))
     (|>> :representation
-         (format "[")
+         (format ..array-prefix)
          :abstraction))
 
   (def: #export (method [inputs output])
-    (-> [(List (Descriptor (Value Any)))
+    (-> [(List (Descriptor Value))
          (Descriptor (Return Any))]
         (Descriptor Method))
     (:abstraction
@@ -84,4 +101,54 @@
   (def: #export descriptor
     (-> (Descriptor Any) Text)
     (|>> :representation))
+
+  (structure: #export equivalence (All [brand] (Equivalence (Descriptor brand)))
+    (def: (= parameter subject)
+      (text@= (:representation parameter) (:representation subject))))
+
+  (def: #export (primitive? descriptor)
+    (-> (Descriptor Value) (Either (Descriptor Object)
+                                   (Descriptor Primitive)))
+    (if (`` (or (~~ (template [<descriptor>]
+                      [(:: ..equivalence = <descriptor> descriptor)]
+                      
+                      [..boolean]
+                      [..byte]
+                      [..short]
+                      [..int]
+                      [..long]
+                      [..float]
+                      [..double]
+                      [..char]))))
+      (|> descriptor :transmutation #.Right)
+      (|> descriptor :transmutation #.Left)))
+
+  (def: #export (class? descriptor)
+    (-> (Descriptor Value) (Maybe Text))
+    (let [repr (:representation descriptor)]
+      (if (and (text.starts-with? ..class-prefix repr)
+               (text.ends-with? ..class-suffix repr))
+        (:: maybe.monad map
+            (|>> //name.internal //name.external)
+            (text.clip (text.size ..class-prefix)
+                       (n.- (text.size ..class-suffix)
+                            (text.size repr))
+                       repr))
+        #.None)))
+
+  (def: #export class-name
+    (-> (Descriptor Object) Text)
+    (let [prefix-size (text.size ..class-prefix)
+          suffix-size (text.size ..class-suffix)]
+      (function (_ descriptor)
+        (let [repr (:representation descriptor)]
+          (if (text.starts-with? ..array-prefix repr)
+            repr
+            (|> repr
+                (text.clip prefix-size
+                           (n.- suffix-size
+                                (text.size repr)))
+                (:: maybe.monad map
+                    (|>> //name.internal //name.external))
+                maybe.assume))))))
   )

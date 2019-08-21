@@ -1,5 +1,5 @@
 (.module:
-  [lux (#- Type primitive int char)
+  [lux (#- primitive int char)
    [abstract
     ["." monad (#+ do)]]
    [control
@@ -11,7 +11,6 @@
    [data
     ["." product]
     ["." maybe]
-    ["." error]
     [number
      ["." nat]]
     ["." text]
@@ -21,7 +20,8 @@
      ["." set]]]
    [target
     ["." jvm #_
-     ["#" type (#+ Primitive Bound Generic Class Type Method Var Typed Argument Return)
+     ["." descriptor (#+ Descriptor Value Primitive Object Method)]
+     ["#" type (#+ Bound Generic Class Var Typed Argument Return)
       ["." box]
       ["." reflection]]]]
    [tool
@@ -64,7 +64,7 @@
   [L2C (|>> _.L2I _.I2C)]
   )
 
-(template [<name> <unwrap> <conversion> <wrap>]
+(template [<conversion> <name>]
   [(def: (<name> inputI)
      (Unary Inst)
      (if (is? _.NOP <conversion>)
@@ -72,30 +72,30 @@
        (|>> inputI
             <conversion>)))]
   
-  [conversion::double-to-float #jvm.Double _.D2F #jvm.Float]
-  [conversion::double-to-int #jvm.Double _.D2I #jvm.Int]
-  [conversion::double-to-long #jvm.Double _.D2L #jvm.Long]
-  [conversion::float-to-double #jvm.Float _.F2D #jvm.Double]
-  [conversion::float-to-int #jvm.Float _.F2I #jvm.Int]
-  [conversion::float-to-long #jvm.Float _.F2L #jvm.Long]
-  [conversion::int-to-byte #jvm.Int _.I2B #jvm.Byte]
-  [conversion::int-to-char #jvm.Int _.I2C #jvm.Char]
-  [conversion::int-to-double #jvm.Int _.I2D #jvm.Double]
-  [conversion::int-to-float #jvm.Int _.I2F #jvm.Float]
-  [conversion::int-to-long #jvm.Int _.I2L #jvm.Long]
-  [conversion::int-to-short #jvm.Int _.I2S #jvm.Short]
-  [conversion::long-to-double #jvm.Long _.L2D #jvm.Double]
-  [conversion::long-to-float #jvm.Long _.L2F #jvm.Float]
-  [conversion::long-to-int #jvm.Long _.L2I #jvm.Int]
-  [conversion::long-to-short #jvm.Long L2S #jvm.Short]
-  [conversion::long-to-byte #jvm.Long L2B #jvm.Byte]
-  [conversion::long-to-char #jvm.Long L2C #jvm.Char]
-  [conversion::char-to-byte #jvm.Char _.I2B #jvm.Byte]
-  [conversion::char-to-short #jvm.Char _.I2S #jvm.Short]
-  [conversion::char-to-int #jvm.Char _.NOP #jvm.Int]
-  [conversion::char-to-long #jvm.Char _.I2L #jvm.Long]
-  [conversion::byte-to-long #jvm.Byte _.I2L #jvm.Long]
-  [conversion::short-to-long #jvm.Short _.I2L #jvm.Long]
+  [_.D2F conversion::double-to-float]
+  [_.D2I conversion::double-to-int]
+  [_.D2L conversion::double-to-long]
+  [_.F2D conversion::float-to-double]
+  [_.F2I conversion::float-to-int]
+  [_.F2L conversion::float-to-long]
+  [_.I2B conversion::int-to-byte]
+  [_.I2C conversion::int-to-char]
+  [_.I2D conversion::int-to-double]
+  [_.I2F conversion::int-to-float]
+  [_.I2L conversion::int-to-long]
+  [_.I2S conversion::int-to-short]
+  [_.L2D conversion::long-to-double]
+  [_.L2F conversion::long-to-float]
+  [_.L2I conversion::long-to-int]
+  [..L2S conversion::long-to-short]
+  [..L2B conversion::long-to-byte]
+  [..L2C conversion::long-to-char]
+  [_.I2B conversion::char-to-byte]
+  [_.I2S conversion::char-to-short]
+  [_.NOP conversion::char-to-int]
+  [_.I2L conversion::char-to-long]
+  [_.I2L conversion::byte-to-long]
+  [_.I2L conversion::short-to-long]
   )
 
 (def: conversion
@@ -172,9 +172,9 @@
   [double::% _.DREM]
   )
 
-(def: boolean-class (jvm.class box.boolean (list)))
-(def: falseI (_.GETSTATIC "java.lang.Boolean" "FALSE" boolean-class))
-(def: trueI (_.GETSTATIC "java.lang.Boolean" "TRUE" boolean-class))
+(def: $Boolean (descriptor.class box.boolean))
+(def: falseI (_.GETSTATIC $Boolean "FALSE" $Boolean))
+(def: trueI (_.GETSTATIC $Boolean "TRUE" $Boolean))
 
 (template [<name> <op>]
   [(def: (<name> [xI yI])
@@ -296,28 +296,29 @@
           )))
 
 (def: (array-java-type nesting elem-class)
-  (-> Nat Text Type)
-  (jvm.array nesting
-             (case elem-class
-               (^ (static reflection.boolean)) jvm.boolean
-               (^ (static reflection.byte)) jvm.byte
-               (^ (static reflection.short)) jvm.short
-               (^ (static reflection.int)) jvm.int
-               (^ (static reflection.long)) jvm.long
-               (^ (static reflection.float)) jvm.float
-               (^ (static reflection.double)) jvm.double
-               (^ (static reflection.char)) jvm.char
-               _ (jvm.class elem-class (list)))))
+  (-> Nat Text (Descriptor Object))
+  (descriptor.array (case nesting
+                      1 (case elem-class
+                          (^ (static reflection.boolean)) descriptor.boolean
+                          (^ (static reflection.byte)) descriptor.byte
+                          (^ (static reflection.short)) descriptor.short
+                          (^ (static reflection.int)) descriptor.int
+                          (^ (static reflection.long)) descriptor.long
+                          (^ (static reflection.float)) descriptor.float
+                          (^ (static reflection.double)) descriptor.double
+                          (^ (static reflection.char)) descriptor.char
+                          _ (descriptor.class elem-class))
+                      _ (array-java-type (dec nesting) elem-class))))
 
 (def: (primitive-array-length-handler jvm-primitive)
-  (-> Type Handler)
+  (-> (Descriptor Primitive) Handler)
   (..custom
    [<s>.any
     (function (_ extension-name generate arrayS)
       (do phase.monad
         [arrayI (generate arrayS)]
         (wrap (|>> arrayI
-                   (_.CHECKCAST (jvm.descriptor (jvm.array 1 jvm-primitive)))
+                   (_.CHECKCAST (descriptor.array jvm-primitive))
                    _.ARRAYLENGTH))))]))
 
 (def: (array::length::object extension-name generate inputs)
@@ -329,14 +330,14 @@
     (do phase.monad
       [arrayI (generate arrayS)]
       (wrap (|>> arrayI
-                 (_.CHECKCAST (jvm.descriptor (array-java-type (.nat nesting) elem-class)))
+                 (_.CHECKCAST (array-java-type (.nat nesting) elem-class))
                  _.ARRAYLENGTH)))
 
     _
     (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
 (def: (new-primitive-array-handler jvm-primitive)
-  (-> Type Handler)
+  (-> (Descriptor Primitive) Handler)
   (function (_ extension-name generate inputs)
     (case inputs
       (^ (list lengthS))
@@ -363,7 +364,7 @@
     (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
 (def: (read-primitive-array-handler jvm-primitive loadI)
-  (-> Type Inst Handler)
+  (-> (Descriptor Primitive) Inst Handler)
   (function (_ extension-name generate inputs)
     (case inputs
       (^ (list idxS arrayS))
@@ -371,7 +372,7 @@
         [arrayI (generate arrayS)
          idxI (generate idxS)]
         (wrap (|>> arrayI
-                   (_.CHECKCAST (jvm.descriptor (jvm.array 1 jvm-primitive)))
+                   (_.CHECKCAST (descriptor.array jvm-primitive))
                    idxI
                    loadI)))
 
@@ -389,7 +390,7 @@
       [arrayI (generate arrayS)
        idxI (generate idxS)]
       (wrap (|>> arrayI
-                 (_.CHECKCAST (jvm.descriptor (array-java-type (.nat nesting) elem-class)))
+                 (_.CHECKCAST (array-java-type (.nat nesting) elem-class))
                  idxI
                  _.AALOAD)))
 
@@ -397,7 +398,7 @@
     (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
 (def: (write-primitive-array-handler jvm-primitive storeI)
-  (-> Type Inst Handler)
+  (-> (Descriptor Primitive) Inst Handler)
   (function (_ extension-name generate inputs)
     (case inputs
       (^ (list idxS valueS arrayS))
@@ -406,7 +407,7 @@
          idxI (generate idxS)
          valueI (generate valueS)]
         (wrap (|>> arrayI
-                   (_.CHECKCAST (jvm.descriptor (jvm.array 1 jvm-primitive)))
+                   (_.CHECKCAST (descriptor.array jvm-primitive))
                    _.DUP
                    idxI
                    valueI
@@ -428,7 +429,7 @@
        idxI (generate idxS)
        valueI (generate valueS)]
       (wrap (|>> arrayI
-                 (_.CHECKCAST (jvm.descriptor (array-java-type (.nat nesting) elem-class)))
+                 (_.CHECKCAST (array-java-type (.nat nesting) elem-class))
                  _.DUP
                  idxI
                  valueI
@@ -443,47 +444,47 @@
       (|> bundle.empty
           (dictionary.merge (<| (bundle.prefix "length")
                                 (|> bundle.empty
-                                    (bundle.install reflection.boolean (primitive-array-length-handler jvm.boolean))
-                                    (bundle.install reflection.byte (primitive-array-length-handler jvm.byte))
-                                    (bundle.install reflection.short (primitive-array-length-handler jvm.short))
-                                    (bundle.install reflection.int (primitive-array-length-handler jvm.int))
-                                    (bundle.install reflection.long (primitive-array-length-handler jvm.long))
-                                    (bundle.install reflection.float (primitive-array-length-handler jvm.float))
-                                    (bundle.install reflection.double (primitive-array-length-handler jvm.double))
-                                    (bundle.install reflection.char (primitive-array-length-handler jvm.char))
+                                    (bundle.install reflection.boolean (primitive-array-length-handler descriptor.boolean))
+                                    (bundle.install reflection.byte (primitive-array-length-handler descriptor.byte))
+                                    (bundle.install reflection.short (primitive-array-length-handler descriptor.short))
+                                    (bundle.install reflection.int (primitive-array-length-handler descriptor.int))
+                                    (bundle.install reflection.long (primitive-array-length-handler descriptor.long))
+                                    (bundle.install reflection.float (primitive-array-length-handler descriptor.float))
+                                    (bundle.install reflection.double (primitive-array-length-handler descriptor.double))
+                                    (bundle.install reflection.char (primitive-array-length-handler descriptor.char))
                                     (bundle.install "object" array::length::object))))
           (dictionary.merge (<| (bundle.prefix "new")
                                 (|> bundle.empty
-                                    (bundle.install reflection.boolean (new-primitive-array-handler jvm.boolean))
-                                    (bundle.install reflection.byte (new-primitive-array-handler jvm.byte))
-                                    (bundle.install reflection.short (new-primitive-array-handler jvm.short))
-                                    (bundle.install reflection.int (new-primitive-array-handler jvm.int))
-                                    (bundle.install reflection.long (new-primitive-array-handler jvm.long))
-                                    (bundle.install reflection.float (new-primitive-array-handler jvm.float))
-                                    (bundle.install reflection.double (new-primitive-array-handler jvm.double))
-                                    (bundle.install reflection.char (new-primitive-array-handler jvm.char))
+                                    (bundle.install reflection.boolean (new-primitive-array-handler descriptor.boolean))
+                                    (bundle.install reflection.byte (new-primitive-array-handler descriptor.byte))
+                                    (bundle.install reflection.short (new-primitive-array-handler descriptor.short))
+                                    (bundle.install reflection.int (new-primitive-array-handler descriptor.int))
+                                    (bundle.install reflection.long (new-primitive-array-handler descriptor.long))
+                                    (bundle.install reflection.float (new-primitive-array-handler descriptor.float))
+                                    (bundle.install reflection.double (new-primitive-array-handler descriptor.double))
+                                    (bundle.install reflection.char (new-primitive-array-handler descriptor.char))
                                     (bundle.install "object" array::new::object))))
           (dictionary.merge (<| (bundle.prefix "read")
                                 (|> bundle.empty
-                                    (bundle.install reflection.boolean (read-primitive-array-handler jvm.boolean _.BALOAD))
-                                    (bundle.install reflection.byte (read-primitive-array-handler jvm.byte _.BALOAD))
-                                    (bundle.install reflection.short (read-primitive-array-handler jvm.short _.SALOAD))
-                                    (bundle.install reflection.int (read-primitive-array-handler jvm.int _.IALOAD))
-                                    (bundle.install reflection.long (read-primitive-array-handler jvm.long _.LALOAD))
-                                    (bundle.install reflection.float (read-primitive-array-handler jvm.float _.FALOAD))
-                                    (bundle.install reflection.double (read-primitive-array-handler jvm.double _.DALOAD))
-                                    (bundle.install reflection.char (read-primitive-array-handler jvm.char _.CALOAD))
+                                    (bundle.install reflection.boolean (read-primitive-array-handler descriptor.boolean _.BALOAD))
+                                    (bundle.install reflection.byte (read-primitive-array-handler descriptor.byte _.BALOAD))
+                                    (bundle.install reflection.short (read-primitive-array-handler descriptor.short _.SALOAD))
+                                    (bundle.install reflection.int (read-primitive-array-handler descriptor.int _.IALOAD))
+                                    (bundle.install reflection.long (read-primitive-array-handler descriptor.long _.LALOAD))
+                                    (bundle.install reflection.float (read-primitive-array-handler descriptor.float _.FALOAD))
+                                    (bundle.install reflection.double (read-primitive-array-handler descriptor.double _.DALOAD))
+                                    (bundle.install reflection.char (read-primitive-array-handler descriptor.char _.CALOAD))
                                     (bundle.install "object" array::read::object))))
           (dictionary.merge (<| (bundle.prefix "write")
                                 (|> bundle.empty
-                                    (bundle.install reflection.boolean (write-primitive-array-handler jvm.boolean _.BASTORE))
-                                    (bundle.install reflection.byte (write-primitive-array-handler jvm.byte _.BASTORE))
-                                    (bundle.install reflection.short (write-primitive-array-handler jvm.short _.SASTORE))
-                                    (bundle.install reflection.int (write-primitive-array-handler jvm.int _.IASTORE))
-                                    (bundle.install reflection.long (write-primitive-array-handler jvm.long _.LASTORE))
-                                    (bundle.install reflection.float (write-primitive-array-handler jvm.float _.FASTORE))
-                                    (bundle.install reflection.double (write-primitive-array-handler jvm.double _.DASTORE))
-                                    (bundle.install reflection.char (write-primitive-array-handler jvm.char _.CASTORE))
+                                    (bundle.install reflection.boolean (write-primitive-array-handler descriptor.boolean _.BASTORE))
+                                    (bundle.install reflection.byte (write-primitive-array-handler descriptor.byte _.BASTORE))
+                                    (bundle.install reflection.short (write-primitive-array-handler descriptor.short _.SASTORE))
+                                    (bundle.install reflection.int (write-primitive-array-handler descriptor.int _.IASTORE))
+                                    (bundle.install reflection.long (write-primitive-array-handler descriptor.long _.LASTORE))
+                                    (bundle.install reflection.float (write-primitive-array-handler descriptor.float _.FASTORE))
+                                    (bundle.install reflection.double (write-primitive-array-handler descriptor.double _.DASTORE))
+                                    (bundle.install reflection.char (write-primitive-array-handler descriptor.char _.CASTORE))
                                     (bundle.install "object" array::write::object))))
           )))
 
@@ -517,6 +518,8 @@
   (|>> exceptionI
        _.ATHROW))
 
+(def: $Class (descriptor.class "java.lang.Class"))
+
 (def: (object::class extension-name generate inputs)
   Handler
   (case inputs
@@ -524,10 +527,9 @@
     (do phase.monad
       []
       (wrap (|>> (_.string class)
-                 (_.INVOKESTATIC "java.lang.Class" "forName"
-                                 (jvm.method (list (jvm.class "java.lang.String" (list)))
-                                             (#.Some (jvm.class "java.lang.Class" (list)))
-                                             (list))
+                 (_.INVOKESTATIC $Class "forName"
+                                 (descriptor.method [(list (descriptor.class "java.lang.String"))
+                                                     $Class])
                                  false))))
 
     _
@@ -541,8 +543,8 @@
       (do phase.monad
         [objectI (generate objectS)]
         (wrap (|>> objectI
-                   (_.INSTANCEOF class)
-                   (_.wrap #jvm.Boolean)))))]))
+                   (_.INSTANCEOF (descriptor.class class))
+                   (_.wrap descriptor.boolean)))))]))
 
 (def: (object::cast extension-name generate inputs)
   Handler
@@ -558,14 +560,14 @@
 
           (^ [(static <object>) (static <primitive>)])
           (wrap (|>> valueI (_.unwrap <type>))))
-        ([reflection.boolean box.boolean #jvm.Boolean]
-         [reflection.byte    box.byte    #jvm.Byte]
-         [reflection.short   box.short   #jvm.Short]
-         [reflection.int     box.int     #jvm.Int]
-         [reflection.long    box.long    #jvm.Long]
-         [reflection.float   box.float   #jvm.Float]
-         [reflection.double  box.double  #jvm.Double]
-         [reflection.char    box.char    #jvm.Char])
+        ([reflection.boolean box.boolean descriptor.boolean]
+         [reflection.byte    box.byte    descriptor.byte]
+         [reflection.short   box.short   descriptor.short]
+         [reflection.int     box.int     descriptor.int]
+         [reflection.long    box.long    descriptor.long]
+         [reflection.float   box.float   descriptor.float]
+         [reflection.double  box.double  descriptor.double]
+         [reflection.char    box.char    descriptor.char])
         
         _
         (wrap valueI)))
@@ -587,15 +589,15 @@
           )))
 
 (def: primitives
-  (Dictionary Text Primitive)
-  (|> (list [reflection.boolean #jvm.Boolean]
-            [reflection.byte #jvm.Byte]
-            [reflection.short #jvm.Short]
-            [reflection.int #jvm.Int]
-            [reflection.long #jvm.Long]
-            [reflection.float #jvm.Float]
-            [reflection.double #jvm.Double]
-            [reflection.char #jvm.Char])
+  (Dictionary Text (Descriptor Primitive))
+  (|> (list [reflection.boolean descriptor.boolean]
+            [reflection.byte descriptor.byte]
+            [reflection.short descriptor.short]
+            [reflection.int descriptor.int]
+            [reflection.long descriptor.long]
+            [reflection.float descriptor.float]
+            [reflection.double descriptor.double]
+            [reflection.char descriptor.char])
       (dictionary.from-list text.hash)))
 
 (def: (static::get extension-name generate inputs)
@@ -606,12 +608,12 @@
              (synthesis.text unboxed)))
     (do phase.monad
       []
-      (case (dictionary.get unboxed primitives)
+      (case (dictionary.get unboxed ..primitives)
         (#.Some primitive)
-        (wrap (_.GETSTATIC class field (#jvm.Primitive primitive)))
+        (wrap (_.GETSTATIC (descriptor.class class) field primitive))
         
         #.None
-        (wrap (_.GETSTATIC class field (jvm.class unboxed (list))))))
+        (wrap (_.GETSTATIC (descriptor.class class) field (descriptor.class unboxed)))))
 
     _
     (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
@@ -624,17 +626,18 @@
              (synthesis.text unboxed)
              valueS))
     (do phase.monad
-      [valueI (generate valueS)]
-      (case (dictionary.get unboxed primitives)
+      [valueI (generate valueS)
+       #let [$class (descriptor.class class)]]
+      (case (dictionary.get unboxed ..primitives)
         (#.Some primitive)
         (wrap (|>> valueI
-                   (_.PUTSTATIC class field (#jvm.Primitive primitive))
+                   (_.PUTSTATIC $class field primitive)
                    (_.string synthesis.unit)))
         
         #.None
         (wrap (|>> valueI
-                   (_.CHECKCAST class)
-                   (_.PUTSTATIC class field (jvm.class class (list)))
+                   (_.CHECKCAST $class)
+                   (_.PUTSTATIC $class field $class)
                    (_.string synthesis.unit)))))
 
     _
@@ -648,17 +651,17 @@
              (synthesis.text unboxed)
              objectS))
     (do phase.monad
-      [objectI (generate objectS)]
-      (case (dictionary.get unboxed primitives)
-        (#.Some primitive)
-        (wrap (|>> objectI
-                   (_.CHECKCAST class)
-                   (_.GETFIELD class field (#jvm.Primitive primitive))))
-        
-        #.None
-        (wrap (|>> objectI
-                   (_.CHECKCAST class)
-                   (_.GETFIELD class field (jvm.class unboxed (list)))))))
+      [objectI (generate objectS)
+       #let [$class (descriptor.class class)
+             getI (case (dictionary.get unboxed ..primitives)
+                    (#.Some primitive)
+                    (_.GETFIELD $class field primitive)
+                    
+                    #.None
+                    (_.GETFIELD $class field (descriptor.class unboxed)))]]
+      (wrap (|>> objectI
+                 (_.CHECKCAST $class)
+                 getI)))
 
     _
     (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
@@ -673,22 +676,21 @@
              objectS))
     (do phase.monad
       [valueI (generate valueS)
-       objectI (generate objectS)]
-      (case (dictionary.get unboxed primitives)
-        (#.Some primitive)
-        (wrap (|>> objectI
-                   (_.CHECKCAST class)
-                   _.DUP
-                   valueI
-                   (_.PUTFIELD class field (#jvm.Primitive primitive))))
-        
-        #.None
-        (wrap (|>> objectI
-                   (_.CHECKCAST class)
-                   _.DUP
-                   valueI
-                   (_.CHECKCAST unboxed)
-                   (_.PUTFIELD class field (jvm.class unboxed (list)))))))
+       objectI (generate objectS)
+       #let [$class (descriptor.class class)
+             putI (case (dictionary.get unboxed ..primitives)
+                    (#.Some primitive)
+                    (_.PUTFIELD $class field primitive)
+                    
+                    #.None
+                    (let [$unboxed (descriptor.class unboxed)]
+                      (|>> (_.CHECKCAST $unboxed)
+                           (_.PUTFIELD $class field $unboxed))))]]
+      (wrap (|>> objectI
+                 (_.CHECKCAST $class)
+                 _.DUP
+                 valueI
+                 putI)))
 
     _
     (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
@@ -709,7 +711,7 @@
 (def: (method-return-type description)
   (-> Text (Operation Return))
   (case description
-    (^ (static jvm.void-descriptor))
+    (^ (static descriptor.void))
     (phase@wrap #.None)
 
     _
@@ -747,7 +749,8 @@
          returnT (method-return-type unboxed)]
         (wrap (|>> (_.fuse (list@map ..prepare-argI argsTI))
                    (_.INVOKESTATIC class method
-                                   (jvm.method (list@map product.left argsTI) returnT (list))
+                                   (descriptor.method [(list@map product.left argsTI)
+                                                       returnT])
                                    false)
                    (prepare-returnI returnT)))))]))
 
@@ -765,7 +768,8 @@
                       (_.CHECKCAST class)
                       (_.fuse (list@map ..prepare-argI argsTI))
                       (<invoke> class method
-                                (jvm.method (list@map product.left argsTI) returnT (list))
+                                (descriptor.method [(list@map product.left argsTI)
+                                                    returnT])
                                 <interface?>)
                       (prepare-returnI returnT)))))]))]
 
@@ -784,7 +788,8 @@
                  _.DUP
                  (_.fuse (list@map ..prepare-argI argsTI))
                  (_.INVOKESPECIAL class "<init>"
-                                  (jvm.method (list@map product.left argsTI) #.None (list))
+                                  (descriptor.method [(list@map product.left argsTI)
+                                                      descriptor.void])
                                   false))))
 
     _
@@ -840,16 +845,24 @@
   (class' ..generic))
 
 (def: primitive
-  (Parser Primitive)
+  (Parser (Descriptor Primitive))
   ($_ <>.or
-      (<s>.constant! ["" reflection.boolean])
-      (<s>.constant! ["" reflection.byte])
-      (<s>.constant! ["" reflection.short])
-      (<s>.constant! ["" reflection.int])
-      (<s>.constant! ["" reflection.long])
-      (<s>.constant! ["" reflection.float])
-      (<s>.constant! ["" reflection.double])
-      (<s>.constant! ["" reflection.char])
+      (<>.after (<s>.constant! ["" reflection.boolean])
+                (<>@wrap descriptor.boolean))
+      (<>.after (<s>.constant! ["" reflection.byte])
+                (<>@wrap descriptor.byte))
+      (<>.after (<s>.constant! ["" reflection.short])
+                (<>@wrap descriptor.short))
+      (<>.after (<s>.constant! ["" reflection.int])
+                (<>@wrap descriptor.int))
+      (<>.after (<s>.constant! ["" reflection.long])
+                (<>@wrap descriptor.long))
+      (<>.after (<s>.constant! ["" reflection.float])
+                (<>@wrap descriptor.float))
+      (<>.after (<s>.constant! ["" reflection.double])
+                (<>@wrap descriptor.double))
+      (<>.after (<s>.constant! ["" reflection.char])
+                (<>@wrap descriptor.char))
       ))
 
 (def: jvm-type
@@ -879,7 +892,7 @@
 
 (def: return
   (Parser Return)
-  (<>.or (<s>.constant! ["" jvm.void-descriptor])
+  (<>.or (<s>.constant! ["" (descriptor.descriptor descriptor.void)])
          ..jvm-type))
 
 (def: overriden-method-definition
@@ -976,13 +989,12 @@
       (#synthesis.Extension [name inputsS+])
       (#synthesis.Extension [name (list@map recur inputsS+)]))))
 
-(def: $Object (jvm.class jvm.object-class (list)))
+(def: $Object (descriptor.class "java.lang.Object"))
 
 (def: (anonymous-init-method env)
-  (-> Environment Method)
-  (jvm.method (list.repeat (list.size env) $Object)
-              #.None
-              (list)))
+  (-> Environment (Descriptor Method))
+  (descriptor.method [(list.repeat (list.size env) $Object)
+                      descriptor.void]))
 
 (def: (with-anonymous-init class env super-class constructor-argsI)
   (-> Text Environment Class (List (Typed Inst)) Def)
@@ -999,7 +1011,8 @@
                       ((_.fuse (list@map product.right constructor-argsI)))
                       (_.INVOKESPECIAL (product.left super-class)
                                        "<init>"
-                                       (jvm.method (list@map product.left constructor-argsI) #.None (list))
+                                       (descriptor.method [(list@map product.left constructor-argsI)
+                                                           descriptor.void])
                                        #0)
                       store-capturedI
                       _.RETURN))))
@@ -1077,10 +1090,11 @@
                                                                       ($_ $.++M $.finalM $.strictM)
                                                                       $.finalM)
                                                                     name
-                                                                    (jvm.method (list@map product.right arguments)
-                                                                                returnT
-                                                                                (list@map (|>> #jvm.Class)
-                                                                                          exceptionsT))
+                                                                    (descriptor.method [(list@map product.right arguments)
+                                                                                        returnT]
+                                                                                       ## (list@map (|>> #jvm.Class)
+                                                                                       ##           exceptionsT)
+                                                                                       )
                                                                     (let [returnI (case returnT
                                                                                     (#.Some returnT)
                                                                                     (case returnT

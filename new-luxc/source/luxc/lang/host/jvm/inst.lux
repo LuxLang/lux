@@ -1,16 +1,16 @@
 (.module:
-  [lux (#- Type int char)
+  [lux (#- int char)
    ["." host (#+ import: do-to)]
    [abstract
     [monad (#+ do)]]
    [control
     ["." function]
+    ["." try]
     ["p" parser
      ["s" code]]]
    [data
     ["." product]
     ["." maybe]
-    ["." error]
     [number
      ["n" nat]
      ["i" int]]
@@ -22,7 +22,11 @@
     [syntax (#+ syntax:)]]
    [target
     [jvm
-     ["." type (#+ Primitive Method Type)]]]
+     ["." descriptor (#+ Descriptor Primitive) ("#@." equivalence)]
+     [encoding
+      ["." name]]
+     [type
+      ["." box]]]]
    [tool
     [compiler
      [phase (#+ Operation)]]]]
@@ -131,7 +135,7 @@
 (def: #export make-label
   (All [s] (Operation s org/objectweb/asm/Label))
   (function (_ state)
-    (#error.Success [state (org/objectweb/asm/Label::new)])))
+    (#try.Success [state (org/objectweb/asm/Label::new)])))
 
 (def: #export (with-label action)
   (All [a] (-> (-> org/objectweb/asm/Label a) a))
@@ -235,10 +239,10 @@
 
 (template [<name> <inst>]
   [(def: #export (<name> class field type)
-     (-> Text Text Type Inst)
+     (-> (Descriptor descriptor.Class) Text (Descriptor descriptor.Field) Inst)
      (function (_ visitor)
        (do-to visitor
-         (org/objectweb/asm/MethodVisitor::visitFieldInsn (<inst>) (type.binary-name class) field (type.descriptor type)))))]
+         (org/objectweb/asm/MethodVisitor::visitFieldInsn (<inst>) (descriptor.class-name class) field (descriptor.descriptor type)))))]
 
   [GETSTATIC org/objectweb/asm/Opcodes::GETSTATIC]
   [PUTSTATIC org/objectweb/asm/Opcodes::PUTSTATIC]
@@ -249,10 +253,10 @@
 
 (template [<name> <inst>]
   [(def: #export (<name> class)
-     (-> Text Inst)
+     (-> (Descriptor descriptor.Object) Inst)
      (function (_ visitor)
        (do-to visitor
-         (org/objectweb/asm/MethodVisitor::visitTypeInsn (<inst>) (type.binary-name class)))))]
+         (org/objectweb/asm/MethodVisitor::visitTypeInsn (<inst>) (descriptor.class-name class)))))]
 
   [CHECKCAST  org/objectweb/asm/Opcodes::CHECKCAST]
   [NEW        org/objectweb/asm/Opcodes::NEW]
@@ -261,26 +265,30 @@
   )
 
 (def: #export (NEWARRAY type)
-  (-> Primitive Inst)
+  (-> (Descriptor Primitive) Inst)
   (function (_ visitor)
     (do-to visitor
       (org/objectweb/asm/MethodVisitor::visitIntInsn (org/objectweb/asm/Opcodes::NEWARRAY)
-                                                     (case type
-                                                       #type.Boolean (org/objectweb/asm/Opcodes::T_BOOLEAN)
-                                                       #type.Byte    (org/objectweb/asm/Opcodes::T_BYTE)
-                                                       #type.Short   (org/objectweb/asm/Opcodes::T_SHORT)
-                                                       #type.Int     (org/objectweb/asm/Opcodes::T_INT)
-                                                       #type.Long    (org/objectweb/asm/Opcodes::T_LONG)
-                                                       #type.Float   (org/objectweb/asm/Opcodes::T_FLOAT)
-                                                       #type.Double  (org/objectweb/asm/Opcodes::T_DOUBLE)
-                                                       #type.Char    (org/objectweb/asm/Opcodes::T_CHAR))))))
+                                                     (`` (cond (~~ (template [<descriptor> <opcode>]
+                                                                     [(descriptor@= <descriptor> type) (<opcode>)]
+                                                                     
+                                                                     [descriptor.boolean org/objectweb/asm/Opcodes::T_BOOLEAN]
+                                                                     [descriptor.byte    org/objectweb/asm/Opcodes::T_BYTE]
+                                                                     [descriptor.short   org/objectweb/asm/Opcodes::T_SHORT]
+                                                                     [descriptor.int     org/objectweb/asm/Opcodes::T_INT]
+                                                                     [descriptor.long    org/objectweb/asm/Opcodes::T_LONG]
+                                                                     [descriptor.float   org/objectweb/asm/Opcodes::T_FLOAT]
+                                                                     [descriptor.double  org/objectweb/asm/Opcodes::T_DOUBLE]
+                                                                     [descriptor.char    org/objectweb/asm/Opcodes::T_CHAR]))
+                                                               ## else
+                                                               (undefined)))))))
 
 (template [<name> <inst>]
-  [(def: #export (<name> class method-name method-signature interface?)
-     (-> Text Text Method Bit Inst)
+  [(def: #export (<name> class method-name type interface?)
+     (-> (Descriptor descriptor.Class) Text (Descriptor descriptor.Method) Bit Inst)
      (function (_ visitor)
        (do-to visitor
-         (org/objectweb/asm/MethodVisitor::visitMethodInsn (<inst>) (type.binary-name class) method-name (type.method-descriptor method-signature) interface?))))]
+         (org/objectweb/asm/MethodVisitor::visitMethodInsn (<inst>) (descriptor.class-name class) method-name (descriptor.descriptor type) interface?))))]
 
   [INVOKESTATIC    org/objectweb/asm/Opcodes::INVOKESTATIC]
   [INVOKEVIRTUAL   org/objectweb/asm/Opcodes::INVOKEVIRTUAL]
@@ -338,10 +346,10 @@
         (org/objectweb/asm/MethodVisitor::visitTableSwitchInsn min max default labels-array)))))
 
 (def: #export (try @from @to @handler exception)
-  (-> //.Label //.Label //.Label Text Inst)
+  (-> //.Label //.Label //.Label (Descriptor descriptor.Class) Inst)
   (function (_ visitor)
     (do-to visitor
-      (org/objectweb/asm/MethodVisitor::visitTryCatchBlock @from @to @handler (type.binary-name exception)))))
+      (org/objectweb/asm/MethodVisitor::visitTryCatchBlock @from @to @handler (descriptor.class-name exception)))))
 
 (def: #export (label @label)
   (-> //.Label Inst)
@@ -350,63 +358,49 @@
       (org/objectweb/asm/MethodVisitor::visitLabel @label))))
 
 (def: #export (array type)
-  (-> Type Inst)
-  (case type
-    (#type.Primitive prim)
-    (NEWARRAY prim)
+  (-> (Descriptor descriptor.Value) Inst)
+  (case (descriptor.primitive? type)
+    (#.Left object)
+    (ANEWARRAY object)
 
-    (#type.Generic generic)
-    (let [elem-class (case generic
-                       (#type.Class class params)
-                       (type.binary-name class)
+    (#.Right primitive)
+    (NEWARRAY primitive)))
 
-                       _
-                       (type.binary-name "java.lang.Object"))]
-      (ANEWARRAY elem-class))
+(template [<name> <boolean> <byte> <short> <int> <long> <float> <double> <char>]
+  [(def: (<name> type)
+     (-> (Descriptor Primitive) Text)
+     (`` (cond (~~ (template [<descriptor> <output>]
+                     [(descriptor@= <descriptor> type) <output>]
+                     
+                     [descriptor.boolean <boolean>]
+                     [descriptor.byte    <byte>]
+                     [descriptor.short   <short>]
+                     [descriptor.int     <int>]
+                     [descriptor.long    <long>]
+                     [descriptor.float   <float>]
+                     [descriptor.double  <double>]
+                     [descriptor.char    <char>]))
+               ## else
+               (undefined))))]
 
-    _
-    (ANEWARRAY (type.descriptor type))))
-
-(def: (primitive-wrapper type)
-  (-> Primitive Text)
-  (case type
-    #type.Boolean "java.lang.Boolean"
-    #type.Byte    "java.lang.Byte"
-    #type.Short   "java.lang.Short"
-    #type.Int     "java.lang.Integer"
-    #type.Long    "java.lang.Long"
-    #type.Float   "java.lang.Float"
-    #type.Double  "java.lang.Double"
-    #type.Char    "java.lang.Character"))
-
-(def: (primitive-unwrap type)
-  (-> Primitive Text)
-  (case type
-    #type.Boolean "booleanValue"
-    #type.Byte    "byteValue"
-    #type.Short   "shortValue"
-    #type.Int     "intValue"
-    #type.Long    "longValue"
-    #type.Float   "floatValue"
-    #type.Double  "doubleValue"
-    #type.Char    "charValue"))
+  [primitive-wrapper
+   box.boolean box.byte box.short box.int
+   box.long box.float box.double box.char]
+  [primitive-unwrap
+   "booleanValue" "byteValue" "shortValue" "intValue"
+   "longValue" "floatValue" "doubleValue" "charValue"]
+  )
 
 (def: #export (wrap type)
-  (-> Primitive Inst)
-  (let [class (primitive-wrapper type)]
-    (|>> (INVOKESTATIC class "valueOf"
-                       (type.method (list (#type.Primitive type))
-                                    (#.Some (type.class class (list)))
-                                    (list))
-                       #0))))
+  (-> (Descriptor Primitive) Inst)
+  (let [wrapper (descriptor.class (primitive-wrapper type))]
+    (INVOKESTATIC wrapper "valueOf" (descriptor.method [(list type) wrapper]) #0)))
 
 (def: #export (unwrap type)
-  (-> Primitive Inst)
-  (let [class (primitive-wrapper type)]
-    (|>> (CHECKCAST class)
-         (INVOKEVIRTUAL class (primitive-unwrap type)
-                        (type.method (list) (#.Some (#type.Primitive type)) (list))
-                        #0))))
+  (-> (Descriptor Primitive) Inst)
+  (let [wrapper (descriptor.class (primitive-wrapper type))]
+    (|>> (CHECKCAST wrapper)
+         (INVOKEVIRTUAL wrapper (primitive-unwrap type) (descriptor.method [(list) type]) #0))))
 
 (def: #export (fuse insts)
   (-> (List Inst) Inst)
