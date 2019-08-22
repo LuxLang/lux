@@ -24,6 +24,7 @@
 
 # Deep learning
 
+1. [Monadic Deep Learning: Performing monadic automatic differentiation in parallel](https://deeplearning.thoughtworks.school/assets/paper.pdf)
 1. https://github.com/microsoft/tensorwatch
 1. https://d2l.ai/
 1. https://hadrienj.github.io/posts/Deep-Learning-Book-Series-Introduction/

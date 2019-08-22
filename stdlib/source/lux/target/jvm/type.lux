@@ -12,214 +12,216 @@
     ["." text ("#@." equivalence)
      ["%" format (#+ format)]]
     [collection
-     ["." list ("#@." functor)]]]]
+     ["." list ("#@." functor)]]]
+   [type
+    abstract]]
   ["." // #_
    [encoding
-    ["#." name]]])
+    ["#." name (#+ External)]]]
+  ["." / #_
+   ["#." signature (#+ Signature)]
+   ["#." descriptor (#+ Descriptor)]
+   ["#." reflection (#+ Reflection)]])
 
-(template [<descriptor> <definition>]
-  [(def: #export <definition> <descriptor>)]
+(abstract: #export Void' {} Any)
+(abstract: #export (Value' kind) {} Any)
+(abstract: #export (Return' kind) {} Any)
+(abstract: #export Method {} Any)
 
-  ["V" void-descriptor]
-  ["Z" boolean-descriptor]
-  ["B" byte-descriptor]
-  ["S" short-descriptor]
-  ["I" int-descriptor]
-  ["J" long-descriptor]
-  ["F" float-descriptor]
-  ["D" double-descriptor]
-  ["C" char-descriptor]
+(abstract: #export (Type brand)
+  {}
+
+  [(Signature Any) (Descriptor Any) (Reflection Any)]
+
+  (type: #export Return (<| Return' Any))
+  (type: #export Value (<| Return' Value' Any))
+  (type: #export Void (<| Return' Void'))
+
+  (abstract: #export (Object' brand) {} Any)
+  (type: #export Object (<| Return' Value' Object' Any))
+
+  (abstract: #export (Parameter' brand) {} Any)
+  (type: #export Parameter (<| Return' Value' Object' Parameter' Any))
+
+  (template [<parents> <child>]
+    [(with-expansions [<raw> (template.identifier [<child> "'"])]
+       (abstract: #export <raw> {} Any)
+       (type: #export <child>
+         (`` (<| Return' Value' (~~ (template.splice <parents>)) <raw>))))]
+
+    [[] Primitive]
+    [[Object' Parameter'] Class]
+    [[Object'] Array]
+    )
+
+  (template [<name> <style>]
+    [(def: #export (<name> type)
+       (-> (Type Any) (<style> Any))
+       (let [[signature descriptor reflection] (:representation type)]
+         <name>))]
+
+    [signature Signature]
+    [descriptor Descriptor]
+    [reflection Reflection]
+    )
+
+  (template [<brand> <name> <signature> <descriptor> <reflection>]
+    [(def: #export <name>
+       (Type <brand>)
+       (:abstraction [<signature> <descriptor> <reflection>]))]
+
+    [Void void /signature.void /descriptor.void /reflection.void]
+    [Primitive boolean /signature.boolean /descriptor.boolean /reflection.boolean]
+    [Primitive byte /signature.byte /descriptor.byte /reflection.byte]
+    [Primitive short /signature.short /descriptor.short /reflection.short]
+    [Primitive int /signature.int /descriptor.int /reflection.int]
+    [Primitive long /signature.long /descriptor.long /reflection.long]
+    [Primitive float /signature.float /descriptor.float /reflection.float]
+    [Primitive double /signature.double /descriptor.double /reflection.double]
+    [Primitive char /signature.char /descriptor.char /reflection.char]
+    )
+
+  (def: #export (array type)
+    (-> (Type Value) (Type Array))
+    (:abstraction
+     [(/signature.array (..signature type))
+      (/descriptor.array (..descriptor type))
+      (/reflection.array (..reflection type))]))
+
+  (def: #export (class name parameters)
+    (-> External (List (Type Parameter)) (Type Class))
+    (:abstraction
+     [(/signature.class name (list@map ..signature parameters))
+      (/descriptor.class name)
+      (/reflection.class name)]))
+
+  (def: object-class "java.lang.Object")
+  
+  (def: #export wildcard
+    (Type Parameter)
+    (:abstraction
+     [/signature.wildcard
+      (/descriptor.class ..object-class)
+      (/reflection.class ..object-class)]))
+
+  (def: #export (var name)
+    (-> Text (Type Parameter))
+    (:abstraction
+     [(/signature.var name)
+      (/descriptor.class ..object-class)
+      (/reflection.class ..object-class)]))
+
+  (def: #export (lower bound)
+    (-> (Type Class) (Type Parameter))
+    (:abstraction
+     [(/signature.lower (..signature bound))
+      (/descriptor.class ..object-class)
+      (/reflection.class ..object-class)]))
+
+  (def: #export (upper bound)
+    (-> (Type Class) (Type Parameter))
+    (:abstraction
+     [(/signature.lower (..signature bound))
+      (..descriptor bound)
+      (..reflection bound)]))
+
+  (def: #export (method [inputs output exceptions])
+    (-> [(List (Type Value))
+         (Type Return)
+         (List (Type Class))]
+        (Type Method))
+    (:abstraction
+     [(/signature.method [(list@map ..signature inputs)
+                          (..signature output)
+                          (list@map ..signature exceptions)])
+      (/descriptor.method [(list@map ..descriptor inputs)
+                           (..descriptor output)])
+      (/reflection.method [(list@map ..reflection inputs)
+                           (..reflection output)])]))
   )
 
-(def: #export array-prefix "[")
-(def: object-prefix "L")
-(def: var-prefix "T")
-(def: wildcard-signature "*")
-(def: lower-prefix "-")
-(def: upper-prefix "+")
-(def: object-suffix ";")
+## (def: valid-var-characters/head
+##   (format "abcdefghijklmnopqrstuvwxyz"
+##           "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+##           "_"))
 
-(def: valid-var-characters/head
-  (format "abcdefghijklmnopqrstuvwxyz"
-          "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-          "_"))
+## (def: valid-var-characters/tail
+##   (format valid-var-characters/head
+##           "0123456789"))
 
-(def: valid-var-characters/tail
-  (format valid-var-characters/head
-          "0123456789"))
+## (def: valid-class-characters/head
+##   (format valid-var-characters/head //name.internal-separator))
 
-(def: valid-class-characters/head
-  (format valid-var-characters/head //name.internal-separator))
+## (def: valid-class-characters/tail
+##   (format valid-var-characters/tail //name.internal-separator))
 
-(def: valid-class-characters/tail
-  (format valid-var-characters/tail //name.internal-separator))
+## (type: #export Parameter
+##   [Text Class (List Class)])
 
-(type: #export Bound
-  #Lower
-  #Upper)
+## (type: #export Argument
+##   [Text Type])
 
-## TODO: Replace with polytypism.
-(structure: #export bound-equivalence
-  (Equivalence Bound)
-  (def: (= parameter subject)
-    (case [parameter subject]
-      (^template [<tag>]
-        [<tag> <tag>]
-        true)
-      ([#Lower]
-       [#Upper])
+## (type: #export (Typed a)
+##   [Type a])
 
-      _
-      false)))
+## (template [<name> <head> <tail> <adapter>]
+##   [(def: <name>
+##      (Parser Text)
+##      (:: <>.functor map <adapter>
+##          (<t>.slice (<t>.and! (<t>.one-of! <head>)
+##                               (<t>.some! (<t>.one-of! <tail>))))))]
 
-(type: #export Primitive
-  #Boolean
-  #Byte
-  #Short
-  #Int
-  #Long
-  #Float
-  #Double
-  #Char)
+##   [parse-class-name valid-class-characters/head valid-class-characters/tail (|>> //name.internal //name.external)]
+##   [parse-var-name valid-var-characters/head valid-var-characters/tail function.identity]
+##   )
 
-## TODO: Replace with polytypism.
-(structure: #export primitive-equivalence
-  (Equivalence Primitive)
-  (def: (= parameter subject)
-    (case [parameter subject]
-      (^template [<tag>]
-        [<tag> <tag>]
-        true)
-      ([#Boolean]
-       [#Byte]
-       [#Short]
-       [#Int]
-       [#Long]
-       [#Float]
-       [#Double]
-       [#Char])
+## (def: parse-var
+##   (Parser Var)
+##   (|> ..parse-var-name
+##       (<>.after (<t>.this ..var-prefix))
+##       (<>.before (<t>.this ..object-suffix))))
 
-      _
-      false)))
+## (def: parse-bound
+##   (Parser Bound)
+##   ($_ <>.or
+##       (<t>.this ..lower-prefix)
+##       (<t>.this ..upper-prefix)))
 
-(type: #export Var Text)
+## (def: parse-generic
+##   (Parser Generic)
+##   (<>.rec
+##    (function (_ recur)
+##      ($_ <>.or
+##          ..parse-var
+##          ($_ <>.or
+##              (<t>.this ..wildcard-signature)
+##              (<>.and ..parse-bound recur)
+##              )
+##          (|> (<>.and ..parse-class-name
+##                      (|> (<>.some recur)
+##                          (<>.after (<t>.this "<"))
+##                          (<>.before (<t>.this ">"))
+##                          (<>.default (list))))
+##              (<>.after (<t>.this ..object-prefix))
+##              (<>.before (<t>.this ..object-suffix)))
+##          ))))
 
-(with-expansions [<Class> (as-is [Text (List Generic)])]
-  (type: #export #rec Generic
-    (#Var Var)
-    (#Wildcard (Maybe [Bound Generic]))
-    (#Class <Class>))
-
-  (type: #export Class
-    <Class>)
-  )
-
-(structure: #export generic-equivalence
-  (Equivalence Generic)
-  (def: (= parameter subject)
-    (case [parameter subject]
-      [(#Var parameter) (#Var subject)]
-      (text@= parameter subject)
-
-      [(#Wildcard parameter) (#Wildcard subject)]
-      (:: (maybe.equivalence (product.equivalence bound-equivalence =))
-          = parameter subject)
-
-      [(#Class [nameP paramsP]) (#Class [nameS paramsS])]
-      (and (text@= nameP nameS)
-           (:: (list.equivalence =) = paramsP paramsS))
-
-      _
-      false)))
-
-(type: #export Parameter
-  [Text Class (List Class)])
-
-(type: #export #rec Type
-  (#Primitive Primitive)
-  (#Generic Generic)
-  (#Array Type))
-
-(structure: #export type-equivalence
-  (Equivalence Type)
-  (def: (= parameter subject)
-    (case [parameter subject]
-      [(#Primitive parameter) (#Primitive subject)]
-      (:: ..primitive-equivalence = parameter subject)
-
-      [(#Generic parameter) (#Generic subject)]
-      (:: ..generic-equivalence = parameter subject)
-
-      [(#Array parameter) (#Array subject)]
-      (= parameter subject)
-
-      _
-      false)))
-
-(type: #export Argument
-  [Text Type])
-
-(type: #export (Typed a)
-  [Type a])
-
-(template [<name> <head> <tail> <adapter>]
-  [(def: <name>
-     (Parser Text)
-     (:: <>.functor map <adapter>
-         (<t>.slice (<t>.and! (<t>.one-of! <head>)
-                              (<t>.some! (<t>.one-of! <tail>))))))]
-
-  [parse-class-name valid-class-characters/head valid-class-characters/tail (|>> //name.internal //name.external)]
-  [parse-var-name valid-var-characters/head valid-var-characters/tail function.identity]
-  )
-
-(def: parse-var
-  (Parser Var)
-  (|> ..parse-var-name
-      (<>.after (<t>.this ..var-prefix))
-      (<>.before (<t>.this ..object-suffix))))
-
-(def: parse-bound
-  (Parser Bound)
-  ($_ <>.or
-      (<t>.this ..lower-prefix)
-      (<t>.this ..upper-prefix)))
-
-(def: parse-generic
-  (Parser Generic)
-  (<>.rec
-   (function (_ recur)
-     ($_ <>.or
-         ..parse-var
-         ($_ <>.or
-             (<t>.this ..wildcard-signature)
-             (<>.and ..parse-bound recur)
-             )
-         (|> (<>.and ..parse-class-name
-                     (|> (<>.some recur)
-                         (<>.after (<t>.this "<"))
-                         (<>.before (<t>.this ">"))
-                         (<>.default (list))))
-             (<>.after (<t>.this ..object-prefix))
-             (<>.before (<t>.this ..object-suffix)))
-         ))))
-
-(def: #export parse-signature
-  (Parser Type)
-  (<>.rec
-   (function (_ recur)
-     ($_ <>.or
-         ($_ <>.or
-             (<t>.this ..boolean-descriptor)
-             (<t>.this ..byte-descriptor)
-             (<t>.this ..short-descriptor)
-             (<t>.this ..int-descriptor)
-             (<t>.this ..long-descriptor)
-             (<t>.this ..float-descriptor)
-             (<t>.this ..double-descriptor)
-             (<t>.this ..char-descriptor)
-             )
-         ..parse-generic
-         (<>.after (<t>.this ..array-prefix)
-                   recur)
-         ))))
+## (def: #export parse-signature
+##   (Parser Type)
+##   (<>.rec
+##    (function (_ recur)
+##      ($_ <>.or
+##          ($_ <>.or
+##              (<t>.this ..boolean-descriptor)
+##              (<t>.this ..byte-descriptor)
+##              (<t>.this ..short-descriptor)
+##              (<t>.this ..int-descriptor)
+##              (<t>.this ..long-descriptor)
+##              (<t>.this ..float-descriptor)
+##              (<t>.this ..double-descriptor)
+##              (<t>.this ..char-descriptor)
+##              )
+##          ..parse-generic
+##          (<>.after (<t>.this ..array-prefix)
+##                    recur)
+##          ))))
