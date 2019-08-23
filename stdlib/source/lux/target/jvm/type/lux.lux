@@ -3,8 +3,11 @@
    [abstract
     ["." monad (#+ do)]]
    [control
-    ["." exception (#+ exception:)]]
+    ["." exception (#+ exception:)]
+    ["<>" parser ("#@." monad)
+     ["<t>" text (#+ Parser)]]]
    [data
+    ["." product]
     ["." text
      ["%" format (#+ format)]]
     [collection
@@ -14,6 +17,8 @@
     abstract
     ["." check (#+ Check) ("#@." monad)]]]
   ["." //
+   ["#." descriptor]
+   ["#." signature]
    ["#." reflection]
    ["/#" // #_
     [encoding
@@ -26,90 +31,128 @@
   )
 
 (type: #export Mapping
-  (Dictionary //.Var Type))
+  (Dictionary Text Type))
 
 (def: #export fresh
   Mapping
   (dictionary.new text.hash))
 
-(exception: #export (unknown-var {var //.Var})
+(exception: #export (unknown-var {var Text})
   (exception.report
    ["Var" (%.text var)]))
 
-(def: (generic mapping input)
-  (-> Mapping //.Generic (Check Type))
-  (case input
-    (#//.Var var)
-    (case (dictionary.get var mapping)
-      #.None
-      (check.throw ..unknown-var var)
-      
-      (#.Some type)
-      (check@wrap type))
-    
-    (#//.Wildcard wildcard)
-    (case wildcard
-      #.None
-      (do check.monad
-        [[id type] check.existential]
-        (wrap type))
-      
-      (#.Some [bound limit])
-      (do check.monad
-        [limitT (generic mapping limit)]
-        (case bound
-          (^template [<tag> <ctor> <limit>]
-            <tag>
-            ## TODO: Re-enable Lower and Upper, instead of using the
-            ## simplified limit.
-            ## (wrap (.type (<ctor> limitT)))
-            (wrap <limit>))
-          ([#//.Lower ..Lower (primitive "java.lang.Object")]
-           [#//.Upper ..Upper limitT]))))
-    
-    (#//.Class name parameters)
-    (do check.monad
-      [parametersT+ (monad.map @ (generic mapping) parameters)]
-      (wrap (#.Primitive name parametersT+)))))
+(def: void-parser
+  (Parser (Check Type))
+  (<>.after (<t>.this (//signature.signature //signature.void))
+            (<>@wrap (check@wrap .Any))))
 
-(def: #export (class mapping [name parameters])
-  (-> Mapping //.Class (Check Type))
-  (do check.monad
-    [parametersT+ (monad.map @ (..generic mapping) parameters)]
-    (wrap (#.Primitive name parametersT+))))
+(template [<name> <signature> <reflection>]
+  [(def: <name>
+     (Parser (Check Type))
+     (<>.after (<t>.this (//signature.signature <signature>))
+               (<>@wrap (check@wrap (#.Primitive (//reflection.reflection <reflection>) #.Nil)))))]
 
-(def: #export (type mapping input)
-  (-> Mapping //.Type (Check Type))
-  (case input
-    (#//.Primitive primitive)
-    (check@wrap (case primitive
-                  #//.Boolean (#.Primitive (//reflection.reflection //reflection.boolean) #.Nil)
-                  #//.Byte (#.Primitive (//reflection.reflection //reflection.byte) #.Nil)
-                  #//.Short (#.Primitive (//reflection.reflection //reflection.short) #.Nil)
-                  #//.Int (#.Primitive (//reflection.reflection //reflection.int) #.Nil)
-                  #//.Long (#.Primitive (//reflection.reflection //reflection.long) #.Nil)
-                  #//.Float (#.Primitive (//reflection.reflection //reflection.float) #.Nil)
-                  #//.Double (#.Primitive (//reflection.reflection //reflection.double) #.Nil)
-                  #//.Char (#.Primitive (//reflection.reflection //reflection.char) #.Nil)))
-    
-    (#//.Generic generic)
-    (..generic mapping generic)
-    
-    (#//.Array elementT)
-    (case elementT
-      (#//.Primitive primitive)
-      (check@wrap (#.Primitive (|> input //reflection.class ///name.internal ///name.read) #.Nil))
+  [boolean-parser //signature.boolean //reflection.boolean]
+  [byte-parser //signature.byte //reflection.byte]
+  [short-parser //signature.short //reflection.short]
+  [int-parser //signature.int //reflection.int]
+  [long-parser //signature.long //reflection.long]
+  [float-parser //signature.float //reflection.float]
+  [double-parser //signature.double //reflection.double]
+  [char-parser //signature.char //reflection.char]
+  )
 
-      _
-      (:: check.monad map
-          (|>> Array .type)
-          (type mapping elementT)))))
+(def: primitive-parser
+  (Parser (Check Type))
+  ($_ <>.either
+      ..boolean-parser
+      ..byte-parser
+      ..short-parser
+      ..int-parser
+      ..long-parser
+      ..float-parser
+      ..double-parser
+      ..char-parser))
 
-(def: #export (return mapping input)
-  (-> Mapping (Maybe //.Type) (Check Type))
-  (case input
-    #.None
-    (check@wrap Any)
+(def: wildcard-parser
+  (Parser (Check Type))
+  (<>.after (<t>.this (//signature.signature //signature.wildcard))
+            (<>@wrap (check@map product.right
+                                check.existential))))
 
-    (#.Some input)
-    (..type mapping input)))
+(def: (var-parser mapping)
+  (-> Mapping (Parser (Check Type)))
+  (do <>.monad
+    [var //.var-parser]
+    (<>@wrap (case (dictionary.get var mapping)
+               #.None
+               (check.throw ..unknown-var [var])
+               
+               (#.Some type)
+               (check@wrap type)))))
+
+(def: (class-parser parameter-parser)
+  (-> (Parser (Check Type)) (Parser (Check Type)))
+  (|> (do <>.monad
+        [_ (<t>.this //descriptor.class-prefix)
+         name //.class-name-parser
+         parameters (|> (<>.some parameter-parser)
+                        (<>.after (<t>.this //signature.parameters-start))
+                        (<>.before (<t>.this //signature.parameters-end))
+                        (<>.default (list)))
+         _ (<t>.this //descriptor.class-suffix)]
+        (wrap (do check.monad
+                [parameters (monad.seq @ parameters)]
+                (wrap (#.Primitive name parameters)))))
+      (<>.after (<t>.this //descriptor.class-prefix))
+      (<>.before (<t>.this //descriptor.class-suffix))))
+
+(template [<name> <prefix> <constructor>]
+  [(def: <name>
+     (-> (Parser (Check Type)) (Parser (Check Type)))
+     ## TODO: Re-enable Lower and Upper, instead of using the simplified limit.
+     ## (<>@map (check@map (|>> <ctor> .type)))
+     (<>.after (<t>.this <prefix>)))]
+
+  [lower-parser //signature.lower-prefix ..Lower]
+  [upper-parser //signature.upper-prefix ..Upper]
+  )
+
+(def: (generic-parser mapping)
+  (-> Mapping (Parser (Check Type)))
+  (<>.rec
+   (function (_ generic-parser)
+     (let [class-parser (..class-parser generic-parser)]
+       ($_ <>.either
+           (..var-parser mapping)
+           ..wildcard-parser
+           (..lower-parser class-parser)
+           (..upper-parser class-parser)
+           class-parser)))))
+
+(def: array-parser
+  (-> (Parser (Check Type)) (Parser (Check Type)))
+  (|>> (<>@map (check@map (function (_ elementT)
+                            (case elementT
+                              (#.Primitive name #.Nil)
+                              (#.Primitive (|> name //reflection.class //reflection.array //reflection.reflection) #.Nil)
+
+                              _
+                              (|> elementT Array .type)))))
+       (<>.after (<t>.this //descriptor.array-prefix))))
+
+(def: #export (type-parser mapping)
+  (-> Mapping (Parser (Check Type)))
+  (<>.rec
+   (function (_ type-parser)
+     ($_ <>.either
+         ..primitive-parser
+         (generic-parser mapping)
+         (..array-parser type-parser)))))
+
+(def: #export (return-parser mapping)
+  (-> Mapping (Parser (Check Type)))
+  ($_ <>.either
+      ..void-parser
+      (..type-parser mapping)
+      ))
