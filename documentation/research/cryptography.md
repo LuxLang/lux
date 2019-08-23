@@ -1,5 +1,6 @@
 # Constant-time programming
 
+1. [Constant-Time WebAssembly](https://github.com/PLSysSec/ct-wasm)
 1. [Verifying Constant-Time Implementations](https://michael-emmi.github.io/papers/conf-uss-AlmeidaBBDE16.pdf)
 1. https://www.bearssl.org/ctmul.html
 1. [FaCT: A Flexible, Constant-Time Programming Language](https://cseweb.ucsd.edu/~dstefan/pubs/cauligi:2017:fact.pdf)
