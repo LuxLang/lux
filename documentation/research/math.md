@@ -93,6 +93,8 @@
 
 # Linear Algebra
 
+1. [Don’t invert that matrix](https://www.johndcook.com/blog/2010/01/19/dont-invert-that-matrix/)
+1. [“Don’t invert that matrix” – why and how](https://civilstat.com/2015/07/dont-invert-that-matrix-why-and-how/)
 1. [Thirty-three Miniatures: Mathematical and Algorithmic Applications of Linear Algebra](https://kam.mff.cuni.cz/~matousek/stml-53-matousek-1.pdf)
 1. [Covectors are Different than Vectors, Usually](http://infohost.nmt.edu/~parendt/Phys509/notes/2diracnot/node4.html)
 1. [Introduction to Applied Linear Algebra: Vectors, Matrices, and Least Squares](https://web.stanford.edu/~boyd/vmls/vmls.pdf)

@@ -28,6 +28,7 @@
 
 # Deep learning
 
+1. [Evolution Strategies](https://lilianweng.github.io/lil-log/2019/09/05/evolution-strategies.html)
 1. [Monadic Deep Learning: Performing monadic automatic differentiation in parallel](https://deeplearning.thoughtworks.school/assets/paper.pdf)
 1. [Demystifying Differentiable Programming: Shift/Reset the Penultimate Backpropagator](https://arxiv.org/abs/1803.10228)
 1. https://github.com/microsoft/tensorwatch
@@ -70,6 +71,7 @@
 
 # Differentiable programming
 
+1. [Differentiable Programming Mega-Proposal](https://forums.swift.org/t/differentiable-programming-mega-proposal/28547)
 1. https://fluxml.ai/2019/02/07/what-is-differentiable-programming.html
 1. https://github.com/breandan/kotlingrad
 1. https://colinraffel.com/blog/you-don-t-know-jax.html

@@ -64,6 +64,7 @@
 
 # Reference
 
+1. [The Standard C Library](https://www.amazon.com/Standard-C-Library-P-J-Plauger/dp/0131315099)
 1. [C Is Not a Low-level Language: Your computer is not a fast PDP-11.](https://queue.acm.org/detail.cfm?id=3212479)
 1. http://www.ffconsultancy.com/ocaml/hlvm/
 1. https://nullprogram.com/blog/2018/05/27/

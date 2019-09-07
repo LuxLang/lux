@@ -24,6 +24,7 @@
 
 # Visual programming
 
+1. https://github.com/ivanreese/visual-programming-codex
 1. [Lambda Days 2018 - Piotr Moczurad - Visual-textual functional programming with Luna](https://www.youtube.com/watch?v=6xUOuzafmO0)
 1. https://www.luna-lang.org/
 1. https://github.com/hoodiecrow/Tclook

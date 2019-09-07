@@ -207,6 +207,7 @@
 
 # CQRS | Event-Sourcing
 
+1. [Introducing Derivative Event Sourcing](https://www.confluent.io/blog/event-sourcing-vs-derivative-event-sourcing-explained)
 1. https://blog.wallaroolabs.com/2018/06/implementing-time-windowing-in-an-evented-streaming-system/
 1. https://data-artisans.com/blog/a-practical-guide-to-broadcast-state-in-apache-flink
 1. https://medium.com/@hugo.oliveira.rocha/what-they-dont-tell-you-about-event-sourcing-6afc23c69e9a
