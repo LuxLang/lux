@@ -1,9 +1,13 @@
 # Exemplar
 
+1. [A simple type-theoretic language:  Mini-TT](http://www.cse.chalmers.se/~bengt/papers/GKminiTT.pdf)
 1. https://cedille.github.io/
 
 # Reference
 
+1. [A Path To DOT: Formalizing Fully Path-Dependent Types](https://arxiv.org/abs/1904.07298)
+1. [Ghosts of Departed Proofs (Functional Pearl)](https://www.youtube.com/watch?v=2cAxOJEiL00)
+1. [Ghosts of Departed Proofs (Functional Pearl)](https://kataskeue.com/gdp.pdf)
 1. [F# Linear algebra with type-level dimensions and static checks](https://notebooks.azure.com/allisterb/projects/sylvester/html/Sylvester.Tensors.ipynb)
 1. [From Scheme to Dependent Types in 100 lines by Gershom Bazerman](https://vimeo.com/134561872 &&& https://vimeo.com/135746080)
 1. [A Tutorial Implementation of a Dependently Typed Lambda Calculus](https://www.andres-loeh.de/LambdaPi/)

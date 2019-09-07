@@ -1,8 +1,9 @@
 (.module:
-  [lux (#- type)
+  [lux (#- int char type primitive)
    [abstract
     ["." monad (#+ do)]]
    [control
+    ["." try]
     ["." exception (#+ exception:)]
     ["<>" parser ("#@." monad)
      ["<t>" text (#+ Parser)]]]
@@ -17,9 +18,11 @@
     abstract
     ["." check (#+ Check) ("#@." monad)]]]
   ["." //
+   [category (#+ Void Value Return Method Primitive Object Class Array Var Parameter)]
    ["#." descriptor]
    ["#." signature]
    ["#." reflection]
+   ["#." parser]
    ["/#" // #_
     [encoding
      ["#." name]]]])
@@ -41,62 +44,63 @@
   (exception.report
    ["Var" (%.text var)]))
 
-(def: void-parser
+(def: void
   (Parser (Check Type))
-  (<>.after (<t>.this (//signature.signature //signature.void))
+  (<>.after //parser.void
             (<>@wrap (check@wrap .Any))))
 
-(template [<name> <signature> <reflection>]
+(template [<name> <parser> <reflection>]
   [(def: <name>
      (Parser (Check Type))
-     (<>.after (<t>.this (//signature.signature <signature>))
+     (<>.after <parser>
                (<>@wrap (check@wrap (#.Primitive (//reflection.reflection <reflection>) #.Nil)))))]
 
-  [boolean-parser //signature.boolean //reflection.boolean]
-  [byte-parser //signature.byte //reflection.byte]
-  [short-parser //signature.short //reflection.short]
-  [int-parser //signature.int //reflection.int]
-  [long-parser //signature.long //reflection.long]
-  [float-parser //signature.float //reflection.float]
-  [double-parser //signature.double //reflection.double]
-  [char-parser //signature.char //reflection.char]
+  [boolean //parser.boolean //reflection.boolean]
+  [byte //parser.byte //reflection.byte]
+  [short //parser.short //reflection.short]
+  [int //parser.int //reflection.int]
+  [long //parser.long //reflection.long]
+  [float //parser.float //reflection.float]
+  [double //parser.double //reflection.double]
+  [char //parser.char //reflection.char]
   )
 
-(def: primitive-parser
+(def: primitive
   (Parser (Check Type))
   ($_ <>.either
-      ..boolean-parser
-      ..byte-parser
-      ..short-parser
-      ..int-parser
-      ..long-parser
-      ..float-parser
-      ..double-parser
-      ..char-parser))
+      ..boolean
+      ..byte
+      ..short
+      ..int
+      ..long
+      ..float
+      ..double
+      ..char
+      ))
 
-(def: wildcard-parser
+(def: wildcard
   (Parser (Check Type))
-  (<>.after (<t>.this (//signature.signature //signature.wildcard))
+  (<>.after //parser.wildcard
             (<>@wrap (check@map product.right
                                 check.existential))))
 
-(def: (var-parser mapping)
+(def: (var mapping)
   (-> Mapping (Parser (Check Type)))
   (do <>.monad
-    [var //.var-parser]
-    (<>@wrap (case (dictionary.get var mapping)
-               #.None
-               (check.throw ..unknown-var [var])
-               
-               (#.Some type)
-               (check@wrap type)))))
+    [var //parser.var']
+    (wrap (case (dictionary.get var mapping)
+            #.None
+            (check.throw ..unknown-var [var])
+            
+            (#.Some type)
+            (check@wrap type)))))
 
-(def: (class-parser parameter-parser)
+(def: (class' parameter)
   (-> (Parser (Check Type)) (Parser (Check Type)))
   (|> (do <>.monad
         [_ (<t>.this //descriptor.class-prefix)
-         name //.class-name-parser
-         parameters (|> (<>.some parameter-parser)
+         name //parser.class-name
+         parameters (|> (<>.some parameter)
                         (<>.after (<t>.this //signature.parameters-start))
                         (<>.before (<t>.this //signature.parameters-end))
                         (<>.default (list)))
@@ -110,27 +114,33 @@
 (template [<name> <prefix> <constructor>]
   [(def: <name>
      (-> (Parser (Check Type)) (Parser (Check Type)))
-     ## TODO: Re-enable Lower and Upper, instead of using the simplified limit.
-     ## (<>@map (check@map (|>> <ctor> .type)))
-     (<>.after (<t>.this <prefix>)))]
+     (|> (<>.after (<t>.this <prefix>))
+         ## TODO: Re-enable Lower and Upper, instead of using the simplified limit.
+         ## (<>@map (check@map (|>> <ctor> .type)))
+         ))]
 
-  [lower-parser //signature.lower-prefix ..Lower]
-  [upper-parser //signature.upper-prefix ..Upper]
+  [lower //signature.lower-prefix ..Lower]
+  [upper //signature.upper-prefix ..Upper]
   )
 
-(def: (generic-parser mapping)
+(def: (parameter mapping)
   (-> Mapping (Parser (Check Type)))
   (<>.rec
-   (function (_ generic-parser)
-     (let [class-parser (..class-parser generic-parser)]
+   (function (_ parameter)
+     (let [class (..class' parameter)]
        ($_ <>.either
-           (..var-parser mapping)
-           ..wildcard-parser
-           (..lower-parser class-parser)
-           (..upper-parser class-parser)
-           class-parser)))))
+           (..var mapping)
+           ..wildcard
+           (..lower class)
+           (..upper class)
+           class
+           )))))
 
-(def: array-parser
+(def: #export class
+  (-> Mapping (Parser (Check Type)))
+  (|>> ..parameter ..class'))
+
+(def: array
   (-> (Parser (Check Type)) (Parser (Check Type)))
   (|>> (<>@map (check@map (function (_ elementT)
                             (case elementT
@@ -141,18 +151,28 @@
                               (|> elementT Array .type)))))
        (<>.after (<t>.this //descriptor.array-prefix))))
 
-(def: #export (type-parser mapping)
+(def: #export (type mapping)
   (-> Mapping (Parser (Check Type)))
   (<>.rec
-   (function (_ type-parser)
+   (function (_ type)
      ($_ <>.either
-         ..primitive-parser
-         (generic-parser mapping)
-         (..array-parser type-parser)))))
+         ..primitive
+         (parameter mapping)
+         (..array type)
+         ))))
 
-(def: #export (return-parser mapping)
+(def: #export (return mapping)
   (-> Mapping (Parser (Check Type)))
   ($_ <>.either
-      ..void-parser
-      (..type-parser mapping)
+      ..void
+      (..type mapping)
       ))
+
+(def: #export (check operation input)
+  (All [a] (-> (Parser (Check a)) Text (Check a)))
+  (case (<t>.run operation input)
+    (#try.Success check)
+    check
+    
+    (#try.Failure error)
+    (check.fail error)))

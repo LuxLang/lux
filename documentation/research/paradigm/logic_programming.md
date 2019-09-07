@@ -29,6 +29,7 @@
 
 # Language
 
+1. [Curry: A Truly Integrated Functional Logic Language](https://www-ps.informatik.uni-kiel.de/currywiki/)
 1. https://flix.github.io/
 1. http://logtalk.org/
 1. https://github.com/fnogatz/CHR.js

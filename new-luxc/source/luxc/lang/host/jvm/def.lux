@@ -11,15 +11,20 @@
      ["%" format (#+ format)]]
     [collection
      ["." array (#+ Array)]
-     ["." list ("#/." functor)]]]
+     ["." list ("#@." functor)]]]
    [target
     [jvm
      [encoding
       ["." name]]
-     ["$t" type (#+ Method Class Type Parameter)
-      ["." reflection]
+     ["." type (#+ Type Constraint)
+      [category (#+ Class Value Method)]
+      ["." signature (#+ Signature)]
       ["." descriptor (#+ Descriptor)]]]]]
   ["." //])
+
+(def: signature (|>> type.signature signature.signature))
+(def: descriptor (|>> type.descriptor descriptor.descriptor))
+(def: class-name (|>> type.descriptor descriptor.class-name name.read))
 
 (import: #long java/lang/Object)
 (import: #long java/lang/String)
@@ -72,7 +77,7 @@
 (def: (string-array values)
   (-> (List Text) (Array Text))
   (let [output (host.array String (list.size values))]
-    (exec (list/map (function (_ [idx value])
+    (exec (list@map (function (_ [idx value])
                       (host.array-write idx value output))
                     (list.enumerate values))
       output)))
@@ -118,36 +123,32 @@
       (if (get@ #//.transientF config) (Opcodes::ACC_TRANSIENT) +0)
       (if (get@ #//.volatileF config) (Opcodes::ACC_VOLATILE) +0)))
 
-(def: class-to-type
-  (-> Class Type)
-  (|>> #$t.Class #$t.Generic))
-
 (def: param-signature
-  (-> Class Text)
-  (|>> class-to-type $t.signature (format ":")))
+  (-> (Type Class) Text)
+  (|>> ..signature (format ":")))
 
 (def: (formal-param [name super interfaces])
-  (-> Parameter Text)
+  (-> Constraint Text)
   (format name
           (param-signature super)
           (|> interfaces
-              (list/map param-signature)
+              (list@map param-signature)
               (text.join-with ""))))
 
-(def: (parameters-signature parameters super interfaces)
-  (-> (List Parameter) Class (List Class)
+(def: (constraints-signature constraints super interfaces)
+  (-> (List Constraint) (Type Class) (List (Type Class))
       Text)
-  (let [formal-params (if (list.empty? parameters)
+  (let [formal-params (if (list.empty? constraints)
                         ""
                         (format "<"
-                                (|> parameters
-                                    (list/map formal-param)
+                                (|> constraints
+                                    (list@map formal-param)
                                     (text.join-with ""))
                                 ">"))]
     (format formal-params
-            (|> super class-to-type $t.signature)
+            (..signature super)
             (|> interfaces
-                (list/map (|>> class-to-type $t.signature))
+                (list@map ..signature)
                 (text.join-with "")))))
 
 (def: class-computes
@@ -160,9 +161,9 @@
 (def: binary-name (|>> name.internal name.read))
 
 (template [<name> <flag>]
-  [(def: #export (<name> version visibility config name parameters super interfaces
+  [(def: #export (<name> version visibility config name constraints super interfaces
                          definitions)
-     (-> //.Version //.Visibility //.Class-Config Text (List Parameter) Class (List Class) //.Def
+     (-> //.Version //.Visibility //.Class-Config Text (List Constraint) (Type Class) (List (Type Class)) //.Def
          (host.type [byte]))
      (let [writer (|> (do-to (ClassWriter::new class-computes)
                         (ClassWriter::visit (version-flag version)
@@ -172,10 +173,10 @@
                                                 (visibility-flag visibility)
                                                 (class-flags config))
                                             (..binary-name name)
-                                            (parameters-signature parameters super interfaces)
-                                            (|> super product.left ..binary-name)
+                                            (constraints-signature constraints super interfaces)
+                                            (..class-name super)
                                             (|> interfaces
-                                                (list/map (|>> product.left ..binary-name))
+                                                (list@map ..class-name)
                                                 string-array)))
                       definitions)
            _ (ClassWriter::visitEnd writer)]
@@ -185,11 +186,13 @@
   [abstract (Opcodes::ACC_ABSTRACT)]
   )
 
-(def: $Object Class ["java.lang.Object" (list)])
+(def: $Object
+  (Type Class)
+  (type.class "java.lang.Object" (list)))
 
-(def: #export (interface version visibility config name parameters interfaces
+(def: #export (interface version visibility config name constraints interfaces
                          definitions)
-  (-> //.Version //.Visibility //.Class-Config Text (List Parameter) (List Class) //.Def
+  (-> //.Version //.Visibility //.Class-Config Text (List Constraint) (List (Type Class)) //.Def
       (host.type [byte]))
   (let [writer (|> (do-to (ClassWriter::new class-computes)
                      (ClassWriter::visit (version-flag version)
@@ -199,25 +202,25 @@
                                              (visibility-flag visibility)
                                              (class-flags config))
                                          (..binary-name name)
-                                         (parameters-signature parameters $Object interfaces)
-                                         (|> $Object product.left ..binary-name)
+                                         (constraints-signature constraints $Object interfaces)
+                                         (..class-name $Object)
                                          (|> interfaces
-                                             (list/map (|>> product.left ..binary-name))
+                                             (list@map ..class-name)
                                              string-array)))
                    definitions)
         _ (ClassWriter::visitEnd writer)]
     (ClassWriter::toByteArray writer)))
 
-(def: #export (method visibility config name type then)
-  (-> //.Visibility //.Method-Config Text (Descriptor descriptor.Method) //.Inst
+(def: #export (method visibility config name [signature descriptor] then)
+  (-> //.Visibility //.Method-Config Text [(Signature Method) (Descriptor Method)] //.Inst
       //.Def)
   (function (_ writer)
     (let [=method (ClassWriter::visitMethod ($_ i.+
                                                 (visibility-flag visibility)
                                                 (method-flags config))
                                             (..binary-name name)
-                                            (descriptor.descriptor type)
-                                            (host.null)
+                                            (descriptor.descriptor descriptor)
+                                            (signature.signature signature)
                                             (string-array (list))
                                             writer)
           _ (MethodVisitor::visitCode =method)
@@ -226,8 +229,8 @@
           _ (MethodVisitor::visitEnd =method)]
       writer)))
 
-(def: #export (abstract-method visibility config name type)
-  (-> //.Visibility //.Method-Config Text (Descriptor descriptor.Method)
+(def: #export (abstract-method visibility config name [signature descriptor])
+  (-> //.Visibility //.Method-Config Text [(Signature Method) (Descriptor Method)]
       //.Def)
   (function (_ writer)
     (let [=method (ClassWriter::visitMethod ($_ i.+
@@ -235,22 +238,22 @@
                                                 (method-flags config)
                                                 (Opcodes::ACC_ABSTRACT))
                                             (..binary-name name)
-                                            (descriptor.descriptor type)
-                                            (host.null)
+                                            (descriptor.descriptor descriptor)
+                                            (signature.signature signature)
                                             (string-array (list))
                                             writer)
           _ (MethodVisitor::visitEnd =method)]
       writer)))
 
 (def: #export (field visibility config name type)
-  (-> //.Visibility //.Field-Config Text (Descriptor descriptor.Field) //.Def)
+  (-> //.Visibility //.Field-Config Text (Type Value) //.Def)
   (function (_ writer)
     (let [=field (do-to (ClassWriter::visitField ($_ i.+
                                                      (visibility-flag visibility)
                                                      (field-flags config))
                                                  (..binary-name name)
-                                                 (descriptor.descriptor type)
-                                                 (host.null)
+                                                 (..descriptor type)
+                                                 (..signature type)
                                                  (host.null)
                                                  writer)
                    (FieldVisitor::visitEnd))]
@@ -264,22 +267,22 @@
                                                         (visibility-flag visibility)
                                                         (field-flags config))
                                                     (..binary-name name)
-                                                    (descriptor.descriptor <jvm-type>)
-                                                    (host.null)
+                                                    (..descriptor <jvm-type>)
+                                                    (..signature <jvm-type>)
                                                     (<prepare> value)
                                                     writer)
                       (FieldVisitor::visitEnd))]
          writer)))]
 
-  [boolean-field Bit  descriptor.boolean                    function.identity]
-  [byte-field    Int  descriptor.byte                       host.long-to-byte]
-  [short-field   Int  descriptor.short                      host.long-to-short]
-  [int-field     Int  descriptor.int                        host.long-to-int]
-  [long-field    Int  descriptor.long                       function.identity]
-  [float-field   Frac descriptor.float                      host.double-to-float]
-  [double-field  Frac descriptor.double                     function.identity]
-  [char-field    Nat  descriptor.char                       (|>> .int host.long-to-int host.int-to-char)]
-  [string-field  Text (descriptor.class "java.lang.String") function.identity]
+  [boolean-field Bit  type.boolean                           function.identity]
+  [byte-field    Int  type.byte                              host.long-to-byte]
+  [short-field   Int  type.short                             host.long-to-short]
+  [int-field     Int  type.int                               host.long-to-int]
+  [long-field    Int  type.long                              function.identity]
+  [float-field   Frac type.float                             host.double-to-float]
+  [double-field  Frac type.double                            function.identity]
+  [char-field    Nat  type.char                              (|>> .int host.long-to-int host.int-to-char)]
+  [string-field  Text (type.class "java.lang.String" (list)) function.identity]
   )
 
 (def: #export (fuse defs)

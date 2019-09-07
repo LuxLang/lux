@@ -157,6 +157,7 @@
 
 # Shell
 
+1. [Magritte: A Language for Pipe-Based Programming](http://files.jneen.net/academic/thesis.pdf)
 1. https://latacora.singles/2018/06/21/loud-subshells.html
 1. https://github.com/ipetkov/conch-runtime
 1. https://www.spinellis.gr/sw/dgsh/

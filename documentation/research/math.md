@@ -69,6 +69,7 @@
 
 # Bézier curves
 
+1. [Circles and lines vs. polynomial splines](https://wordsandbuttons.online/circles_and_lines_vs_polynomial_splines.html)
 1. https://cormullion.github.io/blog/2018/06/21/bezier.html
 1. https://pomax.github.io/bezierinfo/
 1. https://99designs.com/blog/engineering/math-draw-vector-curves/
@@ -138,6 +139,8 @@
 
 # Geometric Algebra | Clifford Algebra
 
+1. [Geometric Algebra for Computer Graphics](https://slides.com/enkimute/siggraph/#/)
+1. https://bivector.net/
 1. https://slehar.wordpress.com/2014/03/18/clifford-algebra-a-visual-introduction/
 1. [Vectors and Beyond: Geometric Algebra and its Philosophical Significance](http://www.tara.tcd.ie/bitstream/handle/2262/61825/Vectors%20and%20Beyond%20as%20Printed.pdf?sequence=1&isAllowed=y)
 1. [Let's remove Quaternions from every 3D Engine](http://marctenbosch.com/quaternions/)
@@ -255,6 +258,7 @@
 
 # Vector
 
+1. [A Student's Guide to Vectors and Tensors (Student's Guides)](https://www.amazon.com/Students-Guide-Vectors-Tensors-Guides/dp/0521171903)
 1. https://www.researchgate.net/publication/327989714_Coordinate_Free_Vector_Algebra_in_R2
 
 # Knot theory

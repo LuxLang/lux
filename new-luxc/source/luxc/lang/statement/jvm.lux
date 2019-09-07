@@ -1,10 +1,11 @@
 (.module:
-  [lux (#- Definition)
+  [lux (#- Type Definition)
    [abstract
     ["." monad (#+ do)]]
    [control
     ["<>" parser
-     ["<c>" code (#+ Parser)]]]
+     ["<c>" code (#+ Parser)]
+     ["<t>" text]]]
    [data
     ["." product]
     [text
@@ -16,9 +17,12 @@
     ["." check (#+ Check)]]
    [target
     [jvm
-     ["." type (#+ Var Parameter Class Argument Typed Return)
+     ["." type (#+ Type Constraint Argument Typed)
+      [category (#+ Void Value Return Method Primitive Object Class Array Var Parameter)]
       [".T" lux]
-      ["." descriptor (#+ Descriptor)]]]]
+      ["." signature]
+      ["." descriptor (#+ Descriptor)]
+      ["." parser]]]]
    [tool
     [compiler
      ["." statement (#+ Handler Bundle)]
@@ -38,12 +42,14 @@
      ["$" jvm (#+ Anchor Inst Definition Operation Phase)
       ["_." def]]]]])
 
+(def: signature (|>> type.signature signature.signature))
+
 (type: Declaration
-  [Text (List Text)])
+  [Text (List (Type Var))])
 
 (def: declaration
   (Parser Declaration)
-  (<c>.form (<>.and <c>.text (<>.some <c>.text))))
+  (<c>.form (<>.and <c>.text (<>.some jvm.var))))
 
 (type: Inheritance
   #FinalI
@@ -75,14 +81,12 @@
   (Parser Annotation)
   <c>.any)
 
-(def: field-descriptor
-  (Parser (Descriptor descriptor.Field))
-  (:: <>.monad map
-      (|>> (:coerce (Descriptor descriptor.Field)))
-      <c>.text))
+(def: field-type
+  (Parser (Type Value))
+  (<t>.embed parser.value <c>.text))
 
 (type: Constant
-  [Text (List Annotation) (Descriptor descriptor.Field) Code])
+  [Text (List Annotation) (Type Value) Code])
 
 (def: constant
   (Parser Constant)
@@ -91,12 +95,12 @@
       ($_ <>.and
           <c>.text
           (<c>.tuple (<>.some ..annotation))
-          ..field-descriptor
+          ..field-type
           <c>.any
           )))
 
 (type: Variable
-  [Text jvm.Visibility State (List Annotation) (Descriptor descriptor.Field)])
+  [Text jvm.Visibility State (List Annotation) (Type Value)])
 
 (def: variable
   (Parser Variable)
@@ -107,7 +111,7 @@
           jvm.visibility
           ..state
           (<c>.tuple (<>.some ..annotation))
-          ..field-descriptor
+          ..field-type
           )))
 
 (type: Field
@@ -136,9 +140,11 @@
       jvm.overriden-method-definition
       ))
 
-(def: (parameter name)
-  (-> Text Parameter)
-  [name [type.object-class (list)] (list)])
+(def: (constraint name)
+  (-> Text Constraint)
+  {#type.name name
+   #type.super-class (type.class "java.lang.Object" (list))
+   #type.super-interfaces (list)})
 
 (def: jvm::class
   (Handler Anchor Inst Definition)
@@ -165,7 +171,7 @@
                      (typeA.with-env
                        (jvm.parameter-types parameters)))
          #let [mapping (list@fold (function (_ [parameterJ parameterT] mapping)
-                                    (dictionary.put parameterJ parameterT mapping))
+                                    (dictionary.put (parser.name parameterJ) parameterT mapping))
                                   luxT.fresh
                                   parameters)
                field-definitions (|> fields
@@ -203,11 +209,11 @@
                                      _def.fuse)]
          super-classT (statement.lift-analysis
                        (typeA.with-env
-                         (luxT.class mapping super-class)))
+                         (luxT.check (luxT.class mapping) (..signature super-class))))
          super-interfaceT+ (statement.lift-analysis
                             (typeA.with-env
                               (monad.map check.monad
-                                         (luxT.class mapping)
+                                         (|>> ..signature (luxT.check (luxT.class mapping)))
                                          super-interfaces)))
          #let [selfT (jvm.inheritance-relationship-type (#.Primitive name (list@map product.right parameters))
                                                         super-classT
@@ -243,9 +249,9 @@
                                              ## TODO: Handle abstract classes.
                                              #AbstractI (undefined)
                                              #DefaultI $.noneC)
-                                           name (list@map (|>> product.left ..parameter) parameters)
+                                           name (list@map (|>> product.left parser.name ..constraint) parameters)
                                            super-class super-interfaces
-                                           (|>> field-definitions))]))
+                                           field-definitions)]))
          #let [_ (log! (format "Class " name))]]
         (wrap statement.no-requirements)))]))
 

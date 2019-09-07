@@ -27,10 +27,16 @@
    [target
     ["." jvm #_
      [".!" reflection]
-     ["#" type (#+ Var Bound Primitive Generic Class Type Argument Return Method Typed)
-      ("method@." method-equivalence)
+     [encoding
+      [name (#+ External)]]
+     ["#" type (#+ Type Argument Typed)
+      ["." category (#+ Void Value Return Primitive Object Class Array Var Parameter Method)]
       ["." box]
       ["." reflection]
+      ["." descriptor (#+ Descriptor)]
+      ["." signature (#+ Signature) ("#@." equivalence)]
+      ["#-." parser]
+      ["#-." alias (#+ Aliasing)]
       [".T" lux (#+ Mapping)]]]]]
   ["." // #_
    ["#." lux (#+ custom)]
@@ -45,6 +51,11 @@
       [reference (#+)]
       ["#." analysis (#+ Analysis Operation Phase Handler Bundle)]
       ["#." synthesis]]]]])
+
+(def: reflection (|>> jvm.reflection reflection.reflection))
+(def: signature (|>> jvm.signature signature.signature))
+
+(def: object-class "java.lang.Object")
 
 (def: inheritance-relationship-type-name "_jvm_inheritance")
 (def: #export (inheritance-relationship-type class super-class super-interfaces)
@@ -69,14 +80,14 @@
   [String    "java.lang.String"]
 
   ## Primitives
-  [boolean   reflection.boolean]
-  [byte      reflection.byte]
-  [short     reflection.short]
-  [int       reflection.int]
-  [long      reflection.long]
-  [float     reflection.float]
-  [double    reflection.double]
-  [char      reflection.char]
+  [boolean   (reflection.reflection reflection.boolean)]
+  [byte      (reflection.reflection reflection.byte)]
+  [short     (reflection.reflection reflection.short)]
+  [int       (reflection.reflection reflection.int)]
+  [long      (reflection.reflection reflection.long)]
+  [float     (reflection.reflection reflection.float)]
+  [double    (reflection.reflection reflection.double)]
+  [char      (reflection.reflection reflection.char)]
   )
 
 (type: Member
@@ -98,6 +109,7 @@
 
   [non-object]
   [non-array]
+  [non-parameter]
   )
 
 (template [<name>]
@@ -179,7 +191,7 @@
 (template [<name> <prefix> <type>]
   [(def: <name>
      Bundle
-     (<| (///bundle.prefix <prefix>)
+     (<| (///bundle.prefix (reflection.reflection <prefix>))
          (|> ///bundle.empty
              (///bundle.install "+" (//lux.binary <type> <type> <type>))
              (///bundle.install "-" (//lux.binary <type> <type> <type>))
@@ -203,7 +215,7 @@
 (template [<name> <prefix> <type>]
   [(def: <name>
      Bundle
-     (<| (///bundle.prefix <prefix>)
+     (<| (///bundle.prefix (reflection.reflection <prefix>))
          (|> ///bundle.empty
              (///bundle.install "+" (//lux.binary <type> <type> <type>))
              (///bundle.install "-" (//lux.binary <type> <type> <type>))
@@ -220,7 +232,7 @@
 
 (def: bundle::char
   Bundle
-  (<| (///bundle.prefix reflection.char)
+  (<| (///bundle.prefix (reflection.reflection reflection.char))
       (|> ///bundle.empty
           (///bundle.install "=" (//lux.binary ..char ..char Bit))
           (///bundle.install "<" (//lux.binary ..char ..char Bit))
@@ -228,14 +240,14 @@
 
 (def: #export boxes
   (Dictionary Text Text)
-  (|> (list [reflection.boolean box.boolean]
-            [reflection.byte    box.byte]
-            [reflection.short   box.short]
-            [reflection.int     box.int]
-            [reflection.long    box.long]
-            [reflection.float   box.float]
-            [reflection.double  box.double]
-            [reflection.char    box.char])
+  (|> (list [(reflection.reflection reflection.boolean) box.boolean]
+            [(reflection.reflection reflection.byte)    box.byte]
+            [(reflection.reflection reflection.short)   box.short]
+            [(reflection.reflection reflection.int)     box.int]
+            [(reflection.reflection reflection.long)    box.long]
+            [(reflection.reflection reflection.float)   box.float]
+            [(reflection.reflection reflection.double)  box.double]
+            [(reflection.reflection reflection.char)    box.char])
       (dictionary.from-list text.hash)))
 
 (def: (array-type-info allow-primitives? arrayT)
@@ -269,19 +281,20 @@
         (////@wrap [level class]))
 
       (#.Ex _)
-      (////@wrap [level "java.lang.Object"])
+      (////@wrap [level ..object-class])
       
       _
       (/////analysis.throw ..non-array arrayT))))
 
 (def: (primitive-array-length-handler primitive-type)
-  (-> Type Handler)
+  (-> (Type Primitive) Handler)
   (function (_ extension-name analyse args)
     (case args
       (^ (list arrayC))
       (do ////.monad
         [_ (typeA.infer ..int)
-         arrayA (typeA.with-type (#.Primitive (reflection.class (jvm.array 1 primitive-type)) (list))
+         arrayA (typeA.with-type (#.Primitive (|> (jvm.array primitive-type) ..reflection)
+                                              (list))
                   (analyse arrayC))]
         (wrap (#/////analysis.Extension extension-name (list arrayA))))
 
@@ -308,14 +321,15 @@
       (/////analysis.throw ///.incorrect-arity [extension-name 1 (list.size args)]))))
 
 (def: (new-primitive-array-handler primitive-type)
-  (-> Type Handler)
+  (-> (Type Primitive) Handler)
   (function (_ extension-name analyse args)
     (case args
       (^ (list lengthC))
       (do ////.monad
         [lengthA (typeA.with-type ..int
                    (analyse lengthC))
-         _ (typeA.infer (#.Primitive (reflection.class (jvm.array 1 primitive-type)) (list)))]
+         _ (typeA.infer (#.Primitive (|> (jvm.array primitive-type) ..reflection)
+                                     (list)))]
         (wrap (#/////analysis.Extension extension-name (list lengthA))))
 
       _
@@ -341,50 +355,97 @@
       _
       (/////analysis.throw ///.incorrect-arity [extension-name 1 (list.size args)]))))
 
+(def: (check-parameter objectT)
+  (-> .Type (Operation (Type Parameter)))
+  (case objectT
+    (^ (#.Primitive (static array.type-name)
+                    (list elementT)))
+    (/////analysis.throw ..non-parameter objectT)
+    
+    (#.Primitive name parameters)
+    (`` (cond (~~ (template [<reflection>]
+                    [(text@= (reflection.reflection <reflection>)
+                             name)
+                     (/////analysis.throw ..non-parameter objectT)]
+
+                    [reflection.boolean]
+                    [reflection.byte]
+                    [reflection.short]
+                    [reflection.int]
+                    [reflection.long]
+                    [reflection.float]
+                    [reflection.double]
+                    [reflection.char]))
+
+              (text.starts-with? descriptor.array-prefix name)
+              (/////analysis.throw ..non-parameter objectT)
+
+              ## else
+              (////@wrap (jvm.class name (list)))))
+
+    (#.Named name anonymous)
+    (check-parameter anonymous)
+
+    (^template [<tag>]
+      (<tag> id)
+      (////@wrap (jvm.class ..object-class (list))))
+    ([#.Var]
+     [#.Ex])
+
+    (^template [<tag>]
+      (<tag> env unquantified)
+      (check-parameter unquantified))
+    ([#.UnivQ]
+     [#.ExQ])
+
+    (#.Apply inputT abstractionT)
+    (case (type.apply (list inputT) abstractionT)
+      (#.Some outputT)
+      (check-parameter outputT)
+
+      #.None
+      (/////analysis.throw ..non-parameter objectT))
+
+    _
+    (/////analysis.throw ..non-parameter objectT)))
+
 (def: (check-jvm objectT)
-  (-> .Type (Operation Type))
+  (-> .Type (Operation (Type Value)))
   (case objectT
     (#.Primitive name #.Nil)
-    (case name
-      (^ (static reflection.boolean)) (////@wrap jvm.boolean)
-      (^ (static reflection.byte)) (////@wrap jvm.byte)
-      (^ (static reflection.short)) (////@wrap jvm.short)
-      (^ (static reflection.int)) (////@wrap jvm.int)
-      (^ (static reflection.long)) (////@wrap jvm.long)
-      (^ (static reflection.float)) (////@wrap jvm.float)
-      (^ (static reflection.double)) (////@wrap jvm.double)
-      (^ (static reflection.char)) (////@wrap jvm.char)
-      _ (if (text.starts-with? jvm.array-prefix name)
-          (////.lift (<t>.run jvm.parse-signature name))
-          (////@wrap (jvm.class name (list)))))
+    (`` (cond (~~ (template [<reflection> <type>]
+                    [(text@= (reflection.reflection <reflection>)
+                             name)
+                     (////@wrap <type>)]
 
+                    [reflection.boolean jvm.boolean]
+                    [reflection.byte jvm.byte]
+                    [reflection.short jvm.short]
+                    [reflection.int jvm.int]
+                    [reflection.long jvm.long]
+                    [reflection.float jvm.float]
+                    [reflection.double jvm.double]
+                    [reflection.char jvm.char]))
+
+              (text.starts-with? descriptor.array-prefix name)
+              (////.lift (<t>.run jvm-parser.value name))
+
+              ## else
+              (////@wrap (jvm.class name (list)))))
+    
     (^ (#.Primitive (static array.type-name)
                     (list elementT)))
     (|> elementT
         check-jvm
-        (////@map (jvm.array 1)))
+        (////@map jvm.array))
     
     (#.Primitive name parameters)
     (do ////.monad
-      [parameters (monad.map @ check-jvm parameters)
-       parameters (monad.map @ (function (_ parameter)
-                                 (case parameter
-                                   (#jvm.Generic generic)
-                                   (wrap generic)
-
-                                   _
-                                   (/////analysis.throw ..primitives-cannot-have-type-parameters name)))
-                             parameters)]
+      [parameters (monad.map @ check-parameter parameters)]
       (////@wrap (jvm.class name parameters)))
 
     (#.Named name anonymous)
     (check-jvm anonymous)
-
-    (^template [<tag>]
-      (<tag> id)
-      (////@wrap (jvm.class "java.lang.Object" (list))))
-    ([#.Var]
-     [#.Ex])
 
     (^template [<tag>]
       (<tag> env unquantified)
@@ -401,24 +462,24 @@
       (/////analysis.throw ..non-object objectT))
 
     _
-    (/////analysis.throw ..non-object objectT)))
+    (check-parameter objectT)))
 
 (def: (check-object objectT)
-  (-> .Type (Operation Text))
+  (-> .Type (Operation External))
   (do ////.monad
-    [name (:: @ map reflection.class (check-jvm objectT))]
+    [name (:: @ map ..reflection (check-jvm objectT))]
     (if (dictionary.contains? name ..boxes)
       (/////analysis.throw ..primitives-are-not-objects [name])
       (////@wrap name))))
 
 (def: (check-return type)
-  (-> .Type (Operation Text))
+  (-> .Type (Operation (Type Return)))
   (if (is? .Any type)
-    (////@wrap jvm.void-descriptor)
-    (////@map reflection.class (check-jvm type))))
+    (////@wrap jvm.void)
+    (check-jvm type)))
 
 (def: (read-primitive-array-handler lux-type jvm-type)
-  (-> .Type Type Handler)
+  (-> .Type (Type Primitive) Handler)
   (function (_ extension-name analyse args)
     (case args
       (^ (list idxC arrayC))
@@ -426,7 +487,8 @@
         [_ (typeA.infer lux-type)
          idxA (typeA.with-type ..int
                 (analyse idxC))
-         arrayA (typeA.with-type (#.Primitive (reflection.class (jvm.array 1 jvm-type)) (list))
+         arrayA (typeA.with-type (#.Primitive (|> (jvm.array jvm-type) ..reflection)
+                                              (list))
                   (analyse arrayC))]
         (wrap (#/////analysis.Extension extension-name (list idxA arrayA))))
 
@@ -457,8 +519,9 @@
       (/////analysis.throw ///.incorrect-arity [extension-name 2 (list.size args)]))))
 
 (def: (write-primitive-array-handler lux-type jvm-type)
-  (-> .Type Type Handler)
-  (let [array-type (#.Primitive (reflection.class (jvm.array 1 jvm-type)) (list))]
+  (-> .Type (Type Primitive) Handler)
+  (let [array-type (#.Primitive (|> (jvm.array jvm-type) ..reflection)
+                                (list))]
     (function (_ extension-name analyse args)
       (case args
         (^ (list idxC valueC arrayC))
@@ -509,47 +572,47 @@
       (|> ///bundle.empty
           (dictionary.merge (<| (///bundle.prefix "length")
                                 (|> ///bundle.empty
-                                    (///bundle.install reflection.boolean (primitive-array-length-handler jvm.boolean))
-                                    (///bundle.install reflection.byte (primitive-array-length-handler jvm.byte))
-                                    (///bundle.install reflection.short (primitive-array-length-handler jvm.short))
-                                    (///bundle.install reflection.int (primitive-array-length-handler jvm.int))
-                                    (///bundle.install reflection.long (primitive-array-length-handler jvm.long))
-                                    (///bundle.install reflection.float (primitive-array-length-handler jvm.float))
-                                    (///bundle.install reflection.double (primitive-array-length-handler jvm.double))
-                                    (///bundle.install reflection.char (primitive-array-length-handler jvm.char))
+                                    (///bundle.install (reflection.reflection reflection.boolean) (primitive-array-length-handler jvm.boolean))
+                                    (///bundle.install (reflection.reflection reflection.byte) (primitive-array-length-handler jvm.byte))
+                                    (///bundle.install (reflection.reflection reflection.short) (primitive-array-length-handler jvm.short))
+                                    (///bundle.install (reflection.reflection reflection.int) (primitive-array-length-handler jvm.int))
+                                    (///bundle.install (reflection.reflection reflection.long) (primitive-array-length-handler jvm.long))
+                                    (///bundle.install (reflection.reflection reflection.float) (primitive-array-length-handler jvm.float))
+                                    (///bundle.install (reflection.reflection reflection.double) (primitive-array-length-handler jvm.double))
+                                    (///bundle.install (reflection.reflection reflection.char) (primitive-array-length-handler jvm.char))
                                     (///bundle.install "object" array::length::object))))
           (dictionary.merge (<| (///bundle.prefix "new")
                                 (|> ///bundle.empty
-                                    (///bundle.install reflection.boolean (new-primitive-array-handler jvm.boolean))
-                                    (///bundle.install reflection.byte (new-primitive-array-handler jvm.byte))
-                                    (///bundle.install reflection.short (new-primitive-array-handler jvm.short))
-                                    (///bundle.install reflection.int (new-primitive-array-handler jvm.int))
-                                    (///bundle.install reflection.long (new-primitive-array-handler jvm.long))
-                                    (///bundle.install reflection.float (new-primitive-array-handler jvm.float))
-                                    (///bundle.install reflection.double (new-primitive-array-handler jvm.double))
-                                    (///bundle.install reflection.char (new-primitive-array-handler jvm.char))
+                                    (///bundle.install (reflection.reflection reflection.boolean) (new-primitive-array-handler jvm.boolean))
+                                    (///bundle.install (reflection.reflection reflection.byte) (new-primitive-array-handler jvm.byte))
+                                    (///bundle.install (reflection.reflection reflection.short) (new-primitive-array-handler jvm.short))
+                                    (///bundle.install (reflection.reflection reflection.int) (new-primitive-array-handler jvm.int))
+                                    (///bundle.install (reflection.reflection reflection.long) (new-primitive-array-handler jvm.long))
+                                    (///bundle.install (reflection.reflection reflection.float) (new-primitive-array-handler jvm.float))
+                                    (///bundle.install (reflection.reflection reflection.double) (new-primitive-array-handler jvm.double))
+                                    (///bundle.install (reflection.reflection reflection.char) (new-primitive-array-handler jvm.char))
                                     (///bundle.install "object" array::new::object))))
           (dictionary.merge (<| (///bundle.prefix "read")
                                 (|> ///bundle.empty
-                                    (///bundle.install reflection.boolean (read-primitive-array-handler ..boolean jvm.boolean))
-                                    (///bundle.install reflection.byte (read-primitive-array-handler ..byte jvm.byte))
-                                    (///bundle.install reflection.short (read-primitive-array-handler ..short jvm.short))
-                                    (///bundle.install reflection.int (read-primitive-array-handler ..int jvm.int))
-                                    (///bundle.install reflection.long (read-primitive-array-handler ..long jvm.long))
-                                    (///bundle.install reflection.float (read-primitive-array-handler ..float jvm.float))
-                                    (///bundle.install reflection.double (read-primitive-array-handler ..double jvm.double))
-                                    (///bundle.install reflection.char (read-primitive-array-handler ..char jvm.char))
+                                    (///bundle.install (reflection.reflection reflection.boolean) (read-primitive-array-handler ..boolean jvm.boolean))
+                                    (///bundle.install (reflection.reflection reflection.byte) (read-primitive-array-handler ..byte jvm.byte))
+                                    (///bundle.install (reflection.reflection reflection.short) (read-primitive-array-handler ..short jvm.short))
+                                    (///bundle.install (reflection.reflection reflection.int) (read-primitive-array-handler ..int jvm.int))
+                                    (///bundle.install (reflection.reflection reflection.long) (read-primitive-array-handler ..long jvm.long))
+                                    (///bundle.install (reflection.reflection reflection.float) (read-primitive-array-handler ..float jvm.float))
+                                    (///bundle.install (reflection.reflection reflection.double) (read-primitive-array-handler ..double jvm.double))
+                                    (///bundle.install (reflection.reflection reflection.char) (read-primitive-array-handler ..char jvm.char))
                                     (///bundle.install "object" array::read::object))))
           (dictionary.merge (<| (///bundle.prefix "write")
                                 (|> ///bundle.empty
-                                    (///bundle.install reflection.boolean (write-primitive-array-handler ..boolean jvm.boolean))
-                                    (///bundle.install reflection.byte (write-primitive-array-handler ..byte jvm.byte))
-                                    (///bundle.install reflection.short (write-primitive-array-handler ..short jvm.short))
-                                    (///bundle.install reflection.int (write-primitive-array-handler ..int jvm.int))
-                                    (///bundle.install reflection.long (write-primitive-array-handler ..long jvm.long))
-                                    (///bundle.install reflection.float (write-primitive-array-handler ..float jvm.float))
-                                    (///bundle.install reflection.double (write-primitive-array-handler ..double jvm.double))
-                                    (///bundle.install reflection.char (write-primitive-array-handler ..char jvm.char))
+                                    (///bundle.install (reflection.reflection reflection.boolean) (write-primitive-array-handler ..boolean jvm.boolean))
+                                    (///bundle.install (reflection.reflection reflection.byte) (write-primitive-array-handler ..byte jvm.byte))
+                                    (///bundle.install (reflection.reflection reflection.short) (write-primitive-array-handler ..short jvm.short))
+                                    (///bundle.install (reflection.reflection reflection.int) (write-primitive-array-handler ..int jvm.int))
+                                    (///bundle.install (reflection.reflection reflection.long) (write-primitive-array-handler ..long jvm.long))
+                                    (///bundle.install (reflection.reflection reflection.float) (write-primitive-array-handler ..float jvm.float))
+                                    (///bundle.install (reflection.reflection reflection.double) (write-primitive-array-handler ..double jvm.double))
+                                    (///bundle.install (reflection.reflection reflection.char) (write-primitive-array-handler ..char jvm.char))
                                     (///bundle.install "object" array::write::object))))
           )))
 
@@ -693,18 +756,26 @@
   (getDeclaredMethods [] [java/lang/reflect/Method]))
 
 (def: (reflection-type mapping typeJ)
-  (-> Mapping Type (Operation .Type))
-  (typeA.with-env
-    (luxT.type mapping typeJ)))
+  (-> Mapping (Type Value) (Operation .Type))
+  (case (|> typeJ jvm.signature signature.signature
+            (<t>.run (luxT.type mapping)))
+    (#try.Success check)
+    (typeA.with-env
+      check)
+    
+    (#try.Failure error)
+    (////.fail error)))
 
-(def: (reflection-return mapping return)
-  (-> Mapping Return (Operation .Type))
-  (case return
-    #.None
-    (////@wrap .Any)
-
-    (#.Some return)
-    (..reflection-type mapping return)))
+(def: (reflection-return mapping typeJ)
+  (-> Mapping (Type Return) (Operation .Type))
+  (case (|> typeJ jvm.signature signature.signature
+            (<t>.run (luxT.return mapping)))
+    (#try.Success check)
+    (typeA.with-env
+      check)
+    
+    (#try.Failure error)
+    (////.fail error)))
 
 (def: (class-candidate-parents from-name fromT to-name to-class)
   (-> Text .Type Text (java/lang/Class java/lang/Object) (Operation (List [[Text .Type] Bit])))
@@ -715,9 +786,9 @@
                (function (_ superJT)
                  (do @
                    [superJT (////.lift (reflection!.type superJT))
-                    #let [super-name (reflection.class superJT)]
+                    #let [super-name (|> superJT ..reflection)]
                     super-class (////.lift (reflection!.load super-name))
-                    superT (typeA.with-env (luxT.type mapping superJT))]
+                    superT (reflection-type mapping superJT)]
                    (wrap [[super-name superT] (java/lang/Class::isAssignableFrom super-class to-class)])))
                (case (java/lang/Class::getGenericSuperclass from-class)
                  (#.Some super)
@@ -736,7 +807,7 @@
     (monad.map ////.monad
                (function (_ superT)
                  (do ////.monad
-                   [super-name (:: @ map reflection.class (check-jvm superT))
+                   [super-name (:: @ map ..reflection (check-jvm superT))
                     super-class (////.lift (reflection!.load super-name))]
                    (wrap [[super-name superT]
                           (java/lang/Class::isAssignableFrom super-class to-class)])))
@@ -752,56 +823,59 @@
       (^ (list fromC))
       (do ////.monad
         [toT (///.lift macro.expected-type)
-         to-name (:: @ map reflection.class (check-jvm toT))
+         to-name (:: @ map ..reflection (check-jvm toT))
          [fromT fromA] (typeA.with-inference
                          (analyse fromC))
-         from-name (:: @ map reflection.class (check-jvm fromT))
+         from-name (:: @ map ..reflection (check-jvm fromT))
          can-cast? (: (Operation Bit)
-                      (case [from-name to-name]
-                        (^template [<primitive> <object>]
-                          (^or (^ [(static <primitive>) (static <object>)])
-                               (^ [(static <object>) (static <primitive>)])
-                               (^ [(static <primitive>) (static <primitive>)]))
-                          (wrap #1))
-                        ([reflection.boolean box.boolean]
-                         [reflection.byte    box.byte]
-                         [reflection.short   box.short]
-                         [reflection.int     box.int]
-                         [reflection.long    box.long]
-                         [reflection.float   box.float]
-                         [reflection.double  box.double]
-                         [reflection.char    box.char])
+                      (`` (cond (~~ (template [<primitive> <object>]
+                                      [(let [=primitive (reflection.reflection <primitive>)]
+                                         (or (and (text@= =primitive from-name)
+                                                  (or (text@= <object> to-name)
+                                                      (text@= =primitive to-name)))
+                                             (and (text@= <object> from-name)
+                                                  (text@= =primitive to-name))))
+                                       (wrap true)]
 
-                        _
-                        (do @
-                          [_ (////.assert ..primitives-are-not-objects [from-name]
-                                          (not (dictionary.contains? from-name boxes)))
-                           _ (////.assert ..primitives-are-not-objects [to-name]
-                                          (not (dictionary.contains? to-name boxes)))
-                           to-class (////.lift (reflection!.load to-name))
-                           _ (if (text@= ..inheritance-relationship-type-name from-name)
-                               (wrap [])
-                               (do @
-                                 [from-class (////.lift (reflection!.load from-name))]
-                                 (////.assert cannot-cast [fromT toT fromC]
-                                              (java/lang/Class::isAssignableFrom from-class to-class))))]
-                          (loop [[current-name currentT] [from-name fromT]]
-                            (if (text@= to-name current-name)
-                              (wrap #1)
-                              (do @
-                                [candidate-parents (: (Operation (List [[Text .Type] Bit]))
-                                                      (if (text@= ..inheritance-relationship-type-name current-name)
-                                                        (inheritance-candidate-parents currentT to-class toT fromC)
-                                                        (class-candidate-parents current-name currentT to-name to-class)))]
-                                (case (|> candidate-parents
-                                          (list.filter product.right)
-                                          (list@map product.left))
-                                  (#.Cons [next-name nextT] _)
-                                  (recur [next-name nextT])
+                                      [reflection.boolean box.boolean]
+                                      [reflection.byte    box.byte]
+                                      [reflection.short   box.short]
+                                      [reflection.int     box.int]
+                                      [reflection.long    box.long]
+                                      [reflection.float   box.float]
+                                      [reflection.double  box.double]
+                                      [reflection.char    box.char]))
 
-                                  #.Nil
-                                  (/////analysis.throw cannot-cast [fromT toT fromC]))
-                                ))))))]
+                                ## else
+                                (do @
+                                  [_ (////.assert ..primitives-are-not-objects [from-name]
+                                                  (not (dictionary.contains? from-name boxes)))
+                                   _ (////.assert ..primitives-are-not-objects [to-name]
+                                                  (not (dictionary.contains? to-name boxes)))
+                                   to-class (////.lift (reflection!.load to-name))
+                                   _ (if (text@= ..inheritance-relationship-type-name from-name)
+                                       (wrap [])
+                                       (do @
+                                         [from-class (////.lift (reflection!.load from-name))]
+                                         (////.assert cannot-cast [fromT toT fromC]
+                                                      (java/lang/Class::isAssignableFrom from-class to-class))))]
+                                  (loop [[current-name currentT] [from-name fromT]]
+                                    (if (text@= to-name current-name)
+                                      (wrap true)
+                                      (do @
+                                        [candidate-parents (: (Operation (List [[Text .Type] Bit]))
+                                                              (if (text@= ..inheritance-relationship-type-name current-name)
+                                                                (inheritance-candidate-parents currentT to-class toT fromC)
+                                                                (class-candidate-parents current-name currentT to-name to-class)))]
+                                        (case (|> candidate-parents
+                                                  (list.filter product.right)
+                                                  (list@map product.left))
+                                          (#.Cons [next-name nextT] _)
+                                          (recur [next-name nextT])
+
+                                          #.Nil
+                                          (/////analysis.throw cannot-cast [fromT toT fromC]))
+                                        )))))))]
         (if can-cast?
           (wrap (#/////analysis.Extension extension-name (list (/////analysis.text from-name)
                                                                (/////analysis.text to-name)
@@ -839,7 +913,7 @@
         (wrap (<| (#/////analysis.Extension extension-name)
                   (list (/////analysis.text class)
                         (/////analysis.text field)
-                        (/////analysis.text (reflection.class fieldJT)))))))]))
+                        (/////analysis.text (|> fieldJT ..reflection)))))))]))
 
 (def: static::put
   Handler
@@ -876,8 +950,7 @@
                                [final? fieldJT] (reflection!.virtual-field field class)
                                mapping (reflection!.correspond class objectT)]
                               (wrap [mapping fieldJT])))
-         fieldT (typeA.with-env
-                  (luxT.type mapping fieldJT))
+         fieldT (reflection-type mapping fieldJT)
          _ (typeA.infer fieldT)]
         (wrap (<| (#/////analysis.Extension extension-name)
                   (list (/////analysis.text class)
@@ -899,8 +972,7 @@
                                       [final? fieldJT] (reflection!.virtual-field field class)
                                       mapping (reflection!.correspond class objectT)]
                                      (wrap [final? mapping fieldJT])))
-         fieldT (typeA.with-env
-                  (luxT.type mapping fieldJT))
+         fieldT (reflection-type mapping fieldJT)
          _ (////.assert cannot-set-a-final-field [class field]
                         (not final?))
          valueA (typeA.with-type fieldT
@@ -924,7 +996,7 @@
     [parameters (|> (java/lang/reflect/Method::getGenericParameterTypes method)
                     array.to-list
                     (monad.map try.monad reflection!.type)
-                    (:: try.monad map (list@map reflection.class))
+                    (:: try.monad map (list@map ..reflection))
                     ////.lift)
      #let [modifiers (java/lang/reflect/Method::getModifiers method)
            correct-class? (java/lang/Object::equals class (java/lang/reflect/Method::getDeclaringClass method))
@@ -961,7 +1033,7 @@
     [parameters (|> (java/lang/reflect/Constructor::getGenericParameterTypes constructor)
                     array.to-list
                     (monad.map try.monad reflection!.type)
-                    (:: try.monad map (list@map reflection.class))
+                    (:: try.monad map (list@map ..reflection))
                     ////.lift)]
     (wrap (and (java/lang/Object::equals class (java/lang/reflect/Constructor::getDeclaringClass constructor))
                (n.= (list.size arg-classes) (list.size parameters))
@@ -1150,7 +1222,7 @@
          outputJC (check-return outputT)]
         (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text class)
                                                               (/////analysis.text method)
-                                                              (/////analysis.text outputJC)
+                                                              (/////analysis.text (..signature outputJC))
                                                               (decorate-inputs argsT argsA))))))]))
 
 (def: invoke::virtual
@@ -1171,7 +1243,7 @@
          outputJC (check-return outputT)]
         (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text class)
                                                               (/////analysis.text method)
-                                                              (/////analysis.text outputJC)
+                                                              (/////analysis.text (..signature outputJC))
                                                               objectA
                                                               (decorate-inputs argsT argsA))))))]))
 
@@ -1187,7 +1259,7 @@
          outputJC (check-return outputT)]
         (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text class)
                                                               (/////analysis.text method)
-                                                              (/////analysis.text outputJC)
+                                                              (/////analysis.text (..signature outputJC))
                                                               (decorate-inputs argsT argsA))))))]))
 
 (def: invoke::interface
@@ -1212,7 +1284,7 @@
         (wrap (#/////analysis.Extension extension-name
                                         (list& (/////analysis.text class-name)
                                                (/////analysis.text method)
-                                               (/////analysis.text outputJC)
+                                               (/////analysis.text (..signature outputJC))
                                                objectA
                                                (decorate-inputs argsT argsA))))))]))
 
@@ -1249,54 +1321,16 @@
                                     )))
           )))
 
-(def: #export var
-  (Parser Var)
-  <c>.text)
+(template [<name> <category> <parser>]
+  [(def: #export <name>
+     (Parser (Type <category>))
+     (<t>.embed <parser> <c>.text))]
 
-(def: bound
-  (Parser Bound)
-  (<>.or (<c>.identifier! ["" ">"])
-         (<c>.identifier! ["" "<"])))
-
-(def: generic
-  (Parser Generic)
-  (<>.rec
-   (function (_ generic)
-     (let [wildcard (: (Parser (Maybe [Bound Generic]))
-                       (<>.or (<c>.identifier! ["" "?"])
-                              (<c>.form (<>.and ..bound generic))))
-           class (: (Parser Class)
-                    (<c>.form (<>.and <c>.text (<>.some generic))))]
-       ($_ <>.or
-           ..var
-           wildcard
-           class)))))
-
-(def: #export class
-  (Parser Class)
-  (<c>.form (<>.and <c>.text (<>.some ..generic))))
-
-(def: primitive
-  (Parser Primitive)
-  ($_ <>.or
-      (<c>.identifier! ["" reflection.boolean])
-      (<c>.identifier! ["" reflection.byte])
-      (<c>.identifier! ["" reflection.short])
-      (<c>.identifier! ["" reflection.int])
-      (<c>.identifier! ["" reflection.long])
-      (<c>.identifier! ["" reflection.float])
-      (<c>.identifier! ["" reflection.double])
-      (<c>.identifier! ["" reflection.char])
-      ))
-
-(def: #export type
-  (Parser Type)
-  (<>.rec
-   (function (_ type)
-     ($_ <>.or
-         ..primitive
-         ..generic
-         (<c>.tuple type)))))
+  [var Var jvm-parser.var]
+  [class Class jvm-parser.class]
+  [type Value jvm-parser.value]
+  [return Return jvm-parser.return]
+  )
 
 (def: #export typed
   (Parser (Typed Code))
@@ -1320,40 +1354,6 @@
   (Parser Argument)
   (<c>.tuple (<>.and <c>.text ..type)))
 
-(def: #export return
-  (Parser Return)
-  (<>.or (<c>.identifier! ["" reflection.void])
-         ..type))
-
-(def: (generic-analysis generic)
-  (-> Generic Analysis)
-  (case generic
-    (#jvm.Var var)
-    (/////analysis.text var)
-    
-    (#jvm.Wildcard wildcard)
-    (case wildcard
-      #.None
-      (/////analysis.constant ["" "?"])
-      
-      (#.Some [bound limit])
-      (/////analysis.tuple (list (case bound
-                                   #jvm.Lower
-                                   (/////analysis.constant ["" ">"])
-                                   
-                                   #jvm.Upper
-                                   (/////analysis.constant ["" "<"]))
-                                 (generic-analysis limit))))
-    
-    (#jvm.Class name parameters)
-    (/////analysis.tuple (list& (/////analysis.text name)
-                                (list@map generic-analysis parameters)))))
-
-(def: (class-analysis [name parameters])
-  (-> Class Analysis)
-  (/////analysis.tuple (list& (/////analysis.text name)
-                              (list@map generic-analysis parameters))))
-
 (def: (annotation-parameter-analysis [name value])
   (-> (Annotation-Parameter Analysis) Analysis)
   (/////analysis.tuple (list (/////analysis.text name) value)))
@@ -1363,47 +1363,31 @@
   (/////analysis.tuple (list& (/////analysis.text name)
                               (list@map annotation-parameter-analysis parameters))))
 
-(def: var-analysis
-  (-> Var Analysis)
-  (|>> /////analysis.text))
+(template [<name> <category>]
+  [(def: <name>
+     (-> (Type <category>) Analysis)
+     (|>> ..signature /////analysis.text))]
 
-(def: (type-analysis type)
-  (-> Type Analysis)
-  (case type
-    (#jvm.Primitive primitive)
-    (case primitive
-      #jvm.Boolean (/////analysis.constant ["" reflection.boolean])
-      #jvm.Byte (/////analysis.constant ["" reflection.byte])
-      #jvm.Short (/////analysis.constant ["" reflection.short])
-      #jvm.Int (/////analysis.constant ["" reflection.int])
-      #jvm.Long (/////analysis.constant ["" reflection.long])
-      #jvm.Float (/////analysis.constant ["" reflection.float])
-      #jvm.Double (/////analysis.constant ["" reflection.double])
-      #jvm.Char (/////analysis.constant ["" reflection.char]))
-    
-    (#jvm.Generic generic)
-    (generic-analysis generic)
-    
-    (#jvm.Array type)
-    (/////analysis.tuple (list (type-analysis type)))))
-
-(def: (return-analysis return)
-  (-> Return Analysis)
-  (case return
-    #.None
-    (/////analysis.constant ["" jvm.void-descriptor])
-    
-    (#.Some type)
-    (type-analysis type)))
+  [var-analysis Var]
+  [class-analysis Class]
+  [value-analysis Value]
+  [return-analysis Return]
+  )
 
 (def: (typed-analysis [type term])
   (-> (Typed Analysis) Analysis)
-  (/////analysis.tuple (list (type-analysis type) term)))
+  (/////analysis.tuple (list (value-analysis type) term)))
+
+(def: (argument-analysis [argument argumentJT])
+  (-> Argument Analysis)
+  (/////analysis.tuple
+   (list (/////analysis.text argument)
+         (value-analysis argumentJT))))
 
 (template [<name> <filter>]
   [(def: <name>
      (-> (java/lang/Class java/lang/Object)
-         (Try (List [Text Method])))
+         (Try (List [Text (Signature Method)])))
      (|>> java/lang/Class::getDeclaredMethods
           array.to-list
           <filter>
@@ -1418,9 +1402,9 @@
                                      reflection!.return)
                           exceptions (|> (java/lang/reflect/Method::getGenericExceptionTypes method)
                                          array.to-list
-                                         (monad.map @ reflection!.generic))]
+                                         (monad.map @ reflection!.class))]
                          (wrap [(java/lang/reflect/Method::getName method)
-                                (jvm.method inputs return exceptions)]))))))]
+                                (product.left (jvm.method [inputs return exceptions]))]))))))]
 
   [abstract-methods (list.filter (|>> java/lang/reflect/Method::getModifiers java/lang/reflect/Modifier::isAbstract))]
   [methods (<|)]
@@ -1430,8 +1414,8 @@
 
 (template [<name> <methods>]
   [(def: <name>
-     (-> (List Class) (Try (List [Text Method])))
-     (|>> (monad.map try.monad (|>> product.left reflection!.load))
+     (-> (List (Type Class)) (Try (List [Text (Signature Method)])))
+     (|>> (monad.map try.monad (|>> ..reflection reflection!.load))
           (try@map (monad.map try.monad <methods>))
           try@join
           (try@map list@join)))]
@@ -1441,11 +1425,11 @@
   )
 
 (template [<name>]
-  [(exception: #export (<name> {methods (List [Text Method])})
+  [(exception: #export (<name> {methods (List [Text (Signature Method)])})
      (exception.report
       ["Methods" (exception.enumerate
-                  (function (_ [name method])
-                    (format (%.text name) " " (jvm.method-signature method)))
+                  (function (_ [name signature])
+                    (format (%.text name) " " (signature.signature signature)))
                   methods)]))]
 
   [missing-abstract-methods]
@@ -1453,10 +1437,10 @@
   )
 
 (type: #export Visibility
-  #PublicV
-  #PrivateV
-  #ProtectedV
-  #DefaultV)
+  #Public
+  #Private
+  #Protected
+  #Default)
 
 (type: #export Finality Bit)
 (type: #export Strictness Bit)
@@ -1474,12 +1458,20 @@
       (<c>.text! ..protected-tag)
       (<c>.text! ..default-tag)))
 
+(def: #export (visibility-analysis visibility)
+  (-> Visibility Analysis)
+  (/////analysis.text (case visibility
+                        #Public ..public-tag
+                        #Private ..private-tag
+                        #Protected ..protected-tag
+                        #Default ..default-tag)))
+
 (type: #export (Constructor a)
   [Visibility
    Strictness
    (List (Annotation a))
-   (List Var)
-   (List Class) ## Exceptions
+   (List (Type Var))
+   (List (Type Class)) ## Exceptions
    Text
    (List Argument)
    (List (Typed a))
@@ -1519,19 +1511,17 @@
                                annotations)
        super-arguments (monad.map @ (function (_ [jvmT super-argC])
                                       (do @
-                                        [luxT (typeA.with-env
-                                                (luxT.type mapping jvmT))
+                                        [luxT (reflection-type mapping jvmT)
                                          super-argA (typeA.with-type luxT
                                                       (analyse super-argC))]
                                         (wrap [jvmT super-argA])))
                                   super-arguments)
-       arguments' (typeA.with-env
-                    (monad.map check.monad
-                               (function (_ [name jvmT])
-                                 (do check.monad
-                                   [luxT (luxT.type mapping jvmT)]
-                                   (wrap [name luxT])))
-                               arguments))
+       arguments' (monad.map @
+                             (function (_ [name jvmT])
+                               (do @
+                                 [luxT (reflection-type mapping jvmT)]
+                                 (wrap [name luxT])))
+                             arguments)
        [scope bodyA] (|> arguments'
                          (#.Cons [self-name selfT])
                          list.reverse
@@ -1539,24 +1529,14 @@
                          (typeA.with-type .Any)
                          /////analysis.with-scope)]
       (wrap (/////analysis.tuple (list (/////analysis.text ..constructor-tag)
-                                       (/////analysis.text (case visibility
-                                                             #PublicV ..public-tag
-                                                             #PrivateV ..private-tag
-                                                             #ProtectedV ..protected-tag
-                                                             #DefaultV ..default-tag))
+                                       (visibility-analysis visibility)
                                        (/////analysis.bit strict-fp?)
                                        (/////analysis.tuple (list@map annotation-analysis annotationsA))
                                        (/////analysis.tuple (list@map var-analysis vars))
                                        (/////analysis.text self-name)
-                                       (/////analysis.tuple (list@map (function (_ [argument argumentJT])
-                                                                        (/////analysis.tuple
-                                                                         (list (/////analysis.text argument)
-                                                                               (type-analysis argumentJT))))
-                                                                      arguments))
-                                       (/////analysis.tuple (list@map class-analysis
-                                                                      exceptions))
-                                       (/////analysis.tuple (list@map typed-analysis
-                                                                      super-arguments))
+                                       (/////analysis.tuple (list@map ..argument-analysis arguments))
+                                       (/////analysis.tuple (list@map class-analysis exceptions))
+                                       (/////analysis.tuple (list@map typed-analysis super-arguments))
                                        (#/////analysis.Function
                                         (scope.environment scope)
                                         (/////analysis.tuple (list bodyA)))
@@ -1568,11 +1548,11 @@
    Finality
    Strictness
    (List (Annotation a))
-   (List Var)
+   (List (Type Var))
    Text
    (List Argument)
-   Return
-   (List Class) ## Exceptions
+   (Type Return)
+   (List (Type Class)) ## Exceptions
    a])
 
 (def: virtual-tag "virtual")
@@ -1610,15 +1590,13 @@
                                                              parameters)]
                                      (wrap [name parametersA])))
                                annotations)
-       returnT (typeA.with-env
-                 (luxT.return mapping return))
-       arguments' (typeA.with-env
-                    (monad.map check.monad
-                               (function (_ [name jvmT])
-                                 (do check.monad
-                                   [luxT (luxT.type mapping jvmT)]
-                                   (wrap [name luxT])))
-                               arguments))
+       returnT (reflection-return mapping return)
+       arguments' (monad.map @
+                             (function (_ [name jvmT])
+                               (do @
+                                 [luxT (reflection-type mapping jvmT)]
+                                 (wrap [name luxT])))
+                             arguments)
        [scope bodyA] (|> arguments'
                          (#.Cons [self-name selfT])
                          list.reverse
@@ -1627,24 +1605,15 @@
                          /////analysis.with-scope)]
       (wrap (/////analysis.tuple (list (/////analysis.text ..virtual-tag)
                                        (/////analysis.text method-name)
-                                       (/////analysis.text (case visibility
-                                                             #PublicV ..public-tag
-                                                             #PrivateV ..private-tag
-                                                             #ProtectedV ..protected-tag
-                                                             #DefaultV ..default-tag))
+                                       (visibility-analysis visibility)
                                        (/////analysis.bit final?)
                                        (/////analysis.bit strict-fp?)
                                        (/////analysis.tuple (list@map annotation-analysis annotationsA))
                                        (/////analysis.tuple (list@map var-analysis vars))
                                        (/////analysis.text self-name)
-                                       (/////analysis.tuple (list@map (function (_ [argument argumentJT])
-                                                                        (/////analysis.tuple
-                                                                         (list (/////analysis.text argument)
-                                                                               (type-analysis argumentJT))))
-                                                                      arguments))
+                                       (/////analysis.tuple (list@map ..argument-analysis arguments))
                                        (return-analysis return)
-                                       (/////analysis.tuple (list@map class-analysis
-                                                                      exceptions))
+                                       (/////analysis.tuple (list@map class-analysis exceptions))
                                        (#/////analysis.Function
                                         (scope.environment scope)
                                         (/////analysis.tuple (list bodyA)))
@@ -1655,10 +1624,10 @@
    Visibility
    Strictness
    (List (Annotation a))
-   (List Var)
-   (List Class) ## Exceptions
+   (List (Type Var))
+   (List (Type Class)) ## Exceptions
    (List Argument)
-   Return
+   (Type Return)
    a])
 
 (def: #export static-tag "static")
@@ -1694,15 +1663,13 @@
                                                              parameters)]
                                      (wrap [name parametersA])))
                                annotations)
-       returnT (typeA.with-env
-                 (luxT.return mapping return))
-       arguments' (typeA.with-env
-                    (monad.map check.monad
-                               (function (_ [name jvmT])
-                                 (do check.monad
-                                   [luxT (luxT.type mapping jvmT)]
-                                   (wrap [name luxT])))
-                               arguments))
+       returnT (reflection-return mapping return)
+       arguments' (monad.map @
+                             (function (_ [name jvmT])
+                               (do @
+                                 [luxT (reflection-type mapping jvmT)]
+                                 (wrap [name luxT])))
+                             arguments)
        [scope bodyA] (|> arguments'
                          list.reverse
                          (list@fold scope.with-local (analyse body))
@@ -1710,19 +1677,11 @@
                          /////analysis.with-scope)]
       (wrap (/////analysis.tuple (list (/////analysis.text ..static-tag)
                                        (/////analysis.text method-name)
-                                       (/////analysis.text (case visibility
-                                                             #PublicV ..public-tag
-                                                             #PrivateV ..private-tag
-                                                             #ProtectedV ..protected-tag
-                                                             #DefaultV ..default-tag))
+                                       (visibility-analysis visibility)
                                        (/////analysis.bit strict-fp?)
                                        (/////analysis.tuple (list@map annotation-analysis annotationsA))
                                        (/////analysis.tuple (list@map var-analysis vars))
-                                       (/////analysis.tuple (list@map (function (_ [argument argumentJT])
-                                                                        (/////analysis.tuple
-                                                                         (list (/////analysis.text argument)
-                                                                               (type-analysis argumentJT))))
-                                                                      arguments))
+                                       (/////analysis.tuple (list@map ..argument-analysis arguments))
                                        (return-analysis return)
                                        (/////analysis.tuple (list@map class-analysis
                                                                       exceptions))
@@ -1732,15 +1691,15 @@
                                        ))))))
 
 (type: #export (Overriden-Method a)
-  [Class
+  [(Type Class)
    Text
    Bit
    (List (Annotation a))
-   (List Var)
+   (List (Type Var))
    Text
    (List Argument)
-   Return
-   (List Class)
+   (Type Return)
+   (List (Type Class))
    a])
 
 (def: #export overriden-tag "override")
@@ -1778,15 +1737,13 @@
                                                              parameters)]
                                      (wrap [name parametersA])))
                                annotations)
-       returnT (typeA.with-env
-                 (luxT.return mapping return))
-       arguments' (typeA.with-env
-                    (monad.map check.monad
-                               (function (_ [name jvmT])
-                                 (do check.monad
-                                   [luxT (luxT.type mapping jvmT)]
-                                   (wrap [name luxT])))
-                               arguments))
+       returnT (reflection-return mapping return)
+       arguments' (monad.map @
+                             (function (_ [name jvmT])
+                               (do @
+                                 [luxT (reflection-type mapping jvmT)]
+                                 (wrap [name luxT])))
+                             arguments)
        [scope bodyA] (|> arguments'
                          (#.Cons [self-name selfT])
                          list.reverse
@@ -1800,11 +1757,7 @@
                                        (/////analysis.tuple (list@map annotation-analysis annotationsA))
                                        (/////analysis.tuple (list@map var-analysis vars))
                                        (/////analysis.text self-name)
-                                       (/////analysis.tuple (list@map (function (_ [argument argumentJT])
-                                                                        (/////analysis.tuple
-                                                                         (list (/////analysis.text argument)
-                                                                               (type-analysis argumentJT))))
-                                                                      arguments))
+                                       (/////analysis.tuple (list@map ..argument-analysis arguments))
                                        (return-analysis return)
                                        (/////analysis.tuple (list@map class-analysis
                                                                       exceptions))
@@ -1817,7 +1770,7 @@
   (#Overriden-Method (Overriden-Method a)))
 
 (def: #export parameter-types
-  (-> (List Var) (Check (List [Var .Type])))
+  (-> (List (Type Var)) (Check (List [(Type Var) .Type])))
   (monad.map check.monad
              (function (_ parameterJ)
                (do check.monad
@@ -1825,31 +1778,30 @@
                  (wrap [parameterJ parameterT])))))
 
 (def: (mismatched-methods super-set sub-set)
-  (-> (List [Text Method]) (List [Text Method]) (List [Text Method]))
+  (-> (List [Text (Signature Method)]) (List [Text (Signature Method)]) (List [Text (Signature Method)]))
   (list.filter (function (_ [sub-name subJT])
                  (|> super-set
                      (list.filter (function (_ [super-name superJT])
                                     (and (text@= super-name sub-name)
-                                         (method@= superJT subJT))))
+                                         (signature@= superJT subJT))))
                      list.size
                      (n.= 1)
                      not))
                sub-set))
 
 (exception: #export (class-parameter-mismatch {expected (List Text)}
-                                              {actual (List jvm.Generic)})
+                                              {actual (List (Type Parameter))})
   (exception.report
    ["Expected (amount)" (%.nat (list.size expected))]
    ["Expected (parameters)" (exception.enumerate %.text expected)]
    ["Actual (amount)" (%.nat (list.size actual))]
-   ["Actual (parameters)" (exception.enumerate (|>> #jvm.Generic jvm.signature) actual)]))
+   ["Actual (parameters)" (exception.enumerate ..signature actual)]))
 
-(type: Renamer (Dictionary Text Text))
-
-(def: (re-map-super [name actual-parameters])
-  (-> Class (Operation Renamer))
+(def: (super-aliasing class)
+  (-> (Type Class) (Operation Aliasing))
   (do ////.monad
-    [class (////.lift (reflection!.load name))
+    [#let [[name actual-parameters] (jvm-parser.read-class class)]
+     class (////.lift (reflection!.load name))
      #let [expected-parameters (|> (java/lang/Class::getTypeParameters class)
                                    array.to-list
                                    (list@map (|>> java/lang/reflect/TypeVariable::getName)))]
@@ -1858,57 +1810,13 @@
                          (list.size actual-parameters)))]
     (wrap (|> (list.zip2 expected-parameters actual-parameters)
               (list@fold (function (_ [expected actual] mapping)
-                           (case actual
-                             (#jvm.Var actual)
+                           (case (jvm-parser.var? actual)
+                             (#.Some actual)
                              (dictionary.put actual expected mapping)
                              
-                             _
+                             #.None
                              mapping))
-                         (dictionary.new text.hash))))))
-
-(def: (re-map-generic mapping generic)
-  (-> Renamer jvm.Generic jvm.Generic)
-  (case generic
-    (#jvm.Var var)
-    (#jvm.Var (|> mapping (dictionary.get var) (maybe.default var)))
-    
-    (#jvm.Wildcard wildcard)
-    (case wildcard
-      #.None
-      generic
-      
-      (#.Some [bound limit])
-      (#jvm.Wildcard (#.Some [bound (re-map-generic mapping limit)])))
-    
-    (#jvm.Class name parameters)
-    (#jvm.Class name (list@map (re-map-generic mapping) parameters))))
-
-(def: (re-map-type mapping type)
-  (-> Renamer jvm.Type jvm.Type)
-  (case type
-    (#jvm.Primitive primitive)
-    type
-    
-    (#jvm.Generic generic)
-    (#jvm.Generic (re-map-generic mapping generic))
-    
-    (#jvm.Array type)
-    (#jvm.Array (re-map-type mapping type))))
-
-(def: (re-map-return mapping return)
-  (-> Renamer jvm.Return jvm.Return)
-  (case return
-    #.None
-    return
-
-    (#.Some return)
-    (#.Some (re-map-type mapping return))))
-
-(def: (re-map-method mapping [inputs output exceptions])
-  (-> Renamer jvm.Method jvm.Method)
-  [(list@map (re-map-type mapping) inputs)
-   (re-map-return mapping output)
-   (list@map (re-map-generic mapping) exceptions)])
+                         jvm-alias.fresh)))))
 
 (def: class::anonymous
   Handler
@@ -1928,7 +1836,9 @@
         [parameters (typeA.with-env
                       (..parameter-types parameters))
          #let [mapping (list@fold (function (_ [parameterJ parameterT] mapping)
-                                    (dictionary.put parameterJ parameterT mapping))
+                                    (dictionary.put (jvm-parser.name parameterJ)
+                                                    parameterT
+                                                    mapping))
                                   luxT.fresh
                                   parameters)]
          name (///.lift (do macro.monad
@@ -1938,18 +1848,17 @@
                                         ..jvm-package-separator
                                         "anonymous-class" (%.nat id)))))
          super-classT (typeA.with-env
-                        (luxT.class mapping super-class))
+                        (luxT.check (luxT.class mapping) (..signature super-class)))
          super-interfaceT+ (typeA.with-env
                              (monad.map check.monad
-                                        (luxT.class mapping)
+                                        (|>> ..signature (luxT.check (luxT.class mapping)))
                                         super-interfaces))
          #let [selfT (inheritance-relationship-type (#.Primitive name (list))
                                                     super-classT
                                                     super-interfaceT+)]
          constructor-argsA+ (monad.map @ (function (_ [type term])
                                            (do @
-                                             [argT (typeA.with-env
-                                                     (luxT.type mapping type))
+                                             [argT (reflection-type mapping type)
                                               termA (typeA.with-type argT
                                                       (analyse term))]
                                              (wrap [type termA])))
@@ -1962,11 +1871,12 @@
                                                       self-name arguments return exceptions
                                                       body])
                                           (do @
-                                            [re-mapping (re-map-super parent-type)]
-                                            (wrap [method-name (re-map-method re-mapping
-                                                                              (jvm.method (list@map product.right arguments)
-                                                                                          return
-                                                                                          (list@map (|>> #jvm.Class) exceptions)))])))
+                                            [aliasing (super-aliasing parent-type)]
+                                            (wrap [method-name (|> (jvm.method [(list@map product.right arguments)
+                                                                                return
+                                                                                exceptions])
+                                                                   product.left
+                                                                   (jvm-alias.method aliasing))])))
                                       methods)
          #let [missing-abstract-methods (mismatched-methods overriden-methods required-abstract-methods)
                invalid-overriden-methods (mismatched-methods available-methods overriden-methods)]
@@ -1980,8 +1890,7 @@
                                               (class-analysis super-class)
                                               (/////analysis.tuple (list@map class-analysis super-interfaces))
                                               (/////analysis.tuple (list@map typed-analysis constructor-argsA+))
-                                              (/////analysis.tuple methodsA))))
-        ))]))
+                                              (/////analysis.tuple methodsA))))))]))
 
 (def: bundle::class
   Bundle

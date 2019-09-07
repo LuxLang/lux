@@ -1,5 +1,6 @@
 # Exemplar
 
+1. [Pier: Yet another Haskell build tool](https://www.youtube.com/watch?v=JmenfeDVi0w)
 1. https://buckbuild.com/
 1. http://boot-clj.com/
 1. http://gulpjs.com/

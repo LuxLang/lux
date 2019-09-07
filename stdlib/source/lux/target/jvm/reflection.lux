@@ -20,10 +20,13 @@
      ["." dictionary]]]]
   ["." // #_
    [encoding
-    ["#." name]]
+    ["#." name (#+ External)]]
    ["/" type
+    [category (#+ Void Value Return Method Primitive Object Class Array Parameter)]
     ["#." lux (#+ Mapping)]
-    ["." reflection]]])
+    ["#." descriptor]
+    ["#." reflection]
+    ["#." parser]]])
 
 (import: #long java/lang/String)
 
@@ -88,7 +91,7 @@
   (getConstructors [] [(java/lang/reflect/Constructor java/lang/Object)])
   (getDeclaredMethods [] [java/lang/reflect/Method]))
 
-(exception: #export (unknown-class {class Text})
+(exception: #export (unknown-class {class External})
   (exception.report
    ["Class" (%.text class)]))
 
@@ -103,7 +106,7 @@
   )
 
 (def: #export (load name)
-  (-> Text (Try (java/lang/Class java/lang/Object)))
+  (-> External (Try (java/lang/Class java/lang/Object)))
   (case (java/lang/Class::forName name)
     (#try.Success class)
     (#try.Success class)
@@ -112,17 +115,63 @@
     (exception.throw ..unknown-class name)))
 
 (def: #export (sub? super sub)
-  (-> Text Text (Try Bit))
+  (-> External External (Try Bit))
   (do try.monad
     [super (..load super)
      sub (..load sub)]
     (wrap (java/lang/Class::isAssignableFrom sub super))))
 
-(def: #export (generic reflection)
-  (-> java/lang/reflect/Type (Try /.Generic))
+(def: (class' parameter reflection)
+  (-> (-> java/lang/reflect/Type (Try (/.Type Parameter)))
+      java/lang/reflect/Type
+      (Try (/.Type Class)))
+  (<| (case (host.check java/lang/Class reflection)
+        (#.Some class)
+        (let [class-name (|> class
+                             (:coerce (java/lang/Class java/lang/Object))
+                             java/lang/Class::getName)]
+          (`` (if (or (~~ (template [<reflection>]
+                            [(text@= (/reflection.reflection <reflection>)
+                                     class-name)]
+
+                            [/reflection.boolean]
+                            [/reflection.byte]
+                            [/reflection.short]
+                            [/reflection.int]
+                            [/reflection.long]
+                            [/reflection.float]
+                            [/reflection.double]
+                            [/reflection.char]))
+                      (text.starts-with? /descriptor.array-prefix class-name))
+                (exception.throw ..not-a-class reflection)
+                (#try.Success (/.class class-name (list))))))
+        _)
+      (case (host.check java/lang/reflect/ParameterizedType reflection)
+        (#.Some reflection)
+        (let [raw (java/lang/reflect/ParameterizedType::getRawType reflection)]
+          (case (host.check java/lang/Class raw)
+            (#.Some raw)
+            (do try.monad
+              [paramsT (|> reflection
+                           java/lang/reflect/ParameterizedType::getActualTypeArguments
+                           array.to-list
+                           (monad.map @ parameter))]
+              (wrap (/.class (|> raw
+                                 (:coerce (java/lang/Class java/lang/Object))
+                                 java/lang/Class::getName)
+                             paramsT)))
+
+            _
+            (exception.throw ..not-a-class raw)))
+        _)
+      ## else
+      (exception.throw ..cannot-convert-to-a-lux-type reflection)))
+
+(def: #export (parameter reflection)
+  (-> java/lang/reflect/Type (Try (/.Type Parameter)))
   (<| (case (host.check java/lang/reflect/TypeVariable reflection)
         (#.Some reflection)
-        (#try.Success (#/.Var (java/lang/reflect/TypeVariable::getName reflection)))
+        (#try.Success (/.var (java/lang/reflect/TypeVariable::getName reflection)))
         _)
       (case (host.check java/lang/reflect/WildcardType reflection)
         (#.Some reflection)
@@ -136,105 +185,69 @@
               (#.Some _)
               ## TODO: Array bounds should not be "erased" as they
               ## are right now.
-              (#try.Success (#/.Wildcard #.None))
+              (#try.Success /.wildcard)
 
               _
-              (:: try.monad map
-                  (|>> [<kind>] #.Some #/.Wildcard)
-                  (generic bound))))
-          ([[_ (#.Some bound)] #/.Upper]
-           [[(#.Some bound) _] #/.Lower])
+              (:: try.monad map <kind> (..class' parameter bound))))
+          ([[_ (#.Some bound)] /.upper]
+           [[(#.Some bound) _] /.lower])
           
           _
-          (#try.Success (#/.Wildcard #.None)))
+          (#try.Success /.wildcard))
         _)
-      (case (host.check java/lang/Class reflection)
-        (#.Some class)
-        (let [class-name (|> class
-                             (:coerce (java/lang/Class java/lang/Object))
-                             java/lang/Class::getName)]
-          (case class-name
-            (^template [<reflection>]
-              (^ (static <reflection>))
-              (exception.throw ..not-a-class reflection))
-            ([reflection.boolean] [reflection.byte] [reflection.short] [reflection.int]
-             [reflection.long] [reflection.float] [reflection.double] [reflection.char])
+      (..class' parameter reflection)))
 
-            _
-            (if (text.starts-with? /.array-prefix class-name)
-              (exception.throw ..not-a-class reflection)
-              (#try.Success (#/.Class class-name  (list))))))
-        _)
-      (case (host.check java/lang/reflect/ParameterizedType reflection)
-        (#.Some reflection)
-        (let [raw (java/lang/reflect/ParameterizedType::getRawType reflection)]
-          (case (host.check java/lang/Class raw)
-            (#.Some raw)
-            (do try.monad
-              [paramsT (|> reflection
-                           java/lang/reflect/ParameterizedType::getActualTypeArguments
-                           array.to-list
-                           (monad.map @ generic))]
-              (wrap (#/.Class (|> raw
-                                  (:coerce (java/lang/Class java/lang/Object))
-                                  java/lang/Class::getName)
-                              paramsT)))
-
-            _
-            (exception.throw ..not-a-class raw)))
-        _)
-      ## else
-      (exception.throw ..cannot-convert-to-a-lux-type reflection)))
+(def: #export class
+  (-> java/lang/reflect/Type
+      (Try (/.Type Class)))
+  (..class' ..parameter))
 
 (def: #export (type reflection)
-  (-> java/lang/reflect/Type (Try /.Type))
+  (-> java/lang/reflect/Type (Try (/.Type Value)))
   (<| (case (host.check java/lang/Class reflection)
         (#.Some reflection)
-        (case (|> reflection
-                  (:coerce (java/lang/Class java/lang/Object))
-                  java/lang/Class::getName)
-          (^template [<reflection> <type>]
-            (^ (static <reflection>))
-            (#try.Success <type>))
-          ([reflection.boolean /.boolean]
-           [reflection.byte /.byte]
-           [reflection.short /.short]
-           [reflection.int /.int]
-           [reflection.long /.long]
-           [reflection.float /.float]
-           [reflection.double /.double]
-           [reflection.char /.char])
+        (let [class-name (|> reflection
+                             (:coerce (java/lang/Class java/lang/Object))
+                             java/lang/Class::getName)]
+          (`` (cond (~~ (template [<reflection> <type>]
+                          [(text@= (/reflection.reflection <reflection>)
+                                   class-name)
+                           (#try.Success <type>)]
 
-          class-name
-          (if (text.starts-with? /.array-prefix class-name)
-            (<t>.run /.parse-signature (|> class-name //name.internal //name.read))
-            (#try.Success (/.class class-name (list)))))
+                          [/reflection.boolean /.boolean]
+                          [/reflection.byte /.byte]
+                          [/reflection.short /.short]
+                          [/reflection.int /.int]
+                          [/reflection.long /.long]
+                          [/reflection.float /.float]
+                          [/reflection.double /.double]
+                          [/reflection.char /.char]))
+                    (if (text.starts-with? /descriptor.array-prefix class-name)
+                      (<t>.run /parser.value (|> class-name //name.internal //name.read))
+                      (#try.Success (/.class class-name (list)))))))
         _)
       (case (host.check java/lang/reflect/GenericArrayType reflection)
         (#.Some reflection)
         (|> reflection
             java/lang/reflect/GenericArrayType::getGenericComponentType
             type
-            (:: try.monad map (/.array 1)))
+            (:: try.monad map /.array))
         _)
       ## else
-      (:: try.monad map (|>> #/.Generic)
-          (..generic reflection))))
+      (..parameter reflection)))
 
 (def: #export (return reflection)
-  (-> java/lang/reflect/Type (Try /.Return))
-  (with-expansions [<else> (as-is (:: try.monad map (|>> #.Some)
-                                      (..type reflection)))]
+  (-> java/lang/reflect/Type (Try (/.Type Return)))
+  (with-expansions [<else> (as-is (..type reflection))]
     (case (host.check java/lang/Class reflection)
       (#.Some class)
-      (case (|> class
-                (:coerce (java/lang/Class java/lang/Object))
-                java/lang/Class::getName)
-        (^ (static reflection.void))
-        (#try.Success #.None)
-
-        _
-        <else>)
+      (let [class-name (|> reflection
+                           (:coerce (java/lang/Class java/lang/Object))
+                           java/lang/Class::getName)]
+        (if (text@= (/reflection.reflection /reflection.void)
+                    class-name)
+          (#try.Success /.void)
+          <else>))
 
       #.None
       <else>)))
@@ -327,7 +340,7 @@
 
 (template [<name> <exception> <then?> <else?>]
   [(def: #export (<name> field class)
-     (-> Text (java/lang/Class java/lang/Object) (Try [Bit /.Type]))
+     (-> Text (java/lang/Class java/lang/Object) (Try [Bit (/.Type Value)]))
      (do try.monad
        [fieldJ (..field field class)
         #let [modifiers (java/lang/reflect/Field::getModifiers fieldJ)]]

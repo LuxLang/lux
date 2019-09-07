@@ -67,6 +67,7 @@
 
 # Logical clock
 
+1. [Version Vectors are not Vector Clocks](https://haslab.wordpress.com/2011/07/08/version-vectors-are-not-vector-clocks/)
 1. [Distributed Systems: Physical, Logical, and Vector Clocks](https://levelup.gitconnected.com/distributed-systems-physical-logical-and-vector-clocks-7ca989f5f780)
 1. [The Bloom Clock](https://arxiv.org/pdf/1905.13064.pdf)
 1. [Why Logical Clocks are Easy: Sometimes all you need is the right language.](https://queue.acm.org/detail.cfm?id=2917756)

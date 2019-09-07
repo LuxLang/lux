@@ -1,0 +1,112 @@
+(.module:
+  [lux (#- Type int char type primitive)
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    ["." try]
+    ["." exception (#+ exception:)]
+    ["<>" parser ("#@." monad)
+     ["<t>" text (#+ Parser)]]]
+   [data
+    ["." product]
+    ["." maybe]
+    ["." text
+     ["%" format (#+ format)]]
+    [collection
+     [array (#+ Array)]
+     ["." dictionary (#+ Dictionary)]]]]
+  ["." // (#+ Type)
+   [category (#+ Void Value Return Method Primitive Object Class Array Var Parameter)]
+   ["#." descriptor]
+   ["#." signature (#+ Signature)]
+   ["#." reflection]
+   ["#." parser]
+   ["/#" // #_
+    [encoding
+     ["#." name]]]])
+
+(type: #export Aliasing
+  (Dictionary Text Text))
+
+(def: #export fresh
+  Aliasing
+  (dictionary.new text.hash))
+
+(def: (var aliasing)
+  (-> Aliasing (Parser (Type Var)))
+  (do <>.monad
+    [var //parser.var']
+    (wrap (|> aliasing
+              (dictionary.get var)
+              (maybe.default var)
+              //.var))))
+
+(def: (class parameter)
+  (-> (Parser (Type Parameter)) (Parser (Type Class)))
+  (|> (do <>.monad
+        [_ (<t>.this //descriptor.class-prefix)
+         name //parser.class-name
+         parameters (|> (<>.some parameter)
+                        (<>.after (<t>.this //signature.parameters-start))
+                        (<>.before (<t>.this //signature.parameters-end))
+                        (<>.default (list)))
+         _ (<t>.this //descriptor.class-suffix)]
+        (wrap (//.class name parameters)))
+      (<>.after (<t>.this //descriptor.class-prefix))
+      (<>.before (<t>.this //descriptor.class-suffix))))
+
+(template [<name> <prefix> <constructor>]
+  [(def: <name>
+     (-> (Parser (Type Class)) (Parser (Type Parameter)))
+     (<>.after (<t>.this <prefix>)))]
+
+  [lower //signature.lower-prefix ..Lower]
+  [upper //signature.upper-prefix ..Upper]
+  )
+
+(def: (parameter aliasing)
+  (-> Aliasing (Parser (Type Parameter)))
+  (<>.rec
+   (function (_ parameter)
+     (let [class (..class parameter)]
+       ($_ <>.either
+           (..var aliasing)
+           //parser.wildcard
+           (..lower class)
+           (..upper class)
+           class
+           )))))
+
+(def: (value aliasing)
+  (-> Aliasing (Parser (Type Value)))
+  (<>.rec
+   (function (_ value)
+     ($_ <>.either
+         //parser.primitive
+         (parameter aliasing)
+         (//parser.array' value)
+         ))))
+
+(def: (return aliasing)
+  (-> Aliasing (Parser (Type Return)))
+  ($_ <>.either
+      //parser.void
+      (..value aliasing)
+      ))
+
+(def: #export (method aliasing signature)
+  (-> Aliasing (Signature Method) (Signature Method))
+  (let [parameters (: (Parser (List (Type Value)))
+                      (|> (<>.some (..value aliasing))
+                          (<>.after (<t>.this //signature.arguments-start))
+                          (<>.before (<t>.this //signature.arguments-end))))
+        exception (: (Parser (Type Class))
+                     (|> (..class (..parameter aliasing))
+                         (<>.after (<t>.this //signature.exception-prefix))))]
+    (|> (//signature.signature signature)
+        (<t>.run (do <>.monad
+                   [parameters parameters
+                    return (..return aliasing)
+                    exceptions (<>.some exception)]
+                   (wrap (product.left (//.method [parameters return exceptions])))))
+        try.assume)))

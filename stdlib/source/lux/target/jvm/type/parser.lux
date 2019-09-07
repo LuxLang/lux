@@ -1,0 +1,195 @@
+(.module:
+  [lux (#- Type int char primitive)
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["." try]
+    ["." function]
+    ["<>" parser ("#@." monad)
+     ["<t>" text (#+ Parser)]]]
+   [data
+    ["." product]
+    [text
+     ["%" format (#+ format)]]]]
+  ["." // (#+ Type)
+   [category (#+ Void Value Return Method Primitive Object Class Array Var Parameter)]
+   ["#." signature (#+ Signature)]
+   ["#." descriptor (#+ Descriptor)]
+   ["#." reflection (#+ Reflection)]
+   ["." // #_
+    [encoding
+     ["#." name (#+ External)]]]])
+
+(template [<category> <name> <signature> <type>]
+  [(def: #export <name>
+     (Parser (Type <category>))
+     (<>.after (<t>.this (//signature.signature <signature>))
+               (<>@wrap <type>)))]
+
+  [Void void //signature.void //.void]
+  [Primitive boolean //signature.boolean //.boolean]
+  [Primitive byte //signature.byte //.byte]
+  [Primitive short //signature.short //.short]
+  [Primitive int //signature.int //.int]
+  [Primitive long //signature.long //.long]
+  [Primitive float //signature.float //.float]
+  [Primitive double //signature.double //.double]
+  [Primitive char //signature.char //.char]
+  [Parameter wildcard //signature.wildcard //.wildcard]
+  )
+
+(def: #export primitive
+  (Parser (Type Primitive))
+  ($_ <>.either
+      ..boolean
+      ..byte
+      ..short
+      ..int
+      ..long
+      ..float
+      ..double
+      ..char
+      ))
+
+(def: var/head
+  (format "abcdefghijklmnopqrstuvwxyz"
+          "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+          "_"))
+
+(def: var/tail
+  (format var/head
+          "0123456789"))
+
+(def: class/head
+  (format var/head //name.internal-separator))
+
+(def: class/tail
+  (format var/tail //name.internal-separator))
+
+(template [<type> <name> <head> <tail> <adapter>]
+  [(def: #export <name>
+     (Parser <type>)
+     (:: <>.functor map <adapter>
+         (<t>.slice (<t>.and! (<t>.one-of! <head>)
+                              (<t>.some! (<t>.one-of! <tail>))))))]
+
+  [External class-name class/head class/tail (|>> //name.internal //name.external)]
+  [Text     var-name   var/head   var/tail   function.identity]
+  )
+
+(def: #export var'
+  (Parser Text)
+  (|> ..var-name
+      (<>.after (<t>.this //signature.var-prefix))
+      (<>.before (<t>.this //descriptor.class-suffix))))
+
+(def: #export var
+  (Parser (Type Var))
+  (<>@map //.var ..var'))
+
+(def: #export var?
+  (-> (Type Parameter) (Maybe Text))
+  (|>> //.signature
+       //signature.signature
+       (<t>.run ..var')
+       try.maybe))
+
+(def: #export name
+  (-> (Type Var) Text)
+  (|>> //.signature
+       //signature.signature
+       (<t>.run ..var')
+       try.assume))
+
+(template [<name> <prefix> <constructor>]
+  [(def: <name>
+     (-> (Parser (Type Class)) (Parser (Type Parameter)))
+     (|>> (<>.after (<t>.this <prefix>))
+          (<>@map <constructor>)))]
+
+  [lower //signature.lower-prefix //.lower]
+  [upper //signature.upper-prefix //.upper]
+  )
+
+(def: (class'' parameter)
+  (-> (Parser (Type Parameter)) (Parser [External (List (Type Parameter))]))
+  (|> (do <>.monad
+        [_ (<t>.this //descriptor.class-prefix)
+         name ..class-name
+         parameters (|> (<>.some parameter)
+                        (<>.after (<t>.this //signature.parameters-start))
+                        (<>.before (<t>.this //signature.parameters-end))
+                        (<>.default (list)))
+         _ (<t>.this //descriptor.class-suffix)]
+        (wrap [name parameters]))
+      (<>.after (<t>.this //descriptor.class-prefix))
+      (<>.before (<t>.this //descriptor.class-suffix))))
+
+(def: class'
+  (-> (Parser (Type Parameter)) (Parser (Type Class)))
+  (|>> ..class''
+       (:: <>.monad map (product.uncurry //.class))))
+
+(def: #export parameter
+  (Parser (Type Parameter))
+  (<>.rec
+   (function (_ parameter)
+     (let [class (..class' parameter)]
+       ($_ <>.either
+           ..var
+           ..wildcard
+           (..lower class)
+           (..upper class)
+           class
+           )))))
+
+(def: #export array'
+  (-> (Parser (Type Value)) (Parser (Type Array)))
+  (|>> (<>.after (<t>.this //descriptor.array-prefix))
+       (<>@map //.array)))
+
+(def: #export class
+  (Parser (Type Class))
+  (..class' ..parameter))
+
+(def: #export read-class
+  (-> (Type Class) [External (List (Type Parameter))])
+  (|>> //.signature
+       //signature.signature
+       (<t>.run (..class'' ..parameter))
+       try.assume))
+
+(def: #export value
+  (Parser (Type Value))
+  (<>.rec
+   (function (_ value)
+     ($_ <>.either
+         ..primitive
+         ..parameter
+         (..array' value)
+         ))))
+
+(def: #export array
+  (Parser (Type Array))
+  (..array' ..value))
+
+(def: #export return
+  (Parser (Type Return))
+  (<>.either ..void
+             ..value))
+
+(def: #export method
+  (Parser [(Signature Method)
+           (Descriptor Method)])
+  (let [parameters (: (Parser (List (Type Value)))
+                      (|> (<>.some ..value)
+                          (<>.after (<t>.this //signature.arguments-start))
+                          (<>.before (<t>.this //signature.arguments-end))))
+        exception (: (Parser (Type Class))
+                     (|> (..class' ..parameter)
+                         (<>.after (<t>.this //signature.exception-prefix))))]
+    (do <>.monad
+      [parameters parameters
+       return ..return
+       exceptions (<>.some exception)]
+      (wrap (//.method [parameters return exceptions])))))

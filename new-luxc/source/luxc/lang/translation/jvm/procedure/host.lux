@@ -1,5 +1,5 @@
 (.module:
-  [lux (#- primitive int char)
+  [lux (#- Type primitive int char type)
    [abstract
     ["." monad (#+ do)]]
    [control
@@ -13,17 +13,20 @@
     ["." maybe]
     [number
      ["." nat]]
-    ["." text]
+    ["." text ("#@." equivalence)]
     [collection
      ["." list ("#@." monad)]
      ["." dictionary (#+ Dictionary)]
      ["." set]]]
    [target
-    ["." jvm #_
-     ["#" type (#+ Bound Generic Class Var Typed Argument Return)
+    [jvm
+     ["." type (#+ Type Typed Argument)
+      ["." category (#+ Void Value Return Primitive Object Class Array Var Parameter Method)]
       ["." box]
       ["." reflection]
-      ["." descriptor (#+ Descriptor Value Primitive Object Method)]]]]
+      ["." descriptor (#+ Descriptor)]
+      ["." signature (#+ Signature)]
+      ["." parser]]]]
    [tool
     [compiler
      [analysis (#+ Environment)]
@@ -51,8 +54,6 @@
    ["/#" // #_
     ["#." reference]
     ["#." function]]])
-
-(exception: #export invalid-syntax-for-argument-generation)
 
 (template [<name> <inst>]
   [(def: <name>
@@ -172,7 +173,7 @@
   [double::% _.DREM]
   )
 
-(def: $Boolean (descriptor.class box.boolean))
+(def: $Boolean (type.class box.boolean (list)))
 (def: falseI (_.GETSTATIC $Boolean "FALSE" $Boolean))
 (def: trueI (_.GETSTATIC $Boolean "TRUE" $Boolean))
 
@@ -225,7 +226,7 @@
 
 (def: int
   Bundle
-  (<| (bundle.prefix reflection.int)
+  (<| (bundle.prefix (reflection.reflection reflection.int))
       (|> (: Bundle bundle.empty)
           (bundle.install "+" (binary int::+))
           (bundle.install "-" (binary int::-))
@@ -244,7 +245,7 @@
 
 (def: long
   Bundle
-  (<| (bundle.prefix reflection.long)
+  (<| (bundle.prefix (reflection.reflection reflection.long))
       (|> (: Bundle bundle.empty)
           (bundle.install "+" (binary long::+))
           (bundle.install "-" (binary long::-))
@@ -263,7 +264,7 @@
 
 (def: float
   Bundle
-  (<| (bundle.prefix reflection.float)
+  (<| (bundle.prefix (reflection.reflection reflection.float))
       (|> (: Bundle bundle.empty)
           (bundle.install "+" (binary float::+))
           (bundle.install "-" (binary float::-))
@@ -276,7 +277,7 @@
 
 (def: double
   Bundle
-  (<| (bundle.prefix reflection.double)
+  (<| (bundle.prefix (reflection.reflection reflection.double))
       (|> (: Bundle bundle.empty)
           (bundle.install "+" (binary double::+))
           (bundle.install "-" (binary double::-))
@@ -289,36 +290,42 @@
 
 (def: char
   Bundle
-  (<| (bundle.prefix reflection.char)
+  (<| (bundle.prefix (reflection.reflection reflection.char))
       (|> (: Bundle bundle.empty)
           (bundle.install "=" (binary char::=))
           (bundle.install "<" (binary char::<))
           )))
 
 (def: (array-java-type nesting elem-class)
-  (-> Nat Text (Descriptor Object))
-  (descriptor.array (case nesting
-                      1 (case elem-class
-                          (^ (static reflection.boolean)) descriptor.boolean
-                          (^ (static reflection.byte)) descriptor.byte
-                          (^ (static reflection.short)) descriptor.short
-                          (^ (static reflection.int)) descriptor.int
-                          (^ (static reflection.long)) descriptor.long
-                          (^ (static reflection.float)) descriptor.float
-                          (^ (static reflection.double)) descriptor.double
-                          (^ (static reflection.char)) descriptor.char
-                          _ (descriptor.class elem-class))
-                      _ (array-java-type (dec nesting) elem-class))))
+  (-> Nat Text (Type Object))
+  (type.array (case nesting
+                0 (undefined)
+                1 (`` (cond (~~ (template [<type>]
+                                  [(text@= (reflection.reflection (type.reflection <type>))
+                                           elem-class)
+                                   <type>]
+
+                                  [type.boolean]
+                                  [type.byte]
+                                  [type.short]
+                                  [type.int]
+                                  [type.long]
+                                  [type.float]
+                                  [type.double]
+                                  [type.char]))
+                            ## else
+                            (type.class elem-class (list))))
+                _ (array-java-type (dec nesting) elem-class))))
 
 (def: (primitive-array-length-handler jvm-primitive)
-  (-> (Descriptor Primitive) Handler)
+  (-> (Type Primitive) Handler)
   (..custom
    [<s>.any
     (function (_ extension-name generate arrayS)
       (do phase.monad
         [arrayI (generate arrayS)]
         (wrap (|>> arrayI
-                   (_.CHECKCAST (descriptor.array jvm-primitive))
+                   (_.CHECKCAST (type.array jvm-primitive))
                    _.ARRAYLENGTH))))]))
 
 (def: (array::length::object extension-name generate inputs)
@@ -337,7 +344,7 @@
     (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
 (def: (new-primitive-array-handler jvm-primitive)
-  (-> (Descriptor Primitive) Handler)
+  (-> (Type Primitive) Handler)
   (function (_ extension-name generate inputs)
     (case inputs
       (^ (list lengthS))
@@ -364,7 +371,7 @@
     (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
 (def: (read-primitive-array-handler jvm-primitive loadI)
-  (-> (Descriptor Primitive) Inst Handler)
+  (-> (Type Primitive) Inst Handler)
   (function (_ extension-name generate inputs)
     (case inputs
       (^ (list idxS arrayS))
@@ -372,7 +379,7 @@
         [arrayI (generate arrayS)
          idxI (generate idxS)]
         (wrap (|>> arrayI
-                   (_.CHECKCAST (descriptor.array jvm-primitive))
+                   (_.CHECKCAST (type.array jvm-primitive))
                    idxI
                    loadI)))
 
@@ -398,7 +405,7 @@
     (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
 (def: (write-primitive-array-handler jvm-primitive storeI)
-  (-> (Descriptor Primitive) Inst Handler)
+  (-> (Type Primitive) Inst Handler)
   (function (_ extension-name generate inputs)
     (case inputs
       (^ (list idxS valueS arrayS))
@@ -407,7 +414,7 @@
          idxI (generate idxS)
          valueI (generate valueS)]
         (wrap (|>> arrayI
-                   (_.CHECKCAST (descriptor.array jvm-primitive))
+                   (_.CHECKCAST (type.array jvm-primitive))
                    _.DUP
                    idxI
                    valueI
@@ -444,47 +451,47 @@
       (|> bundle.empty
           (dictionary.merge (<| (bundle.prefix "length")
                                 (|> bundle.empty
-                                    (bundle.install reflection.boolean (primitive-array-length-handler descriptor.boolean))
-                                    (bundle.install reflection.byte (primitive-array-length-handler descriptor.byte))
-                                    (bundle.install reflection.short (primitive-array-length-handler descriptor.short))
-                                    (bundle.install reflection.int (primitive-array-length-handler descriptor.int))
-                                    (bundle.install reflection.long (primitive-array-length-handler descriptor.long))
-                                    (bundle.install reflection.float (primitive-array-length-handler descriptor.float))
-                                    (bundle.install reflection.double (primitive-array-length-handler descriptor.double))
-                                    (bundle.install reflection.char (primitive-array-length-handler descriptor.char))
+                                    (bundle.install (reflection.reflection reflection.boolean) (primitive-array-length-handler type.boolean))
+                                    (bundle.install (reflection.reflection reflection.byte) (primitive-array-length-handler type.byte))
+                                    (bundle.install (reflection.reflection reflection.short) (primitive-array-length-handler type.short))
+                                    (bundle.install (reflection.reflection reflection.int) (primitive-array-length-handler type.int))
+                                    (bundle.install (reflection.reflection reflection.long) (primitive-array-length-handler type.long))
+                                    (bundle.install (reflection.reflection reflection.float) (primitive-array-length-handler type.float))
+                                    (bundle.install (reflection.reflection reflection.double) (primitive-array-length-handler type.double))
+                                    (bundle.install (reflection.reflection reflection.char) (primitive-array-length-handler type.char))
                                     (bundle.install "object" array::length::object))))
           (dictionary.merge (<| (bundle.prefix "new")
                                 (|> bundle.empty
-                                    (bundle.install reflection.boolean (new-primitive-array-handler descriptor.boolean))
-                                    (bundle.install reflection.byte (new-primitive-array-handler descriptor.byte))
-                                    (bundle.install reflection.short (new-primitive-array-handler descriptor.short))
-                                    (bundle.install reflection.int (new-primitive-array-handler descriptor.int))
-                                    (bundle.install reflection.long (new-primitive-array-handler descriptor.long))
-                                    (bundle.install reflection.float (new-primitive-array-handler descriptor.float))
-                                    (bundle.install reflection.double (new-primitive-array-handler descriptor.double))
-                                    (bundle.install reflection.char (new-primitive-array-handler descriptor.char))
+                                    (bundle.install (reflection.reflection reflection.boolean) (new-primitive-array-handler type.boolean))
+                                    (bundle.install (reflection.reflection reflection.byte) (new-primitive-array-handler type.byte))
+                                    (bundle.install (reflection.reflection reflection.short) (new-primitive-array-handler type.short))
+                                    (bundle.install (reflection.reflection reflection.int) (new-primitive-array-handler type.int))
+                                    (bundle.install (reflection.reflection reflection.long) (new-primitive-array-handler type.long))
+                                    (bundle.install (reflection.reflection reflection.float) (new-primitive-array-handler type.float))
+                                    (bundle.install (reflection.reflection reflection.double) (new-primitive-array-handler type.double))
+                                    (bundle.install (reflection.reflection reflection.char) (new-primitive-array-handler type.char))
                                     (bundle.install "object" array::new::object))))
           (dictionary.merge (<| (bundle.prefix "read")
                                 (|> bundle.empty
-                                    (bundle.install reflection.boolean (read-primitive-array-handler descriptor.boolean _.BALOAD))
-                                    (bundle.install reflection.byte (read-primitive-array-handler descriptor.byte _.BALOAD))
-                                    (bundle.install reflection.short (read-primitive-array-handler descriptor.short _.SALOAD))
-                                    (bundle.install reflection.int (read-primitive-array-handler descriptor.int _.IALOAD))
-                                    (bundle.install reflection.long (read-primitive-array-handler descriptor.long _.LALOAD))
-                                    (bundle.install reflection.float (read-primitive-array-handler descriptor.float _.FALOAD))
-                                    (bundle.install reflection.double (read-primitive-array-handler descriptor.double _.DALOAD))
-                                    (bundle.install reflection.char (read-primitive-array-handler descriptor.char _.CALOAD))
+                                    (bundle.install (reflection.reflection reflection.boolean) (read-primitive-array-handler type.boolean _.BALOAD))
+                                    (bundle.install (reflection.reflection reflection.byte) (read-primitive-array-handler type.byte _.BALOAD))
+                                    (bundle.install (reflection.reflection reflection.short) (read-primitive-array-handler type.short _.SALOAD))
+                                    (bundle.install (reflection.reflection reflection.int) (read-primitive-array-handler type.int _.IALOAD))
+                                    (bundle.install (reflection.reflection reflection.long) (read-primitive-array-handler type.long _.LALOAD))
+                                    (bundle.install (reflection.reflection reflection.float) (read-primitive-array-handler type.float _.FALOAD))
+                                    (bundle.install (reflection.reflection reflection.double) (read-primitive-array-handler type.double _.DALOAD))
+                                    (bundle.install (reflection.reflection reflection.char) (read-primitive-array-handler type.char _.CALOAD))
                                     (bundle.install "object" array::read::object))))
           (dictionary.merge (<| (bundle.prefix "write")
                                 (|> bundle.empty
-                                    (bundle.install reflection.boolean (write-primitive-array-handler descriptor.boolean _.BASTORE))
-                                    (bundle.install reflection.byte (write-primitive-array-handler descriptor.byte _.BASTORE))
-                                    (bundle.install reflection.short (write-primitive-array-handler descriptor.short _.SASTORE))
-                                    (bundle.install reflection.int (write-primitive-array-handler descriptor.int _.IASTORE))
-                                    (bundle.install reflection.long (write-primitive-array-handler descriptor.long _.LASTORE))
-                                    (bundle.install reflection.float (write-primitive-array-handler descriptor.float _.FASTORE))
-                                    (bundle.install reflection.double (write-primitive-array-handler descriptor.double _.DASTORE))
-                                    (bundle.install reflection.char (write-primitive-array-handler descriptor.char _.CASTORE))
+                                    (bundle.install (reflection.reflection reflection.boolean) (write-primitive-array-handler type.boolean _.BASTORE))
+                                    (bundle.install (reflection.reflection reflection.byte) (write-primitive-array-handler type.byte _.BASTORE))
+                                    (bundle.install (reflection.reflection reflection.short) (write-primitive-array-handler type.short _.SASTORE))
+                                    (bundle.install (reflection.reflection reflection.int) (write-primitive-array-handler type.int _.IASTORE))
+                                    (bundle.install (reflection.reflection reflection.long) (write-primitive-array-handler type.long _.LASTORE))
+                                    (bundle.install (reflection.reflection reflection.float) (write-primitive-array-handler type.float _.FASTORE))
+                                    (bundle.install (reflection.reflection reflection.double) (write-primitive-array-handler type.double _.DASTORE))
+                                    (bundle.install (reflection.reflection reflection.char) (write-primitive-array-handler type.char _.CASTORE))
                                     (bundle.install "object" array::write::object))))
           )))
 
@@ -518,7 +525,7 @@
   (|>> exceptionI
        _.ATHROW))
 
-(def: $Class (descriptor.class "java.lang.Class"))
+(def: $Class (type.class "java.lang.Class" (list)))
 
 (def: (object::class extension-name generate inputs)
   Handler
@@ -528,8 +535,9 @@
       []
       (wrap (|>> (_.string class)
                  (_.INVOKESTATIC $Class "forName"
-                                 (descriptor.method [(list (descriptor.class "java.lang.String"))
-                                                     $Class])
+                                 (type.method [(list (type.class "java.lang.String" (list)))
+                                               $Class
+                                               (list)])
                                  false))))
 
     _
@@ -543,8 +551,8 @@
       (do phase.monad
         [objectI (generate objectS)]
         (wrap (|>> objectI
-                   (_.INSTANCEOF (descriptor.class class))
-                   (_.wrap descriptor.boolean)))))]))
+                   (_.INSTANCEOF (type.class class (list)))
+                   (_.wrap type.boolean)))))]))
 
 (def: (object::cast extension-name generate inputs)
   Handler
@@ -552,25 +560,29 @@
     (^ (list (synthesis.text from) (synthesis.text to) valueS))
     (do phase.monad
       [valueI (generate valueS)]
-      (case [from to]
-        ## Wrap
-        (^template [<primitive> <object> <type>]
-          (^ [(static <primitive>) (static <object>)])
-          (wrap (|>> valueI (_.wrap <type>)))
+      (`` (cond (~~ (template [<object> <type>]
+                      [(and (text@= (reflection.reflection (type.reflection <type>))
+                                    from)
+                            (text@= <object>
+                                    to))
+                       (wrap (|>> valueI (_.wrap <type>)))
 
-          (^ [(static <object>) (static <primitive>)])
-          (wrap (|>> valueI (_.unwrap <type>))))
-        ([reflection.boolean box.boolean descriptor.boolean]
-         [reflection.byte    box.byte    descriptor.byte]
-         [reflection.short   box.short   descriptor.short]
-         [reflection.int     box.int     descriptor.int]
-         [reflection.long    box.long    descriptor.long]
-         [reflection.float   box.float   descriptor.float]
-         [reflection.double  box.double  descriptor.double]
-         [reflection.char    box.char    descriptor.char])
-        
-        _
-        (wrap valueI)))
+                       (and (text@= <object>
+                                    from)
+                            (text@= (reflection.reflection (type.reflection <type>))
+                                    to))
+                       (wrap (|>> valueI (_.unwrap <type>)))]
+                      
+                      [box.boolean type.boolean]
+                      [box.byte    type.byte]
+                      [box.short   type.short]
+                      [box.int     type.int]
+                      [box.long    type.long]
+                      [box.float   type.float]
+                      [box.double  type.double]
+                      [box.char    type.char]))
+                ## else
+                (wrap valueI))))
 
     _
     (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
@@ -589,211 +601,187 @@
           )))
 
 (def: primitives
-  (Dictionary Text (Descriptor Primitive))
-  (|> (list [reflection.boolean descriptor.boolean]
-            [reflection.byte descriptor.byte]
-            [reflection.short descriptor.short]
-            [reflection.int descriptor.int]
-            [reflection.long descriptor.long]
-            [reflection.float descriptor.float]
-            [reflection.double descriptor.double]
-            [reflection.char descriptor.char])
+  (Dictionary Text (Type Primitive))
+  (|> (list [(reflection.reflection reflection.boolean) type.boolean]
+            [(reflection.reflection reflection.byte) type.byte]
+            [(reflection.reflection reflection.short) type.short]
+            [(reflection.reflection reflection.int) type.int]
+            [(reflection.reflection reflection.long) type.long]
+            [(reflection.reflection reflection.float) type.float]
+            [(reflection.reflection reflection.double) type.double]
+            [(reflection.reflection reflection.char) type.char])
       (dictionary.from-list text.hash)))
 
-(def: (static::get extension-name generate inputs)
+(def: static::get
   Handler
-  (case inputs
-    (^ (list (synthesis.text class)
-             (synthesis.text field)
-             (synthesis.text unboxed)))
-    (do phase.monad
-      []
-      (case (dictionary.get unboxed ..primitives)
-        (#.Some primitive)
-        (wrap (_.GETSTATIC (descriptor.class class) field primitive))
-        
-        #.None
-        (wrap (_.GETSTATIC (descriptor.class class) field (descriptor.class unboxed)))))
+  (..custom
+   [($_ <>.and <s>.text <s>.text <s>.text)
+    (function (_ extension-name generate [class field unboxed])
+      (do phase.monad
+        []
+        (case (dictionary.get unboxed ..primitives)
+          (#.Some primitive)
+          (wrap (_.GETSTATIC (type.class class (list)) field primitive))
+          
+          #.None
+          (wrap (_.GETSTATIC (type.class class (list)) field (type.class unboxed (list)))))))]))
 
-    _
-    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
-
-(def: (static::put extension-name generate inputs)
+(def: static::put
   Handler
-  (case inputs
-    (^ (list (synthesis.text class)
-             (synthesis.text field)
-             (synthesis.text unboxed)
-             valueS))
-    (do phase.monad
-      [valueI (generate valueS)
-       #let [$class (descriptor.class class)]]
-      (case (dictionary.get unboxed ..primitives)
-        (#.Some primitive)
-        (wrap (|>> valueI
-                   (_.PUTSTATIC $class field primitive)
-                   (_.string synthesis.unit)))
-        
-        #.None
-        (wrap (|>> valueI
+  (..custom
+   [($_ <>.and <s>.text <s>.text <s>.text <s>.any)
+    (function (_ extension-name generate [class field unboxed valueS])
+      (do phase.monad
+        [valueI (generate valueS)
+         #let [$class (type.class class (list))]]
+        (case (dictionary.get unboxed ..primitives)
+          (#.Some primitive)
+          (wrap (|>> valueI
+                     (_.PUTSTATIC $class field primitive)
+                     (_.string synthesis.unit)))
+          
+          #.None
+          (wrap (|>> valueI
+                     (_.CHECKCAST $class)
+                     (_.PUTSTATIC $class field $class)
+                     (_.string synthesis.unit))))))]))
+
+(def: virtual::get
+  Handler
+  (..custom
+   [($_ <>.and <s>.text <s>.text <s>.text <s>.any)
+    (function (_ extension-name generate [class field unboxed objectS])
+      (do phase.monad
+        [objectI (generate objectS)
+         #let [$class (type.class class (list))
+               getI (case (dictionary.get unboxed ..primitives)
+                      (#.Some primitive)
+                      (_.GETFIELD $class field primitive)
+                      
+                      #.None
+                      (_.GETFIELD $class field (type.class unboxed (list))))]]
+        (wrap (|>> objectI
                    (_.CHECKCAST $class)
-                   (_.PUTSTATIC $class field $class)
-                   (_.string synthesis.unit)))))
+                   getI))))]))
 
-    _
-    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
-
-(def: (virtual::get extension-name generate inputs)
+(def: virtual::put
   Handler
-  (case inputs
-    (^ (list (synthesis.text class)
-             (synthesis.text field)
-             (synthesis.text unboxed)
-             objectS))
-    (do phase.monad
-      [objectI (generate objectS)
-       #let [$class (descriptor.class class)
-             getI (case (dictionary.get unboxed ..primitives)
-                    (#.Some primitive)
-                    (_.GETFIELD $class field primitive)
-                    
-                    #.None
-                    (_.GETFIELD $class field (descriptor.class unboxed)))]]
-      (wrap (|>> objectI
-                 (_.CHECKCAST $class)
-                 getI)))
+  (..custom
+   [($_ <>.and <s>.text <s>.text <s>.text <s>.any <s>.any)
+    (function (_ extension-name generate [class field unboxed valueS objectS])
+      (do phase.monad
+        [valueI (generate valueS)
+         objectI (generate objectS)
+         #let [$class (type.class class (list))
+               putI (case (dictionary.get unboxed ..primitives)
+                      (#.Some primitive)
+                      (_.PUTFIELD $class field primitive)
+                      
+                      #.None
+                      (let [$unboxed (type.class unboxed (list))]
+                        (|>> (_.CHECKCAST $unboxed)
+                             (_.PUTFIELD $class field $unboxed))))]]
+        (wrap (|>> objectI
+                   (_.CHECKCAST $class)
+                   _.DUP
+                   valueI
+                   putI))))]))
 
-    _
-    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
+(template [<name> <category> <parser>]
+  [(def: #export <name>
+     (Parser (Type <category>))
+     (<t>.embed <parser> <s>.text))]
 
-(def: (virtual::put extension-name generate inputs)
-  Handler
-  (case inputs
-    (^ (list (synthesis.text class)
-             (synthesis.text field)
-             (synthesis.text unboxed)
-             valueS
-             objectS))
-    (do phase.monad
-      [valueI (generate valueS)
-       objectI (generate objectS)
-       #let [$class (descriptor.class class)
-             putI (case (dictionary.get unboxed ..primitives)
-                    (#.Some primitive)
-                    (_.PUTFIELD $class field primitive)
-                    
-                    #.None
-                    (let [$unboxed (descriptor.class unboxed)]
-                      (|>> (_.CHECKCAST $unboxed)
-                           (_.PUTFIELD $class field $unboxed))))]]
-      (wrap (|>> objectI
-                 (_.CHECKCAST $class)
-                 _.DUP
-                 valueI
-                 putI)))
+  [var Var parser.var]
+  [class Class parser.class]
+  [value Value parser.value]
+  [return Return parser.return]
+  )
 
-    _
-    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
+(type: Input (Typed Synthesis))
 
-(def: (generate-arg generate argS)
-  (-> (-> Synthesis (Operation Inst)) Synthesis
-      (Operation [Type Inst]))
-  (case argS
-    (^ (synthesis.tuple (list (synthesis.text argD) argS)))
-    (do phase.monad
-      [argT (phase.lift (<t>.run jvm.parse-signature argD))
-       argI (generate argS)]
-      (wrap [argT argI]))
+(def: input
+  (Parser Input)
+  (<s>.tuple (<>.and ..value <s>.any)))
 
-    _
-    (phase.throw invalid-syntax-for-argument-generation [])))
+(def: (generate-input generate [valueT valueS])
+  (-> (-> Synthesis (Operation Inst)) Input
+      (Operation (Typed Inst)))
+  (do phase.monad
+    [valueI (generate valueS)]
+    (case (type.primitive? valueT)
+      (#.Right valueT)
+      (wrap [valueT valueI])
+      
+      (#.Left valueT)
+      (wrap [valueT (|>> valueI
+                         (_.CHECKCAST valueT))]))))
 
-(def: (method-return-type description)
-  (-> Text (Operation Return))
-  (case description
-    (^ (static descriptor.void))
-    (phase@wrap #.None)
+(def: voidI (_.string synthesis.unit))
 
-    _
-    (|> description
-        (<t>.run jvm.parse-signature)
-        phase.lift
-        (phase@map (|>> #.Some)))))
-
-(def: (prepare-argI [type argI])
-  (-> [Type Inst] Inst)
-  (case (jvm.class-name type)
-    (#.Some class-name)
-    (|>> argI
-         (_.CHECKCAST class-name))
-
-    #.None
-    argI))
-
-(def: (prepare-returnI return)
-  (-> Return Inst)
-  (case return
-    (#.Some _)
-    function.identity
-
-    #.None
-    (_.string synthesis.unit)))
+(def: (prepare-output outputT)
+  (-> (Type Return) Inst)
+  (case (type.void? outputT)
+    (#.Right outputT)
+    ..voidI
+    
+    (#.Left outputT)
+    function.identity))
 
 (def: invoke::static
   Handler
   (..custom
-   [($_ <>.and <s>.text <s>.text <s>.text (<>.some <s>.any))
-    (function (_ extension-name generate [class method unboxed argsS])
+   [($_ <>.and ..class <s>.text ..return (<>.some ..input))
+    (function (_ extension-name generate [class method outputT inputsTS])
       (do phase.monad
-        [argsTI (monad.map @ (generate-arg generate) argsS)
-         returnT (method-return-type unboxed)]
-        (wrap (|>> (_.fuse (list@map ..prepare-argI argsTI))
+        [inputsTI (monad.map @ (generate-input generate) inputsTS)]
+        (wrap (|>> (_.fuse (list@map product.right inputsTI))
                    (_.INVOKESTATIC class method
-                                   (descriptor.method [(list@map product.left argsTI)
-                                                       returnT])
+                                   (type.method [(list@map product.left inputsTI)
+                                                 outputT
+                                                 (list)])
                                    false)
-                   (prepare-returnI returnT)))))]))
+                   (prepare-output outputT)))))]))
 
 (template [<name> <invoke> <interface?>]
   [(def: <name>
      Handler
      (..custom
-      [($_ <>.and <s>.text <s>.text <s>.text <s>.any (<>.some <s>.any))
-       (function (_ extension-name generate [class method unboxed objectS argsS])
+      [($_ <>.and ..class <s>.text ..return <s>.any (<>.some ..input))
+       (function (_ extension-name generate [class method outputT objectS inputsTS])
          (do phase.monad
            [objectI (generate objectS)
-            argsTI (monad.map @ (generate-arg generate) argsS)
-            returnT (method-return-type unboxed)]
+            inputsTI (monad.map @ (generate-input generate) inputsTS)]
            (wrap (|>> objectI
                       (_.CHECKCAST class)
-                      (_.fuse (list@map ..prepare-argI argsTI))
+                      (_.fuse (list@map product.right inputsTI))
                       (<invoke> class method
-                                (descriptor.method [(list@map product.left argsTI)
-                                                    returnT])
+                                (type.method [(list@map product.left inputsTI)
+                                              outputT
+                                              (list)])
                                 <interface?>)
-                      (prepare-returnI returnT)))))]))]
+                      (prepare-output outputT)))))]))]
 
   [invoke::virtual _.INVOKEVIRTUAL false]
   [invoke::special _.INVOKESPECIAL false]
   [invoke::interface _.INVOKEINTERFACE true]
   )
 
-(def: (invoke::constructor extension-name generate inputs)
+(def: invoke::constructor
   Handler
-  (case inputs
-    (^ (list& (synthesis.text class) argsS))
-    (do phase.monad
-      [argsTI (monad.map @ (generate-arg generate) argsS)]
-      (wrap (|>> (_.NEW class)
-                 _.DUP
-                 (_.fuse (list@map ..prepare-argI argsTI))
-                 (_.INVOKESPECIAL class "<init>"
-                                  (descriptor.method [(list@map product.left argsTI)
-                                                      descriptor.void])
-                                  false))))
-
-    _
-    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
+  (..custom
+   [($_ <>.and ..class (<>.some ..input))
+    (function (_ extension-name generate [class inputsTS])
+      (do phase.monad
+        [inputsTI (monad.map @ (generate-input generate) inputsTS)]
+        (wrap (|>> (_.NEW class)
+                   _.DUP
+                   (_.fuse (list@map product.right inputsTI))
+                   (_.INVOKESPECIAL class "<init>"
+                                    (type.method [(list@map product.left inputsTI)
+                                                  type.void
+                                                  (list)])
+                                    false)))))]))
 
 (def: member
   Bundle
@@ -816,68 +804,6 @@
                                     (bundle.install "constructor" invoke::constructor))))
           )))
 
-(def: var
-  (Parser Var)
-  <s>.text)
-
-(def: bound
-  (Parser Bound)
-  (<>.or (<s>.constant! ["" ">"])
-         (<s>.constant! ["" "<"])))
-
-(def: (class' generic)
-  (-> (Parser Generic) (Parser Class))
-  (<s>.tuple (<>.and <s>.text (<>.some generic))))
-
-(def: generic
-  (Parser Generic)
-  (<>.rec
-   (function (_ generic)
-     (let [wildcard (<>.or (<s>.constant! ["" "?"])
-                           (<s>.tuple (<>.and ..bound generic)))]
-       ($_ <>.or
-           ..var
-           wildcard
-           (class' generic))))))
-
-(def: class
-  (Parser Class)
-  (class' ..generic))
-
-(def: primitive
-  (Parser (Descriptor Primitive))
-  ($_ <>.or
-      (<>.after (<s>.constant! ["" reflection.boolean])
-                (<>@wrap descriptor.boolean))
-      (<>.after (<s>.constant! ["" reflection.byte])
-                (<>@wrap descriptor.byte))
-      (<>.after (<s>.constant! ["" reflection.short])
-                (<>@wrap descriptor.short))
-      (<>.after (<s>.constant! ["" reflection.int])
-                (<>@wrap descriptor.int))
-      (<>.after (<s>.constant! ["" reflection.long])
-                (<>@wrap descriptor.long))
-      (<>.after (<s>.constant! ["" reflection.float])
-                (<>@wrap descriptor.float))
-      (<>.after (<s>.constant! ["" reflection.double])
-                (<>@wrap descriptor.double))
-      (<>.after (<s>.constant! ["" reflection.char])
-                (<>@wrap descriptor.char))
-      ))
-
-(def: jvm-type
-  (Parser Type)
-  (<>.rec
-   (function (_ jvm-type)
-     ($_ <>.or
-         ..primitive
-         ..generic
-         (<s>.tuple jvm-type)))))
-
-(def: constructor-arg
-  (Parser (Typed Synthesis))
-  (<s>.tuple (<>.and ..jvm-type <s>.any)))
-
 (def: annotation-parameter
   (Parser (/.Annotation-Parameter Synthesis))
   (<s>.tuple (<>.and <s>.text <s>.any)))
@@ -888,12 +814,7 @@
 
 (def: argument
   (Parser Argument)
-  (<s>.tuple (<>.and <s>.text ..jvm-type)))
-
-(def: return
-  (Parser Return)
-  (<>.or (<s>.constant! ["" (descriptor.descriptor descriptor.void)])
-         ..jvm-type))
+  (<s>.tuple (<>.and <s>.text ..value)))
 
 (def: overriden-method-definition
   (Parser [Environment (/.Overriden-Method Synthesis)])
@@ -989,15 +910,16 @@
       (#synthesis.Extension [name inputsS+])
       (#synthesis.Extension [name (list@map recur inputsS+)]))))
 
-(def: $Object (descriptor.class "java.lang.Object"))
+(def: $Object (type.class "java.lang.Object" (list)))
 
 (def: (anonymous-init-method env)
-  (-> Environment (Descriptor Method))
-  (descriptor.method [(list.repeat (list.size env) $Object)
-                      descriptor.void]))
+  (-> Environment [(Signature Method) (Descriptor Method)])
+  (type.method [(list.repeat (list.size env) $Object)
+                type.void
+                (list)]))
 
-(def: (with-anonymous-init class env super-class constructor-argsI)
-  (-> Text Environment Class (List (Typed Inst)) Def)
+(def: (with-anonymous-init class env super-class inputsTI)
+  (-> (Type Class) Environment (Type Class) (List (Typed Inst)) Def)
   (let [store-capturedI (|> env
                             list.size
                             list.indices
@@ -1008,23 +930,52 @@
                             _.fuse)]
     (_def.method #$.Public $.noneM "<init>" (anonymous-init-method env)
                  (|>> (_.ALOAD 0)
-                      ((_.fuse (list@map product.right constructor-argsI)))
-                      (_.INVOKESPECIAL (product.left super-class)
+                      ((_.fuse (list@map product.right inputsTI)))
+                      (_.INVOKESPECIAL super-class
                                        "<init>"
-                                       (descriptor.method [(list@map product.left constructor-argsI)
-                                                           descriptor.void])
+                                       (type.method [(list@map product.left inputsTI)
+                                                     type.void
+                                                     (list)])
                                        #0)
                       store-capturedI
                       _.RETURN))))
 
 (def: (anonymous-instance class env)
-  (-> Text Environment (Operation Inst))
+  (-> (Type Class) Environment (Operation Inst))
   (do phase.monad
     [captureI+ (monad.map @ ///reference.variable env)]
     (wrap (|>> (_.NEW class)
                _.DUP
                (_.fuse captureI+)
                (_.INVOKESPECIAL class "<init>" (anonymous-init-method env) #0)))))
+
+(def: (returnI returnT)
+  (-> (Type Return) Inst)
+  (case (type.void? returnT)
+    (#.Right returnT)
+    _.RETURN
+
+    (#.Left returnT)
+    (case (type.primitive? returnT)
+      (#.Left returnT)
+      _.ARETURN
+      
+      (#.Right returnT)
+      (cond (or (:: type.equivalence = type.boolean returnT)
+                (:: type.equivalence = type.byte returnT)
+                (:: type.equivalence = type.short returnT)
+                (:: type.equivalence = type.int returnT)
+                (:: type.equivalence = type.char returnT))
+            _.IRETURN
+
+            (:: type.equivalence = type.long returnT)
+            _.LRETURN
+
+            (:: type.equivalence = type.float returnT)
+            _.FRETURN
+
+            ## (:: type.equivalence = type.double returnT)
+            _.DRETURN))))
 
 (def: class::anonymous
   Handler
@@ -1033,14 +984,15 @@
         <s>.text
         ..class
         (<s>.tuple (<>.some ..class))
-        (<s>.tuple (<>.some ..constructor-arg))
+        (<s>.tuple (<>.some ..input))
         (<s>.tuple (<>.some ..overriden-method-definition)))
     (function (_ extension-name generate [class-name
                                           super-class super-interfaces
-                                          constructor-args
+                                          inputsTS
                                           overriden-methods])
       (do phase.monad
-        [#let [total-environment (|> overriden-methods
+        [#let [class (type.class class-name (list))
+               total-environment (|> overriden-methods
                                      ## Get all the environments.
                                      (list@map product.left)
                                      ## Combine them.
@@ -1072,12 +1024,7 @@
                                                  self-name arguments returnT exceptionsT
                                                  (normalize-method-body local-mapping body)]))
                                             overriden-methods)]
-         constructor-argsI (monad.map @
-                                      (function (_ [argJT argS])
-                                        (do @
-                                          [argG (generate argS)]
-                                          (wrap [argJT argG])))
-                                      constructor-args)
+         inputsTI (monad.map @ (generate-input generate) inputsTS)
          method-definitions (|> normalized-methods
                                 (monad.map @ (function (_ [ownerT name
                                                            strict-fp? annotations vars
@@ -1090,36 +1037,10 @@
                                                                       ($_ $.++M $.finalM $.strictM)
                                                                       $.finalM)
                                                                     name
-                                                                    (descriptor.method [(list@map product.right arguments)
-                                                                                        returnT]
-                                                                                       ## (list@map (|>> #jvm.Class)
-                                                                                       ##           exceptionsT)
-                                                                                       )
-                                                                    (let [returnI (case returnT
-                                                                                    (#.Some returnT)
-                                                                                    (case returnT
-                                                                                      (#jvm.Primitive returnT)
-                                                                                      (case returnT
-                                                                                        (^or #jvm.Boolean
-                                                                                             #jvm.Byte #jvm.Short #jvm.Int
-                                                                                             #jvm.Char)
-                                                                                        _.IRETURN
-                                                                                        
-                                                                                        #jvm.Long
-                                                                                        _.LRETURN
-                                                                                        
-                                                                                        #jvm.Float
-                                                                                        _.FRETURN
-                                                                                        
-                                                                                        #jvm.Double
-                                                                                        _.DRETURN)
-                                                                                      
-                                                                                      _
-                                                                                      _.ARETURN)
-
-                                                                                    #.None
-                                                                                    _.RETURN)]
-                                                                      (|>> bodyG returnI)))))))
+                                                                    (type.method [(list@map product.right arguments)
+                                                                                  returnT
+                                                                                  exceptionsT])
+                                                                    (|>> bodyG (returnI returnT)))))))
                                 (:: @ map _def.fuse))
          _ (generation.save! true ["" class-name]
                              [class-name
@@ -1127,9 +1048,9 @@
                                           class-name (list)
                                           super-class super-interfaces
                                           (|>> (///function.with-environment total-environment)
-                                               (..with-anonymous-init class-name total-environment super-class constructor-argsI)
+                                               (..with-anonymous-init class total-environment super-class inputsTI)
                                                method-definitions))])]
-        (anonymous-instance class-name total-environment)))]))
+        (anonymous-instance class total-environment)))]))
 
 (def: bundle::class
   Bundle
