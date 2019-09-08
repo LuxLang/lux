@@ -1071,14 +1071,14 @@
             output))))))
 
 (def ^{:doc "(Meta Any)"}
-  ensure-statement
+  ensure-directive
   (fn [state]
     (|case (get$ $expected state)
       ($None)
       (return* state unit-tag)
 
       ($Some _)
-      ((fail-with-loc "[Error] All statements must be top-level forms.")
+      ((fail-with-loc "[Error] All directives must be top-level forms.")
        state))))
 
 (def cursor

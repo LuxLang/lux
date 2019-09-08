@@ -542,7 +542,7 @@
     (return (&/|list output))))
 
 (defn analyse-def* [analyse optimize eval! compile-def ?name ?value ?meta exported? & [?expected-type]]
-  (|do [_ &/ensure-statement
+  (|do [_ &/ensure-directive
         module-name &/get-module-name
         ? (&&module/defined? module-name ?name)
         _ (&/assert! (not ?)
@@ -650,7 +650,7 @@
                   (deliver (&/$Right _compiler))))))))
 
 (defn analyse-module [analyse optimize eval! compile-module ?meta ?imports]
-  (|do [_ &/ensure-statement
+  (|do [_ &/ensure-directive
         =anns (&&/analyse-1 analyse &type/Code ?meta)
         ==anns (eval! (optimize =anns))
         module-name &/get-module-name
@@ -713,7 +713,7 @@
 (let [program-type (&/$Function (&/$Apply &type/Text &type/List)
                                 (&/$Apply &type/Any &type/IO))]
   (defn analyse-program [analyse optimize compile-program ?program]
-    (|do [_ &/ensure-statement
+    (|do [_ &/ensure-directive
           =program (&&/analyse-1 analyse program-type ?program)
           _ (compile-program (optimize =program))]
       (return &/$Nil))))

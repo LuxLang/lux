@@ -21,18 +21,18 @@
    ["/#" // (#+ Instancer)
     ["#." analysis]
     ["#." synthesis]
-    ["#." statement (#+ Requirements)]
+    ["#." directive (#+ Requirements)]
     ["#." phase
      [macro (#+ Expander)]
      [".P" analysis
       ["." module]]
      [".P" synthesis]
      ["." generation]
-     [".P" statement]
+     [".P" directive]
      ["." extension
       [".E" analysis]
       [".E" synthesis]
-      [statement
+      [directive
        [".S" lux]]]]
     [meta
      [archive
@@ -47,30 +47,30 @@
    #.version //.version
    #.mode #.Build})
 
-(def: #export (state target expander host-analysis host generate generation-bundle host-statement-bundle program)
-  (All [anchor expression statement]
+(def: #export (state target expander host-analysis host generate generation-bundle host-directive-bundle program)
+  (All [anchor expression directive]
     (-> Text
         Expander
         ///analysis.Bundle
-        (generation.Host expression statement)
-        (generation.Phase anchor expression statement)
-        (generation.Bundle anchor expression statement)
-        (///statement.Bundle anchor expression statement)
-        (-> expression statement)
-        (///statement.State+ anchor expression statement)))
+        (generation.Host expression directive)
+        (generation.Phase anchor expression directive)
+        (generation.Bundle anchor expression directive)
+        (///directive.Bundle anchor expression directive)
+        (-> expression directive)
+        (///directive.State+ anchor expression directive)))
   (let [synthesis-state [synthesisE.bundle ///synthesis.init]
         generation-state [generation-bundle (generation.state host)]
         eval (//evaluation.evaluator expander synthesis-state generation-state generate)
         analysis-state [(analysisE.bundle eval host-analysis)
                         (///analysis.state (..info target) host)]]
     [(dictionary.merge (luxS.bundle expander host-analysis program)
-                       host-statement-bundle)
-     {#///statement.analysis {#///statement.state analysis-state
-                              #///statement.phase (analysisP.phase expander)}
-      #///statement.synthesis {#///statement.state synthesis-state
-                               #///statement.phase synthesisP.phase}
-      #///statement.generation {#///statement.state generation-state
-                                #///statement.phase generate}}]))
+                       host-directive-bundle)
+     {#///directive.analysis {#///directive.state analysis-state
+                              #///directive.phase (analysisP.phase expander)}
+      #///directive.synthesis {#///directive.state synthesis-state
+                               #///directive.phase synthesisP.phase}
+      #///directive.generation {#///directive.state generation-state
+                                #///directive.phase generate}}]))
 
 (type: Reader
   (-> Source (Either [Source Text] [Source Code])))
@@ -96,15 +96,15 @@
                        [source' output]])))))
 
 (type: (Operation a)
-  (All [anchor expression statement]
-    (///statement.Operation anchor expression statement a)))
+  (All [anchor expression directive]
+    (///directive.Operation anchor expression directive a)))
 
 (def: (begin dependencies hash input)
   (-> (List Module) Nat ///.Input
-      (All [anchor expression statement]
-        (///statement.Operation anchor expression statement
-                                [Source (generation.Buffer statement)])))
-  (///statement.lift-analysis
+      (All [anchor expression directive]
+        (///directive.Operation anchor expression directive
+                                [Source (generation.Buffer directive)])))
+  (///directive.lift-analysis
    (do ///phase.monad
      [#let [module (get@ #///.module input)]
       _ (module.create hash module)
@@ -117,56 +117,56 @@
 (def: (end module)
   (-> Module (Operation Any))
   (do ///phase.monad
-    [_ (///statement.lift-analysis
+    [_ (///directive.lift-analysis
         (module.set-compiled module))]
-    (///statement.lift-generation
+    (///directive.lift-generation
      (generation.save-buffer! module))))
 
 ## TODO: Inline ASAP
 (def: (get-current-buffer old-buffer)
-  (All [statement]
-    (-> (generation.Buffer statement)
+  (All [directive]
+    (-> (generation.Buffer directive)
         (All [anchor expression]
-          (///statement.Operation anchor expression statement
-                                  (generation.Buffer statement)))))
-  (///statement.lift-generation
+          (///directive.Operation anchor expression directive
+                                  (generation.Buffer directive)))))
+  (///directive.lift-generation
    generation.buffer))
 
 ## TODO: Inline ASAP
-(def: (process-statement expander pre-buffer code)
-  (All [statement]
-    (-> Expander (generation.Buffer statement) Code
+(def: (process-directive expander pre-buffer code)
+  (All [directive]
+    (-> Expander (generation.Buffer directive) Code
         (All [anchor expression]
-          (///statement.Operation anchor expression statement
-                                  [Requirements (generation.Buffer statement)]))))
+          (///directive.Operation anchor expression directive
+                                  [Requirements (generation.Buffer directive)]))))
   (do ///phase.monad
-    [_ (///statement.lift-generation
+    [_ (///directive.lift-generation
         (generation.set-buffer pre-buffer))
-     requirements (let [execute! (statementP.phase expander)]
+     requirements (let [execute! (directiveP.phase expander)]
                     (execute! code))
      post-buffer (..get-current-buffer pre-buffer)]
     (wrap [requirements post-buffer])))
 
 (def: (iteration expander reader source pre-buffer)
-  (All [statement]
-    (-> Expander Reader Source (generation.Buffer statement)
+  (All [directive]
+    (-> Expander Reader Source (generation.Buffer directive)
         (All [anchor expression]
-          (///statement.Operation anchor expression statement
-                                  [Source Requirements (generation.Buffer statement)]))))
+          (///directive.Operation anchor expression directive
+                                  [Source Requirements (generation.Buffer directive)]))))
   (do ///phase.monad
-    [[source code] (///statement.lift-analysis
+    [[source code] (///directive.lift-analysis
                     (..read source reader))
-     [requirements post-buffer] (process-statement expander pre-buffer code)]
+     [requirements post-buffer] (process-directive expander pre-buffer code)]
     (wrap [source requirements post-buffer])))
 
 (def: (iterate expander module source pre-buffer aliases)
-  (All [statement]
-    (-> Expander Module Source (generation.Buffer statement) Aliases
+  (All [directive]
+    (-> Expander Module Source (generation.Buffer directive) Aliases
         (All [anchor expression]
-          (///statement.Operation anchor expression statement
-                                  (Maybe [Source Requirements (generation.Buffer statement)])))))
+          (///directive.Operation anchor expression directive
+                                  (Maybe [Source Requirements (generation.Buffer directive)])))))
   (do ///phase.monad
-    [reader (///statement.lift-analysis
+    [reader (///directive.lift-analysis
              (..reader module aliases source))]
     (function (_ state)
       (case (///phase.run' state (..iteration expander reader source pre-buffer))
@@ -190,9 +190,9 @@
 
 (def: #export (compiler expander prelude)
   (-> Expander Module
-      (All [anchor expression statement]
-        (Instancer (///statement.State+ anchor expression statement) .Module)))
-  (let [execute! (statementP.phase expander)]
+      (All [anchor expression directive]
+        (Instancer (///directive.State+ anchor expression directive) .Module)))
+  (let [execute! (directiveP.phase expander)]
     (function (_ key parameters input)
       (let [dependencies (default-dependencies prelude input)]
         {#///.dependencies dependencies
@@ -213,7 +213,7 @@
                                                                (do ///phase.monad
                                                                  [_ (..end module)]
                                                                  (<| (: (Operation .Module))
-                                                                     ///statement.lift-analysis
+                                                                     ///directive.lift-analysis
                                                                      extension.lift
                                                                      macro.current-module)))
                                    #let [descriptor {#descriptor.hash hash
@@ -228,16 +228,16 @@
                                 (#.Some [source requirements buffer])
                                 (wrap [state
                                        (#.Left {#///.dependencies (|> requirements
-                                                                      (get@ #///statement.imports)
+                                                                      (get@ #///directive.imports)
                                                                       (list@map product.left))
                                                 #///.process (function (_ state archive)
                                                                (recur (<| (///phase.run' state)
                                                                           (do ///phase.monad
                                                                             [analysis-module (<| (: (Operation .Module))
-                                                                                                 ///statement.lift-analysis
+                                                                                                 ///directive.lift-analysis
                                                                                                  extension.lift
                                                                                                  macro.current-module)
-                                                                             _ (monad.map @ execute! (get@ #///statement.referrals requirements))]
+                                                                             _ (monad.map @ execute! (get@ #///directive.referrals requirements))]
                                                                             (..iterate expander module source buffer (..module-aliases analysis-module))))))})])
                                 )))))}))))
 

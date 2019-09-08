@@ -15,7 +15,7 @@
       ["." module]
       ["." type]]
      ["." generation]
-     ["." statement (#+ State+ Operation)
+     ["." directive (#+ State+ Operation)
       ["." total]]
      ["." extension]]
     ["." default
@@ -53,26 +53,26 @@
   "Till next time...")
 
 (def: enter-module
-  (All [anchor expression statement]
-    (Operation anchor expression statement Any))
-  (statement.lift-analysis
+  (All [anchor expression directive]
+    (Operation anchor expression directive Any))
+  (directive.lift-analysis
    (do phase.monad
      [_ (module.create 0 ..module)]
      (analysis.set-current-module ..module))))
 
 (def: (initialize Monad<!> Console<!> platform configuration generation-bundle)
-  (All [! anchor expression statement]
+  (All [! anchor expression directive]
     (-> (Monad !)
-        (Console !) (Platform ! anchor expression statement)
+        (Console !) (Platform ! anchor expression directive)
         Configuration
-        (generation.Bundle anchor expression statement)
-        (! (State+ anchor expression statement))))
+        (generation.Bundle anchor expression directive)
+        (! (State+ anchor expression directive))))
   (do Monad<!>
     [state (platform.initialize platform generation-bundle)
      state (platform.compile platform
                              (set@ #cli.module syntax.prelude configuration)
                              (set@ [#extension.state
-                                    #statement.analysis #statement.state
+                                    #directive.analysis #directive.state
                                     #extension.state
                                     #.info #.mode]
                                    #.Interpreter
@@ -82,10 +82,10 @@
      _ (:: Console<!> write ..welcome-message)]
     (wrap state)))
 
-(with-expansions [<Interpretation> (as-is (Operation anchor expression statement [Type Any]))]
+(with-expansions [<Interpretation> (as-is (Operation anchor expression directive [Type Any]))]
   
-  (def: (interpret-statement code)
-    (All [anchor expression statement]
+  (def: (interpret-directive code)
+    (All [anchor expression directive]
       (-> Code <Interpretation>))
     (do phase.monad
       [_ (total.phase code)
@@ -93,14 +93,14 @@
       (wrap [Any []])))
 
   (def: (interpret-expression code)
-    (All [anchor expression statement]
+    (All [anchor expression directive]
       (-> Code <Interpretation>))
     (do phase.monad
       [state (extension.lift phase.get-state)
-       #let [analyse (get@ [#statement.analysis #statement.phase] state)
-             synthesize (get@ [#statement.synthesis #statement.phase] state)
-             generate (get@ [#statement.generation #statement.phase] state)]
-       [_ codeT codeA] (statement.lift-analysis
+       #let [analyse (get@ [#directive.analysis #directive.phase] state)
+             synthesize (get@ [#directive.synthesis #directive.phase] state)
+             generate (get@ [#directive.generation #directive.phase] state)]
+       [_ codeT codeA] (directive.lift-analysis
                         (analysis.with-scope
                           (type.with-fresh-env
                             (do @
@@ -109,9 +109,9 @@
                                codeT (type.with-env
                                        (check.clean codeT))]
                               (wrap [codeT codeA])))))
-       codeS (statement.lift-synthesis
+       codeS (directive.lift-synthesis
               (synthesize codeA))]
-      (statement.lift-generation
+      (directive.lift-generation
        (generation.with-buffer
          (do @
            [codeH (generate codeS)
@@ -120,23 +120,23 @@
            (wrap [codeT codeV]))))))
 
   (def: (interpret configuration code)
-    (All [anchor expression statement]
+    (All [anchor expression directive]
       (-> Configuration Code <Interpretation>))
     (function (_ state)
       (case (<| (phase.run' state)
-                (:share [anchor expression statement]
-                        {(State+ anchor expression statement)
+                (:share [anchor expression directive]
+                        {(State+ anchor expression directive)
                          state}
                         {<Interpretation>
-                         (interpret-statement code)}))
+                         (interpret-directive code)}))
         (#try.Success [state' output])
         (#try.Success [state' output])
 
         (#try.Failure error)
-        (if (ex.match? total.not-a-statement error)
+        (if (ex.match? total.not-a-directive error)
           (<| (phase.run' state)
-              (:share [anchor expression statement]
-                      {(State+ anchor expression statement)
+              (:share [anchor expression directive]
+                      {(State+ anchor expression directive)
                        state}
                       {<Interpretation>
                        (interpret-expression code)}))
@@ -144,42 +144,42 @@
   )
 
 (def: (execute configuration code)
-  (All [anchor expression statement]
-    (-> Configuration Code (Operation anchor expression statement Text)))
+  (All [anchor expression directive]
+    (-> Configuration Code (Operation anchor expression directive Text)))
   (do phase.monad
     [[codeT codeV] (interpret configuration code)
      state phase.get-state]
     (wrap (/type.represent (get@ [#extension.state
-                                  #statement.analysis #statement.state
+                                  #directive.analysis #directive.state
                                   #extension.state]
                                  state)
                            codeT
                            codeV))))
 
-(type: (Context anchor expression statement)
+(type: (Context anchor expression directive)
   {#configuration Configuration
-   #state (State+ anchor expression statement)
+   #state (State+ anchor expression directive)
    #source Source})
 
-(with-expansions [<Context> (as-is (Context anchor expression statement))]
+(with-expansions [<Context> (as-is (Context anchor expression directive))]
   (def: (read-eval-print context)
-    (All [anchor expression statement]
+    (All [anchor expression directive]
       (-> <Context> (Try [<Context> Text])))
     (do try.monad
       [#let [[_where _offset _code] (get@ #source context)]
        [source' input] (syntax.parse ..module syntax.no-aliases (text.size _code) (get@ #source context))
        [state' representation] (let [## TODO: Simplify ASAP
-                                     state (:share [anchor expression statement]
+                                     state (:share [anchor expression directive]
                                                    {<Context>
                                                     context}
-                                                   {(State+ anchor expression statement)
+                                                   {(State+ anchor expression directive)
                                                     (get@ #state context)})]
                                  (<| (phase.run' state)
                                      ## TODO: Simplify ASAP
-                                     (:share [anchor expression statement]
+                                     (:share [anchor expression directive]
                                              {<Context>
                                               context}
-                                             {(Operation anchor expression statement Text)
+                                             {(Operation anchor expression directive Text)
                                               (execute (get@ #configuration context) input)})))]
       (wrap [(|> context
                  (set@ #state state')
@@ -187,11 +187,11 @@
              representation]))))
 
 (def: #export (run Monad<!> Console<!> platform configuration generation-bundle)
-  (All [! anchor expression statement]
+  (All [! anchor expression directive]
     (-> (Monad !)
-        (Console !) (Platform ! anchor expression statement)
+        (Console !) (Platform ! anchor expression directive)
         Configuration
-        (generation.Bundle anchor expression statement)
+        (generation.Bundle anchor expression directive)
         (! Any)))
   (do Monad<!>
     [state (initialize Monad<!> Console<!> platform configuration)]
