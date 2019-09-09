@@ -55,6 +55,38 @@
     ["#." reference]
     ["#." function]]])
 
+(template [<name> <category> <parser>]
+  [(def: #export <name>
+     (Parser (Type <category>))
+     (<t>.embed <parser> <s>.text))]
+
+  [var Var parser.var]
+  [class Class parser.class]
+  [object Object parser.object]
+  [value Value parser.value]
+  [return Return parser.return]
+  )
+
+(exception: #export (not-an-object-array {arrayJT (Type Array)})
+  (exception.report
+   ["JVM Type" (|> arrayJT type.signature signature.signature)]))
+
+(def: #export object-array
+  (Parser (Type Object))
+  (do <>.monad
+    [arrayJT (<t>.embed parser.array <s>.text)]
+    (case (parser.array? arrayJT)
+      (#.Some elementJT)
+      (case (parser.object? elementJT)
+        (#.Some elementJT)
+        (wrap elementJT)
+
+        #.None
+        (<>.fail (exception.construct ..not-an-object-array arrayJT)))
+      
+      #.None
+      (undefined))))
+
 (template [<name> <inst>]
   [(def: <name>
      Inst
@@ -296,27 +328,6 @@
           (bundle.install "<" (binary char::<))
           )))
 
-(def: (array-java-type nesting elem-class)
-  (-> Nat Text (Type Object))
-  (type.array (case nesting
-                0 (undefined)
-                1 (`` (cond (~~ (template [<type>]
-                                  [(text@= (reflection.reflection (type.reflection <type>))
-                                           elem-class)
-                                   <type>]
-
-                                  [type.boolean]
-                                  [type.byte]
-                                  [type.short]
-                                  [type.int]
-                                  [type.long]
-                                  [type.float]
-                                  [type.double]
-                                  [type.char]))
-                            ## else
-                            (type.class elem-class (list))))
-                _ (array-java-type (dec nesting) elem-class))))
-
 (def: (primitive-array-length-handler jvm-primitive)
   (-> (Type Primitive) Handler)
   (..custom
@@ -328,20 +339,16 @@
                    (_.CHECKCAST (type.array jvm-primitive))
                    _.ARRAYLENGTH))))]))
 
-(def: (array::length::object extension-name generate inputs)
+(def: array::length::object
   Handler
-  (case inputs
-    (^ (list (synthesis.i64 nesting)
-             (synthesis.text elem-class)
-             arrayS))
-    (do phase.monad
-      [arrayI (generate arrayS)]
-      (wrap (|>> arrayI
-                 (_.CHECKCAST (array-java-type (.nat nesting) elem-class))
-                 _.ARRAYLENGTH)))
-
-    _
-    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
+  (..custom
+   [($_ <>.and ..object-array <s>.any)
+    (function (_ extension-name generate [elementJT arrayS])
+      (do phase.monad
+        [arrayI (generate arrayS)]
+        (wrap (|>> arrayI
+                   (_.CHECKCAST (type.array elementJT))
+                   _.ARRAYLENGTH))))]))
 
 (def: (new-primitive-array-handler jvm-primitive)
   (-> (Type Primitive) Handler)
@@ -356,19 +363,15 @@
       _
       (phase.throw extension.invalid-syntax [extension-name %synthesis inputs]))))
 
-(def: (array::new::object extension-name generate inputs)
+(def: array::new::object
   Handler
-  (case inputs
-    (^ (list (synthesis.i64 nesting)
-             (synthesis.text elem-class)
-             lengthS))
-    (do phase.monad
-      [lengthI (generate lengthS)]
-      (wrap (|>> lengthI
-                 (_.array (array-java-type (.nat nesting) elem-class)))))
-
-    _
-    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
+  (..custom
+   [($_ <>.and ..object <s>.any)
+    (function (_ extension-name generate [objectJT lengthS])
+      (do phase.monad
+        [lengthI (generate lengthS)]
+        (wrap (|>> lengthI
+                   (_.ANEWARRAY objectJT)))))]))
 
 (def: (read-primitive-array-handler jvm-primitive loadI)
   (-> (Type Primitive) Inst Handler)
@@ -386,23 +389,18 @@
       _
       (phase.throw extension.invalid-syntax [extension-name %synthesis inputs]))))
 
-(def: (array::read::object extension-name generate inputs)
+(def: array::read::object
   Handler
-  (case inputs
-    (^ (list (synthesis.i64 nesting)
-             (synthesis.text elem-class)
-             idxS
-             arrayS))
-    (do phase.monad
-      [arrayI (generate arrayS)
-       idxI (generate idxS)]
-      (wrap (|>> arrayI
-                 (_.CHECKCAST (array-java-type (.nat nesting) elem-class))
-                 idxI
-                 _.AALOAD)))
-
-    _
-    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
+  (..custom
+   [($_ <>.and ..object-array <s>.any <s>.any)
+    (function (_ extension-name generate [elementJT idxS arrayS])
+      (do phase.monad
+        [arrayI (generate arrayS)
+         idxI (generate idxS)]
+        (wrap (|>> arrayI
+                   (_.CHECKCAST (type.array elementJT))
+                   idxI
+                   _.AALOAD))))]))
 
 (def: (write-primitive-array-handler jvm-primitive storeI)
   (-> (Type Primitive) Inst Handler)
@@ -423,27 +421,21 @@
       _
       (phase.throw extension.invalid-syntax [extension-name %synthesis inputs]))))
 
-(def: (array::write::object extension-name generate inputs)
+(def: array::write::object
   Handler
-  (case inputs
-    (^ (list (synthesis.i64 nesting)
-             (synthesis.text elem-class)
-             idxS
-             valueS
-             arrayS))
-    (do phase.monad
-      [arrayI (generate arrayS)
-       idxI (generate idxS)
-       valueI (generate valueS)]
-      (wrap (|>> arrayI
-                 (_.CHECKCAST (array-java-type (.nat nesting) elem-class))
-                 _.DUP
-                 idxI
-                 valueI
-                 _.AASTORE)))
-
-    _
-    (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
+  (..custom
+   [($_ <>.and ..object-array <s>.any <s>.any <s>.any)
+    (function (_ extension-name generate [elementJT idxS valueS arrayS])
+      (do phase.monad
+        [arrayI (generate arrayS)
+         idxI (generate idxS)
+         valueI (generate valueS)]
+        (wrap (|>> arrayI
+                   (_.CHECKCAST (type.array elementJT))
+                   _.DUP
+                   idxI
+                   valueI
+                   _.AASTORE))))]))
 
 (def: array
   Bundle
@@ -583,7 +575,7 @@
     _
     (phase.throw extension.invalid-syntax [extension-name %synthesis inputs])))
 
-(def: object
+(def: object-bundle
   Bundle
   (<| (bundle.prefix "object")
       (|> (: Bundle bundle.empty)
@@ -608,7 +600,7 @@
             [(reflection.reflection reflection.char) type.char])
       (dictionary.from-list text.hash)))
 
-(def: static::get
+(def: get::static
   Handler
   (..custom
    [($_ <>.and <s>.text <s>.text <s>.text)
@@ -622,7 +614,7 @@
           #.None
           (wrap (_.GETSTATIC (type.class class (list)) field (type.class unboxed (list)))))))]))
 
-(def: static::put
+(def: put::static
   Handler
   (..custom
    [($_ <>.and <s>.text <s>.text <s>.text <s>.any)
@@ -642,7 +634,7 @@
                      (_.PUTSTATIC $class field $class)
                      (_.string synthesis.unit))))))]))
 
-(def: virtual::get
+(def: get::virtual
   Handler
   (..custom
    [($_ <>.and <s>.text <s>.text <s>.text <s>.any)
@@ -660,7 +652,7 @@
                    (_.CHECKCAST $class)
                    getI))))]))
 
-(def: virtual::put
+(def: put::virtual
   Handler
   (..custom
    [($_ <>.and <s>.text <s>.text <s>.text <s>.any <s>.any)
@@ -682,17 +674,6 @@
                    _.DUP
                    valueI
                    putI))))]))
-
-(template [<name> <category> <parser>]
-  [(def: #export <name>
-     (Parser (Type <category>))
-     (<t>.embed <parser> <s>.text))]
-
-  [var Var parser.var]
-  [class Class parser.class]
-  [value Value parser.value]
-  [return Return parser.return]
-  )
 
 (type: Input (Typed Synthesis))
 
@@ -774,14 +755,14 @@
   Bundle
   (<| (bundle.prefix "member")
       (|> (: Bundle bundle.empty)
-          (dictionary.merge (<| (bundle.prefix "static")
+          (dictionary.merge (<| (bundle.prefix "get")
                                 (|> (: Bundle bundle.empty)
-                                    (bundle.install "get" static::get)
-                                    (bundle.install "put" static::put))))
-          (dictionary.merge (<| (bundle.prefix "virtual")
+                                    (bundle.install "static" get::static)
+                                    (bundle.install "virtual" get::virtual))))
+          (dictionary.merge (<| (bundle.prefix "put")
                                 (|> (: Bundle bundle.empty)
-                                    (bundle.install "get" virtual::get)
-                                    (bundle.install "put" virtual::put))))
+                                    (bundle.install "static" put::static)
+                                    (bundle.install "virtual" put::virtual))))
           (dictionary.merge (<| (bundle.prefix "invoke")
                                 (|> (: Bundle bundle.empty)
                                     (bundle.install "static" invoke::static)
@@ -1051,7 +1032,7 @@
           (dictionary.merge ..double)
           (dictionary.merge ..char)
           (dictionary.merge ..array)
-          (dictionary.merge ..object)
+          (dictionary.merge ..object-bundle)
           (dictionary.merge ..member)
           (dictionary.merge ..bundle::class)
           )))
