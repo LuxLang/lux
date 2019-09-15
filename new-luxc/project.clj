@@ -1,7 +1,8 @@
 (def version "0.6.0-SNAPSHOT")
 (def repo "https://github.com/LuxLang/lux")
-(def sonatype-releases "https://oss.sonatype.org/service/local/staging/deploy/maven2/")
-(def sonatype-snapshots "https://oss.sonatype.org/content/repositories/snapshots/")
+(def sonatype "https://oss.sonatype.org")
+(def sonatype-releases (str sonatype "/service/local/staging/deploy/maven2/"))
+(def sonatype-snapshots (str sonatype "/content/repositories/snapshots/"))
 
 (defproject com.github.luxlang/new-luxc #=(identity version)
   :description "A re-written compiler for Lux."

@@ -114,7 +114,7 @@
   )
 
 (template [<name>]
-  [(exception: #export (<name> {class Text})
+  [(exception: #export (<name> {class External})
      (exception.report
       ["Class/type" (%.text class)]))]
 
@@ -123,13 +123,13 @@
   [primitives-are-not-objects]
   )
 
-(exception: #export (cannot-set-a-final-field {field Text} {class Text})
+(exception: #export (cannot-set-a-final-field {field Text} {class External})
   (exception.report
    ["Field" (%.text field)]
    ["Class" (%.text class)]))
 
 (template [<name>]
-  [(exception: #export (<name> {class Text}
+  [(exception: #export (<name> {class External}
                                {method Text}
                                {inputsJT (List (Type Value))}
                                {hints (List Method-Signature)})
@@ -240,7 +240,7 @@
           )))
 
 (def: #export boxes
-  (Dictionary Text [Text (Type Primitive)])
+  (Dictionary External [External (Type Primitive)])
   (|> (list [(reflection.reflection reflection.boolean) [box.boolean jvm.boolean]]
             [(reflection.reflection reflection.byte)    [box.byte jvm.byte]]
             [(reflection.reflection reflection.short)   [box.short jvm.short]]
@@ -387,21 +387,18 @@
     (/////analysis.throw ..non-parameter objectT)
     
     (#.Primitive name parameters)
-    (`` (cond (~~ (template [<reflection>]
-                    [(text@= (reflection.reflection <reflection>)
-                             name)
-                     (/////analysis.throw ..non-parameter objectT)]
+    (`` (cond (or (~~ (template [<type>]
+                        [(text@= (..reflection <type>) name)]
 
-                    [reflection.boolean]
-                    [reflection.byte]
-                    [reflection.short]
-                    [reflection.int]
-                    [reflection.long]
-                    [reflection.float]
-                    [reflection.double]
-                    [reflection.char]))
-
-              (text.starts-with? descriptor.array-prefix name)
+                        [jvm.boolean]
+                        [jvm.byte]
+                        [jvm.short]
+                        [jvm.int]
+                        [jvm.long]
+                        [jvm.float]
+                        [jvm.double]
+                        [jvm.char]))
+                  (text.starts-with? descriptor.array-prefix name))
               (/////analysis.throw ..non-parameter objectT)
 
               ## else
@@ -437,22 +434,36 @@
   (-> .Type (Operation (Type Value)))
   (case objectT
     (#.Primitive name #.Nil)
-    (`` (cond (~~ (template [<reflection> <type>]
-                    [(text@= (reflection.reflection <reflection>)
-                             name)
+    (`` (cond (~~ (template [<type>]
+                    [(text@= (..reflection <type>) name)
                      (////@wrap <type>)]
 
-                    [reflection.boolean jvm.boolean]
-                    [reflection.byte jvm.byte]
-                    [reflection.short jvm.short]
-                    [reflection.int jvm.int]
-                    [reflection.long jvm.long]
-                    [reflection.float jvm.float]
-                    [reflection.double jvm.double]
-                    [reflection.char jvm.char]))
+                    [jvm.boolean]
+                    [jvm.byte]
+                    [jvm.short]
+                    [jvm.int]
+                    [jvm.long]
+                    [jvm.float]
+                    [jvm.double]
+                    [jvm.char]))
+
+              (~~ (template [<type>]
+                    [(text@= (..reflection (jvm.array <type>)) name)
+                     (////@wrap (jvm.array <type>))]
+
+                    [jvm.boolean]
+                    [jvm.byte]
+                    [jvm.short]
+                    [jvm.int]
+                    [jvm.long]
+                    [jvm.float]
+                    [jvm.double]
+                    [jvm.char]))
 
               (text.starts-with? descriptor.array-prefix name)
-              (////.lift (<t>.run jvm-parser.value name))
+              (let [[_ unprefixed] (maybe.assume (text.split-with descriptor.array-prefix name))]
+                (:: ////.monad map jvm.array
+                    (check-jvm (#.Primitive unprefixed (list)))))
 
               ## else
               (////@wrap (jvm.class name (list)))))
@@ -800,7 +811,7 @@
     (////.fail error)))
 
 (def: (class-candidate-parents from-name fromT to-name to-class)
-  (-> Text .Type Text (java/lang/Class java/lang/Object) (Operation (List [[Text .Type] Bit])))
+  (-> External .Type External (java/lang/Class java/lang/Object) (Operation (List [[Text .Type] Bit])))
   (do ////.monad
     [from-class (////.lift (reflection!.load from-name))
      mapping (////.lift (reflection!.correspond from-class fromT))]
@@ -1012,8 +1023,8 @@
   #Special
   #Interface)
 
-(def: (check-method class method-name method-style inputsJT method)
-  (-> (java/lang/Class java/lang/Object) Text Method-Style (List (Type Value)) java/lang/reflect/Method (Operation Bit))
+(def: (check-method aliasing class method-name method-style inputsJT method)
+  (-> Aliasing (java/lang/Class java/lang/Object) Text Method-Style (List (Type Value)) java/lang/reflect/Method (Operation Bit))
   (do ////.monad
     [parameters (|> (java/lang/reflect/Method::getGenericParameterTypes method)
                     array.to-list
@@ -1027,20 +1038,29 @@
                              (java/lang/reflect/Modifier::isStatic modifiers)
 
                              _
-                             #1)
+                             true)
            special-matches? (case method-style
                               #Special
                               (not (or (java/lang/reflect/Modifier::isInterface (java/lang/Class::getModifiers class))
                                        (java/lang/reflect/Modifier::isAbstract modifiers)))
 
                               _
-                              #1)
+                              true)
            arity-matches? (n.= (list.size inputsJT) (list.size parameters))
            inputs-match? (list@fold (function (_ [expectedJC actualJC] prev)
                                       (and prev
-                                           (jvm@= expectedJC actualJC)))
-                                    #1
-                                    (list.zip2 inputsJT parameters))]]
+                                           (jvm@= expectedJC (: (Type Value)
+                                                                (case (jvm-parser.var? actualJC)
+                                                                  (#.Some name)
+                                                                  (|> aliasing
+                                                                      (dictionary.get name)
+                                                                      (maybe.default name)
+                                                                      jvm.var)
+
+                                                                  #.None
+                                                                  actualJC)))))
+                                    true
+                                    (list.zip2 parameters inputsJT))]]
     (wrap (and correct-class?
                correct-method?
                static-matches?
@@ -1048,8 +1068,8 @@
                arity-matches?
                inputs-match?))))
 
-(def: (check-constructor class inputsJT constructor)
-  (-> (java/lang/Class java/lang/Object) (List (Type Value)) (java/lang/reflect/Constructor java/lang/Object) (Operation Bit))
+(def: (check-constructor aliasing class inputsJT constructor)
+  (-> Aliasing (java/lang/Class java/lang/Object) (List (Type Value)) (java/lang/reflect/Constructor java/lang/Object) (Operation Bit))
   (do ////.monad
     [parameters (|> (java/lang/reflect/Constructor::getGenericParameterTypes constructor)
                     array.to-list
@@ -1059,9 +1079,18 @@
                (n.= (list.size inputsJT) (list.size parameters))
                (list@fold (function (_ [expectedJC actualJC] prev)
                             (and prev
-                                 (jvm@= expectedJC actualJC)))
-                          #1
-                          (list.zip2 inputsJT parameters))))))
+                                 (jvm@= expectedJC (: (Type Value)
+                                                      (case (jvm-parser.var? actualJC)
+                                                        (#.Some name)
+                                                        (|> aliasing
+                                                            (dictionary.get name)
+                                                            (maybe.default name)
+                                                            jvm.var)
+
+                                                        #.None
+                                                        actualJC)))))
+                          true
+                          (list.zip2 parameters inputsJT))))))
 
 (def: idx-to-parameter
   (-> Nat .Type)
@@ -1168,10 +1197,29 @@
   [hint! #Hint]
   )
 
-(def: (method-candidate class-name method-name method-style inputsJT)
-  (-> Text Text Method-Style (List (Type Value)) (Operation Method-Signature))
+(template [<name> <type> <method>]
+  [(def: <name>
+     (-> <type> (List (Type Var)))
+     (|>> <method>
+          array.to-list
+          (list@map (|>> java/lang/reflect/TypeVariable::getName jvm.var))))]
+
+  [class-type-variables (java/lang/Class java/lang/Object) java/lang/Class::getTypeParameters]
+  [constructor-type-variables (java/lang/reflect/Constructor java/lang/Object) java/lang/reflect/Constructor::getTypeParameters]
+  [method-type-variables java/lang/reflect/Method java/lang/reflect/Method::getTypeParameters]
+  )
+
+(def: (aliasing expected actual)
+  (-> (List (Type Var)) (List (Type Var)) Aliasing)
+  (|> (list.zip2 (list@map jvm-parser.name actual)
+                 (list@map jvm-parser.name expected))
+      (dictionary.from-list text.hash)))
+
+(def: (method-candidate actual-class-tvars class-name actual-method-tvars method-name method-style inputsJT)
+  (-> (List (Type Var)) External (List (Type Var)) Text Method-Style (List (Type Value)) (Operation Method-Signature))
   (do ////.monad
     [class (////.lift (reflection!.load class-name))
+     #let [expected-class-tvars (class-type-variables class)]
      candidates (|> class
                     java/lang/Class::getDeclaredMethods
                     array.to-list
@@ -1179,7 +1227,10 @@
                     (monad.map @ (: (-> java/lang/reflect/Method (Operation Evaluation))
                                     (function (_ method)
                                       (do @
-                                        [passes? (check-method class method-name method-style inputsJT method)]
+                                        [#let [expected-method-tvars (method-type-variables method)
+                                               aliasing (dictionary.merge (..aliasing expected-class-tvars actual-class-tvars)
+                                                                          (..aliasing expected-method-tvars actual-method-tvars))]
+                                         passes? (check-method aliasing class method-name method-style inputsJT method)]
                                         (:: @ map (if passes?
                                                     (|>> #Pass)
                                                     (|>> #Hint))
@@ -1196,16 +1247,20 @@
 
 (def: constructor-method "<init>")
 
-(def: (constructor-candidate class-name inputsJT)
-  (-> Text (List (Type Value)) (Operation Method-Signature))
+(def: (constructor-candidate actual-class-tvars class-name actual-method-tvars inputsJT)
+  (-> (List (Type Var)) External (List (Type Var)) (List (Type Value)) (Operation Method-Signature))
   (do ////.monad
     [class (////.lift (reflection!.load class-name))
+     #let [expected-class-tvars (class-type-variables class)]
      candidates (|> class
                     java/lang/Class::getConstructors
                     array.to-list
                     (monad.map @ (function (_ constructor)
                                    (do @
-                                     [passes? (check-constructor class inputsJT constructor)]
+                                     [#let [expected-method-tvars (constructor-type-variables constructor)
+                                            aliasing (dictionary.merge (..aliasing expected-class-tvars actual-class-tvars)
+                                                                       (..aliasing expected-method-tvars actual-method-tvars))]
+                                      passes? (check-constructor aliasing class inputsJT constructor)]
                                      (:: @ map
                                          (if passes? (|>> #Pass) (|>> #Hint))
                                          (constructor-signature constructor))))))]
@@ -1241,14 +1296,16 @@
       (list@map (function (_ [type value])
                   (/////analysis.tuple (list type value))))))
 
+(def: type-vars (<c>.tuple (<>.some ..var)))
+
 (def: invoke::static
   Handler
   (..custom
-   [($_ <>.and ..member (<>.some ..input))
-    (function (_ extension-name analyse [[class method] argsTC])
+   [($_ <>.and ..type-vars ..member ..type-vars (<>.some ..input))
+    (function (_ extension-name analyse [class-tvars [class method] method-tvars argsTC])
       (do ////.monad
         [#let [argsT (list@map product.left argsTC)]
-         [methodT exceptionsT] (method-candidate class method #Static argsT)
+         [methodT exceptionsT] (method-candidate class-tvars class method-tvars method #Static argsT)
          [outputT argsA] (inferenceA.general analyse methodT (list@map product.right argsTC))
          outputJC (check-return outputT)]
         (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text (..signature (jvm.class class (list))))
@@ -1259,11 +1316,11 @@
 (def: invoke::virtual
   Handler
   (..custom
-   [($_ <>.and ..member <c>.any (<>.some ..input))
-    (function (_ extension-name analyse [[class method] objectC argsTC])
+   [($_ <>.and ..type-vars ..member ..type-vars <c>.any (<>.some ..input))
+    (function (_ extension-name analyse [class-tvars [class method] method-tvars objectC argsTC])
       (do ////.monad
         [#let [argsT (list@map product.left argsTC)]
-         [methodT exceptionsT] (method-candidate class method #Virtual argsT)
+         [methodT exceptionsT] (method-candidate class-tvars class method-tvars method #Virtual argsT)
          [outputT allA] (inferenceA.general analyse methodT (list& objectC (list@map product.right argsTC)))
          #let [[objectA argsA] (case allA
                                  (#.Cons objectA argsA)
@@ -1281,11 +1338,11 @@
 (def: invoke::special
   Handler
   (..custom
-   [($_ <>.and ..member <c>.any (<>.some ..input))
-    (function (_ extension-name analyse [[class method] objectC argsTC])
+   [($_ <>.and ..type-vars ..member ..type-vars <c>.any (<>.some ..input))
+    (function (_ extension-name analyse [class-tvars [class method] method-tvars objectC argsTC])
       (do ////.monad
         [#let [argsT (list@map product.left argsTC)]
-         [methodT exceptionsT] (method-candidate class method #Special argsT)
+         [methodT exceptionsT] (method-candidate class-tvars class method-tvars method #Special argsT)
          [outputT argsA] (inferenceA.general analyse methodT (list& objectC (list@map product.right argsTC)))
          outputJC (check-return outputT)]
         (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text (..signature (jvm.class class (list))))
@@ -1296,14 +1353,14 @@
 (def: invoke::interface
   Handler
   (..custom
-   [($_ <>.and ..member <c>.any (<>.some ..input))
-    (function (_ extension-name analyse [[class-name method] objectC argsTC])
+   [($_ <>.and ..type-vars ..member ..type-vars <c>.any (<>.some ..input))
+    (function (_ extension-name analyse [class-tvars [class-name method] method-tvars objectC argsTC])
       (do ////.monad
         [#let [argsT (list@map product.left argsTC)]
          class (////.lift (reflection!.load class-name))
          _ (////.assert non-interface class-name
                         (java/lang/reflect/Modifier::isInterface (java/lang/Class::getModifiers class)))
-         [methodT exceptionsT] (method-candidate class-name method #Interface argsT)
+         [methodT exceptionsT] (method-candidate class-tvars class-name method-tvars method #Interface argsT)
          [outputT allA] (inferenceA.general analyse methodT (list& objectC (list@map product.right argsTC)))
          #let [[objectA argsA] (case allA
                                  (#.Cons objectA argsA)
@@ -1321,11 +1378,11 @@
 
 (def: invoke::constructor
   (..custom
-   [($_ <>.and <c>.text (<>.some ..input))
-    (function (_ extension-name analyse [class argsTC])
+   [($_ <>.and ..type-vars <c>.text ..type-vars (<>.some ..input))
+    (function (_ extension-name analyse [class-tvars class method-tvars argsTC])
       (do ////.monad
         [#let [argsT (list@map product.left argsTC)]
-         [methodT exceptionsT] (constructor-candidate class argsT)
+         [methodT exceptionsT] (constructor-candidate class-tvars class method-tvars argsT)
          [outputT argsA] (inferenceA.general analyse methodT (list@map product.right argsTC))]
         (wrap (#/////analysis.Extension extension-name (list& (/////analysis.text (..signature (jvm.class class (list))))
                                                               (decorate-inputs argsT argsA))))))]))

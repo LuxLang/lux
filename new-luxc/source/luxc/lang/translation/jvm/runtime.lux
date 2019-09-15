@@ -11,7 +11,8 @@
      ["." type (#+ Type)
       ["." category (#+ Void Value Return Primitive Object Class Array Var Parameter Method)]
       ["." descriptor (#+ Descriptor)]
-      ["." signature (#+ Signature)]]]]
+      ["." signature (#+ Signature)]
+      ["." reflection]]]]
    [tool
     [compiler
      [arity (#+ Arity)]
@@ -33,7 +34,6 @@
 (def: #export $Index type.int)
 (def: #export $Stack (type.array $Value))
 (def: $Throwable (type.class "java.lang.Throwable" (list)))
-(def: #export $Runtime (type.class "java.lang.Runtime" (list)))
 
 (def: nullary-init-methodT
   (type.method [(list) type.void (list)]))
@@ -55,7 +55,7 @@
 
 (def: #export variantI
   Inst
-  (_.INVOKESTATIC (type.class //.runtime-class (list)) "variant_make" variant-method))
+  (_.INVOKESTATIC //.$Runtime "variant_make" variant-method))
 
 (def: #export leftI
   Inst
@@ -82,7 +82,7 @@
        (_.string synthesis.unit)
        variantI))
 
-(def: (try-methodI unsafeI)
+(def: (tryI unsafeI)
   (-> Inst Inst)
   (<| _.with-label (function (_ @from))
       _.with-label (function (_ @to))
@@ -128,7 +128,7 @@
 (def: frac-methods
   Def
   (|>> ($d.method #$.Public $.staticM "decode_frac" (type.method [(list $Text) //.$Variant (list)])
-                  (try-methodI
+                  (tryI
                    (|>> (_.ALOAD 0)
                         (_.INVOKESTATIC (type.class "java.lang.Double" (list)) "parseDouble" (type.method [(list $Text) type.double (list)]))
                         (_.wrap type.double))))
@@ -280,6 +280,8 @@
                              )))
          )))
 
+(def: #export try (type.method [(list //.$Function) //.$Variant (list)]))
+
 (def: io-methods
   Def
   (let [StringWriter (type.class "java.io.StringWriter" (list))
@@ -295,7 +297,7 @@
                            (_.boolean true)
                            (_.INVOKESPECIAL PrintWriter "<init>" (type.method [(list (type.class "java.io.Writer" (list)) type.boolean) type.void (list)]))
                            )]
-    (|>> ($d.method #$.Public $.staticM "try" (type.method [(list //.$Function) //.$Variant (list)])
+    (|>> ($d.method #$.Public $.staticM "try" ..try
                     (<| _.with-label (function (_ @from))
                         _.with-label (function (_ @to))
                         _.with-label (function (_ @handler))
@@ -317,15 +319,18 @@
                              _.ARETURN)))
          )))
 
+(def: reflection (|>> type.reflection reflection.reflection))
+
 (def: translate-runtime
   (Operation ByteCode)
-  (let [bytecode ($d.class #$.V1_6 #$.Public $.finalC //.runtime-class (list) (type.class "java.lang.Object" (list)) (list)
+  (let [runtime-class (..reflection //.$Runtime)
+        bytecode ($d.class #$.V1_6 #$.Public $.finalC runtime-class (list) (type.class "java.lang.Object" (list)) (list)
                            (|>> adt-methods
                                 frac-methods
                                 pm-methods
                                 io-methods))]
     (do phase.monad
-      [_ (generation.execute! //.runtime-class [//.runtime-class bytecode])]
+      [_ (generation.execute! runtime-class [runtime-class bytecode])]
       (wrap bytecode))))
 
 (def: translate-function
@@ -345,7 +350,8 @@
                    (list& ($d.abstract-method #$.Public $.noneM apply-method (apply-signature 1)))
                    $d.fuse)
         $Object (type.class "java.lang.Object" (list))
-        bytecode ($d.abstract #$.V1_6 #$.Public $.noneC //.function-class (list) $Object (list)
+        function-class (..reflection //.$Function)
+        bytecode ($d.abstract #$.V1_6 #$.Public $.noneC function-class (list) $Object (list)
                               (|>> ($d.field #$.Public $.finalF partials-field type.int)
                                    ($d.method #$.Public $.noneM "<init>" (type.method [(list type.int) type.void (list)])
                                               (|>> (_.ALOAD 0)
@@ -356,7 +362,7 @@
                                                    _.RETURN))
                                    applyI))]
     (do phase.monad
-      [_ (generation.execute! //.function-class [//.function-class bytecode])]
+      [_ (generation.execute! function-class [function-class bytecode])]
       (wrap bytecode))))
 
 (def: #export translate
