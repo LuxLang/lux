@@ -134,7 +134,8 @@
 (def jar-exclusions ["com/github/luxlang/luxc-jvm"
                      "org/clojure/clojure"
                      "org/clojure/core.match"
-                     "org/ow2/asm/asm-all"])
+                     ;; "org/ow2/asm/asm-all"
+                     ])
 
 ;; [Resources]
 (defn ^:private package-jvm
