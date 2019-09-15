@@ -1028,16 +1028,18 @@
         (&a/$apply func args)
         (|let [=func (pass-0 top-level-func? func)
                =args (&/|map (partial pass-0 top-level-func?) args)]
-          (|case =func
-            [_ ($ann [_ ($function _register-offset _arity _scope _captured _body)]
-                     _)]
-            (if (and (= _arity (&/|length =args))
-                     (not (contains-self-reference? _body)))
-              (inline-loop meta _register-offset _scope _captured =args _body)
-              (&/T [meta ($apply =func =args)]))
+          (&/T [meta ($apply =func =args)])
+          ;; (|case =func
+          ;;   [_ ($ann [_ ($function _register-offset _arity _scope _captured _body)]
+          ;;            _)]
+          ;;   (if (and (= _arity (&/|length =args))
+          ;;            (not (contains-self-reference? _body)))
+          ;;     (inline-loop meta _register-offset _scope _captured =args _body)
+          ;;     (&/T [meta ($apply =func =args)]))
             
-            _
-            (&/T [meta ($apply =func =args)])))
+          ;;   _
+          ;;   (&/T [meta ($apply =func =args)]))
+          )
         
         (&a/$case value branches)
         (let [normal-case-optim (fn []
