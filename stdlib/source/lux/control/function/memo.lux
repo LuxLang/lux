@@ -1,0 +1,62 @@
+## Inspired by;
+## "The Different Aspects of Monads and Mixins" by Bruno C. d. S. Oliveira
+
+(.module:
+  [lux #*
+   [abstract
+    [hash (#+ Hash)]
+    [monad (#+ do)]]
+   [control
+    ["." state (#+ State)]]
+   [data
+    ["." product]
+    [collection
+     ["." dictionary (#+ Dictionary)]]]]
+  ["." // #_
+   ["#" mixin (#+ Mixin Recursive)]])
+
+(def: #export memoization
+  (All [i o]
+    (Mixin (-> i (State (Dictionary i o) o))))
+  (function (_ delegate recur)
+    (function (_ input)
+      (do state.monad
+        [memory state.get]
+        (case (dictionary.get input memory)
+          (#.Some output)
+          (wrap output)
+
+          #.None
+          (do @
+            [output (delegate input)
+             _ (state.update (dictionary.put input output))]
+            (wrap output)))))))
+
+(type: #export (Memo i o)
+  (Recursive i (State (Dictionary i o) o)))
+
+(def: #export (open memo)
+  {#.doc (doc "Memoization where the memoized results can be re-used accross invocations.")}
+  (All [i o]
+    (-> (Memo i o) (-> [(Dictionary i o) i] [(Dictionary i o) o])))
+  (let [memo (//.mixin (//.inherit ..memoization (//.from-recursive memo)))]
+    (function (_ [memory input])
+      (|> input memo (state.run memory)))))
+
+(def: #export (closed hash memo)
+  {#.doc (doc "Memoization confined to a single invocation to the function (not counting any subsequent recursive invocations)."
+              "Memoized results will be re-used during recursive invocations, but cannot be accessed after the main invocation has ended.")}
+  (All [i o]
+    (-> (Hash i) (Memo i o) (-> i o)))
+  (let [memo (//.mixin (//.inherit ..memoization (//.from-recursive memo)))
+        empty (dictionary.new hash)]
+    (|>> memo (state.run empty) product.right)))
+
+(def: #export (none hash memo)
+  {#.doc (doc "No memoization at all."
+              "This is useful as a test control when measuring the effect of using memoization.")}
+  (All [i o]
+    (-> (Hash i) (Memo i o) (-> i o)))
+  (let [memo (//.mixin (//.from-recursive memo))
+        empty (dictionary.new hash)]
+    (|>> memo (state.run empty) product.right)))
