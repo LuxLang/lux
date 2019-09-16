@@ -245,7 +245,7 @@ Called by `imenu--generic-function'."
                     (control//contract (altRE "pre" "post"))
                     ;; Type
                     (type//syntax (altRE "|" "&" "->" "All" "Ex" "Rec" "primitive" "\\$" "type"))
-                    (type//checking (altRE ":" ":coerce" ":~" ":assume" ":of" ":cast" ":share" ":by-example" ":hole"))
+                    (type//checking (altRE ":" ":coerce" ":let" ":~" ":assume" ":of" ":cast" ":share" ":by-example" ":hole"))
                     (type//abstract (altRE "abstract:" ":abstraction" ":representation" ":transmutation" "\\^:representation"))
                     (type//unit (altRE "unit:" "scale:"))
                     (type//poly (altRE "poly:" "derived:"))
@@ -433,6 +433,7 @@ This function also returns nil meaning don't specify the indentation."
 (define-lux-indent
   (function 'defun)
   (let 'defun)
+  (:let 'defun)
   (case 'defun)
   (do 'defun)
   (exec 'defun)
