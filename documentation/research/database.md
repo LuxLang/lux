@@ -1,12 +1,12 @@
 # Reference
 
+1. ["Temporal Databases for Streaming Architectures" by Jeremy Taylor and Jon Pither](https://www.youtube.com/watch?v=ykbYNBE-V3k)
+1. ["Makings of a Modern ACID Compliant Distributed Database" by Attila Szegedi](https://www.youtube.com/watch?v=pn8mCeX3LDE)
 1. https://edgedb.com/blog/a-path-to-a-10x-database/
 1. https://cstack.github.io/db_tutorial/
 1. http://www.sql-workbench.eu/dbms_comparison.html
 1. http://www.interdb.jp/pg/index.html
-1. Foundations of Databases
-
-	http://webdam.inria.fr/Alice/
+1. [Foundations of Databases](http://webdam.inria.fr/Alice/)
 1. https://medium.com/textileio/building-the-firebase-for-crdts-7dd8dea8953a
 
 # Query

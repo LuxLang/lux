@@ -21,6 +21,7 @@
 
 # Topology
 
+1. [What is Topology?](https://medium.com/cantors-paradise/what-is-topology-963ef4cc6365)
 1. [Pointless topology](https://en.wikipedia.org/wiki/Pointless_topology)
 1. [ELEMENTARY APPLIED TOPOLOGY](https://www.math.upenn.edu/~ghrist/notes.html)
 

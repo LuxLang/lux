@@ -9,6 +9,7 @@
 
 # Zero-knowledge proof
 
+1. ["Rhapsody in Zero Knowledge: Proving Without Revealing" by Tony Arcieri](https://www.youtube.com/watch?v=jKSz7W5dTgY)
 1. [Zero-Knowledge Proofs: What are they, how do they work, and are they fast yet?](https://zkp.science/)
 
 # Hash

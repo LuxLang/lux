@@ -48,6 +48,7 @@
 
 # Programming language
 
+1. ["Unison: a new distributed programming language" by Paul Chiusano](https://www.youtube.com/watch?v=gCWtkvDQ2ZI)
 1. http://radicle.xyz/
 1. [Lambda World 2018 - Introduction to the Unison programming language - Rúnar Bjarnason](https://www.youtube.com/watch?v=rp_Eild1aq8)
 1. https://www.infoq.com/presentations/language-design-process
