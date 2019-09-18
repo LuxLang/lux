@@ -11,6 +11,7 @@
     [security
      ["!" capability]]]
    [data
+    [binary (#+ Binary)]
     ["." product]
     ["." text
      ["%" format (#+ format)]]
@@ -21,7 +22,7 @@
    [time
     ["." instant (#+ Instant)]]
    [world
-    ["." file (#+ File)]
+    ["." file (#+ File Path)]
     ["." console]]
    [tool
     [compiler
@@ -34,9 +35,7 @@
       ["." platform (#+ Platform)]
       ["." syntax]]
      [meta
-      ["." archive (#+ Archive)]
-      [packager
-       ["." script]]]]
+      ["." archive (#+ Archive)]]]
     ## ["." interpreter]
     ]]
   [/
@@ -57,10 +56,11 @@
       (#try.Success output)
       (wrap output))))
 
-(def: (save-artifacts! system state)
+(def: (save-artifacts! system state [packager package])
   (All [anchor expression directive]
     (-> (file.System IO)
         (directive.State+ anchor expression directive)
+        [(-> (generation.Output directive) Binary) Path]
         (IO (Try Any))))
   (let [?outcome (phase.run' state
                              (:share [anchor expression directive]
@@ -73,13 +73,14 @@
       (#try.Success [state output])
       (do (try.with io.monad)
         [file (: (IO (Try (File IO)))
-                 (file.get-file io.monad system "program.js"))]
-        (!.use (:: file over-write) (script.package output)))
+                 (file.get-file io.monad system package))]
+        (!.use (:: file over-write) (packager output)))
 
       (#try.Failure error)
       (:: io.monad wrap (#try.Failure error)))))
 
-(def: #export (compiler target partial-host-extension expander host-analysis platform generation-bundle host-directive-bundle program service)
+(def: #export (compiler target partial-host-extension expander host-analysis platform generation-bundle host-directive-bundle program service
+                        packager,package)
   (All [anchor expression directive]
     (-> Text
         Text
@@ -90,6 +91,7 @@
         (directive.Bundle anchor expression directive)
         (-> expression directive)
         Service
+        [(-> (generation.Output directive) Binary) Path]
         (IO Any)))
   (do io.monad
     [platform platform
@@ -108,7 +110,7 @@
                                       platform}
                                      {(IO (Try [Archive (directive.State+ anchor expression directive)]))
                                       (platform.compile partial-host-extension expander platform configuration archive.empty state)})
-             _ (save-artifacts! (get@ #platform.&file-system platform) state)
+             _ (save-artifacts! (get@ #platform.&file-system platform) state packager,package)
              ## _ (cache/io.clean target ...)
              ]
             (wrap (log! "Compilation complete!"))))
