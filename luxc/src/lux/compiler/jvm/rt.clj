@@ -68,33 +68,33 @@
 
 ;; Runtime infrastructure
 (defn ^:private compile-LuxRT-adt-methods [^ClassWriter =class]
-  (|let [lefts #(doto %
+  (|let [lefts #(doto ^MethodVisitor %
                   (.visitVarInsn Opcodes/ILOAD 1))
-         tuple-size #(doto %
+         tuple-size #(doto ^MethodVisitor %
                        (.visitVarInsn Opcodes/ALOAD 0)
                        (.visitInsn Opcodes/ARRAYLENGTH))
-         last-right #(doto %
+         last-right #(doto ^MethodVisitor %
                        tuple-size
                        (.visitLdcInsn (int 1))
                        (.visitInsn Opcodes/ISUB))
-         sub-lefts #(doto %
+         sub-lefts #(doto ^MethodVisitor %
                       lefts
                       last-right
                       (.visitInsn Opcodes/ISUB))
-         sub-tuple #(doto %
+         sub-tuple #(doto ^MethodVisitor %
                       (.visitVarInsn Opcodes/ALOAD 0)
                       last-right
                       (.visitInsn Opcodes/AALOAD)
                       (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;"))
          recurI (fn [$begin]
-                  #(doto %
+                  #(doto ^MethodVisitor %
                      sub-lefts (.visitVarInsn Opcodes/ISTORE 1)
                      sub-tuple (.visitVarInsn Opcodes/ASTORE 0)
                      (.visitJumpInsn Opcodes/GOTO $begin)))
          _ (let [$begin (new Label)
                  $recursive (new Label)
                  left-index lefts
-                 left-access #(doto %
+                 left-access #(doto ^MethodVisitor %
                                 (.visitVarInsn Opcodes/ALOAD 0)
                                 left-index
                                 (.visitInsn Opcodes/AALOAD))]
@@ -111,15 +111,15 @@
          _ (let [$begin (new Label)
                  $not-last (new Label)
                  $must-copy (new Label)
-                 right-index #(doto %
+                 right-index #(doto ^MethodVisitor %
                                 lefts
                                 (.visitLdcInsn (int 1))
                                 (.visitInsn Opcodes/IADD))
-                 right-access #(doto %
+                 right-access #(doto ^MethodVisitor %
                                  (.visitVarInsn Opcodes/ALOAD 0)
                                  (.visitInsn Opcodes/SWAP)
                                  (.visitInsn Opcodes/AALOAD))
-                 sub-right #(doto %
+                 sub-right #(doto ^MethodVisitor %
                               (.visitVarInsn Opcodes/ALOAD 0)
                               right-index
                               tuple-size
@@ -289,12 +289,12 @@
   ^:private compile-LuxRT-frac-methods "decode_frac" "java/lang/Double" "parseDouble" "(Ljava/lang/String;)D" &&/wrap-double
   )
 
-(defn peekI [writer]
+(defn peekI [^MethodVisitor writer]
   (doto writer
     (.visitLdcInsn (int 0))
     (.visitInsn Opcodes/AALOAD)))
 
-(defn popI [writer]
+(defn popI [^MethodVisitor writer]
   (doto writer
     (.visitLdcInsn (int 1))
     (.visitInsn Opcodes/AALOAD)
@@ -386,12 +386,12 @@
               _ (let [$from (new Label)
                       $to (new Label)
                       $handler (new Label)
-                      make-string-writerI (fn [_method_]
+                      make-string-writerI (fn [^MethodVisitor _method_]
                                             (doto _method_
                                               (.visitTypeInsn Opcodes/NEW "java/io/StringWriter")
                                               (.visitInsn Opcodes/DUP)
                                               (.visitMethodInsn Opcodes/INVOKESPECIAL "java/io/StringWriter" "<init>" "()V")))
-                      make-print-writerI (fn [_method_]
+                      make-print-writerI (fn [^MethodVisitor _method_]
                                            (doto _method_
                                              ;; W
                                              (.visitTypeInsn Opcodes/NEW "java/io/PrintWriter") ;; WP

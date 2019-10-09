@@ -20,6 +20,7 @@
 
   :manifest {"lux" ~version}
   :source-paths ["source"]
+  :dependencies [[com.github.luxlang/luxc-jvm ~version]]
   :profiles {:bibliotheca {:description "Standard library for the Lux programming language."
                            :dependencies []
                            :lux {:test "test/lux"}}

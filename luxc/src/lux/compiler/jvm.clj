@@ -118,15 +118,9 @@
     ))
 
 (defn init!
-  "(-> (List Text) Null)"
-  [resources-dirs ^String target-dir]
-  (do (reset! !source->last-line {})
-    (let [class-loader (ClassLoader/getSystemClassLoader)
-          addURL (doto (.getDeclaredMethod java.net.URLClassLoader "addURL" (into-array [java.net.URL]))
-                   (.setAccessible true))]
-      (doseq [^String resources-dir (&/->seq resources-dirs)]
-        (.invoke addURL class-loader
-                 (to-array [(->> resources-dir (new java.io.File) .toURI .toURL)]))))))
+  "(-> Null)"
+  []
+  (reset! !source->last-line {}))
 
 (defn eval! [expr]
   (&/with-eval
@@ -180,7 +174,7 @@
 
 (let [+field-flags+ (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC)
       +datum-sig+ "Ljava/lang/Object;"]
-  (defn compile-module [source-dirs name]
+  (defn compile-module [compile-module source-dirs name]
     (|do [[file-name file-content] (&&io/read-file source-dirs name)
           :let [file-hash (hash file-content)
                 compile-module!! (&&parallel/parallel-compilation (partial compile-module source-dirs))]]
@@ -242,13 +236,13 @@
                   ]))))
 
 (let [!err! *err*]
-  (defn compile-program [mode program-module resources-dir source-dirs target-dir]
+  (defn compile-program [mode program-module dependencies source-dirs]
     (let [m-action (|do [_ (&&cache/pre-load-cache! source-dirs
                                                     &&jvm-cache/load-def-value
                                                     &&jvm-cache/install-all-defs-in-module
                                                     &&jvm-cache/uninstall-all-defs-in-module)
-                         _ (compile-module source-dirs "lux")]
-                     (compile-module source-dirs program-module))]
+                         _ (compile-module dependencies source-dirs "lux")]
+                     (compile-module dependencies source-dirs program-module))]
       (|case (m-action (&/init-state "{old}" mode (jvm-host)))
         (&/$Right ?state _)
         (do (println "Compilation complete!")

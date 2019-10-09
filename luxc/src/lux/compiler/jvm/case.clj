@@ -111,9 +111,9 @@
 
     (&o/$TuplePM (&/$Left lefts))
     (let [accessI (if (= 0 lefts)
-                    #(doto %
+                    #(doto ^MethodVisitor %
                        (.visitInsn Opcodes/AALOAD))
-                    #(doto %
+                    #(doto ^MethodVisitor %
                        (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "tuple_left" "([Ljava/lang/Object;I)Ljava/lang/Object;")))]
       (doto writer
         stack-peek

@@ -7,16 +7,12 @@
 (def ^:private !libs (atom nil))
 
 ;; [Resources]
-(defn init-libs! []
-  (reset! !libs (&lib/load)))
+(defn init-libs! [dependencies]
+  (reset! !libs (&lib/load dependencies)))
 
 (defn read-file [source-dirs module-name]
-  (|do [jvm? &/jvm?
-        js? &/js?
-        :let [^String host-file-name (cond jvm? (str module-name ".old.lux")
-                                           js? (str module-name ".js.lux")
-                                           :else (assert false "[I/O Error] Unknown host platform."))
-              ^String lux-file-name (str module-name ".lux")]]
+  (let [^String host-file-name (str module-name ".old.lux")
+        ^String lux-file-name (str module-name ".lux")]
     (|case (&/|some (fn [^String source-dir]
                       (let [host-file (new java.io.File source-dir host-file-name)
                             lux-file (new java.io.File source-dir lux-file-name)]

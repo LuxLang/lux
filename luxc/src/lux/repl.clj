@@ -19,8 +19,8 @@
 (defn ^:private repl-cursor [repl-line]
   (&/T [repl-module repl-line 0]))
 
-(defn ^:private init [resources-dirs source-dirs target-dir]
-  (do (&compiler/init! resources-dirs target-dir)
+(defn ^:private init [source-dirs]
+  (do (&compiler/init!)
     (|case ((|do [_ (&compiler/compile-module source-dirs "lux")
                   _ (&cache/delete repl-module)
                   _ (&module/create-module repl-module 0)
@@ -47,9 +47,9 @@
     ))
 
 ;; [Values]
-(defn repl [resources-dirs source-dirs target-dir]
+(defn repl [dependencies source-dirs target-dir]
   (with-open [input (->> System/in (new InputStreamReader) (new BufferedReader))]
-    (loop [state (init resources-dirs source-dirs target-dir)
+    (loop [state (init source-dirs)
            repl-line 0
            multi-line? false]
       (let [_ (if (not multi-line?)

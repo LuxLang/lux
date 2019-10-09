@@ -9,14 +9,6 @@
            java.util.jar.JarInputStream))
 
 ;; [Utils]
-(defn ^:private fetch-libs []
-  (->> ^java.net.URLClassLoader (ClassLoader/getSystemClassLoader)
-       (.getURLs)
-       seq
-       (map #(.getFile ^java.net.URL %))
-       (filter #(.endsWith ^String % ".jar"))
-       (map #(new File ^String %))))
-
 (let [init-capacity (* 100 1024)
       buffer-size 1024]
   (defn ^:private ^"[B" read-stream [^InputStream is]
@@ -43,7 +35,9 @@
         lib-data))))
 
 ;; [Exports]
-(defn load []
-  (->> (fetch-libs)
-       (map unpackage)
+(defn load [dependencies]
+  (prn `load (&/->seq dependencies))
+  (->> dependencies
+       &/->seq
+       (map #(->> ^String % (new File) unpackage))
        (reduce merge {})))

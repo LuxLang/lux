@@ -88,7 +88,7 @@
     *writer*))
 
 ;; [Resources]
-(defn ^:private compile-annotation [writer ann]
+(defn ^:private compile-annotation [^ClassWriter writer ann]
   (doto ^AnnotationVisitor (.visitAnnotation writer (&host-generics/->type-signature (:name ann)) true)
         (-> (.visit param-name param-value)
             (->> (|let [[param-name param-value] param])

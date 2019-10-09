@@ -97,7 +97,7 @@
 (defn ^:private process-def-entry [load-def-value module ^String _def-entry]
   (let [parts (.split _def-entry &&core/datum-separator)]
     (case (alength parts)
-      2 (let [[_name _alias] parts
+      2 (let [[_name ^String _alias] parts
               [__module __name] (.split _alias &/+name-separator+)]
           (&a-module/define-alias module _name (&/T [__module __name])))
       4 (let [[_name _exported? _type _anns] parts
