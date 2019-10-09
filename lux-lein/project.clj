@@ -3,9 +3,7 @@
   :url "https://github.com/LuxLang/lein-luxc"
   :license {:name "Lux License v0.1"
             :url "https://github.com/LuxLang/lux/blob/master/license.txt"}
-  :dependencies [[org.clojure/clojure "1.6.0"]
-                 [com.github.luxlang/luxc-jvm "0.6.0-SNAPSHOT"]
-                 [com.github.luxlang/stdlib "0.6.0-SNAPSHOT"]]
+  :dependencies [[org.clojure/clojure "1.6.0"]]
   :deploy-repositories [["releases" {:url "https://oss.sonatype.org/service/local/staging/deploy/maven2/"
                                      :creds :gpg}]
                         ["snapshots" {:url "https://oss.sonatype.org/content/repositories/snapshots/"

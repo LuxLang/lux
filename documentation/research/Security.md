@@ -1,3 +1,7 @@
+# Return-oriented programming
+
+1. https://github.com/immunant/selfrando
+
 # Static analysis
 
 1. [Cam Tenny - Beyond the Paper - End-to-End Program Analysis](https://www.youtube.com/watch?v=hmDz0Rv6hKI)

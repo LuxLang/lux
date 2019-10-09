@@ -25,13 +25,25 @@
                      (.substring path 1)
                      path))))
 
-(def ^:private stdlib-id ["com.github.luxlang" "stdlib"])
+(defn ^:private project-id [project]
+  [(get project :group) (get project :name)])
 
-(defn ^:private all-jars-in-classloader []
-  (->> ^java.net.URLClassLoader (ClassLoader/getSystemClassLoader)
-       (.getURLs)
-       (map #(.getFile ^java.net.URL %))
-       (filter #(.endsWith ^String % ".jar"))))
+(def ^:private lux-group "com.github.luxlang")
+(def ^:private compiler-id [lux-group "luxc-jvm"])
+(def ^:private stdlib-id [lux-group "stdlib"])
+
+(defn ^:private id-path
+  "(-> Project-ID Text)"
+  [[group name]]
+  (str (.replace group "." "/") "/" name))
+
+(def ^:private compiler-path (id-path compiler-id))
+(def ^:private stdlib-path (id-path stdlib-id))
+
+(defn ^:private project-jars [project]
+  (->> project
+       classpath/get-classpath
+       (filter #(.endsWith % ".jar"))))
 
 (do-template [<name> <path>]
   (defn <name> [jar-paths]
@@ -42,54 +54,70 @@
               nil))
           jar-paths))
 
-  ^:private find-compiler-path (sanitize-path "com/github/luxlang/luxc-jvm")
-  ^:private find-stdlib-path   (sanitize-path "com/github/luxlang/stdlib")
+  ^:private find-compiler-path (sanitize-path compiler-path)
+  ^:private find-stdlib-path   (sanitize-path stdlib-path)
   )
 
-(defn ^:private filter-deps [jar-paths]
-  (filter (fn [^:private path]
-            (or (.contains path (sanitize-path "org/ow2/asm/asm-all"))
-                (.contains path (sanitize-path "org/clojure/core.match"))
-                (.contains path (sanitize-path "org/clojure/clojure"))))
-          jar-paths))
+(defn ^:private compiler-dependency? [path]
+  (or (.contains path (sanitize-path "org/ow2/asm/asm-all"))
+      (.contains path (sanitize-path "org/clojure/core.match"))
+      (.contains path (sanitize-path "org/clojure/clojure"))
+      (.contains path (sanitize-path compiler-path))))
+
+(defn ^:private filter-compiler-dependencies [jar-paths]
+  (filter compiler-dependency? jar-paths))
 
 (defn ^:private java-command [project]
   (str (get project :java-cmd "java")
        " " (->> (get project :jvm-opts) (interpose " ") (reduce str ""))
        " " vm-options))
 
-(defn ^:private lux-command [project mode source-paths]
+(defn ^:private join-paths [paths]
+  (->> paths
+       (interpose unit-separator)
+       (apply str)
+       (str unit-separator)))
+
+(defn ^:private lux-command [project mode program-dependencies source-paths]
   (str "lux " mode
-       " " (->> (get project :resource-paths (list)) (interpose unit-separator) (apply str))
-       " " (->> source-paths (interpose unit-separator) (apply str))
+       " " (join-paths program-dependencies)
+       " " (join-paths source-paths)
        " " (get project :target-path default-target-dir)))
 
 (do-template [<name> <mode>]
   (defn <name> [project module source-paths]
-    (let [is-stdlib? (= stdlib-id [(get project :group) (get project :name)])
-          jar-paths (all-jars-in-classloader)
-          compiler-path (prepare-path (find-compiler-path jar-paths))
-          stdlib-path (prepare-path (find-stdlib-path jar-paths))
+    (let [is-stdlib? (= stdlib-id
+                        (project-id project))
+          raw-paths (project-jars project)
+          compiler-path (prepare-path (find-compiler-path raw-paths))
+          stdlib-path (when (not is-stdlib?)
+                        (prepare-path (find-stdlib-path raw-paths)))
           sdk-path (get-in project [:lux :android :sdk])
-          android-path (str sdk-path java.io.File/separator "platforms" java.io.File/separator "android-" (get-in project [:lux :android :version]) java.io.File/separator "android.jar")
-          deps-paths (let [deps (map prepare-path
-                                     (filter-deps jar-paths))
-                           with-android (if (.exists (new File android-path))
-                                          (cons android-path deps)
-                                          deps)
-                           with-stdlib (if is-stdlib?
-                                         with-android
-                                         (list* stdlib-path with-android))]
-                       with-stdlib)
-          class-path (->> (classpath/get-classpath project)
-                          (filter #(.endsWith % ".jar"))
-                          (concat deps-paths)
+          android-path (str sdk-path
+                            java.io.File/separator "platforms"
+                            java.io.File/separator "android-"
+                            (get-in project [:lux :android :version])
+                            java.io.File/separator "android.jar")
+          compiler-dependencies (let [compiler-dependencies (->> raw-paths
+                                                                 (filter compiler-dependency?)
+                                                                 (map prepare-path))
+                                      with-android (if (.exists (new File android-path))
+                                                     (cons android-path compiler-dependencies)
+                                                     compiler-dependencies)]
+                                  with-android)
+          program-dependencies (let [deps (->> raw-paths
+                                               (filter (complement compiler-dependency?))
+                                               (map prepare-path))]
+                                 (if is-stdlib?
+                                   deps
+                                   (list* stdlib-path deps)))
+          class-path (->> compiler-dependencies
                           (list* compiler-path)
                           (interpose java.io.File/pathSeparator)
                           (reduce str "")
                           sanitize-path)]
       (str (java-command project) " -cp " class-path
-           " " (lux-command project <mode> source-paths))))
+           " " (lux-command project <mode> program-dependencies source-paths))))
 
   compile-path (str "release " module)
   repl-path    "repl"
