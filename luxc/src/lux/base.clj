@@ -965,7 +965,7 @@
 (let [!out! *out*]
   (defn |log! [& parts]
     (binding [*out* !out!]
-      (do (print (apply str parts))
+      (do (print (str (apply str parts) "\n"))
         (flush)))))
 
 (defn |last [xs]
@@ -1480,7 +1480,7 @@
         ($Right state* output)
         (let [post (System/currentTimeMillis)
               duration (- post pre)
-              _ (|log! (str what " [" when "]: +" duration "ms" "\n"))]
+              _ (|log! (str what " [" when "]: +" duration "ms"))]
           ($Right (T [state* output])))
 
         ($Left ^String msg)

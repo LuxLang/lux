@@ -174,7 +174,7 @@
 
 (let [+field-flags+ (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_STATIC)
       +datum-sig+ "Ljava/lang/Object;"]
-  (defn compile-module [compile-module source-dirs name]
+  (defn compile-module [source-dirs name]
     (|do [[file-name file-content] (&&io/read-file source-dirs name)
           :let [file-hash (hash file-content)
                 compile-module!! (&&parallel/parallel-compilation (partial compile-module source-dirs))]]
@@ -217,9 +217,9 @@
     (proxy [java.lang.ClassLoader]
       []
       (findClass [^String class-name]
-        (if-let [^bytes bytecode (get @store class-name)]
-          (.invoke define-class this (to-array [class-name bytecode (int 0) (int (alength bytecode))]))
-          (throw (IllegalStateException. (str "[Class Loader] Unknown class: " class-name))))))))
+                 (if-let [^bytes bytecode (get @store class-name)]
+                   (.invoke define-class this (to-array [class-name bytecode (int 0) (int (alength bytecode))]))
+                   (throw (IllegalStateException. (str "[Class Loader] Unknown class: " class-name))))))))
 
 (defn jvm-host []
   (let [store (atom {})]
@@ -236,13 +236,13 @@
                   ]))))
 
 (let [!err! *err*]
-  (defn compile-program [mode program-module dependencies source-dirs]
+  (defn compile-program [mode program-module source-dirs]
     (let [m-action (|do [_ (&&cache/pre-load-cache! source-dirs
                                                     &&jvm-cache/load-def-value
                                                     &&jvm-cache/install-all-defs-in-module
                                                     &&jvm-cache/uninstall-all-defs-in-module)
-                         _ (compile-module dependencies source-dirs "lux")]
-                     (compile-module dependencies source-dirs program-module))]
+                         _ (compile-module source-dirs "lux")]
+                     (compile-module source-dirs program-module))]
       (|case (m-action (&/init-state "{old}" mode (jvm-host)))
         (&/$Right ?state _)
         (do (println "Compilation complete!")

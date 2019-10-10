@@ -54,20 +54,20 @@ cd ~/lux/lux-lein/ && lein install
 ## Test
 
 ```
-cd ~/lux/stdlib/ && lein clean && lein_2_7_1 with-profile bibliotheca lux auto test
-cd ~/lux/stdlib/ && lein_2_7_1 with-profile bibliotheca lux auto test
+cd ~/lux/stdlib/ && lein clean && lein with-profile bibliotheca lux auto test
+cd ~/lux/stdlib/ && lein with-profile bibliotheca lux auto test
 ```
 
 ## Install
 
 ```
-cd ~/lux/stdlib/ && lein_2_7_1 install
+cd ~/lux/stdlib/ && lein install
 ```
 
 ## Generate documentation
 
 ```
-cd ~/lux/stdlib/ && lein_2_7_1 with-profile scriptum lux auto build
+cd ~/lux/stdlib/ && lein with-profile scriptum lux auto build
 ```
 
 ---
@@ -77,13 +77,13 @@ cd ~/lux/stdlib/ && lein_2_7_1 with-profile scriptum lux auto build
 ## Build
 
 ```
-cd ~/lux/stdlib/ && lein_2_7_1 with-profile licentia lux auto build
+cd ~/lux/stdlib/ && lein with-profile licentia lux auto build
 ```
 
 ## Test
 
 ```
-cd ~/lux/stdlib/ && lein_2_7_1 with-profile licentia lux auto test
+cd ~/lux/stdlib/ && lein with-profile licentia lux auto test
 ```
 
 ## Run
@@ -99,15 +99,15 @@ cd ~/lux/stdlib/ && java -jar target/program.jar --input ../license.json --outpu
 ## Test
 
 ```
-cd ~/lux/lux-js/ && lein_2_7_1 lux auto test
-cd ~/lux/lux-js/ && lein clean && lein_2_7_1 lux auto test
+cd ~/lux/lux-js/ && lein lux auto test
+cd ~/lux/lux-js/ && lein clean && lein lux auto test
 ```
 
 ## Build
 
 ```
-cd ~/lux/lux-js/ && lein_2_7_1 lux auto build
-cd ~/lux/lux-js/ && lein clean && lein_2_7_1 lux auto build
+cd ~/lux/lux-js/ && lein lux auto build
+cd ~/lux/lux-js/ && lein clean && lein lux auto build
 ```
 
 ## Try
@@ -123,15 +123,15 @@ cd ~/lux/lux-js/ && time java -jar target/program.jar build --source ~/lux/stdli
 ## Test
 
 ```
-cd ~/lux/lux-python/ && lein_2_7_1 lux auto test
-cd ~/lux/lux-python/ && lein clean && lein_2_7_1 lux auto test
+cd ~/lux/lux-python/ && lein lux auto test
+cd ~/lux/lux-python/ && lein clean && lein lux auto test
 ```
 
 ## Build
 
 ```
-cd ~/lux/lux-python/ && lein_2_7_1 lux auto build
-cd ~/lux/lux-python/ && lein clean && lein_2_7_1 lux auto build
+cd ~/lux/lux-python/ && lein lux auto build
+cd ~/lux/lux-python/ && lein clean && lein lux auto build
 ```
 
 ## Try
@@ -147,15 +147,15 @@ cd ~/lux/lux-python/ && java -jar target/program.jar build --source ~/lux/stdlib
 ## Test
 
 ```
-cd ~/lux/lux-lua/ && lein_2_7_1 lux auto test
-cd ~/lux/lux-lua/ && lein clean && lein_2_7_1 lux auto test
+cd ~/lux/lux-lua/ && lein lux auto test
+cd ~/lux/lux-lua/ && lein clean && lein lux auto test
 ```
 
 ## Build
 
 ```
-cd ~/lux/lux-lua/ && lein_2_7_1 lux auto build
-cd ~/lux/lux-lua/ && lein clean && lein_2_7_1 lux auto build
+cd ~/lux/lux-lua/ && lein lux auto build
+cd ~/lux/lux-lua/ && lein clean && lein lux auto build
 ```
 
 ## Try
@@ -171,15 +171,15 @@ cd ~/lux/lux-lua/ && java -jar target/program.jar build --source ~/lux/stdlib/so
 ## Test
 
 ```
-cd ~/lux/lux-ruby/ && lein_2_7_1 lux auto test
-cd ~/lux/lux-ruby/ && lein clean && lein_2_7_1 lux auto test
+cd ~/lux/lux-ruby/ && lein lux auto test
+cd ~/lux/lux-ruby/ && lein clean && lein lux auto test
 ```
 
 ## Build
 
 ```
-cd ~/lux/lux-ruby/ && lein_2_7_1 lux auto build
-cd ~/lux/lux-ruby/ && lein clean && lein_2_7_1 lux auto build
+cd ~/lux/lux-ruby/ && lein lux auto build
+cd ~/lux/lux-ruby/ && lein clean && lein lux auto build
 ```
 
 ## Try
@@ -195,15 +195,15 @@ cd ~/lux/lux-ruby/ && java -jar target/program.jar build --source ~/lux/stdlib/s
 ## Test
 
 ```
-cd ~/lux/lux-php/ && lein_2_7_1 lux auto test
-cd ~/lux/lux-php/ && lein clean && lein_2_7_1 lux auto test
+cd ~/lux/lux-php/ && lein lux auto test
+cd ~/lux/lux-php/ && lein clean && lein lux auto test
 ```
 
 ## Build
 
 ```
-cd ~/lux/lux-php/ && lein_2_7_1 lux auto build
-cd ~/lux/lux-php/ && lein clean && lein_2_7_1 lux auto build
+cd ~/lux/lux-php/ && lein lux auto build
+cd ~/lux/lux-php/ && lein clean && lein lux auto build
 ```
 
 ## Try
@@ -219,15 +219,15 @@ cd ~/lux/lux-php/ && java -jar target/program.jar build --source ~/lux/stdlib/so
 ## Test
 
 ```
-cd ~/lux/lux-cl/ && lein_2_7_1 lux auto test
-cd ~/lux/lux-cl/ && lein clean && lein_2_7_1 lux auto test
+cd ~/lux/lux-cl/ && lein lux auto test
+cd ~/lux/lux-cl/ && lein clean && lein lux auto test
 ```
 
 ## Build
 
 ```
-cd ~/lux/lux-cl/ && lein_2_7_1 lux auto build
-cd ~/lux/lux-cl/ && lein clean && lein_2_7_1 lux auto build
+cd ~/lux/lux-cl/ && lein lux auto build
+cd ~/lux/lux-cl/ && lein clean && lein lux auto build
 ```
 
 ## Try
@@ -243,15 +243,15 @@ cd ~/lux/lux-cl/ && java -jar target/program.jar build --source ~/lux/stdlib/sou
 ## Test
 
 ```
-cd ~/lux/lux-scheme/ && lein_2_7_1 lux auto test
-cd ~/lux/lux-scheme/ && lein clean && lein_2_7_1 lux auto test
+cd ~/lux/lux-scheme/ && lein lux auto test
+cd ~/lux/lux-scheme/ && lein clean && lein lux auto test
 ```
 
 ## Build
 
 ```
-cd ~/lux/lux-scheme/ && lein_2_7_1 lux auto build
-cd ~/lux/lux-scheme/ && lein clean && lein_2_7_1 lux auto build
+cd ~/lux/lux-scheme/ && lein lux auto build
+cd ~/lux/lux-scheme/ && lein clean && lein lux auto build
 ```
 
 ## Try
@@ -267,15 +267,15 @@ cd ~/lux/lux-scheme/ && java -jar target/program.jar build --source ~/lux/stdlib
 ## Test
 
 ```
-cd ~/lux/new-luxc/ && lein_2_7_1 lux auto test
-cd ~/lux/new-luxc/ && lein clean && lein_2_7_1 lux auto test
+cd ~/lux/new-luxc/ && lein lux auto test
+cd ~/lux/new-luxc/ && lein clean && lein lux auto test
 ```
 
 ## Build
 
 ```
-cd ~/lux/new-luxc/ && lein_2_7_1 lux auto build
-cd ~/lux/new-luxc/ && lein clean && lein_2_7_1 lux auto build
+cd ~/lux/new-luxc/ && lein lux auto build
+cd ~/lux/new-luxc/ && lein clean && lein lux auto build
 ```
 
 # REPL

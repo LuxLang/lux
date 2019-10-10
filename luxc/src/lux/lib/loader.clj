@@ -36,7 +36,6 @@
 
 ;; [Exports]
 (defn load [dependencies]
-  (prn `load (&/->seq dependencies))
   (->> dependencies
        &/->seq
        (map #(->> ^String % (new File) unpackage))

@@ -395,7 +395,7 @@
               ;;           (->> macro-expansion
               ;;                (&/|map (fn [ast] (str (&/show-ast ast) "\n")))
               ;;                (&/fold str "")
-              ;;                (&/|log! (str 'macro-expansion " " (&/ident->text real-name) " @ " module-name "\n"))))]
+              ;;                (&/|log! (str 'macro-expansion " " (&/ident->text real-name) " @ " module-name))))]
               ]
           (&/flat-map% (partial analyse exo-type) macro-expansion))
         (do-analyse-apply analyse exo-type =fn ?args)))

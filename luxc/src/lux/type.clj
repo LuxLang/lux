@@ -746,13 +746,13 @@
         [(&/$Apply A F) _]
         (let [fp-pair (&/T [expected actual])
               _ (when (> (&/|length fixpoints) max-stack-size)
-                  (&/|log! (println-str 'FIXPOINTS (->> (&/|keys fixpoints)
-                                                        (&/|map (fn [pair]
-                                                                  (|let [[e a] pair]
-                                                                    (str (show-type e) ":+:"
-                                                                         (show-type a)))))
-                                                        (&/|interpose "\n\n")
-                                                        (&/fold str ""))))
+                  (&/|log! (print-str 'FIXPOINTS (->> (&/|keys fixpoints)
+                                                      (&/|map (fn [pair]
+                                                                (|let [[e a] pair]
+                                                                  (str (show-type e) ":+:"
+                                                                       (show-type a)))))
+                                                      (&/|interpose "\n\n")
+                                                      (&/fold str ""))))
                   (assert false (prn-str 'check* '[(&/$Apply A F) _] (&/|length fixpoints) (show-type expected) (show-type actual))))]
           (|case (fp-get fp-pair fixpoints)
             (&/$Some ?)
