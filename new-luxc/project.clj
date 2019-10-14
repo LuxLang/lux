@@ -22,7 +22,9 @@
   :scm {:name "git"
         :url ~(str repo ".git")}
 
-  :dependencies [;; JVM Bytecode
+  :dependencies [[com.github.luxlang/luxc-jvm ~version]
+                 [com.github.luxlang/stdlib ~version]
+                 ;; JVM Bytecode
                  [org.ow2.asm/asm-all "5.0.3"]]
   
   :manifest {"lux" ~version}
