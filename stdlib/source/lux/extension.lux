@@ -1,0 +1,87 @@
+(.module:
+  [lux #*
+   [abstract
+    ["." monad]]
+   [control
+    ["<>" parser ("#@." monad)
+     ["<c>" code (#+ Parser)]
+     ["<a>" analysis]
+     ["<s>" synthesis]]]
+   [data
+    ["." product]
+    [collection
+     ["." list ("#@." functor)]]]
+   [macro (#+ with-gensyms)
+    ["." code]
+    [syntax (#+ syntax:)]]
+   [tool
+    [compiler
+     ["." phase]]]])
+
+(type: Input
+  {#variable Text
+   #parser Code})
+
+(def: (simple default)
+  (-> Code (Parser Input))
+  ($_ <>.and
+      <c>.local-identifier
+      (<>@wrap default)))
+
+(def: complex
+  (Parser Input)
+  (<c>.record ($_ <>.and
+                  <c>.local-identifier
+                  <c>.any)))
+
+(def: (input default)
+  (-> Code (Parser Input))
+  (<>.either (..simple default)
+             ..complex))
+
+(type: Declaration
+  {#name Code
+   #label Text
+   #phase Text
+   #inputs (List Input)})
+
+(def: (declaration default)
+  (-> Code (Parser Declaration))
+  (<c>.form ($_ <>.and
+                <c>.any
+                <c>.local-identifier
+                <c>.local-identifier
+                (<>.some (..input default)))))
+
+(template [<any> <end> <and> <run> <extension> <name>]
+  [(syntax: #export (<name>
+                     {[name extension phase inputs] (..declaration (` <any>))}
+                     body)
+     (let [g!parser (case (list@map product.right inputs)
+                      #.Nil
+                      (` <end>)
+                      
+                      parsers
+                      (` (.$_ <and> (~+ parsers))))
+           g!name (code.local-identifier extension)
+           g!phase (code.local-identifier phase)]
+       (with-gensyms [g!handler g!inputs g!error]
+         (wrap (list (` (<extension> (~ name)
+                                     (.function ((~ g!handler) (~ g!name) (~ g!phase) (~ g!inputs))
+                                       (.case ((~! <run>) (~ g!parser) (~ g!inputs))
+                                         (#.Right [(~+ (list@map (|>> product.left
+                                                                      code.local-identifier)
+                                                                 inputs))])
+                                         ((~! monad.do) (~! phase.monad)
+                                          []
+                                          (~ body))
+
+                                         (#.Left (~ g!error))
+                                         ((~! phase.fail) (~ g!error)))
+                                       ))))))))]
+
+  [<c>.any <c>.end! <c>.and <c>.run "lux def analysis" analysis:]
+  [<a>.any <a>.end! <a>.and <a>.run "lux def synthesis" synthesis:]
+  [<s>.any <s>.end! <s>.and <s>.run "lux def generation" generation:]
+  [<c>.any <c>.end! <c>.and <c>.run "lux def directive" directive:]
+  )

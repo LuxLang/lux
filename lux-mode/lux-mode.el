@@ -255,7 +255,7 @@ Called by `imenu--generic-function'."
 							(type//capability (altRE "capability:"))
 							;; Data
 							(data//record (altRE "get@" "set@" "update@"))
-							(data//signature (altRE "signature:" "structure:" "open:" "structure" "::"))
+							(data//signature (altRE "open:" "structure" "::"))
 							(data//implicit (altRE "implicit:" "implicit" ":::"))
 							(data//collection (altRE "list" "list&" "row" "tree"))
 							;; Code
@@ -268,7 +268,14 @@ Called by `imenu--generic-function'."
 							(alternative-format (altRE "char" "bin" "oct" "hex"))
 							(documentation (altRE "doc" "comment"))
 							(function-application (altRE "|>" "|>>" "<|" "<<|" "_\\$" "\\$_"))
-							(remember (altRE "remember" "to-do" "fix-me")))
+							(remember (altRE "remember" "to-do" "fix-me"))
+							(definition (altRE "\\.module:"
+											   "def:" "type:" "program:"
+											   "signature:" "structure:"
+											   "macro:" "syntax:"
+											   "exception:"
+											   "word:"
+											   "analysis:" "synthesis:" "generation:" "directive:")))
 						(let ((control (altRE control//flow
 											  control//pattern-matching
 											  control//logic
@@ -294,22 +301,19 @@ Called by `imenu--generic-function'."
 							type
 							data
 							code
-							;; ;;;;;;;;;;;;;;;;;;;;;;
+							;;;;;;;;;;;;;;;;;;;;;;;;
 							actor
 							jvm-host
 							alternative-format
 							documentation
 							function-application
 							remember
-							;; ;;;;;;;;;;;;;;;;;;;;;;
-							"\\.module:"
-							"def:" "type:" "program:"
-							"macro:" "syntax:"
+							definition
+							;;;;;;;;;;;;;;;;;;;;;;;;
 							"with-expansions"
-							"exception:"
-							"word:"
 							"function" "undefined" "name-of" "static"
-							"for" "io"
+							"for"
+							"io"
 							"infix"
 							"format"
 							"regex")

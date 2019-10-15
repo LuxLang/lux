@@ -1,5 +1,5 @@
 (.module:
-  [lux (#- function i64)
+  [lux (#- nat int rev)
    [abstract
     [monad (#+ do)]]
    [control
@@ -10,7 +10,9 @@
     ["." name]
     [number
      ["." i64]
-     ["n" nat]
+     ["." nat]
+     ["." int]
+     ["." rev]
      ["." frac]]
     ["." text
      ["%" format (#+ format)]]
@@ -20,28 +22,27 @@
     [compiler
      [reference (#+)]
      [arity (#+ Arity)]
-     [analysis (#+ Variant Tuple Environment)]
-     ["/" synthesis (#+ Synthesis Abstraction)]]]]
+     ["/" analysis (#+ Variant Tuple Environment Analysis)]]]]
   ["." //])
 
 (def: (remaining-inputs asts)
-  (-> (List Synthesis) Text)
+  (-> (List Analysis) Text)
   (format text.new-line "Remaining input: "
           (|> asts
-              (list@map /.%synthesis)
+              (list@map /.%analysis)
               (list.interpose " ")
               (text.join-with ""))))
 
 ## TODO: Use "type:" ASAP.
-(def: Input Type (type (List Synthesis)))
+(def: Input Type (type (List Analysis)))
 
 (exception: #export (cannot-parse {input ..Input})
   (exception.report
-   ["Input" (exception.enumerate /.%synthesis input)]))
+   ["Input" (exception.enumerate /.%analysis input)]))
 
 (exception: #export (unconsumed-input {input ..Input})
   (exception.report
-   ["Input" (exception.enumerate /.%synthesis input)]))
+   ["Input" (exception.enumerate /.%analysis input)]))
 
 (exception: #export (wrong-arity {expected Arity} {actual Arity})
   (exception.report
@@ -66,8 +67,8 @@
     (exception.throw ..unconsumed-input unconsumed)))
 
 (def: #export any
-  (Parser Synthesis)
-  (.function (_ input)
+  (Parser Analysis)
+  (function (_ input)
     (case input
       #.Nil
       (exception.throw ..empty-input [])
@@ -78,7 +79,7 @@
 (def: #export end!
   {#.doc "Ensures there are no more inputs."}
   (Parser Any)
-  (.function (_ tokens)
+  (function (_ tokens)
     (case tokens
       #.Nil (#try.Success [tokens []])
       _     (#try.Failure (format "Expected list of tokens to be empty!"
@@ -87,7 +88,7 @@
 (def: #export end?
   {#.doc "Checks whether there are no more inputs."}
   (Parser Bit)
-  (.function (_ tokens)
+  (function (_ tokens)
     (#try.Success [tokens (case tokens
                             #.Nil true
                             _     false)])))
@@ -95,7 +96,7 @@
 (template [<query> <assertion> <tag> <type> <eq>]
   [(def: #export <query>
      (Parser <type>)
-     (.function (_ input)
+     (function (_ input)
        (case input
          (^ (list& (<tag> x) input'))
          (#try.Success [input' x])
@@ -105,7 +106,7 @@
 
    (def: #export (<assertion> expected)
      (-> <type> (Parser Any))
-     (.function (_ input)
+     (function (_ input)
        (case input
          (^ (list& (<tag> actual) input'))
          (if (:: <eq> = expected actual)
@@ -116,36 +117,24 @@
          (exception.throw ..cannot-parse input))))]
 
   [bit bit! /.bit Bit bit.equivalence]
-  [i64 i64! /.i64 (I64 Any) i64.equivalence]
-  [f64 f64! /.f64 Frac frac.equivalence]
+  [nat nat! /.nat Nat nat.equivalence]
+  [int int! /.int Int int.equivalence]
+  [rev rev! /.rev Rev rev.equivalence]
+  [frac frac! /.frac Frac frac.equivalence]
   [text text! /.text Text text.equivalence]
-  [local local! /.variable/local Nat n.equivalence]
-  [foreign foreign! /.variable/foreign Nat n.equivalence]
+  [local local! /.variable/local Nat nat.equivalence]
+  [foreign foreign! /.variable/foreign Nat nat.equivalence]
   [constant constant! /.constant Name name.equivalence]
   )
 
 (def: #export (tuple parser)
   (All [a] (-> (Parser a) (Parser a)))
-  (.function (_ input)
+  (function (_ input)
     (case input
       (^ (list& (/.tuple head) tail))
       (do try.monad
         [output (..run parser head)]
         (#try.Success [tail output]))
-
-      _
-      (exception.throw ..cannot-parse input))))
-
-(def: #export (function expected parser)
-  (All [a] (-> Arity (Parser a) (Parser [Environment a])))
-  (.function (_ input)
-    (case input
-      (^ (list& (/.function/abstraction [environment actual body]) tail))
-      (if (n.= expected actual)
-        (do try.monad
-          [output (..run parser (list body))]
-          (#try.Success [tail [environment output]]))
-        (exception.throw ..wrong-arity [expected actual]))
 
       _
       (exception.throw ..cannot-parse input))))
