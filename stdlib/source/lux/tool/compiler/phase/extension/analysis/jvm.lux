@@ -30,11 +30,11 @@
      [encoding
       [name (#+ External)]]
      ["#" type (#+ Type Argument Typed) ("#@." equivalence)
-      ["." category (#+ Void Value Return Primitive Object Class Array Var Parameter Method)]
+      ["." category (#+ Void Value' Value Return' Return Primitive Object Class Array Var Parameter Method)]
       ["." box]
       ["." reflection]
-      ["." descriptor (#+ Descriptor)]
-      ["." signature (#+ Signature) ("#@." equivalence)]
+      ["." descriptor]
+      ["." signature]
       ["#-." parser]
       ["#-." alias (#+ Aliasing)]
       [".T" lux (#+ Mapping)]]]]]
@@ -55,10 +55,14 @@
        [archive
         [descriptor (#+ Module)]]]]]]])
 
-(def: reflection (|>> jvm.reflection reflection.reflection))
+(def: reflection
+  (All [category]
+    (-> (Type (<| Return' Value' category)) Text))
+  (|>> jvm.reflection reflection.reflection))
+
 (def: signature (|>> jvm.signature signature.signature))
 
-(def: object-class "java.lang.Object")
+(def: object-class External "java.lang.Object")
 
 (def: inheritance-relationship-type-name "_jvm_inheritance")
 (def: #export (inheritance-relationship-type class super-class super-interfaces)
@@ -319,7 +323,8 @@
       (^ (list arrayC))
       (do ////.monad
         [_ (typeA.infer ..int)
-         arrayA (typeA.with-type (#.Primitive (|> (jvm.array primitive-type) ..reflection)
+         arrayA (typeA.with-type (#.Primitive (|> (jvm.array primitive-type)
+                                                  ..reflection)
                                               (list))
                   (analyse arrayC))]
         (wrap (#/////analysis.Extension extension-name (list arrayA))))
@@ -791,26 +796,20 @@
   (getConstructors [] [(java/lang/reflect/Constructor java/lang/Object)])
   (getDeclaredMethods [] [java/lang/reflect/Method]))
 
-(def: (reflection-type mapping typeJ)
-  (-> Mapping (Type Value) (Operation .Type))
-  (case (|> typeJ jvm.signature signature.signature
-            (<t>.run (luxT.type mapping)))
-    (#try.Success check)
-    (typeA.with-env
-      check)
-    
-    (#try.Failure error)
-    (////.fail error)))
+(template [<name> <category> <parser>]
+  [(def: (<name> mapping typeJ)
+     (-> Mapping (Type <category>) (Operation .Type))
+     (case (|> typeJ ..signature (<t>.run (<parser> mapping)))
+       (#try.Success check)
+       (typeA.with-env
+         check)
+       
+       (#try.Failure error)
+       (////.fail error)))]
 
-(def: (reflection-return mapping typeJ)
-  (-> Mapping (Type Return) (Operation .Type))
-  (case (|> typeJ ..signature (<t>.run (luxT.return mapping)))
-    (#try.Success check)
-    (typeA.with-env
-      check)
-    
-    (#try.Failure error)
-    (////.fail error)))
+  [reflection-type Value luxT.type]
+  [reflection-return Return luxT.return]
+  )
 
 (def: (class-candidate-parents from-name fromT to-name to-class)
   (-> External .Type External (java/lang/Class java/lang/Object) (Operation (List [[Text .Type] Bit])))
@@ -1462,7 +1461,7 @@
 (template [<name> <filter>]
   [(def: <name>
      (-> (java/lang/Class java/lang/Object)
-         (Try (List [Text (Signature Method)])))
+         (Try (List [Text (Type Method)])))
      (|>> java/lang/Class::getDeclaredMethods
           array.to-list
           <filter>
@@ -1479,7 +1478,7 @@
                                          array.to-list
                                          (monad.map @ reflection!.class))]
                          (wrap [(java/lang/reflect/Method::getName method)
-                                (product.left (jvm.method [inputs return exceptions]))]))))))]
+                                (jvm.method [inputs return exceptions])]))))))]
 
   [abstract-methods (list.filter (|>> java/lang/reflect/Method::getModifiers java/lang/reflect/Modifier::isAbstract))]
   [methods (<|)]
@@ -1489,7 +1488,7 @@
 
 (template [<name> <methods>]
   [(def: <name>
-     (-> (List (Type Class)) (Try (List [Text (Signature Method)])))
+     (-> (List (Type Class)) (Try (List [Text (Type Method)])))
      (|>> (monad.map try.monad (|>> ..reflection reflection!.load))
           (try@map (monad.map try.monad <methods>))
           try@join
@@ -1500,11 +1499,11 @@
   )
 
 (template [<name>]
-  [(exception: #export (<name> {methods (List [Text (Signature Method)])})
+  [(exception: #export (<name> {methods (List [Text (Type Method)])})
      (exception.report
       ["Methods" (exception.enumerate
-                  (function (_ [name signature])
-                    (format (%.text name) " " (signature.signature signature)))
+                  (function (_ [name type])
+                    (format (%.text name) " " (..signature type)))
                   methods)]))]
 
   [missing-abstract-methods]
@@ -1853,12 +1852,14 @@
                  (wrap [parameterJ parameterT])))))
 
 (def: (mismatched-methods super-set sub-set)
-  (-> (List [Text (Signature Method)]) (List [Text (Signature Method)]) (List [Text (Signature Method)]))
+  (-> (List [Text (Type Method)])
+      (List [Text (Type Method)])
+      (List [Text (Type Method)]))
   (list.filter (function (_ [sub-name subJT])
                  (|> super-set
                      (list.filter (function (_ [super-name superJT])
                                     (and (text@= super-name sub-name)
-                                         (signature@= superJT subJT))))
+                                         (jvm@= superJT subJT))))
                      list.size
                      (n.= 1)
                      not))
@@ -1954,7 +1955,6 @@
                                             (wrap [method-name (|> (jvm.method [(list@map product.right arguments)
                                                                                 return
                                                                                 exceptions])
-                                                                   product.left
                                                                    (jvm-alias.method aliasing))])))
                                       methods)
          #let [missing-abstract-methods (mismatched-methods overriden-methods required-abstract-methods)
