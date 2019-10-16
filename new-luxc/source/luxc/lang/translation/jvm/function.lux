@@ -41,10 +41,6 @@
   (-> Arity Bit)
   (n.> 1 arity))
 
-(def: (reset-method return)
-  (-> (Type Class) [(Signature Method) (Descriptor Method)])
-  (type.method [(list) return (list)]))
-
 (def: (captured-args env)
   (-> Environment (List (Type Value)))
   (list.repeat (list.size env) //.$Value))
@@ -100,22 +96,6 @@
       (list.repeat amount)
       _.fuse))
 
-(def: #export with-environment
-  (-> Environment Def)
-  (|>> list.enumerate
-       (list@map (.function (_ [env-idx env-source])
-                   (def.field #$.Private $.finalF (reference.foreign-name env-idx) //.$Value)))
-       def.fuse))
-
-(def: (with-partial arity)
-  (-> Arity Def)
-  (if (poly-arg? arity)
-    (|> (list.n/range 0 (n.- 2 arity))
-        (list@map (.function (_ idx)
-                    (def.field #$.Private $.finalF (reference.partial-name idx) //.$Value)))
-        def.fuse)
-    function.identity))
-
 (def: (instance class arity env)
   (-> (Type Class) Arity Environment (Operation Inst))
   (do phase.monad
@@ -130,6 +110,10 @@
                (_.fuse captureI+)
                argsI
                (_.INVOKESPECIAL class "<init>" (init-method env arity))))))
+
+(def: (reset-method return)
+  (-> (Type Class) [(Signature Method) (Descriptor Method)])
+  (type.method [(list) return (list)]))
 
 (def: (with-reset class arity env)
   (-> (Type Class) Arity Environment Def)
@@ -208,7 +192,7 @@
   (let [num-partials (dec function-arity)
         @default ($.new-label [])
         @labels (list@map $.new-label (list.repeat num-partials []))
-        arity-over-extent (|> (.int function-arity) (i.- (.int apply-arity)))
+        over-extent (|> (.int function-arity) (i.- (.int apply-arity)))
         casesI (|> (list@compose @labels (list @default))
                    (list.zip2 (list.n/range 0 num-partials))
                    (list@map (.function (_ [stage @label])
@@ -217,7 +201,7 @@
                                                           (list@map (|>> reference.partial-name (load-fieldI class)))
                                                           _.fuse)
                                                       function.identity)]
-                                 (cond (i.= arity-over-extent (.int stage))
+                                 (cond (i.= over-extent (.int stage))
                                        (|>> (_.label @label)
                                             (_.ALOAD 0)
                                             (when> [(new> (n.> 0 stage) [])]
@@ -227,7 +211,7 @@
                                             (_.INVOKEVIRTUAL class "impl" (implementation-method function-arity))
                                             _.ARETURN)
 
-                                       (i.> arity-over-extent (.int stage))
+                                       (i.> over-extent (.int stage))
                                        (let [args-to-completion (|> function-arity (n.- stage))
                                              args-left (|> apply-arity (n.- args-to-completion))]
                                          (|>> (_.label @label)
@@ -239,7 +223,7 @@
                                               (applysI (inc args-to-completion) args-left)
                                               _.ARETURN))
 
-                                       ## (i.< arity-over-extent (.int stage))
+                                       ## (i.< over-extent (.int stage))
                                        (let [env-size (list.size env)
                                              load-capturedI (|> (case env-size
                                                                   0 (list)
@@ -270,11 +254,26 @@
                      failureI
                      ))))
 
+(def: #export with-environment
+  (-> Environment Def)
+  (|>> list.enumerate
+       (list@map (.function (_ [env-idx env-source])
+                   (def.field #$.Private $.finalF (reference.foreign-name env-idx) //.$Value)))
+       def.fuse))
+
+(def: (with-partial arity)
+  (-> Arity Def)
+  (if (poly-arg? arity)
+    (|> (list.n/range 0 (n.- 2 arity))
+        (list@map (.function (_ idx)
+                    (def.field #$.Private $.finalF (reference.partial-name idx) //.$Value)))
+        def.fuse)
+    function.identity))
+
 (def: #export (with-function @begin class env arity bodyI)
   (-> Label Text Environment Arity Inst
       (Operation [Def Inst]))
   (let [classD (type.class class (list))
-        env-size (list.size env)
         applyD (: Def
                   (if (poly-arg? arity)
                     (|> (n.min arity runtime.num-apply-variants)
