@@ -1,5 +1,5 @@
 (.module:
-  [lux #*
+  [lux (#- Type)
    [abstract
     ["." monad (#+ do)]]
    [control
@@ -10,54 +10,120 @@
      ["n" nat]]
     [collection
      ["." list ("#@." monoid functor)]
-     ["." row]]]
+     ["." row]]
+    [format
+     [".F" binary]]]
    [target
     [jvm
+     ["." version]
      ["." modifier (#+ Modifier) ("#@." monoid)]
      ["." field (#+ Field)]
      ["." method (#+ Method)]
      ["_" instruction (#+ Label Instruction) ("#@." monad)]
+     ["." class (#+ Class)]
+     ["." type (#+ Type)
+      [category (#+ Return' Value')]
+      ["." reflection]]
      ["." constant
       [pool (#+ Pool)]]
      [encoding
-      [name (#+ External)]
+      ["." name (#+ External Internal)]
       ["." unsigned]]]]]
   ["." / #_
    ["#." abstract]
-   ["#." arity]
-   ["#." field
-    ["#/." foreign]
-    ["#/." partial
-     ["#/." count]]]
-   ["#." method #_
-    ["#/." new]
-    ["#/." reset]
-    ["#/." implementation]
-    ["#/." apply]]
+   [field
+    [constant
+     ["#." arity]]
+    [variable
+     ["#." foreign]
+     ["#." partial]]]
+   [method
+    ["#." init]
+    ["#." new]
+    ["#." implementation]
+    ["#." reset]
+    ["#." apply]]
    ["/#" // #_
     [runtime (#+ Operation Phase)]
-    ["#." value]
-    ["#." reference]
     [////
      [reference (#+ Register)]
      [analysis (#+ Environment)]
      [synthesis (#+ Synthesis Abstraction Apply)]
      ["." arity (#+ Arity)]
-     ["." phase]]]])
+     ["." phase
+      ["." generation]]]]])
 
-(def: #export (apply generate [abstractionS argsS])
+(def: #export (with @begin class environment arity body)
+  (-> Label External Environment Arity (Instruction Any)
+      (Operation [(List (State Pool Field))
+                  (List (State Pool Method))
+                  (Instruction Any)]))
+  (let [classT (type.class class (list))
+        fields (: (List (State Pool Field))
+                  (list& /arity.constant
+                         (list@compose (/foreign.variables environment)
+                                       (/partial.variables arity))))
+        methods (: (List (State Pool Method))
+                   (list& (/init.method classT environment arity)
+                          (/reset.method classT environment arity)
+                          (if (arity.multiary? arity)
+                            (|> (n.min arity /arity.maximum)
+                                list.indices
+                                (list@map (|>> inc (/apply.method classT environment arity @begin body)))
+                                (list& (/implementation.method arity @begin body)))
+                            (list (/implementation.method' /apply.name arity @begin body)))))]
+    (do phase.monad
+      [instance (/new.instance classT environment arity)]
+      (wrap [fields methods instance]))))
+
+(def: modifier
+  (Modifier Class)
+  ($_ modifier@compose
+      class.public
+      class.final))
+
+(def: this-offset 1)
+
+(def: internal
+  (All [category]
+    (-> (Type (<| Return' Value' category))
+        Internal))
+  (|>> type.reflection reflection.reflection name.internal))
+
+(def: #export (abstraction generate [environment arity bodyS])
+  (-> Phase Abstraction (Operation (Instruction Any)))
+  (do phase.monad
+    [@begin generation.next
+     [function-class bodyG] (generation.with-context
+                              (generation.with-anchor [@begin ..this-offset]
+                                (generate bodyS)))
+     [fields methods instance] (..with @begin function-class environment arity bodyG)
+     _ (generation.save! true ["" function-class]
+                         [function-class
+                          (<| (binaryF.run class.writer)
+                              (class.class version.v6_0
+                                           ..modifier
+                                           (name.internal function-class)
+                                           (..internal /abstract.class) (list)
+                                           fields
+                                           methods
+                                           (row.row)))])]
+    (wrap instance)))
+
+(def: #export (apply generate [abstractionS inputsS])
   (-> Phase Apply (Operation (Instruction Any)))
   (do phase.monad
     [abstractionG (generate abstractionS)
-     argsG (monad.map @ generate argsS)]
+     inputsG (monad.map @ generate inputsS)]
     (wrap ($_ _.compose
               abstractionG
-              (|> argsG
+              (|> inputsG
                   (list.split-all /arity.maximum)
                   (monad.map _.monad
                              (function (_ batchG)
                                ($_ _.compose
                                    (_.checkcast /abstract.class)
                                    (monad.seq _.monad batchG)
-                                   (_.invokevirtual /abstract.class /method/apply.name (/method/apply.type (list.size batchG)))
-                                   ))))))))
+                                   (_.invokevirtual /abstract.class /apply.name (/apply.type (list.size batchG)))
+                                   ))))
+              ))))

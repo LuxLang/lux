@@ -1,37 +1,56 @@
 (.module:
-  [lux (#- type)
+  [lux (#- Type type)
    [abstract
-    ["." monad]]
+    ["." monad (#+ do)]]
+   [control
+    [state (#+ State)]]
    [data
     [number
      ["n" nat]
+     ["i" int]
      ["." i32]]
     [collection
-     ["." list]]]
+     ["." list ("#@." monoid functor)]]]
    [target
     [jvm
-     ["_" instruction (#+ Instruction) ("#@." monad)]
-     ["." constant]
+     ["_" instruction (#+ Label Instruction) ("#@." monad)]
+     ["." method (#+ Method)]
+     ["." constant
+      [pool (#+ Pool)]]
      [encoding
-      ["." unsigned]]
-     [type
-      ["." category (#+ Value Return)]
-      ["." descriptor (#+ Descriptor)]]]]]
-  ["." /// #_
-   ["#." abstract]
-   ["#." arity]
+      ["." unsigned]
+      ["." signed]]
+     ["." type (#+ Type)
+      ["." category (#+ Class)]]]]]
+  ["." //
+   ["#." reset]
+   ["#." implementation]
+   ["#." init]
    ["/#" // #_
-    ["#." value]
-    [////
-     [reference (#+ Register)]
-     [arity (#+ Arity)]]]])
+    ["#." abstract]
+    [field
+     [constant
+      ["#." arity]]
+     [variable
+      ["#." partial
+       ["#/." count]]
+      ["#." foreign]]]
+    ["/#" // #_
+     ["#." runtime]
+     ["#." value]
+     ["#." reference]
+     [////
+      [analysis (#+ Environment)]
+      [arity (#+ Arity)]
+      ["." reference (#+ Register)]]]]])
 
 (def: #export name "apply")
 
 (def: #export (type arity)
-  (-> Arity [(List (Descriptor Value)) (Descriptor Return)])
-  [(list.repeat arity ////value.type)
-   ////value.type])
+  (-> Arity (Type category.Method))
+  (type.method [(list.repeat arity ////value.type)
+                ////value.type
+                (list)]))
 
 (def: (increment by)
   (-> Nat (Instruction Any))
@@ -48,7 +67,7 @@
       (_@wrap [])
       ))
 
-(def: #export (instruction offset amount)
+(def: (apply offset amount)
   (-> Register Nat (Instruction Any))
   (let [arity (n.min amount ///arity.maximum)]
     ($_ _.compose
@@ -56,7 +75,86 @@
         (..inputs offset arity)
         (_.invokevirtual ///abstract.class ..name (..type arity))
         (if (n.> ///arity.maximum amount)
-          (instruction (n.+ ///arity.maximum offset)
-                       (n.- ///arity.maximum amount))
+          (apply (n.+ ///arity.maximum offset)
+                 (n.- ///arity.maximum amount))
           (_@wrap []))
         )))
+
+(def: this-offset 1)
+
+(def: #export (method class environment function-arity @begin body apply-arity)
+  (-> (Type Class) Environment Arity Label (Instruction Any) Arity (State Pool Method))
+  (let [num-partials (dec function-arity)
+        over-extent (i.- (.int apply-arity)
+                         (.int function-arity))
+        failure ($_ _.compose
+                    ////runtime.apply-failure
+                    _.aconst-null
+                    _.areturn)]
+    (method.method //.modifier ..name
+                   (..type apply-arity)
+                   (list)
+                   (do _.monad
+                     [@default _.new-label
+                      @labels (|> _.new-label
+                                  (list.repeat num-partials)
+                                  (monad.seq _.monad))
+                      #let [cases (|> (list@compose @labels (list @default))
+                                      list.enumerate
+                                      (list@map (function (_ [stage @case])
+                                                  (let [current-partials (|> (list.indices stage)
+                                                                             (list@map (///partial.get class))
+                                                                             (monad.seq _.monad))
+                                                        already-partial? (n.> 0 stage)
+                                                        exact-match? (i.= over-extent (.int stage))
+                                                        has-more-than-necessary? (i.> over-extent (.int stage))]
+                                                    (cond exact-match?
+                                                          ($_ _.compose
+                                                              (_.set-label @case)
+                                                              ////reference.this
+                                                              (if already-partial?
+                                                                (_.invokevirtual class //reset.name (//reset.type class))
+                                                                (_@wrap []))
+                                                              current-partials
+                                                              (inputs ..this-offset apply-arity)
+                                                              (_.invokevirtual class //implementation.name (//implementation.type function-arity))
+                                                              _.areturn)
+                                                          
+                                                          has-more-than-necessary?
+                                                          (let [inputs-to-completion (|> function-arity (n.- stage))
+                                                                inputs-left (|> apply-arity (n.- inputs-to-completion))]
+                                                            ($_ _.compose
+                                                                (_.set-label @case)
+                                                                ////reference.this
+                                                                (_.invokevirtual class //reset.name (//reset.type class))
+                                                                current-partials
+                                                                (inputs ..this-offset inputs-to-completion)
+                                                                (_.invokevirtual class //implementation.name (//implementation.type function-arity))
+                                                                (apply (n.+ ..this-offset inputs-to-completion) inputs-left)
+                                                                _.areturn))
+
+                                                          ## (i.< over-extent (.int stage))
+                                                          (let [current-environment (|> (list.indices (list.size environment))
+                                                                                        (list@map (///foreign.get class))
+                                                                                        (monad.seq _.monad))
+                                                                missing-partials (|> _.aconst-null
+                                                                                     (list.repeat (|> num-partials (n.- apply-arity) (n.- stage)))
+                                                                                     (monad.seq _.monad))]
+                                                            ($_ _.compose
+                                                                (_.set-label @case)
+                                                                (_.new class)
+                                                                _.dup
+                                                                current-environment
+                                                                ///partial/count.value
+                                                                (..increment apply-arity)
+                                                                current-partials
+                                                                (inputs ..this-offset apply-arity)
+                                                                missing-partials
+                                                                (_.invokevirtual class //init.name (//init.type environment function-arity))
+                                                                _.areturn))))))
+                                      (monad.seq _.monad))]]
+                     ($_ _.compose
+                         ///partial/count.value
+                         (_.tableswitch (signed.s4 +0) @default @labels)
+                         cases
+                         failure)))))

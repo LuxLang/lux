@@ -1,5 +1,5 @@
 (.module:
-  [lux #*
+  [lux (#- Type type)
    ["." host (#+ import:)]
    [abstract/monad (#+ do)]
    [control
@@ -42,9 +42,8 @@
      ["#." name]]
     ["#." instruction
      ["#/." condition (#+ Environment)]]
-    [type
-     [category (#+ Value)]
-     ["#." descriptor (#+ Descriptor)]]]})
+    ["#." type (#+ Type)
+     [category (#+ Value)]]]})
 
 ## (def: (write-class! name bytecode)
 ##   (-> Text Binary (IO Text))
@@ -76,44 +75,48 @@
 (import: #long java/lang/Long
   (#static TYPE (java/lang/Class java/lang/Long)))
 
-(def: descriptor
-  (Random (Descriptor Value))
-  (random.rec
-   (function (_ descriptor)
-     ($_ random.either
-         (random@wrap /descriptor.boolean)
-         (random@wrap /descriptor.byte)
-         (random@wrap /descriptor.short)
-         (random@wrap /descriptor.int)
-         (random@wrap /descriptor.long)
-         (random@wrap /descriptor.float)
-         (random@wrap /descriptor.double)
-         (random@wrap /descriptor.char)
-         (random@map (|>> (text.join-with /name.external-separator) /descriptor.class)
-                     (random.list 3 (random.ascii/upper-alpha 10)))
-         (random@map /descriptor.array descriptor)
-         ))))
-
-(def: field
-  (Random [Text (Descriptor Value)])
-  ($_ random.and
-      (random.ascii/lower-alpha 10)
-      ..descriptor
-      ))
-
 (def: class-name
   (Random Text)
   (do random.monad
     [super-package (random.ascii/lower-alpha 10)
      package (random.ascii/lower-alpha 10)
      name (random.ascii/upper-alpha 10)]
-    (wrap (format super-package "." package "." name))))
+    (wrap (format super-package
+                  /name.external-separator package
+                  /name.external-separator name))))
+
+(def: type
+  (Random (Type Value))
+  (random.rec
+   (function (_ type)
+     ($_ random.either
+         (random@wrap /type.boolean)
+         (random@wrap /type.byte)
+         (random@wrap /type.short)
+         (random@wrap /type.int)
+         (random@wrap /type.long)
+         (random@wrap /type.float)
+         (random@wrap /type.double)
+         (random@wrap /type.char)
+         (random@map (function (_ name) (/type.class name (list))) ..class-name)
+         (random@map /type.array type)
+         ))))
+
+(def: field
+  (Random [Text (Type Value)])
+  ($_ random.and
+      (random.ascii/lower-alpha 10)
+      ..type
+      ))
 
 (def: (get-method name class)
   (-> Text (java/lang/Class java/lang/Object) java/lang/reflect/Method)
   (java/lang/Class::getDeclaredMethod name
                                       (host.array (java/lang/Class java/lang/Object) 0)
                                       class))
+
+(def: $Long (/type.class "java.lang.Long" (list)))
+(def: $Object (/type.class "java.lang.Object" (list)))
 
 (def: method
   Test
@@ -122,7 +125,7 @@
      method-name (random.ascii/upper-alpha 10)
      expected random.int
      #let [inputsJT (list)
-           outputJT (/descriptor.class "java.lang.Object")]]
+           outputJT $Object]]
     (_.test "Can compile a method."
             (let [bytecode (|> (/class.class /version.v6_0 /class.public
                                              (/name.internal class-name)
@@ -133,13 +136,12 @@
                                                                        /method.public
                                                                        /method.static)
                                                                    method-name
-                                                                   (/descriptor.method [inputsJT outputJT])
+                                                                   (/type.method [inputsJT outputJT (list)])
                                                                    (list)
                                                                    (do /instruction.monad
                                                                      [_ (/instruction.ldc/long (/constant.long expected))
-                                                                      _ (/instruction.invokestatic "java.lang.Long" "valueOf"
-                                                                                                   [(list /descriptor.long)
-                                                                                                    (/descriptor.class "java.lang.Long")])]
+                                                                      _ (/instruction.invokestatic $Long "valueOf"
+                                                                                                   (/type.method [(list /type.long) $Long (list)]))]
                                                                      /instruction.areturn)))
                                              (row.row))
                                (binaryF.run /class.writer))
@@ -160,15 +162,15 @@
   Test
   (do random.monad
     [class-name ..class-name
-     [field0 descriptor0] ..field
-     [field1 descriptor1] ..field
+     [field0 type0] ..field
+     [field1 type1] ..field
      #let [input (/class.class /version.v6_0 /class.public
                                (/name.internal class-name)
                                (/name.internal "java.lang.Object")
                                (list (/name.internal "java.io.Serializable")
                                      (/name.internal "java.lang.Runnable"))
-                               (list (/field.field /field.public field0 descriptor0 (row.row))
-                                     (/field.field /field.public field1 descriptor1 (row.row)))
+                               (list (/field.field /field.public field0 type0 (row.row))
+                                     (/field.field /field.public field1 type1 (row.row)))
                                (list)
                                (row.row))
            bytecode (binaryF.run /class.writer input)

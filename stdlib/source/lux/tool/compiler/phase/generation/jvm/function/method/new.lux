@@ -1,5 +1,5 @@
 (.module:
-  [lux (#- type)
+  [lux (#- Type type)
    [abstract
     ["." monad (#+ do)]]
    [control
@@ -18,18 +18,19 @@
      ["." constant
       [pool (#+ Pool)]]
      [encoding
-      [name (#+ External)]
       ["." unsigned]]
-     [type
-      ["." category (#+ Value Return)]
-      ["." descriptor (#+ Descriptor)]]]]]
+     [type (#+ Type)
+      ["." category (#+ Class Value Return)]]]]]
   ["." //
    ["#." init]
+   ["#." implementation]
    ["/#" // #_
-    ["#." arity]
-    ["#." field
-     ["#/." foreign]
-     ["#/." partial]]
+    [field
+     [constant
+      ["#." arity]]
+     [variable
+      ["#." foreign]
+      ["#." partial]]]
     ["/#" // #_
      [runtime (#+ Operation)]
      ["#." value]
@@ -39,32 +40,23 @@
       ["." arity (#+ Arity)]
       ["." phase]]]]])
 
-(def: (arguments arity)
-  (-> Arity (List (Descriptor Value)))
-  (list.repeat (dec arity) ////value.type))
-
-(def: #export (type environment arity)
-  (-> Environment Arity [(List (Descriptor Value))
-                         (Descriptor Return)])
-  [(list@compose (///field/foreign.closure environment)
-                 (if (arity.multiary? arity)
-                   (list& ///arity.type (arguments arity))
-                   (list)))
-   descriptor.void])
+(def: #export (instance' foreign-setup class environment arity)
+  (-> (List (Instruction Any)) (Type Class) Environment Arity (Instruction Any))
+  ($_ _.compose
+      (_.new class)
+      _.dup
+      (monad.seq _.monad foreign-setup)
+      (///partial.new arity)
+      (_.invokespecial class //init.name (//init.type environment arity))))
 
 (def: #export (instance class environment arity)
-  (-> External Environment Arity (Operation (Instruction Any)))
+  (-> (Type Class) Environment Arity (Operation (Instruction Any)))
   (do phase.monad
     [foreign* (monad.map @ ////reference.variable environment)]
-    (wrap ($_ _.compose
-              (_.new class)
-              _.dup
-              (monad.seq _.monad foreign*)
-              (///field/partial.new arity)
-              (_.invokespecial class "<init>" (..type environment arity))))))
+    (wrap (instance' foreign* class environment arity))))
 
 (def: #export (method class environment arity)
-  (-> External Environment Arity (State Pool Method))
+  (-> (Type Class) Environment Arity (State Pool Method))
   (let [after-this (: (-> Nat Nat)
                       (n.+ 1))
         environment-size (list.size environment)
@@ -72,22 +64,16 @@
                              (|>> after-this (n.+ environment-size)))
         after-arity (: (-> Nat Nat)
                        (|>> after-environment (n.+ 1)))]
-    (method.method //.modifier "<init>"
-                   (descriptor.method (..type environment arity))
+    (method.method //.modifier //init.name
+                   (//init.type environment arity)
                    (list)
                    ($_ _.compose
                        ////reference.this
-                       (//init.instruction environment-size arity)
+                       (//init.super environment-size arity)
                        (monad.map _.monad (function (_ register)
-                                            ($_ _.compose
-                                                ////reference.this
-                                                (_.aload (unsigned.u1 (after-this register)))
-                                                (_.putfield class (////reference.foreign-name register) ////value.type)))
+                                            (///foreign.put class register (_.aload (unsigned.u1 (after-this register)))))
                                   (list.indices environment-size))
                        (monad.map _.monad (function (_ register)
-                                            ($_ _.compose
-                                                ////reference.this
-                                                (_.aload (unsigned.u1 (after-arity register)))
-                                                (_.putfield class (////reference.partial-name register) ////value.type)))
+                                            (///partial.put class register (_.aload (unsigned.u1 (after-arity register)))))
                                   (list.indices (n.- ///arity.minimum arity)))
                        _.areturn))))
