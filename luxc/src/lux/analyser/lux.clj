@@ -541,12 +541,15 @@
   (|do [output (analyse-function** analyse exo-type ?self ?arg ?body)]
     (return (&/|list output))))
 
+(defn ^:private ensure-undefined! [module-name local-name]
+  (|do [verdict (&&module/defined? module-name local-name)]
+    (&/assert! (not verdict)
+               (str "[Analyser Error] Cannot re-define " module-name &/+name-separator+ local-name))))
+
 (defn analyse-def* [analyse optimize eval! compile-def ?name ?value ?meta exported? & [?expected-type]]
   (|do [_ &/ensure-directive
         module-name &/get-module-name
-        ? (&&module/defined? module-name ?name)
-        _ (&/assert! (not ?)
-                     (str "[Analyser Error] Cannot re-define " (str module-name &/+name-separator+ ?name)))
+        _ (ensure-undefined! module-name ?name)
         =value (&/without-repl-closure
                 (&/with-scope ?name
                   (if ?expected-type
@@ -580,8 +583,9 @@
 
 (defn analyse-def-alias [?alias ?original]
   (|let [[r-module r-name] ?original]
-    (|do [_ (&&module/find-def r-module r-name)
-          module-name &/get-module-name
+    (|do [module-name &/get-module-name
+          _ (ensure-undefined! module-name ?alias)
+          _ (&&module/find-def r-module r-name)
           _ (&/without-repl-closure
              (&&module/define-alias module-name ?alias ?original))]
       (return &/$Nil))))
