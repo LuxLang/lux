@@ -1,0 +1,275 @@
+(.module:
+  [lux (#- Type if let case)
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    ["." function]]
+   [data
+    [number
+     ["." i32]
+     ["n" nat]]]
+   [target
+    [jvm
+     ["." constant]
+     ["_" instruction (#+ Label Instruction) ("#@." monad)]
+     ["." type (#+ Type)
+      [category (#+ Method)]]
+     [encoding
+      ["." unsigned]]]]]
+  ["." // #_
+   ["#." runtime (#+ Operation Phase)]
+   ["#." value]
+   [////
+    [reference (#+ Register)]
+    ["." synthesis (#+ Path Synthesis)]
+    ["." phase ("operation@." monad)
+     ["." generation]]]])
+
+(def: $Object (type.class "java.lang.Object" (list)))
+
+(def: equals-name
+  "equals")
+
+(def: equals-type
+  (type.method [(list //value.type) type.boolean (list)]))
+
+(def: (pop-alt stack-depth)
+  (-> Nat (Instruction Any))
+  (.case stack-depth
+    0 (_@wrap [])
+    1 _.pop
+    2 _.pop2
+    _ ## (n.> 2)
+    ($_ _.compose
+        _.pop2
+        (pop-alt (n.- 2 stack-depth)))))
+
+(def: ldc/integer
+  (-> (I64 Any) (Instruction Any))
+  (|>> .i64 i32.i32 constant.integer _.ldc/integer))
+
+(def: ldc/long
+  (-> (I64 Any) (Instruction Any))
+  (|>> .int constant.long _.ldc/long))
+
+(def: ldc/double
+  (-> Frac (Instruction Any))
+  (|>> constant.double _.ldc/double))
+
+(def: peek
+  (Instruction Any)
+  ($_ _.compose
+      _.dup
+      (..ldc/integer 0)
+      _.aaload))
+
+(def: pop
+  (Instruction Any)
+  ($_ _.compose
+      (..ldc/integer 1)
+      _.aaload
+      (_.checkcast //runtime.$Stack)))
+
+(def: left-flag _.aconst-null)
+(def: right-flag (_.ldc/string ""))
+
+(def: (path' phase stack-depth @else @end path)
+  (-> Phase Nat Label Label Path (Operation (Instruction Any)))
+  (.case path
+    #synthesis.Pop
+    (operation@wrap ..pop)
+    
+    (#synthesis.Bind register)
+    (operation@wrap ($_ _.compose
+                        ..peek
+                        (_.astore (unsigned.u1 register))))
+
+    (^ (synthesis.path/bit value))
+    (operation@wrap (.let [jump (.if value _.ifeq _.ifne)]
+                      ($_ _.compose
+                          ..peek
+                          (//value.unwrap type.boolean)
+                          (jump @else))))
+    
+    (^ (synthesis.path/i64 value))
+    (operation@wrap ($_ _.compose
+                        ..peek
+                        (//value.unwrap type.long)
+                        (..ldc/long value)
+                        _.lcmp
+                        (_.ifne @else)))
+    
+    (^ (synthesis.path/f64 value))
+    (operation@wrap ($_ _.compose
+                        ..peek
+                        (//value.unwrap type.double)
+                        (..ldc/double value)
+                        _.dcmpl
+                        (_.ifne @else)))
+    
+    (^ (synthesis.path/text value))
+    (operation@wrap ($_ _.compose
+                        ..peek
+                        (_.ldc/string value)
+                        (_.invokevirtual ..$Object ..equals-name ..equals-type)
+                        (_.ifeq @else)))
+    
+    (#synthesis.Then bodyS)
+    (do phase.monad
+      [bodyG (phase bodyS)]
+      (wrap ($_ _.compose
+                (..pop-alt stack-depth)
+                bodyG
+                (_.goto @end))))
+    
+    (^template [<pattern> <flag> <prepare>]
+      (^ (<pattern> idx))
+      (operation@wrap
+       (do _.monad
+         [@success _.new-label
+          @fail _.new-label]
+         ($_ _.compose
+             ..peek
+             (_.checkcast //runtime.$Variant)
+             (..ldc/integer (<prepare> idx))
+             <flag>
+             //runtime.case
+             _.dup
+             (_.ifnull @fail)
+             (_.goto @success)
+             (_.set-label @fail)
+             _.pop
+             (_.goto @else)
+             (_.set-label @success)
+             //runtime.push))))
+    ([synthesis.side/left  ..left-flag function.identity]
+     [synthesis.side/right ..right-flag .inc])
+
+    (^ (synthesis.member/left lefts))
+    (operation@wrap (.let [optimized-projection (.case lefts
+                                                  0
+                                                  _.aaload
+                                                  
+                                                  lefts
+                                                  //runtime.left)]
+                      ($_ _.compose
+                          ..peek
+                          (_.checkcast //runtime.$Tuple)
+                          (..ldc/integer lefts)
+                          optimized-projection
+                          //runtime.push)))
+
+    (^ (synthesis.member/right lefts))
+    (operation@wrap ($_ _.compose
+                        ..peek
+                        (_.checkcast //runtime.$Tuple)
+                        (..ldc/integer lefts)
+                        //runtime.right
+                        //runtime.push))
+    
+    ## Extra optimization
+    (^ (synthesis.path/seq
+        (synthesis.member/left 0)
+        (synthesis.!bind-top register thenP)))
+    (do phase.monad
+      [thenG (path' phase stack-depth @else @end thenP)]
+      (wrap ($_ _.compose
+                ..peek
+                (_.checkcast //runtime.$Tuple)
+                (..ldc/integer 0)
+                _.aaload
+                (_.astore (unsigned.u1 register))
+                thenG)))
+
+    ## Extra optimization
+    (^template [<pm> <projection>]
+      (^ (synthesis.path/seq
+          (<pm> lefts)
+          (synthesis.!bind-top register thenP)))
+      (do phase.monad
+        [then! (path' phase stack-depth @else @end thenP)]
+        (wrap ($_ _.compose
+                  ..peek
+                  (_.checkcast //runtime.$Tuple)
+                  (..ldc/integer lefts)
+                  <projection>
+                  (_.astore (unsigned.u1 register))
+                  then!))))
+    ([synthesis.member/left  //runtime.left]
+     [synthesis.member/right //runtime.right])
+
+    (#synthesis.Alt leftP rightP)
+    (do phase.monad
+      [@alt-else generation.next
+       left! (path' phase (inc stack-depth) @alt-else @end leftP)
+       right! (path' phase stack-depth @else @end rightP)]
+      (wrap ($_ _.compose
+                _.dup
+                left!
+                (_.set-label @alt-else)
+                _.pop
+                right!)))
+    
+    (#synthesis.Seq leftP rightP)
+    (do phase.monad
+      [left! (path' phase stack-depth @else @end leftP)
+       right! (path' phase stack-depth @else @end rightP)]
+      (wrap ($_ _.compose
+                left!
+                right!)))
+    ))
+
+(def: (path phase path @end)
+  (-> Phase Path Label (Operation (Instruction Any)))
+  (do phase.monad
+    [@else generation.next
+     pathG (..path' phase 1 @else @end path)]
+    (wrap ($_ _.compose
+              pathG
+              (_.set-label @else)
+              _.pop
+              //runtime.pm-failure
+              _.aconst-null
+              (_.goto @end)))))
+
+(def: #export (if phase conditionS thenS elseS)
+  (-> Phase Synthesis Synthesis Synthesis (Operation (Instruction Any)))
+  (do phase.monad
+    [conditionG (phase conditionS)
+     thenG (phase thenS)
+     elseG (phase elseS)]
+    (wrap (do _.monad
+            [@else _.new-label
+             @end _.new-label]
+            ($_ _.compose
+                conditionG
+                (//value.unwrap type.boolean)
+                (_.ifeq @else)
+                thenG
+                (_.goto @end)
+                (_.set-label @else)
+                elseG
+                (_.set-label @end))))))
+
+(def: #export (let phase inputS register bodyS)
+  (-> Phase Synthesis Register Synthesis (Operation (Instruction Any)))
+  (do phase.monad
+    [inputG (phase inputS)
+     bodyG (phase bodyS)]
+    (wrap ($_ _.compose
+              inputG
+              (_.astore (unsigned.u1 register))
+              bodyG))))
+
+(def: #export (case phase valueS path)
+  (-> Phase Synthesis Path (Operation (Instruction Any)))
+  (do phase.monad
+    [@end generation.next
+     valueG (phase valueS)
+     pathG (..path phase path @end)]
+    (wrap ($_ _.compose
+              _.aconst-null
+              valueG
+              //runtime.push
+              pathG
+              (_.set-label @end)))))
