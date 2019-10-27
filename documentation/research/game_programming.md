@@ -1,3 +1,27 @@
+# Conduct
+
+1. [Kawa - Yet Another Conduct Conversation: a history of conducts in roguelikes](https://www.youtube.com/watch?v=KLHJsJuJfYg)
+
+# Rules
+
+1. [Scott Kovach - Managing Game Logic With Rule Systems - Using Relational Programming to Build Games](https://www.youtube.com/watch?v=s9Wyn9BJJI4)
+
+# Procedural generation
+
+1. [Aaron Santos - Optimizing procgen parameters using mini-batch gradient descent](https://www.youtube.com/watch?v=TsDIUuEneo4)
+1. [Brian Bucklew - Dungeon Generation via Wave Function Collapse](https://www.youtube.com/watch?v=fnFj3dOKcIQ)
+1. [So you want to build a generator…](https://galaxykate0.tumblr.com/post/139774965871/so-you-want-to-build-a-generator)
+1. [Spencer Egart - Procedurally Generated Ritual Spell Systems](https://www.youtube.com/watch?v=q4Tf0vf2kiI)
+1. [Isaac Karth - Why Do You Want to Generate That? A Vocabulary For Talking About Procedural Generation](https://www.youtube.com/watch?v=MHEkE7nPuZc)
+
+# User interaction
+
+1. [Verb-noun vs noun-verb](https://simblob.blogspot.com/2019/10/verb-noun-vs-noun-verb.html)
+
+# Network
+
+1. https://github.com/librg/librg
+
 # Noise
 
 1. [Perlin noise](https://en.wikipedia.org/wiki/Perlin_noise)
@@ -172,6 +196,9 @@
 
 # NPC artificial intelligence
 
+1. [Mark R Johnson - Speech Generation in a Procedurally Generated World](https://www.youtube.com/watch?v=qh9vyoMviJI)
+1. [Jim Shepard - Blooming on the Battlefield: Relationships, Rivals, and Romance in Gameplay](https://www.youtube.com/watch?v=LKCRim02opc)
+1. [Max Kreminski - Designing AI systems to support player storytelling](https://www.youtube.com/watch?v=BDcZSWHu8RQ)
 1. https://en.wikipedia.org/wiki/Monte_Carlo_tree_search
 1. http://www.roguelikeradio.com/2018/02/episode-144-ai.html
 1. https://www.red3d.com/cwr/boids/
@@ -193,12 +220,14 @@
 
 # Interactive narrative fiction
 
+1. [Max Kreminski - Designing AI systems to support player storytelling](https://www.youtube.com/watch?v=BDcZSWHu8RQ)
 1. http://narrascope.org/
 1. http://pdf.textfiles.com/books/iftheorybook.pdf
 1. https://notimetoplay.org/engines/advprompt/
 
 # Design
 
+1. [Benjamin Berman - Tips, Tricks and History for Card Game Roguelike Design](https://www.youtube.com/watch?v=DT9_7sW5knY)
 1. [WIRED by Design: A Game Designer Explains the Counterintuitive Secret to Fun](https://www.youtube.com/watch?v=78rPt0RsosQ)
 1. [How to Add Literally Infinite Features into Minecraft (with one update)](https://www.youtube.com/watch?v=CS5DQVSp058)
 1. [The Lost Soul Arts of Demon's Souls](https://www.youtube.com/watch?v=Np5PdpsfINA)

@@ -1,3 +1,8 @@
+# Synchronization
+
+1. [Braid: Synchronization for HTTP](https://braid.news/)
+1. [The Braid Protocol: Synchronization for HTTP](https://tools.ietf.org/html/draft-toomim-braid-00)
+
 # Reference
 
 1. [DDD and Messaging Architectures: An overview of my different series on patterns in distributed systems.](http://verraes.net/2019/05/ddd-msg-arch/)

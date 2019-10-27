@@ -4,10 +4,13 @@
     [monad (#+ do)]
     [monoid (#+ Monoid)]]
    [control
+    ["." function]
     ["." try (#+ Try)]
     ["." exception (#+ exception:)]
-    ["." function]]
+    [parser
+     [binary (#+ Offset)]]]
    [data
+    ["." product]
     ["." binary]
     [number (#+ hex)
      ["n" nat]]
@@ -34,16 +37,26 @@
     [type
      [category (#+ Value Method)]]]])
 
+(type: #export Size Nat)
+
+(type: #export Estimator
+  (-> Offset Size))
+
 (type: #export Bytecode
   (-> [Environment Specification]
       (Try [Environment Specification])))
+
+(def: no-bytecode Bytecode (|>> #try.Success))
 
 (def: #export run
   (-> Bytecode (Try [Environment Specification]))
   (function.apply [/.start binaryF.no-op]))
 
+(type: Opcode
+  (-> Specification Specification))
+
 (def: (bytecode condition transform)
-  (-> Condition (-> Specification Specification) Bytecode)
+  (-> Condition Opcode Bytecode)
   (function (_ [environment specification])
     (do try.monad
       [environment' (condition environment)]
@@ -52,9 +65,14 @@
 
 (type: Code Nat)
 
-(def: code-size 1)
-(def: big-jump-size 4)
-(def: integer-size 4)
+(def: code-size Size 1)
+(def: big-jump-size Size 4)
+(def: integer-size Size 4)
+
+(def: (fixed size)
+  (-> Size Estimator)
+  (function (_ offset)
+    size))
 
 (def: (nullary' code)
   (-> Code Mutation)
@@ -63,10 +81,17 @@
      (try.assume
       (binary.write/8 offset code binary))]))
 
-(def: (nullary code [size mutation])
-  (-> Code (-> Specification Specification))
-  [(n.+ ..code-size size)
-   (|>> mutation ((nullary' code)))])
+(def: nullary
+  [Estimator
+   (-> Code Opcode)]
+  [(..fixed ..code-size)
+   (function (_ code [size mutation])
+     [(n.+ ..code-size size)
+      (|>> mutation ((nullary' code)))])])
+
+(def: size/1 ($_ n.+ ..code-size 1))
+(def: size/2 ($_ n.+ ..code-size 2))
+(def: size/4 ($_ n.+ ..code-size 4))
 
 (template [<shift> <name> <inputT> <writer> <unwrap>]
   [(with-expansions [<private> (template.identifier [<name> "'"])]
@@ -79,51 +104,66 @@
              [_ (binary.write/8 offset code binary)]
              (<writer> (n.+ 1 offset) (<unwrap> input0) binary)))]))
 
-     (def: (<name> code input0 [size mutation])
-       (-> Code <inputT> (-> Specification Specification))
-       [(n.+ <shift> size)
-        (|>> mutation ((<private> code input0)))]))]
+     (def: <name>
+       [Estimator
+        (-> Code <inputT> Opcode)]
+       [(..fixed <shift>)
+        (function (_ code input0 [size mutation])
+          [(n.+ <shift> size)
+           (|>> mutation ((<private> code input0)))])]))]
 
-  [2 unary/1 U1 binary.write/8 ///unsigned.nat]
-  [3 unary/2 U2 binary.write/16 ///unsigned.nat]
-  [3 jump/2 S2 binary.write/16 ///signed.int]
-  [5 jump/4 S4 binary.write/32 ///signed.int]
+  [..size/1 unary/1 U1 binary.write/8 ///unsigned.nat]
+  [..size/2 unary/2 U2 binary.write/16 ///unsigned.nat]
+  [..size/2 jump/2 S2 binary.write/16 ///signed.int]
+  [..size/4 jump/4 S4 binary.write/32 ///signed.int]
   )
+
+(def: size/11 ($_ n.+ ..code-size 1 1))
 
 (def: (binary/11' code input0 input1)
   (-> Code U1 U1 Mutation)
   (function (_ [offset binary])
-    [(n.+ 3 offset)
+    [(n.+ ..size/11 offset)
      (try.assume
       (do try.monad
         [_ (binary.write/8 offset code binary)
          _ (binary.write/8 (n.+ 1 offset) (///unsigned.nat input0) binary)]
         (binary.write/8 (n.+ 2 offset) (///unsigned.nat input1) binary)))]))
 
-(def: (binary/11 code input0 input1 [size mutation])
-  (-> Code U1 U1 (-> Specification Specification))
-  [(n.+ 3 size)
-   (|>> mutation ((binary/11' code input0 input1)))])
+(def: binary/11
+  [Estimator
+   (-> Code U1 U1 Opcode)]
+  [(..fixed ..size/11)
+   (function (_ code input0 input1 [size mutation])
+     [(n.+ ..size/11 size)
+      (|>> mutation ((binary/11' code input0 input1)))])])
+
+(def: size/21 ($_ n.+ ..code-size 2 1))
 
 (def: (binary/21' code input0 input1)
   (-> Code U2 U1 Mutation)
   (function (_ [offset binary])
-    [(n.+ 4 offset)
+    [(n.+ ..size/21 offset)
      (try.assume
       (do try.monad
         [_ (binary.write/8 offset code binary)
          _ (binary.write/16 (n.+ 1 offset) (///unsigned.nat input0) binary)]
         (binary.write/8 (n.+ 3 offset) (///unsigned.nat input1) binary)))]))
 
-(def: (binary/21 code input0 input1 [size mutation])
-  (-> Code U2 U1 (-> Specification Specification))
-  [(n.+ 4 size)
-   (|>> mutation ((binary/21' code input0 input1)))])
+(def: binary/21
+  [Estimator
+   (-> Code U2 U1 Opcode)]
+  [(..fixed ..size/21)
+   (function (_ code input0 input1 [size mutation])
+     [(n.+ ..size/21 size)
+      (|>> mutation ((binary/21' code input0 input1)))])])
+
+(def: size/211 ($_ n.+ ..code-size 2 1 1))
 
 (def: (trinary/211' code input0 input1 input2)
   (-> Code U2 U1 U1 Mutation)
   (function (_ [offset binary])
-    [(n.+ 5 offset)
+    [(n.+ ..size/211 offset)
      (try.assume
       (do try.monad
         [_ (binary.write/8 offset code binary)
@@ -131,10 +171,13 @@
          _ (binary.write/8 (n.+ 3 offset) (///unsigned.nat input1) binary)]
         (binary.write/8 (n.+ 4 offset) (///unsigned.nat input2) binary)))]))
 
-(def: (trinary/211 code input0 input1 input2 [size mutation])
-  (-> Code U2 U1 U1 (-> Specification Specification))
-  [(n.+ 5 size)
-   (|>> mutation ((trinary/211' code input0 input1 input2)))])
+(def: trinary/211
+  [Estimator
+   (-> Code U2 U1 U1 Opcode)]
+  [(..fixed ..size/211)
+   (function (_ code input0 input1 input2 [size mutation])
+     [(n.+ ..size/211 size)
+      (|>> mutation ((trinary/211' code input0 input1 input2)))])])
 
 (abstract: #export Primitive-Array-Type
   {}
@@ -398,17 +441,21 @@
 
                                             <inputs>')
                             <locals>' (template.splice <locals>)]
-            (def: #export (<name> <input-names>)
-              (-> <input-types> Bytecode)
-              (..bytecode
-               (`` ($_ /@compose
-                       (/.consumes <consumes>)
-                       (/.produces <produces>)
-                       (~~ (template [<local>]
-                             [(/.has-local <local>)]
+            (def: #export <name>
+              [Estimator
+               (-> [<input-types>] Bytecode)]
+              (let [[estimator <arity>'] <arity>]
+                [estimator
+                 (function (_ [<input-names>])
+                   (..bytecode
+                    (`` ($_ /@compose
+                            (/.consumes <consumes>)
+                            (/.produces <produces>)
+                            (~~ (template [<local>]
+                                  [(/.has-local <local>)]
 
-                             <locals>'))))
-               (`` (<arity> (hex <code>) (~~ (template.splice <arity-inputs>)))))))]
+                                  <locals>'))))
+                    (`` (<arity>' (hex <code>) (~~ (template.splice <arity-inputs>))))))])))]
 
          <definitions>'
          ))]
@@ -482,116 +529,129 @@
      [["B9" invokeinterface [[index (Index (Reference Method))] [count U1] [output-count U1]] [(///index.number index) count (///unsigned.u1 0)] (///unsigned.nat count) (///unsigned.nat output-count) []]]]
     ))
 
-(def: #export (tableswitch minimum default cases)
-  (-> S4 Big-Jump (List Big-Jump) Bytecode)
-  (let [append (: (-> Specification Specification)
-                  (function (_ [size mutation])
-                    (let [default-offset (n.+ ..code-size size)
-                          padding (n.% 4
-                                       (n.- (n.% 4 default-offset)
-                                            4))
-                          amount-of-cases (list.size cases)
-                          maximum (|> amount-of-cases .int ///signed.s4 (///signed.s4/+ minimum))
-                          tableswitch-size ($_ n.+
-                                               ..code-size
-                                               padding
-                                               ..big-jump-size
-                                               ..integer-size
-                                               ..integer-size
-                                               (n.* amount-of-cases ..big-jump-size))
-                          tableswitch-mutation (: Mutation
-                                                  (function (_ [offset binary])
-                                                    [(n.+ tableswitch-size offset)
-                                                     (try.assume
-                                                      (do try.monad
-                                                        [_ (binary.write/8 offset (hex "AA") binary)
-                                                         #let [offset (n.+ ..code-size offset)]
-                                                         _ (case padding
-                                                             3 (do @
-                                                                 [_ (binary.write/8 offset 0 binary)]
-                                                                 (binary.write/16 (inc offset) 0 binary))
-                                                             2 (binary.write/16 offset 0 binary)
-                                                             1 (binary.write/8 offset 0 binary)
-                                                             _ (wrap binary))
-                                                         #let [offset (n.+ padding offset)]
-                                                         _ (binary.write/32 offset (///signed.int default) binary)
-                                                         #let [offset (n.+ ..big-jump-size offset)]
-                                                         _ (binary.write/32 offset (///signed.int minimum) binary)
-                                                         #let [offset (n.+ ..integer-size offset)]
-                                                         _ (binary.write/32 offset (///signed.int maximum) binary)]
-                                                        (loop [offset (n.+ ..integer-size offset)
-                                                               cases cases]
-                                                          (case cases
-                                                            #.Nil
-                                                            (wrap binary)
-                                                            
-                                                            (#.Cons head tail)
-                                                            (do @
-                                                              [_ (binary.write/32 offset (///signed.int head) binary)]
-                                                              (recur (n.+ ..big-jump-size offset)
-                                                                     tail))))))]))]
-                      [(n.+ tableswitch-size
-                            size)
-                       (|>> mutation tableswitch-mutation)])))]
-    (..bytecode (/.consumes 1)
-                append)))
+(def: (switch-padding offset)
+  (n.% 4
+       (n.- (n.% 4 (n.+ ..code-size offset))
+            4)))
 
-(def: #export (lookupswitch default cases)
-  (-> Big-Jump (List [S4 Big-Jump]) Bytecode)
-  (let [append (: (-> Specification Specification)
-                  (function (_ [size mutation])
-                    (let [default-offset (n.+ ..code-size size)
-                          padding (n.% 4
-                                       (n.- (n.% 4 default-offset)
-                                            4))
-                          amount-of-cases (list.size cases)
-                          case-size (n.+ ..integer-size ..big-jump-size)
-                          lookupswitch-size ($_ n.+
-                                                ..code-size
-                                                padding
-                                                ..big-jump-size
-                                                ..integer-size
-                                                (n.* amount-of-cases case-size))
-                          lookupswitch-mutation (: Mutation
-                                                   (function (_ [offset binary])
-                                                     [(n.+ lookupswitch-size offset)
-                                                      (try.assume
-                                                       (do try.monad
-                                                         [_ (binary.write/8 offset (hex "AB") binary)
-                                                          #let [offset (n.+ ..code-size offset)]
-                                                          _ (case padding
-                                                              3 (do @
-                                                                  [_ (binary.write/8 offset 0 binary)]
-                                                                  (binary.write/16 (inc offset) 0 binary))
-                                                              2 (binary.write/16 offset 0 binary)
-                                                              1 (binary.write/8 offset 0 binary)
-                                                              _ (wrap binary))
-                                                          #let [offset (n.+ padding offset)]
-                                                          _ (binary.write/32 offset (///signed.int default) binary)
-                                                          #let [offset (n.+ ..big-jump-size offset)]
-                                                          _ (binary.write/32 offset amount-of-cases binary)]
-                                                         (loop [offset (n.+ ..integer-size offset)
-                                                                cases cases]
-                                                           (case cases
-                                                             #.Nil
-                                                             (wrap binary)
-                                                             
-                                                             (#.Cons [value jump] tail)
-                                                             (do @
-                                                               [_ (binary.write/32 offset (///signed.int value) binary)
-                                                                _ (binary.write/32 (n.+ ..integer-size offset) (///signed.int jump) binary)]
-                                                               (recur (n.+ case-size offset)
-                                                                      tail))))))]))]
-                      [(n.+ lookupswitch-size
-                            size)
-                       (|>> mutation lookupswitch-mutation)])))]
-    (..bytecode (/.consumes 1)
-                append)))
+(def: #export tableswitch
+  [(-> Nat Estimator)
+   (-> S4 Big-Jump (List Big-Jump) Bytecode)]
+  (let [estimator (: (-> Nat Estimator)
+                     (function (_ amount-of-cases offset)
+                       ($_ n.+
+                           ..code-size
+                           (switch-padding offset)
+                           ..big-jump-size
+                           ..integer-size
+                           ..integer-size
+                           (n.* amount-of-cases ..big-jump-size))))]
+    [estimator
+     (function (_ minimum default cases)
+       (let [amount-of-cases (list.size cases)
+             maximum (|> amount-of-cases .int ///signed.s4 (///signed.s4/+ minimum))
+             estimator (estimator amount-of-cases)
+             opcode (: Opcode
+                       (function (_ [size mutation])
+                         (let [padding (switch-padding size)
+                               tableswitch-size (estimator size)
+                               tableswitch-mutation (: Mutation
+                                                       (function (_ [offset binary])
+                                                         [(n.+ tableswitch-size offset)
+                                                          (try.assume
+                                                           (do try.monad
+                                                             [_ (binary.write/8 offset (hex "AA") binary)
+                                                              #let [offset (n.+ ..code-size offset)]
+                                                              _ (case padding
+                                                                  3 (do @
+                                                                      [_ (binary.write/8 offset 0 binary)]
+                                                                      (binary.write/16 (inc offset) 0 binary))
+                                                                  2 (binary.write/16 offset 0 binary)
+                                                                  1 (binary.write/8 offset 0 binary)
+                                                                  _ (wrap binary))
+                                                              #let [offset (n.+ padding offset)]
+                                                              _ (binary.write/32 offset (///signed.int default) binary)
+                                                              #let [offset (n.+ ..big-jump-size offset)]
+                                                              _ (binary.write/32 offset (///signed.int minimum) binary)
+                                                              #let [offset (n.+ ..integer-size offset)]
+                                                              _ (binary.write/32 offset (///signed.int maximum) binary)]
+                                                             (loop [offset (n.+ ..integer-size offset)
+                                                                    cases cases]
+                                                               (case cases
+                                                                 #.Nil
+                                                                 (wrap binary)
+                                                                 
+                                                                 (#.Cons head tail)
+                                                                 (do @
+                                                                   [_ (binary.write/32 offset (///signed.int head) binary)]
+                                                                   (recur (n.+ ..big-jump-size offset)
+                                                                          tail))))))]))]
+                           [(n.+ tableswitch-size
+                                 size)
+                            (|>> mutation tableswitch-mutation)])))]
+         (..bytecode (/.consumes 1)
+                     opcode)))]))
+
+(def: #export lookupswitch
+  [(-> Nat Estimator)
+   (-> Big-Jump (List [S4 Big-Jump]) Bytecode)]
+  (let [case-size (n.+ ..integer-size ..big-jump-size)
+        estimator (: (-> Nat Estimator)
+                     (function (_ amount-of-cases offset)
+                       ($_ n.+
+                           ..code-size
+                           (switch-padding offset)
+                           ..big-jump-size
+                           ..integer-size
+                           (n.* amount-of-cases case-size))))]
+    [estimator
+     (function (_ default cases)
+       (let [amount-of-cases (list.size cases)
+             estimator (estimator amount-of-cases)
+             opcode (: Opcode
+                       (function (_ [size mutation])
+                         (let [padding (switch-padding size)
+                               lookupswitch-size (estimator size)
+                               lookupswitch-mutation (: Mutation
+                                                        (function (_ [offset binary])
+                                                          [(n.+ lookupswitch-size offset)
+                                                           (try.assume
+                                                            (do try.monad
+                                                              [_ (binary.write/8 offset (hex "AB") binary)
+                                                               #let [offset (n.+ ..code-size offset)]
+                                                               _ (case padding
+                                                                   3 (do @
+                                                                       [_ (binary.write/8 offset 0 binary)]
+                                                                       (binary.write/16 (inc offset) 0 binary))
+                                                                   2 (binary.write/16 offset 0 binary)
+                                                                   1 (binary.write/8 offset 0 binary)
+                                                                   _ (wrap binary))
+                                                               #let [offset (n.+ padding offset)]
+                                                               _ (binary.write/32 offset (///signed.int default) binary)
+                                                               #let [offset (n.+ ..big-jump-size offset)]
+                                                               _ (binary.write/32 offset amount-of-cases binary)]
+                                                              (loop [offset (n.+ ..integer-size offset)
+                                                                     cases cases]
+                                                                (case cases
+                                                                  #.Nil
+                                                                  (wrap binary)
+                                                                  
+                                                                  (#.Cons [value jump] tail)
+                                                                  (do @
+                                                                    [_ (binary.write/32 offset (///signed.int value) binary)
+                                                                     _ (binary.write/32 (n.+ ..integer-size offset) (///signed.int jump) binary)]
+                                                                    (recur (n.+ case-size offset)
+                                                                           tail))))))]))]
+                           [(n.+ lookupswitch-size
+                                 size)
+                            (|>> mutation lookupswitch-mutation)])))]
+         (..bytecode (/.consumes 1)
+                     opcode)))]))
 
 (structure: #export monoid
   (Monoid Bytecode)
 
-  (def: identity ..nop)
+  (def: identity ..no-bytecode)
 
   (def: (compose left right)
     (function (_ input)

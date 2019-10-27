@@ -1,5 +1,6 @@
 (.module:
   [lux (#- Type)
+   ["." host]
    [abstract
     [monoid (#+ Monoid)]
     ["." monad (#+ Monad do)]]
@@ -16,22 +17,28 @@
      ["%" format (#+ format)]]
     [number
      ["n" nat]
-     ["i" int]]
+     ["i" int]
+     ["." i32]]
     [collection
      ["." list ("#@." functor fold)]
-     ["." dictionary (#+ Dictionary)]]]]
+     ["." dictionary (#+ Dictionary)]
+     ["." row (#+ Row)]]]]
   ["." / #_
-   ["#." condition (#+ Local)]
+   ["#." condition (#+ Stack Local)]
+   ["#." address]
    ["#." jump (#+ Jump Big-Jump)]
-   ["#." bytecode (#+ Primitive-Array-Type Bytecode) ("#@." monoid)]
+   ["_" bytecode (#+ Primitive-Array-Type Bytecode Estimator) ("#@." monoid)]
    ["/#" // #_
-    ["#." index]
+    ["#." index (#+ Index)]
     [encoding
      ["#." name]
      ["#." unsigned (#+ U1 U2)]
      ["#." signed (#+ S4)]]
     ["#." constant (#+ UTF8)
      ["#/." pool (#+ Pool)]]
+    [attribute
+     [code
+      ["#." exception (#+ Exception)]]]
     ["." type (#+ Type)
      [category (#+ Class Object Value' Value Return' Return Method)]
      ["." reflection]
@@ -42,9 +49,9 @@
     (-> (Type (<| Return' Value' category)) Text))
   (|>> type.reflection reflection.reflection))
 
-(type: #export Label Nat)
-
 (type: #export Address Nat)
+
+(type: #export Label Nat)
 
 (type: #export Resolver (Dictionary Label Address))
 
@@ -60,11 +67,19 @@
    #known-labels (dictionary.new n.hash)})
 
 (type: #export Partial
-  (-> Resolver (Try Bytecode)))
+  (-> Resolver (Try [(Row Exception) Bytecode])))
+
+(def: no-exceptions
+  (Row Exception)
+  row.empty)
+
+(def: no-bytecode
+  Bytecode
+  (|>> #try.Success))
 
 (def: partial-identity
   Partial
-  (function.constant (#try.Success /bytecode.nop)))
+  (function.constant (#try.Success [..no-exceptions ..no-bytecode])))
 
 (structure: partial-monoid
   (Monoid Partial)
@@ -81,9 +96,10 @@
           ## else
           (function (_ resolver)
             (do try.monad
-              [left (left resolver)
-               right (right resolver)]
-              (wrap (/bytecode@compose left right)))))))
+              [[left-exceptions left-bytecode] (left resolver)
+               [right-exceptions right-bytecode] (right resolver)]
+              (wrap [(:: row.monoid compose left-exceptions right-exceptions)
+                     (_@compose left-bytecode right-bytecode)]))))))
 
 (type: #export (Instruction a)
   (State [Pool Tracker] (Writer Partial a)))
@@ -116,188 +132,223 @@
                            state.monad))))
 
 (def: #export (resolve instruction)
-  (All [a] (-> (Instruction a) (State Pool (Try [Bytecode a]))))
+  (All [a]
+    (-> (Instruction a)
+        (State Pool (Try [Bytecode
+                          (Row Exception)
+                          a]))))
   (function (_ pool)
     (let [[[pool tracker] [partial output]] (state.run [pool ..fresh] instruction)]
       [pool (do try.monad
-              [bytecode (partial (get@ #known-labels tracker))]
-              (wrap [bytecode output]))])))
+              [[exceptions bytecode] (partial (get@ #known-labels tracker))]
+              (wrap [bytecode exceptions output]))])))
 
-(def: (nullary bytecode)
-  (-> Bytecode (Instruction Any))
+(def: (count estimator counter)
+  (-> Estimator Address Address)
+  (n.+ (estimator counter) counter))
+
+(def: (opcode [estimator bytecode] input)
+  (All [a] (-> [Estimator (-> [a] Bytecode)] [a] (Instruction Any)))
   (function (_ [pool tracker])
-    [[pool tracker]
-     [(function.constant (#try.Success bytecode))
+    [[pool (update@ #program-counter (count estimator) tracker)]
+     [(function.constant (#try.Success [..no-exceptions (bytecode input)]))
       []]]))
 
 (template [<name> <bytecode>]
-  [(def: #export <name> (nullary <bytecode>))]
+  [(def: #export <name> (..opcode <bytecode> []))]
 
-  [nop /bytecode.nop]
-  [aconst-null /bytecode.aconst-null]
-
-  [iconst-m1 /bytecode.iconst-m1]
-  [iconst-0 /bytecode.iconst-0]
-  [iconst-1 /bytecode.iconst-1]
-  [iconst-2 /bytecode.iconst-2]
-  [iconst-3 /bytecode.iconst-3]
-  [iconst-4 /bytecode.iconst-4]
-  [iconst-5 /bytecode.iconst-5]
-
-  [lconst-0 /bytecode.lconst-0]
-  [lconst-1 /bytecode.lconst-1]
-
-  [fconst-0 /bytecode.fconst-0]
-  [fconst-1 /bytecode.fconst-1]
-  [fconst-2 /bytecode.fconst-2]
+  [nop _.nop]
   
-  [dconst-0 /bytecode.dconst-0]
-  [dconst-1 /bytecode.dconst-1]
+  [aconst-null _.aconst-null]
 
-  [pop /bytecode.pop]
-  [pop2 /bytecode.pop2]
+  [iconst-m1 _.iconst-m1]
+  [iconst-0 _.iconst-0]
+  [iconst-1 _.iconst-1]
+  [iconst-2 _.iconst-2]
+  [iconst-3 _.iconst-3]
+  [iconst-4 _.iconst-4]
+  [iconst-5 _.iconst-5]
+
+  [lconst-0 _.lconst-0]
+  [lconst-1 _.lconst-1]
+
+  [fconst-0 _.fconst-0]
+  [fconst-1 _.fconst-1]
+  [fconst-2 _.fconst-2]
   
-  [dup /bytecode.dup]
-  [dup-x1 /bytecode.dup-x1]
-  [dup-x2 /bytecode.dup-x2]
-  [dup2 /bytecode.dup2]
-  [dup2-x1 /bytecode.dup2-x1]
-  [dup2-x2 /bytecode.dup2-x2]
+  [dconst-0 _.dconst-0]
+  [dconst-1 _.dconst-1]
+
+  [pop _.pop]
+  [pop2 _.pop2]
   
-  [swap /bytecode.swap]
-
-  [istore-0 /bytecode.istore-0]
-  [istore-1 /bytecode.istore-1]
-  [istore-2 /bytecode.istore-2]
-  [istore-3 /bytecode.istore-3]
-
-  [lstore-0 /bytecode.lstore-0]
-  [lstore-1 /bytecode.lstore-1]
-  [lstore-2 /bytecode.lstore-2]
-  [lstore-3 /bytecode.lstore-3]
-
-  [fstore-0 /bytecode.fstore-0]
-  [fstore-1 /bytecode.fstore-1]
-  [fstore-2 /bytecode.fstore-2]
-  [fstore-3 /bytecode.fstore-3]
-
-  [dstore-0 /bytecode.dstore-0]
-  [dstore-1 /bytecode.dstore-1]
-  [dstore-2 /bytecode.dstore-2]
-  [dstore-3 /bytecode.dstore-3]
+  [dup _.dup]
+  [dup-x1 _.dup-x1]
+  [dup-x2 _.dup-x2]
+  [dup2 _.dup2]
+  [dup2-x1 _.dup2-x1]
+  [dup2-x2 _.dup2-x2]
   
-  [astore-0 /bytecode.astore-0]
-  [astore-1 /bytecode.astore-1]
-  [astore-2 /bytecode.astore-2]
-  [astore-3 /bytecode.astore-3]
+  [swap _.swap]
 
-  [iaload /bytecode.iaload]
-  [laload /bytecode.laload]
-  [faload /bytecode.faload]
-  [daload /bytecode.daload]
-  [aaload /bytecode.aaload]
-  [baload /bytecode.baload]
-  [caload /bytecode.caload]
-  [saload /bytecode.saload]
+  [iaload _.iaload]
+  [laload _.laload]
+  [faload _.faload]
+  [daload _.daload]
+  [aaload _.aaload]
+  [baload _.baload]
+  [caload _.caload]
+  [saload _.saload]
 
-  [iastore /bytecode.iastore]
-  [lastore /bytecode.lastore]
-  [fastore /bytecode.fastore]
-  [dastore /bytecode.dastore]
-  [aastore /bytecode.aastore]
-  [bastore /bytecode.bastore]
-  [castore /bytecode.castore]
-  [sastore /bytecode.sastore]
+  [iload-0 _.iload-0]
+  [iload-1 _.iload-1]
+  [iload-2 _.iload-2]
+  [iload-3 _.iload-3]
 
-  [iadd /bytecode.iadd]
-  [isub /bytecode.isub]
-  [imul /bytecode.imul]
-  [idiv /bytecode.idiv]
-  [irem /bytecode.irem]
-  [ineg /bytecode.ineg]
-  [ishl /bytecode.ishl]
-  [ishr /bytecode.ishr]
-  [iushr /bytecode.iushr]
-  [iand /bytecode.iand]
-  [ior /bytecode.ior]
-  [ixor /bytecode.ixor]
-
-  [ladd /bytecode.ladd]
-  [lsub /bytecode.lsub]
-  [lmul /bytecode.lmul]
-  [ldiv /bytecode.ldiv]
-  [lrem /bytecode.lrem]
-  [lneg /bytecode.lneg]
-  [land /bytecode.land]
-  [lor /bytecode.lor]
-  [lxor /bytecode.lxor]
+  [lload-0 _.lload-0]
+  [lload-1 _.lload-1]
+  [lload-2 _.lload-2]
+  [lload-3 _.lload-3]
   
-  [fadd /bytecode.fadd]
-  [fsub /bytecode.fsub]
-  [fmul /bytecode.fmul]
-  [fdiv /bytecode.fdiv]
-  [frem /bytecode.frem]
-  [fneg /bytecode.fneg]
+  [fload-0 _.fload-0]
+  [fload-1 _.fload-1]
+  [fload-2 _.fload-2]
+  [fload-3 _.fload-3]
   
-  [dadd /bytecode.dadd]
-  [dsub /bytecode.dsub]
-  [dmul /bytecode.dmul]
-  [ddiv /bytecode.ddiv]
-  [drem /bytecode.drem]
-  [dneg /bytecode.dneg]
-
-  [lshl /bytecode.lshl]
-  [lshr /bytecode.lshr]
-  [lushr /bytecode.lushr]
-
-  [l2i /bytecode.l2i]
-  [l2f /bytecode.l2f]
-  [l2d /bytecode.l2d]
+  [dload-0 _.dload-0]
+  [dload-1 _.dload-1]
+  [dload-2 _.dload-2]
+  [dload-3 _.dload-3]
   
-  [f2i /bytecode.f2i]
-  [f2l /bytecode.f2l]
-  [f2d /bytecode.f2d]
+  [aload-0 _.aload-0]
+  [aload-1 _.aload-1]
+  [aload-2 _.aload-2]
+  [aload-3 _.aload-3]
+
+  [iastore _.iastore]
+  [lastore _.lastore]
+  [fastore _.fastore]
+  [dastore _.dastore]
+  [aastore _.aastore]
+  [bastore _.bastore]
+  [castore _.castore]
+  [sastore _.sastore]
+
+  [istore-0 _.istore-0]
+  [istore-1 _.istore-1]
+  [istore-2 _.istore-2]
+  [istore-3 _.istore-3]
+
+  [lstore-0 _.lstore-0]
+  [lstore-1 _.lstore-1]
+  [lstore-2 _.lstore-2]
+  [lstore-3 _.lstore-3]
+
+  [fstore-0 _.fstore-0]
+  [fstore-1 _.fstore-1]
+  [fstore-2 _.fstore-2]
+  [fstore-3 _.fstore-3]
+
+  [dstore-0 _.dstore-0]
+  [dstore-1 _.dstore-1]
+  [dstore-2 _.dstore-2]
+  [dstore-3 _.dstore-3]
   
-  [d2i /bytecode.d2i]
-  [d2l /bytecode.d2l]
-  [d2f /bytecode.d2f]
+  [astore-0 _.astore-0]
+  [astore-1 _.astore-1]
+  [astore-2 _.astore-2]
+  [astore-3 _.astore-3]
 
-  [i2l /bytecode.i2l]
-  [i2f /bytecode.i2f]
-  [i2d /bytecode.i2d]
-  [i2b /bytecode.i2b]
-  [i2c /bytecode.i2c]
-  [i2s /bytecode.i2s]
+  [iadd _.iadd]
+  [isub _.isub]
+  [imul _.imul]
+  [idiv _.idiv]
+  [irem _.irem]
+  [ineg _.ineg]
+  [ishl _.ishl]
+  [ishr _.ishr]
+  [iushr _.iushr]
+  [iand _.iand]
+  [ior _.ior]
+  [ixor _.ixor]
 
-  [lcmp /bytecode.lcmp]
+  [ladd _.ladd]
+  [lsub _.lsub]
+  [lmul _.lmul]
+  [ldiv _.ldiv]
+  [lrem _.lrem]
+  [lneg _.lneg]
+  [land _.land]
+  [lor _.lor]
+  [lxor _.lxor]
   
-  [fcmpl /bytecode.fcmpl]
-  [fcmpg /bytecode.fcmpg]
-
-  [dcmpl /bytecode.dcmpl]
-  [dcmpg /bytecode.dcmpg]
-
-  [ireturn /bytecode.ireturn]
-  [lreturn /bytecode.lreturn]
-  [freturn /bytecode.freturn]
-  [dreturn /bytecode.dreturn]
-  [areturn /bytecode.areturn]
-  [return /bytecode.return]
-
-  [arraylength /bytecode.arraylength]
+  [fadd _.fadd]
+  [fsub _.fsub]
+  [fmul _.fmul]
+  [fdiv _.fdiv]
+  [frem _.frem]
+  [fneg _.fneg]
   
-  [athrow /bytecode.athrow]
+  [dadd _.dadd]
+  [dsub _.dsub]
+  [dmul _.dmul]
+  [ddiv _.ddiv]
+  [drem _.drem]
+  [dneg _.dneg]
+
+  [lshl _.lshl]
+  [lshr _.lshr]
+  [lushr _.lushr]
+
+  [l2i _.l2i]
+  [l2f _.l2f]
+  [l2d _.l2d]
   
-  [monitorenter /bytecode.monitorenter]
-  [monitorexit /bytecode.monitorexit]
+  [f2i _.f2i]
+  [f2l _.f2l]
+  [f2d _.f2d]
+  
+  [d2i _.d2i]
+  [d2l _.d2l]
+  [d2f _.d2f]
+
+  [i2l _.i2l]
+  [i2f _.i2f]
+  [i2d _.i2d]
+  [i2b _.i2b]
+  [i2c _.i2c]
+  [i2s _.i2s]
+
+  [lcmp _.lcmp]
+  
+  [fcmpl _.fcmpl]
+  [fcmpg _.fcmpg]
+
+  [dcmpl _.dcmpl]
+  [dcmpg _.dcmpg]
+
+  [ireturn _.ireturn]
+  [lreturn _.lreturn]
+  [freturn _.freturn]
+  [dreturn _.dreturn]
+  [areturn _.areturn]
+  [return _.return]
+
+  [arraylength _.arraylength]
+  
+  [athrow _.athrow]
+  
+  [monitorenter _.monitorenter]
+  [monitorexit _.monitorexit]
   )
 
 (def: #export (bipush byte)
   (-> U1 (Instruction Any))
-  (function (_ [pool tracker])
-    [[pool tracker]
-     [(function.constant (#try.Success (/bytecode.bipush byte)))
-      []]]))
+  (let [[estimator bytecode] _.bipush]
+    (function (_ [pool tracker])
+      [[pool (update@ #program-counter (count estimator) tracker)]
+       [(function.constant (#try.Success [..no-exceptions (bytecode byte)]))
+        []]])))
 
 (def: (lift on-pool)
   (All [a]
@@ -312,54 +363,82 @@
 (def: max-u1
   (|> //unsigned.max-u1 //unsigned.nat //unsigned.u2))
 
-(template [<name> <type> <constant> <ldc>]
+(def: #export (ldc/string value)
+  (-> //constant.UTF8 (Instruction Any))
+  (do ..monad
+    [index (..lift (//constant/pool.string value))
+     #let [index' (//index.number index)]]
+    (if (:: //unsigned.order < ..max-u1 index')
+      (..opcode _.ldc [(|> index' //unsigned.nat //unsigned.u1)])
+      (..opcode _.ldc-w/string [index]))))
+
+(template [<name> <type> <constant> <ldc> <to-lux> <specializations>]
   [(def: #export (<name> value)
      (-> <type> (Instruction Any))
-     (do ..monad
-       [index (..lift (<constant> value))
-        #let [index' (//index.number index)]]
-       (..nullary (if (:: //unsigned.order < ..max-u1 index')
-                    (/bytecode.ldc (|> index' //unsigned.nat //unsigned.u1))
-                    (<ldc> index)))))]
+     (case (|> value //constant.value <to-lux>)
+       (^template [<special> <bytecode>]
+         <special> (..opcode <bytecode> []))
+       <specializations>
+       
+       _ (do ..monad
+           [index (..lift (<constant> value))]
+           (..opcode <ldc> [index]))))]
 
-  [ldc/string //constant.UTF8 //constant/pool.string /bytecode.ldc-w/string]
+  [ldc/integer //constant.Integer //constant/pool.integer _.ldc-w/integer
+   (<| .int i32.i64)
+   ([-1 _.iconst-m1]
+    [+0 _.iconst-0]
+    [+1 _.iconst-1]
+    [+2 _.iconst-2]
+    [+3 _.iconst-3]
+    [+4 _.iconst-4]
+    [+5 _.iconst-5])]
+  [ldc/long //constant.Long //constant/pool.long _.ldc2-w/long
+   (<|)
+   ([+0 _.lconst-0]
+    [+1 _.lconst-1])]
+  [ldc/float //constant.Float //constant/pool.float _.ldc-w/float
+   (<| host.float-to-double)
+   ([+0.0 _.fconst-0]
+    [+1.0 _.fconst-1]
+    [+2.0 _.fconst-2])]
+  [ldc/double //constant.Double //constant/pool.double _.ldc2-w/double
+   (<|)
+   ([+0.0 _.fconst-0]
+    [+1.0 _.fconst-1])]
   )
 
-(template [<name> <type> <constant> <ldc>]
-  [(def: #export (<name> value)
-     (-> <type> (Instruction Any))
-     (do ..monad
-       [index (..lift (<constant> value))]
-       (..nullary (<ldc> index))))]
+(template [<name> <bytecode> <input> <0> <1> <2> <3>]
+  [(def: #export (<name> local)
+     (-> <input> (Instruction Any))
+     (case (//unsigned.nat local)
+       0 (..opcode <0> [])
+       1 (..opcode <1> [])
+       2 (..opcode <2> [])
+       3 (..opcode <3> [])
+       _ (..opcode <bytecode> [local])))]
+  
+  [iload _.iload Local _.iload-0 _.iload-1 _.iload-2 _.iload-3]
+  [lload _.lload Local _.lload-0 _.lload-1 _.lload-2 _.lload-3]
+  [fload _.fload Local _.fload-0 _.fload-1 _.fload-2 _.fload-3]
+  [dload _.dload Local _.dload-0 _.dload-1 _.dload-2 _.dload-3]
+  [aload _.aload Local _.aload-0 _.aload-1 _.aload-2 _.aload-3]
 
-  [ldc/integer //constant.Integer //constant/pool.integer /bytecode.ldc-w/integer]
-  [ldc/long //constant.Long //constant/pool.long /bytecode.ldc2-w/long]
-  [ldc/float //constant.Float //constant/pool.float /bytecode.ldc-w/float]
-  [ldc/double //constant.Double //constant/pool.double /bytecode.ldc2-w/double]
+  [istore _.istore Local _.istore-0 _.istore-1 _.istore-2 _.istore-3]
+  [lstore _.lstore Local _.lstore-0 _.lstore-1 _.lstore-2 _.lstore-3]
+  [fstore _.fstore Local _.fstore-0 _.fstore-1 _.fstore-2 _.fstore-3]
+  [dstore _.dstore Local _.dstore-0 _.dstore-1 _.dstore-2 _.dstore-3]
+  [astore _.astore Local _.astore-0 _.astore-1 _.astore-2 _.astore-3]
   )
 
 (template [<name> <bytecode> <input>]
   [(def: #export <name>
      (-> <input> (Instruction Any))
-     (|>> <bytecode> nullary))]
-
-  [iload /bytecode.iload Local]
-  [lload /bytecode.lload Local]
-  [fload /bytecode.fload Local]
-  [dload /bytecode.dload Local]
-  [aload /bytecode.aload Local]
-
-  [istore /bytecode.istore Local]
-  [lstore /bytecode.lstore Local]
-  [fstore /bytecode.fstore Local]
-  [dstore /bytecode.dstore Local]
-  [astore /bytecode.astore Local]
-
-  [ret /bytecode.ret Local]
-
-  [newarray /bytecode.newarray Primitive-Array-Type]
-
-  [sipush /bytecode.sipush U2]
+     (..opcode <bytecode>))]
+  
+  [ret _.ret Local]
+  [newarray _.newarray Primitive-Array-Type]
+  [sipush _.sipush U2]
   )
 
 (exception: #export (unknown-label {label Label})
@@ -386,69 +465,83 @@
       (#.Right (//signed.s4 jump))
       (#.Left (//signed.s2 jump)))))
 
+(def: (resolve-label label resolver)
+  (-> Label Resolver (Try Address))
+  (case (dictionary.get label resolver)
+    (#.Some address)
+    (#try.Success address)
+
+    #.None
+    (exception.throw ..unknown-label [label])))
+
 (template [<name> <bytecode>]
   [(def: #export (<name> label)
      (-> Label (Instruction Any))
-     (function (_ [pool tracker])
-       (let [@from (get@ #program-counter tracker)]
-         [[pool tracker]
-          [(function (_ resolver)
-             (case (dictionary.get label resolver)
-               (#.Some @to)
-               (case (jump @from @to)
-                 (#.Left jump)
-                 (#try.Success (<bytecode> jump))
+     (let [[estimator bytecode] <bytecode>]
+       (function (_ [pool tracker])
+         (let [@from (get@ #program-counter tracker)]
+           [[pool (update@ #program-counter (count estimator) tracker)]
+            [(function (_ resolver)
+               (do try.monad
+                 [@to (..resolve-label label resolver)]
+                 (case (jump @from @to)
+                   (#.Left jump)
+                   (#try.Success [..no-exceptions (bytecode jump)])
 
-                 (#.Right jump)
-                 (exception.throw ..cannot-do-a-big-jump [label @from jump]))
+                   (#.Right jump)
+                   (exception.throw ..cannot-do-a-big-jump [label @from jump]))))
+             []]]))))]
 
-               #.None
-               (exception.throw ..unknown-label [label])))
-           []]])))]
-
-  [ifeq /bytecode.ifeq]
-  [ifne /bytecode.ifne]
-  [iflt /bytecode.iflt]
-  [ifge /bytecode.ifge]
-  [ifgt /bytecode.ifgt]
-  [ifle /bytecode.ifle]
+  [ifeq _.ifeq]
+  [ifne _.ifne]
+  [iflt _.iflt]
+  [ifge _.ifge]
+  [ifgt _.ifgt]
+  [ifle _.ifle]
   
-  [if-icmpeq /bytecode.if-icmpeq]
-  [if-icmpne /bytecode.if-icmpne]
-  [if-icmplt /bytecode.if-icmplt]
-  [if-icmpge /bytecode.if-icmpge]
-  [if-icmpgt /bytecode.if-icmpgt]
-  [if-icmple /bytecode.if-icmple]
+  [if-icmpeq _.if-icmpeq]
+  [if-icmpne _.if-icmpne]
+  [if-icmplt _.if-icmplt]
+  [if-icmpge _.if-icmpge]
+  [if-icmpgt _.if-icmpgt]
+  [if-icmple _.if-icmple]
   
-  [if-acmpeq /bytecode.if-acmpeq]
-  [if-acmpne /bytecode.if-acmpne]
+  [if-acmpeq _.if-acmpeq]
+  [if-acmpne _.if-acmpne]
   
-  [ifnull /bytecode.ifnull]
-  [ifnonnull /bytecode.ifnonnull]
+  [ifnull _.ifnull]
+  [ifnonnull _.ifnonnull]
   )
 
 (template [<name> <normal-bytecode> <wide-bytecode>]
   [(def: #export (<name> label)
      (-> Label (Instruction Any))
-     (function (_ [pool tracker])
-       (let [@from (get@ #program-counter tracker)]
-         [[pool tracker]
-          [(function (_ resolver)
-             (case (dictionary.get label resolver)
-               (#.Some @to)
-               (case (jump @from @to)
-                 (#.Left jump)
-                 (#try.Success (<normal-bytecode> jump))
+     (let [[normal-estimator normal-bytecode] <normal-bytecode>
+           ## TODO: No more polymorphic GOTO and JSR.
+           ## [wide-estimator wide-bytecode] <wide-bytecode>
+           ]
+       (function (_ [pool tracker])
+         (let [@from (get@ #program-counter tracker)]
+           [[pool (update@ #program-counter (count normal-estimator) tracker)]
+            [(function (_ resolver)
+               (case (dictionary.get label resolver)
+                 (#.Some @to)
+                 (case (jump @from @to)
+                   (#.Left jump)
+                   (#try.Success [..no-exceptions (normal-bytecode jump)])
 
-                 (#.Right jump)
-                 (#try.Success (<wide-bytecode> jump)))
+                   (#.Right jump)
+                   (undefined)
+                   ## TODO: No more polymorphic GOTO and JSR.
+                   ## (#try.Success [..no-exceptions (<wide-bytecode> jump)])
+                   )
 
-               #.None
-               (exception.throw ..unknown-label [label])))
-           []]])))]
+                 #.None
+                 (exception.throw ..unknown-label [label])))
+             []]]))))]
 
-  [goto /bytecode.goto /bytecode.goto-w]
-  [jsr /bytecode.jsr /bytecode.jsr-w]
+  [goto _.goto _.goto-w]
+  [jsr _.jsr _.jsr-w]
   )
 
 (def: (big-jump jump)
@@ -464,52 +557,54 @@
 
 (def: #export (tableswitch minimum default cases)
   (-> S4 Label (List Label) (Instruction Any))
-  (function (_ [pool tracker])
-    (let [@from (get@ #program-counter tracker)]
-      [[pool tracker]
-       [(function (_ resolver)
-          (let [get (: (-> Label (Maybe Address))
-                       (function (_ label)
-                         (dictionary.get label resolver)))]
-            (case (do maybe.monad
-                    [@default (get default)
-                     @cases (monad.map @ get cases)
-                     #let [>default (big-jump (jump @from @default))
-                           >cases (list@map (|>> (jump @from) big-jump)
-                                            @cases)]]
-                    (wrap (/bytecode.tableswitch minimum >default >cases)))
-              (#.Some bytecode)
-              (#try.Success bytecode)
+  (let [[estimator bytecode] _.tableswitch]
+    (function (_ [pool tracker])
+      (let [@from (get@ #program-counter tracker)]
+        [[pool (update@ #program-counter (count (estimator (list.size cases))) tracker)]
+         [(function (_ resolver)
+            (let [get (: (-> Label (Maybe Address))
+                         (function (_ label)
+                           (dictionary.get label resolver)))]
+              (case (do maybe.monad
+                      [@default (get default)
+                       @cases (monad.map @ get cases)
+                       #let [>default (big-jump (jump @from @default))
+                             >cases (list@map (|>> (jump @from) big-jump)
+                                              @cases)]]
+                      (wrap (bytecode minimum >default >cases)))
+                (#.Some bytecode)
+                (#try.Success [..no-exceptions bytecode])
 
-              #.None
-              (exception.throw ..invalid-tableswitch []))))
-        []]])))
+                #.None
+                (exception.throw ..invalid-tableswitch []))))
+          []]]))))
 
 (exception: #export invalid-lookupswitch)
 
 (def: #export (lookupswitch default cases)
   (-> Label (List [S4 Label]) (Instruction Any))
-  (function (_ [pool tracker])
-    (let [@from (get@ #program-counter tracker)]
-      [[pool tracker]
-       [(function (_ resolver)
-          (let [get (: (-> Label (Maybe Address))
-                       (function (_ label)
-                         (dictionary.get label resolver)))]
-            (case (do maybe.monad
-                    [@default (get default)
-                     @cases (monad.map @ (|>> product.right get) cases)
-                     #let [>default (big-jump (jump @from @default))
-                           >cases (|> @cases
-                                      (list@map (|>> (jump @from) big-jump))
-                                      (list.zip2 (list@map product.left cases)))]]
-                    (wrap (/bytecode.lookupswitch >default >cases)))
-              (#.Some bytecode)
-              (#try.Success bytecode)
+  (let [[estimator bytecode] _.lookupswitch]
+    (function (_ [pool tracker])
+      (let [@from (get@ #program-counter tracker)]
+        [[pool (update@ #program-counter (count (estimator (list.size cases))) tracker)]
+         [(function (_ resolver)
+            (let [get (: (-> Label (Maybe Address))
+                         (function (_ label)
+                           (dictionary.get label resolver)))]
+              (case (do maybe.monad
+                      [@default (get default)
+                       @cases (monad.map @ (|>> product.right get) cases)
+                       #let [>default (big-jump (jump @from @default))
+                             >cases (|> @cases
+                                        (list@map (|>> (jump @from) big-jump))
+                                        (list.zip2 (list@map product.left cases)))]]
+                      (wrap (bytecode >default >cases)))
+                (#.Some bytecode)
+                (#try.Success [..no-exceptions bytecode])
 
-              #.None
-              (exception.throw ..invalid-lookupswitch []))))
-        []]])))
+                #.None
+                (exception.throw ..invalid-lookupswitch []))))
+          []]]))))
 
 (template [<name> <category> <bytecode>]
   [(def: #export (<name> class)
@@ -517,23 +612,23 @@
      (do ..monad
        ## TODO: Make sure it"s impossible to have indexes greater than U2.
        [index (..lift (//constant/pool.class (//name.internal (..reflection class))))]
-       (..nullary (<bytecode> index))))]
+       (..opcode <bytecode> [index])))]
 
-  [new Class /bytecode.new]
-  [anewarray Object /bytecode.anewarray]
-  [checkcast Object /bytecode.checkcast]
-  [instanceof Object /bytecode.instanceof]
+  [new Class _.new]
+  [anewarray Object _.anewarray]
+  [checkcast Object _.checkcast]
+  [instanceof Object _.instanceof]
   )
 
 (def: #export (iinc register increase)
   (-> Local U1 (Instruction Any))
-  (..nullary (/bytecode.iinc register increase)))
+  (..opcode _.iinc [register increase]))
 
 (def: #export (multianewarray class count)
   (-> (Type Class) U1 (Instruction Any))
   (do ..monad
     [index (..lift (//constant/pool.class (//name.internal (..reflection class))))]
-    (..nullary (/bytecode.multianewarray index count))))
+    (..opcode _.multianewarray [index count])))
 
 (def: (type-size type)
   (-> (Type Return) U1)
@@ -557,17 +652,17 @@
                     (//constant/pool.method (..reflection class))
                     {#//constant/pool.name method
                      #//constant/pool.descriptor (type.descriptor type)})]
-         (..nullary (<bytecode>
-                     index
-                     (|> inputs
-                         (list@map ..type-size)
-                         (list@fold //unsigned.u1/+ (//unsigned.u1 (if <static?> 0 1))))
-                     (..type-size output))))))]
+         (..opcode <bytecode>
+                   [index
+                    (|> inputs
+                        (list@map ..type-size)
+                        (list@fold //unsigned.u1/+ (//unsigned.u1 (if <static?> 0 1))))
+                    (..type-size output)]))))]
 
-  [#1 invokestatic /bytecode.invokestatic]
-  [#0 invokevirtual /bytecode.invokevirtual]
-  [#0 invokespecial /bytecode.invokespecial]
-  [#0 invokeinterface /bytecode.invokeinterface]
+  [#1 invokestatic _.invokestatic]
+  [#0 invokevirtual _.invokevirtual]
+  [#0 invokespecial _.invokespecial]
+  [#0 invokeinterface _.invokeinterface]
   )
 
 (template [<name> <1> <2>]
@@ -578,20 +673,46 @@
                   (//constant/pool.field (..reflection class))
                   {#//constant/pool.name field
                    #//constant/pool.descriptor (type.descriptor type)})]
-       (..nullary (cond (is? type.long type)
-                        (<2> index)
+       (cond (is? type.long type)
+             (..opcode <2> [index])
 
-                        (is? type.double type)
-                        (<2> index)
-                        
-                        ## else
-                        (<1> index)))))]
+             (is? type.double type)
+             (..opcode <2> [index])
+             
+             ## else
+             (..opcode <1> [index]))))]
 
-  [getstatic /bytecode.getstatic/1 /bytecode.getstatic/2]
-  [putstatic /bytecode.putstatic/1 /bytecode.putstatic/2]
-  [getfield /bytecode.getfield/1 /bytecode.getfield/2]
-  [putfield /bytecode.putfield/1 /bytecode.putfield/2]
+  [getstatic _.getstatic/1 _.getstatic/2]
+  [putstatic _.putstatic/1 _.putstatic/2]
+  [getfield _.getfield/1 _.getfield/2]
+  [putfield _.putfield/1 _.putfield/2]
   )
+
+(exception: #export (invalid-range-for-try {start Address} {end Address})
+  (exception.report
+   ["Start" (%.nat start)]
+   ["End" (%.nat end)]))
+
+(def: #export (try @start @end @handler catch)
+  (-> Label Label Label (Type Class) (Instruction Any))
+  (do ..monad
+    [@catch (..lift (//constant/pool.class (//name.internal (..reflection catch))))]
+    (function (_ [pool tracker])
+      [[pool tracker]
+       [(function (_ resolver)
+          (do try.monad
+            [@@start (..resolve-label @start resolver)
+             @@end (..resolve-label @end resolver)
+             _ (if (n.< @@end @@start)
+                 (wrap [])
+                 (exception.throw ..invalid-range-for-try [@@start @@end]))
+             @@handler (..resolve-label @handler resolver)]
+            (wrap [(row.row {#//exception.start (/address.address (//unsigned.u2 @@start))
+                             #//exception.end (/address.address (//unsigned.u2 @@end))
+                             #//exception.handler (/address.address (//unsigned.u2 @@handler))
+                             #//exception.catch @catch})
+                   ..no-bytecode])))
+        []]])))
 
 (def: #export (compose pre post)
   (All [pre post]

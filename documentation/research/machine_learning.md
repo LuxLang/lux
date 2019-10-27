@@ -10,6 +10,7 @@
 
 # Reference
 
+1. [Sampling can be faster than optimization](https://www.pnas.org/content/116/42/20881)
 1. [Layer rotation: a surprisingly powerful indicator of generalization in deep networks](https://arxiv.org/abs/1806.01603v2)
 1. https://nostalgebraist.tumblr.com/post/185326092369/the-transformer-explained
 1. [HyperE: Hyperbolic Embeddings for Entities](https://hazyresearch.github.io/hyperE/)
@@ -71,6 +72,7 @@
 
 # Differentiable programming
 
+1. [One-and-a-Half Simple Differential Programming Languages](https://pages.cpsc.ucalgary.ca/~robin/FMCS/FMCS2019/slides/GordonPlotkin-FMCS2019.pdf)
 1. [Differentiable Programming Mega-Proposal](https://forums.swift.org/t/differentiable-programming-mega-proposal/28547)
 1. https://fluxml.ai/2019/02/07/what-is-differentiable-programming.html
 1. https://github.com/breandan/kotlingrad
