@@ -1,3 +1,7 @@
+# Omniscient debugging
+
+1. https://pernos.co/
+
 # Tool
 
 1. [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/)

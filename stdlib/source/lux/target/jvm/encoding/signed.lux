@@ -3,13 +3,18 @@
    [abstract
     [equivalence (#+ Equivalence)]
     [order (#+ Order)]]
+   [control
+    ["." try (#+ Try)]
+    ["." exception (#+ exception:)]]
    [data
     [number
      ["." i64]
      ["n" nat]
      ["i" int]]
-    [format
-     [".F" binary (#+ Writer)]]]
+    [text
+     ["%" format (#+ format)]]
+    ["." format #_
+     ["#" binary (#+ Writer)]]]
    [macro
     ["." template]]
    [type
@@ -19,7 +24,7 @@
   {}
   Int
 
-  (def: #export int
+  (def: #export value
     (-> (Signed Any) Int)
     (|>> :representation))
 
@@ -35,42 +40,67 @@
     (def: (< reference sample)
       (i.< (:representation reference) (:representation sample))))
 
-  (template [<bytes> <name> <size> <constructor> <max> <+>]
+  (exception: #export (value-exceeds-the-scope {value Int}
+                                               {scope Nat})
+    (exception.report
+     ["Value" (%.int value)]
+     ["Scope (in bytes)" (%.nat scope)]))
+
+  (template [<bytes> <name> <size> <constructor> <maximum> <+> <->]
     [(with-expansions [<raw> (template.identifier [<name> "'"])]
        (abstract: #export <raw> {} Any)
        (type: #export <name> (Signed <raw>)))
 
-     (def: #export <size> Nat <bytes>)
+     (def: #export <size> <bytes>)
      
-     (def: #export <max>
+     (def: #export <maximum>
        <name>
        (|> <bytes> (n.* i64.bits-per-byte) dec i64.mask :abstraction))
      
      (def: #export <constructor>
-       (-> Int <name>)
-       (let [limit (|> <bytes> (n.* i64.bits-per-byte) i64.mask .nat)]
-         (|>> (i64.and limit) :abstraction)))
+       (-> Int (Try <name>))
+       (let [positive (|> <bytes> (n.* i64.bits-per-byte) i64.mask .nat)
+             negative (|> positive (i64.arithmetic-right-shift 1) i64.not)]
+         (function (_ value)
+           (if (i.= (if (i.< +0 value)
+                      (i64.or negative value)
+                      (i64.and positive value))
+                    value)
+             (#try.Success (:abstraction value))
+             (exception.throw ..value-exceeds-the-scope [value <size>])))))
 
-     (def: #export (<+> parameter subject)
-       (-> <name> <name> <name>)
-       (let [limit (|> <bytes> (n.* i64.bits-per-byte) i64.mask .nat)]
-         (:abstraction
-          (i64.and limit
-                   (i.+ (:representation parameter)
-                        (:representation subject))))))]
+     (template [<abstract-operation> <concrete-operation>]
+       [(def: #export (<abstract-operation> parameter subject)
+          (-> <name> <name> (Try <name>))
+          (<constructor>
+           (<concrete-operation> (:representation parameter)
+                                 (:representation subject))))]
 
-    [1 S1 s1-bytes s1 max-s1 s1/+]
-    [2 S2 s2-bytes s2 max-s2 s2/+]
-    [4 S4 s4-bytes s4 max-s4 s4/+]
+       [<+> i.+]
+       [<-> i.-]
+       )]
+
+    [1 S1 bytes/1 s1 maximum/1 +/1 -/1]
+    [2 S2 bytes/2 s2 maximum/2 +/2 -/2]
+    [4 S4 bytes/4 s4 maximum/4 +/4 -/4]
     )
-  )
 
-(template [<writer-name> <type> <writer>]
-  [(def: #export <writer-name>
-     (Writer <type>)
-     (|>> ..int <writer>))]
+  (template [<name> <from> <to>]
+    [(def: #export <name>
+       (-> <from> <to>)
+       (|>> :transmutation))]
 
-  [s1-writer S1 binaryF.bits/8]
-  [s2-writer S2 binaryF.bits/16]
-  [s4-writer S4 binaryF.bits/32]
+    [lift/2 S1 S2]
+    [lift/4 S2 S4]
+    )
+
+  (template [<writer-name> <type> <writer>]
+    [(def: #export <writer-name>
+       (Writer <type>)
+       (|>> :representation <writer>))]
+
+    [writer/1 S1 format.bits/8]
+    [writer/2 S2 format.bits/16]
+    [writer/4 S4 format.bits/32]
+    )
   )

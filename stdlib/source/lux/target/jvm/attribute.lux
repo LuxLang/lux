@@ -4,7 +4,6 @@
     [monad (#+ do)]
     ["." equivalence (#+ Equivalence)]]
    [control
-    ["." state (#+ State)]
     ["." try]
     ["." exception (#+ exception:)]]
    [data
@@ -18,7 +17,7 @@
    [encoding
     ["#." unsigned (#+ U2 U4)]]
    ["#." constant (#+ UTF8 Class Value)
-    ["#/." pool (#+ Pool)]]]
+    ["#/." pool (#+ Pool Resource)]]]
   ["." / #_
    ["#." constant (#+ Constant)]
    ["#." code]])
@@ -43,7 +42,7 @@
         (Writer (Info about))))
   (function (_ [name length info])
     (let [[nameS nameT] (//index.writer name)
-          [lengthS lengthT] (//unsigned.u4-writer length)
+          [lengthS lengthT] (//unsigned.writer/4 length)
           [infoS infoT] (writer info)]
       [($_ n.+ nameS lengthS infoS)
        (|>> nameT lengthT infoT)])))
@@ -68,9 +67,9 @@
 (def: fixed-attribute-length
   ($_ n.+
       ## u2 attribute_name_index;
-      //unsigned.u2-bytes
+      //unsigned.bytes/2
       ## u4 attribute_length;
-      //unsigned.u4-bytes
+      //unsigned.bytes/4
       ))
 
 (def: (length attribute)
@@ -78,7 +77,7 @@
   (case attribute
     (^template [<tag>]
       (<tag> [name length info])
-      (|> length //unsigned.nat .nat (n.+ fixed-attribute-length)))
+      (|> length //unsigned.value (n.+ fixed-attribute-length)))
     ([#Constant] [#Code])))
 
 (def: constant-name "ConstantValue")
@@ -86,12 +85,12 @@
 (def: (constant' @name index)
   (-> (Index UTF8) Constant Attribute)
   (#Constant {#name @name
-              #length (//unsigned.u4 /constant.length)
+              #length (|> /constant.length //unsigned.u4 try.assume)
               #info index}))
 
 (def: #export (constant index)
-  (-> Constant (State Pool Attribute))
-  (do state.monad
+  (-> Constant (Resource Attribute))
+  (do //constant/pool.monad
     [@name (//constant/pool.utf8 ..constant-name)]
     (wrap (constant' @name index))))
 
@@ -101,13 +100,15 @@
   (-> (Index UTF8) Code Attribute)
   (#Code {#name @name
           ## https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-4.html#jvms-4.7.3
-          #length (//unsigned.u4
-                   (/code.length ..length specification))
+          #length (|> specification
+                      (/code.length ..length)
+                      //unsigned.u4
+                      try.assume)
           #info specification}))
 
 (def: #export (code specification)
-  (-> Code (State Pool Attribute))
-  (do state.monad
+  (-> Code (Resource Attribute))
+  (do //constant/pool.monad
     [@name (//constant/pool.utf8 ..code-name)]
     (wrap (code' @name specification))))
 

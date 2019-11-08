@@ -5,9 +5,9 @@
     ["." monad (#+ do)]]
    [control
     ["." try]
+    ["." exception (#+ exception:)]
     ["<>" parser
-     ["<s>" synthesis (#+ Parser)]]
-    ["." exception (#+ exception:)]]
+     ["<s>" synthesis (#+ Parser)]]]
    [data
     ["." product]
     [number
@@ -18,7 +18,7 @@
      ["." dictionary]]]
    [target
     [jvm
-     ["_" instruction (#+ Label Instruction) ("#@." monad)]
+     ["_" bytecode (#+ Label Bytecode) ("#@." monad)]
      ["." constant]
      [encoding
       ["." signed (#+ S4)]]
@@ -42,7 +42,7 @@
 (def: #export (custom [parser handler])
   (All [s]
     (-> [(Parser s)
-         (-> Text Phase s (Operation (Instruction Any)))]
+         (-> Text Phase s (Operation (Bytecode Any)))]
         Handler))
   (function (_ extension-name phase input)
     (case (<s>.run parser input)
@@ -63,29 +63,29 @@
 (def: $Error (type.class "java.lang.Error" (list)))
 
 (def: lux-int
-  (Instruction Any)
+  (Bytecode Any)
   ($_ _.compose
       _.i2l
       (///value.wrap type.long)))
 
 (def: jvm-int
-  (Instruction Any)
+  (Bytecode Any)
   ($_ _.compose
       (///value.unwrap type.long)
       _.l2i))
 
 (def: ensure-string
-  (Instruction Any)
+  (Bytecode Any)
   (_.checkcast $String))
 
-(def: (predicate instruction)
-  (-> (-> Label (Instruction Any))
-      (Instruction Any))
+(def: (predicate bytecode)
+  (-> (-> Label (Bytecode Any))
+      (Bytecode Any))
   (do _.monad
     [@then _.new-label
      @end _.new-label]
     ($_ _.compose
-        (instruction @then)
+        (bytecode @then)
         (_.getstatic $Boolean "FALSE" $Boolean)
         (_.goto @end)
         (_.set-label @then)
@@ -107,7 +107,7 @@
                   inputG (phase inputS)
                   elseG (phase elseS)
                   conditionalsG+ (: (Operation (List [(List [S4 Label])
-                                                      (Instruction Any)]))
+                                                      (Bytecode Any)]))
                                     (monad.map @ (function (_ [chars branch])
                                                    (do @
                                                      [branchG (phase branch)
@@ -138,14 +138,14 @@
                              )))))]))
 
 (def: (lux::is [referenceG sampleG])
-  (Binary (Instruction Any))
+  (Binary (Bytecode Any))
   ($_ _.compose
       referenceG
       sampleG
       (..predicate _.if-acmpeq)))
 
 (def: (lux::try riskyG)
-  (Unary (Instruction Any))
+  (Unary (Bytecode Any))
   ($_ _.compose
       riskyG
       (_.checkcast ///function.class)
@@ -160,7 +160,7 @@
 
 (template [<name> <op>]
   [(def: (<name> [maskG inputG])
-     (Binary (Instruction Any))
+     (Binary (Bytecode Any))
      ($_ _.compose
          inputG (///value.unwrap type.long)
          maskG (///value.unwrap type.long)
@@ -173,7 +173,7 @@
 
 (template [<name> <op>]
   [(def: (<name> [shiftG inputG])
-     (Binary (Instruction Any))
+     (Binary (Bytecode Any))
      ($_ _.compose
          inputG (///value.unwrap type.long)
          shiftG ..jvm-int
@@ -190,7 +190,7 @@
 
 (template [<name> <const>]
   [(def: (<name> _)
-     (Nullary (Instruction Any))
+     (Nullary (Bytecode Any))
      ($_ _.compose
          (_.ldc/double (constant.double <const>))
          (///value.wrap type.double)))]
@@ -202,7 +202,7 @@
 
 (template [<name> <type> <op>]
   [(def: (<name> [paramG subjectG])
-     (Binary (Instruction Any))
+     (Binary (Bytecode Any))
      ($_ _.compose
          subjectG (///value.unwrap <type>)
          paramG (///value.unwrap <type>)
@@ -224,7 +224,7 @@
 (template [<eq> <lt> <type> <cmp>]
   [(template [<name> <reference>]
      [(def: (<name> [paramG subjectG])
-        (Binary (Instruction Any))
+        (Binary (Bytecode Any))
         ($_ _.compose
             subjectG (///value.unwrap <type>)
             paramG (///value.unwrap <type>)
@@ -240,12 +240,12 @@
   )
 
 (def: (to-string class from)
-  (-> (Type Class) (Type Primitive) (Instruction Any))
+  (-> (Type Class) (Type Primitive) (Bytecode Any))
   (_.invokestatic class "toString" (type.method [(list from) ..$String (list)])))
 
 (template [<name> <prepare> <transform>]
   [(def: (<name> inputG)
-     (Unary (Instruction Any))
+     (Unary (Bytecode Any))
      ($_ _.compose
          inputG
          <prepare>
@@ -318,18 +318,18 @@
           (/////bundle.install "decode" (unary ..f64::decode)))))
 
 (def: (text::size inputG)
-  (Unary (Instruction Any))
+  (Unary (Bytecode Any))
   ($_ _.compose
       inputG
       ..ensure-string
       (_.invokevirtual ..$String "length" (type.method [(list) type.int (list)]))
       ..lux-int))
 
-(def: no-op (Instruction Any) (_@wrap []))
+(def: no-op (Bytecode Any) (_@wrap []))
 
 (template [<name> <pre-subject> <pre-param> <op> <post>]
   [(def: (<name> [paramG subjectG])
-     (Binary (Instruction Any))
+     (Binary (Bytecode Any))
      ($_ _.compose
          subjectG <pre-subject>
          paramG <pre-param>
@@ -347,14 +347,14 @@
   )
 
 (def: (text::concat [leftG rightG])
-  (Binary (Instruction Any))
+  (Binary (Bytecode Any))
   ($_ _.compose
       leftG ..ensure-string
       rightG ..ensure-string
       (_.invokevirtual ..$String "concat" (type.method [(list ..$String) ..$String (list)]))))
 
 (def: (text::clip [startG endG subjectG])
-  (Trinary (Instruction Any))
+  (Trinary (Bytecode Any))
   ($_ _.compose
       subjectG ..ensure-string
       startG ..jvm-int
@@ -363,7 +363,7 @@
 
 (def: index-method (type.method [(list ..$String type.int) type.int (list)]))
 (def: (text::index [startG partG textG])
-  (Trinary (Instruction Any))
+  (Trinary (Bytecode Any))
   (do _.monad
     [@not-found _.new-label
      @end _.new-label]
@@ -397,7 +397,7 @@
 
 (def: string-method (type.method [(list ..$String) type.void (list)]))
 (def: (io::log messageG)
-  (Unary (Instruction Any))
+  (Unary (Bytecode Any))
   ($_ _.compose
       (_.getstatic ..$System "out" ..$PrintStream)
       messageG
@@ -406,7 +406,7 @@
       ///runtime.unit))
 
 (def: (io::error messageG)
-  (Unary (Instruction Any))
+  (Unary (Bytecode Any))
   ($_ _.compose
       (_.new ..$Error)
       _.dup
@@ -417,7 +417,7 @@
 
 (def: exit-method (type.method [(list type.int) type.void (list)]))
 (def: (io::exit codeG)
-  (Unary (Instruction Any))
+  (Unary (Bytecode Any))
   ($_ _.compose
       codeG ..jvm-int
       (_.invokestatic ..$System "exit" ..exit-method)
@@ -425,7 +425,7 @@
 
 (def: time-method (type.method [(list) type.long (list)]))
 (def: (io::current-time _)
-  (Nullary (Instruction Any))
+  (Nullary (Bytecode Any))
   ($_ _.compose
       (_.invokestatic ..$System "currentTimeMillis" ..time-method)
       (///value.wrap type.long)))

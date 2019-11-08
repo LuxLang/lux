@@ -3,12 +3,17 @@
    [abstract
     [equivalence (#+ Equivalence)]
     [order (#+ Order)]]
+   [control
+    ["." try (#+ Try)]
+    ["." exception (#+ exception:)]]
    [data
     [number
      ["." i64]
      ["n" nat]]
-    [format
-     [".F" binary (#+ Writer)]]]
+    [text
+     ["%" format (#+ format)]]
+    ["." format #_
+     ["#" binary (#+ Writer)]]]
    [macro
     ["." template]]
    [type
@@ -18,56 +23,94 @@
   {}
   Nat
 
-  (def: #export nat
+  (def: #export value
     (-> (Unsigned Any) Nat)
     (|>> :representation))
 
   (structure: #export equivalence
     (All [brand] (Equivalence (Unsigned brand)))
     (def: (= reference sample)
-      (n.= (:representation reference) (:representation sample))))
+      (n.= (:representation reference)
+           (:representation sample))))
 
   (structure: #export order
     (All [brand] (Order (Unsigned brand)))
     
     (def: &equivalence ..equivalence)
     (def: (< reference sample)
-      (n.< (:representation reference) (:representation sample))))
+      (n.< (:representation reference)
+           (:representation sample))))
 
-  (template [<bytes> <name> <size> <constructor> <max> <+>]
+  (exception: #export (value-exceeds-the-maximum {value Nat}
+                                                 {maximum (Unsigned Any)})
+    (exception.report
+     ["Value" (%.nat value)]
+     ["Maximum" (%.nat (:representation maximum))]))
+
+  (exception: #export [brand] (subtraction-cannot-yield-negative-value
+                               {parameter (Unsigned brand)}
+                               {subject (Unsigned brand)})
+    (exception.report
+     ["Parameter" (%.nat (:representation parameter))]
+     ["Subject" (%.nat (:representation subject))]))
+
+  (template [<bytes> <name> <size> <constructor> <maximum> <+> <-> <max>]
     [(with-expansions [<raw> (template.identifier [<name> "'"])]
        (abstract: #export <raw> {} Any)
        (type: #export <name> (Unsigned <raw>)))
 
-     (def: #export <size> Nat <bytes>)
+     (def: #export <size> <bytes>)
      
-     (def: #export <max>
+     (def: #export <maximum>
        <name>
        (|> <bytes> (n.* i64.bits-per-byte) i64.mask :abstraction))
      
-     (def: #export <constructor>
-       (-> Nat <name>)
-       (|>> (i64.and (:representation <max>)) :abstraction))
+     (def: #export (<constructor> value)
+       (-> Nat (Try <name>))
+       (if (n.<= (:representation <maximum>) value)
+         (#try.Success (:abstraction value))
+         (exception.throw ..value-exceeds-the-maximum [value <maximum>])))
 
      (def: #export (<+> parameter subject)
+       (-> <name> <name> (Try <name>))
+       (<constructor>
+        (n.+ (:representation parameter)
+             (:representation subject))))
+
+     (def: #export (<-> parameter subject)
+       (-> <name> <name> (Try <name>))
+       (let [parameter' (:representation parameter)
+             subject' (:representation subject)]
+         (if (n.<= subject' parameter')
+           (#try.Success (:abstraction (n.- parameter' subject')))
+           (exception.throw ..subtraction-cannot-yield-negative-value [parameter subject]))))
+
+     (def: #export (<max> left right)
        (-> <name> <name> <name>)
-       (:abstraction
-        (i64.and (:representation <max>)
-                 (n.+ (:representation parameter)
-                      (:representation subject)))))]
+       (:abstraction (n.max (:representation left)
+                            (:representation right))))]
 
-    [1 U1 u1-bytes u1 max-u1 u1/+]
-    [2 U2 u2-bytes u2 max-u2 u2/+]
-    [4 U4 u4-bytes u4 max-u4 u4/+]
+    [1 U1 bytes/1 u1 maximum/1 +/1 -/1 max/1]
+    [2 U2 bytes/2 u2 maximum/2 +/2 -/2 max/2]
+    [4 U4 bytes/4 u4 maximum/4 +/4 -/4 max/4]
     )
-  )
 
-(template [<writer-name> <type> <writer>]
-  [(def: #export <writer-name>
-     (Writer <type>)
-     (|>> ..nat <writer>))]
+  (template [<name> <from> <to>]
+    [(def: #export <name>
+       (-> <from> <to>)
+       (|>> :transmutation))]
 
-  [u1-writer U1 binaryF.bits/8]
-  [u2-writer U2 binaryF.bits/16]
-  [u4-writer U4 binaryF.bits/32]
+    [lift/2 U1 U2]
+    [lift/4 U2 U4]
+    )
+
+  (template [<writer-name> <type> <writer>]
+    [(def: #export <writer-name>
+       (Writer <type>)
+       (|>> :representation <writer>))]
+
+    [writer/1 U1 format.bits/8]
+    [writer/2 U2 format.bits/16]
+    [writer/4 U4 format.bits/32]
+    )
   )

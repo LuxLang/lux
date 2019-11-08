@@ -5,13 +5,12 @@
     ["." equivalence (#+ Equivalence)]
     ["." monad (#+ do)]]
    [control
-    ["." try]
-    ["." state (#+ State)]]
+    ["." try]]
    [data
     [number (#+)
      [i64 (#+)]]
-    [format
-     [".F" binary (#+ Writer) ("#@." monoid)]]
+    ["." format #_
+     ["#" binary (#+ Writer) ("#@." monoid)]]
     [collection
      ["." row (#+ Row)]]]
    [type
@@ -22,10 +21,10 @@
    ["#." attribute (#+ Attribute)
     ["#/." code]]
    ["#." constant (#+ UTF8)
-    ["#/." pool (#+ Pool)]]
-   ["#." instruction (#+ Instruction)
-    ["#/." condition]
-    ["#/." bytecode]]
+    ["#/." pool (#+ Pool Resource)]]
+   ["#." bytecode (#+ Bytecode)
+    ["#/." environment]
+    ["#/." instruction]]
    ["#." type (#+ Type)
     ["#/." category]
     ["#." descriptor (#+ Descriptor)]]])
@@ -52,25 +51,15 @@
   )
 
 (def: #export (method modifier name type attributes code)
-  (-> (Modifier Method) UTF8 (Type //type/category.Method) (List (State Pool Attribute)) (Instruction Any)
-      (State Pool Method))
-  (do state.monad
+  (-> (Modifier Method) UTF8 (Type //type/category.Method) (List (Resource Attribute)) (Bytecode Any)
+      (Resource Method))
+  (do //constant/pool.monad
     [@name (//constant/pool.utf8 name)
      @descriptor (//constant/pool.descriptor (//type.descriptor type))
      attributes (monad.seq @ attributes)
-     ?code (//instruction.resolve code)
-     [environment exceptions bytecode] (case (do try.monad
-                                               [[bytecode exceptions output] ?code
-                                                [environment specification] (//instruction/bytecode.run bytecode)]
-                                               (wrap [environment exceptions (binaryF.instance specification)]))
-                                         (#try.Success [environment exceptions bytecode])
-                                         (wrap [environment exceptions bytecode])
-                                         
-                                         (#try.Failure error)
-                                         ## TODO: Allow error-management within
-                                         ## the monad.
-                                         (error! error))
-     @code (//attribute.code {#//attribute/code.resources (get@ #//instruction/condition.resources environment)
+     [environment exceptions instruction output] (//bytecode.resolve code)
+     #let [bytecode (|> instruction //bytecode/instruction.run format.instance)]
+     @code (//attribute.code {#//attribute/code.limit (get@ #//bytecode/environment.limit environment)
                               #//attribute/code.code bytecode
                               #//attribute/code.exception-table exceptions
                               #//attribute/code.attributes (row.row)})]
@@ -89,12 +78,12 @@
 
 (def: #export (writer field)
   (Writer Method)
-  (`` ($_ binaryF@compose
+  (`` ($_ format@compose
           (~~ (template [<writer> <slot>]
                 [(<writer> (get@ <slot> field))]
 
                 [//modifier.writer #modifier]
                 [//index.writer #name]
                 [//index.writer #descriptor]
-                [(binaryF.row/16 //attribute.writer) #attributes]))
+                [(format.row/16 //attribute.writer) #attributes]))
           )))

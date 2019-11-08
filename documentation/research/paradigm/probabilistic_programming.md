@@ -11,6 +11,7 @@
 
 # Reference
 
+1. [FACTORIE](http://factorie.cs.umass.edu/)
 1. [End-User Probabilistic Programming (DRAFT)](https://www.cs.uoregon.edu/research/summerschool/summer19/lecture_notes/DRAFT___Probabilistic_Programming_for_End_Users.pdf)
 1. http://willcrichton.net/notes/probabilistic-programming-under-the-hood/
 1. [Ask HN: What companies are using probabilistic programming?](https://news.ycombinator.com/item?id=17220861)

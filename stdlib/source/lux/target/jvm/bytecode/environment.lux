@@ -1,0 +1,63 @@
+(.module:
+  [lux #*
+   [abstract
+    [monad (#+ do)]
+    [monoid (#+ Monoid)]]
+   [control
+    ["." try (#+ Try)]]]
+  [/
+   ["/." limit (#+ Limit)
+    ["/." stack (#+ Stack)]
+    ["/." registry (#+ Register)]]
+   [///
+    [encoding
+     [unsigned (#+ U2)]]]])
+
+(type: #export Environment
+  {#limit Limit
+   #stack Stack})
+
+(def: #export start
+  Environment
+  {#limit /limit.start
+   #stack /stack.empty})
+
+(type: #export Condition
+  (-> Environment (Try Environment)))
+
+(structure: #export monoid
+  (Monoid Condition)
+
+  (def: identity (|>> #try.Success))
+
+  (def: (compose left right)
+    (function (_ environment)
+      (do try.monad
+        [environment (left environment)]
+        (right environment)))))
+
+(def: #export (consumes amount)
+  (-> U2 Condition)
+  ## TODO: Revisit this definition once lenses/optics have been implemented,
+  ## since it can probably be simplified with them.
+  (function (_ environment)
+    (do try.monad
+      [stack' (/stack.pop amount (get@ #..stack environment))]
+      (wrap (set@ #..stack stack' environment)))))
+
+(def: #export (produces amount)
+  (-> U2 Condition)
+  (function (_ environment)
+    (do try.monad
+      [current (/stack.push amount (get@ #..stack environment))
+       #let [limit (|> environment
+                       (get@ [#..limit #/limit.stack])
+                       (/stack.max current))]]
+      (wrap (|> environment
+                (set@ #..stack current)
+                (set@ [#..limit #/limit.stack] limit))))))
+
+(def: #export (has register)
+  (-> Register Condition)
+  (|>> (update@ [#..limit #/limit.registry] (/registry.has register))
+       #try.Success))

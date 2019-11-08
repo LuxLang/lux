@@ -40,12 +40,17 @@
 
 # Number Theory
 
+1. https://twitter.com/johncarlosbaez/status/1184492139897507840
 1. https://en.wikipedia.org/wiki/Dual_number
 1. https://en.wikipedia.org/wiki/Division_algebra
 1. [Division algebras](https://www.youtube.com/watch?v=3BZyds_KFWM&list=PLNxhIPHaOTRZMO1VjJcs7_3dgyJ2qU1yZ)
 1. https://www.quantamagazine.org/the-octonion-math-that-could-underpin-physics-20180720
 1. http://illustratedtheoryofnumbers.com/
 1. [Topology of Numbers](http://pi.math.cornell.edu/~hatcher/TN/TNpage.html)
+
+## Hyperreal number
+
+1. [Yes, You Can Manipulate Infinity—in Math](https://mindmatters.ai/2019/10/yes-you-can-manipulate-infinity-in-math/)
 
 # Quaternions
 
@@ -266,6 +271,7 @@
 
 # Knot theory
 
+1. [Primes and Knots - Akshay Venkatesh](https://www.youtube.com/watch?v=jvoYgNYKyk0)
 1. [The Knot Book](http://math.harvard.edu/~ctm/home/text/books/adams/knot_book/knot_book.pdf)
 
 # Axiom

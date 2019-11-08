@@ -1,0 +1,685 @@
+(.module:
+  [lux #*
+   [abstract
+    [monad (#+ do)]
+    [monoid (#+ Monoid)]]
+   [control
+    ["." function]
+    ["." try]]
+   [data
+    ["." product]
+    ["." binary]
+    [number (#+ hex)
+     ["n" nat]]
+    [format
+     [".F" binary (#+ Mutation Specification)]]
+    [collection
+     ["." list]]]
+   [macro
+    ["." template]]
+   [type
+    abstract]]
+  ["." // #_
+   ["#." address (#+ Address)]
+   ["#." jump (#+ Jump Big-Jump)]
+   [environment
+    [limit
+     [registry (#+ Register)]]]
+   ["/#" // #_
+    ["#." index (#+ Index)]
+    ["#." constant (#+ Class Reference)]
+    [encoding
+     ["#." unsigned (#+ U1 U2 U4)]
+     ["#." signed (#+ S4)]]
+    [type
+     [category (#+ Value Method)]]]])
+
+(type: #export Size U2)
+
+(type: #export Estimator
+  (-> Address Size))
+
+(def: fixed
+  (-> Size Estimator)
+  function.constant)
+
+(type: #export Instruction
+  (-> Specification Specification))
+
+(def: #export empty
+  Instruction
+  function.identity)
+
+(def: #export run
+  (-> Instruction Specification)
+  (function.apply binaryF.no-op))
+
+(type: Opcode Nat)
+
+(template [<name> <size>]
+  [(def: <name> Size (|> <size> ///unsigned.u2 try.assume))]
+
+  [opcode-size 1]
+  [register-size 1]
+  [byte-size 1]
+  [index-size 2]
+  [big-jump-size 4]
+  [integer-size 4]
+  )
+
+(def: (nullary' opcode)
+  (-> Opcode Mutation)
+  (function (_ [offset binary])
+    [(n.+ (///unsigned.value ..opcode-size)
+          offset)
+     (try.assume
+      (binary.write/8 offset opcode binary))]))
+
+(def: nullary
+  [Estimator (-> Opcode Instruction)]
+  [(..fixed ..opcode-size)
+   (function (_ opcode [size mutation])
+     [(n.+ (///unsigned.value ..opcode-size)
+           size)
+      (|>> mutation ((nullary' opcode)))])])
+
+(template [<name> <size>]
+  [(def: <name>
+     Size
+     (|> ..opcode-size
+         (///unsigned.+/2 <size>) try.assume))]
+
+  [size/1 ..register-size]
+  [size/2 ..index-size]
+  [size/4 ..big-jump-size]
+  )
+
+(template [<shift> <name> <inputT> <writer> <unwrap>]
+  [(with-expansions [<private> (template.identifier [<name> "'"])]
+     (def: (<private> opcode input0)
+       (-> Opcode <inputT> Mutation)
+       (function (_ [offset binary])
+         [(n.+ (///unsigned.value <shift>) offset)
+          (try.assume
+           (do try.monad
+             [_ (binary.write/8 offset opcode binary)]
+             (<writer> (n.+ (///unsigned.value ..opcode-size) offset)
+                       (<unwrap> input0)
+                       binary)))]))
+
+     (def: <name>
+       [Estimator (-> Opcode <inputT> Instruction)]
+       [(..fixed <shift>)
+        (function (_ opcode input0 [size mutation])
+          [(n.+ (///unsigned.value <shift>) size)
+           (|>> mutation ((<private> opcode input0)))])]))]
+
+  [..size/1 unary/1 U1 binary.write/8 ///unsigned.value]
+  [..size/2 unary/2 U2 binary.write/16 ///unsigned.value]
+  [..size/2 jump/2 Jump binary.write/16 ///signed.value]
+  [..size/4 jump/4 Big-Jump binary.write/32 ///signed.value]
+  )
+
+(def: size/11
+  Size
+  (|> ..opcode-size
+      (///unsigned.+/2 ..register-size) try.assume
+      (///unsigned.+/2 ..byte-size) try.assume))
+
+(def: (binary/11' opcode input0 input1)
+  (-> Opcode U1 U1 Mutation)
+  (function (_ [offset binary])
+    [(n.+ (///unsigned.value ..size/11) offset)
+     (try.assume
+      (do try.monad
+        [_ (binary.write/8 offset opcode binary)
+         _ (binary.write/8 (n.+ (///unsigned.value ..opcode-size) offset)
+                           (///unsigned.value input0)
+                           binary)]
+        (binary.write/8 (n.+ (///unsigned.value ..size/1) offset)
+                        (///unsigned.value input1)
+                        binary)))]))
+
+(def: binary/11
+  [Estimator (-> Opcode U1 U1 Instruction)]
+  [(..fixed ..size/11)
+   (function (_ opcode input0 input1 [size mutation])
+     [(n.+ (///unsigned.value ..size/11) size)
+      (|>> mutation ((binary/11' opcode input0 input1)))])])
+
+(def: size/21
+  Size
+  (|> ..opcode-size
+      (///unsigned.+/2 ..index-size) try.assume
+      (///unsigned.+/2 ..byte-size) try.assume))
+
+(def: (binary/21' opcode input0 input1)
+  (-> Opcode U2 U1 Mutation)
+  (function (_ [offset binary])
+    [(n.+ (///unsigned.value ..size/21) offset)
+     (try.assume
+      (do try.monad
+        [_ (binary.write/8 offset opcode binary)
+         _ (binary.write/16 (n.+ (///unsigned.value ..opcode-size) offset)
+                            (///unsigned.value input0)
+                            binary)]
+        (binary.write/8 (n.+ (///unsigned.value ..size/2) offset)
+                        (///unsigned.value input1)
+                        binary)))]))
+
+(def: binary/21
+  [Estimator (-> Opcode U2 U1 Instruction)]
+  [(..fixed ..size/21)
+   (function (_ opcode input0 input1 [size mutation])
+     [(n.+ (///unsigned.value ..size/21) size)
+      (|>> mutation ((binary/21' opcode input0 input1)))])])
+
+(def: size/211
+  Size
+  (|> ..opcode-size
+      (///unsigned.+/2 ..index-size) try.assume
+      (///unsigned.+/2 ..byte-size) try.assume
+      (///unsigned.+/2 ..byte-size) try.assume))
+
+(def: (trinary/211' opcode input0 input1 input2)
+  (-> Opcode U2 U1 U1 Mutation)
+  (function (_ [offset binary])
+    [(n.+ (///unsigned.value ..size/211) offset)
+     (try.assume
+      (do try.monad
+        [_ (binary.write/8 offset opcode binary)
+         _ (binary.write/16 (n.+ (///unsigned.value ..opcode-size) offset)
+                            (///unsigned.value input0)
+                            binary)
+         _ (binary.write/8 (n.+ (///unsigned.value ..size/2) offset)
+                           (///unsigned.value input1)
+                           binary)]
+        (binary.write/8 (n.+ (///unsigned.value ..size/21) offset)
+                        (///unsigned.value input2)
+                        binary)))]))
+
+(def: trinary/211
+  [Estimator (-> Opcode U2 U1 U1 Instruction)]
+  [(..fixed ..size/211)
+   (function (_ opcode input0 input1 input2 [size mutation])
+     [(n.+ (///unsigned.value ..size/211) size)
+      (|>> mutation ((trinary/211' opcode input0 input1 input2)))])])
+
+(abstract: #export Primitive-Array-Type
+  {}
+
+  U1
+
+  (def: code
+    (-> Primitive-Array-Type U1)
+    (|>> :representation))
+
+  (template [<code> <name>]
+    [(def: #export <name> (|> <code> ///unsigned.u1 try.assume :abstraction))]
+    
+    [04 t-boolean]
+    [05 t-char]
+    [06 t-float]
+    [07 t-double]
+    [08 t-byte]
+    [09 t-short]
+    [10 t-int]
+    [11 t-long]
+    ))
+
+## https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-6.html#jvms-6.5
+(with-expansions [<constants> (template [<code> <name>]
+                                [[<code> <name> [] []]]
+
+                                ["01" aconst-null]
+
+                                ["02" iconst-m1]
+                                ["03" iconst-0]
+                                ["04" iconst-1]
+                                ["05" iconst-2]
+                                ["06" iconst-3]
+                                ["07" iconst-4]
+                                ["08" iconst-5]
+
+                                ["09" lconst-0]
+                                ["0A" lconst-1]
+
+                                ["0B" fconst-0]
+                                ["0C" fconst-1]
+                                ["0D" fconst-2]
+                                
+                                ["0E" dconst-0]
+                                ["0F" dconst-1])
+                  <register-loads> (template [<code> <name>]
+                                     [[<code> <name> [[register Register]] [register]]]
+
+                                     ["15" iload]
+                                     ["16" lload]
+                                     ["17" fload]
+                                     ["18" dload]
+                                     ["19" aload])
+                  <simple-register-loads> (template [<code> <name>]
+                                            [[<code> <name> [] []]]
+
+                                            ["1A" iload-0]
+                                            ["1B" iload-1]
+                                            ["1C" iload-2]
+                                            ["1D" iload-3]
+
+                                            ["1E" lload-0]
+                                            ["1F" lload-1]
+                                            ["20" lload-2]
+                                            ["21" lload-3]
+                                            
+                                            ["22" fload-0]
+                                            ["23" fload-1]
+                                            ["24" fload-2]
+                                            ["25" fload-3]
+                                            
+                                            ["26" dload-0]
+                                            ["27" dload-1]
+                                            ["28" dload-2]
+                                            ["29" dload-3]
+                                            
+                                            ["2A" aload-0]
+                                            ["2B" aload-1]
+                                            ["2C" aload-2]
+                                            ["2D" aload-3])
+                  <register-stores> (template [<code> <name>]
+                                      [[<code> <name> [[register Register]] [register]]]
+
+                                      ["36" istore]
+                                      ["37" lstore]
+                                      ["38" fstore]
+                                      ["39" dstore]
+                                      ["3A" astore])
+                  <simple-register-stores> (template [<code> <name>]
+                                             [[<code> <name> [] []]]
+
+                                             ["3B" istore-0]
+                                             ["3C" istore-1]
+                                             ["3D" istore-2]
+                                             ["3E" istore-3]
+
+                                             ["3F" lstore-0]
+                                             ["40" lstore-1]
+                                             ["41" lstore-2]
+                                             ["42" lstore-3]
+
+                                             ["43" fstore-0]
+                                             ["44" fstore-1]
+                                             ["45" fstore-2]
+                                             ["46" fstore-3]
+
+                                             ["47" dstore-0]
+                                             ["48" dstore-1]
+                                             ["49" dstore-2]
+                                             ["4A" dstore-3]
+                                             
+                                             ["4B" astore-0]
+                                             ["4C" astore-1]
+                                             ["4D" astore-2]
+                                             ["4E" astore-3])
+                  <array-loads> (template [<code> <name>]
+                                  [[<code> <name> [] []]]
+
+                                  ["2E" iaload]
+                                  ["2F" laload]
+                                  ["30" faload]
+                                  ["31" daload]
+                                  ["32" aaload]
+                                  ["33" baload]
+                                  ["34" caload]
+                                  ["35" saload])
+                  <array-stores> (template [<code> <name>]
+                                   [[<code> <name> [] []]]
+
+                                   ["4f" iastore]
+                                   ["50" lastore]
+                                   ["51" fastore]
+                                   ["52" dastore]
+                                   ["53" aastore]
+                                   ["54" bastore]
+                                   ["55" castore]
+                                   ["56" sastore])
+                  <arithmetic> (template [<code> <name>]
+                                 [[<code> <name> [] []]]
+
+                                 ["60" iadd]
+                                 ["64" isub]
+                                 ["68" imul]
+                                 ["6c" idiv]
+                                 ["70" irem]
+                                 ["74" ineg]
+                                 ["78" ishl]
+                                 ["7a" ishr]
+                                 ["7c" iushr]
+                                 ["7e" iand]
+                                 ["80" ior]
+                                 ["82" ixor]
+
+                                 ["61" ladd]
+                                 ["65" lsub]
+                                 ["69" lmul]
+                                 ["6D" ldiv]
+                                 ["71" lrem]
+                                 ["75" lneg]
+                                 ["7F" land]
+                                 ["81" lor]
+                                 ["83" lxor]
+                                 
+                                 ["62" fadd]
+                                 ["66" fsub]
+                                 ["6A" fmul]
+                                 ["6E" fdiv]
+                                 ["72" frem]
+                                 ["76" fneg]
+                                 
+                                 ["63" dadd]
+                                 ["67" dsub]
+                                 ["6B" dmul]
+                                 ["6F" ddiv]
+                                 ["73" drem]
+                                 ["77" dneg])
+                  <conversions> (template [<code> <name>]
+                                  [[<code> <name> [] []]]
+
+                                  ["88" l2i]
+                                  ["89" l2f]
+                                  ["8A" l2d]
+                                  
+                                  ["8B" f2i]
+                                  ["8C" f2l]
+                                  ["8D" f2d]
+                                  
+                                  ["8E" d2i]
+                                  ["8F" d2l]
+                                  ["90" d2f]
+
+                                  ["85" i2l]
+                                  ["86" i2f]
+                                  ["87" i2d]
+                                  ["91" i2b]
+                                  ["92" i2c]
+                                  ["93" i2s])
+                  <comparisons> (template [<code> <name>]
+                                  [[<code> <name> [] []]]
+
+                                  ["94" lcmp]
+                                  
+                                  ["95" fcmpl]
+                                  ["96" fcmpg]
+
+                                  ["97" dcmpl]
+                                  ["98" dcmpg])
+                  <returns> (template [<code> <name>]
+                              [[<code> <name> [] []]]
+
+                              ["AC" ireturn]
+                              ["AD" lreturn]
+                              ["AE" freturn]
+                              ["AF" dreturn]
+                              ["B0" areturn]
+                              ["B1" return]
+                              )
+                  <jumps> (template [<code> <name>]
+                            [[<code> <name> [[jump Jump]] [jump]]]
+
+                            ["99" ifeq]
+                            ["9A" ifne]
+                            ["9B" iflt]
+                            ["9C" ifge]
+                            ["9D" ifgt]
+                            ["9E" ifle]
+                            
+                            ["9F" if-icmpeq]
+                            ["A0" if-icmpne]
+                            ["A1" if-icmplt]
+                            ["A2" if-icmpge]
+                            ["A3" if-icmpgt]
+                            ["A4" if-icmple]
+                            
+                            ["A5" if-acmpeq]
+                            ["A6" if-acmpne]
+                            
+                            ["A7" goto]
+                            ["A8" jsr]
+
+                            ["C6" ifnull]
+                            ["C7" ifnonnull])
+                  <fields> (template [<code> <name>]
+                             [[<code> <name> [[index (Index (Reference Value))]] [(///index.value index)]]]
+
+                             ["B2" getstatic/1] ["B2" getstatic/2]
+                             ["B3" putstatic/1] ["B3" putstatic/2]
+                             ["B4" getfield/1] ["B4" getfield/2]
+                             ["B5" putfield/1] ["B5" putfield/2])]
+  (template [<arity> <definitions>]
+    [(with-expansions [<definitions>' (template.splice <definitions>)]
+       (template [<code> <name> <instruction-inputs> <arity-inputs>]
+         [(with-expansions [<inputs>' (template.splice <instruction-inputs>)
+                            <input-types> (template [<input-name> <input-type>]
+                                            [<input-type>]
+
+                                            <inputs>')
+                            <input-names> (template [<input-name> <input-type>]
+                                            [<input-name>]
+
+                                            <inputs>')]
+            (def: #export <name>
+              [Estimator (-> [<input-types>] Instruction)]
+              (let [[estimator <arity>'] <arity>]
+                [estimator
+                 (function (_ [<input-names>])
+                   (`` (<arity>' (hex <code>) (~~ (template.splice <arity-inputs>)))))])))]
+
+         <definitions>'
+         ))]
+
+    [..nullary
+     [["00" nop [] []]
+      <constants>
+      ["57" pop [] []]
+      ["58" pop2 [] []]
+      ["59" dup [] []]
+      ["5A" dup-x1 [] []]
+      ["5B" dup-x2 [] []]
+      ["5C" dup2 [] []]
+      ["5D" dup2-x1 [] []]
+      ["5E" dup2-x2 [] []]
+      ["5F" swap [] []]
+      <simple-register-loads>
+      <array-loads>
+      <simple-register-stores>
+      <array-stores>
+      <arithmetic>
+      ["79" lshl [] []]
+      ["7B" lshr [] []]
+      ["7D" lushr [] []]
+      <conversions>
+      <comparisons>
+      <returns>
+      ["BE" arraylength [] []]
+      ["BF" athrow [] []]
+      ["C2" monitorenter [] []]
+      ["C3" monitorexit [] []]]]
+
+    [..unary/1
+     [["10" bipush  [[byte U1]] [byte]]
+      ["12" ldc [[index U1]] [index]]
+      <register-loads>
+      <register-stores>
+      ["A9" ret [[register Register]] [register]]
+      ["BC" newarray [[type Primitive-Array-Type]] [(..code type)]]]]
+
+    [..unary/2
+     [["11" sipush  [[short U2]] [short]]
+      ["13" ldc-w/integer [[index (Index ///constant.Integer)]] [(///index.value index)]]
+      ["13" ldc-w/float [[index (Index ///constant.Float)]] [(///index.value index)]]
+      ["13" ldc-w/string [[index (Index ///constant.String)]] [(///index.value index)]]
+      ["14" ldc2-w/long [[index (Index ///constant.Long)]] [(///index.value index)]]
+      ["14" ldc2-w/double [[index (Index ///constant.Double)]] [(///index.value index)]]
+      <fields>
+      ["BB" new [[index (Index Class)]] [(///index.value index)]]
+      ["BD" anewarray [[index (Index Class)]] [(///index.value index)]]
+      ["C0" checkcast [[index (Index Class)]] [(///index.value index)]]
+      ["C1" instanceof [[index (Index Class)]] [(///index.value index)]]
+      ["B6" invokevirtual [[index (Index (Reference Method))] [count U1] [output-count U1]] [(///index.value index)]]
+      ["B7" invokespecial [[index (Index (Reference Method))] [count U1] [output-count U1]] [(///index.value index)]]
+      ["B8" invokestatic [[index (Index (Reference Method))] [count U1] [output-count U1]] [(///index.value index)]]]]
+
+    [..jump/2
+     [<jumps>]]
+
+    [..jump/4
+     [["C8" goto-w [[jump Big-Jump]] [jump]]
+      ["C9" jsr-w [[jump Big-Jump]] [jump]]]]
+
+    [..binary/11
+     [["84" iinc [[register Register] [byte U1]] [register byte]]]]
+
+    [..binary/21
+     [["C5" multianewarray [[index (Index Class)] [count U1]] [(///index.value index) count]]]]
+
+    [..trinary/211
+     [["B9" invokeinterface [[index (Index (Reference Method))] [count U1] [output-count U1]] [(///index.value index) count (try.assume (///unsigned.u1 0))]]]]
+    ))
+
+(def: (switch-padding offset)
+  (-> Nat Nat)
+  (let [parameter-start (n.+ (///unsigned.value ..opcode-size)
+                             offset)]
+    (n.% 4
+         (n.- (n.% 4 parameter-start)
+              4))))
+
+(def: #export tableswitch
+  [(-> Nat Estimator)
+   (-> S4 Big-Jump (List Big-Jump) Instruction)]
+  (let [estimator (: (-> Nat Estimator)
+                     (function (_ amount-of-cases offset)
+                       (|> ($_ n.+
+                               (///unsigned.value ..opcode-size)
+                               (switch-padding (///unsigned.value (//address.value offset)))
+                               (///unsigned.value ..big-jump-size)
+                               (///unsigned.value ..integer-size)
+                               (///unsigned.value ..integer-size)
+                               (n.* amount-of-cases
+                                    (///unsigned.value ..big-jump-size)))
+                           ///unsigned.u2
+                           try.assume)))]
+    [estimator
+     (function (_ minimum default cases)
+       (let [amount-of-cases (list.size cases)
+             estimator (estimator amount-of-cases)]
+         (function (_ [size mutation])
+           (let [padding (switch-padding size)
+                 tableswitch-size (try.assume
+                                   (do try.monad
+                                     [size (///unsigned.u2 size)]
+                                     (:: @ map (|>> estimator ///unsigned.value)
+                                         (//address.move size //address.start))))
+                 tableswitch-mutation (: Mutation
+                                         (function (_ [offset binary])
+                                           [(n.+ tableswitch-size offset)
+                                            (try.assume
+                                             (do try.monad
+                                               [amount-of-cases (|> amount-of-cases .int ///signed.s4)
+                                                maximum (///signed.+/4 minimum amount-of-cases)
+                                                _ (binary.write/8 offset (hex "AA") binary)
+                                                #let [offset (n.+ (///unsigned.value ..opcode-size) offset)]
+                                                _ (case padding
+                                                    3 (do @
+                                                        [_ (binary.write/8 offset 0 binary)]
+                                                        (binary.write/16 (inc offset) 0 binary))
+                                                    2 (binary.write/16 offset 0 binary)
+                                                    1 (binary.write/8 offset 0 binary)
+                                                    _ (wrap binary))
+                                                #let [offset (n.+ padding offset)]
+                                                _ (binary.write/32 offset (///signed.value default) binary)
+                                                #let [offset (n.+ (///unsigned.value ..big-jump-size) offset)]
+                                                _ (binary.write/32 offset (///signed.value minimum) binary)
+                                                #let [offset (n.+ (///unsigned.value ..integer-size) offset)]
+                                                _ (binary.write/32 offset (///signed.value maximum) binary)]
+                                               (loop [offset (n.+ (///unsigned.value ..integer-size) offset)
+                                                      cases cases]
+                                                 (case cases
+                                                   #.Nil
+                                                   (wrap binary)
+                                                   
+                                                   (#.Cons head tail)
+                                                   (do @
+                                                     [_ (binary.write/32 offset (///signed.value head) binary)]
+                                                     (recur (n.+ (///unsigned.value ..big-jump-size) offset)
+                                                            tail))))))]))]
+             [(n.+ tableswitch-size
+                   size)
+              (|>> mutation tableswitch-mutation)]))))]))
+
+(def: #export lookupswitch
+  [(-> Nat Estimator)
+   (-> Big-Jump (List [S4 Big-Jump]) Instruction)]
+  (let [case-size (n.+ (///unsigned.value ..integer-size)
+                       (///unsigned.value ..big-jump-size))
+        estimator (: (-> Nat Estimator)
+                     (function (_ amount-of-cases offset)
+                       (|> ($_ n.+
+                               (///unsigned.value ..opcode-size)
+                               (switch-padding (///unsigned.value (//address.value offset)))
+                               (///unsigned.value ..big-jump-size)
+                               (///unsigned.value ..integer-size)
+                               (n.* amount-of-cases case-size))
+                           ///unsigned.u2
+                           try.assume)))]
+    [estimator
+     (function (_ default cases)
+       (let [amount-of-cases (list.size cases)
+             estimator (estimator amount-of-cases)]
+         (function (_ [size mutation])
+           (let [padding (switch-padding size)
+                 lookupswitch-size (try.assume
+                                    (do try.monad
+                                      [size (///unsigned.u2 size)]
+                                      (:: @ map (|>> estimator ///unsigned.value)
+                                          (//address.move size //address.start))))
+                 lookupswitch-mutation (: Mutation
+                                          (function (_ [offset binary])
+                                            [(n.+ lookupswitch-size offset)
+                                             (try.assume
+                                              (do try.monad
+                                                [_ (binary.write/8 offset (hex "AB") binary)
+                                                 #let [offset (n.+ (///unsigned.value ..opcode-size) offset)]
+                                                 _ (case padding
+                                                     3 (do @
+                                                         [_ (binary.write/8 offset 0 binary)]
+                                                         (binary.write/16 (inc offset) 0 binary))
+                                                     2 (binary.write/16 offset 0 binary)
+                                                     1 (binary.write/8 offset 0 binary)
+                                                     _ (wrap binary))
+                                                 #let [offset (n.+ padding offset)]
+                                                 _ (binary.write/32 offset (///signed.value default) binary)
+                                                 #let [offset (n.+ (///unsigned.value ..big-jump-size) offset)]
+                                                 _ (binary.write/32 offset amount-of-cases binary)]
+                                                (loop [offset (n.+ (///unsigned.value ..integer-size) offset)
+                                                       cases cases]
+                                                  (case cases
+                                                    #.Nil
+                                                    (wrap binary)
+                                                    
+                                                    (#.Cons [value jump] tail)
+                                                    (do @
+                                                      [_ (binary.write/32 offset (///signed.value value) binary)
+                                                       _ (binary.write/32 (n.+ (///unsigned.value ..integer-size) offset) (///signed.value jump) binary)]
+                                                      (recur (n.+ case-size offset)
+                                                             tail))))))]))]
+             [(n.+ lookupswitch-size
+                   size)
+              (|>> mutation lookupswitch-mutation)]))))]))
+
+(structure: #export monoid
+  (Monoid Instruction)
+
+  (def: identity ..empty)
+
+  (def: (compose left right)
+    (|>> left right)))

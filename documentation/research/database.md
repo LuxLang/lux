@@ -162,6 +162,10 @@
 1. https://www.aerospike.com/
 1. https://sirix.io/
 
+## Data-flow
+
+1. [Noria: data-flow for high-performance web applications](https://github.com/mit-pdos/noria)
+
 ## Graph
 
 1. https://github.com/hugegraph/hugegraph

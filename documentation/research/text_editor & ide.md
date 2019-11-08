@@ -43,6 +43,7 @@
 
 # Reference
 
+1. [Text Editing Hates You Too](https://lord.io/blog/2019/text-editing-hates-you-too/)
 1. [Why ContentEditable is Terrible](https://medium.engineering/why-contenteditable-is-terrible-122d8a40e480)
 1. [Broot: A better way to navigate directories](https://github.com/Canop/broot)
 1. https://www.simplethread.com/editor-plugins-belong-in-lock-file/
@@ -132,6 +133,7 @@
 
 ## General
 
+1. https://howl.io/
 1. [The Whole Code Catalog](https://futureofcoding.org/catalog/)
 1. http://substance.io/
 1. https://www.querystorm.com/

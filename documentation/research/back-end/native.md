@@ -3,22 +3,6 @@
 1. http://stffrdhrn.github.io/software/embedded/openrisc/2018/06/08/gcc_stack_frames.html
 1. https://yurichev.com/blog/reg_alloc/
 
-# Memory Management
-
-1. https://uridiumauthor.blogspot.com/2018/06/memory-management.html
-1. https://github.com/mtrebi/memory-allocators
-1. http://www.newlisp.org/MemoryManagement.html
-1. http://gee.cs.oswego.edu/dl/html/malloc.html
-1. https://shipilev.net/blog/2014/jmm-pragmatics/
-1. https://floooh.github.io/2018/06/17/handles-vs-pointers.html
-1. https://www.codemag.com/Article/1807051/Introducing-.NET-Core-2.1-Flagship-Types-Span-T-and-Memory-T
-1. https://stefansf.de/post/pointers-are-more-abstract-than-you-might-expect/
-1. http://www.memorymanagement.org/
-1. [Pseudomonarchia jemallocum: The false kingdom of jemalloc, or On exploiting the jemalloc memory manager](http://phrack.com/issues/68/10.html#article)
-1. https://gankro.github.io/blah/rust-layouts-and-abis/
-1. https://paul.bone.id.au/2018/10/19/gc-falsehoods/
-1. [Safe Programming with Pointers through Stateful Views](https://www.cs.bu.edu/~hwxi/academic/papers/padl05.pdf)
-
 # Unicode
 
 1. http://manishearth.github.io/blog/2017/01/14/stop-ascribing-meaning-to-unicode-code-points/
@@ -62,8 +46,18 @@
 
 1. https://www.newtv.co.th/video/video.php?v=topKYJgv6qA
 
+# Floating point arithmetic
+
+1. [Faster floating point arithmetic with Exclusive OR](http://nfrechette.github.io/2019/10/22/float_xor_optimization/)
+1. https://oded.ninja/2017/05/01/floating-point/
+1. [What Every Computer Scientist Should Know About Floating-Point Arithmetic](http://www.lsi.upc.edu/~robert/teaching/master/material/p5-goldberg.pdf)
+1. https://lemire.me/blog/2017/11/16/fast-exact-integer-divisions-using-floating-point-operations/
+
 # Reference
 
+1. http://luajit.org/
+1. http://luajit.org/ext_ffi.html
+1. http://luajit.org/dynasm.html
 1. [The Standard C Library](https://www.amazon.com/Standard-C-Library-P-J-Plauger/dp/0131315099)
 1. [C Is Not a Low-level Language: Your computer is not a fast PDP-11.](https://queue.acm.org/detail.cfm?id=3212479)
 1. http://www.ffconsultancy.com/ocaml/hlvm/
@@ -92,8 +86,6 @@
 1. http://www.mpfr.org/
 1. http://www.mpfr.org/algorithms.pdf
 1. http://wilsonminesco.com/16bitMathTables/
-1. https://oded.ninja/2017/05/01/floating-point/
-1. [What Every Computer Scientist Should Know About Floating-Point Arithmetic](http://www.lsi.upc.edu/~robert/teaching/master/material/p5-goldberg.pdf)
 1. http://blog.veitheller.de/Fixed_Point_Division.html
 1. http://libdivide.com/
 1. [Modern Computer Arithmetic](https://members.loria.fr/PZimmermann/mca/mca-cup-0.5.9.pdf)
@@ -105,7 +97,6 @@
 1. http://bellard.org/libbf/
 1. http://paulcavallaro.com/blog/hashed-and-hierarchical-timing-wheels/
 1. http://speleotrove.com/decimal/
-1. https://lemire.me/blog/2017/11/16/fast-exact-integer-divisions-using-floating-point-operations/
 1. http://eli.thegreenplace.net/2013/07/09/library-order-in-static-linking
 1. [Skip the FFI!](http://llvm.org/devmtg/2014-10/Slides/Skip%20the%20FFI.pdf)
 1. http://www.infoworld.com/article/3187370/application-development/kotlin-compiles-directly-to-native-code-via-llvm.html

@@ -89,6 +89,10 @@
 1. https://grapheneproject.io/
 1. https://ops.city/
 
+## Microkernel
+
+1. [Snap: a Microkernel Approach to Host Networking](https://storage.googleapis.com/pub-tools-public-publication-data/pdf/36f0f9b41e969a00d75da7693571e988996c9f4c.pdf)
+
 ## Real-time
 
 1. https://en.wikipedia.org/wiki/VxWorks

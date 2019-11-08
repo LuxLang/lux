@@ -4,6 +4,7 @@
 
 # Reference
 
+1. [Introducing Concurrent Mode (Experimental)](https://reactjs.org/docs/concurrent-mode-intro.html)
 1. https://github.com/daybrush/scenejs
 1. https://blog.ionicframework.com/announcing-capacitor-1-0/
 1. http://joneisen.me/talk-frelp-ui/#/

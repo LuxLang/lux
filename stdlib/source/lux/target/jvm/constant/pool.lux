@@ -3,11 +3,10 @@
    ["." host]
    [abstract
     ["." equivalence (#+ Equivalence)]
-    [monad (#+ do)]]
+    [monad (#+ Monad do)]]
    [control
-    ["." state (#+ State)]
-    ["." try (#+ Try)]
-    ["." exception (#+ exception:)]]
+    ["." state (#+ State')]
+    ["." try (#+ Try)]]
    [data
     [number
      ["." i32]
@@ -16,8 +15,8 @@
      ["." frac]]
     ["." text
      ["%" format (#+ format)]]
-    [format
-     [".F" binary (#+ Writer) ("specification@." monoid)]]
+    ["." format #_
+     ["#" binary (#+ Writer) ("specification@." monoid)]]
     [collection
      ["." row (#+ Row) ("#@." fold)]]]
    [type
@@ -42,7 +41,14 @@
                        (row.equivalence (equivalence.product //index.equivalence
                                                              //.equivalence))))
 
-(template: (!add <tag> <=> <value>)
+(type: #export (Resource a)
+  (State' Try Pool a))
+
+(def: #export monad
+  (Monad Resource)
+  (state.with try.monad))
+
+(template: (!add <tag> <equivalence> <value>)
   (function (_ [next pool])
     (with-expansions [<try-again> (as-is (recur (.inc idx)))]
       (loop [idx 0]
@@ -50,9 +56,9 @@
           (#.Some entry)
           (case entry
             [index (<tag> reference)]
-            (if (:: <=> = reference <value>)
-              [[next pool]
-               index]
+            (if (:: <equivalence> = reference <value>)
+              (#try.Success [[next pool]
+                             index])
               <try-again>)
             
             _
@@ -60,98 +66,27 @@
           
           #.None
           (let [new (<tag> <value>)]
-            [[(|> next
-                  //index.number
-                  (//unsigned.u2/+ (//unsigned.u2 (//.size new)))
-                  //index.index)
-              (row.add [next new] pool)]
-             next]))))))
+            (do try.monad
+              [@new (//unsigned.u2 (//.size new))
+               next (: (Try Index)
+                       (|> next
+                           //index.value
+                           (//unsigned.+/2 @new)
+                           (:: @ map //index.index)))]
+              (wrap [[next
+                      (row.add [next new] pool)]
+                     next]))))))))
 
-(template: (!raw-index <index>)
-  (|> <index> //index.number //unsigned.nat))
-
-(exception: #export (invalid-index {index (Index Any)})
-  (exception.report
-   ["Index" (|> index !raw-index %.nat)]))
-
-(exception: #export (invalid-constant {index (Index Any)}
-                                      {tag Name})
-  (exception.report
-   ["Index" (|> index !raw-index %.nat)]
-   ["Expected tag" (%.name tag)]))
-
-(template: (!fetch <tag> <index>)
-  (with-expansions [<failure> (as-is [[next pool] (exception.throw ..invalid-index [<index>])])]
-    (function (_ [next pool])
-      (loop [idx 0]
-        (case (row.nth idx pool)
-          (#.Some [index entry])
-          (let [index' (!raw-index index)
-                <index>' (!raw-index <index>)]
-            (cond (n.< index' <index>')
-                  (recur (inc idx))
-
-                  (n.= index' <index>')
-                  (case entry
-                    (<tag> value)
-                    [[next pool] (#try.Success value)]
-
-                    _
-                    [[next pool] (exception.throw ..invalid-constant [<index> (name-of <tag>)])])
-
-                  ## (n.> index' <index>')
-                  <failure>))
-
-          #.None
-          <failure>))
-      )))
-
-(exception: #export (cannot-find {tag Name} {value Text})
-  (exception.report
-   ["Expected tag" (%.name tag)]
-   ["Value" value]))
-
-(template: (!find <tag> <=> <%> <expected>)
-  (function (_ [next pool])
-    (with-expansions [<try-again> (as-is (recur (.inc idx)))]
-      (loop [idx 0]
-        (case (row.nth idx pool)
-          (#.Some [index entry])
-          (case entry
-            (<tag> actual)
-            (if (:: <=> = actual <expected>)
-              [[next pool]
-               (#try.Success index)]
-              <try-again>)
-            
-            _
-            <try-again>)
-          
-          #.None
-          [[next pool]
-           (exception.throw ..cannot-find [(name-of <tag>) (<%> <expected>)])])))))
+(template: (!index <index>)
+  (|> <index> //index.value //unsigned.value))
 
 (type: (Adder of)
-  (-> of (State Pool (Index of))))
-
-(type: (Fetcher of)
-  (-> (Index of) (State Pool (Try of))))
-
-(type: (Finder of)
-  (-> of (State Pool (Try (Index of)))))
+  (-> of (Resource (Index of))))
 
 (template [<name> <type> <tag> <equivalence> <format>]
   [(def: #export (<name> value)
      (Adder <type>)
-     (!add <tag> <equivalence> value))
-
-   (`` (def: #export ((~~ (template.identifier ["fetch-" <name>])) index)
-         (Fetcher <type>)
-         (!fetch <tag> index)))
-
-   (`` (def: #export ((~~ (template.identifier ["find-" <name>])) reference)
-         (Finder <type>)
-         (!find <tag> <equivalence> <format> reference)))]
+     (!add <tag> <equivalence> value))]
 
   [integer Integer #//.Integer (//.value-equivalence i32.equivalence) (|>> //.value .nat %.nat)]
   [float Float #//.Float (//.value-equivalence //.float-equivalence) (|>> //.value host.float-to-double (:coerce Frac) %.frac)]
@@ -161,15 +96,15 @@
   )
 
 (def: #export (string value)
-  (-> Text (State Pool (Index String)))
-  (do state.monad
+  (-> Text (Resource (Index String)))
+  (do ..monad
     [@value (utf8 value)
      #let [value (//.string @value)]]
     (!add #//.String (//.value-equivalence //index.equivalence) value)))
 
 (def: #export (class name)
-  (-> Internal (State Pool (Index Class)))
-  (do state.monad
+  (-> Internal (Resource (Index Class)))
+  (do ..monad
     [@name (utf8 (//name.read name))
      #let [value (//.class @name)]]
     (!add #//.Class //.class-equivalence value)))
@@ -177,7 +112,7 @@
 (def: #export (descriptor value)
   (All [kind]
     (-> (Descriptor kind)
-        (State Pool (Index (Descriptor kind)))))
+        (Resource (Index (Descriptor kind)))))
   (let [value (//descriptor.descriptor value)]
     (!add #//.UTF8 text.equivalence value)))
 
@@ -187,8 +122,8 @@
 
 (def: #export (name-and-type [name descriptor])
   (All [of]
-    (-> (Member of) (State Pool (Index (Name-And-Type of)))))
-  (do state.monad
+    (-> (Member of) (Resource (Index (Name-And-Type of)))))
+  (do ..monad
     [@name (utf8 name)
      @descriptor (..descriptor descriptor)]
     (!add #//.Name-And-Type //.name-and-type-equivalence
@@ -197,8 +132,8 @@
 
 (template [<name> <tag> <of>]
   [(def: #export (<name> class member)
-     (-> External (Member <of>) (State Pool (Index (Reference <of>))))
-     (do state.monad
+     (-> External (Member <of>) (Resource (Index (Reference <of>))))
+     (do ..monad
        [@class (..class (//name.internal class))
         @name-and-type (name-and-type member)]
        (!add <tag> //.reference-equivalence
@@ -215,10 +150,10 @@
   (function (_ [next pool])
     (row@fold (function (_ [_index post] pre)
                 (specification@compose pre (//.writer post)))
-              (binaryF.bits/16 (!raw-index next))
+              (format.bits/16 (!index next))
               pool)))
 
 (def: #export empty
   Pool
-  [(|> 1 //unsigned.u2 //index.index)
+  [(|> 1 //unsigned.u2 try.assume //index.index)
    row.empty])

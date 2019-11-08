@@ -1,5 +1,6 @@
 # Exemplar
 
+1. [Towards a WebAssembly standalone runtime on GraalVM](https://dl.acm.org/citation.cfm?id=3362780)
 1. https://github.com/vvanders/wasm_lua
 1. https://github.com/AppCypher/webassemblylanguages
 1. https://medium.com/perlin-network/life-a-secure-blazing-fast-cross-platform-webassembly-vm-in-go-ea3b31fa6e09

@@ -1,3 +1,7 @@
+# Access Control List
+
+1. [Capirca: Multi-platform ACL generation system](https://github.com/google/capirca)
+
 # Return-oriented programming
 
 1. https://github.com/immunant/selfrando
@@ -22,6 +26,7 @@
 
 # Vulnerability
 
+1. [CSS Injection Primitives](https://x-c3ll.github.io/posts/CSS-Injection-Primitives/)
 1. https://medium.com/@shnatsel/how-rusts-standard-library-was-vulnerable-for-years-and-nobody-noticed-aebf0503c3d6
 1. [ACLs don’t](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.406.4684&rep=rep1&type=pdf)
 1. https://www.cs.auckland.ac.nz/~pgut001/pubs/book.pdf

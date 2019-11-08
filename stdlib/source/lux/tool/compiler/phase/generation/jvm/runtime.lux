@@ -3,7 +3,7 @@
    [abstract
     ["." monad (#+ do)]]
    [control
-    [state (#+ State)]]
+    ["." try]]
    [data
     [binary (#+ Binary)]
     [number
@@ -13,18 +13,18 @@
     [collection
      ["." list ("#@." functor)]
      ["." row]]
-    [format
-     [".F" binary]]]
+    ["." format #_
+     ["#" binary]]]
    [target
     [jvm
-     ["_" instruction (#+ Label Instruction)]
+     ["_" bytecode (#+ Label Bytecode)]
      ["." modifier (#+ Modifier) ("#@." monoid)]
      ["." field (#+ Field)]
      ["." method (#+ Method)]
      ["." version]
      ["." class (#+ Class)]
      ["." constant
-      [pool (#+ Pool)]]
+      [pool (#+ Resource)]]
      [encoding
       ["." unsigned]
       ["." name]]
@@ -57,7 +57,7 @@
 
 (template [<name> <base>]
   [(type: #export <name>
-     (<base> Anchor (Instruction Any) Definition))]
+     (<base> Anchor (Bytecode Any) Definition))]
 
   [Operation ///.Operation]
   [Phase ///.Phase]
@@ -66,12 +66,12 @@
   )
 
 (type: #export (Generator i)
-  (-> Phase i (Operation (Instruction Any))))
+  (-> Phase i (Operation (Bytecode Any))))
 
 (def: #export class (type.class "LuxRuntime" (list)))
 
 (def: procedure
-  (-> Text (Type category.Method) (Instruction Any))
+  (-> Text (Type category.Method) (Bytecode Any))
   (_.invokestatic ..class))
 
 (def: modifier
@@ -83,28 +83,28 @@
       ))
 
 (def: local
-  (-> Nat (Instruction Any))
-  (|>> unsigned.u1 _.aload))
+  (-> Nat (Bytecode Any))
+  (|>> unsigned.u1 try.assume _.aload))
 
 (def: this
-  (Instruction Any)
+  (Bytecode Any)
   _.aload-0)
 
 (def: #export (get index)
-  (-> (Instruction Any) (Instruction Any))
+  (-> (Bytecode Any) (Bytecode Any))
   ($_ _.compose
       index
       _.aaload))
 
 (def: (set! index value)
-  (-> (Instruction Any) (Instruction Any) (Instruction Any))
+  (-> (Bytecode Any) (Bytecode Any) (Bytecode Any))
   ($_ _.compose
       _.dup
       index
       value
       _.aastore))
 
-(def: #export unit (_.ldc/string synthesis.unit))
+(def: #export unit (_.string synthesis.unit))
 
 (def: variant::name "variant")
 (def: variant::type (type.method [(list //type.tag //type.flag //type.value) //type.variant (list)]))
@@ -137,7 +137,7 @@
 (def: #export right-flag ..unit)
 
 (def: #export left-injection
-  (Instruction Any)
+  (Bytecode Any)
   ($_ _.compose
       _.iconst-0
       ..left-flag
@@ -146,7 +146,7 @@
       ..variant))
 
 (def: #export right-injection
-  (Instruction Any)
+  (Bytecode Any)
   ($_ _.compose
       _.iconst-1
       ..right-flag
@@ -157,7 +157,7 @@
 (def: #export some-injection ..right-injection)
 
 (def: #export none-injection
-  (Instruction Any)
+  (Bytecode Any)
   ($_ _.compose
       _.iconst-0
       _.aconst-null
@@ -165,7 +165,7 @@
       ..variant))
 
 (def: (risky $unsafe)
-  (-> (Instruction Any) (Instruction Any))
+  (-> (Bytecode Any) (Bytecode Any))
   (do _.monad
     [@from _.new-label
      @to _.new-label
@@ -196,31 +196,31 @@
                       (//value.wrap type.double)))))
 
 (def: #export log!
-  (Instruction Any)
+  (Bytecode Any)
   (let [^PrintStream (type.class "java.io.PrintStream" (list))
         ^System (type.class "java.lang.System" (list))
         out (_.getstatic ^System "out" ^PrintStream)
         print-type (type.method [(list //type.value) type.void (list)])
         print! (function (_ method) (_.invokevirtual ^PrintStream method print-type))]
     ($_ _.compose
-        out (_.ldc/string "LOG: ") (print! "print")
+        out (_.string "LOG: ") (print! "print")
         out _.swap (print! "println"))))
 
 (def: exception-constructor (type.method [(list //type.text) type.void (list)]))
 (def: (illegal-state-exception message)
-  (-> Text (Instruction Any))
+  (-> Text (Bytecode Any))
   (let [^IllegalStateException (type.class "java.lang.IllegalStateException" (list))]
     ($_ _.compose
         (_.new ^IllegalStateException)
         _.dup
-        (_.ldc/string message)
+        (_.string message)
         (_.invokespecial ^IllegalStateException "<init>" ..exception-constructor))))
 
 (def: failure::type
   (type.method [(list) type.void (list)]))
 
 (def: (failure name message)
-  (-> Text Text (State Pool Method))
+  (-> Text Text (Resource Method))
   (method.method ..modifier name
                  ..failure::type
                  (list)
@@ -295,7 +295,7 @@
                                               $variant ::value
                                               (_.checkcast //type.variant)
                                               _.astore-0)
-                          recur (: (-> Label (Instruction Any))
+                          recur (: (-> Label (Bytecode Any))
                                    (function (_ @loop-start)
                                      ($_ _.compose
                                          update-$tag
@@ -352,7 +352,7 @@
 (def: #export right-projection (..procedure ..right-projection::name ..projection-type))
 
 (def: projection::method2
-  [(State Pool Method) (State Pool Method)]
+  [(Resource Method) (Resource Method)]
   (let [$tuple _.aload-0
         $tuple::size ($_ _.compose
                          $tuple _.arraylength)
@@ -368,7 +368,7 @@
         update-$tuple ($_ _.compose
                           $tuple $last-right _.aaload (_.checkcast //type.tuple)
                           _.astore-0)
-        recur (: (-> Label (Instruction Any))
+        recur (: (-> Label (Bytecode Any))
                  (function (_ @loop)
                    ($_ _.compose
                        update-$lefts
@@ -490,16 +490,16 @@
     (-> (Type (<| Return' Value' category)) Text))
   (|>> type.reflection reflection.reflection))
 
-(def: #export ^Object (type.class "java.lang.Object" (list)))
-
 (def: translate-runtime
   (Operation Any)
-  (let [class (..reflection ..class)
+  (let [^Object (type.class "java.lang.Object" (list))
+        class (..reflection ..class)
         modifier (: (Modifier Class)
                     ($_ modifier@compose
                         class.public
                         class.final))
-        bytecode (<| (binaryF.run class.writer)
+        bytecode (<| (format.run class.writer)
+                     try.assume
                      (class.class version.v6_0
                                   modifier
                                   (name.internal class)
@@ -554,7 +554,7 @@
                                       (let [$partials _.iload-1]
                                         ($_ _.compose
                                             ..this
-                                            (_.invokespecial ..^Object "<init>" (type.method [(list) type.void (list)]))
+                                            (_.invokespecial ^Object "<init>" (type.method [(list) type.void (list)]))
                                             ..this
                                             $partials
                                             (_.putfield //function.class //function/count.field //function/count.type)
@@ -564,16 +564,17 @@
                         class.public
                         class.abstract))
         class (..reflection //function.class)
-        partial-count (: (State Pool Field)
+        partial-count (: (Resource Field)
                          (field.field (modifier@compose field.public field.final)
                                       //function/count.field
                                       //function/count.type
                                       (row.row)))
-        bytecode (<| (binaryF.run class.writer)
+        bytecode (<| (format.run class.writer)
+                     try.assume
                      (class.class version.v6_0
                                   modifier
                                   (name.internal class)
-                                  (name.internal (..reflection ..^Object)) (list)
+                                  (name.internal (..reflection ^Object)) (list)
                                   (list partial-count)
                                   (list& <init>::method apply::method+)
                                   (row.row)))]
@@ -592,5 +593,5 @@
   (let [shift (n./ 4 i64.width)]
     ## This shift is done to avoid the possibility of forged labels
     ## to be in the range of the labels that are generated automatically
-    ## during the evaluation of Instruction expressions.
+    ## during the evaluation of Bytecode expressions.
     (:: ////.monad map (i64.left-shift shift) ///.next)))
