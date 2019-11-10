@@ -13,6 +13,7 @@
      ["!" capability]]]
    [data
     [binary (#+ Binary)]
+    ["." bit ("#@." equivalence)]
     [number
      ["." i32 (#+ I32)]
      ["." i64]
@@ -48,6 +49,7 @@
      ["#." name]
      ["#." unsigned]]
     ["#" bytecode (#+ Bytecode)
+     ["#." instruction]
      [environment
       [limit
        [registry (#+ Register)]]]]
@@ -81,10 +83,14 @@
   (getClass [] (java/lang/Class java/lang/Object))
   (toString [] java/lang/String))
 
+(import: #long java/lang/Boolean)
+(import: #long java/lang/Byte)
+(import: #long java/lang/Short)
 (import: #long java/lang/Integer)
 (import: #long java/lang/Long)
 (import: #long java/lang/Float)
 (import: #long java/lang/Double)
+(import: #long java/lang/Character)
 
 (def: class-name
   (Random Text)
@@ -164,6 +170,41 @@
             (#try.Failure error)
             false))))
 
+(def: $Boolean
+  (/type.class "java.lang.Boolean" (list)))
+(def: $Boolean::wrap
+  (/.invokestatic ..$Boolean "valueOf" (/type.method [(list /type.boolean) ..$Boolean (list)])))
+(def: $Boolean::random (Random java/lang/Boolean) random.bit)
+(def: !false (|> 0 .i64 i32.i32 /.int))
+(def: !true (|> 1 .i64 i32.i32 /.int))
+(def: ($Boolean::literal value)
+  (-> java/lang/Boolean (Bytecode Any))
+  (if value
+    ..!true
+    ..!false))
+
+(def: $Byte
+  (/type.class "java.lang.Byte" (list)))
+(def: $Byte::wrap
+  (/.invokestatic ..$Byte "valueOf" (/type.method [(list /type.byte) ..$Byte (list)])))
+(def: $Byte::random
+  (Random java/lang/Byte)
+  (:: random.monad map (|>> host.long-to-byte) random.int))
+(def: $Byte::literal
+  (-> java/lang/Byte (Bytecode Any))
+  (|>> host.byte-to-long .i64 i32.i32 /.int))
+
+(def: $Short
+  (/type.class "java.lang.Short" (list)))
+(def: $Short::wrap
+  (/.invokestatic ..$Short "valueOf" (/type.method [(list /type.short) ..$Short (list)])))
+(def: $Short::random
+  (Random java/lang/Short)
+  (:: random.monad map (|>> host.long-to-short) random.int))
+(def: $Short::literal
+  (-> java/lang/Short (Bytecode Any))
+  (|>> host.short-to-long .i64 i32.i32 /.int))
+
 (def: $Integer
   (/type.class "java.lang.Integer" (list)))
 (def: $Integer::wrap
@@ -177,8 +218,8 @@
 
 (def: $Long (/type.class "java.lang.Long" (list)))
 (def: $Long::wrap (/.invokestatic ..$Long "valueOf" (/type.method [(list /type.long) ..$Long (list)])))
-(def: $Long::random random.int)
-(def: $Long::literal /.long)
+(def: $Long::random (Random java/lang/Long) random.int)
+(def: $Long::literal (-> java/lang/Long (Bytecode Any)) /.long)
 
 (def: $Float (/type.class "java.lang.Float" (list)))
 (def: $Float::wrap (/.invokestatic ..$Float "valueOf" (/type.method [(list /type.float) ..$Float (list)])))
@@ -194,9 +235,20 @@
 (def: $Double::random random.frac)
 (def: $Double::literal /.double)
 
+(def: $Character
+  (/type.class "java.lang.Character" (list)))
+(def: $Character::wrap
+  (/.invokestatic ..$Character "valueOf" (/type.method [(list /type.char) ..$Character (list)])))
+(def: $Character::random
+  (Random java/lang/Character)
+  (:: random.monad map (|>> host.long-to-int host.int-to-char) random.int))
+(def: $Character::literal
+  (-> java/lang/Character (Bytecode Any))
+  (|>> host.char-to-long .i64 i32.i32 /.int))
+
+(def: $String (/type.class "java.lang.String" (list)))
 (def: $String::random (random.unicode 10))
 (def: $String::literal /.string)
-(def: $String::wrap /.nop)
 
 (template: (int/2 <extension>)
   (: (-> java/lang/Integer java/lang/Integer java/lang/Integer)
@@ -463,6 +515,136 @@
           ..double)
       ))
 
+(def: object
+  Test
+  (let [!object (: (Bytecode Any)
+                   (do /.monad
+                     [_ (/.new ..$Object)
+                      _ /.dup]
+                     (/.invokespecial ..$Object "<init>" (/type.method [(list) /type.void (list)]))))]
+    ($_ _.and
+        (<| (_.lift "ACONST_NULL")
+            (..bytecode (|>> (:coerce Bit) not))
+            (do /.monad
+              [_ /.aconst-null
+               _ (/.instanceof ..$String)]
+              ..$Boolean::wrap))
+        (<| (_.lift "INSTANCEOF")
+            (do random.monad
+              [value ..$String::random])
+            (..bytecode (|>> (:coerce Bit)))
+            (do /.monad
+              [_ (/.string value)
+               _ (/.instanceof ..$String)]
+              ..$Boolean::wrap))
+        (<| (_.lift "NEW & CHECKCAST")
+            (..bytecode (|>> (:coerce Bit)))
+            (do /.monad
+              [_ !object
+               _ (/.checkcast ..$Object)
+               _ (/.instanceof ..$Object)]
+              ..$Boolean::wrap))
+        (<| (_.lift "MONITORENTER & MONITOREXIT")
+            (do random.monad
+              [value ..$String::random])
+            (..bytecode (|>> (:coerce Bit)))
+            (do /.monad
+              [_ (/.string value)
+               _ /.dup _ /.monitorenter
+               _ /.dup _ /.monitorexit
+               _ (/.instanceof ..$String)]
+              ..$Boolean::wrap))
+        )))
+
+(def: array
+  Test
+  (let [!length (: (-> Nat (Bytecode Any))
+                   (function (_ size)
+                     (do /.monad
+                       [_ ($Long::literal (.int size))]
+                       /.l2i)))
+        ?length (: (Bytecode Any)
+                   (do /.monad
+                     [_ /.arraylength]
+                     /.i2l))
+        length (: (-> Nat (Bytecode Any) (Random Bit))
+                  (function (_ size constructor)
+                    (<| (..bytecode (|>> (:coerce Nat) (n.= size)))
+                        (do /.monad
+                          [_ (!length size)
+                           _ constructor
+                           _ ?length]
+                          $Long::wrap))))
+        write-and-read (: (All [a]
+                            (-> Nat (Bytecode Any)
+                                a (-> a (Bytecode Any))
+                                [(Bytecode Any) (Bytecode Any) (Bytecode Any)]
+                                (-> a Any Bit)
+                                (Random Bit)))
+                          (function (_ size constructor value literal [*store *load *wrap] test)
+                            (let [!index ($Integer::literal (host.long-to-int +0))]
+                              (<| (..bytecode (test value))
+                                  (do /.monad
+                                    [_ (!length size)
+                                     _ constructor
+                                     _ /.dup _ !index _ (literal value) _ *store
+                                     _ /.dup _ !index _ *load]
+                                    *wrap)))))
+        array (: (All [a]
+                   (-> (Bytecode Any) (Random a) (-> a (Bytecode Any))
+                       [(Bytecode Any) (Bytecode Any) (Bytecode Any)]
+                       (-> a Any Bit)
+                       Test))
+                 (function (_ constructor random literal [*store *load *wrap] test)
+                   (do random.monad
+                     [size (:: @ map (|>> (n.% 1024) (n.max 1)) random.nat)
+                      value random]
+                     ($_ _.and
+                         (<| (_.lift "length")
+                             (length size constructor))
+                         (<| (_.lift "write and read")
+                             (write-and-read size constructor value literal [*store *load *wrap] test))))))]
+    ($_ _.and
+        (_.context "boolean"
+                   (array (/.newarray /instruction.t-boolean) $Boolean::random $Boolean::literal [/.bastore /.baload $Boolean::wrap]
+                          (function (_ expected) (|>> (:coerce Bit) (bit@= expected)))))
+        (_.context "byte"
+                   (array (/.newarray /instruction.t-byte) $Byte::random $Byte::literal [/.bastore /.baload $Byte::wrap]
+                          (function (_ expected) (|>> (:coerce java/lang/Byte) host.byte-to-long ("jvm leq" (host.byte-to-long expected))))))
+        (_.context "short"
+                   (array (/.newarray /instruction.t-short) $Short::random $Short::literal [/.sastore /.saload $Short::wrap]
+                          (function (_ expected) (|>> (:coerce java/lang/Short) host.short-to-long ("jvm leq" (host.short-to-long expected))))))
+        (_.context "int"
+                   (array (/.newarray /instruction.t-int) $Integer::random $Integer::literal [/.iastore /.iaload $Integer::wrap]
+                          (function (_ expected) (|>> (:coerce java/lang/Integer) ("jvm ieq" expected)))))
+        (_.context "long"
+                   (array (/.newarray /instruction.t-long) $Long::random $Long::literal [/.lastore /.laload $Long::wrap]
+                          (function (_ expected) (|>> (:coerce java/lang/Long) ("jvm leq" expected)))))
+        (_.context "float"
+                   (array (/.newarray /instruction.t-float) $Float::random $Float::literal [/.fastore /.faload $Float::wrap]
+                          (function (_ expected) (|>> (:coerce java/lang/Float) ("jvm feq" expected)))))
+        (_.context "double"
+                   (array (/.newarray /instruction.t-double) $Double::random $Double::literal [/.dastore /.daload $Double::wrap]
+                          (function (_ expected) (|>> (:coerce java/lang/Double) ("jvm deq" expected)))))
+        (_.context "char"
+                   (array (/.newarray /instruction.t-char) $Character::random $Character::literal [/.castore /.caload $Character::wrap]
+                          (function (_ expected) (|>> (:coerce java/lang/Character) ("jvm ceq" expected)))))
+        (_.context "object"
+                   (array (/.anewarray ..$String) $String::random $String::literal [/.aastore /.aaload /.nop]
+                          (function (_ expected) (|>> (:coerce Text) (text@= expected)))))
+        )))
+
+(def: value
+  Test
+  ($_ _.and
+      (<| (_.context "primitive")
+          ..primitive)
+      (<| (_.context "object")
+          ..object)
+      (<| (_.context "array")
+          ..array)
+      ))
+
 (def: registry
   Test
   (let [add-registers (: (All [a]
@@ -507,9 +689,9 @@
                                 (|>> (:coerce java/lang/Integer) ("jvm ieq" ("jvm iadd" parameter subject)))))
                   add-int-registers (add-registers ..$Integer::random ..$Integer::literal /.iadd ..$Integer::wrap test-int)]
               ($_ _.and
-                  (_.lift "ISTORE_0/ILOAD_0 && ISTORE_2/ILOAD_2"
+                  (_.lift "ISTORE_0/ILOAD_0 & ISTORE_2/ILOAD_2"
                           (add-int-registers [/.istore-2 /.iload-2] [/.istore-0 /.iload-0]))
-                  (_.lift "ISTORE_1/ILOAD_1 && ISTORE_3/ILOAD_3"
+                  (_.lift "ISTORE_1/ILOAD_1 & ISTORE_3/ILOAD_3"
                           (add-int-registers [/.istore-3 /.iload-3] [/.istore-1 /.iload-1]))
                   (_.lift "ISTORE/ILOAD"
                           (store-and-load ..$Integer::random ..$Integer::literal ..$Integer::wrap [/.istore /.iload]
@@ -521,9 +703,9 @@
                                  (|>> (:coerce Int) (i.= (i.+ parameter subject)))))
                   add-long-registers (add-registers ..$Long::random ..$Long::literal /.ladd ..$Long::wrap test-long)]
               ($_ _.and
-                  (_.lift "LSTORE_0/LLOAD_0 && LSTORE_2/LLOAD_2"
+                  (_.lift "LSTORE_0/LLOAD_0 & LSTORE_2/LLOAD_2"
                           (add-long-registers [/.lstore-2 /.lload-2] [/.lstore-0 /.lload-0]))
-                  (_.lift "LSTORE_1/LLOAD_1 && LSTORE_3/LLOAD_3"
+                  (_.lift "LSTORE_1/LLOAD_1 & LSTORE_3/LLOAD_3"
                           (add-long-registers [/.lstore-3 /.lload-3] [/.lstore-1 /.lload-1]))
                   (_.lift "LSTORE/LLOAD"
                           (store-and-load ..$Long::random ..$Long::literal ..$Long::wrap [/.lstore /.lload]
@@ -535,9 +717,9 @@
                                   (|>> (:coerce java/lang/Float) ("jvm feq" ("jvm fadd" parameter subject)))))
                   add-float-registers (add-registers ..$Float::random ..$Float::literal /.fadd ..$Float::wrap test-float)]
               ($_ _.and
-                  (_.lift "FSTORE_0/FLOAD_0 && FSTORE_2/FLOAD_2"
+                  (_.lift "FSTORE_0/FLOAD_0 & FSTORE_2/FLOAD_2"
                           (add-float-registers [/.fstore-2 /.fload-2] [/.fstore-0 /.fload-0]))
-                  (_.lift "FSTORE_1/FLOAD_1 && FSTORE_3/FLOAD_3"
+                  (_.lift "FSTORE_1/FLOAD_1 & FSTORE_3/FLOAD_3"
                           (add-float-registers [/.fstore-3 /.fload-3] [/.fstore-1 /.fload-1]))
                   (_.lift "FSTORE/FLOAD"
                           (store-and-load ..$Float::random ..$Float::literal ..$Float::wrap [/.fstore /.fload]
@@ -549,47 +731,123 @@
                                    (|>> (:coerce Frac) (f.= (f.+ parameter subject)))))
                   add-double-registers (add-registers ..$Double::random ..$Double::literal /.dadd ..$Double::wrap test-double)]
               ($_ _.and
-                  (_.lift "DSTORE_0/DLOAD_0 && DSTORE_2/DLOAD_2"
+                  (_.lift "DSTORE_0/DLOAD_0 & DSTORE_2/DLOAD_2"
                           (add-double-registers [/.dstore-2 /.dload-2] [/.dstore-0 /.dload-0]))
-                  (_.lift "DSTORE_1/DLOAD_1 && DSTORE_3/DLOAD_3"
+                  (_.lift "DSTORE_1/DLOAD_1 & DSTORE_3/DLOAD_3"
                           (add-double-registers [/.dstore-3 /.dload-3] [/.dstore-1 /.dload-1]))
                   (_.lift "DSTORE/DLOAD"
                           (store-and-load ..$Double::random ..$Double::literal ..$Double::wrap [/.dstore /.dload]
                                           (function (_ expected actual)
                                             (|> actual (:coerce java/lang/Double) ("jvm deq" expected))))))))
         (<| (_.context "object")
-            (do random.monad
-              [## expected (random.text 10)
-               #let [test (function (_ expected actual)
-                            (|> actual (:coerce Text) (text@= expected)))]]
+            (let [test (function (_ expected actual)
+                         (|> actual (:coerce Text) (text@= expected)))]
               ($_ _.and
                   (_.lift "ASTORE_0/ALOAD_0"
-                          (store-and-load ..$String::random ..$String::literal ..$String::wrap [(function.constant /.astore-0) (function.constant /.aload-0)]
+                          (store-and-load ..$String::random ..$String::literal /.nop [(function.constant /.astore-0) (function.constant /.aload-0)]
                                           test))
                   (_.lift "ASTORE_1/ALOAD_1"
-                          (store-and-load ..$String::random ..$String::literal ..$String::wrap [(function.constant /.astore-1) (function.constant /.aload-1)]
+                          (store-and-load ..$String::random ..$String::literal /.nop [(function.constant /.astore-1) (function.constant /.aload-1)]
                                           test))
                   (_.lift "ASTORE_2/ALOAD_2"
-                          (store-and-load ..$String::random ..$String::literal ..$String::wrap [(function.constant /.astore-2) (function.constant /.aload-2)]
+                          (store-and-load ..$String::random ..$String::literal /.nop [(function.constant /.astore-2) (function.constant /.aload-2)]
                                           test))
                   (_.lift "ASTORE_3/ALOAD_3"
-                          (store-and-load ..$String::random ..$String::literal ..$String::wrap [(function.constant /.astore-3) (function.constant /.aload-3)]
+                          (store-and-load ..$String::random ..$String::literal /.nop [(function.constant /.astore-3) (function.constant /.aload-3)]
                                           test))
                   (_.lift "ASTORE/ALOAD"
-                          (store-and-load ..$String::random ..$String::literal ..$String::wrap [/.astore /.aload]
+                          (store-and-load ..$String::random ..$String::literal /.nop [/.astore /.aload]
                                           test)))))
         )))
+
+(def: stack
+  Test
+  (do random.monad
+    [expected/1 $String::random
+     dummy/1 $String::random
+     #let [single ($_ _.and
+                      (<| (_.lift "DUP/POP")
+                          (..bytecode (|>> (:coerce Text) (text@= expected/1)))
+                          (do /.monad
+                            [_ ($String::literal expected/1)
+                             _ /.dup]
+                            /.pop))
+                      (<| (_.lift "DUP_X1/POP2")
+                          (..bytecode (|>> (:coerce Text) (text@= expected/1)))
+                          (do /.monad
+                            [_ ($String::literal dummy/1)
+                             _ ($String::literal expected/1)
+                             _ /.dup-x1]
+                            /.pop2))
+                      (<| (_.lift "DUP_X2")
+                          (..bytecode (|>> (:coerce Text) (text@= expected/1)))
+                          (do /.monad
+                            [_ ($String::literal dummy/1)
+                             _ ($String::literal dummy/1)
+                             _ ($String::literal expected/1)
+                             _ /.dup-x2
+                             _ /.pop2]
+                            /.pop))
+                      (<| (_.lift "SWAP")
+                          (..bytecode (|>> (:coerce Text) (text@= expected/1)))
+                          (do /.monad
+                            [_ ($String::literal dummy/1)
+                             _ ($String::literal expected/1)
+                             _ /.swap]
+                            /.pop))
+                      )]
+     expected/2 $Long::random
+     dummy/2 $Long::random
+     #let [double ($_ _.and
+                      (<| (_.lift "DUP2")
+                          (..bytecode (|>> (:coerce Int) (i.= expected/2)))
+                          (do /.monad
+                            [_ ($Long::literal expected/2)
+                             _ /.dup2
+                             _ /.pop2]
+                            ..$Long::wrap))
+                      (<| (_.lift "DUP2_X1")
+                          (..bytecode (|>> (:coerce Int) (i.= expected/2)))
+                          (do /.monad
+                            [_ ($String::literal dummy/1)
+                             _ ($Long::literal expected/2)
+                             _ /.dup2-x1
+                             _ /.pop2
+                             _ /.pop]
+                            ..$Long::wrap))
+                      (<| (_.lift "DUP2_X2")
+                          (..bytecode (|>> (:coerce Int) (i.= expected/2)))
+                          (do /.monad
+                            [_ ($Long::literal dummy/2)
+                             _ ($Long::literal expected/2)
+                             _ /.dup2-x2
+                             _ /.pop2
+                             _ /.pop2]
+                            ..$Long::wrap))
+                      )]]
+    ($_ _.and
+        (<| (_.context "single")
+            single)
+        (<| (_.context "double")
+            double)
+        )))
+
+(def: resource
+  Test
+  ($_ _.and
+      (<| (_.context "registry")
+          ..registry)
+      (<| (_.context "stack")
+          ..stack)
+      ))
 
 (def: instruction
   Test
   ($_ _.and
-      ## (<| (_.lift "ACONST_NULL")
-      ##     (..bytecode (function (_ value) true))
-      ##     /.aconst-null)
-      (<| (_.context "primitive")
-          ..primitive)
-      (<| (_.context "registry")
-          ..registry)
+      (<| (_.context "value")
+          ..value)
+      (<| (_.context "resource")
+          ..resource)
       ))
 
 (def: method
