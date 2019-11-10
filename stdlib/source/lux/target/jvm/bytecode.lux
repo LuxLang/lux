@@ -1,11 +1,11 @@
 (.module:
   [lux (#- Type int)
-   ["." host]
+   ["." host (#+ import:)]
    [abstract
     [monoid (#+ Monoid)]
     ["." monad (#+ Monad do)]]
    [control
-    [writer (#+ Writer)]
+    ["." writer (#+ Writer)]
     ["." state (#+ State')]
     ["." function]
     ["." try (#+ Try)]
@@ -18,7 +18,7 @@
     [number
      ["n" nat]
      ["i" int]
-     ["." i32]]
+     ["." i32 (#+ I32)]]
     [collection
      ["." list ("#@." functor fold)]
      ["." dictionary (#+ Dictionary)]
@@ -31,7 +31,7 @@
    ["_" instruction (#+ Primitive-Array-Type Instruction Estimator) ("#@." monoid)]
    ["#." environment (#+ Environment)
     [limit
-     [registry (#+ Register)]]]
+     ["/." registry (#+ Register Registry)]]]
    ["/#" // #_
     ["#." index (#+ Index)]
     [encoding
@@ -125,8 +125,12 @@
 
 (def: #export monad
   (Monad Bytecode)
-  (:coerce (Monad Bytecode)
-           (state.with try.monad)))
+  (<| (:coerce (Monad Bytecode))
+      (writer.with ..relative-monoid)
+      (: (Monad (State' Try [Pool Environment Tracker])))
+      state.with
+      (: (Monad Try))
+      try.monad))
 
 (def: #export (resolve bytecode)
   (All [a] (-> (Bytecode a) (Resource [Environment (Row Exception) Instruction a])))
@@ -140,14 +144,14 @@
   (-> Estimator Address (Try Address))
   (/address.move (estimator counter) counter))
 
-(def: (bytecode consumption production last-register [estimator bytecode] input)
-  (All [a] (-> U2 U2 Register [Estimator (-> [a] Instruction)] [a] (Bytecode Any)))
+(def: (bytecode consumption production registry [estimator bytecode] input)
+  (All [a] (-> U2 U2 Registry [Estimator (-> [a] Instruction)] [a] (Bytecode Any)))
   (function (_ [pool environment tracker])
     (do try.monad
       [environment' (|> environment
                         (/environment.consumes consumption)
                         (monad.bind @ (/environment.produces production))
-                        (monad.bind @ (/environment.has last-register)))
+                        (monad.bind @ (/environment.has registry)))
        program-counter' (step estimator (get@ #program-counter tracker))]
       (wrap [[pool
               environment'
@@ -168,66 +172,67 @@
   )
 
 (template [<name> <registry>]
-  [(def: <name> Register (|> <registry> //unsigned.u1 try.assume))]
+  [(def: <name> Registry (|> <registry> //unsigned.u2 try.assume /registry.registry))]
 
-  [@0 0]
-  [@1 1]
-  [@2 2]
-  [@3 3]
-  [@4 4]
+  [@_ 0]
+  [@0 1]
+  [@1 2]
+  [@2 3]
+  [@3 4]
+  [@4 5]
   )
 
-(template [<name> <consumption> <production> <last-register> <instruction>]
+(template [<name> <consumption> <production> <registry> <instruction>]
   [(def: #export <name>
      (Bytecode Any)
      (..bytecode <consumption>
                  <production>
-                 <last-register>
+                 <registry>
                  <instruction>
                  []))]
 
-  [nop $0 $0 @0 _.nop]
+  [nop $0 $0 @_ _.nop]
   
-  [aconst-null $0 $1 @0 _.aconst-null]
+  [aconst-null $0 $1 @_ _.aconst-null]
 
-  [iconst-m1 $0 $1 @0 _.iconst-m1]
-  [iconst-0 $0 $1 @0 _.iconst-0]
-  [iconst-1 $0 $1 @0 _.iconst-1]
-  [iconst-2 $0 $1 @0 _.iconst-2]
-  [iconst-3 $0 $1 @0 _.iconst-3]
-  [iconst-4 $0 $1 @0 _.iconst-4]
-  [iconst-5 $0 $1 @0 _.iconst-5]
+  [iconst-m1 $0 $1 @_ _.iconst-m1]
+  [iconst-0 $0 $1 @_ _.iconst-0]
+  [iconst-1 $0 $1 @_ _.iconst-1]
+  [iconst-2 $0 $1 @_ _.iconst-2]
+  [iconst-3 $0 $1 @_ _.iconst-3]
+  [iconst-4 $0 $1 @_ _.iconst-4]
+  [iconst-5 $0 $1 @_ _.iconst-5]
 
-  [lconst-0 $0 $2 @0 _.lconst-0]
-  [lconst-1 $0 $2 @0 _.lconst-1]
+  [lconst-0 $0 $2 @_ _.lconst-0]
+  [lconst-1 $0 $2 @_ _.lconst-1]
 
-  [fconst-0 $0 $1 @0 _.fconst-0]
-  [fconst-1 $0 $1 @0 _.fconst-1]
-  [fconst-2 $0 $1 @0 _.fconst-2]
+  [fconst-0 $0 $1 @_ _.fconst-0]
+  [fconst-1 $0 $1 @_ _.fconst-1]
+  [fconst-2 $0 $1 @_ _.fconst-2]
   
-  [dconst-0 $0 $2 @0 _.dconst-0]
-  [dconst-1 $0 $2 @0 _.dconst-1]
+  [dconst-0 $0 $2 @_ _.dconst-0]
+  [dconst-1 $0 $2 @_ _.dconst-1]
 
-  [pop $1 $0 @0 _.pop]
-  [pop2 $2 $0 @0 _.pop2]
+  [pop $1 $0 @_ _.pop]
+  [pop2 $2 $0 @_ _.pop2]
   
-  [dup $1 $2 @0 _.dup]
-  [dup-x1 $2 $3 @0 _.dup-x1]
-  [dup-x2 $3 $4 @0 _.dup-x2]
-  [dup2 $2 $4 @0 _.dup2]
-  [dup2-x1 $3 $5 @0 _.dup2-x1]
-  [dup2-x2 $4 $6 @0 _.dup2-x2]
+  [dup $1 $2 @_ _.dup]
+  [dup-x1 $2 $3 @_ _.dup-x1]
+  [dup-x2 $3 $4 @_ _.dup-x2]
+  [dup2 $2 $4 @_ _.dup2]
+  [dup2-x1 $3 $5 @_ _.dup2-x1]
+  [dup2-x2 $4 $6 @_ _.dup2-x2]
   
-  [swap $2 $2 @0 _.swap]
+  [swap $2 $2 @_ _.swap]
 
-  [iaload $2 $1 @0 _.iaload]
-  [laload $2 $2 @0 _.laload]
-  [faload $2 $1 @0 _.faload]
-  [daload $2 $2 @0 _.daload]
-  [aaload $2 $1 @0 _.aaload]
-  [baload $2 $1 @0 _.baload]
-  [caload $2 $1 @0 _.caload]
-  [saload $2 $1 @0 _.saload]
+  [iaload $2 $1 @_ _.iaload]
+  [laload $2 $2 @_ _.laload]
+  [faload $2 $1 @_ _.faload]
+  [daload $2 $2 @_ _.daload]
+  [aaload $2 $1 @_ _.aaload]
+  [baload $2 $1 @_ _.baload]
+  [caload $2 $1 @_ _.caload]
+  [saload $2 $1 @_ _.saload]
 
   [iload-0 $0 $1 @0 _.iload-0]
   [iload-1 $0 $1 @1 _.iload-1]
@@ -254,14 +259,14 @@
   [aload-2 $0 $1 @2 _.aload-2]
   [aload-3 $0 $1 @3 _.aload-3]
 
-  [iastore $3 $1 @0 _.iastore]
-  [lastore $4 $1 @0 _.lastore]
-  [fastore $3 $1 @0 _.fastore]
-  [dastore $4 $1 @0 _.dastore]
-  [aastore $3 $1 @0 _.aastore]
-  [bastore $3 $1 @0 _.bastore]
-  [castore $3 $1 @0 _.castore]
-  [sastore $3 $1 @0 _.sastore]
+  [iastore $3 $1 @_ _.iastore]
+  [lastore $4 $1 @_ _.lastore]
+  [fastore $3 $1 @_ _.fastore]
+  [dastore $4 $1 @_ _.dastore]
+  [aastore $3 $1 @_ _.aastore]
+  [bastore $3 $1 @_ _.bastore]
+  [castore $3 $1 @_ _.castore]
+  [sastore $3 $1 @_ _.sastore]
 
   [istore-0 $1 $0 @0 _.istore-0]
   [istore-1 $1 $0 @1 _.istore-1]
@@ -288,91 +293,91 @@
   [astore-2 $1 $0 @2 _.astore-2]
   [astore-3 $1 $0 @3 _.astore-3]
 
-  [iadd $2 $1 @0 _.iadd]
-  [isub $2 $1 @0 _.isub]
-  [imul $2 $1 @0 _.imul]
-  [idiv $2 $1 @0 _.idiv]
-  [irem $2 $1 @0 _.irem]
-  [ineg $2 $1 @0 _.ineg]
-  [ishl $2 $1 @0 _.ishl]
-  [ishr $2 $1 @0 _.ishr]
-  [iushr $2 $1 @0 _.iushr]
-  [iand $2 $1 @0 _.iand]
-  [ior $2 $1 @0 _.ior]
-  [ixor $2 $1 @0 _.ixor]
+  [iadd $2 $1 @_ _.iadd]
+  [isub $2 $1 @_ _.isub]
+  [imul $2 $1 @_ _.imul]
+  [idiv $2 $1 @_ _.idiv]
+  [irem $2 $1 @_ _.irem]
+  [ineg $1 $1 @_ _.ineg]
+  [iand $2 $1 @_ _.iand]
+  [ior $2 $1 @_ _.ior]
+  [ixor $2 $1 @_ _.ixor]
+  [ishl $2 $1 @_ _.ishl]
+  [ishr $2 $1 @_ _.ishr]
+  [iushr $2 $1 @_ _.iushr]
 
-  [ladd $4 $2 @0 _.ladd]
-  [lsub $4 $2 @0 _.lsub]
-  [lmul $4 $2 @0 _.lmul]
-  [ldiv $4 $2 @0 _.ldiv]
-  [lrem $4 $2 @0 _.lrem]
-  [lneg $4 $2 @0 _.lneg]
-  [land $4 $2 @0 _.land]
-  [lor $4 $2 @0 _.lor]
-  [lxor $4 $2 @0 _.lxor]
-  [lshl $3 $2 @0 _.lshl]
-  [lshr $3 $2 @0 _.lshr]
-  [lushr $3 $2 @0 _.lushr]
+  [ladd $4 $2 @_ _.ladd]
+  [lsub $4 $2 @_ _.lsub]
+  [lmul $4 $2 @_ _.lmul]
+  [ldiv $4 $2 @_ _.ldiv]
+  [lrem $4 $2 @_ _.lrem]
+  [lneg $2 $2 @_ _.lneg]
+  [land $4 $2 @_ _.land]
+  [lor $4 $2 @_ _.lor]
+  [lxor $4 $2 @_ _.lxor]
+  [lshl $3 $2 @_ _.lshl]
+  [lshr $3 $2 @_ _.lshr]
+  [lushr $3 $2 @_ _.lushr]
   
-  [fadd $2 $1 @0 _.fadd]
-  [fsub $2 $1 @0 _.fsub]
-  [fmul $2 $1 @0 _.fmul]
-  [fdiv $2 $1 @0 _.fdiv]
-  [frem $2 $1 @0 _.frem]
-  [fneg $2 $1 @0 _.fneg]
+  [fadd $2 $1 @_ _.fadd]
+  [fsub $2 $1 @_ _.fsub]
+  [fmul $2 $1 @_ _.fmul]
+  [fdiv $2 $1 @_ _.fdiv]
+  [frem $2 $1 @_ _.frem]
+  [fneg $1 $1 @_ _.fneg]
   
-  [dadd $4 $2 @0 _.dadd]
-  [dsub $4 $2 @0 _.dsub]
-  [dmul $4 $2 @0 _.dmul]
-  [ddiv $4 $2 @0 _.ddiv]
-  [drem $4 $2 @0 _.drem]
-  [dneg $4 $2 @0 _.dneg]
+  [dadd $4 $2 @_ _.dadd]
+  [dsub $4 $2 @_ _.dsub]
+  [dmul $4 $2 @_ _.dmul]
+  [ddiv $4 $2 @_ _.ddiv]
+  [drem $4 $2 @_ _.drem]
+  [dneg $2 $2 @_ _.dneg]
 
-  [l2i $2 $1 @0 _.l2i]
-  [l2f $2 $1 @0 _.l2f]
-  [l2d $2 $2 @0 _.l2d]
+  [l2i $2 $1 @_ _.l2i]
+  [l2f $2 $1 @_ _.l2f]
+  [l2d $2 $2 @_ _.l2d]
   
-  [f2i $1 $1 @0 _.f2i]
-  [f2l $1 $2 @0 _.f2l]
-  [f2d $1 $2 @0 _.f2d]
+  [f2i $1 $1 @_ _.f2i]
+  [f2l $1 $2 @_ _.f2l]
+  [f2d $1 $2 @_ _.f2d]
   
-  [d2i $2 $1 @0 _.d2i]
-  [d2l $2 $2 @0 _.d2l]
-  [d2f $2 $1 @0 _.d2f]
+  [d2i $2 $1 @_ _.d2i]
+  [d2l $2 $2 @_ _.d2l]
+  [d2f $2 $1 @_ _.d2f]
 
-  [i2l $1 $2 @0 _.i2l]
-  [i2f $1 $1 @0 _.i2f]
-  [i2d $1 $2 @0 _.i2d]
-  [i2b $1 $1 @0 _.i2b]
-  [i2c $1 $1 @0 _.i2c]
-  [i2s $1 $1 @0 _.i2s]
+  [i2l $1 $2 @_ _.i2l]
+  [i2f $1 $1 @_ _.i2f]
+  [i2d $1 $2 @_ _.i2d]
+  [i2b $1 $1 @_ _.i2b]
+  [i2c $1 $1 @_ _.i2c]
+  [i2s $1 $1 @_ _.i2s]
 
-  [lcmp $4 $1 @0 _.lcmp]
+  [lcmp $4 $1 @_ _.lcmp]
   
-  [fcmpl $2 $1 @0 _.fcmpl]
-  [fcmpg $2 $1 @0 _.fcmpg]
+  [fcmpl $2 $1 @_ _.fcmpl]
+  [fcmpg $2 $1 @_ _.fcmpg]
 
-  [dcmpl $4 $1 @0 _.dcmpl]
-  [dcmpg $4 $1 @0 _.dcmpg]
+  [dcmpl $4 $1 @_ _.dcmpl]
+  [dcmpg $4 $1 @_ _.dcmpg]
 
-  [ireturn $1 $0 @0 _.ireturn]
-  [lreturn $2 $0 @0 _.lreturn]
-  [freturn $1 $0 @0 _.freturn]
-  [dreturn $2 $0 @0 _.dreturn]
-  [areturn $1 $0 @0 _.areturn]
-  [return $0 $0 @0 _.return]
+  [ireturn $1 $0 @_ _.ireturn]
+  [lreturn $2 $0 @_ _.lreturn]
+  [freturn $1 $0 @_ _.freturn]
+  [dreturn $2 $0 @_ _.dreturn]
+  [areturn $1 $0 @_ _.areturn]
+  [return $0 $0 @_ _.return]
 
-  [arraylength $1 $1 @0 _.arraylength]
+  [arraylength $1 $1 @_ _.arraylength]
   
-  [athrow $1 $0 @0 _.athrow]
+  [athrow $1 $0 @_ _.athrow]
   
-  [monitorenter $1 $0 @0 _.monitorenter]
-  [monitorexit $1 $0 @0 _.monitorexit]
+  [monitorenter $1 $0 @_ _.monitorenter]
+  [monitorexit $1 $0 @_ _.monitorexit]
   )
 
 (def: #export (bipush byte)
   (-> U1 (Bytecode Any))
-  (..bytecode $0 $1 @0 _.bipush [byte]))
+  (..bytecode $0 $1 @_ _.bipush [byte]))
 
 (def: (lift resource)
   (All [a]
@@ -391,24 +396,26 @@
     [index (..lift (//constant/pool.string value))]
     (case (|> index //index.value //unsigned.value //unsigned.u1)
       (#try.Success index)
-      (..bytecode $0 $1 @0 _.ldc [index])
+      (..bytecode $0 $1 @_ _.ldc [index])
 
       (#try.Failure _)
-      (..bytecode $0 $1 @0 _.ldc-w/string [index]))))
+      (..bytecode $0 $1 @_ _.ldc-w/string [index]))))
 
-(template [<size> <name> <type> <constant> <ldc> <to-lux> <specializations>]
+(import: #long java/lang/Float)
+
+(template [<size> <name> <type> <constructor> <constant> <ldc> <to-lux> <specializations>]
   [(def: #export (<name> value)
      (-> <type> (Bytecode Any))
-     (case (|> value //constant.value <to-lux>)
+     (case (|> value <to-lux>)
        (^template [<special> <instruction>]
-         <special> (..bytecode $0 <size> @0 <instruction> []))
+         <special> (..bytecode $0 <size> @_ <instruction> []))
        <specializations>
        
        _ (do ..monad
-           [index (..lift (<constant> value))]
-           (..bytecode $0 <size> @0 <ldc> [index]))))]
+           [index (..lift (<constant> (<constructor> value)))]
+           (..bytecode $0 <size> @_ <ldc> [index]))))]
 
-  [$1 int //constant.Integer //constant/pool.integer _.ldc-w/integer
+  [$1 int I32 //constant.integer //constant/pool.integer _.ldc-w/integer
    (<| .int i32.i64)
    ([-1 _.iconst-m1]
     [+0 _.iconst-0]
@@ -417,91 +424,91 @@
     [+3 _.iconst-3]
     [+4 _.iconst-4]
     [+5 _.iconst-5])]
-  [$2 long //constant.Long //constant/pool.long _.ldc2-w/long
+  [$2 long Int //constant.long //constant/pool.long _.ldc2-w/long
    (<|)
    ([+0 _.lconst-0]
     [+1 _.lconst-1])]
-  [$1 float //constant.Float //constant/pool.float _.ldc-w/float
-   (<| host.float-to-double)
+  [$1 float java/lang/Float //constant.float //constant/pool.float _.ldc-w/float
+   host.float-to-double
    ([+0.0 _.fconst-0]
     [+1.0 _.fconst-1]
     [+2.0 _.fconst-2])]
-  [$2 double //constant.Double //constant/pool.double _.ldc2-w/double
+  [$2 double Frac //constant.double //constant/pool.double _.ldc2-w/double
    (<|)
-   ([+0.0 _.fconst-0]
-    [+1.0 _.fconst-1])]
+   ([+0.0 _.dconst-0]
+    [+1.0 _.dconst-1])]
   )
 
-(template [<size> <name> <general> <specials>]
+(template [<for> <size> <name> <general> <specials>]
   [(def: #export (<name> local)
      (-> Register (Bytecode Any))
      (with-expansions [<specials>' (template.splice <specials>)]
        (`` (case (//unsigned.value local)
-             (~~ (template [<case> <instruction> <last-register>]
-                   [<case> (..bytecode $0 <size> <last-register> <instruction> [])]
+             (~~ (template [<case> <instruction> <registry>]
+                   [<case> (..bytecode $0 <size> <registry> <instruction> [])]
                    
                    <specials>'))
-             _ (..bytecode $0 <size> local <general> [local])))))]
+             _ (..bytecode $0 <size> (<for> local) <general> [local])))))]
   
-  [$1 iload _.iload
+  [/registry.for $1 iload _.iload
    [[0 _.iload-0 @0]
     [1 _.iload-1 @1]
     [2 _.iload-2 @2]
     [3 _.iload-3 @3]]]
-  [$2 lload _.lload
+  [/registry.for-wide $2 lload _.lload
    [[0 _.lload-0 @1]
     [1 _.lload-1 @2]
     [2 _.lload-2 @3]
     [3 _.lload-3 @4]]]
-  [$1 fload _.fload
+  [/registry.for $1 fload _.fload
    [[0 _.fload-0 @0]
     [1 _.fload-1 @1]
     [2 _.fload-2 @2]
     [3 _.fload-3 @3]]]
-  [$2 dload _.dload
+  [/registry.for-wide $2 dload _.dload
    [[0 _.dload-0 @1]
     [1 _.dload-1 @2]
     [2 _.dload-2 @3]
     [3 _.dload-3 @4]]]
-  [$1 aload _.aload
+  [/registry.for $1 aload _.aload
    [[0 _.aload-0 @0]
     [1 _.aload-1 @1]
     [2 _.aload-2 @2]
     [3 _.aload-3 @3]]]
   )
 
-(template [<size> <name> <general> <specials>]
+(template [<for> <size> <name> <general> <specials>]
   [(def: #export (<name> local)
      (-> Register (Bytecode Any))
      (with-expansions [<specials>' (template.splice <specials>)]
        (`` (case (//unsigned.value local)
-             (~~ (template [<case> <instruction> <last-register>]
-                   [<case> (..bytecode <size> $0 <last-register> <instruction> [])]
+             (~~ (template [<case> <instruction> <registry>]
+                   [<case> (..bytecode <size> $0 <registry> <instruction> [])]
                    
                    <specials>'))
-             _ (..bytecode <size> $0 local <general> [local])))))]
+             _ (..bytecode <size> $0 (<for> local) <general> [local])))))]
   
-  [$1 istore _.istore
+  [/registry.for $1 istore _.istore
    [[0 _.istore-0 @0]
     [1 _.istore-1 @1]
     [2 _.istore-2 @2]
     [3 _.istore-3 @3]]]
-  [$2 lstore _.lstore
+  [/registry.for-wide $2 lstore _.lstore
    [[0 _.lstore-0 @1]
     [1 _.lstore-1 @2]
     [2 _.lstore-2 @3]
     [3 _.lstore-3 @4]]]
-  [$1 fstore _.fstore
+  [/registry.for $1 fstore _.fstore
    [[0 _.fstore-0 @0]
     [1 _.fstore-1 @1]
     [2 _.fstore-2 @2]
     [3 _.fstore-3 @3]]]
-  [$2 dstore _.dstore
+  [/registry.for-wide $2 dstore _.dstore
    [[0 _.dstore-0 @1]
     [1 _.dstore-1 @2]
     [2 _.dstore-2 @3]
     [3 _.dstore-3 @4]]]
-  [$1 astore _.astore
+  [/registry.for $1 astore _.astore
    [[0 _.astore-0 @0]
     [1 _.astore-1 @1]
     [2 _.astore-2 @2]
@@ -511,12 +518,15 @@
 (template [<consumption> <production> <name> <instruction> <input>]
   [(def: #export <name>
      (-> <input> (Bytecode Any))
-     (..bytecode <consumption> <production> @0 <instruction>))]
+     (..bytecode <consumption> <production> @_ <instruction>))]
   
-  [$0 $0 ret _.ret Register]
   [$1 $1 newarray _.newarray Primitive-Array-Type]
   [$0 $1 sipush _.sipush U2]
   )
+
+(def: #export (ret register)
+  (-> Register (Bytecode Any))
+  (..bytecode $0 $0 (/registry.for register) _.ret [register]))
 
 (exception: #export (unknown-label {label Label})
   (exception.report
@@ -713,7 +723,7 @@
      (do ..monad
        ## TODO: Make sure it's impossible to have indexes greater than U2.
        [index (..lift (//constant/pool.class (//name.internal (..reflection class))))]
-       (..bytecode <consumption> <production> @0 <instruction> [index])))]
+       (..bytecode <consumption> <production> @_ <instruction> [index])))]
 
   [$0 $1 new Class _.new]
   [$1 $1 anewarray Object _.anewarray]
@@ -723,13 +733,13 @@
 
 (def: #export (iinc register increase)
   (-> Register U1 (Bytecode Any))
-  (..bytecode $0 $0 register _.iinc [register increase]))
+  (..bytecode $0 $0 (/registry.for register) _.iinc [register increase]))
 
 (def: #export (multianewarray class dimensions)
   (-> (Type Class) U1 (Bytecode Any))
   (do ..monad
     [index (..lift (//constant/pool.class (//name.internal (..reflection class))))]
-    (..bytecode (//unsigned.lift/2 dimensions) $1 @0 _.multianewarray [index dimensions])))
+    (..bytecode (//unsigned.lift/2 dimensions) $1 @_ _.multianewarray [index dimensions])))
 
 (def: (type-size type)
   (-> (Type Return) Nat)
@@ -760,7 +770,7 @@
                 production (|> output ..type-size //unsigned.u1 try.assume)]]
          (..bytecode (//unsigned.lift/2 consumption)
                      (//unsigned.lift/2 production)
-                     @0
+                     @_
                      <instruction> [index consumption production]))))]
 
   [#1 invokestatic _.invokestatic]
@@ -779,8 +789,8 @@
                    #//constant/pool.descriptor (type.descriptor type)})]
        (if (or (is? type.long type)
                (is? type.double type))
-         (..bytecode <consumption> $2 @0 <2> [index])
-         (..bytecode <consumption> $1 @0 <1> [index]))))]
+         (..bytecode <consumption> $2 @_ <2> [index])
+         (..bytecode <consumption> $1 @_ <1> [index]))))]
 
   [$0 getstatic _.getstatic/1 _.getstatic/2]
   [$1 putstatic _.putstatic/1 _.putstatic/2]
