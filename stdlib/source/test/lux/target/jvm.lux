@@ -54,7 +54,7 @@
       [limit
        [registry (#+ Register)]]]]
     ["#." type (#+ Type)
-     [category (#+ Value)]]]})
+     ["." category (#+ Value)]]]})
 
 ## (def: (write-class! name bytecode)
 ##   (-> Text Binary (IO Text))
@@ -71,6 +71,20 @@
 ##               (#try.Failure error)
 ##               error)))))
 
+(def: method-modifier
+  ($_ /modifier@compose
+      /method.public
+      /method.static))
+
+(import: #long java/lang/Boolean)
+(import: #long java/lang/Byte)
+(import: #long java/lang/Short)
+(import: #long java/lang/Integer)
+(import: #long java/lang/Long)
+(import: #long java/lang/Float)
+(import: #long java/lang/Double
+  (#static compare [double double] int))
+(import: #long java/lang/Character)
 (import: #long java/lang/String)
 
 (import: #long java/lang/reflect/Method
@@ -82,15 +96,6 @@
 (import: #long java/lang/Object
   (getClass [] (java/lang/Class java/lang/Object))
   (toString [] java/lang/String))
-
-(import: #long java/lang/Boolean)
-(import: #long java/lang/Byte)
-(import: #long java/lang/Short)
-(import: #long java/lang/Integer)
-(import: #long java/lang/Long)
-(import: #long java/lang/Float)
-(import: #long java/lang/Double)
-(import: #long java/lang/Character)
 
 (def: class-name
   (Random Text)
@@ -138,29 +143,24 @@
   (-> (-> Any Bit) (Bytecode Any) (Random Bit))
   (do random.monad
     [class-name ..class-name
-     method-name (random.ascii/upper-alpha 10)
-     #let [inputsJT (list)
-           outputJT ..$Object
-           bytecode (|> (/class.class /version.v6_0 /class.public
-                                      (/name.internal class-name)
-                                      (/name.internal "java.lang.Object")
-                                      (list)
-                                      (list)
-                                      (list (/method.method ($_ /modifier@compose
-                                                                /method.public
-                                                                /method.static)
-                                                            method-name
-                                                            (/type.method [inputsJT outputJT (list)])
-                                                            (list)
-                                                            (do /.monad
-                                                              [_ bytecode]
-                                                              /.areturn)))
-                                      (row.row))
-                        try.assume
-                        (format.run /class.writer))
-           loader (/loader.memory (/loader.new-library []))]]
+     method-name (random.ascii/upper-alpha 10)]
     (wrap (case (do try.monad
-                  [_ (/loader.define class-name bytecode loader)
+                  [class (/class.class /version.v6_0 /class.public
+                                       (/name.internal class-name)
+                                       (/name.internal "java.lang.Object")
+                                       (list)
+                                       (list)
+                                       (list (/method.method ..method-modifier
+                                                             method-name
+                                                             (/type.method [(list) ..$Object (list)])
+                                                             (list)
+                                                             (do /.monad
+                                                               [_ bytecode]
+                                                               /.areturn)))
+                                       (row.row))
+                   #let [bytecode (format.run /class.writer class)
+                         loader (/loader.memory (/loader.new-library []))]
+                   _ (/loader.define class-name bytecode loader)
                    class (io.run (/loader.load class-name loader))
                    method (host.try (get-method method-name class))]
                   (java/lang/reflect/Method::invoke (host.null) (host.array java/lang/Object 0) method))
@@ -169,6 +169,13 @@
             
             (#try.Failure error)
             false))))
+
+(type: (Primitive a)
+  {#unboxed (Type category.Return)
+   #boxed (Type category.Class)
+   #wrap (Bytecode Any)
+   #random (Random a)
+   #literal (-> a (Bytecode Any))})
 
 (def: $Boolean
   (/type.class "java.lang.Boolean" (list)))
@@ -182,6 +189,13 @@
   (if value
     ..!true
     ..!false))
+(def: $Boolean::primitive
+  (Primitive java/lang/Boolean)
+  {#unboxed /type.boolean
+   #boxed ..$Boolean
+   #wrap ..$Boolean::wrap
+   #random ..$Boolean::random
+   #literal ..$Boolean::literal})
 
 (def: $Byte
   (/type.class "java.lang.Byte" (list)))
@@ -193,6 +207,13 @@
 (def: $Byte::literal
   (-> java/lang/Byte (Bytecode Any))
   (|>> host.byte-to-long .i64 i32.i32 /.int))
+(def: $Byte::primitive
+  (Primitive java/lang/Byte)
+  {#unboxed /type.byte
+   #boxed ..$Byte
+   #wrap ..$Byte::wrap
+   #random ..$Byte::random
+   #literal ..$Byte::literal})
 
 (def: $Short
   (/type.class "java.lang.Short" (list)))
@@ -204,6 +225,13 @@
 (def: $Short::literal
   (-> java/lang/Short (Bytecode Any))
   (|>> host.short-to-long .i64 i32.i32 /.int))
+(def: $Short::primitive
+  (Primitive java/lang/Short)
+  {#unboxed /type.short
+   #boxed ..$Short
+   #wrap ..$Short::wrap
+   #random ..$Short::random
+   #literal ..$Short::literal})
 
 (def: $Integer
   (/type.class "java.lang.Integer" (list)))
@@ -215,11 +243,25 @@
 (def: $Integer::literal
   (-> java/lang/Integer (Bytecode Any))
   (|>> host.int-to-long .i64 i32.i32 /.int))
+(def: $Integer::primitive
+  (Primitive java/lang/Integer)
+  {#unboxed /type.int
+   #boxed ..$Integer
+   #wrap ..$Integer::wrap
+   #random ..$Integer::random
+   #literal ..$Integer::literal})
 
 (def: $Long (/type.class "java.lang.Long" (list)))
 (def: $Long::wrap (/.invokestatic ..$Long "valueOf" (/type.method [(list /type.long) ..$Long (list)])))
 (def: $Long::random (Random java/lang/Long) random.int)
 (def: $Long::literal (-> java/lang/Long (Bytecode Any)) /.long)
+(def: $Long::primitive
+  (Primitive java/lang/Long)
+  {#unboxed /type.long
+   #boxed ..$Long
+   #wrap ..$Long::wrap
+   #random ..$Long::random
+   #literal ..$Long::literal})
 
 (def: $Float (/type.class "java.lang.Float" (list)))
 (def: $Float::wrap (/.invokestatic ..$Float "valueOf" (/type.method [(list /type.float) ..$Float (list)])))
@@ -229,11 +271,25 @@
       (|>> (i.% +1024) i.frac host.double-to-float)
       random.int))
 (def: $Float::literal /.float)
+(def: $Float::primitive
+  (Primitive java/lang/Float)
+  {#unboxed /type.float
+   #boxed ..$Float
+   #wrap ..$Float::wrap
+   #random ..$Float::random
+   #literal ..$Float::literal})
 
 (def: $Double (/type.class "java.lang.Double" (list)))
 (def: $Double::wrap (/.invokestatic ..$Double "valueOf" (/type.method [(list /type.double) ..$Double (list)])))
 (def: $Double::random random.frac)
 (def: $Double::literal /.double)
+(def: $Double::primitive
+  (Primitive java/lang/Double)
+  {#unboxed /type.double
+   #boxed ..$Double
+   #wrap ..$Double::wrap
+   #random ..$Double::random
+   #literal ..$Double::literal})
 
 (def: $Character
   (/type.class "java.lang.Character" (list)))
@@ -245,10 +301,39 @@
 (def: $Character::literal
   (-> java/lang/Character (Bytecode Any))
   (|>> host.char-to-long .i64 i32.i32 /.int))
+(def: $Character::primitive
+  (Primitive java/lang/Character)
+  {#unboxed /type.char
+   #boxed ..$Character
+   #wrap ..$Character::wrap
+   #random ..$Character::random
+   #literal ..$Character::literal})
 
 (def: $String (/type.class "java.lang.String" (list)))
-(def: $String::random (random.unicode 10))
+(def: $String::random (random.ascii/alpha 10))
 (def: $String::literal /.string)
+(def: $String::primitive
+  (Primitive java/lang/String)
+  {#unboxed ..$String
+   #boxed ..$String
+   #wrap /.nop
+   #random ..$String::random
+   #literal ..$String::literal})
+
+(template [<name> <bits> <type> <push> <wrap> <message> <to-long> <unsigned>]
+  [(def: <name>
+     Test
+     (do random.monad
+       [expected (:: @ map (i64.and (i64.mask <bits>)) random.nat)]
+       (<| (_.lift <message>)
+           (..bytecode (|>> (:coerce <type>) <to-long> ("jvm leq" expected)))
+           (do /.monad
+             [_ (<push> (|> expected <unsigned> try.assume))]
+             <wrap>))))]
+
+  [byte 7 java/lang/Byte /.bipush ..$Byte::wrap "BIPUSH" host.byte-to-long /unsigned.u1]
+  [short 15 java/lang/Short /.sipush ..$Short::wrap "SIPUSH" host.short-to-long /unsigned.u2]
+  )
 
 (template: (int/2 <extension>)
   (: (-> java/lang/Integer java/lang/Integer java/lang/Integer)
@@ -386,7 +471,26 @@
                     (_.lift "LXOR" (binary i64.xor /.lxor))
                     (_.lift "LSHL" (shift i64.left-shift /.lshl))
                     (_.lift "LSHR" (shift i64.arithmetic-right-shift /.lshr))
-                    (_.lift "LUSHR" (shift i64.logic-right-shift /.lushr)))]
+                    (_.lift "LUSHR" (shift i64.logic-right-shift /.lushr)))
+        comparison (_.lift "LCMP"
+                           (do random.monad
+                             [reference ..$Long::random
+                              subject ..$Long::random
+                              #let [expected (cond (i.= reference subject)
+                                                   +0
+
+                                                   (i.> reference subject)
+                                                   +1
+
+                                                   ## (i.< reference subject)
+                                                   -1)]]
+                             (<| (..bytecode (|>> (:coerce Int) (i.= expected)))
+                                 (do /.monad
+                                   [_ (..$Long::literal subject)
+                                    _ (..$Long::literal reference)
+                                    _ /.lcmp
+                                    _ /.i2l]
+                                   ..$Long::wrap))))]
     ($_ _.and
         (<| (_.context "literal")
             literal)
@@ -394,6 +498,8 @@
             arithmetic)
         (<| (_.context "bitwise")
             bitwise)
+        (<| (_.context "comparison")
+            comparison)
         )))
 
 (template: (float/2 <extension>)
@@ -447,12 +553,36 @@
                        (_.lift "FREM" (binary (float/2 "jvm frem") /.frem))
                        (_.lift "FNEG" (unary (function (_ value)
                                                ((float/2 "jvm fsub") value (host.double-to-float +0.0)))
-                                             /.fneg)))]
+                                             /.fneg)))
+        comparison (: (-> (Bytecode Any) (-> java/lang/Float java/lang/Float Bit) (Random Bit))
+                      (function (_ instruction standard)
+                        (do random.monad
+                          [reference ..$Float::random
+                           subject ..$Float::random
+                           #let [expected (if ("jvm feq" reference subject)
+                                            +0
+                                            (if (standard reference subject)
+                                              +1
+                                              -1))]]
+                          (<| (..bytecode (|>> (:coerce Int) (i.= expected)))
+                              (do /.monad
+                                [_ (..$Float::literal subject)
+                                 _ (..$Float::literal reference)
+                                 _ instruction
+                                 _ /.i2l]
+                                ..$Long::wrap)))))
+        comparison ($_ _.and
+                       (_.lift "FCMPL" (comparison /.fcmpl (function (_ reference subject)
+                                                             ("jvm fgt" subject reference))))
+                       (_.lift "FCMPG" (comparison /.fcmpg (function (_ reference subject)
+                                                             ("jvm fgt" subject reference)))))]
     ($_ _.and
         (<| (_.context "literal")
             literal)
         (<| (_.context "arithmetic")
             arithmetic)
+        (<| (_.context "comparison")
+            comparison)
         )))
 
 (def: double
@@ -494,17 +624,45 @@
                        (_.lift "DMUL" (binary f.* /.dmul))
                        (_.lift "DDIV" (binary f./ /.ddiv))
                        (_.lift "DREM" (binary f.% /.drem))
-                       (_.lift "DNEG" (unary (function (_ value) (f.- value +0.0)) /.dneg)))]
+                       (_.lift "DNEG" (unary (function (_ value) (f.- value +0.0)) /.dneg)))
+        comparison (: (-> (Bytecode Any) (-> java/lang/Double java/lang/Double Bit) (Random Bit))
+                      (function (_ instruction standard)
+                        (do random.monad
+                          [reference ..$Double::random
+                           subject ..$Double::random
+                           #let [expected (if ("jvm deq" reference subject)
+                                            +0
+                                            (if (standard reference subject)
+                                              +1
+                                              -1))]]
+                          (<| (..bytecode (|>> (:coerce Int) (i.= expected)))
+                              (do /.monad
+                                [_ (..$Double::literal subject)
+                                 _ (..$Double::literal reference)
+                                 _ instruction
+                                 _ /.i2l]
+                                ..$Long::wrap)))))
+        comparison ($_ _.and
+                       (_.lift "DCMPL" (comparison /.dcmpl (function (_ reference subject)
+                                                             ("jvm dgt" subject reference))))
+                       (_.lift "DCMPG" (comparison /.dcmpg (function (_ reference subject)
+                                                             ("jvm dgt" subject reference)))))]
     ($_ _.and
         (<| (_.context "literal")
             literal)
         (<| (_.context "arithmetic")
             arithmetic)
+        (<| (_.context "comparison")
+            comparison)
         )))
 
 (def: primitive
   Test
   ($_ _.and
+      (<| (_.context "byte")
+          ..byte)
+      (<| (_.context "short")
+          ..short)
       (<| (_.context "int")
           ..int)
       (<| (_.context "long")
@@ -554,6 +712,45 @@
                _ /.dup _ /.monitorexit
                _ (/.instanceof ..$String)]
               ..$Boolean::wrap))
+        (<| (_.lift "INVOKESTATIC")
+            (do random.monad
+              [expected ..$Double::random])
+            (..bytecode (|>> (:coerce java/lang/Double) ("jvm deq" expected)))
+            (do /.monad
+              [_ (/.double expected)]
+              (/.invokestatic ..$Double "valueOf" (/type.method [(list /type.double) ..$Double (list)]))))
+        (<| (_.lift "INVOKEVIRTUAL")
+            (do random.monad
+              [expected ..$Double::random])
+            (..bytecode (|>> (:coerce java/lang/Boolean) (bit@= (f.not-a-number? expected))))
+            (do /.monad
+              [_ (/.double expected)
+               _ ..$Double::wrap
+               _ (/.invokevirtual ..$Double "isNaN" (/type.method [(list) /type.boolean (list)]))]
+              ..$Boolean::wrap))
+        (<| (_.lift "INVOKESPECIAL")
+            (do random.monad
+              [expected ..$Double::random])
+            (..bytecode (|>> (:coerce java/lang/Double) ("jvm deq" expected)))
+            (do /.monad
+              [_ (/.new ..$Double)
+               _ /.dup
+               _ (/.double expected)]
+              (/.invokespecial ..$Double "<init>" (/type.method [(list /type.double) /type.void (list)]))))
+        (<| (_.lift "INVOKEINTERFACE")
+            (do random.monad
+              [parameter ..$Double::random
+               subject ..$Double::random])
+            (..bytecode (|>> (:coerce java/lang/Long)
+                             ("jvm leq" (java/lang/Double::compare parameter subject))))
+            (do /.monad
+              [_ (/.double subject) _ ..$Double::wrap
+               _ (/.double parameter) _ ..$Double::wrap
+               _ (/.invokeinterface (/type.class "java.lang.Comparable" (list))
+                                    "compareTo​"
+                                    (/type.method [(list ..$Object) /type.int (list)]))
+               _ /.i2l]
+              ..$Long::wrap))
         )))
 
 (def: array
@@ -634,6 +831,60 @@
                           (function (_ expected) (|>> (:coerce Text) (text@= expected)))))
         )))
 
+(def: conversion
+  Test
+  (let [conversion (: (All [a z]
+                        (-> (Primitive a) (Primitive z) (Bytecode Any) (-> a z) (-> z Any Bit) (Random Bit)))
+                      (function (_ from to instruction convert test)
+                        (do random.monad
+                          [input (get@ #random from)
+                           #let [expected (convert input)]]
+                          (..bytecode (test expected)
+                                      (do /.monad
+                                        [_ ((get@ #literal from) input)
+                                         _ instruction]
+                                        (get@ #wrap to))))))]
+    ($_ _.and
+        (<| (_.context "int")
+            ($_ _.and
+                (_.lift "I2L" (conversion ..$Integer::primitive ..$Long::primitive /.i2l (|>> host.int-to-long)
+                                          (function (_ expected) (|>> (:coerce java/lang/Long) ("jvm leq" expected)))))
+                (_.lift "I2F" (conversion ..$Integer::primitive ..$Float::primitive /.i2f (|>> host.int-to-float)
+                                          (function (_ expected) (|>> (:coerce java/lang/Float) ("jvm feq" expected)))))
+                (_.lift "I2D" (conversion ..$Integer::primitive ..$Double::primitive /.i2d (|>> host.int-to-double)
+                                          (function (_ expected) (|>> (:coerce java/lang/Double) ("jvm deq" expected)))))
+                (_.lift "I2B" (conversion ..$Integer::primitive ..$Byte::primitive /.i2b (|>> host.int-to-byte)
+                                          (function (_ expected) (|>> (:coerce java/lang/Byte) host.byte-to-long ("jvm leq" (host.byte-to-long expected))))))
+                (_.lift "I2C" (conversion ..$Integer::primitive ..$Character::primitive /.i2c (|>> host.int-to-char)
+                                          (function (_ expected) (|>> (:coerce java/lang/Character) ("jvm ceq" expected)))))
+                (_.lift "I2S" (conversion ..$Integer::primitive ..$Short::primitive /.i2s (|>> host.int-to-short)
+                                          (function (_ expected) (|>> (:coerce java/lang/Short) host.short-to-long ("jvm leq" (host.short-to-long expected))))))))
+        (<| (_.context "long")
+            ($_ _.and
+                (_.lift "L2I" (conversion ..$Long::primitive ..$Integer::primitive /.l2i (|>> host.long-to-int)
+                                          (function (_ expected) (|>> (:coerce java/lang/Integer) ("jvm ieq" expected)))))
+                (_.lift "L2F" (conversion ..$Long::primitive ..$Float::primitive /.l2f (|>> host.long-to-float)
+                                          (function (_ expected) (|>> (:coerce java/lang/Float) ("jvm feq" expected)))))
+                (_.lift "L2D" (conversion ..$Long::primitive ..$Double::primitive /.l2d (|>> host.long-to-double)
+                                          (function (_ expected) (|>> (:coerce java/lang/Double) ("jvm deq" expected)))))))
+        (<| (_.context "float")
+            ($_ _.and
+                (_.lift "F2I" (conversion ..$Float::primitive ..$Integer::primitive /.f2i (|>> host.float-to-int)
+                                          (function (_ expected) (|>> (:coerce java/lang/Integer) ("jvm ieq" expected)))))
+                (_.lift "F2L" (conversion ..$Float::primitive ..$Long::primitive /.f2l (|>> host.float-to-long)
+                                          (function (_ expected) (|>> (:coerce java/lang/Long) ("jvm leq" expected)))))
+                (_.lift "F2D" (conversion ..$Float::primitive ..$Double::primitive /.f2d (|>> host.float-to-double)
+                                          (function (_ expected) (|>> (:coerce java/lang/Double) ("jvm deq" expected)))))))
+        (<| (_.context "double")
+            ($_ _.and
+                (_.lift "D2I" (conversion ..$Double::primitive ..$Integer::primitive /.d2i (|>> host.double-to-int)
+                                          (function (_ expected) (|>> (:coerce java/lang/Integer) ("jvm ieq" expected)))))
+                (_.lift "D2L" (conversion ..$Double::primitive ..$Long::primitive /.d2l (|>> host.double-to-long)
+                                          (function (_ expected) (|>> (:coerce java/lang/Long) ("jvm leq" expected)))))
+                (_.lift "D2F" (conversion ..$Double::primitive ..$Float::primitive /.d2f (|>> host.double-to-float)
+                                          (function (_ expected) (|>> (:coerce java/lang/Float) ("jvm feq" expected)))))))
+        )))
+
 (def: value
   Test
   ($_ _.and
@@ -643,6 +894,8 @@
           ..object)
       (<| (_.context "array")
           ..array)
+      (<| (_.context "conversion")
+          ..conversion)
       ))
 
 (def: registry
@@ -766,13 +1019,13 @@
     [expected/1 $String::random
      dummy/1 $String::random
      #let [single ($_ _.and
-                      (<| (_.lift "DUP/POP")
+                      (<| (_.lift "DUP & POP")
                           (..bytecode (|>> (:coerce Text) (text@= expected/1)))
                           (do /.monad
                             [_ ($String::literal expected/1)
                              _ /.dup]
                             /.pop))
-                      (<| (_.lift "DUP_X1/POP2")
+                      (<| (_.lift "DUP_X1 & POP2")
                           (..bytecode (|>> (:coerce Text) (text@= expected/1)))
                           (do /.monad
                             [_ ($String::literal dummy/1)
@@ -841,6 +1094,82 @@
           ..stack)
       ))
 
+(def: return
+  Test
+  (let [primitive-return (: (All [a] (-> (Primitive a) (Bytecode Any) (Maybe (-> a (Bytecode Any))) (-> a Any Bit) (Random Bit)))
+                            (function (_ primitive return substitute test)
+                              (do random.monad
+                                [class-name ..class-name
+                                 primitive-method-name (random.ascii/upper-alpha 10)
+                                 #let [primitive-method-type (/type.method [(list) (get@ #unboxed primitive) (list)])]
+                                 object-method-name (|> (random.ascii/upper-alpha 10)
+                                                        (random.filter (|>> (text@= primitive-method-name) not)))
+                                 expected (get@ #random primitive)
+                                 #let [$Self (/type.class class-name (list))]]
+                                (wrap (case (do try.monad
+                                              [class (/class.class /version.v6_0 /class.public
+                                                                   (/name.internal class-name)
+                                                                   (/name.internal "java.lang.Object")
+                                                                   (list)
+                                                                   (list)
+                                                                   (list (/method.method ..method-modifier
+                                                                                         primitive-method-name
+                                                                                         primitive-method-type
+                                                                                         (list)
+                                                                                         (do /.monad
+                                                                                           [_ ((get@ #literal primitive) expected)]
+                                                                                           return))
+                                                                         (/method.method ..method-modifier
+                                                                                         object-method-name
+                                                                                         (/type.method [(list) (get@ #boxed primitive) (list)])
+                                                                                         (list)
+                                                                                         (do /.monad
+                                                                                           [_ (/.invokestatic $Self primitive-method-name primitive-method-type)
+                                                                                            _ (case substitute
+                                                                                                #.None
+                                                                                                (wrap [])
+
+                                                                                                (#.Some substitute)
+                                                                                                (substitute expected))
+                                                                                            _ (get@ #wrap primitive)]
+                                                                                           /.areturn)))
+                                                                   (row.row))
+                                               #let [bytecode (format.run /class.writer class)
+                                                     loader (/loader.memory (/loader.new-library []))]
+                                               _ (/loader.define class-name bytecode loader)
+                                               class (io.run (/loader.load class-name loader))
+                                               method (host.try (get-method object-method-name class))]
+                                              (java/lang/reflect/Method::invoke (host.null) (host.array java/lang/Object 0) method))
+                                        (#try.Success actual)
+                                        (test expected actual)
+                                        
+                                        (#try.Failure error)
+                                        false)
+                                      ))))]
+    ($_ _.and
+        (_.lift "IRETURN" (primitive-return ..$Integer::primitive /.ireturn #.None (function (_ expected actual) ("jvm ieq" expected (:coerce java/lang/Integer actual)))))
+        (_.lift "LRETURN" (primitive-return ..$Long::primitive /.lreturn #.None (function (_ expected actual) ("jvm leq" expected (:coerce java/lang/Long actual)))))
+        (_.lift "FRETURN" (primitive-return ..$Float::primitive /.freturn #.None (function (_ expected actual) ("jvm feq" expected (:coerce java/lang/Float actual)))))
+        (_.lift "DRETURN" (primitive-return ..$Double::primitive /.dreturn #.None (function (_ expected actual) ("jvm deq" expected (:coerce java/lang/Double actual)))))
+        (_.lift "ARETURN" (primitive-return ..$String::primitive /.areturn #.None (function (_ expected actual) (text@= expected (:coerce java/lang/String actual)))))
+        (_.lift "RETURN" (primitive-return (: (Primitive java/lang/String)
+                                              {#unboxed /type.void
+                                               #boxed ..$String
+                                               #wrap /.nop
+                                               #random ..$String::random
+                                               #literal (function.constant /.nop)})
+                                           /.return
+                                           (#.Some ..$String::literal)
+                                           (function (_ expected actual) (text@= expected (:coerce java/lang/String actual)))))
+        )))
+
+(def: code
+  Test
+  ($_ _.and
+      (<| (_.context "return")
+          ..return)
+      ))
+
 (def: instruction
   Test
   ($_ _.and
@@ -848,6 +1177,8 @@
           ..value)
       (<| (_.context "resource")
           ..resource)
+      (<| (_.context "code")
+          ..code)
       ))
 
 (def: method
