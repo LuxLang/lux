@@ -13,6 +13,7 @@
      ["!" capability]]]
    [data
     [binary (#+ Binary)]
+    ["." maybe]
     ["." bit ("#@." equivalence)]
     [number
      ["." i32 (#+ I32)]
@@ -27,7 +28,9 @@
     [collection
      ["." array]
      ["." dictionary]
-     ["." row]]]
+     ["." row]
+     ["." set]
+     ["." list ("#@." functor)]]]
    [world
     ["." file (#+ File)]]
    [math
@@ -47,8 +50,9 @@
      ["#/." pool]]
     [encoding
      ["#." name]
+     ["#." signed]
      ["#." unsigned]]
-    ["#" bytecode (#+ Bytecode)
+    ["#" bytecode (#+ Label Bytecode)
      ["#." instruction]
      [environment
       [limit
@@ -945,7 +949,24 @@
                   (_.lift "ISTORE/ILOAD"
                           (store-and-load ..$Integer::random ..$Integer::literal ..$Integer::wrap [/.istore /.iload]
                                           (function (_ expected actual)
-                                            (|> actual (:coerce java/lang/Integer) ("jvm ieq" expected))))))))
+                                            (|> actual (:coerce java/lang/Integer) ("jvm ieq" expected)))))
+                  (_.lift "IINC"
+                          (do random.monad
+                            [base ..$Byte::random
+                             increment (:: @ map (|>> (n.% 100) /unsigned.u1 try.assume)
+                                           random.nat)
+                             #let [expected ("jvm ladd"
+                                             (host.byte-to-long base)
+                                             (.int (/unsigned.value increment)))]]
+                            (..bytecode (|>> (:coerce java/lang/Long) ("jvm leq" expected))
+                                        (do /.monad
+                                          [_ (..$Byte::literal base)
+                                           _ /.istore-0
+                                           @0 (/.register 0)
+                                           _ (/.iinc @0 increment)
+                                           _ /.iload-0
+                                           _ /.i2l]
+                                          ..$Long::wrap)))))))
         (<| (_.context "long")
             (let [test-long (: (-> Int Int (-> Any Bit))
                                (function (_ parameter subject)
@@ -1159,11 +1180,183 @@
                                            (function (_ expected actual) (text@= expected (:coerce java/lang/String actual)))))
         )))
 
+(def: branching
+  Test
+  (do random.monad
+    [expected ..$Long::random
+     dummy ..$Long::random
+     #let [if! (: (-> (-> Label (Bytecode Any)) (Bytecode Any) (Random Bit))
+                  (function (_ instruction prelude)
+                    (<| (..bytecode (|>> (:coerce java/lang/Long) ("jvm leq" expected)))
+                        (do /.monad
+                          [@then /.new-label
+                           @end /.new-label
+                           _ prelude
+                           _ (instruction @then)
+                           _ (..$Long::literal dummy)
+                           _ (/.goto @end)
+                           _ (/.set-label @then)
+                           _ (..$Long::literal expected)
+                           _ (/.set-label @end)]
+                          ..$Long::wrap))))
+           comparison-against-zero ($_ _.and
+                                       (_.lift "IFEQ" (if! /.ifeq /.iconst-0))
+                                       (_.lift "IFNE" (if! /.ifne /.iconst-1))
+                                       (_.lift "IFLT" (if! /.iflt /.iconst-m1))
+                                       (_.lift "IFLE" (if! /.ifle /.iconst-0))
+                                       (_.lift "IFGT" (if! /.ifgt /.iconst-1))
+                                       (_.lift "IFGE" (if! /.ifge /.iconst-0)))
+           null-test ($_ _.and
+                         (_.lift "IFNULL" (if! /.ifnull /.aconst-null))
+                         (_.lift "IFNONNULL" (if! /.ifnonnull (/.string ""))))]
+     reference ..$Integer::random
+     subject (|> ..$Integer::random
+                 (random.filter (|>> ("jvm ieq" reference) not)))
+     #let [[lesser greater] (if ("jvm ilt" reference subject)
+                              [reference subject]
+                              [subject reference])
+           int-comparison ($_ _.and
+                              (_.lift "IF_ICMPEQ" (if! /.if-icmpeq (do /.monad [_ (..$Integer::literal reference)] /.dup)))
+                              (_.lift "IF_ICMPNE" (if! /.if-icmpne (do /.monad [_ (..$Integer::literal reference)] (..$Integer::literal subject))))
+                              (_.lift "IF_ICMPLT" (if! /.if-icmplt (do /.monad [_ (..$Integer::literal lesser)] (..$Integer::literal greater))))
+                              (_.lift "IF_ICMPLE" (if! /.if-icmple (do /.monad [_ (..$Integer::literal lesser)] (..$Integer::literal greater))))
+                              (_.lift "IF_ICMPGT" (if! /.if-icmpgt (do /.monad [_ (..$Integer::literal greater)] (..$Integer::literal lesser))))
+                              (_.lift "IF_ICMPGE" (if! /.if-icmpge (do /.monad [_ (..$Integer::literal greater)] (..$Integer::literal lesser)))))
+           new-object (: (Bytecode Any)
+                         (do /.monad
+                           [_ (/.new ..$Object)
+                            _ /.dup]
+                           (/.invokespecial ..$Object "<init>" (/type.method [(list) /type.void (list)]))))
+           reference-comparison ($_ _.and
+                                    (_.lift "IF_ACMPEQ" (if! /.if-acmpeq (do /.monad [_ new-object] /.dup)))
+                                    (_.lift "IF_ACMPNE" (if! /.if-acmpne (do /.monad [_ new-object] new-object)))
+                                    )]]
+    ($_ _.and
+        comparison-against-zero
+        null-test
+        int-comparison
+        reference-comparison
+        )))
+
+(def: jump
+  Test
+  (do random.monad
+    [expected ..$Long::random
+     dummy ..$Long::random
+     #let [jump (: (-> (-> Label (Bytecode Any)) (Random Bit))
+                   (function (_ goto)
+                     (<| (..bytecode (|>> (:coerce java/lang/Long) ("jvm leq" expected)))
+                         (do /.monad
+                           [^value /.new-label
+                            ^end /.new-label
+                            _ (goto ^value)
+                            _ (..$Long::literal dummy)
+                            _ (goto ^end)
+                            _ (/.set-label ^value)
+                            _ (..$Long::literal expected)
+                            _ (/.set-label ^end)]
+                           ..$Long::wrap))))]]
+    ($_ _.and
+        (_.lift "GOTO" (jump /.goto))
+        (_.lift "GOTO_W" (jump /.goto-w)))))
+
+(def: switch
+  Test
+  ($_ _.and
+      (<| (_.lift "TABLESWITCH")
+          (do random.monad
+            [expected ..$Long::random
+             dummy ..$Long::random
+             minimum (:: @ map (|>> (n.% 100) .int /signed.s4 try.assume)
+                         random.nat)
+             afterwards (:: @ map (n.% 10) random.nat)])
+          (..bytecode (|>> (:coerce java/lang/Long) ("jvm leq" expected)))
+          (do /.monad
+            [^right /.new-label
+             ^wrong /.new-label
+             ^return /.new-label
+             _ (/.bipush (|> minimum /signed.value .nat /unsigned.u1 try.assume))
+             _ (/.tableswitch minimum ^wrong [^right (list.repeat afterwards ^wrong)])
+             _ (/.set-label ^wrong)
+             _ (..$Long::literal dummy)
+             _ (/.goto ^return)
+             _ (/.set-label ^right)
+             _ (..$Long::literal expected)
+             _ (/.set-label ^return)]
+            ..$Long::wrap))
+      (<| (_.lift "LOOKUPSWITCH")
+          (do random.monad
+            [options (:: @ map (|>> (n.% 10) (n.+ 1))
+                         random.nat)
+             choice (:: @ map (n.% options) random.nat)
+             options (|> random.int
+                         (:: @ map (|>> host.long-to-int host.int-to-long))
+                         (random.set i.hash options)
+                         (:: @ map set.to-list))
+             #let [choice (maybe.assume (list.nth choice options))]
+             expected ..$Long::random
+             dummy ..$Long::random])
+          (..bytecode (|>> (:coerce java/lang/Long) ("jvm leq" expected)))
+          (do /.monad
+            [^right /.new-label
+             ^wrong /.new-label
+             ^return /.new-label
+             _ (..$Integer::literal (host.long-to-int choice))
+             _ (/.lookupswitch ^wrong (list@map (function (_ option)
+                                                  [(|> option /signed.s4 try.assume)
+                                                   (if (i.= choice option) ^right ^wrong)])
+                                                options))
+             _ (/.set-label ^wrong)
+             _ (..$Long::literal dummy)
+             _ (/.goto ^return)
+             _ (/.set-label ^right)
+             _ (..$Long::literal expected)
+             _ (/.set-label ^return)]
+            ..$Long::wrap))
+      ))
+
+(def: exception
+  Test
+  (do random.monad
+    [expected ..$Long::random
+     dummy ..$Long::random
+     exception ..$String::random]
+    (<| (_.lift "ATHROW")
+        (..bytecode (|>> (:coerce java/lang/Long) ("jvm leq" expected)))
+        (do /.monad
+          [#let [$Exception (/type.class "java.lang.Exception" (list))]
+           ^start /.new-label
+           ^end /.new-label
+           ^handler /.new-label
+           ^return /.new-label
+           _ (/.try ^start ^end ^handler $Exception)
+           _ (/.set-label ^start)
+           _ (/.new $Exception)
+           _ /.dup
+           _ (..$String::literal exception)
+           _ (/.invokespecial $Exception "<init>" (/type.method [(list ..$String) /type.void (list)]))
+           _ /.athrow
+           _ (..$Long::literal dummy)
+           _ (/.goto ^return)
+           _ (/.set-label ^end)
+           _ (/.set-label ^handler)
+           _ (..$Long::literal expected)
+           _ (/.set-label ^return)]
+          ..$Long::wrap))))
+
 (def: code
   Test
   ($_ _.and
       (<| (_.context "return")
           ..return)
+      (<| (_.context "branching")
+          ..branching)
+      (<| (_.context "jump")
+          ..jump)
+      (<| (_.context "switch")
+          ..switch)
+      (<| (_.context "exception")
+          ..exception)
       ))
 
 (def: instruction

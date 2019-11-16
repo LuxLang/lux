@@ -132,6 +132,15 @@
       (: (Monad Try))
       try.monad))
 
+(def: #export (fail error)
+  (-> Text Bytecode)
+  (function (_ [pool environment tracker])
+    (#try.Failure error)))
+
+(def: #export (throw exception value)
+  (All [e] (-> (exception.Exception e) e Bytecode))
+  (..fail (exception.construct exception value)))
+
 (def: #export (resolve bytecode)
   (All [a] (-> (Bytecode a) (Resource [Environment (Row Exception) Instruction a])))
   (function (_ pool)
@@ -403,19 +412,24 @@
 
 (import: #long java/lang/Float)
 
-(template [<size> <name> <type> <constructor> <constant> <ldc> <to-lux> <specializations>]
+(template [<name> <type> <constructor> <constant> <ldc> <to-lux> <specializations>]
   [(def: #export (<name> value)
      (-> <type> (Bytecode Any))
      (case (|> value <to-lux>)
        (^template [<special> <instruction>]
-         <special> (..bytecode $0 <size> @_ <instruction> []))
+         <special> (..bytecode $0 $1 @_ <instruction> []))
        <specializations>
        
        _ (do ..monad
            [index (..lift (<constant> (<constructor> value)))]
-           (..bytecode $0 <size> @_ <ldc> [index]))))]
+           (case (|> index //index.value //unsigned.value //unsigned.u1)
+             (#try.Success index)
+             (..bytecode $0 $1 @_ _.ldc [index])
 
-  [$1 int I32 //constant.integer //constant/pool.integer _.ldc-w/integer
+             (#try.Failure _)
+             (..bytecode $0 $1 @_ <ldc> [index])))))]
+
+  [int I32 //constant.integer //constant/pool.integer _.ldc-w/integer
    (<| .int i32.i64)
    ([-1 _.iconst-m1]
     [+0 _.iconst-0]
@@ -424,20 +438,47 @@
     [+3 _.iconst-3]
     [+4 _.iconst-4]
     [+5 _.iconst-5])]
-  [$2 long Int //constant.long //constant/pool.long _.ldc2-w/long
-   (<|)
-   ([+0 _.lconst-0]
-    [+1 _.lconst-1])]
-  [$1 float java/lang/Float //constant.float //constant/pool.float _.ldc-w/float
+  [float java/lang/Float //constant.float //constant/pool.float _.ldc-w/float
    host.float-to-double
    ([+0.0 _.fconst-0]
     [+1.0 _.fconst-1]
     [+2.0 _.fconst-2])]
-  [$2 double Frac //constant.double //constant/pool.double _.ldc2-w/double
+  )
+
+(template [<name> <type> <constructor> <constant> <ldc> <to-lux> <specializations>]
+  [(def: #export (<name> value)
+     (-> <type> (Bytecode Any))
+     (case (|> value <to-lux>)
+       (^template [<special> <instruction>]
+         <special> (..bytecode $0 $2 @_ <instruction> []))
+       <specializations>
+       
+       _ (do ..monad
+           [index (..lift (<constant> (<constructor> value)))]
+           (..bytecode $0 $2 @_ <ldc> [index]))))]
+
+  [long Int //constant.long //constant/pool.long _.ldc2-w/long
+   (<|)
+   ([+0 _.lconst-0]
+    [+1 _.lconst-1])]
+  [double Frac //constant.double //constant/pool.double _.ldc2-w/double
    (<|)
    ([+0.0 _.dconst-0]
     [+1.0 _.dconst-1])]
   )
+
+(exception: #export (invalid-register {id Nat})
+  (exception.report
+   ["ID" (%.nat id)]))
+
+(def: #export (register id)
+  (-> Nat (Bytecode Register))
+  (case (//unsigned.u1 id)
+    (#try.Success register)
+    (:: ..monad wrap register)
+    
+    (#try.Failure error)
+    (..throw invalid-register [id])))
 
 (template [<for> <size> <name> <general> <specials>]
   [(def: #export (<name> local)
@@ -524,10 +565,6 @@
   [$0 $1 sipush _.sipush U2]
   )
 
-(def: #export (ret register)
-  (-> Register (Bytecode Any))
-  (..bytecode $0 $0 (/registry.for register) _.ret [register]))
-
 (exception: #export (unknown-label {label Label})
   (exception.report
    ["Label" (%.nat label)]))
@@ -595,6 +632,9 @@
   [$1 ifgt _.ifgt]
   [$1 ifle _.ifle]
   
+  [$1 ifnull _.ifnull]
+  [$1 ifnonnull _.ifnonnull]
+
   [$2 if-icmpeq _.if-icmpeq]
   [$2 if-icmpne _.if-icmpne]
   [$2 if-icmplt _.if-icmplt]
@@ -604,41 +644,55 @@
   
   [$2 if-acmpeq _.if-acmpeq]
   [$2 if-acmpne _.if-acmpne]
-  
-  [$1 ifnull _.ifnull]
-  [$1 ifnonnull _.ifnonnull]
   )
 
-(template [<production> <name> <bytecode>]
-  [(def: #export (<name> label)
-     (-> Label (Bytecode Any))
-     (let [[estimator bytecode] <bytecode>]
-       (function (_ [pool environment tracker])
-         (do try.monad
-           [environment' (|> environment
-                             (/environment.produces <production>))
-            program-counter' (step estimator (get@ #program-counter tracker))]
-           (wrap (let [@from (get@ #program-counter tracker)]
-                   [[pool environment' (set@ #program-counter program-counter' tracker)]
-                    [(function (_ resolver)
-                       (case (dictionary.get label resolver)
-                         (#.Some @to)
-                         (do try.monad
-                           [jump (..jump @from @to)]
-                           (case jump
-                             (#.Left jump)
-                             (exception.throw ..cannot-do-a-big-jump [label @from jump])
+(def: #export (goto label)
+  (-> Label (Bytecode Any))
+  (let [[estimator bytecode] _.goto]
+    (function (_ [pool environment tracker])
+      (do try.monad
+        [program-counter' (step estimator (get@ #program-counter tracker))]
+        (wrap (let [@from (get@ #program-counter tracker)]
+                [[pool environment (set@ #program-counter program-counter' tracker)]
+                 [(function (_ resolver)
+                    (case (dictionary.get label resolver)
+                      (#.Some @to)
+                      (do try.monad
+                        [jump (..jump @from @to)]
+                        (case jump
+                          (#.Left jump)
+                          (exception.throw ..cannot-do-a-big-jump [label @from jump])
 
-                             (#.Right jump)
-                             (#try.Success [..no-exceptions (bytecode jump)])))
+                          (#.Right jump)
+                          (#try.Success [..no-exceptions (bytecode jump)])))
 
-                         #.None
-                         (exception.throw ..unknown-label [label])))
-                     []]]))))))]
+                      #.None
+                      (exception.throw ..unknown-label [label])))
+                  []]]))))))
 
-  [$0 goto _.goto]
-  [$1 jsr _.jsr]
-  )
+(def: #export (goto-w label)
+  (-> Label (Bytecode Any))
+  (let [[estimator bytecode] _.goto-w]
+    (function (_ [pool environment tracker])
+      (do try.monad
+        [program-counter' (step estimator (get@ #program-counter tracker))]
+        (wrap (let [@from (get@ #program-counter tracker)]
+                [[pool environment (set@ #program-counter program-counter' tracker)]
+                 [(function (_ resolver)
+                    (case (dictionary.get label resolver)
+                      (#.Some @to)
+                      (do try.monad
+                        [jump (..jump @from @to)]
+                        (case jump
+                          (#.Left jump)
+                          (#try.Success [..no-exceptions (bytecode jump)])
+
+                          (#.Right jump)
+                          (#try.Success [..no-exceptions (bytecode (/jump.lift jump))])))
+
+                      #.None
+                      (exception.throw ..unknown-label [label])))
+                  []]]))))))
 
 (def: (big-jump jump)
   (-> Any-Jump Big-Jump)
@@ -651,14 +705,14 @@
 
 (exception: #export invalid-tableswitch)
 
-(def: #export (tableswitch minimum default cases)
-  (-> S4 Label (List Label) (Bytecode Any))
+(def: #export (tableswitch minimum default [at-minimum afterwards])
+  (-> S4 Label [Label (List Label)] (Bytecode Any))
   (let [[estimator bytecode] _.tableswitch]
     (function (_ [pool environment tracker])
       (do try.monad
         [environment' (|> environment
                           (/environment.consumes $1))
-         program-counter' (step (estimator (list.size cases)) (get@ #program-counter tracker))]
+         program-counter' (step (estimator (list.size afterwards)) (get@ #program-counter tracker))]
         (wrap (let [@from (get@ #program-counter tracker)]
                 [[pool environment' (set@ #program-counter program-counter' tracker)]
                  [(function (_ resolver)
@@ -667,14 +721,16 @@
                                    (dictionary.get label resolver)))]
                       (case (do maybe.monad
                               [@default (get default)
-                               @cases (monad.map @ get cases)]
-                              (wrap [@default @cases]))
-                        (#.Some [@default @cases])
+                               @at-minimum (get at-minimum)
+                               @afterwards (monad.map @ get afterwards)]
+                              (wrap [@default @at-minimum @afterwards]))
+                        (#.Some [@default @at-minimum @afterwards])
                         (do try.monad
                           [>default (:: @ map ..big-jump (..jump @from @default))
-                           >cases (monad.map @ (|>> (..jump @from) (:: @ map ..big-jump))
-                                             @cases)]
-                          (#try.Success [..no-exceptions (bytecode minimum >default >cases)]))
+                           >at-minimum (:: @ map ..big-jump (..jump @from @at-minimum))
+                           >afterwards (monad.map @ (|>> (..jump @from) (:: @ map ..big-jump))
+                                                  @afterwards)]
+                          (#try.Success [..no-exceptions (bytecode minimum >default [>at-minimum >afterwards])]))
 
                         #.None
                         (exception.throw ..invalid-tableswitch []))))
@@ -684,7 +740,11 @@
 
 (def: #export (lookupswitch default cases)
   (-> Label (List [S4 Label]) (Bytecode Any))
-  (let [[estimator bytecode] _.lookupswitch]
+  (let [cases (list.sort (function (_ [left _] [right _])
+                           (i.< (//signed.value left)
+                                (//signed.value right)))
+                         cases)
+        [estimator bytecode] _.lookupswitch]
     (function (_ [pool environment tracker])
       (do try.monad
         [environment' (|> environment
