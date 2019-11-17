@@ -42,12 +42,12 @@
     ["#." version]
     ["#." modifier ("#@." monoid)]
     ["#." field]
-    ["#." method]
+    ["#." method (#+ Method)]
     ["#." class]
     ["#." attribute
      ["#/." code]]
     ["#." constant
-     ["#/." pool]]
+     ["#/." pool (#+ Resource)]]
     [encoding
      ["#." name]
      ["#." signed]
@@ -58,7 +58,7 @@
       [limit
        [registry (#+ Register)]]]]
     ["#." type (#+ Type)
-     ["." category (#+ Value Object)]]]})
+     ["." category (#+ Value Object Class)]]]})
 
 ## (def: (write-class! name bytecode)
 ##   (-> Text Binary (IO Text))
@@ -134,9 +134,9 @@
                                                              method-name
                                                              (/type.method [(list) ..$Object (list)])
                                                              (list)
-                                                             (do /.monad
-                                                               [_ bytecode]
-                                                               /.areturn)))
+                                                             (#.Some (do /.monad
+                                                                       [_ bytecode]
+                                                                       /.areturn))))
                                        (row.row))
                    #let [bytecode (format.run /class.writer class)
                          loader (/loader.memory (/loader.new-library []))]
@@ -742,11 +742,11 @@
      part1 ..$Long::random
      #let [expected (i.+ part0 part1)
            $Self (/type.class class-name (list))
-           class-field "instances"
-           object-field "value"
+           class-field "class_field"
+           object-field "object_field"
            constructor "<init>"
            constructor::type (/type.method [(list /type.long) /type.void (list)])
-           static-method "procedure"
+           static-method "static_method"
            bytecode (|> (/class.class /version.v6_0 /class.public
                                       (/name.internal class-name)
                                       (/name.internal "java.lang.Object")
@@ -757,31 +757,31 @@
                                                             constructor
                                                             constructor::type
                                                             (list)
-                                                            (do /.monad
-                                                              [_ /.aload-0
-                                                               _ (/.invokespecial ..$Object "<init>" (/type.method [(list) /type.void (list)]))
-                                                               _ (..$Long::literal part0)
-                                                               _ (/.putstatic $Self class-field /type.long)
-                                                               _ /.aload-0
-                                                               _ /.lload-1
-                                                               _ (/.putfield $Self object-field /type.long)]
-                                                              /.return))
+                                                            (#.Some (do /.monad
+                                                                      [_ /.aload-0
+                                                                       _ (/.invokespecial ..$Object constructor (/type.method [(list) /type.void (list)]))
+                                                                       _ (..$Long::literal part0)
+                                                                       _ (/.putstatic $Self class-field /type.long)
+                                                                       _ /.aload-0
+                                                                       _ /.lload-1
+                                                                       _ (/.putfield $Self object-field /type.long)]
+                                                                      /.return)))
                                             (/method.method ($_ /modifier@compose
                                                                 /method.public
                                                                 /method.static)
                                                             static-method
                                                             (/type.method [(list) ..$Long (list)])
                                                             (list)
-                                                            (do /.monad
-                                                              [_ (/.new $Self)
-                                                               _ /.dup
-                                                               _ (..$Long::literal part1)
-                                                               _ (/.invokespecial $Self "<init>" constructor::type)
-                                                               _ (/.getfield $Self object-field /type.long)
-                                                               _ (/.getstatic $Self class-field /type.long)
-                                                               _ /.ladd
-                                                               _ ..$Long::wrap]
-                                                              /.areturn)))
+                                                            (#.Some (do /.monad
+                                                                      [_ (/.new $Self)
+                                                                       _ /.dup
+                                                                       _ (..$Long::literal part1)
+                                                                       _ (/.invokespecial $Self constructor constructor::type)
+                                                                       _ (/.getfield $Self object-field /type.long)
+                                                                       _ (/.getstatic $Self class-field /type.long)
+                                                                       _ /.ladd
+                                                                       _ ..$Long::wrap]
+                                                                      /.areturn))))
                                       (row.row))
                         try.assume
                         (format.run /class.writer))
@@ -1204,23 +1204,23 @@
                                                                                          primitive-method-name
                                                                                          primitive-method-type
                                                                                          (list)
-                                                                                         (do /.monad
-                                                                                           [_ ((get@ #literal primitive) expected)]
-                                                                                           return))
+                                                                                         (#.Some (do /.monad
+                                                                                                   [_ ((get@ #literal primitive) expected)]
+                                                                                                   return)))
                                                                          (/method.method ..method-modifier
                                                                                          object-method-name
                                                                                          (/type.method [(list) (get@ #boxed primitive) (list)])
                                                                                          (list)
-                                                                                         (do /.monad
-                                                                                           [_ (/.invokestatic $Self primitive-method-name primitive-method-type)
-                                                                                            _ (case substitute
-                                                                                                #.None
-                                                                                                (wrap [])
+                                                                                         (#.Some (do /.monad
+                                                                                                   [_ (/.invokestatic $Self primitive-method-name primitive-method-type)
+                                                                                                    _ (case substitute
+                                                                                                        #.None
+                                                                                                        (wrap [])
 
-                                                                                                (#.Some substitute)
-                                                                                                (substitute expected))
-                                                                                            _ (get@ #wrap primitive)]
-                                                                                           /.areturn)))
+                                                                                                        (#.Some substitute)
+                                                                                                        (substitute expected))
+                                                                                                    _ (get@ #wrap primitive)]
+                                                                                                   /.areturn))))
                                                                    (row.row))
                                                #let [bytecode (format.run /class.writer class)
                                                      loader (/loader.memory (/loader.new-library []))]
@@ -1441,9 +1441,152 @@
           ..code)
       ))
 
+(def: inheritance
+  Test
+  (do random.monad
+    [abstract-class ..class-name
+     interface-class (|> ..class-name
+                         (random.filter (|>> (text@= abstract-class) not)))
+     concrete-class (|> ..class-name
+                        (random.filter (function (_ class)
+                                         (not (or (text@= abstract-class class)
+                                                  (text@= interface-class class))))))
+     part0 ..$Long::random
+     part1 ..$Long::random
+     part2 ..$Long::random
+     fake-part2 ..$Long::random
+     part3 ..$Long::random
+     part4 ..$Long::random
+     #let [expected ($_ i.+
+                        part0
+                        part1
+                        part2
+                        part3
+                        part4
+                        )
+           $Concrete (/type.class concrete-class (list))
+           $Abstract (/type.class abstract-class (list))
+           $Interface (/type.class interface-class (list))
+
+           constructor::type (/type.method [(list) /type.void (list)])
+           method::type (/type.method [(list) /type.long (list)])
+
+           inherited-method "inherited_method"
+           overriden-method "overriden_method"
+           abstract-method "abstract_method"
+           interface-method "interface_method"
+           virtual-method "virtual_method"
+           static-method "static_method"
+
+           method (: (-> Text java/lang/Long (Resource Method))
+                     (function (_ name value)
+                       (/method.method /method.public
+                                       name
+                                       method::type
+                                       (list)
+                                       (#.Some (do /.monad
+                                                 [_ (..$Long::literal value)]
+                                                 /.lreturn)))))
+
+           interface-bytecode (|> (/class.class /version.v6_0 ($_ /modifier@compose /class.public /class.abstract /class.interface)
+                                                (/name.internal interface-class)
+                                                (/name.internal "java.lang.Object")
+                                                (list)
+                                                (list)
+                                                (list (/method.method ($_ /modifier@compose /method.public /method.abstract)
+                                                                      interface-method method::type (list) #.None))
+                                                (row.row))
+                                  try.assume
+                                  (format.run /class.writer))
+           abstract-bytecode (|> (/class.class /version.v6_0 ($_ /modifier@compose /class.public /class.abstract)
+                                               (/name.internal abstract-class)
+                                               (/name.internal "java.lang.Object")
+                                               (list)
+                                               (list)
+                                               (list (/method.method /method.public
+                                                                     "<init>"
+                                                                     constructor::type
+                                                                     (list)
+                                                                     (#.Some (do /.monad
+                                                                               [_ /.aload-0
+                                                                                _ (/.invokespecial ..$Object "<init>" constructor::type)]
+                                                                               /.return)))
+                                                     (method inherited-method part0)
+                                                     (method overriden-method fake-part2)
+                                                     (/method.method ($_ /modifier@compose /method.public /method.abstract)
+                                                                     abstract-method method::type (list) #.None))
+                                               (row.row))
+                                 try.assume
+                                 (format.run /class.writer))
+           invoke (: (-> (Type Class) Text (Bytecode Any))
+                     (function (_ class method)
+                       (do /.monad
+                         [_ /.aload-0]
+                         (/.invokevirtual class method method::type))))
+           concrete-bytecode (|> (/class.class /version.v6_0 /class.public
+                                               (/name.internal concrete-class)
+                                               (/name.internal abstract-class)
+                                               (list (/name.internal interface-class))
+                                               (list)
+                                               (list (/method.method /method.public
+                                                                     "<init>"
+                                                                     constructor::type
+                                                                     (list)
+                                                                     (#.Some (do /.monad
+                                                                               [_ /.aload-0
+                                                                                _ (/.invokespecial $Abstract "<init>" constructor::type)]
+                                                                               /.return)))
+                                                     (method virtual-method part1)
+                                                     (method overriden-method part2)
+                                                     (method abstract-method part3)
+                                                     (method interface-method part4)
+                                                     (/method.method ($_ /modifier@compose
+                                                                         /method.public
+                                                                         /method.static)
+                                                                     static-method
+                                                                     (/type.method [(list) ..$Long (list)])
+                                                                     (list)
+                                                                     (#.Some (do /.monad
+                                                                               [_ (/.new $Concrete)
+                                                                                _ /.dup
+                                                                                _ (/.invokespecial $Concrete "<init>" constructor::type)
+                                                                                _ /.astore-0
+                                                                                _ (invoke $Abstract inherited-method)
+                                                                                _ (invoke $Concrete virtual-method)
+                                                                                _ /.ladd
+                                                                                _ (invoke $Abstract overriden-method)
+                                                                                _ /.ladd
+                                                                                _ /.aload-0 _ (/.invokeinterface $Interface interface-method method::type)
+                                                                                _ /.ladd
+                                                                                _ (invoke $Abstract abstract-method)
+                                                                                _ /.ladd
+                                                                                _ ..$Long::wrap]
+                                                                               /.areturn))))
+                                               (row.row))
+                                 try.assume
+                                 (format.run /class.writer))
+           loader (/loader.memory (/loader.new-library []))]]
+    (_.test "Class & interface inheritance"
+            (case (do try.monad
+                    [_ (/loader.define abstract-class abstract-bytecode loader)
+                     _ (/loader.define interface-class interface-bytecode loader)
+                     _ (/loader.define concrete-class concrete-bytecode loader)
+                     class (io.run (/loader.load concrete-class loader))
+                     method (host.try (get-method static-method class))
+                     output (java/lang/reflect/Method::invoke (host.null) (host.array java/lang/Object 0) method)]
+                    (wrap (:coerce Int output)))
+              (#try.Success actual)
+              (i.= expected actual)
+              
+              (#try.Failure error)
+              false))))
+
 (def: #export test
   Test
   (<| (_.context (%.name (name-of .._)))
       ($_ _.and
-          ..instruction
+          (<| (_.context "instruction")
+              ..instruction)
+          (<| (_.context "inheritance")
+              ..inheritance)
           )))
