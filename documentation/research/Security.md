@@ -26,6 +26,9 @@
 
 # Vulnerability
 
+1. [Padding the struct: How a compiler optimization can disclose stack memory](https://www.nccgroup.trust/us/about-us/newsroom-and-events/blog/2019/october/padding-the-struct-how-a-compiler-optimization-can-disclose-stack-memory/)
+1. [PCG generators are easily “crackable”](https://news.ycombinator.com/item?id=21475210)
+1. [Safely Creating And Using Temporary Files](https://www.netmeister.org/blog/mktemp.html)
 1. [CSS Injection Primitives](https://x-c3ll.github.io/posts/CSS-Injection-Primitives/)
 1. https://medium.com/@shnatsel/how-rusts-standard-library-was-vulnerable-for-years-and-nobody-noticed-aebf0503c3d6
 1. [ACLs don’t](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.406.4684&rep=rep1&type=pdf)

@@ -7,6 +7,7 @@
 
 # Reference
 
+1. https://bytecodealliance.org/
 1. [Faster Fractals with Multi-Threaded WebAssembly](https://blog.scottlogic.com/2019/07/15/multithreaded-webassembly.html)
 1. https://blog.scottlogic.com/2018/07/20/wasm-future.html
 1. http://fitzgeraldnick.com/2018/04/26/how-does-dynamic-dispatch-work-in-wasm.html

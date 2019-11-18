@@ -4,6 +4,7 @@
 
 # Tool
 
+1. [drgn: Scriptable debugger library](https://github.com/osandov/drgn)
 1. [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/)
 1. https://github.com/srg-imperial/SaBRe
 1. https://developer.mozilla.org/en-US/docs/Mozilla/Projects/WebReplay
@@ -19,6 +20,7 @@
 
 # Reference
 
+1. [The Power Of Collaborative Debugging](https://robert.ocallahan.org/2019/11/the-power-of-collaborative-debugging.html)
 1. [Multiverse Debugging: Non-Deterministic Debugging for Non-Deterministic Programs](https://stefan-marr.de/2019/07/what-if-we-could-see-all-concurrency-bugs-in-the-debugger/)
 1. [Writing a Debugger](http://system.joekain.com/debugger/)
 1. https://en.wikipedia.org/wiki/Jinx_Debugger

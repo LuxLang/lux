@@ -3,7 +3,7 @@
    [abstract
     ["." monad]]
    [control
-    [state (#+ State)]]
+    ["." try]]
    [data
     [number
      ["n" nat]]
@@ -11,12 +11,12 @@
      ["." list ("#@." monoid functor)]]]
    [target
     [jvm
-     ["_" instruction (#+ Instruction)]
+     ["_" bytecode (#+ Bytecode)]
      ["." method (#+ Method)]
      [encoding
       ["." unsigned]]
      [constant
-      [pool (#+ Pool)]]
+      [pool (#+ Resource)]]
      ["." type (#+ Type)
       ["." category (#+ Class Value)]]]]]
   ["." //
@@ -52,28 +52,30 @@
                 type.void
                 (list)]))
 
+(def: no-partials (|> 0 unsigned.u1 try.assume _.bipush))
+
 (def: #export (super environment-size arity)
-  (-> Nat Arity (Instruction Any))
+  (-> Nat Arity (Bytecode Any))
   (let [arity-register (inc environment-size)]
     ($_ _.compose
         (if (arity.unary? arity)
-          (_.bipush (unsigned.u1 0))
-          (_.iload (unsigned.u1 arity-register)))
+          ..no-partials
+          (_.iload arity-register))
         (_.invokespecial ///abstract.class ..name ///abstract.init))))
 
 (def: (store-all amount put offset)
   (-> Nat
-      (-> Register (Instruction Any) (Instruction Any))
+      (-> Register (Bytecode Any) (Bytecode Any))
       (-> Register Register)
-      (Instruction Any))
+      (Bytecode Any))
   (|> (list.indices amount)
       (list@map (function (_ register)
                   (put register
-                       (_.aload (unsigned.u1 (offset register))))))
+                       (_.aload (offset register)))))
       (monad.seq _.monad)))
 
 (def: #export (method class environment arity)
-  (-> (Type Class) Environment Arity (State Pool Method))
+  (-> (Type Class) Environment Arity (Resource Method))
   (let [environment-size (list.size environment)
         offset-foreign (: (-> Register Register)
                           (n.+ 1))
@@ -84,9 +86,9 @@
     (method.method //.modifier ..name
                    (..type environment arity)
                    (list)
-                   ($_ _.compose
-                       ////reference.this
-                       (..super environment-size arity)
-                       (store-all environment-size (///foreign.put class) offset-foreign)
-                       (store-all (dec arity) (///partial.put class) offset-partial)
-                       _.return))))
+                   (#.Some ($_ _.compose
+                               ////reference.this
+                               (..super environment-size arity)
+                               (store-all environment-size (///foreign.put class) offset-foreign)
+                               (store-all (dec arity) (///partial.put class) offset-partial)
+                               _.return)))))

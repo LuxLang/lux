@@ -48,6 +48,7 @@
 
 # Floating point arithmetic
 
+1. https://floating-point-gui.de/
 1. [Faster floating point arithmetic with Exclusive OR](http://nfrechette.github.io/2019/10/22/float_xor_optimization/)
 1. https://oded.ninja/2017/05/01/floating-point/
 1. [What Every Computer Scientist Should Know About Floating-Point Arithmetic](http://www.lsi.upc.edu/~robert/teaching/master/material/p5-goldberg.pdf)

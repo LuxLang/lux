@@ -3,7 +3,7 @@
    [abstract
     ["." monad (#+ do)]]
    [control
-    [state (#+ State)]]
+    ["." try]]
    [data
     [number
      ["n" nat]
@@ -13,12 +13,11 @@
      ["." list ("#@." monoid functor)]]]
    [target
     [jvm
-     ["_" instruction (#+ Label Instruction) ("#@." monad)]
+     ["_" bytecode (#+ Label Bytecode) ("#@." monad)]
      ["." method (#+ Method)]
-     ["." constant
-      [pool (#+ Pool)]]
+     [constant
+      [pool (#+ Resource)]]
      [encoding
-      ["." unsigned]
       ["." signed]]
      ["." type (#+ Type)
       ["." category (#+ Class)]]]]]
@@ -45,22 +44,22 @@
       ["." reference (#+ Register)]]]]])
 
 (def: (increment by)
-  (-> Nat (Instruction Any))
+  (-> Nat (Bytecode Any))
   ($_ _.compose
-      (<| _.ldc/integer constant.integer i32.i32 .i64 by)
+      (<| _.int .i64 by)
       _.iadd))
 
 (def: (inputs offset amount)
-  (-> Register Nat (Instruction Any))
+  (-> Register Nat (Bytecode Any))
   ($_ _.compose
       (|> amount
           list.indices
-          (monad.map _.monad (|>> (n.+ offset) unsigned.u1 _.aload)))
+          (monad.map _.monad (|>> (n.+ offset) _.aload)))
       (_@wrap [])
       ))
 
 (def: (apply offset amount)
-  (-> Register Nat (Instruction Any))
+  (-> Register Nat (Bytecode Any))
   (let [arity (n.min amount ///arity.maximum)]
     ($_ _.compose
         (_.checkcast ///abstract.class)
@@ -75,78 +74,86 @@
 (def: this-offset 1)
 
 (def: #export (method class environment function-arity @begin body apply-arity)
-  (-> (Type Class) Environment Arity Label (Instruction Any) Arity (State Pool Method))
+  (-> (Type Class) Environment Arity Label (Bytecode Any) Arity (Resource Method))
   (let [num-partials (dec function-arity)
         over-extent (i.- (.int apply-arity)
-                         (.int function-arity))
-        failure ($_ _.compose
-                    ////runtime.apply-failure
-                    _.aconst-null
-                    _.areturn)]
+                         (.int function-arity))]
     (method.method //.modifier ////runtime.apply::name
                    (////runtime.apply::type apply-arity)
                    (list)
-                   (do _.monad
-                     [@default _.new-label
-                      @labels (|> _.new-label
-                                  (list.repeat num-partials)
-                                  (monad.seq _.monad))
-                      #let [cases (|> (list@compose @labels (list @default))
-                                      list.enumerate
-                                      (list@map (function (_ [stage @case])
-                                                  (let [current-partials (|> (list.indices stage)
-                                                                             (list@map (///partial.get class))
-                                                                             (monad.seq _.monad))
-                                                        already-partial? (n.> 0 stage)
-                                                        exact-match? (i.= over-extent (.int stage))
-                                                        has-more-than-necessary? (i.> over-extent (.int stage))]
-                                                    (cond exact-match?
-                                                          ($_ _.compose
-                                                              (_.set-label @case)
-                                                              ////reference.this
-                                                              (if already-partial?
-                                                                (_.invokevirtual class //reset.name (//reset.type class))
-                                                                (_@wrap []))
-                                                              current-partials
-                                                              (inputs ..this-offset apply-arity)
-                                                              (_.invokevirtual class //implementation.name (//implementation.type function-arity))
-                                                              _.areturn)
-                                                          
-                                                          has-more-than-necessary?
-                                                          (let [inputs-to-completion (|> function-arity (n.- stage))
-                                                                inputs-left (|> apply-arity (n.- inputs-to-completion))]
-                                                            ($_ _.compose
-                                                                (_.set-label @case)
-                                                                ////reference.this
-                                                                (_.invokevirtual class //reset.name (//reset.type class))
-                                                                current-partials
-                                                                (inputs ..this-offset inputs-to-completion)
-                                                                (_.invokevirtual class //implementation.name (//implementation.type function-arity))
-                                                                (apply (n.+ ..this-offset inputs-to-completion) inputs-left)
-                                                                _.areturn))
+                   (#.Some (case num-partials
+                             0 ($_ _.compose
+                                   ////reference.this
+                                   (..inputs ..this-offset apply-arity)
+                                   (_.invokevirtual class //implementation.name (//implementation.type function-arity))
+                                   _.areturn)
+                             _ (do _.monad
+                                 [@default _.new-label
+                                  #let [failure ($_ _.compose
+                                                    (_.set-label @default)
+                                                    ////runtime.apply-failure
+                                                    _.aconst-null
+                                                    _.areturn)]
+                                  @labelsH _.new-label
+                                  @labelsT (|> _.new-label
+                                               (list.repeat (dec num-partials))
+                                               (monad.seq _.monad))
+                                  #let [cases (|> (#.Cons [@labelsH @labelsT])
+                                                  list.enumerate
+                                                  (list@map (function (_ [stage @case])
+                                                              (let [current-partials (|> (list.indices stage)
+                                                                                         (list@map (///partial.get class))
+                                                                                         (monad.seq _.monad))
+                                                                    already-partial? (n.> 0 stage)
+                                                                    exact-match? (i.= over-extent (.int stage))
+                                                                    has-more-than-necessary? (i.> over-extent (.int stage))]
+                                                                (cond exact-match?
+                                                                      ($_ _.compose
+                                                                          (_.set-label @case)
+                                                                          ////reference.this
+                                                                          (if already-partial?
+                                                                            (_.invokevirtual class //reset.name (//reset.type class))
+                                                                            (_@wrap []))
+                                                                          current-partials
+                                                                          (..inputs ..this-offset apply-arity)
+                                                                          (_.invokevirtual class //implementation.name (//implementation.type function-arity))
+                                                                          _.areturn)
+                                                                      
+                                                                      has-more-than-necessary?
+                                                                      (let [inputs-to-completion (|> function-arity (n.- stage))
+                                                                            inputs-left (|> apply-arity (n.- inputs-to-completion))]
+                                                                        ($_ _.compose
+                                                                            (_.set-label @case)
+                                                                            ////reference.this
+                                                                            (_.invokevirtual class //reset.name (//reset.type class))
+                                                                            current-partials
+                                                                            (..inputs ..this-offset inputs-to-completion)
+                                                                            (_.invokevirtual class //implementation.name (//implementation.type function-arity))
+                                                                            (apply (n.+ ..this-offset inputs-to-completion) inputs-left)
+                                                                            _.areturn))
 
-                                                          ## (i.< over-extent (.int stage))
-                                                          (let [current-environment (|> (list.indices (list.size environment))
-                                                                                        (list@map (///foreign.get class))
-                                                                                        (monad.seq _.monad))
-                                                                missing-partials (|> _.aconst-null
-                                                                                     (list.repeat (|> num-partials (n.- apply-arity) (n.- stage)))
-                                                                                     (monad.seq _.monad))]
-                                                            ($_ _.compose
-                                                                (_.set-label @case)
-                                                                (_.new class)
-                                                                _.dup
-                                                                current-environment
-                                                                ///partial/count.value
-                                                                (..increment apply-arity)
-                                                                current-partials
-                                                                (inputs ..this-offset apply-arity)
-                                                                missing-partials
-                                                                (_.invokevirtual class //init.name (//init.type environment function-arity))
-                                                                _.areturn))))))
-                                      (monad.seq _.monad))]]
-                     ($_ _.compose
-                         ///partial/count.value
-                         (_.tableswitch (signed.s4 +0) @default @labels)
-                         cases
-                         failure)))))
+                                                                      ## (i.< over-extent (.int stage))
+                                                                      (let [current-environment (|> (list.indices (list.size environment))
+                                                                                                    (list@map (///foreign.get class))
+                                                                                                    (monad.seq _.monad))
+                                                                            missing-partials (|> _.aconst-null
+                                                                                                 (list.repeat (|> num-partials (n.- apply-arity) (n.- stage)))
+                                                                                                 (monad.seq _.monad))]
+                                                                        ($_ _.compose
+                                                                            (_.set-label @case)
+                                                                            (_.new class)
+                                                                            _.dup
+                                                                            current-environment
+                                                                            ///partial/count.value
+                                                                            (..increment apply-arity)
+                                                                            current-partials
+                                                                            (..inputs ..this-offset apply-arity)
+                                                                            missing-partials
+                                                                            (_.invokevirtual class //init.name (//init.type environment function-arity))
+                                                                            _.areturn))))))
+                                                  (monad.seq _.monad))]]
+                                 ($_ _.compose
+                                     ///partial/count.value
+                                     (_.tableswitch (try.assume (signed.s4 +0)) @default [@labelsH @labelsT])
+                                     ## cases
+                                     failure)))))))

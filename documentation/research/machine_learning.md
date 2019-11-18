@@ -72,6 +72,8 @@
 
 # Differentiable programming
 
+1. [Differentiable Programming Manifesto](https://github.com/apple/swift/blob/master/docs/DifferentiableProgramming.md)
+1. [Backpropagation in the Simply Typed Lambda-calculus with Linear Negation](https://arxiv.org/abs/1909.13768)
 1. [One-and-a-Half Simple Differential Programming Languages](https://pages.cpsc.ucalgary.ca/~robin/FMCS/FMCS2019/slides/GordonPlotkin-FMCS2019.pdf)
 1. [Differentiable Programming Mega-Proposal](https://forums.swift.org/t/differentiable-programming-mega-proposal/28547)
 1. https://fluxml.ai/2019/02/07/what-is-differentiable-programming.html

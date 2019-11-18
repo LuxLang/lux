@@ -45,6 +45,7 @@
 
 # Reference
 
+1. [Architecture decision record (ADR)](https://github.com/joelparkerhenderson/architecture_decision_record)
 1. [Seamless API Specification](https://github.com/seamlessapis/seamless/tree/master/domain)
 1. https://docs.racket-lang.org/pollen/
 1. [Documenting the Clojure/Script Ecosystem – Martin Klepsch](https://www.youtube.com/watch?v=mWrvd6SE7Vg)

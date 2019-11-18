@@ -5,6 +5,7 @@
 
 # Reference
 
+1. [Bastion: Highly-available Distributed Fault-tolerant Runtime](https://bastion.rs/)
 1. [DDD and Messaging Architectures: An overview of my different series on patterns in distributed systems.](http://verraes.net/2019/05/ddd-msg-arch/)
 1. https://replicated.cc/
 1. http://www.the-paper-trail.org/post/2014-08-09-distributed-systems-theory-for-the-distributed-systems-engineer/
@@ -57,6 +58,10 @@
 1. http://radicle.xyz/
 1. [Lambda World 2018 - Introduction to the Unison programming language - Rúnar Bjarnason](https://www.youtube.com/watch?v=rp_Eild1aq8)
 1. https://www.infoq.com/presentations/language-design-process
+
+# Parallel commit
+
+1. [Parallel Commits: An Atomic Commit Protocol For Globally Distributed Transactions](https://www.cockroachlabs.com/blog/parallel-commits)
 
 # Two-phase commit
 

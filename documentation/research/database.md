@@ -9,6 +9,10 @@
 1. [Foundations of Databases](http://webdam.inria.fr/Alice/)
 1. https://medium.com/textileio/building-the-firebase-for-crdts-7dd8dea8953a
 
+# Data structure
+
+1. [The Concurrent 2-Trie](https://medium.com/@chrisvest/the-concurrent-2-trie-67deb2b57ba1)
+
 # Query
 
 1. https://www.influxdata.com/blog/why-were-building-flux-a-new-data-scripting-and-query-language/
@@ -103,6 +107,8 @@
 	http://www.cs.technion.ac.il/~dan/papers/storm-systor-2019.pdf
 
 # Exemplar
+
+1. [Database of Databases](https://dbdb.io/)
 
 ## General
 
