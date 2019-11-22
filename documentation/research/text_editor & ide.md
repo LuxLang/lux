@@ -43,6 +43,7 @@
 
 # Reference
 
+1. [It’s 2019. Why don’t we have good code editors?](https://thoughts.thorlaksson.com/2019/09/27/its-2019-why-dont-we-have-good-code-editors/)
 1. [Text Editing Hates You Too](https://lord.io/blog/2019/text-editing-hates-you-too/)
 1. [Why ContentEditable is Terrible](https://medium.engineering/why-contenteditable-is-terrible-122d8a40e480)
 1. [Broot: A better way to navigate directories](https://github.com/Canop/broot)
@@ -109,6 +110,8 @@
 
 # Extensibility
 
+1. [The Spoofax Language Workbench](https://metaborg.github.io/spoofax/)
+1. [A Language Independent Task Engine for Incremental Name and Type Analysis](https://www.researchgate.net/publication/290110229_A_Language_Independent_Task_Engine_for_Incremental_Name_and_Type_Analysis)
 1. [Extensible Type-Directed Editing](http://cattheory.com/extensibleTypeDirectedEditing.pdf)
 
 # Parsing
@@ -192,6 +195,7 @@
 
 ## Structured editing
 
+1. [俺のlisp](https://github.com/illiichi/orenolisp)
 1. [豆腐 (Tofu): meaningful code editing](https://gregoor.github.io/tofu/)
 1. [Tiled Text](http://www.tiledtext.com/projects/tiledtext)
 1. [Deuce: A Lightweight User Interface for Structured Editing](https://arxiv.org/abs/1707.00015)

@@ -92,10 +92,15 @@
 
 # Discrete mathematics
 
+1. [Applied Discrete Structures](http://discretemath.org/ads-latex/ads.pdf)
 1. [Notes on Discrete Mathematics](http://www.cs.yale.edu/homes/aspnes/classes/202/notes.pdf)
 1. [The system of integer functions, an efficient version of discrete mathematical analysis](https://arxiv.org/abs/1710.00676)
 1. [Computing the Continuous Discretely: Integer-Point Enumeration in Polyhedra](http://math.sfsu.edu/beck/papers/ccd.pdf)
 1. [Discrete Mathematics: An Open Introduction](http://discrete.openmathbooks.org/dmoi2/frontmatter.html)
+
+# Probability
+
+1. [Introduction to Probability at anadvanced leve](https://www.stat.berkeley.edu/~aditya/resources/AllLectures2018Fall201A.pdf)
 
 # Linear Algebra
 
@@ -126,8 +131,13 @@
 1. [Convolution is outer product](https://arxiv.org/abs/1905.01289)
 1. [Graphical Calculus for products and convolutions](https://arxiv.org/abs/1903.01366)
 
+# Domain Theory
+
+1. [A Brief Intro to Domain Theory](https://www.alignmentforum.org/posts/4C4jha5SdReWgg7dF/a-brief-intro-to-domain-theory)
+
 # Category Theory
 
+1. [Awesome Applied Category Theory](https://github.com/statebox/awesome-applied-ct)
 1. [Categorical Query Language](https://www.categoricaldata.net/)
 1. [Abstract and Concrete Categories: The Joy of Cats](http://katmat.math.uni-bremen.de/acc/acc.pdf)
 1. https://bartoszmilewski.com/
@@ -147,6 +157,8 @@
 
 # Geometric Algebra | Clifford Algebra
 
+1. [Exterior Product](https://medium.com/@marksaroufim/exterior-product-ecd5836c28ab)
+1. [Projective geometric algebra: A modern framework for doing geometry](http://page.math.tu-berlin.de/~gunn/PGA/index.html)
 1. [Geometric Algebra for Computer Graphics](https://slides.com/enkimute/siggraph/#/)
 1. https://bivector.net/
 1. https://slehar.wordpress.com/2014/03/18/clifford-algebra-a-visual-introduction/
@@ -259,8 +271,13 @@
 1. https://en.wikibooks.org/wiki/GLPK
 1. https://white.ucc.asn.au/2018/05/28/Optimizing-your-diet-with-JuMP.html
 
+# Measure theory
+
+1. [Resources for Learning Measure Theory](https://bcmullins.github.io/measure_theory_resources/)
+
 # Combinatorics
 
+1. [Advances in Combinatorics](https://www.advancesincombinatorics.com/)
 1. http://andy.kitchen/combinations.html
 1. [Combinatorial Algorithms](http://www2.denizyuret.com/bib/kreher/donald1999combinatorial/combinatorialA.pdf)
 

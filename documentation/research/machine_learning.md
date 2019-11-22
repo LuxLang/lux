@@ -10,6 +10,7 @@
 
 # Reference
 
+1. ["Multi-Level Intermediate Representation" Compiler Infrastructure](https://github.com/tensorflow/mlir)
 1. [Sampling can be faster than optimization](https://www.pnas.org/content/116/42/20881)
 1. [Layer rotation: a surprisingly powerful indicator of generalization in deep networks](https://arxiv.org/abs/1806.01603v2)
 1. https://nostalgebraist.tumblr.com/post/185326092369/the-transformer-explained
@@ -72,6 +73,8 @@
 
 # Differentiable programming
 
+1. [The principles behind Differentiable Programming - Erik Meijer](https://www.youtube.com/watch?v=lk0PhtSHE38)
+1. [Kotlin∇: Type-safe Symbolic Differentiation for Kotlin](https://github.com/breandan/kotlingrad)
 1. [Differentiable Programming Manifesto](https://github.com/apple/swift/blob/master/docs/DifferentiableProgramming.md)
 1. [Backpropagation in the Simply Typed Lambda-calculus with Linear Negation](https://arxiv.org/abs/1909.13768)
 1. [One-and-a-Half Simple Differential Programming Languages](https://pages.cpsc.ucalgary.ca/~robin/FMCS/FMCS2019/slides/GordonPlotkin-FMCS2019.pdf)

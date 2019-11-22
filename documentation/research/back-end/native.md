@@ -48,6 +48,7 @@
 
 # Floating point arithmetic
 
+1. [Accurate Differences of Products with Kahan's Algorithm](https://pharr.org/matt/blog/2019/11/03/difference-of-floats.html)
 1. https://floating-point-gui.de/
 1. [Faster floating point arithmetic with Exclusive OR](http://nfrechette.github.io/2019/10/22/float_xor_optimization/)
 1. https://oded.ninja/2017/05/01/floating-point/

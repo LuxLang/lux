@@ -1,3 +1,7 @@
+# Allocation
+
+1. [Always Bump Downwards](https://fitzgeraldnick.com/2019/11/01/always-bump-downwards.html)
+
 # Compaction
 
 1. ["Compacting the Uncompactable" by Bobby Powers](https://www.youtube.com/watch?v=c1UBJbfR-H0)
@@ -10,8 +14,13 @@
 
 1. [Floorplan: Spatial Layout in Memory Management Systems](https://conf.researchr.org/details/gpce-2019/gpce-2019-papers/6/Floorplan-Spatial-Layout-in-Memory-Management-Systems)
 
+# Garbage collection
+
+1. [Baby's First Garbage Collector](http://journal.stuffwithstuff.com/2013/12/08/babys-first-garbage-collector/)
+
 # Reference
 
+1. [Scopes Describe Frames: A Uniform Model for Memory Layout in Dynamic Semantics](http://drops.dagstuhl.de/opus/volltexte/2016/6114/)
 1. https://uridiumauthor.blogspot.com/2018/06/memory-management.html
 1. https://github.com/mtrebi/memory-allocators
 1. http://www.newlisp.org/MemoryManagement.html

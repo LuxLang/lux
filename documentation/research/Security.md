@@ -1,3 +1,7 @@
+# Finger-printing
+
+1. https://github.com/Valve/fingerprintjs2
+
 # Access Control List
 
 1. [Capirca: Multi-platform ACL generation system](https://github.com/google/capirca)
@@ -26,6 +30,7 @@
 
 # Vulnerability
 
+1. [Against Cipher Agility in Cryptography Protocols](https://paragonie.com/blog/2019/10/against-agility-in-cryptography-protocols)
 1. [Padding the struct: How a compiler optimization can disclose stack memory](https://www.nccgroup.trust/us/about-us/newsroom-and-events/blog/2019/october/padding-the-struct-how-a-compiler-optimization-can-disclose-stack-memory/)
 1. [PCG generators are easily “crackable”](https://news.ycombinator.com/item?id=21475210)
 1. [Safely Creating And Using Temporary Files](https://www.netmeister.org/blog/mktemp.html)
@@ -40,6 +45,7 @@
 
 # Reference
 
+1. [Don't get pwned: practicing the principle of least privilege](https://cloud.google.com/blog/products/identity-security/dont-get-pwned-practicing-the-principle-of-least-privilege)
 1. [Good Practices for Capability URLs](https://www.w3.org/TR/capability-urls/)
 1. [Secure Socket API](https://securesocketapi.org/)
 1. [Mind your Language(s): A discussion about languages and security](https://www.ssi.gouv.fr/uploads/IMG/pdf/Mind_Your_Languages_-_version_longue.pdf)

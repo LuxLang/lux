@@ -11,6 +11,8 @@
 
 # Reference
 
+1. [Paradigms of Probabilistic Programming](https://www.youtube.com/watch?v=CmH1xxKRbiE)
+1. [Anatomy of a Probabilistic Programming Framework](https://eigenfoo.xyz/prob-prog-frameworks/)
 1. [Probabilistic Programming with monad‑bayes, Part 1: First Steps](https://www.tweag.io/posts/2019-09-20-monad-bayes-1.html)
 1. [Probabilistic Programming with monad‑bayes, Part 2: Linear Regression](https://www.tweag.io/posts/2019-11-08-monad-bayes-2.html)
 1. [FACTORIE](http://factorie.cs.umass.edu/)
