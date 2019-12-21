@@ -4,7 +4,8 @@
     [monad (#+ do)]
     [monoid (#+ Monoid)]]
    [control
-    ["." try (#+ Try)]]]
+    ["." try (#+ Try)]
+    ["." exception (#+ exception:)]]]
   [/
    ["/." limit (#+ Limit)
     ["/." stack (#+ Stack)]
@@ -17,7 +18,7 @@
 
 (type: #export Environment
   {#limit Limit
-   #stack Stack})
+   #stack (Maybe Stack)})
 
 (template [<name> <limit>]
   [(def: #export (<name> type)
@@ -25,7 +26,7 @@
      (do try.monad
        [limit (<limit> type)]
        (wrap {#limit limit
-              #stack /stack.empty})))]
+              #stack (#.Some /stack.empty)})))]
 
   [static /limit.static]
   [virtual /limit.virtual]
@@ -45,25 +46,59 @@
         [environment (left environment)]
         (right environment)))))
 
+(exception: #export discontinuity)
+
+(def: #export (stack environment)
+  (-> Environment (Try Stack))
+  (case (get@ #..stack environment)
+    (#.Some stack)
+    (#try.Success stack)
+
+    #.None
+    (exception.throw ..discontinuity [])))
+
+(def: #export discontinue
+  (-> Environment Environment)
+  (set@ #..stack #.None))
+
+(exception: #export (mismatched-stacks {expected Stack}
+                                       {actual Stack})
+  (exception.report
+   ["Expected" (/stack.format expected)]
+   ["Actual" (/stack.format actual)]))
+
+(def: #export (continue expected environment)
+  (-> Stack Environment (Try [Stack Environment]))
+  (case (get@ #..stack environment)
+    (#.Some actual)
+    (if (:: /stack.equivalence = expected actual)
+      (#try.Success [actual environment])
+      (exception.throw ..mismatched-stacks [expected actual]))
+
+    #.None
+    (#try.Success [expected (set@ #..stack (#.Some expected) environment)])))
+
 (def: #export (consumes amount)
   (-> U2 Condition)
   ## TODO: Revisit this definition once lenses/optics have been implemented,
   ## since it can probably be simplified with them.
   (function (_ environment)
     (do try.monad
-      [stack' (/stack.pop amount (get@ #..stack environment))]
-      (wrap (set@ #..stack stack' environment)))))
+      [previous (..stack environment)
+       current (/stack.pop amount previous)]
+      (wrap (set@ #..stack (#.Some current) environment)))))
 
 (def: #export (produces amount)
   (-> U2 Condition)
   (function (_ environment)
     (do try.monad
-      [current (/stack.push amount (get@ #..stack environment))
+      [previous (..stack environment)
+       current (/stack.push amount previous)
        #let [limit (|> environment
                        (get@ [#..limit #/limit.stack])
                        (/stack.max current))]]
       (wrap (|> environment
-                (set@ #..stack current)
+                (set@ #..stack (#.Some current))
                 (set@ [#..limit #/limit.stack] limit))))))
 
 (def: #export (has registry)
