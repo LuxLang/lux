@@ -5,6 +5,7 @@
 
 # Reference
 
+1. [Xor Filters: Faster and Smaller Than Bloom Filters](https://lemire.me/blog/2019/12/19/xor-filters-faster-and-smaller-than-bloom-filters/)
 1. [Morton Filters: Faster, Space-Efficient Cuckoo Filters via Biasing, Compression, and Decoupled Logical Sparsity](http://www.vldb.org/pvldb/vol11/p1041-breslow.pdf)
 1. https://github.com/efficient/SuRF
 1. https://medium.com/orbs-network/constructing-bloom-filters-without-false-positives-7aaf50b92f3b

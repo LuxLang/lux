@@ -64,6 +64,7 @@
 
 # _Compendium of resources_
 
+1. [Free and Open-Source Textbooks](http://danaernst.com/resources/free-and-open-source-textbooks/)
 1. [ALL IN ONE MATHEMATICS CHEAT SHEET](https://ourway.keybase.pub/mathematics_cheat_sheet.pdf)
 1. https://github.com/llSourcell/learn_math_fast
 1. https://www.algorithm-archive.org/

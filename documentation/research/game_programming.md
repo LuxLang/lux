@@ -24,6 +24,7 @@
 
 # Noise
 
+1. https://github.com/KdotJPG/New-Simplex-Style-Gradient-Noise
 1. [Perlin noise](https://en.wikipedia.org/wiki/Perlin_noise)
 1. [Gradient noise](https://en.wikipedia.org/wiki/Gradient_noise)
 1. [Value noise](https://en.wikipedia.org/wiki/Value_noise)

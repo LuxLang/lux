@@ -1,3 +1,7 @@
+# Widget
+
+1. [Progress bar.js](https://kimmobrunfeldt.github.io/progressbar.js/)
+
 # Design
 
 1. [Ant Design](https://ant.design/)
