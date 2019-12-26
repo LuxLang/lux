@@ -1,3 +1,11 @@
+# Service
+
+1. https://www.bugreplay.com/
+
+# Input
+
+1. [Debugging Inputs](https://www.dropbox.com/s/ddn3fe55lws1rdr/icse2020-ddmax.pdf)
+
 # Omniscient debugging
 
 1. https://pernos.co/

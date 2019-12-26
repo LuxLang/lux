@@ -1,3 +1,7 @@
+# Partial evaluation
+
+1. [AnyDSL - A Partial Evaluation Framework for Programming High-Performance Libraries](https://anydsl.github.io/)
+
 # For the compiler
 
 1. [Self Hosting a Million-Lines-Per-Second Parser](https://bjou-lang.org/blog/7-10-2019-self-hosting-a-million-lines-per-second-parser/7-10-2019-self-hosting-a-million-lines-per-second-parser.html)

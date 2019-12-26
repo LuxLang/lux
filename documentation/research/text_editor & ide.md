@@ -65,6 +65,8 @@
 
 # Syntax Highlighting
 
+1. [Syntax highlighting is backwards](https://www.benkuhn.net/syntax)
+1. [Coding in color](https://medium.com/@evnbr/coding-in-color-3a6db2743a1e)
 1. https://code.visualstudio.com/blogs/2017/02/08/syntax-highlighting-optimizations
 1. https://github.com/alecthomas/chroma
 1. https://www.crockford.com/contextcoloring.html

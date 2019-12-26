@@ -1,3 +1,7 @@
+# Virtual DOM
+
+1. [Optimal Virtual DOM](https://blog.kabir.sh/posts/optimal-virtual-dom.html)
+
 # Input
 
 1. [High-performance input handling on the web](https://nolanlawson.com/2019/08/11/high-performance-input-handling-on-the-web/)
@@ -106,6 +110,7 @@
 
 # Styling
 
+1. [Cascading Scoped Style Sheets, aka CSSS, aka C3S](https://github.com/crislin2046/c3s)
 1. [The importance of the CSS user-select property](https://www.malgol.com/the-importance-of-the-css-user-select-property/)
 1. [Index fun](https://psuter.net/2019/07/07/z-index)
 1. [Constraint layouts](https://blog.gtk.org/2019/07/02/constraint-layouts/)

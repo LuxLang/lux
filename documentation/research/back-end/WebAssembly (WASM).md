@@ -1,5 +1,6 @@
 # Exemplar
 
+1. [Announcing GraalWasm — a WebAssembly engine in GraalVM](https://medium.com/graalvm/announcing-graalwasm-a-webassembly-engine-in-graalvm-25cd0400a7f2)
 1. [Towards a WebAssembly standalone runtime on GraalVM](https://dl.acm.org/citation.cfm?id=3362780)
 1. https://github.com/vvanders/wasm_lua
 1. https://github.com/AppCypher/webassemblylanguages

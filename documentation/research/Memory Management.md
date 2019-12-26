@@ -29,7 +29,7 @@
 1. https://floooh.github.io/2018/06/17/handles-vs-pointers.html
 1. https://www.codemag.com/Article/1807051/Introducing-.NET-Core-2.1-Flagship-Types-Span-T-and-Memory-T
 1. https://stefansf.de/post/pointers-are-more-abstract-than-you-might-expect/
-1. http://www.memorymanagement.org/
+1. [Memory Management Reference](https://www.memorymanagement.org/)
 1. [Pseudomonarchia jemallocum: The false kingdom of jemalloc, or On exploiting the jemalloc memory manager](http://phrack.com/issues/68/10.html#article)
 1. https://gankro.github.io/blah/rust-layouts-and-abis/
 1. https://paul.bone.id.au/2018/10/19/gc-falsehoods/
