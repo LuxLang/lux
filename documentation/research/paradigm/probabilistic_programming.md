@@ -11,6 +11,8 @@
 
 # Reference
 
+1. ["New programming constructs for probabilistic AI" by Marco Cusumano-Towner](https://www.youtube.com/watch?v=xNutxms6SH4)
+1. [A tour of probabilistic programming language APIs](https://colcarroll.github.io/ppl-api/)
 1. [Paradigms of Probabilistic Programming](https://www.youtube.com/watch?v=CmH1xxKRbiE)
 1. [Anatomy of a Probabilistic Programming Framework](https://eigenfoo.xyz/prob-prog-frameworks/)
 1. [Probabilistic Programming with monad‑bayes, Part 1: First Steps](https://www.tweag.io/posts/2019-09-20-monad-bayes-1.html)

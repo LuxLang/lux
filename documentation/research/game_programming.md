@@ -1,3 +1,7 @@
+# Path finding
+
+1. [Friday Facts #317 - New pathfinding algorithm](https://factorio.com/blog/post/fff-317)
+
 # Conduct
 
 1. [Kawa - Yet Another Conduct Conversation: a history of conducts in roguelikes](https://www.youtube.com/watch?v=KLHJsJuJfYg)

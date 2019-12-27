@@ -118,6 +118,8 @@
 
 # Parsing
 
+1. [tree-sitter](http://tree-sitter.github.io/tree-sitter/)
+1. [tree-sitter: An incremental parsing system for programming tools](https://github.com/tree-sitter/tree-sitter)
 1. https://blog.github.com/2018-10-31-atoms-new-parsing-system/
 1. ["Tree-sitter - a new parsing system for programming tools" by Max Brunsfeld](https://www.youtube.com/watch?v=Jes3bD6P0To)
 

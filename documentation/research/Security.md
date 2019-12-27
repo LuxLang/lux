@@ -1,5 +1,6 @@
 # Finger-printing
 
+1. [How Browser Fingerprinting Works](https://kevq.uk/how-browser-fingerprinting-works/)
 1. https://github.com/Valve/fingerprintjs2
 
 # Access Control List

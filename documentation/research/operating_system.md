@@ -12,6 +12,7 @@
 
 # Graphics | Rendering
 
+1. [Text Rendering Hates You](https://gankra.github.io/blah/text-hates-you/)
 1. https://fuchsia.googlesource.com/garnet/+/master/docs/ui/scenic.md
 
 # Exemplar

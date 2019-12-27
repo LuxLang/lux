@@ -105,6 +105,7 @@
 
 # Linear Algebra
 
+1. [Interactive Linear Algebra](https://textbooks.math.gatech.edu/ila/)
 1. [Don’t invert that matrix](https://www.johndcook.com/blog/2010/01/19/dont-invert-that-matrix/)
 1. [“Don’t invert that matrix” – why and how](https://civilstat.com/2015/07/dont-invert-that-matrix-why-and-how/)
 1. [Thirty-three Miniatures: Mathematical and Algorithmic Applications of Linear Algebra](https://kam.mff.cuni.cz/~matousek/stml-53-matousek-1.pdf)
@@ -195,6 +196,7 @@
 
 # Calculus
 
+1. [The Fractional Derivative, what is it? | Introduction to Fractional Calculus](https://www.youtube.com/watch?v=A4sTAKN6yFA)
 1. [Calculus on Manifolds](http://strangebeautiful.com/other-texts/spivak-calc-manifolds.pdf)
 1. [Calculus BLUE](https://www.youtube.com/watch?v=Jes5jwLl1q8&list=PL8erL0pXF3JYm7VaTdKDaWc8Q3FuP8Sa7)
 1. [Extending the Algebraic Manipulability of Differentials](https://arxiv.org/abs/1801.09553)

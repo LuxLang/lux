@@ -1,5 +1,6 @@
 # Reference
 
+1. [On Lawful Lenses](https://blog.statebox.org/on-lawful-lenses-6e18a1e17bdf)
 1. https://medium.com/urbint-engineering/haskell-lens-operator-onboarding-a235481e8fac
 1. https://fstarlang.github.io/general/2018/01/12/lens-indexed-lenses.html
 1. [Jeremy Gibbons - Profunctor Optics Modular Data Accessors](https://www.youtube.com/watch?v=sfWzUMViP0M &&& http://www.cs.ox.ac.uk/people/jeremy.gibbons/publications/poptics.pdf)

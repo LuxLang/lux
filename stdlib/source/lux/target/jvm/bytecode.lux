@@ -9,8 +9,7 @@
     ["." state (#+ State')]
     ["." function]
     ["." try (#+ Try)]
-    ["." exception (#+ exception:)]
-    ["." pipe (#+ when>)]]
+    ["." exception (#+ exception:)]]
    [data
     ["." product]
     ["." maybe]
@@ -124,13 +123,13 @@
    ["Expected" (/stack.format expected)]
    ["Actual" (/stack.format actual)]))
 
-(with-expansions [<success> (as-is (#try.Success [[pool
-                                                   environment
-                                                   (update@ #known
-                                                            (dictionary.put label [actual (#.Some @here)])
-                                                            tracker)]
-                                                  [..relative-identity
-                                                   []]]))]
+(with-expansions [<success> (as-is (wrap [[pool
+                                           environment
+                                           (update@ #known
+                                                    (dictionary.put label [actual (#.Some @here)])
+                                                    tracker)]
+                                          [..relative-identity
+                                           []]]))]
   (def: #export (set-label label)
     (-> Label (Bytecode Any))
     (function (_ [pool environment tracker])
@@ -193,7 +192,7 @@
       (wrap [[pool
               environment'
               (set@ #program-counter program-counter' tracker)]
-             [(function.constant (#try.Success [..no-exceptions (bytecode input)]))
+             [(function.constant (wrap [..no-exceptions (bytecode input)]))
               []]]))))
 
 (template [<name> <frames>]
@@ -408,11 +407,11 @@
   (function (_ [pool environment tracker])
     (do try.monad
       [_ (/environment.stack environment)]
-      (#try.Success [[pool
-                      (/environment.discontinue environment)
-                      tracker]
-                     [..relative-identity
-                      []]]))))
+      (wrap [[pool
+              (/environment.discontinue environment)
+              tracker]
+             [..relative-identity
+              []]]))))
 
 (template [<name> <consumption> <instruction>]
   [(def: #export <name>
@@ -660,6 +659,15 @@
     #.None
     (exception.throw ..unknown-label [label])))
 
+(def: (acknowledge-label stack label tracker)
+  (-> Stack Label Tracker Tracker)
+  (case (dictionary.get label (get@ #known tracker))
+    (#.Some _)
+    tracker
+
+    #.None
+    (update@ #known (dictionary.put label [stack #.None]) tracker)))
+
 (template [<consumption> <name> <instruction>]
   [(def: #export (<name> label)
      (-> Label (Bytecode Any))
@@ -675,8 +683,7 @@
                      [[pool
                        environment'
                        (|> tracker
-                           (when> [(get@ #known) (dictionary.contains? label) not]
-                                  [(update@ #known (dictionary.put label [actual #.None]))])
+                           (..acknowledge-label actual label)
                            (set@ #program-counter program-counter'))]
                       [(function (_ resolver)
                          (do try.monad
@@ -689,7 +696,7 @@
                              (exception.throw ..cannot-do-a-big-jump [label @from jump])
 
                              (#.Right jump)
-                             (#try.Success [..no-exceptions (bytecode jump)]))))
+                             (wrap [..no-exceptions (bytecode jump)]))))
                        []]])))))))]
 
   [$1 ifeq _.ifeq]
@@ -713,71 +720,49 @@
   [$2 if-acmpne _.if-acmpne]
   )
 
-(def: #export (goto label)
-  (-> Label (Bytecode Any))
-  (let [[estimator bytecode] _.goto]
-    (function (_ [pool environment tracker])
-      (do try.monad
-        [#let [@here (get@ #program-counter tracker)]
-         program-counter' (step estimator @here)]
-        (wrap (let [@from @here]
-                [[pool
-                  (/environment.discontinue environment)
-                  (set@ #program-counter program-counter' tracker)]
-                 [(function (_ resolver)
-                    (case (dictionary.get label resolver)
-                      (#.Some [expected (#.Some @to)])
-                      (do try.monad
-                        [actual (/environment.stack environment)
-                         _ (exception.assert ..mismatched-environments [(name-of _.goto) label @here expected actual]
-                                             (:: /stack.equivalence = expected actual))
-                         jump (..jump @from @to)]
-                        (case jump
-                          (#.Left jump)
-                          (exception.throw ..cannot-do-a-big-jump [label @from jump])
+(template [<name> <instruction> <on-long-jump> <on-short-jump>]
+  [(def: #export (<name> label)
+     (-> Label (Bytecode Any))
+     (let [[estimator bytecode] <instruction>]
+       (function (_ [pool environment tracker])
+         (do try.monad
+           [actual (/environment.stack environment)
+            #let [@here (get@ #program-counter tracker)]
+            program-counter' (step estimator @here)]
+           (wrap (let [@from @here]
+                   [[pool
+                     (/environment.discontinue environment)
+                     (|> tracker
+                         (..acknowledge-label actual label)
+                         (set@ #program-counter program-counter'))]
+                    [(function (_ resolver)
+                       (case (dictionary.get label resolver)
+                         (#.Some [expected (#.Some @to)])
+                         (do try.monad
+                           [_ (exception.assert ..mismatched-environments [(name-of <instruction>) label @here expected actual]
+                                                (:: /stack.equivalence = expected actual))
+                            jump (..jump @from @to)]
+                           (case jump
+                             (#.Left jump)
+                             <on-long-jump>
 
-                          (#.Right jump)
-                          (#try.Success [..no-exceptions (bytecode jump)])))
+                             (#.Right jump)
+                             <on-short-jump>))
 
-                      (#.Some [expected #.None])
-                      (exception.throw ..unset-label [label])
+                         (#.Some [expected #.None])
+                         (exception.throw ..unset-label [label])
 
-                      #.None
-                      (exception.throw ..unknown-label [label])))
-                  []]]))))))
+                         #.None
+                         (exception.throw ..unknown-label [label])))
+                     []]]))))))]
 
-(def: #export (goto-w label)
-  (-> Label (Bytecode Any))
-  (let [[estimator bytecode] _.goto-w]
-    (function (_ [pool environment tracker])
-      (do try.monad
-        [#let [@here (get@ #program-counter tracker)]
-         program-counter' (step estimator @here)]
-        (wrap (let [@from @here]
-                [[pool
-                  (/environment.discontinue environment)
-                  (set@ #program-counter program-counter' tracker)]
-                 [(function (_ resolver)
-                    (case (dictionary.get label resolver)
-                      (#.Some [expected (#.Some @to)])
-                      (do try.monad
-                        [actual (/environment.stack environment)
-                         _ (exception.assert ..mismatched-environments [(name-of _.goto-w) label @here expected actual]
-                                             (:: /stack.equivalence = expected actual))
-                         jump (..jump @from @to)]
-                        (case jump
-                          (#.Left jump)
-                          (#try.Success [..no-exceptions (bytecode jump)])
-
-                          (#.Right jump)
-                          (#try.Success [..no-exceptions (bytecode (/jump.lift jump))])))
-
-                      (#.Some [expected #.None])
-                      (exception.throw ..unset-label [label])
-                      
-                      #.None
-                      (exception.throw ..unknown-label [label])))
-                  []]]))))))
+  [goto _.goto
+   (exception.throw ..cannot-do-a-big-jump [label @from jump])
+   (wrap [..no-exceptions (bytecode jump)])]
+  [goto-w _.goto-w
+   (wrap [..no-exceptions (bytecode jump)])
+   (wrap [..no-exceptions (bytecode (/jump.lift jump))])]
+  )
 
 (def: (big-jump jump)
   (-> Any-Jump Big-Jump)
@@ -797,18 +782,20 @@
       (do try.monad
         [environment' (|> environment
                           (/environment.consumes $1))
+         actual (/environment.stack environment')
          program-counter' (step (estimator (list.size afterwards)) (get@ #program-counter tracker))]
         (wrap (let [@from (get@ #program-counter tracker)]
-                [[pool environment' (set@ #program-counter program-counter' tracker)]
+                [[pool
+                  environment'
+                  (|> (list@fold (..acknowledge-label actual) tracker (list& default at-minimum afterwards))
+                      (set@ #program-counter program-counter'))]
                  [(function (_ resolver)
                     (let [get (: (-> Label (Maybe [Stack (Maybe Address)]))
                                  (function (_ label)
                                    (dictionary.get label resolver)))]
                       (case (do maybe.monad
-                              [[_ @default] (get default)
-                               @default @default
-                               [_ @at-minimum] (get at-minimum)
-                               @at-minimum @at-minimum
+                              [@default (|> default get (monad.bind @ product.right))
+                               @at-minimum (|> at-minimum get (monad.bind @ product.right))
                                @afterwards (|> afterwards
                                                (monad.map @ get)
                                                (monad.bind @ (monad.map @ product.right)))]
@@ -819,7 +806,7 @@
                            >at-minimum (:: @ map ..big-jump (..jump @from @at-minimum))
                            >afterwards (monad.map @ (|>> (..jump @from) (:: @ map ..big-jump))
                                                   @afterwards)]
-                          (#try.Success [..no-exceptions (bytecode minimum >default [>at-minimum >afterwards])]))
+                          (wrap [..no-exceptions (bytecode minimum >default [>at-minimum >afterwards])]))
 
                         #.None
                         (exception.throw ..invalid-tableswitch []))))
@@ -838,16 +825,19 @@
       (do try.monad
         [environment' (|> environment
                           (/environment.consumes $1))
+         actual (/environment.stack environment')
          program-counter' (step (estimator (list.size cases)) (get@ #program-counter tracker))]
         (wrap (let [@from (get@ #program-counter tracker)]
-                [[pool environment' (set@ #program-counter program-counter' tracker)]
+                [[pool
+                  environment'
+                  (|> (list@fold (..acknowledge-label actual) tracker (list& default (list@map product.right cases)))
+                      (set@ #program-counter program-counter'))]
                  [(function (_ resolver)
                     (let [get (: (-> Label (Maybe [Stack (Maybe Address)]))
                                  (function (_ label)
                                    (dictionary.get label resolver)))]
                       (case (do maybe.monad
-                              [[_ @default] (get default)
-                               @default @default
+                              [@default (|> default get (monad.bind @ product.right))
                                @cases (|> cases
                                           (monad.map @ (|>> product.right get))
                                           (monad.bind @ (monad.map @ product.right)))]
@@ -858,7 +848,7 @@
                            >cases (|> @cases
                                       (monad.map @ (|>> (..jump @from) (:: @ map ..big-jump)))
                                       (:: @ map (|>> (list.zip2 (list@map product.left cases)))))]
-                          (#try.Success [..no-exceptions (bytecode >default >cases)]))
+                          (wrap [..no-exceptions (bytecode >default >cases)]))
 
                         #.None
                         (exception.throw ..invalid-lookupswitch []))))
@@ -972,9 +962,7 @@
       (#try.Success
        [[pool
          environment
-         (|> tracker
-             (when> [(get@ #known) (dictionary.contains? @handler) not]
-                    [(update@ #known (dictionary.put @handler [/stack.catch #.None]))]))]
+         (..acknowledge-label /stack.catch @handler tracker)]
         [(function (_ resolver)
            (do try.monad
              [[_ @start] (..resolve-label @start resolver)

@@ -73,6 +73,7 @@
 
 # Differentiable programming
 
+1. [The Taichi Programming Language](http://taichi.graphics/)
 1. [The principles behind Differentiable Programming - Erik Meijer](https://www.youtube.com/watch?v=lk0PhtSHE38)
 1. [Kotlin∇: Type-safe Symbolic Differentiation for Kotlin](https://github.com/breandan/kotlingrad)
 1. [Differentiable Programming Manifesto](https://github.com/apple/swift/blob/master/docs/DifferentiableProgramming.md)
