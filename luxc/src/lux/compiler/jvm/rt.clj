@@ -66,6 +66,11 @@
     (&&/save-class! (second (string/split &&/function-class #"/"))
                     (.toByteArray (doto =class .visitEnd)))))
 
+(defmacro <bytecode> [& instructions]
+  `(fn [^MethodVisitor writer#]
+     (doto writer#
+       ~@instructions)))
+
 ;; Runtime infrastructure
 (defn ^:private compile-LuxRT-adt-methods [^ClassWriter =class]
   (|let [lefts #(doto ^MethodVisitor %
@@ -140,120 +145,89 @@
                (.visitInsn Opcodes/ARETURN)
                (.visitMaxs 0 0)
                (.visitEnd)))
-         _ (let [$begin (new Label)
-                 $just-return (new Label)
-                 $then (new Label)
-                 $further (new Label)
-                 $shorten (new Label)
-                 $not-right (new Label)
-                 failure (fn [^MethodVisitor writer]
-                           (doto writer
-                             ;; (.visitInsn Opcodes/POP2)
-                             (.visitInsn Opcodes/ACONST_NULL)
-                             (.visitInsn Opcodes/ARETURN)))
-                 shortened (fn [^MethodVisitor writer]
-                             (doto writer
-                               ;; Get Tag
-                               (.visitVarInsn Opcodes/ALOAD 0) (.visitLdcInsn (int 0)) (.visitInsn Opcodes/AALOAD)
-                               ;; Shorten tag
-                               &&/unwrap-int (.visitVarInsn Opcodes/ILOAD 1) (.visitInsn Opcodes/ISUB)
-                               ;; Get flag
-                               (.visitVarInsn Opcodes/ALOAD 0) (.visitLdcInsn (int 1)) (.visitInsn Opcodes/AALOAD)
-                               ;; Get value
-                               (.visitVarInsn Opcodes/ALOAD 0) (.visitLdcInsn (int 2)) (.visitInsn Opcodes/AALOAD)
-                               ;; Build sum
-                               (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")))]
+         _ (let [$loop (new Label)
+                 $perfect-match! (new Label)
+                 $tags-match! (new Label)
+                 $maybe-nested (new Label)
+                 $mismatch! (new Label)
+
+                 !variant (<bytecode> (.visitVarInsn Opcodes/ALOAD 0))
+                 !tag (<bytecode> (.visitVarInsn Opcodes/ILOAD 1))
+                 !last? (<bytecode> (.visitVarInsn Opcodes/ALOAD 2))
+
+                 <>tag (<bytecode> (.visitLdcInsn (int 0))
+                                   (.visitInsn Opcodes/AALOAD)
+                                   &&/unwrap-int)
+                 <>last? (<bytecode> (.visitLdcInsn (int 1))
+                                     (.visitInsn Opcodes/AALOAD))
+                 <>value (<bytecode> (.visitLdcInsn (int 2))
+                                     (.visitInsn Opcodes/AALOAD))
+
+                 not-found (<bytecode> (.visitInsn Opcodes/ACONST_NULL))
+
+                 super-nested-tag (<bytecode> (.visitInsn Opcodes/SWAP)
+                                              (.visitInsn Opcodes/ISUB))
+                 super-nested (<bytecode> super-nested-tag ;; super-tag
+                                          !variant <>last? ;; super-tag, super-last
+                                          !variant <>value ;; super-tag, super-last, super-value
+                                          (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;"))
+
+                 update-!variant (<bytecode> !variant <>value
+                                             (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
+                                             (.visitVarInsn Opcodes/ASTORE 0))
+                 update-!tag (<bytecode> (.visitInsn Opcodes/ISUB))
+                 iterate! (fn [^Label $loop]
+                            (<bytecode> update-!variant
+                                        update-!tag
+                                        (.visitJumpInsn Opcodes/GOTO $loop)))]
              (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "sum_get" "([Ljava/lang/Object;ILjava/lang/Object;)Ljava/lang/Object;" nil nil)
                (.visitCode)
-               (.visitLabel $begin)
-               (.visitVarInsn Opcodes/ILOAD 1) ;; tag
-               (.visitVarInsn Opcodes/ALOAD 0) ;; tag, sum
-               (.visitLdcInsn (int 0)) ;; tag, sum, sum-tag-idx
-               (.visitInsn Opcodes/AALOAD) ;; tag, sum-tag'
-               &&/unwrap-int ;; tag, sum-tag
-               (.visitInsn Opcodes/DUP2) ;; tag, sum-tag, tag, sum-tag
-               (.visitJumpInsn Opcodes/IF_ICMPEQ $then) ;; tag, sum-tag
-               (.visitInsn Opcodes/DUP2) ;; tag, sum-tag, tag, sum-tag
-               (.visitJumpInsn Opcodes/IF_ICMPGT $further) ;; tag, sum-tag
-               (.visitInsn Opcodes/DUP2) ;; tag, sum-tag, tag, sum-tag
-               (.visitJumpInsn Opcodes/IF_ICMPLT $shorten) ;; tag, sum-tag
-               failure
-               (.visitLabel $then) ;; tag, sum-tag
-               (.visitVarInsn Opcodes/ALOAD 2) ;; tag, sum-tag, wants-last?
-               (.visitVarInsn Opcodes/ALOAD 0)
-               (.visitLdcInsn (int 1))
-               (.visitInsn Opcodes/AALOAD) ;; tag, sum-tag, wants-last?, is-last?
-               (.visitJumpInsn Opcodes/IF_ACMPEQ $just-return)
-               (.visitJumpInsn Opcodes/GOTO $further)
-               (.visitLabel $just-return)
-               ;; (.visitInsn Opcodes/POP2)
-               (.visitVarInsn Opcodes/ALOAD 0)
-               (.visitLdcInsn (int 2))
-               (.visitInsn Opcodes/AALOAD)
+               !tag ;; tag
+               (.visitLabel $loop)
+               !variant <>tag ;; tag, variant::tag
+               (.visitInsn Opcodes/DUP2) (.visitJumpInsn Opcodes/IF_ICMPEQ $tags-match!) ;; tag, variant::tag
+               (.visitInsn Opcodes/DUP2) (.visitJumpInsn Opcodes/IF_ICMPGT $maybe-nested) ;; tag, variant::tag
+               !last? (.visitJumpInsn Opcodes/IFNULL $mismatch!) ;; tag, variant::tag
+               super-nested ;; super-variant
                (.visitInsn Opcodes/ARETURN)
-               (.visitLabel $shorten)
-               (.visitVarInsn Opcodes/ALOAD 2)
-               (.visitJumpInsn Opcodes/IFNULL $not-right)
+               (.visitLabel $tags-match!) ;; tag, variant::tag
+               !last? ;; tag, variant::tag, last?
+               !variant <>last?
+               (.visitJumpInsn Opcodes/IF_ACMPEQ $perfect-match!)
+               (.visitLabel $maybe-nested) ;; tag, variant::tag
+               !variant <>last? ;; tag, variant::tag, variant::last?
+               (.visitJumpInsn Opcodes/IFNULL $mismatch!) ;; tag, variant::tag
+               ((iterate! $loop))
+               (.visitLabel $perfect-match!)
                ;; (.visitInsn Opcodes/POP2)
-               shortened
+               !variant <>value
                (.visitInsn Opcodes/ARETURN)
-               (.visitLabel $further) ;; tag, sum-tag
-               (.visitVarInsn Opcodes/ALOAD 0) ;; tag, sum-tag, sum
-               (.visitLdcInsn (int 1)) ;; tag, sum-tag, sum, last-index?
-               (.visitInsn Opcodes/AALOAD) ;; tag, sum-tag, last?
-               (.visitJumpInsn Opcodes/IFNULL $not-right) ;; tag, sum-tag
-               (.visitInsn Opcodes/ISUB) ;; sub-tag
-               (.visitVarInsn Opcodes/ALOAD 0) ;; sub-tag, sum
-               (.visitLdcInsn (int 2)) ;; sub-tag, sum, sub-sum-idx
-               (.visitInsn Opcodes/AALOAD) ;; sub-tag, sub-sum
-               (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
-               (.visitVarInsn Opcodes/ASTORE 0) ;; sub-tag
-               (.visitVarInsn Opcodes/ISTORE 1) ;;
-               (.visitJumpInsn Opcodes/GOTO $begin)
-               (.visitLabel $not-right) ;; tag, sum-tag
-               failure
+               (.visitLabel $mismatch!) ;; tag, variant::tag
+               ;; (.visitInsn Opcodes/POP2)
+               not-found
+               (.visitInsn Opcodes/ARETURN)
                (.visitMaxs 0 0)
                (.visitEnd)))
-         ;; I commented-out some parts because a null-check was
-         ;; done to ensure variants were never created with null
-         ;; values (this would interfere later with
-         ;; pattern-matching).
-         ;; Since Lux itself does not have null values as part of
-         ;; the language, the burden of ensuring non-nulls was
-         ;; shifted to library code dealing with host-interop, to
-         ;; ensure variant-making was as fast as possible.
-         ;; The null-checking code was left as comments in case I
-         ;; ever change my mind.
-         _ (let [;; $is-null (new Label)
-                 ]
-             (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;" nil nil)
-               (.visitCode)
-               ;; (.visitVarInsn Opcodes/ALOAD 2)
-               ;; (.visitJumpInsn Opcodes/IFNULL $is-null)
-               (.visitLdcInsn (int 3))
-               (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object")
-               (.visitInsn Opcodes/DUP)
-               (.visitLdcInsn (int 0))
-               (.visitVarInsn Opcodes/ILOAD 0)
-               (&&/wrap-int)
-               (.visitInsn Opcodes/AASTORE)
-               (.visitInsn Opcodes/DUP)
-               (.visitLdcInsn (int 1))
-               (.visitVarInsn Opcodes/ALOAD 1)
-               (.visitInsn Opcodes/AASTORE)
-               (.visitInsn Opcodes/DUP)
-               (.visitLdcInsn (int 2))
-               (.visitVarInsn Opcodes/ALOAD 2)
-               (.visitInsn Opcodes/AASTORE)
-               (.visitInsn Opcodes/ARETURN)
-               ;; (.visitLabel $is-null)
-               ;; (.visitTypeInsn Opcodes/NEW "java/lang/IllegalStateException")
-               ;; (.visitInsn Opcodes/DUP)
-               ;; (.visitLdcInsn "Cannot create variant for null pointer")
-               ;; (.visitMethodInsn Opcodes/INVOKESPECIAL "java/lang/IllegalStateException" "<init>" "(Ljava/lang/String;)V")
-               ;; (.visitInsn Opcodes/ATHROW)
-               (.visitMaxs 0 0)
-               (.visitEnd)))]
+         _ (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;" nil nil)
+             (.visitCode)
+             (.visitLdcInsn (int 3))
+             (.visitTypeInsn Opcodes/ANEWARRAY "java/lang/Object")
+             (.visitInsn Opcodes/DUP)
+             (.visitLdcInsn (int 0))
+             (.visitVarInsn Opcodes/ILOAD 0)
+             (&&/wrap-int)
+             (.visitInsn Opcodes/AASTORE)
+             (.visitInsn Opcodes/DUP)
+             (.visitLdcInsn (int 1))
+             (.visitVarInsn Opcodes/ALOAD 1)
+             (.visitInsn Opcodes/AASTORE)
+             (.visitInsn Opcodes/DUP)
+             (.visitLdcInsn (int 2))
+             (.visitVarInsn Opcodes/ALOAD 2)
+             (.visitInsn Opcodes/AASTORE)
+             (.visitInsn Opcodes/ARETURN)
+             (.visitMaxs 0 0)
+             (.visitEnd))]
     nil))
 
 (defn ^:private swap2x1 [^MethodVisitor =method]
