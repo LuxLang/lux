@@ -23,7 +23,7 @@
     ["#." phase
      [macro (#+ Expander)]
      ## TODO: Get rid of this import ASAP
-     [extension (#+ Extender)]
+     ["." extension (#+ Extender)]
      ["." generation (#+ Buffer)]
      [analysis
       ["." module]]]
@@ -57,6 +57,18 @@
                   <State+> (as-is (///directive.State+ anchor expression directive))
                   <Bundle> (as-is (generation.Bundle anchor expression directive))]
 
+  (def: pause-context
+    (All <type-vars>
+      (-> <State+> generation.Context))
+    (get@ [#extension.state #///directive.generation #///directive.state #extension.state #generation.context]))
+
+  (def: (resume-context context state)
+    (All <type-vars>
+      (-> generation.Context <State+> <State+>))
+    (set@ [#extension.state #///directive.generation #///directive.state #extension.state #generation.context]
+          context
+          state))
+  
   (def: #export (initialize target expander host-analysis platform generation-bundle host-directive-bundle program extender)
     (All <type-vars>
       (-> Text
@@ -157,16 +169,18 @@
                ## _ (write-module target-dir file-name (get@ #cli.module configuration) module outputs)
                ]
               (loop [archive archive
-                     state state
+                     state (..resume-context (generation.fresh-context module) state)
                      compilation (compiler (:coerce ///.Input input))]
                 (do @
-                  [#let [dependencies (get@ #///.dependencies compilation)]
+                  [#let [dependencies (get@ #///.dependencies compilation)
+                         current-context (..pause-context state)]
                    archive+state (monad.fold @
                                              import!
                                              [archive state]
                                              (list.filter (bit.complement (archive.archived? archive))
                                                           dependencies))
-                   #let [[archive state] (:share <type-vars>
+                   #let [## TODO: Inline ASAP
+                         [archive state] (:share <type-vars>
                                                  {<Platform>
                                                   platform}
                                                  {[Archive <State+>]
@@ -184,9 +198,10 @@
 
                            _
                            ## TODO: The "///analysis.set-current-module" below shouldn't be necessary. Remove it ASAP.
+                           ## TODO: The context shouldn't need to be re-set either.
                            (|> (///analysis.set-current-module module)
                                ///directive.lift-analysis
-                               (///phase.run' state)
+                               (///phase.run' (..resume-context current-context state))
                                try.assume
                                product.left))
                          archive)
