@@ -9,7 +9,9 @@
     [parser
      [cli (#+ program:)]]
     [security
-     ["!" capability]]]
+     ["!" capability]]
+    [concurrency
+     ["." promise (#+ Promise)]]]
    [data
     [binary (#+ Binary)]
     ["." product]
@@ -44,84 +46,87 @@
 
 (def: (or-crash! failure-description action)
   (All [a]
-    (-> Text (IO (Try a)) (IO a)))
-  (do io.monad
+    (-> Text (Promise (Try a)) (Promise a)))
+  (do promise.monad
     [?output action]
     (case ?output
       (#try.Failure error)
       (exec (log! (format text.new-line
                           failure-description text.new-line
                           error text.new-line))
-        (io.exit +1))
+        (io.run (io.exit +1)))
 
       (#try.Success output)
       (wrap output))))
 
-(def: (save-artifacts! system state [packager package])
-  (All [anchor expression directive]
-    (-> (file.System IO)
-        (directive.State+ anchor expression directive)
-        [(-> (generation.Output directive) Binary) Path]
-        (IO (Try Any))))
-  (let [?outcome (phase.run' state
-                             (:share [anchor expression directive]
-                                     {(directive.State+ anchor expression directive)
-                                      state}
-                                     {(directive.Operation anchor expression directive
-                                                           (generation.Output directive))
-                                      (directive.lift-generation generation.output)}))]
-    (case ?outcome
-      (#try.Success [state output])
-      (do (try.with io.monad)
-        [file (: (IO (Try (File IO)))
-                 (file.get-file io.monad system package))]
-        (!.use (:: file over-write) (packager output)))
+(with-expansions [<parameters> (as-is anchor expression artifact)]
+  (def: (save-artifacts! system state [packager package])
+    (All [<parameters>]
+      (-> (file.System Promise)
+          (directive.State+ <parameters>)
+          [(-> (generation.Output artifact) Binary) Path]
+          (Promise (Try Any))))
+    (let [?outcome (phase.run' state
+                               (:share [<parameters>]
+                                       {(directive.State+ <parameters>)
+                                        state}
+                                       {(directive.Operation <parameters>
+                                                             (generation.Output artifact))
+                                        (directive.lift-generation generation.output)}))]
+      (case ?outcome
+        (#try.Success [state output])
+        (do (try.with promise.monad)
+          [file (: (Promise (Try (File Promise)))
+                   (file.get-file promise.monad system package))]
+          (!.use (:: file over-write) (packager output)))
 
-      (#try.Failure error)
-      (:: io.monad wrap (#try.Failure error)))))
+        (#try.Failure error)
+        (:: promise.monad wrap (#try.Failure error)))))
 
-(def: #export (compiler target partial-host-extension
-                        expander host-analysis platform generation-bundle host-directive-bundle program extender
-                        service
-                        packager,package)
-  (All [anchor expression directive]
-    (-> Text
-        Text
-        Expander
-        analysis.Bundle
-        (IO (Platform IO anchor expression directive))
-        (generation.Bundle anchor expression directive)
-        (directive.Bundle anchor expression directive)
-        (-> expression directive)
-        Extender
-        Service
-        [(-> (generation.Output directive) Binary) Path]
-        (IO Any)))
-  (do io.monad
-    [platform platform
-     console (:: @ map try.assume console.system)]
-    (case service
-      (#cli.Compilation configuration)
-      (<| (or-crash! "Compilation failed:")
-          (do (try.with io.monad)
-            [state (:share [anchor expression directive]
-                           {(Platform IO anchor expression directive)
-                            platform}
-                           {(IO (Try (directive.State+ anchor expression directive)))
-                            (platform.initialize target expander host-analysis platform generation-bundle host-directive-bundle program extender)})
-             [archive state] (:share [anchor expression directive]
-                                     {(Platform IO anchor expression directive)
-                                      platform}
-                                     {(IO (Try [Archive (directive.State+ anchor expression directive)]))
-                                      (platform.compile partial-host-extension expander platform configuration archive.empty state)})
-             _ (save-artifacts! (get@ #platform.&file-system platform) state packager,package)
-             ## _ (cache/io.clean target ...)
-             ]
-            (wrap (log! "Compilation complete!"))))
-      
-      (#cli.Interpretation configuration)
-      ## TODO: Fix the interpreter...
-      (undefined)
-      ## (<| (or-crash! "Interpretation failed:")
-      ##     (interpreter.run (try.with io.monad) console platform configuration generation-bundle))
-      )))
+  (def: #export (compiler target partial-host-extension
+                          expander host-analysis platform generation-bundle host-directive-bundle program extender
+                          service
+                          packager,package)
+    (All [<parameters>]
+      (-> Text
+          Text
+          Expander
+          analysis.Bundle
+          (IO (Platform <parameters>))
+          (generation.Bundle <parameters>)
+          (directive.Bundle <parameters>)
+          (-> expression artifact)
+          Extender
+          Service
+          [(-> (generation.Output artifact) Binary) Path]
+          (Promise Any)))
+    (do promise.monad
+      [platform (promise.future platform)
+       console (|> console.system
+                   promise.future
+                   (:: @ map (|>> try.assume console.async)))]
+      (case service
+        (#cli.Compilation configuration)
+        (<| (or-crash! "Compilation failed:")
+            (do (try.with promise.monad)
+              [state (:share [<parameters>]
+                             {(Platform <parameters>)
+                              platform}
+                             {(Promise (Try (directive.State+ <parameters>)))
+                              (platform.initialize target expander host-analysis platform generation-bundle host-directive-bundle program extender)})
+               [archive state] (:share [<parameters>]
+                                       {(Platform <parameters>)
+                                        platform}
+                                       {(Promise (Try [Archive (directive.State+ <parameters>)]))
+                                        (platform.compile partial-host-extension expander platform configuration archive.empty state)})
+               _ (save-artifacts! (get@ #platform.&file-system platform) state packager,package)
+               ## _ (cache/io.clean target ...)
+               ]
+              (wrap (log! "Compilation complete!"))))
+        
+        (#cli.Interpretation configuration)
+        ## TODO: Fix the interpreter...
+        (undefined)
+        ## (<| (or-crash! "Interpretation failed:")
+        ##     (interpreter.run (try.with promise.monad) console platform configuration generation-bundle))
+        ))))

@@ -4,7 +4,9 @@
    [abstract
     ["." monad (#+ Monad do)]]
    [control
-    ["." try (#+ Try)]]
+    ["." try (#+ Try)]
+    [concurrency
+     ["." promise (#+ Promise)]]]
    [data
     ["." bit]
     ["." product]
@@ -36,9 +38,8 @@
    [compositor
     ["." cli (#+ Configuration)]]])
 
-(type: #export (Platform ! anchor expression directive)
-  {#&monad (Monad !)
-   #&file-system (file.System !)
+(type: #export (Platform anchor expression directive)
+  {#&file-system (file.System Promise)
    #host (generation.Host expression directive)
    #phase (generation.Phase anchor expression directive)
    #runtime (generation.Operation anchor expression directive Any)})
@@ -52,8 +53,8 @@
 ##                (format module-name "/" cache.descriptor-name)
 ##                (encoding.to-utf8 (%.code (cache/description.write file-name module))))))
 
-(with-expansions [<type-vars> (as-is [! anchor expression directive])
-                  <Platform> (as-is (Platform ! anchor expression directive))
+(with-expansions [<type-vars> (as-is [anchor expression directive])
+                  <Platform> (as-is (Platform anchor expression directive))
                   <State+> (as-is (///directive.State+ anchor expression directive))
                   <Bundle> (as-is (generation.Bundle anchor expression directive))]
 
@@ -68,6 +69,24 @@
     (set@ [#extension.state #///directive.generation #///directive.state #extension.state #generation.context]
           context
           state))
+
+  ## TODO: Inline ASAP
+  (def: initialize-buffer!
+    (All <type-vars>
+      (generation.Operation anchor expression directive Any))
+    (generation.set-buffer generation.empty-buffer))
+
+  ## TODO: Inline ASAP
+  (def: compile-runtime!
+    (All <type-vars>
+      (-> <Platform> (generation.Operation anchor expression directive Any)))
+    (get@ #runtime))
+
+  ## TODO: Inline ASAP
+  (def: save-runtime-buffer!
+    (All <type-vars>
+      (generation.Operation anchor expression directive (Buffer directive)))
+    (generation.save-buffer! ""))
   
   (def: #export (initialize target expander host-analysis platform generation-bundle host-directive-bundle program extender)
     (All <type-vars>
@@ -79,39 +98,24 @@
           (///directive.Bundle anchor expression directive)
           (-> expression directive)
           Extender
-          (! (Try <State+>))))
-    (|> (do ///phase.monad
-          [_ (:share [anchor expression directive]
-                     {(///directive.Bundle anchor expression directive)
-                      host-directive-bundle}
-                     {(generation.Operation anchor expression directive Any)
-                      (generation.set-buffer (:share [anchor expression directive]
-                                                     {(///directive.Bundle anchor expression directive)
-                                                      host-directive-bundle}
-                                                     {(Buffer directive)
-                                                      generation.empty-buffer}))})
-           _ (:share [anchor expression directive]
-                     {(///directive.Bundle anchor expression directive)
-                      host-directive-bundle}
-                     {(generation.Operation anchor expression directive Any)
-                      (get@ #runtime platform)})]
-          (:share [anchor expression directive]
-                  {(///directive.Bundle anchor expression directive)
-                   host-directive-bundle}
-                  {(generation.Operation anchor expression directive Any)
-                   (generation.save-buffer! "")}))
-        ///directive.lift-generation
-        (///phase.run' (//init.state target
-                                     expander
-                                     host-analysis
-                                     (get@ #host platform)
-                                     (get@ #phase platform)
-                                     generation-bundle
-                                     host-directive-bundle
-                                     program
-                                     extender))
-        (:: try.functor map product.left)
-        (:: (get@ #&monad platform) wrap))
+          (Promise (Try <State+>))))
+    (let [state (//init.state target
+                              expander
+                              host-analysis
+                              (get@ #host platform)
+                              (get@ #phase platform)
+                              generation-bundle
+                              host-directive-bundle
+                              program
+                              extender)]
+      (|> (do ///phase.monad
+            [_ ..initialize-buffer!
+             _ (..compile-runtime! platform)]
+            ..save-runtime-buffer!)
+          ///directive.lift-generation
+          (///phase.run' state)
+          (:: try.functor map product.left)
+          (:: promise.monad wrap)))
 
     ## (case (runtimeT.generate ## (initL.compiler (io.run js.init))
     ##        (initL.compiler (io.run hostL.init-host))
@@ -141,10 +145,9 @@
 
   (def: #export (compile partial-host-extension expander platform configuration archive state)
     (All <type-vars>
-      (-> Text Expander <Platform> Configuration Archive <State+> (! (Try [Archive <State+>]))))
-    (let [monad (get@ #&monad platform)
-          source-module (get@ #cli.module configuration)
-          compiler (:share [anchor expression directive]
+      (-> Text Expander <Platform> Configuration Archive <State+> (Promise (Try [Archive <State+>]))))
+    (let [source-module (get@ #cli.module configuration)
+          compiler (:share <type-vars>
                            {<State+>
                             state}
                            {(///.Compiler <State+> .Module Any)
@@ -152,16 +155,15 @@
       (loop [module source-module
              [archive state] [archive state]]
         (if (archive.archived? archive module)
-          (:: monad wrap (#try.Success [archive state]))
+          (:: promise.monad wrap (#try.Success [archive state]))
           (let [import! (:share <type-vars>
                                 {<Platform>
                                  platform}
                                 {(-> Module [Archive <State+>]
-                                     (! (Try [Archive <State+>])))
+                                     (Promise (Try [Archive <State+>])))
                                  recur})]
-            (do (try.with monad)
-              [input (context.read monad
-                                   (get@ #&file-system platform)
+            (do (try.with promise.monad)
+              [input (context.read (get@ #&file-system platform)
                                    (get@ #cli.sources configuration)
                                    partial-host-extension
                                    module)
@@ -189,7 +191,7 @@
                                            {<Platform>
                                             platform}
                                            {(-> Archive <State+> (///.Compilation <State+> .Module Any)
-                                                (! (Try [Archive <State+>])))
+                                                (Promise (Try [Archive <State+>])))
                                             recur})]]
                   (case ((get@ #///.process compilation)
                          (case dependencies
@@ -216,8 +218,8 @@
                         (wrap [archive state])
                         
                         (#try.Failure error)
-                        (:: monad wrap (#try.Failure error))))
+                        (:: promise.monad wrap (#try.Failure error))))
 
                     (#try.Failure error)
-                    (:: monad wrap (#try.Failure error)))))))))))
+                    (:: promise.monad wrap (#try.Failure error)))))))))))
   )

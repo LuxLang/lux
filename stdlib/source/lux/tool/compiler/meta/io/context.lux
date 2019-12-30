@@ -7,15 +7,16 @@
     ["." try (#+ Try)]
     ["ex" exception (#+ Exception exception:)]
     [security
-     ["!" capability]]]
+     ["!" capability]]
+    [concurrency
+     ["." promise (#+ Promise)]]]
    [data
     [binary (#+ Binary)]
     ["." text ("#;." hash)
      ["%" format (#+ format)]
      ["." encoding]]]
    [world
-    ["." file (#+ Path File)]]
-   [type (#+ :share)]]
+    ["." file (#+ Path File)]]]
   ["." // (#+ Context Code)
    ["#/" // #_
     [archive
@@ -42,16 +43,15 @@
       (//.sanitize system)
       (format context (:: system separator))))
 
-(def: (find-source-file monad system contexts module extension)
-  (All [!]
-    (-> (Monad !) (file.System !) (List Context) Module Extension
-        (! (Try [Path (File !)]))))
+(def: (find-source-file system contexts module extension)
+  (-> (file.System Promise) (List Context) Module Extension
+      (Promise (Try [Path (File Promise)])))
   (case contexts
     #.Nil
-    (:: monad wrap (ex.throw ..cannot-find-module [module]))
+    (:: promise.monad wrap (ex.throw ..cannot-find-module [module]))
 
     (#.Cons context contexts')
-    (do monad
+    (do promise.monad
       [#let [path (format (..path system context module) extension)]
        file (!.use (:: system file) path)]
       (case file
@@ -59,38 +59,26 @@
         (wrap (#try.Success [path file]))
 
         (#try.Failure _)
-        (find-source-file monad system contexts' module extension)))))
+        (find-source-file system contexts' module extension)))))
 
-(def: #export (find-any-source-file monad system contexts partial-host-extension module)
-  (All [!]
-    (-> (Monad !) (file.System !) (List Context) Text Module
-        (! (Try [Path (File !)]))))
+(def: #export (find-any-source-file system contexts partial-host-extension module)
+  (-> (file.System Promise) (List Context) Text Module
+      (Promise (Try [Path (File Promise)])))
   (let [full-host-extension (format partial-host-extension lux-extension)]
-    (do monad
-      [outcome (find-source-file monad system contexts module full-host-extension)]
+    (do promise.monad
+      [outcome (find-source-file system contexts module full-host-extension)]
       (case outcome
         (#try.Success output)
         (wrap outcome)
 
         (#try.Failure _)
-        (find-source-file monad system contexts module ..lux-extension)))))
+        (find-source-file system contexts module ..lux-extension)))))
 
-(def: #export (read monad system contexts partial-host-extension module)
-  (All [!]
-    (-> (Monad !) (file.System !) (List Context) Text Module
-        (! (Try Input))))
-  (do (try.with monad)
-    [## TODO: Get rid of both ":share"s ASAP
-     path,file (:share [!]
-                       {(Monad !)
-                        monad}
-                       {(! (Try [Path (File !)]))
-                        (find-any-source-file monad system contexts partial-host-extension module)})
-     #let [[path file] (:share [!]
-                               {(Monad !)
-                                monad}
-                               {[Path (File !)]
-                                path,file})]
+(def: #export (read system contexts partial-host-extension module)
+  (-> (file.System Promise) (List Context) Text Module
+      (Promise (Try Input)))
+  (do (try.with promise.monad)
+    [[path file] (..find-any-source-file system contexts partial-host-extension module)
      binary (!.use (:: file content) [])]
     (case (encoding.from-utf8 binary)
       (#try.Success code)
@@ -100,4 +88,4 @@
              #////.code code})
       
       (#try.Failure _)
-      (:: monad wrap (ex.throw ..cannot-read-module [module])))))
+      (:: promise.monad wrap (ex.throw ..cannot-read-module [module])))))
