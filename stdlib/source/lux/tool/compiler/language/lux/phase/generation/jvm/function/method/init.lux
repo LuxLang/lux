@@ -1,0 +1,95 @@
+(.module:
+  [lux (#- Type type)
+   [abstract
+    ["." monad]]
+   [control
+    ["." try]]
+   [data
+    [number
+     ["n" nat]]
+    [collection
+     ["." list ("#@." monoid functor)]]]
+   [target
+    [jvm
+     ["_" bytecode (#+ Bytecode)]
+     ["." method (#+ Method)]
+     [encoding
+      ["." unsigned]]
+     [constant
+      [pool (#+ Resource)]]
+     ["." type (#+ Type)
+      ["." category (#+ Class Value)]]]]]
+  ["." //
+   ["#." implementation]
+   ["/#" // #_
+    ["#." abstract]
+    [field
+     [constant
+      ["#." arity]]
+     [variable
+      ["#." foreign]
+      ["#." partial]]]
+    ["/#" // #_
+     ["#." type]
+     ["#." reference]
+     [////
+      [analysis (#+ Environment)]
+      [///
+       [reference (#+ Register)]
+       ["." arity (#+ Arity)]]]]]])
+
+(def: #export name "<init>")
+
+(def: (partials arity)
+  (-> Arity (List (Type Value)))
+  (list.repeat (dec arity) ////type.value))
+
+(def: #export (type environment arity)
+  (-> Environment Arity (Type category.Method))
+  (type.method [(list@compose (///foreign.closure environment)
+                              (if (arity.multiary? arity)
+                                (list& ///arity.type (..partials arity))
+                                (list)))
+                type.void
+                (list)]))
+
+(def: no-partials (|> 0 unsigned.u1 try.assume _.bipush))
+
+(def: #export (super environment-size arity)
+  (-> Nat Arity (Bytecode Any))
+  (let [arity-register (inc environment-size)]
+    ($_ _.compose
+        (if (arity.unary? arity)
+          ..no-partials
+          (_.iload arity-register))
+        (_.invokespecial ///abstract.class ..name ///abstract.init))))
+
+(def: (store-all amount put offset)
+  (-> Nat
+      (-> Register (Bytecode Any) (Bytecode Any))
+      (-> Register Register)
+      (Bytecode Any))
+  (|> (list.indices amount)
+      (list@map (function (_ register)
+                  (put register
+                       (_.aload (offset register)))))
+      (monad.seq _.monad)))
+
+(def: #export (method class environment arity)
+  (-> (Type Class) Environment Arity (Resource Method))
+  (let [environment-size (list.size environment)
+        offset-foreign (: (-> Register Register)
+                          (n.+ 1))
+        offset-arity (: (-> Register Register)
+                        (|>> offset-foreign (n.+ environment-size)))
+        offset-partial (: (-> Register Register)
+                          (|>> offset-arity (n.+ 1)))]
+    (method.method //.modifier ..name
+                   (..type environment arity)
+                   (list)
+                   (#.Some ($_ _.compose
+                               ////reference.this
+                               (..super environment-size arity)
+                               (store-all environment-size (///foreign.put class) offset-foreign)
+                               (store-all (dec arity) (///partial.put class) offset-partial)
+                               _.return)))))

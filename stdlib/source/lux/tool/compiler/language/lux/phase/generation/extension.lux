@@ -1,0 +1,63 @@
+(.module:
+  [lux #*
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    [parser
+     ["s" code]]]
+   [data
+    [collection
+     ["." list ("#@." functor)]]]
+   ["." macro (#+ with-gensyms)
+    ["." code]
+    [syntax (#+ syntax:)]]]
+  ["." /// #_
+   ["#." extension]
+   [//
+    [synthesis (#+ Synthesis)]
+    ["." generation]
+    [///
+     ["#" phase]]]])
+
+(syntax: (Vector {size s.nat} elemT)
+  (wrap (list (` [(~+ (list.repeat size elemT))]))))
+
+(type: #export (Nullary of) (-> (Vector 0 of) of))
+(type: #export (Unary of)   (-> (Vector 1 of) of))
+(type: #export (Binary of)  (-> (Vector 2 of) of))
+(type: #export (Trinary of) (-> (Vector 3 of) of))
+(type: #export (Variadic of) (-> (List of) of))
+
+(syntax: (arity: {arity s.nat} {name s.local-identifier} type)
+  (with-gensyms [g!_ g!extension g!name g!phase g!inputs g!of g!anchor g!expression g!directive]
+    (do @
+      [g!input+ (monad.seq @ (list.repeat arity (macro.gensym "input")))]
+      (wrap (list (` (def: #export ((~ (code.local-identifier name)) (~ g!extension))
+                       (All [(~ g!anchor) (~ g!expression) (~ g!directive)]
+                         (-> ((~ type) (~ g!expression)) (generation.Handler (~ g!anchor) (~ g!expression) (~ g!directive))))
+                       (function ((~ g!_) (~ g!name) (~ g!phase) (~ g!inputs))
+                         (case (~ g!inputs)
+                           (^ (list (~+ g!input+)))
+                           (do ///.monad
+                             [(~+ (|> g!input+
+                                      (list@map (function (_ g!input)
+                                                  (list g!input (` ((~ g!phase) (~ g!input))))))
+                                      list.concat))]
+                             ((~' wrap) ((~ g!extension) [(~+ g!input+)])))
+
+                           (~' _)
+                           (///.throw ///extension.incorrect-arity [(~ g!name) 1 (list.size (~ g!inputs))]))))))))))
+
+(arity: 0 nullary ..Nullary)
+(arity: 1 unary ..Unary)
+(arity: 2 binary ..Binary)
+(arity: 3 trinary ..Trinary)
+
+(def: #export (variadic extension)
+  (All [anchor expression directive]
+    (-> (Variadic expression) (generation.Handler anchor expression directive)))
+  (function (_ extension-name)
+    (function (_ phase inputsS)
+      (do ///.monad
+        [inputsI (monad.map @ phase inputsS)]
+        (wrap (extension inputsI))))))

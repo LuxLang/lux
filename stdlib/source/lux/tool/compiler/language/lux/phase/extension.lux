@@ -1,0 +1,146 @@
+(.module:
+  [lux (#- Name)
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["." function]
+    ["." try (#+ Try)]
+    ["." exception (#+ exception:)]]
+   [data
+    ["." text ("#@." order)
+     ["%" format (#+ Format format)]]
+    [collection
+     ["." list ("#@." functor)]
+     ["." dictionary (#+ Dictionary)]]]]
+  [/////
+   ["//" phase]])
+
+(type: #export Name Text)
+
+(type: #export (Extension i)
+  [Name (List i)])
+
+(with-expansions [<Bundle> (as-is (Dictionary Name (Handler s i o)))]
+  (type: #export (Handler s i o)
+    (-> Name
+        (//.Phase [<Bundle> s] i o)
+        (//.Phase [<Bundle> s] (List i) o)))
+
+  (type: #export (Bundle s i o)
+    <Bundle>))
+
+(type: #export (State s i o)
+  {#bundle (Bundle s i o)
+   #state s})
+
+(type: #export (Operation s i o v)
+  (//.Operation (State s i o) v))
+
+(type: #export (Phase s i o)
+  (//.Phase (State s i o) i o))
+
+(exception: #export (cannot-overwrite {name Name})
+  (exception.report
+   ["Extension" (%.text name)]))
+
+(exception: #export (incorrect-arity {name Name} {arity Nat} {args Nat})
+  (exception.report
+   ["Extension" (%.text name)]
+   ["Expected" (%.nat arity)]
+   ["Actual" (%.nat args)]))
+
+(exception: #export [a] (invalid-syntax {name Name} {%format (Format a)} {inputs (List a)})
+  (exception.report
+   ["Extension" (%.text name)]
+   ["Inputs" (exception.enumerate %format inputs)]))
+
+(exception: #export [s i o] (unknown {name Name} {bundle (Bundle s i o)})
+  (exception.report
+   ["Extension" (%.text name)]
+   ["Available" (|> bundle
+                    dictionary.keys
+                    (list.sort text@<)
+                    (exception.enumerate %.text))]))
+
+(type: #export (Extender s i o)
+  (-> Any (Handler s i o)))
+
+(def: #export (install extender name handler)
+  (All [s i o]
+    (-> (Extender s i o) Text (Handler s i o) (Operation s i o Any)))
+  (function (_ [bundle state])
+    (case (dictionary.get name bundle)
+      #.None
+      (#try.Success [[(dictionary.put name (extender handler) bundle) state]
+                     []])
+
+      _
+      (exception.throw cannot-overwrite name))))
+
+(def: #export (apply phase [name parameters])
+  (All [s i o]
+    (-> (Phase s i o) (Extension i) (Operation s i o o)))
+  (function (_ (^@ stateE [bundle state]))
+    (case (dictionary.get name bundle)
+      (#.Some handler)
+      (((handler name phase) parameters)
+       stateE)
+
+      #.None
+      (exception.throw unknown [name bundle]))))
+
+(def: #export (localized get set transform)
+  (All [s s' i o v]
+    (-> (-> s s') (-> s' s s) (-> s' s')
+        (-> (Operation s i o v) (Operation s i o v))))
+  (function (_ operation)
+    (function (_ [bundle state])
+      (let [old (get state)]
+        (case (operation [bundle (set (transform old) state)])
+          (#try.Success [[bundle' state'] output])
+          (#try.Success [[bundle' (set old state')] output])
+
+          (#try.Failure error)
+          (#try.Failure error))))))
+
+(def: #export (temporary transform)
+  (All [s i o v]
+    (-> (-> s s)
+        (-> (Operation s i o v) (Operation s i o v))))
+  (function (_ operation)
+    (function (_ [bundle state])
+      (case (operation [bundle (transform state)])
+        (#try.Success [[bundle' state'] output])
+        (#try.Success [[bundle' state] output])
+
+        (#try.Failure error)
+        (#try.Failure error)))))
+
+(def: #export (with-state state)
+  (All [s i o v]
+    (-> s (-> (Operation s i o v) (Operation s i o v))))
+  (..temporary (function.constant state)))
+
+(def: #export (read get)
+  (All [s i o v]
+    (-> (-> s v) (Operation s i o v)))
+  (function (_ [bundle state])
+    (#try.Success [[bundle state] (get state)])))
+
+(def: #export (update transform)
+  (All [s i o]
+    (-> (-> s s) (Operation s i o Any)))
+  (function (_ [bundle state])
+    (#try.Success [[bundle (transform state)] []])))
+
+(def: #export (lift action)
+  (All [s i o v]
+    (-> (//.Operation s v)
+        (//.Operation [(Bundle s i o) s] v)))
+  (function (_ [bundle state])
+    (case (action state)
+      (#try.Success [state' output])
+      (#try.Success [[bundle state'] output])
+
+      (#try.Failure error)
+      (#try.Failure error))))
