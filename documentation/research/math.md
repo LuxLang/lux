@@ -105,6 +105,7 @@
 
 # Linear Algebra
 
+1. [Linear Algebra And Multi Dimensional Geometry](https://mirtitles.org/2020/02/13/4129/)
 1. [Interactive Linear Algebra](https://textbooks.math.gatech.edu/ila/)
 1. [Don’t invert that matrix](https://www.johndcook.com/blog/2010/01/19/dont-invert-that-matrix/)
 1. [“Don’t invert that matrix” – why and how](https://civilstat.com/2015/07/dont-invert-that-matrix-why-and-how/)
@@ -159,6 +160,7 @@
 
 # Geometric Algebra | Clifford Algebra
 
+1. [An Introduction to Geometric Algebra over R^2](https://bitworking.org/news/ga/2d)
 1. [Exterior Product](https://medium.com/@marksaroufim/exterior-product-ecd5836c28ab)
 1. [Projective geometric algebra: A modern framework for doing geometry](http://page.math.tu-berlin.de/~gunn/PGA/index.html)
 1. [Geometric Algebra for Computer Graphics](https://slides.com/enkimute/siggraph/#/)

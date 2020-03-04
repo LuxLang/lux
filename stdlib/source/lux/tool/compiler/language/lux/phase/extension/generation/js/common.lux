@@ -1,0 +1,230 @@
+(.module:
+  [lux #*
+   [host (#+ import:)]
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    ["." try]
+    ["<>" parser
+     ["<s>" synthesis (#+ Parser)]]]
+   [data
+    ["." product]
+    [number
+     ["f" frac]]
+    [collection
+     ["." list ("#@." functor)]
+     ["." dictionary]]]
+   [target
+    ["_" js (#+ Literal Expression Statement)]]]
+  ["." //// #_
+   ["/" bundle]
+   ["/#" // #_
+    ["." extension]
+    [generation
+     [extension (#+ Nullary Unary Binary Trinary
+                    nullary unary binary trinary)]
+     ["//" js #_
+      ["#." runtime (#+ Operation Phase Handler Bundle)]
+      ["#." primitive]]]
+    [//
+     [synthesis (#+ %synthesis)]
+     [///
+      ["#" phase]]]]])
+
+(def: #export (custom [parser handler])
+  (All [s]
+    (-> [(Parser s)
+         (-> Text Phase s (Operation Expression))]
+        Handler))
+  (function (_ extension-name phase input)
+    (case (<s>.run parser input)
+      (#try.Success input')
+      (handler extension-name phase input')
+
+      (#try.Failure error)
+      (/////.throw extension.invalid-syntax [extension-name %synthesis input]))))
+
+## [Procedures]
+## [[Bits]]
+(template [<name> <op>]
+  [(def: (<name> [paramG subjectG])
+     (Binary Expression)
+     (<op> subjectG (//runtime.i64//to-number paramG)))]
+
+  [i64//left-shift             //runtime.i64//left-shift]
+  [i64//arithmetic-right-shift //runtime.i64//arithmetic-right-shift]
+  [i64//logical-right-shift    //runtime.i64//logic-right-shift]
+  )
+
+## [[Numbers]]
+(import: #long java/lang/Double
+  (#static MIN_VALUE double)
+  (#static MAX_VALUE double))
+
+(template [<name> <const>]
+  [(def: (<name> _)
+     (Nullary Expression)
+     (//primitive.f64 <const>))]
+
+  [f64//smallest (java/lang/Double::MIN_VALUE)]
+  [f64//min      (f.* -1.0 (java/lang/Double::MAX_VALUE))]
+  [f64//max      (java/lang/Double::MAX_VALUE)]
+  )
+
+(def: f64//decode
+  (Unary Expression)
+  (|>> list
+       (_.apply/* (_.var "parseFloat"))
+       _.return
+       (_.closure (list))
+       //runtime.lux//try))
+
+(def: i64//char
+  (Unary Expression)
+  (|>> //runtime.i64//to-number
+       (list)
+       (_.apply/* (_.var "String.fromCharCode"))))
+
+## [[Text]]
+(def: (text//concat [leftG rightG])
+  (Binary Expression)
+  (|> leftG (_.do "concat" (list rightG))))
+
+(def: (text//clip [startG endG subjectG])
+  (Trinary Expression)
+  (//runtime.text//clip startG endG subjectG))
+
+(def: (text//index [startG partG subjectG])
+  (Trinary Expression)
+  (//runtime.text//index startG partG subjectG))
+
+## [[IO]]
+(def: (io//log messageG)
+  (Unary Expression)
+  ($_ _.,
+      (//runtime.io//log messageG)
+      //runtime.unit))
+
+(def: (io//exit codeG)
+  (Unary Expression)
+  (let [@@process (_.var "process")
+        @@window (_.var "window")
+        @@location (_.var "location")]
+    ($_ _.or
+        ($_ _.and
+            (_.not (_.= _.undefined (_.type-of @@process)))
+            (_.the "exit" @@process)
+            (_.do "exit" (list (//runtime.i64//to-number codeG)) @@process))
+        (_.do "close" (list) @@window)
+        (_.do "reload" (list) @@location))))
+
+(def: (io//current-time _)
+  (Nullary Expression)
+  (|> (_.new (_.var "Date") (list))
+      (_.do "getTime" (list))
+      //runtime.i64//from-number))
+
+## TODO: Get rid of this ASAP
+(def: lux::syntax-char-case!
+  (..custom [($_ <>.and
+                 <s>.any
+                 <s>.any
+                 (<>.some (<s>.tuple ($_ <>.and
+                                         (<s>.tuple (<>.many <s>.i64))
+                                         <s>.any))))
+             (function (_ extension-name phase [input else conditionals])
+               (do /////.monad
+                 [inputG (phase input)
+                  elseG (phase else)
+                  conditionalsG (: (Operation (List [(List Literal)
+                                                     Statement]))
+                                   (monad.map @ (function (_ [chars branch])
+                                                  (do @
+                                                    [branchG (phase branch)]
+                                                    (wrap [(list@map (|>> .int _.int) chars)
+                                                           (_.return branchG)])))
+                                              conditionals))]
+                 (wrap (_.apply/* (_.closure (list)
+                                             (_.switch (_.the //runtime.i64-low-field inputG)
+                                                       conditionalsG
+                                                       (#.Some (_.return elseG))))
+                                  (list)))))]))
+
+## [Bundles]
+(def: lux-procs
+  Bundle
+  (|> /.empty
+      (/.install "syntax char case!" lux::syntax-char-case!)
+      (/.install "is" (binary (product.uncurry _.=)))
+      (/.install "try" (unary //runtime.lux//try))))
+
+(def: i64-procs
+  Bundle
+  (<| (/.prefix "i64")
+      (|> /.empty
+          (/.install "and" (binary (product.uncurry //runtime.i64//and)))
+          (/.install "or" (binary (product.uncurry //runtime.i64//or)))
+          (/.install "xor" (binary (product.uncurry //runtime.i64//xor)))
+          (/.install "left-shift" (binary i64//left-shift))
+          (/.install "logical-right-shift" (binary i64//logical-right-shift))
+          (/.install "arithmetic-right-shift" (binary i64//arithmetic-right-shift))
+          (/.install "=" (binary (product.uncurry //runtime.i64//=)))
+          (/.install "<" (binary (product.uncurry //runtime.i64//<)))
+          (/.install "+" (binary (product.uncurry //runtime.i64//+)))
+          (/.install "-" (binary (product.uncurry //runtime.i64//-)))
+          (/.install "*" (binary (product.uncurry //runtime.i64//*)))
+          (/.install "/" (binary (product.uncurry //runtime.i64///)))
+          (/.install "%" (binary (product.uncurry //runtime.i64//%)))
+          (/.install "f64" (unary //runtime.i64//to-number))
+          (/.install "char" (unary i64//char))
+          )))
+
+(def: f64-procs
+  Bundle
+  (<| (/.prefix "f64")
+      (|> /.empty
+          (/.install "+" (binary (product.uncurry _.+)))
+          (/.install "-" (binary (product.uncurry _.-)))
+          (/.install "*" (binary (product.uncurry _.*)))
+          (/.install "/" (binary (product.uncurry _./)))
+          (/.install "%" (binary (product.uncurry _.%)))
+          (/.install "=" (binary (product.uncurry _.=)))
+          (/.install "<" (binary (product.uncurry _.<)))
+          (/.install "smallest" (nullary f64//smallest))
+          (/.install "min" (nullary f64//min))
+          (/.install "max" (nullary f64//max))
+          (/.install "i64" (unary //runtime.i64//from-number))
+          (/.install "encode" (unary (_.do "toString" (list))))
+          (/.install "decode" (unary f64//decode)))))
+
+(def: text-procs
+  Bundle
+  (<| (/.prefix "text")
+      (|> /.empty
+          (/.install "=" (binary (product.uncurry _.=)))
+          (/.install "<" (binary (product.uncurry _.<)))
+          (/.install "concat" (binary text//concat))
+          (/.install "index" (trinary text//index))
+          (/.install "size" (unary (|>> (_.the "length") //runtime.i64//from-number)))
+          (/.install "char" (binary (product.uncurry //runtime.text//char)))
+          (/.install "clip" (trinary text//clip))
+          )))
+
+(def: io-procs
+  Bundle
+  (<| (/.prefix "io")
+      (|> /.empty
+          (/.install "log" (unary io//log))
+          (/.install "error" (unary //runtime.io//error))
+          (/.install "exit" (unary io//exit))
+          (/.install "current-time" (nullary io//current-time)))))
+
+(def: #export bundle
+  Bundle
+  (<| (/.prefix "lux")
+      (|> lux-procs
+          (dictionary.merge i64-procs)
+          (dictionary.merge f64-procs)
+          (dictionary.merge text-procs)
+          (dictionary.merge io-procs)
+          )))

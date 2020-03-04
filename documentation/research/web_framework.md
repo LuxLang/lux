@@ -8,6 +8,7 @@
 
 # Reference
 
+1. [Redux is half of a pattern (1/2)](https://dev.to/davidkpiano/redux-is-half-of-a-pattern-1-2-1hd7)
 1. [Introducing Concurrent Mode (Experimental)](https://reactjs.org/docs/concurrent-mode-intro.html)
 1. https://github.com/daybrush/scenejs
 1. https://blog.ionicframework.com/announcing-capacitor-1-0/
@@ -23,6 +24,7 @@
 
 # Exemplar
 
+1. [root: A recursive UI resolver](https://github.com/den1k/root)
 1. https://www.http4k.org/blog/meet_http4k/
 1. Django
 1. Ruby On Rails
