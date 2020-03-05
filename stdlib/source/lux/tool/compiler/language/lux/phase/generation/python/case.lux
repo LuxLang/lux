@@ -17,16 +17,18 @@
     ["_" python (#+ Expression SVar Statement)]]]
   ["." // #_
    ["#." runtime (#+ Operation Phase)]
-   ["#." reference]
    ["#." primitive]
-   ["#/" //
+   ["/#" // #_
     ["#." reference]
-    ["#/" // ("#@." monad)
+    ["/#" // #_
      [synthesis
       ["." case]]
-     ["#/" // #_
-      ["." reference (#+ Register)]
-      ["#." synthesis (#+ Synthesis Path)]]]]])
+     ["/#" // #_
+      ["#." synthesis (#+ Synthesis Path)]
+      ["#." generation]
+      ["//#" /// #_
+       ["#." reference (#+ Register)]
+       ["#." phase ("#@." monad)]]]]]])
 
 (def: #export register
   (///reference.local _.var))
@@ -37,18 +39,18 @@
 (def: #export (let generate [valueS register bodyS])
   (-> Phase [Synthesis Register Synthesis]
       (Operation (Expression Any)))
-  (do ////.monad
+  (do ///////phase.monad
     [valueO (generate valueS)
      bodyO (generate bodyS)]
     ## TODO: Find some way to do 'let' without paying the price of the closure.
     (wrap (_.apply/* (_.lambda (list (..register register))
-                          bodyO)
+                               bodyO)
                      (list valueO)))))
 
 (def: #export (record-get generate valueS pathP)
   (-> Phase Synthesis (List (Either Nat Nat))
       (Operation (Expression Any)))
-  (do ////.monad
+  (do ///////phase.monad
     [valueO (generate valueS)]
     (wrap (list@fold (function (_ side source)
                        (.let [method (.case side
@@ -64,7 +66,7 @@
 (def: #export (if generate [testS thenS elseS])
   (-> Phase [Synthesis Synthesis Synthesis]
       (Operation (Expression Any)))
-  (do ////.monad
+  (do ///////phase.monad
     [testO (generate testS)
      thenO (generate thenS)
      elseO (generate elseS)]
@@ -137,18 +139,18 @@
   (-> Phase Path (Operation (Statement Any)))
   (.case pathP
     (^ (/////synthesis.path/then bodyS))
-    (:: ////.monad map _.return (generate bodyS))
+    (///////phase@map _.return (generate bodyS))
 
     #/////synthesis.Pop
-    (////@wrap ..pop!)
+    (///////phase@wrap ..pop!)
 
     (#/////synthesis.Bind register)
-    (////@wrap (_.set (list (..register register)) ..peek))
+    (///////phase@wrap (_.set (list (..register register)) ..peek))
 
     (^template [<tag> <format>]
       (^ (<tag> value))
-      (////@wrap (_.when (|> value <format> (_.= ..peek) _.not)
-                         fail-pm!)))
+      (///////phase@wrap (_.when (|> value <format> (_.= ..peek) _.not)
+                                 fail-pm!)))
     ([/////synthesis.path/bit  //primitive.bit]
      [/////synthesis.path/i64  //primitive.i64]
      [/////synthesis.path/f64  //primitive.f64]
@@ -156,42 +158,42 @@
 
     (^template [<complex> <simple> <choice>]
       (^ (<complex> idx))
-      (////@wrap (<choice> false idx))
+      (///////phase@wrap (<choice> false idx))
 
       (^ (<simple> idx nextP))
       (|> nextP
           (pattern-matching' generate)
-          (:: ////.monad map (_.then (<choice> true idx)))))
+          (///////phase@map (_.then (<choice> true idx)))))
     ([/////synthesis.side/left  /////synthesis.simple-left-side  ..left-choice]
      [/////synthesis.side/right /////synthesis.simple-right-side ..right-choice])
 
     (^ (/////synthesis.member/left 0))
-    (////@wrap (|> ..peek (_.nth (_.int +0)) ..push!))
+    (///////phase@wrap (|> ..peek (_.nth (_.int +0)) ..push!))
     
     (^template [<pm> <getter>]
       (^ (<pm> lefts))
-      (////@wrap (|> ..peek (<getter> (_.int (.int lefts))) ..push!)))
+      (///////phase@wrap (|> ..peek (<getter> (_.int (.int lefts))) ..push!)))
     ([/////synthesis.member/left  //runtime.tuple//left]
      [/////synthesis.member/right //runtime.tuple//right])
 
     (^ (/////synthesis.!bind-top register thenP))
-    (do ////.monad
+    (do ///////phase.monad
       [then! (pattern-matching' generate thenP)]
-      (////@wrap ($_ _.then
-                     (_.set (list (..register register)) ..peek-and-pop)
-                     then!)))
+      (///////phase@wrap ($_ _.then
+                             (_.set (list (..register register)) ..peek-and-pop)
+                             then!)))
 
     (^ (/////synthesis.!multi-pop nextP))
     (.let [[extra-pops nextP'] (case.count-pops nextP)]
-      (do ////.monad
+      (do ///////phase.monad
         [next! (pattern-matching' generate nextP')]
-        (////@wrap ($_ _.then
-                       (..multi-pop! (n.+ 2 extra-pops))
-                       next!))))
+        (///////phase@wrap ($_ _.then
+                               (..multi-pop! (n.+ 2 extra-pops))
+                               next!))))
 
     (^template [<tag> <combinator>]
       (^ (<tag> preP postP))
-      (do ////.monad
+      (do ///////phase.monad
         [pre! (pattern-matching' generate preP)
          post! (pattern-matching' generate postP)]
         (wrap (<combinator> pre! post!))))
@@ -200,7 +202,7 @@
 
 (def: (pattern-matching generate pathP)
   (-> Phase Path (Operation (Statement Any)))
-  (do ////.monad
+  (do ///////phase.monad
     [pattern-matching! (pattern-matching' generate pathP)]
     (wrap ($_ _.then
               (_.while (_.bool true)
@@ -209,11 +211,11 @@
 
 (def: (gensym prefix)
   (-> Text (Operation SVar))
-  (:: ////.monad map (|>> %.nat (format prefix) _.var) ///.next))
+  (///////phase@map (|>> %.nat (format prefix) _.var) /////generation.next))
 
 (def: #export (case generate [valueS pathP])
   (-> Phase [Synthesis Path] (Operation (Expression Any)))
-  (do ////.monad
+  (do ///////phase.monad
     [initG (generate valueS)
      pattern-matching! (pattern-matching generate pathP)
      @case (..gensym "case")
@@ -223,15 +225,15 @@
                               set.to-list
                               (list@map (function (_ variable)
                                           (.case variable
-                                            (#reference.Local register)
+                                            (#///////reference.Local register)
                                             (..register register)
                                             
-                                            (#reference.Foreign register)
+                                            (#///////reference.Foreign register)
                                             (..capture register)))))]
-     _ (///.save! true ["" (_.code @case)]
-                  (_.def @case (list& @init @dependencies+)
-                         ($_ _.then
-                             (_.set (list @cursor) (_.list (list @init)))
-                             (_.set (list @savepoint) (_.list (list)))
-                             pattern-matching!)))]
+     _ (/////generation.save! true ["" (_.code @case)]
+                              (_.def @case (list& @init @dependencies+)
+                                     ($_ _.then
+                                         (_.set (list @cursor) (_.list (list @init)))
+                                         (_.set (list @savepoint) (_.list (list)))
+                                         pattern-matching!)))]
     (wrap (_.apply/* @case (list& initG @dependencies+)))))
