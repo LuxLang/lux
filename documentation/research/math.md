@@ -191,6 +191,7 @@
 1. [THE GEOMETRY OF REFLECTION GROUPS](http://people.mpim-bonn.mpg.de/geordie/mpg.pdf)
 1. https://kubuszok.com/2018/algebras-we-love/
 1. [Notes on Computational Group Theory](https://www.math.colostate.edu/~hulpke/CGT/cgtnotes.pdf)
+1. [An Invitation to General Algebra and Universal Constructions](https://math.berkeley.edu/~gbergman/245/)
 
 # Logic
 

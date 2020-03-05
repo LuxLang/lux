@@ -6,17 +6,21 @@
     ["." try (#+ Try)]
     ["ex" exception (#+ exception:)]]
    [data
+    [binary (#+ Binary)]
     ["." product]
-    ["." text ("#@." hash)]
+    ["." text ("#@." hash)
+     ["%" format (#+ format)]]
     [collection
      ["." list ("#@." functor)]
      ["." dictionary]
-     ["." set]]]
+     ["." set]
+     ["." row ("#@." functor)]]]
    ["." macro]
    [world
     ["." file]]]
   ["." // #_
    ["/#" // (#+ Instancer)
+    ["#." phase]
     [language
      [lux
       ["#." version]
@@ -36,9 +40,7 @@
         [".E" analysis]
         [".E" synthesis]
         [directive
-         [".D" lux]]]]
-      [///
-       ["#." phase]]]]
+         [".D" lux]]]]]]
     [meta
      [archive
       ["." signature]
@@ -121,12 +123,19 @@
      (wrap [source ///generation.empty-buffer]))))
 
 (def: (end module)
-  (-> Module (Operation Any))
+  (-> Module
+      (All [anchor expression directive]
+        (///directive.Operation anchor expression directive [.Module (///generation.Buffer directive)])))
   (do ///phase.monad
     [_ (///directive.lift-analysis
-        (module.set-compiled module))]
-    (///directive.lift-generation
-     (///generation.save-buffer! module))))
+        (module.set-compiled module))
+     final-buffer (///directive.lift-generation
+                   (///generation.save-buffer! module))
+     analysis-module (<| (: (Operation .Module))
+                         ///directive.lift-analysis
+                         extension.lift
+                         macro.current-module)]
+    (wrap [analysis-module final-buffer])))
 
 ## TODO: Inline ASAP
 (def: (get-current-buffer old-buffer)
@@ -194,9 +203,9 @@
   (-> .Module Aliases)
   (|>> (get@ #.module-aliases) (dictionary.from-list text.hash)))
 
-(def: #export (compiler expander prelude)
-  (-> Expander Module
-      (All [anchor expression directive]
+(def: #export (compiler expander prelude write-directive)
+  (All [anchor expression directive]
+    (-> Expander Module (-> directive Binary)
         (Instancer (///directive.State+ anchor expression directive) .Module)))
   (let [execute! (directiveP.phase expander)]
     (function (_ key parameters input)
@@ -211,17 +220,11 @@
                           (loop [iteration (<| (///phase.run' state)
                                                (..iterate expander module source buffer ///syntax.no-aliases))]
                             (do @
-                              [[state ?source&requirements&buffer] iteration]
-                              (case ?source&requirements&buffer
+                              [[state ?source&requirements&temporary-buffer] iteration]
+                              (case ?source&requirements&temporary-buffer
                                 #.None
                                 (do @
-                                  [[state analysis-module] (<| (///phase.run' state)
-                                                               (do ///phase.monad
-                                                                 [_ (..end module)]
-                                                                 (<| (: (Operation .Module))
-                                                                     ///directive.lift-analysis
-                                                                     extension.lift
-                                                                     macro.current-module)))
+                                  [[state [analysis-module final-buffer]] (///phase.run' state (..end module))
                                    #let [descriptor {#descriptor.hash hash
                                                      #descriptor.name module
                                                      #descriptor.file (get@ #///.file input)
@@ -229,9 +232,12 @@
                                                      #descriptor.state #.Compiled}]]
                                   (wrap [state
                                          (#.Right [[descriptor (document.write key analysis-module)]
-                                                   (dictionary.new text.hash)])]))
+                                                   (|> final-buffer
+                                                       (row@map (function (_ [name directive])
+                                                                  [(product.right name)
+                                                                   (write-directive directive)])))])]))
 
-                                (#.Some [source requirements buffer])
+                                (#.Some [source requirements temporary-buffer])
                                 (wrap [state
                                        (#.Left {#///.dependencies (|> requirements
                                                                       (get@ #///directive.imports)
@@ -244,10 +250,10 @@
                                                                                                  extension.lift
                                                                                                  macro.current-module)
                                                                              _ (///directive.lift-generation
-                                                                                (///generation.set-buffer buffer))
+                                                                                (///generation.set-buffer temporary-buffer))
                                                                              _ (monad.map @ execute! (get@ #///directive.referrals requirements))
-                                                                             buffer (..get-current-buffer buffer)]
-                                                                            (..iterate expander module source buffer (..module-aliases analysis-module))))))})])
+                                                                             temporary-buffer (..get-current-buffer temporary-buffer)]
+                                                                            (..iterate expander module source temporary-buffer (..module-aliases analysis-module))))))})])
                                 )))))}))))
 
 (def: #export key

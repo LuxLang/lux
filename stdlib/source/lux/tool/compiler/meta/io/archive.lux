@@ -1,72 +1,78 @@
 (.module:
   [lux (#- Module)
+   ["@" target (#+ Host)]
+   [abstract
+    [monad (#+ do)]]
    [control
-    monad
-    ["." try]
-    ["ex" exception (#+ exception:)]]
+    ["." try (#+ Try)]
+    ["." exception (#+ exception:)]
+    [concurrency
+     ["." promise (#+ Promise)]]
+    [security
+     ["!" capability (#+ capability:)]]]
    [data
+    [binary (#+ Binary)]
     ["." text
      ["%" format (#+ format)]]]
    [world
-    ["." file (#+ File System)]
-    [binary (#+ Binary)]]]
-  ["." // (#+ Module)
-   [///
-    ["." host]]])
+    ["." file (#+ Path File System)]]]
+  ["." // (#+ Module)])
 
-(type: #export Document File)
+(exception: #export (cannot-prepare {archive Path}
+                                    {module Module}
+                                    {error Text})
+  (exception.report
+   ["Archive" archive]
+   ["Module" module]
+   ["Error" error]))
 
-(exception: #export (cannot-prepare {archive File} {module Module})
-  (ex.report ["Archive" archive]
-             ["Module" module]))
+(def: #export (archive system host root)
+  (-> (System Promise) Host Path Path)
+  (format root (:: system separator) host))
 
-(def: #export (archive System<m> root)
-  (All [m] (-> (System m) File File))
-  (<| (format root (:: System<m> separator))
-      (`` (for {(~~ (static host.common-lisp)) host.common-lisp
-                (~~ (static host.js))          host.js
-                (~~ (static host.old))         host.jvm
-                (~~ (static host.jvm))         host.jvm
-                (~~ (static host.lua))         host.lua
-                (~~ (static host.php))         host.php
-                (~~ (static host.python))      host.python
-                (~~ (static host.r))           host.r
-                (~~ (static host.ruby))        host.ruby
-                (~~ (static host.scheme))      host.scheme}))))
+(def: #export (document system host root module)
+  (-> (System Promise) Host Path Module Path)
+  (format (..archive system host root)
+          (:: system separator)
+          (//.sanitize system module)))
 
-(def: #export (document System<m> root module)
-  (All [m] (-> (System m) File Module Document))
-  (let [archive (..archive System<m> root)]
-    (|> module
-        (//.sanitize System<m>)
-        (format archive (:: System<m> separator)))))
+(def: #export (artifact system host root module name)
+  (-> (System Promise) Host Path Module Text Path)
+  (format (document system host root module)
+          (:: system separator)
+          (//.sanitize system name)))
 
-(def: #export (prepare System<m> root module)
-  (All [m] (-> (System m) File Module (m Any)))
-  (do (:: System<m> &monad)
-    [#let [archive (..archive System<m> root)
-           document (..document System<m> root module)]
-     document-exists? (file.exists? System<m> document)]
+(def: #export (prepare system host root module)
+  (-> (System Promise) Host Path Module (Promise (Try Any)))
+  (do promise.monad
+    [#let [document (..document system host root module)]
+     document-exists? (file.exists? promise.monad system document)]
     (if document-exists?
-      (wrap [])
+      (wrap (#try.Success []))
       (do @
-        [outcome (:: System<m> try (:: System<m> make-directory document))]
+        [outcome (!.use (:: system create-directory) document)]
         (case outcome
           (#try.Success output)
-          (wrap output)
+          (wrap (#try.Success []))
 
-          (#try.Failure _)
-          (:: System<m> throw cannot-prepare [archive module]))))))
+          (#try.Failure error)
+          (wrap (exception.throw ..cannot-prepare [(..archive system host root)
+                                                   module
+                                                   error])))))))
 
-(def: #export (write System<m> root content name)
-  (All [m] (-> (System m) File Binary Text (m Any)))
-  (:: System<m> write content (..document System<m> root name)))
+(def: #export (write system host root module name content)
+  (-> (System Promise) Host Path Module Text Binary (Promise (Try Any)))
+  (do (try.with promise.monad)
+    [artifact (: (Promise (Try (File Promise)))
+                 (file.get-file promise.monad system
+                                (..artifact system host root module name)))]
+    (!.use (:: artifact over-write) content)))
 
-(def: #export (module System<m> root document)
-  (All [m] (-> (System m) File Document (Maybe Module)))
-  (case (text.split-with (..archive System<m> root) document)
+(def: #export (module system host root document)
+  (-> (System Promise) Host Path Path (Maybe Module))
+  (case (text.split-with (..archive system host root) document)
     (#.Some ["" post])
-    (let [raw (text.replace-all (:: System<m> separator) "/" post)]
+    (let [raw (text.replace-all (:: system separator) "/" post)]
       (if (text.starts-with? "/" raw)
         (text.clip' 1 raw)
         (#.Some raw)))

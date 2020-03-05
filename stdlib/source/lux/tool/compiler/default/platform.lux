@@ -1,24 +1,27 @@
 (.module:
   [lux (#- Module)
    [type (#+ :share)]
+   ["@" target (#+ Host)]
    [abstract
     ["." monad (#+ Monad do)]]
    [control
     ["." try (#+ Try)]
     [concurrency
-     ["." promise (#+ Promise)]]]
+     ["." promise (#+ Promise) ("#@." monad)]]]
    [data
+    [binary (#+ Binary)]
     ["." bit]
     ["." product]
-    [text
+    ["." text
      ["%" format (#+ format)]]
     [collection
-     ["." list]]]
+     ["." list]
+     ["." row ("#@." functor)]]]
    [world
-    ["." file (#+ File)]]]
+    ["." file (#+ Path)]]]
   ["." // #_
    ["#." init]
-   ["/#" //
+   ["/#" // (#+ Output)
     ["#." phase]
     [language
      [lux
@@ -36,7 +39,8 @@
      ["." archive (#+ Archive)
       [descriptor (#+ Module)]]
      [io
-      ["." context]]]]]
+      ["." context]
+      ["ioW" archive]]]]]
   [program
    [compositor
     ["." cli (#+ Configuration)]]])
@@ -45,22 +49,38 @@
   {#&file-system (file.System Promise)
    #host (///generation.Host expression directive)
    #phase (///generation.Phase anchor expression directive)
-   #runtime (///generation.Operation anchor expression directive Any)})
-
-## (def: (write-module target-dir file-name module-name module outputs)
-##   (-> File Text Text Module Outputs (Process Any))
-##   (do (try.with io.monad)
-##     [_ (monad.map @ (product.uncurry (&io.write target-dir))
-##                   (dictionary.entries outputs))]
-##     (&io.write target-dir
-##                (format module-name "/" cache.descriptor-name)
-##                (encoding.to-utf8 (%.code (cache/description.write file-name module))))))
+   #runtime (///generation.Operation anchor expression directive Any)
+   #write (-> directive Binary)})
 
 (with-expansions [<type-vars> (as-is [anchor expression directive])
                   <Platform> (as-is (Platform anchor expression directive))
                   <State+> (as-is (///directive.State+ anchor expression directive))
                   <Bundle> (as-is (///generation.Bundle anchor expression directive))]
 
+  (def: (cache-module platform host target-dir module-file-name module-name output ## module
+                      )
+    (All <type-vars>
+      (-> <Platform> Host Path Path Text Output ## Module
+          (Promise (Try Any))))
+    (let [system (get@ #&file-system platform)
+          write-artifact! (: (-> [Text Binary] (Promise (Try Any)))
+                             (function (_ [name content])
+                               (ioW.write system host target-dir module-name name content)))]
+      (do (try.with promise.monad)
+        [_ (ioW.prepare system host target-dir module-name)
+         _ (|> output
+               row.to-list
+               (monad.map promise.monad
+                          write-artifact!)
+               (: (Promise (List (Try Any))))
+               (promise@map (monad.seq try.monad))
+               (: (Promise (Try (List Any)))))]
+        (wrap [])
+        ## (&io.write target-dir
+        ##            (format module-name "/" cache.descriptor-name)
+        ##            (encoding.to-utf8 (%.code (cache/description.write module-file-name module))))
+        )))
+  
   (def: pause-context
     (All <type-vars>
       (-> <State+> ///generation.Context))
@@ -90,10 +110,21 @@
     (All <type-vars>
       (///generation.Operation anchor expression directive (Buffer directive)))
     (///generation.save-buffer! ""))
-  
-  (def: #export (initialize target expander host-analysis platform generation-bundle host-directive-bundle program extender)
+
+  (def: (ensure-target! platform target host)
     (All <type-vars>
-      (-> Text
+      (-> <Platform> Path Host (Promise (Try Any))))
+    (let [system (get@ #&file-system platform)
+          mkdir (: (-> Path (Promise (Try Any)))
+                   (file.get-directory promise.monad system))]
+      (do (try.with promise.monad)
+        [_ (mkdir target)]
+        (mkdir (ioW.archive system host target)))))
+  
+  (def: #export (initialize target host expander host-analysis platform generation-bundle host-directive-bundle program extender)
+    (All <type-vars>
+      (-> Path
+          Host
           Expander
           ///analysis.Bundle
           <Platform>
@@ -102,7 +133,7 @@
           (-> expression directive)
           Extender
           (Promise (Try <State+>))))
-    (let [state (//init.state target
+    (let [state (//init.state host
                               expander
                               host-analysis
                               (get@ #host platform)
@@ -111,14 +142,17 @@
                               host-directive-bundle
                               program
                               extender)]
-      (|> (do ///phase.monad
-            [_ ..initialize-buffer!
-             _ (..compile-runtime! platform)]
-            ..save-runtime-buffer!)
-          ///directive.lift-generation
-          (///phase.run' state)
-          (:: try.functor map product.left)
-          (:: promise.monad wrap)))
+      (do (try.with promise.monad)
+        [_ (..ensure-target! platform target host)]
+        (|> (do ///phase.monad
+              [_ ..initialize-buffer!
+               _ (..compile-runtime! platform)
+               buffer ..save-runtime-buffer!]
+              (wrap []))
+            ///directive.lift-generation
+            (///phase.run' state)
+            (:: try.functor map product.left)
+            promise@wrap)))
 
     ## (case (runtimeT.generate ## (initL.compiler (io.run js.init))
     ##        (initL.compiler (io.run hostL.init-host))
@@ -146,19 +180,19 @@
     ##   (io.fail error))
     )
 
-  (def: #export (compile partial-host-extension expander platform configuration archive state)
+  (def: #export (compile target partial-host-extension expander platform host configuration archive state)
     (All <type-vars>
-      (-> Text Expander <Platform> Configuration Archive <State+> (Promise (Try [Archive <State+>]))))
+      (-> Text Text Expander <Platform> Host Configuration Archive <State+> (Promise (Try [Archive <State+>]))))
     (let [source-module (get@ #cli.module configuration)
           compiler (:share <type-vars>
                            {<State+>
                             state}
                            {(///.Compiler <State+> .Module Any)
-                            ((//init.compiler expander syntax.prelude) //init.key (list))})]
+                            ((//init.compiler expander syntax.prelude (get@ #write platform)) //init.key (list))})]
       (loop [module source-module
              [archive state] [archive state]]
         (if (archive.archived? archive module)
-          (:: promise.monad wrap (#try.Success [archive state]))
+          (promise@wrap (#try.Success [archive state]))
           (let [import! (:share <type-vars>
                                 {<Platform>
                                  platform}
@@ -169,10 +203,7 @@
               [input (context.read (get@ #&file-system platform)
                                    (get@ #cli.sources configuration)
                                    partial-host-extension
-                                   module)
-               ## _ (&io.prepare-module target-dir (get@ #cli.module configuration))
-               ## _ (write-module target-dir file-name (get@ #cli.module configuration) module outputs)
-               ]
+                                   module)]
               (loop [archive archive
                      state (..resume-context (///generation.fresh-context module) state)
                      compilation (compiler (:coerce ///.Input input))]
@@ -216,13 +247,22 @@
                       (continue! archive state more)
 
                       (#.Right [descriptor+document output])
-                      (case (archive.add module descriptor+document archive)
-                        (#try.Success archive)
-                        (wrap [archive state])
-                        
-                        (#try.Failure error)
-                        (:: promise.monad wrap (#try.Failure error))))
+                      (do (try.with promise.monad)
+                        [_ (..cache-module platform
+                                           host
+                                           target
+                                           (get@ #///.file input)
+                                           module
+                                           output
+                                           ## module
+                                           )]
+                        (case (archive.add module descriptor+document archive)
+                          (#try.Success archive)
+                          (wrap [archive state])
+                          
+                          (#try.Failure error)
+                          (promise@wrap (#try.Failure error)))))
 
                     (#try.Failure error)
-                    (:: promise.monad wrap (#try.Failure error)))))))))))
+                    (promise@wrap (#try.Failure error)))))))))))
   )

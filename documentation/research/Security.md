@@ -77,3 +77,6 @@
 1. http://www.ranum.com/security/computer_security/editorials/dumb/index.html
 1. [Information Technology — Programming languages — Guidance	to avoiding vulnerabilities in programming languages](http://www.open-std.org/jtc1/sc22/wg23/docs/ISO-IECJTC1-SC22-WG23_N0751-tr24772-1-after-pre-meeting-51-webex-20171016.pdf)
 
+# Control-flow integrity
+1. [On the Effectiveness of Type-based Control Flow Integrity](https://sajjadium.github.io/files/acsac2018typecfi_paper.pdf)
+
