@@ -42,10 +42,11 @@
         [directive
          [".D" lux]]]]]]
     [meta
-     [archive
+     [archive (#+ Archive)
       ["." signature]
       ["." key (#+ Key)]
       ["." descriptor (#+ Module)]
+      ["." artifact]
       ["." document]]]]])
 
 (def: #export (info target)
@@ -148,9 +149,9 @@
    ///generation.buffer))
 
 ## TODO: Inline ASAP
-(def: (process-directive expander pre-buffer code)
+(def: (process-directive archive expander pre-buffer code)
   (All [directive]
-    (-> Expander (///generation.Buffer directive) Code
+    (-> Archive Expander (///generation.Buffer directive) Code
         (All [anchor expression]
           (///directive.Operation anchor expression directive
                                   [Requirements (///generation.Buffer directive)]))))
@@ -158,25 +159,25 @@
     [_ (///directive.lift-generation
         (///generation.set-buffer pre-buffer))
      requirements (let [execute! (directiveP.phase expander)]
-                    (execute! code))
+                    (execute! archive code))
      post-buffer (..get-current-buffer pre-buffer)]
     (wrap [requirements post-buffer])))
 
-(def: (iteration expander reader source pre-buffer)
+(def: (iteration archive expander reader source pre-buffer)
   (All [directive]
-    (-> Expander Reader Source (///generation.Buffer directive)
+    (-> Archive Expander Reader Source (///generation.Buffer directive)
         (All [anchor expression]
           (///directive.Operation anchor expression directive
                                   [Source Requirements (///generation.Buffer directive)]))))
   (do ///phase.monad
     [[source code] (///directive.lift-analysis
                     (..read source reader))
-     [requirements post-buffer] (process-directive expander pre-buffer code)]
+     [requirements post-buffer] (process-directive archive expander pre-buffer code)]
     (wrap [source requirements post-buffer])))
 
-(def: (iterate expander module source pre-buffer aliases)
+(def: (iterate archive expander module source pre-buffer aliases)
   (All [directive]
-    (-> Expander Module Source (///generation.Buffer directive) Aliases
+    (-> Archive Expander Module Source (///generation.Buffer directive) Aliases
         (All [anchor expression]
           (///directive.Operation anchor expression directive
                                   (Maybe [Source Requirements (///generation.Buffer directive)])))))
@@ -184,7 +185,7 @@
     [reader (///directive.lift-analysis
              (..reader module aliases source))]
     (function (_ state)
-      (case (///phase.run' state (..iteration expander reader source pre-buffer))
+      (case (///phase.run' state (..iteration archive expander reader source pre-buffer))
         (#try.Success [state source&requirements&buffer])
         (#try.Success [state (#.Some source&requirements&buffer)])
 
@@ -218,7 +219,7 @@
                                                        (..begin dependencies hash input))
                            #let [module (get@ #///.module input)]]
                           (loop [iteration (<| (///phase.run' state)
-                                               (..iterate expander module source buffer ///syntax.no-aliases))]
+                                               (..iterate archive expander module source buffer ///syntax.no-aliases))]
                             (do @
                               [[state ?source&requirements&temporary-buffer] iteration]
                               (case ?source&requirements&temporary-buffer
@@ -229,7 +230,8 @@
                                                      #descriptor.name module
                                                      #descriptor.file (get@ #///.file input)
                                                      #descriptor.references (set.from-list text.hash dependencies)
-                                                     #descriptor.state #.Compiled}]]
+                                                     #descriptor.state #.Compiled
+                                                     #descriptor.registry artifact.empty}]]
                                   (wrap [state
                                          (#.Right [[descriptor (document.write key analysis-module)]
                                                    (|> final-buffer
@@ -251,9 +253,9 @@
                                                                                                  macro.current-module)
                                                                              _ (///directive.lift-generation
                                                                                 (///generation.set-buffer temporary-buffer))
-                                                                             _ (monad.map @ execute! (get@ #///directive.referrals requirements))
+                                                                             _ (monad.map @ (execute! archive) (get@ #///directive.referrals requirements))
                                                                              temporary-buffer (..get-current-buffer temporary-buffer)]
-                                                                            (..iterate expander module source temporary-buffer (..module-aliases analysis-module))))))})])
+                                                                            (..iterate archive expander module source temporary-buffer (..module-aliases analysis-module))))))})])
                                 )))))}))))
 
 (def: #export key

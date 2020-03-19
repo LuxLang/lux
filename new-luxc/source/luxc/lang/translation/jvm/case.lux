@@ -17,13 +17,15 @@
    [tool
     [compiler
      ["." phase ("operation@." monad)]
+     [meta
+      [archive (#+ Archive)]]
      [language
       [lux
        ["." synthesis (#+ Path Synthesis)]]]]]]
   [luxc
    [lang
     [host
-     ["$" jvm (#+ Label Inst Operation Phase)
+     ["$" jvm (#+ Label Inst Operation Phase Generator)
       ["_" inst]]]]]
   ["." //
    ["." runtime]])
@@ -53,8 +55,8 @@
        _.AALOAD
        (_.CHECKCAST runtime.$Stack)))
 
-(def: (path' phase stack-depth @else @end path)
-  (-> Phase Nat Label Label Path (Operation Inst))
+(def: (path' stack-depth @else @end phase archive path)
+  (-> Nat Label Label Phase Archive Path (Operation Inst))
   (.case path
     #synthesis.Pop
     (operation@wrap ..popI)
@@ -93,7 +95,7 @@
     
     (#synthesis.Then bodyS)
     (do phase.monad
-      [bodyI (phase bodyS)]
+      [bodyI (phase archive bodyS)]
       (wrap (|>> (pop-altI stack-depth)
                  bodyI
                  (_.GOTO @end))))
@@ -143,7 +145,7 @@
         (synthesis.member/left 0)
         (synthesis.!bind-top register thenP)))
     (do phase.monad
-      [then! (path' phase stack-depth @else @end thenP)]
+      [then! (path' stack-depth @else @end phase archive thenP)]
       (wrap (|>> peekI
                  (_.CHECKCAST //.$Tuple)
                  (_.int +0)
@@ -157,7 +159,7 @@
           (<pm> lefts)
           (synthesis.!bind-top register thenP)))
       (do phase.monad
-        [then! (path' phase stack-depth @else @end thenP)]
+        [then! (path' stack-depth @else @end phase archive thenP)]
         (wrap (|>> peekI
                    (_.CHECKCAST //.$Tuple)
                    (_.int (.int lefts))
@@ -170,8 +172,8 @@
     (#synthesis.Alt leftP rightP)
     (do phase.monad
       [@alt-else _.make-label
-       leftI (path' phase (inc stack-depth) @alt-else @end leftP)
-       rightI (path' phase stack-depth @else @end rightP)]
+       leftI (path' (inc stack-depth) @alt-else @end phase archive leftP)
+       rightI (path' stack-depth @else @end phase archive rightP)]
       (wrap (|>> _.DUP
                  leftI
                  (_.label @alt-else)
@@ -180,17 +182,17 @@
     
     (#synthesis.Seq leftP rightP)
     (do phase.monad
-      [leftI (path' phase stack-depth @else @end leftP)
-       rightI (path' phase stack-depth @else @end rightP)]
+      [leftI (path' stack-depth @else @end phase archive leftP)
+       rightI (path' stack-depth @else @end phase archive rightP)]
       (wrap (|>> leftI
                  rightI)))
     ))
 
-(def: (path phase path @end)
-  (-> Phase Path Label (Operation Inst))
+(def: (path @end phase archive path)
+  (-> Label Phase Archive Path (Operation Inst))
   (do phase.monad
     [@else _.make-label
-     pathI (..path' phase 1 @else @end path)]
+     pathI (..path' 1 @else @end phase archive path)]
     (wrap (|>> pathI
                (_.label @else)
                _.POP
@@ -198,12 +200,12 @@
                _.NULL
                (_.GOTO @end)))))
 
-(def: #export (if phase testS thenS elseS)
-  (-> Phase Synthesis Synthesis Synthesis (Operation Inst))
+(def: #export (if phase archive [testS thenS elseS])
+  (Generator [Synthesis Synthesis Synthesis])
   (do phase.monad
-    [testI (phase testS)
-     thenI (phase thenS)
-     elseI (phase elseS)]
+    [testI (phase archive testS)
+     thenI (phase archive thenS)
+     elseI (phase archive elseS)]
     (wrap (<| _.with-label (function (_ @else))
               _.with-label (function (_ @end))
               (|>> testI
@@ -215,21 +217,21 @@
                    elseI
                    (_.label @end))))))
 
-(def: #export (let phase inputS register exprS)
-  (-> Phase Synthesis Nat Synthesis (Operation Inst))
+(def: #export (let phase archive [inputS register exprS])
+  (Generator [Synthesis Nat Synthesis])
   (do phase.monad
-    [inputI (phase inputS)
-     exprI (phase exprS)]
+    [inputI (phase archive inputS)
+     exprI (phase archive exprS)]
     (wrap (|>> inputI
                (_.ASTORE register)
                exprI))))
 
-(def: #export (case phase valueS path)
-  (-> Phase Synthesis Path (Operation Inst))
+(def: #export (case phase archive [valueS path])
+  (Generator [Synthesis Path])
   (do phase.monad
     [@end _.make-label
-     valueI (phase valueS)
-     pathI (..path phase path @end)]
+     valueI (phase archive valueS)
+     pathI (..path @end phase archive path)]
     (wrap (|>> _.NULL
                valueI
                pushI

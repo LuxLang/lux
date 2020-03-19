@@ -29,7 +29,9 @@
     [//
      ["/" analysis (#+ Tag Analysis Operation Phase)]
      [///
-      ["#" phase]]]]])
+      ["#" phase]
+      [meta
+       [archive (#+ Archive)]]]]]])
 
 (exception: #export (invalid-variant-type {type Type} {tag Tag} {code Code})
   (ex.report ["Type" (%.type type)]
@@ -85,88 +87,89 @@
                                                    [(code.tag keyI) valueC]))
                                        code.record))]))
 
-(def: #export (sum analyse tag valueC)
-  (-> Phase Nat Code (Operation Analysis))
-  (do ///.monad
-    [expectedT (///extension.lift macro.expected-type)
-     expectedT' (//type.with-env
-                  (check.clean expectedT))]
-    (/.with-stack cannot-analyse-variant [expectedT' tag valueC]
-      (case expectedT
-        (#.Sum _)
-        (let [flat (type.flatten-variant expectedT)
-              type-size (list.size flat)
-              right? (n.= (dec type-size)
-                          tag)
-              lefts (if right?
-                      (dec tag)
-                      tag)]
-          (case (list.nth tag flat)
-            (#.Some variant-type)
-            (do @
-              [valueA (//type.with-type variant-type
-                        (analyse valueC))]
-              (wrap (/.variant [lefts right? valueA])))
+(def: #export (sum analyse tag archive)
+  (-> Phase Nat Phase)
+  (function (recur valueC)
+    (do ///.monad
+      [expectedT (///extension.lift macro.expected-type)
+       expectedT' (//type.with-env
+                    (check.clean expectedT))]
+      (/.with-stack cannot-analyse-variant [expectedT' tag valueC]
+        (case expectedT
+          (#.Sum _)
+          (let [flat (type.flatten-variant expectedT)
+                type-size (list.size flat)
+                right? (n.= (dec type-size)
+                            tag)
+                lefts (if right?
+                        (dec tag)
+                        tag)]
+            (case (list.nth tag flat)
+              (#.Some variant-type)
+              (do @
+                [valueA (//type.with-type variant-type
+                          (analyse archive valueC))]
+                (wrap (/.variant [lefts right? valueA])))
 
-            #.None
-            (/.throw //inference.variant-tag-out-of-bounds [type-size tag expectedT])))
+              #.None
+              (/.throw //inference.variant-tag-out-of-bounds [type-size tag expectedT])))
 
-        (#.Named name unnamedT)
-        (//type.with-type unnamedT
-          (sum analyse tag valueC))
+          (#.Named name unnamedT)
+          (//type.with-type unnamedT
+            (recur valueC))
 
-        (#.Var id)
-        (do @
-          [?expectedT' (//type.with-env
-                         (check.read id))]
-          (case ?expectedT'
-            (#.Some expectedT')
-            (//type.with-type expectedT'
-              (sum analyse tag valueC))
-
-            _
-            ## Cannot do inference when the tag is numeric.
-            ## This is because there is no way of knowing how many
-            ## cases the inferred sum type would have.
-            (/.throw cannot-infer-numeric-tag [expectedT tag valueC])
-            ))
-
-        (^template [<tag> <instancer>]
-          (<tag> _)
+          (#.Var id)
           (do @
-            [[instance-id instanceT] (//type.with-env <instancer>)]
-            (//type.with-type (maybe.assume (type.apply (list instanceT) expectedT))
-              (sum analyse tag valueC))))
-        ([#.UnivQ check.existential]
-         [#.ExQ check.var])
-
-        (#.Apply inputT funT)
-        (case funT
-          (#.Var funT-id)
-          (do @
-            [?funT' (//type.with-env (check.read funT-id))]
-            (case ?funT'
-              (#.Some funT')
-              (//type.with-type (#.Apply inputT funT')
-                (sum analyse tag valueC))
+            [?expectedT' (//type.with-env
+                           (check.read id))]
+            (case ?expectedT'
+              (#.Some expectedT')
+              (//type.with-type expectedT'
+                (recur valueC))
 
               _
-              (/.throw invalid-variant-type [expectedT tag valueC])))
+              ## Cannot do inference when the tag is numeric.
+              ## This is because there is no way of knowing how many
+              ## cases the inferred sum type would have.
+              (/.throw cannot-infer-numeric-tag [expectedT tag valueC])
+              ))
 
+          (^template [<tag> <instancer>]
+            (<tag> _)
+            (do @
+              [[instance-id instanceT] (//type.with-env <instancer>)]
+              (//type.with-type (maybe.assume (type.apply (list instanceT) expectedT))
+                (recur valueC))))
+          ([#.UnivQ check.existential]
+           [#.ExQ check.var])
+
+          (#.Apply inputT funT)
+          (case funT
+            (#.Var funT-id)
+            (do @
+              [?funT' (//type.with-env (check.read funT-id))]
+              (case ?funT'
+                (#.Some funT')
+                (//type.with-type (#.Apply inputT funT')
+                  (recur valueC))
+
+                _
+                (/.throw invalid-variant-type [expectedT tag valueC])))
+
+            _
+            (case (type.apply (list inputT) funT)
+              (#.Some outputT)
+              (//type.with-type outputT
+                (recur valueC))
+
+              #.None
+              (/.throw not-a-quantified-type funT)))
+          
           _
-          (case (type.apply (list inputT) funT)
-            (#.Some outputT)
-            (//type.with-type outputT
-              (sum analyse tag valueC))
+          (/.throw invalid-variant-type [expectedT tag valueC]))))))
 
-            #.None
-            (/.throw not-a-quantified-type funT)))
-        
-        _
-        (/.throw invalid-variant-type [expectedT tag valueC])))))
-
-(def: (typed-product analyse members)
-  (-> Phase (List Code) (Operation Analysis))
+(def: (typed-product archive analyse members)
+  (-> Archive Phase (List Code) (Operation Analysis))
   (do ///.monad
     [expectedT (///extension.lift macro.expected-type)
      membersA+ (: (Operation (List Analysis))
@@ -175,16 +178,16 @@
                     (case [membersT+ membersC+]
                       [(#.Cons memberT #.Nil) _]
                       (//type.with-type memberT
-                        (:: @ map (|>> list) (analyse (code.tuple membersC+))))
+                        (:: @ map (|>> list) (analyse archive (code.tuple membersC+))))
                       
                       [_ (#.Cons memberC #.Nil)]
                       (//type.with-type (type.tuple membersT+)
-                        (:: @ map (|>> list) (analyse memberC)))
+                        (:: @ map (|>> list) (analyse archive memberC)))
                       
                       [(#.Cons memberT membersT+') (#.Cons memberC membersC+')]
                       (do @
                         [memberA (//type.with-type memberT
-                                   (analyse memberC))
+                                   (analyse archive memberC))
                          memberA+ (recur membersT+' membersC+')]
                         (wrap (#.Cons memberA memberA+)))
 
@@ -192,18 +195,18 @@
                       (/.throw cannot-analyse-tuple [expectedT members]))))]
     (wrap (/.tuple membersA+))))
 
-(def: #export (product analyse membersC)
-  (-> Phase (List Code) (Operation Analysis))
+(def: #export (product archive analyse membersC)
+  (-> Archive Phase (List Code) (Operation Analysis))
   (do ///.monad
     [expectedT (///extension.lift macro.expected-type)]
     (/.with-stack cannot-analyse-tuple [expectedT membersC]
       (case expectedT
         (#.Product _)
-        (..typed-product analyse membersC)
+        (..typed-product archive analyse membersC)
 
         (#.Named name unnamedT)
         (//type.with-type unnamedT
-          (product analyse membersC))
+          (product archive analyse membersC))
 
         (#.Var id)
         (do @
@@ -212,12 +215,12 @@
           (case ?expectedT'
             (#.Some expectedT')
             (//type.with-type expectedT'
-              (product analyse membersC))
+              (product archive analyse membersC))
 
             _
             ## Must do inference...
             (do @
-              [membersTA (monad.map @ (|>> analyse //type.with-inference)
+              [membersTA (monad.map @ (|>> (analyse archive) //type.with-inference)
                                     membersC)
                _ (//type.with-env
                    (check.check expectedT
@@ -229,7 +232,7 @@
           (do @
             [[instance-id instanceT] (//type.with-env <instancer>)]
             (//type.with-type (maybe.assume (type.apply (list instanceT) expectedT))
-              (product analyse membersC))))
+              (product archive analyse membersC))))
         ([#.UnivQ check.existential]
          [#.ExQ check.var])
 
@@ -241,7 +244,7 @@
             (case ?funT'
               (#.Some funT')
               (//type.with-type (#.Apply inputT funT')
-                (product analyse membersC))
+                (product archive analyse membersC))
 
               _
               (/.throw invalid-tuple-type [expectedT membersC])))
@@ -250,7 +253,7 @@
           (case (type.apply (list inputT) funT)
             (#.Some outputT)
             (//type.with-type outputT
-              (product analyse membersC))
+              (product archive analyse membersC))
 
             #.None
             (/.throw not-a-quantified-type funT)))
@@ -259,8 +262,8 @@
         (/.throw invalid-tuple-type [expectedT membersC])
         ))))
 
-(def: #export (tagged-sum analyse tag valueC)
-  (-> Phase Name Code (Operation Analysis))
+(def: #export (tagged-sum analyse tag archive valueC)
+  (-> Phase Name Phase)
   (do ///.monad
     [tag (///extension.lift (macro.normalize tag))
      [idx group variantT] (///extension.lift (macro.resolve-tag tag))
@@ -270,7 +273,7 @@
       (do @
         [#let [case-size (list.size group)]
          inferenceT (//inference.variant idx case-size variantT)
-         [inferredT valueA+] (//inference.general analyse inferenceT (list valueC))
+         [inferredT valueA+] (//inference.general archive analyse inferenceT (list valueC))
          #let [right? (n.= (dec case-size) idx)
                lefts (if right?
                        (dec idx)
@@ -278,7 +281,7 @@
         (wrap (/.variant [lefts right? (|> valueA+ list.head maybe.assume)])))
 
       _
-      (..sum analyse idx valueC))))
+      (..sum analyse idx archive valueC))))
 
 ## There cannot be any ambiguity or improper syntax when analysing
 ## records, so they must be normalized for further analysis.
@@ -339,14 +342,14 @@
       (wrap [ordered-tuple recordT]))
     ))
 
-(def: #export (record analyse members)
-  (-> Phase (List [Code Code]) (Operation Analysis))
+(def: #export (record archive analyse members)
+  (-> Archive Phase (List [Code Code]) (Operation Analysis))
   (case members
     (^ (list))
     //primitive.unit
 
     (^ (list [_ singletonC]))
-    (analyse singletonC)
+    (analyse archive singletonC)
 
     _
     (do ///.monad
@@ -357,8 +360,8 @@
         (#.Var _)
         (do @
           [inferenceT (//inference.record recordT)
-           [inferredT membersA] (//inference.general analyse inferenceT membersC)]
+           [inferredT membersA] (//inference.general archive analyse inferenceT membersC)]
           (wrap (/.tuple membersA)))
 
         _
-        (..product analyse membersC)))))
+        (..product archive analyse membersC)))))

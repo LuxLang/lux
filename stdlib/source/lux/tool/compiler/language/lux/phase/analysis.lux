@@ -22,7 +22,9 @@
       ["#." macro (#+ Expander)]]
      [///
       ["//" phase]
-      ["." reference]]]]])
+      ["." reference]
+      [meta
+       [archive (#+ Archive)]]]]]])
 
 (exception: #export (unrecognized-syntax {code Code})
   (ex.report ["Code" (%.code code)]))
@@ -49,60 +51,60 @@
     _
     (else code')))
 
-(def: (compile|structure compile else code')
-  (-> Phase (Fix (-> (Code' (Ann Cursor)) (Operation Analysis))))
+(def: (compile|structure archive compile else code')
+  (-> Archive Phase (Fix (-> (Code' (Ann Cursor)) (Operation Analysis))))
   (case code'
     (^template [<tag> <analyser>]
       (^ (#.Form (list& [_ (<tag> tag)]
                         values)))
       (case values
         (#.Cons value #.Nil)
-        (<analyser> compile tag value)
+        (<analyser> compile tag archive value)
 
         _
-        (<analyser> compile tag (` [(~+ values)]))))
+        (<analyser> compile tag archive (` [(~+ values)]))))
     ([#.Nat /structure.sum]
      [#.Tag /structure.tagged-sum])
 
     (#.Tag tag)
-    (/structure.tagged-sum compile tag (' []))
+    (/structure.tagged-sum compile tag archive (' []))
 
     (^ (#.Tuple (list)))
     /primitive.unit
 
     (^ (#.Tuple (list singleton)))
-    (compile singleton)
+    (compile archive singleton)
 
     (^ (#.Tuple elems))
-    (/structure.product compile elems)
+    (/structure.product archive compile elems)
 
     (^ (#.Record pairs))
-    (/structure.record compile pairs)
+    (/structure.record archive compile pairs)
 
     _
     (else code')))
 
-(def: (compile|others expander compile code')
-  (-> Expander Phase (-> (Code' (Ann Cursor)) (Operation Analysis)))
+(def: (compile|others expander archive compile code')
+  (-> Expander Archive Phase (-> (Code' (Ann Cursor)) (Operation Analysis)))
   (case code'
     (#.Identifier reference)
     (/reference.reference reference)
 
     (^ (#.Form (list [_ (#.Record branches)] input)))
-    (/case.case compile input branches)
+    (/case.case compile branches archive input)
 
     (^ (#.Form (list& [_ (#.Text extension-name)] extension-args)))
-    (//extension.apply compile [extension-name extension-args])
+    (//extension.apply archive compile [extension-name extension-args])
 
     (^ (#.Form (list [_ (#.Tuple (list [_ (#.Identifier ["" function-name])]
                                        [_ (#.Identifier ["" arg-name])]))]
                      body)))
-    (/function.function compile function-name arg-name body)
+    (/function.function compile function-name arg-name archive body)
 
     (^ (#.Form (list& functionC argsC+)))
     (do //.monad
       [[functionT functionA] (/type.with-inference
-                               (compile functionC))]
+                               (compile archive functionC))]
       (case functionA
         (#/.Reference (#reference.Constant def-name))
         (do @
@@ -111,23 +113,24 @@
             (#.Some macro)
             (do @
               [expansion (//extension.lift (/macro.expand-one expander def-name macro argsC+))]
-              (compile expansion))
+              (compile archive expansion))
 
             _
-            (/function.apply compile functionT functionA functionC argsC+)))
+            (/function.apply compile argsC+ functionT functionA archive functionC)))
 
         _
-        (/function.apply compile functionT functionA functionC argsC+)))
+        (/function.apply compile argsC+ functionT functionA archive functionC)))
 
     _
     (//.throw unrecognized-syntax [.dummy-cursor code'])))
 
 (def: #export (phase expander)
   (-> Expander Phase)
-  (function (compile code)
+  (function (compile archive code)
     (let [[cursor code'] code]
       ## The cursor must be set in the state for the sake
       ## of having useful error messages.
       (/.with-cursor cursor
-        (compile|primitive (compile|structure compile (compile|others expander compile))
+        (compile|primitive (compile|structure archive compile
+                                              (compile|others expander archive compile))
                            code')))))

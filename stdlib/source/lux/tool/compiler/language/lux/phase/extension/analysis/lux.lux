@@ -31,17 +31,19 @@
      ["#." analysis (#+ Analysis Operation Phase Handler Bundle)
       [evaluation (#+ Eval)]]
      [///
-      ["#" phase]]]]])
+      ["#" phase]
+      [meta
+       [archive (#+ Archive)]]]]]])
 
 (def: #export (custom [syntax handler])
   (All [s]
     (-> [(Parser s)
-         (-> Text Phase s (Operation Analysis))]
+         (-> Text Phase Archive s (Operation Analysis))]
         Handler))
-  (function (_ extension-name analyse args)
+  (function (_ extension-name analyse archive args)
     (case (<c>.run syntax args)
       (#try.Success inputs)
-      (handler extension-name analyse inputs)
+      (handler extension-name analyse archive inputs)
 
       (#try.Failure _)
       (////analysis.throw ///.invalid-syntax [extension-name %.code args]))))
@@ -49,7 +51,7 @@
 (def: (simple inputsT+ outputT)
   (-> (List Type) Type Handler)
   (let [num-expected (list.size inputsT+)]
-    (function (_ extension-name analyse args)
+    (function (_ extension-name analyse archive args)
       (let [num-actual (list.size args)]
         (if (n.= num-expected num-actual)
           (do ////.monad
@@ -57,7 +59,7 @@
              argsA (monad.map @
                               (function (_ [argT argC])
                                 (typeA.with-type argT
-                                  (analyse argC)))
+                                  (analyse archive argC)))
                               (list.zip2 inputsT+ args))]
             (wrap (#////analysis.Extension extension-name argsA)))
           (////analysis.throw ///.incorrect-arity [extension-name num-expected num-actual]))))))
@@ -99,19 +101,19 @@
          (<c>.tuple (<>.some (<>.and (<c>.tuple (<>.many ..text-char))
                                      <c>.any)))
          <c>.any)
-     (function (_ extension-name phase [input conditionals else])
+     (function (_ extension-name phase archive [input conditionals else])
        (do ////.monad
          [input (typeA.with-type text.Char
-                  (phase input))
+                  (phase archive input))
           expectedT (///.lift macro.expected-type)
           conditionals (monad.map @ (function (_ [cases branch])
                                       (do @
                                         [branch (typeA.with-type expectedT
-                                                  (phase branch))]
+                                                  (phase archive branch))]
                                         (wrap [cases branch])))
                                   conditionals)
           else (typeA.with-type expectedT
-                 (phase else))]
+                 (phase archive else))]
          (wrap (|> conditionals
                    (list@map (function (_ [cases branch])
                                (////analysis.tuple
@@ -123,24 +125,24 @@
 ## "lux is" represents reference/pointer equality.
 (def: lux::is
   Handler
-  (function (_ extension-name analyse args)
+  (function (_ extension-name analyse archive args)
     (do ////.monad
       [[var-id varT] (typeA.with-env check.var)]
       ((binary varT varT Bit extension-name)
-       analyse args))))
+       analyse archive args))))
 
 ## "lux try" provides a simple way to interact with the host platform's
 ## error-handling facilities.
 (def: lux::try
   Handler
-  (function (_ extension-name analyse args)
+  (function (_ extension-name analyse archive args)
     (case args
       (^ (list opC))
       (do ////.monad
         [[var-id varT] (typeA.with-env check.var)
          _ (typeA.infer (type (Either Text varT)))
          opA (typeA.with-type (type (IO varT))
-               (analyse opC))]
+               (analyse archive opC))]
         (wrap (#////analysis.Extension extension-name (list opA))))
       
       _
@@ -148,43 +150,43 @@
 
 (def: lux::in-module
   Handler
-  (function (_ extension-name analyse argsC+)
+  (function (_ extension-name analyse archive argsC+)
     (case argsC+
       (^ (list [_ (#.Text module-name)] exprC))
       (////analysis.with-current-module module-name
-        (analyse exprC))
+        (analyse archive exprC))
       
       _
       (////analysis.throw ///.invalid-syntax [extension-name %.code argsC+]))))
 
 (def: (lux::check eval)
   (-> Eval Handler)
-  (function (_ extension-name analyse args)
+  (function (_ extension-name analyse archive args)
     (case args
       (^ (list typeC valueC))
       (do ////.monad
         [count (///.lift macro.count)
          actualT (:: @ map (|>> (:coerce Type))
-                     (eval count Type typeC))
+                     (eval archive count Type typeC))
          _ (typeA.infer actualT)]
         (typeA.with-type actualT
-          (analyse valueC)))
+          (analyse archive valueC)))
 
       _
       (////analysis.throw ///.incorrect-arity [extension-name 2 (list.size args)]))))
 
 (def: (lux::coerce eval)
   (-> Eval Handler)
-  (function (_ extension-name analyse args)
+  (function (_ extension-name analyse archive args)
     (case args
       (^ (list typeC valueC))
       (do ////.monad
         [count (///.lift macro.count)
          actualT (:: @ map (|>> (:coerce Type))
-                     (eval count Type typeC))
+                     (eval archive count Type typeC))
          _ (typeA.infer actualT)
          [valueT valueA] (typeA.with-inference
-                           (analyse valueC))]
+                           (analyse archive valueC))]
         (wrap valueA))
 
       _
@@ -192,13 +194,13 @@
 
 (def: (caster input output)
   (-> Type Type Handler)
-  (function (_ extension-name analyse args)
+  (function (_ extension-name analyse archive args)
     (case args
       (^ (list valueC))
       (do ////.monad
         [_ (typeA.infer output)]
         (typeA.with-type input
-          (analyse valueC)))
+          (analyse archive valueC)))
       
       _
       (////analysis.throw ///.incorrect-arity [extension-name 1 (list.size args)]))))

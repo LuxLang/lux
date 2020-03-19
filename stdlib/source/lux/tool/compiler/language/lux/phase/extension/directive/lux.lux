@@ -34,41 +34,45 @@
      ["#." generation]
      ["#." directive (#+ Import Requirements Phase Operation Handler Bundle)]
      [///
-      ["." phase]]]]])
+      ["." phase]
+      [meta
+       [archive (#+ Archive)]]]]]])
 
 (def: #export (custom [syntax handler])
   (All [anchor expression directive s]
     (-> [(Parser s)
          (-> Text
              (Phase anchor expression directive)
+             Archive
              s
              (Operation anchor expression directive Requirements))]
         (Handler anchor expression directive)))
-  (function (_ extension-name phase inputs)
+  (function (_ extension-name phase archive inputs)
     (case (s.run syntax inputs)
       (#try.Success inputs)
-      (handler extension-name phase inputs)
+      (handler extension-name phase archive inputs)
 
       (#try.Failure error)
       (phase.throw ///.invalid-syntax [extension-name %.code inputs]))))
 
 ## TODO: Inline "evaluate!'" into "evaluate!" ASAP
-(def: (evaluate!' generate code//type codeS)
+(def: (evaluate!' archive generate code//type codeS)
   (All [anchor expression directive]
-    (-> (/////generation.Phase anchor expression directive)
+    (-> Archive
+        (/////generation.Phase anchor expression directive)
         Type
         Synthesis
         (Operation anchor expression directive [Type expression Any])))
   (/////directive.lift-generation
    (do phase.monad
-     [codeT (generate codeS)
+     [codeG (generate archive codeS)
       id /////generation.next
-      codeV (/////generation.evaluate! (format "evaluate" (%.nat id)) codeT)]
-     (wrap [code//type codeT codeV]))))
+      codeV (/////generation.evaluate! (format "evaluate" (%.nat id)) codeG)]
+     (wrap [code//type codeG codeV]))))
 
-(def: #export (evaluate! type codeC)
+(def: #export (evaluate! archive type codeC)
   (All [anchor expression directive]
-    (-> Type Code (Operation anchor expression directive [Type expression Any])))
+    (-> Archive Type Code (Operation anchor expression directive [Type expression Any])))
   (do phase.monad
     [state (///.lift phase.get-state)
      #let [analyse (get@ [#/////directive.analysis #/////directive.phase] state)
@@ -78,29 +82,30 @@
                 (/////analysis.with-scope
                   (typeA.with-fresh-env
                     (typeA.with-type type
-                      (analyse codeC)))))
+                      (analyse archive codeC)))))
      codeS (/////directive.lift-synthesis
-            (synthesize codeA))]
-    (evaluate!' generate type codeS)))
+            (synthesize archive codeA))]
+    (evaluate!' archive generate type codeS)))
 
 ## TODO: Inline "definition'" into "definition" ASAP
-(def: (definition' generate name code//type codeS)
+(def: (definition' archive generate name code//type codeS)
   (All [anchor expression directive]
-    (-> (/////generation.Phase anchor expression directive)
+    (-> Archive
+        (/////generation.Phase anchor expression directive)
         Name
         Type
         Synthesis
         (Operation anchor expression directive [Type expression Text Any])))
   (/////directive.lift-generation
    (do phase.monad
-     [codeT (generate codeS)
+     [codeT (generate archive codeS)
       [target-name value directive] (/////generation.define! name codeT)
       _ (/////generation.save! false name directive)]
      (wrap [code//type codeT target-name value]))))
 
-(def: (definition name expected codeC)
+(def: (definition archive name expected codeC)
   (All [anchor expression directive]
-    (-> Name (Maybe Type) Code
+    (-> Archive Name (Maybe Type) Code
         (Operation anchor expression directive [Type expression Text Any])))
   (do phase.monad
     [state (///.lift phase.get-state)
@@ -113,7 +118,8 @@
                                (case expected
                                  #.None
                                  (do @
-                                   [[code//type codeA] (typeA.with-inference (analyse codeC))
+                                   [[code//type codeA] (typeA.with-inference
+                                                         (analyse archive codeC))
                                     code//type (typeA.with-env
                                                  (check.clean code//type))]
                                    (wrap [code//type codeA]))
@@ -121,11 +127,11 @@
                                  (#.Some expected)
                                  (do @
                                    [codeA (typeA.with-type expected
-                                            (analyse codeC))]
+                                            (analyse archive codeC))]
                                    (wrap [expected codeA]))))))
      codeS (/////directive.lift-synthesis
-            (synthesize codeA))]
-    (definition' generate name code//type codeS)))
+            (synthesize archive codeA))]
+    (definition' archive generate name code//type codeS)))
 
 (def: (refresh expander host-analysis)
   (All [anchor expression directive]
@@ -145,15 +151,15 @@
 
 (def: (lux::def expander host-analysis)
   (-> Expander /////analysis.Bundle Handler)
-  (function (_ extension-name phase inputsC+)
+  (function (_ extension-name phase archive inputsC+)
     (case inputsC+
       (^ (list [_ (#.Identifier ["" short-name])] valueC annotationsC [_ (#.Bit exported?)]))
       (do phase.monad
         [current-module (/////directive.lift-analysis
                          (///.lift macro.current-module-name))
          #let [full-name [current-module short-name]]
-         [type valueT valueN value] (..definition full-name #.None valueC)
-         [_ annotationsT annotations] (evaluate! Code annotationsC)
+         [type valueT valueN value] (..definition archive full-name #.None valueC)
+         [_ annotationsT annotations] (evaluate! archive Code annotationsC)
          _ (/////directive.lift-analysis
             (module.define short-name (#.Right [exported? type (:coerce Code annotations) value])))
          #let [_ (log! (format "Definition " (%.name full-name)))]
@@ -169,14 +175,14 @@
   (-> Expander /////analysis.Bundle Handler)
   (..custom
    [($_ p.and s.local-identifier s.any s.any (s.tuple (p.some s.text)) s.bit)
-    (function (_ extension-name phase [short-name valueC annotationsC tags exported?])
+    (function (_ extension-name phase archive [short-name valueC annotationsC tags exported?])
       (do phase.monad
         [current-module (/////directive.lift-analysis
                          (///.lift macro.current-module-name))
          #let [full-name [current-module short-name]]
-         [_ annotationsT annotations] (evaluate! Code annotationsC)
+         [_ annotationsT annotations] (evaluate! archive Code annotationsC)
          #let [annotations (:coerce Code annotations)]
-         [type valueT valueN value] (..definition full-name (#.Some .Type) valueC)
+         [type valueT valueN value] (..definition archive full-name (#.Some .Type) valueC)
          _ (/////directive.lift-analysis
             (do phase.monad
               [_ (module.define short-name (#.Right [exported? type annotations value]))]
@@ -197,9 +203,9 @@
   Handler
   (..custom
    [($_ p.and s.any ..imports)
-    (function (_ extension-name phase [annotationsC imports])
+    (function (_ extension-name phase archive [annotationsC imports])
       (do phase.monad
-        [[_ annotationsT annotationsV] (evaluate! Code annotationsC)
+        [[_ annotationsT annotationsV] (evaluate! archive Code annotationsC)
          #let [annotationsV (:coerce Code annotationsV)]
          _ (/////directive.lift-analysis
             (do @
@@ -236,7 +242,7 @@
   Handler
   (..custom
    [($_ p.and s.local-identifier s.identifier)
-    (function (_ extension-name phase [alias def-name])
+    (function (_ extension-name phase archive [alias def-name])
       (do phase.monad
         [_ (///.lift
             (phase.sub [(get@ [#/////directive.analysis #/////directive.state])
@@ -249,15 +255,15 @@
      (All [anchor expression directive]
        (-> Extender
            (Handler anchor expression directive)))
-     (function (handler extension-name phase inputsC+)
+     (function (handler extension-name phase archive inputsC+)
        (case inputsC+
          (^ (list nameC valueC))
          (do phase.monad
-           [[_ _ name] (evaluate! Text nameC)
-            [_ _ handlerV] (evaluate! (:by-example [anchor expression directive]
-                                                   {(Handler anchor expression directive)
-                                                    handler}
-                                                   <type>)
+           [[_ _ name] (evaluate! archive Text nameC)
+            [_ _ handlerV] (evaluate! archive (:by-example [anchor expression directive]
+                                                           {(Handler anchor expression directive)
+                                                            handler}
+                                                           <type>)
                                       valueC)
             _ (<| <scope>
                   (///.install extender (:coerce Text name))
@@ -281,9 +287,10 @@
 ## TODO; Both "prepare-program" and "define-program" exist only
 ## because the old compiler couldn"t handle a fully-inlined definition
 ## for "def::program". Inline them ASAP.
-(def: (prepare-program analyse synthesize programC)
+(def: (prepare-program archive analyse synthesize programC)
   (All [anchor expression directive output]
-    (-> /////analysis.Phase
+    (-> Archive
+        /////analysis.Phase
         /////synthesis.Phase
         Code
         (Operation anchor expression directive Synthesis)))
@@ -292,24 +299,25 @@
                    (/////analysis.with-scope
                      (typeA.with-fresh-env
                        (typeA.with-type (type (-> (List Text) (IO Any)))
-                         (analyse programC)))))]
+                         (analyse archive programC)))))]
     (/////directive.lift-synthesis
-     (synthesize programA))))
+     (synthesize archive programA))))
 
-(def: (define-program generate program programS)
+(def: (define-program archive generate program programS)
   (All [anchor expression directive output]
-    (-> (/////generation.Phase anchor expression directive)
+    (-> Archive
+        (/////generation.Phase anchor expression directive)
         (-> expression directive)
         Synthesis
         (/////generation.Operation anchor expression directive Any)))
   (do phase.monad
-    [programG (generate programS)]
+    [programG (generate archive programS)]
     (/////generation.save! false ["" ""] (program programG))))
 
 (def: (def::program program)
   (All [anchor expression directive]
     (-> (-> expression directive) (Handler anchor expression directive)))
-  (function (handler extension-name phase inputsC+)
+  (function (handler extension-name phase archive inputsC+)
     (case inputsC+
       (^ (list programC))
       (do phase.monad
@@ -317,9 +325,9 @@
          #let [analyse (get@ [#/////directive.analysis #/////directive.phase] state)
                synthesize (get@ [#/////directive.synthesis #/////directive.phase] state)
                generate (get@ [#/////directive.generation #/////directive.phase] state)]
-         programS (prepare-program analyse synthesize programC)
+         programS (prepare-program archive analyse synthesize programC)
          _ (/////directive.lift-generation
-            (define-program generate program programS))]
+            (define-program archive generate program programS))]
         (wrap /////directive.no-requirements))
 
       _

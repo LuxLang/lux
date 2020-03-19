@@ -15,7 +15,7 @@
       [category (#+ Method)]]]]]
   ["." // #_
    ["#." type]
-   ["#." runtime (#+ Operation Phase)]
+   ["#." runtime (#+ Operation Phase Generator)]
    ["#." value]
    [////
     ["." synthesis (#+ Path Synthesis)]
@@ -65,8 +65,8 @@
       (//runtime.get //runtime.stack-tail)
       (_.checkcast //type.stack)))
 
-(def: (path' phase stack-depth @else @end path)
-  (-> Phase Nat Label Label Path (Operation (Bytecode Any)))
+(def: (path' stack-depth @else @end phase archive path)
+  (-> Nat Label Label (Generator Path))
   (.case path
     #synthesis.Pop
     (operation@wrap ..pop)
@@ -108,7 +108,7 @@
     
     (#synthesis.Then bodyS)
     (do phase.monad
-      [bodyG (phase bodyS)]
+      [bodyG (phase archive bodyS)]
       (wrap ($_ _.compose
                 (..pop-alt stack-depth)
                 bodyG
@@ -164,7 +164,7 @@
         (synthesis.member/left 0)
         (synthesis.!bind-top register thenP)))
     (do phase.monad
-      [thenG (path' phase stack-depth @else @end thenP)]
+      [thenG (path' stack-depth @else @end phase archive thenP)]
       (wrap ($_ _.compose
                 ..peek
                 (_.checkcast //type.tuple)
@@ -179,7 +179,7 @@
           (<pm> lefts)
           (synthesis.!bind-top register thenP)))
       (do phase.monad
-        [then! (path' phase stack-depth @else @end thenP)]
+        [then! (path' stack-depth @else @end phase archive thenP)]
         (wrap ($_ _.compose
                   ..peek
                   (_.checkcast //type.tuple)
@@ -193,8 +193,8 @@
     (#synthesis.Alt leftP rightP)
     (do phase.monad
       [@alt-else //runtime.forge-label
-       left! (path' phase (inc stack-depth) @alt-else @end leftP)
-       right! (path' phase stack-depth @else @end rightP)]
+       left! (path' (inc stack-depth) @alt-else @end phase archive leftP)
+       right! (path' stack-depth @else @end phase archive rightP)]
       (wrap ($_ _.compose
                 _.dup
                 left!
@@ -204,18 +204,18 @@
     
     (#synthesis.Seq leftP rightP)
     (do phase.monad
-      [left! (path' phase stack-depth @else @end leftP)
-       right! (path' phase stack-depth @else @end rightP)]
+      [left! (path' stack-depth @else @end phase archive leftP)
+       right! (path' stack-depth @else @end phase archive rightP)]
       (wrap ($_ _.compose
                 left!
                 right!)))
     ))
 
-(def: (path phase path @end)
-  (-> Phase Path Label (Operation (Bytecode Any)))
+(def: (path @end phase archive path)
+  (-> Label (Generator Path))
   (do phase.monad
     [@else //runtime.forge-label
-     pathG (..path' phase 1 @else @end path)]
+     pathG (..path' 1 @else @end phase archive path)]
     (wrap ($_ _.compose
               pathG
               (_.set-label @else)
@@ -224,12 +224,12 @@
               _.aconst-null
               (_.goto @end)))))
 
-(def: #export (if phase conditionS thenS elseS)
-  (-> Phase Synthesis Synthesis Synthesis (Operation (Bytecode Any)))
+(def: #export (if phase archive [conditionS thenS elseS])
+  (Generator [Synthesis Synthesis Synthesis])
   (do phase.monad
-    [conditionG (phase conditionS)
-     thenG (phase thenS)
-     elseG (phase elseS)]
+    [conditionG (phase archive conditionS)
+     thenG (phase archive thenS)
+     elseG (phase archive elseS)]
     (wrap (do _.monad
             [@else _.new-label
              @end _.new-label]
@@ -243,22 +243,22 @@
                 elseG
                 (_.set-label @end))))))
 
-(def: #export (let phase inputS register bodyS)
-  (-> Phase Synthesis Register Synthesis (Operation (Bytecode Any)))
+(def: #export (let phase archive [inputS register bodyS])
+  (Generator [Synthesis Register Synthesis])
   (do phase.monad
-    [inputG (phase inputS)
-     bodyG (phase bodyS)]
+    [inputG (phase archive inputS)
+     bodyG (phase archive bodyS)]
     (wrap ($_ _.compose
               inputG
               (_.astore register)
               bodyG))))
 
-(def: #export (case phase valueS path)
-  (-> Phase Synthesis Path (Operation (Bytecode Any)))
+(def: #export (case phase archive [valueS path])
+  (Generator [Synthesis Path])
   (do phase.monad
     [@end //runtime.forge-label
-     valueG (phase valueS)
-     pathG (..path phase path @end)]
+     valueG (phase archive valueS)
+     pathG (..path @end phase archive path)]
     (wrap ($_ _.compose
               _.aconst-null
               valueG
