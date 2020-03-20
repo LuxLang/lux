@@ -81,18 +81,6 @@
         ##            (encoding.to-utf8 (%.code (cache/description.write module-file-name module))))
         )))
   
-  (def: pause-context
-    (All <type-vars>
-      (-> <State+> ///generation.Context))
-    (get@ [#extension.state #///directive.generation #///directive.state #extension.state #///generation.context]))
-
-  (def: (resume-context context state)
-    (All <type-vars>
-      (-> ///generation.Context <State+> <State+>))
-    (set@ [#extension.state #///directive.generation #///directive.state #extension.state #///generation.context]
-          context
-          state))
-
   ## TODO: Inline ASAP
   (def: initialize-buffer!
     (All <type-vars>
@@ -105,12 +93,6 @@
       (-> <Platform> (///generation.Operation anchor expression directive Any)))
     (get@ #runtime))
 
-  ## TODO: Inline ASAP
-  (def: save-runtime-buffer!
-    (All <type-vars>
-      (///generation.Operation anchor expression directive (Buffer directive)))
-    (///generation.save-buffer! ""))
-
   (def: (ensure-target! platform target host)
     (All <type-vars>
       (-> <Platform> Path Host (Promise (Try Any))))
@@ -121,10 +103,11 @@
         [_ (mkdir target)]
         (mkdir (ioW.archive system host target)))))
   
-  (def: #export (initialize target host expander host-analysis platform generation-bundle host-directive-bundle program extender)
+  (def: #export (initialize target host module expander host-analysis platform generation-bundle host-directive-bundle program extender)
     (All <type-vars>
       (-> Path
           Host
+          Module
           Expander
           ///analysis.Bundle
           <Platform>
@@ -132,8 +115,9 @@
           (///directive.Bundle anchor expression directive)
           (-> expression directive)
           Extender
-          (Promise (Try <State+>))))
+          (Promise (Try [<State+> (Buffer directive)]))))
     (let [state (//init.state host
+                              module
                               expander
                               host-analysis
                               (get@ #host platform)
@@ -146,12 +130,10 @@
         [_ (..ensure-target! platform target host)]
         (|> (do ///phase.monad
               [_ ..initialize-buffer!
-               _ (..compile-runtime! platform)
-               buffer ..save-runtime-buffer!]
-              (wrap []))
+               _ (..compile-runtime! platform)]
+              ///generation.buffer)
             ///directive.lift-generation
             (///phase.run' state)
-            (:: try.functor map product.left)
             promise@wrap)))
 
     ## (case (runtimeT.generate ## (initL.compiler (io.run js.init))
@@ -205,11 +187,10 @@
                                    partial-host-extension
                                    module)]
               (loop [archive archive
-                     state (..resume-context (///generation.fresh-context module) state)
+                     state state
                      compilation (compiler (:coerce ///.Input input))]
                 (do @
-                  [#let [dependencies (get@ #///.dependencies compilation)
-                         current-context (..pause-context state)]
+                  [#let [dependencies (get@ #///.dependencies compilation)]
                    archive+state (monad.fold @
                                              import!
                                              [archive state]
@@ -237,7 +218,7 @@
                            ## TODO: The context shouldn't need to be re-set either.
                            (|> (///analysis.set-current-module module)
                                ///directive.lift-analysis
-                               (///phase.run' (..resume-context current-context state))
+                               (///phase.run' state)
                                try.assume
                                product.left))
                          archive)

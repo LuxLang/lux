@@ -1,5 +1,5 @@
 (.module:
-  [lux #*
+  [lux (#- Module)
    [type (#+ :share)]
    ["@" target (#+ Host)]
    [abstract
@@ -12,7 +12,7 @@
     [security
      ["!" capability]]
     [concurrency
-     ["." promise (#+ Promise)]]]
+     ["." promise (#+ Promise) ("#@." monad)]]]
    [data
     [binary (#+ Binary)]
     ["." product]
@@ -20,7 +20,7 @@
      ["%" format (#+ format)]]
     [collection
      ["." dictionary]
-     ["." row]
+     ["." row (#+ Row)]
      ["." list ("#@." functor fold)]]]
    [time
     ["." instant (#+ Instant)]]
@@ -42,7 +42,8 @@
        [phase
         [extension (#+ Extender)]]]]
      [meta
-      ["." archive (#+ Archive)]]]
+      ["." archive (#+ Archive)
+       [descriptor (#+ Module)]]]]
     ## ["." interpreter]
     ]]
   [/
@@ -64,31 +65,32 @@
       (wrap output))))
 
 (with-expansions [<parameters> (as-is anchor expression artifact)]
-  (def: (save-artifacts! system state [packager package])
-    (All [<parameters>]
-      (-> (file.System Promise)
-          (directive.State+ <parameters>)
-          [(-> (generation.Output artifact) Binary) Path]
-          (Promise (Try Any))))
-    (let [?outcome (phase.run' state
-                               (:share [<parameters>]
-                                       {(directive.State+ <parameters>)
-                                        state}
-                                       {(directive.Operation <parameters>
-                                                             (generation.Output artifact))
-                                        (directive.lift-generation generation.output)}))]
-      (case ?outcome
-        (#try.Success [state output])
-        (do (try.with promise.monad)
-          [file (: (Promise (Try (File Promise)))
-                   (file.get-file promise.monad system package))]
-          (!.use (:: file over-write) (packager output)))
+  ## TODO: Clean-up ASAP.
+  ## (def: (save-artifacts! system state [packager package])
+  ##   (All [<parameters>]
+  ##     (-> (file.System Promise)
+  ##         (directive.State+ <parameters>)
+  ##         [(-> (Row [Module (generation.Buffer artifact)]) Binary) Path]
+  ##         (Promise (Try Any))))
+  ##   (let [?outcome (phase.run' state
+  ##                              (:share [<parameters>]
+  ##                                      {(directive.State+ <parameters>)
+  ##                                       state}
+  ##                                      {(directive.Operation <parameters>
+  ##                                                            (generation.Output artifact))
+  ##                                       (directive.lift-generation generation.output)}))]
+  ##     (case ?outcome
+  ##       (#try.Success [state output])
+  ##       (do (try.with promise.monad)
+  ##         [file (: (Promise (Try (File Promise)))
+  ##                  (file.get-file promise.monad system package))]
+  ##         (!.use (:: file over-write) (packager output)))
 
-        (#try.Failure error)
-        (:: promise.monad wrap (#try.Failure error)))))
+  ##       (#try.Failure error)
+  ##       (promise@wrap (#try.Failure error)))))
 
   (def: #export (compiler target partial-host-extension
-                          expander host-analysis platform host generation-bundle host-directive-bundle program extender
+                          expander host-analysis platform host module generation-bundle host-directive-bundle program extender
                           service
                           packager,package)
     (All [<parameters>]
@@ -98,12 +100,13 @@
           analysis.Bundle
           (IO (Platform <parameters>))
           Host
+          Module
           (generation.Bundle <parameters>)
           (directive.Bundle <parameters>)
           (-> expression artifact)
           Extender
           Service
-          [(-> (generation.Output artifact) Binary) Path]
+          [(-> (Row [Module (generation.Buffer artifact)]) Binary) Path]
           (Promise Any)))
     (do promise.monad
       [platform (promise.future platform)
@@ -118,13 +121,13 @@
                              {(Platform <parameters>)
                               platform}
                              {(Promise (Try (directive.State+ <parameters>)))
-                              (platform.initialize target host expander host-analysis platform generation-bundle host-directive-bundle program extender)})
+                              (platform.initialize target host module expander host-analysis platform generation-bundle host-directive-bundle program extender)})
                [archive state] (:share [<parameters>]
                                        {(Platform <parameters>)
                                         platform}
                                        {(Promise (Try [Archive (directive.State+ <parameters>)]))
                                         (platform.compile target partial-host-extension expander platform host configuration archive.empty state)})
-               _ (save-artifacts! (get@ #platform.&file-system platform) state packager,package)
+               ## _ (save-artifacts! (get@ #platform.&file-system platform) state packager,package)
                ## _ (cache/io.clean target ...)
                ]
               (wrap (log! "Compilation complete!"))))
