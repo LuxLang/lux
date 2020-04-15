@@ -361,6 +361,9 @@ highlighted region)."
           (font-lock-syntactic-face-function
            . lux-font-lock-syntactic-face-function))))
 
+(defvar withRE (concat "with" (altRE "-" "\\'")))
+(defvar definitionRE ":\\'")
+
 (defun lux-indent-function (indent-point state)
   "When indenting a line within a function call, indent properly.
 
@@ -416,8 +419,8 @@ This function also returns nil meaning don't specify the indentation."
               ((or (eq method 'defun)
                    (and (null method)
                         (> (length function) 2)
-                        (or (string-match "with-" function)
-                            (string-match ":\\'" function))))
+						(or (string-match withRE function)
+                            (string-match definitionRE function))))
                (lisp-indent-defform state indent-point))
               ((integerp method)
                (lisp-indent-specform method state

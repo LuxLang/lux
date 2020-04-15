@@ -10,6 +10,8 @@
     [fold (#+ Fold)]
     [predicate (#+ Predicate)]]
    [control
+    ["." try (#+ Try)]
+    ["." exception (#+ exception:)]
     ["p" parser
      ["s" code (#+ Parser)]]]
    [data
@@ -225,59 +227,71 @@
           (set@ #tail (new-tail val)))
       )))
 
+(exception: incorrect-row-structure)
+
+(exception: #export [a] (index-out-of-bounds {row (Row a)} {index Nat})
+  (exception.report ["Size" (:: n.decimal encode (get@ #size row))]
+                    ["Index" (:: n.decimal encode index)]))
+
+(exception: base-was-not-found)
+
+(def: #export (within-bounds? row idx)
+  (All [a] (-> (Row a) Nat Bit))
+  (and (n.>= 0 idx)
+       (n.< (get@ #size row) idx)))
+
 (def: (base-for idx row)
-  (All [a] (-> Index (Row a) (Maybe (Base a))))
-  (let [row-size (get@ #size row)]
-    (if (and (n.>= 0 idx)
-             (n.< row-size idx))
-      (if (n.>= (tail-off row-size) idx)
-        (#.Some (get@ #tail row))
-        (loop [level (get@ #level row)
-               hierarchy (get@ #root row)]
-          (case [(n.> branching-exponent level)
-                 (array.read (branch-idx (i64.logic-right-shift level idx)) hierarchy)]
-            [#1 (#.Some (#Hierarchy sub))]
-            (recur (level-down level) sub)
+  (All [a] (-> Index (Row a) (Try (Base a))))
+  (if (within-bounds? row idx)
+    (if (n.>= (tail-off (get@ #size row)) idx)
+      (#try.Success (get@ #tail row))
+      (loop [level (get@ #level row)
+             hierarchy (get@ #root row)]
+        (case [(n.> branching-exponent level)
+               (array.read (branch-idx (i64.logic-right-shift level idx)) hierarchy)]
+          [#1 (#.Some (#Hierarchy sub))]
+          (recur (level-down level) sub)
 
-            [#0 (#.Some (#Base base))]
-            (#.Some base)
+          [#0 (#.Some (#Base base))]
+          (#try.Success base)
 
-            [_ #.None]
-            #.None
+          [_ #.None]
+          (exception.throw ..base-was-not-found [])
 
-            _
-            (error! "Incorrect row structure."))))
-      #.None)))
+          _
+          (exception.throw ..incorrect-row-structure []))))
+    (exception.throw ..index-out-of-bounds [row idx])))
 
 (def: #export (nth idx row)
-  (All [a] (-> Nat (Row a) (Maybe a)))
-  (do maybe.monad
+  (All [a] (-> Nat (Row a) (Try a)))
+  (do try.monad
     [base (base-for idx row)]
-    (array.read (branch-idx idx) base)))
+    (case (array.read (branch-idx idx) base)
+      (#.Some value)
+      (#try.Success value)
+      
+      #.None
+      (exception.throw ..incorrect-row-structure []))))
 
 (def: #export (put idx val row)
-  (All [a] (-> Nat a (Row a) (Row a)))
+  (All [a] (-> Nat a (Row a) (Try (Row a))))
   (let [row-size (get@ #size row)]
-    (if (and (n.>= 0 idx)
-             (n.< row-size idx))
-      (if (n.>= (tail-off row-size) idx)
-        (update@ #tail (`` (for {(~~ (static @.old))
-                                 (: (-> (Base ($ 0)) (Base ($ 0)))
-                                    (|>> array.clone (array.write (branch-idx idx) val)))}
-                                (|>> array.clone (array.write (branch-idx idx) val))))
-                 row)
-        (update@ #root (put' (get@ #level row) idx val)
-                 row))
-      row)))
+    (if (within-bounds? row idx)
+      (#try.Success (if (n.>= (tail-off row-size) idx)
+                      (update@ #tail (`` (for {(~~ (static @.old))
+                                               (: (-> (Base ($ 0)) (Base ($ 0)))
+                                                  (|>> array.clone (array.write (branch-idx idx) val)))}
+                                              (|>> array.clone (array.write (branch-idx idx) val))))
+                               row)
+                      (update@ #root (put' (get@ #level row) idx val)
+                               row)))
+      (exception.throw ..index-out-of-bounds [row idx]))))
 
 (def: #export (update idx f row)
-  (All [a] (-> Nat (-> a a) (Row a) (Row a)))
-  (case (nth idx row)
-    (#.Some val)
-    (put idx (f val) row)
-
-    #.None
-    row))
+  (All [a] (-> Nat (-> a a) (Row a) (Try (Row a))))
+  (do try.monad
+    [val (nth idx row)]
+    (put idx (f val) row)))
 
 (def: #export (pop row)
   (All [a] (-> (Row a) (Row a)))
