@@ -267,7 +267,8 @@ Called by `imenu--generic-function'."
 							(jvm-host (altRE "class:" "interface:" "import:" "object" "do-to" "synchronized" "class-for"))
 							(alternative-format (altRE "char" "bin" "oct" "hex"))
 							(documentation (altRE "doc" "comment"))
-							(function-application (altRE "|>" "|>>" "<|" "<<|" "_\\$" "\\$_"))
+							(function-application (altRE "|>" "<|" "_\\$" "\\$_"))
+							(function-definition (altRE "function" "|>>" "<<|" "||>"))
 							(remember (altRE "remember" "to-do" "fix-me"))
 							(definition (altRE "\\.module:"
 											   "def:" "type:" "program:"
@@ -307,11 +308,12 @@ Called by `imenu--generic-function'."
 							alternative-format
 							documentation
 							function-application
+							function-definition
 							remember
 							definition
 							;;;;;;;;;;;;;;;;;;;;;;;;
 							"with-expansions"
-							"function" "undefined" "name-of" "static"
+							"undefined" "name-of" "static"
 							"for"
 							"io"
 							"infix"
@@ -361,7 +363,7 @@ highlighted region)."
           (font-lock-syntactic-face-function
            . lux-font-lock-syntactic-face-function))))
 
-(defvar withRE (concat "with" (altRE "-" "\\'")))
+(defvar withRE (concat "\\`" "with" (altRE "-" "\\'")))
 (defvar definitionRE ":\\'")
 
 (defun lux-indent-function (indent-point state)
@@ -419,8 +421,8 @@ This function also returns nil meaning don't specify the indentation."
               ((or (eq method 'defun)
                    (and (null method)
                         (> (length function) 2)
-						(or (string-match withRE function)
-                            (string-match definitionRE function))))
+						(or (string-match withRE function-tail)
+                            (string-match definitionRE function-tail))))
                (lisp-indent-defform state indent-point))
               ((integerp method)
                (lisp-indent-specform method state

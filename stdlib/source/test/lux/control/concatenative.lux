@@ -1,0 +1,235 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   [abstract
+    [monad (#+ do)]]
+   [data
+    ["." sum]
+    ["." name]
+    ["." bit ("#@." equivalence)]
+    [number
+     ["n" nat]
+     ["i" int]
+     ["r" rev]
+     ["f" frac]]
+    [text
+     ["%" format (#+ format)]]]
+   [math
+    ["." random]]
+   [macro
+    ["." template]]]
+  {1
+   ["." / (#+ word: => ||>)]})
+
+(def: stack-shuffling
+  Test
+  (do random.monad
+    [sample random.nat
+     dummy random.nat]
+    (`` ($_ _.and
+            (_.test (%.name (name-of /.push))
+                    (n.= sample
+                         (||> (/.push sample))))
+            (_.test (%.name (name-of /.drop))
+                    (n.= sample
+                         (||> (/.push sample)
+                              (/.push dummy)
+                              /.drop)))
+            (_.test (%.name (name-of /.nip))
+                    (n.= sample
+                         (||> (/.push dummy)
+                              (/.push sample)
+                              /.nip)))
+            (_.test (%.name (name-of /.dup))
+                    (||> (/.push sample)
+                         /.dup
+                         /.n/=))
+            (_.test (%.name (name-of /.swap))
+                    (n.= sample
+                         (||> (/.push sample)
+                              (/.push dummy)
+                              /.swap)))
+            (_.test (%.name (name-of /.rotL))
+                    (n.= sample
+                         (||> (/.push sample)
+                              (/.push dummy)
+                              (/.push dummy)
+                              /.rotL)))
+            (_.test (%.name (name-of /.rotR))
+                    (n.= sample
+                         (||> (/.push dummy)
+                              (/.push sample)
+                              (/.push dummy)
+                              /.rotR)))
+            (_.test (%.name (name-of /.&&))
+                    (let [[left right] (||> (/.push sample)
+                                            (/.push dummy)
+                                            /.&&)]
+                      (and (n.= sample left)
+                           (n.= dummy right))))
+            (~~ (template [<function> <tag>]
+                  [(_.test (%.name (name-of <function>))
+                           ((sum.equivalence n.= n.=)
+                            (<tag> sample)
+                            (||> (/.push sample)
+                                 <function>)))]
+
+                  [/.||L #.Left]
+                  [/.||R #.Right]))
+            (_.test (%.name (name-of /.dip))
+                    (n.= (inc sample)
+                         (||> (/.push sample)
+                              (/.push dummy)
+                              (/.push (/.apply/1 inc))
+                              /.dip
+                              /.drop)))
+            (_.test (%.name (name-of /.dip/2))
+                    (n.= (inc sample)
+                         (||> (/.push sample)
+                              (/.push dummy)
+                              (/.push dummy)
+                              (/.push (/.apply/1 inc))
+                              /.dip/2
+                              /.drop /.drop)))
+            ))))
+
+(template: (!numerical <=> <generator> <filter> <arithmetic> <order>)
+  (: Test
+     (with-expansions [<arithmetic>' (template.splice <arithmetic>)
+                       <order>' (template.splice <order>)]
+       (do random.monad
+         [parameter (|> <generator> (random.filter <filter>))
+          subject <generator>]
+         (`` ($_ _.and
+                 (~~ (template [<concatenative> <functional>]
+                       [(_.test (%.name (name-of <concatenative>))
+                                (<=> (<functional> parameter subject)
+                                     (||> (/.push subject)
+                                          (/.push parameter)
+                                          <concatenative>)))]
+
+                       <arithmetic>'))
+                 (~~ (template [<concatenative> <functional>]
+                       [(_.test (%.name (name-of <concatenative>))
+                                (bit@= (<functional> parameter subject)
+                                       (||> (/.push subject)
+                                            (/.push parameter)
+                                            <concatenative>)))]
+
+                       <order>'))
+                 ))))))
+
+(def: numerical
+  Test
+  ($_ _.and
+      (!numerical n.= random.nat (|>> (n.= 0) not)
+                  [[/.n/+  n.+] [/.n/-  n.-] [/.n/*  n.*]  [/.n//  n./] [/.n/%  n.%]]
+                  [[/.n/=  n.=] [/.n/<  n.<] [/.n/<= n.<=] [/.n/>  n.>] [/.n/>= n.>=]])
+      (!numerical i.= random.int (|>> (i.= +0) not)
+                  [[/.i/+  i.+] [/.i/-  i.-] [/.i/*  i.*]  [/.i//  i./] [/.i/%  i.%]]
+                  [[/.i/=  i.=] [/.i/<  i.<] [/.i/<= i.<=] [/.i/>  i.>] [/.i/>= i.>=]])
+      (!numerical r.= random.rev (|>> (r.= .0) not)
+                  [[/.r/+  r.+] [/.r/-  r.-] [/.r/*  r.*]  [/.r//  r./] [/.r/%  r.%]]
+                  [[/.r/=  r.=] [/.r/<  r.<] [/.r/<= r.<=] [/.r/>  r.>] [/.r/>= r.>=]])
+      (!numerical f.= random.frac (|>> (f.= +0.0) not)
+                  [[/.f/+  f.+] [/.f/-  f.-] [/.f/*  f.*]  [/.f//  f./] [/.f/%  f.%]]
+                  [[/.f/=  f.=] [/.f/<  f.<] [/.f/<= f.<=] [/.f/>  f.>] [/.f/>= f.>=]])
+      ))
+
+(def: control-flow
+  Test
+  (do random.monad
+    [choice random.bit
+     sample random.nat
+     start random.nat
+     #let [distance 10
+           |inc| (/.apply/1 inc)
+           |test| (/.apply/1 (|>> (n.- start) (n.< distance)))]]
+    ($_ _.and
+        (_.test (%.name (name-of /.call))
+                (n.= (inc sample)
+                     (||> (/.push sample)
+                          (/.push (/.apply/1 inc))
+                          /.call)))
+        (_.test (%.name (name-of /.if))
+                (n.= (if choice
+                       (inc sample)
+                       (dec sample))
+                     (||> (/.push sample)
+                          (/.push choice)
+                          (/.push (/.apply/1 inc))
+                          (/.push (/.apply/1 dec))
+                          /.if)))
+        (_.test (%.name (name-of /.loop))
+                (n.= (n.+ distance start)
+                     (||> (/.push start)
+                          (/.push (|>> |inc| /.dup |test|))
+                          /.loop)))
+        (_.test (%.name (name-of /.while))
+                (n.= (n.+ distance start)
+                     (||> (/.push start)
+                          (/.push (|>> /.dup |test|))
+                          (/.push |inc|)
+                          /.while)))
+        (_.test (%.name (name-of /.do))
+                (n.= (inc sample)
+                     (||> (/.push sample)
+                          (/.push (|>> (/.push false)))
+                          (/.push |inc|)
+                          /.do /.while)))
+        (_.test (%.name (name-of /.compose))
+                (n.= (inc (inc sample))
+                     (||> (/.push sample)
+                          (/.push |inc|)
+                          (/.push |inc|)
+                          /.compose
+                          /.call)))
+        (_.test (%.name (name-of /.curry))
+                (n.= (n.+ sample sample)
+                     (||> (/.push sample)
+                          (/.push sample)
+                          (/.push (/.apply/2 n.+))
+                          /.curry
+                          /.call)))
+        (_.test (%.name (name-of /.when))
+                (n.= (if choice
+                       (inc sample)
+                       sample)
+                     (||> (/.push sample)
+                          (/.push choice)
+                          (/.push (/.apply/1 inc))
+                          /.when)))
+        (_.test (%.name (name-of /.?))
+                (n.= (if choice
+                       (inc sample)
+                       (dec sample))
+                     (||> (/.push choice)
+                          (/.push (inc sample))
+                          (/.push (dec sample))
+                          /.?)))
+        )))
+
+(word: square
+  (=> [Nat] [Nat])
+
+  /.dup
+  (/.apply/2 n.*))
+
+(def: definition
+  Test
+  (do random.monad
+    [sample random.nat]
+    (_.test (%.name (name-of /.word:))
+            (n.= (n.* sample sample)
+                 (||> (/.push sample)
+                      ..square)))))
+
+(def: #export test
+  Test
+  (<| (_.context (name.module (name-of /._)))
+      ($_ _.and
+          ..stack-shuffling
+          ..numerical
+          ..control-flow
+          ..definition
+          )))
