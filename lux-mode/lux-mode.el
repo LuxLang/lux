@@ -207,6 +207,7 @@ Called by `imenu--generic-function'."
               (set-match-data (list def-beg def-end)))))
         (goto-char start)))))
 
+;; https://www.gnu.org/software/findutils/manual/html_node/find_html/emacs-regular-expression-syntax.html
 (defun altRE (&rest alternatives)
   (concat "\\(" (mapconcat 'identity alternatives "\\|") "\\)"))
 

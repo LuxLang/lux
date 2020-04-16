@@ -334,8 +334,7 @@
                   (.visitFieldInsn Opcodes/GETSTATIC "java/lang/System" "out" "Ljava/io/PrintStream;"))]
         _ (compile ?x)
         :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String")
-                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/io/PrintStream" "println" "(Ljava/lang/String;)V")
+                  (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/io/PrintStream" "println" "(Ljava/lang/Object;)V")
                   (.visitLdcInsn &/unit-tag))]]
     (return nil)))
 
