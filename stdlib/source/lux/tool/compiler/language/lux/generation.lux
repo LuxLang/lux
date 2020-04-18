@@ -11,6 +11,8 @@
     ["." name ("#@." equivalence)]
     ["." text ("#@." equivalence)
      ["%" format (#+ format)]]
+    [number
+     ["n" nat]]
     [collection
      ["." row (#+ Row)]
      ["." list ("#@." functor)]]]]
@@ -24,6 +26,9 @@
      ["." archive (#+ Archive)
       ["." descriptor (#+ Module)]
       ["." artifact]]]]])
+
+(type: #export Context [archive.ID artifact.ID])
+(type: #export (Buffer directive) (Row [Name directive]))
 
 (exception: #export (cannot-interpret {error Text})
   (exception.report
@@ -43,11 +48,8 @@
      evaluate!)
   (: (-> Text directive (Try Any))
      execute!)
-  (: (-> Module artifact.ID expression (Try [Text Any directive]))
+  (: (-> Context expression (Try [Text Any directive]))
      define!))
-
-(type: #export (Buffer directive) (Row [Name directive]))
-(type: #export Context [Module artifact.ID])
 
 (type: #export (State anchor expression directive)
   {#module Module
@@ -168,11 +170,11 @@
   [execute!  directive]
   )
 
-(def: #export (define! module id code)
+(def: #export (define! context code)
   (All [anchor expression directive]
-    (-> Module artifact.ID expression (Operation anchor expression directive [Text Any directive])))
+    (-> Context expression (Operation anchor expression directive [Text Any directive])))
   (function (_ (^@ stateE [bundle state]))
-    (case (:: (get@ #host state) define! module id code)
+    (case (:: (get@ #host state) define! context code)
       (#try.Success output)
       (#try.Success [stateE output])
 
@@ -192,11 +194,11 @@
     (case ?buffer
       (#.Some buffer)
       (if (row.any? (|>> product.left (name@= name)) buffer)
-        (phase.throw ..cannot-overwrite-output name)
+        (phase.throw ..cannot-overwrite-output [name])
         (extension.update (set@ #buffer (#.Some (row.add [name code] buffer)))))
       
       #.None
-      (phase.throw ..no-buffer-for-saving-code name))))
+      (phase.throw ..no-buffer-for-saving-code [name]))))
 
 (def: #export (learn name)
   (All [anchor expression directive]
@@ -219,7 +221,8 @@
   (function (_ (^@ stateE [bundle state]))
     (let [[_module _name] name]
       (do try.monad
-        [registry (if (text@= (get@ #module state) _module)
+        [module-id (archive.id _module archive)
+         registry (if (text@= (get@ #module state) _module)
                     (#try.Success (get@ #registry state))
                     (do try.monad
                       [[descriptor document] (archive.find _module archive)]
@@ -229,20 +232,22 @@
           (exception.throw ..unknown-definition [name (artifact.definitions registry)])
           
           (#.Some id)
-          (#try.Success [stateE [_module id]]))))))
+          (#try.Success [stateE [module-id id]]))))))
 
 (exception: #export no-context)
 
-(def: #export context
+(def: #export (context archive)
   (All [anchor expression directive]
-    (Operation anchor expression directive Context))
+    (-> Archive (Operation anchor expression directive Context)))
   (function (_ (^@ stateE [bundle state]))
     (case (get@ #context state)
       #.None
       (exception.throw ..no-context [])
       
       (#.Some id)
-      (#try.Success [stateE [(get@ #module state) id]]))))
+      (do try.monad
+        [module-id (archive.id (get@ #module state) archive)]
+        (wrap [stateE [module-id id]])))))
 
 (def: #export (with-context id body)
   (All [anchor expression directive a]
@@ -255,16 +260,17 @@
       (wrap [[bundle' (set@ #context (get@ #context state) state')]
              output]))))
 
-(def: #export (with-new-context body)
+(def: #export (with-new-context archive body)
   (All [anchor expression directive a]
-    (-> (Operation anchor expression directive a)
+    (-> Archive (Operation anchor expression directive a)
         (Operation anchor expression directive [Context a])))
   (function (_ (^@ stateE [bundle state]))
     (let [[id registry'] (artifact.resource (get@ #registry state))]
       (do try.monad
         [[[bundle' state'] output] (body [bundle (|> state
                                                      (set@ #registry registry')
-                                                     (set@ #context (#.Some id)))])]
+                                                     (set@ #context (#.Some id)))])
+         module-id (archive.id (get@ #module state) archive)]
         (wrap [[bundle' (set@ #context (get@ #context state) state')]
-               [[(get@ #module state) id]
+               [[module-id id]
                 output]])))))

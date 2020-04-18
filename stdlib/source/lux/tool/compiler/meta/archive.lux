@@ -8,9 +8,11 @@
     ["." exception (#+ exception:)]
     ["." function]]
    [data
+    ["." product]
     ["." name]
     ["." text]
     [collection
+     ["." list]
      ["." dictionary (#+ Dictionary)]]]
    [type
     abstract]
@@ -36,34 +38,83 @@
    ["Old key" (signature.description (document.signature old))]
    ["New key" (signature.description (document.signature new))]))
 
+(exception: #export (module-has-already-been-reserved {module Module})
+  (exception.report
+   ["Module" module]))
+
+(exception: #export (module-must-be-reserved-before-it-can-be-added {module Module})
+  (exception.report
+   ["Module" module]))
+
+(exception: #export (module-is-only-reserved {module Module})
+  (exception.report
+   ["Module" module]))
+
+(type: #export ID Nat)
+
 (abstract: #export Archive
   {}
   
-  (Dictionary Module [Descriptor (Document Any)])
+  (Dictionary Module [ID (Maybe [Descriptor (Document Any)])])
 
   (def: #export empty
     Archive
     (:abstraction (dictionary.new text.hash)))
 
+  (def: next
+    (-> Archive ID)
+    (|>> :representation dictionary.size))
+
+  (def: #export (id module archive)
+    (-> Module Archive (Try ID))
+    (case (dictionary.get module (:representation archive))
+      (#.Some [id _])
+      (#try.Success id)
+      
+      #.None
+      (exception.throw ..unknown-document [module
+                                           (dictionary.keys (:representation archive))])))
+
+  (def: #export (reserve module archive)
+    (-> Module Archive (Try [ID Archive]))
+    (case (dictionary.get module (:representation archive))
+      (#.Some _)
+      (exception.throw ..module-has-already-been-reserved [module])
+      
+      #.None
+      (let [id (..next archive)]
+        (#try.Success [id
+                       (|> archive
+                           :representation
+                           (dictionary.put module [id #.None])
+                           :abstraction)]))))
+
   (def: #export (add module [descriptor document] archive)
     (-> Module [Descriptor (Document Any)] Archive (Try Archive))
     (case (dictionary.get module (:representation archive))
-      (#.Some [existing-descriptor existing-document])
-      (if (is? document existing-document)
-        (#try.Success archive)
-        (exception.throw cannot-replace-document [module existing-document document]))
-      
-      #.None
+      (#.Some [id #.None])
       (#try.Success (|> archive
                         :representation
-                        (dictionary.put module [descriptor document])
-                        :abstraction))))
+                        (dictionary.put module [id (#.Some [descriptor document])])
+                        :abstraction))
+      
+      (#.Some [id (#.Some [existing-descriptor existing-document])])
+      (if (is? document existing-document)
+        ## TODO: Find out why this code allows for the same module to be added more than once. It looks fishy...
+        (#try.Success archive)
+        (exception.throw ..cannot-replace-document [module existing-document document]))
+      
+      #.None
+      (exception.throw ..module-must-be-reserved-before-it-can-be-added [module])))
 
   (def: #export (find module archive)
     (-> Module Archive (Try [Descriptor (Document Any)]))
     (case (dictionary.get module (:representation archive))
-      (#.Some document)
+      (#.Some [id (#.Some document)])
       (#try.Success document)
+
+      (#.Some [id #.None])
+      (exception.throw ..module-is-only-reserved [module])
       
       #.None
       (exception.throw ..unknown-document [module
@@ -80,13 +131,25 @@
 
   (def: #export archived
     (-> Archive (List Module))
-    (|>> :representation dictionary.keys))
+    (|>> :representation
+         dictionary.entries
+         (list.search-all (function (_ [module [id descriptor+document]])
+                            (case descriptor+document
+                              (#.Some _) (#.Some module)
+                              #.None #.None)))))
 
   (def: #export (merge additions archive)
     (-> Archive Archive (Try Archive))
     (monad.fold try.monad
-                (function (_ [module' descriptor+document'] archive')
-                  (..add module' descriptor+document' archive'))
+                (function (_ [module' [id descriptor+document']] archive')
+                  (case descriptor+document'
+                    (#.Some descriptor+document')
+                    (if (archived? archive' module')
+                      (#try.Success archive')
+                      (..add module' descriptor+document' archive'))
+                    
+                    #.None
+                    (#try.Success archive')))
                 archive
                 (dictionary.entries (:representation additions))))
   )
