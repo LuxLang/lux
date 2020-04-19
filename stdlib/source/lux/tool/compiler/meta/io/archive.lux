@@ -16,56 +16,66 @@
      ["%" format (#+ format)]]]
    [world
     ["." file (#+ Path File System)]]]
-  ["." // (#+ Module)])
+  ["." // (#+ Module)
+   [//
+    ["." archive]]])
 
 (exception: #export (cannot-prepare {archive Path}
-                                    {module Module}
+                                    {module-id archive.ID}
                                     {error Text})
   (exception.report
    ["Archive" archive]
-   ["Module" module]
+   ["Module ID" (%.nat module-id)]
    ["Error" error]))
 
 (def: #export (archive system host root)
   (-> (System Promise) Host Path Path)
   (format root (:: system separator) host))
 
-(def: #export (document system host root module)
-  (-> (System Promise) Host Path Module Path)
+(def: #export (lux-archive system host root)
+  (-> (System Promise) Host Path Path)
   (format (..archive system host root)
           (:: system separator)
-          (//.sanitize system module)))
+          //.lux-context))
 
-(def: #export (artifact system host root module name)
-  (-> (System Promise) Host Path Module Text Path)
-  (format (document system host root module)
+(def: #export (document system host root module-id)
+  (-> (System Promise) Host Path archive.ID Path)
+  (format (..lux-archive system host root)
           (:: system separator)
-          (//.sanitize system name)))
+          (%.nat module-id)))
 
-(def: #export (prepare system host root module)
-  (-> (System Promise) Host Path Module (Promise (Try Any)))
+(def: #export (artifact system host root module-id name extension)
+  (-> (System Promise) Host Path archive.ID Text Text Path)
+  (format (document system host root module-id)
+          (:: system separator)
+          name
+          extension))
+
+(def: #export (prepare system host root module-id)
+  (-> (System Promise) Host Path archive.ID (Promise (Try Any)))
   (do promise.monad
-    [#let [document (..document system host root module)]
+    [#let [document (..document system host root module-id)]
      document-exists? (file.exists? promise.monad system document)]
     (if document-exists?
       (wrap (#try.Success []))
       (do @
-        [outcome (!.use (:: system create-directory) document)]
+        [_ (file.get-directory @ system (..lux-archive system host root))
+         outcome (!.use (:: system create-directory) document)]
         (case outcome
           (#try.Success output)
           (wrap (#try.Success []))
 
           (#try.Failure error)
           (wrap (exception.throw ..cannot-prepare [(..archive system host root)
-                                                   module
+                                                   module-id
                                                    error])))))))
 
-(def: #export (write system host root module name content)
-  (-> (System Promise) Host Path Module Text Binary (Promise (Try Any)))
+(def: #export (write system host root module-id name extension content)
+  (-> (System Promise) Host Path archive.ID Text Text Binary (Promise (Try Any)))
   (do (try.with promise.monad)
     [artifact (: (Promise (Try (File Promise)))
                  (file.get-file promise.monad system
-                                (..artifact system host root module name)))]
+                                (..artifact system host root module-id name extension)))]
     (!.use (:: artifact over-write) content)))
 
 (def: #export (module system host root document)
