@@ -110,11 +110,15 @@
   (All [anchor expression directive]
     (///directive.Operation anchor expression directive a)))
 
+(type: (Payload directive)
+  [(///generation.Buffer directive)
+   artifact.Registry])
+
 (def: (begin dependencies hash input)
   (-> (List Module) Nat ///.Input
       (All [anchor expression directive]
         (///directive.Operation anchor expression directive
-                                [Source (///generation.Buffer directive)])))
+                                [Source (Payload directive)])))
   (do ///phase.monad
     [#let [module (get@ #///.module input)]
      _ (///directive.set-current-module module)]
@@ -124,12 +128,13 @@
         _ (monad.map @ module.import dependencies)
         #let [source (///analysis.source (get@ #///.module input) (get@ #///.code input))]
         _ (///analysis.set-source-code source)]
-       (wrap [source ///generation.empty-buffer])))))
+       (wrap [source [///generation.empty-buffer
+                      artifact.empty]])))))
 
 (def: (end module)
   (-> Module
       (All [anchor expression directive]
-        (///directive.Operation anchor expression directive [.Module (///generation.Buffer directive)])))
+        (///directive.Operation anchor expression directive [.Module (Payload directive)])))
   (do ///phase.monad
     [_ (///directive.lift-analysis
         (module.set-compiled module))
@@ -138,57 +143,67 @@
                          extension.lift
                          macro.current-module)
      final-buffer (///directive.lift-generation
-                   ///generation.buffer)]
-    (wrap [analysis-module final-buffer])))
+                   ///generation.buffer)
+     final-registry (///directive.lift-generation
+                     ///generation.get-registry)]
+    (wrap [analysis-module [final-buffer
+                            final-registry]])))
 
 ## TODO: Inline ASAP
-(def: (get-current-buffer old-buffer)
+(def: (get-current-payload _)
   (All [directive]
-    (-> (///generation.Buffer directive)
+    (-> (Payload directive)
         (All [anchor expression]
           (///directive.Operation anchor expression directive
-                                  (///generation.Buffer directive)))))
-  (///directive.lift-generation
-   ///generation.buffer))
-
-## TODO: Inline ASAP
-(def: (process-directive archive expander pre-buffer code)
-  (All [directive]
-    (-> Archive Expander (///generation.Buffer directive) Code
-        (All [anchor expression]
-          (///directive.Operation anchor expression directive
-                                  [Requirements (///generation.Buffer directive)]))))
+                                  (Payload directive)))))
   (do ///phase.monad
-    [_ (///directive.lift-generation
+    [buffer (///directive.lift-generation
+             ///generation.buffer)
+     registry (///directive.lift-generation
+               ///generation.get-registry)]
+    (wrap [buffer registry])))
+
+## TODO: Inline ASAP
+(def: (process-directive archive expander pre-payoad code)
+  (All [directive]
+    (-> Archive Expander (Payload directive) Code
+        (All [anchor expression]
+          (///directive.Operation anchor expression directive
+                                  [Requirements (Payload directive)]))))
+  (do ///phase.monad
+    [#let [[pre-buffer pre-registry] pre-payoad]
+     _ (///directive.lift-generation
         (///generation.set-buffer pre-buffer))
+     _ (///directive.lift-generation
+        (///generation.set-registry pre-registry))
      requirements (let [execute! (directiveP.phase expander)]
                     (execute! archive code))
-     post-buffer (..get-current-buffer pre-buffer)]
-    (wrap [requirements post-buffer])))
+     post-payload (..get-current-payload pre-payoad)]
+    (wrap [requirements post-payload])))
 
-(def: (iteration archive expander reader source pre-buffer)
+(def: (iteration archive expander reader source pre-payload)
   (All [directive]
-    (-> Archive Expander Reader Source (///generation.Buffer directive)
+    (-> Archive Expander Reader Source (Payload directive)
         (All [anchor expression]
           (///directive.Operation anchor expression directive
-                                  [Source Requirements (///generation.Buffer directive)]))))
+                                  [Source Requirements (Payload directive)]))))
   (do ///phase.monad
     [[source code] (///directive.lift-analysis
                     (..read source reader))
-     [requirements post-buffer] (process-directive archive expander pre-buffer code)]
-    (wrap [source requirements post-buffer])))
+     [requirements post-payload] (process-directive archive expander pre-payload code)]
+    (wrap [source requirements post-payload])))
 
-(def: (iterate archive expander module source pre-buffer aliases)
+(def: (iterate archive expander module source pre-payload aliases)
   (All [directive]
-    (-> Archive Expander Module Source (///generation.Buffer directive) Aliases
+    (-> Archive Expander Module Source (Payload directive) Aliases
         (All [anchor expression]
           (///directive.Operation anchor expression directive
-                                  (Maybe [Source Requirements (///generation.Buffer directive)])))))
+                                  (Maybe [Source Requirements (Payload directive)])))))
   (do ///phase.monad
     [reader (///directive.lift-analysis
              (..reader module aliases source))]
     (function (_ state)
-      (case (///phase.run' state (..iteration archive expander reader source pre-buffer))
+      (case (///phase.run' state (..iteration archive expander reader source pre-payload))
         (#try.Success [state source&requirements&buffer])
         (#try.Success [state (#.Some source&requirements&buffer)])
 
@@ -224,17 +239,17 @@
                           (loop [iteration (<| (///phase.run' state)
                                                (..iterate archive expander module source buffer ///syntax.no-aliases))]
                             (do @
-                              [[state ?source&requirements&temporary-buffer] iteration]
-                              (case ?source&requirements&temporary-buffer
+                              [[state ?source&requirements&temporary-payload] iteration]
+                              (case ?source&requirements&temporary-payload
                                 #.None
                                 (do @
-                                  [[state [analysis-module final-buffer]] (///phase.run' state (..end module))
+                                  [[state [analysis-module [final-buffer final-registry]]] (///phase.run' state (..end module))
                                    #let [descriptor {#descriptor.hash hash
                                                      #descriptor.name module
                                                      #descriptor.file (get@ #///.file input)
                                                      #descriptor.references (set.from-list text.hash dependencies)
                                                      #descriptor.state #.Compiled
-                                                     #descriptor.registry artifact.empty}]]
+                                                     #descriptor.registry final-registry}]]
                                   (wrap [state
                                          (#.Right [[descriptor (document.write key analysis-module)]
                                                    (|> final-buffer
@@ -242,25 +257,28 @@
                                                                   [(product.right name)
                                                                    (write-directive directive)])))])]))
 
-                                (#.Some [source requirements temporary-buffer])
-                                (wrap [state
-                                       (#.Left {#///.dependencies (|> requirements
-                                                                      (get@ #///directive.imports)
-                                                                      (list@map product.left))
-                                                #///.process (function (_ state archive)
-                                                               (recur (<| (///phase.run' state)
-                                                                          (do ///phase.monad
-                                                                            [analysis-module (<| (: (Operation .Module))
-                                                                                                 ///directive.lift-analysis
-                                                                                                 extension.lift
-                                                                                                 macro.current-module)
-                                                                             _ (///directive.lift-generation
-                                                                                (///generation.set-buffer temporary-buffer))
-                                                                             _ (|> requirements
-                                                                                   (get@ #///directive.referrals)
-                                                                                   (monad.map @ (execute! archive)))
-                                                                             temporary-buffer (..get-current-buffer temporary-buffer)]
-                                                                            (..iterate archive expander module source temporary-buffer (..module-aliases analysis-module))))))})])
+                                (#.Some [source requirements temporary-payload])
+                                (let [[temporary-buffer temporary-registry] temporary-payload]
+                                  (wrap [state
+                                         (#.Left {#///.dependencies (|> requirements
+                                                                        (get@ #///directive.imports)
+                                                                        (list@map product.left))
+                                                  #///.process (function (_ state archive)
+                                                                 (recur (<| (///phase.run' state)
+                                                                            (do ///phase.monad
+                                                                              [analysis-module (<| (: (Operation .Module))
+                                                                                                   ///directive.lift-analysis
+                                                                                                   extension.lift
+                                                                                                   macro.current-module)
+                                                                               _ (///directive.lift-generation
+                                                                                  (///generation.set-buffer temporary-buffer))
+                                                                               _ (///directive.lift-generation
+                                                                                  (///generation.set-registry temporary-registry))
+                                                                               _ (|> requirements
+                                                                                     (get@ #///directive.referrals)
+                                                                                     (monad.map @ (execute! archive)))
+                                                                               temporary-payload (..get-current-payload temporary-payload)]
+                                                                              (..iterate archive expander module source temporary-payload (..module-aliases analysis-module))))))})]))
                                 )))))}))))
 
 (def: #export key
