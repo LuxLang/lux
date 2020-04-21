@@ -1,0 +1,122 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    ["." io]
+    ["." try (#+ Try)]
+    ["." exception]
+    [parser
+     ["<c>" code]]]
+   [data
+    ["." product]
+    ["." text
+     ["%" format (#+ format)]]]
+   [math
+    ["." random (#+ Random) ("#@." monad)]]
+   [time
+    ["." date (#+ Date)]
+    ["." instant]
+    ["." duration]]
+   ["." macro
+    ["." code]
+    ["." syntax (#+ syntax:)]]]
+  {1
+   ["." /]})
+
+(def: deadline (Random Date) random.date)
+(def: message (Random Text) (random@map %.nat random.nat))
+(def: focus (Random Code) (random@map code.text (random.ascii/upper-alpha 10)))
+
+(def: (to-remember macro deadline message focus)
+  (-> Name Date Text (Maybe Code) Code)
+  (` ((~ (code.identifier macro))
+      (~ (code.text (%.date deadline)))
+      (~ (code.text message))
+      (~+ (case focus
+            #.None (list)
+            (#.Some focus) (list focus))))))
+
+(def: (try computation)
+  (All [a] (-> (Meta a) (Meta (Try a))))
+  (function (_ compiler)
+    (case (computation compiler)
+      (#try.Success [compiler output])
+      (#try.Success [compiler (#try.Success output)])
+
+      (#try.Failure error)
+      (#try.Success [compiler (#try.Failure error)]))))
+
+(def: (test-failure deadline message focus failure)
+  (-> Date Text (Maybe Code) Text Bit)
+  (and (text.contains? (%.date deadline) failure)
+       (text.contains? message failure)
+       (case focus
+         #.None
+         true
+         
+         (#.Some focus)
+         (text.contains? (%.code focus) failure))))
+
+(syntax: (test-macro {macro <c>.identifier} {extra <c>.text})
+  (let [now (io.run instant.now)
+        today (instant.date now)
+        yesterday (instant.date (instant.shift (duration.inverse duration.week) now))
+        tomorrow (instant.date (instant.shift duration.week now))
+        prng (random.pcg-32 [123 (instant.to-millis now)])
+        message (product.right (random.run prng ..message))
+        expected (product.right (random.run prng ..focus))]
+    (do @
+      [should-fail0 (..try (macro.expand (to-remember macro yesterday message #.None)))
+       should-fail1 (..try (macro.expand (to-remember macro yesterday message (#.Some expected))))
+       should-succeed0 (..try (macro.expand (to-remember macro tomorrow message #.None)))
+       should-succeed1 (..try (macro.expand (to-remember macro tomorrow message (#.Some expected))))]
+      (wrap (list (code.bit (and (case should-fail0
+                                   (#try.Failure error)
+                                   (and (test-failure yesterday message #.None error)
+                                        (text.contains? extra error))
+
+                                   _
+                                   false)
+                                 (case should-fail1
+                                   (#try.Failure error)
+                                   (and (test-failure yesterday message (#.Some expected) error)
+                                        (text.contains? extra error))
+
+                                   _
+                                   false)
+                                 (case should-succeed0
+                                   (^ (#try.Success (list)))
+                                   true
+
+                                   _
+                                   false)
+                                 (case should-succeed1
+                                   (^ (#try.Success (list actual)))
+                                   (is? expected actual)
+
+                                   _
+                                   false)
+                                 )))))))
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      (do random.monad
+        [deadline ..deadline
+         message ..message
+         focus ..focus]
+        ($_ _.and
+            (_.cover [/.must-remember]
+                     (and (test-failure deadline message #.None
+                                        (exception.construct /.must-remember [deadline deadline message #.None]))
+                          (test-failure deadline message (#.Some focus)
+                                        (exception.construct /.must-remember [deadline deadline message (#.Some focus)]))))
+            (_.cover [/.remember]
+                     (..test-macro /.remember ""))
+            (_.cover [/.to-do]
+                     (..test-macro /.to-do "TODO"))
+            (_.cover [/.fix-me]
+                     (..test-macro /.fix-me "FIXME"))
+            ))))

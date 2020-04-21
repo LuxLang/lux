@@ -6,14 +6,23 @@
    [control
     ["." try (#+ Try)]
     ["." exception (#+ exception:)]
-    ["." function]]
+    ["." function]
+    ["<>" parser
+     ["<b>" binary (#+ Parser)]]]
    [data
+    [binary (#+ Binary)]
     ["." product]
     ["." name]
-    ["." text]
+    ["." text ("#@." equivalence)
+     ["%" format (#+ format)]]
+    [format
+     ["." binary (#+ Writer)]]
+    [number
+     ["n" nat]]
     [collection
-     ["." list]
-     ["." dictionary (#+ Dictionary)]]]
+     ["." list ("#@." functor fold)]
+     ["." dictionary (#+ Dictionary)]
+     ["." set]]]
    [type
     abstract]
    [world
@@ -22,7 +31,9 @@
    ["." signature (#+ Signature)]
    ["." key (#+ Key)]
    ["." descriptor (#+ Module Descriptor)]
-   ["." document (#+ Document)]])
+   ["." document (#+ Document)]
+   [///
+    [version (#+ Version)]]])
 
 (exception: #export (unknown-document {module Module}
                                       {known-modules (List Module)})
@@ -152,4 +163,71 @@
                     (#try.Success archive')))
                 archive
                 (dictionary.entries (:representation additions))))
+
+  (type: Reservations (List [Module ID]))
+  (type: Frozen [Version Reservations])
+  
+  (def: reader
+    (Parser ..Frozen)
+    (<>.and <b>.text
+            (<b>.list (<>.and <b>.text <b>.nat))))
+
+  (def: writer
+    (Writer ..Frozen)
+    (binary.and binary.text
+                (binary.list (binary.and binary.text binary.nat))))
+  
+  (def: #export (export version archive)
+    (-> Version Archive Binary)
+    (|> archive
+        :representation
+        dictionary.entries
+        (list@map (function (_ [module [id _]])
+                    [module id]))
+        (list.sort (function (_ [moduleL idL] [moduleR idR])
+                     (n.< idL idR)))
+        [version]
+        (binary.run ..writer)))
+
+  (exception: #export (version-mismatch {expected Version} {actual Version})
+    (exception.report
+     ["Expected" (%.text expected)]
+     ["Actual" (%.text actual)]))
+
+  (exception: #export corrupt-data)
+
+  (def: (correct-modules? reservations)
+    (-> Reservations Bit)
+    (n.= (list.size reservations)
+         (|> reservations
+             (list@map product.left)
+             (set.from-list text.hash)
+             set.size)))
+
+  (def: (correct-ids? reservations)
+    (-> Reservations Bit)
+    (n.= (list.size reservations)
+         (|> reservations
+             (list@map product.right)
+             (set.from-list n.hash)
+             set.size)))
+
+  (def: (correct-reservations? reservations)
+    (-> Reservations Bit)
+    (and (correct-modules? reservations)
+         (correct-ids? reservations)))
+
+  (def: #export (import expected binary)
+    (-> Version Binary (Try Archive))
+    (do try.monad
+      [[actual reservations] (<b>.run ..reader binary)
+       _ (exception.assert ..version-mismatch [expected actual]
+                           (text@= expected actual))
+       _ (exception.assert ..corrupt-data []
+                           (correct-reservations? reservations))]
+      (wrap (|> reservations
+                (list@fold (function (_ [module id] archive)
+                             (dictionary.put module [id #.None] archive))
+                           (:representation ..empty))
+                :abstraction))))
   )

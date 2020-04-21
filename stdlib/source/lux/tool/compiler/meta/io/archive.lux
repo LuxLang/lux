@@ -15,10 +15,10 @@
     ["." text
      ["%" format (#+ format)]]]
    [world
-    ["." file (#+ Path File System)]]]
+    ["." file (#+ Path File Directory System)]]]
   ["." // (#+ Module)
-   [//
-    ["." archive]]])
+   ["/#" //
+    ["." archive (#+ Archive)]]])
 
 (exception: #export (cannot-prepare {archive Path}
                                     {module-id archive.ID}
@@ -78,14 +78,37 @@
                                 (..artifact system host root module-id name extension)))]
     (!.use (:: artifact over-write) content)))
 
-(def: #export (module system host root document)
-  (-> (System Promise) Host Path Path (Maybe Module))
-  (case (text.split-with (..archive system host root) document)
-    (#.Some ["" post])
-    (let [raw (text.replace-all (:: system separator) "/" post)]
-      (if (text.starts-with? "/" raw)
-        (text.clip' 1 raw)
-        (#.Some raw)))
+(def: #export (enable system host root)
+  (-> (System Promise) Host Path (Promise (Try Any)))
+  (do (try.with promise.monad)
+    [_ (: (Promise (Try (Directory Promise)))
+          (file.get-directory promise.monad system root))
+     _ (: (Promise (Try (Directory Promise)))
+          (file.get-directory promise.monad system (..archive system host root)))]
+    (wrap [])))
 
-    _
-    #.None))
+(def: (general-descriptor system host root)
+  (-> (System Promise) Host Path Path)
+  (format (..archive system host root)
+          (:: system separator)
+          "general-descriptor"))
+
+(def: #export (freeze system host root archive)
+  (-> (System Promise) Host Path Archive (Promise (Try Any)))
+  (do (try.with promise.monad)
+    [file (: (Promise (Try (File Promise)))
+             (file.get-file promise.monad system (..general-descriptor system host root)))]
+    (!.use (:: file over-write) (archive.export ///.version archive))))
+
+(def: #export (thaw system host root)
+  (-> (System Promise) Host Path (Promise (Try Archive)))
+  (do promise.monad
+    [file (!.use (:: system file) (..general-descriptor system host root))]
+    (case file
+      (#try.Success file)
+      (do (try.with promise.monad)
+        [binary (!.use (:: file content) [])]
+        (:: promise.monad wrap (archive.import ///.version binary)))
+      
+      (#try.Failure error)
+      (wrap (#try.Success archive.empty)))))

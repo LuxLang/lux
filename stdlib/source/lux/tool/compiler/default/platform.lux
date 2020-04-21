@@ -98,16 +98,6 @@
       (-> <Platform> (///generation.Operation anchor expression directive Any)))
     (get@ #runtime))
 
-  (def: (ensure-target! platform target host)
-    (All <type-vars>
-      (-> <Platform> Path Host (Promise (Try Any))))
-    (let [system (get@ #&file-system platform)
-          mkdir (: (-> Path (Promise (Try Any)))
-                   (file.get-directory promise.monad system))]
-      (do (try.with promise.monad)
-        [_ (mkdir target)]
-        (mkdir (ioW.archive system host target)))))
-  
   (def: #export (initialize target host module expander host-analysis platform generation-bundle host-directive-bundle program extender)
     (All <type-vars>
       (-> Path
@@ -120,7 +110,7 @@
           (///directive.Bundle anchor expression directive)
           (-> expression directive)
           Extender
-          (Promise (Try [<State+> (Buffer directive)]))))
+          (Promise (Try [<State+> Archive (Buffer directive)]))))
     (let [state (//init.state host
                               module
                               expander
@@ -132,11 +122,13 @@
                               program
                               extender)]
       (do (try.with promise.monad)
-        [_ (..ensure-target! platform target host)]
+        [_ (ioW.enable (get@ #&file-system platform) host target)
+         archive (ioW.thaw (get@ #&file-system platform) host target)]
         (|> (do ///phase.monad
               [_ ..initialize-buffer!
-               _ (..compile-runtime! platform)]
-              ///generation.buffer)
+               _ (..compile-runtime! platform)
+               buffer ///generation.buffer]
+              (wrap [archive buffer]))
             ///directive.lift-generation
             (///phase.run' state)
             promise@wrap)))
@@ -197,11 +189,7 @@
                      compilation (compiler (:coerce ///.Input input))]
                 (do @
                   [#let [dependencies (get@ #///.dependencies compilation)]
-                   archive+state (monad.fold @
-                                             import!
-                                             [archive state]
-                                             (list.filter (bit.complement (archive.archived? archive))
-                                                          dependencies))
+                   archive+state (monad.fold @ import! [archive state] dependencies)
                    #let [## TODO: Inline ASAP
                          [archive state] (:share <type-vars>
                                                  {<Platform>
@@ -220,7 +208,7 @@
                            state
 
                            _
-                           ## TODO: The "///analysis.set-current-module" below shouldn't be necessary. Remove it ASAP.
+                           ## TODO: The "///directive.set-current-module" below shouldn't be necessary. Remove it ASAP.
                            ## TODO: The context shouldn't need to be re-set either.
                            (|> (///directive.set-current-module module)
                                (///phase.run' state)
@@ -249,5 +237,7 @@
                           (promise@wrap (#try.Failure error)))))
 
                     (#try.Failure error)
-                    (promise@wrap (#try.Failure error)))))))))))
+                    (do (try.with promise.monad)
+                      [_ (ioW.freeze (get@ #&file-system platform) host target archive)]
+                      (promise@wrap (#try.Failure error))))))))))))
   )
