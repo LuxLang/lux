@@ -3,37 +3,52 @@
    [abstract
     ["." monad (#+ Monad do)]]
    [control
-    ["ex" exception (#+ exception:)]
+    ["." exception (#+ exception:)]
     ["." io]
     [concurrency
-     ["." promise (#+ Promise) ("#;." monad)]]]
+     ["." promise (#+ Promise) ("#@." monad)]]
+    ["<>" parser
+     ["<c>" code]]]
    [data
     ["." product]
+    ["." name]
     [number
      ["n" nat]]
     ["." text
      ["%" format (#+ format)]]
     [collection
-     ["." list ("#;." functor)]]]
+     ["." list ("#@." functor)]
+     ["." set (#+ Set)]]]
    [time
     ["." instant]
-    ["." duration]]
+    ["." duration (#+ Duration)]]
    [math
-    ["r" random (#+ Random) ("#;." monad)]]])
+    ["." random (#+ Random) ("#@." monad)]]
+   ["." macro
+    [syntax (#+ syntax:)]
+    ["." code]]])
 
 (type: #export Counters
   {#successes Nat
-   #failures Nat})
+   #failures Nat
+   #expected-coverage (Set Name)
+   #actual-coverage (Set Name)})
 
 (def: (add-counters parameter subject)
   (-> Counters Counters Counters)
   {#successes (n.+ (get@ #successes parameter) (get@ #successes subject))
-   #failures (n.+ (get@ #failures parameter) (get@ #failures subject))})
+   #failures (n.+ (get@ #failures parameter) (get@ #failures subject))
+   #expected-coverage (set.union (get@ #expected-coverage parameter)
+                                 (get@ #expected-coverage subject))
+   #actual-coverage (set.union (get@ #actual-coverage parameter)
+                               (get@ #actual-coverage subject))})
 
 (def: start
   Counters
   {#successes 0
-   #failures 0})
+   #failures 0
+   #expected-coverage (set.new name.hash)
+   #actual-coverage (set.new name.hash)})
 
 (template [<name> <category>]
   [(def: <name> Counters (update@ <category> .inc start))]
@@ -42,15 +57,18 @@
   [failure #failures]
   )
 
+(type: #export Assertion
+  (Promise [Counters Text]))
+
 (type: #export Test
-  (Random (Promise [Counters Text])))
+  (Random Assertion))
 
 (def: separator text.new-line)
 
 (def: #export (and left right)
   {#.doc "Sequencing combinator."}
   (-> Test Test Test)
-  (do r.monad
+  (do random.monad
     [left left
      right right]
     (wrap (do promise.monad
@@ -63,12 +81,12 @@
 
 (def: #export (context description)
   (-> Text Test Test)
-  (r;map (promise;map (function (_ [counters documentation])
-                        [counters (|> documentation
-                                      (text.split-all-with ..separator)
-                                      (list;map (|>> (format context-prefix)))
-                                      (text.join-with ..separator)
-                                      (format description ..separator))]))))
+  (random@map (promise@map (function (_ [counters documentation])
+                             [counters (|> documentation
+                                           (text.split-all-with ..separator)
+                                           (list@map (|>> (format context-prefix)))
+                                           (text.join-with ..separator)
+                                           (format description ..separator))]))))
 
 (def: failure-prefix "[Failure] ")
 (def: success-prefix "[Success] ")
@@ -77,13 +95,13 @@
   (-> Text Test)
   (|>> (format ..failure-prefix)
        [failure]
-       promise;wrap
-       r;wrap))
+       promise@wrap
+       random@wrap))
 
 (def: #export (assert message condition)
   {#.doc "Check that a condition is #1, and fail with the given message otherwise."}
-  (-> Text Bit (Promise [Counters Text]))
-  (<| promise;wrap
+  (-> Text Bit Assertion)
+  (<| promise@wrap
       (if condition
         [success (format ..success-prefix message)]
         [failure (format ..failure-prefix message)])))
@@ -91,11 +109,11 @@
 (def: #export (test message condition)
   {#.doc "Check that a condition is #1, and fail with the given message otherwise."}
   (-> Text Bit Test)
-  (:: r.monad wrap (assert message condition)))
+  (:: random.monad wrap (assert message condition)))
 
 (def: #export (lift message random)
   (-> Text (Random Bit) Test)
-  (:: r.monad map (..assert message) random))
+  (:: random.monad map (..assert message) random))
 
 (def: pcg-32-magic-inc Nat 12345)
 
@@ -106,13 +124,13 @@
 (def: #export (seed value test)
   (-> Seed Test Test)
   (function (_ prng)
-    (let [[_ result] (r.run (r.pcg-32 [..pcg-32-magic-inc value])
-                            test)]
+    (let [[_ result] (random.run (random.pcg-32 [..pcg-32-magic-inc value])
+                                 test)]
       [prng result])))
 
 (def: failed?
   (-> Counters Bit)
-  (|>> product.right (n.> 0)))
+  (|>> (get@ #failures) (n.> 0)))
 
 (def: (times-failure seed documentation)
   (-> Seed Text Text)
@@ -124,29 +142,37 @@
 (def: #export (times amount test)
   (-> Nat Test Test)
   (cond (n.= 0 amount)
-        (fail (ex.construct must-try-test-at-least-once []))
+        (fail (exception.construct must-try-test-at-least-once []))
 
         (n.= 1 amount)
         test
 
         ## else
-        (do r.monad
-          [seed r.nat]
+        (do random.monad
+          [seed random.nat]
           (function (_ prng)
-            (let [[prng' instance] (r.run (r.pcg-32 [..pcg-32-magic-inc seed]) test)]
+            (let [[prng' instance] (random.run (random.pcg-32 [..pcg-32-magic-inc seed]) test)]
               [prng' (do promise.monad
                        [[counters documentation] instance]
                        (if (failed? counters)
                          (wrap [counters (times-failure seed documentation)])
-                         (product.right (r.run prng' (times (dec amount) test)))))])))))
+                         (product.right (random.run prng' (times (dec amount) test)))))])))))
 
-(def: (tally counters)
-  (-> Counters Text)
+(def: (tally duration counters)
+  (-> Duration Counters Text)
   (let [successes (get@ #successes counters)
-        failures (get@ #failures counters)]
-    (ex.report ["Tests" (%.nat (n.+ successes failures))]
-               ["Successes" (%.nat successes)]
-               ["Failures" (%.nat failures)])))
+        failures (get@ #failures counters)
+        missing-coverage (set.difference (get@ #actual-coverage counters)
+                                         (get@ #expected-coverage counters))
+        unexpected-coverage (set.difference (get@ #expected-coverage counters)
+                                            (get@ #actual-coverage counters))]
+    (exception.report
+     ["Duration" (%.duration duration)]
+     ["Tests" (%.nat (n.+ successes failures))]
+     ["Successes" (%.nat successes)]
+     ["Failures" (%.nat failures)]
+     ["Missing Coverage" (|> missing-coverage set.to-list (exception.enumerate %.name))]
+     ["Unexpected Coverage" (|> unexpected-coverage set.to-list (exception.enumerate %.name))])))
 
 (def: failure-exit-code -1)
 (def: success-exit-code +0)
@@ -156,13 +182,87 @@
   (do promise.monad
     [pre (promise.future instant.now)
      #let [seed (instant.to-millis pre)
-           prng (r.pcg-32 [..pcg-32-magic-inc seed])]
-     [counters documentation] (|> test (r.run prng) product.right)
+           prng (random.pcg-32 [..pcg-32-magic-inc seed])]
+     [counters documentation] (|> test (random.run prng) product.right)
      post (promise.future instant.now)
      #let [duration (instant.span pre post)
            _ (log! (format documentation text.new-line text.new-line
-                           "(" (%.duration duration) ")" text.new-line
-                           (tally counters)))]]
+                           (tally duration counters)
+                           text.new-line))]]
     (promise.future (io.exit (case (get@ #failures counters)
                                0 ..success-exit-code
                                _ ..failure-exit-code)))))
+
+(def: (cover' coverage condition)
+  (-> (List Name) Bit Test)
+  (let [message (|> coverage
+                    (list@map %.name)
+                    (text.join-with " & "))
+        coverage (set.from-list name.hash coverage)]
+    (|> (..assert message condition)
+        (promise@map (function (_ [counters documentation])
+                       [(update@ #actual-coverage (set.union coverage) counters)
+                        documentation]))
+        (:: random.monad wrap))))
+
+(def: (with-cover' coverage test)
+  (-> (List Name) Test Test)
+  (let [context (|> coverage
+                    (list@map %.name)
+                    (text.join-with " & "))
+        coverage (set.from-list name.hash coverage)]
+    (random@map (promise@map (function (_ [counters documentation])
+                               [(update@ #actual-coverage (set.union coverage) counters)
+                                documentation]))
+                (..context context test))))
+
+(def: (name-code name)
+  (-> Name Code)
+  (code.tuple (list (code.text (name.module name))
+                    (code.text (name.short name)))))
+
+(syntax: (reference {name <c>.identifier})
+  (do @
+    [_ (macro.find-export name)]
+    (wrap (list (name-code name)))))
+
+(syntax: #export (cover {coverage (<c>.tuple (<>.many <c>.any))}
+                        condition)
+  (let [coverage (list@map (function (_ definition)
+                             (` ((~! ..reference) (~ definition))))
+                           coverage)]
+    (wrap (list (` ((~! ..cover')
+                    (: (.List .Name)
+                       (.list (~+ coverage)))
+                    (~ condition)))))))
+
+(syntax: #export (with-cover {coverage (<c>.tuple (<>.many <c>.any))}
+                   test)
+  (let [coverage (list@map (function (_ definition)
+                             (` ((~! ..reference) (~ definition))))
+                           coverage)]
+    (wrap (list (` ((~! ..with-cover')
+                    (: (.List .Name)
+                       (.list (~+ coverage)))
+                    (~ test)))))))
+
+(def: (covering' module coverage test)
+  (-> Text (List Name) Test Test)
+  (let [coverage (set.from-list name.hash coverage)]
+    (|> (..context module test)
+        (random@map (promise@map (function (_ [counters documentation])
+                                   [(update@ #expected-coverage (set.union coverage) counters)
+                                    documentation]))))))
+
+(syntax: #export (covering {module <c>.identifier}
+                           test)
+  (do @
+    [#let [module (name.module module)]
+     definitions (macro.definitions module)
+     #let [coverage (|> definitions
+                        (list.filter (|>> product.right product.left))
+                        (list@map (|>> product.left [module] ..name-code)))]]
+    (wrap (list (` ((~! ..covering')
+                    (~ (code.text module))
+                    (.list (~+ coverage))
+                    (~ test)))))))

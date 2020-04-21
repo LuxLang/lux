@@ -22,7 +22,9 @@
 ## (type: (Meta a)
 ##   (-> Lux (Try [Lux a])))
 
-(structure: #export functor (Functor Meta)
+(structure: #export functor
+  (Functor Meta)
+  
   (def: (map f fa)
     (function (_ compiler)
       (case (fa compiler)
@@ -32,7 +34,9 @@
         (#try.Success [compiler' a])
         (#try.Success [compiler' (f a)])))))
 
-(structure: #export apply (Apply Meta)
+(structure: #export apply
+  (Apply Meta)
+  
   (def: &functor ..functor)
 
   (def: (apply ff fa)
@@ -49,7 +53,9 @@
         (#try.Failure msg)
         (#try.Failure msg)))))
 
-(structure: #export monad (Monad Meta)
+(structure: #export monad
+  (Monad Meta)
+  
   (def: &functor ..functor)
 
   (def: (wrap x)
@@ -525,6 +531,23 @@
                               "")
                             " All Known modules: " (|> compiler (get@ #.modules) (list@map product.left) (text.join-with separator)) text.new-line)))))))
 
+(def: #export (find-export name)
+  {#.doc "Looks-up a definition's type in the available modules (including the current one)."}
+  (-> Name (Meta Definition))
+  (do ..monad
+    [definition (..find-def name)]
+    (case definition
+      (#.Left de-aliased)
+      (fail ($_ text@compose
+                "Aliases are not considered exports: "
+                (name@encode name)))
+      
+      (#.Right definition)
+      (let [[exported? def-type def-data def-value] definition]
+        (if exported?
+          (wrap definition)
+          (fail ($_ text@compose "Definition is not an export: " (name@encode name))))))))
+
 (def: #export (find-def-type name)
   {#.doc "Looks-up a definition's type in the available modules (including the current one)."}
   (-> Name (Meta Type))
@@ -562,32 +585,40 @@
       (#.Right [exported? def-type def-data def-value])
       (wrap (:coerce Type def-value)))))
 
-(def: #export (definitions module-name)
-  {#.doc "The entire list of definitions in a module (including the non-exported/private ones)."}
+(def: #export (globals module)
+  {#.doc "The entire list of globals in a module (including the non-exported/private ones)."}
   (-> Text (Meta (List [Text Global])))
   (function (_ compiler)
-    (case (get module-name (get@ #.modules compiler))
+    (case (get module (get@ #.modules compiler))
       #.None
-      (#try.Failure ($_ text@compose "Unknown module: " module-name))
+      (#try.Failure ($_ text@compose "Unknown module: " module))
       
       (#.Some module)
       (#try.Success [compiler (get@ #.definitions module)]))))
+
+(def: #export (definitions module)
+  {#.doc "The entire list of definitions in a module (including the non-exported/private ones)."}
+  (-> Text (Meta (List [Text Definition])))
+  (:: ..monad map
+      (list.search-all (function (_ [name global])
+                         (case global
+                           (#.Left de-aliased)
+                           #.None
+                           
+                           (#.Right definition)
+                           (#.Some [name definition]))))
+      (..globals module)))
 
 (def: #export (exports module-name)
   {#.doc "All the exported definitions in a module."}
   (-> Text (Meta (List [Text Definition])))
   (do ..monad
-    [constants (definitions module-name)]
+    [constants (..definitions module-name)]
     (wrap (do list.monad
-            [[name definition] constants]
-            (case definition
-              (#.Left _)
-              (list)
-
-              (#.Right [exported? def-type def-data def-value])
-              (if exported?
-                (wrap [name [exported? def-type def-data def-value]])
-                (list)))))))
+            [[name [exported? def-type def-data def-value]] constants]
+            (if exported?
+              (wrap [name [exported? def-type def-data def-value]])
+              (list))))))
 
 (def: #export modules
   {#.doc "All the available modules (including the current one)."}
