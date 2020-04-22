@@ -13,11 +13,11 @@
     pipe
     ["." io]]
    [data
-    ["%" text/format (#+ format)]
+    ["." text ("#@." equivalence)]
     [number
      ["n" nat]]]
    [math
-    ["r" random (#+ Random)]]]
+    ["." random (#+ Random)]]]
   {1
    ["." / (#+ Try)]})
 
@@ -32,33 +32,72 @@
 
 (def: #export (try element)
   (All [a] (-> (Random a) (Random (Try a))))
-  ($_ r.or
-      (r.unicode 1)
+  ($_ random.or
+      (random.unicode 1)
       element))
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /._)))
+  (<| (_.covering /._)
+      (_.with-cover [/.Try])
+      (do random.monad
+        [expected random.nat
+         alternative (|> random.nat (random.filter (|>> (n.= expected) not)))
+         error (random.unicode 1)
+         #let [(^open "io@.") io.monad]])
       ($_ _.and
-          ($equivalence.spec (/.equivalence n.equivalence) (..try r.nat))
-          ($functor.spec ..injection ..comparison /.functor)
-          ($apply.spec ..injection ..comparison /.apply)
-          ($monad.spec ..injection ..comparison /.monad)
-          (do r.monad
-            [left r.nat
-             right r.nat
-             #let [expected (n.+ left right)
-                   (^open "io@.") io.monad]]
-            (_.test "Can add try functionality to any monad."
-                    (let [lift (/.lift io.monad)]
-                      (|> (do (/.with io.monad)
-                            [a (lift (io@wrap left))
-                             b (wrap right)]
-                            (wrap (n.+ a b)))
-                          io.run
-                          (case> (#/.Success actual)
-                                 (n.= expected actual)
+          (_.with-cover [/.equivalence]
+            ($equivalence.spec (/.equivalence n.equivalence) (..try random.nat)))
+          (_.with-cover [/.functor]
+            ($functor.spec ..injection ..comparison /.functor))
+          (_.with-cover [/.apply]
+            ($apply.spec ..injection ..comparison /.apply))
+          (_.with-cover [/.monad]
+            ($monad.spec ..injection ..comparison /.monad))
 
-                                 _
-                                 false)))))
+          (_.cover [/.succeed]
+                   (case (/.succeed expected)
+                     (#/.Success actual)
+                     (n.= expected actual)
+
+                     _
+                     false))
+          (_.cover [/.fail]
+                   (case (/.fail error)
+                     (#/.Failure message)
+                     (text@= error message)
+
+                     _
+                     false))
+          (_.cover [/.assume]
+                   (n.= expected
+                        (/.assume (/.succeed expected))))
+          (_.cover [/.maybe]
+                   (case [(/.maybe (/.succeed expected))
+                          (/.maybe (/.fail error))]
+                     [(#.Some actual) #.None]
+                     (n.= expected actual)
+
+                     _
+                     false))
+          (_.cover [/.default]
+                   (and (n.= expected
+                             (/.default alternative (/.succeed expected)))
+                        (n.= alternative
+                             (/.default alternative (: (Try Nat)
+                                                       (/.fail error))))))
+          
+          (_.cover [/.with /.lift]
+                   (let [lift (/.lift io.monad)]
+                     (|> (do (/.with io.monad)
+                           [a (lift (io@wrap expected))
+                            b (wrap alternative)]
+                           (wrap (n.+ a b)))
+                         io.run
+                         (case> (#/.Success result)
+                                (n.= (n.+ expected alternative)
+                                     result)
+
+                                _
+                                false))))
           )))

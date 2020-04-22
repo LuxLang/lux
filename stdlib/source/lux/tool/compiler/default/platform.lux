@@ -16,7 +16,9 @@
      ["%" format (#+ format)]]
     [collection
      ["." list]
-     ["." row ("#@." functor)]]]
+     ["." row ("#@." functor)]]
+    [format
+     ["_" binary (#+ Writer)]]]
    [world
     ["." file (#+ Path)]]]
   ["." // #_
@@ -25,6 +27,7 @@
     ["#." phase]
     [language
      [lux
+      ["$" /]
       ["." syntax]
       ["#." analysis
        [macro (#+ Expander)]]
@@ -37,7 +40,8 @@
         ["." module]]]]]
     [meta
      ["." archive (#+ Archive)
-      [descriptor (#+ Module)]]
+      ["." descriptor (#+ Descriptor Module)]
+      ["." document (#+ Document)]]
      [io
       ["." context]
       ["ioW" archive]]]]]
@@ -66,9 +70,14 @@
                   <State+> (as-is (///directive.State+ anchor expression directive))
                   <Bundle> (as-is (///generation.Bundle anchor expression directive))]
 
-  (def: (cache-module platform host target-dir module-file-name module-id extension output)
+  (def: writer
+    (Writer [Descriptor (Document .Module)])
+    (_.and descriptor.writer
+           (document.writer $.writer)))
+
+  (def: (cache-module platform host target-dir module-file-name module-id extension [[descriptor document] output])
     (All <type-vars>
-      (-> <Platform> Host Path Path archive.ID Text Output
+      (-> <Platform> Host Path Path archive.ID Text [[Descriptor (Document Any)] Output]
           (Promise (Try Any))))
     (let [system (get@ #&file-system platform)
           write-artifact! (: (-> [Text Binary] (Action Any))
@@ -79,12 +88,11 @@
          _ (|> output
                row.to-list
                (monad.map ..monad write-artifact!)
-               (: (Action (List Any))))]
-        (wrap [])
-        ## (&io.write target-dir
-        ##            (format module-name "/" cache.descriptor-name)
-        ##            (encoding.to-utf8 (%.code (cache/description.write module-file-name module))))
-        )))
+               (: (Action (List Any))))
+         document (:: promise.monad wrap
+                      (document.check //init.key document))]
+        (ioW.cache system host target-dir module-id
+                   (_.run ..writer [descriptor document])))))
   
   ## TODO: Inline ASAP
   (def: initialize-buffer!
@@ -220,7 +228,7 @@
                       (#.Left more)
                       (continue! archive state more)
 
-                      (#.Right [descriptor+document output])
+                      (#.Right payload)
                       (do (try.with promise.monad)
                         [_ (..cache-module platform
                                            host
@@ -228,7 +236,8 @@
                                            (get@ #///.file input)
                                            module-id
                                            extension
-                                           output)]
+                                           payload)
+                         #let [[descriptor+document output] payload]]
                         (case (archive.add module descriptor+document archive)
                           (#try.Success archive)
                           (wrap [archive state])
