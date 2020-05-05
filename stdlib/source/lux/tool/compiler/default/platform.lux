@@ -7,16 +7,17 @@
    [control
     ["." try (#+ Try)]
     [concurrency
-     ["." promise (#+ Promise) ("#@." monad)]]]
+     ["." promise (#+ Promise) ("#@." monad)]]
+    ["<>" parser
+     ["<b>" binary (#+ Parser)]]]
    [data
-    [binary (#+ Binary)]
+    ["." binary (#+ Binary)]
     ["." bit]
     ["." product]
     ["." text
      ["%" format (#+ format)]]
     [collection
-     ["." list]
-     ["." row ("#@." functor)]]
+     ["." row]]
     [format
      ["_" binary (#+ Writer)]]]
    [world
@@ -75,6 +76,11 @@
     (_.and descriptor.writer
            (document.writer $.writer)))
 
+  (def: parser
+    (Parser [Descriptor (Document .Module)])
+    (<>.and descriptor.parser
+            (document.parser $.parser)))
+
   (def: (cache-module platform host target-dir module-file-name module-id extension [[descriptor document] output])
     (All <type-vars>
       (-> <Platform> Host Path Path archive.ID Text [[Descriptor (Document Any)] Output]
@@ -93,6 +99,22 @@
                       (document.check //init.key document))]
         (ioW.cache system host target-dir module-id
                    (_.run ..writer [descriptor document])))))
+
+  (def: (load-cache system host target-dir archive)
+    (All <type-vars>
+      (-> (file.System Promise) Host Path Archive (Promise (Try Archive))))
+    (do (try.with promise.monad)
+      [all-loaded-caches (|> (archive.reservations archive)
+                             (monad.map @ (function (_ [module-name module-id])
+                                            (do @
+                                              [data (ioW.load system host target-dir module-id)
+                                               payload (promise@wrap (<b>.run ..parser data))]
+                                              (wrap [module-name payload])))))]
+      (promise@wrap (monad.fold try.monad
+                                (function (_ [module descriptor+document] archive)
+                                  (archive.add module descriptor+document archive))
+                                archive
+                                all-loaded-caches))))
   
   ## TODO: Inline ASAP
   (def: initialize-buffer!
@@ -131,7 +153,8 @@
                               extender)]
       (do (try.with promise.monad)
         [_ (ioW.enable (get@ #&file-system platform) host target)
-         archive (ioW.thaw (get@ #&file-system platform) host target)]
+         archive (ioW.thaw (get@ #&file-system platform) host target)
+         archive (load-cache (get@ #&file-system platform) host target archive)]
         (|> (do ///phase.monad
               [_ ..initialize-buffer!
                _ (..compile-runtime! platform)

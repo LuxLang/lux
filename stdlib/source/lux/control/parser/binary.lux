@@ -18,7 +18,9 @@
     [collection
      ["." list]
      ["." row (#+ Row)]
-     ["." set (#+ Set)]]]]
+     ["." set (#+ Set)]]]
+   [macro
+    ["." template]]]
   ["." // ("#@." monad)])
 
 (type: #export Offset Nat)
@@ -26,10 +28,10 @@
 (type: #export Parser
   (//.Parser [Offset Binary]))
 
-(exception: #export (binary-was-not-fully-read {length Nat} {read Nat})
+(exception: #export (binary-was-not-fully-read {binary-length Nat} {bytes-read Nat})
   (exception.report
-   ["Binary length" (%.nat length)]
-   ["Read bytes" (%.nat read)]))
+   ["Binary length" (%.nat binary-length)]
+   ["Bytes read" (%.nat bytes-read)]))
 
 (def: #export (run parser input)
   (All [a] (-> (Parser a) Binary (Try a)))
@@ -81,18 +83,23 @@
 
 (exception: #export (invalid-tag {range Nat} {byte Nat})
   (exception.report
-   ["Range" (%.nat range)]
-   ["Byte" (%.nat byte)]))
+   ["Tag range" (%.nat range)]
+   ["Tag value" (%.nat byte)]))
 
-(def: #export (or left right)
-  (All [l r] (-> (Parser l) (Parser r) (Parser (| l r))))
+(template: (!variant <case>+)
   (do //.monad
     [flag (: (Parser Nat)
              ..bits/8)]
-    (case flag
-      0 (:: @ map (|>> #.Left) left)
-      1 (:: @ map (|>> #.Right) right)
-      _ (//.lift (exception.throw ..invalid-tag [2 flag])))))
+    (`` (case flag
+          (^template [<number> <tag> <parser>]
+            <number> (:: @ map (|>> <tag>) <parser>))
+          ((~~ (template.splice <case>+)))
+          _ (//.lift (exception.throw ..invalid-tag [(~~ (template.count <case>+)) flag]))))))
+
+(def: #export (or left right)
+  (All [l r] (-> (Parser l) (Parser r) (Parser (| l r))))
+  (!variant [[0 #.Left left]
+             [1 #.Right right]]))
 
 (def: #export (rec body)
   (All [a] (-> (-> (Parser a) (Parser a)) (Parser a)))
@@ -104,13 +111,20 @@
   (Parser Any)
   (//@wrap []))
 
+(exception: #export (not-a-bit {value Nat})
+  (exception.report
+   ["Expected values" "either 0 or 1"]
+   ["Actual value" (%.nat value)]))
+
 (def: #export bit
   (Parser Bit)
   (do //.monad
-    [choice (..or ..any ..any)]
-    (wrap (case choice
-            (#.Left _) #0
-            (#.Right _) #1))))
+    [value (: (Parser Nat)
+              ..bits/8)]
+    (case value
+      0 (wrap #0)
+      1 (wrap #1)
+      _ (//.lift (exception.throw ..not-a-bit [value])))))
 
 (template [<name> <bits> <size>]
   [(def: #export <name>
@@ -118,10 +132,12 @@
      (do //.monad
        [size (//@map .nat <bits>)]
        (function (_ [offset binary])
-         (do try.monad
-           [#let [end (n.+ size offset)]
-            output (binary.slice offset (.dec end) binary)]
-           (wrap [[end binary] output])))))]
+         (case size
+           0 (#try.Success [[offset binary] (binary.create 0)])
+           _ (do try.monad
+               [#let [end (n.+ size offset)]
+                output (binary.slice offset (.dec end) binary)]
+               (wrap [[end binary] output]))))))]
 
   [binary/8  ..bits/8  ..size/8]
   [binary/16 ..bits/16 ..size/16]
@@ -148,7 +164,8 @@
   [(def: #export (<name> valueP)
      (All [v] (-> (Parser v) (Parser (Row v))))
      (do //.monad
-       [count (//@map .nat <bits>)]
+       [count (: (Parser Nat)
+                 <bits>)]
        (loop [index 0
               output (:share [v]
                              {(Parser v)
@@ -175,16 +192,15 @@
 (def: #export (list value)
   (All [a] (-> (Parser a) (Parser (List a))))
   (..rec
-   (function (_ recur)
-     (..or ..any
-           (//.and value recur)))))
+   (|>> (//.and value)
+        (..or ..any))))
 
 (exception: #export set-elements-are-not-unique)
 
 (def: #export (set hash value)
   (All [a] (-> (Hash a) (Parser a) (Parser (Set a))))
   (do //.monad
-    [raw (list value)
+    [raw (..list value)
      #let [output (set.from-list hash raw)]
      _ (//.assert (exception.construct ..set-elements-are-not-unique [])
                   (n.= (list.size raw)
@@ -202,30 +218,17 @@
      (let [pair (//.and type type)
            indexed ..nat
            quantified (//.and (..list type) type)]
-       ($_ ..or
-           ## #Primitive
-           (//.and ..text (..list type))
-           ## #Sum
-           pair
-           ## #Product
-           pair
-           ## #Function
-           pair
-           ## #Parameter
-           indexed
-           ## #Var
-           indexed
-           ## #Ex
-           indexed
-           ## #UnivQ
-           quantified
-           ## #ExQ
-           quantified
-           ## #Apply
-           pair
-           ## #Named
-           (//.and ..name type)
-           )))))
+       (!variant [[0 #.Primitive (//.and ..text (..list type))]
+                  [1 #.Sum pair]
+                  [2 #.Product pair]
+                  [3 #.Function pair]
+                  [4 #.Parameter indexed]
+                  [5 #.Var indexed]
+                  [6 #.Ex indexed]
+                  [7 #.UnivQ quantified]
+                  [8 #.ExQ quantified]
+                  [9 #.Apply pair]
+                  [10 #.Named (//.and ..name type)]])))))
 
 (def: #export cursor
   (Parser Cursor)
@@ -234,29 +237,17 @@
 (def: #export code
   (Parser Code)
   (..rec
-   (function (_ code)
-     (let [sequence (..list code)
-           code' ($_ ..or
-                     ## #Bit
-                     ..bit
-                     ## #Nat
-                     ..nat
-                     ## #Int
-                     ..int
-                     ## #Rev
-                     ..rev
-                     ## #Frac
-                     ..frac
-                     ## #Text
-                     ..text
-                     ## #Identifier
-                     ..name
-                     ## #Tag
-                     ..name
-                     ## #Form
-                     sequence
-                     ## #Tuple
-                     sequence
-                     ## #Record
-                     (..list (//.and code code)))]
-       (//.and ..cursor code')))))
+   (function (_ recur)
+     (let [sequence (..list recur)]
+       (//.and ..cursor
+               (!variant [[0 #.Bit ..bit]
+                          [1 #.Nat ..nat]
+                          [2 #.Int ..int]
+                          [3 #.Rev ..rev]
+                          [4 #.Frac ..frac]
+                          [5 #.Text ..text]
+                          [6 #.Identifier ..name]
+                          [7 #.Tag ..name]
+                          [8 #.Form sequence]
+                          [9 #.Tuple sequence]
+                          [10 #.Record (..list (//.and recur recur))]]))))))

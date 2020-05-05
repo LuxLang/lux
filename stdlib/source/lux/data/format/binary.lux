@@ -7,6 +7,7 @@
     [monad (#+ Monad do)]
     [equivalence (#+ Equivalence)]]
    [control
+    [pipe (#+ case>)]
     ["." function]
     ["." try (#+ Try)]
     ["<>" parser ("#@." monad)
@@ -82,25 +83,18 @@
   (All [l r] (-> (Writer l) (Writer r) (Writer (| l r))))
   (function (_ altV)
     (case altV
-      (#.Left leftV)
-      (let [[leftS leftT] (left leftV)]
-        [(.inc leftS)
-         (function (_ [offset binary])
-           (|> binary
-               (binary.write/8 offset 0)
-               try.assume
-               [(.inc offset)]
-               leftT))])
-      
-      (#.Right rightV)
-      (let [[rightS rightT] (right rightV)]
-        [(.inc rightS)
-         (function (_ [offset binary])
-           (|> binary
-               (binary.write/8 offset 1)
-               try.assume
-               [(.inc offset)]
-               rightT))])
+      (^template [<number> <tag> <writer>]
+        (<tag> caseV)
+        (let [[caseS caseT] (<writer> caseV)]
+          [(.inc caseS)
+           (function (_ [offset binary])
+             (|> binary
+                 (binary.write/8 offset <number>)
+                 try.assume
+                 [(.inc offset)]
+                 caseT))]))
+      ([0 #.Left left]
+       [1 #.Right right])
       )))
 
 (def: #export (and pre post)
@@ -119,13 +113,7 @@
 
 (def: #export bit
   (Writer Bit)
-  (function (_ value)
-    [1
-     (function (_ [offset binary])
-       [(n.+ 1 offset)
-        (|> binary
-            (binary.write/8 offset (if value 1 0))
-            try.assume)])]))
+  (|>> (case> #0 0 #1 1) ..bits/8))
 
 (template [<name> <type>]
   [(def: #export <name> (Writer <type>) ..bits/64)]
@@ -224,34 +212,34 @@
 (def: #export type
   (Writer Type)
   (..rec
-   (function (_ type)
-     (let [pair (..and type type)
+   (function (_ recur)
+     (let [pair (..and recur recur)
            indexed ..nat
-           quantified (..and (..list type) type)]
-       ($_ ..or
-           ## #Primitive
-           (..and ..text (..list type))
-           ## #Sum
-           pair
-           ## #Product
-           pair
-           ## #Function
-           pair
-           ## #Parameter
-           indexed
-           ## #Var
-           indexed
-           ## #Ex
-           indexed
-           ## #UnivQ
-           quantified
-           ## #ExQ
-           quantified
-           ## #Apply
-           pair
-           ## #Named
-           (..and ..name type)
-           )))))
+           quantified (..and (..list recur) recur)]
+       (function (_ altV)
+         (case altV
+           (^template [<number> <tag> <writer>]
+             (<tag> caseV)
+             (let [[caseS caseT] (<writer> caseV)]
+               [(.inc caseS)
+                (function (_ [offset binary])
+                  (|> binary
+                      (binary.write/8 offset <number>)
+                      try.assume
+                      [(.inc offset)]
+                      caseT))]))
+           ([0 #.Primitive (..and ..text (..list recur))]
+            [1 #.Sum pair]
+            [2 #.Product pair]
+            [3 #.Function pair]
+            [4 #.Parameter indexed]
+            [5 #.Var indexed]
+            [6 #.Ex indexed]
+            [7 #.UnivQ quantified]
+            [8 #.ExQ quantified]
+            [9 #.Apply pair]
+            [10 #.Named (..and ..name recur)])
+           ))))))
 
 (def: #export cursor
   (Writer Cursor)
@@ -260,29 +248,30 @@
 (def: #export code
   (Writer Code)
   (..rec
-   (function (_ code)
-     (let [sequence (..list code)
-           code' ($_ ..or
-                     ## #Bit
-                     ..bit
-                     ## #Nat
-                     ..nat
-                     ## #Int
-                     ..int
-                     ## #Rev
-                     ..rev
-                     ## #Frac
-                     ..frac
-                     ## #Text
-                     ..text
-                     ## #Identifier
-                     ..name
-                     ## #Tag
-                     ..name
-                     ## #Form
-                     sequence
-                     ## #Tuple
-                     sequence
-                     ## #Record
-                     (..list (..and code code)))]
-       (..and ..cursor code')))))
+   (function (_ recur)
+     (let [sequence (..list recur)]
+       (..and ..cursor
+              (function (_ altV)
+                (case altV
+                  (^template [<number> <tag> <writer>]
+                    (<tag> caseV)
+                    (let [[caseS caseT] (<writer> caseV)]
+                      [(.inc caseS)
+                       (function (_ [offset binary])
+                         (|> binary
+                             (binary.write/8 offset <number>)
+                             try.assume
+                             [(.inc offset)]
+                             caseT))]))
+                  ([0 #.Bit ..bit]
+                   [1 #.Nat ..nat]
+                   [2 #.Int ..int]
+                   [3 #.Rev ..rev]
+                   [4 #.Frac ..frac]
+                   [5 #.Text ..text]
+                   [6 #.Identifier ..name]
+                   [7 #.Tag ..name]
+                   [8 #.Form sequence]
+                   [9 #.Tuple sequence]
+                   [10 #.Record (..list (..and recur recur))])
+                  )))))))

@@ -40,7 +40,7 @@
   ^:private compile-i64-xor Opcodes/LXOR
   )
 
-(do-template [<name> <op>]
+(do-template [<op> <name>]
   (defn <name> [compile ?values special-args]
     (|do [:let [(&/$Cons ?input (&/$Cons ?shift (&/$Nil))) ?values]
           ^MethodVisitor *writer* &/get-writer
@@ -55,9 +55,9 @@
                     &&/wrap-long)]]
       (return nil)))
 
-  ^:private compile-i64-left-shift           Opcodes/LSHL
-  ^:private compile-i64-arithmetic-right-shift          Opcodes/LSHR
-  ^:private compile-i64-logical-right-shift Opcodes/LUSHR
+  Opcodes/LSHL ^:private compile-i64-left-shift
+  Opcodes/LSHR ^:private compile-i64-arithmetic-right-shift
+  Opcodes/LUSHR ^:private compile-i64-logical-right-shift
   )
 
 (defn ^:private compile-lux-is [compile ?values special-args]

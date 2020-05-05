@@ -24,6 +24,7 @@
 
 # Exemplar
 
+1. [Mint: The programming language for writing single page applications.](https://www.mint-lang.com/)
 1. [root: A recursive UI resolver](https://github.com/den1k/root)
 1. https://www.http4k.org/blog/meet_http4k/
 1. Django
