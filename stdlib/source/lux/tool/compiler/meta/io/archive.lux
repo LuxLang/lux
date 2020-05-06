@@ -2,23 +2,39 @@
   [lux (#- Module)
    ["@" target (#+ Host)]
    [abstract
-    [monad (#+ do)]]
+    ["." monad (#+ do)]]
    [control
     ["." try (#+ Try)]
     ["." exception (#+ exception:)]
     [concurrency
-     ["." promise (#+ Promise)]]
+     ["." promise (#+ Promise) ("#@." monad)]]
     [security
-     ["!" capability (#+ capability:)]]]
+     ["!" capability (#+ capability:)]]
+    ["<>" parser
+     ["<b>" binary (#+ Parser)]]]
    [data
     [binary (#+ Binary)]
-    ["." text
-     ["%" format (#+ format)]]]
+    ["." product]
+    ["." text ("#@." equivalence)
+     ["%" format (#+ format)]]
+    [collection
+     ["." list ("#@." functor)]
+     ["." dictionary (#+ Dictionary)]
+     ["." row (#+ Row)]]]
    [world
-    ["." file (#+ Path File Directory System)]]]
-  ["." // (#+ Module)
+    ["." file (#+ Path File Directory)]]]
+  ["." //
    ["/#" //
-    ["." archive (#+ Archive)]]])
+    ["." archive (#+ Archive)
+     ["." artifact (#+ Artifact)]
+     ["." descriptor (#+ Module Descriptor)]
+     ["." document (#+ Document)]]
+    [//
+     [language
+      ["$" lux
+       ["." version]
+       ["." analysis]
+       ["." generation]]]]]])
 
 (exception: #export (cannot-prepare {archive Path}
                                     {module-id archive.ID}
@@ -29,30 +45,30 @@
    ["Error" error]))
 
 (def: #export (archive system host root)
-  (-> (System Promise) Host Path Path)
+  (-> (file.System Promise) Host Path Path)
   (format root (:: system separator) host))
 
 (def: #export (lux-archive system host root)
-  (-> (System Promise) Host Path Path)
+  (-> (file.System Promise) Host Path Path)
   (format (..archive system host root)
           (:: system separator)
           //.lux-context))
 
 (def: (module system host root module-id)
-  (-> (System Promise) Host Path archive.ID Path)
+  (-> (file.System Promise) Host Path archive.ID Path)
   (format (..lux-archive system host root)
           (:: system separator)
           (%.nat module-id)))
 
 (def: #export (artifact system host root module-id name extension)
-  (-> (System Promise) Host Path archive.ID Text Text Path)
+  (-> (file.System Promise) Host Path archive.ID Text Text Path)
   (format (..module system host root module-id)
           (:: system separator)
           name
           extension))
 
 (def: #export (prepare system host root module-id)
-  (-> (System Promise) Host Path archive.ID (Promise (Try Any)))
+  (-> (file.System Promise) Host Path archive.ID (Promise (Try Any)))
   (do promise.monad
     [#let [module (..module system host root module-id)]
      module-exists? (file.exists? promise.monad system module)]
@@ -71,7 +87,7 @@
                                                    error])))))))
 
 (def: #export (write system host root module-id name extension content)
-  (-> (System Promise) Host Path archive.ID Text Text Binary (Promise (Try Any)))
+  (-> (file.System Promise) Host Path archive.ID Text Text Binary (Promise (Try Any)))
   (do (try.with promise.monad)
     [artifact (: (Promise (Try (File Promise)))
                  (file.get-file promise.monad system
@@ -79,7 +95,7 @@
     (!.use (:: artifact over-write) content)))
 
 (def: #export (enable system host root)
-  (-> (System Promise) Host Path (Promise (Try Any)))
+  (-> (file.System Promise) Host Path (Promise (Try Any)))
   (do (try.with promise.monad)
     [_ (: (Promise (Try (Directory Promise)))
           (file.get-directory promise.monad system root))
@@ -88,49 +104,166 @@
     (wrap [])))
 
 (def: (general-descriptor system host root)
-  (-> (System Promise) Host Path Path)
+  (-> (file.System Promise) Host Path Path)
   (format (..archive system host root)
           (:: system separator)
           "general-descriptor"))
 
 (def: #export (freeze system host root archive)
-  (-> (System Promise) Host Path Archive (Promise (Try Any)))
+  (-> (file.System Promise) Host Path Archive (Promise (Try Any)))
   (do (try.with promise.monad)
     [file (: (Promise (Try (File Promise)))
              (file.get-file promise.monad system (..general-descriptor system host root)))]
     (!.use (:: file over-write) (archive.export ///.version archive))))
 
-(def: #export (thaw system host root)
-  (-> (System Promise) Host Path (Promise (Try Archive)))
-  (do promise.monad
-    [file (!.use (:: system file) (..general-descriptor system host root))]
-    (case file
-      (#try.Success file)
-      (do (try.with promise.monad)
-        [binary (!.use (:: file content) [])]
-        (:: promise.monad wrap (archive.import ///.version binary)))
-      
-      (#try.Failure error)
-      (wrap (#try.Success archive.empty)))))
+(def: module-descriptor-file
+  "module-descriptor")
 
 (def: (module-descriptor system host root module-id)
-  (-> (System Promise) Host Path archive.ID Path)
+  (-> (file.System Promise) Host Path archive.ID Path)
   (format (..module system host root module-id)
           (:: system separator)
-          "module-descriptor"))
+          ..module-descriptor-file))
 
 (def: #export (cache system host root module-id content)
-  (-> (System Promise) Host Path archive.ID Binary (Promise (Try Any)))
+  (-> (file.System Promise) Host Path archive.ID Binary (Promise (Try Any)))
   (do (try.with promise.monad)
     [file (: (Promise (Try (File Promise)))
              (file.get-file promise.monad system
                             (..module-descriptor system host root module-id)))]
     (!.use (:: file over-write) content)))
 
-(def: #export (load system host root module-id)
-  (-> (System Promise) Host Path archive.ID (Promise (Try Binary)))
+(def: (read-module-descriptor system host root module-id)
+  (-> (file.System Promise) Host Path archive.ID (Promise (Try Binary)))
   (do (try.with promise.monad)
     [file (: (Promise (Try (File Promise)))
              (file.get-file promise.monad system
                             (..module-descriptor system host root module-id)))]
     (!.use (:: file content) [])))
+
+(def: parser
+  (Parser [Descriptor (Document .Module)])
+  (<>.and descriptor.parser
+          (document.parser $.parser)))
+
+(def: (fresh-analysis-state host)
+  (-> Host .Lux)
+  (analysis.state (analysis.info version.version host)))
+
+(def: (analysis-state host archive)
+  (-> Host Archive (Try .Lux))
+  (do try.monad
+    [modules (: (Try (List [Module .Module]))
+                (monad.map @ (function (_ module)
+                               (do @
+                                 [[descriptor document] (archive.find module archive)
+                                  content (document.read $.key document)]
+                                 (wrap [module content])))
+                           (archive.archived archive)))]
+    (wrap (set@ #.modules modules (fresh-analysis-state host)))))
+
+(def: (cached-artifacts system host root module-id)
+  (-> (file.System Promise) Host Path archive.ID (Promise (Try (Dictionary Text Binary))))
+  (do (try.with promise.monad)
+    [module-dir (!.use (:: system directory) (..module system host root module-id))
+     cached-files (!.use (:: module-dir files) [])]
+    (|> cached-files
+        (list@map (function (_ file)
+                    [(!.use (:: file name) [])
+                     (!.use (:: file path) [])]))
+        (list.filter (|>> product.left (text@= ..module-descriptor-file) not))
+        (monad.map @ (function (_ [name path])
+                       (do @
+                         [file (: (Promise (Try (File Promise)))
+                                  (!.use (:: system file) path))
+                          data (: (Promise (Try Binary))
+                                  (!.use (:: file content) []))]
+                         (wrap [name data]))))
+        (:: @ map (dictionary.from-list text.hash)))))
+
+(def: (loaded-document extension host module-id expected actual document)
+  (All [expression directive]
+    (-> Text (generation.Host expression directive) archive.ID (Row Artifact) (Dictionary Text Binary) (Document .Module)
+        (Try (Document .Module))))
+  (do try.monad
+    [values (|> expected
+                row.to-list
+                (monad.fold @ (function (_ [artifact-id artifact-name] values)
+                                (do @
+                                  [data (try.from-maybe (dictionary.get (format (%.nat artifact-id) extension) actual))
+                                   #let [context [module-id artifact-id]
+                                         directive (:: host ingest context data)]]
+                                  (case artifact-name
+                                    #.None
+                                    (do @
+                                      [_ (:: host re-learn context directive)]
+                                      (wrap values))
+                                    
+                                    (#.Some artifact-name)
+                                    (do @
+                                      [value (:: host re-load context directive)]
+                                      (wrap (dictionary.put artifact-name value values))))))
+                            (: (Dictionary Text Any)
+                               (dictionary.new text.hash))))
+     content (document.read $.key document)
+     definitions (monad.map @ (function (_ [def-name def-global])
+                                (case def-global
+                                  (#.Alias alias)
+                                  (wrap [def-name (#.Alias alias)])
+                                  
+                                  (#.Definition [exported? type annotations _])
+                                  (do @
+                                    [value (try.from-maybe (dictionary.get def-name values))]
+                                    (wrap [def-name (#.Definition [exported? type annotations value])]))))
+                            (get@ #.definitions content))]
+    (wrap (document.write $.key (set@ #.definitions definitions content)))))
+
+(def: (load-definitions system host root module-id extension host-environment [descriptor document])
+  (All [expression directive]
+    (-> (file.System Promise) Host Path archive.ID Text (generation.Host expression directive)
+        [Descriptor (Document .Module)]
+        (Promise (Try [Descriptor (Document .Module)]))))
+  (do (try.with promise.monad)
+    [actual (cached-artifacts system host root module-id)
+     #let [expected (|> descriptor (get@ #descriptor.registry) artifact.artifacts)]
+     document (promise@wrap (loaded-document extension host-environment module-id expected actual document))]
+    (wrap [descriptor document])))
+
+(def: (load-every-reserved-module extension host-environment system host root archive)
+  (All [expression directive]
+    (-> Text (generation.Host expression directive) (file.System Promise) Host Path Archive (Promise (Try [Archive .Lux]))))
+  (do (try.with promise.monad)
+    [all-loaded-caches (|> archive
+                           archive.reservations
+                           (monad.map @ (function (_ [module-name module-id])
+                                          (do @
+                                            [data (..read-module-descriptor system host root module-id)
+                                             descriptor,document (promise@wrap (<b>.run ..parser data))
+                                             descriptor,document (load-definitions system host root module-id extension host-environment descriptor,document)]
+                                            (wrap [module-name descriptor,document])))))]
+    (promise@wrap
+     (do try.monad
+       [archive (monad.fold try.monad
+                            (function (_ [module descriptor+document] archive)
+                              (archive.add module descriptor+document archive))
+                            archive
+                            all-loaded-caches)
+        analysis-state (..analysis-state host archive)]
+       (wrap [archive
+              analysis-state])))))
+
+(def: #export (thaw extension host-environment system host root)
+  (All [expression directive]
+    (-> Text (generation.Host expression directive) (file.System Promise) Host Path (Promise (Try [Archive .Lux]))))
+  (do promise.monad
+    [file (!.use (:: system file) (..general-descriptor system host root))]
+    (case file
+      (#try.Success file)
+      (do (try.with promise.monad)
+        [binary (!.use (:: file content) [])
+         archive (promise@wrap (archive.import ///.version binary))]
+        (..load-every-reserved-module extension host-environment system host root archive))
+      
+      (#try.Failure error)
+      (wrap (#try.Success [archive.empty
+                           (fresh-analysis-state host)])))))

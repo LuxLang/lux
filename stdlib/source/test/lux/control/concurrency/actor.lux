@@ -3,8 +3,8 @@
    ["_" test (#+ Test)]
    [abstract/monad (#+ do)]
    [control
-    ["." try]
-    ["ex" exception]
+    ["." try (#+ Try)]
+    ["." exception (#+ exception:)]
     ["." io (#+ IO io)]]
    [data
     [number
@@ -12,59 +12,95 @@
     [text
      ["%" format (#+ format)]]]
    [math
-    ["r" random]]]
+    ["." random]]]
   {1
    ["." / (#+ actor: message:)
     [//
-     ["." promise ("#;." monad)]]]})
+     ["." promise (#+ Promise Resolver) ("#@." monad)]]]})
+
+(exception: get-wrecked)
 
 (actor: Counter
   Nat
 
-  ((handle message state self)
-   (do (try.with promise.monad)
-     [#let [_ (log! "BEFORE")]
-      output (message state self)
-      #let [_ (log! "AFTER")]]
-     (wrap output)))
+  ((handle [message state self])
+   (message state self))
 
-  ((stop cause state)
-   (promise;wrap (log! (if (ex.match? /.poisoned cause)
-                         (format "Counter was poisoned: " (%.nat state))
-                         cause)))))
+  ((stop [cause state])
+   (promise@wrap [])))
 
 (message: #export Counter
   (count! {increment Nat} state self Nat)
   (let [state' (n.+ increment state)]
-    (promise;wrap (#try.Success [state' state']))))
+    (promise@wrap (#try.Success [state' state']))))
 
 (def: #export test
   Test
-  (do r.monad
-    [_ (wrap [])]
-    (<| (_.context (%.name (name-of /.Actor)))
+  (do random.monad
+    [initial-state random.nat]
+    (<| (_.covering /._)
+        (_.with-cover [/.Actor])
         ($_ _.and
-            (_.test "Can check if an actor is alive."
-                    (io.run (do io.monad
-                              [counter (new@Counter 0)]
-                              (wrap (/.alive? counter)))))
+            (_.cover [/.alive?]
+                     (io.run (do io.monad
+                               [actor (/.spawn /.default-behavior 0)]
+                               (/.alive? actor))))
 
-            (_.test "Can poison actors."
-                    (io.run (do io.monad
-                              [counter (new@Counter 0)
-                               poisoned? (/.poison counter)]
-                              (wrap (and poisoned?
-                                         (not (/.alive? counter)))))))
-            
-            (_.test "Cannot poison an already dead actor."
-                    (io.run (do io.monad
-                              [counter (new@Counter 0)
-                               first-time (/.poison counter)
-                               second-time (/.poison counter)]
-                              (wrap (and first-time
-                                         (not second-time))))))
+            (_.cover [/.poison]
+                     (and (io.run (do io.monad
+                                    [actor (/.spawn /.default-behavior 0)
+                                     poisoned? (/.poison actor)
+                                     alive? (/.alive? actor)]
+                                    (wrap (and poisoned?
+                                               (not alive?)))))
+                          (io.run (do io.monad
+                                    [actor (/.spawn /.default-behavior 0)
+                                     first-time? (/.poison actor)
+                                     second-time? (/.poison actor)]
+                                    (wrap (and first-time?
+                                               (not second-time?)))))))
 
-            (:: r.monad wrap
+            (let [inc! (: (/.Message Nat)
+                          (function (_ state actor)
+                            (promise@wrap
+                             (#try.Success
+                              (inc state)))))]
+              (:: random.monad wrap
+                  (do promise.monad
+                    [result (promise.future (do io.monad
+                                              [actor (/.spawn /.default-behavior 0)
+                                               sent? (/.send inc! actor)]
+                                              (wrap (#try.Success sent?))))]
+                    (_.claim [/.Behavior /.Message
+                              /.default-behavior /.spawn /.send]
+                             (case result
+                               (#try.Success outcome)
+                               outcome
+
+                               (#try.Failure error)
+                               false)))))
+
+            (let [[read write] (: [(Promise Text) (Resolver Text)]
+                                  (promise.promise []))]
+              (:: random.monad wrap
+                  (do promise.monad
+                    [result (promise.future (do io.monad
+                                              [actor (/.spawn {#/.handle (function (_ message state self)
+                                                                           (message state self))
+                                                               #/.end (function (_ cause state)
+                                                                        (promise.future (write cause)))}
+                                                              write)
+                                               _ (/.poison actor)]
+                                              (io.io (promise.poll read))))]
+                    (_.claim [/.poisoned]
+                             (case result
+                               (#.Some error)
+                               (exception.match? /.poisoned error)
+
+                               #.None
+                               false)))))
+
+            (:: random.monad wrap
                 (do promise.monad
                   [result (do (try.with promise.monad)
                             [#let [counter (io.run (new@Counter 0))]
@@ -74,11 +110,50 @@
                             (wrap (and (n.= 1 output-1)
                                        (n.= 2 output-2)
                                        (n.= 3 output-3))))]
-                  (_.assert "Can send messages to actors."
-                            (case result
-                              (#try.Success outcome)
-                              outcome
+                  (_.claim [/.actor: /.message:]
+                           (case result
+                             (#try.Success outcome)
+                             outcome
 
-                              (#try.Failure _)
-                              #0))))
+                             (#try.Failure error)
+                             false))))
+            
+            (:: random.monad wrap
+                (do promise.monad
+                  [result (do (try.with promise.monad)
+                            [counter (promise.future (do io.monad
+                                                       [counter (new@Counter 0)
+                                                        _ (/.poison counter)]
+                                                       (wrap (#try.Success counter))))]
+                            (count! 1 counter))]
+                  (_.claim [/.dead]
+                           (case result
+                             (#try.Success outcome)
+                             false
+
+                             (#try.Failure error)
+                             (exception.match? /.dead error)))))
+
+            (let [die! (: (/.Message Nat)
+                          (function (_ state actor)
+                            (promise@wrap (exception.throw ..get-wrecked []))))]
+              (:: random.monad wrap
+                  (do promise.monad
+                    [result (promise.future (do io.monad
+                                              [actor (/.spawn /.default-behavior initial-state)
+                                               sent? (/.send die! actor)
+                                               alive? (/.alive? actor)
+                                               obituary (/.obituary actor)]
+                                              (wrap (#try.Success [actor sent? alive? obituary]))))]
+                    (_.claim [/.Obituary /.obituary]
+                             (case result
+                               (^ (#try.Success [actor sent? alive? (#.Some [error state (list single-pending-message)])]))
+                               (and sent?
+                                    (not alive?)
+                                    (exception.match? ..get-wrecked error)
+                                    (n.= initial-state state)
+                                    (is? die! single-pending-message))
+
+                               _
+                               false)))))
             ))))

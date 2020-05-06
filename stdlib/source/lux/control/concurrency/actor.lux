@@ -5,10 +5,10 @@
    [control
     ["." function]
     ["." try (#+ Try)]
-    ["ex" exception (#+ exception:)]
-    ["." io (#+ IO io) ("#;." monad)]
-    ["p" parser
-     ["s" code (#+ Parser)]]]
+    ["." exception (#+ exception:)]
+    ["." io (#+ IO io) ("#@." monad)]
+    ["<>" parser
+     ["<c>" code (#+ Parser)]]]
    [data
     ["." product]
     [number
@@ -16,7 +16,7 @@
     [text
      ["%" format (#+ format)]]
     [collection
-     ["." list ("#;." monoid monad fold)]]]
+     ["." list ("#@." monoid monad fold)]]]
    ["." macro (#+ with-gensyms monad)
     ["." code]
     [syntax (#+ syntax:)
@@ -27,14 +27,15 @@
     abstract]]
   [//
    ["." atom (#+ Atom atom)]
-   ["." promise (#+ Promise Resolver) ("#;." monad)]])
+   ["." promise (#+ Promise Resolver) ("#@." monad)]])
 
 (exception: #export poisoned)
 
 (exception: #export (dead {actor-name Text}
                           {message-name Text})
-  (ex.report ["Actor" actor-name]
-             ["Message" message-name]))
+  (exception.report
+   ["Actor" actor-name]
+   ["Message" message-name]))
 
 (with-expansions
   [<Message> (as-is (-> s (Actor s) (Promise (Try s))))
@@ -43,7 +44,7 @@
                       [(Promise [<Message> Mailbox])
                        (Resolver [<Message> Mailbox])]))]
 
-  (def: (obituary [read write])
+  (def: (pending [read write])
     (All [a]
       (-> (Rec Mailbox
             [(Promise [a Mailbox])
@@ -51,7 +52,7 @@
           (List a)))
     (case (promise.poll read)
       (#.Some [head tail])
-      (#.Cons head (obituary tail))
+      (#.Cons head (pending tail))
       
       #.None
       #.Nil))
@@ -100,7 +101,7 @@
                               (do @
                                 [_ (end error state)]
                                 (let [[_ resolve] (get@ #obituary (:representation self))]
-                                  (exec (io.run (resolve [error state (#.Cons head (..obituary tail))]))
+                                  (exec (io.run (resolve [error state (#.Cons head (..pending tail))]))
                                     (wrap []))))
 
                               (#try.Success state')
@@ -108,36 +109,43 @@
             self)))
 
     (def: #export (alive? actor)
-      (All [s] (-> (Actor s) Bit))
+      (All [s] (-> (Actor s) (IO Bit)))
       (let [[obituary _] (get@ #obituary (:representation actor))]
-        (case (promise.poll obituary)
-          #.None
-          #1
+        (io.io (case (promise.poll obituary)
+                 #.None
+                 yes
 
-          _
-          #0)))
+                 _
+                 no))))
+
+    (def: #export (obituary actor)
+      (All [s] (-> (Actor s) (IO (Maybe (Obituary s)))))
+      (let [[obituary _] (get@ #obituary (:representation actor))]
+        (io.io (promise.poll obituary))))
 
     (def: #export (send message actor)
       {#.doc "Communicate with an actor through message passing."}
       (All [s] (-> (Message s) (Actor s) (IO Bit)))
-      (if (alive? actor)
-        (let [entry [message (promise.promise [])]]
-          (do io.monad
-            [|mailbox|&resolve (atom.read (get@ #mailbox (:representation actor)))]
-            (loop [[|mailbox| resolve] |mailbox|&resolve]
-              (case (promise.poll |mailbox|)
-                #.None
-                (do @
-                  [resolved? (resolve entry)]
-                  (if resolved?
-                    (do @
-                      [_ (atom.write (product.right entry) (get@ #mailbox (:representation actor)))]
-                      (wrap #1))
-                    (recur |mailbox|&resolve)))
-                
-                (#.Some [_ |mailbox|'])
-                (recur |mailbox|')))))
-        (io;wrap #0)))
+      (do io.monad
+        [alive? (..alive? actor)]
+        (if alive?
+          (let [entry [message (promise.promise [])]]
+            (do @
+              [|mailbox|&resolve (atom.read (get@ #mailbox (:representation actor)))]
+              (loop [[|mailbox| resolve] |mailbox|&resolve]
+                (case (promise.poll |mailbox|)
+                  #.None
+                  (do @
+                    [resolved? (resolve entry)]
+                    (if resolved?
+                      (do @
+                        [_ (atom.write (product.right entry) (get@ #mailbox (:representation actor)))]
+                        (wrap true))
+                      (recur |mailbox|&resolve)))
+                  
+                  (#.Some [_ |mailbox|'])
+                  (recur |mailbox|')))))
+          (wrap false))))
     )
   )
 
@@ -147,7 +155,7 @@
 
 (def: (default-end cause state)
   (All [s] (-> Text s (Promise Any)))
-  (promise;wrap []))
+  (promise@wrap []))
 
 (def: #export default-behavior
   (All [s] (Behavior s))
@@ -159,16 +167,16 @@
               "but allows the actor to handle previous messages.")}
   (All [s] (-> (Actor s) (IO Bit)))
   (send (function (_ state self)
-          (promise.resolved (ex.throw ..poisoned [])))
+          (promise.resolved (exception.throw ..poisoned [])))
         actor))
 
 (template [<with> <resolve> <tag> <desc>]
-  [(def: #export (<with> name)
+  [(def: (<with> name)
      (-> Name cs.Annotations cs.Annotations)
      (|>> (#.Cons [(name-of <tag>)
                    (code.tag name)])))
 
-   (def: #export (<resolve> name)
+   (def: (<resolve> name)
      (-> Name (Meta Name))
      (do macro.monad
        [constant (macro.find-def name)]
@@ -190,11 +198,11 @@
 
 (def: actor-decl^
   (Parser [Text (List Text)])
-  (p.either (s.form (p.and s.local-identifier (p.some s.local-identifier)))
-            (p.and s.local-identifier (:: p.monad wrap (list)))))
+  (<>.either (<c>.form (<>.and <c>.local-identifier (<>.some <c>.local-identifier)))
+             (<>.and <c>.local-identifier (:: <>.monad wrap (list)))))
 
 (template [<name> <desc>]
-  [(def: #export <name>
+  [(def: <name>
      (-> Text Text)
      (|>> (format <desc> "@")))]
 
@@ -214,17 +222,17 @@
 
 (def: behavior^
   (Parser BehaviorC)
-  (let [handle-args ($_ p.and s.local-identifier s.local-identifier s.local-identifier)
-        stop-args ($_ p.and s.local-identifier s.local-identifier)]
-    (p.and (p.maybe (s.form (p.and (s.form (p.after (s.this! (' handle)) handle-args))
-                                   s.any)))
-           (p.maybe (s.form (p.and (s.form (p.after (s.this! (' stop)) stop-args))
-                                   s.any))))))
+  (let [handle-args (<c>.tuple ($_ <>.and <c>.local-identifier <c>.local-identifier <c>.local-identifier))
+        stop-args (<c>.tuple ($_ <>.and <c>.local-identifier <c>.local-identifier))]
+    (<>.and (<>.maybe (<c>.form (<>.and (<c>.form (<>.after (<c>.this! (' handle)) handle-args))
+                                        <c>.any)))
+            (<>.maybe (<c>.form (<>.and (<c>.form (<>.after (<c>.this! (' stop)) stop-args))
+                                        <c>.any))))))
 
 (syntax: #export (actor:
                    {export csr.export}
                    {[_name _vars] actor-decl^}
-                   {annotations (p.default cs.empty-annotations csr.annotations)}
+                   {annotations (<>.default cs.empty-annotations csr.annotations)}
                    state-type
                    {[?handle ?stop] behavior^})
   {#.doc (doc "Defines an actor, with its behavior and internal state."
@@ -233,7 +241,7 @@
 
                 ((stop cause state)
                  (:: promise.monad wrap
-                     (log! (if (ex.match? ..poisoned cause)
+                     (log! (if (exception.match? ..poisoned cause)
                              (format "Counter was poisoned: " (%.nat state))
                              cause)))))
 
@@ -253,7 +261,7 @@
              g!behavior (code.local-identifier (behavior-name _name))
              g!actor (code.local-identifier _name)
              g!new (code.local-identifier (new-name _name))
-             g!vars (list;map code.local-identifier _vars)]]
+             g!vars (list@map code.local-identifier _vars)]]
       (wrap (list (` (type: (~+ (csw.export export)) ((~ g!type) (~+ g!vars))
                        (~ state-type)))
                   (` (type: (~+ (csw.export export)) ((~ g!actor) (~+ g!vars))
@@ -303,24 +311,24 @@
 
 (def: signature^
   (Parser Signature)
-  (s.form ($_ p.and
-              (p.default (list) (s.tuple (p.some s.local-identifier)))
-              s.local-identifier
-              (p.some csr.typed-input)
-              s.local-identifier
-              s.local-identifier
-              s.any)))
+  (<c>.form ($_ <>.and
+                (<>.default (list) (<c>.tuple (<>.some <c>.local-identifier)))
+                <c>.local-identifier
+                (<>.some csr.typed-input)
+                <c>.local-identifier
+                <c>.local-identifier
+                <c>.any)))
 
 (def: reference^
   (Parser [Name (List Text)])
-  (p.either (s.form (p.and s.identifier (p.some s.local-identifier)))
-            (p.and s.identifier (:: p.monad wrap (list)))))
+  (<>.either (<c>.form (<>.and <c>.identifier (<>.some <c>.local-identifier)))
+             (<>.and <c>.identifier (:: <>.monad wrap (list)))))
 
 (syntax: #export (message:
                    {export csr.export}
                    {[actor-name actor-vars] reference^}
                    {signature signature^}
-                   {annotations (p.default cs.empty-annotations csr.annotations)}
+                   {annotations (<>.default cs.empty-annotations csr.annotations)}
                    body)
   {#.doc (doc "A message can access the actor's state through the state parameter."
               "A message can also access the actor itself through the self parameter."
@@ -343,24 +351,24 @@
        #let [message-name [current-module (get@ #name signature)]
              g!type (code.identifier (product.both function.identity state-name actor-name))
              g!message (code.local-identifier (get@ #name signature))
-             g!actor-vars (list;map code.local-identifier actor-vars)
+             g!actor-vars (list@map code.local-identifier actor-vars)
              actorC (` ((~ (code.identifier actor-name)) (~+ g!actor-vars)))
-             g!all-vars (|> (get@ #vars signature) (list;map code.local-identifier) (list;compose g!actor-vars))
-             g!inputsC (|> (get@ #inputs signature) (list;map product.left))
-             g!inputsT (|> (get@ #inputs signature) (list;map product.right))
+             g!all-vars (|> (get@ #vars signature) (list@map code.local-identifier) (list@compose g!actor-vars))
+             g!inputsC (|> (get@ #inputs signature) (list@map product.left))
+             g!inputsT (|> (get@ #inputs signature) (list@map product.right))
              g!state (|> signature (get@ #state) code.local-identifier)
              g!self (|> signature (get@ #self) code.local-identifier)
              g!actor-refs (: (List Code)
                              (if (list.empty? actor-vars)
                                (list)
-                               (|> actor-vars list.size list.indices (list;map (|>> code.nat (~) ($) (`))))))
+                               (|> actor-vars list.size list.indices (list@map (|>> code.nat (~) ($) (`))))))
              ref-replacements (|> (if (list.empty? actor-vars)
                                     (list)
-                                    (|> actor-vars list.size list.indices (list;map (|>> code.nat (~) ($) (`)))))
+                                    (|> actor-vars list.size list.indices (list@map (|>> code.nat (~) ($) (`)))))
                                   (: (List Code))
                                   (list.zip2 g!all-vars)
                                   (: (List [Code Code])))
-             g!outputT (list;fold (function (_ [g!var g!ref] outputT)
+             g!outputT (list@fold (function (_ [g!var g!ref] outputT)
                                     (code.replace g!var g!ref outputT))
                                   (get@ #output signature)
                                   ref-replacements)]]
@@ -373,7 +381,7 @@
                              (~ actorC)
                              ((~! promise.Promise) ((~! try.Try) (~ (get@ #output signature))))))
                        (let [[(~ g!task) (~ g!resolve)] (: [((~! promise.Promise) ((~! try.Try) (~ g!outputT)))
-                                                            (promise.Resolver ((~! try.Try) (~ g!outputT)))]
+                                                            ((~! promise.Resolver) ((~! try.Try) (~ g!outputT)))]
                                                            (promise.promise []))]
                          ((~! io.run) ((~! do) (~! io.monad)
                                        [(~ g!sent?) (..send (function ((~ g!_) (~ g!state) (~ g!self))
@@ -398,6 +406,6 @@
                                        (if (~ g!sent?)
                                          ((~' wrap) (~ g!task))
                                          ((~' wrap) ((~! promise.resolved)
-                                                     ((~! ex.throw) ..dead [(~ (code.text (%.name actor-name)))
-                                                                            (~ (code.text (%.name message-name)))])))))))))
+                                                     ((~! exception.throw) ..dead [(~ (code.text (%.name actor-name)))
+                                                                                   (~ (code.text (%.name message-name)))])))))))))
                   )))))

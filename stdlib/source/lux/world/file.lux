@@ -5,9 +5,9 @@
    [abstract
     ["." monad (#+ Monad do)]]
    [control
-    ["." try (#+ Try) ("#;." functor)]
+    ["." try (#+ Try) ("#@." functor)]
     ["." exception (#+ Exception exception:)]
-    ["." io (#+ IO) ("#;." functor)]
+    ["." io (#+ IO) ("#@." functor)]
     [concurrency
      ["." promise (#+ Promise)]]
     [security
@@ -35,6 +35,9 @@
 (capability: #export (Can-Open ! capability)
   (can-open Path (! (Try (capability !)))))
 
+(capability: #export (Can-See o)
+  (can-see [] o))
+
 (capability: #export (Can-Query ! o)
   (can-query [] (! (Try o))))
 
@@ -45,6 +48,14 @@
   (can-delete [] (! (Try Any))))
 
 (`` (signature: #export (File !)
+      (~~ (template [<name> <output>]
+            [(: (Can-See <output>)
+                <name>)]
+
+            [name Text]
+            [path Path]
+            ))
+
       (~~ (template [<name> <output>]
             [(: (Can-Query ! <output>)
                 <name>)]
@@ -102,6 +113,18 @@
        (~~ (template [<forge> <name>+]
              [(with-expansions [<rows> (template.splice <name>+)]
                 (template [<name>]
+                  [(def: <name> (<forge> (|>> (!.use (:: file <name>)))))]
+
+                  <rows>))]
+
+             [..can-see
+              [[name] [path]]]
+             
+             ))
+
+       (~~ (template [<forge> <name>+]
+             [(with-expansions [<rows> (template.splice <name>+)]
+                (template [<name>]
                   [(def: <name> (<forge> (|>> (!.use (:: file <name>)) promise.future)))]
 
                   <rows>))]
@@ -115,15 +138,16 @@
              [..can-delete
               [[delete]]]))
 
-       (def: move (..can-open
-                   (|>> (!.use (:: file move)) (io;map (try;map async-file)) promise.future))))))
+       (def: move
+         (..can-open
+          (|>> (!.use (:: file move)) (io@map (try@map async-file)) promise.future))))))
 
 (def: (async-directory directory)
   (-> (Directory IO) (Directory Promise))
   (`` (structure (~~ (template [<name> <async>]
                        [(def: <name> (..can-query
                                       (|>> (!.use (:: directory <name>))
-                                           (io;map (try;map (list@map <async>)))
+                                           (io@map (try@map (list@map <async>)))
                                            promise.future)))]
 
                        [files       ..async-file]
@@ -137,7 +161,7 @@
   (`` (structure
        (~~ (template [<name> <async>]
              [(def: <name> (..can-open
-                            (|>> (!.use (:: system <name>)) (io;map (try;map <async>)) promise.future)))]
+                            (|>> (!.use (:: system <name>)) (io@map (try@map <async>)) promise.future)))]
 
              [file             ..async-file]
              [create-file      ..async-file]
@@ -199,7 +223,8 @@
                                            [exists] [delete]
                                            [isFile] [isDirectory]
                                            [canRead] [canWrite] [canExecute]))
-                                     
+
+                                     (getName [] java/lang/String)
                                      (length [] #io #try long)
                                      (listFiles [] #io #try #? [java/io/File])
                                      (getAbsolutePath [] #io #try java/lang/String)
@@ -264,6 +289,18 @@
                                             (if (i.= size bytes-read)
                                               (wrap data)
                                               (io.io (exception.throw cannot-read-all-data path)))))))
+
+                                     (def: name
+                                       (..can-see
+                                        (function (name _)
+                                          (|> path
+                                              java/io/File::new
+                                              java/io/File::getName))))
+
+                                     (def: path
+                                       (..can-see
+                                        (function (_ _)
+                                          path)))
 
                                      (def: size
                                        (..can-query
@@ -411,7 +448,8 @@
                      (rmdirSync [host.String] #try Any))
 
                    (import: JsPath
-                     (sep host.String))
+                     (sep host.String)
+                     (basename [host.String] host.String))
                    
                    (import: (#static require [host.String] Any))
 
@@ -435,6 +473,18 @@
                        (..can-query
                         (function (content _)
                           (io.io (Fs::readFileSync [path] (!fs))))))
+
+                     (def: name
+                       (..can-see
+                        (function (name _)
+                          (|> (..require "path")
+                              (:coerce JsPath)
+                              (JsPath::basename path)))))
+
+                     (def: path
+                       (..can-see
+                        (function (_ _)
+                          path)))
 
                      (def: size
                        (..can-query

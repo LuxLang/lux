@@ -7,9 +7,7 @@
    [control
     ["." try (#+ Try)]
     [concurrency
-     ["." promise (#+ Promise) ("#@." monad)]]
-    ["<>" parser
-     ["<b>" binary (#+ Parser)]]]
+     ["." promise (#+ Promise) ("#@." monad)]]]
    [data
     ["." binary (#+ Binary)]
     ["." bit]
@@ -35,10 +33,7 @@
       ["#." generation (#+ Buffer)]
       ["#." directive]
       [phase
-       ## TODO: Get rid of this import ASAP
-       ["." extension (#+ Extender)]
-       [analysis
-        ["." module]]]]]
+       [extension (#+ Extender)]]]]
     [meta
      ["." archive (#+ Archive)
       ["." descriptor (#+ Descriptor Module)]
@@ -76,11 +71,6 @@
     (_.and descriptor.writer
            (document.writer $.writer)))
 
-  (def: parser
-    (Parser [Descriptor (Document .Module)])
-    (<>.and descriptor.parser
-            (document.parser $.parser)))
-
   (def: (cache-module platform host target-dir module-file-name module-id extension [[descriptor document] output])
     (All <type-vars>
       (-> <Platform> Host Path Path archive.ID Text [[Descriptor (Document Any)] Output]
@@ -96,26 +86,10 @@
                (monad.map ..monad write-artifact!)
                (: (Action (List Any))))
          document (:: promise.monad wrap
-                      (document.check //init.key document))]
+                      (document.check $.key document))]
         (ioW.cache system host target-dir module-id
                    (_.run ..writer [descriptor document])))))
 
-  (def: (load-cache system host target-dir archive)
-    (All <type-vars>
-      (-> (file.System Promise) Host Path Archive (Promise (Try Archive))))
-    (do (try.with promise.monad)
-      [all-loaded-caches (|> (archive.reservations archive)
-                             (monad.map @ (function (_ [module-name module-id])
-                                            (do @
-                                              [data (ioW.load system host target-dir module-id)
-                                               payload (promise@wrap (<b>.run ..parser data))]
-                                              (wrap [module-name payload])))))]
-      (promise@wrap (monad.fold try.monad
-                                (function (_ [module descriptor+document] archive)
-                                  (archive.add module descriptor+document archive))
-                                archive
-                                all-loaded-caches))))
-  
   ## TODO: Inline ASAP
   (def: initialize-buffer!
     (All <type-vars>
@@ -128,9 +102,10 @@
       (-> <Platform> (///generation.Operation anchor expression directive Any)))
     (get@ #runtime))
 
-  (def: #export (initialize target host module expander host-analysis platform generation-bundle host-directive-bundle program extender)
+  (def: #export (initialize extension target host module expander host-analysis platform generation-bundle host-directive-bundle program extender)
     (All <type-vars>
-      (-> Path
+      (-> Text
+          Path
           Host
           Module
           Expander
@@ -153,42 +128,18 @@
                               extender)]
       (do (try.with promise.monad)
         [_ (ioW.enable (get@ #&file-system platform) host target)
-         archive (ioW.thaw (get@ #&file-system platform) host target)
-         archive (load-cache (get@ #&file-system platform) host target archive)]
+         [archive analysis-state] (ioW.thaw extension (get@ #host platform) (get@ #&file-system platform) host target)]
         (|> (do ///phase.monad
-              [_ ..initialize-buffer!
-               _ (..compile-runtime! platform)
-               buffer ///generation.buffer]
-              (wrap [archive buffer]))
-            ///directive.lift-generation
+              [_ (///directive.lift-analysis
+                  (///analysis.install analysis-state))]
+              (///directive.lift-generation
+               (do ///phase.monad
+                 [_ ..initialize-buffer!
+                  _ (..compile-runtime! platform)
+                  buffer ///generation.buffer]
+                 (wrap [archive buffer]))))
             (///phase.run' state)
-            promise@wrap)))
-
-    ## (case (runtimeT.generate ## (initL.compiler (io.run js.init))
-    ##        (initL.compiler (io.run hostL.init-host))
-    ##        )
-    ##   ## (#try.Success [state disk-write])
-    ##   ## (do @
-    ##   ##   [_ (&io.prepare-target target)
-    ##   ##    _ disk-write
-    ##   ##    ## _ (cache/io.pre-load sources target (commonT.load-definition state))
-    ##   ##    ]
-    ##   ##   (wrap (|> state
-    ##   ##             (set@ [#.info #.mode] #.Build))))
-
-    ##   (#try.Success [state [runtime-bc function-bc]])
-    ##   (do @
-    ##     [_ (&io.prepare-target target)
-    ##      ## _ (&io.write target (format hostL.runtime-class ".class") runtime-bc)
-    ##      ## _ (&io.write target (format hostL.function-class ".class") function-bc)
-    ##      ## _ (cache/io.pre-load sources target (commonT.load-definition state))
-    ##      ]
-    ##     (wrap (|> state
-    ##               (set@ [#.info #.mode] #.Build))))
-
-    ##   (#try.Failure error)
-    ##   (io.fail error))
-    )
+            promise@wrap))))
 
   (def: #export (compile target partial-host-extension expander platform host configuration archive extension state)
     (All <type-vars>
@@ -198,7 +149,7 @@
                            {<State+>
                             state}
                            {(///.Compiler <State+> .Module Any)
-                            ((//init.compiler expander syntax.prelude (get@ #write platform)) //init.key (list))})]
+                            ((//init.compiler expander syntax.prelude (get@ #write platform)) $.key (list))})]
       (loop [module source-module
              [archive state] [archive state]]
         (if (archive.archived? archive module)
