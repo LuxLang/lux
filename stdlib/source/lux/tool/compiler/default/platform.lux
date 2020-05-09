@@ -15,7 +15,8 @@
     ["." text
      ["%" format (#+ format)]]
     [collection
-     ["." row]]
+     ["." row]
+     ["." set]]
     [format
      ["_" binary (#+ Writer)]]]
    [world
@@ -27,15 +28,19 @@
     [language
      [lux
       ["$" /]
+      ["#." version]
       ["." syntax]
       ["#." analysis
        [macro (#+ Expander)]]
       ["#." generation (#+ Buffer)]
       ["#." directive]
       [phase
-       [extension (#+ Extender)]]]]
+       [extension (#+ Extender)]
+       [analysis
+        ["." module]]]]]
     [meta
      ["." archive (#+ Archive)
+      ["." artifact (#+ Registry)]
       ["." descriptor (#+ Descriptor Module)]
       ["." document (#+ Document)]]
      [io
@@ -49,7 +54,7 @@
   {#&file-system (file.System Promise)
    #host (///generation.Host expression directive)
    #phase (///generation.Phase anchor expression directive)
-   #runtime (///generation.Operation anchor expression directive Any)
+   #runtime (///generation.Operation anchor expression directive [Registry Output])
    #write (-> directive Binary)})
 
 ## TODO: Get rid of this
@@ -71,9 +76,9 @@
     (_.and descriptor.writer
            (document.writer $.writer)))
 
-  (def: (cache-module platform host target-dir module-file-name module-id extension [[descriptor document] output])
+  (def: (cache-module platform host target-dir module-id extension [[descriptor document] output])
     (All <type-vars>
-      (-> <Platform> Host Path Path archive.ID Text [[Descriptor (Document Any)] Output]
+      (-> <Platform> Host Path archive.ID Text [[Descriptor (Document Any)] Output]
           (Promise (Try Any))))
     (let [system (get@ #&file-system platform)
           write-artifact! (: (-> [Text Binary] (Action Any))
@@ -97,10 +102,41 @@
     (///generation.set-buffer ///generation.empty-buffer))
 
   ## TODO: Inline ASAP
-  (def: compile-runtime!
+  (def: (compile-runtime! platform)
     (All <type-vars>
-      (-> <Platform> (///generation.Operation anchor expression directive Any)))
-    (get@ #runtime))
+      (-> <Platform> (///generation.Operation anchor expression directive [Registry Output])))
+    (do ///phase.monad
+      [_ ..initialize-buffer!]
+      (get@ #runtime platform)))
+
+  (def: (runtime-descriptor registry)
+    (-> Registry Descriptor)
+    {#descriptor.hash 0
+     #descriptor.name archive.runtime-module
+     #descriptor.file ""
+     #descriptor.references (set.new text.hash)
+     #descriptor.state #.Compiled
+     #descriptor.registry registry})
+  
+  (def: runtime-document
+    (Document .Module)
+    (document.write $.key (module.new 0)))
+
+  (def: (process-runtime analysis-state archive platform)
+    (All <type-vars>
+      (-> .Lux Archive <Platform>
+          (///directive.Operation anchor expression directive
+                                  [Archive [[Descriptor (Document .Module)] Output]])))
+    (do ///phase.monad
+      [_ (///directive.lift-analysis
+          (///analysis.install analysis-state))
+       [registry payload] (///directive.lift-generation
+                           (..compile-runtime! platform))
+       #let [descriptor,document [(..runtime-descriptor registry) ..runtime-document]]
+       archive (///phase.lift (do try.monad
+                                [[_ archive] (archive.reserve archive.runtime-module archive)]
+                                (archive.add archive.runtime-module descriptor,document archive)))]
+      (wrap [archive [descriptor,document payload]])))
 
   (def: #export (initialize extension target host module expander host-analysis platform generation-bundle host-directive-bundle program extender)
     (All <type-vars>
@@ -115,7 +151,7 @@
           (///directive.Bundle anchor expression directive)
           (-> expression directive)
           Extender
-          (Promise (Try [<State+> Archive (Buffer directive)]))))
+          (Promise (Try [<State+> Archive]))))
     (let [state (//init.state host
                               module
                               expander
@@ -128,18 +164,12 @@
                               extender)]
       (do (try.with promise.monad)
         [_ (ioW.enable (get@ #&file-system platform) host target)
-         [archive analysis-state] (ioW.thaw extension (get@ #host platform) (get@ #&file-system platform) host target)]
-        (|> (do ///phase.monad
-              [_ (///directive.lift-analysis
-                  (///analysis.install analysis-state))]
-              (///directive.lift-generation
-               (do ///phase.monad
-                 [_ ..initialize-buffer!
-                  _ (..compile-runtime! platform)
-                  buffer ///generation.buffer]
-                 (wrap [archive buffer]))))
-            (///phase.run' state)
-            promise@wrap))))
+         [archive analysis-state] (ioW.thaw extension (get@ #host platform) (get@ #&file-system platform) host target)
+         [state [archive payload]] (|> (process-runtime analysis-state archive platform)
+                                       (///phase.run' state)
+                                       promise@wrap)
+         _ (..cache-module platform host target 0 extension payload)]
+        (wrap [state archive]))))
 
   (def: #export (compile target partial-host-extension expander platform host configuration archive extension state)
     (All <type-vars>
@@ -204,13 +234,7 @@
 
                       (#.Right payload)
                       (do (try.with promise.monad)
-                        [_ (..cache-module platform
-                                           host
-                                           target
-                                           (get@ #///.file input)
-                                           module-id
-                                           extension
-                                           payload)
+                        [_ (..cache-module platform host target module-id extension payload)
                          #let [[descriptor+document output] payload]]
                         (case (archive.add module descriptor+document archive)
                           (#try.Success archive)

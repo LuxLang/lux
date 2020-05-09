@@ -1,3 +1,7 @@
+# Inspiration
+
+1. https://www.mailvelope.com
+
 # Finger-printing
 
 1. [How Browser Fingerprinting Works](https://kevq.uk/how-browser-fingerprinting-works/)

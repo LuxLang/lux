@@ -8,6 +8,7 @@
 
 # Reference
 
+1. [Line-tracking using plain CSS](https://bubblin.io/blog/line-tracking)
 1. [Redux is half of a pattern (1/2)](https://dev.to/davidkpiano/redux-is-half-of-a-pattern-1-2-1hd7)
 1. [Introducing Concurrent Mode (Experimental)](https://reactjs.org/docs/concurrent-mode-intro.html)
 1. https://github.com/daybrush/scenejs

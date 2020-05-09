@@ -1,5 +1,6 @@
 # Exemplar
 
+1. [Mill: A Build Tool based on Pure Functional Programming, Li Haoyi at Scala.Love 2020](https://vimeo.com/409165552)
 1. [Pier: Yet another Haskell build tool](https://www.youtube.com/watch?v=JmenfeDVi0w)
 1. https://buckbuild.com/
 1. http://boot-clj.com/
@@ -37,6 +38,7 @@
 
 # Reference
 
+1. [Falsehoods programmers believe about build systems](https://pozorvlak.livejournal.com/174763.html)
 1. [Non-recursive Make Considered Harmful](https://ndmitchell.com/downloads/paper-non_recursive_make_considered_harmful-22_sep_2016.pdf)
 1. https://www.microsoft.com/en-us/research/publication/build-systems-la-carte/
 1. [Build Systems à la Carte](https://www.youtube.com/watch?v=BQVT6wiwCxM)

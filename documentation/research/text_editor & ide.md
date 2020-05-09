@@ -137,6 +137,7 @@
 1. https://github.com/gsilvamartin/RTCode
 1. https://hackernoon.com/building-conclave-a-decentralized-real-time-collaborative-text-editor-a6ab438fe79f
 1. https://github.com/xi-editor/xi-editor/issues/1187
+1. [Chronofold: a data structure for versioned text](https://arxiv.org/abs/2002.09511)
 
 # Exemplar
 

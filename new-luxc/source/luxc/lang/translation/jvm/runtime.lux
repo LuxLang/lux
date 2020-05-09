@@ -3,10 +3,13 @@
    [abstract
     [monad (#+ do)]]
    [data
+    [binary (#+ Binary)]
+    ["." product]
     [text
      ["%" format (#+ format)]]
     [collection
-     ["." list ("#@." functor)]]]
+     ["." list ("#@." functor)]
+     ["." row]]]
    ["." math]
    [target
     [jvm
@@ -14,13 +17,16 @@
       ["." category (#+ Void Value' Value Return' Return Primitive Object Class Array Var Parameter Method)]
       ["." reflection]]]]
    [tool
-    [compiler
+    [compiler (#+ Output)
      [arity (#+ Arity)]
      ["." phase]
      [language
       [lux
        ["." synthesis]
-       ["." generation]]]]]]
+       ["." generation]]]
+     [meta
+      [archive
+       ["." artifact (#+ Registry)]]]]]]
   [luxc
    [lang
     [host
@@ -320,19 +326,21 @@
   (|>> type.reflection reflection.reflection))
 
 (def: translate-runtime
-  (Operation Any)
+  (Operation [Text Binary])
   (let [runtime-class (..reflection //.$Runtime)
         bytecode ($d.class #$.V1_6 #$.Public $.finalC runtime-class (list) (type.class "java.lang.Object" (list)) (list)
                            (|>> adt-methods
                                 frac-methods
                                 pm-methods
-                                io-methods))]
+                                io-methods))
+        payload ["0" bytecode]]
     (do phase.monad
-      [_ (generation.execute! runtime-class [runtime-class bytecode])]
-      (generation.save! false ["" runtime-class] [runtime-class bytecode]))))
+      [_ (generation.execute! runtime-class [runtime-class bytecode])
+       _ (generation.save! false ["" "0"] payload)]
+      (wrap payload))))
 
 (def: translate-function
-  (Operation Any)
+  (Operation [Text Binary])
   (let [applyI (|> (list.n/range 2 num-apply-variants)
                    (list@map (function (_ arity)
                                ($d.method #$.Public $.noneM apply-method (apply-signature arity)
@@ -358,13 +366,22 @@
                                                    (_.ILOAD 1)
                                                    (_.PUTFIELD //.$Function partials-field type.int)
                                                    _.RETURN))
-                                   applyI))]
+                                   applyI))
+        payload ["1" bytecode]]
     (do phase.monad
-      [_ (generation.execute! function-class [function-class bytecode])]
-      (generation.save! false ["" function-class] [function-class bytecode]))))
+      [_ (generation.execute! function-class [function-class bytecode])
+       _ (generation.save! false ["" "1"] payload)]
+      (wrap payload))))
 
 (def: #export translate
-  (Operation Any)
+  (Operation [Registry Output])
   (do phase.monad
-    [_ translate-runtime]
-    translate-function))
+    [runtime-payload ..translate-runtime
+     function-payload ..translate-function]
+    (wrap [(|> artifact.empty
+               artifact.resource
+               product.right
+               artifact.resource
+               product.right)
+           (row.row runtime-payload
+                    function-payload)])))

@@ -186,25 +186,34 @@
     (-> Text (generation.Host expression directive) archive.ID (Row Artifact) (Dictionary Text Binary) (Document .Module)
         (Try (Document .Module))))
   (do try.monad
-    [values (|> expected
-                row.to-list
-                (monad.fold @ (function (_ [artifact-id artifact-name] values)
-                                (do @
-                                  [data (try.from-maybe (dictionary.get (format (%.nat artifact-id) extension) actual))
-                                   #let [context [module-id artifact-id]
-                                         directive (:: host ingest context data)]]
-                                  (case artifact-name
-                                    #.None
-                                    (do @
-                                      [_ (:: host re-learn context directive)]
-                                      (wrap values))
-                                    
-                                    (#.Some artifact-name)
-                                    (do @
-                                      [value (:: host re-load context directive)]
-                                      (wrap (dictionary.put artifact-name value values))))))
-                            (: (Dictionary Text Any)
-                               (dictionary.new text.hash))))
+    [values (: (Try (Dictionary Text Any))
+               (loop [input (row.to-list expected)
+                      values (: (Dictionary Text Any)
+                                (dictionary.new text.hash))]
+                 (case input
+                   (#.Cons [[artifact-id artifact-name] input'])
+                   (case (do @
+                           [data (try.from-maybe (dictionary.get (format (%.nat artifact-id) extension) actual))
+                            #let [context [module-id artifact-id]
+                                  directive (:: host ingest context data)]]
+                           (case artifact-name
+                             #.None
+                             (do @
+                               [_ (:: host re-learn context directive)]
+                               (wrap values))
+                             
+                             (#.Some artifact-name)
+                             (do @
+                               [value (:: host re-load context directive)]
+                               (wrap (dictionary.put artifact-name value values)))))
+                     (#try.Success values')
+                     (recur input' values')
+
+                     failure
+                     failure)
+                   
+                   #.None
+                   (#try.Success values))))
      content (document.read $.key document)
      definitions (monad.map @ (function (_ [def-name def-global])
                                 (case def-global
