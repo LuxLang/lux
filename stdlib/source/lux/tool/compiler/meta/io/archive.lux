@@ -29,6 +29,8 @@
      ["." artifact (#+ Artifact)]
      ["." descriptor (#+ Module Descriptor)]
      ["." document (#+ Document)]]
+    [cache
+     ["." dependency]]
     [//
      [language
       ["$" lux
@@ -242,21 +244,33 @@
   (All [expression directive]
     (-> Text (generation.Host expression directive) (file.System Promise) Host Path Archive (Promise (Try [Archive .Lux]))))
   (do (try.with promise.monad)
-    [all-loaded-caches (|> archive
+    [pre-loaded-caches (|> archive
                            archive.reservations
                            (monad.map @ (function (_ [module-name module-id])
                                           (do @
                                             [data (..read-module-descriptor system host root module-id)
-                                             descriptor,document (promise@wrap (<b>.run ..parser data))
-                                             descriptor,document (load-definitions system host root module-id extension host-environment descriptor,document)]
-                                            (wrap [module-name descriptor,document])))))]
+                                             descriptor,document (promise@wrap (<b>.run ..parser data))]
+                                            (wrap [module-name [module-id descriptor,document]])))))
+     load-order (|> pre-loaded-caches
+                    (monad.fold try.monad
+                                (function (_ [module [module-id descriptor,document]] archive)
+                                  (archive.add module descriptor,document archive))
+                                archive)
+                    (:: try.monad map (dependency.load-order $.key))
+                    (:: try.monad join)
+                    promise@wrap)
+     loaded-caches (monad.map @ (function (_ [module-name [module-id descriptor,document]])
+                                  (do @
+                                    [descriptor,document (..load-definitions system host root module-id extension host-environment descriptor,document)]
+                                    (wrap [module-name descriptor,document])))
+                              load-order)]
     (promise@wrap
      (do try.monad
        [archive (monad.fold try.monad
-                            (function (_ [module descriptor+document] archive)
-                              (archive.add module descriptor+document archive))
+                            (function (_ [module descriptor,document] archive)
+                              (archive.add module descriptor,document archive))
                             archive
-                            all-loaded-caches)
+                            loaded-caches)
         analysis-state (..analysis-state host archive)]
        (wrap [archive
               analysis-state])))))

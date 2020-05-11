@@ -114,6 +114,8 @@
 
 # Styling
 
+1. [Centering in CSS: A Complete Guide](https://css-tricks.com/centering-css-complete-guide/)
+1. [Vertical Rhythm Reset](https://jhildenbiddle.github.io/vertical-rhythm-reset/)
 1. [Cascading Scoped Style Sheets, aka CSSS, aka C3S](https://github.com/crislin2046/c3s)
 1. [The importance of the CSS user-select property](https://www.malgol.com/the-importance-of-the-css-user-select-property/)
 1. [Index fun](https://psuter.net/2019/07/07/z-index)

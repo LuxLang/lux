@@ -99,8 +99,9 @@
 1. https://prezi.com/gp6u1jpgkxej/what-are-soplets/
 1. http://symade.tigris.org/
 
-# IDE
+# Integrated Development Environment (IDE)
 
+1. [Theia 1.0 - Finally a Good Browser IDE](https://dev.to/svenefftinge/theia-1-0-finally-a-good-browser-ide-3ok0)
 1. https://www.eclipse.org/che/
 
 # Advanced AST/source-code manipulation tools
@@ -143,6 +144,7 @@
 
 ## General
 
+1. [Left](https://100r.co/site/left.html)
 1. https://howl.io/
 1. [The Whole Code Catalog](https://futureofcoding.org/catalog/)
 1. http://substance.io/

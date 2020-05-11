@@ -1,56 +1,116 @@
 (.module:
   [lux (#- Module)
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    ["." try (#+ Try)]
+    ["." function]]
    [data
-    ["." text]
+    ["." maybe ("#@." functor)]
+    ["." text
+     ["%" format (#+ format)]]
     [collection
      ["." list ("#@." functor fold)]
-     ["." dictionary (#+ Dictionary)]]]]
-  [///io (#+ Module)]
-  [///archive (#+ Archive)])
+     ["." dictionary (#+ Dictionary)]
+     ["." set (#+ Set)]]]]
+  [///
+   ["." archive (#+ Archive)
+    [key (#+ Key)]
+    ["." descriptor (#+ Module Descriptor)]
+    ["." document (#+ Document)]]])
+
+(type: Ancestry
+  (Set Module))
+
+(def: fresh
+  Ancestry
+  (set.new text.hash))
 
 (type: #export Graph
-  (Dictionary Module (List Module)))
+  (Dictionary Module Ancestry))
 
-(def: #export empty
+(def: empty
   Graph
   (dictionary.new text.hash))
 
-(def: #export (add to from)
-  (-> Module Module Graph Graph)
-  (|>> (dictionary.update~ from (list) (|>> (#.Cons to)))
-       (dictionary.update~ to (list) id)))
+(def: #export modules
+  (-> Graph (List Module))
+  dictionary.keys)
 
-(def: dependents
-  (-> Module Graph (Maybe (List Module)))
-  dictionary.get)
+## (def: (remove module dependency)
+##   (-> Module Graph Graph)
+##   (case (..descendants module dependency)
+##     (#.Some [ancestors descendants])
+##     (list@fold remove
+##                (dictionary.remove module dependency)
+##                (set.to-list descendants))
 
-(def: #export (remove module dependency)
-  (-> Module Graph Graph)
-  (case (dependents module dependency)
-    (#.Some dependents)
-    (list@fold remove (dictionary.remove module dependency) dependents)
+##     #.None
+##     dependency))
 
-    #.None
-    dependency))
-
-(type: #export Dependency
+(type: Dependency
   {#module Module
-   #imports (List Module)})
-
-(def: #export (dependency [module imports])
-  (-> Dependency Graph)
-  (list@fold (..add module) ..empty imports))
+   #imports Ancestry})
 
 (def: #export graph
   (-> (List Dependency) Graph)
-  (|>> (list@map ..dependency)
-       (list@fold dictionary.merge empty)))
+  (list@fold (function (_ [module imports] graph)
+               (dictionary.put module imports graph))
+             ..empty))
 
-(def: #export (prune archive graph)
-  (-> Archive Graph Graph)
-  (list@fold (function (_ module graph)
-               (if (dictionary.contains? module archive)
-                 graph
-                 (..remove module graph)))
-             graph
-             (dictionary.keys graph)))
+## (def: #export (prune archive graph)
+##   (-> Archive Graph Graph)
+##   (list@fold (function (_ module graph)
+##                (if (archive.archived? archive module)
+##                  graph
+##                  (..remove module graph)))
+##              graph
+##              (dictionary.keys graph)))
+
+(def: (dependency? context target source)
+  (-> Graph Module Module Bit)
+  (let [ancestry (: (-> Module Ancestry)
+                    (function (_ module)
+                      (|> context
+                          (dictionary.get module)
+                          (maybe.default ..fresh))))]
+    (loop [rejected ..fresh
+           candidates (ancestry target)]
+      (if (set.empty? candidates)
+        false
+        (or (set.member? candidates source)
+            (let [rejected (set.union rejected candidates)]
+              (recur rejected
+                     (|> candidates
+                         set.to-list
+                         (list@fold (function (_ candidate new-batch)
+                                      (|> candidate
+                                          ancestry
+                                          (set.difference rejected)
+                                          (set.union new-batch)))
+                                    ..fresh)))))))))
+
+(def: #export (load-order key archive)
+  (-> (Key .Module) Archive (Try (List [Module [archive.ID [Descriptor (Document .Module)]]])))
+  (|> archive
+      archive.archived
+      (monad.map try.monad
+                 (function (_ module)
+                   (do try.monad
+                     [[descriptor document] (archive.find module archive)]
+                     (wrap {#module module
+                            #imports (get@ #descriptor.references descriptor)}))))
+      (:: try.monad map
+          (function (_ dependencies)
+            (let [context (..graph dependencies)]
+              (|> context
+                  ..modules
+                  (list.sort (..dependency? context))
+                  (monad.map try.monad
+                             (function (_ module)
+                               (do try.monad
+                                 [module-id (archive.id module archive)
+                                  [descriptor document] (archive.find module archive)
+                                  document (document.check key document)]
+                                 (wrap [module [module-id [descriptor document]]]))))))))
+      (:: try.monad join)))

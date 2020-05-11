@@ -5,6 +5,7 @@
 
 # Reference
 
+1. [Thorsten Altenkirch - The power of Π - Lambda Days 2020](https://www.youtube.com/watch?v=3zT5eVHpQwA)
 1. [A Path To DOT: Formalizing Fully Path-Dependent Types](https://arxiv.org/abs/1904.07298)
 1. [Ghosts of Departed Proofs (Functional Pearl)](https://www.youtube.com/watch?v=2cAxOJEiL00)
 1. [Ghosts of Departed Proofs (Functional Pearl)](https://kataskeue.com/gdp.pdf)

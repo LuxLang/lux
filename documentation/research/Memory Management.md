@@ -1,3 +1,7 @@
+# Static
+
+1. [ASAP: As Static As Possible memory management](https://www.cl.cam.ac.uk/techreports/UCAM-CL-TR-908.pdf)
+
 # Allocation
 
 1. [Always Bump Downwards](https://fitzgeraldnick.com/2019/11/01/always-bump-downwards.html)

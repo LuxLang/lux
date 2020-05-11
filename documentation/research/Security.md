@@ -1,5 +1,10 @@
+# Privacy
+
+1. https://privacypatterns.org/
+
 # Inspiration
 
+1. [Kasm: Desktop and Browser Isolation Platform](https://www.kasmweb.com/)
 1. https://www.mailvelope.com
 
 # Finger-printing

@@ -191,6 +191,7 @@
 
 # Packages
 
+1. [Piotr Gaczkowski - Nix -- the functional package manager - Lambda Days 2020](https://www.youtube.com/watch?v=6AvwC25fd_U)
 1. https://snapcraft.io/
 1. https://code.fb.com/data-infrastructure/xars-a-more-efficient-open-source-system-for-self-contained-executables/
 

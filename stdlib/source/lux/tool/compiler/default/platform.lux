@@ -16,7 +16,8 @@
      ["%" format (#+ format)]]
     [collection
      ["." row]
-     ["." set]]
+     ["." set]
+     ["." list ("#@." monoid)]]
     [format
      ["_" binary (#+ Writer)]]]
    [world
@@ -66,10 +67,10 @@
   (:coerce (Monad Action)
            (try.with promise.monad)))
 
-(with-expansions [<type-vars> (as-is [anchor expression directive])
-                  <Platform> (as-is (Platform anchor expression directive))
-                  <State+> (as-is (///directive.State+ anchor expression directive))
-                  <Bundle> (as-is (///generation.Bundle anchor expression directive))]
+(with-expansions [<type-vars> (as-is anchor expression directive)
+                  <Platform> (as-is (Platform <type-vars>))
+                  <State+> (as-is (///directive.State+ <type-vars>))
+                  <Bundle> (as-is (///generation.Bundle <type-vars>))]
 
   (def: writer
     (Writer [Descriptor (Document .Module)])
@@ -77,7 +78,7 @@
            (document.writer $.writer)))
 
   (def: (cache-module platform host target-dir module-id extension [[descriptor document] output])
-    (All <type-vars>
+    (All [<type-vars>]
       (-> <Platform> Host Path archive.ID Text [[Descriptor (Document Any)] Output]
           (Promise (Try Any))))
     (let [system (get@ #&file-system platform)
@@ -97,14 +98,14 @@
 
   ## TODO: Inline ASAP
   (def: initialize-buffer!
-    (All <type-vars>
-      (///generation.Operation anchor expression directive Any))
+    (All [<type-vars>]
+      (///generation.Operation <type-vars> Any))
     (///generation.set-buffer ///generation.empty-buffer))
 
   ## TODO: Inline ASAP
   (def: (compile-runtime! platform)
-    (All <type-vars>
-      (-> <Platform> (///generation.Operation anchor expression directive [Registry Output])))
+    (All [<type-vars>]
+      (-> <Platform> (///generation.Operation <type-vars> [Registry Output])))
     (do ///phase.monad
       [_ ..initialize-buffer!]
       (get@ #runtime platform)))
@@ -122,15 +123,13 @@
     (Document .Module)
     (document.write $.key (module.new 0)))
 
-  (def: (process-runtime analysis-state archive platform)
-    (All <type-vars>
-      (-> .Lux Archive <Platform>
-          (///directive.Operation anchor expression directive
+  (def: (process-runtime archive platform)
+    (All [<type-vars>]
+      (-> Archive <Platform>
+          (///directive.Operation <type-vars>
                                   [Archive [[Descriptor (Document .Module)] Output]])))
     (do ///phase.monad
-      [_ (///directive.lift-analysis
-          (///analysis.install analysis-state))
-       [registry payload] (///directive.lift-generation
+      [[registry payload] (///directive.lift-generation
                            (..compile-runtime! platform))
        #let [descriptor,document [(..runtime-descriptor registry) ..runtime-document]]
        archive (///phase.lift (do try.monad
@@ -139,7 +138,7 @@
       (wrap [archive [descriptor,document payload]])))
 
   (def: #export (initialize extension target host module expander host-analysis platform generation-bundle host-directive-bundle program extender)
-    (All <type-vars>
+    (All [<type-vars>]
       (-> Text
           Path
           Host
@@ -148,34 +147,45 @@
           ///analysis.Bundle
           <Platform>
           <Bundle>
-          (///directive.Bundle anchor expression directive)
+          (///directive.Bundle <type-vars>)
           (-> expression directive)
           Extender
           (Promise (Try [<State+> Archive]))))
-    (let [state (//init.state host
-                              module
-                              expander
-                              host-analysis
-                              (get@ #host platform)
-                              (get@ #phase platform)
-                              generation-bundle
-                              host-directive-bundle
-                              program
-                              extender)]
-      (do (try.with promise.monad)
-        [_ (ioW.enable (get@ #&file-system platform) host target)
-         [archive analysis-state] (ioW.thaw extension (get@ #host platform) (get@ #&file-system platform) host target)
-         [state [archive payload]] (|> (process-runtime analysis-state archive platform)
-                                       (///phase.run' state)
-                                       promise@wrap)
-         _ (..cache-module platform host target 0 extension payload)]
-        (wrap [state archive]))))
+    (do (try.with promise.monad)
+      [#let [state (//init.state host
+                                 module
+                                 expander
+                                 host-analysis
+                                 (get@ #host platform)
+                                 (get@ #phase platform)
+                                 generation-bundle
+                                 host-directive-bundle
+                                 program
+                                 extender)]
+       _ (ioW.enable (get@ #&file-system platform) host target)
+       [archive analysis-state] (ioW.thaw extension (get@ #host platform) (get@ #&file-system platform) host target)
+       [state _] (|> (:share [<type-vars>]
+                             {<State+>
+                              state}
+                             {(///directive.Operation <type-vars> Any)
+                              (///directive.lift-analysis
+                               (///analysis.install analysis-state))})
+                     (///phase.run' state)
+                     promise@wrap)]
+      (if (archive.archived? archive archive.runtime-module)
+        (wrap [state archive])
+        (do (try.with promise.monad)
+          [[state [archive payload]] (|> (..process-runtime archive platform)
+                                         (///phase.run' state)
+                                         promise@wrap)
+           _ (..cache-module platform host target 0 extension payload)]
+          (wrap [state archive])))))
 
   (def: #export (compile target partial-host-extension expander platform host configuration archive extension state)
-    (All <type-vars>
+    (All [<type-vars>]
       (-> Text Text Expander <Platform> Host Configuration Archive Text <State+> (Promise (Try [Archive <State+>]))))
     (let [source-module (get@ #cli.module configuration)
-          compiler (:share <type-vars>
+          compiler (:share [<type-vars>]
                            {<State+>
                             state}
                            {(///.Compiler <State+> .Module Any)
@@ -184,11 +194,11 @@
              [archive state] [archive state]]
         (if (archive.archived? archive module)
           (promise@wrap (#try.Success [archive state]))
-          (let [import! (:share <type-vars>
+          (let [import! (:share [<type-vars>]
                                 {<Platform>
                                  platform}
                                 {(-> Module [Archive <State+>]
-                                     (Promise (Try [Archive <State+>])))
+                                     (Action [Archive <State+>]))
                                  recur})]
             (do (try.with promise.monad)
               [[module-id archive] (promise@wrap (archive.reserve module archive))
@@ -198,24 +208,25 @@
                                    module)]
               (loop [archive archive
                      state state
-                     compilation (compiler (:coerce ///.Input input))]
+                     compilation (compiler (:coerce ///.Input input))
+                     all-dependencies (: (List Module)
+                                         (list))]
                 (do @
-                  [#let [dependencies (get@ #///.dependencies compilation)]
-                   archive+state (monad.fold @ import! [archive state] dependencies)
-                   #let [## TODO: Inline ASAP
-                         [archive state] (:share <type-vars>
-                                                 {<Platform>
-                                                  platform}
-                                                 {[Archive <State+>]
-                                                  archive+state})
-                         continue! (:share <type-vars>
+                  [#let [new-dependencies (get@ #///.dependencies compilation)
+                         all-dependencies (list@compose new-dependencies all-dependencies)]
+                   [archive state] (:share [<type-vars>]
                                            {<Platform>
                                             platform}
-                                           {(-> Archive <State+> (///.Compilation <State+> .Module Any)
-                                                (Promise (Try [Archive <State+>])))
+                                           {(Action [Archive <State+>])
+                                            (monad.fold ..monad import! [archive state] new-dependencies)})
+                   #let [continue! (:share [<type-vars>]
+                                           {<Platform>
+                                            platform}
+                                           {(-> Archive <State+> (///.Compilation <State+> .Module Any) (List Module)
+                                                (Action [Archive <State+>]))
                                             recur})]]
                   (case ((get@ #///.process compilation)
-                         (case dependencies
+                         (case new-dependencies
                            #.Nil
                            state
 
@@ -230,13 +241,13 @@
                     (#try.Success [state more|done])
                     (case more|done
                       (#.Left more)
-                      (continue! archive state more)
+                      (continue! archive state more all-dependencies)
 
-                      (#.Right payload)
+                      (#.Right [[descriptor document] output])
                       (do (try.with promise.monad)
-                        [_ (..cache-module platform host target module-id extension payload)
-                         #let [[descriptor+document output] payload]]
-                        (case (archive.add module descriptor+document archive)
+                        [#let [descriptor (set@ #descriptor.references (set.from-list text.hash all-dependencies) descriptor)]
+                         _ (..cache-module platform host target module-id extension [[descriptor document] output])]
+                        (case (archive.add module [descriptor document] archive)
                           (#try.Success archive)
                           (wrap [archive state])
                           
