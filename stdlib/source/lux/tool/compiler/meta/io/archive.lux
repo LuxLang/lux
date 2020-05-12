@@ -18,7 +18,7 @@
     ["." text ("#@." equivalence)
      ["%" format (#+ format)]]
     [collection
-     ["." list ("#@." functor)]
+     ["." list ("#@." functor fold)]
      ["." dictionary (#+ Dictionary)]
      ["." row (#+ Row)]]]
    [world
@@ -36,7 +36,9 @@
       ["$" lux
        ["." version]
        ["." analysis]
-       ["." generation]]]]]])
+       ["." synthesis]
+       ["." generation]
+       ["." directive]]]]]])
 
 (exception: #export (cannot-prepare {archive Path}
                                     {module-id archive.ID}
@@ -183,39 +185,104 @@
                          (wrap [name data]))))
         (:: @ map (dictionary.from-list text.hash)))))
 
+(type: Definitions (Dictionary Text Any))
+(type: Analysers (Dictionary Text analysis.Handler))
+(type: Synthesizers (Dictionary Text synthesis.Handler))
+(type: Generators (Dictionary Text generation.Handler))
+(type: Directives (Dictionary Text directive.Handler))
+
+(type: Bundles
+  [Analysers
+   Synthesizers
+   Generators
+   Directives])
+
+(def: empty-bundles
+  Bundles
+  [(dictionary.new text.hash)
+   (dictionary.new text.hash)
+   (dictionary.new text.hash)
+   (dictionary.new text.hash)])
+
 (def: (loaded-document extension host module-id expected actual document)
   (All [expression directive]
     (-> Text (generation.Host expression directive) archive.ID (Row Artifact) (Dictionary Text Binary) (Document .Module)
-        (Try (Document .Module))))
+        (Try [(Document .Module) Bundles])))
   (do try.monad
-    [values (: (Try (Dictionary Text Any))
-               (loop [input (row.to-list expected)
-                      values (: (Dictionary Text Any)
-                                (dictionary.new text.hash))]
-                 (case input
-                   (#.Cons [[artifact-id artifact-name] input'])
-                   (case (do @
-                           [data (try.from-maybe (dictionary.get (format (%.nat artifact-id) extension) actual))
-                            #let [context [module-id artifact-id]
-                                  directive (:: host ingest context data)]]
-                           (case artifact-name
-                             #.None
-                             (do @
-                               [_ (:: host re-learn context directive)]
-                               (wrap values))
-                             
-                             (#.Some artifact-name)
-                             (do @
-                               [value (:: host re-load context directive)]
-                               (wrap (dictionary.put artifact-name value values)))))
-                     (#try.Success values')
-                     (recur input' values')
+    [[definitions bundles] (: (Try [Definitions Bundles])
+                              (loop [input (row.to-list expected)
+                                     definitions (: Definitions
+                                                    (dictionary.new text.hash))
+                                     bundles ..empty-bundles]
+                                (let [[analysers synthesizers generators directives] bundles]
+                                  (case input
+                                    (#.Cons [[artifact-id artifact-category] input'])
+                                    (case (do @
+                                            [data (try.from-maybe (dictionary.get (format (%.nat artifact-id) extension) actual))
+                                             #let [context [module-id artifact-id]
+                                                   directive (:: host ingest context data)]]
+                                            (case artifact-category
+                                              #artifact.Anonymous
+                                              (do @
+                                                [_ (:: host re-learn context directive)]
+                                                (wrap [definitions
+                                                       [analysers
+                                                        synthesizers
+                                                        generators
+                                                        directives]]))
+                                              
+                                              (#artifact.Definition name)
+                                              (do @
+                                                [value (:: host re-load context directive)]
+                                                (wrap [(dictionary.put name value definitions)
+                                                       [analysers
+                                                        synthesizers
+                                                        generators
+                                                        directives]]))
 
-                     failure
-                     failure)
-                   
-                   #.None
-                   (#try.Success values))))
+                                              (#artifact.Analyser extension)
+                                              (do @
+                                                [value (:: host re-load context directive)]
+                                                (wrap [definitions
+                                                       [(dictionary.put extension (:coerce analysis.Handler value) analysers)
+                                                        synthesizers
+                                                        generators
+                                                        directives]]))
+
+                                              (#artifact.Synthesizer extension)
+                                              (do @
+                                                [value (:: host re-load context directive)]
+                                                (wrap [definitions
+                                                       [analysers
+                                                        (dictionary.put extension (:coerce synthesis.Handler value) synthesizers)
+                                                        generators
+                                                        directives]]))
+
+                                              (#artifact.Generator extension)
+                                              (do @
+                                                [value (:: host re-load context directive)]
+                                                (wrap [definitions
+                                                       [analysers
+                                                        synthesizers
+                                                        (dictionary.put extension (:coerce generation.Handler value) generators)
+                                                        directives]]))
+
+                                              (#artifact.Directive extension)
+                                              (do @
+                                                [value (:: host re-load context directive)]
+                                                (wrap [definitions
+                                                       [analysers
+                                                        synthesizers
+                                                        generators
+                                                        (dictionary.put extension (:coerce directive.Handler value) directives)]]))))
+                                      (#try.Success [definitions' bundles'])
+                                      (recur input' definitions' bundles')
+
+                                      failure
+                                      failure)
+                                    
+                                    #.None
+                                    (#try.Success [definitions bundles])))))
      content (document.read $.key document)
      definitions (monad.map @ (function (_ [def-name def-global])
                                 (case def-global
@@ -224,25 +291,30 @@
                                   
                                   (#.Definition [exported? type annotations _])
                                   (do @
-                                    [value (try.from-maybe (dictionary.get def-name values))]
+                                    [value (try.from-maybe (dictionary.get def-name definitions))]
                                     (wrap [def-name (#.Definition [exported? type annotations value])]))))
                             (get@ #.definitions content))]
-    (wrap (document.write $.key (set@ #.definitions definitions content)))))
+    (wrap [(document.write $.key (set@ #.definitions definitions content))
+           bundles])))
 
 (def: (load-definitions system host root module-id extension host-environment [descriptor document])
   (All [expression directive]
     (-> (file.System Promise) Host Path archive.ID Text (generation.Host expression directive)
         [Descriptor (Document .Module)]
-        (Promise (Try [Descriptor (Document .Module)]))))
+        (Promise (Try [[Descriptor (Document .Module)]
+                       Bundles]))))
   (do (try.with promise.monad)
     [actual (cached-artifacts system host root module-id)
      #let [expected (|> descriptor (get@ #descriptor.registry) artifact.artifacts)]
-     document (promise@wrap (loaded-document extension host-environment module-id expected actual document))]
-    (wrap [descriptor document])))
+     [document bundles] (promise@wrap (loaded-document extension host-environment module-id expected actual document))]
+    (wrap [[descriptor document] bundles])))
 
 (def: (load-every-reserved-module extension host-environment system host root archive)
   (All [expression directive]
-    (-> Text (generation.Host expression directive) (file.System Promise) Host Path Archive (Promise (Try [Archive .Lux]))))
+    (-> Text (generation.Host expression directive) (file.System Promise) Host Path Archive
+        (Promise (Try [Archive
+                       .Lux
+                       Bundles]))))
   (do (try.with promise.monad)
     [pre-loaded-caches (|> archive
                            archive.reservations
@@ -261,23 +333,35 @@
                     promise@wrap)
      loaded-caches (monad.map @ (function (_ [module-name [module-id descriptor,document]])
                                   (do @
-                                    [descriptor,document (..load-definitions system host root module-id extension host-environment descriptor,document)]
-                                    (wrap [module-name descriptor,document])))
+                                    [[descriptor,document bundles] (..load-definitions system host root module-id extension host-environment descriptor,document)]
+                                    (wrap [[module-name descriptor,document]
+                                           bundles])))
                               load-order)]
     (promise@wrap
      (do try.monad
        [archive (monad.fold try.monad
-                            (function (_ [module descriptor,document] archive)
+                            (function (_ [[module descriptor,document] _bundle] archive)
                               (archive.add module descriptor,document archive))
                             archive
                             loaded-caches)
         analysis-state (..analysis-state host archive)]
        (wrap [archive
-              analysis-state])))))
+              analysis-state
+              (list@fold (function (_ [_ [+analysers +synthesizers +generators +directives]]
+                                      [analysers synthesizers generators directives])
+                           [(dictionary.merge +analysers analysers)
+                            (dictionary.merge +synthesizers synthesizers)
+                            (dictionary.merge +generators generators)
+                            (dictionary.merge +directives directives)])
+                         ..empty-bundles
+                         loaded-caches)])))))
 
 (def: #export (thaw extension host-environment system host root)
   (All [expression directive]
-    (-> Text (generation.Host expression directive) (file.System Promise) Host Path (Promise (Try [Archive .Lux]))))
+    (-> Text (generation.Host expression directive) (file.System Promise) Host Path
+        (Promise (Try [Archive
+                       .Lux
+                       Bundles]))))
   (do promise.monad
     [file (!.use (:: system file) (..general-descriptor system host root))]
     (case file
@@ -289,4 +373,5 @@
       
       (#try.Failure error)
       (wrap (#try.Success [archive.empty
-                           (fresh-analysis-state host)])))))
+                           (fresh-analysis-state host)
+                           ..empty-bundles])))))

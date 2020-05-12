@@ -95,7 +95,7 @@
         Name
         Type
         Synthesis
-        (Operation anchor expression directive [Type expression Text Any])))
+        (Operation anchor expression directive [Type expression Any])))
   (/////directive.lift-generation
    (do phase.monad
      [codeG (generate archive codeS)
@@ -103,12 +103,12 @@
       module-id (phase.lift (archive.id module archive))
       [target-name value directive] (/////generation.define! [module-id id] codeG)
       _ (/////generation.save! false [(%.nat module-id) (%.nat id)] directive)]
-     (wrap [code//type codeG target-name value]))))
+     (wrap [code//type codeG value]))))
 
 (def: (definition archive name expected codeC)
   (All [anchor expression directive]
     (-> Archive Name (Maybe Type) Code
-        (Operation anchor expression directive [Type expression Text Any])))
+        (Operation anchor expression directive [Type expression Any])))
   (do phase.monad
     [state (///.lift phase.get-state)
      #let [analyse (get@ [#/////directive.analysis #/////directive.phase] state)
@@ -135,6 +135,52 @@
             (synthesize archive codeA))]
     (definition' archive generate name code//type codeS)))
 
+(template [<full> <partial> <learn>]
+  [## TODO: Inline "<partial>" into "<full>" ASAP
+   (def: (<partial> archive generate extension codeT codeS)
+     (All [anchor expression directive]
+       (-> Archive
+           (/////generation.Phase anchor expression directive)
+           Text
+           Type
+           Synthesis
+           (Operation anchor expression directive [expression Any])))
+     (do phase.monad
+       [current-module (/////directive.lift-analysis
+                        (///.lift macro.current-module-name))]
+       (/////directive.lift-generation
+        (do phase.monad
+          [codeG (generate archive codeS)
+           module-id (phase.lift (archive.id current-module archive))
+           id (<learn> extension)
+           [target-name value directive] (/////generation.define! [module-id id] codeG)
+           _ (/////generation.save! false [(%.nat module-id) (%.nat id)] directive)]
+          (wrap [codeG value])))))
+
+   (def: (<full> archive extension codeT codeC)
+     (All [anchor expression directive]
+       (-> Archive Text Type Code
+           (Operation anchor expression directive [expression Any])))
+     (do phase.monad
+       [state (///.lift phase.get-state)
+        #let [analyse (get@ [#/////directive.analysis #/////directive.phase] state)
+              synthesize (get@ [#/////directive.synthesis #/////directive.phase] state)
+              generate (get@ [#/////directive.generation #/////directive.phase] state)]
+        [_ codeA] (/////directive.lift-analysis
+                   (/////analysis.with-scope
+                     (typeA.with-fresh-env
+                       (typeA.with-type codeT
+                         (analyse archive codeC)))))
+        codeS (/////directive.lift-synthesis
+               (synthesize archive codeA))]
+       (<partial> archive generate extension codeT codeS)))]
+
+  [analyser analyser' /////generation.learn-analyser]
+  [synthesizer synthesizer' /////generation.learn-synthesizer]
+  [generator generator' /////generation.learn-generator]
+  [directive directive' /////generation.learn-directive]
+  )
+
 (def: (refresh expander host-analysis)
   (All [anchor expression directive]
     (-> Expander /////analysis.Bundle (Operation anchor expression directive Any)))
@@ -160,7 +206,7 @@
         [current-module (/////directive.lift-analysis
                          (///.lift macro.current-module-name))
          #let [full-name [current-module short-name]]
-         [type valueT valueN value] (..definition archive full-name #.None valueC)
+         [type valueT value] (..definition archive full-name #.None valueC)
          [_ annotationsT annotations] (evaluate! archive Code annotationsC)
          _ (/////directive.lift-analysis
             (module.define short-name (#.Right [exported? type (:coerce Code annotations) value])))
@@ -182,7 +228,7 @@
          #let [full-name [current-module short-name]]
          [_ annotationsT annotations] (evaluate! archive Code annotationsC)
          #let [annotations (:coerce Code annotations)]
-         [type valueT valueN value] (..definition archive full-name (#.Some .Type) valueC)
+         [type valueT value] (..definition archive full-name (#.Some .Type) valueC)
          _ (/////directive.lift-analysis
             (do phase.monad
               [_ (module.define short-name (#.Right [exported? type annotations value]))]
@@ -248,7 +294,7 @@
                        (define-alias alias def-name)))]
         (wrap /////directive.no-requirements)))]))
 
-(template [<description> <mame> <type> <scope>]
+(template [<description> <mame> <type> <scope> <definer>]
   [(def: (<mame> extender)
      (All [anchor expression directive]
        (-> Extender
@@ -258,11 +304,12 @@
          (^ (list nameC valueC))
          (do phase.monad
            [[_ _ name] (evaluate! archive Text nameC)
-            [_ _ handlerV] (evaluate! archive (:by-example [anchor expression directive]
-                                                           {(Handler anchor expression directive)
-                                                            handler}
-                                                           <type>)
-                                      valueC)
+            [_ handlerV] (<definer> archive (:coerce Text name)
+                                    (:by-example [anchor expression directive]
+                                                 {(Handler anchor expression directive)
+                                                  handler}
+                                                 <type>)
+                                    valueC)
             _ (<| <scope>
                   (///.install extender (:coerce Text name))
                   (:share [anchor expression directive]
@@ -276,10 +323,10 @@
          _
          (phase.throw ///.invalid-syntax [extension-name %.code inputsC+]))))]
 
-  ["Analysis" def::analysis   /////analysis.Handler                                /////directive.lift-analysis]
-  ["Synthesis" def::synthesis  /////synthesis.Handler                               /////directive.lift-synthesis]
-  ["Generation" def::generation (/////generation.Handler anchor expression directive) /////directive.lift-generation]
-  ["Directive" def::directive  (/////directive.Handler anchor expression directive) (<|)]
+  ["Analysis"   def::analysis   /////analysis.Handler                                 /////directive.lift-analysis   ..analyser]
+  ["Synthesis"  def::synthesis  /////synthesis.Handler                                /////directive.lift-synthesis  ..synthesizer]
+  ["Generation" def::generation (/////generation.Handler anchor expression directive) /////directive.lift-generation ..generator]
+  ["Directive"  def::directive  (/////directive.Handler anchor expression directive)  (<|)                           ..directive]
   )
 
 ## TODO; Both "prepare-program" and "define-program" exist only

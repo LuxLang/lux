@@ -15,6 +15,7 @@
     ["." text
      ["%" format (#+ format)]]
     [collection
+     [dictionary (#+ Dictionary)]
      ["." row]
      ["." set]
      ["." list ("#@." monoid)]]
@@ -33,10 +34,11 @@
       ["." syntax]
       ["#." analysis
        [macro (#+ Expander)]]
+      ["#." synthesis]
       ["#." generation (#+ Buffer)]
       ["#." directive]
       [phase
-       [extension (#+ Extender)]
+       ["." extension (#+ Extender)]
        [analysis
         ["." module]]]]]
     [meta
@@ -137,6 +139,40 @@
                                 (archive.add archive.runtime-module descriptor,document archive)))]
       (wrap [archive [descriptor,document payload]])))
 
+  (def: (initialize-state extender
+                          [analysers
+                           synthesizers
+                           generators
+                           directives]
+                          analysis-state
+                          state)
+    (All [<type-vars>]
+      (-> Extender
+          [(Dictionary Text ///analysis.Handler)
+           (Dictionary Text ///synthesis.Handler)
+           (Dictionary Text ///generation.Handler)
+           (Dictionary Text ///directive.Handler)]
+          .Lux
+          <State+>
+          (Try <State+>)))
+    (|> (:share [<type-vars>]
+                {<State+>
+                 state}
+                {(///directive.Operation <type-vars> Any)
+                 (do ///phase.monad
+                   [_ (///directive.lift-analysis
+                       (///analysis.install analysis-state))
+                    _ (///directive.lift-analysis
+                       (extension.with extender analysers))
+                    _ (///directive.lift-synthesis
+                       (extension.with extender synthesizers))
+                    _ (///directive.lift-generation
+                       (extension.with extender (:assume generators)))
+                    _ (extension.with extender (:assume directives))]
+                   (wrap []))})
+        (///phase.run' state)
+        (:: try.monad map product.left)))
+
   (def: #export (initialize extension target host module expander host-analysis platform generation-bundle host-directive-bundle program extender)
     (All [<type-vars>]
       (-> Text
@@ -163,15 +199,8 @@
                                  program
                                  extender)]
        _ (ioW.enable (get@ #&file-system platform) host target)
-       [archive analysis-state] (ioW.thaw extension (get@ #host platform) (get@ #&file-system platform) host target)
-       [state _] (|> (:share [<type-vars>]
-                             {<State+>
-                              state}
-                             {(///directive.Operation <type-vars> Any)
-                              (///directive.lift-analysis
-                               (///analysis.install analysis-state))})
-                     (///phase.run' state)
-                     promise@wrap)]
+       [archive analysis-state bundles] (ioW.thaw extension (get@ #host platform) (get@ #&file-system platform) host target)
+       state (promise@wrap (initialize-state extender bundles analysis-state state))]
       (if (archive.archived? archive archive.runtime-module)
         (wrap [state archive])
         (do (try.with promise.monad)

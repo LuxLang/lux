@@ -3,11 +3,14 @@
    [abstract
     [monad (#+ do)]]
    [control
+    [pipe (#+ case>)]
+    ["." exception (#+ exception:)]
     ["<>" parser
      ["<b>" binary (#+ Parser)]]]
    [data
     ["." product]
-    ["." text]
+    ["." text
+     ["%" format (#+ format)]]
     [collection
      ["." list]
      ["." row (#+ Row) ("#@." functor fold)]
@@ -19,9 +22,17 @@
 
 (type: #export ID Nat)
 
+(type: #export Category
+  #Anonymous
+  (#Definition Text)
+  (#Analyser Text)
+  (#Synthesizer Text)
+  (#Generator Text)
+  (#Directive Text))
+
 (type: #export Artifact
   {#id ID
-   #name (Maybe Text)})
+   #category Category})
 
 (abstract: #export Registry
   {}
@@ -49,27 +60,37 @@
        (|> registry
            :representation
            (update@ #artifacts (row.add {#id id
-                                         #name #.None}))
+                                         #category #Anonymous}))
            :abstraction)]))
 
-  (def: #export (definition name registry)
-    (-> Text Registry [ID Registry])
-    (let [id (..next registry)]
-      [id
+  (template [<tag> <create> <fetch>]
+    [(def: #export (<create> name registry)
+       (-> Text Registry [ID Registry])
+       (let [id (..next registry)]
+         [id
+          (|> registry
+              :representation
+              (update@ #artifacts (row.add {#id id
+                                            #category (<tag> name)}))
+              (update@ #resolver (dictionary.put name id))
+              :abstraction)]))
+
+     (def: #export (<fetch> registry)
+       (-> Registry (List Text))
        (|> registry
            :representation
-           (update@ #artifacts (row.add {#id id
-                                         #name (#.Some name)}))
-           (update@ #resolver (dictionary.put name id))
-           :abstraction)]))
+           (get@ #artifacts)
+           row.to-list
+           (list.search-all (|>> (get@ #category)
+                                 (case> (<tag> name) (#.Some name)
+                                        _ #.None)))))]
 
-  (def: #export (definitions registry)
-    (-> Registry (List Text))
-    (|> registry
-        :representation
-        (get@ #artifacts)
-        row.to-list
-        (list.search-all (get@ #name))))
+    [#Definition definition definitions]
+    [#Analyser analyser analysers]
+    [#Synthesizer synthesizer synthesizers]
+    [#Generator generator generators]
+    [#Directive directive directives]
+    )
 
   (def: #export (remember name registry)
     (-> Text Registry (Maybe ID))
@@ -79,22 +100,56 @@
 
   (def: #export writer
     (Writer Registry)
-    (let [writer|artifacts (binary.row/64 (binary.maybe binary.text))]
+    (let [category (: (Writer Category)
+                      (function (_ value)
+                        (case value
+                          (^template [<nat> <tag> <writer>]
+                            (<tag> value) ((binary.and binary.nat <writer>) [<nat> value]))
+                          ([0 #Anonymous binary.any]
+                           [1 #Definition binary.text]
+                           [2 #Analyser binary.text]
+                           [3 #Synthesizer binary.text]
+                           [4 #Generator binary.text]
+                           [5 #Directive binary.text]))))
+          artifacts (: (Writer (Row Category))
+                       (binary.row/64 category))]
       (|>> :representation
            (get@ #artifacts)
-           (row@map (get@ #name))
-           writer|artifacts)))
+           (row@map (get@ #category))
+           artifacts)))
+
+  (exception: #export (invalid-category {tag Nat})
+    (exception.report
+     ["Tag" (%.nat tag)]))
 
   (def: #export parser
     (Parser Registry)
-    (|> (<b>.row/64 (<b>.maybe <b>.text))
-        (:: <>.monad map (row@fold (function (_ artifact registry)
-                                     (product.right
-                                      (case artifact
-                                        #.None
-                                        (..resource registry)
-                                        
-                                        (#.Some name)
-                                        (..definition name registry))))
-                                   ..empty))))
+    (let [category (: (Parser Category)
+                      (do <>.monad
+                        [tag <b>.nat]
+                        (case tag
+                          0 (:: @ map (|>> #Anonymous) <b>.any)
+                          1 (:: @ map (|>> #Definition) <b>.text)
+                          2 (:: @ map (|>> #Analyser) <b>.text)
+                          3 (:: @ map (|>> #Synthesizer) <b>.text)
+                          4 (:: @ map (|>> #Generator) <b>.text)
+                          5 (:: @ map (|>> #Directive) <b>.text)
+                          _ (<>.fail (exception.construct ..invalid-category [tag])))))]
+      (|> (<b>.row/64 category)
+          (:: <>.monad map (row@fold (function (_ artifact registry)
+                                       (product.right
+                                        (case artifact
+                                          #Anonymous
+                                          (..resource registry)
+
+                                          (^template [<tag> <create>]
+                                            (<tag> name)
+                                            (<create> name registry))
+                                          ([#Definition ..definition]
+                                           [#Analyser ..analyser]
+                                           [#Synthesizer ..synthesizer]
+                                           [#Generator ..generator]
+                                           [#Directive ..directive])
+                                          )))
+                                     ..empty)))))
   )
