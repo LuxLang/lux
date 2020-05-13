@@ -3,6 +3,7 @@
    [abstract
     monad]
    [control
+    [pipe (#+ case>)]
     ["." function]
     ["." try (#+ Try)]
     ["." exception (#+ exception:)]
@@ -49,13 +50,16 @@
       (-> (Rec Mailbox
             [(Promise [a Mailbox])
              (Resolver [a Mailbox])])
-          (List a)))
-    (case (promise.poll read)
-      (#.Some [head tail])
-      (#.Cons head (pending tail))
-      
-      #.None
-      #.Nil))
+          (IO (List a))))
+    (do io.monad
+      [current (promise.poll read)]
+      (case current
+        (#.Some [head tail])
+        (:: @ map (|>> (#.Cons head))
+            (pending tail))
+        
+        #.None
+        (wrap #.Nil))))
   
   (abstract: #export (Actor s)
     {#.doc "An actor, defined as all the necessities it requires."}
@@ -101,7 +105,10 @@
                               (do @
                                 [_ (end error state)]
                                 (let [[_ resolve] (get@ #obituary (:representation self))]
-                                  (exec (io.run (resolve [error state (#.Cons head (..pending tail))]))
+                                  (exec (io.run
+                                         (do io.monad
+                                           [pending (..pending tail)]
+                                           (resolve [error state (#.Cons head pending)])))
                                     (wrap []))))
 
                               (#try.Success state')
@@ -111,17 +118,19 @@
     (def: #export (alive? actor)
       (All [s] (-> (Actor s) (IO Bit)))
       (let [[obituary _] (get@ #obituary (:representation actor))]
-        (io.io (case (promise.poll obituary)
-                 #.None
-                 yes
+        (|> obituary
+            promise.poll
+            (:: io.functor map
+                (|>> (case> #.None
+                            yes
 
-                 _
-                 no))))
+                            _
+                            no))))))
 
     (def: #export (obituary actor)
       (All [s] (-> (Actor s) (IO (Maybe (Obituary s)))))
       (let [[obituary _] (get@ #obituary (:representation actor))]
-        (io.io (promise.poll obituary))))
+        (promise.poll obituary)))
 
     (def: #export (send message actor)
       {#.doc "Communicate with an actor through message passing."}
@@ -133,18 +142,20 @@
             (do @
               [|mailbox|&resolve (atom.read (get@ #mailbox (:representation actor)))]
               (loop [[|mailbox| resolve] |mailbox|&resolve]
-                (case (promise.poll |mailbox|)
-                  #.None
-                  (do @
-                    [resolved? (resolve entry)]
-                    (if resolved?
-                      (do @
-                        [_ (atom.write (product.right entry) (get@ #mailbox (:representation actor)))]
-                        (wrap true))
-                      (recur |mailbox|&resolve)))
-                  
-                  (#.Some [_ |mailbox|'])
-                  (recur |mailbox|')))))
+                (do @
+                  [|mailbox| (promise.poll |mailbox|)]
+                  (case |mailbox|
+                    #.None
+                    (do @
+                      [resolved? (resolve entry)]
+                      (if resolved?
+                        (do @
+                          [_ (atom.write (product.right entry) (get@ #mailbox (:representation actor)))]
+                          (wrap true))
+                        (recur |mailbox|&resolve)))
+                    
+                    (#.Some [_ |mailbox|'])
+                    (recur |mailbox|'))))))
           (wrap false))))
     )
   )

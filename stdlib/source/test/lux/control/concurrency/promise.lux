@@ -1,73 +1,171 @@
 (.module:
   [lux #*
    ["_" test (#+ Test)]
-   [abstract/monad (#+ do)]
+   [abstract
+    [monad (#+ do)]
+    {[0 #test]
+     [/
+      ["$." functor (#+ Injection Comparison)]
+      ["$." apply]
+      ["$." monad]]}]
    [control
-    pipe
+    [pipe (#+ case>)]
     ["." io]]
-   ["%" data/text/format (#+ format)]
+   [data
+    [number
+     ["n" nat]
+     ["i" int]]]
+   [time
+    ["." instant]
+    ["." duration]]
    [math
-    ["r" random]]]
+    ["." random]]]
   {1
-   ["." / ("#@." monad)]})
+   ["." /
+    [//
+     ["." atom (#+ Atom)]]]})
+
+(def: injection
+  (Injection /.Promise)
+  /.resolved)
+
+(def: comparison
+  (Comparison /.Promise)
+  (function (_ == left right)
+    (io.run
+     (do io.monad
+       [?left (/.poll left)
+        ?right (/.poll right)]
+       (wrap (case [?left ?right]
+               [(#.Some left)
+                (#.Some right)]
+               (== left right)
+               
+               _
+               false))))))
 
 (def: #export test
   Test
-  (do r.monad
-    [_ (wrap [])]
-    (<| (_.context (%.name (name-of /.Promise)))
+  (<| (_.covering /._)
+      (do random.monad
+        [to-wait (|> random.nat (:: @ map (|>> (n.% 100) (n.max 10))))
+         #let [extra-time (n.* 2 to-wait)]
+         expected random.nat
+         dummy random.nat
+         #let [not-dummy (|> random.nat (random.filter (|>> (n.= dummy) not)))]
+         leftE not-dummy
+         rightE not-dummy]
         ($_ _.and
+            (_.with-cover [/.functor]
+              ($functor.spec ..injection ..comparison /.functor))
+            (_.with-cover [/.apply]
+              ($apply.spec ..injection ..comparison /.apply))
+            (_.with-cover [/.monad]
+              ($monad.spec ..injection ..comparison /.monad))
+            
             (wrap (do /.monad
-                    [running? (/.future (io.io #1))]
-                    (_.assert "Can run IO actions in separate threads."
-                              running?)))
-
+                    [#let [[promise resolver] (: [(/.Promise Nat) (/.Resolver Nat)]
+                                                 (/.promise []))]
+                     resolved? (/.future (resolver expected))
+                     actual promise]
+                    (_.claim [/.Promise /.Resolver /.promise]
+                             (and resolved?
+                                  (n.= expected actual)))))
             (wrap (do /.monad
-                    [_ (/.wait 500)]
-                    (_.assert "Can wait for a specified amount of time."
-                              #1)))
-
+                    [actual (/.resolved expected)]
+                    (_.claim [/.resolved]
+                             (n.= expected actual))))
             (wrap (do /.monad
-                    [[left right] (/.and (/.future (io.io #1))
-                                         (/.future (io.io #0)))]
-                    (_.assert "Can combine promises sequentially."
-                              (and left (not right)))))
-
+                    [actual (/.future (io.io expected))]
+                    (_.claim [/.future]
+                             (n.= expected actual))))
             (wrap (do /.monad
-                    [?left (/.or (/.delay 100 #1)
-                                 (/.delay 200 #0))
-                     ?right (/.or (/.delay 200 #1)
-                                  (/.delay 100 #0))]
-                    (_.assert "Can combine promises alternatively."
-                              (case [?left ?right]
-                                [(#.Left #1) (#.Right #0)]
-                                #1
-
-                                _
-                                #0))))
-
+                    [pre (/.future instant.now)
+                     actual (/.schedule to-wait (io.io expected))
+                     post (/.future instant.now)]
+                    (_.claim [/.schedule]
+                             (and (n.= expected actual)
+                                  (i.>= (.int to-wait)
+                                        (duration.to-millis (instant.span pre post)))))))
             (wrap (do /.monad
-                    [?left (/.either (/.delay 100 #1)
-                                     (/.delay 200 #0))
-                     ?right (/.either (/.delay 200 #1)
-                                      (/.delay 100 #0))]
-                    (_.assert "Can combine promises alternatively [Part 2]."
-                              (and ?left (not ?right)))))
-
-            (_.test "Can poll a promise for its value."
-                    (and (|> (/.poll (/@wrap #1))
-                             (case> (#.Some #1) #1 _ #0))
-                         (|> (/.poll (/.delay 200 #1))
-                             (case> #.None #1 _ #0))))
-
+                    [pre (/.future instant.now)
+                     _ (/.wait to-wait)
+                     post (/.future instant.now)]
+                    (_.claim [/.wait]
+                             (i.>= (.int to-wait)
+                                   (duration.to-millis (instant.span pre post))))))
             (wrap (do /.monad
-                    [?none (/.time-out 100 (/.delay 200 #1))
-                     ?some (/.time-out 200 (/.delay 100 #1))]
-                    (_.assert "Can establish maximum waiting times for promises to be fulfilled."
-                              (case [?none ?some]
-                                [#.None (#.Some #1)]
-                                #1
+                    [[leftA rightA] (/.and (/.future (io.io leftE))
+                                           (/.future (io.io rightE)))]
+                    (_.claim [/.and]
+                             (n.= (n.+ leftE rightE)
+                                  (n.+ leftA rightA)))))
+            (wrap (do /.monad
+                    [pre (/.future instant.now)
+                     actual (/.delay to-wait expected)
+                     post (/.future instant.now)]
+                    (_.claim [/.delay]
+                             (and (n.= expected actual)
+                                  (i.>= (.int to-wait)
+                                        (duration.to-millis (instant.span pre post)))))))
+            (wrap (do /.monad
+                    [?left (/.or (/.delay 10 leftE)
+                                 (/.delay 20 dummy))
+                     ?right (/.or (/.delay 20 dummy)
+                                  (/.delay 10 rightE))]
+                    (_.claim [/.or]
+                             (case [?left ?right]
+                               [(#.Left leftA) (#.Right rightA)]
+                               (n.= (n.+ leftE rightE)
+                                    (n.+ leftA rightA))
 
-                                _
-                                #0))))
+                               _
+                               false))))
+            (wrap (do /.monad
+                    [leftA (/.either (/.delay 10 leftE)
+                                     (/.delay 20 dummy))
+                     rightA (/.either (/.delay 20 dummy)
+                                      (/.delay 10 rightE))]
+                    (_.claim [/.either]
+                             (n.= (n.+ leftE rightE)
+                                  (n.+ leftA rightA)))))
+            (wrap (do /.monad
+                    [?actual (/.future (/.poll (/.resolved expected)))
+                     #let [[promise resolver] (: [(/.Promise Nat) (/.Resolver Nat)]
+                                                 (/.promise []))]
+                     ?never (/.future (/.poll promise))]
+                    (_.claim [/.poll]
+                             (case [?actual ?never]
+                               [(#.Some actual) #.None]
+                               (n.= expected actual)
+
+                               _
+                               false))))
+            (wrap (do /.monad
+                    [yep (/.future (/.resolved? (/.resolved expected)))
+                     #let [[promise resolver] (: [(/.Promise Nat) (/.Resolver Nat)]
+                                                 (/.promise []))]
+                     nope (/.future (/.resolved? promise))]
+                    (_.claim [/.resolved?]
+                             (and yep
+                                  (not nope)))))
+            (wrap (do /.monad
+                    [?none (/.time-out to-wait (/.delay extra-time dummy))
+                     ?actual (/.time-out extra-time (/.delay to-wait expected))]
+                    (_.claim [/.time-out]
+                             (case [?none ?actual]
+                               [#.None (#.Some actual)]
+                               (n.= expected actual)
+
+                               _
+                               false))))
+            (wrap (do /.monad
+                    [#let [box (: (Atom Nat)
+                                  (atom.atom dummy))]
+                     _ (/.future (/.await (function (_ value)
+                                            (atom.write value box))
+                                          (/.resolved expected)))
+                     actual (/.future (atom.read box))]
+                    (_.claim [/.await]
+                             (n.= expected actual))))
             ))))
