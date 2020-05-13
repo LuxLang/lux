@@ -16,7 +16,7 @@
      ["%" format (#+ format)]]
     [collection
      [dictionary (#+ Dictionary)]
-     ["." row]
+     ["." row ("#@." fold)]
      ["." set]
      ["." list ("#@." monoid)]]
     [format
@@ -210,6 +210,28 @@
            _ (..cache-module platform host target 0 extension payload)]
           (wrap [state archive])))))
 
+  (def: module-compilation-log
+    (All [<type-vars>]
+      (-> <State+> Text))
+    (|>> (get@ [#extension.state
+                #///directive.generation
+                #///directive.state
+                #extension.state
+                #///generation.log])
+         (row@fold (function (_ right left)
+                     (format left text.new-line right))
+                   "")))
+
+  (def: with-reset-log
+    (All [<type-vars>]
+      (-> <State+> <State+>))
+    (set@ [#extension.state
+           #///directive.generation
+           #///directive.state
+           #extension.state
+           #///generation.log]
+          row.empty))
+
   (def: #export (compile target partial-host-extension expander platform host configuration archive extension state)
     (All [<type-vars>]
       (-> Text Text Expander <Platform> Host Configuration Archive Text <State+> (Promise (Try [Archive <State+>]))))
@@ -274,11 +296,13 @@
 
                       (#.Right [[descriptor document] output])
                       (do (try.with promise.monad)
-                        [#let [descriptor (set@ #descriptor.references (set.from-list text.hash all-dependencies) descriptor)]
+                        [#let [_ (log! (..module-compilation-log state))
+                               descriptor (set@ #descriptor.references (set.from-list text.hash all-dependencies) descriptor)]
                          _ (..cache-module platform host target module-id extension [[descriptor document] output])]
                         (case (archive.add module [descriptor document] archive)
                           (#try.Success archive)
-                          (wrap [archive state])
+                          (wrap [archive
+                                 (..with-reset-log state)])
                           
                           (#try.Failure error)
                           (promise@wrap (#try.Failure error)))))
