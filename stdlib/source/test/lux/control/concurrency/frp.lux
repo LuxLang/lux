@@ -1,59 +1,202 @@
 (.module:
   [lux #*
    ["_" test (#+ Test)]
-   [abstract/monad (#+ do)]
+   [abstract
+    [monad (#+ do)]
+    {[0 #test]
+     [/
+      ["$." functor (#+ Injection Comparison)]
+      ["$." apply]
+      ["$." monad]]}]
    [control
+    ["." try]
+    ["." exception]
     ["." io (#+ IO io)]]
    [data
+    [text
+     ["%" format (#+ format)]]
     [number
      ["n" nat]]
     [collection
-     ["." list ("#@." functor)]]]
+     ["." list ("#@." functor fold)]
+     ["." row (#+ Row)]]]
    [math
-    ["r" random]]]
+    ["." random]]]
   {1
-   ["." / (#+ Channel)
+   ["." /
     [//
      ["." promise ("#@." monad)]
      ["." atom (#+ Atom atom)]]]})
 
+(def: injection
+  (Injection /.Channel)
+  (|>> promise.resolved
+       /.from-promise))
+
+(def: comparison
+  (Comparison /.Channel)
+  (function (_ == left right)
+    (case [(promise.poll left)
+           (promise.poll right)]
+      [(#.Some (#.Some [left _]))
+       (#.Some (#.Some [right _]))]
+      (== left right)
+      
+      _
+      false)))
+
 (def: #export test
   Test
-  (let [(^open "list@.") (list.equivalence n.equivalence)]
-    (do r.monad
-      [inputs (r.list 5 r.nat)
-       sample r.nat]
-      ($_ _.and
-          (wrap (do promise.monad
-                  [output (|> inputs
-                              (/.sequential 0)
-                              (/.filter n.even?)
-                              /.consume)]
-                  (_.assert "Can filter a channel's elements."
-                            (list@= (list.filter n.even? inputs)
-                                    output))))
-          (wrap (do promise.monad
-                  [output (|> inputs
-                              (/.sequential 0)
-                              (:: /.functor map inc)
-                              /.consume)]
-                  (_.assert "Functor goes over every element in a channel."
-                            (list@= (list@map inc inputs)
-                                    output))))
-          (wrap (do promise.monad
-                  [output (/.consume (:: /.apply apply
-                                         (/.sequential 0 (list inc))
-                                         (/.sequential 0 (list sample))))]
-                  (_.assert "Apply works over all channel values."
-                            (list@= (list (inc sample))
-                                    output))))
-          (wrap (do promise.monad
-                  [output (/.consume
-                           (do /.monad
-                             [f (/.from-promise (promise@wrap inc))
-                              a (/.from-promise (promise@wrap sample))]
-                             (wrap (f a))))]
-                  (_.assert "Valid monad."
-                            (list@= (list (inc sample))
-                                    output))))
-          ))))
+  (<| (_.covering /._)
+      (let [(^open "list@.") (list.equivalence n.equivalence)]
+        (do random.monad
+          [inputs (random.list 5 random.nat)
+           sample random.nat
+           distint/0 random.nat
+           distint/1 (|> random.nat (random.filter (|>> (n.= distint/0) not)))
+           distint/2 (|> random.nat (random.filter (function (_ value)
+                                                     (not (or (n.= distint/0 value)
+                                                              (n.= distint/1 value))))))
+           shift random.nat]
+          ($_ _.and
+              (_.with-cover [/.functor]
+                ($functor.spec ..injection ..comparison /.functor))
+              (_.with-cover [/.apply]
+                ($apply.spec ..injection ..comparison /.apply))
+              (_.with-cover [/.monad]
+                ($monad.spec ..injection ..comparison /.monad))
+              
+              (_.cover [/.Channel /.Sink /.channel]
+                       (case (io.run
+                              (do (try.with io.monad)
+                                [#let [[channel sink] (/.channel [])]
+                                 _ (:: sink feed sample)
+                                 _ (:: sink close)]
+                                (wrap channel)))
+                         (#try.Success channel)
+                         (case (promise.poll channel)
+                           (#.Some (#.Some [actual _]))
+                           (n.= sample actual)
+                           
+                           _
+                           false)
+                         
+                         (#try.Failure error)
+                         false))
+              (_.cover [/.channel-is-already-closed]
+                       (case (io.run
+                              (do (try.with io.monad)
+                                [#let [[channel sink] (/.channel [])]
+                                 _ (:: sink close)]
+                                (:: sink feed sample)))
+                         (#try.Success _)
+                         false
+                         
+                         (#try.Failure error)
+                         (exception.match? /.channel-is-already-closed error)))
+              (wrap (do promise.monad
+                      [output (|> sample
+                                  promise.resolved
+                                  /.from-promise
+                                  /.consume)]
+                      (_.claim [/.from-promise /.consume]
+                               (list@= (list sample)
+                                       output))))
+              (wrap (do promise.monad
+                      [output (|> inputs
+                                  (/.sequential 0)
+                                  /.consume)]
+                      (_.claim [/.sequential]
+                               (list@= inputs
+                                       output))))
+              (wrap (do promise.monad
+                      [output (|> inputs
+                                  (/.sequential 0)
+                                  (/.filter n.even?)
+                                  /.consume)]
+                      (_.claim [/.filter]
+                               (list@= (list.filter n.even? inputs)
+                                       output))))
+              (wrap (do promise.monad
+                      [#let [sink (: (Atom (Row Nat))
+                                     (atom.atom row.empty))
+                             channel (/.sequential 0 inputs)]
+                       _ (promise.future (/.listen (function (_ value)
+                                                     (do io.monad
+                                                       [_ (atom.update (row.add value) sink)]
+                                                       (wrap [])))
+                                                   channel))
+                       output (/.consume channel)
+                       listened (|> sink
+                                    atom.read
+                                    promise.future
+                                    (:: @ map row.to-list))]
+                      (_.claim [/.listen]
+                               (and (list@= inputs
+                                            output)
+                                    (list@= output
+                                            listened)))))
+              (wrap (do promise.monad
+                      [actual (/.fold (function (_ input total)
+                                        (promise.resolved (n.+ input total)))
+                                      0
+                                      (/.sequential 0 inputs))]
+                      (_.claim [/.fold]
+                               (n.= (list@fold n.+ 0 inputs)
+                                    actual))))
+              (wrap (do promise.monad
+                      [actual (|> inputs
+                                  (/.sequential 0)
+                                  (/.folds (function (_ input total)
+                                             (promise.resolved (n.+ input total)))
+                                           0)
+                                  /.consume)]
+                      (_.claim [/.folds]
+                               (list@= (list.folds n.+ 0 inputs)
+                                       actual))))
+              (wrap (do promise.monad
+                      [actual (|> (list distint/0 distint/0 distint/0
+                                        distint/1
+                                        distint/2 distint/2)
+                                  (/.sequential 0)
+                                  (/.distinct n.equivalence)
+                                  /.consume)]
+                      (_.claim [/.distinct]
+                               (list@= (list distint/0 distint/1 distint/2)
+                                       actual))))
+              (wrap (do promise.monad
+                      [#let [polling-delay 10
+                             amount-of-polls 5
+                             total-delay (n.* amount-of-polls polling-delay)
+                             [channel sink] (/.poll polling-delay (: (IO Nat) (io.io sample)))]
+                       _ (promise.schedule total-delay (io.io []))
+                       _ (promise.future (:: sink close))
+                       actual (/.consume channel)]
+                      (_.claim [/.poll]
+                               (and (list.every? (n.= sample) actual)
+                                    (n.>= amount-of-polls (list.size actual))))))
+              (wrap (do promise.monad
+                      [#let [polling-delay 10
+                             amount-of-polls 5
+                             total-delay (n.* amount-of-polls polling-delay)
+                             [channel sink] (/.periodic polling-delay)]
+                       _ (promise.schedule total-delay (io.io []))
+                       _ (promise.future (:: sink close))
+                       actual (/.consume channel)]
+                      (_.claim [/.periodic]
+                               (n.>= amount-of-polls (list.size actual)))))
+              (wrap (do promise.monad
+                      [#let [max-iterations 10]
+                       actual (|> [0 sample]
+                                  (/.iterate (function (_ [iterations current])
+                                               (promise.resolved
+                                                (if (n.< max-iterations iterations)
+                                                  (#.Some [[(inc iterations) (n.+ shift current)]
+                                                           current])
+                                                  #.None))))
+                                  /.consume)]
+                      (_.claim [/.iterate]
+                               (and (n.= max-iterations (list.size actual))
+                                    (list@= (list.folds n.+ sample (list.repeat (dec max-iterations) shift))
+                                            actual)))))
+              )))))
