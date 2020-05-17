@@ -243,16 +243,12 @@
       (All [<type-vars>]
         (-> <Context>
             (-> <Compiler> <Importer>)))
-      (let [current (:share [<type-vars>]
-                            {<Context>
-                             initial}
-                            {(Var <Context>)
-                             (stm.var initial)})
+      (let [current (stm.var initial)
             pending (:share [<type-vars>]
                             {<Context>
                              initial}
                             {(Var (Dictionary Module <Pending>))
-                             (stm.var (dictionary.new text.hash))})]
+                             (:assume (stm.var (dictionary.new text.hash)))})]
         (function (_ compile)
           (function (import! module)
             (do promise.monad
@@ -262,38 +258,39 @@
                                        {(Promise [<Return> (Maybe [<Context>
                                                                    archive.ID
                                                                    <Signal>])])
-                                        (stm.commit
-                                         (do stm.monad
-                                           [[archive state] (stm.read current)]
-                                           (if (archive.archived? archive module)
-                                             (wrap [(promise@wrap (#try.Success [archive state]))
-                                                    #.None])
-                                             (do @
-                                               [@pending (stm.read pending)]
-                                               (case (dictionary.get module @pending)
-                                                 (#.Some [return signal])
-                                                 (wrap [return
-                                                        #.None])
-                                                 
-                                                 #.None
-                                                 (case (archive.reserve module archive)
-                                                   (#try.Success [module-id archive])
-                                                   (do @
-                                                     [_ (stm.write [archive state] current)
-                                                      #let [[return signal] (:share [<type-vars>]
-                                                                                    {<Context>
-                                                                                     initial}
-                                                                                    {<Pending>
-                                                                                     (promise.promise [])})]
-                                                      _ (stm.update (dictionary.put module [return signal]) pending)]
-                                                     (wrap [return
-                                                            (#.Some [[archive state]
-                                                                     module-id
-                                                                     signal])]))
-                                                   
-                                                   (#try.Failure error)
-                                                   (wrap [(promise@wrap (#try.Failure error))
-                                                          #.None])))))))})
+                                        (:assume
+                                         (stm.commit
+                                          (do stm.monad
+                                            [[archive state] (stm.read current)]
+                                            (if (archive.archived? archive module)
+                                              (wrap [(promise@wrap (#try.Success [archive state]))
+                                                     #.None])
+                                              (do @
+                                                [@pending (stm.read pending)]
+                                                (case (dictionary.get module @pending)
+                                                  (#.Some [return signal])
+                                                  (wrap [return
+                                                         #.None])
+                                                  
+                                                  #.None
+                                                  (case (archive.reserve module archive)
+                                                    (#try.Success [module-id archive])
+                                                    (do @
+                                                      [_ (stm.write [archive state] current)
+                                                       #let [[return signal] (:share [<type-vars>]
+                                                                                     {<Context>
+                                                                                      initial}
+                                                                                     {<Pending>
+                                                                                      (promise.promise [])})]
+                                                       _ (stm.update (dictionary.put module [return signal]) pending)]
+                                                      (wrap [return
+                                                             (#.Some [[archive state]
+                                                                      module-id
+                                                                      signal])]))
+                                                    
+                                                    (#try.Failure error)
+                                                    (wrap [(promise@wrap (#try.Failure error))
+                                                           #.None]))))))))})
                _ (case signal
                    #.None
                    (wrap [])
@@ -361,7 +358,8 @@
                                   {<Context>
                                    context}
                                   {(///.Compiler <State+> .Module Any)
-                                   ((//init.compiler expander syntax.prelude (get@ #write platform)) $.key (list))})
+                                   (:assume
+                                    ((//init.compiler expander syntax.prelude (get@ #write platform)) $.key (list)))})
             parallel-compiler (..parallel
                                context
                                (function (_ import! module-id [archive state] module)
@@ -383,29 +381,22 @@
                                                                  platform}
                                                                 {(-> <Context> (///.Compilation <State+> .Module Any) (List Module)
                                                                      (Action [Archive <State+>]))
-                                                                 recur})]
-                                        archive,document+ (|> new-dependencies
-                                                              (list@map import!)
-                                                              (monad.seq ..monad))
-                                        #let [archive (case archive,document+
-                                                        #.Nil
-                                                        archive
+                                                                 (:assume
+                                                                  recur)})]
+                                        [archive state] (case new-dependencies
+                                                          #.Nil
+                                                          (wrap [archive state])
 
-                                                        archive,document+
-                                                        (|> archive,document+
-                                                            (list@map product.left)
-                                                            (list@fold archive.merge archive)))
-                                              state (case archive,document+
-                                                      #.Nil
-                                                      state
-
-                                                      archive,document+
-                                                      (try.assume
-                                                       (:share [|state|]
-                                                               {|state|
-                                                                state}
-                                                               {(Try |state|)
-                                                                (..updated-state archive state)})))]]
+                                                          (#.Cons _)
+                                                          (do @
+                                                            [archive,document+ (|> new-dependencies
+                                                                                   (list@map import!)
+                                                                                   (monad.seq ..monad))
+                                                             #let [archive (|> archive,document+
+                                                                               (list@map product.left)
+                                                                               (list@fold archive.merge archive))]]
+                                                            (wrap [archive (try.assume
+                                                                            (..updated-state archive state))])))]
                                        (case ((get@ #///.process compilation)
                                               ## TODO: The "///directive.set-current-module" below shouldn't be necessary. Remove it ASAP.
                                               ## TODO: The context shouldn't need to be re-set either.

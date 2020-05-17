@@ -1,7 +1,13 @@
 (.module:
   [lux #*
    ["_" test (#+ Test)]
-   ["M" abstract/monad (#+ do Monad)]
+   [abstract
+    ["." monad (#+ Monad do)]
+    {[0 #test]
+     [/
+      ["$." functor (#+ Injection Comparison)]
+      ["$." apply]
+      ["$." monad]]}]
    [control
     ["." io (#+ IO)]]
    [data
@@ -11,74 +17,96 @@
     [collection
      ["." list ("#@." functor)]]]
    [math
-    ["r" random]]]
+    ["." random]]]
   {1
    ["." /
     [//
      ["." atom (#+ Atom atom)]
-     ["." process]
      ["." promise]
      ["." frp (#+ Channel)]]]})
 
-(def: (read! channel)
-  (All [a] (-> (Channel a) (IO (Atom (List a)))))
-  (do io.monad
-    [#let [output (atom (list))]
-     _ (frp.listen (function (_ value)
-                     ## TODO: Simplify when possible.
-                     (do @
-                       [_ (atom.update (|>> (#.Cons value)) output)]
-                       (wrap [])))
-                   channel)]
-    (wrap output)))
+(def: injection
+  (Injection /.STM)
+  (:: /.monad wrap))
 
-(def: iterations-per-process Nat 100)
+(def: comparison
+  (Comparison /.STM)
+  (function (_ == left right)
+    (io.run
+     (do io.monad
+       [?left (promise.poll (/.commit left))
+        ?right (promise.poll (/.commit right))]
+       (wrap (case [?left ?right]
+               [(#.Some left)
+                (#.Some right)]
+               (== left right)
+
+               _
+               false))))))
 
 (def: #export test
   Test
-  (do r.monad
-    [_ (wrap [])]
-    (<| (_.context (%.name (name-of /.STM)))
+  (<| (_.covering /._)
+      (do random.monad
+        [dummy random.nat
+         expected random.nat
+         iterations-per-process (|> random.nat (:: @ map (n.% 100)))]
         ($_ _.and
+            (_.with-cover [/.functor]
+              ($functor.spec ..injection ..comparison /.functor))
+            (_.with-cover [/.apply]
+              ($apply.spec ..injection ..comparison /.apply))
+            (_.with-cover [/.monad]
+              ($monad.spec ..injection ..comparison /.monad))
+
             (wrap (do promise.monad
-                    [output (/.commit (/.read (/.var 0)))]
-                    (_.assert "Can read STM vars."
-                              (n.= 0 output))))
+                    [actual (/.commit (:: /.monad wrap expected))]
+                    (_.claim [/.commit]
+                             (n.= expected actual))))
             (wrap (do promise.monad
-                    [#let [_var (/.var 0)]
+                    [actual (/.commit (/.read (/.var expected)))]
+                    (_.claim [/.Var /.var /.read]
+                             (n.= expected actual))))
+            (wrap (do promise.monad
+                    [actual (let [box (/.var dummy)]
+                              (/.commit (do /.monad
+                                          [_ (/.write expected box)]
+                                          (/.read box))))
+                     verdict (let [box (/.var dummy)]
+                               (/.commit (do /.monad
+                                           [_ (/.write expected box)
+                                            actual (/.read box)]
+                                           (wrap (n.= expected actual)))))]
+                    (_.claim [/.write]
+                             (and (n.= expected actual)
+                                  verdict))))
+            (wrap (do promise.monad
+                    [#let [box (/.var dummy)]
                      output (/.commit (do /.monad
-                                        [_ (/.write 5 _var)]
-                                        (/.read _var)))]
-                    (_.assert "Can write STM vars."
-                              (n.= 5 output))))
+                                        [_ (/.update (n.+ expected) box)]
+                                        (/.read box)))]
+                    (_.claim [/.update]
+                             (n.= (n.+ expected dummy)
+                                  output))))
             (wrap (do promise.monad
-                    [#let [_var (/.var 5)]
-                     output (/.commit (do /.monad
-                                        [_ (/.update (n.* 3) _var)]
-                                        (/.read _var)))]
-                    (_.assert "Can update STM vars."
-                              (n.= 15 output))))
-            (wrap (do promise.monad
-                    [#let [_var (/.var 0)
-                           changes (io.run (read! (io.run (/.follow _var))))]
-                     _ (/.commit (/.write 5 _var))
-                     _ (/.commit (/.update (n.* 3) _var))
-                     changes (promise.future (atom.read changes))]
-                    (_.assert "Can follow all the changes to STM vars."
-                              (:: (list.equivalence n.equivalence) =
-                                  (list 5 15)
-                                  (list.reverse changes)))))
-            (wrap (let [_concurrency-var (/.var 0)]
+                    [#let [box (/.var dummy)
+                           [follower sink] (io.run (/.follow box))]
+                     _ (/.commit (/.write expected box))
+                     _ (/.commit (/.update (n.* 2) box))
+                     _ (promise.future (:: sink close))
+                     _ (/.commit (/.update (n.* 3) box))
+                     changes (frp.consume follower)]
+                    (_.claim [/.follow]
+                             (:: (list.equivalence n.equivalence) =
+                                 (list expected (n.* 2 expected))
+                                 changes))))
+            (wrap (let [var (/.var 0)]
                     (do promise.monad
-                      [_ (|> process.parallelism
-                             (list.n/range 1)
-                             (list@map (function (_ _)
-                                         (|> iterations-per-process
-                                             (list.n/range 1)
-                                             (M.map @ (function (_ _) (/.commit (/.update inc _concurrency-var)))))))
-                             (M.seq @))
-                       last-val (/.commit (/.read _concurrency-var))]
-                      (_.assert "Can modify STM vars concurrently from multiple threads."
-                                (|> process.parallelism
-                                    (n.* iterations-per-process)
-                                    (n.= last-val))))))))))
+                      [_ (|> (list.repeat iterations-per-process [])
+                             (list@map (function (_ _) (/.commit (/.update inc var))))
+                             (monad.seq @))
+                       cummulative (/.commit (/.read var))]
+                      (_.claim [/.STM]
+                               (n.= iterations-per-process
+                                    cummulative)))))
+            ))))
