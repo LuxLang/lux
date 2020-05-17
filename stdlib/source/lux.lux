@@ -2702,7 +2702,11 @@
        (let' [[left right] pair]
              (list left right)))
 
-(def:' (%code code)
+(def:' (text@encode original)
+       (-> Text Text)
+       ($_ text@compose ..double-quote original ..double-quote))
+
+(def:' (code@encode code)
        (-> Code Text)
        ({[_ (#Bit value)]
          (bit@encode value)
@@ -2720,7 +2724,7 @@
          (frac@encode value)
 
          [_ (#Text value)]
-         ($_ text@compose ..double-quote value ..double-quote)
+         (text@encode value)
          
          [_ (#Identifier [prefix name])]
          (if (text@= "" prefix)
@@ -2734,21 +2738,21 @@
          
          [_ (#Form xs)]
          ($_ text@compose "(" (|> xs
-                                  (list@map %code)
+                                  (list@map code@encode)
                                   (interpose " ")
                                   list@reverse
                                   (list@fold text@compose "")) ")")
          
          [_ (#Tuple xs)]
          ($_ text@compose "[" (|> xs
-                                  (list@map %code)
+                                  (list@map code@encode)
                                   (interpose " ")
                                   list@reverse
                                   (list@fold text@compose "")) "]")
          
          [_ (#Record kvs)]
          ($_ text@compose "{" (|> kvs
-                                  (list@map (function' [kv] ({[k v] ($_ text@compose (%code k) " " (%code v))}
+                                  (list@map (function' [kv] ({[k v] ($_ text@compose (code@encode k) " " (code@encode v))}
                                                              kv)))
                                   (interpose " ")
                                   list@reverse
@@ -2782,7 +2786,7 @@
 
          _
          (fail ($_ text@compose "'lux.case' expects an even number of tokens: " (|> branches
-                                                                                    (list@map %code)
+                                                                                    (list@map code@encode)
                                                                                     (interpose " ")
                                                                                     list@reverse
                                                                                     (list@fold text@compose ""))))}
@@ -2991,13 +2995,13 @@
          _
          (` (#.Cons [[(~ cursor-code) (#.Tag ["lux" "func-args"])]
                      [(~ cursor-code) (#.Tuple (.list (~+ (list@map (function (_ arg)
-                                                                      (` [(~ cursor-code) (#.Text (~ (text$ (%code arg))))]))
+                                                                      (` [(~ cursor-code) (#.Text (~ (text$ (code@encode arg))))]))
                                                                     args))))]]
                     (~ meta)))))
 
 (def:' (with-type-args args)
        (-> (List Code) Code)
-       (` {#.type-args [(~+ (list@map (function (_ arg) (text$ (%code arg)))
+       (` {#.type-args [(~+ (list@map (function (_ arg) (text$ (code@encode arg)))
                                       args))]}))
 
 (def:' (export^ tokens)
@@ -3987,18 +3991,18 @@
                                   [current-module current-module-name]
                                   (fail ($_ text@compose
                                             "Wrong syntax for import @ " current-module
-                                            ..new-line (%code token)))))))
+                                            ..new-line (code@encode token)))))))
                          imports)]
     (wrap (list@join imports'))))
 
 (def: (exported-definitions module state)
   (-> Text (Meta (List Text)))
-  (let [modules (case state
-                  {#info info #source    source  #current-module _ #modules modules
-                   #scopes scopes #type-context types    #host    host
-                   #seed seed #expected  expected #cursor  cursor #extensions extensions
-                   #scope-type-vars scope-type-vars}
-                  modules)]
+  (let [[current-module modules] (case state
+                                   {#info info #source    source  #current-module current-module #modules modules
+                                    #scopes scopes #type-context types    #host    host
+                                    #seed seed #expected  expected #cursor  cursor #extensions extensions
+                                    #scope-type-vars scope-type-vars}
+                                   [current-module modules])]
     (case (get module modules)
       (#Some =module)
       (let [to-alias (list@map (: (-> [Text Global]
@@ -4017,7 +4021,19 @@
         (#Right state (list@join to-alias)))
       
       #None
-      (#Left ($_ text@compose "Unknown module: " module)))
+      (#Left ($_ text@compose
+                 "Unknown module: " (text@encode module) ..new-line
+                 "Current module: " (case current-module
+                                      (#Some current-module)
+                                      (text@encode current-module)
+
+                                      #None
+                                      "???") ..new-line
+                 "Known modules: " (|> modules
+                                       (list@map (function (_ [name module])
+                                                   (text$ name)))
+                                       tuple$
+                                       code@encode))))
     ))
 
 (def: (filter p xs)
@@ -4484,7 +4500,7 @@
       _
       (fail ($_ text@compose "Wrong syntax for refer @ " current-module
                 ..new-line (|> options
-                               (list@map %code)
+                               (list@map code@encode)
                                (interpose " ")
                                (list@fold text@compose "")))))))
 
@@ -4891,10 +4907,6 @@
 
     _
     (#Doc-Example code)))
-
-(def: (text@encode original)
-  (-> Text Text)
-  ($_ text@compose ..double-quote original ..double-quote))
 
 (template [<name> <extension> <doc>]
   [(def: #export <name>
@@ -5547,7 +5559,7 @@
                 (undefined)))}
   (case tokens
     #Nil
-    (return (list (` (error! "Undefined behavior."))))
+    (return (list (` (..error! "Undefined behavior."))))
     
     _
     (fail (..wrong-syntax-error (name-of ..undefined)))))

@@ -49,7 +49,8 @@
     ## ["." interpreter]
     ]]
   ["." / #_
-   ["#." cli (#+ Service)]])
+   ["#." cli (#+ Configuration)]
+   ["#." static (#+ Static)]])
 
 (def: (or-crash! failure-description action)
   (All [a]
@@ -67,48 +68,20 @@
       (wrap output))))
 
 (with-expansions [<parameters> (as-is anchor expression artifact)]
-  ## TODO: Clean-up ASAP.
-  ## (def: (save-artifacts! system state [packager package])
-  ##   (All [<parameters>]
-  ##     (-> (file.System Promise)
-  ##         (directive.State+ <parameters>)
-  ##         [(-> (Row [Module (generation.Buffer artifact)]) Binary) Path]
-  ##         (Promise (Try Any))))
-  ##   (let [?outcome (phase.run' state
-  ##                              (:share [<parameters>]
-  ##                                      {(directive.State+ <parameters>)
-  ##                                       state}
-  ##                                      {(directive.Operation <parameters>
-  ##                                                            (generation.Output artifact))
-  ##                                       (directive.lift-generation generation.output)}))]
-  ##     (case ?outcome
-  ##       (#try.Success [state output])
-  ##       (do (try.with promise.monad)
-  ##         [file (: (Promise (Try (File Promise)))
-  ##                  (file.get-file promise.monad system package))]
-  ##         (!.use (:: file over-write) (packager output)))
-
-  ##       (#try.Failure error)
-  ##       (promise@wrap (#try.Failure error)))))
-
-  (def: #export (compiler target partial-host-extension
-                          expander host-analysis platform host generation-bundle host-directive-bundle program extender
-                          service
-                          extension
+  (def: #export (compiler static
+                          expander host-analysis platform generation-bundle host-directive-bundle program extender
+                          configuration
                           packager,package)
     (All [<parameters>]
-      (-> Path
-          Text
+      (-> Static
           Expander
           analysis.Bundle
           (IO (Platform <parameters>))
-          Host
           (generation.Bundle <parameters>)
           (directive.Bundle <parameters>)
           (-> expression artifact)
           Extender
-          Service
-          Text
+          Configuration
           [(-> (Row [Module (generation.Buffer artifact)]) Binary) Path]
           (Promise Any)))
     (do promise.monad
@@ -116,8 +89,8 @@
        console (|> console.system
                    promise.future
                    (:: @ map (|>> try.assume console.async)))]
-      (case service
-        (#/cli.Compilation configuration)
+      (case (get@ #/cli.service configuration)
+        #/cli.Compilation
         (<| (or-crash! "Compilation failed:")
             (do (try.with promise.monad)
               [[state archive] (:share [<parameters>]
@@ -125,19 +98,16 @@
                                         platform}
                                        {(Promise (Try [(directive.State+ <parameters>)
                                                        Archive]))
-                                        (platform.initialize extension target host (get@ #/cli.module configuration) expander host-analysis platform generation-bundle host-directive-bundle program extender)})
+                                        (platform.initialize static (get@ #/cli.module configuration) expander host-analysis platform generation-bundle host-directive-bundle program extender)})
                [archive state] (:share [<parameters>]
                                        {(Platform <parameters>)
                                         platform}
                                        {(Promise (Try [Archive (directive.State+ <parameters>)]))
-                                        (platform.compile target partial-host-extension expander platform host configuration archive extension state)})
-               _ (ioW.freeze (get@ #platform.&file-system platform) host target archive)
-               ## _ (save-artifacts! (get@ #platform.&file-system platform) state packager,package)
-               ## _ (cache/io.clean target ...)
-               ]
+                                        (platform.compile static expander platform configuration [archive state])})
+               _ (ioW.freeze (get@ #platform.&file-system platform) (get@ #/static.host static) (get@ #/static.target static) archive)]
               (wrap (log! "Compilation complete!"))))
         
-        (#/cli.Interpretation configuration)
+        #/cli.Interpretation
         ## TODO: Fix the interpreter...
         (undefined)
         ## (<| (or-crash! "Interpretation failed:")
