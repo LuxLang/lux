@@ -58,12 +58,24 @@
                 [y (f1 x)
                  z (f2 z)]
                 (wrap (f3 z))))}
-  (case tokens
-    (#.Cons monad (#.Cons [_ (#.Tuple bindings)] (#.Cons body #.Nil)))
+  (case (: (Maybe [(Maybe Text) Code (List Code) Code])
+           (case tokens
+             (^ (list [_ (#.Record (list [[_ (#.Identifier ["" name])] monad]))] [_ (#.Tuple bindings)] body))
+             (#.Some [(#.Some name) monad bindings body])
+             
+             (^ (list monad [_ (#.Tuple bindings)] body))
+             (#.Some [#.None monad bindings body])
+
+             _
+             #.None))
+    (#.Some [?name monad bindings body])
     (if (|> bindings list@size .int ("lux i64 %" +2) ("lux i64 =" +0))
-      (let [g!_ (: Code [_cursor (#.Identifier ["" " _ "])])
-            g!map (: Code [_cursor (#.Identifier ["" " map "])])
-            g!join (: Code [_cursor (#.Identifier ["" " join "])])
+      (let [[module short] (name-of ..do)
+            gensym (: (-> Text Code)
+                      (|>> ($_ "lux text concat" module " " short " ") [""] #.Identifier [_cursor]))
+            g!_ (gensym "_")
+            g!map (gensym "map")
+            g!join (gensym "join")
             body' (list@fold (: (-> [Code Code] Code Code)
                                 (function (_ binding body')
                                   (let [[var value] binding]
@@ -76,15 +88,26 @@
                                       ))))
                              body
                              (reverse (as-pairs bindings)))]
-        (#.Right [state (#.Cons (` ({(~' @)
-                                     ({[(~ g!map) (~' wrap) (~ g!join)]
-                                       (~ body')}
-                                      (~' @))}
-                                    (~ monad)))
-                                #.Nil)]))
+        (#.Right [state (list (case ?name
+                                (#.Some name)
+                                (let [name [_cursor (#.Identifier ["" name])]]
+                                  (` ({(~ name)
+                                       ({{#..&functor {#functor.map (~ g!map)}
+                                          #..wrap (~' wrap)
+                                          #..join (~ g!join)}
+                                         (~ body')}
+                                        (~ name))}
+                                      (~ monad))))
+                                
+                                #.None
+                                (` ({{#..&functor {#functor.map (~ g!map)}
+                                      #..wrap (~' wrap)
+                                      #..join (~ g!join)}
+                                     (~ body')}
+                                    (~ monad)))))]))
       (#.Left "'do' bindings must have an even number of parts."))
 
-    _
+    #.None
     (#.Left "Wrong syntax for 'do'")))
 
 (def: #export (bind monad f)

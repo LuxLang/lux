@@ -6,9 +6,10 @@
      ["s" code (#+ Parser)]]]
    [data
     [collection
-     ["." list ("#;." functor fold)]]]
+     ["." list ("#@." functor fold)]]]
    ["." macro
-    [syntax (#+ syntax:)]]])
+    [syntax (#+ syntax:)]
+    ["." code]]])
 
 (signature: #export (IxMonad m)
   (: (All [p a]
@@ -41,25 +42,42 @@
   (All [a] (-> [a a] (List a)))
   (list binding value))
 
-(syntax: #export (do monad
+(def: named-monad
+  (Parser [(Maybe Text) Code])
+  (p.either (s.record (p.and (:: p.monad map (|>> #.Some)
+                                 s.local-identifier)
+                             s.any))
+            (:: p.monad map (|>> [#.None])
+                s.any)))
+
+(syntax: #export (do {[?name monad] ..named-monad}
                    {context (s.tuple (p.some context))}
                    expression)
   (macro.with-gensyms [g!_ g!bind]
-    (wrap (list (` (let [(~' @) (~ monad)
-                         {#..wrap (~' wrap)
-                          #..bind (~ g!bind)} (~' @)]
-                     (~ (list;fold (function (_ context next)
-                                     (case context
-                                       (#Let bindings)
-                                       (` (let [(~+ (|> bindings
-                                                        (list;map pair-list)
-                                                        list.concat))]
-                                            (~ next)))
-                                       
-                                       (#Bind [binding value])
-                                       (` ((~ g!bind)
-                                           (.function ((~ g!_) (~ binding))
-                                             (~ next))
-                                           (~ value)))))
-                                   expression
-                                   (list.reverse context)))))))))
+    (let [body (list@fold (function (_ context next)
+                            (case context
+                              (#Let bindings)
+                              (` (let [(~+ (|> bindings
+                                               (list@map pair-list)
+                                               list.concat))]
+                                   (~ next)))
+                              
+                              (#Bind [binding value])
+                              (` ((~ g!bind)
+                                  (.function ((~ g!_) (~ binding))
+                                    (~ next))
+                                  (~ value)))))
+                          expression
+                          (list.reverse context))]
+      (wrap (list (case ?name
+                    (#.Some name)
+                    (let [name (code.local-identifier name)]
+                      (` (let [(~ name) (~ monad)
+                               {#..wrap (~' wrap)
+                                #..bind (~ g!bind)} (~ name)]
+                           (~ body))))
+
+                    #.None
+                    (` (let [{#..wrap (~' wrap)
+                              #..bind (~ g!bind)} (~ monad)]
+                         (~ body)))))))))
