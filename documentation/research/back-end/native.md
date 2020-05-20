@@ -57,6 +57,7 @@
 
 # Reference
 
+1. [Executables - Linking and Loading](https://github.com/MattPD/cpplinks/blob/master/executables.linking_loading.md)
 1. http://luajit.org/
 1. http://luajit.org/ext_ffi.html
 1. http://luajit.org/dynasm.html

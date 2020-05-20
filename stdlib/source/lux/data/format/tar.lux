@@ -1,0 +1,565 @@
+(.module:
+  [lux (#- Mode Name and)
+   [abstract
+    [monad (#+ do)]]
+   [control
+    [pipe (#+ case>)]
+    ["." try (#+ Try)]
+    ["." exception (#+ exception:)]
+    ["<>" parser
+     ["<b>" binary (#+ Parser)]]]
+   [data
+    ["." binary (#+ Binary)]
+    ["." text (#+ Char)
+     ["%" format (#+ format)]
+     ["." encoding]]
+    ["." number
+     ["n" nat]
+     ["." i64]]
+    ["." format #_
+     ["#" binary (#+ Writer) ("#@." monoid)]]
+    [collection
+     ["." list ("#@." fold)]
+     ["." row (#+ Row) ("#@." fold)]]]
+   [time
+    ["." instant (#+ Instant)]
+    ["." duration]]
+   [world
+    ["." file]]
+   [type
+    abstract]])
+
+(type: Size Nat)
+
+(def: octal-size Size 8)
+
+(def: (octal-padding max-size number)
+  (-> Size Text Text)
+  (let [padding-size (n.- (text.size number)
+                          max-size)
+        padding (|> "0"
+                    (list.repeat padding-size)
+                    (text.join-with ""))]
+    (format padding number)))
+
+(def: blank " ")
+(def: null text.null)
+
+(def: small-size Size 6)
+(def: big-size Size 11)
+
+(template [<exception> <maximum> <size>
+           <type> <in> <out> <writer> <suffix>
+           <coercion>]
+  [(def: <maximum>
+     (|> ..octal-size
+         (list.repeat <size>)
+         (list@fold n.* 1)))
+
+   (exception: #export (<exception> {value Nat})
+     (exception.report
+      ["Value" (%.nat value)]
+      ["Maximum" (%.nat <maximum>)]))
+
+   (abstract: <type>
+     {}
+
+     Nat
+
+     (def: #export (<in> value)
+       (-> Nat (Try <type>))
+       (if (|> value (n.% <maximum>) (n.= value))
+         (#try.Success (:abstraction value))
+         (exception.throw <exception> [value])))
+
+     (def: <out>
+       (-> <type> Nat)
+       (|>> :representation))
+
+     (def: <writer>
+       (Writer <type>)
+       (let [suffix <suffix>
+             padded-size (n.+ (text.size suffix) <size>)]
+         (|>> :representation
+              (:: n.octal encode)
+              (..octal-padding <size>)
+              (text.suffix suffix)
+              encoding.to-utf8
+              (format.segment padded-size))))
+
+     (def: <coercion>
+       (-> Nat <type>)
+       (|>> (n.% <maximum>)
+            :abstraction))
+     )]
+
+  [not-a-small-number maximum-small-size ..small-size
+   Small small from-small
+   small-writer (format ..blank ..null)
+   coerce-small]
+  [not-a-big-number maximum-big-size ..big-size
+   Big big from-big
+   big-writer ..blank
+   coerce-big]
+  )
+
+(abstract: Checksum
+  {}
+
+  Text
+
+  (def: dummy-checksum
+    Checksum
+    (:abstraction "        "))
+
+  (def: checksum-suffix
+    (format ..blank ..null))
+
+  (def: checksum
+    (-> Binary Checksum)
+    (|>> (binary.fold n.+ 0)
+         ..coerce-small
+         ..from-small
+         (:: n.octal encode)
+         (..octal-padding ..small-size)
+         (text.suffix ..checksum-suffix)
+         :abstraction))
+
+  (def: checksum-writer
+    (Writer Checksum)
+    (let [padded-size (n.+ (text.size ..checksum-suffix)
+                           ..small-size)]
+      (|>> :representation
+           encoding.to-utf8
+           (format.segment padded-size))))
+  )
+
+(def: last-ascii
+  Char
+  (number.hex "007F"))
+
+(def: ascii?
+  (-> Text Bit)
+  (|>> encoding.to-utf8
+       (binary.fold (function (_ char verdict)
+                      (.and verdict
+                            (n.<= ..last-ascii char)))
+                    true)))
+
+(exception: #export (not-ascii {text Text})
+  (exception.report
+   ["Text" (%.text text)]))
+
+(def: name-size Size 31)
+(def: path-size Size 99)
+
+(template [<type> <representation> <size> <exception> <in> <out> <writer> <none>]
+  [(abstract: <type>
+     {}
+
+     <representation>
+
+     (exception: #export (<exception> {value Text})
+       (exception.report
+        ["Value" (%.text value)]
+        ["Size" (%.nat (text.size value))]
+        ["Maximum" (%.nat <size>)]))
+
+     (def: #export (<in> value)
+       (-> <representation> (Try <type>))
+       (if (..ascii? value)
+         (if (|> value encoding.to-utf8 binary.size (n.< <size>))
+           (#try.Success (:abstraction value))
+           (exception.throw <exception> [value]))
+         (exception.throw ..not-ascii [value])))
+
+     (def: <out>
+       (-> <type> <representation>)
+       (|>> :representation))
+
+     (def: <writer>
+       (Writer <type>)
+       (let [suffix ..null
+             padded-size (n.+ (text.size suffix) <size>)]
+         (|>> :representation
+              (text.suffix suffix)
+              encoding.to-utf8
+              (format.segment padded-size))))
+
+     (def: #export <none>
+       <type>
+       (try.assume (<in> "")))
+     )]
+
+  [Name Text      ..name-size name-is-too-long name from-name name-writer anonymous]
+  [Path file.Path ..path-size path-is-too-long path from-path path-writer no-path]
+  )
+
+(def: magic-size Size 7)
+
+(abstract: Magic
+  {}
+
+  Text
+
+  (def: ustar (:abstraction "ustar  "))
+
+  (def: from-magic
+    (-> Magic Text)
+    (|>> :representation))
+
+  (def: magic-writer
+    (Writer Magic)
+    (let [padded-size (n.+ (text.size ..null)
+                           ..magic-size)]
+      (|>> :representation
+           encoding.to-utf8
+           (format.segment padded-size))))
+  )
+
+(def: block-size Size 512)
+
+(def: owner-id-size ..small-size)
+
+(def: blank-size Size (text.size ..blank))
+(def: null-size Size (text.size ..null))
+(def: mode-size Size ..small-size)
+(def: content-size Size ..big-size)
+(def: modification-time-size Size ..big-size)
+(def: checksum-size Size ..small-size)
+(def: link-flag-size Size 1)
+(def: device-size Size ..small-size)
+
+(def: small-number
+  (-> Size Size)
+  (|>> ($_ n.+ ..blank-size ..null-size)))
+
+(def: big-number
+  (-> Size Size)
+  (|>> ($_ n.+ ..blank-size)))
+
+(def: string
+  (-> Size Size)
+  (|>> ($_ n.+ ..null-size)))
+
+(def: header-size
+  ($_ n.+
+      ## name
+      (..string ..path-size)
+      ## mode
+      (..small-number ..mode-size)
+      ## uid
+      (..small-number ..owner-id-size)
+      ## gid
+      (..small-number ..owner-id-size)
+      ## size
+      (..big-number ..content-size)
+      ## mtime
+      (..big-number ..modification-time-size)
+      ## chksum
+      (..small-number ..checksum-size)
+      ## linkflag
+      ..link-flag-size
+      ## linkname
+      (..string ..path-size)
+      ## magic
+      (..string ..magic-size)
+      ## uname
+      (..string ..name-size)
+      ## gname
+      (..string ..name-size)
+      ## devmajor
+      (..small-number ..device-size)
+      ## devminor
+      (..small-number ..device-size)))
+
+(abstract: Link-Flag
+  {}
+
+  Char
+
+  (def: old-normal
+    Link-Flag
+    (:abstraction 0))
+
+  (template [<flag> <name>]
+    [(def: <name>
+       Link-Flag
+       (:abstraction (char <flag>)))]
+
+    ["0" normal]
+    ["1" link]
+    ["2" symbolic-link]
+    ["3" character]
+    ["4" block]
+    ["5" directory]
+    ["6" fifo]
+    ["7" contiguous]
+    )
+
+  (def: link-flag-writer
+    (Writer Link-Flag)
+    (|>> :representation
+         format.bits/8))
+  )
+
+(abstract: #export Mode
+  {}
+
+  Nat
+
+  (template [<code> <name>]
+    [(def: #export <name>
+       Mode
+       (:abstraction (number.oct <code>)))]
+
+    ["0001" execute-by-other]
+    ["0002" write-by-other]
+    ["0004" read-by-other]
+
+    ["0010" execute-by-group]
+    ["0020" write-by-group]
+    ["0040" read-by-group]
+
+    ["0100" execute-by-owner]
+    ["0200" write-by-owner]
+    ["0400" read-by-owner]
+
+    ["1000" save-text]
+    ["2000" set-group-id-on-execution]
+    ["4000" set-user-id-on-execution]
+    )
+
+  (def: #export (and left right)
+    (-> Mode Mode Mode)
+    (:abstraction
+     (i64.or (:representation left)
+             (:representation right))))
+
+  (def: mode-writer
+    (Writer Mode)
+    (|>> :representation
+         ..small
+         try.assume
+         ..small-writer))
+  )
+
+(def: maximum-content-size
+  Nat
+  (|> ..octal-size
+      (list.repeat ..content-size)
+      (list@fold n.* 1)))
+
+(abstract: Content
+  {}
+
+  [Big Binary]
+
+  (def: #export (content content)
+    (-> Binary (Try Content))
+    (do try.monad
+      [size (..big (binary.size content))]
+      (wrap (:abstraction [size content]))))
+
+  (def: from-content
+    (-> Content [Big Binary])
+    (|>> :representation))
+  )
+
+(type: #export ID
+  Small)
+
+(def: #export no-id
+  ID
+  (..coerce-small 0))
+
+(type: #export Owner
+  {#name Name
+   #id ID})
+
+(type: #export Ownership
+  {#user Owner
+   #group Owner})
+
+(type: #export File
+  [Path Instant Mode Ownership Content])
+
+(type: #export Directory
+  Path)
+
+(type: #export Entry
+  (#Normal File)
+  (#Symbolic-Link Path)
+  (#Directory Directory)
+  (#Contiguous File))
+
+(type: #export Device
+  Small)
+
+(def: no-device
+  Device
+  (try.assume (..small 0)))
+
+(type: #export Tar
+  (Row Entry))
+
+(def: (blocks size)
+  (-> Big Nat)
+  (n.+ (n./ ..block-size
+            (..from-big size))
+       (case (n.% ..block-size (..from-big size))
+         0 0
+         _ 1)))
+
+(def: rounded-content-size
+  (-> Big Nat)
+  (|>> ..blocks
+       (n.* ..block-size)))
+
+(type: Header
+  {#path Path
+   #mode Mode
+   #user-id ID
+   #group-id ID
+   #size Big
+   #modification-time Big
+   #checksum Checksum
+   #link-flag Link-Flag
+   #link-name Path
+   #magic Magic
+   #user-name Name
+   #group-name Name
+   #major-device Device
+   #minor-device Device})
+
+(def: header-writer'
+  (Writer Header)
+  ($_ format.and
+      ..path-writer
+      ..mode-writer
+      ..small-writer
+      ..small-writer
+      ..big-writer
+      ..big-writer
+      ..checksum-writer
+      ..link-flag-writer
+      ..path-writer
+      ..magic-writer
+      ..name-writer
+      ..name-writer
+      ..small-writer
+      ..small-writer
+      ))
+
+(def: (header-writer header)
+  (Writer Header)
+  (let [checksum (|> header
+                     (set@ #checksum ..dummy-checksum)
+                     (format.run ..header-writer')
+                     ..checksum)
+        data (|> header
+                 (set@ #checksum checksum)
+                 (format.run ..header-writer'))]
+    (|> data
+        (format.segment ..block-size))))
+
+(def: modification-time
+  (-> Instant Big)
+  (|>> instant.relative
+       (duration.query duration.second)
+       .nat
+       ..coerce-big))
+
+(def: (file-writer link-flag)
+  (-> Link-Flag (Writer File))
+  (function (_ [path modification-time mode ownership content])
+    (let [[size content] (..from-content content)
+          writer ($_ format.and
+                     ..header-writer
+                     (format.segment (..rounded-content-size size)))]
+      (writer [{#path path
+                #mode mode
+                #user-id (get@ [#user #id] ownership)
+                #group-id (get@ [#group #id] ownership)
+                #size size
+                #modification-time (..modification-time modification-time)
+                #checksum ..dummy-checksum
+                #link-flag link-flag
+                #link-name ..no-path
+                #magic ..ustar
+                #user-name (get@ [#user #name] ownership)
+                #group-name (get@ [#group #name] ownership)
+                #major-device ..no-device
+                #minor-device ..no-device}
+               content]))))
+
+(def: normal-file-writer
+  (Writer File)
+  (..file-writer ..normal))
+
+(def: contiguous-file-writer
+  (Writer File)
+  (..file-writer ..contiguous))
+
+(def: (symbolic-link-writer path)
+  (Writer Path)
+  (..header-writer
+   {#path ..no-path
+    #mode ($_ ..and
+              ..read-by-other
+              ..read-by-group
+              ..read-by-owner)
+    #user-id ..no-id
+    #group-id ..no-id
+    #size (..coerce-big 0)
+    #modification-time (..coerce-big 0)
+    #checksum ..dummy-checksum
+    #link-flag ..symbolic-link
+    #link-name path
+    #magic ..ustar
+    #user-name ..anonymous
+    #group-name ..anonymous
+    #major-device ..no-device
+    #minor-device ..no-device}))
+
+(def: (directory-writer path)
+  (Writer Directory)
+  (..header-writer
+   {#path path
+    #mode ($_ ..and
+              ..read-by-other
+              ..read-by-group
+              ..read-by-owner)
+    #user-id ..no-id
+    #group-id ..no-id
+    #size (..coerce-big 0)
+    #modification-time (..coerce-big 0)
+    #checksum ..dummy-checksum
+    #link-flag ..directory
+    #link-name ..no-path
+    #magic ..ustar
+    #user-name ..anonymous
+    #group-name ..anonymous
+    #major-device ..no-device
+    #minor-device ..no-device}))
+
+(def: entry-writer
+  (Writer Entry)
+  (|>> (case> (#Normal value) (..normal-file-writer value)
+              (#Symbolic-Link value) (..symbolic-link-writer value)
+              (#Directory value) (..directory-writer value)
+              (#Contiguous value) (..contiguous-file-writer value))))
+
+(def: end-of-archive-size Size (n.* 2 ..block-size))
+
+(def: end-of-archive
+  Binary
+  (binary.create ..end-of-archive-size))
+
+(def: #export (writer tar)
+  (Writer Tar)
+  (format@compose (row@fold (function (_ next total)
+                              (format@compose total (..entry-writer next)))
+                            format@identity
+                            tar)
+                  (format.segment ..end-of-archive-size ..end-of-archive)))

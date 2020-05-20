@@ -1,3 +1,7 @@
+# Homomorphic encryption
+
+1. https://github.com/Microsoft/SEAL
+
 # Privacy
 
 1. https://privacypatterns.org/

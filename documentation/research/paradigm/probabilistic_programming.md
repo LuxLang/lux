@@ -1,3 +1,7 @@
+# Library
+
+1. [Soss](https://github.com/cscherrer/Soss.jl)
+
 # Ranked Programming
 
 1. [Ranked Programming](https://github.com/tjitze/ranked-programming/blob/master/documentation/ranked_programming.pdf)
@@ -59,6 +63,7 @@
 
 # Language
 
+1. [Reactive Probabilistic Programming](https://arxiv.org/abs/1908.07563)
 1. https://hakaru-dev.github.io/
 1. http://probcomp.csail.mit.edu/venture/
 1. https://github.com/tjitze/RankPL/
