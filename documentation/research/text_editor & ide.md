@@ -204,6 +204,7 @@
 
 ## Structured editing
 
+1. [Going beyond regular expressions with structural code search](https://about.sourcegraph.com/blog/going-beyond-regular-expressions-with-structural-code-search)
 1. [俺のlisp](https://github.com/illiichi/orenolisp)
 1. [豆腐 (Tofu): meaningful code editing](https://gregoor.github.io/tofu/)
 1. [Tiled Text](http://www.tiledtext.com/projects/tiledtext)

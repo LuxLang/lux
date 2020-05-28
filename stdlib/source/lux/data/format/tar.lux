@@ -9,6 +9,7 @@
     ["<>" parser
      ["<b>" binary (#+ Parser)]]]
    [data
+    ["." product]
     ["." binary (#+ Binary)]
     ["." text (#+ Char)
      ["%" format (#+ format)]
@@ -48,31 +49,33 @@
 (def: small-size Size 6)
 (def: big-size Size 11)
 
-(template [<exception> <maximum> <size>
+(template [<exception> <limit> <size>
            <type> <in> <out> <writer> <suffix>
            <coercion>]
-  [(def: <maximum>
+  [(def: #export <limit>
+     Nat
      (|> ..octal-size
          (list.repeat <size>)
-         (list@fold n.* 1)))
+         (list@fold n.* 1)
+         inc))
 
    (exception: #export (<exception> {value Nat})
      (exception.report
       ["Value" (%.nat value)]
-      ["Maximum" (%.nat <maximum>)]))
+      ["Maximum" (%.nat (dec <limit>))]))
 
-   (abstract: <type>
+   (abstract: #export <type>
      {}
 
      Nat
 
      (def: #export (<in> value)
        (-> Nat (Try <type>))
-       (if (|> value (n.% <maximum>) (n.= value))
+       (if (|> value (n.% <limit>) (n.= value))
          (#try.Success (:abstraction value))
          (exception.throw <exception> [value])))
 
-     (def: <out>
+     (def: #export <out>
        (-> <type> Nat)
        (|>> :representation))
 
@@ -89,24 +92,73 @@
 
      (def: <coercion>
        (-> Nat <type>)
-       (|>> (n.% <maximum>)
+       (|>> (n.% <limit>)
             :abstraction))
      )]
 
-  [not-a-small-number maximum-small-size ..small-size
+  [not-a-small-number small-limit ..small-size
    Small small from-small
    small-writer (format ..blank ..null)
    coerce-small]
-  [not-a-big-number maximum-big-size ..big-size
+  [not-a-big-number big-limit ..big-size
    Big big from-big
    big-writer ..blank
    coerce-big]
   )
 
+(exception: #export (wrong-character {expected Char} {actual Char})
+  (exception.report
+   ["Expected" (%.nat expected)]
+   ["Actual" (%.nat actual)]))
+
+(def: verify-small-suffix
+  (Parser Any)
+  (do <>.monad
+    [pre-end <b>.bits/8
+     end <b>.bits/8
+     _ (let [expected (`` (char (~~ (static ..blank))))]
+         (<>.assert (exception.construct ..wrong-character [expected pre-end])
+                    (n.= expected pre-end)))
+     _ (let [expected (`` (char (~~ (static ..null))))]
+         (<>.assert (exception.construct ..wrong-character [expected end])
+                    (n.= expected end)))]
+    (wrap [])))
+
+(def: small-parser
+  (Parser Small)
+  (do <>.monad
+    [digits (<b>.segment ..small-size)
+     digits (<>.lift
+             (encoding.from-utf8 digits))
+     _ ..verify-small-suffix]
+    (<>.lift
+     (do {@ try.monad}
+       [value (:: n.octal decode digits)]
+       (..small value)))))
+
+(def: big-parser
+  (Parser Big)
+  (do <>.monad
+    [digits (<b>.segment ..big-size)
+     digits (<>.lift
+             (encoding.from-utf8 digits))
+     end <b>.bits/8
+     _ (let [expected (`` (char (~~ (static ..blank))))]
+         (<>.assert (exception.construct ..wrong-character [expected end])
+                    (n.= expected end)))]
+    (<>.lift
+     (do {@ try.monad}
+       [value (:: n.octal decode digits)]
+       (..big value)))))
+
 (abstract: Checksum
   {}
 
   Text
+
+  (def: from-checksum
+    (-> Checksum Text)
+    (|>> :representation))
 
   (def: dummy-checksum
     Checksum
@@ -116,8 +168,15 @@
     (format ..blank ..null))
 
   (def: checksum
+    (-> Binary Nat)
+    (binary.fold n.+ 0))
+
+  (def: checksum-checksum
+    (|> ..dummy-checksum :representation encoding.to-utf8 ..checksum))
+
+  (def: checksum-code
     (-> Binary Checksum)
-    (|>> (binary.fold n.+ 0)
+    (|>> ..checksum
          ..coerce-small
          ..from-small
          (:: n.octal encode)
@@ -132,6 +191,18 @@
       (|>> :representation
            encoding.to-utf8
            (format.segment padded-size))))
+
+  (def: checksum-parser
+    (Parser [Nat Checksum])
+    (do <>.monad
+      [ascii (<b>.segment ..small-size)
+       digits (<>.lift
+               (encoding.from-utf8 ascii))
+       _ ..verify-small-suffix
+       value (<>.lift
+              (:: n.octal decode digits))]
+      (wrap [value
+             (:abstraction (format digits ..checksum-suffix))])))
   )
 
 (def: last-ascii
@@ -150,11 +221,27 @@
   (exception.report
    ["Text" (%.text text)]))
 
-(def: name-size Size 31)
-(def: path-size Size 99)
+(def: #export name-size Size 31)
+(def: #export path-size Size 99)
 
-(template [<type> <representation> <size> <exception> <in> <out> <writer> <none>]
-  [(abstract: <type>
+(def: (un-pad string)
+  (-> Binary (Try Binary))
+  (case (binary.size string)
+    0 (#try.Success string)
+    size (loop [end (dec size)]
+           (case end
+             0 (#try.Success (encoding.to-utf8 ""))
+             _ (do try.monad
+                 [last-char (binary.read/8 end string)]
+                 (`` (case (.nat last-char)
+                       (^ (char (~~ (static ..null))))
+                       (recur (dec end))
+
+                       _
+                       (binary.slice 0 end string))))))))
+
+(template [<type> <representation> <size> <exception> <in> <out> <writer> <parser> <none>]
+  [(abstract: #export <type>
      {}
 
      <representation>
@@ -168,12 +255,12 @@
      (def: #export (<in> value)
        (-> <representation> (Try <type>))
        (if (..ascii? value)
-         (if (|> value encoding.to-utf8 binary.size (n.< <size>))
+         (if (|> value encoding.to-utf8 binary.size (n.<= <size>))
            (#try.Success (:abstraction value))
            (exception.throw <exception> [value]))
          (exception.throw ..not-ascii [value])))
 
-     (def: <out>
+     (def: #export <out>
        (-> <type> <representation>)
        (|>> :representation))
 
@@ -186,13 +273,27 @@
               encoding.to-utf8
               (format.segment padded-size))))
 
+     (def: <parser>
+       (Parser <type>)
+       (do <>.monad
+         [string (<b>.segment <size>)
+          end <b>.bits/8
+          #let [expected (`` (char (~~ (static ..null))))]
+          _ (<>.assert (exception.construct ..wrong-character [expected end])
+                       (n.= expected end))]
+         (<>.lift
+          (do {@ try.monad}
+            [ascii (..un-pad string)
+             text (encoding.from-utf8 ascii)]
+            (<in> text)))))
+
      (def: #export <none>
        <type>
        (try.assume (<in> "")))
      )]
 
-  [Name Text      ..name-size name-is-too-long name from-name name-writer anonymous]
-  [Path file.Path ..path-size path-is-too-long path from-path path-writer no-path]
+  [Name Text      ..name-size name-is-too-long name from-name name-writer name-parser anonymous]
+  [Path file.Path ..path-size path-is-too-long path from-path path-writer path-parser no-path]
   )
 
 (def: magic-size Size 7)
@@ -215,6 +316,18 @@
       (|>> :representation
            encoding.to-utf8
            (format.segment padded-size))))
+
+  (def: magic-parser
+    (Parser Magic)
+    (do <>.monad
+      [string (<b>.segment ..magic-size)
+       end <b>.bits/8
+       #let [expected (`` (char (~~ (static ..null))))]
+       _ (<>.assert (exception.construct ..wrong-character [expected end])
+                    (n.= expected end))]
+      (<>.lift
+       (:: try.monad map (|>> :abstraction)
+           (encoding.from-utf8 string)))))
   )
 
 (def: block-size Size 512)
@@ -278,29 +391,49 @@
 
   Char
 
-  (def: old-normal
-    Link-Flag
-    (:abstraction 0))
-
-  (template [<flag> <name>]
-    [(def: <name>
-       Link-Flag
-       (:abstraction (char <flag>)))]
-
-    ["0" normal]
-    ["1" link]
-    ["2" symbolic-link]
-    ["3" character]
-    ["4" block]
-    ["5" directory]
-    ["6" fifo]
-    ["7" contiguous]
-    )
+  (def: link-flag
+    (-> Link-Flag Char)
+    (|>> :representation))
 
   (def: link-flag-writer
     (Writer Link-Flag)
     (|>> :representation
          format.bits/8))
+
+  (with-expansions [<options> (as-is [0 old-normal]
+                                     [(char "0") normal]
+                                     [(char "1") link]
+                                     [(char "2") symbolic-link]
+                                     [(char "3") character]
+                                     [(char "4") block]
+                                     [(char "5") directory]
+                                     [(char "6") fifo]
+                                     [(char "7") contiguous])]
+    (template [<flag> <name>]
+      [(def: <name>
+         Link-Flag
+         (:abstraction <flag>))]
+
+      <options>
+      )
+
+    (exception: #export (invalid-link-flag {value Nat})
+      (exception.report
+       ["Value" (%.nat value)]))
+
+    (def: link-flag-parser
+      (Parser Link-Flag)
+      (do <>.monad
+        [linkflag <b>.bits/8]
+        (case (.nat linkflag)
+          (^template [<value> <link-flag>]
+            (^ <value>)
+            (wrap <link-flag>))
+          (<options>)
+
+          _
+          (<>.lift
+           (exception.throw ..invalid-link-flag [(.nat linkflag)]))))))
   )
 
 (abstract: #export Mode
@@ -308,27 +441,9 @@
 
   Nat
 
-  (template [<code> <name>]
-    [(def: #export <name>
-       Mode
-       (:abstraction (number.oct <code>)))]
-
-    ["0001" execute-by-other]
-    ["0002" write-by-other]
-    ["0004" read-by-other]
-
-    ["0010" execute-by-group]
-    ["0020" write-by-group]
-    ["0040" read-by-group]
-
-    ["0100" execute-by-owner]
-    ["0200" write-by-owner]
-    ["0400" read-by-owner]
-
-    ["1000" save-text]
-    ["2000" set-group-id-on-execution]
-    ["4000" set-user-id-on-execution]
-    )
+  (def: #export mode
+    (-> Mode Nat)
+    (|>> :representation))
 
   (def: #export (and left right)
     (-> Mode Mode Mode)
@@ -342,6 +457,67 @@
          ..small
          try.assume
          ..small-writer))
+
+  (exception: #export (invalid-mode {value Nat})
+    (exception.report
+     ["Value" (%.nat value)]))
+
+  (with-expansions [<options> (as-is ["0000" none]
+                                     
+                                     ["0001" execute-by-other]
+                                     ["0002" write-by-other]
+                                     ["0004" read-by-other]
+
+                                     ["0010" execute-by-group]
+                                     ["0020" write-by-group]
+                                     ["0040" read-by-group]
+
+                                     ["0100" execute-by-owner]
+                                     ["0200" write-by-owner]
+                                     ["0400" read-by-owner]
+
+                                     ["1000" save-text]
+                                     ["2000" set-group-id-on-execution]
+                                     ["4000" set-user-id-on-execution])]
+    (template [<code> <name>]
+      [(def: #export <name>
+         Mode
+         (:abstraction (number.oct <code>)))]
+
+      <options>
+      )
+
+    (def: maximum-mode
+      Mode
+      ($_ and
+          ..none
+          
+          ..execute-by-other
+          ..write-by-other
+          ..read-by-other
+
+          ..execute-by-group
+          ..write-by-group
+          ..read-by-group
+
+          ..execute-by-owner
+          ..write-by-owner
+          ..read-by-owner
+
+          ..save-text
+          ..set-group-id-on-execution
+          ..set-user-id-on-execution
+          ))
+
+    (def: mode-parser
+      (Parser Mode)
+      (do {@ <>.monad}
+        [value (:: @ map ..from-small ..small-parser)]
+        (if (n.<= (:representation ..maximum-mode)
+                  value)
+          (wrap (:abstraction value))
+          (<>.lift
+           (exception.throw ..invalid-mode [value]))))))
   )
 
 (def: maximum-content-size
@@ -350,7 +526,7 @@
       (list.repeat ..content-size)
       (list@fold n.* 1)))
 
-(abstract: Content
+(abstract: #export Content
   {}
 
   [Big Binary]
@@ -364,6 +540,10 @@
   (def: from-content
     (-> Content [Big Binary])
     (|>> :representation))
+
+  (def: #export data
+    (-> Content Binary)
+    (|>> :representation product.right))
   )
 
 (type: #export ID
@@ -384,14 +564,16 @@
 (type: #export File
   [Path Instant Mode Ownership Content])
 
-(type: #export Directory
-  Path)
+(type: #export Normal File)
+(type: #export Symbolic-Link Path)
+(type: #export Directory Path)
+(type: #export Contiguous File)
 
 (type: #export Entry
-  (#Normal File)
-  (#Symbolic-Link Path)
-  (#Directory Directory)
-  (#Contiguous File))
+  (#Normal ..Normal)
+  (#Symbolic-Link ..Symbolic-Link)
+  (#Directory ..Directory)
+  (#Contiguous ..Contiguous))
 
 (type: #export Device
   Small)
@@ -456,11 +638,10 @@
   (let [checksum (|> header
                      (set@ #checksum ..dummy-checksum)
                      (format.run ..header-writer')
-                     ..checksum)
-        data (|> header
-                 (set@ #checksum checksum)
-                 (format.run ..header-writer'))]
-    (|> data
+                     ..checksum-code)]
+    (|> header
+        (set@ #checksum checksum)
+        (format.run ..header-writer')
         (format.segment ..block-size))))
 
 (def: modification-time
@@ -523,7 +704,7 @@
     #minor-device ..no-device}))
 
 (def: (directory-writer path)
-  (Writer Directory)
+  (Writer Path)
   (..header-writer
    {#path path
     #mode ($_ ..and
@@ -563,3 +744,144 @@
                             format@identity
                             tar)
                   (format.segment ..end-of-archive-size ..end-of-archive)))
+
+(exception: #export (wrong-checksum {expected Nat} {actual Nat})
+  (exception.report
+   ["Expected" (%.nat expected)]
+   ["Actual" (%.nat actual)]))
+
+(def: header-padding-size
+  (n.- header-size block-size))
+
+## When the checksum gets originally calculated, the assumption is that all the characters in the checksum field
+## of the header will be spaces.
+## This means that just calculating the checksum of the 512 bytes of the header, when reading them, would yield
+## an incorrect result, as the contents of the checksum field would be an actual checksum, instead of just spaces.
+## To correct for this, it is necessary to calculate the checksum of just the checksum field, subtract that, and then
+## add-in the checksum of the spaces.
+(def: (expected-checksum checksum header)
+  (-> Checksum Binary Nat)
+  (let [|checksum| (|> checksum ..from-checksum encoding.to-utf8 ..checksum)]
+    (|> (..checksum header)
+        (n.- |checksum|)
+        (n.+ ..checksum-checksum))))
+
+(def: header-parser
+  (Parser Header)
+  (do <>.monad
+    [binary-header (<>.speculative (<b>.segment block-size))
+     path ..path-parser
+     mode ..mode-parser
+     user-id ..small-parser
+     group-id ..small-parser
+     size ..big-parser
+     modification-time ..big-parser
+     [actual checksum-code] ..checksum-parser
+     _ (let [expected (expected-checksum checksum-code binary-header)]
+         (<>.lift
+          (exception.assert ..wrong-checksum [expected actual]
+                            (n.= expected actual))))
+     link-flag ..link-flag-parser
+     link-name ..path-parser
+     magic ..magic-parser
+     user-name ..name-parser
+     group-name ..name-parser
+     major-device ..small-parser
+     minor-device ..small-parser
+     _ (<b>.segment ..header-padding-size)]
+    (wrap {#path path
+           #mode mode
+           #user-id user-id
+           #group-id group-id
+           #size size
+           #modification-time modification-time
+           #checksum checksum-code
+           #link-flag link-flag
+           #link-name link-name
+           #magic magic
+           #user-name user-name
+           #group-name group-name
+           #major-device major-device
+           #minor-device minor-device})))
+
+(exception: #export (wrong-link-flag {expected Link-Flag} {actual Link-Flag})
+  (exception.report
+   ["Expected" (%.nat (..link-flag expected))]
+   ["Actual" (%.nat (..link-flag actual))]))
+
+(def: (file-parser expected)
+  (-> Link-Flag (Parser File))
+  (do <>.monad
+    [header ..header-parser
+     _ (<>.assert (exception.construct ..wrong-link-flag [expected (get@ #link-flag header)])
+                  (is? expected (get@ #link-flag header)))
+     #let [size (get@ #size header)
+           rounded-size (..rounded-content-size size)]
+     content (<b>.segment (..from-big size))
+     content (<>.lift (..content content))
+     _ (<b>.segment (n.- (..from-big size) rounded-size))]
+    (wrap [(get@ #path header)
+           (|> header
+               (get@ #modification-time)
+               ..from-big
+               .int
+               duration.from-millis
+               (duration.scale-up (|> duration.second duration.to-millis .nat))
+               instant.absolute)
+           (get@ #mode header)
+           {#user {#name (get@ #user-name header)
+                   #id (get@ #user-id header)}
+            #group {#name (get@ #group-name header)
+                    #id (get@ #group-id header)}}
+           content])))
+
+(def: (file-name-parser expected extractor)
+  (-> Link-Flag (-> Header Path) (Parser Path))
+  (do <>.monad
+    [header ..header-parser
+     _ (<>.lift
+        (exception.assert ..wrong-link-flag [expected (get@ #link-flag header)]
+                          (n.= (..link-flag expected)
+                               (..link-flag (get@ #link-flag header)))))]
+    (wrap (extractor header))))
+
+(def: entry-parser
+  (Parser Entry)
+  ($_ <>.either
+      (:: <>.monad map (|>> #..Normal)
+          (<>.either (..file-parser ..normal)
+                     (..file-parser ..old-normal)))
+      (:: <>.monad map (|>> #..Symbolic-Link)
+          (..file-name-parser ..symbolic-link (get@ #link-name)))
+      (:: <>.monad map (|>> #..Directory)
+          (..file-name-parser ..directory (get@ #path)))
+      (:: <>.monad map (|>> #..Contiguous)
+          (..file-parser ..contiguous))))
+
+## It's safe to implement the parser this way because the range of values for Nat is 2^64
+## Whereas the maximum possible value for the checksum of a 512 block is (256 × 512) = 131,072
+(def: end-of-archive-block-parser
+  (Parser Any)
+  (do <>.monad
+    [block (<b>.segment ..block-size)]
+    (let [actual (..checksum block)]
+      (<>.lift
+       (exception.assert ..wrong-checksum [0 actual]
+                         (n.= 0 actual))))))
+
+(exception: #export invalid-end-of-archive)
+
+(def: end-of-archive-parser
+  (Parser Any)
+  (do <>.monad
+    [_ (<>.at-most 2 end-of-archive-block-parser)
+     done? <b>.end?]
+    (<>.lift
+     (exception.assert ..invalid-end-of-archive []
+                       done?))))
+
+(def: #export parser
+  (Parser Tar)
+  (|> (<>.some entry-parser)
+      (:: <>.monad map row.from-list)
+      (<>.before ..end-of-archive-parser)))

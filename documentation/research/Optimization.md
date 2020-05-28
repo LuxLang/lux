@@ -8,6 +8,7 @@
 
 # Reference
 
+1. [A Language for Describing Optimization Strategies](https://arxiv.org/abs/2002.02268)
 1. https://docs.google.com/presentation/d/1tpeJZFObkeick4CF-mx0L3CeCgvT15B96aJeRpxEPcE/preview?slide=id.p
 1. https://www.quora.com/What-is-the-future-of-optimizing-compilers?share=1
 1. https://advancedweb.hu/2016/05/27/jvm_jit_optimization_techniques/ &&& https://advancedweb.hu/2016/06/28/jvm_jit_optimization_techniques_part_2/

@@ -160,6 +160,8 @@
 
 # Geometric Algebra | Clifford Algebra
 
+1. [Siggraph2019 Geometric Algebra](https://www.youtube.com/watch?v=tX4H_ctggYo)
+1. [Introduction to Clifford Algebra](https://www.av8n.com/physics/clifford-intro.htm)
 1. [An Introduction to Geometric Algebra over R^2](https://bitworking.org/news/ga/2d)
 1. [Exterior Product](https://medium.com/@marksaroufim/exterior-product-ecd5836c28ab)
 1. [Projective geometric algebra: A modern framework for doing geometry](http://page.math.tu-berlin.de/~gunn/PGA/index.html)

@@ -1,5 +1,6 @@
 # Reference
 
+1. [Profunctor optics, a categorical update](https://arxiv.org/abs/2001.07488)
 1. [On Lawful Lenses](https://blog.statebox.org/on-lawful-lenses-6e18a1e17bdf)
 1. https://medium.com/urbint-engineering/haskell-lens-operator-onboarding-a235481e8fac
 1. https://fstarlang.github.io/general/2018/01/12/lens-indexed-lenses.html

@@ -26,6 +26,7 @@
 
 # Reference
 
+1. [Relative Pointers](https://www.gingerbill.org/article/2020/05/17/relative-pointers/)
 1. [Scopes Describe Frames: A Uniform Model for Memory Layout in Dynamic Semantics](http://drops.dagstuhl.de/opus/volltexte/2016/6114/)
 1. https://uridiumauthor.blogspot.com/2018/06/memory-management.html
 1. https://github.com/mtrebi/memory-allocators

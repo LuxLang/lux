@@ -19,6 +19,7 @@
 
 ## Operating system
 
+1. [CLOSOS: Specication of a Lisp operating system.](http://metamodular.com/lispos.pdf)
 1. [CLOSOS: Specication of a Lisp operating system.](http://metamodular.com/closos.pdf)
 1. https://medium.com/@jasonyuan/introducing-mercury-os-f4de45a04289
 1. http://lsneff.me/why-nebulet/ ||| https://github.com/nebulet/nebulet
