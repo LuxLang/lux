@@ -49,8 +49,9 @@
     ## ["." interpreter]
     ]]
   ["." / #_
-   ["#." cli (#+ Configuration)]
-   ["#." static (#+ Static)]])
+   ["#." cli (#+ Service)]
+   ["#." static (#+ Static)]
+   ["#." export]])
 
 (def: (or-crash! failure-description action)
   (All [a]
@@ -70,7 +71,7 @@
 (with-expansions [<parameters> (as-is anchor expression artifact)]
   (def: #export (compiler static
                           expander host-analysis platform generation-bundle host-directive-bundle program extender
-                          configuration
+                          service
                           packager,package)
     (All [<parameters>]
       (-> Static
@@ -81,7 +82,7 @@
           (directive.Bundle <parameters>)
           (-> expression artifact)
           Extender
-          Configuration
+          Service
           [(-> (Row [Module (generation.Buffer artifact)]) Binary) Path]
           (Promise Any)))
     (do {@ promise.monad}
@@ -89,27 +90,36 @@
        console (|> console.system
                    promise.future
                    (:: @ map (|>> try.assume console.async)))]
-      (case (get@ #/cli.service configuration)
-        #/cli.Compilation
+      (case service
+        (#/cli.Compilation compilation)
         (<| (or-crash! "Compilation failed:")
             (do (try.with promise.monad)
-              [[state archive] (:share [<parameters>]
+              [#let [[compilation-sources compilation-target compilation-module] compilation]
+               [state archive] (:share [<parameters>]
                                        {(Platform <parameters>)
                                         platform}
                                        {(Promise (Try [(directive.State+ <parameters>)
                                                        Archive]))
-                                        (:assume (platform.initialize static (get@ #/cli.module configuration) expander host-analysis platform generation-bundle host-directive-bundle program extender))})
+                                        (:assume (platform.initialize static compilation-module expander host-analysis platform generation-bundle host-directive-bundle program extender))})
                [archive state] (:share [<parameters>]
                                        {(Platform <parameters>)
                                         platform}
                                        {(Promise (Try [Archive (directive.State+ <parameters>)]))
-                                        (:assume (platform.compile static expander platform configuration [archive state]))})
+                                        (:assume (platform.compile static expander platform compilation [archive state]))})
                _ (ioW.freeze (get@ #platform.&file-system platform) (get@ #/static.host static) (get@ #/static.target static) archive)]
               (wrap (log! "Compilation complete!"))))
+
+        (#/cli.Export export)
+        (<| (or-crash! "Export failed:")
+            (do (try.with promise.monad)
+              [_ (/export.export (get@ #platform.&file-system platform)
+                                 (get@ #/static.host-module-extension static)
+                                 export)]
+              (wrap (log! "Export complete!"))))
         
-        #/cli.Interpretation
+        (#/cli.Interpretation interpretation)
         ## TODO: Fix the interpreter...
         (undefined)
         ## (<| (or-crash! "Interpretation failed:")
-        ##     (interpreter.run (try.with promise.monad) console platform configuration generation-bundle))
+        ##     (interpreter.run (try.with promise.monad) console platform interpretation generation-bundle))
         ))))

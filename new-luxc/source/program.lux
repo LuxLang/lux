@@ -10,7 +10,7 @@
     [parser
      [cli (#+ program:)]]
     [concurrency
-     [promise (#+ Promise)]]]
+     ["." promise (#+ Promise)]]]
    [data
     ["." product]
     [text
@@ -147,20 +147,34 @@
              (host.array-write 3 (:coerce java/lang/Object state)))
          method))))
 
-(program: [{configuration /cli.configuration}]
-  (let [jar-path (format (get@ #/cli.target configuration) (:: file.system separator) "program.jar")]
-    (exec (/.compiler {#/static.host @.jvm
-                       #/static.host-module-extension ".jvm"
-                       #/static.target (get@ #/cli.target configuration)
-                       #/static.artifact-extension ".class"}
-                      ..expander
-                      analysis.bundle
-                      ..platform
-                      ## generation.bundle
-                      translation.bundle
-                      (directive.bundle ..extender)
-                      jvm/program.program
-                      ..extender
-                      configuration
-                      [(packager.package jvm/program.class) jar-path])
+(def: (target service)
+  (-> /cli.Service /cli.Target)
+  (case service
+    (^or (#/cli.Compilation [sources target module])
+         (#/cli.Interpretation [sources target module])
+         (#/cli.Export [sources target]))
+    target))
+
+(def: (declare-success! _)
+  (-> Any (Promise Any))
+  (promise.future (io.exit +0)))
+
+(program: [{service /cli.service}]
+  (let [jar-path (format (..target service) (:: file.system separator) "program.jar")]
+    (exec (do promise.monad
+            [_ (/.compiler {#/static.host @.jvm
+                            #/static.host-module-extension ".jvm"
+                            #/static.target (..target service)
+                            #/static.artifact-extension ".class"}
+                           ..expander
+                           analysis.bundle
+                           ..platform
+                           ## generation.bundle
+                           translation.bundle
+                           (directive.bundle ..extender)
+                           jvm/program.program
+                           ..extender
+                           service
+                           [(packager.package jvm/program.class) jar-path])]
+            (..declare-success! []))
       (io.io []))))

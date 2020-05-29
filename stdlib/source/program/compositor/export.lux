@@ -1,0 +1,60 @@
+(.module:
+  [lux #*
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    ["." try (#+ Try)]
+    [concurrency
+     ["." promise (#+ Promise) ("#@." monad)]]
+    [security
+     ["!" capability]]]
+   [data
+    [text
+     ["%" format (#+ format)]]
+    [collection
+     ["." dictionary]
+     ["." row]]
+    [format
+     ["." binary]
+     ["." tar]]]
+   [time
+    ["." instant]]
+   [tool
+    [compiler
+     [meta
+      ["." io #_
+       ["#" context (#+ Extension)]]]]]
+   [world
+    ["." file]]]
+  [//
+   [cli (#+ Export)]])
+
+(def: no-ownership
+  tar.Ownership
+  (let [commons (: tar.Owner
+                   {#tar.name tar.anonymous
+                    #tar.id tar.no-id})]
+    {#tar.user commons
+     #tar.group commons}))
+
+(def: #export (export system extension [sources target])
+  (-> (file.System Promise) Extension Export (Promise (Try Any)))
+  (let [package (format target (:: system separator) "library.tar")]
+    (do (try.with promise.monad)
+      [package (: (Promise (Try (file.File Promise)))
+                  (file.get-file promise.monad system package))
+       files (io.enumerate system extension sources)
+       tar (|> (dictionary.entries files)
+               (monad.map try.monad
+                          (function (_ [path source-code])
+                            (do try.monad
+                              [path (tar.path path)
+                               source-code (tar.content source-code)]
+                              (wrap (#tar.Normal [path
+                                                  (instant.from-millis +0)
+                                                  tar.none
+                                                  ..no-ownership
+                                                  source-code])))))
+               (:: try.monad map (|>> row.from-list (binary.run tar.writer)))
+               promise@wrap)]
+      (!.use (:: package over-write) tar))))

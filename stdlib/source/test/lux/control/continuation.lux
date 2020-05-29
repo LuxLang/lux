@@ -11,78 +11,86 @@
    [data
     [number
      ["n" nat]]
-    [text
-     ["%" format (#+ format)]]
     [collection
      ["." list]]]
    [math
-    ["r" random]]]
+    ["." random]]]
   {1
-   ["." / (#+ Cont)]})
+   ["." /]})
 
 (def: injection
-  (All [o] (Injection (All [i] (Cont i o))))
+  (All [o] (Injection (All [i] (/.Cont i o))))
   (|>> /.pending))
 
 (def: comparison
-  (Comparison Cont)
+  (Comparison /.Cont)
   (function (_ == left right)
     (== (/.run left) (/.run right))))
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /.Cont)))
-      (do r.monad
-        [sample r.nat
+  (<| (_.covering /._)
+      (do random.monad
+        [sample random.nat
          #let [(^open "_@.") /.apply
                (^open "_@.") /.monad]
-         elems (r.list 3 r.nat)]
-        ($_ _.and
-            ($functor.spec ..injection ..comparison /.functor)
-            ($apply.spec ..injection ..comparison /.apply)
-            ($monad.spec ..injection ..comparison /.monad)
+         elems (random.list 3 random.nat)])
+      (_.with-cover [/.Cont])
+      ($_ _.and
+          (_.with-cover [/.functor]
+            ($functor.spec ..injection ..comparison /.functor))
+          (_.with-cover [/.apply]
+            ($apply.spec ..injection ..comparison /.apply))
+          (_.with-cover [/.monad]
+            ($monad.spec ..injection ..comparison /.monad))
 
-            (_.test "Can run continuations to compute their values."
-                    (n.= sample (/.run (_@wrap sample))))
+          (_.cover [/.run]
+                   (n.= sample (/.run (_@wrap sample))))
+          (_.cover [/.call/cc]
+                   (n.= (n.* 2 sample)
+                        (/.run (do {@ /.monad}
+                                 [value (/.call/cc
+                                         (function (_ k)
+                                           (do @
+                                             [temp (k sample)]
+                                             ## If this code where to run,
+                                             ## the output would be
+                                             ## (n.* 4 sample)
+                                             (k temp))))]
+                                 (wrap (n.* 2 value))))))
+          (_.cover [/.portal]
+                   (n.= (n.+ 100 sample)
+                        (/.run (do /.monad
+                                 [[restart [output idx]] (/.portal [sample 0])]
+                                 (if (n.< 10 idx)
+                                   (restart [(n.+ 10 output) (inc idx)])
+                                   (wrap output))))))
+          (_.cover [/.shift /.reset]
+                   (let [(^open "_@.") /.monad
+                         (^open "list@.") (list.equivalence n.equivalence)
+                         visit (: (-> (List Nat)
+                                      (/.Cont (List Nat) (List Nat)))
+                                  (function (visit xs)
+                                    (case xs
+                                      #.Nil
+                                      (_@wrap #.Nil)
 
-            (_.test "Can use the current-continuation as a escape hatch."
-                    (n.= (n.* 2 sample)
-                         (/.run (do {@ /.monad}
-                                  [value (/.call/cc
-                                          (function (_ k)
-                                            (do @
-                                              [temp (k sample)]
-                                              ## If this code where to run,
-                                              ## the output would be
-                                              ## (n.* 4 sample)
-                                              (k temp))))]
-                                  (wrap (n.* 2 value))))))
-
-            (_.test "Can use the current-continuation to build a time machine."
-                    (n.= (n.+ 100 sample)
-                         (/.run (do /.monad
-                                  [[restart [output idx]] (/.portal [sample 0])]
-                                  (if (n.< 10 idx)
-                                    (restart [(n.+ 10 output) (inc idx)])
-                                    (wrap output))))))
-
-            (_.test "Can use delimited continuations with shifting."
-                    (let [(^open "_@.") /.monad
-                          (^open "list@.") (list.equivalence n.equivalence)
-                          visit (: (-> (List Nat)
-                                       (Cont (List Nat) (List Nat)))
-                                   (function (visit xs)
-                                     (case xs
-                                       #.Nil
-                                       (_@wrap #.Nil)
-
-                                       (#.Cons x xs')
-                                       (do {@ /.monad}
-                                         [output (/.shift (function (_ k)
-                                                            (do @
-                                                              [tail (k xs')]
-                                                              (wrap (#.Cons x tail)))))]
-                                         (visit output)))))]
-                      (list@= elems
-                              (/.run (/.reset (visit elems))))))
-            ))))
+                                      (#.Cons x xs')
+                                      (do {@ /.monad}
+                                        [output (/.shift (function (_ k)
+                                                           (do @
+                                                             [tail (k xs')]
+                                                             (wrap (#.Cons x tail)))))]
+                                        (visit output)))))]
+                     (list@= elems
+                             (/.run (/.reset (visit elems))))))
+          (_.cover [/.continue]
+                   (/.continue (is? sample)
+                               (: (/.Cont Nat Bit)
+                                  (function (_ next)
+                                    (next sample)))))
+          (_.cover [/.pending]
+                   (/.continue (is? sample)
+                               (: (/.Cont Nat Bit)
+                                  (/.pending sample))))
+          )))

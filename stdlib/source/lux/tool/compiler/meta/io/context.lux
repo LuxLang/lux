@@ -2,7 +2,8 @@
   [lux (#- Module Code)
    ["@" target]
    [abstract
-    [monad (#+ Monad do)]]
+    [predicate (#+ Predicate)]
+    ["." monad (#+ Monad do)]]
    [control
     ["." try (#+ Try)]
     ["." exception (#+ Exception exception:)]
@@ -14,7 +15,9 @@
     [binary (#+ Binary)]
     ["." text ("#@." hash)
      ["%" format (#+ format)]
-     ["." encoding]]]
+     ["." encoding]]
+    [collection
+     ["." dictionary (#+ Dictionary)]]]
    [world
     ["." file (#+ Path File)]]]
   ["." // (#+ Context Code)
@@ -55,7 +58,7 @@
     (#.Cons context contexts')
     (do promise.monad
       [#let [path (format (..path system context module) extension)]
-       file (!.use (:: system file) path)]
+       file (!.use (:: system file) [path])]
       (case file
         (#try.Success file)
         (wrap (#try.Success [path file]))
@@ -63,20 +66,23 @@
         (#try.Failure _)
         (find-source-file system contexts' module extension)))))
 
+(def: (full-host-extension partial-host-extension)
+  (-> Extension Extension)
+  (format partial-host-extension ..lux-extension))
+
 (def: #export (find-any-source-file system contexts partial-host-extension module)
   (-> (file.System Promise) (List Context) Extension Module
       (Promise (Try [Path (File Promise)])))
-  (let [full-host-extension (format partial-host-extension lux-extension)]
-    ## Preference is explicitly being given to Lux files that have a host extension.
-    ## Normal Lux files (i.e. without a host extension) are then picked as fallback files.
-    (do promise.monad
-      [outcome (find-source-file system contexts module full-host-extension)]
-      (case outcome
-        (#try.Success output)
-        (wrap outcome)
+  ## Preference is explicitly being given to Lux files that have a host extension.
+  ## Normal Lux files (i.e. without a host extension) are then picked as fallback files.
+  (do promise.monad
+    [outcome (find-source-file system contexts module (..full-host-extension partial-host-extension))]
+    (case outcome
+      (#try.Success output)
+      (wrap outcome)
 
-        (#try.Failure _)
-        (find-source-file system contexts module ..lux-extension)))))
+      (#try.Failure _)
+      (find-source-file system contexts module ..lux-extension))))
 
 (def: #export (read system contexts partial-host-extension module)
   (-> (file.System Promise) (List Context) Extension Module
@@ -93,3 +99,59 @@
       
       (#try.Failure _)
       (promise@wrap (exception.throw ..cannot-read-module [module])))))
+
+(type: #export Enumeration
+  (Dictionary Path Binary))
+
+(exception: #export (cannot-clean-path {prefix Path} {path Path})
+  (exception.report
+   ["Prefix" (%.text prefix)]
+   ["Path" (%.text path)]))
+
+(def: (clean-path system context path)
+  (All [!] (-> (file.System !) Context Path (Try Path)))
+  (let [prefix (format context (:: system separator))]
+    (case (text.split-with prefix path)
+      #.None
+      (exception.throw ..cannot-clean-path [prefix path])
+      
+      (#.Some [_ path])
+      (#try.Success path))))
+
+(def: (enumerate-context system partial-host-extension context enumeration)
+  (-> (file.System Promise) Extension Context Enumeration
+      (Promise (Try Enumeration)))
+  (do {@ (try.with promise.monad)}
+    [directory (!.use (:: system directory) [context])]
+    (loop [directory directory
+           enumeration enumeration]
+      (do @
+        [files (!.use (:: directory files) [])
+         enumeration (monad.fold @ (let [full-host-extension (..full-host-extension partial-host-extension)]
+                                     (function (_ file enumeration)
+                                       (let [path (!.use (:: file path) [])]
+                                         (if (or (text.ends-with? full-host-extension path)
+                                                 (text.ends-with? ..lux-extension path))
+                                           (do @
+                                             [path (promise@wrap (..clean-path system context path))
+                                              source-code (!.use (:: file content) [])]
+                                             (promise@wrap
+                                              (dictionary.try-put path source-code enumeration)))
+                                           (wrap enumeration)))))
+                                 enumeration
+                                 files)
+         directories (!.use (:: directory directories) [])]
+        (monad.fold @ recur enumeration directories)))))
+
+(def: Action
+  (type (All [a] (Promise (Try a)))))
+
+(def: #export (enumerate system partial-host-extension contexts)
+  (-> (file.System Promise) Extension (List Context)
+      (Action Enumeration))
+  (monad.fold (: (Monad Action)
+                 (try.with promise.monad))
+              (enumerate-context system partial-host-extension)
+              (: Enumeration
+                 (dictionary.new text.hash))
+              contexts))
