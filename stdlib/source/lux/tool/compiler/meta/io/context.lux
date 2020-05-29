@@ -6,7 +6,7 @@
     ["." monad (#+ Monad do)]]
    [control
     ["." try (#+ Try)]
-    ["." exception (#+ Exception exception:)]
+    ["." exception (#+ exception:)]
     [security
      ["!" capability]]
     [concurrency
@@ -20,6 +20,9 @@
      ["." dictionary (#+ Dictionary)]]]
    [world
     ["." file (#+ Path File)]]]
+  [program
+   [compositor
+    [import (#+ Import)]]]
   ["." // (#+ Context Code)
    ["/#" // #_
     [archive
@@ -70,26 +73,60 @@
   (-> Extension Extension)
   (format partial-host-extension ..lux-extension))
 
-(def: #export (find-any-source-file system contexts partial-host-extension module)
-  (-> (file.System Promise) (List Context) Extension Module
-      (Promise (Try [Path (File Promise)])))
+(def: (find-local-source-file system import contexts partial-host-extension module)
+  (-> (file.System Promise) Import (List Context) Extension Module
+      (Promise (Try [Path Binary])))
   ## Preference is explicitly being given to Lux files that have a host extension.
   ## Normal Lux files (i.e. without a host extension) are then picked as fallback files.
-  (do promise.monad
-    [outcome (find-source-file system contexts module (..full-host-extension partial-host-extension))]
+  (do {@ promise.monad}
+    [outcome (..find-source-file system contexts module (..full-host-extension partial-host-extension))]
     (case outcome
-      (#try.Success output)
+      (#try.Success [path file])
+      (do (try.with @)
+        [data (!.use (:: file content) [])]
+        (wrap [path data]))
+
+      (#try.Failure _)
+      (do (try.with @)
+        [[path file] (..find-source-file system contexts module ..lux-extension)
+         data (!.use (:: file content) [])]
+        (wrap [path data])))))
+
+(def: (find-library-source-file import partial-host-extension module)
+  (-> Import Extension Module (Try [Path Binary]))
+  (let [path (format module (..full-host-extension partial-host-extension))]
+    (case (dictionary.get path import)
+      (#.Some data)
+      (#try.Success [path data])
+
+      #.None
+      (let [path (format module ..lux-extension)]
+        (case (dictionary.get path import)
+          (#.Some data)
+          (#try.Success [path data])
+
+          #.None
+          (exception.throw ..cannot-find-module [module]))))))
+
+(def: (find-any-source-file system import contexts partial-host-extension module)
+  (-> (file.System Promise) Import (List Context) Extension Module
+      (Promise (Try [Path Binary])))
+  ## Preference is explicitly being given to Lux files that have a host extension.
+  ## Normal Lux files (i.e. without a host extension) are then picked as fallback files.
+  (do {@ promise.monad}
+    [outcome (find-local-source-file system import contexts partial-host-extension module)]
+    (case outcome
+      (#try.Success [path data])
       (wrap outcome)
 
       (#try.Failure _)
-      (find-source-file system contexts module ..lux-extension))))
+      (wrap (..find-library-source-file import partial-host-extension module)))))
 
-(def: #export (read system contexts partial-host-extension module)
-  (-> (file.System Promise) (List Context) Extension Module
+(def: #export (read system import contexts partial-host-extension module)
+  (-> (file.System Promise) Import (List Context) Extension Module
       (Promise (Try Input)))
   (do (try.with promise.monad)
-    [[path file] (..find-any-source-file system contexts partial-host-extension module)
-     binary (!.use (:: file content) [])]
+    [[path binary] (..find-any-source-file system import contexts partial-host-extension module)]
     (case (encoding.from-utf8 binary)
       (#try.Success code)
       (wrap {#////.module module

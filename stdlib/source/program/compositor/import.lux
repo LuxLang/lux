@@ -1,0 +1,62 @@
+(.module:
+  [lux #*
+   [abstract
+    ["." monad (#+ Monad do)]]
+   [control
+    ["." try (#+ Try)]
+    ["." exception (#+ exception:)]
+    [concurrency
+     ["." promise (#+ Promise) ("#@." monad)]]
+    [security
+     ["!" capability]]
+    ["<>" parser
+     ["<b>" binary]]]
+   [data
+    [binary (#+ Binary)]
+    ["." text]
+    [collection
+     ["." dictionary (#+ Dictionary)]
+     ["." row]]
+    [format
+     ["." tar]]]
+   [world
+    ["." file (#+ Path File)]]]
+  [//
+   [cli (#+ Library)]])
+
+(def: Action
+  (type (All [a] (Promise (Try a)))))
+
+(exception: #export useless-tar-entry)
+
+(type: #export Import
+  (Dictionary Path Binary))
+
+(def: (import-library system library import)
+  (-> (file.System Promise) Library Import (Action Import))
+  (do (try.with promise.monad)
+    [library (: (Action (File Promise))
+                (!.use (:: system file) [library]))
+     binary (!.use (:: library content) [])]
+    (promise@wrap
+     (do {@ try.monad}
+       [tar (<b>.run tar.parser binary)]
+       (monad.fold @ (function (_ entry import)
+                       (case entry
+                         (#tar.Normal [path instant mode ownership content])
+                         (dictionary.try-put (tar.from-path path)
+                                             (tar.data content)
+                                             import)
+                         
+                         _
+                         (exception.throw ..useless-tar-entry [])))
+                   import
+                   (row.to-list tar))))))
+
+(def: #export (import system libraries)
+  (-> (file.System Promise) (List Library) (Action Import))
+  (monad.fold (: (Monad Action)
+                 (try.with promise.monad))
+              (..import-library system)
+              (dictionary.new text.hash)
+              libraries))

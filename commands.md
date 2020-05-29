@@ -297,6 +297,7 @@ cd ~/lux/new-luxc/ && java -jar target/program.jar repl --source ~/lux/stdlib/so
 ```
 cd ~/lux/new-luxc/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
 cd ~/lux/stdlib/ && lein clean && cd ~/lux/new-luxc/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
+cd ~/lux/stdlib/ && lein clean && cd ~/lux/new-luxc/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --library ~/lux/stdlib/target/library.tar --target ~/lux/stdlib/target --module test/lux
 cd ~/lux/new-luxc/ && java -jar target/program.jar export --source ~/lux/stdlib/source --target ~/lux/stdlib/target
 
 cd ~/lux/stdlib/target/ && java -jar program.jar

@@ -3,21 +3,25 @@
    ["_" test (#+ Test)]
    [abstract
     [equivalence (#+ Equivalence)]
-    [monad (#+ do)]]
+    [monad (#+ do)]
+    {[0 #spec]
+     [/
+      [functor
+       ["." contravariant]]]}]
    [control
     ["." function]]
    [data
     ["." bit ("#@." equivalence)]
-    [text
-     ["%" format (#+ format)]]
     [number
-     ["n" nat]]]
+     ["n" nat]]
+    [collection
+     ["." list]]]
    [math
-    ["r" random (#+ Random)]]]
+    ["." random (#+ Random)]]]
   ["." // #_
    ["#." monoid]]
   {1
-   ["." / (#+ Predicate)]})
+   ["." /]})
 
 (def: (multiple? factor)
   (-> Nat (/.Predicate Nat))
@@ -27,41 +31,62 @@
 
 (def: #export test
   Test
-  (let [/2? (multiple? 2)
-        /3? (multiple? 3)]
-    (<| (_.context (%.name (name-of /.Predicate)))
-        (do {@ r.monad}
-          [sample r.nat])
-        ($_ _.and
-            (_.test (%.name (name-of /.none))
-                    (bit@= false (/.none sample)))
-            (_.test (%.name (name-of /.all))
-                    (bit@= true (/.all sample)))
-            (_.test (%.name (name-of /.unite))
-                    (bit@= (/.all sample)
-                           ((/.unite /.none /.all) sample)))
-            (_.test (%.name (name-of /.intersect))
-                    (bit@= (/.none sample)
-                           ((/.intersect /.none /.all) sample)))
-            (_.test (%.name (name-of /.complement))
-                    (and (not (bit@= (/.none sample)
-                                     ((/.complement /.none) sample)))
-                         (not (bit@= (/.all sample)
-                                     ((/.complement /.all) sample)))))
-            (_.test (%.name (name-of /.difference))
-                    (bit@= (and (/2? sample)
-                                (not (/3? sample)))
-                           ((/.difference /3? /2?) sample)))
-            (let [equivalence (: (Equivalence (/.Predicate Nat))
-                                 (structure
-                                  (def: (= left right)
-                                    (bit@= (left sample)
-                                           (right sample)))))
-                  generator (: (Random (/.Predicate Nat))
-                               (|> r.nat
-                                   (r.filter (|>> (n.= 0) not))
-                                   (:: @ map multiple?)))]
-              ($_ _.and
-                  (//monoid.spec equivalence /.union generator)
-                  (//monoid.spec equivalence /.intersection generator)))
-            ))))
+  (<| (_.covering /._)
+      (do {@ random.monad}
+        [sample random.nat
+         samples (random.list 10 random.nat)
+         #let [equivalence (: (Equivalence (/.Predicate Nat))
+                              (structure
+                               (def: (= left right)
+                                 (bit@= (left sample)
+                                        (right sample)))))]])
+      (_.with-cover [/.Predicate])
+      ($_ _.and
+          (_.with-cover [/.functor]
+            (contravariant.spec equivalence (multiple? 2) /.functor))
+          (let [generator (: (Random (/.Predicate Nat))
+                             (|> random.nat
+                                 (random.filter (|>> (n.= 0) not))
+                                 (:: @ map multiple?)))]
+            ($_ _.and
+                (_.with-cover [/.union]
+                  (//monoid.spec equivalence /.union generator))
+                (_.with-cover [/.intersection]
+                  (//monoid.spec equivalence /.intersection generator))))
+          
+          (_.cover [/.none]
+                   (bit@= false (/.none sample)))
+          (_.cover [/.all]
+                   (bit@= true (/.all sample)))
+          (_.cover [/.unite]
+                   (bit@= (/.all sample)
+                          ((/.unite /.none /.all) sample)))
+          (_.cover [/.intersect]
+                   (bit@= (/.none sample)
+                          ((/.intersect /.none /.all) sample)))
+          (_.cover [/.complement]
+                   (and (not (bit@= (/.none sample)
+                                    ((/.complement /.none) sample)))
+                        (not (bit@= (/.all sample)
+                                    ((/.complement /.all) sample)))))
+          (_.cover [/.difference]
+                   (let [/2? (multiple? 2)
+                         /3? (multiple? 3)]
+                     (bit@= (and (/2? sample)
+                                 (not (/3? sample)))
+                            ((/.difference /3? /2?) sample))))
+          (_.cover [/.rec]
+                   (let [even? (multiple? 2)
+                         any-even? (: (/.Predicate (List Nat))
+                                      (/.rec (function (_ recur)
+                                               (function (_ values)
+                                                 (case values
+                                                   #.Nil
+                                                   false
+
+                                                   (#.Cons head tail)
+                                                   (or (even? head)
+                                                       (recur tail)))))))]
+                     (bit@= (list.any? even? samples)
+                            (any-even? samples))))
+          )))
