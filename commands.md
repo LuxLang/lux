@@ -270,35 +270,68 @@ cd ~/lux/lux-scheme/ && java -jar target/program.jar build --source ~/lux/stdlib
 
 ---
 
-# New compiler
+# R compiler
 
 ## Test
 
 ```
-cd ~/lux/new-luxc/ && lein lux auto test
-cd ~/lux/new-luxc/ && lein clean && lein lux auto test
+cd ~/lux/lux-r/ && lein lux auto test
+cd ~/lux/lux-r/ && lein clean && lein lux auto test
 ```
 
 ## Build
 
 ```
-cd ~/lux/new-luxc/ && lein lux auto build
-cd ~/lux/new-luxc/ && lein clean && lein lux auto build
+cd ~/lux/lux-r/ && lein lux auto build
+cd ~/lux/lux-r/ && lein clean && lein lux auto build
 ```
 
 # REPL
 
 ```
-cd ~/lux/new-luxc/ && java -jar target/program.jar repl --source ~/lux/stdlib/source --target ~/lux/stdlib/target
+cd ~/lux/lux-r/ && java -jar target/program.jar repl --source ~/lux/stdlib/source --target ~/lux/stdlib/target
 ```
 
 # Try
 
 ```
-cd ~/lux/new-luxc/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
-cd ~/lux/stdlib/ && lein clean && cd ~/lux/new-luxc/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
-cd ~/lux/stdlib/ && lein clean && cd ~/lux/new-luxc/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --library ~/lux/stdlib/target/library.tar --target ~/lux/stdlib/target --module test/lux
-cd ~/lux/new-luxc/ && java -jar target/program.jar export --source ~/lux/stdlib/source --target ~/lux/stdlib/target
+cd ~/lux/lux-r/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
+cd ~/lux/stdlib/ && lein clean && cd ~/lux/lux-r/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
+cd ~/lux/stdlib/ && lein clean && cd ~/lux/lux-r/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --library ~/lux/stdlib/target/library.tar --target ~/lux/stdlib/target --module test/lux
+cd ~/lux/lux-r/ && java -jar target/program.jar export --source ~/lux/stdlib/source --target ~/lux/stdlib/target
+
+cd ~/lux/stdlib/target/ && java -jar program.jar
+```
+
+# JVM compiler
+
+## Test
+
+```
+cd ~/lux/lux-jvm/ && lein lux auto test
+cd ~/lux/lux-jvm/ && lein clean && lein lux auto test
+```
+
+## Build
+
+```
+cd ~/lux/lux-jvm/ && lein lux auto build
+cd ~/lux/lux-jvm/ && lein clean && lein lux auto build
+```
+
+# REPL
+
+```
+cd ~/lux/lux-jvm/ && java -jar target/program.jar repl --source ~/lux/stdlib/source --target ~/lux/stdlib/target
+```
+
+# Try
+
+```
+cd ~/lux/lux-jvm/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
+cd ~/lux/stdlib/ && lein clean && cd ~/lux/lux-jvm/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
+cd ~/lux/stdlib/ && lein clean && cd ~/lux/lux-jvm/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --library ~/lux/stdlib/target/library.tar --target ~/lux/stdlib/target --module test/lux
+cd ~/lux/lux-jvm/ && java -jar target/program.jar export --source ~/lux/stdlib/source --target ~/lux/stdlib/target
 
 cd ~/lux/stdlib/target/ && java -jar program.jar
 ```

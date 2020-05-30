@@ -160,6 +160,7 @@
 
 # Geometric Algebra | Clifford Algebra
 
+1. [Projective Geometric Algebra Done Right](http://terathon.com/blog/projective-geometric-algebra-done-right/)
 1. [Siggraph2019 Geometric Algebra](https://www.youtube.com/watch?v=tX4H_ctggYo)
 1. [Introduction to Clifford Algebra](https://www.av8n.com/physics/clifford-intro.htm)
 1. [An Introduction to Geometric Algebra over R^2](https://bitworking.org/news/ga/2d)

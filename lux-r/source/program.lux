@@ -1,0 +1,180 @@
+(.module:
+  [lux (#- Definition)
+   ["@" target]
+   ["." host (#+ import:)]
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["." io (#+ IO)]
+    ["." try (#+ Try)]
+    [parser
+     [cli (#+ program:)]]
+    [concurrency
+     ["." promise (#+ Promise)]]]
+   [data
+    ["." product]
+    [text
+     ["%" format (#+ format)]]
+    [collection
+     [array (#+ Array)]
+     ["." dictionary]]]
+   [world
+    ["." file]]
+   [target
+    [jvm
+     [bytecode (#+ Bytecode)]]]
+   [tool
+    [compiler
+     [default
+      ["." platform (#+ Platform)]]
+     [language
+      [lux
+       [analysis
+        ["." macro (#+ Expander)]]
+       [phase
+        [extension (#+ Phase Bundle Operation Handler Extender)
+         ["." analysis #_
+          ["#" jvm]]
+         ["." generation #_
+          ["#" jvm]]
+         ## ["." directive #_
+         ##  ["#" jvm]]
+         ]
+        [generation
+         ["." jvm #_
+          ## ["." runtime (#+ Anchor Definition)]
+          ["." packager]
+          ## ["#/." host]
+          ]]]]]]]]
+  [program
+   ["/" compositor
+    ["/." cli]
+    ["/." static]]]
+  [luxc
+   [lang
+    [host
+     ["_" jvm]]
+    ["." directive #_
+     ["#" jvm]]
+    [translation
+     ["." jvm
+      ["." runtime]
+      ["." expression]
+      ["#/." program]
+      ["translation" extension]]]]])
+
+(import: #long java/lang/reflect/Method
+  (invoke [java/lang/Object [java/lang/Object]] #try java/lang/Object))
+
+(import: #long (java/lang/Class c)
+  (getMethod [java/lang/String [(java/lang/Class java/lang/Object)]] #try java/lang/reflect/Method))
+
+(import: #long java/lang/Object
+  (getClass [] (java/lang/Class java/lang/Object)))
+
+(def: _object-class
+  (java/lang/Class java/lang/Object)
+  (host.class-for java/lang/Object))
+
+(def: _apply2-args
+  (Array (java/lang/Class java/lang/Object))
+  (|> (host.array (java/lang/Class java/lang/Object) 2)
+      (host.array-write 0 _object-class)
+      (host.array-write 1 _object-class)))
+
+(def: _apply4-args
+  (Array (java/lang/Class java/lang/Object))
+  (|> (host.array (java/lang/Class java/lang/Object) 4)
+      (host.array-write 0 _object-class)
+      (host.array-write 1 _object-class)
+      (host.array-write 2 _object-class)
+      (host.array-write 3 _object-class)))
+
+(def: #export (expander macro inputs lux)
+  Expander
+  (do try.monad
+    [apply-method (|> macro
+                      (:coerce java/lang/Object)
+                      (java/lang/Object::getClass)
+                      (java/lang/Class::getMethod "apply" _apply2-args))]
+    (:coerce (Try (Try [Lux (List Code)]))
+             (java/lang/reflect/Method::invoke
+              (:coerce java/lang/Object macro)
+              (|> (host.array java/lang/Object 2)
+                  (host.array-write 0 (:coerce java/lang/Object inputs))
+                  (host.array-write 1 (:coerce java/lang/Object lux)))
+              apply-method))))
+
+(def: #export platform
+  ## (IO (Platform Anchor (Bytecode Any) Definition))
+  (IO (Platform _.Anchor _.Inst _.Definition))
+  (do io.monad
+    [## host jvm/host.host
+     host jvm.host]
+    (wrap {#platform.&file-system (file.async file.system)
+           #platform.host host
+           ## #platform.phase jvm.generate
+           #platform.phase expression.translate
+           ## #platform.runtime runtime.generate
+           #platform.runtime runtime.translate
+           #platform.write product.right})))
+
+(def: extender
+  Extender
+  ## TODO: Stop relying on coercions ASAP.
+  (<| (:coerce Extender)
+      (function (@self handler))
+      (:coerce Handler)
+      (function (@self name phase))
+      (:coerce Phase)
+      (function (@self parameters))
+      (:coerce Operation)
+      (function (@self state))
+      (:coerce Try)
+      try.assume
+      (:coerce Try)
+      (do try.monad
+        [method (|> handler
+                    (:coerce java/lang/Object)
+                    (java/lang/Object::getClass)
+                    (java/lang/Class::getMethod "apply" _apply4-args))]
+        (java/lang/reflect/Method::invoke
+         (:coerce java/lang/Object handler)
+         (|> (host.array java/lang/Object 4)
+             (host.array-write 0 (:coerce java/lang/Object name))
+             (host.array-write 1 (:coerce java/lang/Object phase))
+             (host.array-write 2 (:coerce java/lang/Object parameters))
+             (host.array-write 3 (:coerce java/lang/Object state)))
+         method))))
+
+(def: (target service)
+  (-> /cli.Service /cli.Target)
+  (case service
+    (^or (#/cli.Compilation [sources libraries target module])
+         (#/cli.Interpretation [sources libraries target module])
+         (#/cli.Export [sources target]))
+    target))
+
+(def: (declare-success! _)
+  (-> Any (Promise Any))
+  (promise.future (io.exit +0)))
+
+(program: [{service /cli.service}]
+  (let [jar-path (format (..target service) (:: file.system separator) "program.jar")]
+    (exec (do promise.monad
+            [_ (/.compiler {#/static.host @.jvm
+                            #/static.host-module-extension ".jvm"
+                            #/static.target (..target service)
+                            #/static.artifact-extension ".class"}
+                           ..expander
+                           analysis.bundle
+                           ..platform
+                           ## generation.bundle
+                           translation.bundle
+                           (directive.bundle ..extender)
+                           jvm/program.program
+                           ..extender
+                           service
+                           [(packager.package jvm/program.class) jar-path])]
+            (..declare-success! []))
+      (io.io []))))

@@ -4,8 +4,8 @@
 (def sonatype-releases (str sonatype "/service/local/staging/deploy/maven2/"))
 (def sonatype-snapshots (str sonatype "/content/repositories/snapshots/"))
 
-(defproject com.github.luxlang/new-luxc #=(identity version)
-  :description "A re-written compiler for Lux."
+(defproject com.github.luxlang/lux-r #=(identity version)
+  :description "An R compiler for Lux."
   :url ~repo
   :license {:name "Lux License v0.1"
             :url ~(str repo "/blob/master/license.txt")}
