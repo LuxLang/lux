@@ -1,0 +1,135 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   [abstract
+    [equivalence (#+ Equivalence)]
+    [predicate (#+ Predicate)]
+    [monad (#+ do)]
+    {[0 #test]
+     [/
+      ["$." monoid]]}]
+   [control
+    ["." state (#+ State)]]
+   [data
+    ["." product]
+    [number
+     ["n" nat]]
+    [collection
+     ["." list ("#@." functor fold)]]]
+   [math
+    ["." random (#+ Random)]]]
+  {1
+   ["." /]})
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      (do {@ random.monad}
+        [input (|> random.nat (:: @ map (|>> (n.% 6) (n.+ 20))))
+         dummy random.nat
+         shift (|> random.nat (random.filter (|>> (n.= dummy) not)))
+         #let [equivalence (: (Equivalence (/.Mixin (-> Nat Nat)))
+                              (structure
+                               (def: (= left right)
+                                 (n.= ((/.mixin left) input)
+                                      ((/.mixin right) input)))))
+               generator (: (Random (/.Mixin (-> Nat Nat)))
+                            (do @
+                              [output random.nat]
+                              (wrap (function (_ delegate recur input)
+                                      output))))
+               expected (|> (list.indices input)
+                            (list@map inc)
+                            (list@fold n.* 1))]])
+      ($_ _.and
+          (_.with-cover [/.Mixin]
+            ($_ _.and
+                (_.with-cover [/.monoid]
+                  ($monoid.spec equivalence /.monoid generator))
+                
+                (_.cover [/.mixin]
+                         (let [factorial (/.mixin
+                                          (function (_ delegate recur input)
+                                            (case input
+                                              (^or 0 1) 1
+                                              _ (n.* input (recur (dec input))))))]
+                           (n.= expected
+                                (factorial input))))
+                (_.cover [/.inherit]
+                         (let [bottom (: (/.Mixin (-> Nat Nat))
+                                         (function (_ delegate recur input)
+                                           (case input
+                                             (^or 0 1) 1
+                                             _ (delegate input))))
+                               multiplication (: (/.Mixin (-> Nat Nat))
+                                                 (function (_ delegate recur input)
+                                                   (n.* input (recur (dec input)))))
+                               factorial (/.mixin (/.inherit bottom multiplication))]
+                           (n.= expected
+                                (factorial input))))
+                (_.cover [/.nothing]
+                         (let [loop (: (/.Mixin (-> Nat Nat))
+                                       (function (_ delegate recur input)
+                                         (case input
+                                           (^or 0 1) 1
+                                           _ (n.* input (delegate (dec input))))))
+                               left (/.mixin (/.inherit /.nothing loop))
+                               right (/.mixin (/.inherit loop /.nothing))]
+                           (and (n.= expected
+                                     (left input))
+                                (n.= expected
+                                     (right input)))))
+                (_.cover [/.advice]
+                         (let [bottom (: (/.Mixin (-> Nat Nat))
+                                         (function (_ delegate recur input)
+                                           1))
+                               bottom? (: (Predicate Nat)
+                                          (function (_ input)
+                                            (case input
+                                              (^or 0 1) true
+                                              _ false)))
+                               multiplication (: (/.Mixin (-> Nat Nat))
+                                                 (function (_ delegate recur input)
+                                                   (n.* input (recur (dec input)))))
+                               factorial (/.mixin (/.inherit (/.advice bottom? bottom)
+                                                             multiplication))]
+                           (n.= expected
+                                (factorial input))))
+                (_.cover [/.before]
+                         (let [implant (: (-> Nat (State Nat []))
+                                          (function (_ input)
+                                            (function (_ state)
+                                              [shift []])))
+                               meld (: (/.Mixin (-> Nat (State Nat Nat)))
+                                       (function (_ delegate recur input)
+                                         (function (_ state)
+                                           [state (n.+ state input)])))
+                               function (/.mixin (/.inherit (/.before state.monad implant)
+                                                            meld))]
+                           (n.= (n.+ shift input)
+                                (|> input function (state.run dummy) product.right))))
+                (_.cover [/.after]
+                         (let [implant (: (-> Nat Nat (State Nat []))
+                                          (function (_ input output)
+                                            (function (_ state)
+                                              [shift []])))
+                               meld (: (/.Mixin (-> Nat (State Nat Nat)))
+                                       (function (_ delegate recur input)
+                                         (function (_ state)
+                                           [state (n.+ state input)])))
+                               function (/.mixin (/.inherit (/.after state.monad implant)
+                                                            meld))]
+                           (n.= (n.+ dummy input)
+                                (|> input function (state.run dummy) product.right))))
+                ))
+          (_.with-cover [/.Recursive]
+            (_.cover [/.from-recursive]
+                     (let [factorial (/.mixin
+                                      (/.from-recursive
+                                       (function (_ recur input)
+                                         (case input
+                                           (^or 0 1) 1
+                                           _ (n.* input (recur (dec input)))))))]
+                       (n.= expected
+                            (factorial input)))))
+          )))

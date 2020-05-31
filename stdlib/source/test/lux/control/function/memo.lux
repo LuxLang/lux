@@ -1,16 +1,20 @@
 (.module:
   [lux #*
    ["_" test (#+ Test)]
-   [abstract/monad (#+ do)]
-   ["%" data/text/format (#+ format)]
+   [abstract
+    [monad (#+ do)]]
    [control
     ["." io (#+ IO)]
-    ["." state ("#@." monad)]]
+    ["." state (#+ State) ("#@." monad)]]
    [math
-    ["r" random]]
+    ["." random]]
    [data
+    ["." product]
     [number
-     ["n" nat]]]
+     ["n" nat]]
+    [collection
+     ["." dictionary (#+ Dictionary)]
+     ["." list ("#@." functor fold)]]]
    [time
     ["." instant]
     ["." duration (#+ Duration)]]]
@@ -19,14 +23,14 @@
     ["/#" // #_
      ["#" mixin]]]})
 
-(def: (fibonacci fibonacci input)
+(def: (fibonacci recur input)
   (/.Memo Nat Nat)
   (case input
     0 (state@wrap 0)
     1 (state@wrap 1)
     _ (do state.monad
-        [output-1 (fibonacci (n.- 1 input))
-         output-2 (fibonacci (n.- 2 input))]
+        [output-1 (recur (n.- 1 input))
+         output-2 (recur (n.- 2 input))]
         (wrap (n.+ output-1 output-2)))))
 
 (def: (time function input)
@@ -38,20 +42,58 @@
     (wrap [(instant.span before after)
            output])))
 
+(def: milli-seconds
+  (-> Duration Nat)
+  (|>> (duration.query duration.milli-second) .nat))
+
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /.memoization)))
-      (let [fast (/.closed n.hash fibonacci)
-            slow (/.none n.hash ..fibonacci)]
-        (do r.monad
-          [input (wrap 30)
-           #let [prefix (format (%.name (name-of /.memoization)) " => " (%.nat input) " => ")]]
-          (_.test "Memoization makes certain computations faster."
-                  (io.run
-                   (do io.monad
-                     [[fast-time fast-output] (..time fast input)
-                      [slow-time slow-output] (..time slow input)
-                      #let [_ (log! (format prefix "    memoized = " (%.duration fast-time)))
-                            _ (log! (format prefix "non-memoized = " (%.duration slow-time)))]]
-                     (wrap (and (n.= fast-output slow-output)
-                                (:: duration.order < slow-time fast-time))))))))))
+  (<| (_.covering /._)
+      (do {@ random.monad}
+        [input (|> random.nat (:: @ map (|>> (n.% 6) (n.+ 20))))])
+      (_.with-cover [/.Memo])
+      ($_ _.and
+          (_.cover [/.closed /.none]
+                   (io.run
+                    (do io.monad
+                      [#let [slow (/.none n.hash ..fibonacci)
+                             fast (/.closed n.hash fibonacci)]
+                       [slow-time slow-output] (..time slow input)
+                       [fast-time fast-output] (..time fast input)]
+                      (wrap (and (n.= slow-output
+                                      fast-output)
+                                 (n.< (milli-seconds slow-time)
+                                      (milli-seconds fast-time)))))))
+          (_.cover [/.open]
+                   (io.run
+                    (do io.monad
+                      [#let [none (/.none n.hash ..fibonacci)
+                             memory (dictionary.new n.hash)
+                             open (/.open fibonacci)]
+                       [none-time none-output] (..time none input)
+                       [open-time [memory open-output]] (..time open [memory input])
+                       [open-time/+1 _] (..time open [memory (inc input)])]
+                      (wrap (and (n.= none-output
+                                      open-output)
+                                 (n.< (milli-seconds none-time)
+                                      (milli-seconds open-time))
+                                 (n.< (milli-seconds open-time)
+                                      (milli-seconds open-time/+1)))))))
+          (_.cover [/.memoization]
+                   (let [memo (<| //.mixin
+                                  (//.inherit /.memoization)
+                                  (: (//.Mixin (-> Nat (State (Dictionary Nat Nat) Nat)))
+                                     (function (factorial delegate recur input)
+                                       (case input
+                                         (^or 0 1) (:: state.monad wrap 1)
+                                         _ (do state.monad
+                                             [output' (recur (dec input))]
+                                             (wrap (n.* input output')))))))
+                         expected (|> (list.indices input)
+                                      (list@map inc)
+                                      (list@fold n.* 1))
+                         actual (|> (memo input)
+                                    (state.run (dictionary.new n.hash))
+                                    product.right)]
+                     (n.= expected actual)))
+          )))
