@@ -1,6 +1,7 @@
 (.module:
   [lux (#- nat int rev)
    [abstract
+    [equivalence (#+ Equivalence)]
     [monad (#+ do)]]
    [control
     ["." function]
@@ -9,8 +10,12 @@
    [data
     ["." product]
     ["." maybe]
+    ["." bit ("#@." equivalence)]
     [number
-     ["n" nat]]
+     ["n" nat]
+     ["i" int]
+     ["r" rev]
+     ["f" frac]]
     ["." text ("#@." equivalence)
      ["%" format (#+ Format format)]]
     [collection
@@ -21,7 +26,8 @@
    [///
     [arity (#+ Arity)]
     [version (#+ Version)]
-    ["." reference (#+ Register Variable Reference)]
+    ["." reference (#+ Reference)
+     ["." variable (#+ Register Variable)]]
     ["." phase]]])
 
 (type: #export #rec Primitive
@@ -76,6 +82,103 @@
 (type: #export Match
   (Match' Analysis))
 
+(structure: primitive-equivalence
+  (Equivalence Primitive)
+
+  (def: (= reference sample)
+    (case [reference sample]
+      [#Unit #Unit]
+      true
+      
+      (^template [<tag> <=>]
+        [(<tag> reference) (<tag> sample)]
+        (<=> reference sample))
+      ([#Bit bit@=]
+       [#Nat n.=]
+       [#Int i.=]
+       [#Rev r.=]
+       [#Frac f.=]
+       [#Text text@=])
+      
+      _
+      false)))
+
+(structure: (composite-equivalence (^open "/@."))
+  (All [a] (-> (Equivalence a) (Equivalence (Composite a))))
+  
+  (def: (= reference sample)
+    (case [reference sample]
+      [(#Variant [reference-lefts reference-right? reference-value])
+       (#Variant [sample-lefts sample-right? sample-value])]
+      (and (n.= reference-lefts sample-lefts)
+           (bit@= reference-right? sample-right?)
+           (/@= reference-value sample-value))
+      
+      [(#Tuple reference) (#Tuple sample)]
+      (:: (list.equivalence /@=) = reference sample)
+
+      _
+      false)))
+
+(structure: pattern-equivalence
+  (Equivalence Pattern)
+
+  (def: (= reference sample)
+    (case [reference sample]
+      [(#Simple reference) (#Simple sample)]
+      (:: primitive-equivalence = reference sample)
+      
+      [(#Complex reference) (#Complex sample)]
+      (:: (composite-equivalence =) = reference sample)
+
+      [(#Bind reference) (#Bind sample)]
+      (n.= reference sample)
+
+      _
+      false)))
+
+(structure: (branch-equivalence equivalence)
+  (-> (Equivalence Analysis) (Equivalence Branch))
+
+  (def: (= [reference-pattern reference-body] [sample-pattern sample-body])
+    (and (:: pattern-equivalence = reference-pattern sample-pattern)
+         (:: equivalence = reference-body sample-body))))
+
+(structure: #export equivalence
+  (Equivalence Analysis)
+
+  (def: (= reference sample)
+    (case [reference sample]
+      [(#Primitive reference) (#Primitive sample)]
+      (:: primitive-equivalence = reference sample)
+
+      [(#Structure reference) (#Structure sample)]
+      (:: (composite-equivalence =) = reference sample)
+
+      [(#Reference reference) (#Reference sample)]
+      (:: reference.equivalence = reference sample)
+
+      [(#Case [reference-analysis reference-match])
+       (#Case [sample-analysis sample-match])]
+      (and (= reference-analysis sample-analysis)
+           (:: (list.equivalence (branch-equivalence =)) = (#.Cons reference-match) (#.Cons sample-match)))
+
+      [(#Function [reference-environment reference-analysis])
+       (#Function [sample-environment sample-analysis])]
+      (and (= reference-analysis sample-analysis)
+           (:: (list.equivalence variable.equivalence) = reference-environment sample-environment))
+
+      [(#Apply [reference-input reference-abstraction])
+       (#Apply [sample-input sample-abstraction])]
+      (and (= reference-input sample-input)
+           (= reference-abstraction sample-abstraction))
+
+      [(#Extension reference) (#Extension sample)]
+      (:: (extension.equivalence =) = reference sample)
+
+      _
+      false)))
+
 (template [<name> <tag>]
   [(template: #export (<name> content)
      (<tag> content))]
@@ -104,7 +207,7 @@
   (n.= (dec size) tag))
 
 (template: #export (no-op value)
-  (|> 1 #reference.Local #reference.Variable #..Reference
+  (|> 1 #variable.Local #reference.Variable #..Reference
       (#..Function (list))
       (#..Apply value)))
 
@@ -207,12 +310,7 @@
           (text.enclose ["[" "]"])))
     
     (#Reference reference)
-    (case reference
-      (#reference.Variable variable)
-      (reference.%variable variable)
-      
-      (#reference.Constant constant)
-      (%.name constant))
+    (reference.format reference)
     
     (#Case analysis match)
     "{?}"
@@ -221,7 +319,7 @@
     (|> (%analysis body)
         (format " ")
         (format (|> environment
-                    (list@map reference.%variable)
+                    (list@map variable.format)
                     (text.join-with " ")
                     (text.enclose ["[" "]"])))
         (text.enclose ["(" ")"]))

@@ -7,7 +7,9 @@
    [data
     [number
      ["." i32]
-     ["n" nat]]]
+     ["n" nat]]
+    [collection
+     ["." list ("#@." fold)]]]
    [target
     [jvm
      ["_" bytecode (#+ Label Bytecode) ("#@." monad)]
@@ -21,8 +23,9 @@
     ["." synthesis (#+ Path Synthesis)]
     ["." generation]
     [///
-     [reference (#+ Register)]
-     ["." phase ("operation@." monad)]]]])
+     ["." phase ("operation@." monad)]
+     [reference
+      [variable (#+ Register)]]]]])
 
 (def: equals-name
   "equals")
@@ -64,6 +67,25 @@
   ($_ _.compose
       (//runtime.get //runtime.stack-tail)
       (_.checkcast //type.stack)))
+
+(def: (left-projection lefts)
+  (-> Nat (Bytecode Any))
+  ($_ _.compose
+      (_.checkcast //type.tuple)
+      (..int lefts)
+      (.case lefts
+        0
+        _.aaload
+        
+        lefts
+        //runtime.left-projection)))
+
+(def: (right-projection lefts)
+  (-> Nat (Bytecode Any))
+  ($_ _.compose
+      (_.checkcast //type.tuple)
+      (..int lefts)
+      //runtime.right-projection))
 
 (def: (path' stack-depth @else @end phase archive path)
   (-> Nat Label Label (Generator Path))
@@ -138,25 +160,15 @@
      [synthesis.side/right //runtime.right-flag .inc])
 
     (^ (synthesis.member/left lefts))
-    (operation@wrap (.let [optimized-projection (.case lefts
-                                                  0
-                                                  _.aaload
-                                                  
-                                                  lefts
-                                                  //runtime.left-projection)]
-                      ($_ _.compose
-                          ..peek
-                          (_.checkcast //type.tuple)
-                          (..int lefts)
-                          optimized-projection
-                          //runtime.push)))
+    (operation@wrap ($_ _.compose
+                        ..peek
+                        (..left-projection lefts)
+                        //runtime.push))
 
     (^ (synthesis.member/right lefts))
     (operation@wrap ($_ _.compose
                         ..peek
-                        (_.checkcast //type.tuple)
-                        (..int lefts)
-                        //runtime.right-projection
+                        (..right-projection lefts)
                         //runtime.push))
     
     ## Extra optimization
@@ -252,6 +264,21 @@
               inputG
               (_.astore register)
               bodyG))))
+
+(def: #export (get phase archive [path recordS])
+  (Generator [(List synthesis.Member) Synthesis])
+  (do phase.monad
+    [recordG (phase archive recordS)]
+    (wrap (list@fold (function (_ step so-far)
+                       (.let [next (.case step
+                                     (#.Left lefts)
+                                     (..left-projection lefts)
+                                     
+                                     (#.Right lefts)
+                                     (..right-projection lefts))]
+                         (_.compose so-far next)))
+                     recordG
+                     path))))
 
 (def: #export (case phase archive [valueS path])
   (Generator [Synthesis Path])

@@ -1,15 +1,19 @@
 (.module:
   [lux #*
-   [abstract ["." monad (#+ do)]]
-   [data
-    ["." name]
-    [number
-     ["n" nat]]]
-   ["r" math/random (#+ Random) ("#@." monad)]
    ["_" test (#+ Test)]
+   [abstract
+    ["." monad (#+ do)]]
    [control
     pipe
-    ["." try ("#@." functor)]]]
+    ["." try ("#@." functor)]]
+   [data
+    ["." sum]
+    [number
+     ["n" nat]]
+    [collection
+     ["." list ("#@." fold monoid)]]]
+   [math
+    ["." random (#+ Random) ("#@." monad)]]]
   ["." // #_
    ["#." primitive]]
   {1
@@ -22,32 +26,33 @@
        ["#." analysis (#+ Branch Analysis)]
        ["#." synthesis (#+ Synthesis)]
        [///
-        ["#." reference]
+        ["#." reference
+         [variable (#+ Register)]]
         ["." phase]
         [meta
          ["." archive]]]]]]]})
 
-(def: dummy-vars
+(def: masking-test
   Test
-  (do {@ r.monad}
+  (do {@ random.monad}
     [maskedA //primitive.primitive
-     temp (|> r.nat (:: @ map (n.% 100)))
+     temp (|> random.nat (:: @ map (n.% 100)))
      #let [maskA (////analysis.control/case
                   [maskedA
                    [[(#////analysis.Bind temp)
                      (#////analysis.Reference (////reference.local temp))]
                     (list)]])]]
-    (_.test "Dummy variables created to mask expressions get eliminated during synthesis."
-            (|> maskA
-                (//.phase archive.empty)
-                (phase.run [///bundle.empty ////synthesis.init])
-                (try@map (//primitive.corresponds? maskedA))
-                (try.default false)))))
+    (_.cover [/.synthesize-masking]
+             (|> maskA
+                 (//.phase archive.empty)
+                 (phase.run [///bundle.empty ////synthesis.init])
+                 (try@map (//primitive.corresponds? maskedA))
+                 (try.default false)))))
 
-(def: let-expr
+(def: let-test
   Test
-  (do r.monad
-    [registerA r.nat
+  (do random.monad
+    [registerA random.nat
      inputA //primitive.primitive
      outputA //primitive.primitive
      #let [letA (////analysis.control/case
@@ -55,22 +60,22 @@
                   [[(#////analysis.Bind registerA)
                     outputA]
                    (list)]])]]
-    (_.test "Can detect and reify simple 'let' expressions."
-            (|> letA
-                (//.phase archive.empty)
-                (phase.run [///bundle.empty ////synthesis.init])
-                (case> (^ (#try.Success (////synthesis.branch/let [inputS registerS outputS])))
-                       (and (n.= registerA registerS)
-                            (//primitive.corresponds? inputA inputS)
-                            (//primitive.corresponds? outputA outputS))
+    (_.cover [/.synthesize-let]
+             (|> letA
+                 (//.phase archive.empty)
+                 (phase.run [///bundle.empty ////synthesis.init])
+                 (case> (^ (#try.Success (////synthesis.branch/let [inputS registerS outputS])))
+                        (and (n.= registerA registerS)
+                             (//primitive.corresponds? inputA inputS)
+                             (//primitive.corresponds? outputA outputS))
 
-                       _
-                       false)))))
+                        _
+                        false)))))
 
-(def: if-expr
+(def: if-test
   Test
-  (do r.monad
-    [then|else r.bit
+  (do random.monad
+    [then|else random.bit
      inputA //primitive.primitive
      thenA //primitive.primitive
      elseA //primitive.primitive
@@ -83,23 +88,83 @@
            ifA (if then|else
                  (////analysis.control/case [inputA [thenB (list elseB)]])
                  (////analysis.control/case [inputA [elseB (list thenB)]]))]]
-    (_.test "Can detect and reify simple 'if' expressions."
-            (|> ifA
-                (//.phase archive.empty)
-                (phase.run [///bundle.empty ////synthesis.init])
-                (case> (^ (#try.Success (////synthesis.branch/if [inputS thenS elseS])))
-                       (and (//primitive.corresponds? inputA inputS)
-                            (//primitive.corresponds? thenA thenS)
-                            (//primitive.corresponds? elseA elseS))
+    (_.cover [/.synthesize-if]
+             (|> ifA
+                 (//.phase archive.empty)
+                 (phase.run [///bundle.empty ////synthesis.init])
+                 (case> (^ (#try.Success (////synthesis.branch/if [inputS thenS elseS])))
+                        (and (//primitive.corresponds? inputA inputS)
+                             (//primitive.corresponds? thenA thenS)
+                             (//primitive.corresponds? elseA elseS))
 
-                       _
-                       false)))))
+                        _
+                        false)))))
+
+(def: random-member
+  (Random ////synthesis.Member)
+  (do {@ random.monad}
+    [lefts (|> random.nat (:: @ map (n.% 10)))
+     right? random.bit]
+    (wrap (if right?
+            (#.Right lefts)
+            (#.Left lefts)))))
+
+(def: random-path
+  (Random (////analysis.Tuple ////synthesis.Member))
+  (do {@ random.monad}
+    [size-1 (|> random.nat (:: @ map (|>> (n.% 10) inc)))]
+    (random.list size-1 ..random-member)))
+
+(def: (get-pattern path)
+  (-> (////analysis.Tuple ////synthesis.Member)
+      (Random [////analysis.Pattern Register]))
+  (do random.monad
+    [@member random.nat]
+    (wrap [(list@fold (function (_ member inner)
+                        (case member
+                          (#.Left lefts)
+                          (////analysis.pattern/tuple
+                           (list@compose (list.repeat lefts (////analysis.pattern/unit))
+                                         (list inner (////analysis.pattern/unit))))
+                          
+                          (#.Right lefts)
+                          (////analysis.pattern/tuple
+                           (list@compose (list.repeat (inc lefts) (////analysis.pattern/unit))
+                                         (list inner)))))
+                      (#////analysis.Bind @member)
+                      (list.reverse path))
+           @member])))
+
+(def: get-test
+  Test
+  (do {@ random.monad}
+    [recordA (|> random.nat
+                 (:: @ map (|>> ////analysis.nat))
+                 (random.list 10)
+                 (:: @ map (|>> ////analysis.tuple)))
+     pathA ..random-path
+     [pattern @member] (get-pattern pathA)
+     #let [getA (////analysis.control/case [recordA [[pattern
+                                                      (#////analysis.Reference (////reference.local @member))]
+                                                     (list)]])]]
+    (_.cover [/.synthesize-get]
+             (|> getA
+                 (//.phase archive.empty)
+                 (phase.run [///bundle.empty ////synthesis.init])
+                 (case> (^ (#try.Success (////synthesis.branch/get [pathS recordS])))
+                        (and (:: (list.equivalence (sum.equivalence n.= n.=)) = pathA pathS)
+                             (//primitive.corresponds? recordA recordS))
+
+                        _
+                        false)))))
 
 (def: #export test
   Test
-  (<| (_.context (name.module (name-of /._)))
+  (<| (_.covering /._)
+      (_.with-cover [/.synthesize])
       ($_ _.and
-          ..dummy-vars
-          ..let-expr
-          ..if-expr
+          ..masking-test
+          ..let-test
+          ..if-test
+          ..get-test
           )))

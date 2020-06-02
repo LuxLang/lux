@@ -7,7 +7,9 @@
     ["ex" exception (#+ exception:)]]
    [data
     [number
-     ["n" nat]]]
+     ["n" nat]]
+    [collection
+     ["." list ("#@." fold)]]]
    [target
     [jvm
      ["." type (#+ Type)
@@ -21,7 +23,8 @@
       [archive (#+ Archive)]]
      [language
       [lux
-       ["." synthesis (#+ Path Synthesis)]]]]]]
+       ["." synthesis (#+ Path Synthesis)
+        ["#/." case]]]]]]]
   [luxc
    [lang
     [host
@@ -54,6 +57,24 @@
   (|>> (_.int +1)
        _.AALOAD
        (_.CHECKCAST runtime.$Stack)))
+
+(def: (left-projection lefts)
+  (-> Nat Inst)
+  (.let [accessI (.case lefts
+                   0
+                   _.AALOAD
+                   
+                   lefts
+                   (_.INVOKESTATIC //.$Runtime "tuple_left" (type.method [(list //.$Tuple runtime.$Index) //.$Value (list)])))]
+    (|>> (_.CHECKCAST //.$Tuple)
+         (_.int (.int lefts))
+         accessI)))
+
+(def: (right-projection lefts)
+  (-> Nat Inst)
+  (|>> (_.CHECKCAST //.$Tuple)
+       (_.int (.int lefts))
+       (_.INVOKESTATIC //.$Runtime "tuple_right" (type.method [(list //.$Tuple runtime.$Index) //.$Value (list)]))))
 
 (def: (path' stack-depth @else @end phase archive path)
   (-> Nat Label Label Phase Archive Path (Operation Inst))
@@ -121,23 +142,13 @@
      [synthesis.side/right (_.string "") .inc])
 
     (^ (synthesis.member/left lefts))
-    (operation@wrap (.let [accessI (.case lefts
-                                     0
-                                     _.AALOAD
-                                     
-                                     lefts
-                                     (_.INVOKESTATIC //.$Runtime "tuple_left" (type.method [(list //.$Tuple runtime.$Index) //.$Value (list)])))]
-                      (|>> peekI
-                           (_.CHECKCAST //.$Tuple)
-                           (_.int (.int lefts))
-                           accessI
-                           pushI)))
+    (operation@wrap (|>> peekI
+                         (..left-projection lefts)
+                         pushI))
 
     (^ (synthesis.member/right lefts))
     (operation@wrap (|>> peekI
-                         (_.CHECKCAST //.$Tuple)
-                         (_.int (.int lefts))
-                         (_.INVOKESTATIC //.$Runtime "tuple_right" (type.method [(list //.$Tuple runtime.$Index) //.$Value (list)]))
+                         (..right-projection lefts)
                          pushI))
 
     ## Extra optimization
@@ -225,6 +236,21 @@
     (wrap (|>> inputI
                (_.ASTORE register)
                exprI))))
+
+(def: #export (get phase archive [path recordS])
+  (Generator [(List synthesis.Member) Synthesis])
+  (do phase.monad
+    [recordG (phase archive recordS)]
+    (wrap (list@fold (function (_ step so-far)
+                       (.let [next (.case step
+                                     (#.Left lefts)
+                                     (..left-projection lefts)
+                                     
+                                     (#.Right lefts)
+                                     (..right-projection lefts))]
+                         (|>> so-far next)))
+                     recordG
+                     path))))
 
 (def: #export (case phase archive [valueS path])
   (Generator [Synthesis Path])

@@ -1,3 +1,8 @@
+# Geometry
+
+1. [Perspectives on Projective Geometry: A Guided Tour through Real and Complex Geometry](https://www-m10.ma.tum.de/foswiki/pub/Lehre/WS0910/ProjektiveGeometrieWS0910/GeomBook.pdf)
+1. [Symplectic Geometry for Engineers - Fundamentals](https://www.researchgate.net/publication/338124384_Symplectic_Geometry_for_Engineers_-_Fundamentals)
+
 # Prime number
 
 1. [The History of the Primality of One: A Selection of Sources](https://cs.uwaterloo.ca/journals/JIS/VOL15/Caldwell2/cald6.pdf)

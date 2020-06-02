@@ -20,8 +20,9 @@
     ["#." analysis (#+ Pattern Match Analysis)]
     ["/" synthesis (#+ Path Synthesis Operation Phase)]
     [///
-     ["#." reference (#+ Variable)]
      ["#" phase ("#@." monad)]
+     ["#." reference
+      ["#/." variable (#+ Register Variable)]]
      [meta
       [archive (#+ Archive)]]]]])
 
@@ -76,11 +77,11 @@
                  (list.reverse (list.enumerate tuple))))
     ))
 
-(def: #export (path archive synthesize pattern bodyA)
+(def: (path archive synthesize pattern bodyA)
   (-> Archive Phase Pattern Analysis (Operation Path))
   (path' pattern true (///@map (|>> #/.Then) (synthesize archive bodyA))))
 
-(def: #export (weave leftP rightP)
+(def: (weave leftP rightP)
   (-> Path Path Path)
   (with-expansions [<default> (as-is (#/.Alt leftP rightP))]
     (case [leftP rightP]
@@ -126,54 +127,127 @@
       _
       <default>)))
 
+(def: (get patterns @selection)
+  (-> (///analysis.Tuple ///analysis.Pattern) Register (List /.Member))
+  (loop [lefts 0
+         patterns patterns]
+    (with-expansions [<failure> (as-is (list))
+                      <continue> (as-is (recur (inc lefts)
+                                               tail))
+                      <member> (as-is (if (list.empty? tail)
+                                        (#.Right (dec lefts))
+                                        (#.Left lefts)))]
+      (case patterns
+        #.Nil
+        <failure>
+
+        (#.Cons head tail)
+        (case head
+          (#///analysis.Simple #///analysis.Unit)
+          <continue>
+          
+          (#///analysis.Bind register)
+          (if (n.= @selection register)
+            (list <member>)
+            <continue>)
+
+          (#///analysis.Complex (#///analysis.Tuple sub-patterns))
+          (case (get sub-patterns @selection)
+            #.Nil
+            <continue>
+
+            sub-members
+            (list& <member> sub-members))
+          
+          _
+          <failure>)))))
+
+(def: #export (synthesize-case synthesize archive input [headB tailB+])
+  (-> Phase Archive Synthesis Match (Operation Synthesis))
+  (let [[[lastP lastA] prevsPA] (|> (#.Cons headB tailB+)
+                                    list.reverse
+                                    (case> (#.Cons [lastP lastA] prevsPA)
+                                           [[lastP lastA] prevsPA]
+                                           
+                                           _
+                                           (undefined)))]
+    (do {@ ///.monad}
+      [lastSP (path archive synthesize lastP lastA)
+       prevsSP+ (monad.map @ (product.uncurry (path archive synthesize)) prevsPA)]
+      (wrap (/.branch/case [input (list@fold weave lastSP prevsSP+)])))))
+
+(template: (!masking <variable> <output>)
+  [[(#///analysis.Bind <variable>)
+    (#///analysis.Reference (///reference.local <output>))]
+   (list)])
+
+(def: #export (synthesize-masking synthesize archive input @variable @output)
+  (-> Phase Archive Synthesis Register Register (Operation Synthesis))
+  (if (n.= @variable @output)
+    (///@wrap input)
+    (..synthesize-case synthesize archive input (!masking @variable @output))))
+
+(def: #export (synthesize-let synthesize archive input @variable body)
+  (-> Phase Archive Synthesis Register Analysis (Operation Synthesis))
+  (do ///.monad
+    [body (/.with-new-local
+            (synthesize archive body))]
+    (wrap (/.branch/let [input @variable body]))))
+
+(def: #export (synthesize-if synthesize archive test then else)
+  (-> Phase Archive Synthesis Analysis Analysis (Operation Synthesis))
+  (do ///.monad
+    [then (synthesize archive then)
+     else (synthesize archive else)]
+    (wrap (/.branch/if [test then else]))))
+
+(template: (!get <patterns> <output>)
+  [[(///analysis.pattern/tuple <patterns>)
+    (#///analysis.Reference (///reference.local <output>))]
+   (.list)])
+
+(def: #export (synthesize-get synthesize archive input patterns @member)
+  (-> Phase Archive Synthesis (///analysis.Tuple ///analysis.Pattern) Register (Operation Synthesis))
+  (case (..get patterns @member)
+    #.Nil
+    (..synthesize-case synthesize archive input (!get patterns @member))
+
+    path
+    (case input
+      (^ (/.branch/get [sub-path sub-input]))
+      (///@wrap (/.branch/get [(list@compose path sub-path) sub-input]))
+
+      _
+      (///@wrap (/.branch/get [path input])))))
+
 (def: #export (synthesize synthesize^ [headB tailB+] archive inputA)
   (-> Phase Match Phase)
   (do {@ ///.monad}
     [inputS (synthesize^ archive inputA)]
-    (with-expansions [<unnecesary-let>
-                      (as-is (^multi (^ (#///analysis.Reference (///reference.local outputR)))
-                                     (n.= inputR outputR))
-                             (wrap inputS))
+    (case [headB tailB+]
+      (^ (!masking @variable @output))
+      (..synthesize-masking synthesize^ archive inputS @variable @output)
 
-                      <let>
-                      (as-is [[(#///analysis.Bind inputR) headB/bodyA]
-                              #.Nil]
-                             (case headB/bodyA
-                               <unnecesary-let>
+      [[(#///analysis.Bind @variable) body]
+       #.Nil]
+      (..synthesize-let synthesize^ archive inputS @variable body)
+      
+      (^or (^ [[(///analysis.pattern/bit #1) then]
+               (list [(///analysis.pattern/bit #0) else])])
+           (^ [[(///analysis.pattern/bit #1) then]
+               (list [(///analysis.pattern/unit) else])])
 
-                               _
-                               (do @
-                                 [headB/bodyS (/.with-new-local
-                                                (synthesize^ archive headB/bodyA))]
-                                 (wrap (/.branch/let [inputS inputR headB/bodyS])))))
-
-                      <if>
-                      (as-is (^or (^ [[(///analysis.pattern/bit #1) thenA]
-                                      (list [(///analysis.pattern/bit #0) elseA])])
-                                  (^ [[(///analysis.pattern/bit #0) elseA]
-                                      (list [(///analysis.pattern/bit #1) thenA])]))
-                             (do @
-                               [thenS (synthesize^ archive thenA)
-                                elseS (synthesize^ archive elseA)]
-                               (wrap (/.branch/if [inputS thenS elseS]))))
-
-                      <case>
-                      (as-is _
-                             (let [[[lastP lastA] prevsPA] (|> (#.Cons headB tailB+)
-                                                               list.reverse
-                                                               (case> (#.Cons [lastP lastA] prevsPA)
-                                                                      [[lastP lastA] prevsPA]
-                                                                      
-                                                                      _
-                                                                      (undefined)))]
-                               (do @
-                                 [lastSP (path archive synthesize^ lastP lastA)
-                                  prevsSP+ (monad.map @ (product.uncurry (path archive synthesize^)) prevsPA)]
-                                 (wrap (/.branch/case [inputS (list@fold weave lastSP prevsSP+)])))))]
-      (case [headB tailB+]
-        <let>
-        <if>
-        <case>))))
+           (^ [[(///analysis.pattern/bit #0) else]
+               (list [(///analysis.pattern/bit #1) then])])
+           (^ [[(///analysis.pattern/bit #0) else]
+               (list [(///analysis.pattern/unit) then])]))
+      (..synthesize-if synthesize^ archive inputS then else)
+      
+      (^ (!get patterns @member))
+      (..synthesize-get synthesize^ archive inputS patterns @member)
+      
+      match
+      (..synthesize-case synthesize^ archive inputS match))))
 
 (def: #export (count-pops path)
   (-> Path [Nat Path])
@@ -194,13 +268,13 @@
 
 (def: empty
   Storage
-  {#bindings (set.new ///reference.hash)
-   #dependencies (set.new ///reference.hash)})
+  {#bindings (set.new ///reference/variable.hash)
+   #dependencies (set.new ///reference/variable.hash)})
 
 ## TODO: Use this to declare all local variables at the beginning of
 ## script functions.
 ## That way, it should be possible to do cheap "let" expressions,
-## since the variable will exist before hand so no closure will need
+## since the variable will exist beforehand, so no closure will need
 ## to be created for it.
 ## Apply this trick to JS, Python et al.
 (def: #export (storage path)
@@ -210,7 +284,7 @@
      path-storage ..empty]
     (case path
       (^ (/.path/bind register))
-      (update@ #bindings (set.add (#///reference.Local register))
+      (update@ #bindings (set.add (#///reference/variable.Local register))
                path-storage)
 
       (^or (^ (/.path/seq left right))
@@ -245,7 +319,7 @@
 
           (^ (/.branch/let [inputS register exprS]))
           (list@fold for-synthesis
-                     (update@ #bindings (set.add (#///reference.Local register))
+                     (update@ #bindings (set.add (#///reference/variable.Local register))
                               synthesis-storage)
                      (list inputS exprS))
 

@@ -5,11 +5,11 @@
    [control
     ["p" parser]]
    [data
-    ["." maybe ("#;." monad)]
+    ["." maybe ("#@." monad)]
     [number
      ["n" nat]]
     [collection
-     ["." list ("#;." functor)]]]
+     ["." list ("#@." functor)]]]
    [macro
     ["." code]
     ["." syntax]]]
@@ -20,7 +20,8 @@
     ["#." analysis (#+ Environment)]
     ["/" synthesis (#+ Path Abstraction Synthesis)]
     [///
-     ["#." reference (#+ Register Variable)]]]])
+     ["#." reference
+      ["#/." variable (#+ Register Variable)]]]]])
 
 (type: #export (Transform a)
   (-> a (Maybe a)))
@@ -44,7 +45,7 @@
   (-> Synthesis Bit)
   (case exprS
     (^ (self))
-    improper
+    ..improper
 
     (#/.Structure structure)
     (case structure
@@ -69,7 +70,7 @@
                  (proper? bodyS)
                  
                  _
-                 proper)))
+                 ..proper)))
 
         (#/.Let inputS register bodyS)
         (and (proper? inputS)
@@ -78,7 +79,10 @@
         (#/.If inputS thenS elseS)
         (and (proper? inputS)
              (proper? thenS)
-             (proper? elseS)))
+             (proper? elseS))
+
+        (#/.Get members inputS)
+        (proper? inputS))
 
       (#/.Loop loopS)
       (case loopS
@@ -92,7 +96,7 @@
       (#/.Function functionS)
       (case functionS
         (#/.Abstraction environment arity bodyS)
-        (list.every? ///reference.self? environment)
+        (list.every? ///reference/variable.self? environment)
 
         (#/.Apply funcS argsS)
         (and (proper? funcS)
@@ -102,7 +106,7 @@
     (list.every? proper? argsS)
 
     _
-    proper))
+    ..proper))
 
 (def: (path-recursion synthesis-recursion)
   (-> (Transform Synthesis) (Transform Path))
@@ -118,10 +122,10 @@
           #.None))
       
       (#/.Seq leftS rightS)
-      (maybe;map (|>> (#/.Seq leftS)) (recur rightS))
+      (maybe@map (|>> (#/.Seq leftS)) (recur rightS))
 
       (#/.Then bodyS)
-      (maybe;map (|>> #/.Then) (synthesis-recursion bodyS))
+      (maybe@map (|>> #/.Then) (synthesis-recursion bodyS))
       
       _
       #.None)))
@@ -137,10 +141,10 @@
           (#/.Case inputS pathS)
           (|> pathS
               (path-recursion recur)
-              (maybe;map (|>> (#/.Case inputS) #/.Branch #/.Control)))
+              (maybe@map (|>> (#/.Case inputS) #/.Branch #/.Control)))
 
           (#/.Let inputS register bodyS)
-          (maybe;map (|>> (#/.Let inputS register) #/.Branch #/.Control)
+          (maybe@map (|>> (#/.Let inputS register) #/.Branch #/.Control)
                      (recur bodyS))
 
           (#/.If inputS thenS elseS)
@@ -152,7 +156,10 @@
                                  (maybe.default thenS thenS')
                                  (maybe.default elseS elseS'))
                           #/.Branch #/.Control))
-              #.None)))
+              #.None))
+
+          (#/.Get members inputS)
+          #.None)
 
         (^ (#/.Function (recursive-apply argsS)))
         (if (n.= arity (list.size argsS))
@@ -169,7 +176,7 @@
   (-> Environment (Transform Variable))
   (function (_ variable)
     (case variable
-      (#///reference.Foreign register)
+      (#///reference/variable.Foreign register)
       (list.nth register environment)
 
       _
@@ -191,7 +198,7 @@
       ([#/.Alt] [#/.Seq])
       
       (#/.Then bodyS)
-      (|> bodyS adjust-synthesis (maybe;map (|>> #/.Then)))
+      (|> bodyS adjust-synthesis (maybe@map (|>> #/.Then)))
 
       _
       (#.Some pathS))))
@@ -213,7 +220,7 @@
         (#///analysis.Tuple membersS+)
         (|> membersS+
             (monad.map maybe.monad recur)
-            (maybe;map (|>> #///analysis.Tuple #/.Structure))))
+            (maybe@map (|>> #///analysis.Tuple #/.Structure))))
 
       (#/.Reference reference)
       (case reference
@@ -226,7 +233,7 @@
         (^ (///reference.foreign register))
         (|> scope-environment
             (list.nth register)
-            (maybe;map (|>> #///reference.Variable #/.Reference))))
+            (maybe@map (|>> #///reference.Variable #/.Reference))))
 
       (^ (/.branch/case [inputS pathS]))
       (do maybe.monad
@@ -260,7 +267,7 @@
       (^ (/.loop/recur argsS))
       (|> argsS
           (monad.map maybe.monad recur)
-          (maybe;map (|>> /.loop/recur)))
+          (maybe@map (|>> /.loop/recur)))
       
 
       (^ (/.function/abstraction [environment arity bodyS]))
@@ -279,7 +286,7 @@
       (#/.Extension [name argsS])
       (|> argsS
           (monad.map maybe.monad recur)
-          (maybe;map (|>> [name] #/.Extension)))
+          (maybe@map (|>> [name] #/.Extension)))
 
       _
       (#.Some exprS))))
@@ -292,5 +299,5 @@
              (proper? bodyS))
       (|> bodyS
           (adjust environment num-locals)
-          (maybe;map (|>> [(inc num-locals) inits] /.loop/scope)))
+          (maybe@map (|>> [(inc num-locals) inits] /.loop/scope)))
       #.None)))
