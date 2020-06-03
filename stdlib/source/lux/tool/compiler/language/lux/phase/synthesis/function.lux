@@ -3,7 +3,8 @@
    [abstract
     ["." monad (#+ do)]]
    [control
-    ["ex" exception (#+ exception:)]]
+    [pipe (#+ case>)]
+    ["." exception (#+ exception:)]]
    [data
     ["." maybe]
     ["." text
@@ -22,10 +23,11 @@
      ["." phase ("#@." monad)]]]])
 
 (exception: #export (cannot-find-foreign-variable-in-environment {foreign Register} {environment Environment})
-  (ex.report ["Foreign" (%.nat foreign)]
-             ["Environment" (|> environment
-                                (list@map ////reference/variable.format)
-                                (text.join-with " "))]))
+  (exception.report
+   ["Foreign" (%.nat foreign)]
+   ["Environment" (|> environment
+                      (list@map ////reference/variable.format)
+                      (text.join-with " "))]))
 
 (def: arity-arguments
   (-> Arity (List Synthesis))
@@ -46,15 +48,15 @@
     (let [[funcA argsA] (////analysis.application exprA)]
       (do {@ phase.monad}
         [funcS (phase archive funcA)
-         argsS (monad.map @ (phase archive) argsA)
-         ## locals /.locals
-         ]
+         argsS (monad.map @ (phase archive) argsA)]
         (with-expansions [<apply> (as-is (/.function/apply [funcS argsS]))]
           (case funcS
-            ## (^ (/.function/abstraction functionS))
-            ## (wrap (|> functionS
-            ##           (//loop.loop (get@ #/.environment functionS) locals argsS)
-            ##           (maybe.default <apply>)))
+            (^ (/.function/abstraction functionS))
+            (do @
+              [locals /.locals]
+              (wrap (|> functionS
+                        (//loop.optimization locals argsS)
+                        (maybe.default <apply>))))
 
             (^ (/.function/apply [funcS' argsS']))
             (wrap (/.function/apply [funcS' (list@compose argsS' argsS)]))
@@ -69,7 +71,7 @@
     (phase@wrap aliased)
 
     #.None
-    (phase.throw cannot-find-foreign-variable-in-environment [register environment])))
+    (phase.throw ..cannot-find-foreign-variable-in-environment [register environment])))
 
 (def: (grow-path grow path)
   (-> (-> Synthesis (Operation Synthesis)) Path (Operation Path))
@@ -172,7 +174,7 @@
         (do {@ phase.monad}
           [initsS+' (monad.map @ (grow environment) initsS+)
            iterationS' (grow environment iterationS)]
-          (wrap (/.loop/scope [start initsS+' iterationS'])))
+          (wrap (/.loop/scope [(inc start) initsS+' iterationS'])))
         
         (#/.Recur argumentsS+)
         (|> argumentsS+
@@ -209,7 +211,8 @@
 (def: #export (abstraction phase environment archive bodyA)
   (-> Phase Environment Phase)
   (do {@ phase.monad}
-    [bodyS (phase archive bodyA)]
+    [bodyS (/.with-locals 2
+             (phase archive bodyA))]
     (case bodyS
       (^ (/.function/abstraction [env' down-arity' bodyS']))
       (|> bodyS'

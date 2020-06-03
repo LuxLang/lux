@@ -4,8 +4,9 @@
     [monad (#+ do)]
     [equivalence (#+ Equivalence)]]
    [control
-    ["ex" exception (#+ exception:)]]
+    ["." exception (#+ exception:)]]
    [data
+    ["." sum]
     ["." bit ("#@." equivalence)]
     ["." text ("#@." equivalence)
      ["%" format (#+ Format format)]]
@@ -16,15 +17,15 @@
     [collection
      ["." list ("#@." functor)]
      ["." dictionary (#+ Dictionary)]]]]
-  ["." // #_
-   ["#." analysis (#+ Environment Composite Analysis)]
+  [//
+   ["." analysis (#+ Environment Composite Analysis)]
    [phase
     ["." extension (#+ Extension)]]
    [///
     [arity (#+ Arity)]
-    ["#." reference (#+ Reference)
-     ["#/." variable (#+ Register Variable)]]
-    ["#." phase]]])
+    ["." phase]
+    ["." reference (#+ Reference)
+     ["." variable (#+ Register Variable)]]]])
 
 (type: #export Resolver (Dictionary Variable Variable))
 
@@ -33,7 +34,7 @@
 
 (def: #export fresh-resolver
   Resolver
-  (dictionary.new //reference/variable.hash))
+  (dictionary.new variable.hash))
 
 (def: #export init
   State
@@ -202,7 +203,7 @@
 
 (def: #export with-new-local
   (All [a] (-> (Operation a) (Operation a)))
-  (<<| (do //phase.monad
+  (<<| (do phase.monad
          [locals ..locals])
        (..with-locals (inc locals))))
 
@@ -222,8 +223,8 @@
          <tag>
          content))]
 
-  [variant #//analysis.Variant]
-  [tuple   #//analysis.Tuple]
+  [variant #analysis.Variant]
+  [tuple   #analysis.Tuple]
   )
 
 (template [<name> <tag>]
@@ -232,10 +233,10 @@
           <tag>
           content))]
 
-  [variable         //reference.variable]
-  [constant         //reference.constant]
-  [variable/local   //reference.local]
-  [variable/foreign //reference.foreign]
+  [variable         reference.variable]
+  [constant         reference.constant]
+  [variable/local   reference.local]
+  [variable/foreign reference.foreign]
   )
 
 (template [<name> <family> <tag>]
@@ -327,36 +328,35 @@
 
     (#Structure structure)
     (case structure
-      (#//analysis.Variant [lefts right? content])
+      (#analysis.Variant [lefts right? content])
       (|> (%synthesis content)
           (format (%.nat lefts) " " (%.bit right?) " ")
           (text.enclose ["(" ")"]))
       
-      (#//analysis.Tuple members)
+      (#analysis.Tuple members)
       (|> members
           (list@map %synthesis)
           (text.join-with " ")
           (text.enclose ["[" "]"])))
 
     (#Reference reference)
-    (//reference.format reference)
+    (reference.format reference)
 
     (#Control control)
     (case control
       (#Function function)
       (case function
         (#Abstraction [environment arity body])
-        (|> (%synthesis body)
-            (format (%.nat arity) " ")
-            (format (|> environment
-                        (list@map //reference/variable.format)
-                        (text.join-with " ")
-                        (text.enclose ["[" "]"]))
-                    " ")
-            (text.enclose ["(" ")"]))
+        (let [environment' (|> environment
+                               (list@map variable.format)
+                               (text.join-with " ")
+                               (text.enclose ["[" "]"]))]
+          (|> (format environment' " " (%.nat arity) " " (%synthesis body))
+              (text.enclose ["(#function " ")"])))
         
         (#Apply func args)
-        (|> (list@map %synthesis args)
+        (|> args
+            (list@map %synthesis)
             (text.join-with " ")
             (format (%synthesis func) " ")
             (text.enclose ["(" ")"])))
@@ -364,7 +364,7 @@
       (#Branch branch)
       (case branch
         (#Let input register body)
-        (|> (format (%synthesis input) " " (%.nat register) " " (%synthesis body))
+        (|> (format (%.nat register) " " (%synthesis input) " " (%synthesis body))
             (text.enclose ["(#let " ")"]))
         
         (#If test then else)
@@ -381,9 +381,22 @@
         (|> (format (%synthesis input) " " (%path' %synthesis path))
             (text.enclose ["(#case " ")"])))
       
-      ## (#Loop loop)
-      _
-      "???")
+      (#Loop loop)
+      (case loop
+        (#Scope scope)
+        (|> (format (%.nat (get@ #start scope))
+                    " " (|> (get@ #inits scope)
+                            (list@map %synthesis)
+                            (text.join-with " ")
+                            (text.enclose ["[" "]"]))
+                    " " (%synthesis (get@ #iteration scope)))
+            (text.enclose ["(#loop " ")"]))
+        
+        (#Recur args)
+        (|> args
+            (list@map %synthesis)
+            (text.join-with " ")
+            (text.enclose ["(#recur " ")"]))))
 
     (#Extension [name args])
     (|> (list@map %synthesis args)
@@ -395,7 +408,9 @@
   (Format Path)
   (%path' %synthesis))
 
-(structure: #export primitive-equivalence (Equivalence Primitive)
+(structure: #export primitive-equivalence
+  (Equivalence Primitive)
+  
   (def: (= reference sample)
     (case [reference sample]
       (^template [<tag> <eq> <format>]
@@ -411,27 +426,29 @@
       _
       false)))
 
-(structure: #export access-equivalence (Equivalence Access)
+(def: side-equivalence
+  (Equivalence Side)
+  (sum.equivalence n.equivalence n.equivalence))
+
+(def: member-equivalence
+  (Equivalence Member)
+  (sum.equivalence n.equivalence n.equivalence))
+
+(structure: #export access-equivalence
+  (Equivalence Access)
+  
   (def: (= reference sample)
     (case [reference sample]
-      (^template [<tag>]
-        [(<tag> reference') (<tag> sample')]
-        (case [reference' sample']
-          (^template [<side>]
-            [(<side> reference'') (<side> sample'')]
-            (n.= reference'' sample''))
-          ([#.Left]
-           [#.Right])
-          
-          _
-          false))
-      ([#Side]
-       [#Member])
+      (^template [<tag> <equivalence>]
+        [(<tag> reference) (<tag> sample)]
+        (:: <equivalence> = reference sample))
+      ([#Side ..side-equivalence]
+       [#Member ..member-equivalence])
 
       _
       false)))
 
-(structure: #export (path'-equivalence Equivalence<a>)
+(structure: #export (path'-equivalence equivalence)
   (All [a] (-> (Equivalence a) (Equivalence (Path' a))))
 
   (def: (= reference sample)
@@ -444,7 +461,7 @@
         (:: <equivalence> = reference' sample'))
       ([#Test   primitive-equivalence]
        [#Access access-equivalence]
-       [#Then   Equivalence<a>])
+       [#Then   equivalence])
       
       [(#Bind reference') (#Bind sample')]
       (n.= reference' sample')
@@ -459,13 +476,100 @@
       _
       false)))
 
-(structure: #export equivalence (Equivalence Synthesis)
+(structure: (branch-equivalence (^open "/@."))
+  (All [a] (-> (Equivalence a) (Equivalence (Branch a))))
+
+  (def: (= reference sample)
+    (case [reference sample]
+      [(#Let [reference-input reference-register reference-body])
+       (#Let [sample-input sample-register sample-body])]
+      (and (/@= reference-input sample-input)
+           (n.= reference-register sample-register)
+           (/@= reference-body sample-body))
+
+      [(#If [reference-test reference-then reference-else])
+       (#If [sample-test sample-then sample-else])]
+      (and (/@= reference-test sample-test)
+           (/@= reference-then sample-then)
+           (/@= reference-else sample-else))
+      
+      [(#Get [reference-path reference-record])
+       (#Get [sample-path sample-record])]
+      (and (:: (list.equivalence ..member-equivalence) = reference-path sample-path)
+           (/@= reference-record sample-record))
+      
+      [(#Case [reference-input reference-path])
+       (#Case [sample-input sample-path])]
+      (and (/@= reference-input sample-input)
+           (:: (path'-equivalence /@=) = reference-path sample-path))
+      
+      _
+      false)))
+
+(structure: (loop-equivalence (^open "/@."))
+  (All [a] (-> (Equivalence a) (Equivalence (Loop a))))
+
+  (def: (= reference sample)
+    (case [reference sample]
+      [(#Scope [reference-start reference-inits reference-iteration])
+       (#Scope [sample-start sample-inits sample-iteration])]
+      (and (n.= reference-start sample-start)
+           (:: (list.equivalence /@=) = reference-inits sample-inits)
+           (/@= reference-iteration sample-iteration))
+
+      [(#Recur reference) (#Recur sample)]
+      (:: (list.equivalence /@=) = reference sample)
+      
+      _
+      false)))
+
+(structure: (function-equivalence (^open "/@."))
+  (All [a] (-> (Equivalence a) (Equivalence (Function a))))
+
+  (def: (= reference sample)
+    (case [reference sample]
+      [(#Abstraction [reference-environment reference-arity reference-body])
+       (#Abstraction [sample-environment sample-arity sample-body])]
+      (and (:: (list.equivalence variable.equivalence) = reference-environment sample-environment)
+           (n.= reference-arity sample-arity)
+           (/@= reference-body sample-body))
+      
+      [(#Apply [reference-abstraction reference-arguments])
+       (#Apply [sample-abstraction sample-arguments])]
+      (and (/@= reference-abstraction sample-abstraction)
+           (:: (list.equivalence /@=) = reference-arguments sample-arguments))
+      
+      _
+      false)))
+
+(structure: (control-equivalence (^open "/@."))
+  (All [a] (-> (Equivalence a) (Equivalence (Control a))))
+
+  (def: (= reference sample)
+    (case [reference sample]
+      (^template [<tag> <equivalence>]
+        [(<tag> reference) (<tag> sample)]
+        (:: (<equivalence> /@=) = reference sample))
+      ([#Branch ..branch-equivalence]
+       [#Loop ..loop-equivalence]
+       [#Function ..function-equivalence])
+      
+      _
+      false)))
+
+(structure: #export equivalence
+  (Equivalence Synthesis)
+  
   (def: (= reference sample)
     (case [reference sample]
       (^template [<tag> <equivalence>]
         [(<tag> reference') (<tag> sample')]
         (:: <equivalence> = reference' sample'))
-      ([#Primitive primitive-equivalence])
+      ([#Primitive ..primitive-equivalence]
+       [#Structure (analysis.composite-equivalence =)]
+       [#Reference reference.equivalence]
+       [#Control (control-equivalence =)]
+       [#Extension (extension.equivalence =)])
 
       _
       false)))
