@@ -3,19 +3,20 @@
    [abstract
     ["." monad (#+ do)]]
    [control
-    [pipe (#+ case>)]
     ["." exception (#+ exception:)]]
    [data
     ["." maybe]
     ["." text
      ["%" format (#+ format)]]
+    [number
+     ["n" nat]]
     [collection
      ["." list ("#@." functor monoid fold)]]]]
   ["." // #_
    ["#." loop (#+ Transform)]
    ["//#" /// #_
     ["#." analysis (#+ Environment Analysis)]
-    ["/" synthesis (#+ Path Synthesis Operation Phase)]
+    ["/" synthesis (#+ Path Abstraction Synthesis Operation Phase)]
     [///
      [arity (#+ Arity)]
      ["#." reference
@@ -52,11 +53,14 @@
         (with-expansions [<apply> (as-is (/.function/apply [funcS argsS]))]
           (case funcS
             (^ (/.function/abstraction functionS))
-            (do @
-              [locals /.locals]
-              (wrap (|> functionS
-                        (//loop.optimization locals argsS)
-                        (maybe.default <apply>))))
+            (if (n.= (get@ #/.arity functionS)
+                     (list.size argsS))
+              (do @
+                [locals /.locals]
+                (wrap (|> functionS
+                          (//loop.optimization true locals argsS)
+                          (maybe.default <apply>))))
+              (wrap <apply>))
 
             (^ (/.function/apply [funcS' argsS']))
             (wrap (/.function/apply [funcS' (list@compose argsS' argsS)]))
@@ -211,13 +215,31 @@
 (def: #export (abstraction phase environment archive bodyA)
   (-> Phase Environment Phase)
   (do {@ phase.monad}
-    [bodyS (/.with-locals 2
-             (phase archive bodyA))]
-    (case bodyS
-      (^ (/.function/abstraction [env' down-arity' bodyS']))
-      (|> bodyS'
-          (grow env')
-          (:: @ map (|>> [environment (inc down-arity')] /.function/abstraction)))
-      
-      _
-      (wrap (/.function/abstraction [environment 1 bodyS])))))
+    [currying? /.currying?
+     bodyS (/.with-currying? true
+             (/.with-locals 2
+               (phase archive bodyA)))
+     abstraction (: (Operation Abstraction)
+                    (case bodyS
+                      (^ (/.function/abstraction [env' down-arity' bodyS']))
+                      (|> bodyS'
+                          (grow env')
+                          (:: @ map (function (_ body)
+                                      {#/.environment environment
+                                       #/.arity (inc down-arity')
+                                       #/.body body})))
+                      
+                      _
+                      (wrap {#/.environment environment
+                             #/.arity 1
+                             #/.body bodyS})))]
+    (wrap (if currying?
+            (/.function/abstraction abstraction)
+            (case (//loop.optimization false 1 (list) abstraction)
+              (#.Some loop-body)
+              (/.function/abstraction {#/.environment environment
+                                       #/.arity (get@ #/.arity abstraction)
+                                       #/.body loop-body})
+              
+              #.None
+              (/.function/abstraction abstraction))))))

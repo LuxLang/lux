@@ -23,14 +23,18 @@
   (-> Register (-> Register Register))
   (|>> dec (n.+ offset)))
 
-(def: (variable-optimization offset environment variable)
-  (-> Register Environment (Transform Variable))
+(def: (variable-optimization true-loop? offset environment variable)
+  (-> Bit Register Environment (Transform Variable))
   (case variable
     (^ (variable.self))
-    #.None
+    (if true-loop?
+      #.None
+      (#.Some variable))
     
     (#variable.Foreign register)
-    (list.nth register environment)
+    (if true-loop?
+      (list.nth register environment)
+      (#.Some variable))
 
     (#variable.Local register)
     (#.Some (#variable.Local (register-optimization offset register)))))
@@ -58,8 +62,8 @@
       _
       (#.Some path))))
 
-(def: (body-optimization offset scope-environment arity expr)
-  (-> Register Environment Arity (Transform Synthesis))
+(def: (body-optimization true-loop? offset scope-environment arity expr)
+  (-> Bit Register Environment Arity (Transform Synthesis))
   (loop [return? true
          expr expr]
     (case expr
@@ -83,7 +87,9 @@
       (#/.Reference reference)
       (case reference
         (^ (#reference.Variable (variable.self)))
-        #.None
+        (if true-loop?
+          #.None
+          (#.Some expr))
         
         (^ (reference.constant constant))
         (#.Some expr)
@@ -92,9 +98,11 @@
         (#.Some (#/.Reference (reference.local (register-optimization offset register))))
 
         (^ (reference.foreign register))
-        (|> scope-environment
-            (list.nth register)
-            (maybe@map (|>> #reference.Variable #/.Reference))))
+        (if true-loop?
+          (|> scope-environment
+              (list.nth register)
+              (maybe@map (|>> /.variable)))
+          (#.Some expr)))
 
       (^ (/.branch/case [input path]))
       (do maybe.monad
@@ -137,35 +145,35 @@
 
       (^ (/.function/abstraction [environment arity body]))
       (do {@ maybe.monad}
-        [environment' (monad.map @ (variable-optimization offset scope-environment)
+        [environment' (monad.map @ (variable-optimization true-loop? offset scope-environment)
                                  environment)]
         (wrap (/.function/abstraction [environment' arity body])))
       
       (^ (/.function/apply [abstraction arguments]))
       (do {! maybe.monad}
         [arguments' (monad.map maybe.monad (recur false) arguments)]
-        (case abstraction
-          (^ (#/.Reference (#reference.Variable (variable.self))))
-          (if (and return?
-                   (n.= arity (list.size arguments)))
-            (wrap (/.loop/recur arguments'))
-            #.None)
-          
-          _
-          (do !
-            [abstraction' (recur false abstraction)]
-            (wrap (/.function/apply [abstraction' arguments'])))))
+        (with-expansions [<application> (as-is (do !
+                                                 [abstraction' (recur false abstraction)]
+                                                 (wrap (/.function/apply [abstraction' arguments']))))]
+          (case abstraction
+            (^ (#/.Reference (#reference.Variable (variable.self))))
+            (if (and return?
+                     (n.= arity (list.size arguments)))
+              (wrap (/.loop/recur arguments'))
+              (if true-loop?
+                #.None
+                <application>))
+            
+            _
+            <application>)))
 
       (#/.Extension [name args])
       (|> args
           (monad.map maybe.monad (recur false))
           (maybe@map (|>> [name] #/.Extension))))))
 
-(def: #export (optimization offset inits functionS)
-  (-> Register (List Synthesis) Abstraction (Maybe Synthesis))
-  (if (n.= (get@ #/.arity functionS)
-           (list.size inits))
-    (|> (get@ #/.body functionS)
-        (body-optimization offset (get@ #/.environment functionS) (get@ #/.arity functionS))
-        (maybe@map (|>> [offset inits] /.loop/scope)))
-    #.None))
+(def: #export (optimization true-loop? offset inits functionS)
+  (-> Bit Register (List Synthesis) Abstraction (Maybe Synthesis))
+  (|> (get@ #/.body functionS)
+      (body-optimization true-loop? offset (get@ #/.environment functionS) (get@ #/.arity functionS))
+      (maybe@map (|>> [offset inits] /.loop/scope))))

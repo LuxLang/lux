@@ -1,76 +1,82 @@
 (.module:
   [lux #*
-   [data
-    ["." name]]
-   ["M" abstract/monad (#+ Monad do)]
    ["_" test (#+ Test)]
-   ["r" math/random]
+   [abstract
+    [monad (#+ do)]]
    [control
-    pipe
     ["." try]
-    ["p" parser]]
+    ["<>" parser]]
    [data
     [number
      ["n" nat ("#@." decimal)]]
     ["." text ("#@." equivalence)]
     [collection
-     ["." list]]]]
+     ["." list]]]
+   [math
+    ["." random]]]
   {1
    ["." /]})
 
+(template: (!expect <pattern> <value>)
+  (case <value>
+    <pattern>
+    true
+    
+    _
+    false))
+
 (def: #export test
   Test
-  (<| (_.context (name.module (name-of /._)))
-      (do {@ r.monad}
-        [num-args (|> r.nat (:: @ map (n.% 10)))
-         #let [gen-arg (:: @ map n@encode r.nat)]
-         yes gen-arg
-         #let [gen-ignore (r.filter (|>> (text@= yes) not)
-                                    (r.unicode 5))]
-         no gen-ignore
-         pre-ignore (r.list 5 gen-ignore)
-         post-ignore (r.list 5 gen-ignore)]
+  (<| (_.covering /._)
+      (_.with-cover [/.Parser])
+      (do {@ random.monad}
+        [expected (:: @ map n@encode random.nat)
+         #let [random-dummy (random.filter (|>> (text@= expected) not)
+                                           (random.unicode 5))]
+         dummy random-dummy
+         short (random.unicode 1)
+         long (random.unicode 2)
+         pre-ignore (random.list 5 random-dummy)
+         post-ignore (random.list 5 random-dummy)]
         ($_ _.and
-            (_.test "Can read any argument."
-                    (|> (/.run /.any (list yes))
-                        (case> (#try.Failure _)
-                               #0
-                               
-                               (#try.Success arg)
-                               (text@= arg yes))))
-            (_.test "Can test tokens."
-                    (and (|> (/.run (/.this yes) (list yes))
-                             (case> (#try.Failure _)
-                                    #0
-
-                                    (#try.Success _)
-                                    #1))
-                         (|> (/.run (/.this yes) (list no))
-                             (case> (#try.Failure _)
-                                    #1
-
-                                    (#try.Success _)
-                                    #0))))
-            (_.test "Can use custom token parsers."
-                    (|> (/.run (/.parse n@decode) (list yes))
-                        (case> (#try.Failure _)
-                               #0
-                               
-                               (#try.Success parsed)
-                               (text@= (n@encode parsed)
-                                       yes))))
-            (_.test "Can query if there are any more inputs."
-                    (and (|> (/.run /.end (list))
-                             (case> (#try.Success []) #1 _ #0))
-                         (|> (/.run (p.not /.end) (list yes))
-                             (case> (#try.Success []) #0 _ #1))))
-            (_.test "Can parse CLI input anywhere."
-                    (|> (/.run (|> (/.somewhere (/.this yes))
-                                   (p.before (p.some /.any)))
-                               (list.concat (list pre-ignore (list yes) post-ignore)))
-                        (case> (#try.Failure _)
-                               #0
-
-                               (#try.Success _)
-                               #1)))
+            (_.cover [/.run /.any]
+                     (|> (/.run /.any (list expected))
+                         (!expect (^multi (#try.Success actual)
+                                          (text@= expected actual)))))
+            (_.cover [/.parse]
+                     (|> (/.run (/.parse n@decode) (list expected))
+                         (!expect (^multi (#try.Success actual)
+                                          (text@= expected
+                                                  (n@encode actual))))))
+            (_.cover [/.this]
+                     (and (|> (/.run (/.this expected) (list expected))
+                              (!expect (#try.Success _)))
+                          (|> (/.run (/.this expected) (list dummy))
+                              (!expect (#try.Failure _)))))
+            (_.cover [/.somewhere]
+                     (|> (/.run (|> (/.somewhere (/.this expected))
+                                    (<>.before (<>.some /.any)))
+                                (list.concat (list pre-ignore (list expected) post-ignore)))
+                         (!expect (#try.Success _))))
+            (_.cover [/.end]
+                     (and (|> (/.run /.end (list))
+                              (!expect (#try.Success _)))
+                          (|> (/.run (<>.not /.end) (list expected))
+                              (!expect (#try.Failure _)))))
+            (_.cover [/.named]
+                     (|> (/.run (/.named dummy /.any) (list dummy expected))
+                         (!expect (^multi (#try.Success actual)
+                                          (text@= expected actual)))))
+            (_.cover [/.parameter]
+                     (and (|> (/.run (/.parameter [short long] /.any)
+                                     (list short expected))
+                              (!expect (^multi (#try.Success actual)
+                                               (text@= expected actual))))
+                          (|> (/.run (/.parameter [short long] /.any)
+                                     (list long expected))
+                              (!expect (^multi (#try.Success actual)
+                                               (text@= expected actual))))
+                          (|> (/.run (/.parameter [short long] /.any)
+                                     (list dummy expected))
+                              (!expect (#try.Failure _)))))
             ))))

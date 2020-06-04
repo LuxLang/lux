@@ -8,6 +8,7 @@
 
 # Reference
 
+1. [Compiler Detection of Function Call Side Effects](https://citeseerx.ist.psu.edu/viewdoc/download;jsessionid=B3D92D05C88C3D9C165785594350C169?doi=10.1.1.70.2096&rep=rep1&type=pdf)
 1. [A Language for Describing Optimization Strategies](https://arxiv.org/abs/2002.02268)
 1. https://docs.google.com/presentation/d/1tpeJZFObkeick4CF-mx0L3CeCgvT15B96aJeRpxEPcE/preview?slide=id.p
 1. https://www.quora.com/What-is-the-future-of-optimizing-compilers?share=1
