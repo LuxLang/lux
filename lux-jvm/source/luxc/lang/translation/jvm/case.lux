@@ -57,22 +57,35 @@
        _.AALOAD
        (_.CHECKCAST runtime.$Stack)))
 
+(def: (leftsI value)
+  (-> Nat Inst)
+  (.case value
+    0 _.ICONST_0
+    1 _.ICONST_1
+    2 _.ICONST_2
+    3 _.ICONST_3
+    4 _.ICONST_4
+    5 _.ICONST_5
+    _ (_.int (.int value))))
+
 (def: (left-projection lefts)
   (-> Nat Inst)
-  (.let [accessI (.case lefts
-                   0
-                   _.AALOAD
-                   
-                   lefts
-                   (_.INVOKESTATIC //.$Runtime "tuple_left" (type.method [(list //.$Tuple runtime.$Index) //.$Value (list)])))]
+  (.let [[indexI accessI] (.case lefts
+                            0
+                            [_.ICONST_0
+                             _.AALOAD]
+                            
+                            lefts
+                            [(leftsI lefts)
+                             (_.INVOKESTATIC //.$Runtime "tuple_left" (type.method [(list //.$Tuple runtime.$Index) //.$Value (list)]))])]
     (|>> (_.CHECKCAST //.$Tuple)
-         (_.int (.int lefts))
+         indexI
          accessI)))
 
 (def: (right-projection lefts)
   (-> Nat Inst)
   (|>> (_.CHECKCAST //.$Tuple)
-       (_.int (.int lefts))
+       (leftsI lefts)
        (_.INVOKESTATIC //.$Runtime "tuple_right" (type.method [(list //.$Tuple runtime.$Index) //.$Value (list)]))))
 
 (def: (path' stack-depth @else @end phase archive path)
@@ -151,33 +164,18 @@
                          pushI))
 
     ## Extra optimization
-    (^ (synthesis.path/seq
-        (synthesis.member/left 0)
-        (synthesis.!bind-top register thenP)))
-    (do phase.monad
-      [then! (path' stack-depth @else @end phase archive thenP)]
-      (wrap (|>> peekI
-                 (_.CHECKCAST //.$Tuple)
-                 (_.int +0)
-                 _.AALOAD
-                 (_.ASTORE register)
-                 then!)))
-
-    ## Extra optimization
-    (^template [<pm> <getter>]
+    (^template [<path> <projection>]
       (^ (synthesis.path/seq
-          (<pm> lefts)
+          (<path> lefts)
           (synthesis.!bind-top register thenP)))
       (do phase.monad
         [then! (path' stack-depth @else @end phase archive thenP)]
         (wrap (|>> peekI
-                   (_.CHECKCAST //.$Tuple)
-                   (_.int (.int lefts))
-                   (_.INVOKESTATIC //.$Runtime <getter> (type.method [(list //.$Tuple runtime.$Index) //.$Value (list)]))
+                   (<projection> lefts)
                    (_.ASTORE register)
                    then!))))
-    ([synthesis.member/left  "tuple_left"]
-     [synthesis.member/right "tuple_right"])
+    ([synthesis.member/left  ..left-projection]
+     [synthesis.member/right ..right-projection])
 
     (#synthesis.Alt leftP rightP)
     (do phase.monad

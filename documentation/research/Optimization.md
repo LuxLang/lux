@@ -1,3 +1,7 @@
+# Pre-fetching
+
+1. [Prefetching in Functional Languages](https://www.cl.cam.ac.uk/~tmj32/papers/docs/ainsworth20-ismm.pdf)
+
 # Partial evaluation
 
 1. [AnyDSL - A Partial Evaluation Framework for Programming High-Performance Libraries](https://anydsl.github.io/)

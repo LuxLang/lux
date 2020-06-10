@@ -2,16 +2,23 @@
   [lux #*
    ["_" test (#+ Test)]
    [abstract
+    [hash (#+ Hash)]
     ["." monad (#+ do)]]
    [control
-    pipe
+    [pipe (#+ case>)]
     ["." try ("#@." functor)]]
    [data
     ["." sum]
+    ["." text
+     ["%" format (#+ format)]]
     [number
-     ["n" nat]]
+     ["n" nat]
+     ["." int]
+     ["." rev]
+     ["." frac]]
     [collection
-     ["." list ("#@." fold monoid)]]]
+     ["." list ("#@." functor fold monoid)]
+     ["." set]]]
    [math
     ["." random (#+ Random) ("#@." monad)]]]
   ["." // #_
@@ -23,8 +30,8 @@
       [extension
        ["#." bundle]]
       ["/#" //
-       ["#." analysis (#+ Branch Analysis)]
-       ["#." synthesis (#+ Synthesis)]
+       ["." analysis (#+ Branch Match Analysis)]
+       ["." synthesis (#+ Path Synthesis)]
        [///
         ["#." reference
          [variable (#+ Register)]]
@@ -37,15 +44,15 @@
   (do {@ random.monad}
     [maskedA //primitive.primitive
      temp (|> random.nat (:: @ map (n.% 100)))
-     #let [maskA (////analysis.control/case
+     #let [maskA (analysis.control/case
                   [maskedA
-                   [[(#////analysis.Bind temp)
-                     (#////analysis.Reference (////reference.local temp))]
+                   [[(#analysis.Bind temp)
+                     (#analysis.Reference (////reference.local temp))]
                     (list)]])]]
     (_.cover [/.synthesize-masking]
              (|> maskA
                  (//.phase archive.empty)
-                 (phase.run [///bundle.empty ////synthesis.init])
+                 (phase.run [///bundle.empty synthesis.init])
                  (try@map (//primitive.corresponds? maskedA))
                  (try.default false)))))
 
@@ -55,16 +62,16 @@
     [registerA random.nat
      inputA //primitive.primitive
      outputA //primitive.primitive
-     #let [letA (////analysis.control/case
+     #let [letA (analysis.control/case
                  [inputA
-                  [[(#////analysis.Bind registerA)
+                  [[(#analysis.Bind registerA)
                     outputA]
                    (list)]])]]
     (_.cover [/.synthesize-let]
              (|> letA
                  (//.phase archive.empty)
-                 (phase.run [///bundle.empty ////synthesis.init])
-                 (case> (^ (#try.Success (////synthesis.branch/let [inputS registerS outputS])))
+                 (phase.run [///bundle.empty synthesis.init])
+                 (case> (^ (#try.Success (synthesis.branch/let [inputS registerS outputS])))
                         (and (n.= registerA registerS)
                              (//primitive.corresponds? inputA inputS)
                              (//primitive.corresponds? outputA outputS))
@@ -80,19 +87,19 @@
      thenA //primitive.primitive
      elseA //primitive.primitive
      #let [thenB (: Branch
-                    [(#////analysis.Simple (#////analysis.Bit true))
+                    [(#analysis.Simple (#analysis.Bit true))
                      thenA])
            elseB (: Branch
-                    [(#////analysis.Simple (#////analysis.Bit false))
+                    [(#analysis.Simple (#analysis.Bit false))
                      elseA])
            ifA (if then|else
-                 (////analysis.control/case [inputA [thenB (list elseB)]])
-                 (////analysis.control/case [inputA [elseB (list thenB)]]))]]
+                 (analysis.control/case [inputA [thenB (list elseB)]])
+                 (analysis.control/case [inputA [elseB (list thenB)]]))]]
     (_.cover [/.synthesize-if]
              (|> ifA
                  (//.phase archive.empty)
-                 (phase.run [///bundle.empty ////synthesis.init])
-                 (case> (^ (#try.Success (////synthesis.branch/if [inputS thenS elseS])))
+                 (phase.run [///bundle.empty synthesis.init])
+                 (case> (^ (#try.Success (synthesis.branch/if [inputS thenS elseS])))
                         (and (//primitive.corresponds? inputA inputS)
                              (//primitive.corresponds? thenA thenS)
                              (//primitive.corresponds? elseA elseS))
@@ -101,7 +108,7 @@
                         false)))))
 
 (def: random-member
-  (Random ////synthesis.Member)
+  (Random synthesis.Member)
   (do {@ random.monad}
     [lefts (|> random.nat (:: @ map (n.% 10)))
      right? random.bit]
@@ -110,28 +117,28 @@
             (#.Left lefts)))))
 
 (def: random-path
-  (Random (////analysis.Tuple ////synthesis.Member))
+  (Random (analysis.Tuple synthesis.Member))
   (do {@ random.monad}
     [size-1 (|> random.nat (:: @ map (|>> (n.% 10) inc)))]
     (random.list size-1 ..random-member)))
 
 (def: (get-pattern path)
-  (-> (////analysis.Tuple ////synthesis.Member)
-      (Random [////analysis.Pattern Register]))
+  (-> (analysis.Tuple synthesis.Member)
+      (Random [analysis.Pattern Register]))
   (do random.monad
     [@member random.nat]
     (wrap [(list@fold (function (_ member inner)
                         (case member
                           (#.Left lefts)
-                          (////analysis.pattern/tuple
-                           (list@compose (list.repeat lefts (////analysis.pattern/unit))
-                                         (list inner (////analysis.pattern/unit))))
+                          (analysis.pattern/tuple
+                           (list@compose (list.repeat lefts (analysis.pattern/unit))
+                                         (list inner (analysis.pattern/unit))))
                           
                           (#.Right lefts)
-                          (////analysis.pattern/tuple
-                           (list@compose (list.repeat (inc lefts) (////analysis.pattern/unit))
+                          (analysis.pattern/tuple
+                           (list@compose (list.repeat (inc lefts) (analysis.pattern/unit))
                                          (list inner)))))
-                      (#////analysis.Bind @member)
+                      (#analysis.Bind @member)
                       (list.reverse path))
            @member])))
 
@@ -139,21 +146,196 @@
   Test
   (do {@ random.monad}
     [recordA (|> random.nat
-                 (:: @ map (|>> ////analysis.nat))
+                 (:: @ map (|>> analysis.nat))
                  (random.list 10)
-                 (:: @ map (|>> ////analysis.tuple)))
+                 (:: @ map (|>> analysis.tuple)))
      pathA ..random-path
      [pattern @member] (get-pattern pathA)
-     #let [getA (////analysis.control/case [recordA [[pattern
-                                                      (#////analysis.Reference (////reference.local @member))]
-                                                     (list)]])]]
+     #let [getA (analysis.control/case [recordA [[pattern
+                                                  (#analysis.Reference (////reference.local @member))]
+                                                 (list)]])]]
     (_.cover [/.synthesize-get]
              (|> getA
                  (//.phase archive.empty)
-                 (phase.run [///bundle.empty ////synthesis.init])
-                 (case> (^ (#try.Success (////synthesis.branch/get [pathS recordS])))
+                 (phase.run [///bundle.empty synthesis.init])
+                 (case> (^ (#try.Success (synthesis.branch/get [pathS recordS])))
                         (and (:: (list.equivalence (sum.equivalence n.= n.=)) = pathA pathS)
                              (//primitive.corresponds? recordA recordS))
+
+                        _
+                        false)))))
+
+(def: random-bit
+  (Random [Path Match])
+  (do {@ random.monad}
+    [test random.bit
+     then random.nat
+     else random.nat]
+    (wrap [(#synthesis.Alt (#synthesis.Seq (synthesis.path/bit test)
+                                           (#synthesis.Then (synthesis.i64 (.i64 then))))
+                           (#synthesis.Seq (synthesis.path/bit (not test))
+                                           (#synthesis.Then (synthesis.i64 (.i64 else)))))
+           [{#analysis.when (analysis.pattern/bit test)
+             #analysis.then (analysis.nat then)}
+            (list {#analysis.when (analysis.pattern/bit (not test))
+                   #analysis.then (analysis.nat else)})]])))
+
+(def: (random-five hash random-element)
+  (All [a] (-> (Hash a) (Random a) (Random [a a a a a])))
+  (|> random-element
+      (random.set hash 5)
+      (:: random.monad map (|>> set.to-list
+                                (case> (^ (list s0 s1 s2 s3 s4))
+                                       [s0 s1 s2 s3 s4]
+
+                                       _
+                                       (undefined))))))
+
+(template [<name> <hash> <random> <path> <synthesis> <pattern> <analysis>]
+  [(def: <name>
+     (Random [Path Match])
+     (do {@ random.monad}
+       [[test/0 test/1 test/2 test/3 test/4] (random-five <hash> <random>)
+        [body/0 body/1 body/2 body/3 body/4] (random-five <hash> <random>)]
+       (wrap [($_ #synthesis.Alt
+                  (#synthesis.Seq (<path> test/0) (#synthesis.Then (<synthesis> body/0)))
+                  (#synthesis.Seq (<path> test/1) (#synthesis.Then (<synthesis> body/1)))
+                  (#synthesis.Seq (<path> test/2) (#synthesis.Then (<synthesis> body/2)))
+                  (#synthesis.Seq (<path> test/3) (#synthesis.Then (<synthesis> body/3)))
+                  (#synthesis.Seq (<path> test/4) (#synthesis.Then (<synthesis> body/4))))
+              [{#analysis.when (<pattern> test/0) #analysis.then (<analysis> body/0)}
+               (list {#analysis.when (<pattern> test/1) #analysis.then (<analysis> body/1)}
+                     {#analysis.when (<pattern> test/2) #analysis.then (<analysis> body/2)}
+                     {#analysis.when (<pattern> test/3) #analysis.then (<analysis> body/3)}
+                     {#analysis.when (<pattern> test/4) #analysis.then (<analysis> body/4)})]])))]
+
+  [random-nat n.hash random.nat (|>> .i64 synthesis.path/i64) (|>> .i64 synthesis.i64) analysis.pattern/nat analysis.nat]
+  [random-int int.hash random.int (|>> .i64 synthesis.path/i64) (|>> .i64 synthesis.i64) analysis.pattern/int analysis.int]
+  [random-rev rev.hash random.rev (|>> .i64 synthesis.path/i64) (|>> .i64 synthesis.i64) analysis.pattern/rev analysis.rev]
+  [random-frac frac.hash random.frac synthesis.path/f64 synthesis.f64 analysis.pattern/frac analysis.frac]
+  [random-text text.hash (random.unicode 1) synthesis.path/text synthesis.text analysis.pattern/text analysis.text]
+  )
+
+(def: random-simple
+  ($_ random.either
+      ..random-bit
+      ..random-nat
+      ..random-int
+      ..random-rev
+      ..random-frac
+      ..random-text
+      ))
+
+(def: random-variant
+  (Random [Path Match])
+  (do {@ random.monad}
+    [[lefts/0 lefts/1 lefts/2 lefts/3 lefts/4] (random-five n.hash random.nat)
+     [value/0 value/1 value/2 value/3 value/4] (random-five text.hash (random.unicode 1))
+     last-is-right? random.bit
+     [body/0 body/1 body/2 body/3 body/4] (random-five frac.hash random.frac)
+     #let [path (: (-> Nat Bit Text Frac Path)
+                   (function (_ lefts right? value body)
+                     ($_ #synthesis.Seq
+                         (synthesis.path/side (if right?
+                                                (#.Right lefts)
+                                                (#.Left lefts)))
+                         (synthesis.path/text value)
+                         (#synthesis.Then (synthesis.f64 body)))))
+           branch (: (-> Nat Bit Text Frac Branch)
+                     (function (_ lefts right? value body)
+                       {#analysis.when (analysis.pattern/variant {#analysis.lefts lefts
+                                                                  #analysis.right? right?
+                                                                  #analysis.value (analysis.pattern/text value)})
+                        #analysis.then (analysis.frac body)}))]]
+    (wrap [($_ #synthesis.Alt
+               (path lefts/0 false value/0 body/0)
+               (path lefts/1 false value/1 body/1)
+               (path lefts/2 false value/2 body/2)
+               (path lefts/3 false value/3 body/3)
+               (path lefts/4 last-is-right? value/4 body/4))
+           [(branch lefts/0 false value/0 body/0)
+            (list (branch lefts/1 false value/1 body/1)
+                  (branch lefts/2 false value/2 body/2)
+                  (branch lefts/3 false value/3 body/3)
+                  (branch lefts/4 last-is-right? value/4 body/4))]])))
+
+(def: random-tuple
+  (Random [Path Match])
+  (do {@ random.monad}
+    [mid-size (:: @ map (n.% 4) random.nat)
+
+     value/first (random.unicode 1)
+     value/mid (random.list mid-size (random.unicode 1))
+     value/last (random.unicode 1)
+
+     body/first random.frac
+     body/mid (random.list mid-size random.frac)
+     body/last random.frac
+     #let [path (: (-> Nat Bit Text Frac Path)
+                   (function (_ lefts right? value body)
+                     (if right?
+                       ($_ #synthesis.Seq
+                           (synthesis.path/member (if right?
+                                                    (#.Right lefts)
+                                                    (#.Left lefts)))
+                           (synthesis.path/text value)
+                           (#synthesis.Then (synthesis.f64 body)))
+                       ($_ #synthesis.Seq
+                           (synthesis.path/member (if right?
+                                                    (#.Right lefts)
+                                                    (#.Left lefts)))
+                           (synthesis.path/text value)
+                           #synthesis.Pop
+                           (#synthesis.Then (synthesis.f64 body))))))
+           branch (: (-> Nat Bit Text Frac Branch)
+                     (function (_ lefts right? value body)
+                       {#analysis.when (if right?
+                                         (analysis.pattern/tuple (list@compose (list.repeat (inc lefts) (analysis.pattern/unit))
+                                                                               (list (analysis.pattern/text value))))
+                                         (analysis.pattern/tuple ($_ list@compose
+                                                                     (list.repeat lefts (analysis.pattern/unit))
+                                                                     (list (analysis.pattern/text value)
+                                                                           (analysis.pattern/unit)))))
+                        #analysis.then (analysis.frac body)}))]]
+    (wrap [(list@fold (function (_ left right)
+                        (#synthesis.Alt left right))
+                      (path (inc mid-size) true value/last body/last)
+                      (|> (list.zip2 value/mid body/mid)
+                          (#.Cons [value/first body/first])
+                          list.enumerate
+                          (list@map (function (_ [lefts' [value body]])
+                                      (path lefts' false value body)))
+                          list.reverse))
+           [(branch 0 false value/first body/first)
+            (list@compose (|> (list.zip2 value/mid body/mid)
+                              list.enumerate
+                              (list@map (function (_ [lefts' [value body]])
+                                          (branch (inc lefts') false value body))))
+                          (list (branch (inc mid-size) true value/last body/last)))]])))
+
+(def: random-complex
+  ($_ random.either
+      ..random-variant
+      ..random-tuple
+      ))
+
+(def: random-case
+  ($_ random.either
+      ..random-simple
+      ..random-complex
+      ))
+
+(def: case-test
+  Test
+  (do {@ random.monad}
+    [expected-input (:: @ map (|>> .i64 synthesis.i64) random.nat)
+     [expected-path match] ..random-case]
+    (_.cover [/.synthesize-case]
+             (|> (/.synthesize-case //.phase archive.empty expected-input match)
+                 (phase.run [///bundle.empty synthesis.init])
+                 (case> (^ (#try.Success (synthesis.branch/case [actual-input actual-path])))
+                        (and (:: synthesis.equivalence = expected-input actual-input)
+                             (:: synthesis.path-equivalence = expected-path actual-path))
 
                         _
                         false)))))
@@ -167,4 +349,5 @@
           ..let-test
           ..if-test
           ..get-test
+          ..case-test
           )))

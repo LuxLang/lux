@@ -1,0 +1,135 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["." function]
+    ["." try]
+    ["<>" parser]]
+   [data
+    ["." bit]
+    ["." name]
+    ["." text ("#@." equivalence)]
+    [number
+     ["." nat]
+     ["." int]
+     ["." rev]
+     ["." frac]]
+    [collection
+     ["." list]]]
+   [macro
+    ["." code ("#@." equivalence)]]
+   [math
+    ["." random (#+ Random)]]]
+  {1
+   ["." /]})
+
+(template: (!expect <pattern> <value>)
+  (case <value>
+    <pattern>
+    true
+    
+    _
+    false))
+
+(def: random-name
+  (Random Name)
+  (random.and (random.unicode 1)
+              (random.unicode 1)))
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      (_.with-cover [/.Parser])
+      (`` ($_ _.and
+              (do {@ random.monad}
+                [expected (:: @ map code.bit random.bit)]
+                (_.cover [/.run]
+                         (and (|> (/.run /.any (list expected))
+                                  (!expect (#try.Success _)))
+                              (|> (/.run /.any (list))
+                                  (!expect (#try.Failure _))))))
+              (~~ (template [<query> <check> <random> <code> <equivalence>]
+                    [(do {@ random.monad}
+                       [expected <random>
+                        dummy (|> <random> (random.filter (|>> (:: <equivalence> = expected) not)))]
+                       ($_ _.and
+                           (_.cover [<query>]
+                                    (|> (/.run <query> (list (<code> expected)))
+                                        (!expect (^multi (#try.Success actual)
+                                                         (:: <equivalence> = expected actual)))))
+                           (_.cover [<check>]
+                                    (and (|> (/.run (<check> expected) (list (<code> expected)))
+                                             (!expect (#try.Success [])))
+                                         (|> (/.run (<check> expected) (list (<code> dummy)))
+                                             (!expect (#try.Failure _)))))
+                           ))]
+
+                    [/.any /.this! (:: @ map code.bit random.bit) function.identity code.equivalence]
+                    [/.bit /.bit! random.bit code.bit bit.equivalence]
+                    [/.nat /.nat! random.nat code.nat nat.equivalence]
+                    [/.int /.int! random.int code.int int.equivalence]
+                    [/.rev /.rev! random.rev code.rev rev.equivalence]
+                    [/.frac /.frac! random.frac code.frac frac.equivalence]
+                    [/.text /.text! (random.unicode 1) code.text text.equivalence]
+                    [/.identifier /.identifier! ..random-name code.identifier name.equivalence]
+                    [/.tag /.tag! ..random-name code.tag name.equivalence]
+                    [/.local-identifier /.local-identifier! (random.unicode 1) code.local-identifier text.equivalence]
+                    [/.local-tag /.local-tag! (random.unicode 1) code.local-tag text.equivalence]
+                    ))
+              (~~ (template [<query> <code>]
+                    [(do {@ random.monad}
+                       [expected-left random.nat
+                        expected-right random.int]
+                       (_.cover [<query>]
+                                (|> (/.run (<query> (<>.and /.nat /.int))
+                                           (list (<code> (list (code.nat expected-left)
+                                                               (code.int expected-right)))))
+                                    (!expect (^multi (#try.Success [actual-left actual-right])
+                                                     (and (:: nat.equivalence = expected-left actual-left)
+                                                          (:: int.equivalence = expected-right actual-right)))))))]
+
+                    [/.form code.form]
+                    [/.tuple code.tuple]
+                    ))
+              (do {@ random.monad}
+                [expected-left random.nat
+                 expected-right random.int]
+                (_.cover [/.record]
+                         (|> (/.run (/.record (<>.and /.nat /.int))
+                                    (list (code.record (list [(code.nat expected-left)
+                                                              (code.int expected-right)]))))
+                             (!expect (^multi (#try.Success [actual-left actual-right])
+                                              (and (:: nat.equivalence = expected-left actual-left)
+                                                   (:: int.equivalence = expected-right actual-right)))))))
+              (do {@ random.monad}
+                [expected-local random.nat
+                 expected-global random.int]
+                (_.cover [/.local]
+                         (|> (/.run (<>.and (/.local (list (code.nat expected-local)) /.nat)
+                                            /.int)
+                                    (list (code.int expected-global)))
+                             (!expect (^multi (#try.Success [actual-local actual-global])
+                                              (and (:: nat.equivalence = expected-local actual-local)
+                                                   (:: int.equivalence = expected-global actual-global)))))))
+              (do {@ random.monad}
+                [dummy (:: @ map code.bit random.bit)]
+                (_.cover [/.end?]
+                         (|> (/.run (do <>.monad
+                                      [pre /.end?
+                                       _ /.any
+                                       post /.end?]
+                                      (wrap (and (not pre)
+                                                 post)))
+                                    (list dummy))
+                             (!expect (^multi (#try.Success verdict)
+                                              verdict)))))
+              (do {@ random.monad}
+                [dummy (:: @ map code.bit random.bit)]
+                (_.cover [/.end!]
+                         (and (|> (/.run /.end! (list))
+                                  (!expect (#try.Success [])))
+                              (|> (/.run /.end! (list dummy))
+                                  (!expect (#try.Failure _))))))
+              ))))

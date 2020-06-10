@@ -15,6 +15,7 @@
 
 # Reference
 
+1. [The Distribution Monad](http://blog.russelldmatt.com/2018/10/15/the-distribution-monad.html)
 1. ["New programming constructs for probabilistic AI" by Marco Cusumano-Towner](https://www.youtube.com/watch?v=xNutxms6SH4)
 1. [A tour of probabilistic programming language APIs](https://colcarroll.github.io/ppl-api/)
 1. [Paradigms of Probabilistic Programming](https://www.youtube.com/watch?v=CmH1xxKRbiE)

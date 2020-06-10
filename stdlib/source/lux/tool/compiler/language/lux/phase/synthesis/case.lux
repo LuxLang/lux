@@ -65,14 +65,19 @@
     (#///analysis.Complex (#///analysis.Tuple tuple))
     (let [tuple::last (dec (list.size tuple))]
       (list@fold (function (_ [tuple::lefts tuple::member] nextC)
-                   (let [right? (n.= tuple::last tuple::lefts)
-                         end?' (and end? right?)]
-                     (<| (///@map (|>> (#/.Seq (#/.Access (#/.Member (if right?
-                                                                       (#.Right (dec tuple::lefts))
-                                                                       (#.Left tuple::lefts)))))))
-                         (path' tuple::member end?')
-                         (when> [(new> (not end?') [])] [(///@map ..clean-up)])
-                         nextC)))
+                   (.case tuple::member
+                     (#///analysis.Simple #///analysis.Unit)
+                     nextC
+
+                     _
+                     (let [right? (n.= tuple::last tuple::lefts)
+                           end?' (and end? right?)]
+                       (<| (///@map (|>> (#/.Seq (#/.Access (#/.Member (if right?
+                                                                         (#.Right (dec tuple::lefts))
+                                                                         (#.Left tuple::lefts)))))))
+                           (path' tuple::member end?')
+                           (when> [(new> (not end?') [])] [(///@map ..clean-up)])
+                           nextC))))
                  thenC
                  (list.reverse (list.enumerate tuple))))
     ))
@@ -81,27 +86,32 @@
   (-> Archive Phase Pattern Analysis (Operation Path))
   (path' pattern true (///@map (|>> #/.Then) (synthesize archive bodyA))))
 
-(def: (weave leftP rightP)
+(def: (weave new old)
   (-> Path Path Path)
-  (with-expansions [<default> (as-is (#/.Alt leftP rightP))]
-    (case [leftP rightP]
-      [(#/.Seq preL postL)
-       (#/.Seq preR postR)]
-      (case (weave preL preR)
+  (with-expansions [<default> (as-is (#/.Alt old new))]
+    (case [new old]
+      [_
+       (#/.Alt old-left old-right)]
+      (#/.Alt old-left
+              (weave new old-right))
+
+      [(#/.Seq preN postN)
+       (#/.Seq preO postO)]
+      (case (weave preN preO)
         (#/.Alt _)
         <default>
 
-        weavedP
-        (#/.Seq weavedP (weave postL postR)))
+        woven
+        (#/.Seq woven (weave postN postO)))
 
       [#/.Pop #/.Pop]
-      rightP
+      old
 
       (^template [<tag> <eq>]
-        [(#/.Test (<tag> leftV))
-         (#/.Test (<tag> rightV))]
-        (if (<eq> leftV rightV)
-          rightP
+        [(#/.Test (<tag> newV))
+         (#/.Test (<tag> oldV))]
+        (if (<eq> newV oldV)
+          old
           <default>))
       ([#/.Bit bit@=]
        [#/.I64 "lux i64 ="]
@@ -109,19 +119,19 @@
        [#/.Text text@=])
 
       (^template [<access> <side>]
-        [(#/.Access (<access> (<side> leftL)))
-         (#/.Access (<access> (<side> rightL)))]
-        (if (n.= leftL rightL)
-          rightP
+        [(#/.Access (<access> (<side> newL)))
+         (#/.Access (<access> (<side> oldL)))]
+        (if (n.= newL oldL)
+          old
           <default>))
       ([#/.Side #.Left]
        [#/.Side #.Right]
        [#/.Member #.Left]
        [#/.Member #.Right])
 
-      [(#/.Bind leftR) (#/.Bind rightR)]
-      (if (n.= leftR rightR)
-        rightP
+      [(#/.Bind newR) (#/.Bind oldR)]
+      (if (n.= newR oldR)
+        old
         <default>)
 
       _
@@ -162,19 +172,12 @@
           _
           <failure>)))))
 
-(def: #export (synthesize-case synthesize archive input [headB tailB+])
+(def: #export (synthesize-case synthesize archive input [[headP headA] tailPA+])
   (-> Phase Archive Synthesis Match (Operation Synthesis))
-  (let [[[lastP lastA] prevsPA] (|> (#.Cons headB tailB+)
-                                    list.reverse
-                                    (case> (#.Cons [lastP lastA] prevsPA)
-                                           [[lastP lastA] prevsPA]
-                                           
-                                           _
-                                           (undefined)))]
-    (do {@ ///.monad}
-      [lastSP (path archive synthesize lastP lastA)
-       prevsSP+ (monad.map @ (product.uncurry (path archive synthesize)) prevsPA)]
-      (wrap (/.branch/case [input (list@fold weave lastSP prevsSP+)])))))
+  (do {@ ///.monad}
+    [headSP (path archive synthesize headP headA)
+     tailSP+ (monad.map @ (product.uncurry (path archive synthesize)) tailPA+)]
+    (wrap (/.branch/case [input (list@fold weave headSP tailSP+)]))))
 
 (template: (!masking <variable> <output>)
   [[(#///analysis.Bind <variable>)

@@ -1,3 +1,7 @@
+# Tensor calculus
+
+1. [Introduction to Tensor Calculus](http://www.ita.uni-heidelberg.de/~dullemond/lectures/tensor/tensor.pdf)
+
 # Geometry
 
 1. [Perspectives on Projective Geometry: A Guided Tour through Real and Complex Geometry](https://www-m10.ma.tum.de/foswiki/pub/Lehre/WS0910/ProjektiveGeometrieWS0910/GeomBook.pdf)
@@ -145,6 +149,7 @@
 
 # Category Theory
 
+1. [Programming with Categories](https://www.youtube.com/watch?v=Y5YCE_mVjvg&list=PLhgq-BqyZ7i7MTGhUROZy3BOICnVixETS&index=1)
 1. [Awesome Applied Category Theory](https://github.com/statebox/awesome-applied-ct)
 1. [Categorical Query Language](https://www.categoricaldata.net/)
 1. [Abstract and Concrete Categories: The Joy of Cats](http://katmat.math.uni-bremen.de/acc/acc.pdf)
