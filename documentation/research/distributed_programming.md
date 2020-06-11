@@ -1,3 +1,7 @@
+# Microservices
+
+1. [The seven deceptions of microservices](https://scottrogowski.com/the-seven-deceptions-of-microservices.html)
+
 # Synchronization
 
 1. [Braid: Synchronization for HTTP](https://braid.news/)

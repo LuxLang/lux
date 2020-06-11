@@ -1,23 +1,23 @@
 (.module:
   [lux #*
+   ["_" test (#+ Test)]
    [abstract
     ["." monad (#+ do)]]
-   [data
-    ["." name]]
-   ["r" math/random (#+ Random) ("#@." monad)]
-   ["_" test (#+ Test)]
    [control
-    pipe
     ["." try]]
    [data
     ["." product]
     ["." maybe]
+    ["." text
+     ["%" format (#+ format)]]
     [number
      ["n" nat]]
     [collection
-     ["." list ("#@." functor fold)]
+     ["." list ("#@." functor fold monoid)]
      ["." dictionary (#+ Dictionary)]
-     ["." set]]]]
+     ["." set]]]
+   [math
+    ["." random (#+ Random)]]]
   ["." // #_
    ["#." primitive]]
   {1
@@ -27,164 +27,437 @@
       [extension
        ["#." bundle]]
       ["/#" //
-       ["#." analysis (#+ Analysis)]
-       ["#." synthesis (#+ Synthesis)]
+       ["." analysis (#+ Analysis)]
+       ["." synthesis (#+ Synthesis)]
        [///
         [arity (#+ Arity)]
-        ["#." reference
+        ["." reference
          ["." variable (#+ Variable) ("#@." equivalence)]]
         ["." phase]
         [meta
          ["." archive]]]]]]]})
 
-(def: constant-function
-  (Random [Arity Analysis Analysis])
-  (r.rec
-   (function (_ constant-function)
-     (do {@ r.monad}
-       [function? r.bit]
-       (if function?
-         (do @
-           [[arity bodyA predictionA] constant-function]
-           (wrap [(inc arity)
-                  (#////analysis.Function (list) bodyA)
-                  predictionA]))
-         (do @
-           [predictionA //primitive.primitive]
-           (wrap [0 predictionA predictionA])))))))
+(def: (n-function loop? arity body)
+  (-> Bit Arity Synthesis Synthesis)
+  (synthesis.function/abstraction
+   {#synthesis.environment (list)
+    #synthesis.arity arity
+    #synthesis.body (if loop?
+                      (synthesis.loop/scope
+                       {#synthesis.start 1
+                        #synthesis.inits (list)
+                        #synthesis.iteration body})
+                      body)}))
 
-(def: (pick scope-size)
-  (-> Nat (Random Nat))
-  (|> r.nat (:: r.monad map (n.% scope-size))))
+(def: (n-abstraction arity body)
+  (-> Arity Analysis Analysis)
+  (list@fold (function (_ arity-1 body)
+               (case arity-1
+                 0 (#analysis.Function (list) body)
+                 _ (#analysis.Function ($_ list@compose
+                                           (list@map (|>> #variable.Foreign)
+                                                     (list.indices arity-1))
+                                           (list (#variable.Local 1)))
+                                       body)))
+             body
+             (list.reverse (list.indices arity))))
 
-(def: function-with-environment
-  (Random [Arity Analysis Variable])
-  (do {@ r.monad}
-    [num-locals (|> r.nat (:: @ map (|>> (n.% 100) (n.max 10))))
-     #let [indices (list.n/range 0 (dec num-locals))
-           local-env (list@map (|>> #variable.Local) indices)
-           foreign-env (list@map (|>> #variable.Foreign) indices)]
-     [arity bodyA predictionA] (: (Random [Arity Analysis Variable])
-                                  (loop [arity 1
-                                         current-env foreign-env]
-                                    (let [current-env/size (list.size current-env)
-                                          resolver (list@fold (function (_ [idx var] resolver)
-                                                                (dictionary.put idx var resolver))
-                                                              (: (Dictionary Nat Variable)
-                                                                 (dictionary.new n.hash))
-                                                              (list.enumerate current-env))]
-                                      (do @
-                                        [nest? r.bit]
-                                        (if nest?
-                                          (do @
-                                            [num-picks (:: @ map (n.max 1) (pick (inc current-env/size)))
-                                             picks (|> (r.set n.hash num-picks (pick current-env/size))
-                                                       (:: @ map set.to-list))
-                                             [arity bodyA predictionA] (recur (inc arity)
-                                                                              (list@map (function (_ pick)
-                                                                                          (maybe.assume (list.nth pick current-env)))
-                                                                                        picks))
-                                             #let [picked-env (list@map (|>> #variable.Foreign) picks)]]
-                                            (wrap [arity
-                                                   (#////analysis.Function picked-env bodyA)
-                                                   predictionA]))
-                                          (do @
-                                            [chosen (pick (list.size current-env))]
-                                            (wrap [arity
-                                                   (#////analysis.Reference (////reference.foreign chosen))
-                                                   (maybe.assume (dictionary.get chosen resolver))])))))))]
-    (wrap [arity
-           (#////analysis.Function local-env bodyA)
-           predictionA])))
+(template: (!expect <pattern> <value>)
+  (case <value>
+    <pattern>
+    true
+    
+    _
+    false))
 
-(def: local-function
-  (Random [Arity Analysis Variable])
-  (loop [arity 0
-         nest? #1]
-    (if nest?
-      (do r.monad
-        [nest?' r.bit
-         [arity' bodyA predictionA] (recur (inc arity) nest?')]
-        (wrap [arity'
-               (#////analysis.Function (list) bodyA)
-               predictionA]))
-      (do {@ r.monad}
-        [chosen (|> r.nat (:: @ map (|>> (n.% 100) (n.max 2))))]
-        (wrap [arity
-               (#////analysis.Reference (////reference.local chosen))
-               (|> chosen (n.+ (dec arity)) #variable.Local)])))))
+(type: Circumstance
+  {#loop? Bit
+   #expectation Synthesis
+   #reality Analysis})
+
+(type: Scenario
+  (-> Bit (Random Circumstance)))
+
+(def: (random-unit output?)
+  Scenario
+  (:: random.monad wrap
+      [true
+       (synthesis.text synthesis.unit)
+       (analysis.unit)]))
+
+(template [<name> <random> <synthesis> <analysis>]
+  [(def: (<name> output?)
+     Scenario
+     (do {@ random.monad}
+       [value <random>]
+       (wrap [true
+              (<synthesis> value)
+              (<analysis> value)])))]
+
+  [random-bit random.bit synthesis.bit analysis.bit]
+  [random-nat random.nat (|>> .i64 synthesis.i64) analysis.nat]
+  [random-int random.int (|>> .i64 synthesis.i64) analysis.int]
+  [random-rev random.rev (|>> .i64 synthesis.i64) analysis.rev]
+  [random-frac random.frac synthesis.f64 analysis.frac]
+  [random-text (random.unicode 1) synthesis.text analysis.text]
+  )
+
+(def: (random-primitive output?)
+  Scenario
+  (random.either (random.either (..random-unit output?)
+                                (random.either (..random-bit output?)
+                                               (..random-nat output?)))
+                 (random.either (random.either (..random-int output?)
+                                               (..random-rev output?))
+                                (random.either (..random-frac output?)
+                                               (..random-text output?)))))
+
+(def: (random-variant random-value output?)
+  (-> Scenario Scenario)
+  (do {@ random.monad}
+    [lefts random.nat
+     right? random.bit
+     [loop? expected-value actual-value] (random-value false)]
+    (wrap [loop?
+           (synthesis.variant
+            {#analysis.lefts lefts
+             #analysis.right? right?
+             #analysis.value expected-value})
+           (analysis.variant
+            {#analysis.lefts lefts
+             #analysis.right? right?
+             #analysis.value actual-value})])))
+
+(def: (random-tuple random-value output?)
+  (-> Scenario Scenario)
+  (do {@ random.monad}
+    [[loop?-left expected-left actual-left] (random-value false)
+     [loop?-right expected-right actual-right] (random-value false)]
+    (wrap [(and loop?-left
+                loop?-right)
+           (synthesis.tuple (list expected-left expected-right))
+           (analysis.tuple (list actual-left actual-right))])))
+
+(def: (random-structure random-value output?)
+  (-> Scenario Scenario)
+  ($_ random.either
+      (..random-variant random-value output?)
+      (..random-tuple random-value output?)))
+
+(def: (random-variable arity output?)
+  (-> Arity Scenario)
+  (do {@ random.monad}
+    [register (:: @ map (|>> (n.% arity) inc) random.nat)]
+    (wrap [(not (n.= 0 register))
+           (synthesis.variable/local register)
+           (if (n.= arity register)
+             (#analysis.Reference (reference.local 1))
+             (#analysis.Reference (reference.foreign register)))])))
+
+(def: (random-constant output?)
+  Scenario
+  (do {@ random.monad}
+    [module (random.unicode 1)
+     short (random.unicode 1)]
+    (wrap [true
+           (synthesis.constant [module short])
+           (#analysis.Reference (reference.constant [module short]))])))
+
+(def: (random-reference arity output?)
+  (-> Arity Scenario)
+  (random.either (..random-variable arity output?)
+                 (..random-constant output?)))
+
+(def: (random-case arity random-value output?)
+  (-> Arity Scenario Scenario)
+  (do {@ random.monad}
+    [bit-test random.bit
+     i64-test random.nat
+     f64-test random.frac
+     text-test (random.unicode 1)
+     [loop?-input expected-input actual-input] (random-value false)
+     [loop?-output expected-output actual-output] (random-value output?)
+     lefts (|> random.nat (:: @ map (n.% 10)))
+     right? random.bit
+     #let [side|member (if right?
+                         (#.Right lefts)
+                         (#.Left lefts))]]
+    (wrap [(and loop?-input
+                loop?-output)
+           (synthesis.branch/case [expected-input
+                                   ($_ synthesis.path/alt
+                                       (synthesis.path/then expected-output)
+                                       (synthesis.path/seq (synthesis.path/bit bit-test)
+                                                           (synthesis.path/then expected-output))
+                                       (synthesis.path/seq (synthesis.path/i64 (.i64 i64-test))
+                                                           (synthesis.path/then expected-output))
+                                       (synthesis.path/seq (synthesis.path/f64 f64-test)
+                                                           (synthesis.path/then expected-output))
+                                       (synthesis.path/seq (synthesis.path/text text-test)
+                                                           (synthesis.path/then expected-output))
+                                       (synthesis.path/seq (synthesis.path/bind (inc arity))
+                                                           (synthesis.path/then expected-output))
+                                       ($_ synthesis.path/seq
+                                           (synthesis.path/side side|member)
+                                           (synthesis.path/bind (inc arity))
+                                           (synthesis.path/then expected-output))
+                                       (if right?
+                                         ($_ synthesis.path/seq
+                                             (synthesis.path/member side|member)
+                                             (synthesis.path/bind (inc arity))
+                                             (synthesis.path/then expected-output)) 
+                                         ($_ synthesis.path/seq
+                                             (synthesis.path/member side|member)
+                                             (synthesis.path/bind (inc arity))
+                                             synthesis.path/pop
+                                             (synthesis.path/then expected-output))))])
+           (#analysis.Case actual-input
+                           [{#analysis.when (analysis.pattern/unit)
+                             #analysis.then actual-output}
+                            (list {#analysis.when (analysis.pattern/bit bit-test)
+                                   #analysis.then actual-output}
+                                  {#analysis.when (analysis.pattern/nat (.nat i64-test))
+                                   #analysis.then actual-output}
+                                  {#analysis.when (analysis.pattern/frac f64-test)
+                                   #analysis.then actual-output}
+                                  {#analysis.when (analysis.pattern/text text-test)
+                                   #analysis.then actual-output}
+                                  {#analysis.when (#analysis.Bind 2)
+                                   #analysis.then actual-output}
+                                  {#analysis.when (analysis.pattern/variant
+                                                   {#analysis.lefts lefts
+                                                    #analysis.right? right?
+                                                    #analysis.value (#analysis.Bind 2)})
+                                   #analysis.then actual-output}
+                                  {#analysis.when (analysis.pattern/tuple
+                                                   (list@compose (list.repeat lefts (analysis.pattern/unit))
+                                                                 (if right?
+                                                                   (list (analysis.pattern/unit) (#analysis.Bind 2))
+                                                                   (list (#analysis.Bind 2) (analysis.pattern/unit)))))
+                                   #analysis.then actual-output})])])))
+
+(def: (random-let arity random-value output?)
+  (-> Arity Scenario Scenario)
+  (do {@ random.monad}
+    [[loop?-input expected-input actual-input] (random-value false)
+     [loop?-output expected-output actual-output] (random-value output?)]
+    (wrap [(and loop?-input
+                loop?-output)
+           (synthesis.branch/let [expected-input
+                                  (inc arity)
+                                  expected-output])
+           (#analysis.Case actual-input
+                           [{#analysis.when (#analysis.Bind 2)
+                             #analysis.then actual-output}
+                            (list)])])))
+
+(def: (random-if random-value output?)
+  (-> Scenario Scenario)
+  (do {@ random.monad}
+    [[loop?-test expected-test actual-test] (random-value false)
+     [loop?-then expected-then actual-then] (random-value output?)
+     [loop?-else expected-else actual-else] (random-value output?)
+     flip? random.bit]
+    (wrap [(and loop?-test
+                loop?-then
+                loop?-else)
+           (synthesis.branch/if [expected-test
+                                 expected-then
+                                 expected-else])
+           (if flip?
+             (#analysis.Case actual-test
+                             [{#analysis.when (analysis.pattern/bit false)
+                               #analysis.then actual-else}
+                              (list {#analysis.when (analysis.pattern/bit true)
+                                     #analysis.then actual-then})])
+             (#analysis.Case actual-test
+                             [{#analysis.when (analysis.pattern/bit true)
+                               #analysis.then actual-then}
+                              (list {#analysis.when (analysis.pattern/bit false)
+                                     #analysis.then actual-else})]))])))
+
+(def: (random-get random-value output?)
+  (-> Scenario Scenario)
+  (do {@ random.monad}
+    [lefts (|> random.nat (:: @ map (n.% 10)))
+     right? random.bit
+     [loop?-record expected-record actual-record] (random-value false)]
+    (wrap [loop?-record
+           (synthesis.branch/get [(list (if right?
+                                          (#.Right lefts)
+                                          (#.Left lefts)))
+                                  expected-record])
+           (#analysis.Case actual-record
+                           [{#analysis.when (analysis.pattern/tuple
+                                             (list@compose (list.repeat lefts (analysis.pattern/unit))
+                                                           (if right?
+                                                             (list (analysis.pattern/unit) (#analysis.Bind 2))
+                                                             (list (#analysis.Bind 2) (analysis.pattern/unit)))))
+                             #analysis.then (#analysis.Reference (reference.local 2))}
+                            (list)])])))
+
+(def: (random-branch arity random-value output?)
+  (-> Arity Scenario Scenario)
+  (random.either (random.either (..random-case arity random-value output?)
+                                (..random-let arity random-value output?))
+                 (random.either (..random-if random-value output?)
+                                (..random-get random-value output?))))
+
+(def: (random-recur arity random-value output?)
+  (-> Arity Scenario Scenario)
+  (do {@ random.monad}
+    [resets (random.list arity (random-value false))]
+    (wrap [true
+           (synthesis.loop/recur (list@map (|>> product.right product.left) resets))
+           (analysis.apply [(#analysis.Reference (case arity
+                                                   1 (reference.local 0)
+                                                   _ (reference.foreign 0)))
+                            (list@map (|>> product.right product.right) resets)])])))
+
+(def: (random-scope arity output?)
+  (-> Arity Scenario)
+  (do {@ random.monad}
+    [resets (random.list arity (..random-variable arity output?))
+     [_ expected-output actual-output] (..random-nat output?)]
+    (wrap [(list@fold (function (_ new old)
+                        (and new old))
+                      true
+                      (list@map product.left resets))
+           (synthesis.loop/scope
+            {#synthesis.start (inc arity)
+             #synthesis.inits (list@map (|>> product.right product.left) resets)
+             #synthesis.iteration expected-output})
+           (analysis.apply [(..n-abstraction arity actual-output)
+                            (list@map (|>> product.right product.right) resets)])])))
+
+(def: (random-loop arity random-value output?)
+  (-> Arity Scenario Scenario)
+  (if output?
+    ($_ random.either
+        (..random-recur arity random-value output?)
+        (..random-scope arity output?)
+        )
+    (..random-scope arity output?)))
+
+(def: (random-abstraction' output?)
+  Scenario
+  (do {@ random.monad}
+    [[loop?-output expected-output actual-output] (..random-nat output?)
+     arity (|> random.nat (:: @ map (|>> (n.% 5) inc)))
+     #let [environment ($_ list@compose
+                           (list@map (|>> #variable.Foreign)
+                                     (list.indices arity))
+                           (list (#variable.Local 1)))]]
+    (wrap [true
+           (synthesis.function/abstraction
+            {#synthesis.environment environment
+             #synthesis.arity 1
+             #synthesis.body (synthesis.loop/scope
+                              {#synthesis.start 1
+                               #synthesis.inits (list)
+                               #synthesis.iteration expected-output})})
+           (#analysis.Function environment
+                               actual-output)])))
+
+(def: (random-apply random-value output?)
+  (-> Scenario Scenario)
+  (do {@ random.monad}
+    [[loop?-abstraction expected-abstraction actual-abstraction] (..random-nat output?)
+     arity (|> random.nat (:: @ map (|>> (n.% 5) inc)))
+     inputs (random.list arity (random-value false))]
+    (wrap [(list@fold (function (_ new old)
+                        (and new old))
+                      loop?-abstraction
+                      (list@map product.left inputs))
+           (synthesis.function/apply [expected-abstraction
+                                      (list@map (|>> product.right product.left) inputs)])
+           (analysis.apply [actual-abstraction
+                            (list@map (|>> product.right product.right) inputs)])])))
+
+(def: (random-function random-value output?)
+  (-> Scenario Scenario)
+  (if output?
+    (..random-apply random-value output?)
+    ($_ random.either
+        (..random-abstraction' output?)
+        (..random-apply random-value output?)
+        )))
+
+(def: (random-control arity random-value output?)
+  (-> Arity Scenario Scenario)
+  ($_ random.either
+      (..random-branch arity random-value output?)
+      (..random-loop arity random-value output?)
+      (..random-function random-value output?)
+      ))
+
+(def: (random-extension random-value output?)
+  (-> Scenario Scenario)
+  (do {@ random.monad}
+    [name (random.unicode 1)
+     [loop?-first expected-first actual-first] (random-value false)
+     [loop?-second expected-second actual-second] (random-value false)
+     [loop?-third expected-third actual-third] (random-value false)]
+    (wrap [(and loop?-first
+                loop?-second
+                loop?-third)
+           (#synthesis.Extension name (list expected-first expected-second expected-third))
+           (#analysis.Extension name (list actual-first actual-second actual-third))])))
+
+(def: (random-body arity)
+  (-> Arity Scenario)
+  (function (random-value output?)
+    (random.rec
+     (function (_ _)
+       ($_ random.either
+           (..random-primitive output?)
+           (..random-structure random-value output?)
+           (..random-reference arity output?)
+           (..random-control arity random-value output?)
+           (..random-extension random-value output?))))))
+
+(def: random-abstraction
+  (Random [Synthesis Analysis])
+  (do {@ random.monad}
+    [arity (|> random.nat (:: @ map (|>> (n.% 5) inc)))
+     [loop? expected-body actual-body] (random-body arity true)]
+    (wrap [(..n-function loop? arity expected-body)
+           (..n-abstraction arity actual-body)])))
 
 (def: abstraction
   Test
-  (do r.monad
-    [[arity//constant function//constant prediction//constant] constant-function
-     [arity//environment function//environment prediction//environment] function-with-environment
-     [arity//local function//local prediction//local] local-function]
-    ($_ _.and
-        (_.test "Nested functions will get folded together."
-                (|> function//constant
-                    (//.phase archive.empty)
-                    (phase.run [///bundle.empty ////synthesis.init])
-                    (case> (^ (#try.Success (////synthesis.function/abstraction [environment arity output])))
-                           (and (n.= arity//constant arity)
-                                (//primitive.corresponds? prediction//constant output))
-                           
-                           _
-                           (n.= 0 arity//constant))))
-        (_.test "Folded functions provide direct access to environment variables."
-                (|> function//environment
-                    (//.phase archive.empty)
-                    (phase.run [///bundle.empty ////synthesis.init])
-                    (case> (^ (#try.Success (////synthesis.function/abstraction [environment arity (#////synthesis.Reference (////reference.variable output))])))
-                           (and (n.= arity//environment arity)
-                                (variable@= prediction//environment output))
-                           
-                           _
-                           #0)))
-        (_.test "Folded functions properly offset local variables."
-                (|> function//local
-                    (//.phase archive.empty)
-                    (phase.run [///bundle.empty ////synthesis.init])
-                    (case> (^ (#try.Success (////synthesis.function/abstraction [environment arity (#////synthesis.Reference (////reference.variable output))])))
-                           (and (n.= arity//local arity)
-                                (variable@= prediction//local output))
-                           
-                           _
-                           #0)))
-        )))
+  (do random.monad
+    [[expected input] ..random-abstraction]
+    (_.cover [/.abstraction]
+             (|> input
+                 (//.phase archive.empty)
+                 (phase.run [///bundle.empty synthesis.init])
+                 (!expect (^multi (#try.Success actual)
+                                  (:: synthesis.equivalence = expected actual)))))))
 
 (def: application
   Test
-  (do {@ r.monad}
-    [arity (|> r.nat (:: @ map (|>> (n.% 10) (n.max 1))))
+  (do {@ random.monad}
+    [arity (|> random.nat (:: @ map (|>> (n.% 10) (n.max 1))))
      funcA //primitive.primitive
-     argsA (r.list arity //primitive.primitive)]
-    ($_ _.and
-        (_.test "Can synthesize function application."
-                (|> (////analysis.apply [funcA argsA])
-                    (//.phase archive.empty)
-                    (phase.run [///bundle.empty ////synthesis.init])
-                    (case> (^ (#try.Success (////synthesis.function/apply [funcS argsS])))
-                           (and (//primitive.corresponds? funcA funcS)
-                                (list.every? (product.uncurry //primitive.corresponds?)
-                                             (list.zip2 argsA argsS)))
-                           
-                           _
-                           #0)))
-        (_.test "Function application on no arguments just synthesizes to the function itself."
-                (|> (////analysis.apply [funcA (list)])
-                    (//.phase archive.empty)
-                    (phase.run [///bundle.empty ////synthesis.init])
-                    (case> (#try.Success funcS)
-                           (//primitive.corresponds? funcA funcS)
-
-                           _
-                           #0)))
-        )))
+     argsA (random.list arity //primitive.primitive)]
+    (_.cover [/.apply]
+             (and (|> (analysis.apply [funcA argsA])
+                      (//.phase archive.empty)
+                      (phase.run [///bundle.empty synthesis.init])
+                      (!expect (^multi (^ (#try.Success (synthesis.function/apply [funcS argsS])))
+                                       (and (//primitive.corresponds? funcA funcS)
+                                            (list.every? (product.uncurry //primitive.corresponds?)
+                                                         (list.zip2 argsA argsS))))))
+                  (|> (analysis.apply [funcA (list)])
+                      (//.phase archive.empty)
+                      (phase.run [///bundle.empty synthesis.init])
+                      (!expect (^multi (#try.Success funcS)
+                                       (//primitive.corresponds? funcA funcS))))))))
 
 (def: #export test
   Test
-  (<| (_.context (name.module (name-of /._)))
+  (<| (_.covering /._)
       ($_ _.and
           ..abstraction
           ..application

@@ -1,0 +1,158 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   [abstract
+    [monad (#+ do)]]
+   [control
+    [pipe (#+ case>)]
+    ["." try]
+    ["." exception]
+    ["<>" parser]]
+   [data
+    ["." maybe]
+    ["." bit]
+    ["." text]
+    [number
+     ["n" nat]
+     ["." frac]]
+    [collection
+     ["." list ("#@." functor)]
+     ["." set]
+     ["." dictionary]
+     ["." row (#+ row) ("#@." functor)]]
+    [format
+     ["." json]]]
+   [math
+    ["." random (#+ Random)]]]
+  {1
+   ["." /]})
+
+(template: (!expect <pattern> <value>)
+  (case <value>
+    <pattern>
+    true
+    
+    _
+    false))
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      (_.with-cover [/.Parser])
+      (`` ($_ _.and
+              (do {@ random.monad}
+                [expected (:: @ map (|>> #json.String) (random.unicode 1))]
+                (_.cover [/.run /.any]
+                         (|> (/.run /.any expected)
+                             (!expect (^multi (#try.Success actual)
+                                              (:: json.equivalence = expected actual))))))
+              (_.cover [/.null]
+                       (|> (/.run /.null #json.Null)
+                           (!expect (#try.Success _))))
+              (~~ (template [<query> <test> <check> <random> <json> <equivalence>]
+                    [(do {@ random.monad}
+                       [expected <random>
+                        dummy (|> <random> (random.filter (|>> (:: <equivalence> = expected) not)))]
+                       ($_ _.and
+                           (_.cover [<query>]
+                                    (|> (/.run <query> (<json> expected))
+                                        (!expect (^multi (#try.Success actual)
+                                                         (:: <equivalence> = expected actual)))))
+                           (_.cover [<test>]
+                                    (and (|> (/.run (<test> expected) (<json> expected))
+                                             (!expect (#try.Success #1)))
+                                         (|> (/.run (<test> expected) (<json> dummy))
+                                             (!expect (#try.Success #0)))))
+                           (_.cover [<check>]
+                                    (and (|> (/.run (<check> expected) (<json> expected))
+                                             (!expect (#try.Success _)))
+                                         (|> (/.run (<check> expected) (<json> dummy))
+                                             (!expect (#try.Failure _)))))))]
+
+                    [/.boolean /.boolean? /.boolean! random.bit #json.Boolean bit.equivalence]
+                    [/.number /.number? /.number! random.frac #json.Number frac.equivalence]
+                    [/.string /.string? /.string! (random.unicode 1) #json.String text.equivalence]
+                    ))
+              (do {@ random.monad}
+                [expected (random.unicode 1)
+                 dummy random.bit]
+                (_.cover [/.unexpected-value]
+                         (|> (/.run /.string (#json.Boolean dummy))
+                             (!expect (^multi (#try.Failure error)
+                                              (exception.match? /.unexpected-value error))))))
+              (do {@ random.monad}
+                [expected (random.unicode 1)
+                 dummy (|> (random.unicode 1) (random.filter (|>> (:: text.equivalence = expected) not)))]
+                (_.cover [/.value-mismatch]
+                         (|> (/.run (/.string! expected) (#json.String dummy))
+                             (!expect (^multi (#try.Failure error)
+                                              (exception.match? /.value-mismatch error))))))
+              (do {@ random.monad}
+                [expected (random.unicode 1)]
+                (_.cover [/.nullable]
+                         (and (|> (/.run (/.nullable /.string) #json.Null)
+                                  (!expect (^multi (#try.Success actual)
+                                                   (:: (maybe.equivalence text.equivalence) = #.None actual))))
+                              (|> (/.run (/.nullable /.string) (#json.String expected))
+                                  (!expect (^multi (#try.Success actual)
+                                                   (:: (maybe.equivalence text.equivalence) = (#.Some expected) actual)))))))
+              (do {@ random.monad}
+                [size (:: @ map (n.% 10) random.nat)
+                 expected (|> (random.unicode 1)
+                              (random.list size)
+                              (:: @ map row.from-list))]
+                (_.cover [/.array]
+                         (|> (/.run (/.array (<>.some /.string))
+                                    (#json.Array (row@map (|>> #json.String) expected)))
+                             (!expect (^multi (#try.Success actual)
+                                              (:: (row.equivalence text.equivalence) = expected (row.from-list actual)))))))
+              (do {@ random.monad}
+                [expected (:: @ map (|>> #json.String) (random.unicode 1))]
+                (_.cover [/.unconsumed-input]
+                         (|> (/.run (/.array /.any) (#json.Array (row expected expected)))
+                             (!expect (^multi (#try.Failure error)
+                                              (exception.match? /.unconsumed-input error))))))
+              (_.cover [/.empty-input]
+                       (|> (/.run (/.array /.any) (#json.Array (row)))
+                           (!expect (^multi (#try.Failure error)
+                                            (exception.match? /.empty-input error)))))
+              (do {@ random.monad}
+                [expected-boolean random.bit
+                 expected-number random.frac
+                 expected-string (random.unicode 1)
+                 [boolean-field number-field string-field] (|> (random.set text.hash 3 (random.unicode 3))
+                                                               (:: @ map (|>> set.to-list
+                                                                              (case> (^ (list boolean-field number-field string-field))
+                                                                                     [boolean-field number-field string-field]
+
+                                                                                     _
+                                                                                     (undefined)))))]
+                (_.cover [/.object /.field]
+                         (|> (/.run (/.object ($_ <>.and
+                                                  (/.field boolean-field /.boolean)
+                                                  (/.field number-field /.number)
+                                                  (/.field string-field /.string)))
+                                    (#json.Object
+                                     (dictionary.from-list text.hash
+                                                           (list [boolean-field (#json.Boolean expected-boolean)]
+                                                                 [number-field (#json.Number expected-number)]
+                                                                 [string-field (#json.String expected-string)]))))
+                             (!expect (^multi (#try.Success [actual-boolean actual-number actual-string])
+                                              (and (:: bit.equivalence = expected-boolean actual-boolean)
+                                                   (:: frac.equivalence = expected-number actual-number)
+                                                   (:: text.equivalence = expected-string actual-string)))))))
+              (do {@ random.monad}
+                [size (:: @ map (n.% 10) random.nat)
+                 keys (random.list size (random.unicode 1))
+                 values (random.list size (random.unicode 1))
+                 #let [expected (dictionary.from-list text.hash (list.zip2 keys values))]]
+                (_.cover [/.dictionary]
+                         (|> (/.run (/.dictionary /.string)
+                                    (#json.Object
+                                     (|> values
+                                         (list@map (|>> #json.String))
+                                         (list.zip2 keys)
+                                         (dictionary.from-list text.hash))))
+                             (!expect (^multi (#try.Success actual)
+                                              (:: (dictionary.equivalence text.equivalence) = expected actual))))))
+              ))))
