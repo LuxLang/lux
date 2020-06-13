@@ -4,6 +4,7 @@
 
 # Exemplar
 
+1. [Mill: A Build Tool based on Pure Functional Programming, Li Haoyi at Scala.Love 2020](https://www.youtube.com/watch?v=j6uThGxx-18)
 1. [Mill: A Build Tool based on Pure Functional Programming, Li Haoyi at Scala.Love 2020](https://vimeo.com/409165552)
 1. [Pier: Yet another Haskell build tool](https://www.youtube.com/watch?v=JmenfeDVi0w)
 1. https://buckbuild.com/
