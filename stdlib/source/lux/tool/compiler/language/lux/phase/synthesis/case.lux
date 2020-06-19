@@ -10,6 +10,7 @@
     ["." bit ("#@." equivalence)]
     ["." text ("#@." equivalence)]
     [number
+     ["." i64]
      ["n" nat]
      ["." frac ("#@." equivalence)]]
     [collection
@@ -37,17 +38,22 @@
     (case simple
       #///analysis.Unit
       thenC
-      
-      (^template [<from> <to>]
-        (<from> value)
-        (///@map (|>> (#/.Seq (#/.Test (|> value <to>))))
+
+      (#///analysis.Bit when)
+      (///@map (function (_ then)
+                 (#/.Bit-Fork when then #.None))
+               thenC)
+
+      (^template [<from> <to> <conversion>]
+        (<from> test)
+        (///@map (function (_ then)
+                   (<to> [(<conversion> test) then] (list)))
                  thenC))
-      ([#///analysis.Bit  #/.Bit]
-       [#///analysis.Nat  (<| #/.I64 .i64)]
-       [#///analysis.Int  (<| #/.I64 .i64)]
-       [#///analysis.Rev  (<| #/.I64 .i64)]
-       [#///analysis.Frac #/.F64]
-       [#///analysis.Text #/.Text]))
+      ([#///analysis.Nat  #/.I64-Fork .i64]
+       [#///analysis.Int  #/.I64-Fork .i64]
+       [#///analysis.Rev  #/.I64-Fork .i64]
+       [#///analysis.Frac #/.F64-Fork |>]
+       [#///analysis.Text #/.Text-Fork |>]))
 
     (#///analysis.Bind register)
     (<| (:: ///.monad map (|>> (#/.Seq (#/.Bind register))))
@@ -86,6 +92,24 @@
   (-> Archive Phase Pattern Analysis (Operation Path))
   (path' pattern true (///@map (|>> #/.Then) (synthesize archive bodyA))))
 
+(def: (weave-branch weave equivalence [new-test new-then] [[old-test old-then] old-tail])
+  (All [a] (-> (-> Path Path Path) (Equivalence a) [a Path] (/.Fork a Path)
+               (/.Fork a Path)))
+  (if (:: equivalence = new-test old-test)
+    [[old-test (weave new-then old-then)] old-tail]
+    [[old-test old-then]
+     (case old-tail
+       #.Nil
+       (list [new-test new-then])
+       
+       (#.Cons old-cons)
+       (#.Cons (weave-branch weave equivalence [new-test new-then] old-cons)))]))
+
+(def: (weave-fork weave equivalence new-fork old-fork)
+  (All [a] (-> (-> Path Path Path) (Equivalence a) (/.Fork a Path) (/.Fork a Path)
+               (/.Fork a Path)))
+  (list@fold (..weave-branch weave equivalence) old-fork (#.Cons new-fork)))
+
 (def: (weave new old)
   (-> Path Path Path)
   (with-expansions [<default> (as-is (#/.Alt old new))]
@@ -107,17 +131,42 @@
       [#/.Pop #/.Pop]
       old
 
-      (^template [<tag> <eq>]
-        [(#/.Test (<tag> newV))
-         (#/.Test (<tag> oldV))]
-        (if (<eq> newV oldV)
-          old
-          <default>))
-      ([#/.Bit bit@=]
-       [#/.I64 "lux i64 ="]
-       [#/.F64 frac@=]
-       [#/.Text text@=])
+      [(#/.Bit-Fork new-when new-then new-else)
+       (#/.Bit-Fork old-when old-then old-else)]
+      (if (bit@= new-when old-when)
+        (#/.Bit-Fork old-when
+                     (weave new-then old-then)
+                     (case [new-else old-else]
+                       [#.None #.None]
+                       #.None
 
+                       (^or [(#.Some woven-then) #.None]
+                            [#.None (#.Some woven-then)])
+                       (#.Some woven-then)
+
+                       [(#.Some new-else) (#.Some old-else)]
+                       (#.Some (weave new-else old-else))))
+        (#/.Bit-Fork old-when
+                     (case new-else
+                       #.None
+                       old-then
+
+                       (#.Some new-else)
+                       (weave new-else old-then))
+                     (#.Some (case old-else
+                               #.None
+                               new-then
+
+                               (#.Some old-else)
+                               (weave new-then old-else)))))
+
+      (^template [<tag> <equivalence>]
+        [(<tag> new-fork) (<tag> old-fork)]
+        (<tag> (..weave-fork weave <equivalence> new-fork old-fork)))
+      ([#/.I64-Fork i64.equivalence]
+       [#/.F64-Fork frac.equivalence]
+       [#/.Text-Fork text.equivalence])
+      
       (^template [<access> <side>]
         [(#/.Access (<access> (<side> newL)))
          (#/.Access (<access> (<side> oldL)))]

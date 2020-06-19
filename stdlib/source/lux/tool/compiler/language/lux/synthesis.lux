@@ -2,15 +2,17 @@
   [lux (#- i64 Scope)
    [abstract
     [monad (#+ do)]
-    [equivalence (#+ Equivalence)]]
+    ["." equivalence (#+ Equivalence)]]
    [control
     ["." exception (#+ exception:)]]
    [data
     ["." sum]
+    ["." maybe]
     ["." bit ("#@." equivalence)]
     ["." text ("#@." equivalence)
      ["%" format (#+ Format format)]]
     [number
+     ["." i64]
      ["n" nat]
      ["i" int]
      ["f" frac]]
@@ -60,11 +62,17 @@
   (#Side Side)
   (#Member Member))
 
+(type: #export (Fork value next)
+  [[value next] (List [value next])])
+
 (type: #export (Path' s)
   #Pop
-  (#Test Primitive)
   (#Access Access)
   (#Bind Register)
+  (#Bit-Fork Bit (Path' s) (Maybe (Path' s)))
+  (#I64-Fork (Fork (I64 Any) (Path' s)))
+  (#F64-Fork (Fork Frac (Path' s)))
+  (#Text-Fork (Fork Text (Path' s)))
   (#Alt (Path' s) (Path' s))
   (#Seq (Path' s) (Path' s))
   (#Then s))
@@ -126,16 +134,6 @@
 (def: #export path/pop
   Path
   #Pop)
-
-(template [<name> <tag>]
-  [(template: #export (<name> content)
-     (#..Test (<tag> content)))]
-
-  [path/bit  #..Bit]
-  [path/i64  #..I64]
-  [path/f64  #..F64]
-  [path/text #..Text]
-  )
 
 (template [<name> <kind>]
   [(template: #export (<name> content)
@@ -259,22 +257,28 @@
   (case value
     #Pop
     "_"
-    
-    (#Test primitive)
-    (format "(? "
-            (case primitive
-              (#Bit value)
-              (%.bit value)
-              
-              (#I64 value)
-              (%.int (.int value))
-              
-              (#F64 value)
-              (%.frac value)
-              
-              (#Text value)
-              (%.text value))
+
+    (#Bit-Fork when then else)
+    (format "(?"
+            " " (%.bit when) " " (%path' %then then)
+            (case else
+              (#.Some else)
+              (format " " (%.bit (not when)) " " (%path' %then else))
+
+              #.None
+              "")
             ")")
+    
+    (^template [<tag> <format>]
+      (<tag> cons)
+      (|> (#.Cons cons)
+          (list@map (function (_ [test then])
+                      (format (<format> test) " " (%path' %then then))))
+          (text.join-with " ")
+          (text.enclose ["(? " ")"])))
+    ([#I64-Fork (|>> .int %.int)]
+     [#F64-Fork %.frac]
+     [#Text-Fork %.text])
     
     (#Access access)
     (case access
@@ -452,11 +456,26 @@
       [#Pop #Pop]
       true
 
+      [(#Bit-Fork reference-when reference-then reference-else)
+       (#Bit-Fork sample-when sample-then sample-else)]
+      (and (bit@= reference-when sample-when)
+           (= reference-then sample-then)
+           (:: (maybe.equivalence =) = reference-else sample-else))
+
+      (^template [<tag> <equivalence>]
+        [(<tag> reference-cons)
+         (<tag> sample-cons)]
+        (:: (list.equivalence (equivalence.product <equivalence> =)) =
+            (#.Cons reference-cons)
+            (#.Cons sample-cons)))
+      ([#I64-Fork i64.equivalence]
+       [#F64-Fork f.equivalence]
+       [#Text-Fork text.equivalence])
+      
       (^template [<tag> <equivalence>]
         [(<tag> reference') (<tag> sample')]
         (:: <equivalence> = reference' sample'))
-      ([#Test   primitive-equivalence]
-       [#Access access-equivalence]
+      ([#Access ..access-equivalence]
        [#Then   equivalence])
       
       [(#Bind reference') (#Bind sample')]

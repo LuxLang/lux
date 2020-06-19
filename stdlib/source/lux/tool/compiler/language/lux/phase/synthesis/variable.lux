@@ -7,7 +7,7 @@
     ["." exception (#+ exception:)]]
    [data
     ["." product]
-    ["." maybe]
+    ["." maybe ("#@." functor)]
     [number
      ["n" nat]]
     ["." text
@@ -68,8 +68,20 @@
       ([#/.Seq]
        [#/.Alt])
 
+      (#/.Bit-Fork when then else)
+      (#/.Bit-Fork when (recur then) (maybe@map recur else))
+
+      (^template [<tag>]
+        (<tag> [[test then] tail])
+        (<tag> [[test (recur then)]
+                (list@map (function (_ [test' then'])
+                            [test' (recur then')])
+                          tail)]))
+      ([#/.I64-Fork]
+       [#/.F64-Fork]
+       [#/.Text-Fork])
+      
       (^or #/.Pop
-           (#/.Test _)
            (#/.Access _))
       path
 
@@ -180,7 +192,7 @@
   (-> [Redundancy a] (Try [Redundancy a])))
 
 (def: (list-optimization optimization)
-  (-> (Optimization Synthesis) (Optimization (List Synthesis)))
+  (All [a] (-> (Optimization a) (Optimization (List a))))
   (function (recur [redundancy values])
     (case values
       #.Nil
@@ -234,10 +246,38 @@
   (function (recur [redundancy path])
     (case path
       (^or #/.Pop
-           (#/.Test _)
            (#/.Access _))
       (#try.Success [redundancy
                      path])
+
+      (#/.Bit-Fork when then else)
+      (do {@ try.monad}
+        [[redundancy then] (recur [redundancy then])
+         [redundancy else] (case else
+                             (#.Some else)
+                             (:: @ map
+                                 (function (_ [redundancy else])
+                                   [redundancy (#.Some else)])
+                                 (recur [redundancy else]))
+
+                             #.None
+                             (wrap [redundancy #.None]))]
+        (wrap [redundancy (#/.Bit-Fork when then else)]))
+      
+      (^template [<tag> <type>]
+        (<tag> [[test then] elses])
+        (do {@ try.monad}
+          [[redundancy then] (recur [redundancy then])
+           [redundancy elses] (..list-optimization (: (Optimization [<type> Path])
+                                                      (function (_ [redundancy [else-test else-then]])
+                                                        (do @
+                                                          [[redundancy else-then] (recur [redundancy else-then])]
+                                                          (wrap [redundancy [else-test else-then]]))))
+                                                   [redundancy elses])]
+          (wrap [redundancy (<tag> [[test then] elses])])))
+      ([#/.I64-Fork (I64 Any)]
+       [#/.F64-Fork Frac]
+       [#/.Text-Fork Text])
       
       (#/.Bind register)
       (do try.monad

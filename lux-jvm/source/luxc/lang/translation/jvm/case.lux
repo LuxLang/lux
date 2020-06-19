@@ -1,7 +1,7 @@
 (.module:
   [lux (#- Type if let case)
    [abstract
-    [monad (#+ do)]]
+    ["." monad (#+ do)]]
    [control
     ["." function]
     ["ex" exception (#+ exception:)]]
@@ -98,33 +98,51 @@
     (operation@wrap (|>> peekI
                          (_.ASTORE register)))
 
-    (^ (synthesis.path/bit value))
-    (operation@wrap (.let [jumpI (.if value _.IFEQ _.IFNE)]
-                      (|>> peekI
-                           (_.unwrap type.boolean)
-                           (jumpI @else))))
-    
-    (^ (synthesis.path/i64 value))
-    (operation@wrap (|>> peekI
-                         (_.unwrap type.long)
-                         (_.long (.int value))
-                         _.LCMP
-                         (_.IFNE @else)))
-    
-    (^ (synthesis.path/f64 value))
-    (operation@wrap (|>> peekI
-                         (_.unwrap type.double)
-                         (_.double value)
-                         _.DCMPL
-                         (_.IFNE @else)))
-    
-    (^ (synthesis.path/text value))
-    (operation@wrap (|>> peekI
-                         (_.string value)
-                         (_.INVOKEVIRTUAL (type.class "java.lang.Object" (list))
-                                          "equals"
-                                          (type.method [(list //.$Value) type.boolean (list)]))
-                         (_.IFEQ @else)))
+    (#synthesis.Bit-Fork when thenP elseP)
+    (do phase.monad
+      [thenG (path' stack-depth @else @end phase archive thenP)
+       elseG (.case elseP
+               (#.Some elseP)
+               (path' stack-depth @else @end phase archive elseP)
+
+               #.None
+               (wrap (_.GOTO @else)))
+       #let [ifI (.if when _.IFEQ _.IFNE)]]
+      (wrap (<| _.with-label (function (_ @else))
+                (|>> peekI
+                     (_.unwrap type.boolean)
+                     (ifI @else)
+                     thenG
+                     (_.label @else)
+                     elseG))))
+
+    (^template [<tag> <unwrap> <dup> <pop> <test> <comparison> <if>]
+      (<tag> cons)
+      (do {@ phase.monad}
+        [forkG (: (Operation Inst)
+                  (monad.fold @ (function (_ [test thenP] elseG)
+                                  (do @
+                                    [thenG (path' stack-depth @else @end phase archive thenP)]
+                                    (wrap (<| _.with-label (function (_ @else))
+                                              (|>> <dup>
+                                                   (<test> test)
+                                                   <comparison>
+                                                   (<if> @else)
+                                                   <pop>
+                                                   thenG
+                                                   (_.label @else)
+                                                   elseG)))))
+                              (|>> <pop>
+                                   (_.GOTO @else))
+                              (#.Cons cons)))]
+        (wrap (|>> peekI
+                   <unwrap>
+                   forkG))))
+    ([#synthesis.I64-Fork (_.unwrap type.long) _.DUP2 _.POP2 (|>> .int _.long) _.LCMP _.IFNE]
+     [#synthesis.F64-Fork (_.unwrap type.double) _.DUP2 _.POP2 _.double _.DCMPL _.IFNE]
+     [#synthesis.Text-Fork (|>) _.DUP _.POP _.string
+      (_.INVOKEVIRTUAL (type.class "java.lang.Object" (list)) "equals" (type.method [(list //.$Value) type.boolean (list)]))
+      _.IFEQ])
     
     (#synthesis.Then bodyS)
     (do phase.monad
