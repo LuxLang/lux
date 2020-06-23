@@ -1,174 +1,419 @@
 (.module:
   [lux #*
-   [data
-    ["." name]]
    ["_" test (#+ Test)]
-   [abstract/monad (#+ do)]
+   [abstract
+    [monad (#+ do)]]
    [control
-    pipe
     ["." try (#+ Try)]
-    ["p" parser]]
+    ["." exception]
+    ["." function]]
    [data
-    ["." text ("#@." equivalence)]
+    ["." maybe]
+    ["." text ("#@." equivalence)
+     ["." unicode]
+     ["%" format (#+ format)]]
     [number
      ["n" nat]]
     [collection
-     ["." list]]]
+     ["." set]
+     ["." list ("#@." functor)]]]
    [math
-    ["r" random]]]
+    ["." random]]
+   [macro
+    ["." code]]]
   {1
-   ["." /]})
+   ["." /
+    ["<>" //
+     ["<c>" code]]]})
 
-(def: (should-fail input)
-  (All [a] (-> (Try a) Bit))
-  (case input
+(template: (!expect <pattern> <value>)
+  (case <value>
+    <pattern>
+    true
+    
+    _
+    false))
+
+(def: (should-fail sample parser)
+  (All [a] (-> Text (/.Parser a) Bit))
+  (case (/.run parser sample)
     (#try.Failure _)
     true
     
     _
     false))
 
-(def: (should-pass reference sample)
-  (-> Text (Try Text) Bit)
-  (|> sample
-      (:: try.functor map (text@= reference))
+(def: (should-pass expected parser)
+  (-> Text (/.Parser Text) Bit)
+  (|> expected
+      (/.run parser)
+      (:: try.functor map (text@= expected))
       (try.default false)))
+
+(def: (should-pass! expected parser)
+  (-> Text (/.Parser /.Slice) Bit)
+  (..should-pass expected (/.slice parser)))
+
+(def: character-classes
+  Test
+  ($_ _.and
+      (do {@ random.monad}
+        [offset (:: @ map (n.% 50) random.nat)
+         range (:: @ map (|>> (n.% 50) (n.+ 10)) random.nat)
+         #let [limit (n.+ offset range)]
+         expected (:: @ map (|>> (n.% range) (n.+ offset) text.from-code) random.nat)
+         out-of-range (case offset
+                        0 (:: @ map (|>> (n.% 10) inc (n.+ limit) text.from-code) random.nat)
+                        _ (:: @ map (|>> (n.% offset) text.from-code) random.nat))]
+        (_.cover [/.range]
+                 (and (..should-pass expected (/.range offset limit))
+                      (..should-fail out-of-range (/.range offset limit)))))
+      (do {@ random.monad}
+        [expected (random.char unicode.ascii/upper-alpha)
+         invalid (random.filter (|>> (unicode.within? unicode.basic-latin/upper-alpha) not)
+                                (random.char unicode.full))]
+        (_.cover [/.upper]
+                 (and (..should-pass (text.from-code expected) /.upper)
+                      (..should-fail (text.from-code invalid) /.upper))))
+      (do {@ random.monad}
+        [expected (random.char unicode.ascii/lower-alpha)
+         invalid (random.filter (|>> (unicode.within? unicode.basic-latin/lower-alpha) not)
+                                (random.char unicode.full))]
+        (_.cover [/.lower]
+                 (and (..should-pass (text.from-code expected) /.lower)
+                      (..should-fail (text.from-code invalid) /.lower))))
+      (do {@ random.monad}
+        [expected (:: @ map (n.% 10) random.nat)
+         invalid (random.char (unicode.set (list unicode.aegean-numbers)))]
+        (_.cover [/.decimal]
+                 (and (..should-pass (:: n.decimal encode expected) /.decimal)
+                      (..should-fail (text.from-code invalid) /.decimal))))
+      (do {@ random.monad}
+        [expected (:: @ map (n.% 8) random.nat)
+         invalid (random.char (unicode.set (list unicode.aegean-numbers)))]
+        (_.cover [/.octal]
+                 (and (..should-pass (:: n.octal encode expected) /.octal)
+                      (..should-fail (text.from-code invalid) /.octal))))
+      (do {@ random.monad}
+        [expected (:: @ map (n.% 16) random.nat)
+         invalid (random.char (unicode.set (list unicode.aegean-numbers)))]
+        (_.cover [/.hexadecimal]
+                 (and (..should-pass (:: n.hex encode expected) /.hexadecimal)
+                      (..should-fail (text.from-code invalid) /.hexadecimal))))
+      (do {@ random.monad}
+        [expected (random.char unicode.ascii/alpha)
+         invalid (random.filter (function (_ char)
+                                  (not (or (unicode.within? unicode.basic-latin/upper-alpha char)
+                                           (unicode.within? unicode.basic-latin/lower-alpha char))))
+                                (random.char unicode.full))]
+        (_.cover [/.alpha]
+                 (and (..should-pass (text.from-code expected) /.alpha)
+                      (..should-fail (text.from-code invalid) /.alpha))))
+      (do {@ random.monad}
+        [expected (random.char unicode.ascii/alpha-num)
+         invalid (random.filter (function (_ char)
+                                  (not (or (unicode.within? unicode.basic-latin/upper-alpha char)
+                                           (unicode.within? unicode.basic-latin/lower-alpha char)
+                                           (unicode.within? unicode.basic-latin/decimal char))))
+                                (random.char unicode.full))]
+        (_.cover [/.alpha-num]
+                 (and (..should-pass (text.from-code expected) /.alpha-num)
+                      (..should-fail (text.from-code invalid) /.alpha-num))))
+      (do {@ random.monad}
+        [expected ($_ random.either
+                      (wrap text.tab)
+                      (wrap text.vertical-tab)
+                      (wrap text.space)
+                      (wrap text.new-line)
+                      (wrap text.carriage-return)
+                      (wrap text.form-feed))
+         invalid (|> (random.unicode 1) (random.filter (function (_ char)
+                                                         (not (or (text@= text.tab char)
+                                                                  (text@= text.vertical-tab char)
+                                                                  (text@= text.space char)
+                                                                  (text@= text.new-line char)
+                                                                  (text@= text.carriage-return char)
+                                                                  (text@= text.form-feed char))))))]
+        (_.cover [/.space]
+                 (and (..should-pass expected /.space)
+                      (..should-fail invalid /.space))))
+      (do {@ random.monad}
+        [#let [num-options 3]
+         options (|> (random.char unicode.full)
+                     (random.set n.hash num-options)
+                     (:: @ map (|>> set.to-list
+                                    (list@map text.from-code)
+                                    (text.join-with ""))))
+         expected (:: @ map (function (_ value)
+                              (|> options
+                                  (text.nth (n.% num-options value))
+                                  maybe.assume))
+                      random.nat)
+         invalid (random.filter (|>> text.from-code
+                                     (text.contains? options)
+                                     not)
+                                (random.char unicode.full))]
+        (_.cover [/.one-of /.one-of!]
+                 (and (..should-pass (text.from-code expected) (/.one-of options))
+                      (..should-fail (text.from-code invalid) (/.one-of options))
+
+                      (..should-pass! (text.from-code expected) (/.one-of! options))
+                      (..should-fail (text.from-code invalid) (/.one-of options)))))
+      (do {@ random.monad}
+        [#let [num-options 3]
+         options (|> (random.char unicode.full)
+                     (random.set n.hash num-options)
+                     (:: @ map (|>> set.to-list
+                                    (list@map text.from-code)
+                                    (text.join-with ""))))
+         invalid (:: @ map (function (_ value)
+                             (|> options
+                                 (text.nth (n.% num-options value))
+                                 maybe.assume))
+                     random.nat)
+         expected (random.filter (|>> text.from-code
+                                      (text.contains? options)
+                                      not)
+                                 (random.char unicode.full))]
+        (_.cover [/.none-of /.none-of!]
+                 (and (..should-pass (text.from-code expected) (/.none-of options))
+                      (..should-fail (text.from-code invalid) (/.none-of options))
+
+                      (..should-pass! (text.from-code expected) (/.none-of! options))
+                      (..should-fail (text.from-code invalid) (/.none-of! options)))))
+      ))
+
+(def: runs
+  Test
+  (let [octal! (/.one-of! "01234567")]
+    ($_ _.and
+        (do {@ random.monad}
+          [left (:: @ map (|>> (n.% 8) (:: n.octal encode)) random.nat)
+           right (:: @ map (|>> (n.% 8) (:: n.octal encode)) random.nat)
+           #let [expected (format left right)]
+           invalid (|> random.nat
+                       (:: @ map (n.% 16))
+                       (random.filter (n.>= 8))
+                       (:: @ map (:: n.hex encode)))]
+          (_.cover [/.many /.many!]
+                   (and (..should-pass expected (/.many /.octal))
+                        (..should-fail invalid (/.many /.octal))
+
+                        (..should-pass! expected (/.many! octal!)))))
+        (do {@ random.monad}
+          [left (:: @ map (|>> (n.% 8) (:: n.octal encode)) random.nat)
+           right (:: @ map (|>> (n.% 8) (:: n.octal encode)) random.nat)
+           #let [expected (format left right)]
+           invalid (|> random.nat
+                       (:: @ map (n.% 16))
+                       (random.filter (n.>= 8))
+                       (:: @ map (:: n.hex encode)))]
+          (_.cover [/.some /.some!]
+                   (and (..should-pass expected (/.some /.octal))
+                        (..should-pass "" (/.some /.octal))
+                        (..should-fail invalid (/.some /.octal))
+
+                        (..should-pass! expected (/.some! octal!))
+                        (..should-pass! "" (/.some! octal!)))))
+        (do {@ random.monad}
+          [#let [octal (:: @ map (|>> (n.% 8) (:: n.octal encode)) random.nat)]
+           first octal
+           second octal
+           third octal]
+          (_.cover [/.exactly /.exactly!]
+                   (and (..should-pass (format first second) (/.exactly 2 /.octal))
+                        (..should-fail (format first second third) (/.exactly 2 /.octal))
+                        (..should-fail (format first) (/.exactly 2 /.octal))
+
+                        (..should-pass! (format first second) (/.exactly! 2 octal!))
+                        (..should-fail (format first second third) (/.exactly! 2 octal!))
+                        (..should-fail (format first) (/.exactly! 2 octal!)))))
+        (do {@ random.monad}
+          [#let [octal (:: @ map (|>> (n.% 8) (:: n.octal encode)) random.nat)]
+           first octal
+           second octal
+           third octal]
+          (_.cover [/.at-most /.at-most!]
+                   (and (..should-pass (format first second) (/.at-most 2 /.octal))
+                        (..should-pass (format first) (/.at-most 2 /.octal))
+                        (..should-fail (format first second third) (/.at-most 2 /.octal))
+
+                        (..should-pass! (format first second) (/.at-most! 2 octal!))
+                        (..should-pass! (format first) (/.at-most! 2 octal!))
+                        (..should-fail (format first second third) (/.at-most! 2 octal!)))))
+        (do {@ random.monad}
+          [#let [octal (:: @ map (|>> (n.% 8) (:: n.octal encode)) random.nat)]
+           first octal
+           second octal
+           third octal]
+          (_.cover [/.at-least /.at-least!]
+                   (and (..should-pass (format first second) (/.at-least 2 /.octal))
+                        (..should-pass (format first second third) (/.at-least 2 /.octal))
+                        (..should-fail (format first) (/.at-least 2 /.octal))
+
+                        (..should-pass! (format first second) (/.at-least! 2 octal!))
+                        (..should-pass! (format first second third) (/.at-least! 2 octal!))
+                        (..should-fail (format first) (/.at-least! 2 octal!)))))
+        (do {@ random.monad}
+          [#let [octal (:: @ map (|>> (n.% 8) (:: n.octal encode)) random.nat)]
+           first octal
+           second octal
+           third octal]
+          (_.cover [/.between /.between!]
+                   (and (..should-pass (format first second) (/.between 2 3 /.octal))
+                        (..should-pass (format first second third) (/.between 2 3 /.octal))
+                        (..should-fail (format first) (/.between 2 3 /.octal))
+
+                        (..should-pass! (format first second) (/.between! 2 3 octal!))
+                        (..should-pass! (format first second third) (/.between! 2 3 octal!))
+                        (..should-fail (format first) (/.between! 2 3 octal!)))))
+        )))
 
 (def: #export test
   Test
-  (<| (_.context (name.module (name-of /._)))
+  (<| (_.covering /._)
+      (_.with-cover [/.Parser])
       ($_ _.and
-          (_.test "Can detect the end of the input."
-                  (|> (/.run /.end
-                             "")
-                      (case> (#.Right _) true _ false)))
-          (do {@ r.monad}
-            [size (|> r.nat (:: @ map (|>> (n.% 100) (n.max 10))))
-             sample (r.unicode size)
-             non-sample (|> (r.unicode size)
-                            (r.filter (|>> (text@= sample) not)))]
-            ($_ _.and
-                (_.test "Won't mistake non-empty text for no more input."
-                        (|> (/.run /.end
-                                   sample)
-                            (case> (#.Left _) true _ false)))
-                (_.test "Can find literal text fragments."
-                        (and (|> (/.run (/.this sample)
-                                        sample)
-                                 (case> (#.Right []) true _ false))
-                             (|> (/.run (/.this sample)
-                                        non-sample)
-                                 (case> (#.Left _) true _ false))))
-                ))
-          ($_ _.and
-              (_.test "Can lex anything"
-                      (and (should-pass "A" (/.run /.any
-                                                   "A"))
-                           (should-fail (/.run /.any
-                                               ""))))
+          (do {@ random.monad}
+            [sample (random.unicode 1)]
+            (_.cover [/.run /.end!]
+                     (and (|> (/.run /.end!
+                                     "")
+                              (!expect (#try.Success _)))
+                          (|> (/.run /.end!
+                                     sample)
+                              (!expect (#try.Failure _))))))
+          (do {@ random.monad}
+            [#let [size 10]
+             expected (random.unicode size)
+             dummy (|> (random.unicode size)
+                       (random.filter (|>> (text@= expected) not)))]
+            (_.cover [/.this]
+                     (and (|> (/.run (/.this expected)
+                                     expected)
+                              (!expect (#try.Success [])))
+                          (|> (/.run (/.this expected)
+                                     dummy)
+                              (!expect (#try.Failure _))))))
+          (do {@ random.monad}
+            [expected (random.unicode 1)]
+            (_.cover [/.Slice /.slice /.cannot-slice]
+                     (|> ""
+                         (/.run (/.slice /.any!))
+                         (!expect (^multi (#try.Failure error)
+                                          (exception.match? /.cannot-slice error))))))
+          (do {@ random.monad}
+            [expected (random.unicode 1)]
+            (_.cover [/.any /.any!]
+                     (and (..should-pass expected /.any)
+                          (..should-fail "" /.any)
 
-              (_.test "Can lex characters ranges."
-                      (and (should-pass "Y" (/.run (/.range (char "X") (char "Z"))
-                                                   "Y"))
-                           (should-fail (/.run (/.range (char "X") (char "Z"))
-                                               "M"))))
-              
-              (_.test "Can lex upper-case and lower-case letters."
-                      (and (should-pass "Y" (/.run /.upper
-                                                   "Y"))
-                           (should-fail (/.run /.upper
-                                               "m"))
-                           
-                           (should-pass "y" (/.run /.lower
-                                                   "y"))
-                           (should-fail (/.run /.lower
-                                               "M"))))
+                          (..should-pass! expected /.any!)
+                          (..should-fail "" /.any!))))
+          (do {@ random.monad}
+            [expected (random.unicode 1)]
+            (_.cover [/.peek /.cannot-parse]
+                     (and (..should-pass expected (<>.before /.any /.peek))
+                          (|> ""
+                              (/.run (<>.before /.any /.peek))
+                              (!expect (^multi (#try.Failure error)
+                                               (exception.match? /.cannot-parse error)))))))
+          (do {@ random.monad}
+            [dummy (random.unicode 1)]
+            (_.cover [/.unconsumed-input]
+                     (|> (format dummy dummy)
+                         (/.run /.any)
+                         (!expect (^multi (#try.Failure error)
+                                          (exception.match? /.unconsumed-input error))))))
+          (do {@ random.monad}
+            [sample (random.unicode 1)]
+            (_.cover [/.Offset /.offset]
+                     (|> sample
+                         (/.run (do <>.monad
+                                  [pre /.offset
+                                   _ /.any
+                                   post /.offset]
+                                  (wrap [pre post])))
+                         (!expect (#try.Success [0 1])))))
+          (do {@ random.monad}
+            [left (random.unicode 1)
+             right (random.unicode 1)
+             #let [input (format left right)]]
+            (_.cover [/.get-input]
+                     (|> input
+                         (/.run (do <>.monad
+                                  [pre /.get-input
+                                   _ /.any
+                                   post /.get-input]
+                                  (wrap (and (text@= input pre)
+                                             (text@= right post)))))
+                         (!expect (#try.Success #1)))))
+          (do {@ random.monad}
+            [left (random.unicode 1)
+             right (random.unicode 1)
+             expected (random.filter (|>> (text@= right) not)
+                                     (random.unicode 1))]
+            (_.cover [/.enclosed]
+                     (|> (format left expected right)
+                         (/.run (/.enclosed [left right] (/.this expected)))
+                         (!expect (#try.Success _)))))
+          (do {@ random.monad}
+            [in (random.unicode 1)
+             out (random.unicode 1)]
+            (_.cover [/.local]
+                     (|> out
+                         (/.run (do <>.monad
+                                  [_ (/.local in (/.this in))]
+                                  (/.this out)))
+                         (!expect (#try.Success _)))))
+          (do {@ random.monad}
+            [expected (:: @ map (|>> (n.% 8) (:: n.octal encode)) random.nat)]
+            (_.cover [/.embed]
+                     (|> (list (code.text expected))
+                         (<c>.run (/.embed /.octal <c>.text))
+                         (!expect (^multi (#try.Success actual)
+                                          (text@= expected actual))))))
+          (do {@ random.monad}
+            [invalid (random.ascii/upper-alpha 1)
+             expected (random.filter (|>> (unicode.within? unicode.basic-latin/upper-alpha)
+                                          not)
+                                     (random.char unicode.full))
+             #let [upper! (/.one-of! "ABCDEFGHIJKLMNOPQRSTUVWXYZ")]]
+            (_.cover [/.not /.not! /.expected-to-fail]
+                     (and (..should-pass (text.from-code expected) (/.not /.upper))
+                          (|> invalid
+                              (/.run (/.not /.upper))
+                              (!expect (^multi (#try.Failure error)
+                                               (exception.match? /.expected-to-fail error))))
 
-              (_.test "Can lex numbers."
-                      (and (should-pass "1" (/.run /.decimal
-                                                   "1"))
-                           (should-fail (/.run /.decimal
-                                               " "))
+                          (..should-pass! (text.from-code expected) (/.not! upper!))
+                          (|> invalid
+                              (/.run (/.not! upper!))
+                              (!expect (^multi (#try.Failure error)
+                                               (exception.match? /.expected-to-fail error)))))))
+          (do {@ random.monad}
+            [upper (random.ascii/upper-alpha 1)
+             lower (random.ascii/lower-alpha 1)
+             invalid (random.filter (function (_ char)
+                                      (not (or (unicode.within? unicode.basic-latin/upper-alpha char)
+                                               (unicode.within? unicode.basic-latin/lower-alpha char))))
+                                    (random.char unicode.full))
+             #let [upper! (/.one-of! "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+                   lower! (/.one-of! "abcdefghijklmnopqrstuvwxyz")]]
+            (_.cover [/.and /.and!]
+                     (and (..should-pass (format upper lower) (/.and /.upper /.lower))
+                          (..should-fail (format (text.from-code invalid) lower) (/.and /.upper /.lower))
+                          (..should-fail (format upper (text.from-code invalid)) (/.and /.upper /.lower))
 
-                           (should-pass "7" (/.run /.octal
-                                                   "7"))
-                           (should-fail (/.run /.octal
-                                               "8"))
-
-                           (should-pass "1" (/.run /.hexadecimal
-                                                   "1"))
-                           (should-pass "a" (/.run /.hexadecimal
-                                                   "a"))
-                           (should-pass "A" (/.run /.hexadecimal
-                                                   "A"))
-                           (should-fail (/.run /.hexadecimal
-                                               " "))
-                           ))
-
-              (_.test "Can lex alphabetic characters."
-                      (and (should-pass "A" (/.run /.alpha
-                                                   "A"))
-                           (should-pass "a" (/.run /.alpha
-                                                   "a"))
-                           (should-fail (/.run /.alpha
-                                               "1"))))
-
-              (_.test "Can lex alphanumeric characters."
-                      (and (should-pass "A" (/.run /.alpha-num
-                                                   "A"))
-                           (should-pass "a" (/.run /.alpha-num
-                                                   "a"))
-                           (should-pass "1" (/.run /.alpha-num
-                                                   "1"))
-                           (should-fail (/.run /.alpha-num
-                                               " "))))
-
-              (_.test "Can lex white-space."
-                      (and (should-pass " " (/.run /.space
-                                                   " "))
-                           (should-fail (/.run /.space
-                                               "8"))))
-              )
-          ($_ _.and
-              (_.test "Can combine lexers sequentially."
-                      (and (|> (/.run (p.and /.any /.any)
-                                      "YO")
-                               (case> (#.Right ["Y" "O"]) true
-                                      _ false))
-                           (should-fail (/.run (p.and /.any /.any)
-                                               "Y"))))
-              
-              (_.test "Can create the opposite of a lexer."
-                      (and (should-pass "a" (/.run (/.not (p.or /.decimal /.upper))
-                                                   "a"))
-                           (should-fail (/.run (/.not (p.or /.decimal /.upper))
-                                               "A"))))
-              
-              (_.test "Can select from among a set of characters."
-                      (and (should-pass "C" (/.run (/.one-of "ABC")
-                                                   "C"))
-                           (should-fail (/.run (/.one-of "ABC")
-                                               "D"))))
-
-              (_.test "Can avoid a set of characters."
-                      (and (should-pass "D" (/.run (/.none-of "ABC")
-                                                   "D"))
-                           (should-fail (/.run (/.none-of "ABC")
-                                               "C"))))
-              
-              (_.test "Can lex using arbitrary predicates."
-                      (and (should-pass "D" (/.run (/.satisfies (function (_ c) true))
-                                                   "D"))
-                           (should-fail (/.run (/.satisfies (function (_ c) false))
-                                               "C"))))
-              
-              (_.test "Can apply a lexer multiple times."
-                      (and (should-pass "0123456789ABCDEF" (/.run (/.many /.hexadecimal)
-                                                                  "0123456789ABCDEF"))
-                           (should-fail (/.run (/.many /.hexadecimal)
-                                               "yolo"))
-
-                           (should-pass "" (/.run (/.some /.hexadecimal)
-                                                  ""))))
-              )
+                          (..should-pass! (format upper lower) (/.and! upper! lower!))
+                          (..should-fail (format (text.from-code invalid) lower) (/.and! upper! lower!))
+                          (..should-fail (format upper (text.from-code invalid)) (/.and! upper! lower!)))))
+          (do {@ random.monad}
+            [expected (random.unicode 1)
+             invalid (random.unicode 1)]
+            (_.cover [/.satisfies]
+                     (and (..should-pass expected (/.satisfies (function.constant true)))
+                          (..should-fail invalid (/.satisfies (function.constant false))))))
+          ..character-classes
+          ..runs
           )))
