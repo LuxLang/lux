@@ -8,10 +8,13 @@
     ["." try]
     ["<>" parser
      ["<c>" code]
-     ["<a>" analysis]]]
+     ["<a>" analysis]
+     ["<s>" synthesis]]]
    [data
     ["." text ("#@." equivalence)
-     ["%" format (#+ format)]]]
+     ["%" format (#+ format)]]
+    [collection
+     ["." row]]]
    [tool
     [compiler
      ["." phase]
@@ -32,37 +35,48 @@
 (def: my-generation "my generation")
 (def: my-directive "my directive")
 
+## Generation
 (`` (for {(~~ (static @.old))
-          (as-is)
-
-          (~~ (static @.jvm))
-          (as-is (generation: (..my-generation self phase {parameters (<>.some <a>.any)})
-                   (#try.Success (#jvm.Constant (#jvm.LDC (#jvm.String Text))))))}
-         (as-is (analysis: (..my-analysis self phase {parameters (<>.some <c>.any)})
+          (as-is)}
+         
+         (as-is (analysis: (..my-generation self phase archive {parameters (<>.some <c>.any)})
                   (do phase.monad
                     [_ (type.infer .Text)]
-                    (wrap (#analysis.Text self))))
+                    (wrap (#analysis.Extension self (list)))))
+
+                (synthesis: (..my-generation self phase archive {parameters (<>.some <a>.any)})
+                  (do phase.monad
+                    []
+                    (wrap (#synthesis.Extension self (list)))))
+                )))
+
+(`` (for {(~~ (static @.jvm))
+          (as-is (generation: (..my-generation self phase archive {parameters (<>.some <s>.any)})
+                   (do phase.monad
+                     []
+                     (wrap (row.row (#jvm.Constant (#jvm.LDC (#jvm.String self))))))))}))
+
+(`` (for {(~~ (static @.old))
+          (as-is)}
+         
+         (as-is (analysis: (..my-analysis self phase archive {parameters (<>.some <c>.any)})
+                  (do phase.monad
+                    [_ (type.infer .Text)]
+                    (wrap (#analysis.Primitive (#analysis.Text self)))))
 
                 ## Synthesis
-                (analysis: (..my-synthesis self phase {parameters (<>.some <c>.any)})
+                (analysis: (..my-synthesis self phase archive {parameters (<>.some <c>.any)})
                   (do phase.monad
                     [_ (type.infer .Text)]
                     (wrap (#analysis.Extension self (list)))))
 
-                (synthesis: (..my-synthesis self phase {parameters (<>.some <a>.any)})
-                  (wrap (synthesis.text self)))
+                (synthesis: (..my-synthesis self phase archive {parameters (<>.some <a>.any)})
+                  (do phase.monad
+                    []
+                    (wrap (synthesis.text self))))
                 
-                ## Generation
-                (analysis: (..my-generation self phase {parameters (<>.some <c>.any)})
-                  (do phase.monad
-                    [_ (type.infer .Text)]
-                    (wrap (#analysis.Extension self (list)))))
-
-                (synthesis: (..my-generation self phase {parameters (<>.some <a>.any)})
-                  (wrap (#synthesis.Extension self (list))))
-
                 ## Directive
-                (directive: (..my-directive self phase {parameters (<>.some <c>.any)})
+                (directive: (..my-directive self phase archive {parameters (<>.some <c>.any)})
                   (do phase.monad
                     [#let [_ (log! (format "Successfully installed directive " (%.text self) "!"))]]
                     (wrap directive.no-requirements)))
@@ -72,21 +86,18 @@
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /._)))
-      ($_ _.and
-          (_.test "Can define and use analysis extensions."
-                  (`` (for {(~~ (static @.old))
-                            false}
-                           (text@= ((~~ (static ..my-analysis)))
-                                   ..my-analysis))))
-          (_.test "Can define and use synthesis extensions."
-                  (`` (for {(~~ (static @.old))
-                            false}
-                           (text@= ((~~ (static ..my-synthesis)))
-                                   ..my-synthesis))))
-          (_.test "Can define and use generation extensions."
-                  (`` (for {(~~ (static @.old))
-                            false}
-                           (text@= ((~~ (static ..my-generation)))
-                                   ..my-generation))))
-          )))
+  (<| (_.covering /._)
+      (`` ($_ _.and
+              (~~ (template [<macro> <extension>]
+                    [(_.cover [<macro>]
+                              (`` (for {(~~ (static @.old))
+                                        false}
+                                       (text@= ((~~ (static <extension>)))
+                                               <extension>))))]
+
+                    [/.analysis: ..my-analysis]
+                    [/.synthesis: ..my-synthesis]
+                    [/.generation: ..my-generation]))
+              (_.cover [/.directive:]
+                       true)
+              ))))

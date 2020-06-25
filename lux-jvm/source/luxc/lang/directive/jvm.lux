@@ -492,7 +492,7 @@
   (dictionary.new nat.hash))
 
 (def: bytecode
-  (-> (/.Bytecode /.Label) Inst)
+  (-> (/.Bytecode /.Label) jvm.Inst)
   (|>> [..fresh]
        ..relabel-bytecode
        product.right
@@ -500,15 +500,15 @@
        row.to-list
        _.fuse))
 
-(type: Pseudo-Handler
-  (-> Text (List Synthesis) (Try (/.Bytecode /.Label))))
+(type: Handler
+  (generation.Handler jvm.Anchor (/.Bytecode /.Label) jvm.Definition))
 
-(def: (true-handler pseudo)
-  (-> Pseudo-Handler jvm.Handler)
+(def: (true-handler extender pseudo)
+  (-> jvm.Extender Any jvm.Handler)
   (function (_ extension-name phase archive inputs)
-    (|> (pseudo extension-name inputs)
-        (:: try.monad map ..bytecode)
-        phase.lift)))
+    (do phase.monad
+      [bytecode ((extender pseudo) extension-name phase archive inputs)]
+      (wrap (..bytecode (:coerce (/.Bytecode /.Label) bytecode))))))
 
 (def: (def::generation extender)
   (-> jvm.Extender
@@ -518,10 +518,9 @@
       (^ (list nameC valueC))
       (do phase.monad
         [[_ _ name] (lux/.evaluate! archive Text nameC)
-         [_ _ pseudo-handlerV] (lux/.evaluate! archive ..Pseudo-Handler valueC)
-         _ (|> pseudo-handlerV
-               (:coerce ..Pseudo-Handler)
-               ..true-handler
+         [_ handlerV] (lux/.generator archive (:coerce Text name) ..Handler valueC)
+         _ (|> handlerV
+               (..true-handler extender)
                (extension.install extender (:coerce Text name))
                directive.lift-generation)
          _ (directive.lift-generation
