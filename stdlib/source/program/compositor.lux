@@ -3,7 +3,7 @@
    [type (#+ :share)]
    ["@" target (#+ Host)]
    [abstract
-    [monad (#+ do)]]
+    [monad (#+ Monad do)]]
    [control
     ["." io (#+ IO io)]
     ["." try (#+ Try)]
@@ -33,17 +33,21 @@
      [default
       ["." platform (#+ Platform)]]
      [language
-      [lux
+      ["$" lux
+       ["#/." program (#+ Program)]
        ["." syntax]
        ["." analysis
         [macro (#+ Expander)]]
-       ["." generation (#+ Buffer)]
+       ["." generation (#+ Buffer Context)]
        ["." directive]
        [phase
         [extension (#+ Extender)]]]]
      [meta
+      [packager (#+ Packager)]
       [archive (#+ Archive)
        [descriptor (#+ Module)]]
+      [cache
+       ["." dependency]]
       [io
        ["ioW" archive]]]]
     ## ["." interpreter]
@@ -68,6 +72,24 @@
       (#try.Success output)
       (wrap output))))
 
+(def: (package! monad file-system [packager package] static archive context)
+  (All [!] (-> (Monad !) (file.System !) [Packager Path] Static Archive Context (! (Try Any))))
+  (do (try.with monad)
+    [#let [packager (:share [!] {(Monad !) monad} {(Packager !) packager})]
+     content (packager monad file-system static archive context)
+     package (:share [!]
+                     {(Monad !)
+                      monad}
+                     {(! (Try (File !)))
+                      (:assume (file.get-file monad file-system package))})]
+    (!.use (:: (:share [!]
+                       {(Monad !)
+                        monad}
+                       {(File !)
+                        (:assume package)})
+               over-write)
+           [content])))
+
 (with-expansions [<parameters> (as-is anchor expression artifact)]
   (def: #export (compiler static
                           expander host-analysis platform generation-bundle host-directive-bundle program extender
@@ -80,10 +102,10 @@
           (IO (Platform <parameters>))
           (generation.Bundle <parameters>)
           (directive.Bundle <parameters>)
-          (-> expression artifact)
+          (Program expression artifact)
           Extender
           Service
-          [(-> (Row [Module (generation.Buffer artifact)]) Binary) Path]
+          [Packager Path]
           (Promise Any)))
     (do {@ promise.monad}
       [platform (promise.future platform)
@@ -106,7 +128,9 @@
                                         platform}
                                        {(Promise (Try [Archive (directive.State+ <parameters>)]))
                                         (:assume (platform.compile compilation-libraries static expander platform compilation [archive state]))})
-               _ (ioW.freeze (get@ #platform.&file-system platform) (get@ #/static.host static) (get@ #/static.target static) archive)]
+               _ (ioW.freeze (get@ #platform.&file-system platform) static archive)
+               program-context (promise@wrap ($/program.context archive))
+               _ (promise.future (..package! io.monad file.system packager,package static archive program-context))]
               (wrap (log! "Compilation complete!"))))
 
         (#/cli.Export export)

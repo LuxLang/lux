@@ -1,0 +1,159 @@
+(.module:
+  [lux (#- Module Definition)
+   [type (#+ :share)]
+   ["." host (#+ import: do-to)]
+   [abstract
+    ["." monad (#+ Monad do)]]
+   [control
+    ["." try (#+ Try)]
+    [concurrency
+     ["." promise (#+ Promise)]]
+    [security
+     ["!" capability]]]
+   [data
+    ["." binary (#+ Binary)]
+    ["." text
+     ["%" format (#+ format)]]
+    [number
+     ["n" nat]]
+    [collection
+     ["." row (#+ Row)]
+     ["." list ("#@." functor fold)]]]
+   [target
+    [jvm
+     [encoding
+      ["." name]]]]
+   [world
+    ["." file (#+ File Directory)]]]
+  [program
+   [compositor
+    ["." static (#+ Static)]]]
+  ["." // (#+ Packager)
+   [//
+    ["." archive
+     ["." descriptor (#+ Module)]
+     ["." artifact]]
+    ["." io #_
+     ["#" archive]]
+    [//
+     [language
+      ["$" lux
+       [generation (#+ Context)]
+       [phase
+        [generation
+         [jvm
+          ["." runtime (#+ Definition)]]]]]]]]])
+
+(import: #long java/lang/Object)
+
+(import: #long java/lang/String)
+
+(import: #long java/util/jar/Attributes
+  (put [java/lang/Object java/lang/Object] #? java/lang/Object))
+
+(import: #long java/util/jar/Attributes$Name
+  (#static MAIN_CLASS java/util/jar/Attributes$Name)
+  (#static MANIFEST_VERSION java/util/jar/Attributes$Name))
+
+(import: #long java/util/jar/Manifest
+  (new [])
+  (getMainAttributes [] java/util/jar/Attributes))
+
+(import: #long java/io/Flushable
+  (flush [] void))
+
+(import: #long java/io/Closeable
+  (close [] void))
+
+(import: #long java/io/OutputStream)
+
+(import: #long java/io/ByteArrayOutputStream
+  (new [int])
+  (toByteArray [] [byte]))
+
+(import: #long java/util/zip/ZipEntry)
+
+(import: #long java/util/zip/ZipOutputStream
+  (write [[byte] int int] void)
+  (closeEntry [] void))
+
+(import: #long java/util/jar/JarEntry
+  (new [java/lang/String]))
+
+(import: #long java/util/jar/JarOutputStream
+  (new [java/io/OutputStream java/util/jar/Manifest])
+  (putNextEntry [java/util/zip/ZipEntry] void))
+
+(def: byte 1)
+## https://en.wikipedia.org/wiki/Kibibyte
+(def: kibi-byte (n.* 1,024 byte))
+## https://en.wikipedia.org/wiki/Mebibyte
+(def: mebi-byte (n.* 1,024 kibi-byte))
+
+(def: manifest-version "1.0")
+
+(def: (manifest program)
+  (-> Context java/util/jar/Manifest)
+  (let [manifest (java/util/jar/Manifest::new)]
+    (exec (do-to (java/util/jar/Manifest::getMainAttributes manifest)
+            (java/util/jar/Attributes::put (java/util/jar/Attributes$Name::MAIN_CLASS) (|> program runtime.class-name name.internal name.external))
+            (java/util/jar/Attributes::put (java/util/jar/Attributes$Name::MANIFEST_VERSION) ..manifest-version))
+      manifest)))
+
+## TODO: Delete ASAP
+(type: (Action ! a)
+  (! (Try a)))
+
+(def: (write-class monad file-system static context sink)
+  (All [!]
+    (-> (Monad !) (file.System !) Static Context java/util/jar/JarOutputStream
+        (Action ! java/util/jar/JarOutputStream)))
+  (do (try.with monad)
+    [artifact (let [[module artifact] context]
+                (!.use (:: file-system file) [(io.artifact file-system static module (%.nat artifact))]))
+     content (!.use (:: artifact content) [])
+     #let [class-path (format (runtime.class-name context) (get@ #static.artifact-extension static))]]
+    (wrap (do-to sink
+            (java/util/jar/JarOutputStream::putNextEntry (java/util/jar/JarEntry::new class-path))
+            (java/util/zip/ZipOutputStream::write content +0 (.int (binary.size content)))
+            (java/io/Flushable::flush)
+            (java/util/zip/ZipOutputStream::closeEntry)))))
+
+(def: (write-module monad file-system static [module artifacts] sink)
+  (All [!]
+    (-> (Monad !) (file.System !) Static [archive.ID (List artifact.ID)] java/util/jar/JarOutputStream
+        (Action ! java/util/jar/JarOutputStream)))
+  (monad.fold (:assume (try.with monad))
+              (function (_ artifact sink)
+                (..write-class monad file-system static [module artifact] sink))
+              sink
+              artifacts))
+
+(def: #export (package monad file-system static archive program)
+  (All [!] (Packager !))
+  (do {@ (try.with monad)}
+    [cache (:share [!]
+                   {(Monad !)
+                    monad}
+                   {(! (Try (Directory !)))
+                    (:assume (!.use (:: file-system directory) [(get@ #static.target static)]))})
+     order (|> archive
+               archive.archived
+               (monad.map try.monad (function (_ module)
+                                      (do try.monad
+                                        [[descriptor document] (archive.find module archive)
+                                         module-id (archive.id module archive)]
+                                        (wrap (|> descriptor
+                                                  (get@ #descriptor.registry)
+                                                  artifact.artifacts
+                                                  row.to-list
+                                                  (list@map (|>> (get@ #artifact.id)))
+                                                  [module-id])))))
+               (:: monad wrap))
+     #let [buffer (java/io/ByteArrayOutputStream::new (.int ..mebi-byte))
+           sink (java/util/jar/JarOutputStream::new buffer (..manifest program))]
+     sink (monad.fold @ (..write-module monad file-system static) sink order)
+     #let [_ (do-to sink
+               (java/io/Flushable::flush)
+               (java/io/Closeable::close))]]
+    (wrap (java/io/ByteArrayOutputStream::toByteArray buffer))))
