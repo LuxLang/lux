@@ -2,6 +2,7 @@
   [lux (#- Module)
    ["@" target (#+ Host)]
    [abstract
+    [predicate (#+ Predicate)]
     ["." monad (#+ do)]]
    [control
     ["." try (#+ Try)]
@@ -20,13 +21,18 @@
     [collection
      ["." list ("#@." functor fold)]
      ["." dictionary (#+ Dictionary)]
-     ["." row (#+ Row)]]]
+     ["." row (#+ Row)]
+     ["." set]]
+    [number
+     ["n" nat]]]
    [world
     ["." file (#+ Path File Directory)]]]
   [program
    [compositor
+    [import (#+ Import)]
     ["." static (#+ Static)]]]
-  ["." //
+  ["." // (#+ Context)
+   ["#." context]
    ["/#" //
     ["." archive (#+ Archive)
      ["." artifact (#+ Artifact)]
@@ -34,14 +40,15 @@
      ["." document (#+ Document)]]
     [cache
      ["." dependency]]
-    [//
+    ["/#" // (#+ Input)
      [language
       ["$" lux
        ["." version]
        ["." analysis]
        ["." synthesis]
        ["." generation]
-       ["." directive]]]]]])
+       ["." directive]
+       ["#/." program]]]]]])
 
 (exception: #export (cannot-prepare {archive Path}
                                     {module-id archive.ID}
@@ -244,13 +251,19 @@
                                                         directives]]))
                                               
                                               (#artifact.Definition name)
-                                              (do @
-                                                [value (:: host re-load context directive)]
-                                                (wrap [(dictionary.put name value definitions)
+                                              (if (text@= $/program.name name)
+                                                (wrap [definitions
                                                        [analysers
                                                         synthesizers
                                                         generators
-                                                        directives]]))
+                                                        directives]])
+                                                (do @
+                                                  [value (:: host re-load context directive)]
+                                                  (wrap [(dictionary.put name value definitions)
+                                                         [analysers
+                                                          synthesizers
+                                                          generators
+                                                          directives]])))
 
                                               (#artifact.Analyser extension)
                                               (do @
@@ -321,21 +334,76 @@
      [document bundles] (promise@wrap (loaded-document (get@ #static.artifact-extension static) host-environment module-id expected actual document))]
     (wrap [[descriptor document] bundles])))
 
-(def: (load-every-reserved-module host-environment system static archive)
+(def: (purge! system static [module-name module-id])
+  (-> (file.System Promise) Static [Module archive.ID] (Promise (Try Any)))
+  (do {@ (try.with promise.monad)}
+    [cache (!.use (:: system directory) [(..module system static module-id)])
+     artifacts (!.use (:: cache files) [])
+     _ (monad.map @ (function (_ artifact)
+                      (!.use (:: artifact delete) []))
+                  artifacts)]
+    (!.use (:: cache discard) [])))
+
+(def: (valid-cache? expected actual)
+  (-> Descriptor Input Bit)
+  (and (text@= (get@ #descriptor.name expected)
+               (get@ #////.module actual))
+       (text@= (get@ #descriptor.file expected)
+               (get@ #////.file actual))
+       (n.= (get@ #descriptor.hash expected)
+            (get@ #////.hash actual))))
+
+(type: Purge
+  (Dictionary Module archive.ID))
+
+(def: initial-purge
+  (-> (List [Bit [Module [archive.ID [Descriptor (Document .Module)]]]])
+      Purge)
+  (|>> (list.search-all (function (_ [valid-cache? [module-name [module-id _]]])
+                          (if valid-cache?
+                            #.None
+                            (#.Some [module-name module-id]))))
+       (dictionary.from-list text.hash)))
+
+(def: (full-purge caches load-order)
+  (-> (List [Bit [Module [archive.ID [Descriptor (Document .Module)]]]])
+      dependency.Order
+      Purge)
+  (list@fold (function (_ [module-name [module-id [descriptor document]]] purge)
+               (let [purged? (: (Predicate Module)
+                                (function (_ module)
+                                  (dictionary.contains? module purge)))]
+                 (if (purged? module-name)
+                   purge
+                   (if (|> descriptor
+                           (get@ #descriptor.references)
+                           set.to-list
+                           (list.any? purged?))
+                     (dictionary.put module-name module-id purge)
+                     purge))))
+             (..initial-purge caches)
+             load-order))
+
+(def: (load-every-reserved-module host-environment system static import contexts archive)
   (All [expression directive]
-    (-> (generation.Host expression directive) (file.System Promise) Static Archive
-        (Promise (Try [Archive
-                       .Lux
-                       Bundles]))))
+    (-> (generation.Host expression directive) (file.System Promise) Static Import (List Context) Archive
+        (Promise (Try [Archive .Lux Bundles]))))
   (do {@ (try.with promise.monad)}
     [pre-loaded-caches (|> archive
                            archive.reservations
                            (monad.map @ (function (_ [module-name module-id])
                                           (do @
                                             [data (..read-module-descriptor system static module-id)
-                                             descriptor,document (promise@wrap (<b>.run ..parser data))]
-                                            (wrap [module-name [module-id descriptor,document]])))))
+                                             [descriptor document] (promise@wrap (<b>.run ..parser data))]
+                                            (if (text@= archive.runtime-module module-name)
+                                              (wrap [true
+                                                     [module-name [module-id [descriptor document]]]])
+                                              (do @
+                                                [input (//context.read system import contexts (get@ #static.host-module-extension static) module-name)]
+                                                (wrap [(..valid-cache? descriptor input)
+                                                       [module-name [module-id [descriptor document]]]])))))))
      load-order (|> pre-loaded-caches
+                    (list@map product.right)
                     (monad.fold try.monad
                                 (function (_ [module [module-id descriptor,document]] archive)
                                   (archive.add module descriptor,document archive))
@@ -343,15 +411,21 @@
                     (:: try.monad map (dependency.load-order $.key))
                     (:: try.monad join)
                     promise@wrap)
-     loaded-caches (monad.map @ (function (_ [module-name [module-id descriptor,document]])
-                                  (do @
-                                    [[descriptor,document bundles] (..load-definitions system static module-id host-environment descriptor,document)]
-                                    (wrap [[module-name descriptor,document]
-                                           bundles])))
-                              load-order)]
+     #let [purge (..full-purge pre-loaded-caches load-order)]
+     _ (|> purge
+           dictionary.entries
+           (monad.map @ (..purge! system static)))
+     loaded-caches (|> load-order
+                       (list.filter (function (_ [module-name [module-id [descriptor document]]])
+                                      (not (dictionary.contains? module-name purge))))
+                       (monad.map @ (function (_ [module-name [module-id descriptor,document]])
+                                      (do @
+                                        [[descriptor,document bundles] (..load-definitions system static module-id host-environment descriptor,document)]
+                                        (wrap [[module-name descriptor,document]
+                                               bundles])))))]
     (promise@wrap
-     (do try.monad
-       [archive (monad.fold try.monad
+     (do {@ try.monad}
+       [archive (monad.fold @
                             (function (_ [[module descriptor,document] _bundle] archive)
                               (archive.add module descriptor,document archive))
                             archive
@@ -368,9 +442,9 @@
                          ..empty-bundles
                          loaded-caches)])))))
 
-(def: #export (thaw host-environment system static)
+(def: #export (thaw host-environment system static import contexts)
   (All [expression directive]
-    (-> (generation.Host expression directive) (file.System Promise) Static
+    (-> (generation.Host expression directive) (file.System Promise) Static Import (List Context)
         (Promise (Try [Archive .Lux Bundles]))))
   (do promise.monad
     [file (!.use (:: system file) (..general-descriptor system static))]
@@ -379,7 +453,7 @@
       (do (try.with promise.monad)
         [binary (!.use (:: file content) [])
          archive (promise@wrap (archive.import ///.version binary))]
-        (..load-every-reserved-module host-environment system static archive))
+        (..load-every-reserved-module host-environment system static import contexts archive))
       
       (#try.Failure error)
       (wrap (#try.Success [archive.empty

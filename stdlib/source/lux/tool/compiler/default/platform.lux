@@ -48,14 +48,14 @@
       ["." artifact (#+ Registry)]
       ["." descriptor (#+ Descriptor Module)]
       ["." document (#+ Document)]]
-     [io
+     [io (#+ Context)
       ["." context]
       ["ioW" archive]]]]]
   [program
    [compositor
     ["." cli (#+ Compilation Library)]
     ["." static (#+ Static)]
-    ["." import]]])
+    ["." import (#+ Import)]]])
 
 (type: #export (Platform anchor expression directive)
   {#&file-system (file.System Promise)
@@ -138,9 +138,11 @@
       [[registry payload] (///directive.lift-generation
                            (..compile-runtime! platform))
        #let [descriptor,document [(..runtime-descriptor registry) ..runtime-document]]
-       archive (///phase.lift (do try.monad
-                                [[_ archive] (archive.reserve archive.runtime-module archive)]
-                                (archive.add archive.runtime-module descriptor,document archive)))]
+       archive (///phase.lift (if (archive.reserved? archive archive.runtime-module)
+                                (archive.add archive.runtime-module descriptor,document archive)
+                                (do try.monad
+                                  [[_ archive] (archive.reserve archive.runtime-module archive)]
+                                  (archive.add archive.runtime-module descriptor,document archive))))]
       (wrap [archive [descriptor,document payload]])))
 
   (def: (initialize-state extender
@@ -177,7 +179,8 @@
         (///phase.run' state)
         (:: try.monad map product.left)))
 
-  (def: #export (initialize static module expander host-analysis platform generation-bundle host-directive-bundle program extender)
+  (def: #export (initialize static module expander host-analysis platform generation-bundle host-directive-bundle program extender
+                            import compilation-sources)
     (All [<type-vars>]
       (-> Static
           Module
@@ -188,6 +191,7 @@
           (///directive.Bundle <type-vars>)
           (Program expression directive)
           Extender
+          Import (List Context)
           (Promise (Try [<State+> Archive]))))
     (do (try.with promise.monad)
       [#let [state (//init.state (get@ #static.host static)
@@ -201,7 +205,7 @@
                                  program
                                  extender)]
        _ (ioW.enable (get@ #&file-system platform) static)
-       [archive analysis-state bundles] (ioW.thaw (get@ #host platform) (get@ #&file-system platform) static)
+       [archive analysis-state bundles] (ioW.thaw (get@ #host platform) (get@ #&file-system platform) static import compilation-sources)
        state (promise@wrap (initialize-state extender bundles analysis-state state))]
       (if (archive.archived? archive archive.runtime-module)
         (wrap [state archive])
@@ -275,7 +279,11 @@
                                                          #.None])
                                                   
                                                   #.None
-                                                  (case (archive.reserve module archive)
+                                                  (case (if (archive.reserved? archive module)
+                                                          (do try.monad
+                                                            [module-id (archive.id module archive)]
+                                                            (wrap [module-id archive]))
+                                                          (archive.reserve module archive))
                                                     (#try.Success [module-id archive])
                                                     (do @
                                                       [_ (stm.write [archive state] current)
@@ -353,9 +361,9 @@
           try.assume
           product.left))
 
-    (def: #export (compile libraries static expander platform compilation context)
+    (def: #export (compile import static expander platform compilation context)
       (All [<type-vars>]
-        (-> (List Library) Static Expander <Platform> Compilation <Context> <Return>))
+        (-> Import Static Expander <Platform> Compilation <Context> <Return>))
       (let [[compilation-sources compilation-libraries compilation-target compilation-module] compilation
             base-compiler (:share [<type-vars>]
                                   {<Context>
@@ -364,14 +372,13 @@
                                    (:assume
                                     ((//init.compiler expander syntax.prelude (get@ #write platform)) $.key (list)))})]
         (do (try.with promise.monad)
-          [libraries (import.import (get@ #&file-system platform) compilation-libraries)
-           #let [parallel-compiler (..parallel
+          [#let [parallel-compiler (..parallel
                                     context
                                     (function (_ import! module-id [archive state] module)
                                       (do (try.with promise.monad)
                                         [#let [state (..set-current-module module state)]
                                          input (context.read (get@ #&file-system platform)
-                                                             libraries
+                                                             import
                                                              compilation-sources
                                                              (get@ #static.host-module-extension static)
                                                              module)]
