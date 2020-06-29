@@ -4029,11 +4029,11 @@
 
                                       #None
                                       "???") ..new-line
-                 "Known modules: " (|> modules
-                                       (list@map (function (_ [name module])
-                                                   (text$ name)))
-                                       tuple$
-                                       code@encode))))
+                                      "Known modules: " (|> modules
+                                                            (list@map (function (_ [name module])
+                                                                        (text$ name)))
+                                                            tuple$
+                                                            code@encode))))
     ))
 
 (def: (filter p xs)
@@ -4243,8 +4243,8 @@
           (|> args (list@map type@encode) (interpose " ") list@reverse (list@fold text@compose ""))
           ")"))
     
-    (#Named [prefix name] _)
-    ($_ text@compose prefix "." name)
+    (#Named name _)
+    (name@encode name)
     ))
 
 (macro: #export (^open tokens)
@@ -5706,36 +5706,54 @@
   (function (_ compiler)
     (#Right [compiler (get@ [#info #target] compiler)])))
 
-(def: (pick-for-target target options)
-  (-> Text (List [Code Code]) (Maybe Code))
+(def: (target-pick target options default)
+  (-> Text (List [Code Code]) (Maybe Code) (Meta (List Code)))
   (case options
     #Nil
-    #None
+    (case default
+      #.None
+      (fail ($_ text@compose "No code for target platform: " target))
 
-    (#Cons [key value] options')
-    (case key
-      (^multi [_ (#Text platform)]
-              (text@= target platform))
-      (#Some value)
+      (#.Some default)
+      (return (list default)))
 
-      _
-      (pick-for-target target options'))
+    (#Cons [key pick] options')
+    (with-expansions [<try-again> (target-pick target options' default)]
+      (case key
+        [_ (#Text platform)]
+        (if (text@= target platform)
+          (return (list pick))
+          <try-again>)
+
+        [_ (#Identifier identifier)]
+        (do meta-monad
+          [identifier (..resolve-global-identifier identifier)
+           type+value (..find-def-value identifier)
+           #let [[type value] type+value]]
+          (case (..flatten-alias type)
+            (#Named ["lux" "Text"] (#Primitive "#Text" #Nil))
+            (if (text@= target (:coerce ..Text value))
+              (wrap (list pick))
+              <try-again>)
+
+            _
+            (fail ($_ text@compose
+                      "Invalid target platform (must be a value of type Text): " (name@encode identifier)
+                      " : " (..code@encode (..type-to-code type))))))
+
+        _
+        <try-again>))
     ))
 
 (macro: #export (for tokens)
   (do meta-monad
-    [target target]
+    [target ..target]
     (case tokens
       (^ (list [_ (#Record options)]))
-      (case (pick-for-target target options)
-        (#Some pick)
-        (wrap (list pick))
-
-        #None
-        (fail ($_ text@compose "No code for target platform: " target)))
+      (target-pick target options #.None)
       
       (^ (list [_ (#Record options)] default))
-      (wrap (list (..default default (pick-for-target target options))))
+      (target-pick target options (#.Some default))
 
       _
       (fail (..wrong-syntax-error (name-of ..for))))))
