@@ -66,10 +66,11 @@ cd ~/lux/stdlib/ && lein clean && lein with-profile bibliotheca lux auto test
 cd ~/lux/stdlib/ && lein with-profile bibliotheca lux auto test
 ```
 
-## Install
+## Deploy
 
 ```
 cd ~/lux/stdlib/ && lein install
+cd ~/lux/stdlib/ && mvn install:install-file -Dfile=target/library.tar -DgroupId=com.github.luxlang -DartifactId=stdlib -Dversion=0.6.0-SNAPSHOT -Dpackaging=tar
 ```
 
 ## Generate documentation
@@ -286,13 +287,13 @@ cd ~/lux/lux-r/ && lein lux auto build
 cd ~/lux/lux-r/ && lein clean && lein lux auto build
 ```
 
-# REPL
+## REPL
 
 ```
 cd ~/lux/lux-r/ && java -jar target/program.jar repl --source ~/lux/stdlib/source --target ~/lux/stdlib/target
 ```
 
-# Try
+## Try
 
 ```
 cd ~/lux/lux-r/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
@@ -319,13 +320,13 @@ cd ~/lux/lux-jvm/ && lein lux auto build
 cd ~/lux/lux-jvm/ && lein clean && lein lux auto build
 ```
 
-# REPL
+## REPL
 
 ```
 cd ~/lux/lux-jvm/ && java -jar target/program.jar repl --source ~/lux/stdlib/source --target ~/lux/stdlib/target
 ```
 
-# Try
+## Try
 
 ```
 cd ~/lux/lux-jvm/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
@@ -334,5 +335,20 @@ cd ~/lux/stdlib/ && cd ~/lux/lux-jvm/ && time java -jar target/program.jar build
 cd ~/lux/lux-jvm/ && java -jar target/program.jar export --source ~/lux/stdlib/source --target ~/lux/stdlib/target
 
 cd ~/lux/stdlib/target/ && java -jar program.jar
+```
+
+## Deploy
+
+```
+mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-jvm -Dversion=0.6.0-SNAPSHOT -Dpackaging=jar
+```
+
+# Compiler trial
+
+## Build
+
+```
+cd ~/lux/lux-trial/ && lein clean && lein lux build
+cd ~/lux/lux-trial/target/ && java -jar program.jar
 ```
 

@@ -1,5 +1,7 @@
 (ns leiningen.lux.utils
-  (:require (clojure [template :refer [do-template]])
+  (:require (clojure
+             [template :refer [do-template]]
+             [string :as string])
             [leiningen.core.classpath :as classpath])
   (:import (java.io File
                     InputStreamReader
@@ -30,6 +32,7 @@
 
 (def ^:private lux-group "com.github.luxlang")
 (def ^:private compiler-id [lux-group "luxc-jvm"])
+(def ^:private jvm-compiler-id [lux-group "lux-jvm"])
 (def ^:private stdlib-id [lux-group "stdlib"])
 
 (defn ^:private id-path
@@ -38,6 +41,7 @@
   (str (.replace group "." "/") "/" name))
 
 (def ^:private compiler-path (id-path compiler-id))
+(def ^:private jvm-compiler-path (id-path jvm-compiler-id))
 (def ^:private stdlib-path (id-path stdlib-id))
 
 (defn ^:private project-jars [project]
@@ -47,7 +51,6 @@
 
 (do-template [<name> <path>]
   (defn <name> [jar-paths]
-    {:post [(not (nil? %))]}
     (some (fn [^:private path]
             (if (.contains path <path>)
               path
@@ -55,6 +58,7 @@
           jar-paths))
 
   ^:private find-compiler-path (sanitize-path compiler-path)
+  ^:private find-jvm-compiler-path (sanitize-path jvm-compiler-path)
   ^:private find-stdlib-path   (sanitize-path stdlib-path)
   )
 
@@ -62,14 +66,15 @@
   (or (.contains path (sanitize-path "org/ow2/asm/asm-all"))
       (.contains path (sanitize-path "org/clojure/core.match"))
       (.contains path (sanitize-path "org/clojure/clojure"))
-      (.contains path (sanitize-path compiler-path))))
+      (.contains path (sanitize-path compiler-path))
+      (.contains path (sanitize-path jvm-compiler-path))))
 
 (defn ^:private filter-compiler-dependencies [jar-paths]
   (filter compiler-dependency? jar-paths))
 
 (defn ^:private java-command [project]
   (str (get project :java-cmd "java")
-       " " (->> (get project :jvm-opts) (interpose " ") (reduce str ""))
+       ;; " " (->> (get project :jvm-opts) (interpose " ") (reduce str ""))
        " " vm-options))
 
 (defn ^:private join-paths [paths]
@@ -89,7 +94,6 @@
     (let [is-stdlib? (= stdlib-id
                         (project-id project))
           raw-paths (project-jars project)
-          compiler-path (prepare-path (find-compiler-path raw-paths))
           stdlib-path (when (not is-stdlib?)
                         (prepare-path (find-stdlib-path raw-paths)))
           sdk-path (get-in project [:lux :android :sdk])
@@ -111,6 +115,7 @@
                                  (if is-stdlib?
                                    deps
                                    (list* stdlib-path deps)))
+          compiler-path (prepare-path (find-compiler-path raw-paths))
           class-path (->> compiler-dependencies
                           (list* compiler-path)
                           (interpose java.io.File/pathSeparator)
@@ -123,6 +128,21 @@
   repl-path    "repl"
   )
 
+(defn build-jvm [project module]
+  (let [raw-paths (project-jars project)]
+    (when-let [compiler-path (find-jvm-compiler-path raw-paths)]
+      (let [compiler (prepare-path compiler-path)
+            sources (->> (get project :source-paths (list))
+                         (map #(str " --source " %))
+                         (string/join ""))
+            target (get project :target-path default-target-dir)]
+        (str (java-command project)
+             " -jar " compiler " build"
+             " --library " "~/lux/stdlib/target/library.tar"
+             sources
+             " --target " target
+             " --module " module)))))
+
 (def ^:private normal-exit 0)
 
 (defn run-process [command working-directory pre post]
@@ -130,13 +150,13 @@
     (with-open [std-out (->> process .getInputStream (new InputStreamReader) (new BufferedReader))
                 std-err (->> process .getErrorStream (new InputStreamReader) (new BufferedReader))]
       (println pre)
-      (loop [line (.readLine std-out)]
-        (when line
+      (loop []
+        (when-let [line (.readLine std-out)]
           (println line)
-          (recur (.readLine std-out))))
-      (loop [line (.readLine std-err)]
-        (when line
+          (recur)))
+      (loop []
+        (when-let [line (.readLine std-err)]
           (println line)
-          (recur (.readLine std-err))))
+          (recur)))
       (println post)
       (= normal-exit (.waitFor process)))))
