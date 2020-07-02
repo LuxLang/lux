@@ -22,7 +22,7 @@
 
   :dependencies [[com.github.luxlang/luxc-jvm ~version]
                  [com.github.luxlang/stdlib ~version]
-                 ;; JVM Bytecode
+                 ;; JVM Bytecode (TODO: Remove ASAP)
                  [org.ow2.asm/asm-all "5.0.3"]]
   
   :manifest {"lux" ~version}

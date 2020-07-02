@@ -11,14 +11,15 @@ cd ~/lux/ && find . -name '*.lux' | xargs wc -l
 ```
 cd ~/lux/luxc/ && lein clean && \
 cd ~/lux/stdlib/ && lein clean && \
-cd ~/lux/new-luxc/ && lein clean && \
+cd ~/lux/lux-jvm/ && lein clean && \
 cd ~/lux/lux-js/ && lein clean && \
 cd ~/lux/lux-python/ && lein clean && \
 cd ~/lux/lux-lua/ && lein clean && \
 cd ~/lux/lux-ruby/ && lein clean && \
 cd ~/lux/lux-php/ && lein clean && \
 cd ~/lux/lux-cl/ && lein clean && \
-cd ~/lux/lux-scheme/ && lein clean
+cd ~/lux/lux-scheme/ && lein clean && \
+cd ~/lux/lux-r/ && lein clean
 ```
 
 ---
@@ -70,7 +71,16 @@ cd ~/lux/stdlib/ && lein with-profile bibliotheca lux auto test
 
 ```
 cd ~/lux/stdlib/ && lein install
+
 cd ~/lux/stdlib/ && mvn install:install-file -Dfile=target/library.tar -DgroupId=com.github.luxlang -DartifactId=stdlib -Dversion=0.6.0-SNAPSHOT -Dpackaging=tar
+
+cd ~/lux/stdlib/ && mvn deploy:deploy-file \
+-Durl=https://<username>:<password>@oss.sonatype.org/content/repositories/snapshots/ \
+-Dfile=target/library.tar \
+-DgroupId=com.github.luxlang \
+-DartifactId=stdlib \
+-Dversion=0.6.0-SNAPSHOT \
+-Dpackaging=tar
 ```
 
 ## Generate documentation
@@ -340,7 +350,15 @@ cd ~/lux/stdlib/target/ && java -jar program.jar
 ## Deploy
 
 ```
-mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-jvm -Dversion=0.6.0-SNAPSHOT -Dpackaging=jar
+cd ~/lux/lux-jvm/ && mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-jvm -Dversion=0.6.0-SNAPSHOT -Dpackaging=jar
+
+cd ~/lux/lux-jvm/ && mvn deploy:deploy-file \
+-Durl=https://<username>:<password>@oss.sonatype.org/content/repositories/snapshots/ \
+-Dfile=target/program.jar \
+-DgroupId=com.github.luxlang \
+-DartifactId=lux-jvm \
+-Dversion=0.6.0-SNAPSHOT \
+-Dpackaging=jar
 ```
 
 # Compiler trial
