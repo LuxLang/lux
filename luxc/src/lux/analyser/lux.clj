@@ -213,15 +213,11 @@
         (|case exo-type*
           (&/$Sum _)
           (|do [vtype (&type/sum-at idx exo-type*)
-                :let [num-variant-types (&/|length (&type/flatten-sum exo-type*))
-                      is-last?* (if (nil? is-last?)
-                                  (= idx (dec num-variant-types))
-                                  is-last?)]
                 =value (analyse-variant-body analyse vtype ?values)
                 _cursor &/cursor]
-            (if (= 1 num-variant-types)
+            (if (= 1 (&/|length (&type/flatten-sum exo-type*)))
               (return (&/|list =value))
-              (return (&/|list (&&/|meta exo-type _cursor (&&/$variant idx is-last?* =value))))
+              (return (&/|list (&&/|meta exo-type _cursor (&&/$variant idx is-last? =value))))
               ))
 
           (&/$UnivQ _)

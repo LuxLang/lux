@@ -182,8 +182,9 @@
                   (&&common/analyse-proc analyse exo-type ?procedure parameters))))
         
         (&/$Nat idx)
-        (&/with-analysis-meta cursor exo-type
-          (&&lux/analyse-variant analyse (&/$Right exo-type) idx nil parameters))
+        (|let [(&/$Cons [_ (&/$Bit ?right)] parameters*) parameters]
+          (&/with-analysis-meta cursor exo-type
+            (&&lux/analyse-variant analyse (&/$Right exo-type) (if ?right (inc idx) idx) ?right parameters*)))
 
         (&/$Tag ?ident)
         (&/with-analysis-meta cursor exo-type

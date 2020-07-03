@@ -360,15 +360,16 @@
             [=test =kont] (analyse-pattern &/$None case-type unit-tuple kont)]
         (return (&/T [($VariantTestAC (&/T [idx (&/|length group) =test])) =kont])))
 
-      (&/$Form (&/$Cons [_ (&/$Nat idx)] ?values))
-      (|do [value-type* (adjust-type value-type)
-            case-type (&type/sum-at idx value-type*)
-            [=test =kont] (case (int (&/|length ?values))
-                            0 (analyse-pattern &/$None case-type unit-tuple kont)
-                            1 (analyse-pattern &/$None case-type (&/|head ?values) kont)
-                            ;; 1+
-                            (analyse-pattern &/$None case-type (&/T [(&/T ["" -1 -1]) (&/$Tuple ?values)]) kont))]
-        (return (&/T [($VariantTestAC (&/T [idx (&/|length (&type/flatten-sum value-type*)) =test])) =kont])))
+      (&/$Form (&/$Cons [_ (&/$Nat idx)] (&/$Cons [_ (&/$Bit right?)] ?values)))
+      (let [idx (if right? (inc idx) idx)]
+        (|do [value-type* (adjust-type value-type)
+              case-type (&type/sum-at idx value-type*)
+              [=test =kont] (case (int (&/|length ?values))
+                              0 (analyse-pattern &/$None case-type unit-tuple kont)
+                              1 (analyse-pattern &/$None case-type (&/|head ?values) kont)
+                              ;; 1+
+                              (analyse-pattern &/$None case-type (&/T [(&/T ["" -1 -1]) (&/$Tuple ?values)]) kont))]
+          (return (&/T [($VariantTestAC (&/T [idx (&/|length (&type/flatten-sum value-type*)) =test])) =kont]))))
 
       (&/$Form (&/$Cons [_ (&/$Tag ?ident)] ?values))
       (|do [[=module =name] (&&/resolved-ident ?ident)
