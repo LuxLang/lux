@@ -5,17 +5,22 @@
    [abstract
     [monad (#+ do)]]
    [control
+    ["." try (#+ Try)]
     ["." exception (#+ exception:)]
     ["." io (#+ IO io)]
     [parser
-     [cli (#+ program:)]]]
+     [cli (#+ program:)]]
+    [concurrency
+     ["." promise (#+ Promise)]]]
    [data
     ["." maybe]
-    ["." error (#+ Error)]
     [number
-     ["." i64]]
-    ["." text ("#@." hash)
-     format]
+     ["." i64]
+     ["n" nat]
+     ["i" int]]
+    [text
+     ["%" format (#+ format)]
+     ["." encoding]]
     [collection
      ["." array (#+ Array)]]]
    [macro
@@ -26,22 +31,33 @@
     ["_" js]]
    [tool
     [compiler
-     ["." name]
-     [phase
-      [macro (#+ Expander)]
-      ["." extension #_
-       ["#/." bundle]
-       ["." analysis #_
-        ["#/." js]]]
-      ["." generation
-       ["." js
-        ["." runtime]
-        ["." extension]]]]
+     [phase (#+ Operation Phase)]
+     [language
+      [lux
+       [program (#+ Program)]
+       [generation (#+ Context Host)]
+       [analysis
+        [macro (#+ Expander)]]
+       [phase
+        ["." extension (#+ Extender Handler)
+         ["#/." bundle]
+         ["." analysis #_
+          ["#" js]]
+         ["." generation #_
+          ["#" js]]]
+        [generation
+         ["." reference]
+         ["." js
+          ["." runtime]]]]]]
      [default
-      ["." platform (#+ Platform)]]]]]
+      ["." platform (#+ Platform)]]
+     [meta
+      ["." packager #_
+       ["#" script]]]]]]
   [program
    ["/" compositor
-    ["/." cli]]])
+    ["/." cli]
+    ["/." static]]])
 
 (import: #long java/lang/String)
 
@@ -247,8 +263,8 @@
             [[(java/lang/Number::longValue high)
               (java/lang/Number::longValue low)]
              [high low]])
-    (#.Some (.int (n/+ (|> high .nat (i64.left-shift 32))
-                       (if (i/< +0 (.int low))
+    (#.Some (.int (n.+ (|> high .nat (i64.left-shift 32))
+                       (if (i.< +0 (.int low))
                          (|> low .nat (i64.left-shift 32) (i64.logic-right-shift 32))
                          (.nat low)))))
 
@@ -256,7 +272,7 @@
     #.None))
 
 (def: (check-variant lux-object js-object)
-  (-> (-> java/lang/Object (Error Any))
+  (-> (-> java/lang/Object (Try Any))
       jdk/nashorn/api/scripting/ScriptObjectMirror
       (Maybe Any))
   (case [(jdk/nashorn/api/scripting/JSObject::getMember [runtime.variant-tag-field] js-object)
@@ -275,7 +291,7 @@
     #.None))
 
 (def: (check-array lux-object js-object)
-  (-> (-> java/lang/Object (Error Any))
+  (-> (-> java/lang/Object (Try Any))
       jdk/nashorn/api/scripting/ScriptObjectMirror
       (Maybe (Array java/lang/Object)))
   (if (jdk/nashorn/api/scripting/JSObject::isArray js-object)
@@ -283,8 +299,8 @@
       (loop [idx 0
              output (: (Array java/lang/Object)
                        (array.new num-keys))]
-        (if (n/< num-keys idx)
-          (case (jdk/nashorn/api/scripting/JSObject::getMember (%n idx) js-object)
+        (if (n.< num-keys idx)
+          (case (jdk/nashorn/api/scripting/JSObject::getMember (%.nat idx) js-object)
             (#.Some member)
             (case (host.check jdk/nashorn/internal/runtime/Undefined member)
               (#.Some _)
@@ -292,10 +308,10 @@
 
               #.None
               (case (lux-object member)
-                (#error.Success parsed-member)
+                (#try.Success parsed-member)
                 (recur (inc idx) (array.write idx (:coerce java/lang/Object parsed-member) output))
 
-                (#error.Failure error)
+                (#try.Failure error)
                 #.None))
 
             #.None
@@ -304,12 +320,12 @@
     #.None))
 
 (def: (lux-object js-object)
-  (-> java/lang/Object (Error Any))
+  (-> java/lang/Object (Try Any))
   (`` (<| (if (host.null? js-object)
-            (exception.throw null-has-no-lux-representation []))
+            (exception.throw ..null-has-no-lux-representation []))
           (case (host.check jdk/nashorn/internal/runtime/Undefined js-object)
             (#.Some _)
-            (exception.throw undefined-has-no-lux-representation [])
+            (exception.throw ..undefined-has-no-lux-representation [])
             #.None)
           (~~ (template [<class>]
                 [(case (host.check <class> js-object)
@@ -362,10 +378,10 @@
         #.None))))
 
 (def: (call-macro inputs lux macro)
-  (-> (List Code) Lux jdk/nashorn/api/scripting/JSObject (Error (Error [Lux (List Code)])))
+  (-> (List Code) Lux jdk/nashorn/api/scripting/JSObject (Try (Try [Lux (List Code)])))
   (let [to-js (: (-> Any java/lang/Object)
                  (|>> (:coerce (Array java/lang/Object)) js-structure (:coerce java/lang/Object)))]
-    (<| (:coerce (Error (Error [Lux (List Code)])))
+    (<| (:coerce (Try (Try [Lux (List Code)])))
         (jdk/nashorn/api/scripting/JSObject::call #.None
                                                   (|> (array.new 2)
                                                       (: (Array java/lang/Object))
@@ -378,77 +394,79 @@
   (case (ensure-macro macro)
     (#.Some macro)
     (case (call-macro inputs lux macro)
-      (#error.Success output)
+      (#try.Success output)
       (|> output
           (:coerce java/lang/Object)
           lux-object
-          (:coerce (Error (Error [Lux (List Code)]))))
+          (:coerce (Try (Try [Lux (List Code)]))))
 
-      (#error.Failure error)
-      (#error.Failure error))
+      (#try.Failure error)
+      (#try.Failure error))
     
     #.None
-    (exception.throw cannot-apply-a-non-function (:coerce java/lang/Object macro))))
-
-(def: separator "$")
+    (exception.throw ..cannot-apply-a-non-function (:coerce java/lang/Object macro))))
 
 (def: (evaluate! interpreter alias input)
-  (-> javax/script/ScriptEngine Text _.Expression (Error Any))
-  (do error.monad
+  (-> javax/script/ScriptEngine Text _.Expression (Try Any))
+  (do try.monad
     [?output (javax/script/ScriptEngine::eval (_.code input) interpreter)
      output (case ?output
               (#.Some output)
               (wrap output)
 
               #.None
-              (exception.throw null-has-no-lux-representation []))
-     lux-output (..lux-object output)]
-    (wrap lux-output)))
+              (exception.throw ..null-has-no-lux-representation []))]
+    (..lux-object output)))
 
 (def: (execute! interpreter alias input)
-  (-> javax/script/ScriptEngine Text _.Statement (Error Any))
-  (do error.monad
+  (-> javax/script/ScriptEngine Text _.Statement (Try Any))
+  (do try.monad
     [?output (javax/script/ScriptEngine::eval (_.code input) interpreter)]
     (wrap [])))
 
-(def: (define! interpreter [module name] input)
-  (-> javax/script/ScriptEngine Name _.Expression (Error [Text Any _.Statement]))
-  (let [global (format (text.replace-all .module-separator ..separator module)
-                       ..separator (name.normalize name)
-                       "___" (%n (text@hash name)))
+(def: (define! interpreter context input)
+  (-> javax/script/ScriptEngine Context _.Expression (Try [Text Any _.Statement]))
+  (let [global (reference.artifact context)
         @global (_.var global)]
-    (do error.monad
+    (do try.monad
       [#let [definition (_.define @global input)]
        _ (execute! interpreter global definition)
        value (evaluate! interpreter global @global)]
       (wrap [global value definition]))))
 
-(type: Host
-  (generation.Host _.Expression _.Statement))
-
 (def: host
-  (IO Host)
+  (IO (Host _.Expression _.Statement))
   (io (let [interpreter (javax/script/ScriptEngineFactory::getScriptEngine
                          (jdk/nashorn/api/scripting/NashornScriptEngineFactory::new))]
-        (: Host
+        (: (Host _.Expression _.Statement)
            (structure
-            (def: (evaluate! alias input)
-              (..evaluate! interpreter (name.normalize alias) input))
+            (def: evaluate! (..evaluate! interpreter))
             (def: execute! (..execute! interpreter))
-            (def: define! (..define! interpreter)))))))
+            (def: define! (..define! interpreter))
+
+            (def: (ingest context content)
+              (|> content encoding.from-utf8 try.assume (:coerce _.Statement)))
+
+            (def: (re-learn context content)
+              (..execute! interpreter (reference.artifact context) content))
+            
+            (def: (re-load context content)
+              (do try.monad
+                [_ (..execute! interpreter "" content)]
+                (..evaluate! interpreter "" (_.var (reference.artifact context))))))))))
 
 (def: platform
-  (IO (Platform IO _.Var _.Expression _.Statement))
+  (IO (Platform _.Var _.Expression _.Statement))
   (do io.monad
     [host ..host]
-    (wrap {#platform.&monad io.monad
-           #platform.&file-system file.system
+    (wrap {#platform.&file-system (file.async file.system)
            #platform.host host
            #platform.phase js.generate
-           #platform.runtime runtime.generate})))
+           #platform.runtime runtime.generate
+           #platform.write (|>> _.code encoding.to-utf8)})))
 
-(def: (program program)
-  (-> _.Expression _.Statement)
+(def: (program namer context program)
+  (-> (-> Context Text) (Program _.Expression _.Statement))
   (let [@process (_.var "process")
         raw-inputs (_.? (|> (|> @process _.type-of (_.= (_.string "undefined")) _.not)
                             (_.and (|> @process (_.the "argv"))))
@@ -458,13 +476,53 @@
                             (runtime.lux//program-args raw-inputs)
                             _.null))))
 
+(def: extender
+  Extender
+  ## TODO: Stop relying on coercions ASAP.
+  (<| (:coerce Extender)
+      (function (@self handler))
+      (:coerce Handler)
+      (function (@self name phase))
+      (:coerce Phase)
+      (function (@self archive parameters))
+      (:coerce Operation)
+      (function (@self state))
+      (:coerce Try)
+      try.assume
+      (:coerce Try)
+      (do try.monad
+        [handler (try.from-maybe (..ensure-macro (:coerce Macro handler)))
+         #let [to-js (: (-> Any java/lang/Object)
+                        (|>> (:coerce (Array java/lang/Object)) js-structure (:coerce java/lang/Object)))]]
+        (jdk/nashorn/api/scripting/JSObject::call #.None
+                                                  (|> (array.new 2)
+                                                      (: (Array java/lang/Object))
+                                                      (array.write 0 (to-js name))
+                                                      (array.write 1 (to-js phase))
+                                                      (array.write 2 (to-js archive))
+                                                      (array.write 3 (to-js parameters))
+                                                      (array.write 4 (to-js state)))
+                                                  (:coerce jdk/nashorn/api/scripting/JSObject handler)))))
+
+(def: (declare-success! _)
+  (-> Any (Promise Any))
+  (promise.future (io.exit +0)))
+
 (program: [{service /cli.service}]
-  (/.compiler @.js
-              ".js"
-              ..expander
-              analysis/js.bundle
-              ..platform
-              extension.bundle
-              extension/bundle.empty
-              ..program
-              service))
+  (exec (do promise.monad
+          [_ (/.compiler {#/static.host @.js
+                          #/static.host-module-extension ".js"
+                          #/static.target (/cli.target service)
+                          #/static.artifact-extension ".js"}
+                         ..expander
+                         analysis.bundle
+                         ..platform
+                         generation.bundle
+                         extension/bundle.empty
+                         (..program reference.artifact)
+                         ..extender
+                         service
+                         [(packager.package _.use-strict _.code _.then)
+                          (format (/cli.target service) (:: file.system separator) "program.js")])]
+          (..declare-success! []))
+    (io.io [])))

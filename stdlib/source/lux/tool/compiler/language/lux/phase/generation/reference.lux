@@ -1,98 +1,61 @@
 (.module:
   [lux #*
-   [abstract
-    [monad (#+ do)]]
-   [control
-    pipe]
    [data
-    ["." text
-     ["%" format (#+ format)]]]
-   [type (#+ :share)]]
+    [text
+     ["%" format (#+ format)]]]]
   ["." //// #_
-   [synthesis (#+ Synthesis)]
    ["#." generation (#+ Context)]
    ["//#" /// #_
-    ["#." reference (#+ Register Variable Reference)]
-    ["#." phase ("#@." monad)]
+    ["." reference (#+ Reference)
+     ["." variable (#+ Register Variable)]]
+    ["." phase ("#@." monad)]
     [meta
      [archive (#+ Archive)]]]])
 
-(signature: #export (System expression)
-  (: (-> Register expression)
-     local)
-  (: (-> Register expression)
-     foreign)
-  (: (All [anchor directive]
-       (-> Variable (////generation.Operation anchor expression directive)))
-     variable)
-  (: (All [anchor directive]
-       (-> Archive Name (////generation.Operation anchor expression directive)))
-     constant)
-  (: (All [anchor directive]
-       (-> Archive Reference (////generation.Operation anchor expression directive)))
-     reference))
+(def: #export (artifact [module artifact])
+  (-> Context Text)
+  (format "lux_" "m" (%.nat module) "a" (%.nat artifact)))
 
-(def: (variable-maker prefix variable)
-  (All [expression]
-    (-> Text (-> Text expression)
-        (-> Register expression)))
-  (|>> %.nat (format prefix) variable))
+(signature: #export (System expression)
+  (: (-> Text expression)
+     constant)
+  (: (-> Text expression)
+     variable))
+
+(def: #export (constant system archive name)
+  (All [anchor expression directive]
+    (-> (System expression) Archive Name
+        (////generation.Operation anchor expression directive expression)))
+  (phase@map (|>> ..artifact (:: system constant))
+             (////generation.remember archive name)))
 
 (template [<sigil> <name>]
-  [(def: #export <name>
+  [(def: #export (<name> system)
      (All [expression]
-       (-> (-> Text expression)
+       (-> (System expression)
            (-> Register expression)))
-     (variable-maker <sigil>))]
+     (|>> %.nat (format <sigil>) (:: system variable)))]
 
   ["f" foreign]
   ["l" local]
   )
 
-(def: #export sanitize
-  (-> Text Text)
-  (|>> (text.replace-all "-" "_")
-       (text.replace-all "?" "Q")
-       (text.replace-all "@" "A")))
-
-(def: #export (artifact-name [module id])
-  (-> Context Text)
-  (format "lux_" "m" (%.nat module) "a" (%.nat id)))
-
-(def: #export (system constant variable)
+(def: #export (variable system variable)
   (All [expression]
-    (-> (-> Text expression) (-> Text expression)
-        (System expression)))
-  (let [local (..local variable)
-        foreign (..foreign variable)
-        variable (:share [expression]
-                         {(-> Text expression)
-                          variable}
-                         {(All [anchor directive]
-                            (-> Variable (////generation.Operation anchor expression directive)))
-                          (|>> (case> (#//////reference.Local register)
-                                      (local register)
-                                      
-                                      (#//////reference.Foreign register)
-                                      (foreign register))
-                               //////phase@wrap)})
-        constant (:share [expression]
-                         {(-> Text expression)
-                          constant}
-                         {(All [anchor directive]
-                            (-> Archive Name (////generation.Operation anchor expression directive)))
-                          (function (_ archive name)
-                            (|> (////generation.remember archive name)
-                                (//////phase@map (|>> ..artifact-name constant))))})]
-    (structure
-     (def: local local)
-     (def: foreign foreign)
-     (def: variable variable)
-     (def: constant constant)
-     (def: (reference archive reference)
-       (case reference
-         (#//////reference.Constant value)
-         (constant archive value)
-         
-         (#//////reference.Variable value)
-         (variable value))))))
+    (-> (System expression) Variable expression))
+  (case variable
+    (#variable.Local register)
+    (..local system register)
+    
+    (#variable.Foreign register)
+    (..foreign system register)))
+
+(def: #export (reference system archive reference)
+  (All [anchor expression directive]
+    (-> (System expression) Archive Reference (////generation.Operation anchor expression directive expression)))
+  (case reference
+    (#reference.Constant value)
+    (..constant system archive value)
+    
+    (#reference.Variable value)
+    (phase@wrap (..variable system value))))

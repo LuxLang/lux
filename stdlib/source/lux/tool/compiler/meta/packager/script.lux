@@ -1,0 +1,106 @@
+(.module:
+  [lux (#- Module Definition)
+   [type (#+ :share)]
+   ["." host (#+ import: do-to)]
+   [abstract
+    ["." monad (#+ Monad do)]]
+   [control
+    ["." try (#+ Try)]
+    [concurrency
+     ["." promise (#+ Promise)]]
+    [security
+     ["!" capability]]]
+   [data
+    ["." binary (#+ Binary)]
+    ["." text
+     ["%" format (#+ format)]
+     ["." encoding]]
+    [number
+     ["n" nat]]
+    [collection
+     ["." row (#+ Row)]
+     ["." list ("#@." functor fold)]]]
+   [target
+    [jvm
+     [encoding
+      ["." name]]]]
+   [world
+    ["." file (#+ File Directory)]]]
+  [program
+   [compositor
+    ["." static (#+ Static)]]]
+  ["." // (#+ Packager)
+   [//
+    ["." archive
+     ["." descriptor (#+ Module)]
+     ["." artifact]]
+    ["." io #_
+     ["#" archive]]
+    [//
+     [language
+      ["$" lux
+       [generation (#+ Context)]
+       [phase
+        [generation
+         [jvm
+          ["." runtime (#+ Definition)]]]]]]]]])
+
+## TODO: Delete ASAP
+(type: (Action ! a)
+  (! (Try a)))
+
+(def: (write-artifact monad file-system static context)
+  (All [!]
+    (-> (Monad !) (file.System !) Static Context
+        (Action ! Binary)))
+  (do (try.with monad)
+    [artifact (let [[module artifact] context]
+                (!.use (:: file-system file) [(io.artifact file-system static module (%.nat artifact))]))]
+    (!.use (:: artifact content) [])))
+
+(def: (write-module monad file-system static sequence [module artifacts] so-far)
+  (All [! directive]
+    (-> (Monad !) (file.System !) Static (-> directive directive directive) [archive.ID (List artifact.ID)] directive
+        (Action ! directive)))
+  (monad.fold (:assume (try.with monad))
+              (function (_ artifact so-far)
+                (do (try.with monad)
+                  [content (..write-artifact monad file-system static [module artifact])
+                   content (:: monad wrap (encoding.from-utf8 content))]
+                  (wrap (sequence so-far
+                                  (:share [directive]
+                                          {directive
+                                           so-far}
+                                          {directive
+                                           (:assume artifact)})))))
+              so-far
+              artifacts))
+
+(def: #export (package header to-code sequence)
+  (All [! directive]
+    (-> directive
+        (-> directive Text)
+        (-> directive directive directive)
+        (Packager !)))
+  (function (package monad file-system static archive program)
+    (do {@ (try.with monad)}
+      [cache (:share [!]
+                     {(Monad !)
+                      monad}
+                     {(! (Try (Directory !)))
+                      (:assume (!.use (:: file-system directory) [(get@ #static.target static)]))})
+       order (|> archive
+                 archive.archived
+                 (monad.map try.monad (function (_ module)
+                                        (do try.monad
+                                          [[descriptor document] (archive.find module archive)
+                                           module-id (archive.id module archive)]
+                                          (wrap (|> descriptor
+                                                    (get@ #descriptor.registry)
+                                                    artifact.artifacts
+                                                    row.to-list
+                                                    (list@map (|>> (get@ #artifact.id)))
+                                                    [module-id])))))
+                 (:: monad wrap))]
+      (:: @ map (|>> to-code encoding.to-utf8)
+          (monad.fold @ (..write-module monad file-system static sequence) header order)))))
