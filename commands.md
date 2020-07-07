@@ -181,7 +181,7 @@ cd ~/lux/lux-js/ && lein clean && lein lux auto build
 ## Try
 
 ```
-cd ~/lux/lux-js/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
+cd ~/lux/stdlib/ && lein clean && cd ~/lux/lux-js/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
 ```
 
 ---

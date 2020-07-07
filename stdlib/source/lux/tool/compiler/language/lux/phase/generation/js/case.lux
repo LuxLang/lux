@@ -3,7 +3,7 @@
    [abstract
     ["." monad (#+ do)]]
    [control
-    ["ex" exception (#+ exception:)]]
+    ["." exception (#+ exception:)]]
    [data
     ["." maybe]
     ["." text]
@@ -138,125 +138,145 @@
           ..restore-cursor!
           post!)))
 
+(def: (optimized-pattern-matching recur generate archive pathP)
+  (-> (-> Path (Operation Statement)) Phase Archive
+      (-> Path (Operation (Maybe Statement))))
+  (.case pathP
+    (^template [<simple> <choice>]
+      (^ (<simple> idx nextP))
+      (|> nextP
+          recur
+          (:: ///////phase.monad map (|>> (_.then (<choice> true idx)) #.Some))))
+    ([/////synthesis.simple-left-side  ..left-choice]
+     [/////synthesis.simple-right-side ..right-choice])
+
+    (^ (/////synthesis.member/left 0))
+    (///////phase@wrap (#.Some (push-cursor! (_.at (_.i32 +0) ..peek-cursor))))
+
+    ## Extra optimization
+    (^ (/////synthesis.path/seq
+        (/////synthesis.member/left 0)
+        (/////synthesis.!bind-top register thenP)))
+    (do ///////phase.monad
+      [then! (recur thenP)]
+      (wrap (#.Some ($_ _.then
+                        (_.define (..register register) (_.at (_.i32 +0) ..peek-cursor))
+                        then!))))
+
+    ## Extra optimization
+    (^template [<pm> <getter>]
+      (^ (/////synthesis.path/seq
+          (<pm> lefts)
+          (/////synthesis.!bind-top register thenP)))
+      (do ///////phase.monad
+        [then! (recur thenP)]
+        (wrap (#.Some ($_ _.then
+                          (_.define (..register register) (<getter> (_.i32 (.int lefts)) ..peek-cursor))
+                          then!)))))
+    ([/////synthesis.member/left  //runtime.tuple//left]
+     [/////synthesis.member/right //runtime.tuple//right])
+
+    (^ (/////synthesis.!bind-top register thenP))
+    (do ///////phase.monad
+      [then! (recur thenP)]
+      (wrap (#.Some ($_ _.then
+                        (_.define (..register register) ..peek-and-pop-cursor)
+                        then!))))
+
+    (^ (/////synthesis.!multi-pop nextP))
+    (.let [[extra-pops nextP'] (////synthesis/case.count-pops nextP)]
+      (do ///////phase.monad
+        [next! (recur nextP')]
+        (wrap (#.Some ($_ _.then
+                          (multi-pop-cursor! (n.+ 2 extra-pops))
+                          next!)))))
+
+    _
+    (///////phase@wrap #.None)))
+
 (def: (pattern-matching' generate archive)
   (-> Phase Archive
       (-> Path (Operation Statement)))
   (function (recur pathP)
-    (.case pathP
-      (#/////synthesis.Then bodyS)
-      (do ///////phase.monad
-        [body! (generate archive bodyS)]
-        (wrap (_.return body!)))
+    (do ///////phase.monad
+      [outcome (optimized-pattern-matching recur generate archive pathP)]
+      (.case outcome
+        (#.Some outcome)
+        (wrap outcome)
 
-      #/////synthesis.Pop
-      (///////phase@wrap pop-cursor!)
+        #.None
+        (.case pathP
+          #/////synthesis.Pop
+          (///////phase@wrap pop-cursor!)
 
-      (#/////synthesis.Bind register)
-      (///////phase@wrap (_.define (..register register) ..peek-cursor))
+          (#/////synthesis.Bind register)
+          (///////phase@wrap (_.define (..register register) ..peek-cursor))
 
-      (#/////synthesis.Bit-Fork when thenP elseP)
-      (do {@ ///////phase.monad}
-        [then! (recur thenP)
-         else! (.case elseP
-                 (#.Some elseP)
-                 (recur elseP)
+          (#/////synthesis.Bit-Fork when thenP elseP)
+          (do {@ ///////phase.monad}
+            [then! (recur thenP)
+             else! (.case elseP
+                     (#.Some elseP)
+                     (recur elseP)
 
-                 #.None
-                 (wrap ..fail-pm!))]
-        (wrap (.if when
-                (_.if ..peek-cursor
-                  then!
-                  else!)
-                (_.if ..peek-cursor
-                  else!
-                  then!))))
+                     #.None
+                     (wrap ..fail-pm!))]
+            (wrap (.if when
+                    (_.if ..peek-cursor
+                      then!
+                      else!)
+                    (_.if ..peek-cursor
+                      else!
+                      then!))))
 
-      (#/////synthesis.I64-Fork cons)
-      (do {@ ///////phase.monad}
-        [clauses (monad.map @ (function (_ [match then])
-                                (do @
-                                  [then! (recur then)]
-                                  (wrap [(//runtime.i64//= (//primitive.i64 (.int match))
-                                                           ..peek-cursor)
-                                         then!])))
-                            (#.Cons cons))]
-        (wrap (_.cond clauses ..fail-pm!)))
+          (#/////synthesis.I64-Fork cons)
+          (do {@ ///////phase.monad}
+            [clauses (monad.map @ (function (_ [match then])
+                                    (do @
+                                      [then! (recur then)]
+                                      (wrap [(//runtime.i64//= (//primitive.i64 (.int match))
+                                                               ..peek-cursor)
+                                             then!])))
+                                (#.Cons cons))]
+            (wrap (_.cond clauses ..fail-pm!)))
 
-      (^template [<tag> <format> <type>]
-        (<tag> cons)
-        (do {@ ///////phase.monad}
-          [cases (monad.map @ (function (_ [match then])
-                                (:: @ map (|>> [(list (<format> match))]) (recur then)))
-                            (#.Cons cons))]
-          (wrap (_.switch ..peek-cursor
-                          cases
-                          (#.Some ..fail-pm!)))))
-      ([#/////synthesis.F64-Fork //primitive.f64 Frac]
-       [#/////synthesis.Text-Fork //primitive.text Text])
+          (^template [<tag> <format> <type>]
+            (<tag> cons)
+            (do {@ ///////phase.monad}
+              [cases (monad.map @ (function (_ [match then])
+                                    (:: @ map (|>> [(list (<format> match))]) (recur then)))
+                                (#.Cons cons))]
+              (wrap (_.switch ..peek-cursor
+                              cases
+                              (#.Some ..fail-pm!)))))
+          ([#/////synthesis.F64-Fork //primitive.f64 Frac]
+           [#/////synthesis.Text-Fork //primitive.text Text])
 
-      (^template [<complex> <simple> <choice>]
-        (^ (<complex> idx))
-        (///////phase@wrap (<choice> false idx))
+          (#/////synthesis.Then bodyS)
+          (do ///////phase.monad
+            [body! (generate archive bodyS)]
+            (wrap (_.return body!)))
 
-        (^ (<simple> idx nextP))
-        (|> nextP
-            recur
-            (:: ///////phase.monad map (_.then (<choice> true idx)))))
-      ([/////synthesis.side/left  /////synthesis.simple-left-side  ..left-choice]
-       [/////synthesis.side/right /////synthesis.simple-right-side ..right-choice])
+          (^template [<complex> <choice>]
+            (^ (<complex> idx))
+            (///////phase@wrap (<choice> false idx)))
+          ([/////synthesis.side/left  ..left-choice]
+           [/////synthesis.side/right ..right-choice])
 
-      (^ (/////synthesis.member/left 0))
-      (///////phase@wrap (push-cursor! (_.at (_.i32 +0) ..peek-cursor)))
+          (^template [<pm> <getter>]
+            (^ (<pm> lefts))
+            (///////phase@wrap (push-cursor! (<getter> (_.i32 (.int lefts)) ..peek-cursor))))
+          ([/////synthesis.member/left  //runtime.tuple//left]
+           [/////synthesis.member/right //runtime.tuple//right])
 
-      ## Extra optimization
-      (^ (/////synthesis.path/seq
-          (/////synthesis.member/left 0)
-          (/////synthesis.!bind-top register thenP)))
-      (do ///////phase.monad
-        [then! (recur thenP)]
-        (///////phase@wrap ($_ _.then
-                               (_.define (..register register) (_.at (_.i32 +0) ..peek-cursor))
-                               then!)))
-
-      (^template [<pm> <getter>]
-        (^ (<pm> lefts))
-        (///////phase@wrap (push-cursor! (<getter> (_.i32 (.int lefts)) ..peek-cursor)))
-
-        ## Extra optimization
-        (^ (/////synthesis.path/seq
-            (<pm> lefts)
-            (/////synthesis.!bind-top register thenP)))
-        (do ///////phase.monad
-          [then! (recur thenP)]
-          (///////phase@wrap ($_ _.then
-                                 (_.define (..register register) (<getter> (_.i32 (.int lefts)) ..peek-cursor))
-                                 then!))))
-      ([/////synthesis.member/left  //runtime.tuple//left]
-       [/////synthesis.member/right //runtime.tuple//right])
-
-      (^ (/////synthesis.!bind-top register thenP))
-      (do ///////phase.monad
-        [then! (recur thenP)]
-        (///////phase@wrap ($_ _.then
-                               (_.define (..register register) ..peek-and-pop-cursor)
-                               then!)))
-
-      (^ (/////synthesis.!multi-pop nextP))
-      (.let [[extra-pops nextP'] (////synthesis/case.count-pops nextP)]
-        (do ///////phase.monad
-          [next! (recur nextP')]
-          (///////phase@wrap ($_ _.then
-                                 (multi-pop-cursor! (n.+ 2 extra-pops))
-                                 next!))))
-
-      (^template [<tag> <combinator>]
-        (^ (<tag> leftP rightP))
-        (do ///////phase.monad
-          [left! (recur leftP)
-           right! (recur rightP)]
-          (wrap (<combinator> left! right!))))
-      ([/////synthesis.path/seq _.then]
-       [/////synthesis.path/alt alternation]))))
+          (^template [<tag> <combinator>]
+            (^ (<tag> leftP rightP))
+            (do ///////phase.monad
+              [left! (recur leftP)
+               right! (recur rightP)]
+              (wrap (<combinator> left! right!))))
+          ([/////synthesis.path/seq _.then]
+           [/////synthesis.path/alt ..alternation]))))))
 
 (def: (pattern-matching generate archive pathP)
   (-> Phase Archive Path (Operation Statement))
