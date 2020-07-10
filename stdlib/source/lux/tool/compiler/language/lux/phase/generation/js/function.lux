@@ -6,12 +6,14 @@
     pipe]
    [data
     ["." product]
+    [text
+     ["%" format (#+ format)]]
     [collection
      ["." list ("#@." functor fold)]]]
    [target
-    ["_" js (#+ Expression Computation Var)]]]
+    ["_" js (#+ Expression Computation Var Statement)]]]
   ["." // #_
-   ["#." runtime (#+ Operation Phase Generator)]
+   ["#." runtime (#+ Operation Phase Phase! Generator)]
    ["#." reference]
    ["#." case]
    ["/#" // #_
@@ -19,7 +21,7 @@
     ["//#" /// #_
      [analysis (#+ Variant Tuple Environment Abstraction Application Analysis)]
      [synthesis (#+ Synthesis)]
-     ["#." generation]
+     ["#." generation (#+ Context)]
      ["//#" /// #_
       [arity (#+ Arity)]
       [reference
@@ -33,20 +35,21 @@
      argsO+ (monad.map @ (generate archive) argsS+)]
     (wrap (_.apply/* functionO argsO+))))
 
-(def: (with-closure inits function-definition)
-  (-> (List Expression) Computation (Operation Computation))
-  (///////phase@wrap
-   (case inits
-     #.Nil
-     function-definition
+(def: (with-closure @self inits function-body)
+  (-> Var (List Expression) Statement [Statement Expression])
+  (case inits
+    #.Nil
+    [(_.function! @self (list) function-body)
+     @self]
 
-     _
-     (let [capture (: (-> Register Var)
-                      (|>> (///reference.foreign //reference.system) :assume))
-           closure (_.closure (|> (list.enumerate inits)
-                                  (list@map (|>> product.left capture)))
-                              (_.return function-definition))]
-       (_.apply/* closure inits)))))
+    _
+    (let [capture (: (-> Register Var)
+                     (|>> (///reference.foreign //reference.system) :assume))]
+      [(_.function! @self
+                    (|> (list.enumerate inits)
+                        (list@map (|>> product.left capture)))
+                    (_.return (_.function @self (list) function-body)))
+       (_.apply/* @self inits)])))
 
 (def: @curried (_.var "curried"))
 
@@ -55,17 +58,22 @@
 
 (def: @@arguments (_.var "arguments"))
 
-(def: #export (function generate archive [environment arity bodyS])
-  (Generator (Abstraction Synthesis))
+(def: (@scope function-name)
+  (-> Context Text)
+  (format (///reference.artifact function-name) "_scope"))
+
+(def: #export (function statement expression archive [environment arity bodyS])
+  (-> Phase! (Generator (Abstraction Synthesis)))
   (do {@ ///////phase.monad}
-    [[function-name bodyO] (/////generation.with-new-context archive
+    [[function-name body!] (/////generation.with-new-context archive
                              (do @
-                               [function-name (:: @ map ///reference.artifact
-                                                  (/////generation.context archive))]
-                               (/////generation.with-anchor (_.var function-name)
-                                 (generate archive bodyS))))
+                               [scope (:: @ map ..@scope
+                                          (/////generation.context archive))]
+                               (/////generation.with-anchor [1 scope]
+                                 (statement expression archive bodyS))))
      #let [arityO (|> arity .int _.i32)
            @num-args (_.var "num_args")
+           @scope (..@scope function-name)
            @self (_.var (///reference.artifact function-name))
            apply-poly (.function (_ args func)
                         (|> func (_.do "apply" (list _.null args))))
@@ -75,34 +83,36 @@
                                         pre!
                                         (_.define (..input post) (_.at (_.i32 (.int post)) @@arguments))))
                                   initialize-self!
-                                  (list.indices arity))]]
-    (with-closure (list@map (///reference.variable //reference.system) environment)
-      (_.function @self (list)
-        ($_ _.then
-            (_.define @num-args (_.the "length" @@arguments))
-            (_.cond (list [(|> @num-args (_.= arityO))
-                           ($_ _.then
-                               initialize!
-                               (_.return bodyO))]
-                          [(|> @num-args (_.> arityO))
-                           (let [arity-inputs (|> (_.array (list))
-                                                  (_.the "slice")
-                                                  (_.do "call" (list @@arguments (_.i32 +0) arityO)))
-                                 extra-inputs (|> (_.array (list))
-                                                  (_.the "slice")
-                                                  (_.do "call" (list @@arguments arityO)))]
-                             (_.return (|> @self
-                                           (apply-poly arity-inputs)
-                                           (apply-poly extra-inputs))))])
-                    ## (|> @num-args (_.< arityO))
-                    (let [all-inputs (|> (_.array (list))
-                                         (_.the "slice")
-                                         (_.do "call" (list @@arguments)))]
-                      ($_ _.then
-                          (_.define @curried all-inputs)
-                          (_.return (_.closure (list)
-                                               (let [@missing all-inputs]
-                                                 (_.return (apply-poly (_.do "concat" (list @missing) @curried)
-                                                                       @self))))))))
-            )))
-    ))
+                                  (list.indices arity))
+           [definition instantiation] (with-closure @self (list@map (///reference.variable //reference.system) environment)
+                                        ($_ _.then
+                                            (_.define @num-args (_.the "length" @@arguments))
+                                            (_.cond (list [(|> @num-args (_.= arityO))
+                                                           ($_ _.then
+                                                               initialize!
+                                                               (_.with-label (_.label @scope)
+                                                                 (_.do-while (_.boolean true)
+                                                                             body!)))]
+                                                          [(|> @num-args (_.> arityO))
+                                                           (let [arity-inputs (|> (_.array (list))
+                                                                                  (_.the "slice")
+                                                                                  (_.do "call" (list @@arguments (_.i32 +0) arityO)))
+                                                                 extra-inputs (|> (_.array (list))
+                                                                                  (_.the "slice")
+                                                                                  (_.do "call" (list @@arguments arityO)))]
+                                                             (_.return (|> @self
+                                                                           (apply-poly arity-inputs)
+                                                                           (apply-poly extra-inputs))))])
+                                                    ## (|> @num-args (_.< arityO))
+                                                    (let [all-inputs (|> (_.array (list))
+                                                                         (_.the "slice")
+                                                                         (_.do "call" (list @@arguments)))]
+                                                      ($_ _.then
+                                                          (_.define @curried all-inputs)
+                                                          (_.return (_.closure (list)
+                                                                               (let [@missing all-inputs]
+                                                                                 (_.return (apply-poly (_.do "concat" (list @missing) @curried)
+                                                                                                       @self))))))))
+                                            ))]
+     _ (/////generation.save! true ["" (%.nat (product.right function-name))] definition)]
+    (wrap instantiation)))

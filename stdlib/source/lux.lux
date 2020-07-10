@@ -2090,17 +2090,6 @@
            template}
           template))
 
-(def:''' (join-map f xs)
-         #Nil
-         (All [a b]
-           (-> (-> a ($' List b)) ($' List a) ($' List b)))
-         ({#Nil
-           #Nil
-
-           (#Cons [x xs'])
-           (list@compose (f x) (join-map f xs'))}
-          xs))
-
 (def:''' (every? p xs)
          #Nil
          (All [a]
@@ -2142,6 +2131,12 @@
            #1
            ("lux i64 =" reference sample)))
 
+(def:''' (list@join xs)
+         #Nil
+         (All [a]
+           (-> ($' List ($' List a)) ($' List a)))
+         (list@fold list@compose #Nil (list@reverse xs)))
+
 (macro:' #export (template tokens)
          (list [(tag$ ["lux" "doc"])
                 (text$ ($_ "lux text concat"
@@ -2158,7 +2153,8 @@
                    (if (every? (function' [size] ("lux i64 =" num-bindings size))
                                (list@map list@size data'))
                      (|> data'
-                         (join-map (compose apply (make-env bindings')))
+                         (list@map (compose apply (make-env bindings')))
+                         list@join
                          return)
                      (fail "Irregular arguments tuples for template.")))
 
@@ -2349,12 +2345,6 @@
            (wrap ({(#Some _) #1
                    #None     #0}
                   output))))
-
-(def:''' (list@join xs)
-         #Nil
-         (All [a]
-           (-> ($' List ($' List a)) ($' List a)))
-         (list@fold list@compose #Nil (list@reverse xs)))
 
 (def:''' (interpose sep xs)
          #Nil
@@ -3253,38 +3243,6 @@
   (-> Text Text (Maybe Nat))
   ("lux text index" 0 part text))
 
-(def: (last-index-of' part part-size since text)
-  (-> Text Nat Nat Text (Maybe Nat))
-  (case ("lux text index" ("lux i64 +" part-size since) part text)
-    #None
-    (#Some since)
-
-    (#Some since')
-    (last-index-of' part part-size since' text)))
-
-(def: (last-index-of part text)
-  (-> Text Text (Maybe Nat))
-  (case ("lux text index" 0 part text)
-    (#Some since)
-    (last-index-of' part ("lux text size" part) since text)
-
-    #None
-    #None))
-
-(def: (clip/1 from text)
-  (-> Nat Text (Maybe Text))
-  (let [size ("lux text size" text)]
-    (if (n/<= size from)
-      (#.Some ("lux text clip" from size text))
-      #.None)))
-
-(def: (clip/2 from to text)
-  (-> Nat Nat Text (Maybe Text))
-  (if (and (n/<= to from)
-           (n/<= ("lux text size" text) to))
-    (#.Some ("lux text clip" from to text))
-    #.None))
-
 (def: #export (error! message)
   {#.doc (text$ ($_ "lux text concat"
                     "## Causes an error, with the given error message." ..new-line
@@ -3316,7 +3274,7 @@
 
 (def: (text@split-all-with splitter input)
   (-> Text Text (List Text))
-  (case (index-of splitter input)
+  (case (..index-of splitter input)
     #None
     (list input)
 
@@ -3766,13 +3724,13 @@
          (^ (list& [_ (#Form (list& [_ (#Tag ["" "only"])] defs))] tokens')))
     (do meta-monad
       [defs' (extract-defs defs)]
-      (return [(#Only defs') tokens']))
+      (wrap [(#Only defs') tokens']))
 
     (^or (^ (list& [_ (#Form (list& [_ (#Tag ["" "-"])] defs))] tokens'))
          (^ (list& [_ (#Form (list& [_ (#Tag ["" "exclude"])] defs))] tokens')))
     (do meta-monad
       [defs' (extract-defs defs)]
-      (return [(#Exclude defs') tokens']))
+      (wrap [(#Exclude defs') tokens']))
 
     (^or (^ (list& [_ (#Tag ["" "*"])] tokens'))
          (^ (list& [_ (#Tag ["" "all"])] tokens')))
@@ -4542,12 +4500,13 @@
                              (function (_ def)
                                (` ("lux def alias" (~ (local-identifier$ def)) (~ (identifier$ [module-name def]))))))
                           defs')
-           openings (join-map (: (-> Openings (List Code))
-                                 (function (_ [alias structs])
-                                   (list@map (function (_ name)
-                                               (` (open: (~ (text$ alias)) (~ (identifier$ [module-name name])))))
-                                             structs)))
-                              r-opens)]]
+           openings (|> r-opens
+                        (list@map (: (-> Openings (List Code))
+                                     (function (_ [alias structs])
+                                       (list@map (function (_ name)
+                                                   (` (open: (~ (text$ alias)) (~ (identifier$ [module-name name])))))
+                                                 structs))))
+                        list@join)]]
     (wrap (list@compose defs openings))
     ))
 
@@ -4856,7 +4815,8 @@
                    (let [apply (: (-> RepEnv (List Code))
                                   (function (_ env) (list@map (apply-template env) templates)))]
                      (|> data'
-                         (join-map (compose apply (make-env bindings')))
+                         (list@map (compose apply (make-env bindings')))
+                         list@join
                          wrap))
                    #None))))
       (#Some output)
