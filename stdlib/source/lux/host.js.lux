@@ -8,7 +8,8 @@
      ["<c>" code (#+ Parser)]]]
    [data
     ["." product]
-    [text
+    ["." maybe]
+    ["." text
      ["%" format (#+ format)]]
     [collection
      ["." list ("#@." functor)]]]
@@ -64,7 +65,7 @@
                 <c>.local-identifier
                 ..nullable)))
 
-(type: Common-Method [Text (List Nullable) Bit Nullable])
+(type: Common-Method [Text (Maybe Text) (List Nullable) Bit Nullable])
 (type: Static-Method Common-Method)
 (type: Virtual-Method Common-Method)
 
@@ -76,6 +77,7 @@
   (Parser Common-Method)
   ($_ <>.and
       <c>.local-identifier
+      (<>.maybe (<>.after (<c>.this! (' #as)) <c>.local-identifier))
       (<c>.tuple (<>.some ..nullable))
       (<>.parses? (<c>.this! (' #try)))
       ..nullable))
@@ -145,6 +147,15 @@
       ..static-method
       ))
 
+(syntax: #export (try expression)
+  {#.doc (doc (case (try (risky-computation input))
+                (#.Right success)
+                (do-something success)
+
+                (#.Left error)
+                (recover-from-failure error)))}
+  (wrap (list (` ("lux try" ((~! io.io) (~ expression)))))))
+
 (def: (with-try try? without-try)
   (-> Bit Code Code)
   (if try?
@@ -179,8 +190,10 @@
       (with-gensyms [g!object]
         (let [qualify (: (-> Text Code)
                          (|>> (format class "::") code.local-identifier))
-              g!type (code.local-identifier class)]
-          (wrap (list& (` (type: (~ g!type) (..Object (primitive (~ (code.text class))))))
+              g!type (code.local-identifier class)
+              real-class (text.replace-all "/" "." class)]
+          (wrap (list& (` (type: (~ g!type)
+                            (..Object (primitive (~ (code.text real-class))))))
                        (list@map (function (_ member)
                                    (case member
                                      (#Constructor inputsT)
@@ -191,7 +204,7 @@
                                                 (~ g!type))
                                             (:assume
                                              ("js object new"
-                                              ("js constant" (~ (code.text class)))
+                                              ("js constant" (~ (code.text real-class)))
                                               [(~+ (list@map (with-null g!temp) g!inputs))])))))
                                      
                                      (#Field [field fieldT])
@@ -204,12 +217,17 @@
                                      
                                      (#Method method)
                                      (case method
-                                       (#Static [method inputsT try? outputT])
-                                       (make-function (qualify method) g!temp method inputsT try? outputT)
+                                       (#Static [method alias inputsT try? outputT])
+                                       (..make-function (qualify (maybe.default method alias))
+                                                        g!temp
+                                                        (format real-class "." method)
+                                                        inputsT
+                                                        try?
+                                                        outputT)
                                        
-                                       (#Virtual [method inputsT try? outputT])
+                                       (#Virtual [method alias inputsT try? outputT])
                                        (let [g!inputs (input-variables inputsT)]
-                                         (` (def: ((~ (qualify method))
+                                         (` (def: ((~ (qualify (maybe.default method alias)))
                                                    [(~+ (list@map product.right g!inputs))]
                                                    (~ g!object))
                                               (-> [(~+ (list@map nullable-type inputsT))]
@@ -224,8 +242,12 @@
                                                           [(~+ (list@map (with-null g!temp) g!inputs))])))))))))))
                                  members)))))
       
-      (#Function [name inputsT try? outputT])
-      (wrap (list (make-function (code.local-identifier name) g!temp name inputsT try? outputT)))
+      (#Function [name alias inputsT try? outputT])
+      (wrap (list (..make-function (code.local-identifier (maybe.default name alias))
+                                   g!temp
+                                   name
+                                   inputsT
+                                   try? outputT)))
       )))
 
 (syntax: #export (type-of object)
@@ -256,3 +278,17 @@
 
       _
       false)))
+
+(template: (!defined? constant)
+  (case (..type-of ("js constant" constant))
+    "undefined"
+    false
+
+    _
+    true))
+
+(def: #export on-nashorn?
+  Bit
+  (and (!defined? "java")
+       (!defined? "java.lang")
+       (!defined? "java.lang.Object")))

@@ -1,28 +1,88 @@
 (.module:
   [lux #*
-   ["&" host]
-   [math ["r" random]]]
-  lux/test)
+   ["_" test (#+ Test)]
+   [math
+    ["." random (#+ Random)]]
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["." try]]
+   [data
+    ["." text ("#@." equivalence)]
+    [number
+     ["." nat]
+     ["." frac]]]]
+  {1
+   ["." /]})
 
-(context: "JavaScript operations"
-  ($_ seq
-      (test "Null equals itself."
-            (is? (&.null) (&.null)))
+(/.import: Uint8Array)
 
-      (test "Undefined equals itself."
-            (is? (&.undef) (&.undef)))
+## On Nashorn
+(/.import: java/lang/String
+  (new [Uint8Array /.String])
+  (getBytes [/.String] Uint8Array))
 
-      (test "Can reference JavaScript objects."
-            (is? (&.ref "Math") (&.ref "Math")))
+## On Node
+(/.import: Buffer
+  (#static from [/.String /.String] Buffer)
+  (toString [/.String] /.String))
 
-      (test "Can create objects and access their fields."
-            (|> (&.object "foo" "BAR")
-                (&.get "foo" Text)
-                (is? "BAR")))
+## On the browser
+(/.import: TextEncoder
+  (new [/.String])
+  (encode [/.String] Uint8Array))
 
-      (test "Can call JavaScript functions"
-            (and (is? +124.0
-                      (&.call! (&.ref "Math.ceil" &.Function) [+123.45] Frac))
-                 (is? +124.0
-                      (&.call! (&.ref "Math") "ceil" [+123.45] Frac))))
-      ))
+(/.import: TextDecoder
+  (new [/.String])
+  (decode [Uint8Array] /.String))
+
+(def: #export test
+  Test
+  (do {@ random.monad}
+    [boolean random.bit
+     number (:: @ map (|>> (nat.% 100) nat.frac) random.nat)
+     string (random.ascii 5)
+     function (:: @ map (function (_ shift)
+                          (: (-> Nat Nat)
+                             (nat.+ shift)))
+                  random.nat)
+     ## I64s get compiled as JavaScript objects with a specific structure.
+     object random.nat]
+    (<| (_.covering /._)
+        ($_ _.and
+            (_.cover [/.on-browser? /.on-node-js? /.on-nashorn?]
+                     (or /.on-nashorn?
+                         /.on-node-js?
+                         /.on-browser?))
+            (_.cover [/.type-of]
+                     (and (text@= "boolean" (/.type-of boolean))
+                          (text@= "number" (/.type-of number))
+                          (text@= "string" (/.type-of string))
+                          (text@= "function" (/.type-of function))
+                          (text@= "object" (/.type-of object))))
+            (_.cover [/.try]
+                     (case (/.try (error! string))
+                       (#try.Success _)
+                       false
+                       
+                       (#try.Failure error)
+                       (text@= string error)))
+            (_.cover [/.import:]
+                     (let [encoding "utf8"]
+                       (text@= string
+                               (cond /.on-nashorn?
+                                     (let [binary (java/lang/String::getBytes [encoding] (:coerce java/lang/String string))]
+                                       (|> (java/lang/String::new [binary encoding])
+                                           (:coerce Text)))
+                                     
+                                     /.on-node-js?
+                                     (|> (Buffer::from [string encoding])
+                                         (Buffer::toString [encoding]))
+                                     
+                                     ## On the browser
+                                     (let [binary (|> (TextEncoder::new [encoding])
+                                                      (TextEncoder::encode [string]))]
+                                       (|> (TextDecoder::new [encoding])
+                                           (TextDecoder::decode [binary])))
+                                     ))))
+            ))))

@@ -1,6 +1,7 @@
 (.module:
   [lux #*
    ["@" target]
+   ["." host]
    [abstract
     [codec (#+ Codec)]]
    [control
@@ -8,8 +9,7 @@
    [data
     [binary (#+ Binary)]]
    [type
-    abstract]
-   ["." host]])
+    abstract]])
 
 ## https://docs.oracle.com/javase/8/docs/technotes/guides/intl/encoding.doc.html
 
@@ -182,7 +182,14 @@
 
         @.js
         (as-is (host.import: Uint8Array)
-               
+
+               ## On Node
+               (host.import: Buffer
+                 (#static from #as from|encode [host.String host.String] Buffer)
+                 (#static from #as from|decode [Uint8Array] Buffer)
+                 (toString [host.String] host.String))
+
+               ## On the browser
                (host.import: TextEncoder
                  (new [host.String])
                  (encode [host.String] Uint8Array))
@@ -204,8 +211,19 @@
         (java/lang/String::getBytes (..name ..utf-8) value)
 
         @.js
-        (|> (TextEncoder::new [(..name ..utf-8)])
-            (TextEncoder::encode [value]))}))
+        (cond host.on-nashorn?
+              (:coerce Binary ("js object do" "getBytes" value ["utf8"]))
+              
+              host.on-node-js?
+              (|> (Buffer::from|encode [value "utf8"])
+                  ## This coercion is valid as per NodeJS's documentation:
+                  ## https://nodejs.org/api/buffer.html#buffer_buffers_and_typedarrays
+                  (:coerce Uint8Array))
+              
+              ## On the browser
+              (|> (TextEncoder::new [(..name ..utf-8)])
+                  (TextEncoder::encode [value]))
+              )}))
 
 (def: #export (from-utf8 value)
   (-> Binary (Try Text))
@@ -216,8 +234,20 @@
         (#try.Success (java/lang/String::new value (..name ..utf-8)))
 
         @.js
-        (#try.Success (|> (TextDecoder::new [(..name ..utf-8)])
-                          (TextDecoder::decode [value])))}))
+        (cond host.on-nashorn?
+              (|> ("js object new" ("js constant" "java.lang.String") [value "utf8"])
+                  (:coerce Text)
+                  #try.Success)
+
+              host.on-node-js?
+              (|> (Buffer::from|decode [value])
+                  (Buffer::toString ["utf8"])
+                  #try.Success)
+              
+              ## On the browser
+              (|> (TextDecoder::new [(..name ..utf-8)])
+                  (TextDecoder::decode [value])
+                  #try.Success))}))
 
 (structure: #export UTF-8
   (Codec Binary Text)
