@@ -1,6 +1,6 @@
 (.module:
   [lux #*
-   ["." host (#+ import: interface: do-to object)]
+   ["." host (#+ import:)]
    ["." debug]
    [abstract
     [monad (#+ do)]]
@@ -62,186 +62,6 @@
     ["/." cli]
     ["/." static]]])
 
-(import: #long java/lang/String)
-
-(import: #long (java/lang/Class a))
-
-(import: #long java/lang/Object
-  (toString [] java/lang/String)
-  (getClass [] (java/lang/Class java/lang/Object)))
-
-(import: #long java/lang/Long
-  (intValue [] java/lang/Integer))
-
-(import: #long java/lang/Integer
-  (longValue [] long))
-
-(import: #long java/lang/Number
-  (intValue [] java/lang/Integer)
-  (longValue [] long)
-  (doubleValue [] double))
-
-(import: #long java/util/Arrays
-  (#static [t] copyOfRange [[t] int int] [t]))
-
-(import: #long javax/script/ScriptEngine
-  (eval [java/lang/String] #try #? java/lang/Object))
-
-(import: #long javax/script/ScriptEngineFactory
-  (getScriptEngine [] javax/script/ScriptEngine))
-
-(import: #long jdk/nashorn/api/scripting/NashornScriptEngineFactory
-  (new []))
-
-(import: #long jdk/nashorn/api/scripting/JSObject
-  (isArray [] boolean)
-  (isFunction [] boolean)
-  (getSlot [int] #? java/lang/Object)
-  (getMember [java/lang/String] #? java/lang/Object)
-  (hasMember [java/lang/String] boolean)
-  (call [#? java/lang/Object [java/lang/Object]] #try java/lang/Object))
-
-(import: #long jdk/nashorn/api/scripting/AbstractJSObject)
-
-(import: #long jdk/nashorn/api/scripting/ScriptObjectMirror
-  (size [] int)
-  (toString [] java/lang/String))
-
-(import: #long jdk/nashorn/internal/runtime/Undefined)
-
-(template [<name>]
-  [(interface: <name>
-     (getValue [] java/lang/Object))
-
-   (`` (import: (~~ (template.identifier ["program/" <name>]))
-         (getValue [] java/lang/Object)))]
-
-  [IntValue]
-  [StructureValue]
-  )
-
-(exception: (unknown-member {member Text}
-                            {object java/lang/Object})
-  (exception.report
-   ["Member" member]
-   ["Object" (debug.inspect object)]))
-
-(def: jvm-int
-  (-> (I64 Any) java/lang/Integer)
-  (|>> (:coerce java/lang/Long) java/lang/Long::intValue))
-
-(def: (js-int value)
-  (-> Int jdk/nashorn/api/scripting/JSObject)
-  (object [] jdk/nashorn/api/scripting/AbstractJSObject [program/IntValue]
-    []
-    ## Methods
-    (program/IntValue
-     [] (getValue self) java/lang/Object
-     (:coerce java/lang/Object value))
-    (jdk/nashorn/api/scripting/AbstractJSObject
-     [] (getMember self {member java/lang/String}) java/lang/Object
-     (case member
-       (^ (static runtime.i64-high-field))
-       (|> value .nat runtime.high jvm-int)
-
-       (^ (static runtime.i64-low-field))
-       (|> value .nat runtime.low jvm-int)
-
-       _
-       (error! (exception.construct ..unknown-member [member (:coerce java/lang/Object value)]))))
-    ))
-
-(def: (::toString js-object)
-  (-> Any jdk/nashorn/api/scripting/JSObject)
-  (object [] jdk/nashorn/api/scripting/AbstractJSObject []
-    []
-    (jdk/nashorn/api/scripting/AbstractJSObject
-     [] (isFunction self) boolean
-     #1)
-    (jdk/nashorn/api/scripting/AbstractJSObject
-     [] (call self {this java/lang/Object} {args [java/lang/Object]}) java/lang/Object
-     (debug.inspect js-object))
-    ))
-
-(def: (::slice js-object value)
-  (-> (-> java/lang/Object jdk/nashorn/api/scripting/JSObject) (Array java/lang/Object) jdk/nashorn/api/scripting/JSObject)
-  (object [] jdk/nashorn/api/scripting/AbstractJSObject []
-    []
-    (jdk/nashorn/api/scripting/AbstractJSObject
-     [] (isFunction self) boolean
-     #1)
-    (jdk/nashorn/api/scripting/AbstractJSObject
-     [] (call self {this java/lang/Object} {args [java/lang/Object]}) java/lang/Object
-     (|> (java/util/Arrays::copyOfRange value
-                                        (|> args (array.read 0) maybe.assume (:coerce Int))
-                                        (.int (array.size value)))
-         js-object
-         (:coerce java/lang/Object)))
-    ))
-
-(def: (js-structure value)
-  (-> (Array java/lang/Object) jdk/nashorn/api/scripting/JSObject)
-  (let [js-object (: (-> java/lang/Object jdk/nashorn/api/scripting/JSObject)
-                     (function (_ sub-value)
-                       (<| (case (host.check [java/lang/Object] sub-value)
-                             (#.Some sub-value)
-                             (|> sub-value (:coerce (Array java/lang/Object)) js-structure)
-                             #.None)
-                           (case (host.check java/lang/Long sub-value)
-                             (#.Some sub-value)
-                             (|> sub-value (:coerce Int) js-int)
-                             #.None)
-                           ## else
-                           (:coerce jdk/nashorn/api/scripting/JSObject sub-value))))]
-    (object [] jdk/nashorn/api/scripting/AbstractJSObject [program/StructureValue]
-      []
-      ## Methods
-      (program/StructureValue
-       [] (getValue self) java/lang/Object
-       (:coerce (Array java/lang/Object) value))
-      (jdk/nashorn/api/scripting/AbstractJSObject
-       [] (isArray self) boolean
-       #1)
-      (jdk/nashorn/api/scripting/AbstractJSObject
-       [] (getMember self {member java/lang/String}) java/lang/Object
-       (case member
-         (^or "toJSON" "toString")
-         (:coerce java/lang/Object
-                  (::toString value))
-         
-         "length"
-         (jvm-int (array.size value))
-         
-         "slice"
-         (:coerce java/lang/Object
-                  (::slice js-object value))
-
-         (^ (static runtime.variant-tag-field))
-         (|> value (array.read 0) maybe.assume)
-         
-         (^ (static runtime.variant-flag-field))
-         (case (array.read 1 value)
-           (#.Some set!)
-           set!
-
-           _
-           (host.null))
-         
-         (^ (static runtime.variant-value-field))
-         (|> value (array.read 2) maybe.assume js-object (:coerce java/lang/Object))
-         
-         _
-         (error! (exception.construct ..unknown-member [(:coerce Text member) (:coerce java/lang/Object value)])))
-       )
-      (jdk/nashorn/api/scripting/AbstractJSObject
-       [] (getSlot self {idx int}) java/lang/Object
-       (|> value
-           (array.read (|> idx java/lang/Integer::longValue (:coerce Nat)))
-           maybe.assume
-           js-object
-           (:coerce java/lang/Object)))
-      )))
-
 (exception: (null-has-no-lux-representation {code (Maybe _.Expression)})
   (case code
     (#.Some code)
@@ -250,219 +70,465 @@
     #.None
     "???"))
 
-(exception: undefined-has-no-lux-representation)
+(for {@.old
+      (as-is (import: #long java/lang/String)
 
-(exception: (unknown-kind-of-host-object {object java/lang/Object})
-  (exception.report
-   ["Class" (java/lang/Object::toString (java/lang/Object::getClass object))]
-   ["Object" (java/lang/Object::toString object)]))
+             (import: #long (java/lang/Class a))
 
-(exception: (cannot-apply-a-non-function {object java/lang/Object})
-  (exception.report
-   ["Object" (java/lang/Object::toString object)]))
+             (import: #long java/lang/Object
+               (toString [] java/lang/String)
+               (getClass [] (java/lang/Class java/lang/Object)))
 
-(def: (check-int js-object)
-  (-> jdk/nashorn/api/scripting/ScriptObjectMirror
-      (Maybe Int))
-  (case [(jdk/nashorn/api/scripting/JSObject::getMember [runtime.i64-high-field] js-object)
-         (jdk/nashorn/api/scripting/JSObject::getMember [runtime.i64-low-field] js-object)]
-    (^multi [(#.Some high) (#.Some low)]
-            [[(host.check java/lang/Number high)
-              (host.check java/lang/Number low)]
-             [(#.Some high) (#.Some low)]]
-            [[(java/lang/Number::longValue high)
-              (java/lang/Number::longValue low)]
-             [high low]])
-    (#.Some (.int (n.+ (|> high .nat (i64.left-shift 32))
-                       (if (i.< +0 (.int low))
-                         (|> low .nat (i64.left-shift 32) (i64.logic-right-shift 32))
-                         (.nat low)))))
+             (import: #long java/lang/Long
+               (intValue [] java/lang/Integer))
 
-    _
-    #.None))
+             (import: #long java/lang/Integer
+               (longValue [] long))
 
-(def: (check-variant lux-object js-object)
-  (-> (-> java/lang/Object (Try Any))
-      jdk/nashorn/api/scripting/ScriptObjectMirror
-      (Maybe Any))
-  (case [(jdk/nashorn/api/scripting/JSObject::getMember [runtime.variant-tag-field] js-object)
-         (jdk/nashorn/api/scripting/JSObject::getMember [runtime.variant-flag-field] js-object)
-         (jdk/nashorn/api/scripting/JSObject::getMember [runtime.variant-value-field] js-object)]
-    (^multi [(#.Some tag) ?flag (#.Some value)]
-            [(host.check java/lang/Number tag)
-             (#.Some tag)]
-            [(lux-object value)
-             (#.Some value)])
-    (#.Some [(java/lang/Number::intValue tag)
-             (maybe.default (host.null) ?flag)
-             value])
+             (import: #long java/lang/Number
+               (intValue [] java/lang/Integer)
+               (longValue [] long)
+               (doubleValue [] double))
 
-    _
-    #.None))
+             (import: #long java/util/Arrays
+               (#static [t] copyOfRange [[t] int int] [t]))
 
-(def: (check-array lux-object js-object)
-  (-> (-> java/lang/Object (Try Any))
-      jdk/nashorn/api/scripting/ScriptObjectMirror
-      (Maybe (Array java/lang/Object)))
-  (if (jdk/nashorn/api/scripting/JSObject::isArray js-object)
-    (let [num-keys (.nat (jdk/nashorn/api/scripting/ScriptObjectMirror::size js-object))]
-      (loop [idx 0
-             output (: (Array java/lang/Object)
-                       (array.new num-keys))]
-        (if (n.< num-keys idx)
-          (case (jdk/nashorn/api/scripting/JSObject::getMember (%.nat idx) js-object)
-            (#.Some member)
-            (case (host.check jdk/nashorn/internal/runtime/Undefined member)
-              (#.Some _)
-              (recur (inc idx) output)
+             (import: #long javax/script/ScriptEngine
+               (eval [java/lang/String] #try #? java/lang/Object))
 
-              #.None
-              (case (lux-object member)
-                (#try.Success parsed-member)
-                (recur (inc idx) (array.write idx (:coerce java/lang/Object parsed-member) output))
+             (import: #long javax/script/ScriptEngineFactory
+               (getScriptEngine [] javax/script/ScriptEngine))
 
-                (#try.Failure error)
-                #.None))
+             (import: #long jdk/nashorn/api/scripting/NashornScriptEngineFactory
+               (new []))
 
-            #.None
-            (recur (inc idx) output))
-          (#.Some output))))
-    #.None))
+             (import: #long jdk/nashorn/api/scripting/JSObject
+               (isArray [] boolean)
+               (isFunction [] boolean)
+               (getSlot [int] #? java/lang/Object)
+               (getMember [java/lang/String] #? java/lang/Object)
+               (hasMember [java/lang/String] boolean)
+               (call [#? java/lang/Object [java/lang/Object]] #try java/lang/Object))
 
-(def: (lux-object js-object)
-  (-> java/lang/Object (Try Any))
-  (`` (<| (if (host.null? js-object)
-            (exception.throw ..null-has-no-lux-representation [#.None]))
-          (case (host.check jdk/nashorn/internal/runtime/Undefined js-object)
-            (#.Some _)
-            (exception.throw ..undefined-has-no-lux-representation [])
-            #.None)
-          (~~ (template [<class>]
-                [(case (host.check <class> js-object)
-                   (#.Some js-object)
-                   (exception.return js-object)
-                   #.None)]
+             (import: #long jdk/nashorn/api/scripting/AbstractJSObject)
 
-                [java/lang/Boolean] [java/lang/String]))
-          (~~ (template [<class> <method>]
-                [(case (host.check <class> js-object)
-                   (#.Some js-object)
-                   (exception.return (<method> js-object))
-                   #.None)]
+             (import: #long jdk/nashorn/api/scripting/ScriptObjectMirror
+               (size [] int)
+               (toString [] java/lang/String))
 
-                [java/lang/Number java/lang/Number::doubleValue]
-                [StructureValue StructureValue::getValue]
-                [IntValue IntValue::getValue]))
-          (case (host.check jdk/nashorn/api/scripting/ScriptObjectMirror js-object)
-            (#.Some js-object)
-            (case (check-int js-object)
-              (#.Some value)
-              (exception.return value)
+             (import: #long jdk/nashorn/internal/runtime/Undefined)
 
-              #.None
-              (case (check-variant lux-object js-object)
-                (#.Some value)
-                (exception.return value)
+             (template [<name>]
+               [(host.interface: <name>
+                  (getValue [] java/lang/Object))
 
-                #.None
-                (case (check-array lux-object js-object)
-                  (#.Some value)
-                  (exception.return value)
+                (`` (import: (~~ (template.identifier ["program/" <name>]))
+                      (getValue [] java/lang/Object)))]
 
-                  #.None
-                  (if (jdk/nashorn/api/scripting/JSObject::isFunction js-object)
-                    (exception.return js-object)
-                    (exception.throw ..unknown-kind-of-host-object (:coerce java/lang/Object js-object))))))
-            #.None)
-          ## else
-          (exception.throw ..unknown-kind-of-host-object (:coerce java/lang/Object js-object))
-          )))
+               [IntValue]
+               [StructureValue]
+               )
 
-(def: (ensure-macro macro)
-  (-> Macro (Maybe jdk/nashorn/api/scripting/JSObject))
-  (let [macro (:coerce java/lang/Object macro)]
-    (do maybe.monad
-      [macro (host.check jdk/nashorn/api/scripting/JSObject macro)]
-      (if (jdk/nashorn/api/scripting/JSObject::isFunction macro)
-        (#.Some macro)
-        #.None))))
+             (exception: (unknown-member {member Text}
+                                         {object java/lang/Object})
+               (exception.report
+                ["Member" member]
+                ["Object" (debug.inspect object)]))
 
-(def: (call-macro inputs lux macro)
-  (-> (List Code) Lux jdk/nashorn/api/scripting/JSObject (Try (Try [Lux (List Code)])))
-  (let [to-js (: (-> Any java/lang/Object)
-                 (|>> (:coerce (Array java/lang/Object)) js-structure (:coerce java/lang/Object)))]
-    (<| (:coerce (Try (Try [Lux (List Code)])))
-        (jdk/nashorn/api/scripting/JSObject::call #.None
-                                                  (|> (array.new 2)
-                                                      (: (Array java/lang/Object))
-                                                      (array.write 0 (to-js inputs))
-                                                      (array.write 1 (to-js lux)))
-                                                  macro))))
+             (def: jvm-int
+               (-> (I64 Any) java/lang/Integer)
+               (|>> (:coerce java/lang/Long) java/lang/Long::intValue))
 
-(def: (expander macro inputs lux)
-  Expander
-  (case (..ensure-macro macro)
-    (#.Some macro)
-    (case (call-macro inputs lux macro)
-      (#try.Success output)
-      (|> output
-          (:coerce java/lang/Object)
-          lux-object
-          (:coerce (Try (Try [Lux (List Code)]))))
+             (def: (js-int value)
+               (-> Int jdk/nashorn/api/scripting/JSObject)
+               (host.object [] jdk/nashorn/api/scripting/AbstractJSObject [program/IntValue]
+                 []
+                 ## Methods
+                 (program/IntValue
+                  [] (getValue self) java/lang/Object
+                  (:coerce java/lang/Object value))
+                 (jdk/nashorn/api/scripting/AbstractJSObject
+                  [] (getMember self {member java/lang/String}) java/lang/Object
+                  (case member
+                    (^ (static runtime.i64-high-field))
+                    (|> value .nat runtime.high jvm-int)
 
-      (#try.Failure error)
-      (#try.Failure error))
-    
-    #.None
-    (exception.throw ..cannot-apply-a-non-function (:coerce java/lang/Object macro))))
+                    (^ (static runtime.i64-low-field))
+                    (|> value .nat runtime.low jvm-int)
 
-(def: (evaluate! interpreter alias input)
-  (-> javax/script/ScriptEngine Text _.Expression (Try Any))
-  (do try.monad
-    [?output (javax/script/ScriptEngine::eval (_.code input) interpreter)]
-    (case ?output
-      (#.Some output)
-      (..lux-object output)
+                    _
+                    (error! (exception.construct ..unknown-member [member (:coerce java/lang/Object value)]))))
+                 ))
 
-      #.None
-      (exception.throw ..null-has-no-lux-representation [(#.Some input)]))))
+             (def: (::toString js-object)
+               (-> Any jdk/nashorn/api/scripting/JSObject)
+               (host.object [] jdk/nashorn/api/scripting/AbstractJSObject []
+                 []
+                 (jdk/nashorn/api/scripting/AbstractJSObject
+                  [] (isFunction self) boolean
+                  #1)
+                 (jdk/nashorn/api/scripting/AbstractJSObject
+                  [] (call self {this java/lang/Object} {args [java/lang/Object]}) java/lang/Object
+                  (debug.inspect js-object))
+                 ))
 
-(def: (execute! interpreter alias input)
-  (-> javax/script/ScriptEngine Text _.Statement (Try Any))
-  (do try.monad
-    [?output (javax/script/ScriptEngine::eval (_.code input) interpreter)]
-    (wrap [])))
+             (def: (::slice js-object value)
+               (-> (-> java/lang/Object jdk/nashorn/api/scripting/JSObject) (Array java/lang/Object) jdk/nashorn/api/scripting/JSObject)
+               (host.object [] jdk/nashorn/api/scripting/AbstractJSObject []
+                 []
+                 (jdk/nashorn/api/scripting/AbstractJSObject
+                  [] (isFunction self) boolean
+                  #1)
+                 (jdk/nashorn/api/scripting/AbstractJSObject
+                  [] (call self {this java/lang/Object} {args [java/lang/Object]}) java/lang/Object
+                  (|> (java/util/Arrays::copyOfRange value
+                                                     (|> args (array.read 0) maybe.assume (:coerce Int))
+                                                     (.int (array.size value)))
+                      js-object
+                      (:coerce java/lang/Object)))
+                 ))
 
-(def: (define! interpreter context input)
-  (-> javax/script/ScriptEngine Context _.Expression (Try [Text Any _.Statement]))
-  (let [global (reference.artifact context)
-        @global (_.var global)]
-    (do try.monad
-      [#let [definition (_.define @global input)]
-       _ (execute! interpreter global definition)
-       value (evaluate! interpreter global @global)]
-      (wrap [global value definition]))))
+             (def: (js-structure value)
+               (-> (Array java/lang/Object) jdk/nashorn/api/scripting/JSObject)
+               (let [js-object (: (-> java/lang/Object jdk/nashorn/api/scripting/JSObject)
+                                  (function (_ sub-value)
+                                    (<| (case (host.check [java/lang/Object] sub-value)
+                                          (#.Some sub-value)
+                                          (|> sub-value (:coerce (Array java/lang/Object)) js-structure)
+                                          #.None)
+                                        (case (host.check java/lang/Long sub-value)
+                                          (#.Some sub-value)
+                                          (|> sub-value (:coerce Int) js-int)
+                                          #.None)
+                                        ## else
+                                        (:coerce jdk/nashorn/api/scripting/JSObject sub-value))))]
+                 (host.object [] jdk/nashorn/api/scripting/AbstractJSObject [program/StructureValue]
+                   []
+                   ## Methods
+                   (program/StructureValue
+                    [] (getValue self) java/lang/Object
+                    (:coerce (Array java/lang/Object) value))
+                   (jdk/nashorn/api/scripting/AbstractJSObject
+                    [] (isArray self) boolean
+                    #1)
+                   (jdk/nashorn/api/scripting/AbstractJSObject
+                    [] (getMember self {member java/lang/String}) java/lang/Object
+                    (case member
+                      (^or "toJSON" "toString")
+                      (:coerce java/lang/Object
+                               (::toString value))
+                      
+                      "length"
+                      (jvm-int (array.size value))
+                      
+                      "slice"
+                      (:coerce java/lang/Object
+                               (::slice js-object value))
 
-(def: host
-  (IO (Host _.Expression _.Statement))
-  (io (let [interpreter (javax/script/ScriptEngineFactory::getScriptEngine
-                         (jdk/nashorn/api/scripting/NashornScriptEngineFactory::new))]
-        (: (Host _.Expression _.Statement)
-           (structure
-            (def: evaluate! (..evaluate! interpreter))
-            (def: execute! (..execute! interpreter))
-            (def: define! (..define! interpreter))
+                      (^ (static runtime.variant-tag-field))
+                      (|> value (array.read 0) maybe.assume)
+                      
+                      (^ (static runtime.variant-flag-field))
+                      (case (array.read 1 value)
+                        (#.Some set!)
+                        set!
 
-            (def: (ingest context content)
-              (|> content encoding.from-utf8 try.assume (:coerce _.Statement)))
+                        _
+                        (host.null))
+                      
+                      (^ (static runtime.variant-value-field))
+                      (|> value (array.read 2) maybe.assume js-object (:coerce java/lang/Object))
+                      
+                      _
+                      (error! (exception.construct ..unknown-member [(:coerce Text member) (:coerce java/lang/Object value)])))
+                    )
+                   (jdk/nashorn/api/scripting/AbstractJSObject
+                    [] (getSlot self {idx int}) java/lang/Object
+                    (|> value
+                        (array.read (|> idx java/lang/Integer::longValue (:coerce Nat)))
+                        maybe.assume
+                        js-object
+                        (:coerce java/lang/Object)))
+                   )))
 
-            (def: (re-learn context content)
-              (..execute! interpreter (reference.artifact context) content))
-            
-            (def: (re-load context content)
-              (do try.monad
-                [_ (..execute! interpreter "" content)]
-                (..evaluate! interpreter "" (_.var (reference.artifact context))))))))))
+             (exception: undefined-has-no-lux-representation)
+
+             (exception: (unknown-kind-of-host-object {object java/lang/Object})
+               (exception.report
+                ["Class" (java/lang/Object::toString (java/lang/Object::getClass object))]
+                ["Object" (java/lang/Object::toString object)]))
+
+             (def: (check-int js-object)
+               (-> jdk/nashorn/api/scripting/ScriptObjectMirror
+                   (Maybe Int))
+               (case [(jdk/nashorn/api/scripting/JSObject::getMember [runtime.i64-high-field] js-object)
+                      (jdk/nashorn/api/scripting/JSObject::getMember [runtime.i64-low-field] js-object)]
+                 (^multi [(#.Some high) (#.Some low)]
+                         [[(host.check java/lang/Number high)
+                           (host.check java/lang/Number low)]
+                          [(#.Some high) (#.Some low)]]
+                         [[(java/lang/Number::longValue high)
+                           (java/lang/Number::longValue low)]
+                          [high low]])
+                 (#.Some (.int (n.+ (|> high .nat (i64.left-shift 32))
+                                    (if (i.< +0 (.int low))
+                                      (|> low .nat (i64.left-shift 32) (i64.logic-right-shift 32))
+                                      (.nat low)))))
+
+                 _
+                 #.None))
+
+             (def: (check-variant lux-object js-object)
+               (-> (-> java/lang/Object (Try Any))
+                   jdk/nashorn/api/scripting/ScriptObjectMirror
+                   (Maybe Any))
+               (case [(jdk/nashorn/api/scripting/JSObject::getMember [runtime.variant-tag-field] js-object)
+                      (jdk/nashorn/api/scripting/JSObject::getMember [runtime.variant-flag-field] js-object)
+                      (jdk/nashorn/api/scripting/JSObject::getMember [runtime.variant-value-field] js-object)]
+                 (^multi [(#.Some tag) ?flag (#.Some value)]
+                         [(host.check java/lang/Number tag)
+                          (#.Some tag)]
+                         [(lux-object value)
+                          (#.Some value)])
+                 (#.Some [(java/lang/Number::intValue tag)
+                          (maybe.default (host.null) ?flag)
+                          value])
+
+                 _
+                 #.None))
+
+             (def: (check-array lux-object js-object)
+               (-> (-> java/lang/Object (Try Any))
+                   jdk/nashorn/api/scripting/ScriptObjectMirror
+                   (Maybe (Array java/lang/Object)))
+               (if (jdk/nashorn/api/scripting/JSObject::isArray js-object)
+                 (let [num-keys (.nat (jdk/nashorn/api/scripting/ScriptObjectMirror::size js-object))]
+                   (loop [idx 0
+                          output (: (Array java/lang/Object)
+                                    (array.new num-keys))]
+                     (if (n.< num-keys idx)
+                       (case (jdk/nashorn/api/scripting/JSObject::getMember (%.nat idx) js-object)
+                         (#.Some member)
+                         (case (host.check jdk/nashorn/internal/runtime/Undefined member)
+                           (#.Some _)
+                           (recur (inc idx) output)
+
+                           #.None
+                           (case (lux-object member)
+                             (#try.Success parsed-member)
+                             (recur (inc idx) (array.write idx (:coerce java/lang/Object parsed-member) output))
+
+                             (#try.Failure error)
+                             #.None))
+
+                         #.None
+                         (recur (inc idx) output))
+                       (#.Some output))))
+                 #.None))
+
+             (def: (lux-object js-object)
+               (-> java/lang/Object (Try Any))
+               (`` (<| (if (host.null? js-object)
+                         (exception.throw ..null-has-no-lux-representation [#.None]))
+                       (case (host.check jdk/nashorn/internal/runtime/Undefined js-object)
+                         (#.Some _)
+                         (exception.throw ..undefined-has-no-lux-representation [])
+                         #.None)
+                       (~~ (template [<class>]
+                             [(case (host.check <class> js-object)
+                                (#.Some js-object)
+                                (exception.return js-object)
+                                #.None)]
+
+                             [java/lang/Boolean] [java/lang/String]))
+                       (~~ (template [<class> <method>]
+                             [(case (host.check <class> js-object)
+                                (#.Some js-object)
+                                (exception.return (<method> js-object))
+                                #.None)]
+
+                             [java/lang/Number java/lang/Number::doubleValue]
+                             [StructureValue StructureValue::getValue]
+                             [IntValue IntValue::getValue]))
+                       (case (host.check jdk/nashorn/api/scripting/ScriptObjectMirror js-object)
+                         (#.Some js-object)
+                         (case (check-int js-object)
+                           (#.Some value)
+                           (exception.return value)
+
+                           #.None
+                           (case (check-variant lux-object js-object)
+                             (#.Some value)
+                             (exception.return value)
+
+                             #.None
+                             (case (check-array lux-object js-object)
+                               (#.Some value)
+                               (exception.return value)
+
+                               #.None
+                               (if (jdk/nashorn/api/scripting/JSObject::isFunction js-object)
+                                 (exception.return js-object)
+                                 (exception.throw ..unknown-kind-of-host-object (:coerce java/lang/Object js-object))))))
+                         #.None)
+                       ## else
+                       (exception.throw ..unknown-kind-of-host-object (:coerce java/lang/Object js-object))
+                       )))
+
+             (def: (ensure-function function)
+               (-> Any (Maybe jdk/nashorn/api/scripting/JSObject))
+               (do maybe.monad
+                 [function (|> function
+                               (:coerce java/lang/Object)
+                               (host.check jdk/nashorn/api/scripting/JSObject))]
+                 (if (jdk/nashorn/api/scripting/JSObject::isFunction function)
+                   (#.Some function)
+                   #.None)))
+             )
+
+      @.js
+      (as-is)})
+
+(for {@.old
+      (as-is (def: (call-macro inputs lux macro)
+               (-> (List Code) Lux jdk/nashorn/api/scripting/JSObject (Try (Try [Lux (List Code)])))
+               (let [to-js (: (-> Any java/lang/Object)
+                              (|>> (:coerce (Array java/lang/Object)) js-structure (:coerce java/lang/Object)))]
+                 (<| (:coerce (Try (Try [Lux (List Code)])))
+                     (jdk/nashorn/api/scripting/JSObject::call #.None
+                                                               (|> (array.new 2)
+                                                                   (: (Array java/lang/Object))
+                                                                   (array.write 0 (to-js inputs))
+                                                                   (array.write 1 (to-js lux)))
+                                                               macro))))
+
+             (exception: (cannot-apply-a-non-function {object java/lang/Object})
+               (exception.report
+                ["Object" (java/lang/Object::toString object)]))
+
+             (def: (expander macro inputs lux)
+               Expander
+               (case (..ensure-function macro)
+                 (#.Some macro)
+                 (case (call-macro inputs lux macro)
+                   (#try.Success output)
+                   (|> output
+                       (:coerce java/lang/Object)
+                       lux-object
+                       (:coerce (Try (Try [Lux (List Code)]))))
+
+                   (#try.Failure error)
+                   (#try.Failure error))
+                 
+                 #.None
+                 (exception.throw ..cannot-apply-a-non-function (:coerce java/lang/Object macro))))
+             )
+
+      @.js
+      (def: (expander macro inputs lux)
+        Expander
+        (#try.Success ((:coerce Macro' macro) inputs lux)))
+      })
+
+(for {@.old
+      (as-is (def: (evaluate! interpreter alias input)
+               (-> javax/script/ScriptEngine Text _.Expression (Try Any))
+               (do try.monad
+                 [?output (javax/script/ScriptEngine::eval (_.code input) interpreter)]
+                 (case ?output
+                   (#.Some output)
+                   (..lux-object output)
+
+                   #.None
+                   (exception.throw ..null-has-no-lux-representation [(#.Some input)]))))
+
+             (def: (execute! interpreter alias input)
+               (-> javax/script/ScriptEngine Text _.Statement (Try Any))
+               (do try.monad
+                 [?output (javax/script/ScriptEngine::eval (_.code input) interpreter)]
+                 (wrap [])))
+
+             (def: (define! interpreter context input)
+               (-> javax/script/ScriptEngine Context _.Expression (Try [Text Any _.Statement]))
+               (let [global (reference.artifact context)
+                     @global (_.var global)]
+                 (do try.monad
+                   [#let [definition (_.define @global input)]
+                    _ (execute! interpreter global definition)
+                    value (evaluate! interpreter global @global)]
+                   (wrap [global value definition]))))
+
+             (def: host
+               (IO (Host _.Expression _.Statement))
+               (io (let [interpreter (javax/script/ScriptEngineFactory::getScriptEngine
+                                      (jdk/nashorn/api/scripting/NashornScriptEngineFactory::new))]
+                     (: (Host _.Expression _.Statement)
+                        (structure
+                         (def: evaluate! (..evaluate! interpreter))
+                         (def: execute! (..execute! interpreter))
+                         (def: define! (..define! interpreter))
+
+                         (def: (ingest context content)
+                           (|> content encoding.from-utf8 try.assume (:coerce _.Statement)))
+
+                         (def: (re-learn context content)
+                           (..execute! interpreter (reference.artifact context) content))
+                         
+                         (def: (re-load context content)
+                           (do try.monad
+                             [_ (..execute! interpreter "" content)]
+                             (..evaluate! interpreter "" (_.var (reference.artifact context))))))))))
+             )
+
+      @.js
+      (as-is (import: (eval [Text] #? Any))
+
+             (def: (evaluate! alias input)
+               (-> Text _.Expression (Try Any))
+               (do try.monad
+                 [?output (host.try (..eval (_.code input)))]
+                 (case ?output
+                   (#.Some output)
+                   (wrap output)
+
+                   #.None
+                   (exception.throw ..null-has-no-lux-representation [(#.Some input)]))))
+
+             (def: (execute! alias input)
+               (-> Text _.Statement (Try Any))
+               (do try.monad
+                 [?output (host.try (..eval (_.code input)))]
+                 (wrap [])))
+
+             (def: (define! context input)
+               (-> Context _.Expression (Try [Text Any _.Statement]))
+               (let [global (reference.artifact context)
+                     @global (_.var global)]
+                 (do try.monad
+                   [#let [definition (_.define @global input)]
+                    _ (..execute! global definition)
+                    value (..evaluate! global @global)]
+                   (wrap [global value definition]))))
+
+             (def: host
+               (IO (Host _.Expression _.Statement))
+               (io (: (Host _.Expression _.Statement)
+                      (structure
+                       (def: evaluate! ..evaluate!)
+                       (def: execute! ..execute!)
+                       (def: define! ..define!)
+
+                       (def: (ingest context content)
+                         (|> content encoding.from-utf8 try.assume (:coerce _.Statement)))
+
+                       (def: (re-learn context content)
+                         (..execute! (reference.artifact context) content))
+                       
+                       (def: (re-load context content)
+                         (do try.monad
+                           [_ (..execute! "" content)]
+                           (..evaluate! "" (_.var (reference.artifact context)))))))))
+             )})
 
 (def: platform
   (IO (Platform [Register Text] _.Expression _.Statement))
@@ -477,41 +543,49 @@
 (def: (program namer context program)
   (-> (-> Context Text) (Program _.Expression _.Statement))
   (let [@process (_.var "process")
-        raw-inputs (_.? (|> (|> @process _.type-of (_.= (_.string "undefined")) _.not)
-                            (_.and (|> @process (_.the "argv"))))
-                        (|> @process (_.the "argv"))
-                        (_.array (list)))]
-    (_.statement (_.apply/1 (_.apply/1 program (runtime.lux//program-args raw-inputs))
+        on-node-js? (|> (|> @process _.type-of (_.= (_.string "undefined")) _.not)
+                        (_.and (|> @process (_.the "argv"))))
+        node-js-inputs (|> @process (_.the "argv") (_.do "slice" (list (_.int +2))))
+        no-inputs (_.array (list))]
+    (_.statement (_.apply/1 (_.apply/1 program (runtime.lux//program-args (_.? on-node-js?
+                                                                               node-js-inputs
+                                                                               no-inputs)))
                             (_.string "")))))
 
-(def: extender
-  Extender
-  ## TODO: Stop relying on coercions ASAP.
-  (<| (:coerce Extender)
-      (function (@self handler))
-      (:coerce Handler)
-      (function (@self name phase))
-      (:coerce Phase)
-      (function (@self archive parameters))
-      (:coerce Operation)
-      (function (@self state))
-      (:coerce Try)
-      try.assume
-      (:coerce Try)
-      (do try.monad
-        [handler (try.from-maybe (..ensure-macro (:coerce Macro handler)))
-         #let [to-js (: (-> Any java/lang/Object)
-                        (|>> (:coerce (Array java/lang/Object)) js-structure (:coerce java/lang/Object)))]
-         output (jdk/nashorn/api/scripting/JSObject::call #.None
-                                                          (|> (array.new 5)
-                                                              (: (Array java/lang/Object))
-                                                              (array.write 0 name)
-                                                              (array.write 1 (to-js phase))
-                                                              (array.write 2 (to-js archive))
-                                                              (array.write 3 (to-js parameters))
-                                                              (array.write 4 (to-js state)))
-                                                          (:coerce jdk/nashorn/api/scripting/JSObject handler))]
-        (lux-object (:coerce java/lang/Object output)))))
+(for {@.old
+      (def: extender
+        Extender
+        ## TODO: Stop relying on coercions ASAP.
+        (<| (:coerce Extender)
+            (function (@self handler))
+            (:coerce Handler)
+            (function (@self name phase))
+            (:coerce Phase)
+            (function (@self archive parameters))
+            (:coerce Operation)
+            (function (@self state))
+            (:coerce Try)
+            try.assume
+            (:coerce Try)
+            (do try.monad
+              [handler (try.from-maybe (..ensure-function handler))
+               #let [to-js (: (-> Any java/lang/Object)
+                              (|>> (:coerce (Array java/lang/Object)) js-structure (:coerce java/lang/Object)))]
+               output (jdk/nashorn/api/scripting/JSObject::call #.None
+                                                                (|> (array.new 5)
+                                                                    (: (Array java/lang/Object))
+                                                                    (array.write 0 name)
+                                                                    (array.write 1 (to-js phase))
+                                                                    (array.write 2 (to-js archive))
+                                                                    (array.write 3 (to-js parameters))
+                                                                    (array.write 4 (to-js state)))
+                                                                handler)]
+              (lux-object (:coerce java/lang/Object output)))))
+
+      @.js
+      (def: (extender handler)
+        Extender
+        (:assume handler))})
 
 (def: (declare-success! _)
   (-> Any (Promise Any))
