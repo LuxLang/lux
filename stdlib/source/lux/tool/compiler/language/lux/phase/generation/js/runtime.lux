@@ -10,7 +10,7 @@
     ["." product]
     [number (#+ hex)
      ["." i64]]
-    ["." text
+    ["." text ("#@." hash)
      ["%" format (#+ format)]
      ["." encoding]]
     [collection
@@ -20,7 +20,12 @@
     ["." code]
     [syntax (#+ syntax:)]]
    [target
-    ["_" js (#+ Expression Var Computation Statement)]]]
+    ["_" js (#+ Expression Var Computation Statement)]]
+   [tool
+    [compiler
+     [language
+      [lux
+       ["$" version]]]]]]
   ["." /// #_
    ["#." reference]
    ["//#" /// #_
@@ -32,8 +37,7 @@
       [variable (#+ Register)]]
      [meta
       [archive (#+ Archive)
-       ["." artifact (#+ Registry)]]]]]]
-  )
+       ["." artifact (#+ Registry)]]]]]])
 
 (template [<name> <base>]
   [(type: #export <name>
@@ -117,41 +121,57 @@
                                  list.concat))]
                      (~ body)))))))
 
+(def: (runtime-name name)
+  (-> Text [Code Code])
+  (let [identifier (format ..prefix
+                           "_" (%.nat $.version)
+                           "_" (%.nat (text@hash name)))]
+    [(` (_.var (~ (code.text identifier))))
+     (code.local-identifier identifier)]))
+
 (syntax: (runtime: {declaration (p.or s.local-identifier
                                       (s.form (p.and s.local-identifier
                                                      (p.some s.local-identifier))))}
            code)
-  (do macro.monad
-    [id macro.count
-     #let [identifier (format ..prefix (%.nat id))
-           runtime-nameC (` (_.var (~ (code.text identifier))))]]
-    (case declaration
-      (#.Left name)
-      (macro.with-gensyms [g!_]
-        (let [nameC (code.local-identifier name)]
-          (wrap (list (` (def: #export (~ nameC) Var (~ runtime-nameC)))
-                      (` (def: (~ (code.local-identifier (format "@" name)))
-                           Statement
-                           (..feature (~ runtime-nameC)
-                                      (function ((~ g!_) (~ nameC))
-                                        (~ code)))))))))
-      
-      (#.Right [name inputs])
-      (macro.with-gensyms [g!_]
-        (let [nameC (code.local-identifier name)
-              code-nameC (code.local-identifier (format "@" name))
-              inputsC (list@map code.local-identifier inputs)
-              inputs-typesC (list@map (function.constant (` _.Expression)) inputs)]
-          (wrap (list (` (def: #export ((~ nameC) (~+ inputsC))
-                           (-> (~+ inputs-typesC) Computation)
-                           (_.apply/* (~ runtime-nameC) (list (~+ inputsC)))))
-                      (` (def: (~ (code.local-identifier (format "@" name)))
-                           Statement
-                           (..feature (~ runtime-nameC)
-                                      (function ((~ g!_) (~ g!_))
-                                        (..with-vars [(~+ inputsC)]
-                                          (_.function (~ g!_) (list (~+ inputsC))
-                                            (~ code))))))))))))))
+  (case declaration
+    (#.Left name)
+    (macro.with-gensyms [g!_]
+      (let [[runtime-nameC runtime-nameC!] (..runtime-name name)
+            nameC (code.local-identifier name)]
+        (wrap (list (` (def: (~ runtime-nameC!)
+                         Var
+                         (~ runtime-nameC)))
+
+                    (` (def: #export (~ nameC)
+                         (~ runtime-nameC!)))
+                    
+                    (` (def: (~ (code.local-identifier (format "@" name)))
+                         Statement
+                         (..feature (~ runtime-nameC)
+                                    (function ((~ g!_) (~ nameC))
+                                      (~ code)))))))))
+    
+    (#.Right [name inputs])
+    (macro.with-gensyms [g!_]
+      (let [[runtime-nameC runtime-nameC!] (..runtime-name name)
+            nameC (code.local-identifier name)
+            code-nameC (code.local-identifier (format "@" name))
+            inputsC (list@map code.local-identifier inputs)
+            inputs-typesC (list@map (function.constant (` _.Expression)) inputs)]
+        (wrap (list (` (def: ((~ runtime-nameC!) (~+ inputsC))
+                         (-> (~+ inputs-typesC) Computation)
+                         (_.apply/* (~ runtime-nameC) (list (~+ inputsC)))))
+                    
+                    (` (def: #export (~ nameC)
+                         (~ runtime-nameC!)))
+                    
+                    (` (def: (~ (code.local-identifier (format "@" name)))
+                         Statement
+                         (..feature (~ runtime-nameC)
+                                    (function ((~ g!_) (~ g!_))
+                                      (..with-vars [(~+ inputsC)]
+                                        (_.function (~ g!_) (list (~+ inputsC))
+                                          (~ code)))))))))))))
 
 (runtime: (lux//try op)
   (with-vars [ex]
@@ -715,12 +735,12 @@
 
 (runtime: (array//write idx value array)
   ($_ _.then
-      (_.set (_.at idx array) value)
+      (_.set (_.at (_.the ..i64-low-field idx) array) value)
       (_.return array)))
 
 (runtime: (array//delete idx array)
   ($_ _.then
-      (_.delete (_.at idx array))
+      (_.delete (_.at (_.the ..i64-low-field idx) array))
       (_.return array)))
 
 (def: runtime//array
@@ -732,7 +752,6 @@
 (def: runtime
   Statement
   ($_ _.then
-      _.use-strict
       runtime//lux
       runtime//structure
       runtime//i64

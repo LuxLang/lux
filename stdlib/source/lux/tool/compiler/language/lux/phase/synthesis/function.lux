@@ -3,6 +3,7 @@
    [abstract
     ["." monad (#+ do)]]
    [control
+    [pipe (#+ case>)]
     ["." exception (#+ exception:)]]
    [data
     ["." maybe ("#@." functor)]
@@ -23,12 +24,10 @@
       ["#/." variable (#+ Register Variable)]]
      ["." phase ("#@." monad)]]]])
 
-(exception: #export (cannot-find-foreign-variable-in-environment {foreign Register} {environment Environment})
+(exception: #export (cannot-find-foreign-variable-in-environment {foreign Register} {environment (Environment Synthesis)})
   (exception.report
    ["Foreign" (%.nat foreign)]
-   ["Environment" (|> environment
-                      (list@map ////reference/variable.format)
-                      (text.join-with " "))]))
+   ["Environment" (exception.enumerate /.%synthesis environment)]))
 
 (def: arity-arguments
   (-> Arity (List Synthesis))
@@ -80,7 +79,7 @@
             (wrap <apply>)))))))
 
 (def: (find-foreign environment register)
-  (-> Environment Register (Operation Variable))
+  (-> (Environment Synthesis) Register (Operation Synthesis))
   (case (list.nth register environment)
     (#.Some aliased)
     (phase@wrap aliased)
@@ -135,20 +134,8 @@
     _
     (phase@wrap path)))
 
-(def: (grow-sub-environment super sub)
-  (-> Environment Environment (Operation Environment))
-  (monad.map phase.monad
-             (function (_ variable)
-               (case variable
-                 (#////reference/variable.Local register)
-                 (phase@wrap (#////reference/variable.Local (inc register)))
-                 
-                 (#////reference/variable.Foreign register)
-                 (find-foreign super register)))
-             sub))
-
 (def: (grow environment expression)
-  (-> Environment Synthesis (Operation Synthesis))
+  (-> (Environment Synthesis) Synthesis (Operation Synthesis))
   (case expression
     (#/.Structure structure)
     (case structure
@@ -173,9 +160,7 @@
         (phase@wrap (/.variable/local (inc register)))
         
         (#////reference/variable.Foreign register)
-        (|> register
-            (find-foreign environment)
-            (phase@map (|>> /.variable))))
+        (..find-foreign environment register))
       
       (#////reference.Constant constant)
       (phase@wrap expression))
@@ -224,34 +209,42 @@
       (#/.Function function)
       (case function
         (#/.Abstraction [_env _arity _body])
-        (do phase.monad
-          [_env' (grow-sub-environment environment _env)]
+        (do {@ phase.monad}
+          [_env' (monad.map @
+                            (|>> (case> (#/.Reference (#////reference.Variable (#////reference/variable.Foreign register)))
+                                        (..find-foreign environment register)
+
+                                        captured
+                                        (grow environment captured)))
+                            _env)]
           (wrap (/.function/abstraction [_env' _arity _body])))
         
         (#/.Apply funcS argsS+)
-        (case funcS
-          (^ (/.function/apply [(..self-reference) pre-argsS+]))
-          (phase@wrap (/.function/apply [(..self-reference)
-                                         (list@compose pre-argsS+ argsS+)]))
-          
-          _
-          (do {@ phase.monad}
-            [funcS' (grow environment funcS)
-             argsS+' (monad.map @ (grow environment) argsS+)]
-            (wrap (/.function/apply [funcS' argsS+']))))))
+        (do {@ phase.monad}
+          [funcS (grow environment funcS)
+           argsS+ (monad.map @ (grow environment) argsS+)]
+          (wrap (/.function/apply (case funcS
+                                    (^ (/.function/apply [(..self-reference) pre-argsS+]))
+                                    [(..self-reference)
+                                     (list@compose pre-argsS+ argsS+)]
+
+                                    _
+                                    [funcS
+                                     argsS+]))))))
     
     (#/.Extension name argumentsS+)
     (|> argumentsS+
         (monad.map phase.monad (grow environment))
         (phase@map (|>> (#/.Extension name))))
 
-    _
+    (#/.Primitive _)
     (phase@wrap expression)))
 
 (def: #export (abstraction phase environment archive bodyA)
-  (-> Phase Environment Phase)
+  (-> Phase (Environment Analysis) Phase)
   (do {@ phase.monad}
     [currying? /.currying?
+     environment (monad.map @ (phase archive) environment)
      bodyS (/.with-currying? true
              (/.with-locals 2
                (phase archive bodyA)))
