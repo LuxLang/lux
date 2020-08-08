@@ -12,7 +12,7 @@
     ["." text
      ["%" format (#+ format)]]
     [collection
-     ["." list ("#@." functor)]]]
+     ["." list ("#@." functor fold)]]]
    [type
     abstract]
    ["." macro (#+ with-gensyms)
@@ -260,45 +260,69 @@
                                    try? outputT)))
       )))
 
-(syntax: #export (type-of object)
-  (wrap (list (` ("js type-of" (~ object))))))
+(template: #export (type-of object)
+  ("js type-of" object))
 
-(def: #export on-browser?
-  Bit
-  (case (..type-of ("js constant" "window"))
-    "undefined"
-    false
+(syntax: #export (constant type
+                           {[head tail] (<c>.tuple (<>.and <c>.local-identifier (<>.some <c>.local-identifier)))})
+  (with-gensyms [g!_]
+    (let [constant (` ("js constant" (~ (code.text head))))]
+      (case tail
+        #.Nil
+        (wrap (list (` (: (.Maybe (~ type))
+                          (case (..type-of (~ constant))
+                            "undefined"
+                            #.None
 
-    _
-    true))
+                            (~ g!_)
+                            (#.Some (:coerce (~ type) (~ constant))))))))
+        
+        (#.Cons [next tail])
+        (let [separator "."]
+          (wrap (list (` (: (.Maybe (~ type))
+                            (case (..type-of (~ constant))
+                              "undefined"
+                              #.None
+
+                              (~ g!_)
+                              (..constant (~ type) [(~ (code.local-identifier (format head "." next)))
+                                                    (~+ (list@map code.local-identifier tail))])))))))))))
+
+(template: (!defined? <constant>)
+  (.case (..constant Any <constant>)
+    #.None
+    .false
+
+    (#.Some _)
+    .true))
+
+(template [<name> <constant>]
+  [(def: #export <name>
+     Bit
+     (!defined? <constant>))]
+
+  [on-browser? [window]]
+  [on-nashorn? [java lang Object]]
+  )
 
 (def: #export on-node-js?
   Bit
-  (case (..type-of ("js constant" "process"))
-    "undefined"
-    false
-
-    _
-    (case (:coerce .Text
-                   ("js apply"
-                    ("js constant" "Object.prototype.toString.call")
-                    ("js constant" "process")))
+  (case (..constant (Object Any) [process])
+    (#.Some process)
+    (case (:coerce Text
+                   ("js apply" ("js constant" "Object.prototype.toString.call") process))
       "[object process]"
       true
 
       _
-      false)))
+      false)
 
-(template: (!defined? constant)
-  (case (..type-of ("js constant" constant))
-    "undefined"
-    false
+    #.None
+    false))
 
-    _
-    true))
-
-(def: #export on-nashorn?
-  Bit
-  (and (!defined? "java")
-       (!defined? "java.lang")
-       (!defined? "java.lang.Object")))
+(template: #export (closure <inputs> <output>)
+  (.:coerce ..Function
+            (`` ("js function"
+                 (~~ (template.count <inputs>))
+                 (.function (_ [<inputs>])
+                   <output>)))))

@@ -453,10 +453,33 @@
                  (sep host.String)
                  (basename [host.String] host.String))
                
-               (import: (require [host.String] Any))
+               (template [<name> <path>]
+                 [(def: <name>
+                    (host.constant (-> host.String Any) <path>))]
 
-               (template: (!fs)
-                 (:coerce ..Fs (..require "fs")))
+                 [normal-require [require]]
+                 [global-require [global require]]
+                 [process-load [global process mainModule constructor _load]]
+                 )
+
+               (def: require
+                 (-> host.String Any)
+                 (case [normal-require global-require process-load]
+                   (^or [(#.Some require) _ _]
+                        [_ (#.Some require) _]
+                        [_ _ (#.Some require)])
+                   require
+
+                   _
+                   (undefined)))
+
+               (template [<name> <module> <type>]
+                 [(def: <name>
+                    (:coerce <type> (..require <module>)))]
+
+                 [node-fs "fs" ..Fs]
+                 [node-path "path" ..JsPath]
+                 )
 
                (`` (structure: (file path)
                      (-> Path (File IO))
@@ -465,7 +488,7 @@
                            [(def: <name>
                               (..can-modify
                                (function (<name> data)
-                                 (io.io (<method> [path (Buffer::from data)] (!fs))))))]
+                                 (io.io (<method> [path (Buffer::from data)] ..node-fs)))))]
 
                            [over-write  Fs::writeFileSync]
                            [append      Fs::appendFileSync]
@@ -473,15 +496,13 @@
 
                      (def: content
                        (..can-query
-                        (function (content _)
-                          (io.io (Fs::readFileSync [path] (!fs))))))
+                        (function (_ _)
+                          (io.io (Fs::readFileSync [path] ..node-fs)))))
 
                      (def: name
                        (..can-see
-                        (function (name _)
-                          (|> (..require "path")
-                              (:coerce JsPath)
-                              (JsPath::basename path)))))
+                        (function (_ _)
+                          (JsPath::basename path ..node-path))))
 
                      (def: path
                        (..can-see
@@ -491,14 +512,14 @@
                      (def: size
                        (..can-query
                         (function (size _)
-                          (|> (Fs::statSync [path] (!fs))
+                          (|> (Fs::statSync [path] ..node-fs)
                               (:: try.monad map (|>> Stats::size f.nat))
                               io.io))))
 
                      (def: last-modified
                        (..can-query
                         (function (last-modified _)
-                          (|> (Fs::statSync [path] (!fs))
+                          (|> (Fs::statSync [path] ..node-fs)
                               (:: try.monad map (|>> Stats::mtimeMs
                                                      f.int
                                                      duration.from-millis
@@ -509,8 +530,8 @@
                        (..can-query
                         (function (can-execute? _)
                           (io.io (do try.monad
-                                   [_ (Fs::accessSync [path (|> (!fs) Fs::constants FsConstants::F_OK)] (!fs))]
-                                   (wrap (case (Fs::accessSync [path (|> (!fs) Fs::constants FsConstants::X_OK)] (!fs))
+                                   [_ (Fs::accessSync [path (|> ..node-fs Fs::constants FsConstants::F_OK)] ..node-fs)]
+                                   (wrap (case (Fs::accessSync [path (|> ..node-fs Fs::constants FsConstants::X_OK)] ..node-fs)
                                            (#try.Success _)
                                            true
 
@@ -521,19 +542,19 @@
                        (..can-open
                         (function (move destination)
                           (io.io (do try.monad
-                                   [_ (Fs::renameSync [path destination] (!fs))]
+                                   [_ (Fs::renameSync [path destination] ..node-fs)]
                                    (wrap (file destination)))))))
 
                      (def: modify
                        (..can-modify
                         (function (modify time-stamp)
                           (io.io (let [when (|> time-stamp instant.relative duration.to-millis i.frac)]
-                                   (Fs::utimesSync [path when when] (!fs)))))))
+                                   (Fs::utimesSync [path when when] ..node-fs))))))
 
                      (def: delete
                        (..can-delete
                         (function (delete _)
-                          (io.io (Fs::unlink [path] (!fs))))))))
+                          (io.io (Fs::unlink [path] ..node-fs)))))))
 
                (`` (structure: (directory path)
                      (-> Path (Directory IO))
@@ -542,18 +563,17 @@
                            [(def: <name>
                               (..can-query
                                (function (<name> _)
-                                 (io.io (let [fs (!fs)]
-                                          (do {@ try.monad}
-                                            [subs (Fs::readdirSync [path] fs)
-                                             subs (monad.map @ (function (_ sub)
-                                                                 (do @
-                                                                   [stats (Fs::statSync [sub] fs)
-                                                                    verdict (<method> [] stats)]
-                                                                   (wrap [verdict sub])))
-                                                             (array.to-list subs))]
-                                            (wrap (|> subs
-                                                      (list.filter product.left)
-                                                      (list@map (|>> product.right <capability>))))))))))]
+                                 (io.io (do {@ try.monad}
+                                          [subs (Fs::readdirSync [path] ..node-fs)
+                                           subs (monad.map @ (function (_ sub)
+                                                               (do @
+                                                                 [stats (Fs::statSync [sub] ..node-fs)
+                                                                  verdict (<method> [] stats)]
+                                                                 (wrap [verdict sub])))
+                                                           (array.to-list subs))]
+                                          (wrap (|> subs
+                                                    (list.filter product.left)
+                                                    (list@map (|>> product.right <capability>)))))))))]
 
                            [files       Stats::isFile      ..file]
                            [directories Stats::isDirectory directory]
@@ -562,7 +582,7 @@
                      (def: discard
                        (..can-delete
                         (function (discard _)
-                          (io.io (Fs::rmdirSync [path] (!fs))))))))
+                          (io.io (Fs::rmdirSync [path] ..node-fs)))))))
 
                (`` (structure: #export system
                      (System IO)
@@ -572,7 +592,7 @@
                               (..can-open
                                (function (<name> path)
                                  (io.io (do try.monad
-                                          [stats (Fs::statSync [path] (!fs))
+                                          [stats (Fs::statSync [path] ..node-fs)
                                            verdict (<method> [] stats)]
                                           (if verdict
                                             (wrap (<capability> path))
@@ -586,15 +606,14 @@
                            [(def: <name>
                               (..can-open
                                (function (<name> path)
-                                 (io.io (let [fs (!fs)]
-                                          (case (Fs::accessSync [path (|> (!fs) Fs::constants FsConstants::F_OK)] fs)
-                                            (#try.Success _)
-                                            (exception.throw <exception> [path])
-                                            
-                                            (#try.Failure _)
-                                            (do try.monad
-                                              [_ (|> fs <prep>)]
-                                              (wrap (<capability> path)))))))))]
+                                 (io.io (case (Fs::accessSync [path (|> ..node-fs Fs::constants FsConstants::F_OK)] ..node-fs)
+                                          (#try.Success _)
+                                          (exception.throw <exception> [path])
+                                          
+                                          (#try.Failure _)
+                                          (do try.monad
+                                            [_ (|> ..node-fs <prep>)]
+                                            (wrap (<capability> path))))))))]
 
                            [create-file ..file ..cannot-create-file (Fs::appendFileSync [path (Buffer::from (binary.create 0))])]
                            [create-directory ..directory ..cannot-create-directory (Fs::mkdirSync [path])]
@@ -602,9 +621,7 @@
 
                      (def: separator
                        (if host.on-node-js?
-                         (|> (..require "path")
-                             (:coerce JsPath)
-                             JsPath::sep)
+                         (JsPath::sep ..node-path)
                          "/"))
                      ))
                )
