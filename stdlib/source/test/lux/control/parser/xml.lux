@@ -1,0 +1,171 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["." try]
+    ["." exception]]
+   [data
+    ["." text ("#@." equivalence)]
+    ["." name]
+    [format
+     ["." xml]]
+    [number
+     ["n" nat]]
+    [collection
+     ["." dictionary]]]
+   [math
+    ["." random (#+ Random)]]
+   [macro
+    ["." template]]
+   ["." type ("#@." equivalence)]]
+  {1
+   ["." /
+    ["/#" // ("#@." monad)]]})
+
+(template: (!expect <pattern> <value>)
+  (case <value>
+    <pattern>
+    true
+    
+    _
+    false))
+
+(template: (!failure <exception> <cases>)
+  (with-expansions [<<cases>> (template.splice <cases>)]
+    (do {@ random.monad}
+      [expected (random.ascii/alpha 1)]
+      (_.cover [<exception>]
+               (`` (and (~~ (template [<parser> <input>]
+                              [(|> (/.run <parser> <input>)
+                                   (!expect (^multi (#try.Failure error)
+                                                    (exception.match? <exception> error))))]
+
+                              <<cases>>))))))))
+
+(def: random-label
+  (Random Name)
+  (random.and (random.ascii/alpha 1)
+              (random.ascii/alpha 1)))
+
+(def: random-tag ..random-label)
+(def: random-attribute ..random-label)
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      (_.with-cover [/.Parser])
+      ($_ _.and
+          (do {@ random.monad}
+            [expected (random.ascii/alpha 1)]
+            (_.cover [/.run /.text]
+                     (|> (/.run /.text (#xml.Text expected))
+                         (!expect (^multi (#try.Success actual)
+                                          (text@= expected actual))))))
+          (!failure /.unconsumed-inputs
+                    [[(//@wrap expected)
+                      (#xml.Text expected)]])
+          (do {@ random.monad}
+            [expected (random.ascii/alpha 1)]
+            (_.cover [/.ignore]
+                     (|> (/.run /.ignore (#xml.Text expected))
+                         (!expect (#try.Success [])))))
+          (do {@ random.monad}
+            [expected ..random-tag]
+            (_.cover [/.node]
+                     (|> (/.run (do //.monad
+                                  [_ (/.node expected)]
+                                  /.ignore)
+                                (#xml.Node expected (dictionary.new name.hash) (list)))
+                         (!expect (#try.Success [])))))
+          (!failure /.wrong-tag
+                    [[(/.node ["" expected])
+                      (#xml.Node [expected ""] (dictionary.new name.hash) (list))]])
+          (do {@ random.monad}
+            [expected-tag ..random-tag
+             expected-attribute ..random-attribute
+             expected-value (random.ascii/alpha 1)]
+            (_.cover [/.attr]
+                     (|> (/.run (do //.monad
+                                  [_ (/.node expected-tag)
+                                   _ (/.attr expected-attribute)]
+                                  /.ignore)
+                                (#xml.Node expected-tag
+                                           (|> (dictionary.new name.hash)
+                                               (dictionary.put expected-attribute expected-value))
+                                           (list)))
+                         (!expect (#try.Success [])))))
+          (!failure /.unknown-attribute
+                    [[(do //.monad
+                        [_ (/.attr ["" expected])]
+                        /.ignore)
+                      (#xml.Node [expected expected]
+                                 (|> (dictionary.new name.hash)
+                                     (dictionary.put [expected ""] expected))
+                                 (list))]])
+          (do {@ random.monad}
+            [expected ..random-tag]
+            (_.cover [/.children]
+                     (|> (/.run (do {@ //.monad}
+                                  [_ (/.node expected)]
+                                  (/.children
+                                   (do @
+                                     [_ (/.node expected)]
+                                     /.ignore)))
+                                (#xml.Node expected
+                                           (dictionary.new name.hash)
+                                           (list (#xml.Node expected
+                                                            (dictionary.new name.hash)
+                                                            (list)))))
+                         (!expect (#try.Success [])))))
+          (!failure /.empty-input
+                    [[(do //.monad
+                        [_ /.ignore]
+                        /.ignore)
+                      (#xml.Text expected)]
+                     [(do //.monad
+                        [_ /.ignore]
+                        /.text)
+                      (#xml.Text expected)]
+                     [(do //.monad
+                        [_ /.ignore]
+                        (/.node [expected expected]))
+                      (#xml.Node [expected expected]
+                                 (dictionary.new name.hash)
+                                 (list))]
+                     [(do //.monad
+                        [_ /.ignore]
+                        (/.node [expected expected]))
+                      (#xml.Node [expected expected]
+                                 (|> (dictionary.new name.hash)
+                                     (dictionary.put [expected expected] expected))
+                                 (list))]
+                     [(do //.monad
+                        [_ /.ignore]
+                        (/.children
+                         (/.node [expected expected])))
+                      (#xml.Node [expected expected]
+                                 (dictionary.new name.hash)
+                                 (list (#xml.Node [expected expected]
+                                                  (dictionary.new name.hash)
+                                                  (list))))]])
+          (!failure /.unexpected-input
+                    [[/.text
+                      (#xml.Node [expected expected] (dictionary.new name.hash) (list))]
+                     [(do //.monad
+                        [_ (/.node [expected expected])]
+                        /.ignore)
+                      (#xml.Text expected)]
+                     [(do //.monad
+                        [_ (/.attr [expected expected])]
+                        /.ignore)
+                      (#xml.Text expected)]
+                     [(do {@ //.monad}
+                        [_ (/.node [expected expected])]
+                        (/.children
+                         (do @
+                           [_ (/.node [expected expected])]
+                           /.ignore)))
+                      (#xml.Text expected)]])
+          )))

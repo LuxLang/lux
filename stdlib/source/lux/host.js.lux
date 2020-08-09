@@ -70,7 +70,14 @@
                 <c>.local-identifier
                 ..nullable)))
 
-(type: Common-Method [Text (Maybe Text) (List Nullable) Bit Nullable])
+(type: Common-Method
+  {#name Text
+   #alias (Maybe Text)
+   #inputs (List Nullable)
+   #io? Bit
+   #try? Bit
+   #output Nullable})
+
 (type: Static-Method Common-Method)
 (type: Virtual-Method Common-Method)
 
@@ -84,6 +91,7 @@
       <c>.local-identifier
       (<>.maybe (<>.after (<c>.this! (' #as)) <c>.local-identifier))
       (<c>.tuple (<>.some ..nullable))
+      (<>.parses? (<c>.this! (' #io)))
       (<>.parses? (<c>.this! (' #try)))
       ..nullable))
 
@@ -161,11 +169,22 @@
                 (recover-from-failure error)))}
   (wrap (list (` ("lux try" ((~! io.io) (~ expression)))))))
 
-(def: (with-try try? without-try)
+(def: (with-io with? without)
   (-> Bit Code Code)
-  (if try?
-    (` ("lux try"
-        ((~! io.io) (~ without-try))))
+  (if with?
+    (` (io.io (~ without)))
+    without))
+
+(def: (io-type io? rawT)
+  (-> Bit Code Code)
+  (if io?
+    (` (io.IO (~ rawT)))
+    rawT))
+
+(def: (with-try with? without-try)
+  (-> Bit Code Code)
+  (if with?
+    (` (..try (~ without-try)))
     without-try))
 
 (def: (try-type try? rawT)
@@ -174,15 +193,18 @@
     (` (.Either .Text (~ rawT)))
     rawT))
 
-(def: (make-function g!method g!temp source inputsT try? outputT)
-  (-> Code Code Text (List Nullable) Bit Nullable Code)
+(def: (make-function g!method g!temp source inputsT io? try? outputT)
+  (-> Code Code Text (List Nullable) Bit Bit Nullable Code)
   (let [g!inputs (input-variables inputsT)]
     (` (def: ((~ g!method)
               [(~+ (list@map product.right g!inputs))])
          (-> [(~+ (list@map nullable-type inputsT))]
-             (~ (try-type try? (nullable-type outputT))))
+             (~ (|> (nullable-type outputT)
+                    (try-type try?)
+                    (io-type io?))))
          (:assume
-          (~ (<| (with-try try?)
+          (~ (<| (with-io io?)
+                 (with-try try?)
                  (without-null g!temp outputT)
                  (` ("js apply"
                      ("js constant" (~ (code.text source)))
@@ -227,24 +249,28 @@
                                      
                                      (#Method method)
                                      (case method
-                                       (#Static [method alias inputsT try? outputT])
+                                       (#Static [method alias inputsT io? try? outputT])
                                        (..make-function (qualify (maybe.default method alias))
                                                         g!temp
                                                         (format real-class "." method)
                                                         inputsT
+                                                        io?
                                                         try?
                                                         outputT)
                                        
-                                       (#Virtual [method alias inputsT try? outputT])
+                                       (#Virtual [method alias inputsT io? try? outputT])
                                        (let [g!inputs (input-variables inputsT)]
                                          (` (def: ((~ (qualify (maybe.default method alias)))
                                                    [(~+ (list@map product.right g!inputs))]
                                                    (~ g!object))
                                               (-> [(~+ (list@map nullable-type inputsT))]
                                                   (~ g!type)
-                                                  (~ (try-type try? (nullable-type outputT))))
+                                                  (~ (|> (nullable-type outputT)
+                                                         (try-type try?)
+                                                         (io-type io?))))
                                               (:assume
-                                               (~ (<| (with-try try?)
+                                               (~ (<| (with-io io?)
+                                                      (with-try try?)
                                                       (without-null g!temp outputT)
                                                       (` ("js object do"
                                                           (~ (code.text method))
@@ -252,12 +278,14 @@
                                                           [(~+ (list@map (with-null g!temp) g!inputs))])))))))))))
                                  members)))))
       
-      (#Function [name alias inputsT try? outputT])
+      (#Function [name alias inputsT io? try? outputT])
       (wrap (list (..make-function (code.local-identifier (maybe.default name alias))
                                    g!temp
                                    name
                                    inputsT
-                                   try? outputT)))
+                                   io?
+                                   try?
+                                   outputT)))
       )))
 
 (template: #export (type-of object)

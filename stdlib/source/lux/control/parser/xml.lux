@@ -7,7 +7,8 @@
     ["." exception (#+ exception:)]]
    [data
     ["." name ("#@." equivalence codec)]
-    ["." text ("#@." monoid)]
+    ["." text
+     ["%" format (#+ format)]]
     [collection
      ["." list ("#@." functor)]
      ["." dictionary]]
@@ -20,13 +21,22 @@
 
 (exception: #export empty-input)
 (exception: #export unexpected-input)
-(exception: #export unknown-attribute)
 
-(exception: #export (wrong-tag {tag Name})
-  (exception.report
-   ["Tag" (name@encode tag)]))
+(def: (label [namespace name])
+  (-> Name Text)
+  (format namespace ":" name))
 
-(def: blank-line ($_ text@compose text.new-line text.new-line))
+(template [<exception> <header>]
+  [(exception: #export (<exception> {label Name})
+     (exception.report
+      [<header> (%.text (..label label))]))]
+
+  [wrong-tag "Tag"]
+  [unknown-attribute "Attribute"]
+  )
+
+(def: blank-line
+  (format text.new-line text.new-line))
 
 (exception: #export (unconsumed-inputs {inputs (List XML)})
   (|> inputs
@@ -48,37 +58,6 @@
         (#/.Node _)
         (exception.throw ..unexpected-input [])))))
 
-(def: #export (attr name)
-  (-> Name (Parser Text))
-  (function (_ docs)
-    (case docs
-      #.Nil
-      (exception.throw ..empty-input [])
-      
-      (#.Cons head _)
-      (case head
-        (#/.Text _)
-        (exception.throw ..unexpected-input [])
-        
-        (#/.Node tag attrs children)
-        (case (dictionary.get name attrs)
-          #.None
-          (exception.throw ..unknown-attribute [])
-          
-          (#.Some value)
-          (#try.Success [docs value]))))))
-
-(def: (run' reader docs)
-  (All [a] (-> (Parser a) (List XML) (Try a)))
-  (case (//.run reader docs)
-    (#try.Success [remaining output])
-    (if (list.empty? remaining)
-      (#try.Success output)
-      (exception.throw ..unconsumed-inputs remaining))
-    
-    (#try.Failure error)
-    (#try.Failure error)))
-
 (def: #export (node tag)
   (-> Name (Parser Any))
   (function (_ docs)
@@ -95,6 +74,37 @@
         (if (name@= tag _tag)
           (#try.Success [docs []])
           (exception.throw ..wrong-tag tag))))))
+
+(def: #export (attr name)
+  (-> Name (Parser Text))
+  (function (_ docs)
+    (case docs
+      #.Nil
+      (exception.throw ..empty-input [])
+      
+      (#.Cons head _)
+      (case head
+        (#/.Text _)
+        (exception.throw ..unexpected-input [])
+        
+        (#/.Node tag attrs children)
+        (case (dictionary.get name attrs)
+          #.None
+          (exception.throw ..unknown-attribute [name])
+          
+          (#.Some value)
+          (#try.Success [docs value]))))))
+
+(def: (run' reader docs)
+  (All [a] (-> (Parser a) (List XML) (Try a)))
+  (case (//.run reader docs)
+    (#try.Success [remaining output])
+    (if (list.empty? remaining)
+      (#try.Success output)
+      (exception.throw ..unconsumed-inputs remaining))
+    
+    (#try.Failure error)
+    (#try.Failure error)))
 
 (def: #export (children reader)
   (All [a] (-> (Parser a) (Parser a)))

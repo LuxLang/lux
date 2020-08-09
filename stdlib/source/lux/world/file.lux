@@ -242,7 +242,7 @@
                                          (wrap (#try.Success []))
 
                                          _
-                                         (io.io (exception.throw exception [path])))))
+                                         (wrap (exception.throw exception [path])))))
 
                                    (import: #long java/lang/AutoCloseable
                                      (close [] #io #try void))
@@ -289,7 +289,7 @@
                                                  _ (java/lang/AutoCloseable::close stream)]
                                                 (if (i.= size bytes-read)
                                                   (wrap data)
-                                                  (io.io (exception.throw cannot-read-all-data path)))))))
+                                                  (:: io.monad wrap (exception.throw ..cannot-read-all-data path)))))))
 
                                          (def: name
                                            (..can-see
@@ -337,7 +337,7 @@
                                                   (wrap (#try.Success (file destination)))
 
                                                   _
-                                                  (io.io (exception.throw cannot-move [destination path])))))))
+                                                  (wrap (exception.throw ..cannot-move [destination path])))))))
 
                                          (def: modify
                                            (..can-modify
@@ -350,7 +350,7 @@
                                                   (wrap (#try.Success []))
 
                                                   _
-                                                  (io.io (exception.throw cannot-modify [time-stamp path])))))))
+                                                  (wrap (exception.throw ..cannot-modify [time-stamp path])))))))
 
                                          (def: delete
                                            (..can-delete
@@ -375,7 +375,7 @@
                                                              (:: @ join))
 
                                                          #.None
-                                                         (io.io (exception.throw not-a-directory [path])))))))]
+                                                         (:: io.monad wrap (exception.throw ..not-a-directory [path])))))))]
 
                                                [files       java/io/File::isFile      file]
                                                [directories java/io/File::isDirectory directory]
@@ -426,8 +426,8 @@
                (import: Stats
                  (size host.Number)
                  (mtimeMs host.Number)
-                 (isFile [] #try host.Boolean)
-                 (isDirectory [] #try host.Boolean))
+                 (isFile [] #io #try host.Boolean)
+                 (isDirectory [] #io #try host.Boolean))
 
                (import: FsConstants
                  (F_OK host.Number)
@@ -437,17 +437,17 @@
                
                (import: Fs
                  (constants FsConstants)
-                 (readFileSync [host.String] #try Binary)
-                 (appendFileSync [host.String Buffer] #try Any)
-                 (writeFileSync [host.String Buffer] #try Any)
-                 (statSync [host.String] #try Stats)
-                 (accessSync [host.String host.Number] #try Any)
-                 (renameSync [host.String host.String] #try Any)
-                 (utimesSync [host.String host.Number host.Number] #try Any)
-                 (unlink [host.String] #try Any)
-                 (readdirSync [host.String] #try (Array host.String))
-                 (mkdirSync [host.String] #try Any)
-                 (rmdirSync [host.String] #try Any))
+                 (readFileSync [host.String] #io #try Binary)
+                 (appendFileSync [host.String Buffer] #io #try Any)
+                 (writeFileSync [host.String Buffer] #io #try Any)
+                 (statSync [host.String] #io #try Stats)
+                 (accessSync [host.String host.Number] #io #try Any)
+                 (renameSync [host.String host.String] #io #try Any)
+                 (utimesSync [host.String host.Number host.Number] #io #try Any)
+                 (unlink [host.String] #io #try Any)
+                 (readdirSync [host.String] #io #try (Array host.String))
+                 (mkdirSync [host.String] #io #try Any)
+                 (rmdirSync [host.String] #io #try Any))
 
                (import: JsPath
                  (sep host.String)
@@ -490,7 +490,7 @@
                            [(def: <name>
                               (..can-modify
                                (function (<name> data)
-                                 (io.io (<method> [path (Buffer::from data)] (..node-fs []))))))]
+                                 (<method> [path (Buffer::from data)] (..node-fs [])))))]
 
                            [over-write  Fs::writeFileSync]
                            [append      Fs::appendFileSync]
@@ -499,7 +499,7 @@
                      (def: content
                        (..can-query
                         (function (_ _)
-                          (io.io (Fs::readFileSync [path] (..node-fs []))))))
+                          (Fs::readFileSync [path] (..node-fs [])))))
 
                      (def: name
                        (..can-see
@@ -513,71 +513,76 @@
 
                      (def: size
                        (..can-query
-                        (function (size _)
-                          (|> (Fs::statSync [path] (..node-fs []))
-                              (:: try.monad map (|>> Stats::size f.nat))
-                              io.io))))
+                        (function (_ _)
+                          (do (try.with io.monad)
+                            [stat (Fs::statSync [path] (..node-fs []))]
+                            (wrap (|> stat
+                                      Stats::size
+                                      f.nat))))))
 
                      (def: last-modified
                        (..can-query
-                        (function (last-modified _)
-                          (|> (Fs::statSync [path] (..node-fs []))
-                              (:: try.monad map (|>> Stats::mtimeMs
-                                                     f.int
-                                                     duration.from-millis
-                                                     instant.absolute))
-                              io.io))))
+                        (function (_ _)
+                          (do (try.with io.monad)
+                            [stat (Fs::statSync [path] (..node-fs []))]
+                            (wrap (|> stat
+                                      Stats::mtimeMs
+                                      f.int
+                                      duration.from-millis
+                                      instant.absolute))))))
 
                      (def: can-execute?
                        (..can-query
                         (function (can-execute? _)
-                          (io.io (do try.monad
-                                   [#let [node-fs (..node-fs [])]
-                                    _ (Fs::accessSync [path (|> node-fs Fs::constants FsConstants::F_OK)] node-fs)]
-                                   (wrap (case (Fs::accessSync [path (|> node-fs Fs::constants FsConstants::X_OK)] node-fs)
-                                           (#try.Success _)
-                                           true
+                          (do (try.with io.monad)
+                            [#let [node-fs (..node-fs [])]
+                             _ (Fs::accessSync [path (|> node-fs Fs::constants FsConstants::F_OK)] node-fs)]
+                            (do io.monad
+                              [outcome (Fs::accessSync [path (|> node-fs Fs::constants FsConstants::X_OK)] node-fs)]
+                              (wrap (#try.Success (case outcome
+                                                    (#try.Success _)
+                                                    true
 
-                                           (#try.Failure _)
-                                           false)))))))
+                                                    (#try.Failure _)
+                                                    false))))))))
 
                      (def: move
                        (..can-open
                         (function (move destination)
-                          (io.io (do try.monad
-                                   [_ (Fs::renameSync [path destination] (..node-fs []))]
-                                   (wrap (file destination)))))))
+                          (do (try.with io.monad)
+                            [_ (Fs::renameSync [path destination] (..node-fs []))]
+                            (wrap (file destination))))))
 
                      (def: modify
                        (..can-modify
                         (function (modify time-stamp)
-                          (io.io (let [when (|> time-stamp instant.relative duration.to-millis i.frac)]
-                                   (Fs::utimesSync [path when when] (..node-fs [])))))))
+                          (let [when (|> time-stamp instant.relative duration.to-millis i.frac)]
+                            (Fs::utimesSync [path when when] (..node-fs []))))))
 
                      (def: delete
                        (..can-delete
                         (function (delete _)
-                          (io.io (Fs::unlink [path] (..node-fs []))))))))
+                          (Fs::unlink [path] (..node-fs [])))))))
 
                (`` (structure: (directory path)
                      (-> Path (Directory IO))
-
+                     
                      (~~ (template [<name> <method> <capability>]
                            [(def: <name>
                               (..can-query
                                (function (<name> _)
-                                 (io.io (do {@ try.monad}
-                                          [#let [node-fs (..node-fs [])]
-                                           subs (Fs::readdirSync [path] node-fs)
-                                           subs (monad.map @ (function (_ sub)
-                                                               (do @
-                                                                 [stats (Fs::statSync [sub] node-fs)
-                                                                  verdict (<method> [] stats)]
-                                                                 (wrap [verdict sub])))
-                                                           (array.to-list subs))]
-                                          (wrap (|> subs
-                                                    (list.filter product.left)
-                                                    (list@map (|>> product.right <capability>)))))))))]
+                                 (do {@ (try.with io.monad)}
+                                   [#let [node-fs (..node-fs [])]
+                                    subs (Fs::readdirSync [path] node-fs)
+                                    subs (monad.map @ (function (_ sub)
+                                                        (do @
+                                                          [stats (Fs::statSync [sub] node-fs)
+                                                           verdict (<method> [] stats)]
+                                                          (wrap [verdict sub])))
+                                                    (array.to-list subs))]
+                                   (wrap (|> subs
+                                             (list.filter product.left)
+                                             (list@map (|>> product.right <capability>))))))))]
 
                            [files       Stats::isFile      ..file]
                            [directories Stats::isDirectory directory]
@@ -586,7 +591,7 @@
                      (def: discard
                        (..can-delete
                         (function (discard _)
-                          (io.io (Fs::rmdirSync [path] (..node-fs []))))))))
+                          (Fs::rmdirSync [path] (..node-fs [])))))))
 
                (`` (structure: #export system
                      (System IO)
@@ -595,12 +600,12 @@
                            [(def: <name>
                               (..can-open
                                (function (<name> path)
-                                 (io.io (do try.monad
-                                          [stats (Fs::statSync [path] (..node-fs []))
-                                           verdict (<method> [] stats)]
-                                          (if verdict
-                                            (wrap (<capability> path))
-                                            (exception.throw <exception> [path])))))))]
+                                 (do (try.with io.monad)
+                                   [stats (Fs::statSync [path] (..node-fs []))
+                                    verdict (<method> [] stats)]
+                                   (if verdict
+                                     (wrap (<capability> path))
+                                     (:: io.monad wrap (exception.throw <exception> [path])))))))]
 
                            [file             Stats::isFile        ..file      ..cannot-find-file]
                            [directory        Stats::isDirectory   ..directory ..cannot-find-directory]
@@ -610,15 +615,17 @@
                            [(def: <name>
                               (..can-open
                                (function (<name> path)
-                                 (io.io (let [node-fs (..node-fs [])]
-                                          (case (Fs::accessSync [path (|> node-fs Fs::constants FsConstants::F_OK)] node-fs)
-                                            (#try.Success _)
-                                            (exception.throw <exception> [path])
-                                            
-                                            (#try.Failure _)
-                                            (do try.monad
-                                              [_ (|> node-fs <prep>)]
-                                              (wrap (<capability> path)))))))))]
+                                 (let [node-fs (..node-fs [])]
+                                   (do io.monad
+                                     [outcome (Fs::accessSync [path (|> node-fs Fs::constants FsConstants::F_OK)] node-fs)]
+                                     (case outcome
+                                       (#try.Success _)
+                                       (wrap (exception.throw <exception> [path]))
+                                       
+                                       (#try.Failure _)
+                                       (do (try.with io.monad)
+                                         [_ (|> node-fs <prep>)]
+                                         (wrap (<capability> path)))))))))]
 
                            [create-file ..file ..cannot-create-file (Fs::appendFileSync [path (Buffer::from (binary.create 0))])]
                            [create-directory ..directory ..cannot-create-directory (Fs::mkdirSync [path])]
