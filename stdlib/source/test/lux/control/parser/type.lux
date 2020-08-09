@@ -1,0 +1,197 @@
+(.module:
+  [lux (#- primitive)
+   ["_" test (#+ Test)]
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["." try]
+    ["." exception]]
+   [data
+    ["." name ("#@." equivalence)]
+    [number
+     ["n" nat]]]
+   [math
+    ["." random (#+ Random)]]
+   ["." type ("#@." equivalence)]]
+  {1
+   ["." /
+    ["/#" //]]})
+
+(template: (!expect <pattern> <value>)
+  (case <value>
+    <pattern>
+    true
+    
+    _
+    false))
+
+(def: primitive
+  (Random Type)
+  (|> (random.ascii/alpha-num 1)
+      (:: random.monad map (function (_ name)
+                             (#.Primitive name (list))))))
+
+(def: matches
+  Test
+  (<| (_.with-cover [/.types-do-not-match])
+      (do {@ random.monad}
+        [expected ..primitive
+         dummy (random.filter (|>> (type@= expected) not)
+                              ..primitive)])
+      ($_ _.and
+          (_.cover [/.exactly]
+                   (and (|> (/.run (/.exactly expected) expected)
+                            (!expect (#try.Success [])))
+                        (|> (/.run (/.exactly expected) dummy)
+                            (!expect (^multi (#try.Failure error)
+                                             (exception.match? /.types-do-not-match error))))))
+          (_.cover [/.sub]
+                   (and (|> (/.run (/.sub expected) expected)
+                            (!expect (#try.Success [])))
+                        (|> (/.run (/.sub Any) expected)
+                            (!expect (#try.Success [])))
+                        (|> (/.run (/.sub expected) Nothing)
+                            (!expect (#try.Success [])))
+                        (|> (/.run (/.sub expected) dummy)
+                            (!expect (^multi (#try.Failure error)
+                                             (exception.match? /.types-do-not-match error))))))
+          (_.cover [/.super]
+                   (and (|> (/.run (/.super expected) expected)
+                            (!expect (#try.Success [])))
+                        (|> (/.run (/.super expected) Any)
+                            (!expect (#try.Success [])))
+                        (|> (/.run (/.super Nothing) expected)
+                            (!expect (#try.Success [])))
+                        (|> (/.run (/.super expected) dummy)
+                            (!expect (^multi (#try.Failure error)
+                                             (exception.match? /.types-do-not-match error))))))
+          )))
+
+(def: aggregate
+  Test
+  (do {@ random.monad}
+    [expected-left ..primitive
+     expected-middle ..primitive
+     expected-right ..primitive]
+    (`` ($_ _.and
+            (~~ (template [<parser> <exception> <good-constructor> <bad-constructor>]
+                  [(_.cover [<parser> <exception>]
+                            (and (|> (/.run (<parser> ($_ //.and /.any /.any /.any))
+                                            (<good-constructor> (list expected-left expected-middle expected-right)))
+                                     (!expect (^multi (#try.Success [actual-left actual-middle actual-right])
+                                                      (and (type@= expected-left actual-left)
+                                                           (type@= expected-middle actual-middle)
+                                                           (type@= expected-right actual-right)))))
+                                 (|> (/.run (<parser> ($_ //.and /.any /.any /.any))
+                                            (<bad-constructor> (list expected-left expected-middle expected-right)))
+                                     (!expect (^multi (#try.Failure error)
+                                                      (exception.match? <exception> error))))))]
+
+                  [/.variant /.not-variant type.variant type.tuple]
+                  [/.tuple /.not-tuple type.tuple type.variant]
+                  ))
+
+            (_.cover [/.function /.not-function]
+                     (and (|> (/.run (/.function ($_ //.and /.any /.any) /.any)
+                                     (type.function (list expected-left expected-middle) expected-right))
+                              (!expect (^multi (#try.Success [[actual-left actual-middle] actual-right])
+                                               (and (type@= expected-left actual-left)
+                                                    (type@= expected-middle actual-middle)
+                                                    (type@= expected-right actual-right)))))
+                          (|> (/.run (/.function ($_ //.and /.any /.any) /.any)
+                                     (type.variant (list expected-left expected-middle expected-right)))
+                              (!expect (^multi (#try.Failure error)
+                                               (exception.match? /.not-function error))))))
+            (_.cover [/.apply /.not-application]
+                     (and (|> (/.run (/.apply ($_ //.and /.any /.any /.any))
+                                     (type.application (list expected-middle expected-right) expected-left))
+                              (!expect (^multi (#try.Success [actual-left actual-middle actual-right])
+                                               (and (type@= expected-left actual-left)
+                                                    (type@= expected-middle actual-middle)
+                                                    (type@= expected-right actual-right)))))
+                          (|> (/.run (/.apply ($_ //.and /.any /.any /.any))
+                                     (type.variant (list expected-left expected-middle expected-right)))
+                              (!expect (^multi (#try.Failure error)
+                                               (exception.match? /.not-application error))))))
+            ))))
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      (_.with-cover [/.Parser])
+      ($_ _.and
+          (do {@ random.monad}
+            [expected ..primitive]
+            (_.cover [/.run /.any]
+                     (|> (/.run /.any expected)
+                         (!expect (^multi (#try.Success actual)
+                                          (type@= expected actual))))))
+          (do {@ random.monad}
+            [expected ..primitive]
+            (_.cover [/.peek /.unconsumed-input]
+                     (and (|> (/.run (do //.monad
+                                       [actual /.peek
+                                        _ /.any]
+                                       (wrap actual))
+                                     expected)
+                              (!expect (^multi (#try.Success actual)
+                                               (type@= expected actual))))
+                          (|> (/.run /.peek expected)
+                              (!expect (^multi (#try.Failure error)
+                                               (exception.match? /.unconsumed-input error)))))))
+          (do {@ random.monad}
+            [expected ..primitive]
+            (_.cover [/.empty-input]
+                     (`` (and (~~ (template [<parser>]
+                                    [(|> (/.run (do //.monad
+                                                  [_ /.any]
+                                                  <parser>)
+                                                expected)
+                                         (!expect (^multi (#try.Failure error)
+                                                          (exception.match? /.empty-input error))))]
+
+                                    [/.any]
+                                    [/.peek]
+                                    ))))))
+          (do {@ random.monad}
+            [expected ..primitive]
+            (_.cover [/.Env /.env /.fresh]
+                     (|> (/.run (do //.monad
+                                  [env /.env
+                                   _ /.any]
+                                  (wrap env))
+                                expected)
+                         (!expect (^multi (#try.Success environment)
+                                          (is? /.fresh environment))))))
+          (do {@ random.monad}
+            [expected ..primitive
+             dummy (random.filter (|>> (type@= expected) not)
+                                  ..primitive)]
+            (_.cover [/.local]
+                     (|> (/.run (do //.monad
+                                  [_ /.any]
+                                  (/.local (list expected)
+                                           /.any))
+                                dummy)
+                         (!expect (^multi (#try.Success actual)
+                                          (type@= expected actual))))))
+          (do {@ random.monad}
+            [expected random.nat]
+            (_.cover [/.existential /.not-existential]
+                     (|> (/.run /.existential
+                                (#.Ex expected))
+                         (!expect (^multi (#try.Success actual)
+                                          (n.= expected actual))))))
+          (do {@ random.monad}
+            [expected-name (random.and (random.ascii/alpha-num 1)
+                                       (random.ascii/alpha-num 1))
+             expected-type ..primitive]
+            (_.cover [/.named /.not-named]
+                     (|> (/.run /.named
+                                (#.Named expected-name expected-type))
+                         (!expect (^multi (#try.Success [actual-name actual-type])
+                                          (and (name@= expected-name actual-name)
+                                               (type@= expected-type actual-type)))))))
+          ..aggregate
+          ..matches
+          )))

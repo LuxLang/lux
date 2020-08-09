@@ -1,5 +1,5 @@
 (.module:
-  [lux (#- function log!)
+  [lux (#- function)
    [abstract
     ["." monad (#+ do)]]
    [control
@@ -48,7 +48,9 @@
   [wrong-parameter]
   )
 
-(exception: #export (unconsumed {remaining (List Type)})
+(exception: #export empty-input)
+
+(exception: #export (unconsumed-input {remaining (List Type)})
   (exception.report
    ["Types" (|> remaining
                 (list@map (|>> %.type (format text.new-line "* ")))
@@ -60,10 +62,12 @@
 (type: #export (Parser a)
   (//.Parser [Env (List Type)] a))
 
-(def: #export fresh Env (dictionary.new n.hash))
+(def: #export fresh
+  Env
+  (dictionary.new n.hash))
 
-(def: (run' env types poly)
-  (All [a] (-> Env (List Type) (Parser a) (Try a)))
+(def: (run' env poly types)
+  (All [a] (-> Env (Parser a) (List Type) (Try a)))
   (case (//.run poly [env types])
     (#try.Failure error)
     (#try.Failure error)
@@ -74,11 +78,11 @@
       (#try.Success output)
 
       _
-      (exception.throw unconsumed remaining))))
+      (exception.throw ..unconsumed-input remaining))))
 
-(def: #export (run type poly)
-  (All [a] (-> Type (Parser a) (Try a)))
-  (run' fresh (list type) poly))
+(def: #export (run poly type)
+  (All [a] (-> (Parser a) Type (Try a)))
+  (run' ..fresh poly (list type)))
 
 (def: #export env
   (Parser Env)
@@ -100,7 +104,7 @@
   (.function (_ [env inputs])
     (case inputs
       #.Nil
-      (#try.Failure "Empty stream of types.")
+      (exception.throw ..empty-input [])
 
       (#.Cons headT tail)
       (#try.Success [[env inputs] headT]))))
@@ -110,7 +114,7 @@
   (.function (_ [env inputs])
     (case inputs
       #.Nil
-      (#try.Failure "Empty stream of types.")
+      (exception.throw ..empty-input [])
 
       (#.Cons headT tail)
       (#try.Success [[env tail] headT]))))
@@ -118,7 +122,7 @@
 (def: #export (local types poly)
   (All [a] (-> (List Type) (Parser a) (Parser a)))
   (.function (_ [env pass-through])
-    (case (run' env types poly)
+    (case (run' env poly types)
       (#try.Failure error)
       (#try.Failure error)
 
@@ -147,14 +151,14 @@
   [(def: #export (<name> poly)
      (All [a] (-> (Parser a) (Parser a)))
      (do //.monad
-       [headT any]
+       [headT ..any]
        (let [members (<flattener> (type.un-name headT))]
          (if (n.> 1 (list.size members))
            (local members poly)
            (//.fail (exception.construct <exception> headT))))))]
 
-  [variant type.flatten-variant #.Sum     not-variant]
-  [tuple   type.flatten-tuple   #.Product not-tuple]
+  [variant type.flatten-variant #.Sum     ..not-variant]
+  [tuple   type.flatten-tuple   #.Product ..not-tuple]
   )
 
 (def: polymorphic'
@@ -163,7 +167,7 @@
     [headT any
      #let [[num-arg bodyT] (type.flatten-univ-q (type.un-name headT))]]
     (if (n.= 0 num-arg)
-      (//.fail (exception.construct not-polymorphic headT))
+      (//.fail (exception.construct ..not-polymorphic headT))
       (wrap [num-arg bodyT]))))
 
 (def: #export (polymorphic poly)
@@ -211,7 +215,7 @@
     (if (n.> 0 (list.size inputsT))
       (//.and (local inputsT in-poly)
               (local (list outputT) out-poly))
-      (//.fail (exception.construct not-function headT)))))
+      (//.fail (exception.construct ..not-function headT)))))
 
 (def: #export (apply poly)
   (All [a] (-> (Parser a) (Parser a)))
@@ -219,8 +223,8 @@
     [headT any
      #let [[funcT paramsT] (type.flatten-application (type.un-name headT))]]
     (if (n.= 0 (list.size paramsT))
-      (//.fail (exception.construct not-application headT))
-      (local (#.Cons funcT paramsT) poly))))
+      (//.fail (exception.construct ..not-application headT))
+      (..local (#.Cons funcT paramsT) poly))))
 
 (template [<name> <test>]
   [(def: #export (<name> expected)
@@ -229,7 +233,7 @@
        [actual any]
        (if (<test> expected actual)
          (wrap [])
-         (//.fail (exception.construct types-do-not-match [expected actual])))))]
+         (//.fail (exception.construct ..types-do-not-match [expected actual])))))]
 
   [exactly type@=]
   [sub     check.checks?]
@@ -255,10 +259,10 @@
         (wrap poly-code)
 
         #.None
-        (//.fail (exception.construct unknown-parameter headT)))
+        (//.fail (exception.construct ..unknown-parameter headT)))
 
       _
-      (//.fail (exception.construct not-parameter headT)))))
+      (//.fail (exception.construct ..not-parameter headT)))))
 
 (def: #export (parameter! id)
   (-> Nat (Parser Any))
@@ -269,10 +273,10 @@
       (#.Parameter idx)
       (if (n.= id (adjusted-idx env idx))
         (wrap [])
-        (//.fail (exception.construct wrong-parameter [(#.Parameter id) headT])))
+        (//.fail (exception.construct ..wrong-parameter [(#.Parameter id) headT])))
 
       _
-      (//.fail (exception.construct not-parameter headT)))))
+      (//.fail (exception.construct ..not-parameter headT)))))
 
 (def: #export existential
   (Parser Nat)
@@ -283,7 +287,7 @@
       (wrap ex-id)
 
       _
-      (//.fail (exception.construct not-existential headT)))))
+      (//.fail (exception.construct ..not-existential headT)))))
 
 (def: #export named
   (Parser [Name Type])
@@ -294,7 +298,7 @@
       (wrap [name anonymousT])
 
       _
-      (//.fail (exception.construct not-named inputT)))))
+      (//.fail (exception.construct ..not-named inputT)))))
 
 (def: #export (recursive poly)
   (All [a] (-> (Parser a) (Parser [Code a])))
@@ -310,7 +314,7 @@
         (wrap [recT output]))
 
       _
-      (//.fail (exception.construct not-recursive headT)))))
+      (//.fail (exception.construct ..not-recursive headT)))))
 
 (def: #export recursive-self
   (Parser Code)
@@ -324,7 +328,7 @@
       (wrap self-call)
 
       _
-      (//.fail (exception.construct not-recursive headT)))))
+      (//.fail (exception.construct ..not-recursive headT)))))
 
 (def: #export recursive-call
   (Parser Code)
@@ -337,12 +341,3 @@
                 (monad.map @ (function.constant ..parameter))
                 (local allT)))]
     (wrap (` ((~+ allC))))))
-
-(def: #export log!
-  (All [a] (Parser a))
-  (do //.monad
-    [current any
-     #let [_ (.log! ($_ text@compose
-                        "{" (name@encode (name-of ..log)) "} "
-                        (%.type current)))]]
-    (//.fail "LOGGING")))
