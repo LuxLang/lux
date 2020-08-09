@@ -5,7 +5,7 @@
     [monad (#+ do)]]
    [control
     ["." try (#+ Try)]
-    ["." exception]
+    ["." exception (#+ Exception)]
     ["." function]]
    [data
     ["." maybe]
@@ -30,6 +30,15 @@
   (case <value>
     <pattern>
     true
+    
+    _
+    false))
+
+(def: (should-fail' sample parser exception)
+  (All [a e] (-> Text (/.Parser a) (Exception e) Bit))
+  (case (/.run parser sample)
+    (#try.Failure error)
+    (exception.match? exception error)
     
     _
     false))
@@ -153,12 +162,16 @@
                                      (text.contains? options)
                                      not)
                                 (random.char unicode.full))]
-        (_.cover [/.one-of /.one-of!]
+        (_.cover [/.one-of /.one-of! /.character-should-be]
                  (and (..should-pass (text.from-code expected) (/.one-of options))
                       (..should-fail (text.from-code invalid) (/.one-of options))
+                      (..should-fail' (text.from-code invalid) (/.one-of options)
+                                      /.character-should-be)
 
                       (..should-pass! (text.from-code expected) (/.one-of! options))
-                      (..should-fail (text.from-code invalid) (/.one-of options)))))
+                      (..should-fail (text.from-code invalid) (/.one-of! options))
+                      (..should-fail' (text.from-code invalid) (/.one-of! options)
+                                      /.character-should-be))))
       (do {@ random.monad}
         [#let [num-options 3]
          options (|> (random.char unicode.full)
@@ -175,12 +188,16 @@
                                       (text.contains? options)
                                       not)
                                  (random.char unicode.full))]
-        (_.cover [/.none-of /.none-of!]
+        (_.cover [/.none-of /.none-of! /.character-should-not-be]
                  (and (..should-pass (text.from-code expected) (/.none-of options))
                       (..should-fail (text.from-code invalid) (/.none-of options))
+                      (..should-fail' (text.from-code invalid) (/.none-of options)
+                                      /.character-should-not-be)
 
                       (..should-pass! (text.from-code expected) (/.none-of! options))
-                      (..should-fail (text.from-code invalid) (/.none-of! options)))))
+                      (..should-fail (text.from-code invalid) (/.none-of! options))
+                      (..should-fail' (text.from-code invalid) (/.none-of! options)
+                                      /.character-should-not-be))))
       ))
 
 (def: runs
@@ -288,19 +305,23 @@
              expected (random.unicode size)
              dummy (|> (random.unicode size)
                        (random.filter (|>> (text@= expected) not)))]
-            (_.cover [/.this]
+            (_.cover [/.this /.cannot-match]
                      (and (|> (/.run (/.this expected)
                                      expected)
                               (!expect (#try.Success [])))
                           (|> (/.run (/.this expected)
                                      dummy)
-                              (!expect (#try.Failure _))))))
-          (do {@ random.monad}
-            [expected (random.unicode 1)]
-            (_.cover [/.Slice /.slice /.cannot-slice]
-                     (|> ""
-                         (/.run (/.slice /.any!))
-                         (!expect (^multi (#try.Failure error)
+                              (!expect (^multi (#try.Failure error)
+                                               (exception.match? /.cannot-match error)))))))
+          (_.cover [/.Slice /.slice /.cannot-slice]
+                   (|> ""
+                       (/.run (do <>.monad
+                                [#let [_ (log! " PRE SLICE")]
+                                 slice (/.slice /.any!)
+                                 #let [_ (log! "POST SLICE")]]
+                                (wrap slice)))
+                       (!expect (^multi (#try.Failure error)
+                                        (exec (log! (format "error = " error))
                                           (exception.match? /.cannot-slice error))))))
           (do {@ random.monad}
             [expected (random.unicode 1)]
@@ -344,7 +365,8 @@
                          (/.run (do <>.monad
                                   [pre /.get-input
                                    _ /.any
-                                   post /.get-input]
+                                   post /.get-input
+                                   _ /.any]
                                   (wrap (and (text@= input pre)
                                              (text@= right post)))))
                          (!expect (#try.Success #1)))))
@@ -411,9 +433,10 @@
           (do {@ random.monad}
             [expected (random.unicode 1)
              invalid (random.unicode 1)]
-            (_.cover [/.satisfies]
+            (_.cover [/.satisfies /.character-does-not-satisfy-predicate]
                      (and (..should-pass expected (/.satisfies (function.constant true)))
-                          (..should-fail invalid (/.satisfies (function.constant false))))))
+                          (..should-fail' invalid (/.satisfies (function.constant false))
+                                          /.character-does-not-satisfy-predicate))))
           ..character-classes
           ..runs
           )))

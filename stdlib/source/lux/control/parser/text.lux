@@ -8,7 +8,7 @@
    [data
     ["." product]
     ["." maybe]
-    ["/" text ("#@." monoid)]
+    ["/" text (#+ Char) ("#@." monoid)]
     [number
      ["n" nat ("#@." decimal)]]
     [collection
@@ -96,7 +96,7 @@
                       #distance 1}])
 
       _
-      (exception.throw ..cannot-parse []))))
+      (exception.throw ..cannot-slice []))))
 
 (template [<name> <type> <any>]
   [(def: #export (<name> p)
@@ -114,20 +114,23 @@
   [not! Slice ..any!]
   )
 
-(with-expansions [<failure> (as-is (#try.Failure ($_ /@compose "Could not match: " (/.encode reference) " @ " (maybe.assume (/.clip' offset tape)))))]
-  (def: #export (this reference)
-    {#.doc "Lex a text if it matches the given sample."}
-    (-> Text (Parser Any))
-    (function (_ [offset tape])
-      (case (/.index-of' reference offset tape)
-        (#.Some where)
-        (if (n.= offset where)
-          (#try.Success [[("lux i64 +" (/.size reference) offset) tape]
-                         []])
-          <failure>)
+(exception: #export (cannot-match {reference Text})
+  (exception.report
+   ["Reference" (/.encode reference)]))
 
-        _
-        <failure>))))
+(def: #export (this reference)
+  {#.doc "Lex a text if it matches the given sample."}
+  (-> Text (Parser Any))
+  (function (_ [offset tape])
+    (case (/.index-of' reference offset tape)
+      (#.Some where)
+      (if (n.= offset where)
+        (#try.Success [[("lux i64 +" (/.size reference) offset) tape]
+                       []])
+        (exception.throw ..cannot-match [reference]))
+
+      _
+      (exception.throw ..cannot-match [reference]))))
 
 (def: #export end!
   {#.doc "Ensure the parser's input is empty."}
@@ -195,59 +198,69 @@
       (range (char "a") (char "f"))
       (range (char "A") (char "F"))))
 
-(template [<name> <description-modifier> <modifier>]
+(template [<name>]
+  [(exception: #export (<name> {options Text} {character Char})
+     (exception.report
+      ["Options" (/.encode options)]
+      ["Character" (/.encode (/.from-code character))]))]
+
+  [character-should-be]
+  [character-should-not-be]
+  )
+
+(template [<name> <modifier> <exception> <description-modifier>]
   [(def: #export (<name> options)
      {#.doc (code.text ($_ /@compose "Only lex characters that are" <description-modifier> " part of a piece of text."))}
      (-> Text (Parser Text))
      (function (_ [offset tape])
        (case (/.nth offset tape)
          (#.Some output)
-         (let [output (/.from-code output)]
-           (if (<modifier> (/.contains? output options))
-             (#try.Success [[("lux i64 +" 1 offset) tape] output])
-             (#try.Failure ($_ /@compose "Character (" output
-                               ") is should " <description-modifier>
-                               "be one of: " options))))
+         (let [output' (/.from-code output)]
+           (if (<modifier> (/.contains? output' options))
+             (#try.Success [[("lux i64 +" 1 offset) tape] output'])
+             (exception.throw <exception> [options output])))
 
          _
          (exception.throw ..cannot-parse []))))]
 
-  [one-of  ""     |>]
-  [none-of " not" .not]
+  [one-of  |>   ..character-should-be ""]
+  [none-of .not ..character-should-not-be " not"]
   )
 
-(template [<name> <description-modifier> <modifier>]
+(template [<name> <modifier> <exception> <description-modifier>]
   [(def: #export (<name> options)
      {#.doc (code.text ($_ /@compose "Only lex characters that are" <description-modifier> " part of a piece of text."))}
      (-> Text (Parser Slice))
      (function (_ [offset tape])
        (case (/.nth offset tape)
          (#.Some output)
-         (let [output (/.from-code output)]
-           (if (<modifier> (/.contains? output options))
+         (let [output' (/.from-code output)]
+           (if (<modifier> (/.contains? output' options))
              (#try.Success [[("lux i64 +" 1 offset) tape]
                             {#basis offset
                              #distance 1}])
-             (#try.Failure ($_ /@compose "Character (" output
-                               ") is should " <description-modifier>
-                               "be one of: " options))))
+             (exception.throw <exception> [options output])))
 
          _
-         (exception.throw ..cannot-parse []))))]
+         (exception.throw ..cannot-slice []))))]
 
-  [one-of!  ""     |>]
-  [none-of! " not" .not]
+  [one-of!  |>   ..character-should-be ""]
+  [none-of! .not ..character-should-not-be " not"]
   )
+
+(exception: #export (character-does-not-satisfy-predicate {character Char})
+  (exception.report
+   ["Character" (/.encode (/.from-code character))]))
 
 (def: #export (satisfies p)
   {#.doc "Only lex characters that satisfy a predicate."}
-  (-> (-> Nat Bit) (Parser Text))
+  (-> (-> Char Bit) (Parser Text))
   (function (_ [offset tape])
     (case (/.nth offset tape)
       (#.Some output)
       (if (p output)
         (#try.Success [[("lux i64 +" 1 offset) tape] (/.from-code output)])
-        (#try.Failure ($_ /@compose "Character does not satisfy predicate: " (/.from-code output))))
+        (exception.throw ..character-does-not-satisfy-predicate [output]))
 
       _
       (exception.throw ..cannot-parse []))))

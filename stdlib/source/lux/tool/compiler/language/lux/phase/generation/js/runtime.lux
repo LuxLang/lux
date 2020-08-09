@@ -71,10 +71,6 @@
   (let [mask (dec (i64.left-shift 32 1))]
     (|>> (i64.and mask))))
 
-(def: #export variant-tag-field "_lux_tag")
-(def: #export variant-flag-field "_lux_flag")
-(def: #export variant-value-field "_lux_value")
-
 (def: #export unit Computation (_.string /////synthesis.unit))
 
 (def: #export (flag value)
@@ -82,28 +78,6 @@
   (if value
     (_.string "")
     _.null))
-
-(def: #export (variant tag last? value)
-  (-> Expression Expression Expression Computation)
-  (_.object (list [..variant-tag-field tag]
-                  [..variant-flag-field last?]
-                  [..variant-value-field value])))
-
-(def: none
-  Computation
-  (..variant (_.i32 +0) (flag #0) unit))
-
-(def: some
-  (-> Expression Computation)
-  (..variant (_.i32 +1) (flag #1)))
-
-(def: left
-  (-> Expression Computation)
-  (..variant (_.i32 +0) (flag #0)))
-
-(def: right
-  (-> Expression Computation)
-  (..variant (_.i32 +1) (flag #1)))
 
 (def: (feature name definition)
   (-> Var (-> Var Expression) Statement)
@@ -173,11 +147,6 @@
                                         (_.function (~ g!_) (list (~+ inputsC))
                                           (~ code)))))))))))))
 
-(runtime: (lux//try op)
-  (with-vars [ex]
-    (_.try (_.return (..right (_.apply/1 op ..unit)))
-           [ex (_.return (..left (|> ex (_.do "toString" (list)))))])))
-
 (def: length
   (-> Expression Computation)
   (_.the "length"))
@@ -189,25 +158,6 @@
 (def: (last-element tuple)
   (_.at (..last-index tuple)
         tuple))
-
-(runtime: (lux//program-args inputs)
-  (with-vars [output idx]
-    ($_ _.then
-        (_.define output ..none)
-        (_.for idx
-               (..last-index inputs)
-               (_.>= (_.i32 +0) idx)
-               (_.-- idx)
-               (_.set output (..some (_.array (list (_.at idx inputs)
-                                                    output)))))
-        (_.return output))))
-
-(def: runtime//lux
-  Statement
-  ($_ _.then
-      @lux//try
-      @lux//program-args
-      ))
 
 (with-expansions [<recur> (as-is ($_ _.then
                                      (_.set lefts (_.- last-index-right lefts))
@@ -237,6 +187,19 @@
                       (_.return (_.do "slice" (list right-index) tuple)))
               )))))
 
+(def: #export variant-tag-field "_lux_tag")
+(def: #export variant-flag-field "_lux_flag")
+(def: #export variant-value-field "_lux_value")
+
+(runtime: (variant//create tag last? value)
+  (_.return (_.object (list [..variant-tag-field tag]
+                            [..variant-flag-field last?]
+                            [..variant-value-field value]))))
+
+(def: #export (variant tag last? value)
+  (-> Expression Expression Expression Computation)
+  (..variant//create tag last? value))
+
 (runtime: (sum//get sum wants-last wanted-tag)
   (let [no-match! (_.return _.null)
         sum-tag (|> sum (_.the ..variant-tag-field))
@@ -263,12 +226,53 @@
                        extrac-sub-variant!])
                 no-match!))))
 
+(def: none
+  Computation
+  (..variant (_.i32 +0) (flag #0) unit))
+
+(def: some
+  (-> Expression Computation)
+  (..variant (_.i32 +1) (flag #1)))
+
+(def: left
+  (-> Expression Computation)
+  (..variant (_.i32 +0) (flag #0)))
+
+(def: right
+  (-> Expression Computation)
+  (..variant (_.i32 +1) (flag #1)))
+
 (def: runtime//structure
   Statement
   ($_ _.then
       @tuple//left
       @tuple//right
+      @variant//create
       @sum//get
+      ))
+
+(runtime: (lux//try op)
+  (with-vars [ex]
+    (_.try (_.return (..right (_.apply/1 op ..unit)))
+           [ex (_.return (..left (|> ex (_.do "toString" (list)))))])))
+
+(runtime: (lux//program-args inputs)
+  (with-vars [output idx]
+    ($_ _.then
+        (_.define output ..none)
+        (_.for idx
+               (..last-index inputs)
+               (_.>= (_.i32 +0) idx)
+               (_.-- idx)
+               (_.set output (..some (_.array (list (_.at idx inputs)
+                                                    output)))))
+        (_.return output))))
+
+(def: runtime//lux
+  Statement
+  ($_ _.then
+      @lux//try
+      @lux//program-args
       ))
 
 (def: #export i64-low-field Text "_lux_low")
@@ -752,13 +756,13 @@
 (def: runtime
   Statement
   ($_ _.then
-      runtime//lux
       runtime//structure
       runtime//i64
       runtime//text
       runtime//io
       runtime//js
       runtime//array
+      runtime//lux
       ))
 
 (def: #export artifact
