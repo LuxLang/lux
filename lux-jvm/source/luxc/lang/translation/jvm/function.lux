@@ -1,7 +1,8 @@
 (.module:
   [lux (#- Type function)
    [abstract
-    ["." monad (#+ do)]]
+    ["." monad (#+ do)]
+    ["." enum]]
    [control
     [pipe (#+ when> new>)]
     ["." function]]
@@ -48,11 +49,11 @@
   (n.> 1 arity))
 
 (def: (captured-args env)
-  (-> Environment (List (Type Value)))
+  (-> (Environment Synthesis) (List (Type Value)))
   (list.repeat (list.size env) //.$Value))
 
 (def: (init-method env arity)
-  (-> Environment Arity (Type Method))
+  (-> (Environment Synthesis) Arity (Type Method))
   (if (poly-arg? arity)
     (type.method [(list.concat (list (captured-args env)
                                      (list type.int)
@@ -76,7 +77,7 @@
 
 (def: (inputsI start amount)
   (-> Register Nat Inst)
-  (|> (list.n/range start (n.+ start (dec amount)))
+  (|> (enum.range n.enum start (n.+ start (dec amount)))
       (list@map _.ALOAD)
       _.fuse))
 
@@ -102,10 +103,10 @@
       (list.repeat amount)
       _.fuse))
 
-(def: (instance archive class arity env)
-  (-> Archive (Type Class) Arity Environment (Operation Inst))
+(def: (instance generate archive class arity env)
+  (-> Phase Archive (Type Class) Arity (Environment Synthesis) (Operation Inst))
   (do {@ phase.monad}
-    [captureI+ (monad.map @ (reference.variable archive) env)
+    [captureI+ (monad.map @ (generate archive) env)
      #let [argsI (if (poly-arg? arity)
                    (|> (nullsI (dec arity))
                        (list (_.int +0))
@@ -122,13 +123,13 @@
   (type.method [(list) return (list)]))
 
 (def: (with-reset class arity env)
-  (-> (Type Class) Arity Environment Def)
+  (-> (Type Class) Arity (Environment Synthesis) Def)
   (def.method #$.Public $.noneM "reset" (reset-method class)
               (if (poly-arg? arity)
                 (let [env-size (list.size env)
                       captureI (|> (case env-size
                                      0 (list)
-                                     _ (list.n/range 0 (dec env-size)))
+                                     _ (enum.range n.enum 0 (dec env-size)))
                                    (list@map (.function (_ source)
                                                (|>> (_.ALOAD 0)
                                                     (_.GETFIELD class (reference.foreign-name source) //.$Value))))
@@ -164,20 +165,20 @@
          (_.INVOKESPECIAL //.$Function "<init>" function-init-method))))
 
 (def: (with-init class env arity)
-  (-> (Type Class) Environment Arity Def)
+  (-> (Type Class) (Environment Synthesis) Arity Def)
   (let [env-size (list.size env)
         offset-partial (: (-> Nat Nat)
                           (|>> inc (n.+ env-size)))
         store-capturedI (|> (case env-size
                               0 (list)
-                              _ (list.n/range 0 (dec env-size)))
+                              _ (enum.range n.enum 0 (dec env-size)))
                             (list@map (.function (_ register)
                                         (|>> (_.ALOAD 0)
                                              (_.ALOAD (inc register))
                                              (_.PUTFIELD class (reference.foreign-name register) //.$Value))))
                             _.fuse)
         store-partialI (if (poly-arg? arity)
-                         (|> (list.n/range 0 (n.- 2 arity))
+                         (|> (enum.range n.enum 0 (n.- 2 arity))
                              (list@map (.function (_ idx)
                                          (let [register (offset-partial idx)]
                                            (|>> (_.ALOAD 0)
@@ -193,17 +194,17 @@
                      _.RETURN))))
 
 (def: (with-apply class env function-arity @begin bodyI apply-arity)
-  (-> (Type Class) Environment Arity Label Inst Arity
+  (-> (Type Class) (Environment Synthesis) Arity Label Inst Arity
       Def)
   (let [num-partials (dec function-arity)
         @default ($.new-label [])
         @labels (list@map $.new-label (list.repeat num-partials []))
         over-extent (|> (.int function-arity) (i.- (.int apply-arity)))
         casesI (|> (list@compose @labels (list @default))
-                   (list.zip2 (list.n/range 0 num-partials))
+                   (list.zip2 (enum.range n.enum 0 num-partials))
                    (list@map (.function (_ [stage @label])
                                (let [load-partialsI (if (n.> 0 stage)
-                                                      (|> (list.n/range 0 (dec stage))
+                                                      (|> (enum.range n.enum 0 (dec stage))
                                                           (list@map (|>> reference.partial-name (load-fieldI class)))
                                                           _.fuse)
                                                       function.identity)]
@@ -233,7 +234,7 @@
                                        (let [env-size (list.size env)
                                              load-capturedI (|> (case env-size
                                                                   0 (list)
-                                                                  _ (list.n/range 0 (dec env-size)))
+                                                                  _ (enum.range n.enum 0 (dec env-size)))
                                                                 (list@map (|>> reference.foreign-name (load-fieldI class)))
                                                                 _.fuse)]
                                          (|>> (_.label @label)
@@ -257,7 +258,7 @@
                      ))))
 
 (def: #export with-environment
-  (-> Environment Def)
+  (-> (Environment Synthesis) Def)
   (|>> list.enumerate
        (list@map (.function (_ [env-idx env-source])
                    (def.field #$.Private $.finalF (reference.foreign-name env-idx) //.$Value)))
@@ -266,20 +267,20 @@
 (def: (with-partial arity)
   (-> Arity Def)
   (if (poly-arg? arity)
-    (|> (list.n/range 0 (n.- 2 arity))
+    (|> (enum.range n.enum 0 (n.- 2 arity))
         (list@map (.function (_ idx)
                     (def.field #$.Private $.finalF (reference.partial-name idx) //.$Value)))
         def.fuse)
     function.identity))
 
-(def: #export (with-function archive @begin class env arity bodyI)
-  (-> Archive Label Text Environment Arity Inst
+(def: #export (with-function generate archive @begin class env arity bodyI)
+  (-> Phase Archive Label Text (Environment Synthesis) Arity Inst
       (Operation [Def Inst]))
   (let [classD (type.class class (list))
         applyD (: Def
                   (if (poly-arg? arity)
                     (|> (n.min arity //runtime.num-apply-variants)
-                        (list.n/range 1)
+                        (enum.range n.enum 1)
                         (list@map (with-apply classD env arity @begin bodyI))
                         (list& (with-implementation arity @begin bodyI))
                         def.fuse)
@@ -296,7 +297,7 @@
                           applyD
                           ))]
     (do phase.monad
-      [instanceI (instance archive classD arity env)]
+      [instanceI (..instance generate archive classD arity env)]
       (wrap [functionD instanceI]))))
 
 (def: #export (function generate archive [env arity bodyS])
@@ -307,13 +308,14 @@
                                 (generation.with-anchor [@begin 1]
                                   (generate archive bodyS)))
      #let [function-class (//.class-name function-context)]
-     [functionD instanceI] (with-function archive @begin function-class env arity bodyI)
-     _ (generation.save! true ["" (%.nat (product.right function-context))]
-                         [function-class
-                          (def.class #$.V1_6 #$.Public $.finalC
-                                     function-class (list)
-                                     //.$Function (list)
-                                     functionD)])]
+     [functionD instanceI] (..with-function generate archive @begin function-class env arity bodyI)
+     #let [directive [function-class
+                      (def.class #$.V1_6 #$.Public $.finalC
+                                 function-class (list)
+                                 //.$Function (list)
+                                 functionD)]]
+     _ (generation.execute! directive)
+     _ (generation.save! (%.nat (product.right function-context)) directive)]
     (wrap instanceI)))
 
 (def: #export (call generate archive [functionS argsS])

@@ -792,7 +792,7 @@
   (<s>.tuple (<>.and <s>.text ..value)))
 
 (def: overriden-method-definition
-  (Parser [Environment (/.Overriden-Method Synthesis)])
+  (Parser [(Environment Synthesis) (/.Overriden-Method Synthesis)])
   (<s>.tuple (do <>.monad
                [_ (<s>.text! /.overriden-tag)
                 ownerT ..class
@@ -849,7 +849,7 @@
       )))
 
 (def: (normalize-method-body mapping)
-  (-> (Dictionary Variable Variable) Synthesis Synthesis)
+  (-> (Dictionary Synthesis Variable) Synthesis Synthesis)
   (function (recur body)
     (case body
       (^template [<tag>]
@@ -866,7 +866,7 @@
 
       (^ (synthesis.variable var))
       (|> mapping
-          (dictionary.get var)
+          (dictionary.get body)
           (maybe.default var)
           synthesis.variable)
 
@@ -889,10 +889,17 @@
       (synthesis.loop/recur (list@map recur updatesS+))
 
       (^ (synthesis.function/abstraction [environment arity bodyS]))
-      (synthesis.function/abstraction [(|> environment (list@map (function (_ local)
-                                                                   (|> mapping
-                                                                       (dictionary.get local)
-                                                                       (maybe.default local)))))
+      (synthesis.function/abstraction [(list@map (function (_ captured)
+                                                   (case captured
+                                                     (^ (synthesis.variable var))
+                                                     (|> mapping
+                                                         (dictionary.get captured)
+                                                         (maybe.default var)
+                                                         synthesis.variable)
+
+                                                     _
+                                                     captured))
+                                                 environment)
                                        arity
                                        bodyS])
 
@@ -905,13 +912,13 @@
 (def: $Object (type.class "java.lang.Object" (list)))
 
 (def: (anonymous-init-method env)
-  (-> Environment (Type Method))
+  (-> (Environment Synthesis) (Type Method))
   (type.method [(list.repeat (list.size env) $Object)
                 type.void
                 (list)]))
 
 (def: (with-anonymous-init class env super-class inputsTI)
-  (-> (Type Class) Environment (Type Class) (List (Typed Inst)) Def)
+  (-> (Type Class) (Environment Synthesis) (Type Class) (List (Typed Inst)) Def)
   (let [store-capturedI (|> env
                             list.size
                             list.indices
@@ -927,10 +934,10 @@
                       store-capturedI
                       _.RETURN))))
 
-(def: (anonymous-instance archive class env)
-  (-> Archive (Type Class) Environment (Operation Inst))
+(def: (anonymous-instance generate archive class env)
+  (-> Phase Archive (Type Class) (Environment Synthesis) (Operation Inst))
   (do {@ phase.monad}
-    [captureI+ (monad.map @ (///reference.variable archive) env)]
+    [captureI+ (monad.map @ (generate archive) env)]
     (wrap (|>> (_.NEW class)
                _.DUP
                (_.fuse captureI+)
@@ -987,14 +994,14 @@
                                      ## Combine them.
                                      list@join
                                      ## Remove duplicates.
-                                     (set.from-list variable.hash)
+                                     (set.from-list synthesis.hash)
                                      set.to-list)
                global-mapping (|> total-environment
                                   ## Give them names as "foreign" variables.
                                   list.enumerate
                                   (list@map (function (_ [id capture])
                                               [capture (#variable.Foreign id)]))
-                                  (dictionary.from-list variable.hash))
+                                  (dictionary.from-list synthesis.hash))
                normalized-methods (list@map (function (_ [environment
                                                           [ownerT name
                                                            strict-fp? annotations vars
@@ -1003,11 +1010,11 @@
                                               (let [local-mapping (|> environment
                                                                       list.enumerate
                                                                       (list@map (function (_ [foreign-id capture])
-                                                                                  [(#variable.Foreign foreign-id)
+                                                                                  [(synthesis.variable/foreign foreign-id)
                                                                                    (|> global-mapping
                                                                                        (dictionary.get capture)
                                                                                        maybe.assume)]))
-                                                                      (dictionary.from-list variable.hash))]
+                                                                      (dictionary.from-list synthesis.hash))]
                                                 [ownerT name
                                                  strict-fp? annotations vars
                                                  self-name arguments returnT exceptionsT
@@ -1032,15 +1039,16 @@
                                                                                   exceptionsT])
                                                                     (|>> bodyG (returnI returnT)))))))
                                 (:: @ map _def.fuse))
-         _ (generation.save! true ["" (%.nat artifact-id)]
-                             [anonymous-class-name
-                              (_def.class #$.V1_6 #$.Public $.finalC
-                                          anonymous-class-name (list)
-                                          super-class super-interfaces
-                                          (|>> (///function.with-environment total-environment)
-                                               (..with-anonymous-init class total-environment super-class inputsTI)
-                                               method-definitions))])]
-        (anonymous-instance archive class total-environment)))]))
+         #let [directive [anonymous-class-name
+                          (_def.class #$.V1_6 #$.Public $.finalC
+                                      anonymous-class-name (list)
+                                      super-class super-interfaces
+                                      (|>> (///function.with-environment total-environment)
+                                           (..with-anonymous-init class total-environment super-class inputsTI)
+                                           method-definitions))]]
+         _ (generation.execute! directive)
+         _ (generation.save! (%.nat artifact-id) directive)]
+        (..anonymous-instance generate archive class total-environment)))]))
 
 (def: bundle::class
   Bundle

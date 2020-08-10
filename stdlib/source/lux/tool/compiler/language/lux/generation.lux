@@ -9,7 +9,7 @@
    [data
     [binary (#+ Binary)]
     ["." product]
-    ["." name ("#@." equivalence)]
+    ["." name]
     ["." text ("#@." equivalence)
      ["%" format (#+ format)]]
     [number
@@ -29,25 +29,25 @@
       ["." artifact]]]]])
 
 (type: #export Context [archive.ID artifact.ID])
-(type: #export (Buffer directive) (Row [Name directive]))
+(type: #export (Buffer directive) (Row [Text directive]))
 
 (exception: #export (cannot-interpret {error Text})
   (exception.report
    ["Error" error]))
 
 (template [<name>]
-  [(exception: #export (<name> {name Name})
+  [(exception: #export (<name> {name Text})
      (exception.report
-      ["Output" (%.name name)]))]
+      ["Output" (%.text name)]))]
 
   [cannot-overwrite-output]
   [no-buffer-for-saving-code]
   )
 
 (signature: #export (Host expression directive)
-  (: (-> Text expression (Try Any))
+  (: (-> Context expression (Try Any))
      evaluate!)
-  (: (-> Text directive (Try Any))
+  (: (-> directive (Try Any))
      execute!)
   (: (-> Context expression (Try [Text Any directive]))
      define!)
@@ -183,21 +183,27 @@
     (Operation anchor expression directive Module))
   (extension.read (get@ #module)))
 
-(template [<name> <inputT>]
-  [(def: #export (<name> label code)
-     (All [anchor expression directive]
-       (-> Text <inputT> (Operation anchor expression directive Any)))
-     (function (_ (^@ state+ [bundle state]))
-       (case (:: (get@ #host state) <name> label code)
-         (#try.Success output)
-         (#try.Success [state+ output])
+(def: #export (evaluate! label code)
+  (All [anchor expression directive]
+    (-> Context expression (Operation anchor expression directive Any)))
+  (function (_ (^@ state+ [bundle state]))
+    (case (:: (get@ #host state) evaluate! label code)
+      (#try.Success output)
+      (#try.Success [state+ output])
 
-         (#try.Failure error)
-         (exception.throw ..cannot-interpret error))))]
+      (#try.Failure error)
+      (exception.throw ..cannot-interpret error))))
 
-  [evaluate! expression]
-  [execute!  directive]
-  )
+(def: #export (execute! code)
+  (All [anchor expression directive]
+    (-> directive (Operation anchor expression directive Any)))
+  (function (_ (^@ state+ [bundle state]))
+    (case (:: (get@ #host state) execute! code)
+      (#try.Success output)
+      (#try.Success [state+ output])
+
+      (#try.Failure error)
+      (exception.throw ..cannot-interpret error))))
 
 (def: #export (define! context code)
   (All [anchor expression directive]
@@ -210,19 +216,14 @@
       (#try.Failure error)
       (exception.throw ..cannot-interpret error))))
 
-(def: #export (save! execute? name code)
+(def: #export (save! name code)
   (All [anchor expression directive]
-    (-> Bit Name directive (Operation anchor expression directive Any)))
+    (-> Text directive (Operation anchor expression directive Any)))
   (do {@ phase.monad}
-    [_ (if execute?
-         (do @
-           [label (..gensym "save")]
-           (execute! label code))
-         (wrap []))
-     ?buffer (extension.read (get@ #buffer))]
+    [?buffer (extension.read (get@ #buffer))]
     (case ?buffer
       (#.Some buffer)
-      (if (row.any? (|>> product.left (name@= name)) buffer)
+      (if (row.any? (|>> product.left (text@= name)) buffer)
         (phase.throw ..cannot-overwrite-output [name])
         (extension.update (set@ #buffer (#.Some (row.add [name code] buffer)))))
       
@@ -272,6 +273,14 @@
           (#try.Success [stateE [module-id id]]))))))
 
 (exception: #export no-context)
+
+(def: #export (module-id module archive)
+  (All [anchor expression directive]
+    (-> Module Archive (Operation anchor expression directive archive.ID)))
+  (function (_ (^@ stateE [bundle state]))
+    (do try.monad
+      [module-id (archive.id module archive)]
+      (wrap [stateE module-id]))))
 
 (def: #export (context archive)
   (All [anchor expression directive]
