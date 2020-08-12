@@ -1,0 +1,118 @@
+(.module:
+  [lux #*
+   [control
+    [pipe (#+ case>)]]
+   [data
+    ["." maybe ("#@." functor)]
+    [format
+     ["_" xml (#+ XML)]]
+    [collection
+     ["." list ("#@." monoid functor)]]]]
+  [//
+   ["/" project]])
+
+## https://maven.apache.org/pom.html
+
+(def: #export file
+  "pom.xml")
+
+(def: version
+  XML
+  (#_.Node ["" "modelVersion"] _.attrs
+           (list (#_.Text "4.0.0"))))
+
+(def: (property tag value)
+  (-> Text Text XML)
+  (#_.Node ["" tag]
+           _.attrs
+           (list (#_.Text value))))
+
+(def: (artifact value)
+  (-> /.Artifact (List XML))
+  (list (..property "groupId" (get@ #/.group value))
+        (..property "artifactId" (get@ #/.name value))
+        (..property "version" (get@ #/.version value))))
+
+(def: distribution
+  (-> /.Distribution XML)
+  (|>> (case> #/.Repo "repo"
+              #/.Manual "manual")
+       (..property "distribution")))
+
+(def: (license [name url distribution])
+  (-> /.License XML)
+  (|> (list (..property "name" name)
+            (..property "url" url)
+            (..distribution distribution))
+      (#_.Node ["" "license"] _.attrs)))
+
+(def: repository
+  (-> /.Repository XML)
+  (|>> (..property "url")
+       list
+       (#_.Node ["" "repository"] _.attrs)))
+
+(def: (dependency [artifact type])
+  (-> /.Dependency XML)
+  (#_.Node ["" "dependency"]
+           _.attrs
+           (list@compose (..artifact artifact)
+                         (list (..property "type" type)))))
+
+(def: scm
+  (-> /.SCM XML)
+  (|>> (..property "url")
+       list
+       (#_.Node ["" "scm"] _.attrs)))
+
+(def: (organization [name url])
+  (-> /.Organization XML)
+  (|> (list (..property "name" name)
+            (..property "url" url))
+      (#_.Node ["" "organization"] _.attrs)))
+
+(def: (developer-organization [name url])
+  (-> /.Organization (List XML))
+  (list (..property "organization" name)
+        (..property "organizationUrl" url)))
+
+(def: (developer' [name email organization])
+  (-> /.Developer (List XML))
+  (list& (..property "name" name)
+         (..property "email" email)
+         (|> organization (maybe@map ..developer-organization) (maybe.default (list)))))
+
+(template [<name> <type> <tag>]
+  [(def: <name>
+     (-> <type> XML)
+     (|>> ..developer' (#_.Node ["" <tag>] _.attrs)))]
+
+  [developer /.Developer "developer"]
+  [contributor /.Contributor "contributor"]
+  )
+
+(def: (group tag)
+  (-> Text (-> (List XML) XML))
+  (|>> (#_.Node ["" tag] _.attrs)))
+
+(def: (info value)
+  (-> /.Info (List XML))
+  ($_ list@compose
+      (|> value (get@ #/.url) (maybe@map (..property "url")) maybe.to-list)
+      (|> value (get@ #/.description) (maybe@map (..property "description")) maybe.to-list)
+      (|> value (get@ #/.licenses) (list@map ..license) (..group "licenses") list)
+      (|> value (get@ #/.scm) (maybe@map ..scm) maybe.to-list)
+      (|> value (get@ #/.organization) (maybe@map ..organization) maybe.to-list)
+      (|> value (get@ #/.developers) (list@map ..developer) (..group "developers") list)
+      (|> value (get@ #/.contributors) (list@map ..contributor) (..group "contributors") list)
+      ))
+
+(def: #export (project value)
+  (-> /.Project XML)
+  (#_.Node ["" "project"] _.attrs
+           ($_ list@compose
+               (list ..version)
+               (..artifact (get@ #/.identity value))
+               (|> value (get@ #/.repositories) (list@map ..repository) (..group "repositories") list)
+               (|> value (get@ #/.dependencies) (list@map ..dependency) (..group "dependencies") list)
+               )))
