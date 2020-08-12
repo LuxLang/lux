@@ -1,0 +1,93 @@
+(.module:
+  [lux (#- Name)
+   [abstract
+    [monad (#+ do)]]
+   [control
+    [pipe (#+ do>)]
+    ["." try (#+ Try)]
+    ["." io (#+ IO)]
+    [parser
+     ["." cli (#+ program:)]
+     ["<c>" code]]
+    [security
+     ["!" capability]]]
+   [data
+    [binary (#+ Binary)]
+    ["." text
+     ["%" format (#+ format)]
+     ["." encoding]]
+    [format
+     ["." xml]]]
+   [tool
+    [compiler
+     [language
+      [lux
+       ["." syntax]]]]]
+   [world
+    ["." file (#+ Path)]]]
+  ["." / #_
+   ["#" project]
+   ["#." parser]
+   ["#." pom]])
+
+(def: (read-file! path)
+  (-> Path (IO (Try Binary)))
+  (do (try.with io.monad)
+    [project-file (!.use (:: file.system file) [path])]
+    (!.use (:: project-file content) [])))
+
+(def: (write-pom! path project)
+  (-> Path /.Project (IO (Try Any)))
+  (do (try.with io.monad)
+    [file (!.use (:: file.system file) [path])]
+    (|> project
+        /pom.project
+        (:: xml.codec encode)
+        encoding.to-utf8
+        (!.use (:: file over-write)))))
+
+(def: (read-code source-code)
+  (-> Text (Try Code))
+  (let [parse (syntax.parse ""
+                            syntax.no-aliases
+                            (text.size source-code))
+        start (: Source
+                 [["" 0 0] 0 source-code])]
+    (case (parse start)
+      (#.Left [end error])
+      (#try.Failure error)
+      
+      (#.Right [end lux-code])
+      (#try.Success lux-code))))
+
+(def: project
+  (-> Binary (Try /.Project))
+  (|>> (do> try.monad
+            [encoding.from-utf8]
+            [..read-code]
+            [(list) (<c>.run /parser.project)])))
+
+(program: [project-file]
+  (do {@ io.monad}
+    [data (..read-file! project-file)]
+    (case data
+      (#try.Success data)
+      (case (..project data)
+        (#try.Success value)
+        (do @
+          [outcome (..write-pom! /pom.file value)]
+          (case outcome
+            (#try.Success value)
+            (wrap (log! "Successfully wrote POM file!"))
+            
+            (#try.Failure error)
+            (wrap (log! (format "Could not write POM file:" text.new-line
+                                error)))))
+        
+        (#try.Failure error)
+        (wrap (log! (format "Invalid format file:" text.new-line
+                            error))))
+      
+      (#try.Failure error)
+      (wrap (log! (format "Could not read file: "
+                          (%.text project-file)))))))
