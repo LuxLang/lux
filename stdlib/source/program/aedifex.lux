@@ -10,7 +10,9 @@
      ["." cli (#+ program:)]
      ["<c>" code]]
     [security
-     ["!" capability]]]
+     ["!" capability]]
+    [concurrency
+     ["." promise]]]
    [data
     [binary (#+ Binary)]
     ["." text
@@ -28,7 +30,9 @@
   ["." / #_
    ["#" project]
    ["#." parser]
-   ["#." pom]])
+   ["#." pom]
+   ["#." cli]
+   ["#." local]])
 
 (def: (read-file! path)
   (-> Path (IO (Try Binary)))
@@ -67,22 +71,36 @@
             [..read-code]
             [(list) (<c>.run /parser.project)])))
 
-(program: [project-file]
+(program: [{command /cli.command}]
   (do {@ io.monad}
-    [data (..read-file! project-file)]
+    [data (..read-file! /.file)]
     (case data
       (#try.Success data)
       (case (..project data)
-        (#try.Success value)
-        (do @
-          [outcome (..write-pom! /pom.file value)]
-          (case outcome
-            (#try.Success value)
-            (wrap (log! "Successfully wrote POM file!"))
-            
-            (#try.Failure error)
-            (wrap (log! (format "Could not write POM file:" text.new-line
-                                error)))))
+        (#try.Success project)
+        (case command
+          #/cli.POM
+          (do @
+            [outcome (..write-pom! /pom.file project)]
+            (case outcome
+              (#try.Success value)
+              (wrap (log! "Successfully wrote POM file!"))
+              
+              (#try.Failure error)
+              (wrap (log! (format "Could not write POM file:" text.new-line
+                                  error)))))
+          
+          #/cli.Install
+          (exec (do promise.monad
+                  [outcome (/local.install (file.async file.system) project)]
+                  (wrap (case outcome
+                          (#try.Success _)
+                          (log! "Successfully installed locally!")
+                          
+                          (#try.Failure error)
+                          (log! (format "Could not install locally:" text.new-line
+                                        error)))))
+            (wrap [])))
         
         (#try.Failure error)
         (wrap (log! (format "Invalid format file:" text.new-line
@@ -90,4 +108,4 @@
       
       (#try.Failure error)
       (wrap (log! (format "Could not read file: "
-                          (%.text project-file)))))))
+                          (%.text /.file)))))))

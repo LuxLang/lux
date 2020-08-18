@@ -1,13 +1,78 @@
 (.module:
   [lux #*
-   ["_" test (#+ Test)]]
+   ["_" test (#+ Test)]
+   [abstract
+    [monad (#+ do)]
+    {[0 #spec]
+     [/
+      ["$." equivalence]]}]
+   [math
+    ["." random (#+ Random) ("#@." monad)]]
+   [data
+    ["." text ("#@." equivalence)
+     ["." encoding (#+ Encoding)]]
+    [collection
+     ["." list]]]]
   ["." / #_
    ["#." language]
-   ["#." territory]])
+   ["#." territory]]
+  {1
+   ["." /
+    ["." language (#+ Language)]
+    ["." territory (#+ Territory)]]})
+
+(def: random-language
+  (Random Language)
+  (random.either (random@wrap language.afar)
+                 (random@wrap language.zaza)))
+
+(def: random-territory
+  (Random Territory)
+  (random.either (random@wrap territory.afghanistan)
+                 (random@wrap territory.zimbabwe)))
+
+(def: random-encoding
+  (Random Encoding)
+  (random.either (random@wrap encoding.ascii)
+                 (random@wrap encoding.koi8-u)))
+
+(def: random-locale
+  (Random /.Locale)
+  (do random.monad
+    [language ..random-language
+     territory ..random-territory
+     encoding ..random-encoding]
+    (wrap (/.locale language (#.Some territory) (#.Some encoding)))))
 
 (def: #export test
   Test
-  ($_ _.and
-      /language.test
-      /territory.test
-      ))
+  (<| (_.covering /._)
+      (_.with-cover [/.Locale])
+      ($_ _.and
+          (_.with-cover [/.equivalence]
+            ($equivalence.spec /.equivalence ..random-locale))
+          
+          (do random.monad
+            [language ..random-language
+             territory ..random-territory
+             encoding ..random-encoding
+             #let [l-locale (/.locale language #.None #.None)
+                   lt-locale (/.locale language (#.Some territory) #.None)
+                   le-locale (/.locale language #.None (#.Some encoding))
+                   lte-locale (/.locale language (#.Some territory) (#.Some encoding))]
+             #let [language-check (and (text@= (language.code language)
+                                               (/.code l-locale))
+                                       (list.every? (|>> /.code (text.starts-with? (language.code language)))
+                                                    (list lt-locale le-locale lte-locale)))
+                   territory-check (list.every? (|>> /.code (text.contains? (territory.long-code territory)))
+                                                (list lt-locale lte-locale))
+                   encoding-check (list.every? (|>> /.code (text.ends-with? (encoding.name encoding)))
+                                               (list le-locale lte-locale))]]
+            (_.cover [/.locale /.code]
+                     (and language-check
+                          territory-check
+                          encoding-check)))
+          
+          /language.test
+          /territory.test
+          )))

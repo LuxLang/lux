@@ -1,0 +1,86 @@
+(.module:
+  [lux #*
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    ["." io (#+ IO)]
+    ["." try (#+ Try)]
+    [concurrency
+     ["." promise (#+ Promise)]]
+    [security
+     ["!" capability]]]
+   [data
+    [binary (#+ Binary)]
+    ["." text
+     ["%" format (#+ format)]
+     ["." encoding]]
+    [collection
+     ["." list ("#@." monoid)]]
+    [format
+     ["." binary]
+     ["." tar]
+     ["." xml]]]
+   [world
+    ["." file (#+ Path File Directory)]]]
+  [program
+   [compositor
+    ["." export]]]
+  ["." // #_
+   ["#." project (#+ Project)]
+   ["#." pom]
+   ["#." dependency]])
+
+(def: group-separator
+  ".")
+
+(def: (local system)
+  (All [a] (-> (file.System a) Path))
+  (format "~" (:: system separator) ".m2"))
+
+(def: (repository system)
+  (All [a] (-> (file.System a) Path))
+  (format (..local system) (:: system separator) "repository"))
+
+(def: (guarantee-repository! system project)
+  (-> (file.System Promise) Project (Promise (Try Path)))
+  (do {@ (try.with promise.monad)}
+    [_ (: (Promise (Try (Directory Promise)))
+          (file.get-directory promise.monad system (..local system)))
+     #let [root (..repository system)
+           identity (get@ #//project.identity project)]
+     _ (: (Promise (Try (Directory Promise)))
+          (file.get-directory promise.monad system root))]
+    (monad.fold @
+                (function (_ child parent)
+                  (do @
+                    [#let [path (format parent (:: system separator) child)]
+                     _ (: (Promise (Try (Directory Promise)))
+                          (file.get-directory promise.monad system path))]
+                    (wrap path)))
+                root
+                (list@compose (|> identity
+                                  (get@ #//project.group)
+                                  (text.split-all-with ..group-separator))
+                              (list (get@ #//project.name identity)
+                                    (get@ #//project.version identity))))))
+
+(def: (save! system content file)
+  (-> (file.System Promise) Binary Path (Promise (Try Any)))
+  (do (try.with promise.monad)
+    [file (: (Promise (Try (File Promise)))
+             (file.get-file promise.monad system file))]
+    (!.use (:: file over-write) [content])))
+
+(def: #export (install system project)
+  (-> (file.System Promise) Project (Promise (Try Any)))
+  (do (try.with promise.monad)
+    [repository (..guarantee-repository! system project)
+     #let [identity (get@ #//project.identity project)
+           artifact-name (format repository
+                                 (:: system separator) (get@ #//project.name identity)
+                                 "-" (get@ #//project.version identity))]
+     package (export.library system (get@ #//project.sources project))
+     _ (..save! system (binary.run tar.writer package)
+                (format artifact-name "." //dependency.lux-library))]
+    (..save! system (|> project //pom.project (:: xml.codec encode) encoding.to-utf8)
+             (format artifact-name //pom.extension))))

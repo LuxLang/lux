@@ -1,5 +1,5 @@
 (.module:
-  [lux #*
+  [lux (#- Source)
    [abstract
     ["." monad (#+ do)]]
    [control
@@ -27,7 +27,10 @@
    [world
     ["." file]]]
   [//
-   [cli (#+ Export)]])
+   [cli (#+ Source Export)]])
+
+(def: file
+  "library.tar")
 
 (def: no-ownership
   tar.Ownership
@@ -37,26 +40,31 @@
     {#tar.user commons
      #tar.group commons}))
 
-(def: #export (export system extension [sources target])
-  (-> (file.System Promise) Extension Export (Promise (Try Any)))
-  (let [package (format target (:: system separator) "library.tar")]
+(def: #export (library system sources)
+  (-> (file.System Promise) (List Source) (Promise (Try tar.Tar)))
+  (do (try.with promise.monad)
+    [files (io.enumerate system sources)]
+    (|> (dictionary.entries files)
+        (monad.map try.monad
+                   (function (_ [path source-code])
+                     (do try.monad
+                       [path (|> path
+                                 (text.replace-all (:: system separator) .module-separator)
+                                 tar.path)
+                        source-code (tar.content source-code)]
+                       (wrap (#tar.Normal [path
+                                           (instant.from-millis +0)
+                                           tar.none
+                                           ..no-ownership
+                                           source-code])))))
+        (:: try.monad map row.from-list)
+        (:: promise.monad wrap))))
+
+(def: #export (export system [sources target])
+  (-> (file.System Promise) Export (Promise (Try Any)))
+  (let [package (format target (:: system separator) ..file)]
     (do (try.with promise.monad)
-      [package (: (Promise (Try (file.File Promise)))
-                  (file.get-file promise.monad system package))
-       files (io.enumerate system extension sources)
-       tar (|> (dictionary.entries files)
-               (monad.map try.monad
-                          (function (_ [path source-code])
-                            (do try.monad
-                              [path (|> path
-                                        (text.replace-all (:: system separator) .module-separator)
-                                        tar.path)
-                               source-code (tar.content source-code)]
-                              (wrap (#tar.Normal [path
-                                                  (instant.from-millis +0)
-                                                  tar.none
-                                                  ..no-ownership
-                                                  source-code])))))
-               (:: try.monad map (|>> row.from-list (binary.run tar.writer)))
-               promise@wrap)]
-      (!.use (:: package over-write) tar))))
+      [tar (..library system sources)
+       package (: (Promise (Try (file.File Promise)))
+                  (file.get-file promise.monad system package))]
+      (!.use (:: package over-write) (binary.run tar.writer tar)))))
