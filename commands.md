@@ -77,7 +77,7 @@ cd ~/lux/stdlib/ && mvn deploy:deploy-file \
 ## Generate documentation
 
 ```
-cd ~/lux/stdlib/ && lein with-profile scriptum lux auto build
+cd ~/lux/stdlib/ && lein clean && lein with-profile scriptum lux auto build
 ```
 
 ---
@@ -87,7 +87,7 @@ cd ~/lux/stdlib/ && lein with-profile scriptum lux auto build
 ## Build
 
 ```
-cd ~/lux/stdlib/ && lein with-profile aedifex lux auto build
+cd ~/lux/stdlib/ && lein clean && lein with-profile aedifex lux auto build
 ```
 
 ---

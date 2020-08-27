@@ -15,7 +15,8 @@
      ["%" format (#+ format)]
      ["." encoding]]
     [collection
-     ["." list ("#@." monoid)]]
+     ["." list ("#@." monoid)]
+     ["." dictionary]]
     [format
      ["." binary]
      ["." tar]
@@ -26,12 +27,12 @@
    [compositor
     ["." export]]]
   ["." // #_
-   ["#." project (#+ Project)]
+   ["/" project (#+ Project)]
+   ["#." extension]
    ["#." pom]
-   ["#." dependency]])
-
-(def: group-separator
-  ".")
+   ["#." artifact (#+ Artifact)]
+   ["#." dependency (#+ Package Resolution Dependency)]
+   ["#." hash]])
 
 (def: (local system)
   (All [a] (-> (file.System a) Path))
@@ -41,13 +42,12 @@
   (All [a] (-> (file.System a) Path))
   (format (..local system) (:: system separator) "repository"))
 
-(def: (guarantee-repository! system project)
-  (-> (file.System Promise) Project (Promise (Try Path)))
+(def: (guarantee-repository! system artifact)
+  (-> (file.System Promise) Artifact (Promise (Try Path)))
   (do {@ (try.with promise.monad)}
     [_ (: (Promise (Try (Directory Promise)))
           (file.get-directory promise.monad system (..local system)))
-     #let [root (..repository system)
-           identity (get@ #//project.identity project)]
+     #let [root (..repository system)]
      _ (: (Promise (Try (Directory Promise)))
           (file.get-directory promise.monad system root))]
     (monad.fold @
@@ -58,11 +58,7 @@
                           (file.get-directory promise.monad system path))]
                     (wrap path)))
                 root
-                (list@compose (|> identity
-                                  (get@ #//project.group)
-                                  (text.split-all-with ..group-separator))
-                              (list (get@ #//project.name identity)
-                                    (get@ #//project.version identity))))))
+                (//artifact.local artifact))))
 
 (def: (save! system content file)
   (-> (file.System Promise) Binary Path (Promise (Try Any)))
@@ -74,13 +70,93 @@
 (def: #export (install system project)
   (-> (file.System Promise) Project (Promise (Try Any)))
   (do (try.with promise.monad)
-    [repository (..guarantee-repository! system project)
-     #let [identity (get@ #//project.identity project)
-           artifact-name (format repository
-                                 (:: system separator) (get@ #//project.name identity)
-                                 "-" (get@ #//project.version identity))]
-     package (export.library system (get@ #//project.sources project))
+    [repository (..guarantee-repository! system (get@ #/.identity project))
+     #let [identity (get@ #/.identity project)
+           artifact-name (format repository (:: system separator) (//artifact.identity identity))]
+     package (export.library system (get@ #/.sources project))
      _ (..save! system (binary.run tar.writer package)
                 (format artifact-name "." //dependency.lux-library))]
     (..save! system (|> project //pom.project (:: xml.codec encode) encoding.to-utf8)
-             (format artifact-name //pom.extension))))
+             (format artifact-name //extension.pom))))
+
+(def: #export (cache system [artifact type] package)
+  (-> (file.System Promise) Dependency Package (Promise (Try Any)))
+  (do (try.with promise.monad)
+    [directory (..guarantee-repository! system artifact)
+     #let [prefix (format directory (:: system separator) (//artifact.identity artifact))]
+     directory (: (Promise (Try (Directory Promise)))
+                  (file.get-directory promise.monad system directory))
+     _ (..save! system
+                (get@ #//dependency.library package)
+                (format prefix "." type))
+     _ (..save! system
+                (encoding.to-utf8 (get@ #//dependency.sha1 package))
+                (format prefix //extension.sha1))
+     _ (..save! system
+                (encoding.to-utf8 (get@ #//dependency.md5 package))
+                (format prefix //extension.md5))
+     _ (..save! system
+                (|> package (get@ #//dependency.pom) (:: xml.codec encode) encoding.to-utf8)
+                (format prefix //extension.pom))]
+    (wrap [])))
+
+(def: #export (cache-all system resolution)
+  (-> (file.System Promise) Resolution (Promise (Try Any)))
+  (do {@ (try.with promise.monad)}
+    [_ (monad.map @ (function (_ [dependency package])
+                      (..cache system dependency package))
+                  (dictionary.entries resolution))]
+    (wrap [])))
+
+(def: (read! system path)
+  (-> (file.System Promise) Path (Promise (Try Binary)))
+  (do (try.with promise.monad)
+    [file (: (Promise (Try (File Promise)))
+             (!.use (:: system file) path))]
+    (!.use (:: file content) [])))
+
+(def: #export (cached system [artifact type])
+  (-> (file.System Promise) Dependency (Promise (Try Package)))
+  (do (try.with promise.monad)
+    [directory (..guarantee-repository! system artifact)
+     #let [prefix (format directory (:: system separator) (//artifact.identity artifact))]
+     pom (..read! system (format prefix //extension.pom))
+     [pom dependencies] (:: promise.monad wrap
+                            (do try.monad
+                              [pom (encoding.from-utf8 pom)
+                               pom (:: xml.codec decode pom)
+                               dependencies (//dependency.from-pom pom)]
+                              (wrap [pom dependencies])))
+     library (..read! system (format prefix "." type))
+     sha1 (..read! system (format prefix //extension.sha1))
+     md5 (..read! system (format prefix //extension.md5))]
+    (wrap {#//dependency.library library
+           #//dependency.pom pom
+           #//dependency.dependencies dependencies
+           #//dependency.sha1 (//hash.representation sha1)
+           #//dependency.md5 (//hash.representation md5)})))
+
+(def: #export (all-cached system dependencies resolution)
+  (-> (file.System Promise) (List Dependency) Resolution (Promise (Try Resolution)))
+  (case dependencies
+    #.Nil
+    (:: (try.with promise.monad) wrap resolution)
+    
+    (#.Cons head tail)
+    (do promise.monad
+      [package (case (dictionary.get head resolution)
+                 (#.Some package)
+                 (wrap (#try.Success package))
+
+                 #.None
+                 (..cached system head))]
+      (with-expansions [<next> (as-is (all-cached system tail resolution))]
+        (case package
+          (#try.Success package)
+          (let [resolution (dictionary.put head package resolution)]
+            (do (try.with promise.monad)
+              [resolution (all-cached system (get@ #//dependency.dependencies package) resolution)]
+              <next>))
+          
+          (#try.Failure error)
+          <next>)))))

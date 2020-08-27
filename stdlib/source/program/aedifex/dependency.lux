@@ -1,11 +1,54 @@
 (.module:
-  [lux (#- Type)]
+  [lux (#- Name Type)
+   ["." host (#+ import:)]
+   [abstract
+    [monad (#+ do)]
+    ["." hash (#+ Hash)]]
+   [control
+    ["." io (#+ IO)]
+    ["." try (#+ Try)]
+    ["." exception (#+ Exception exception:)]
+    ["<>" parser
+     ["<xml>" xml (#+ Parser)]]]
+   [data
+    ["." binary (#+ Binary)]
+    ["." name]
+    ["." maybe]
+    ["." text
+     ["%" format (#+ format)]
+     ["." encoding]]
+    [number
+     ["." i64]
+     ["n" nat]]
+    [format
+     ["." xml (#+ Tag XML)]]
+    [collection
+     ["." dictionary (#+ Dictionary)]]]
+   [world
+    [net (#+ URL)
+     ["." uri]]]]
   ["." // #_
+   ["#." extension]
+   ["#." artifact (#+ Artifact)]
    ["#." hash]])
+
+(type: #export Repository
+  URL)
 
 ## https://maven.apache.org/ref/3.6.3/maven-core/artifact-handlers.html
 (type: #export Type
   Text)
+
+(type: #export Dependency
+  {#artifact Artifact
+   #type ..Type})
+
+(def: #export hash
+  (Hash Dependency)
+  ($_ hash.product
+      //artifact.hash
+      text.hash
+      ))
 
 (template [<type> <name>]
   [(def: #export <name>
@@ -15,3 +58,234 @@
   ["tar" lux-library]
   ["jar" jvm-library]
   )
+
+(import: #long java/lang/String)
+
+(import: #long java/lang/AutoCloseable
+  (close [] #io #try void))
+
+(import: #long java/io/InputStream)
+
+(import: #long java/net/URL
+  (new [java/lang/String])
+  (openStream [] #io #try java/io/InputStream))
+
+(import: #long java/io/BufferedInputStream
+  (new [java/io/InputStream])
+  (read [[byte] int int] #io #try int))
+
+(def: buffer-size
+  (n.* 512 1,024))
+
+(def: (download url)
+  (-> URL (IO (Try Binary)))
+  (do {@ (try.with io.monad)}
+    [input (|> (java/net/URL::new url)
+               java/net/URL::openStream
+               (:: @ map (|>> java/io/BufferedInputStream::new)))
+     #let [buffer (binary.create ..buffer-size)]]
+    (loop [output (:: binary.monoid identity)]
+      (do @
+        [bytes-read (java/io/BufferedInputStream::read buffer +0 (.int ..buffer-size) input)]
+        (case bytes-read
+          -1 (do @
+               [_ (java/lang/AutoCloseable::close input)]
+               (wrap output))
+          _ (if (n.= ..buffer-size bytes-read)
+              (recur (:: binary.monoid compose output buffer))
+              (do @
+                [chunk (:: io.monad wrap (binary.slice 0 (.nat bytes-read) buffer))]
+                (recur (:: binary.monoid compose output chunk)))))))))
+
+(def: hex-per-byte
+  2)
+
+(def: hex-per-nat
+  (n.* hex-per-byte i64.bytes-per-i64))
+
+(type: Hash-Reader
+  (-> Binary (Try //hash.Hash)))
+
+(def: (sha1 input)
+  Hash-Reader
+  (do try.monad
+    [input (encoding.from-utf8 input)
+     [left input] (try.from-maybe (text.split ..hex-per-nat input))
+     [middle right] (try.from-maybe (text.split ..hex-per-nat input))
+     #let [output (:: binary.monoid identity)]
+     left (:: n.hex decode left)
+     output (binary.write/64 0 left output)
+     middle (:: n.hex decode middle)
+     output (binary.write/64 i64.bytes-per-i64 middle output)
+     right (:: n.hex decode right)]
+    (binary.write/64 (n.* 2 i64.bytes-per-i64) right output)))
+
+(def: (md5 input)
+  Hash-Reader
+  (do try.monad
+    [input (encoding.from-utf8 input)
+     [left right] (try.from-maybe (text.split ..hex-per-nat input))
+     #let [output (:: binary.monoid identity)]
+     left (:: n.hex decode left)
+     output (binary.write/64 0 left output)
+     right (:: n.hex decode right)]
+    (binary.write/64 i64.bytes-per-i64 right output)))
+
+(template [<name>]
+  [(exception: #export (<name> {dependency Dependency} {hash Text})
+     (let [artifact (get@ #artifact dependency)
+           type (get@ #type dependency)]
+       (exception.report
+        ["Artifact" (format (get@ #//artifact.group artifact)
+                            " " (get@ #//artifact.name artifact)
+                            " " (get@ #//artifact.version artifact))]
+        ["Type" (%.text type)]
+        ["Hash" (%.text hash)])))]
+
+  [sha1-does-not-match]
+  [md5-does-not-match]
+  )
+
+(type: #export Package
+  {#library Binary
+   #pom XML
+   #dependencies (List Dependency)
+   #sha1 Text
+   #md5 Text})
+
+(def: (verified-hash dependency library url hash reader exception)
+  (-> Dependency Binary URL (-> Binary //hash.Hash) Hash-Reader (Exception [Dependency Text])
+      (IO (Try Text)))
+  (do (try.with io.monad)
+    [#let [reference (hash library)]
+     actual (..download url)]
+    (:: io.monad wrap
+        (do try.monad
+          [output (encoding.from-utf8 actual)
+           actual (reader actual)
+           _ (exception.assert exception [dependency output]
+                               (:: binary.equivalence = reference actual))]
+          (wrap output)))))
+
+(def: parse-property
+  (Parser [Tag Text])
+  (do <>.monad
+    [property <xml>.tag
+     _ (<xml>.node property)
+     value (<xml>.children <xml>.text)]
+    (wrap [property value])))
+
+(def: parse-dependency
+  (Parser Dependency)
+  (do {@ <>.monad}
+    [properties (:: @ map (dictionary.from-list name.hash)
+                    (<xml>.children (<>.some ..parse-property)))]
+    (<| <>.lift
+        try.from-maybe
+        (do maybe.monad
+          [group (dictionary.get ["" "groupId"] properties)
+           artifact (dictionary.get ["" "artifactId"] properties)
+           version (dictionary.get ["" "version"] properties)]
+          (wrap {#artifact {#//artifact.group group
+                            #//artifact.name artifact
+                            #//artifact.version version}
+                 #type (|> properties
+                           (dictionary.get ["" "type"])
+                           (maybe.default ..lux-library))})))))
+
+(def: parse-dependencies
+  (Parser (List Dependency))
+  (do {@ <>.monad}
+    [_ (<xml>.node ["" "dependencies"])]
+    (<xml>.children (<>.some ..parse-dependency))))
+
+(def: #export from-pom
+  (-> XML (Try (List Dependency)))
+  (<xml>.run (do {@ <>.monad}
+               [_ (<xml>.node ["" "project"])]
+               (<xml>.children (loop [_ []]
+                                 (do @
+                                   [?dependencies (<>.or ..parse-dependencies
+                                                         (<>.maybe <xml>.ignore))]
+                                   (case ?dependencies
+                                     (#.Left dependencies)
+                                     (wrap dependencies)
+
+                                     (#.Right #.None)
+                                     (wrap (: (List Dependency)
+                                              (list)))
+
+                                     (#.Right (#.Some _))
+                                     (recur []))))))))
+
+(def: #export (resolve repository dependency)
+  (-> Repository Dependency (IO (Try Package)))
+  (let [[artifact type] dependency
+        prefix (format repository uri.separator (//artifact.path artifact))]
+    (do (try.with io.monad)
+      [library (..download (format prefix "." type))
+       sha1 (..verified-hash dependency library (format prefix //extension.sha1) //hash.sha1 ..sha1 ..sha1-does-not-match)
+       md5 (..verified-hash dependency library (format prefix //extension.md5) //hash.md5 ..md5 ..md5-does-not-match)
+       pom (..download (format prefix //extension.pom))]
+      (:: io.monad wrap
+          (do try.monad
+            [pom (encoding.from-utf8 pom)
+             pom (:: xml.codec decode pom)
+             dependencies (..from-pom pom)]
+            (wrap {#library library
+                   #pom pom
+                   #dependencies dependencies
+                   #sha1 sha1
+                   #md5 md5}))))))
+
+(type: #export Resolution
+  (Dictionary Dependency Package))
+
+(def: #export empty
+  Resolution
+  (dictionary.new ..hash))
+
+(exception: #export (cannot-resolve {dependency Dependency})
+  (let [artifact (get@ #artifact dependency)
+        type (get@ #type dependency)]
+    (exception.report
+     ["Artifact" (format (get@ #//artifact.group artifact)
+                         " " (get@ #//artifact.name artifact)
+                         " " (get@ #//artifact.version artifact))]
+     ["Type" (%.text type)])))
+
+(def: (resolve-any repositories dependency)
+  (-> (List Repository) Dependency (IO (Try Package)))
+  (case repositories
+    #.Nil
+    (|> dependency
+        (exception.throw ..cannot-resolve)
+        (:: io.monad wrap))
+
+    (#.Cons repository alternatives)
+    (do io.monad
+      [outcome (..resolve repository dependency)]
+      (case outcome
+        (#try.Success package)
+        (wrap outcome)
+
+        (#try.Failure error)
+        (resolve-any alternatives dependency)))))
+
+(def: #export (resolve-all repositories dependencies resolution)
+  (-> (List Repository) (List Dependency) Resolution (IO (Try Resolution)))
+  (case dependencies
+    #.Nil
+    (:: (try.with io.monad) wrap resolution)
+
+    (#.Cons head tail)
+    (do (try.with io.monad)
+      [package (case (dictionary.get head resolution)
+                 (#.Some package)
+                 (wrap package)
+
+                 #.None
+                 (..resolve-any repositories head))
+       #let [resolution (dictionary.put head package resolution)]
+       resolution (resolve-all repositories (get@ #dependencies package) resolution)]
+      (resolve-all repositories tail resolution))))

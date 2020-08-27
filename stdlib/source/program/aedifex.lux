@@ -12,7 +12,7 @@
     [security
      ["!" capability]]
     [concurrency
-     ["." promise]]]
+     ["." promise (#+ Promise)]]]
    [data
     [binary (#+ Binary)]
     ["." text
@@ -32,23 +32,14 @@
    ["#." parser]
    ["#." pom]
    ["#." cli]
-   ["#." local]])
+   ["#." local]
+   ["#." dependency]])
 
 (def: (read-file! path)
   (-> Path (IO (Try Binary)))
   (do (try.with io.monad)
     [project-file (!.use (:: file.system file) [path])]
     (!.use (:: project-file content) [])))
-
-(def: (write-pom! path project)
-  (-> Path /.Project (IO (Try Any)))
-  (do (try.with io.monad)
-    [file (!.use (:: file.system file) [path])]
-    (|> project
-        /pom.project
-        (:: xml.codec encode)
-        encoding.to-utf8
-        (!.use (:: file over-write)))))
 
 (def: (read-code source-code)
   (-> Text (Try Code))
@@ -63,6 +54,61 @@
       
       (#.Right [end lux-code])
       (#try.Success lux-code))))
+
+(def: (write-pom!' path project)
+  (-> Path /.Project (IO (Try Any)))
+  (do (try.with io.monad)
+    [file (!.use (:: file.system file) [path])]
+    (|> project
+        /pom.project
+        (:: xml.codec encode)
+        encoding.to-utf8
+        (!.use (:: file over-write)))))
+
+(def: (write-pom! project)
+  (-> /.Project (IO Any))
+  (do io.monad
+    [outcome (write-pom!' /pom.file project)]
+    (case outcome
+      (#try.Success value)
+      (wrap (log! "Successfully wrote POM file!"))
+      
+      (#try.Failure error)
+      (wrap (log! (format "Could not write POM file:" text.new-line
+                          error))))))
+
+(def: (install! project)
+  (-> /.Project (Promise Any))
+  (do promise.monad
+    [outcome (/local.install (file.async file.system) project)]
+    (wrap (case outcome
+            (#try.Success _)
+            (log! "Successfully installed locally!")
+            
+            (#try.Failure error)
+            (log! (format "Could not install locally:" text.new-line
+                          error))))))
+
+(def: (fetch-dependencies! project)
+  (-> /.Project (Promise Any))
+  (do promise.monad
+    [outcome (do (try.with promise.monad)
+               [cache (/local.all-cached (file.async file.system)
+                                         (get@ #/.dependencies project)
+                                         /dependency.empty)
+                resolution (promise.future
+                            (/dependency.resolve-all (get@ #/.repositories project)
+                                                     (get@ #/.dependencies project)
+                                                     cache))]
+               (/local.cache-all (file.async file.system)
+                                 resolution))]
+    (wrap (case outcome
+            (#try.Success _)
+            (log! "Successfully resolved dependencies!")
+            
+            (#try.Failure error)
+            (log! (format "Could not resolve dependencies:" text.new-line
+                          error))))))
 
 (def: project
   (-> Binary (Try /.Project))
@@ -80,26 +126,14 @@
         (#try.Success project)
         (case command
           #/cli.POM
-          (do @
-            [outcome (..write-pom! /pom.file project)]
-            (case outcome
-              (#try.Success value)
-              (wrap (log! "Successfully wrote POM file!"))
-              
-              (#try.Failure error)
-              (wrap (log! (format "Could not write POM file:" text.new-line
-                                  error)))))
+          (..write-pom! project)
           
           #/cli.Install
-          (exec (do promise.monad
-                  [outcome (/local.install (file.async file.system) project)]
-                  (wrap (case outcome
-                          (#try.Success _)
-                          (log! "Successfully installed locally!")
-                          
-                          (#try.Failure error)
-                          (log! (format "Could not install locally:" text.new-line
-                                        error)))))
+          (exec (..install! project)
+            (wrap []))
+
+          #/cli.Dependencies
+          (exec (..fetch-dependencies! project)
             (wrap [])))
         
         (#try.Failure error)
