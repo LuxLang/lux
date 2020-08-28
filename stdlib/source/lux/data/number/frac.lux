@@ -110,15 +110,21 @@
        "lux f64 i64"
        ("lux i64 left-shift" 11)))
 
-(structure: #export equivalence (Equivalence Frac)
+(structure: #export equivalence
+  (Equivalence Frac)
+  
   (def: = ..=))
 
-(structure: #export order (Order Frac)
+(structure: #export order
+  (Order Frac)
+  
   (def: &equivalence ..equivalence)
   (def: < ..<))
 
 (template [<name> <compose> <identity>]
-  [(structure: #export <name> (Monoid Frac)
+  [(structure: #export <name>
+     (Monoid Frac)
+     
      (def: identity <identity>)
      (def: compose <compose>))]
 
@@ -150,7 +156,9 @@
            (..= positive-infinity value)
            (..= negative-infinity value))))
 
-(structure: #export decimal (Codec Text Frac)
+(structure: #export decimal
+  (Codec Text Frac)
+  
   (def: (encode x)
     (if (..< +0.0 x)
       ("lux f64 encode" x)
@@ -165,7 +173,9 @@
       (#try.Failure "Could not decode Frac"))))
 
 (template [<struct> <int> <base> <char-set> <error>]
-  [(structure: #export <struct> (Codec Text Frac)
+  [(structure: #export <struct>
+     (Codec Text Frac)
+     
      (def: (encode value)
        (let [whole (..int value)
              whole-part (:: <int> encode whole)
@@ -354,7 +364,9 @@
   )
 
 (template [<struct> <error> <from> <to>]
-  [(structure: #export <struct> (Codec Text Frac)
+  [(structure: #export <struct>
+     (Codec Text Frac)
+     
      (def: (encode value)
        (let [sign (..signum value)
              raw-bin (:: ..binary encode value)
@@ -405,6 +417,7 @@
 
 (def: mantissa-size Nat 52)
 (def: exponent-size Nat 11)
+(def: sign-offset (//nat.+ ..exponent-size ..mantissa-size))
 
 (template [<hex> <name>]
   [(def: <name> (|> <hex> (:: //nat.hex decode) try.assume .i64))]
@@ -437,66 +450,68 @@
                  ..negative-zero-bits))
 
              ## else
-             (let [input (..abs input)
+             (let [sign-bit (if (..= -1.0 (..signum input))
+                              1
+                              0)
+                   input (..abs input)
                    exponent (math.floor (log2 input))
-                   exponent-mask (|> 1 (//i64.left-shift exponent-size) dec) 
+                   exponent-mask (|> 1 (//i64.left-shift ..exponent-size) dec) 
                    mantissa (|> input
                                 ## Normalize
                                 (../ (math.pow exponent +2.0))
                                 ## Make it int-equivalent
                                 (..* (math.pow +52.0 +2.0)))
-                   sign-bit (if (..= -1.0 (..signum input))
-                              1
-                              0)
-                   exponent-bits (|> exponent ..int .nat (//nat.+ double-bias) (//i64.and exponent-mask))
+                   exponent-bits (|> exponent ..int .nat (//nat.+ ..double-bias) (//i64.and exponent-mask))
                    mantissa-bits (|> mantissa ..int .nat)]
                ($_ //i64.or
-                   (//i64.left-shift 63 sign-bit)
-                   (//i64.left-shift mantissa-size exponent-bits)
-                   (//i64.clear mantissa-size mantissa-bits)))
+                   (//i64.left-shift ..sign-offset sign-bit)
+                   (//i64.left-shift ..mantissa-size exponent-bits)
+                   (//i64.clear ..mantissa-size mantissa-bits)))
              )))
 
-(template [<getter> <mask> <size> <offset>]
-  [(def: <mask> (|> 1 (//i64.left-shift <size>) dec (//i64.left-shift <offset>)))
-   (def: (<getter> input)
+(template [<getter> <size> <offset>]
+  [(def: <getter>
      (-> (I64 Any) I64)
-     (|> input (//i64.and <mask>) (//i64.logic-right-shift <offset>) i64))]
+     (let [mask (|> 1 (//i64.left-shift <size>) dec (//i64.left-shift <offset>))]
+       (|>> (//i64.and mask) (//i64.logic-right-shift <offset>) .i64)))]
 
-  [mantissa mantissa-mask mantissa-size 0]
-  [exponent exponent-mask exponent-size mantissa-size]
-  [sign     sign-mask     1             (//nat.+ exponent-size mantissa-size)]
+  [mantissa ..mantissa-size 0]
+  [exponent ..exponent-size ..mantissa-size]
+  [sign     1               ..sign-offset]
   )
 
 (def: #export (from-bits input)
   (-> I64 Frac)
-  (let [S (sign input)
-        E (exponent input)
-        M (mantissa input)]
+  (let [S (..sign input)
+        positive? (//nat.= 0 S)
+        E (..exponent input)
+        M (..mantissa input)]
     (cond (//nat.= ..special-exponent-bits E)
           (if (//nat.= 0 M)
-            (if (//nat.= 0 S)
+            (if positive?
               ..positive-infinity
               ..negative-infinity)
             ..not-a-number)
 
           (and (//nat.= 0 E) (//nat.= 0 M))
-          (if (//nat.= 0 S)
+          (if positive?
             +0.0
             (..* -1.0 +0.0))
 
           ## else
-          (let [normalized (|> M (//i64.set mantissa-size)
-                               .int //int.frac
-                               (../ (math.pow +52.0 +2.0)))
-                power (math.pow (|> E (//nat.- double-bias)
-                                    .int //int.frac)
-                                +2.0)
-                shifted (..* power
-                             normalized)]
-            (if (//nat.= 0 S)
-              shifted
-              (..* -1.0 shifted))))))
+          (let [numerator (|> M (//i64.set ..mantissa-size)
+                              .int (//int.* (if positive?
+                                              +1
+                                              -1)))
+                denominator (math.pow +52.0 +2.0)
+                power (math.pow (|> E (//nat.- ..double-bias) .int //int.frac)
+                                +2.0)]
+            (|> (//int.frac numerator)
+                (../ denominator)
+                (..* power))))))
 
-(structure: #export hash (Hash Frac)
+(structure: #export hash
+  (Hash Frac)
+  
   (def: &equivalence ..equivalence)
   (def: hash ..to-bits))

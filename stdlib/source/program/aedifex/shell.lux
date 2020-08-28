@@ -1,0 +1,104 @@
+(.module:
+  [lux #*
+   ["." host (#+ import:)]
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["." io (#+ IO)]
+    ["." try (#+ Try)]
+    ["." exception (#+ exception:)]
+    [concurrency
+     ["." promise]]]
+   [data
+    [text
+     ["%" format (#+ format)]]
+    [number
+     ["." int]]]
+   [world
+    [file (#+ Path)]]]
+  ["." // #_
+   ["#." action (#+ Action)]])
+
+(import: #long java/lang/String)
+
+(import: #long java/io/InputStream)
+
+(import: #long java/io/Reader)
+
+(import: #long java/io/InputStreamReader
+  (new [java/io/InputStream]))
+
+(import: #long java/io/BufferedReader
+  (new [java/io/Reader])
+  (readLine [] #io #try java/lang/String))
+
+(import: #long java/lang/Process
+  (getInputStream [] java/io/InputStream)
+  (getErrorStream [] java/io/InputStream)
+  (waitFor [] #io #try int))
+
+(import: #long java/io/File
+  (new [java/lang/String]))
+
+(import: #long java/lang/Runtime
+  (#static getRuntime [] #io java/lang/Runtime)
+  (exec [java/lang/String #? [java/lang/String] java/io/File] #io #try java/lang/Process))
+
+(exception: #export (failure-to-execute-command {working-directory Text} {command Text} {error Text})
+  (exception.report
+   ["Working Directory" (%.text working-directory)]
+   ["Command" (%.text command)]
+   ["Error" (%.text error)]))
+
+(exception: #export (failure-during-command-execution {working-directory Text} {command Text} {error Text})
+  (exception.report
+   ["Working Directory" (%.text working-directory)]
+   ["Command" (%.text command)]
+   ["Error" (%.text error)]))
+
+(exception: #export (abnormal-exit {working-directory Text} {command Text} {code Int})
+  (exception.report
+   ["Working Directory" (%.text working-directory)]
+   ["Command" (%.text command)]
+   ["Code" (%.int code)]))
+
+(def: (consume-stream working-directory command stream)
+  (-> Text Path java/io/InputStream (IO (Try Any)))
+  (let [reader (|> stream java/io/InputStreamReader::new java/io/BufferedReader::new)]
+    (loop [_ []]
+      (do io.monad
+        [?line (java/io/BufferedReader::readLine reader)]
+        (case ?line
+          (#try.Success line)
+          (exec (log! line)
+            (recur []))
+          
+          (#try.Failure error)
+          (wrap (exception.throw ..failure-during-command-execution [working-directory command error])))))))
+
+(def: normal-exit
+  +0)
+
+(def: #export (execute command working-directory)
+  (-> Text Path (Action Any))
+  (promise.future
+   (do {@ io.monad}
+     [runtime (java/lang/Runtime::getRuntime)
+      ?process (java/lang/Runtime::exec command #.None (java/io/File::new working-directory) runtime)]
+     (case ?process
+       (#try.Success process)
+       (do @
+         [_ (..consume-stream working-directory command (java/lang/Process::getInputStream process))
+          _ (..consume-stream working-directory command (java/lang/Process::getErrorStream process))
+          ?exit-code (java/lang/Process::waitFor process)]
+         (case ?exit-code
+           (#try.Success exit-code)
+           (if (int.= ..normal-exit exit-code)
+             (wrap (#try.Success []))
+             (wrap (exception.throw ..abnormal-exit [working-directory command exit-code])))
+
+           (#try.Failure error)
+           (wrap (exception.throw ..failure-to-execute-command [working-directory command error]))))
+       
+       (#try.Failure error)
+       (wrap (exception.throw ..failure-to-execute-command [working-directory command error]))))))
