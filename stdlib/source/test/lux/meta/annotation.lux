@@ -1,0 +1,178 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   [math
+    ["." random (#+ Random)]]
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["." try (#+ Try)]]
+   [data
+    ["." product]
+    ["." bit]
+    ["." name]
+    ["." text
+     ["%" format (#+ format)]]
+    [number
+     ["." nat]
+     ["." int]
+     ["." rev]
+     ["." frac]]
+    [collection
+     ["." list ("#@." functor)]]]
+   [macro
+    ["." code ("#@." equivalence)]]]
+  {1
+   ["." /]}
+  [///
+   [macro
+    ["_." code]]])
+
+(def: random-key
+  (Random Name)
+  (random.and (random.ascii/alpha 1)
+              (random.ascii/alpha 1)))
+
+(def: (random-sequence random)
+  (All [a] (-> (Random a) (Random (List a))))
+  (do {@ random.monad}
+    [size (|> random.nat (:: @ map (nat.% 3)))]
+    (random.list size random)))
+
+(def: (random-record random)
+  (All [a] (-> (Random a) (Random (List [a a]))))
+  (do {@ random.monad}
+    [size (|> random.nat (:: @ map (nat.% 3)))]
+    (random.list size (random.and random random))))
+
+(template: (!expect <pattern> <value>)
+  (case <value>
+    <pattern> true
+    _ false))
+
+(def: (annotation key value)
+  (-> Name Code /.Annotation)
+  (code.record (list [(code.tag key)
+                      value])))
+
+(def: typed-value
+  Test
+  (do {@ random.monad}
+    [key ..random-key]
+    (`` ($_ _.and
+            (~~ (template [<definition> <random> <constructor> <equivalence>]
+                  [(do {@ random.monad}
+                     [expected <random>]
+                     (_.cover [<definition>]
+                              (|> expected <constructor>
+                                  (..annotation key)
+                                  (<definition> key)
+                                  (!expect (^multi (#.Some actual)
+                                                   (:: <equivalence> = expected actual))))))]
+
+                  [/.bit random.bit code.bit bit.equivalence]
+                  [/.nat random.nat code.nat nat.equivalence]
+                  [/.int random.int code.int int.equivalence]
+                  [/.rev random.rev code.rev rev.equivalence]
+                  [/.frac random.frac code.frac frac.equivalence]
+                  [/.text (random.ascii/alpha 1) code.text text.equivalence]
+                  [/.identifier ..random-key code.identifier name.equivalence]
+                  [/.tag ..random-key code.tag name.equivalence]
+                  [/.form (..random-sequence _code.random) code.form (list.equivalence code.equivalence)]
+                  [/.tuple (..random-sequence _code.random) code.tuple (list.equivalence code.equivalence)]
+                  [/.record (..random-record _code.random) code.record (list.equivalence (product.equivalence code.equivalence code.equivalence))]
+                  ))
+            ))))
+
+(def: flag
+  Test
+  (do {@ random.monad}
+    [key ..random-key]
+    (`` ($_ _.and
+            (do {@ random.monad}
+              [dummy ..random-key
+               expected random.bit]
+              (_.cover [/.flagged?]
+                       (and (|> expected code.bit
+                                (..annotation key)
+                                (/.flagged? key)
+                                (:: bit.equivalence = expected))
+                            (not (|> expected code.bit
+                                     (..annotation dummy)
+                                     (/.flagged? key))))))
+            (~~ (template [<definition> <tag>]
+                  [(do {@ random.monad}
+                     [expected random.bit]
+                     (_.cover [<definition>]
+                              (and (|> expected code.bit
+                                       (..annotation (name-of <tag>))
+                                       <definition>
+                                       (:: bit.equivalence = expected))
+                                   (not (|> expected code.bit
+                                            (..annotation key)
+                                            <definition>)))))]
+
+                  [/.structure? #.struct?]
+                  [/.recursive-type? #.type-rec?]
+                  [/.signature? #.sig?]
+                  ))
+            ))))
+
+(def: arguments
+  Test
+  (do {@ random.monad}
+    [key ..random-key]
+    (`` ($_ _.and
+            (~~ (template [<definition> <tag>]
+                  [(do {@ random.monad}
+                     [expected (random.list 5 (random.ascii/alpha 1))]
+                     (_.cover [<definition>]
+                              (and (|> expected (list@map code.text) code.tuple
+                                       (..annotation (name-of <tag>))
+                                       <definition>
+                                       (:: (list.equivalence text.equivalence) = expected))
+                                   (|> expected (list@map code.text) code.tuple
+                                       (..annotation key)
+                                       <definition>
+                                       (:: (list.equivalence text.equivalence) = (list))))))]
+
+                  [/.function-arguments #.func-args]
+                  [/.type-arguments #.type-args]
+                  ))
+            ))))
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      (_.with-cover [/.Annotation])
+      (do {@ random.monad}
+        [key ..random-key]
+        ($_ _.and
+            (do {@ random.monad}
+              [expected _code.random]
+              (_.cover [/.value]
+                       (|> expected
+                           (..annotation key)
+                           (/.value key)
+                           (!expect (^multi (#.Some actual)
+                                            (code@= expected actual))))))
+            
+            ..typed-value
+            
+            (do {@ random.monad}
+              [expected (random.ascii/alpha 10)]
+              (_.cover [/.documentation]
+                       (and (not (|> expected code.text
+                                     (..annotation key)
+                                     /.documentation
+                                     (!expect (^multi (#.Some actual)
+                                                      (:: text.equivalence = expected actual)))))
+                            (|> expected code.text
+                                (..annotation (name-of #.doc))
+                                /.documentation
+                                (!expect (^multi (#.Some actual)
+                                                 (:: text.equivalence = expected actual)))))))
+
+            ..flag
+            ..arguments
+            ))))

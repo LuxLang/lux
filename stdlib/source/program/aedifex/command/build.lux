@@ -2,13 +2,13 @@
   [lux (#- Name)
    ["." host (#+ import:)]
    [abstract
-    [monad (#+ Monad do)]]
+    [monad (#+ do)]]
    [control
     ["." try (#+ Try)]
     ["." exception (#+ exception:)]
     ["." io (#+ IO)]
     [concurrency
-     ["." promise (#+ Promise) ("#@." monad)]]]
+     ["." promise ("#@." monad)]]]
    [data
     ["." product]
     ["." maybe]
@@ -19,16 +19,14 @@
      ["." dictionary]]]
    [world
     ["." file (#+ Path)]]]
-  ["." // #_
+  ["." /// #_
    ["#" project]
-   ["#." action (#+ Action)]
+   ["#." action]
+   ["#." command (#+ Command)]
    ["#." local]
    ["#." artifact (#+ Group Name Artifact)]
    ["#." dependency (#+ Dependency Resolution)]
    ["#." shell]])
-
-(type: #export (Command a)
-  (-> //.Project (Action a)))
 
 (type: Finder
   (-> Resolution (Maybe Dependency)))
@@ -37,8 +35,8 @@
   (-> Group Name Finder)
   (|>> dictionary.entries
        (list.search (function (_ [dependency package])
-                      (if (and (text@= group (get@ [#//dependency.artifact #//artifact.group] dependency))
-                               (text@= name (get@ [#//dependency.artifact #//artifact.name] dependency)))
+                      (if (and (text@= group (get@ [#///dependency.artifact #///artifact.group] dependency))
+                               (text@= name (get@ [#///dependency.artifact #///artifact.name] dependency)))
                         (#.Some dependency)
                         #.None)))))
 
@@ -58,7 +56,7 @@
 (exception: #export no-available-compiler)
 (exception: #export no-specified-program)
 
-(type: Compiler
+(type: #export Compiler
   (#JVM Artifact)
   (#JS Artifact))
 
@@ -66,7 +64,7 @@
   (-> Dependency (-> Resolution Resolution))
   (|>> dictionary.entries
        (list.filter (|>> product.left (is? dependency) not))
-       (dictionary.from-list //dependency.hash)))
+       (dictionary.from-list ///dependency.hash)))
 
 (def: (compiler resolution)
   (-> Resolution (Try [Resolution Compiler]))
@@ -74,11 +72,11 @@
          (..js-compiler resolution)]
     [(#.Some dependency) _]
     (#try.Success [(..remove-dependency dependency resolution)
-                   (#JVM (get@ #//dependency.artifact dependency))])
+                   (#JVM (get@ #///dependency.artifact dependency))])
     
     [_ (#.Some dependency)]
     (#try.Success [(..remove-dependency dependency resolution)
-                   (#JS (get@ #//dependency.artifact dependency))])
+                   (#JS (get@ #///dependency.artifact dependency))])
 
     _
     (exception.throw ..no-available-compiler [])))
@@ -86,8 +84,8 @@
 (def: libraries
   (-> Resolution (List Path))
   (|>> dictionary.keys
-       (list.filter (|>> (get@ #//dependency.type) (text@= //dependency.lux-library)))
-       (list@map (|>> (get@ #//dependency.artifact) (//local.path file.system)))))
+       (list.filter (|>> (get@ #///dependency.type) (text@= ///dependency.lux-library)))
+       (list@map (|>> (get@ #///dependency.artifact) (///local.path file.system)))))
 
 (import: #long java/lang/String)
 
@@ -95,7 +93,7 @@
 (import: #long java/lang/System
   (#static getProperty [java/lang/String] #io #? java/lang/String))
 
-(def: working-directory
+(def: #export working-directory
   (IO (Try Text))
   (do io.monad
     [?value (java/lang/System::getProperty "user.dir")]
@@ -110,35 +108,39 @@
   (|> values (list@map (|>> (format name " "))) (text.join-with " ")))
 
 (def: #export (do! project)
-  (Command Any)
-  (case (get@ #//.program project)
+  (Command [Compiler
+            Path])
+  (case (get@ #///.program project)
     (#.Some program)
-    (do //action.monad
-      [cache (//local.all-cached (file.async file.system)
-                                 (get@ #//.dependencies project)
-                                 //dependency.empty)
+    (do ///action.monad
+      [cache (///local.all-cached (file.async file.system)
+                                  (get@ #///.dependencies project)
+                                  ///dependency.empty)
        resolution (promise.future
-                   (//dependency.resolve-all (get@ #//.repositories project)
-                                             (get@ #//.dependencies project)
-                                             cache))
-       _ (//local.cache-all (file.async file.system)
-                            resolution)
+                   (///dependency.resolve-all (get@ #///.repositories project)
+                                              (get@ #///.dependencies project)
+                                              cache))
+       _ (///local.cache-all (file.async file.system)
+                             resolution)
        [resolution compiler] (promise@wrap (..compiler resolution))
        working-directory (promise.future ..working-directory)
        #let [libraries (..libraries resolution)
-             prefix (case compiler
-                      (#JVM artifact) (format "java -jar " (//local.path file.system artifact))
-                      (#JS artifact) (format "node --stack_size=8192 " (//local.path file.system artifact)))
-             cache-directory (format working-directory (:: file.system separator) (get@ #//.target project))
+             [prefix output] (case compiler
+                               (#JVM artifact) [(format "java -jar " (///local.path file.system artifact))
+                                                "program.jar"]
+                               (#JS artifact) [(format "node --stack_size=8192 " (///local.path file.system artifact))
+                                               "program.js"])
+             cache-directory (format working-directory (:: file.system separator) (get@ #///.target project))
              command (format prefix " build"
                              " " (..plural-parameter "--library" libraries)
-                             " " (..plural-parameter "--source" (get@ #//.sources project))
+                             " " (..plural-parameter "--source" (get@ #///.sources project))
                              " " (..singular-parameter "--target" cache-directory)
                              " " (..singular-parameter "--module" program))]
        #let [_ (log! "[BUILD STARTED]")]
-       outcome (//shell.execute command working-directory)
-       #let [_ (log! "[BUILD END]")]]
-      (wrap []))
+       outcome (///shell.execute command working-directory)
+       #let [_ (log! "[BUILD ENDED]")]]
+      (wrap [compiler
+             (format cache-directory (:: file.system separator) output)]))
 
     #.None
     (promise@wrap (exception.throw ..no-specified-program []))))

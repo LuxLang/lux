@@ -1,0 +1,141 @@
+(.module:
+  [lux #*
+   ["." host (#+ import:)]
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    ["." try (#+ Try)]
+    ["." io (#+ IO)]
+    [concurrency
+     ["." promise]]]
+   [data
+    [collection
+     ["." array]
+     ["." list]]]
+   [world
+    [file (#+ Path)]]]
+  ["." // #_
+   ["/#" // #_
+    ["#" project]
+    ["#." action (#+ Action)]
+    ["#." command (#+ Command)]]])
+
+(import: #long java/nio/file/WatchKey
+  (reset [] #io boolean))
+
+(import: #long java/util/concurrent/TimeUnit
+  (#enum SECONDS))
+
+(import: #long java/nio/file/WatchService
+  (poll [long java/util/concurrent/TimeUnit] #io #try #? java/nio/file/WatchKey)
+  (poll #as fetch [] #io #try #? java/nio/file/WatchKey))
+
+(import: #long java/nio/file/FileSystem
+  (newWatchService [] #io #try java/nio/file/WatchService))
+
+(import: #long java/nio/file/FileSystems
+  (#static getDefault [] java/nio/file/FileSystem))
+
+(import: #long java/lang/Object)
+
+(import: #long java/lang/String)
+
+(import: #long (java/nio/file/WatchEvent$Kind a))
+
+(import: #long java/nio/file/StandardWatchEventKinds
+  (#static ENTRY_CREATE (java/nio/file/WatchEvent$Kind java/nio/file/Path))
+  (#static ENTRY_MODIFY (java/nio/file/WatchEvent$Kind java/nio/file/Path))
+  (#static ENTRY_DELETE (java/nio/file/WatchEvent$Kind java/nio/file/Path)))
+
+(import: #long java/nio/file/Path
+  (register [java/nio/file/WatchService [(java/nio/file/WatchEvent$Kind ?)]] #io #try java/nio/file/WatchKey))
+
+(import: #long java/io/File
+  (new [java/lang/String])
+  (exists [] #io #try boolean)
+  (isDirectory [] #io #try boolean)
+  (listFiles [] #io #try [java/io/File])
+  (getAbsolutePath [] #io #try java/lang/String)
+  (toPath [] java/nio/file/Path))
+
+(def: (targets path)
+  (-> Path (Action (List Path)))
+  (promise.future
+   (loop [path path]
+     (let [file (java/io/File::new path)]
+       (do {@ (try.with io.monad)}
+         [exists? (java/io/File::exists file)
+          directory? (java/io/File::isDirectory file)]
+         (if (and exists?
+                  directory?)
+           (do @
+             [children (java/io/File::listFiles file)
+              children (|> children
+                           array.to-list
+                           (monad.map @ (|>> java/io/File::getAbsolutePath)))
+              descendants (monad.map @ recur children)]
+             (wrap (#.Cons path (list.concat descendants))))
+           (wrap (list))))))))
+
+(type: Watch-Event
+  (java/nio/file/WatchEvent$Kind java/lang/Object))
+
+(def: watch-events
+  (List Watch-Event)
+  (list (:coerce Watch-Event (java/nio/file/StandardWatchEventKinds::ENTRY_CREATE))
+        (:coerce Watch-Event (java/nio/file/StandardWatchEventKinds::ENTRY_MODIFY))
+        (:coerce Watch-Event (java/nio/file/StandardWatchEventKinds::ENTRY_DELETE))))
+
+(def: (watch! watcher path)
+  (-> java/nio/file/WatchService Path (Action Any))
+  (promise.future
+   (do (try.with io.monad)
+     [_ (java/nio/file/Path::register watcher
+                                      (array.from-list ..watch-events)
+                                      (|> path java/io/File::new java/io/File::toPath))]
+     (wrap []))))
+
+(def: (poll! watcher)
+  (-> java/nio/file/WatchService (Action (Maybe java/nio/file/WatchKey)))
+  (promise.future
+   (java/nio/file/WatchService::poll 1 java/util/concurrent/TimeUnit::SECONDS watcher)))
+
+(def: (drain! watcher)
+  (-> java/nio/file/WatchService (IO (Try Any)))
+  (do (try.with io.monad)
+    [?key (java/nio/file/WatchService::fetch watcher)]
+    (case ?key
+      (#.Some key)
+      (do io.monad
+        [valid? (java/nio/file/WatchKey::reset key)]
+        (if valid?
+          (drain! watcher)
+          (wrap (:: try.monad wrap []))))
+      
+      #.None
+      (wrap []))))
+
+(def: #export (do! command project)
+  (All [a] (-> (Command a) (Command Any)))
+  (do {@ ///action.monad}
+    [#let [fs (java/nio/file/FileSystems::getDefault)]
+     watcher (promise.future (java/nio/file/FileSystem::newWatchService fs))
+     targets (|> project
+                 (get@ #///.sources)
+                 (monad.map @ ..targets)
+                 (:: @ map list.concat))
+     _ (monad.map @ (..watch! watcher) targets)
+     _ (command project)]
+    (loop [_ []]
+      (do @
+        [?key (..poll! watcher)
+         _ (case ?key
+             (#.Some key)
+             (do @
+               [_ (promise.future (..drain! watcher))
+                _ (command project)]
+               (wrap []))
+
+             #.None
+             (wrap []))]
+        (recur [])))))
