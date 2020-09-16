@@ -1,14 +1,301 @@
 (.module:
   [lux #*
-   ["_" test (#+ Test)]]
-  ## {1
-  ##  ["." /]}
+   ["_" test (#+ Test)]
+   [abstract
+    [monad (#+ do)]
+    {[0 #spec]
+     [/
+      ["$." functor (#+ Injection Comparison)]
+      ["$." apply]
+      ["$." monad]]}]
+   [control
+    ["." try]]
+   [data
+    ["." text ("#@." equivalence)
+     ["%" format (#+ format)]]
+    [number
+     ["n" nat]]]
+   [math
+    ["." random (#+ Random)]]]
+  {1
+   ["." /]}
   ["." / #_
    ["#." annotation]])
 
+(template: (!expect <pattern> <value>)
+  (case <value>
+    <pattern> true
+    _ false))
+
+(def: compiler-related
+  Test
+  (do random.monad
+    [target (random.ascii/upper-alpha 1)
+     version (random.ascii/upper-alpha 1)
+     source-code (random.ascii/upper-alpha 1)
+     expected-current-module (random.ascii/upper-alpha 1)
+     primitive-type (random.ascii/upper-alpha 1)
+     expected-seed random.nat
+     expected random.nat
+     dummy (random.filter (|>> (n.= expected) not) random.nat)
+     expected-error (random.ascii/upper-alpha 1)
+     expected-short (random.ascii/upper-alpha 1)
+     dummy-module (random.filter (|>> (text@= expected-current-module) not)
+                                 (random.ascii/upper-alpha 1))
+     expected-gensym (random.ascii/upper-alpha 1)
+     #let [expected-lux {#.info            {#.target  target
+                                            #.version version
+                                            #.mode    #.Build}
+                         #.source          [..dummy-cursor 0 source-code]
+                         #.cursor          ..dummy-cursor
+                         #.current-module  (#.Some expected-current-module)
+                         #.modules         (list)
+                         #.scopes          (list)
+                         #.type-context    {#.ex-counter 0
+                                            #.var-counter 0
+                                            #.var-bindings (list)}
+                         #.expected        (#.Some (#.Primitive primitive-type (list)))
+                         #.seed            expected-seed
+                         #.scope-type-vars (list)
+                         #.extensions      []
+                         #.host            []}]]
+    ($_ _.and
+        (_.cover [/.run]
+                 (|> (:: /.monad wrap expected)
+                     (/.run expected-lux)
+                     (!expect (^multi (#try.Success actual)
+                                      (n.= expected actual)))))
+        (_.cover [/.run']
+                 (|> (:: /.monad wrap expected)
+                     (/.run' expected-lux)
+                     (!expect (^multi (#try.Success [actual-lux actual])
+                                      (and (is? expected-lux actual-lux)
+                                           (n.= expected actual))))))
+        (_.cover [/.get-compiler]
+                 (|> /.get-compiler
+                     (/.run expected-lux)
+                     (!expect (^multi (#try.Success actual-lux)
+                                      (is? expected-lux actual-lux)))))
+        )))
+
+(def: error-handling
+  Test
+  (do random.monad
+    [target (random.ascii/upper-alpha 1)
+     version (random.ascii/upper-alpha 1)
+     source-code (random.ascii/upper-alpha 1)
+     expected-current-module (random.ascii/upper-alpha 1)
+     primitive-type (random.ascii/upper-alpha 1)
+     expected-seed random.nat
+     expected random.nat
+     dummy (random.filter (|>> (n.= expected) not) random.nat)
+     expected-error (random.ascii/upper-alpha 1)
+     #let [expected-lux {#.info            {#.target  target
+                                            #.version version
+                                            #.mode    #.Build}
+                         #.source          [..dummy-cursor 0 source-code]
+                         #.cursor          ..dummy-cursor
+                         #.current-module  (#.Some expected-current-module)
+                         #.modules         (list)
+                         #.scopes          (list)
+                         #.type-context    {#.ex-counter 0
+                                            #.var-counter 0
+                                            #.var-bindings (list)}
+                         #.expected        (#.Some (#.Primitive primitive-type (list)))
+                         #.seed            expected-seed
+                         #.scope-type-vars (list)
+                         #.extensions      []
+                         #.host            []}]]
+    ($_ _.and
+        (_.cover [/.fail]
+                 (|> (/.fail expected-error)
+                     (: (Meta Any))
+                     (/.run expected-lux)
+                     (!expect (^multi (#try.Failure actual-error)
+                                      (text@= expected-error actual-error)))))
+        (_.cover [/.assert]
+                 (and (|> (/.assert expected-error true)
+                          (: (Meta Any))
+                          (/.run expected-lux)
+                          (!expect (#try.Success [])))
+                      (|> (/.assert expected-error false)
+                          (/.run expected-lux)
+                          (!expect (^multi (#try.Failure actual-error)
+                                           (text@= expected-error actual-error))))))
+        (_.cover [/.either]
+                 (and (|> (/.either (:: /.monad wrap expected)
+                                    (: (Meta Nat)
+                                       (/.fail expected-error)))
+                          (/.run expected-lux)
+                          (!expect (^multi (#try.Success actual)
+                                           (n.= expected actual))))
+                      (|> (/.either (: (Meta Nat)
+                                       (/.fail expected-error))
+                                    (:: /.monad wrap expected))
+                          (/.run expected-lux)
+                          (!expect (^multi (#try.Success actual)
+                                           (n.= expected actual))))
+                      (|> (/.either (: (Meta Nat)
+                                       (/.fail expected-error))
+                                    (: (Meta Nat)
+                                       (/.fail expected-error)))
+                          (/.run expected-lux)
+                          (!expect (^multi (#try.Failure actual-error)
+                                           (text@= expected-error actual-error))))
+                      (|> (/.either (:: /.monad wrap expected)
+                                    (:: /.monad wrap dummy))
+                          (/.run expected-lux)
+                          (!expect (^multi (#try.Success actual)
+                                           (n.= expected actual))))))
+        )))
+
+(def: module-related
+  Test
+  (do random.monad
+    [target (random.ascii/upper-alpha 1)
+     version (random.ascii/upper-alpha 1)
+     source-code (random.ascii/upper-alpha 1)
+     expected-current-module (random.ascii/upper-alpha 1)
+     primitive-type (random.ascii/upper-alpha 1)
+     expected-seed random.nat
+     expected random.nat
+     dummy (random.filter (|>> (n.= expected) not) random.nat)
+     expected-error (random.ascii/upper-alpha 1)
+     expected-short (random.ascii/upper-alpha 1)
+     dummy-module (random.filter (|>> (text@= expected-current-module) not)
+                                 (random.ascii/upper-alpha 1))
+     #let [expected-lux {#.info            {#.target  target
+                                            #.version version
+                                            #.mode    #.Build}
+                         #.source          [..dummy-cursor 0 source-code]
+                         #.cursor          ..dummy-cursor
+                         #.current-module  (#.Some expected-current-module)
+                         #.modules         (list)
+                         #.scopes          (list)
+                         #.type-context    {#.ex-counter 0
+                                            #.var-counter 0
+                                            #.var-bindings (list)}
+                         #.expected        (#.Some (#.Primitive primitive-type (list)))
+                         #.seed            expected-seed
+                         #.scope-type-vars (list)
+                         #.extensions      []
+                         #.host            []}]]
+    ($_ _.and
+        (_.cover [/.current-module-name]
+                 (|> /.current-module-name
+                     (/.run expected-lux)
+                     (!expect (^multi (#try.Success actual-current-module)
+                                      (text@= expected-current-module actual-current-module)))))
+        (_.cover [/.normalize]
+                 (and (|> (/.normalize ["" expected-short])
+                          (/.run expected-lux)
+                          (!expect (^multi (#try.Success [actual-module actual-short])
+                                           (and (text@= expected-current-module actual-module)
+                                                (is? expected-short actual-short)))))
+                      (|> (/.normalize [dummy-module expected-short])
+                          (/.run expected-lux)
+                          (!expect (^multi (#try.Success [actual-module actual-short])
+                                           (and (text@= dummy-module actual-module)
+                                                (is? expected-short actual-short)))))))
+        )))
+
+(def: random-cursor
+  (Random Cursor)
+  ($_ random.and
+      (random.ascii/upper-alpha 1)
+      random.nat
+      random.nat))
+
+(def: injection
+  (Injection Meta)
+  (:: /.monad wrap))
+
+(def: (comparison init)
+  (-> Lux (Comparison Meta))
+  (function (_ == left right)
+    (case [(/.run init left)
+           (/.run init right)]
+      [(#try.Success left) (#try.Success right)]
+      (== left right)
+      
+      _
+      false)))
+
 (def: #export test
   Test
-  (<| ## (_.covering /._)
+  (<| (_.covering /._)
       ($_ _.and
+          (do {@ random.monad}
+            [target (random.ascii/upper-alpha 1)
+             version (random.ascii/upper-alpha 1)
+             source-code (random.ascii/upper-alpha 1)
+             expected-current-module (random.ascii/upper-alpha 1)
+             expected-type (:: @ map (function (_ name)
+                                       (#.Primitive name (list)))
+                               (random.ascii/upper-alpha 1))
+             expected-seed random.nat
+             expected random.nat
+             dummy (random.filter (|>> (n.= expected) not) random.nat)
+             expected-error (random.ascii/upper-alpha 1)
+             expected-short (random.ascii/upper-alpha 1)
+             dummy-module (random.filter (|>> (text@= expected-current-module) not)
+                                         (random.ascii/upper-alpha 1))
+             expected-gensym (random.ascii/upper-alpha 1)
+             expected-cursor ..random-cursor
+             #let [expected-lux {#.info            {#.target  target
+                                                    #.version version
+                                                    #.mode    #.Build}
+                                 #.source          [.dummy-cursor 0 source-code]
+                                 #.cursor          expected-cursor
+                                 #.current-module  (#.Some expected-current-module)
+                                 #.modules         (list)
+                                 #.scopes          (list)
+                                 #.type-context    {#.ex-counter 0
+                                                    #.var-counter 0
+                                                    #.var-bindings (list)}
+                                 #.expected        (#.Some expected-type)
+                                 #.seed            expected-seed
+                                 #.scope-type-vars (list)
+                                 #.extensions      []
+                                 #.host            []}]]
+            ($_ _.and
+                (_.with-cover [/.functor]
+                  ($functor.spec ..injection (..comparison expected-lux) /.functor))
+                (_.with-cover [/.apply]
+                  ($apply.spec ..injection (..comparison expected-lux) /.apply))
+                (_.with-cover [/.monad]
+                  ($monad.spec ..injection (..comparison expected-lux) /.monad))
+                
+                ..compiler-related
+                ..error-handling
+                ..module-related
+                (_.cover [/.count]
+                         (|> (do /.monad
+                               [pre /.count
+                                post /.count]
+                               (wrap [pre post]))
+                             (/.run expected-lux)
+                             (!expect (^multi (#try.Success [actual-pre actual-post])
+                                              (and (n.= expected-seed actual-pre)
+                                                   (n.= (inc expected-seed) actual-post))))))
+                (_.cover [/.gensym]
+                         (|> (/.gensym expected-gensym)
+                             (:: /.monad map %.code)
+                             (/.run expected-lux)
+                             (!expect (^multi (#try.Success actual-gensym)
+                                              (and (text.contains? expected-gensym actual-gensym)
+                                                   (text.contains? (%.nat expected-seed) actual-gensym))))))
+                (_.cover [/.cursor]
+                         (|> /.cursor
+                             (/.run expected-lux)
+                             (!expect (^multi (#try.Success actual-cursor)
+                                              (is? expected-cursor actual-cursor)))))
+                (_.cover [/.expected-type]
+                         (|> /.expected-type
+                             (/.run expected-lux)
+                             (!expect (^multi (#try.Success actual-type)
+                                              (is? expected-type actual-type)))))
+                ))
+          
           /annotation.test
           )))

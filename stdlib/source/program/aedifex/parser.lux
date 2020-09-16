@@ -1,18 +1,44 @@
 (.module:
-  [lux (#- type)
+  [lux (#- Module type)
    [abstract
     [monad (#+ do)]]
    [control
     ["<>" parser
      ["<c>" code (#+ Parser)]]]
    [data
-    ["." text]]
+    ["." text]
+    [collection
+     ["." dictionary (#+ Dictionary)]]]
+   [tool
+    [compiler
+     [meta
+      [archive
+       [descriptor (#+ Module)]]]]]
    [world
     [net (#+ URL)]]]
   [//
    ["/" project]
    ["//." artifact (#+ Artifact)]
    ["//." dependency]])
+
+(def: (as-input input)
+  (-> (Maybe Code) (List Code))
+  (case input
+    (#.Some input)
+    (list input)
+    
+    #.None
+    (list)))
+
+(def: (singular input tag parser)
+  (All [a] (-> (Dictionary Text Code) Text (Parser a) (Parser a)))
+  (<c>.local (..as-input (dictionary.get tag input))
+             parser))
+
+(def: (plural input tag parser)
+  (All [a] (-> (Dictionary Text Code) Text (Parser a) (Parser (List a))))
+  (<c>.local (..as-input (dictionary.get tag input))
+             (<c>.tuple (<>.some parser))))
 
 (def: group
   (Parser //artifact.Group)
@@ -42,42 +68,52 @@
   (Parser /.SCM)
   ..url)
 
+(def: description
+  (Parser Text)
+  <c>.text)
+
 (def: license
   (Parser /.License)
-  (<c>.tuple ($_ <>.and
-                 ..name
-                 ..url
-                 (<>.default #/.Repo
-                             (<>.or (<c>.this! (' #repo))
-                                    (<c>.this! (' #manual)))))))
+  (do {@ <>.monad}
+    [input (:: @ map
+               (dictionary.from-list text.hash)
+               (<c>.record (<>.some (<>.and <c>.local-tag
+                                            <c>.any))))]
+    (<c>.tuple ($_ <>.and
+                   (..singular input "name" ..name)
+                   (..singular input "url" ..url)
+                   (<>.default #/.Repo
+                               (..singular input "type"
+                                           (<>.or (<c>.this! (' #repo))
+                                                  (<c>.this! (' #manual)))))))))
 
 (def: organization
   (Parser /.Organization)
-  (<| <c>.form
-      (<>.after (<c>.this! (' #organization)))
-      ($_ <>.and
-          ..name
-          ..url)))
-
-(def: developer'
-  (Parser /.Developer)
-  ($_ <>.and
-      ..name
-      ..url
-      (<>.maybe ..organization)
-      ))
+  (do {@ <>.monad}
+    [input (:: @ map
+               (dictionary.from-list text.hash)
+               (<c>.record (<>.some (<>.and <c>.local-tag
+                                            <c>.any))))]
+    ($_ <>.and
+        (..singular input "name" ..name)
+        (..singular input "url" ..url))))
 
 (def: developer
   (Parser /.Developer)
-  (<| <c>.form
-      (<>.after (<c>.this! (' #developer)))
-      ..developer'))
+  (do {@ <>.monad}
+    [input (:: @ map
+               (dictionary.from-list text.hash)
+               (<c>.record (<>.some (<>.and <c>.local-tag
+                                            <c>.any))))]
+    ($_ <>.and
+        (..singular input "name" ..name)
+        (..singular input "url" ..url)
+        (<>.maybe (..singular input "organization" ..organization))
+        )))
 
 (def: contributor
   (Parser /.Contributor)
-  (<| <c>.form
-      (<>.after (<c>.this! (' #contributor)))
-      ..developer'))
+  ..developer)
 
 (def: no-info
   /.Info
@@ -89,26 +125,22 @@
    #/.developers (list)
    #/.contributors (list)})
 
-(def: (singular tag parser)
-  (All [a] (-> Code (Parser a) (Parser a)))
-  (<c>.form (<>.after (<c>.this! tag) parser)))
-
-(def: (plural tag parser)
-  (All [a] (-> Code (Parser a) (Parser (List a))))
-  (<c>.form (<>.after (<c>.this! tag)
-                      (<>.some parser))))
-
 (def: info
   (Parser /.Info)
-  ($_ <>.and
-      (<>.maybe ..url)
-      (<>.maybe ..scm)
-      (<>.maybe <c>.text)
-      (<>.default (list) (..plural (' #licenses) ..license))
-      (<>.maybe ..organization)
-      (<>.default (list) (..plural (' #developers) ..developer))
-      (<>.default (list) (..plural (' #contributors) ..contributor))
-      ))
+  (do {@ <>.monad}
+    [input (:: @ map
+               (dictionary.from-list text.hash)
+               (<c>.record (<>.some (<>.and <c>.local-tag
+                                            <c>.any))))]
+    ($_ <>.and
+        (<>.maybe (..singular input "url" ..url))
+        (<>.maybe (..singular input "scm" ..scm))
+        (<>.maybe (..singular input "description" ..description))
+        (<>.default (list) (..plural input "licenses" ..license))
+        (<>.maybe (..singular input "organization" ..organization))
+        (<>.default (list) (..plural input "developers" ..developer))
+        (<>.default (list) (..plural input "contributors" ..contributor))
+        )))
 
 (def: repository
   (Parser //dependency.Repository)
@@ -130,25 +162,29 @@
   (Parser /.Source)
   <c>.text)
 
+(def: module
+  (Parser Module)
+  <c>.text)
+
 (def: #export project
   (Parser /.Project)
-  (<| <c>.form
-      (<>.after (<c>.this! (' project:)))
-      (`` ($_ <>.and
-              ..artifact
-              (<| (<>.default ..no-info)
-                  (..singular (' #info) ..info))
-              (<| (<>.default (list))
-                  (..plural (' #repositories))
-                  ..repository)
-              (<| (<>.default (list))
-                  (..plural (' #dependencies))
-                  ..dependency)
-              (<| (<>.default (list "source"))
-                  (..plural (' #sources))
-                  ..source)
-              (<| (<>.default "target")
-                  (..singular (' #target) <c>.text))
-              (<>.maybe (..singular (' #program) <c>.text))
-              (<>.maybe (..singular (' #test) <c>.text))
-              ))))
+  (do {@ <>.monad}
+    [input (:: @ map
+               (dictionary.from-list text.hash)
+               (<c>.record (<>.some (<>.and <c>.local-tag
+                                            <c>.any))))]
+    ($_ <>.and
+        (..singular input "identity" ..artifact)
+        (<>.default ..no-info
+                    (..singular input "info" ..info))
+        (<>.default (list)
+                    (..plural input "repositories" ..repository))
+        (<>.default (list)
+                    (..plural input "dependencies" ..dependency))
+        (<>.default (list "source")
+                    (..plural input "sources" ..source))
+        (<>.default "target"
+                    (..singular input "target" <c>.text))
+        (<>.maybe (..singular input "program" ..module))
+        (<>.maybe (..singular input "test" ..module))
+        )))

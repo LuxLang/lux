@@ -22,7 +22,8 @@
      ["." list ("#@." fold functor)]
      ["." row (#+ Row row) ("#@." monad)]
      ["." dictionary (#+ Dictionary)]]]
-   ["." macro (#+ monad with-gensyms)
+   ["." meta (#+ monad with-gensyms)]
+   [macro
     [syntax (#+ syntax:)]
     ["." code]]])
 
@@ -88,7 +89,7 @@
                                (wrap (` [(~ (code.text key-name)) (~ (wrapper value))]))
 
                                _
-                               (macro.fail "Wrong syntax for JSON object.")))
+                               (meta.fail "Wrong syntax for JSON object.")))
                            pairs)]
         (wrap (list (` (: JSON (#..Object ((~! dictionary.from-list)
                                            (~! text.hash)
@@ -334,18 +335,18 @@
         (wrap chars))))
 
 (def: (kv~ json~)
-  (-> (-> Any (Parser JSON)) (Parser [String JSON]))
+  (-> (Parser JSON) (Parser [String JSON]))
   (do <>.monad
     [key string~
      _ space~
      _ (<t>.this ":")
      _ space~
-     value (json~ [])]
+     value json~]
     (wrap [key value])))
 
 (template [<name> <type> <open> <close> <elem-parser> <prep>]
   [(def: (<name> json~)
-     (-> (-> Any (Parser JSON)) (Parser <type>))
+     (-> (Parser JSON) (Parser <type>))
      (do <>.monad
        [_ (<t>.this <open>)
         _ space~
@@ -354,16 +355,24 @@
         _ (<t>.this <close>)]
        (wrap (<prep> elems))))]
 
-  [array~  Array  "[" "]" (json~ [])  row.from-list]
+  [array~  Array  "[" "]" json~  row.from-list]
   [object~ Object "{" "}" (kv~ json~) (dictionary.from-list text.hash)]
   )
 
-(def: (json~' _)
-  (-> Any (Parser JSON))
-  ($_ <>.or null~ boolean~ number~ string~ (array~ json~') (object~ json~')))
+(def: json~
+  (Parser JSON)
+  (<>.rec
+   (function (_ json~)
+     ($_ <>.or
+         null~
+         boolean~
+         number~
+         string~
+         (array~ json~)
+         (object~ json~)))))
 
 (structure: #export codec
   (Codec Text JSON)
   
   (def: encode ..format)
-  (def: decode (<t>.run (json~' []))))
+  (def: decode (<t>.run json~)))

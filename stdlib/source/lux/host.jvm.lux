@@ -23,11 +23,11 @@
      ["." array]
      ["." list ("#@." monad fold monoid)]
      ["." dictionary (#+ Dictionary)]]]
-   ["." macro (#+ with-gensyms)
+   [macro
     [syntax (#+ syntax:)]
     ["." code]
     ["." template]]
-   [meta
+   ["." meta (#+ with-gensyms)
     ["." annotation]]
    [target
     [jvm
@@ -402,21 +402,21 @@
 
 (def: (context compiler)
   (-> Lux Context)
-  (case (macro.run compiler
-                   (: (Meta Context)
-                      (do macro.monad
-                        [current-module macro.current-module-name
-                         definitions (macro.definitions current-module)]
-                        (wrap (list@fold (: (-> [Text Definition] Context Context)
-                                            (function (_ [short-name [_ _ meta _]] imports)
-                                              (case (annotation.text (name-of #..jvm-class) meta)
-                                                (#.Some full-class-name)
-                                                (add-import [short-name full-class-name] imports)
+  (case (meta.run compiler
+                  (: (Meta Context)
+                     (do meta.monad
+                       [current-module meta.current-module-name
+                        definitions (meta.definitions current-module)]
+                       (wrap (list@fold (: (-> [Text Definition] Context Context)
+                                           (function (_ [short-name [_ _ meta _]] imports)
+                                             (case (annotation.text (name-of #..jvm-class) meta)
+                                               (#.Some full-class-name)
+                                               (add-import [short-name full-class-name] imports)
 
-                                                _
-                                                imports)))
-                                         ..fresh
-                                         definitions)))))
+                                               _
+                                               imports)))
+                                        ..fresh
+                                        definitions)))))
     (#.Left _)        (list)
     (#.Right imports) imports))
 
@@ -1265,8 +1265,8 @@
               "(::new! []) for calling the class's constructor."
               "(::resolve! container [value]) for calling the 'resolve' method."
               )}
-  (do macro.monad
-    [current-module macro.current-module-name
+  (do meta.monad
+    [current-module meta.current-module-name
      #let [fully-qualified-class-name (name.qualify current-module full-class-name)
            field-parsers (list@map (field->parser fully-qualified-class-name) fields)
            method-parsers (list@map (method->parser fully-qualified-class-name) methods)
@@ -1295,8 +1295,8 @@
   {#.doc (doc "Allows defining JVM interfaces."
               (interface: TestInterface
                 ([] foo [boolean String] void #throws [Exception])))}
-  (do macro.monad
-    [current-module macro.current-module-name]
+  (do meta.monad
+    [current-module meta.current-module-name]
     (wrap (list (` ("jvm class interface"
                     (~ (declaration$ (type.declaration (name.qualify current-module full-class-name) class-vars)))
                     [(~+ (list@map class$ supers))]
@@ -1462,7 +1462,7 @@
   (case member
     (^or (#ConstructorDecl [commons _]) (#MethodDecl [commons _]))
     (let [(^slots [#import-member-tvars #import-member-args]) commons]
-      (do {@ macro.monad}
+      (do {@ meta.monad}
         [arg-inputs (monad.map @
                                (: (-> [Bit (Type Value)] (Meta [Bit Code]))
                                   (function (_ [maybe? _])
@@ -1480,7 +1480,7 @@
         (wrap [arg-inputs input-jvm-types arg-types])))
 
     _
-    (:: macro.monad wrap [(list) (list) (list)])))
+    (:: meta.monad wrap [(list) (list) (list)])))
 
 (def: (decorate-return-maybe member never-null? unboxed return-term)
   (-> Import-Member-Declaration Bit (Type Value) Code Code)
@@ -1605,7 +1605,7 @@
   (let [[full-name class-tvars] (parser.declaration class)]
     (case member
       (#EnumDecl enum-members)
-      (do macro.monad
+      (do meta.monad
         [#let [enum-type (: Code
                             (case class-tvars
                               #.Nil
@@ -1623,7 +1623,7 @@
         (wrap (list@map getter-interop enum-members)))
       
       (#ConstructorDecl [commons _])
-      (do macro.monad
+      (do meta.monad
         [#let [classT (type.class full-name (list))
                def-name (code.identifier ["" (format method-prefix member-separator (get@ #import-member-alias commons))])
                jvm-interop (|> [classT
@@ -1643,7 +1643,7 @@
 
       (#MethodDecl [commons method])
       (with-gensyms [g!obj]
-        (do macro.monad
+        (do meta.monad
           [#let [def-name (code.identifier ["" (format method-prefix member-separator (get@ #import-member-alias commons))])
                  (^slots [#import-member-kind]) commons
                  (^slots [#import-method-name]) method
@@ -1696,7 +1696,7 @@
                           ((~' wrap) (.list (.` (~ jvm-interop))))))))))
 
       (#FieldAccessDecl fad)
-      (do macro.monad
+      (do meta.monad
         [#let [(^open ".") fad
                getter-name (code.identifier ["" (format method-prefix member-separator import-field-name)])
                setter-name (code.identifier ["" (format method-prefix member-separator import-field-name "!")])]
@@ -1746,7 +1746,7 @@
         method-prefix (..internal (if long-name?
                                     full-name
                                     (short-class-name full-name)))]
-    (do macro.monad
+    (do meta.monad
       [=args (member-def-arg-bindings vars member)]
       (member-def-interop vars kind class =args member method-prefix))))
 
@@ -1769,12 +1769,12 @@
   (let [[class-name _] (parser.declaration declaration)]
     (case (load-class class-name)
       (#.Right class)
-      (:: macro.monad wrap (if (interface? class)
-                             #Interface
-                             #Class))
+      (:: meta.monad wrap (if (interface? class)
+                            #Interface
+                            #Class))
 
       (#.Left _)
-      (macro.fail (format "Unknown class: " class-name)))))
+      (meta.fail (format "Unknown class: " class-name)))))
 
 (syntax: #export (import:
                    {#let [imports (..context *compiler*)]}
@@ -1831,7 +1831,7 @@
               (java/util/List::size [] my-list)
               Character$UnicodeScript::LATIN
               )}
-  (do {@ macro.monad}
+  (do {@ meta.monad}
     [kind (class-kind declaration)
      =members (monad.map @ (member-import$ class-type-vars long-name? kind declaration) members)]
     (wrap (list& (class-import$ long-name? declaration) (list@join =members)))))
@@ -1866,18 +1866,18 @@
   (exception.report
    ["Lux Type" (%.type type)]))
 
-(with-expansions [<failure> (as-is (macro.fail (exception.construct ..cannot-convert-to-jvm-type [type])))]
+(with-expansions [<failure> (as-is (meta.fail (exception.construct ..cannot-convert-to-jvm-type [type])))]
   (def: (lux-type->jvm-type type)
     (-> .Type (Meta (Type Value)))
     (if (lux-type@= Any type)
-      (:: macro.monad wrap $Object)
+      (:: meta.monad wrap $Object)
       (case type
         (#.Primitive name params)
         (`` (cond (~~ (template [<type>]
                         [(text@= (..reflection <type>) name)
                          (case params
                            #.Nil
-                           (:: macro.monad wrap <type>)
+                           (:: meta.monad wrap <type>)
 
                            _
                            <failure>)]
@@ -1895,7 +1895,7 @@
                         [(text@= (..reflection (type.array <type>)) name)
                          (case params
                            #.Nil
-                           (:: macro.monad wrap (type.array <type>))
+                           (:: meta.monad wrap (type.array <type>))
 
                            _
                            <failure>)]
@@ -1912,7 +1912,7 @@
                   (text@= array.type-name name)
                   (case params
                     (#.Cons elementLT #.Nil)
-                    (:: macro.monad map type.array
+                    (:: meta.monad map type.array
                         (lux-type->jvm-type elementLT))
 
                     _
@@ -1922,18 +1922,18 @@
                   (case params
                     #.Nil
                     (let [[_ unprefixed] (maybe.assume (text.split-with descriptor.array-prefix name))]
-                      (:: macro.monad map type.array
+                      (:: meta.monad map type.array
                           (lux-type->jvm-type (#.Primitive unprefixed (list)))))
 
                     _
                     <failure>)
 
                   ## else
-                  (:: macro.monad map (type.class name)
+                  (:: meta.monad map (type.class name)
                       (: (Meta (List (Type Parameter)))
-                         (monad.map macro.monad
+                         (monad.map meta.monad
                                     (function (_ paramLT)
-                                      (do macro.monad
+                                      (do meta.monad
                                         [paramJT (lux-type->jvm-type paramLT)]
                                         (case (parser.parameter? paramJT)
                                           (#.Some paramJT)
@@ -1962,8 +1962,8 @@
               (array-length my-array))}
   (case array
     [_ (#.Identifier array-name)]
-    (do macro.monad
-      [array-type (macro.find-type array-name)
+    (do meta.monad
+      [array-type (meta.find-type array-name)
        array-jvm-type (lux-type->jvm-type array-type)
        #let [g!extension (code.text (`` (cond (~~ (template [<primitive> <extension>]
                                                     [(:: type.equivalence =
@@ -1998,8 +1998,8 @@
               (array-read 10 my-array))}
   (case array
     [_ (#.Identifier array-name)]
-    (do macro.monad
-      [array-type (macro.find-type array-name)
+    (do meta.monad
+      [array-type (meta.find-type array-name)
        array-jvm-type (lux-type->jvm-type array-type)
        #let [g!idx (` (.|> (~ idx)
                            (.: .Nat)
@@ -2036,8 +2036,8 @@
               (array-write 10 my-object my-array))}
   (case array
     [_ (#.Identifier array-name)]
-    (do macro.monad
-      [array-type (macro.find-type array-name)
+    (do meta.monad
+      [array-type (meta.find-type array-name)
        array-jvm-type (lux-type->jvm-type array-type)
        #let [g!idx (` (.|> (~ idx)
                            (.: .Nat)
@@ -2086,7 +2086,7 @@
               =>
               "java.lang.String")}
   (-> External (Meta External))
-  (do macro.monad
+  (do meta.monad
     [*compiler* get-compiler]
     (wrap (qualify (..context *compiler*) class))))
 
