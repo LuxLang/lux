@@ -2,15 +2,15 @@
   [lux #*
    [abstract
     [equivalence (#+ Equivalence)]
-    ["." order (#+ Order)]
+    [order (#+ Order)]
     [enum (#+ Enum)]
-    codec
-    [monad (#+ do Monad)]]
+    [codec (#+ Codec)]
+    [monad (#+ Monad do)]]
    [control
     [io (#+ IO io)]
-    ["." try (#+ Try)]
-    ["p" parser
-     ["l" text (#+ Parser)]]]
+    ["." exception (#+ exception:)]
+    ["<>" parser
+     ["<t>" text (#+ Parser)]]]
    [data
     ["." maybe]
     [number
@@ -18,15 +18,16 @@
      ["i" int ("#@." decimal)]]
     ["." text ("#@." monoid)]
     [collection
-     ["." list ("#@." fold)]
-     ["." row (#+ Row row) ("#@." functor fold)]]]
+     ["." row]
+     ["." list ("#@." fold)]]]
    [type
     abstract]]
   [//
    ["." duration (#+ Duration)]
-   ["." date (#+ Date)]
+   ["." year (#+ Year)]
    ["." month (#+ Month)]
-   ["." day (#+ Day)]])
+   ["." day (#+ Day)]
+   ["." date (#+ Date)]])
 
 (abstract: #export Instant
   Int
@@ -85,52 +86,7 @@
 (def: #export epoch
   {#.doc "The instant corresponding to 1970-01-01T00:00:00Z"}
   Instant
-  (from-millis +0))
-
-## Codec::encode
-(def: (divisible? factor input)
-  (-> Int Int Bit)
-  (|> input (i.% factor) (i.= +0)))
-
-(def: (leap-year? year)
-  (-> Int Bit)
-  (and (divisible? +4 year)
-       (or (not (divisible? +100 year))
-           (divisible? +400 year))))
-
-(def: epoch-year Int +1970)
-
-(def: (find-year now)
-  (-> Instant [Int Duration])
-  (loop [reference epoch-year
-         time-left (relative now)]
-    (let [year (if (leap-year? reference)
-                 duration.leap-year
-                 duration.normal-year)]
-      (if (i.= +0 (duration.query year time-left))
-        [reference time-left]
-        (if (order.>= duration.order duration.empty time-left)
-          (recur (inc reference) (duration.merge (duration.inverse year) time-left))
-          (recur (dec reference) (duration.merge year time-left)))
-        ))))
-
-(def: (find-month months time)
-  (-> (Row Nat) Duration [Nat Duration])
-  (if (order.>= duration.order duration.empty time)
-    (row@fold (function (_ month-days [current-month time-left])
-                (let [month-duration (duration.scale-up month-days duration.day)]
-                  (if (i.= +0 (duration.query month-duration time-left))
-                    [current-month         time-left]
-                    [(inc current-month) (duration.merge (duration.inverse month-duration) time-left)])))
-              [0 time]
-              months)
-    (row@fold (function (_ month-days [current-month time-left])
-                (let [month-duration (duration.scale-up month-days duration.day)]
-                  (if (i.= +0 (duration.query month-duration time-left))
-                    [current-month         time-left]
-                    [(dec current-month) (duration.merge month-duration time-left)])))
-              [11 time]
-              (row.reverse months))))
+  (..from-millis +0))
 
 (def: (pad value)
   (-> Nat Text)
@@ -152,194 +108,127 @@
         ## (n.< 1,000 millis)
         ($_ text@compose "." (n@encode millis))))
 
-(def: seconds-per-day Int (duration.query duration.second duration.day))
-(def: days-up-to-epoch Int +719468)
+(def: millis-per-day
+  (duration.query duration.milli-second duration.day))
 
-(def: (extract-date instant)
-  (-> Instant [[Int Int Int] Duration])
-  (let [offset (relative instant)
-        seconds (duration.query duration.second offset)
-        z (|> seconds (i./ seconds-per-day) (i.+ days-up-to-epoch))
-        era (i./ +146097
-                 (if (i.>= +0 z)
-                   z
-                   (i.- +146096 z)))
-        days-of-era (|> z (i.- (i.* +146097 era)))
-        years-of-era (|> days-of-era
-                         (i.- (i./ +1460 days-of-era))
-                         (i.+ (i./ +36524 days-of-era))
-                         (i.- (i./ +146096 days-of-era))
-                         (i./ +365))
-        year (|> years-of-era (i.+ (i.* +400 era)))
-        days-of-year (|> days-of-era
-                         (i.- (|> (i.* +365 years-of-era)
-                                  (i.+ (i./ +4 years-of-era))
-                                  (i.- (i./ +100 years-of-era)))))
-        day-time (duration.frame duration.day offset)
-        days-of-year (if (order.>= duration.order duration.empty day-time)
-                       days-of-year
-                       (dec days-of-year))
-        mp (|> days-of-year (i.* +5) (i.+ +2) (i./ +153))
-        day (|> days-of-year
-                (i.- (|> mp (i.* +153) (i.+ +2) (i./ +5)))
-                (i.+ +1))
-        month (|> mp
-                  (i.+ (if (i.< +10 mp)
-                         +3
-                         -9)))
-        year (if (i.<= +2 month)
-               (inc year)
-               year)]
-    [[year month day]
-     day-time]))
+(def: (date-time instant)
+  (-> Instant [Date Duration])
+  (let [offset (..to-millis instant)
+        bce? (i.< +0 offset)
+        [days day-time] (if bce?
+                          (let [[days millis] (i./% ..millis-per-day offset)]
+                            (case millis
+                              +0 [days millis]
+                              _ [(dec days) (i.+ ..millis-per-day millis)]))
+                          (i./% ..millis-per-day offset))]
+    [(date.from-days days)
+     (duration.from-millis day-time)]))
 
-## Based on this: https://stackoverflow.com/a/42936293/6823464
-(def: #export (to-text instant)
+(template [<value> <definition>]
+  [(def: <definition> Text <value>)]
+
+  ["T" date-suffix]
+  
+  [":" time-separator]
+  ["Z" time-suffix]
+  )
+
+(def: #export (encode instant)
   (-> Instant Text)
-  (let [[[year month day] day-time] (extract-date instant)
-        day-time (if (order.>= duration.order duration.empty day-time)
-                   day-time
-                   (duration.merge duration.day day-time))
-        [hours day-time] [(duration.query duration.hour day-time) (duration.frame duration.hour day-time)]
-        [minutes day-time] [(duration.query duration.minute day-time) (duration.frame duration.minute day-time)]
-        [seconds millis] [(duration.query duration.second day-time) (duration.frame duration.second day-time)]]
-    ($_ text@compose (i@encode year) "-" (pad (.nat month)) "-" (pad (.nat day)) "T"
-        (pad (.nat hours)) ":" (pad (.nat minutes)) ":" (pad (.nat seconds))
+  (let [[date time] (..date-time instant)
+        time (if (:: duration.order < duration.empty time)
+               (duration.merge duration.day time)
+               time)
+        [hours time] [(duration.query duration.hour time) (duration.frame duration.hour time)]
+        [minutes time] [(duration.query duration.minute time) (duration.frame duration.minute time)]
+        [seconds millis] [(duration.query duration.second time) (duration.frame duration.second time)]]
+    ($_ text@compose
+        (:: date.codec encode date)
+        ..date-suffix (..pad (.nat hours))
+        ..time-separator (..pad (.nat minutes))
+        ..time-separator (..pad (.nat seconds))
         (|> millis
-            (adjust-negative duration.second)
+            (..adjust-negative duration.second)
             duration.to-millis
             .nat
-            encode-millis)
-        "Z")))
+            ..encode-millis)
+        ..time-suffix)))
 
-## Codec::decode
-(def: lex-year
-  (Parser Int)
-  (do p.monad
-    [sign (p.or (l.this "-") (l.this "+"))
-     raw-year (p.codec i.decimal (l.many l.decimal))
-     #let [signum (case sign
-                    (#.Left _)  -1
-                    (#.Right _) +1)]]
-    (wrap (i.* signum raw-year))))
+(def: parse-section
+  (Parser Nat)
+  (<>.codec n.decimal (<t>.exactly 2 <t>.decimal)))
 
-(def: lex-section
-  (Parser Int)
-  (p.codec i.decimal (l.exactly 2 l.decimal)))
+(def: parse-millis
+  (Parser Nat)
+  (<>.either (|> (<t>.at-most 3 <t>.decimal)
+                 (<>.codec n.decimal)
+                 (<>.after (<t>.this ".")))
+             (:: <>.monad wrap 0)))
 
-(def: lex-millis
-  (Parser Int)
-  (p.either (|> (l.at-most 3 l.decimal)
-                (p.codec i.decimal)
-                (p.after (l.this ".")))
-            (:: p.monad wrap +0)))
+(template [<minimum> <maximum> <parser> <exception>]
+  [(exception: #export (<exception> {value Nat})
+     (exception.report
+      ["Value" (n@encode value)]
+      ["Minimum" (n@encode <minimum>)]
+      ["Maximum" (n@encode <maximum>)]))
 
-(def: (leap-years year)
-  (-> Int Int)
-  (|> (i./ +4 year)
-      (i.- (i./ +100 year))
-      (i.+ (i./ +400 year))))
+   (def: <parser>
+     (Parser Nat)
+     (do <>.monad
+       [value ..parse-section]
+       (if (and (n.>= <minimum> value)
+                (n.<= <maximum> value))
+         (wrap value)
+         (<>.lift (exception.throw <exception> [value])))))]
 
-## Based on: https://stackoverflow.com/a/3309340/6823464
-## (def: lex-instant
-##   (Parser Instant)
-##   (do p.monad
-##     [utc-year lex-year
-##      _ (l.this "-")
-##      utc-month lex-section
-##      _ (p.assert "Invalid month."
-##                  (and (i.>= +1 utc-month)
-##                       (i.<= +12 utc-month)))
-##      #let [months (if (leap-year? utc-year)
-##                     date.leap-year-months
-##                     date.common-months)
-##            month-days (|> months
-##                           (row.nth (.nat (dec utc-month)))
-##                           maybe.assume)]
-##      _ (l.this "-")
-##      utc-day lex-section
-##      _ (p.assert "Invalid day."
-##                  (and (i.>= +1 utc-day)
-##                       (i.<= (.int month-days) utc-day)))
-##      _ (l.this "T")
-##      utc-hour lex-section
-##      _ (p.assert "Invalid hour."
-##                  (and (i.>= +0 utc-hour)
-##                       (i.<= +23 utc-hour)))
-##      _ (l.this ":")
-##      utc-minute lex-section
-##      _ (p.assert "Invalid minute."
-##                  (and (i.>= +0 utc-minute)
-##                       (i.<= +59 utc-minute)))
-##      _ (l.this ":")
-##      utc-second lex-section
-##      _ (p.assert "Invalid second."
-##                  (and (i.>= +0 utc-second)
-##                       (i.<= +59 utc-second)))
-##      utc-millis lex-millis
-##      _ (l.this "Z")
-##      #let [years-since-epoch (i.- epoch-year utc-year)
-##            previous-leap-days (i.- (leap-years epoch-year)
-##                                    (leap-years (dec utc-year)))
-##            year-days-so-far (|> (i.* +365 years-since-epoch)
-##                                 (i.+ previous-leap-days))
-##            month-days-so-far (|> months
-##                                  row.to-list
-##                                  (list.take (.nat (dec utc-month)))
-##                                  (list@fold n.+ 0))
-##            total-days (|> year-days-so-far
-##                           (i.+ (.int month-days-so-far))
-##                           (i.+ (dec utc-day)))]]
-##     (wrap (|> epoch
-##               (shift (duration.scale-up total-days duration.day))
-##               (shift (duration.scale-up utc-hour duration.hour))
-##               (shift (duration.scale-up utc-minute duration.minute))
-##               (shift (duration.scale-up utc-second duration.second))
-##               (shift (duration.scale-up utc-millis duration.milli))))))
+  [0 23 parse-hour invalid-hour]
+  [0 59 parse-minute invalid-minute]
+  [0 59 parse-second invalid-second]
+  )
 
-## (def: (decode input)
-##   (-> Text (Try Instant))
-##   (l.run input lex-instant))
+(def: parser
+  (Parser Instant)
+  (do {@ <>.monad}
+    [days (:: @ map date.days date.parser)
+     _ (<t>.this ..date-suffix)
+     utc-hour (<>.before (<t>.this ..time-separator)
+                         ..parse-hour)
+     utc-minute (<>.before (<t>.this ..time-separator)
+                           ..parse-minute)
+     utc-second ..parse-second
+     utc-millis (<>.before (<t>.this ..time-suffix)
+                           ..parse-millis)]
+    (wrap (|> (if (i.< +0 days)
+                (|> duration.day
+                    (duration.scale-up (.nat (i.* -1 days)))
+                    duration.inverse)
+                (duration.scale-up (.nat days) duration.day))
+              (duration.merge (duration.scale-up utc-hour duration.hour))
+              (duration.merge (duration.scale-up utc-minute duration.minute))
+              (duration.merge (duration.scale-up utc-second duration.second))
+              (duration.merge (duration.scale-up utc-millis duration.milli-second))
+              ..absolute))))
 
-## (structure: #export _
-##   {#.doc (doc "Based on ISO 8601."
-##               "For example: 2017-01-15T21:14:51.827Z")}
-##   (Codec Text Instant)
-##   (def: encode encode)
-##   (def: decode decode))
+(structure: #export codec
+  {#.doc (doc "Based on ISO 8601."
+              "For example: 2017-01-15T21:14:51.827Z")}
+  (Codec Text Instant)
+  
+  (def: encode ..encode)
+  (def: decode (<t>.run ..parser)))
 
 (def: #export now
   (IO Instant)
-  (io (from-millis ("lux io current-time"))))
+  (io (..from-millis ("lux io current-time"))))
 
 (def: #export (date instant)
   (-> Instant Date)
-  (let [[[year month day] _] (extract-date instant)]
-    {#date.year year
-     #date.month (case (dec month)
-                   +0 #month.January
-                   +1 #month.February
-                   +2 #month.March
-                   +3 #month.April
-                   +4 #month.May
-                   +5 #month.June
-                   +6 #month.July
-                   +7 #month.August
-                   +8 #month.September
-                   +9 #month.October
-                   +10 #month.November
-                   +11 #month.December
-                   _ (undefined))
-     #date.day (.nat (dec day))}))
+  (let [[date _] (..date-time instant)]
+    date))
 
-(def: #export (month instant)
-  (-> Instant Month)
-  (let [[year month day] (date instant)]
-    month))
-
-(def: #export (day instant)
+(def: #export (day-of-week instant)
   (-> Instant Day)
-  (let [offset (relative instant)
+  (let [offset (..relative instant)
         days (duration.query duration.day offset)
         day-time (duration.frame duration.day offset)
         days (if (and (duration.negative? offset)

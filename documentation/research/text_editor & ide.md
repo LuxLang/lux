@@ -43,6 +43,7 @@
 
 # Reference
 
+1. [The Piece Table - the Unsung Hero of Your Text Editor](https://darrenburns.net/posts/piece-table/)
 1. [Build Your Own Text Editor](https://viewsourcecode.org/snaptoken/kilo/)
 1. [It’s 2019. Why don’t we have good code editors?](https://thoughts.thorlaksson.com/2019/09/27/its-2019-why-dont-we-have-good-code-editors/)
 1. [Text Editing Hates You Too](https://lord.io/blog/2019/text-editing-hates-you-too/)

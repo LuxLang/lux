@@ -223,6 +223,10 @@
 1. [Finite Calculus: A Tutorial for Solving Nasty Sums](https://www.cs.purdue.edu/homes/dgleich/publications/Gleich%202005%20-%20finite%20calculus.pdf)
 1. http://jliszka.github.io/2013/10/24/exact-numeric-nth-derivatives.html
 
+# Continuous Calculus
+
+1. [Continuous Calculus](http://www-users.math.umn.edu/~olver/ln_/cc.pdf)
+
 # Octonion
 
 1. http://math.ucr.edu/home/baez/octonions/

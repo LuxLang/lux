@@ -1,15 +1,15 @@
 (.module:
   [lux #*
    [abstract
-    equivalence
+    [equivalence (#+ Equivalence)]
     [order (#+ Order)]
-    codec
+    [codec (#+ Codec)]
     [monoid (#+ Monoid)]
     [monad (#+ do)]]
    [control
-    ["e" try]
-    ["p" parser
-     ["l" text]]]
+    ["." try]
+    ["<>" parser
+     ["<t>" text (#+ Parser)]]]
    [data
     [number
      ["." nat ("#@." decimal)]
@@ -31,22 +31,22 @@
     (-> Duration Int)
     (|>> :representation))
 
-  (template [<name> <op>]
+  (template [<op> <name>]
     [(def: #export (<name> param subject)
        (-> Duration Duration Duration)
        (:abstraction (<op> (:representation param) (:representation subject))))]
 
-    [merge i.+]
-    [frame i.%]
+    [i.+ merge]
+    [i.% frame]
     )
 
-  (template [<name> <op>]
+  (template [<op> <name>]
     [(def: #export (<name> scalar)
        (-> Nat Duration Duration)
        (|>> :representation (<op> (.int scalar)) :abstraction))]
 
-    [scale-up i.*]
-    [scale-down i./]
+    [i.* scale-up]
+    [i./ scale-down]
     )
 
   (def: #export inverse
@@ -74,32 +74,38 @@
     (def: (< param subject)
       (i.< (:representation param) (:representation subject))))
 
-  (template [<name> <op>]
+  (template [<op> <name>]
     [(def: #export <name>
        (-> Duration Bit)
        (|>> :representation (<op> +0)))]
 
-    [positive? i.>]
-    [negative? i.<]
-    [neutral?  i.=]
+    [i.> positive?]
+    [i.< negative?]
+    [i.= neutral?]
     )
   )
 
-(def: #export empty (from-millis +0))
-(def: #export milli-second (from-millis +1))
+(def: #export empty
+  (..from-millis +0))
+
+(def: #export milli-second
+  (..from-millis +1))
 
 (template [<name> <scale> <base>]
-  [(def: #export <name> (scale-up <scale> <base>))]
+  [(def: #export <name>
+     (..scale-up <scale> <base>))]
 
   [second      1,000 milli-second]
   [minute         60 second]
   [hour           60 minute]
   [day            24 hour]
+
   [week            7 day]
   [normal-year   365 day]
   )
 
-(def: #export leap-year (merge day normal-year))
+(def: #export leap-year
+  (..merge ..day ..normal-year))
 
 (structure: #export monoid
   (Monoid Duration)
@@ -107,9 +113,25 @@
   (def: identity ..empty)
   (def: compose ..merge))
 
-(def: #export (encode duration)
-  (if (:: ..equivalence = empty duration)
-    "+0ms"
+(template [<value> <definition>]
+  [(def: <definition> <value>)]
+
+  ["D" day-suffix]
+  ["h" hour-suffix]
+  ["m" minute-suffix]
+  ["s" second-suffix]
+  ["ms" milli-second-suffix]
+
+  ["+" positive-sign]
+  ["-" negative-sign]
+  )
+
+(def: (encode duration)
+  (if (:: ..equivalence = ..empty duration)
+    ($_ text@compose
+        ..positive-sign
+        (nat@encode 0)
+        milli-second-suffix)
     (let [signed? (negative? duration)
           [days time-left] [(query day duration) (frame day duration)]
           days (if signed?
@@ -123,10 +145,40 @@
           [seconds time-left] [(query second time-left) (frame second time-left)]
           millis (to-millis time-left)]
       ($_ text@compose
-          (if signed? "-" "+")
-          (if (i.= +0 days) "" (text@compose (nat@encode (.nat days)) "D"))
-          (if (i.= +0 hours) "" (text@compose (nat@encode (.nat hours)) "h"))
-          (if (i.= +0 minutes) "" (text@compose (nat@encode (.nat minutes)) "m"))
-          (if (i.= +0 seconds) "" (text@compose (nat@encode (.nat seconds)) "s"))
-          (if (i.= +0 millis) "" (text@compose (nat@encode (.nat millis)) "ms"))
+          (if signed? ..negative-sign ..positive-sign)
+          (if (i.= +0 days) "" (text@compose (nat@encode (.nat days)) ..day-suffix))
+          (if (i.= +0 hours) "" (text@compose (nat@encode (.nat hours)) ..hour-suffix))
+          (if (i.= +0 minutes) "" (text@compose (nat@encode (.nat minutes)) ..minute-suffix))
+          (if (i.= +0 seconds) "" (text@compose (nat@encode (.nat seconds)) ..second-suffix))
+          (if (i.= +0 millis) "" (text@compose (nat@encode (.nat millis)) ..milli-second-suffix))
           ))))
+
+(def: parser
+  (Parser Duration)
+  (let [section (: (-> Text (Parser Nat))
+                   (function (_ suffix)
+                     (|> (<t>.many <t>.decimal) (<>.codec nat.decimal) (<>.before (<t>.this suffix)) (<>.default 0))))]
+    (do <>.monad
+      [sign (<>.or (<t>.this ..negative-sign)
+                   (<t>.this ..positive-sign))
+       days (section ..day-suffix)
+       hours (section hour-suffix)
+       minutes (section ..minute-suffix)
+       seconds (section ..second-suffix)
+       millis (section ..milli-second-suffix)
+       #let [span (|> ..empty
+                      (..merge (..scale-up days ..day))
+                      (..merge (..scale-up hours ..hour))
+                      (..merge (..scale-up minutes ..minute))
+                      (..merge (..scale-up seconds ..second))
+                      (..merge (..scale-up millis ..milli-second))
+                      )]]
+      (wrap (case sign
+              (#.Left _) (..inverse span)
+              (#.Right _) span)))))
+
+(structure: #export codec
+  (Codec Text Duration)
+
+  (def: encode ..encode)
+  (def: decode (<t>.run ..parser)))

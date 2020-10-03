@@ -64,6 +64,7 @@
 
 # Language
 
+1. [Bean Machine: A Declarative Probabilistic Programming Language For Efficient Programmable Inference](https://pgm2020.cs.aau.dk/wp-content/uploads/2020/09/tehrani20.pdf)
 1. [Reactive Probabilistic Programming](https://arxiv.org/abs/1908.07563)
 1. https://hakaru-dev.github.io/
 1. http://probcomp.csail.mit.edu/venture/

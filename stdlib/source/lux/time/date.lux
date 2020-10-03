@@ -4,155 +4,204 @@
     [equivalence (#+ Equivalence)]
     [order (#+ Order)]
     [enum (#+ Enum)]
-    codec
+    [codec (#+ Codec)]
     [monad (#+ do)]]
    [control
-    ["." try]
-    ["p" parser ("#@." functor)
-     ["l" text (#+ Parser)]]]
+    ["." try (#+ Try)]
+    ["." exception (#+ exception:)]
+    ["<>" parser
+     ["<t>" text (#+ Parser)]]]
    [data
+    ["." maybe]
+    ["." text ("#@." monoid)]
     [number
      ["n" nat ("#@." decimal)]
      ["i" int ("#@." decimal)]]
-    ["." text ("#@." monoid)]
     [collection
-     ["." row (#+ Row row)]]]]
+     ["." list ("#@." fold)]
+     ["." dictionary (#+ Dictionary)]]]
+   [type
+    abstract]]
   ["." // #_
+   ["#." year (#+ Year)]
    ["#." month (#+ Month)]])
 
-(type: #export Year Int)
+(def: month-by-number
+  (Dictionary Nat Month)
+  (list@fold (function (_ month mapping)
+               (dictionary.put (//month.number month) month mapping))
+             (dictionary.new n.hash)
+             //month.year))
 
-(type: #export Date
-  {#year Year
-   #month Month
-   #day Nat})
+(exception: #export there-is-no-year-0)
 
-(structure: #export equivalence (Equivalence Date)
-  (def: (= reference sample)
-    (and (i.= (get@ #year reference)
-              (get@ #year sample))
-         (:: //month.equivalence =
-             (get@ #month reference)
-             (get@ #month sample))
-         (n.= (get@ #day reference)
-              (get@ #day sample)))))
+(def: minimum-day 1)
 
-(structure: #export order (Order Date)
-  (def: &equivalence ..equivalence)
-  (def: (< reference sample)
-    (or (i.< (get@ #year reference)
-             (get@ #year sample))
-        (and (i.= (get@ #year reference)
-                  (get@ #year sample))
-             (or (:: //month.order <
-                     (get@ #month reference)
-                     (get@ #month sample))
-                 (and (:: //month.order =
-                          (get@ #month reference)
-                          (get@ #month sample))
-                      (n.< (get@ #day reference)
-                           (get@ #day sample))))))))
+(def: (month-days year month)
+  (-> Year Month Nat)
+  (if (//year.leap? year)
+    (//month.leap-year-days month)
+    (//month.days month)))
 
-## Based on this: https://stackoverflow.com/a/42936293/6823464
+(def: (day-is-within-limits? year month day)
+  (-> Year Month Nat Bit)
+  (and (n.>= ..minimum-day day)
+       (n.<= (..month-days year month) day)))
+
+(exception: #export (invalid-day {year Year} {month Month} {day Nat})
+  (exception.report
+   ["Value" (n@encode day)]
+   ["Minimum" (n@encode ..minimum-day)]
+   ["Maximum" (n@encode (..month-days year month))]
+   ["Year" (i@encode year)]
+   ["Month" (n@encode (//month.number month))]))
+
+(def: (internal-year year)
+  (-> Year Year)
+  (if (i.< +0 year)
+    (inc year)
+    year))
+
+(def: (external-year year)
+  (-> Year Year)
+  (if (i.> +0 year)
+    year
+    (dec year)))
+
 (def: (pad value)
-  (-> Int Text)
-  (let [digits (n@encode (.nat value))]
-    (if (i.< +10 value)
+  (-> Nat Text)
+  (let [digits (n@encode value)]
+    (if (n.< 10 value)
       (text@compose "0" digits)
       digits)))
 
-(def: (encode [year month day])
-  (-> Date Text)
-  ($_ text@compose
-      (if (i.< +0 year)
-        (i@encode year)
-        (n@encode (.nat year)))
-      "-"
-      (pad (|> month //month.number inc .int)) "-"
-      (pad (|> day .inc .int))))
+(def: separator
+  "-")
 
-(def: lex-year
-  (Parser Int)
-  (do p.monad
-    [sign (p.maybe (l.this "-"))
-     raw-year (p.codec n.decimal (l.many l.decimal))
-     #let [signum (case sign
-                    (#.Some _)
-                    -1
-                    
-                    #.None
-                    +1)]]
-    (wrap (i.* signum (.int raw-year)))))
+(abstract: #export Date
+  {#year Year
+   #month Month
+   #day Nat}
 
-(def: lex-section
-  (Parser Int)
-  (p@map .int (p.codec n.decimal (l.exactly 2 l.decimal))))
+  (def: #export (date year month day)
+    (-> Year Month Nat (Try Date))
+    (case year
+      +0 (exception.throw ..there-is-no-year-0 [])
+      _ (let [year (..internal-year year)]
+          (if (..day-is-within-limits? year month day)
+            (#try.Success
+             (:abstraction
+              {#year year
+               #month month
+               #day day}))
+            (exception.throw ..invalid-day [year month day])))))
 
-(def: (leap-years year)
-  (-> Int Int)
-  (|> (i./ +4 year)
-      (i.- (i./ +100 year))
-      (i.+ (i./ +400 year))))
+  (template [<name> <type> <field> <post-processing>]
+    [(def: #export <name>
+       (-> Date <type>)
+       (|>> :representation (get@ <field>) <post-processing>))]
 
-(def: #export common-months
-  (Row Nat)
-  (row 31 28 31
-       30 31 30
-       31 31 30
-       31 30 31))
+    [year Year #year ..external-year]
+    [month Month #month (|>)]
+    [day-of-month Nat #day (|>)]
+    )
 
-(def: #export leap-year-months
-  (Row Nat)
-  (|> common-months
-      (row.update 1 inc)
-      try.assume))
+  (structure: #export equivalence
+    (Equivalence Date)
+    
+    (def: (= reference sample)
+      (let [reference (:representation reference)
+            sample (:representation sample)]
+        (and (i.= (get@ #year reference)
+                  (get@ #year sample))
+             (:: //month.equivalence =
+                 (get@ #month reference)
+                 (get@ #month sample))
+             (n.= (get@ #day reference)
+                  (get@ #day sample))))))
 
-(def: (divisible? factor input)
-  (-> Int Int Bit)
-  (|> input (i.% factor) (i.= +0)))
+  (structure: #export order
+    (Order Date)
+    
+    (def: &equivalence ..equivalence)
+    
+    (def: (< reference sample)
+      (let [reference (:representation reference)
+            sample (:representation sample)]
+        (or (i.< (get@ #year reference)
+                 (get@ #year sample))
+            (and (i.= (get@ #year reference)
+                      (get@ #year sample))
+                 (or (:: //month.order <
+                         (get@ #month reference)
+                         (get@ #month sample))
+                     (and (:: //month.order =
+                              (get@ #month reference)
+                              (get@ #month sample))
+                          (n.< (get@ #day reference)
+                               (get@ #day sample)))))))))
+  )
 
-## https://en.wikipedia.org/wiki/Leap_year#Algorithm
-(def: (leap-year? year)
-  (-> Int Bit)
-  (and (divisible? +4 year)
-       (or (not (divisible? +100 year))
-           (divisible? +400 year))))
+(def: parse-year
+  (Parser Year)
+  (do {@ <>.monad}
+    [sign (<>.or (<t>.this "-") (wrap []))
+     digits (<t>.many <t>.decimal)
+     raw-year (<>.codec i.decimal (wrap (text@compose "+" digits)))]
+    (wrap (case sign
+            (#.Left _)  (i.* -1 raw-year)
+            (#.Right _) raw-year))))
 
-## Based on: https://stackoverflow.com/a/3309340/6823464
-(def: lex-date
+(def: parse-section
+  (Parser Nat)
+  (<>.codec n.decimal (<t>.exactly 2 <t>.decimal)))
+
+(def: parse-millis
+  (Parser Nat)
+  (<>.either (|> (<t>.at-most 3 <t>.decimal)
+                 (<>.codec n.decimal)
+                 (<>.after (<t>.this ".")))
+             (:: <>.monad wrap 0)))
+
+(template [<minimum> <maximum> <parser> <exception>]
+  [(exception: #export (<exception> {value Nat})
+     (exception.report
+      ["Value" (n@encode value)]
+      ["Minimum" (n@encode <minimum>)]
+      ["Maximum" (n@encode <maximum>)]))
+
+   (def: <parser>
+     (Parser Nat)
+     (do <>.monad
+       [value ..parse-section]
+       (if (and (n.>= <minimum> value)
+                (n.<= <maximum> value))
+         (wrap value)
+         (<>.lift (exception.throw <exception> [value])))))]
+
+  [1 12 parse-month invalid-month]
+  )
+
+(def: #export parser
   (Parser Date)
-  (do p.monad
-    [utc-year lex-year
-     _ (l.this "-")
-     utc-month lex-section
-     month (case utc-month
-             +01 (wrap #//month.January)
-             +02 (wrap #//month.February)
-             +03 (wrap #//month.March)
-             +04 (wrap #//month.April)
-             +05 (wrap #//month.May)
-             +06 (wrap #//month.June)
-             +07 (wrap #//month.July)
-             +08 (wrap #//month.August)
-             +09 (wrap #//month.September)
-             +10 (wrap #//month.October)
-             +11 (wrap #//month.November)
-             +12 (wrap #//month.December)
-             _ (p.fail "Invalid month."))
-     #let [months (if (leap-year? utc-year)
-                    leap-year-months
-                    common-months)
-           month-days (|> months
-                          (row.nth (.nat (dec utc-month)))
-                          try.assume)]
-     _ (l.this "-")
-     utc-day lex-section
-     _ (p.assert "Invalid day."
-                 (and (i.>= +1 utc-day)
-                      (i.<= (.int month-days) utc-day)))]
-    (wrap {#year utc-year
-           #month month
-           #day (.nat (.dec utc-day))})))
+  (do <>.monad
+    [utc-year ..parse-year
+     _ (<t>.this ..separator)
+     utc-month ..parse-month
+     _ (<t>.this ..separator)
+     #let [month (maybe.assume (dictionary.get utc-month ..month-by-number))]
+     utc-day ..parse-section]
+    (<>.lift (..date utc-year month utc-day))))
+
+(def: (encode value)
+  (-> Date Text)
+  (let [year (..year value)]
+    ($_ text@compose
+        (if (i.< +0 year)
+          (i@encode year)
+          (n@encode (.nat year)))
+        ..separator (..pad (|> value ..month //month.number))
+        ..separator (..pad (..day-of-month value)))))
 
 (structure: #export codec
   {#.doc (doc "Based on ISO 8601."
@@ -160,4 +209,149 @@
   (Codec Text Date)
   
   (def: encode ..encode)
-  (def: decode (l.run ..lex-date)))
+  (def: decode (<t>.run ..parser)))
+
+(def: days-per-year
+  365)
+
+(def: days-per-leap
+  (|> ..days-per-year
+      (n.* 4)
+      (n.+ 1)))
+
+(def: days-per-century
+  (let [leaps-per-century (n./ //year.leap
+                               //year.century)]
+    (|> //year.century
+        (n.* ..days-per-year)
+        (n.+ leaps-per-century)
+        (n.- 1))))
+
+(def: days-per-era
+  (let [centuries-per-era (n./ //year.century
+                               //year.era)]
+    (|> centuries-per-era
+        (n.* ..days-per-century)
+        (n.+ 1))))
+
+(def: days-since-epoch
+  (let [years::70 70
+        leaps::70 (n./ //year.leap
+                       years::70)
+        days::70 (|> years::70
+                     (n.* ..days-per-year)
+                     (n.+ leaps::70))
+        ## The epoch is being calculated from March 1st, instead of January 1st.
+        january-&-february (n.+ (//month.days #//month.January)
+                                (//month.days #//month.February))]
+    (|> 0
+        ## 1600/01/01
+        (n.+ (n.* 4 days-per-era))
+        ## 1900/01/01
+        (n.+ (n.* 3 days-per-century))
+        ## 1970/01/01
+        (n.+ days::70)
+        ## 1970/03/01
+        (n.- january-&-february))))
+
+(def: first-month-of-civil-year 3)
+
+(with-expansions [<pull> +3
+                  <push> +9]
+  (def: (internal-month civil-month)
+    (-> Nat Int)
+    (if (n.< ..first-month-of-civil-year civil-month)
+      (i.+ <push> (.int civil-month))
+      (i.- <pull> (.int civil-month))))
+
+  (def: (civil-month internal-month)
+    (-> Int Nat)
+    (.nat (if (i.< +10 internal-month)
+            (i.+ <pull> internal-month)
+            (i.- <push> internal-month)))))
+
+(with-expansions [<up> +153
+                  <translation> +2
+                  <down> +5]
+  (def: day-of-year-from-month
+    (-> Nat Int)
+    (|>> ..internal-month
+         (i.* <up>)
+         (i.+ <translation>)
+         (i./ <down>)))
+
+  (def: month-from-day-of-year
+    (-> Int Nat)
+    (|>> (i.* <down>)
+         (i.+ <translation>)
+         (i./ <up>)
+         ..civil-month)))
+
+(def: last-era-leap-day
+  (.int (dec ..days-per-leap)))
+
+(def: last-era-day
+  (.int (dec ..days-per-era)))
+
+(def: (civil-year utc-month utc-year)
+  (-> Nat Year Int)
+  (let [utc-year (..internal-year utc-year)]
+    (if (n.< ..first-month-of-civil-year utc-month)
+      (dec utc-year)
+      utc-year)))
+
+## http://howardhinnant.github.io/date_algorithms.html
+(def: #export (days date)
+  (-> Date Int)
+  (let [utc-month (|> date ..month //month.number)
+        civil-year (..civil-year utc-month (..year date))
+        era (|> (if (i.< +0 civil-year)
+                  (i.- (.int (dec //year.era))
+                       civil-year)
+                  civil-year)
+                (i./ (.int //year.era)))
+        year-of-era (i.- (i.* (.int //year.era)
+                              era)
+                         civil-year)
+        day-of-year (|> utc-month
+                        ..day-of-year-from-month
+                        (i.+ (.int (dec (..day-of-month date)))))
+        day-of-era (|> day-of-year
+                       (i.+ (i.* (.int ..days-per-year) year-of-era))
+                       (i.+ (i./ (.int //year.leap) year-of-era))
+                       (i.- (i./ (.int //year.century) year-of-era)))]
+    (|> (i.* (.int ..days-per-era) era)
+        (i.+ day-of-era)
+        (i.- (.int ..days-since-epoch)))))
+
+## http://howardhinnant.github.io/date_algorithms.html
+(def: #export (from-days days)
+  (-> Int Date)
+  (let [days (i.+ (.int ..days-since-epoch) days)
+        era (|> (if (i.< +0 days)
+                  (i.- ..last-era-day days)
+                  days)
+                (i./ (.int ..days-per-era)))
+        day-of-era (i.- (i.* (.int ..days-per-era) era) days)
+        year-of-era (|> day-of-era
+                        (i.- (i./ ..last-era-leap-day day-of-era))
+                        (i.+ (i./ (.int ..days-per-century) day-of-era))
+                        (i.- (i./ ..last-era-day day-of-era))
+                        (i./ (.int ..days-per-year)))
+        year (i.+ (i.* (.int //year.era) era)
+                  year-of-era)
+        day-of-year (|> day-of-era
+                        (i.- (i.* (.int ..days-per-year) year-of-era))
+                        (i.- (i./ (.int //year.leap) year-of-era))
+                        (i.+ (i./ (.int //year.century) year-of-era)))
+        month (..month-from-day-of-year day-of-year)
+        day (|> day-of-year
+                (i.- (..day-of-year-from-month month))
+                (i.+ +1)
+                .nat)
+        year (if (n.< ..first-month-of-civil-year month)
+               (inc year)
+               year)]
+    (try.assume (..date (..external-year year)
+                        (maybe.assume (dictionary.get month ..month-by-number))
+                        day))))
