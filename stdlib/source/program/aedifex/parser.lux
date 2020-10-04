@@ -8,7 +8,8 @@
    [data
     ["." text]
     [collection
-     ["." dictionary (#+ Dictionary)]]]
+     ["." dictionary (#+ Dictionary)]
+     ["." set (#+ Set)]]]
    [tool
     [compiler
      [meta
@@ -16,10 +17,11 @@
        [descriptor (#+ Module)]]]]]
    [world
     [net (#+ URL)]]]
-  [//
-   ["/" project]
-   ["//." artifact (#+ Artifact)]
-   ["//." dependency]])
+  ["." // #_
+   ["/" profile]
+   ["#." project (#+ Project)]
+   ["#." artifact (#+ Artifact)]
+   ["#." dependency]])
 
 (def: (as-input input)
   (-> (Maybe Code) (List Code))
@@ -115,16 +117,6 @@
   (Parser /.Contributor)
   ..developer)
 
-(def: no-info
-  /.Info
-  {#/.url #.None
-   #/.scm #.None
-   #/.description #.None
-   #/.licenses (list)
-   #/.organization #.None
-   #/.developers (list)
-   #/.contributors (list)})
-
 (def: info
   (Parser /.Info)
   (do {@ <>.monad}
@@ -162,6 +154,10 @@
   (Parser /.Source)
   <c>.text)
 
+(def: target
+  (Parser /.Target)
+  <c>.text)
+
 (def: module
   (Parser Module)
   <c>.text)
@@ -171,28 +167,70 @@
   (<c>.tuple (<>.and <c>.text
                      ..repository)))
 
-(def: #export project
-  (Parser /.Project)
+(def: profile
+  (Parser /.Profile)
   (do {@ <>.monad}
     [input (:: @ map
                (dictionary.from-list text.hash)
                (<c>.record (<>.some (<>.and <c>.local-tag
-                                            <c>.any))))]
+                                            <c>.any))))
+     #let [^parents (: (Parser (List /.Name))
+                       (<>.default (list)
+                                   (..plural input "parents" <c>.text)))
+           ^identity (: (Parser (Maybe Artifact))
+                        (<>.maybe
+                         (..singular input "identity" ..artifact)))
+           ^info (: (Parser (Maybe /.Info))
+                    (<>.maybe
+                     (..singular input "info" ..info)))
+           ^repositories (: (Parser (Set //dependency.Repository))
+                            (|> (..plural input "repositories" ..repository)
+                                (:: @ map (set.from-list text.hash))
+                                (<>.default (set.new text.hash))))
+           ^dependencies (: (Parser (Set //dependency.Dependency))
+                            (|> (..plural input "dependencies" ..dependency)
+                                (:: @ map (set.from-list //dependency.hash))
+                                (<>.default (set.new //dependency.hash))))
+           ^sources (: (Parser (Set /.Source))
+                       (|> (..plural input "sources" ..source)
+                           (:: @ map (set.from-list text.hash))
+                           (<>.default (set.from-list text.hash (list /.default-source)))))
+           ^target (: (Parser (Maybe /.Target))
+                      (<>.maybe
+                       (..singular input "target" ..target)))
+           ^program (: (Parser (Maybe Module))
+                       (<>.maybe
+                        (..singular input "program" ..module)))
+           ^test (: (Parser (Maybe Module))
+                    (<>.maybe
+                     (..singular input "test" ..module)))
+           ^deploy-repositories (: (Parser (Dictionary Text //dependency.Repository))
+                                   (<| (:: @ map (dictionary.from-list text.hash))
+                                       (<>.default (list))
+                                       (..plural input "deploy-repositories" ..deploy-repository)))]]
     ($_ <>.and
-        (..singular input "identity" ..artifact)
-        (<>.default ..no-info
-                    (..singular input "info" ..info))
-        (<>.default (list)
-                    (..plural input "repositories" ..repository))
-        (<>.default (list)
-                    (..plural input "dependencies" ..dependency))
-        (<>.default (list "source")
-                    (..plural input "sources" ..source))
-        (<>.default "target"
-                    (..singular input "target" <c>.text))
-        (<>.maybe (..singular input "program" ..module))
-        (<>.maybe (..singular input "test" ..module))
-        (<| (:: @ map (dictionary.from-list text.hash))
-            (<>.default (list))
-            (..plural input "deploy-repositories" ..deploy-repository))
+        ^parents
+        ^identity
+        ^info
+        ^repositories
+        ^dependencies
+        ^sources
+        ^target
+        ^program
+        ^test
+        ^deploy-repositories
         )))
+
+(def: #export project
+  (Parser Project)
+  (let [default-profile (: (Parser Project)
+                           (:: <>.monad map
+                               (|>> [/.default] (list) (dictionary.from-list text.hash))
+                               ..profile))
+        multi-profile (: (Parser Project)
+                         (:: <>.monad map
+                             (dictionary.from-list text.hash)
+                             (<c>.record (<>.many (<>.and <c>.text
+                                                          ..profile)))))]
+    (<>.either multi-profile
+               default-profile)))

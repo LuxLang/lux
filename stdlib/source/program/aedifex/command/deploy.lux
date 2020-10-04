@@ -12,7 +12,8 @@
      ["%" format (#+ format)]
      ["." encoding]]
     [collection
-     ["." dictionary (#+ Dictionary)]]
+     ["." dictionary (#+ Dictionary)]
+     ["." set]]
     [format
      ["." binary]
      ["." tar]
@@ -23,7 +24,7 @@
    [compositor
     ["." export]]]
   ["." /// #_
-   ["/" project (#+ Project)]
+   ["/" profile (#+ Profile)]
    ["//" upload (#+ User Password)]
    ["#." action (#+ Action)]
    ["#." command (#+ Command)]
@@ -39,29 +40,33 @@
                                      (format (%.text name) " := " (%.text repo)))
                                    (dictionary.entries options))]))
 
-(def: #export (do! repository user password project)
+(def: #export (do! repository user password profile)
   (-> Text User Password (Command Any))
-  (case (dictionary.get repository (get@ #/.deploy-repositories project))
-    (#.Some repository)
-    (let [artifact (get@ #/.identity project)
-          deploy! (: (-> ///dependency.Type Binary (Action Any))
+  (case [(get@ #/.identity profile)
+         (dictionary.get repository (get@ #/.deploy-repositories profile))]
+    [#.None _]
+    (promise@wrap (exception.throw /.no-identity []))
+
+    [_ #.None]
+    (promise@wrap (exception.throw ..cannot-find-repository [repository (get@ #/.deploy-repositories profile)]))
+
+    [(#.Some identity) (#.Some repository)]
+    (let [deploy! (: (-> ///dependency.Type Binary (Action Any))
                      (function (_ type content)
                        (promise.future
                         (//.upload repository
                                    user
                                    password
-                                   {#///dependency.artifact artifact
+                                   {#///dependency.artifact identity
                                     #///dependency.type type}
                                    content))))]
       (do {@ ///action.monad}
         [library (:: @ map (binary.run tar.writer)
                      (export.library (file.async file.system)
-                                     (get@ #/.sources project)))
-         _ (deploy! ///dependency.pom (|> project ///pom.project (:: xml.codec encode) encoding.to-utf8))
+                                     (set.to-list (get@ #/.sources profile))))
+         pom (promise@wrap (///pom.project profile))
+         _ (deploy! ///dependency.pom (|> pom (:: xml.codec encode) encoding.to-utf8))
          _ (deploy! ///dependency.lux-library library)
          _ (deploy! "sha1" (///hash.sha1 library))
          _ (deploy! "md5" (///hash.md5 library))]
-        (wrap [])))
-    
-    #.None
-    (promise@wrap (exception.throw ..cannot-find-repository [repository (get@ #/.deploy-repositories project)]))))
+        (wrap [])))))

@@ -8,6 +8,7 @@
     [monad (#+ Monad do)]]
    [control
     [io (#+ IO io)]
+    ["." try]
     ["." exception (#+ exception:)]
     ["<>" parser
      ["<t>" text (#+ Parser)]]]
@@ -22,7 +23,7 @@
      ["." list ("#@." fold)]]]
    [type
     abstract]]
-  [//
+  ["." // (#+ Time)
    ["." duration (#+ Duration)]
    ["." year (#+ Year)]
    ["." month (#+ Month)]
@@ -88,26 +89,6 @@
   Instant
   (..from-millis +0))
 
-(def: (pad value)
-  (-> Nat Text)
-  (if (n.< 10 value)
-    (text@compose "0" (n@encode value))
-    (n@encode value)))
-
-(def: (adjust-negative space duration)
-  (-> Duration Duration Duration)
-  (if (duration.negative? duration)
-    (duration.merge space duration)
-    duration))
-
-(def: (encode-millis millis)
-  (-> Nat Text)
-  (cond (n.= 0 millis)   ""
-        (n.< 10 millis)  ($_ text@compose ".00" (n@encode millis))
-        (n.< 100 millis) ($_ text@compose ".0" (n@encode millis))
-        ## (n.< 1,000 millis)
-        ($_ text@compose "." (n@encode millis))))
-
 (def: millis-per-day
   (duration.query duration.milli-second duration.day))
 
@@ -128,85 +109,37 @@
   [(def: <definition> Text <value>)]
 
   ["T" date-suffix]
-  
-  [":" time-separator]
   ["Z" time-suffix]
   )
 
-(def: #export (encode instant)
+(def: (clock-time duration)
+  (-> Duration Time)
+  (let [time (if (:: duration.order < duration.empty duration)
+               (duration.merge duration.day duration)
+               duration)]
+    (|> time duration.to-millis .nat //.from-millis try.assume)))
+
+(def: (encode instant)
   (-> Instant Text)
   (let [[date time] (..date-time instant)
-        time (if (:: duration.order < duration.empty time)
-               (duration.merge duration.day time)
-               time)
-        [hours time] [(duration.query duration.hour time) (duration.frame duration.hour time)]
-        [minutes time] [(duration.query duration.minute time) (duration.frame duration.minute time)]
-        [seconds millis] [(duration.query duration.second time) (duration.frame duration.second time)]]
+        time (..clock-time time)]
     ($_ text@compose
-        (:: date.codec encode date)
-        ..date-suffix (..pad (.nat hours))
-        ..time-separator (..pad (.nat minutes))
-        ..time-separator (..pad (.nat seconds))
-        (|> millis
-            (..adjust-negative duration.second)
-            duration.to-millis
-            .nat
-            ..encode-millis)
-        ..time-suffix)))
-
-(def: parse-section
-  (Parser Nat)
-  (<>.codec n.decimal (<t>.exactly 2 <t>.decimal)))
-
-(def: parse-millis
-  (Parser Nat)
-  (<>.either (|> (<t>.at-most 3 <t>.decimal)
-                 (<>.codec n.decimal)
-                 (<>.after (<t>.this ".")))
-             (:: <>.monad wrap 0)))
-
-(template [<minimum> <maximum> <parser> <exception>]
-  [(exception: #export (<exception> {value Nat})
-     (exception.report
-      ["Value" (n@encode value)]
-      ["Minimum" (n@encode <minimum>)]
-      ["Maximum" (n@encode <maximum>)]))
-
-   (def: <parser>
-     (Parser Nat)
-     (do <>.monad
-       [value ..parse-section]
-       (if (and (n.>= <minimum> value)
-                (n.<= <maximum> value))
-         (wrap value)
-         (<>.lift (exception.throw <exception> [value])))))]
-
-  [0 23 parse-hour invalid-hour]
-  [0 59 parse-minute invalid-minute]
-  [0 59 parse-second invalid-second]
-  )
+        (:: date.codec encode date) ..date-suffix
+        (:: //.codec encode time) ..time-suffix)))
 
 (def: parser
   (Parser Instant)
   (do {@ <>.monad}
     [days (:: @ map date.days date.parser)
      _ (<t>.this ..date-suffix)
-     utc-hour (<>.before (<t>.this ..time-separator)
-                         ..parse-hour)
-     utc-minute (<>.before (<t>.this ..time-separator)
-                           ..parse-minute)
-     utc-second ..parse-second
-     utc-millis (<>.before (<t>.this ..time-suffix)
-                           ..parse-millis)]
+     time (:: @ map //.to-millis //.parser)
+     _ (<t>.this ..time-suffix)]
     (wrap (|> (if (i.< +0 days)
                 (|> duration.day
                     (duration.scale-up (.nat (i.* -1 days)))
                     duration.inverse)
                 (duration.scale-up (.nat days) duration.day))
-              (duration.merge (duration.scale-up utc-hour duration.hour))
-              (duration.merge (duration.scale-up utc-minute duration.minute))
-              (duration.merge (duration.scale-up utc-second duration.second))
-              (duration.merge (duration.scale-up utc-millis duration.milli-second))
+              (duration.merge (duration.scale-up time duration.milli-second))
               ..absolute))))
 
 (structure: #export codec
@@ -221,10 +154,15 @@
   (IO Instant)
   (io (..from-millis ("lux io current-time"))))
 
-(def: #export (date instant)
-  (-> Instant Date)
-  (let [[date _] (..date-time instant)]
-    date))
+(template [<field> <type> <post-processing>]
+  [(def: #export (<field> instant)
+     (-> Instant <type>)
+     (let [[date time] (..date-time instant)]
+       (|> <field> <post-processing>)))]
+
+  [date Date (|>)]
+  [time Time ..clock-time]
+  )
 
 (def: #export (day-of-week instant)
   (-> Instant Day)

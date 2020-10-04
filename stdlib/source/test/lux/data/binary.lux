@@ -1,16 +1,18 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
-   ["r" math/random (#+ Random)]
    ["_" test (#+ Test)]
+   [math
+    ["." random (#+ Random)]]
    [abstract
     ["." monad (#+ do)]
     ["." enum]
     {[0 #spec]
      [/
-      ["$." equivalence]]}]
+      ["$." equivalence]
+      ["$." monoid]]}]
    [control
-    ["." try (#+ Try)]]
+    ["." try (#+ Try)]
+    ["." exception (#+ Exception)]]
    [data
     [number
      ["." i64]
@@ -24,7 +26,7 @@
   (-> (Try Bit) Bit)
   (case result
     (#try.Failure _)
-    #0
+    false
 
     (#try.Success output)
     output))
@@ -34,59 +36,124 @@
   (let [output (/.create size)]
     (loop [idx 0]
       (if (n.< size idx)
-        (do r.monad
-          [byte r.nat]
+        (do random.monad
+          [byte random.nat]
           (exec (try.assume (/.write/8 idx byte output))
             (recur (inc idx))))
-        (:: r.monad wrap output)))))
+        (:: random.monad wrap output)))))
 
-(def: (bits-io bytes read write value)
+(def: (throws? exception try)
+  (All [e a] (-> (Exception e) (Try a) Bit))
+  (case try
+    (#try.Failure error)
+    (exception.match? exception error)
+
+    (#try.Success _)
+    false))
+
+(def: (binary-io bytes read write value)
   (-> Nat (-> Nat Binary (Try Nat)) (-> Nat Nat Binary (Try Any)) Nat Bit)
   (let [binary (/.create bytes)
         cap (case bytes
               8 (dec 0)
               _ (|> 1 (i64.left-shift (n.* 8 bytes)) dec))
         capped-value (i64.and cap value)]
-    (succeed
-     (do try.monad
-       [_ (write 0 value binary)
-        output (read 0 binary)]
-       (wrap (n.= capped-value output))))))
+    (and (succeed
+          (do try.monad
+            [pre (read 0 binary)
+             _ (write 0 value binary)
+             post (read 0 binary)]
+            (wrap (and (n.= 0 pre)
+                       (n.= capped-value post)))))
+         (throws? /.index-out-of-bounds (read 1 binary))
+         (throws? /.index-out-of-bounds (write 1 value binary)))))
+
+(def: as-list
+  (-> /.Binary (List Nat))
+  (/.fold (function (_ head tail)
+            (#.Cons head tail))
+          (list)))
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /._)))
-      (do {@ r.monad}
-        [#let [gen-size (|> r.nat (:: @ map (|>> (n.% 100) (n.max 8))))]
-         binary-size gen-size
-         random-binary (binary binary-size)
-         value r.nat
-         #let [gen-idx (|> r.nat (:: @ map (n.% binary-size)))]
-         [from to] (r.and gen-idx gen-idx)
+  (<| (_.covering /._)
+      (do {@ random.monad}
+        [#let [gen-size (|> random.nat (:: @ map (|>> (n.% 100) (n.max 8))))]
+         size gen-size
+         sample (..binary size)
+         value random.nat
+         #let [gen-idx (|> random.nat (:: @ map (n.% size)))]
+         [from to] (random.and gen-idx gen-idx)
          #let [[from to] [(n.min from to) (n.max from to)]]]
-        ($_ _.and
-            ($equivalence.spec /.equivalence (binary binary-size))
-            (_.test "Can get size of binary."
-                    (|> random-binary /.size (n.= binary-size)))
-            (_.test "Can read/write 8-bit values."
-                    (bits-io 1 /.read/8 /.write/8 value))
-            (_.test "Can read/write 16-bit values."
-                    (bits-io 2 /.read/16 /.write/16 value))
-            (_.test "Can read/write 32-bit values."
-                    (bits-io 4 /.read/32 /.write/32 value))
-            (_.test "Can read/write 64-bit values."
-                    (bits-io 8 /.read/64 /.write/64 value))
-            (_.test "Can slice binaries."
-                    (let [slice-size (|> to (n.- from) inc)
-                          random-slice (try.assume (/.slice from to random-binary))
-                          idxs (enum.range n.enum 0 (dec slice-size))
-                          reader (function (_ binary idx) (/.read/8 idx binary))]
-                      (and (n.= slice-size (/.size random-slice))
-                           (case [(monad.map try.monad (reader random-slice) idxs)
-                                  (monad.map try.monad (|>> (n.+ from) (reader random-binary)) idxs)]
-                             [(#try.Success slice-vals) (#try.Success binary-vals)]
-                             (:: (list.equivalence n.equivalence) = slice-vals binary-vals)
+        (_.with-cover [/.Binary]
+          ($_ _.and
+              (_.with-cover [/.equivalence]
+                ($equivalence.spec /.equivalence (..binary size)))
+              (_.with-cover [/.monoid]
+                ($monoid.spec /.equivalence /.monoid (..binary size)))
+              (_.cover [/.fold]
+                       (n.= (:: list.fold fold n.+ 0 (..as-list sample))
+                            (/.fold n.+ 0 sample)))
+              
+              (_.cover [/.create]
+                       (:: /.equivalence =
+                           (/.create size)
+                           (/.create size)))
+              (_.cover [/.size]
+                       (|> (/.create size) /.size (n.= size)))
+              (_.with-cover [/.index-out-of-bounds]
+                ($_ _.and
+                    (_.cover [/.read/8 /.write/8]
+                             (..binary-io 1 /.read/8 /.write/8 value))
+                    (_.cover [/.read/16 /.write/16]
+                             (..binary-io 2 /.read/16 /.write/16 value))
+                    (_.cover [/.read/32 /.write/32]
+                             (..binary-io 4 /.read/32 /.write/32 value))
+                    (_.cover [/.read/64 /.write/64]
+                             (..binary-io 8 /.read/64 /.write/64 value))))
+              (_.cover [/.slice]
+                       (let [slice-size (|> to (n.- from) inc)
+                             random-slice (try.assume (/.slice from to sample))
+                             idxs (enum.range n.enum 0 (dec slice-size))
+                             reader (function (_ binary idx) (/.read/8 idx binary))]
+                         (and (n.= slice-size (/.size random-slice))
+                              (case [(monad.map try.monad (reader random-slice) idxs)
+                                     (monad.map try.monad (|>> (n.+ from) (reader sample)) idxs)]
+                                [(#try.Success slice-vals) (#try.Success binary-vals)]
+                                (:: (list.equivalence n.equivalence) = slice-vals binary-vals)
 
-                             _
-                             #0))))
-            ))))
+                                _
+                                #0))))
+              (_.cover [/.slice-out-of-bounds]
+                       (and (throws? /.slice-out-of-bounds (/.slice size size sample))
+                            (throws? /.slice-out-of-bounds (/.slice from size sample))))
+              (_.cover [/.inverted-slice]
+                       (or (throws? /.inverted-slice (/.slice to from sample))
+                           (n.= to from)))
+              (_.cover [/.drop]
+                       (and (:: /.equivalence = sample (/.drop 0 sample))
+                            (:: /.equivalence = (/.create 0) (/.drop size sample))
+                            (case (list.reverse (..as-list sample))
+                              #.Nil
+                              false
+
+                              (#.Cons head tail)
+                              (n.= (list.fold n.+ 0 tail)
+                                   (/.fold n.+ 0 (/.drop 1 sample))))))
+              (_.cover [/.copy]
+                       (and (case (/.copy size 0 sample 0 (/.create size))
+                              (#try.Success output)
+                              (and (not (is? sample output))
+                                   (:: /.equivalence = sample output))
+
+                              (#try.Failure _)
+                              false)
+                            (succeed
+                             (do try.monad
+                               [sample/0 (/.read/8 0 sample)
+                                copy (/.copy 1 0 sample 0 (/.create 2))
+                                copy/0 (/.read/8 0 copy)
+                                copy/1 (/.read/8 1 copy)]
+                               (wrap (and (n.= sample/0 copy/0)
+                                          (n.= 0 copy/1)))))))
+              )))))

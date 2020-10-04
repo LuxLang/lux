@@ -1,0 +1,190 @@
+(.module:
+  [lux #*
+   [abstract
+    [equivalence (#+ Equivalence)]
+    [order (#+ Order)]
+    [enum (#+ Enum)]
+    [codec (#+ Codec)]
+    [monad (#+ Monad do)]]
+   [control
+    ["." try (#+ Try)]
+    ["." exception (#+ exception:)]
+    ["<>" parser
+     ["<t>" text (#+ Parser)]]]
+   [data
+    ["." text ("#@." monoid)]
+    [number
+     ["n" nat ("#@." decimal)]]]
+   [type
+    abstract]]
+  [/
+   ["." duration (#+ Duration)]])
+
+(template [<name> <singular> <plural>]
+  [(def: #export <name>
+     Nat
+     (.nat (duration.query <singular> <plural>)))]
+
+  [milli-seconds duration.milli-second duration.second]
+  [seconds duration.second duration.minute]
+  [minutes duration.minute duration.hour]
+  [hours duration.hour duration.day]
+  )
+
+(def: limit
+  Nat
+  (.nat (duration.to-millis duration.day)))
+
+(exception: #export (time-exceeds-a-day {time Nat})
+  (exception.report
+   ["Time (in milli-seconds)" (n@encode time)]
+   ["Maximum (in milli-seconds)" (n@encode (dec limit))]))
+
+(def: separator ":")
+
+(def: parse-section
+  (Parser Nat)
+  (<>.codec n.decimal (<t>.exactly 2 <t>.decimal)))
+
+(def: parse-millis'
+  (Parser Nat)
+  (<>.either (|> (<t>.at-most 3 <t>.decimal)
+                 (<>.codec n.decimal)
+                 (<>.after (<t>.this ".")))
+             (:: <>.monad wrap 0)))
+
+(template [<maximum> <parser> <exception> <sub-parser>]
+  [(exception: #export (<exception> {value Nat})
+     (exception.report
+      ["Value" (n@encode value)]
+      ["Minimum" (n@encode 0)]
+      ["Maximum" (n@encode (dec <maximum>))]))
+
+   (def: <parser>
+     (Parser Nat)
+     (do <>.monad
+       [value <sub-parser>]
+       (if (and (n.>= 0 value)
+                (n.< <maximum> value))
+         (wrap value)
+         (<>.lift (exception.throw <exception> [value])))))]
+
+  [..hours parse-hour invalid-hour ..parse-section]
+  [..minutes parse-minute invalid-minute ..parse-section]
+  [..seconds parse-second invalid-second ..parse-section]
+  [..milli-seconds parse-millis invalid-milli-second ..parse-millis']
+  )
+
+(abstract: #export Time
+  Nat
+
+  {#.doc "Time is defined as milliseconds since the start of the day (00:00:00.000)."}
+
+  (def: #export start
+    {#.doc "The instant corresponding to the start of the day: 00:00:00.000"}
+    Time
+    (:abstraction 0))
+  
+  (def: #export (from-millis milli-seconds)
+    (-> Nat (Try Time))
+    (if (n.< ..limit milli-seconds)
+      (#try.Success (:abstraction milli-seconds))
+      (exception.throw ..time-exceeds-a-day [milli-seconds])))
+
+  (def: #export to-millis
+    (-> Time Nat)
+    (|>> :representation))
+
+  (structure: #export equivalence
+    (Equivalence Time)
+
+    (def: (= param subject)
+      (n.= (:representation param) (:representation subject))))
+
+  (structure: #export order
+    (Order Time)
+
+    (def: &equivalence ..equivalence)
+
+    (def: (< param subject)
+      (n.< (:representation param) (:representation subject))))
+
+  (`` (structure: #export enum
+        (Enum Time)
+
+        (def: &order ..order)
+
+        (def: succ
+          (|>> :representation (n.% ..limit) :abstraction))
+
+        (def: (pred time)
+          (:abstraction (dec (case (:representation time)
+                               0 ..limit
+                               millis millis))))))
+
+  (def: #export parser
+    (Parser Time)
+    (let [to-millis (: (-> Duration Nat)
+                       (|>> duration.to-millis .nat))
+          hour (to-millis duration.hour)
+          minute (to-millis duration.minute)
+          second (to-millis duration.second)
+          millis (to-millis duration.milli-second)]
+      (do {@ <>.monad}
+        [utc-hour ..parse-hour
+         _ (<t>.this ..separator)
+         utc-minute ..parse-minute
+         _ (<t>.this ..separator)
+         utc-second ..parse-second
+         utc-millis ..parse-millis]
+        (wrap (:abstraction
+               ($_ n.+
+                   (n.* utc-hour hour)
+                   (n.* utc-minute minute)
+                   (n.* utc-second second)
+                   (n.* utc-millis millis)))))))
+  )
+
+(def: (pad value)
+  (-> Nat Text)
+  (if (n.< 10 value)
+    (text@compose "0" (n@encode value))
+    (n@encode value)))
+
+(def: (adjust-negative space duration)
+  (-> Duration Duration Duration)
+  (if (duration.negative? duration)
+    (duration.merge space duration)
+    duration))
+
+(def: (encode-millis millis)
+  (-> Nat Text)
+  (cond (n.= 0 millis)   ""
+        (n.< 10 millis)  ($_ text@compose ".00" (n@encode millis))
+        (n.< 100 millis) ($_ text@compose ".0" (n@encode millis))
+        ## (n.< 1,000 millis)
+        ($_ text@compose "." (n@encode millis))))
+
+(def: (encode time)
+  (-> Time Text)
+  (let [time (|> time ..to-millis .int duration.from-millis)
+        [hours time] [(duration.query duration.hour time) (duration.frame duration.hour time)]
+        [minutes time] [(duration.query duration.minute time) (duration.frame duration.minute time)]
+        [seconds millis] [(duration.query duration.second time) (duration.frame duration.second time)]]
+    ($_ text@compose
+        (..pad (.nat hours))
+        ..separator (..pad (.nat minutes))
+        ..separator (..pad (.nat seconds))
+        (|> millis
+            (..adjust-negative duration.second)
+            duration.to-millis
+            .nat
+            ..encode-millis))))
+
+(structure: #export codec
+  {#.doc (doc "Based on ISO 8601."
+              "For example: 21:14:51.827")}
+  (Codec Text Time)
+
+  (def: encode ..encode)
+  (def: decode (<t>.run ..parser)))

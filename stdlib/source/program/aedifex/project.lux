@@ -1,70 +1,53 @@
 (.module:
-  [lux (#- Info Source Module)
+  [lux (#- Name)
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    ["." try (#+ Try)]
+    ["." exception (#+ exception:)]]
    [data
-    ["." text]
+    ["." text
+     ["%" format (#+ format)]]
     [collection
-     ["." dictionary (#+ Dictionary)]]]
-   [world
-    [net (#+ URL)]
-    [file (#+ Path)]]
-   [tool
-    [compiler
-     [meta
-      [archive
-       [descriptor (#+ Module)]]]]]]
-  [//
-   [artifact (#+ Artifact)]
-   ["." dependency]])
-
-(def: #export file
-  "project.lux")
-
-(type: #export Distribution
-  #Repo
-  #Manual)
-
-(type: #export License
-  [Text
-   URL
-   Distribution])
-
-(type: #export SCM
-  URL)
-
-(type: #export Organization
-  [Text
-   URL])
-
-(type: #export Email
-  Text)
-
-(type: #export Developer
-  [Text
-   Email
-   (Maybe Organization)])
-
-(type: #export Contributor
-  Developer)
-
-(type: #export Info
-  {#url (Maybe URL)
-   #scm (Maybe SCM)
-   #description (Maybe Text)
-   #licenses (List License)
-   #organization (Maybe Organization)
-   #developers (List Developer)
-   #contributors (List Contributor)})
-
-(type: #export Source
-  Path)
+     ["." dictionary (#+ Dictionary)]
+     ["." set (#+ Set)]
+     ["." list ("#@." fold)]]]]
+  ["." // #_
+   ["#" profile (#+ Name Profile)]])
 
 (type: #export Project
-  {#identity Artifact
-   #info Info
-   #repositories (List dependency.Repository)
-   #dependencies (List dependency.Dependency)
-   #sources (List Source)
-   #target Path
-   #program (Maybe Module)
-   #test (Maybe Module)
-   #deploy-repositories (Dictionary Text dependency.Repository)})
+  (Dictionary Name Profile))
+
+(exception: #export (unknown-profile {name Name})
+  (exception.report
+   ["Name" (%.text name)]))
+
+(exception: #export (circular-dependency {dependee Name} {dependent Name})
+  (exception.report
+   ["Dependent" (%.text dependent)]
+   ["Dependee" (%.text dependee)]))
+
+(def: (profile' lineage project name)
+  (-> (Set Name) Project Name (Try Profile))
+  (case (dictionary.get name project)
+    (#.Some profile)
+    (case (list.find (set.member? lineage)
+                     (get@ #//.parents profile))
+      (#.Some ouroboros)
+      (exception.throw ..circular-dependency [ouroboros name])
+      
+      #.None
+      (do {@ try.monad}
+        [parents (monad.map @ (profile' (set.add name lineage) project)
+                            (get@ #//.parents profile))]
+        (wrap (list@fold (function (_ parent child)
+                           (:: //.monoid compose child parent))
+                         profile
+                         parents))))
+    
+    #.None
+    (exception.throw ..unknown-profile [name])))
+
+(def: #export (profile project name)
+  (-> Project Name (Try Profile))
+  (profile' (set.new text.hash) project name))

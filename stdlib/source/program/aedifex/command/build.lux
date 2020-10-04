@@ -16,11 +16,12 @@
      ["%" format (#+ format)]]
     [collection
      ["." list ("#@." functor)]
-     ["." dictionary]]]
+     ["." dictionary]
+     ["." set]]]
    [world
     ["." file (#+ Path)]]]
   ["." /// #_
-   ["#" project]
+   ["#" profile]
    ["#." action]
    ["#." command (#+ Command)]
    ["#." local]
@@ -55,6 +56,7 @@
 
 (exception: #export no-available-compiler)
 (exception: #export no-specified-program)
+(exception: #export no-specified-target)
 
 (type: #export Compiler
   (#JVM Artifact)
@@ -107,18 +109,25 @@
   (-> Text (List Text) Text)
   (|> values (list@map (|>> (format name " "))) (text.join-with " ")))
 
-(def: #export (do! project)
+(def: #export (do! profile)
   (Command [Compiler
             Path])
-  (case (get@ #///.program project)
-    (#.Some program)
+  (case [(get@ #///.program profile)
+         (get@ #///.target profile)]
+    [#.None _]
+    (promise@wrap (exception.throw ..no-specified-program []))
+
+    [_ #.None]
+    (promise@wrap (exception.throw ..no-specified-target []))
+    
+    [(#.Some program) (#.Some target)]
     (do ///action.monad
       [cache (///local.all-cached (file.async file.system)
-                                  (get@ #///.dependencies project)
+                                  (set.to-list (get@ #///.dependencies profile))
                                   ///dependency.empty)
        resolution (promise.future
-                   (///dependency.resolve-all (get@ #///.repositories project)
-                                              (get@ #///.dependencies project)
+                   (///dependency.resolve-all (set.to-list (get@ #///.repositories profile))
+                                              (set.to-list (get@ #///.dependencies profile))
                                               cache))
        _ (///local.cache-all (file.async file.system)
                              resolution)
@@ -130,10 +139,10 @@
                                                 "program.jar"]
                                (#JS artifact) [(format "node --stack_size=8192 " (///local.path file.system artifact))
                                                "program.js"])
-             cache-directory (format working-directory (:: file.system separator) (get@ #///.target project))
+             cache-directory (format working-directory (:: file.system separator) target)
              command (format prefix " build"
                              " " (..plural-parameter "--library" libraries)
-                             " " (..plural-parameter "--source" (get@ #///.sources project))
+                             " " (..plural-parameter "--source" (set.to-list (get@ #///.sources profile)))
                              " " (..singular-parameter "--target" cache-directory)
                              " " (..singular-parameter "--module" program))]
        #let [_ (log! "[BUILD STARTED]")]
@@ -141,6 +150,4 @@
        #let [_ (log! "[BUILD ENDED]")]]
       (wrap [compiler
              (format cache-directory (:: file.system separator) output)]))
-
-    #.None
-    (promise@wrap (exception.throw ..no-specified-program []))))
+    ))
