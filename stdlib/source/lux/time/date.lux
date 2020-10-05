@@ -16,7 +16,7 @@
     ["." text ("#@." monoid)]
     [number
      ["n" nat ("#@." decimal)]
-     ["i" int ("#@." decimal)]]
+     ["i" int]]
     [collection
      ["." list ("#@." fold)]
      ["." dictionary (#+ Dictionary)]]]
@@ -53,20 +53,8 @@
    ["Value" (n@encode day)]
    ["Minimum" (n@encode ..minimum-day)]
    ["Maximum" (n@encode (..month-days year month))]
-   ["Year" (i@encode year)]
+   ["Year" (:: //year.codec encode year)]
    ["Month" (n@encode (//month.number month))]))
-
-(def: (internal-year year)
-  (-> Year Year)
-  (if (i.< +0 year)
-    (inc year)
-    year))
-
-(def: (external-year year)
-  (-> Year Year)
-  (if (i.> +0 year)
-    year
-    (dec year)))
 
 (def: (pad value)
   (-> Nat Text)
@@ -85,25 +73,22 @@
 
   (def: #export (date year month day)
     (-> Year Month Nat (Try Date))
-    (case year
-      +0 (exception.throw ..there-is-no-year-0 [])
-      _ (let [year (..internal-year year)]
-          (if (..day-is-within-limits? year month day)
-            (#try.Success
-             (:abstraction
-              {#year year
-               #month month
-               #day day}))
-            (exception.throw ..invalid-day [year month day])))))
+    (if (..day-is-within-limits? year month day)
+      (#try.Success
+       (:abstraction
+        {#year year
+         #month month
+         #day day}))
+      (exception.throw ..invalid-day [year month day])))
 
-  (template [<name> <type> <field> <post-processing>]
+  (template [<name> <type> <field>]
     [(def: #export <name>
        (-> Date <type>)
-       (|>> :representation (get@ <field>) <post-processing>))]
+       (|>> :representation (get@ <field>)))]
 
-    [year Year #year ..external-year]
-    [month Month #month (|>)]
-    [day-of-month Nat #day (|>)]
+    [year Year #year]
+    [month Month #month]
+    [day-of-month Nat #day]
     )
 
   (structure: #export equivalence
@@ -112,8 +97,9 @@
     (def: (= reference sample)
       (let [reference (:representation reference)
             sample (:representation sample)]
-        (and (i.= (get@ #year reference)
-                  (get@ #year sample))
+        (and (:: //year.equivalence =
+                 (get@ #year reference)
+                 (get@ #year sample))
              (:: //month.equivalence =
                  (get@ #month reference)
                  (get@ #month sample))
@@ -128,10 +114,12 @@
     (def: (< reference sample)
       (let [reference (:representation reference)
             sample (:representation sample)]
-        (or (i.< (get@ #year reference)
-                 (get@ #year sample))
-            (and (i.= (get@ #year reference)
-                      (get@ #year sample))
+        (or (:: //year.order <
+                (get@ #year reference)
+                (get@ #year sample))
+            (and (:: //year.equivalence =
+                     (get@ #year reference)
+                     (get@ #year sample))
                  (or (:: //month.order <
                          (get@ #month reference)
                          (get@ #month sample))
@@ -141,16 +129,6 @@
                           (n.< (get@ #day reference)
                                (get@ #day sample)))))))))
   )
-
-(def: parse-year
-  (Parser Year)
-  (do {@ <>.monad}
-    [sign (<>.or (<t>.this "-") (wrap []))
-     digits (<t>.many <t>.decimal)
-     raw-year (<>.codec i.decimal (wrap (text@compose "+" digits)))]
-    (wrap (case sign
-            (#.Left _)  (i.* -1 raw-year)
-            (#.Right _) raw-year))))
 
 (def: parse-section
   (Parser Nat)
@@ -185,7 +163,7 @@
 (def: #export parser
   (Parser Date)
   (do <>.monad
-    [utc-year ..parse-year
+    [utc-year //year.parser
      _ (<t>.this ..separator)
      utc-month ..parse-month
      _ (<t>.this ..separator)
@@ -195,13 +173,10 @@
 
 (def: (encode value)
   (-> Date Text)
-  (let [year (..year value)]
-    ($_ text@compose
-        (if (i.< +0 year)
-          (i@encode year)
-          (n@encode (.nat year)))
-        ..separator (..pad (|> value ..month //month.number))
-        ..separator (..pad (..day-of-month value)))))
+  ($_ text@compose
+      (:: //year.codec encode (..year value))
+      ..separator (..pad (|> value ..month //month.number))
+      ..separator (..pad (..day-of-month value))))
 
 (structure: #export codec
   {#.doc (doc "Based on ISO 8601."
@@ -292,7 +267,8 @@
 
 (def: (civil-year utc-month utc-year)
   (-> Nat Year Int)
-  (let [utc-year (..internal-year utc-year)]
+  (let [## Coercing, because the year is already in external form.
+        utc-year (:coerce Int utc-year)]
     (if (n.< ..first-month-of-civil-year utc-month)
       (dec utc-year)
       utc-year)))
@@ -349,6 +325,18 @@
         year (if (n.< ..first-month-of-civil-year month)
                (inc year)
                year)]
-    (try.assume (..date (..external-year year)
+    ## Coercing, because the year is already in internal form.
+    (try.assume (..date (:coerce Year year)
                         (maybe.assume (dictionary.get month ..month-by-number))
                         day))))
+
+(structure: #export enum
+  (Enum Date)
+
+  (def: &order ..order)
+
+  (def: succ
+    (|>> ..days inc ..from-days))
+
+  (def: pred
+    (|>> ..days dec ..from-days)))

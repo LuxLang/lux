@@ -1,23 +1,24 @@
 (.module:
   [lux #*
    [abstract
-    [equivalence (#+ Equivalence)]]
+    [equivalence (#+ Equivalence)]
+    [monoid (#+ Monoid)]]
    [data
     [number
      ["n" nat]
      ["." int]
-     ["." rev ("#;." interval)]
+     ["." rev ("#@." interval)]
      ["f" frac]]
     [collection
-     ["." list ("#;." functor)]]]
+     ["." list ("#@." functor)]]]
    ["." math]
    [type
     abstract]])
 
-(def: rgb Nat 256)
-(def: top Nat (dec rgb))
+(def: rgb 256)
+(def: top (dec rgb))
 
-(def: rgb-factor Frac (|> top .int int.frac))
+(def: rgb-factor (|> top .int int.frac))
 
 (def: scale-down
   (-> Nat Frac)
@@ -49,21 +50,68 @@
 
   (def: #export (from-rgb [red green blue])
     (-> RGB Color)
-    (:abstraction {#red (n.% rgb red)
-                   #green (n.% rgb green)
-                   #blue (n.% rgb blue)}))
+    (:abstraction {#red (n.% ..rgb red)
+                   #green (n.% ..rgb green)
+                   #blue (n.% ..rgb blue)}))
 
   (def: #export to-rgb
     (-> Color RGB)
     (|>> :representation))
 
-  (structure: #export equivalence (Equivalence Color)
+  (structure: #export equivalence
+    (Equivalence Color)
+    
     (def: (= reference sample)
       (let [[rr rg rb] (:representation reference)
             [sr sg sb] (:representation sample)]
         (and (n.= rr sr)
              (n.= rg sg)
              (n.= rb sb)))))
+
+  (def: #export black
+    (..from-rgb {#red 0
+                 #green 0
+                 #blue 0}))
+
+  (def: #export white
+    (..from-rgb {#red ..top
+                 #green ..top
+                 #blue ..top}))
+
+  (structure: #export addition
+    (Monoid Color)
+
+    (def: identity ..black)
+
+    (def: (compose left right)
+      (let [[lR lG lB] (:representation left)
+            [rR rG rB] (:representation right)]
+        (:abstraction {#red (n.max lR rR)
+                       #green (n.max lG rG)
+                       #blue (n.max lB rB)}))))
+
+  (def: (complement' value)
+    (-> Nat Nat)
+    (|> ..top (n.- value)))
+
+  (def: #export (complement color)
+    (-> Color Color)
+    (let [[red green blue] (:representation color)]
+      (:abstraction {#red (complement' red)
+                     #green (complement' green)
+                     #blue (complement' blue)})))
+
+  (structure: #export subtraction
+    (Monoid Color)
+
+    (def: identity ..white)
+
+    (def: (compose left right)
+      (let [[lR lG lB] (:representation (..complement left))
+            [rR rG rB] (:representation right)]
+        (:abstraction {#red (n.min lR rR)
+                       #green (n.min lG rG)
+                       #blue (n.min lB rB)}))))
   )
 
 (def: #export (to-hsl color)
@@ -227,14 +275,14 @@
         (f.% +1.0 ratio)
 
         (f.< +0.0 ratio)
-        (|> +1.0 (f.+ (f.% +1.0 ratio)))
+        (|> ratio (f.% +1.0) (f.+ +1.0))
 
         ## else
         ratio))
 
 (def: #export (interpolate ratio end start)
   (-> Frac Color Color Color)
-  (let [dS (normalize ratio)
+  (let [dS (..normalize ratio)
         dE (|> +1.0 (f.- dS))
         interpolate' (: (-> Nat Nat Nat)
                         (function (_ end start)
@@ -248,29 +296,14 @@
                #green (interpolate' greenE greenS)
                #blue (interpolate' blueE blueS)})))
 
-(def: #export black (from-rgb {#red 0
-                               #green 0
-                               #blue 0}))
-(def: #export white (from-rgb {#red top
-                               #green top
-                               #blue top}))
-
 (template [<name> <target>]
   [(def: #export (<name> ratio color)
      (-> Frac Color Color)
-     (interpolate ratio <target> color))]
+     (..interpolate ratio <target> color))]
 
   [darker   black]
   [brighter white]
   )
-
-(def: #export (complement color)
-  (-> Color Color)
-  (let [[red green blue] (to-rgb color)
-        adjust (function (_ value) (|> top (n.- value)))]
-    (from-rgb {#red (adjust red)
-               #green (adjust green)
-               #blue (adjust blue)})))
 
 (template [<name> <op>]
   [(def: #export (<name> ratio color)
@@ -278,7 +311,7 @@
      (let [[hue saturation luminance] (to-hsl color)]
        (from-hsl [hue
                   (|> saturation
-                      (f.* (|> +1.0 (<op> (normalize ratio))))
+                      (f.* (|> +1.0 (<op> (..normalize ratio))))
                       (f.min +1.0))
                   luminance])))]
 
@@ -298,10 +331,10 @@
      (-> Color [Color Color Color])
      (let [[hue saturation luminance] (to-hsl color)]
        [color
-        (from-hsl [(|> hue (f.+ <1>) normalize)
+        (from-hsl [(|> hue (f.+ <1>) ..normalize)
                    saturation
                    luminance])
-        (from-hsl [(|> hue (f.+ <2>) normalize)
+        (from-hsl [(|> hue (f.+ <2>) ..normalize)
                    saturation
                    luminance])]))]
 
@@ -313,15 +346,15 @@
 (template [<name> <1> <2> <3>]
   [(def: #export (<name> color)
      (-> Color [Color Color Color Color])
-     (let [[hue saturation luminance] (to-hsl color)]
+     (let [[hue saturation luminance] (to-hsb color)]
        [color
-        (from-hsl [(|> hue (f.+ <1>) normalize)
+        (from-hsb [(|> hue (f.+ <1>) ..normalize)
                    saturation
                    luminance])
-        (from-hsl [(|> hue (f.+ <2>) normalize)
+        (from-hsb [(|> hue (f.+ <2>) ..normalize)
                    saturation
                    luminance])
-        (from-hsl [(|> hue (f.+ <3>) normalize)
+        (from-hsb [(|> hue (f.+ <3>) ..normalize)
                    saturation
                    luminance])]))]
 
@@ -329,37 +362,40 @@
   [tetradic (|> +2.0 (f./ +12.0)) (|> +6.0 (f./ +12.0)) (|> +8.0 (f./ +12.0))]
   )
 
-(def: #export (analogous results slice color)
-  (-> Nat Frac Color (List Color))
-  (if (n.= 0 results)
-    (list)
-    (let [[hue saturation luminance] (to-hsl color)
-          slice (normalize slice)]
-      (list;map (function (_ idx)
-                  (from-hsl [(|> idx .int int.frac (f.* slice) (f.+ hue) normalize)
-                             saturation
-                             luminance]))
-                (list.indices results)))))
+(type: #export Spread
+  Frac)
 
-(def: #export (monochromatic results color)
-  (-> Nat Color (List Color))
-  (if (n.= 0 results)
-    (list)
-    (let [[hue saturation brightness] (to-hsb color)
-          slice (|> +1.0 (f./ (|> results .int int.frac)))]
-      (|> (list.indices results)
-          (list;map (|>> .int int.frac
-                         (f.* slice)
-                         (f.+ brightness)
-                         normalize
-                         [hue saturation]
-                         from-hsb))))))
+(type: #export Palette
+  (-> Spread Nat Color (List Color)))
 
-(type: #export Alpha Rev)
+(def: #export (analogous spread variations color)
+  (-> Spread Nat Color (List Color))
+  (let [[hue saturation brightness] (to-hsb color)
+        spread (..normalize spread)]
+    (list@map (function (_ idx)
+                (from-hsb [(|> idx inc .int int.frac (f.* spread) (f.+ hue) ..normalize)
+                           saturation
+                           brightness]))
+              (list.indices variations))))
+
+(def: #export (monochromatic spread variations color)
+  (-> Spread Nat Color (List Color))
+  (let [[hue saturation brightness] (to-hsb color)
+        spread (..normalize spread)]
+    (|> (list.indices variations)
+        (list@map (|>> inc .int int.frac
+                       (f.* spread)
+                       (f.+ brightness)
+                       ..normalize
+                       [hue saturation]
+                       from-hsb)))))
+
+(type: #export Alpha
+  Rev)
 
 (def: #export transparent
   Alpha
-  rev;bottom)
+  rev@bottom)
 
 (def: #export translucent
   Alpha
@@ -367,7 +403,7 @@
 
 (def: #export opaque
   Alpha
-  rev;top)
+  rev@top)
 
 (type: #export Pigment
   {#color Color

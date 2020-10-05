@@ -5,41 +5,53 @@
     [monad (#+ do)]
     {[0 #spec]
      [/
-      ["$." equivalence]]}]
+      ["$." equivalence]
+      ["$." monoid]]}]
    [data
-    ["%" text/format (#+ format)]
     [number
+     ["n" nat]
      ["." int]
-     ["f" frac]]]
+     ["f" frac]
+     ["r" rev]]
+    [collection
+     ["." list]]]
+   [macro
+    ["." template]]
    ["." math
-    ["r" random (#+ Random)]]]
+    ["." random (#+ Random)]]]
   {1
-   ["." / (#+ Color)]})
+   ["." / (#+ Color)
+    ["." named]]})
 
 (def: #export color
   (Random Color)
-  (|> ($_ r.and r.nat r.nat r.nat)
-      (:: r.monad map /.from-rgb)))
+  (|> ($_ random.and random.nat random.nat random.nat)
+      (:: random.monad map /.from-rgb)))
 
 (def: scale
   (-> Nat Frac)
   (|>> .int int.frac))
 
 (def: square (-> Frac Frac) (math.pow +2.0))
+(def: square-root (-> Frac Frac) (math.pow +0.5))
 
-(def: (distance from to)
+(def: (distance/1 from to)
+  (-> Frac Frac Frac)
+  (square-root
+   (square
+    (f.- from to))))
+
+(def: (distance/3 from to)
   (-> Color Color Frac)
   (let [[fr fg fb] (/.to-rgb from)
         [tr tg tb] (/.to-rgb to)]
-    (math.pow +0.5 ($_ f.+
-                       (|> (scale tr) (f.- (scale fr)) square)
-                       (|> (scale tg) (f.- (scale fg)) square)
-                       (|> (scale tb) (f.- (scale fb)) square)))))
+    (square-root
+     ($_ f.+
+         (|> (scale tr) (f.- (scale fr)) square)
+         (|> (scale tg) (f.- (scale fg)) square)
+         (|> (scale tb) (f.- (scale fb)) square)))))
 
-(def: error-margin Frac +1.8)
-
-(def: black (/.from-rgb [0 0 0]))
-(def: white (/.from-rgb [255 255 255]))
+(def: rgb-error-margin +1.8)
 
 (template [<field>]
   [(def: (<field> color)
@@ -51,56 +63,145 @@
   [luminance]
   )
 
+(def: (encoding expected)
+  (-> /.Color Test)
+  ($_ _.and
+      (_.cover [/.RGB /.to-rgb /.from-rgb]
+               (|> expected /.to-rgb /.from-rgb
+                   (:: /.equivalence = expected)))
+      (_.cover [/.HSL /.to-hsl /.from-hsl]
+               (|> expected /.to-hsl /.from-hsl
+                   (distance/3 expected)
+                   (f.<= ..rgb-error-margin)))
+      (_.cover [/.HSB /.to-hsb /.from-hsb]
+               (|> expected /.to-hsb /.from-hsb
+                   (distance/3 expected)
+                   (f.<= ..rgb-error-margin)))
+      (_.cover [/.CMYK /.to-cmyk /.from-cmyk]
+               (|> expected /.to-cmyk /.from-cmyk
+                   (distance/3 expected)
+                   (f.<= ..rgb-error-margin)))
+      ))
+
+(def: transformation
+  Test
+  (do random.monad
+    [colorful (|> ..color
+                  (random.filter (function (_ color) (|> (distance/3 color /.black) (f.>= +100.0))))
+                  (random.filter (function (_ color) (|> (distance/3 color /.white) (f.>= +100.0)))))
+     mediocre (|> ..color
+                  (random.filter (|>> saturation
+                                      ((function (_ saturation)
+                                         (and (f.>= +0.25 saturation)
+                                              (f.<= +0.75 saturation)))))))
+     ratio (|> random.safe-frac (random.filter (f.>= +0.5)))]
+    ($_ _.and
+        (_.cover [/.darker /.brighter]
+                 (and (f.<= (distance/3 colorful /.black)
+                            (distance/3 (/.darker ratio colorful) /.black))
+                      (f.<= (distance/3 colorful /.white)
+                            (distance/3 (/.brighter ratio colorful) /.white))))
+        (_.cover [/.interpolate]
+                 (and (f.<= (distance/3 colorful /.black)
+                            (distance/3 (/.interpolate ratio /.black colorful) /.black))
+                      (f.<= (distance/3 colorful /.white)
+                            (distance/3 (/.interpolate ratio /.white colorful) /.white))))
+        (_.cover [/.saturate]
+                 (f.> (saturation mediocre)
+                      (saturation (/.saturate ratio mediocre))))
+        (_.cover [/.de-saturate]
+                 (f.< (saturation mediocre)
+                      (saturation (/.de-saturate ratio mediocre))))
+        (_.cover [/.gray-scale]
+                 (let [gray'ed (/.gray-scale mediocre)]
+                   (and (f.= +0.0
+                             (saturation gray'ed))
+                        (|> (luminance gray'ed)
+                            (f.- (luminance mediocre))
+                            f.abs
+                            (f.<= ..rgb-error-margin)))))
+        )))
+
+(def: palette
+  Test
+  (_.with-cover [/.Spread /.Palette]
+    (do {@ random.monad}
+      [eH (:: @ map (|>> f.abs (f.% +0.9) (f.+ +0.05))
+              random.safe-frac)
+       #let [eS +0.5]
+       variations (:: @ map (|>> (n.% 3) (n.+ 2)) random.nat)
+       #let [max-spread (f./ (|> variations inc .int int.frac)
+                             +1.0)
+             min-spread (f./ +2.0 max-spread)
+             spread-space (f.- min-spread max-spread)]
+       spread (:: @ map (|>> f.abs (f.% spread-space) (f.+ min-spread))
+                  random.safe-frac)]
+      (`` ($_ _.and
+              (~~ (template [<brightness> <palette>]
+                    [(_.cover [<palette>]
+                              (let [eB <brightness>
+                                    expected (/.from-hsb [eH eS eB])
+                                    palette (<palette> spread variations expected)]
+                                (and (n.= variations (list.size palette))
+                                     (not (list.any? (:: /.equivalence = expected) palette)))))]
+                    [+1.0 /.analogous]
+                    [+0.5 /.monochromatic]
+                    ))
+              (~~ (template [<palette>]
+                    [(_.cover [<palette>]
+                              (let [expected (/.from-hsb [eH eS +0.5])
+                                    [c0 c1 c2] (<palette> expected)]
+                                (and (:: /.equivalence = expected c0)
+                                     (not (:: /.equivalence = expected c1))
+                                     (not (:: /.equivalence = expected c2)))))]
+
+                    [/.triad]
+                    [/.clash]
+                    [/.split-complement]))
+              (~~ (template [<palette>]
+                    [(_.cover [<palette>]
+                              (let [expected (/.from-hsb [eH eS +0.5])
+                                    [c0 c1 c2 c3] (<palette> expected)]
+                                (and (:: /.equivalence = expected c0)
+                                     (not (:: /.equivalence = expected c1))
+                                     (not (:: /.equivalence = expected c2))
+                                     (not (:: /.equivalence = expected c3)))))]
+
+                    [/.square]
+                    [/.tetradic]))
+              )))))
+
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /._)))
-      (do r.monad
-        [any ..color
-         colorful (|> color
-                      (r.filter (function (_ color) (|> (distance color black) (f.>= +100.0))))
-                      (r.filter (function (_ color) (|> (distance color white) (f.>= +100.0)))))
-         mediocre (|> color
-                      (r.filter (|>> saturation
-                                     ((function (_ saturation)
-                                        (and (f.>= +0.25 saturation)
-                                             (f.<= +0.75 saturation)))))))
-         ratio (|> r.safe-frac (r.filter (f.>= +0.5)))]
+  (<| (_.covering /._)
+      (_.with-cover [/.Color])
+      (do {@ random.monad}
+        [expected ..color]
         ($_ _.and
-            ($equivalence.spec /.equivalence ..color)
-            (_.test "Can convert to/from HSL."
-                    (|> any /.to-hsl /.from-hsl
-                        (distance any)
-                        (f.<= error-margin)))
-            (_.test "Can convert to/from HSB."
-                    (|> any /.to-hsb /.from-hsb
-                        (distance any)
-                        (f.<= error-margin)))
-            (_.test "Can convert to/from CMYK."
-                    (|> any /.to-cmyk /.from-cmyk
-                        (distance any)
-                        (f.<= error-margin)))
-            (_.test "Can interpolate between 2 colors."
-                    (and (f.<= (distance colorful black)
-                               (distance (/.darker ratio colorful) black))
-                         (f.<= (distance colorful white)
-                               (distance (/.brighter ratio colorful) white))))
-            (_.test "Can calculate complement."
-                    (let [~any (/.complement any)
-                          (^open "/@.") /.equivalence]
-                      (and (not (/@= any ~any))
-                           (/@= any (/.complement ~any)))))
-            (_.test "Can saturate color."
-                    (f.> (saturation mediocre)
-                         (saturation (/.saturate ratio mediocre))))
-            (_.test "Can de-saturate color."
-                    (f.< (saturation mediocre)
-                         (saturation (/.de-saturate ratio mediocre))))
-            (_.test "Can gray-scale color."
-                    (let [gray'ed (/.gray-scale mediocre)]
-                      (and (f.= +0.0
-                                (saturation gray'ed))
-                           (|> (luminance gray'ed)
-                               (f.- (luminance mediocre))
-                               f.abs
-                               (f.<= error-margin)))))
+            (_.with-cover [/.equivalence]
+              ($equivalence.spec /.equivalence ..color))
+            (_.with-cover [/.addition]
+              ($monoid.spec /.equivalence /.addition ..color))
+            (_.with-cover [/.subtraction]
+              ($monoid.spec /.equivalence /.addition ..color))
+            
+            (..encoding expected)
+            (_.cover [/.complement]
+                     (let [~expected (/.complement expected)
+                           (^open "/@.") /.equivalence]
+                       (and (not (/@= expected ~expected))
+                            (/@= expected (/.complement ~expected)))))
+            (_.cover [/.black /.white]
+                     (and (:: /.equivalence = /.white (/.complement /.black))
+                          (:: /.equivalence = /.black (/.complement /.white))))
+            ..transformation
+            ..palette
+            (_.with-cover [/.Alpha /.Pigment]
+              ($_ _.and
+                  (_.cover [/.transparent /.opaque]
+                           (and (r.= /.opaque (dec /.transparent))
+                                (r.= /.transparent (inc /.opaque))))
+                  (_.cover [/.translucent]
+                           (r.= /.transparent (r.+ /.translucent /.translucent)))
+                  ))
             ))))
