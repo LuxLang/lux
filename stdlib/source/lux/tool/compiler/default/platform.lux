@@ -5,6 +5,7 @@
    [abstract
     ["." monad (#+ Monad do)]]
    [control
+    ["." function]
     ["." try (#+ Try)]
     ["." exception (#+ exception:)]
     [concurrency
@@ -14,12 +15,13 @@
     ["." binary (#+ Binary)]
     ["." bit]
     ["." product]
+    ["." maybe]
     ["." text ("#@." equivalence)
      ["%" format (#+ format)]]
     [collection
      ["." dictionary (#+ Dictionary)]
      ["." row (#+ Row) ("#@." fold)]
-     ["." set]
+     ["." set (#+ Set)]
      ["." list ("#@." monoid functor fold)]]
     [format
      ["_" binary (#+ Writer)]]]
@@ -240,12 +242,94 @@
            #///generation.log]
           row.empty))
 
+  (def: empty
+    (Set Module)
+    (set.new text.hash))
+
+  (type: Mapping
+    (Dictionary Module (Set Module)))
+
+  (type: Dependence
+    {#depends-on Mapping
+     #depended-by Mapping})
+
+  (def: independence
+    Dependence
+    (let [empty (dictionary.new text.hash)]
+      {#depends-on empty
+       #depended-by empty}))
+
+  (def: (depend module import dependence)
+    (-> Module Module Dependence Dependence)
+    (let [transitive-dependency (: (-> (-> Dependence Mapping) Module (Set Module))
+                                   (function (_ lens module)
+                                     (|> dependence
+                                         lens
+                                         (dictionary.get module)
+                                         (maybe.default ..empty))))
+          transitive-depends-on (transitive-dependency (get@ #depends-on) import)
+          transitive-depended-by (transitive-dependency (get@ #depended-by) module)
+          update-dependence (: (-> [Module (Set Module)] [Module (Set Module)]
+                                   (-> Mapping Mapping))
+                               (function (_ [source forward] [target backward])
+                                 (function (_ mapping)
+                                   (let [with-dependence+transitives
+                                         (|> mapping
+                                             (dictionary.upsert source ..empty (set.add target))
+                                             (dictionary.update source (set.union forward)))]
+                                     (list@fold (function (_ previous)
+                                                  (dictionary.upsert previous ..empty (set.add target)))
+                                                with-dependence+transitives
+                                                (set.to-list backward))))))]
+      (|> dependence
+          (update@ #depends-on
+                   (update-dependence
+                    [module transitive-depends-on]
+                    [import transitive-depended-by]))
+          (update@ #depended-by
+                   ((function.flip update-dependence)
+                    [module transitive-depends-on]
+                    [import transitive-depended-by])))))
+
+  (def: (circular-dependency? module import dependence)
+    (-> Module Module Dependence Bit)
+    (let [dependence? (: (-> Module (-> Dependence Mapping) Module Bit)
+                         (function (_ from relationship to)
+                           (let [targets (|> dependence
+                                             relationship
+                                             (dictionary.get from)
+                                             (maybe.default ..empty))]
+                             (set.member? targets to))))]
+      (or (dependence? import (get@ #depends-on) module)
+          (dependence? module (get@ #depended-by) import))))
+
+  (exception: #export (module-cannot-import-itself {module Module})
+    (exception.report
+     ["Module" (%.text module)]))
+
+  (exception: #export (cannot-import-circular-dependency {importer Module}
+                                                         {importee Module})
+    (exception.report
+     ["Importer" (%.text importer)]
+     ["importee" (%.text importee)]))
+
+  (def: (verify-dependencies importer importee dependence)
+    (-> Module Module Dependence (Try Any))
+    (cond (text@= importer importee)
+          (exception.throw ..module-cannot-import-itself [importer])
+
+          (..circular-dependency? importer importee dependence)
+          (exception.throw ..cannot-import-circular-dependency [importer importee])
+
+          ## else
+          (#try.Success [])))
+
   (with-expansions [<Context> (as-is [Archive <State+>])
                     <Result> (as-is (Try <Context>))
                     <Return> (as-is (Promise <Result>))
                     <Signal> (as-is (Resolver <Result>))
                     <Pending> (as-is [<Return> <Signal>])
-                    <Importer> (as-is (-> Module <Return>))
+                    <Importer> (as-is (-> Module Module <Return>))
                     <Compiler> (as-is (-> <Importer> archive.ID <Context> Module <Return>))]
     (def: (parallel initial)
       (All [<type-vars>]
@@ -256,9 +340,11 @@
                             {<Context>
                              initial}
                             {(Var (Dictionary Module <Pending>))
-                             (:assume (stm.var (dictionary.new text.hash)))})]
+                             (:assume (stm.var (dictionary.new text.hash)))})
+            dependence (: (Var Dependence)
+                          (stm.var ..independence))]
         (function (_ compile)
-          (function (import! module)
+          (function (import! importer module)
             (do {@ promise.monad}
               [[return signal] (:share [<type-vars>]
                                        {<Context>
@@ -269,40 +355,52 @@
                                         (:assume
                                          (stm.commit
                                           (do {@ stm.monad}
-                                            [[archive state] (stm.read current)]
-                                            (if (archive.archived? archive module)
-                                              (wrap [(promise@wrap (#try.Success [archive state]))
+                                            [dependence (if (text@= archive.runtime-module importer)
+                                                          (stm.read dependence)
+                                                          (do @
+                                                            [[_ dependence] (stm.update (..depend importer module) dependence)]
+                                                            (wrap dependence)))]
+                                            (case (..verify-dependencies importer module dependence)
+                                              (#try.Failure error)
+                                              (wrap [(promise.resolved (#try.Failure error))
                                                      #.None])
+
+                                              (#try.Success _)
                                               (do @
-                                                [@pending (stm.read pending)]
-                                                (case (dictionary.get module @pending)
-                                                  (#.Some [return signal])
-                                                  (wrap [return
+                                                [[archive state] (stm.read current)]
+                                                (if (archive.archived? archive module)
+                                                  (wrap [(promise@wrap (#try.Success [archive state]))
                                                          #.None])
-                                                  
-                                                  #.None
-                                                  (case (if (archive.reserved? archive module)
-                                                          (do try.monad
-                                                            [module-id (archive.id module archive)]
-                                                            (wrap [module-id archive]))
-                                                          (archive.reserve module archive))
-                                                    (#try.Success [module-id archive])
-                                                    (do @
-                                                      [_ (stm.write [archive state] current)
-                                                       #let [[return signal] (:share [<type-vars>]
-                                                                                     {<Context>
-                                                                                      initial}
-                                                                                     {<Pending>
-                                                                                      (promise.promise [])})]
-                                                       _ (stm.update (dictionary.put module [return signal]) pending)]
+                                                  (do @
+                                                    [@pending (stm.read pending)]
+                                                    (case (dictionary.get module @pending)
+                                                      (#.Some [return signal])
                                                       (wrap [return
-                                                             (#.Some [[archive state]
-                                                                      module-id
-                                                                      signal])]))
-                                                    
-                                                    (#try.Failure error)
-                                                    (wrap [(promise@wrap (#try.Failure error))
-                                                           #.None]))))))))})
+                                                             #.None])
+                                                      
+                                                      #.None
+                                                      (case (if (archive.reserved? archive module)
+                                                              (do try.monad
+                                                                [module-id (archive.id module archive)]
+                                                                (wrap [module-id archive]))
+                                                              (archive.reserve module archive))
+                                                        (#try.Success [module-id archive])
+                                                        (do @
+                                                          [_ (stm.write [archive state] current)
+                                                           #let [[return signal] (:share [<type-vars>]
+                                                                                         {<Context>
+                                                                                          initial}
+                                                                                         {<Pending>
+                                                                                          (promise.promise [])})]
+                                                           _ (stm.update (dictionary.put module [return signal]) pending)]
+                                                          (wrap [return
+                                                                 (#.Some [[archive state]
+                                                                          module-id
+                                                                          signal])]))
+                                                        
+                                                        (#try.Failure error)
+                                                        (wrap [(promise@wrap (#try.Failure error))
+                                                               #.None]))))))))))})
                _ (case signal
                    #.None
                    (wrap [])
@@ -363,16 +461,6 @@
           try.assume
           product.left))
 
-    (exception: #export (module-cannot-import-itself {module Module})
-      (exception.report
-       ["Module" (%.text module)]))
-
-    (def: (verify-no-self-import! module dependencies)
-      (-> Module (List Module) (Try Any))
-      (if (list.any? (text@= module) dependencies)
-        (exception.throw ..module-cannot-import-itself [module])
-        (#try.Success [])))
-
     (def: #export (compile import static expander platform compilation context)
       (All [<type-vars>]
         (-> Import Static Expander <Platform> Compilation <Context> <Return>))
@@ -413,9 +501,8 @@
 
                                                    (#.Cons _)
                                                    (do @
-                                                     [_ (:: promise.monad wrap (verify-no-self-import! module new-dependencies))
-                                                      archive,document+ (|> new-dependencies
-                                                                            (list@map import!)
+                                                     [archive,document+ (|> new-dependencies
+                                                                            (list@map (import! module))
                                                                             (monad.seq ..monad))
                                                       #let [archive (|> archive,document+
                                                                         (list@map product.left)
@@ -452,5 +539,5 @@
                                   (do @
                                     [_ (ioW.freeze (get@ #&file-system platform) static archive)]
                                     (promise@wrap (#try.Failure error))))))))))]
-        (compiler compilation-module)))
+        (compiler archive.runtime-module compilation-module)))
     ))

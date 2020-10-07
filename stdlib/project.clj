@@ -26,7 +26,8 @@
                            :lux {:test "test/lux"}}
              :aedifex {:description "A build system/tool made exclusively for Lux."
                        :dependencies []
-                       :lux {:program "program/aedifex"}}
+                       :lux {:program "program/aedifex"
+                             :test "test/aedifex"}}
              :scriptum {:description "A documentation generator for Lux code."
                         :dependencies []
                         :lux {:program "program/scriptum"}}

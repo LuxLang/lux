@@ -456,7 +456,11 @@
       (#try.Failure _)
       (..bytecode $0 $1 @_ _.ldc-w/string [index]))))
 
-(import: #long java/lang/Float)
+(import: #long java/lang/Float
+  (#static floatToRawIntBits #manual [float] int))
+
+(import: #long java/lang/Double
+  (#static doubleToRawLongBits #manual [double] int))
 
 (template [<name> <type> <constructor> <constant> <wide> <to-lux> <specializations>]
   [(def: #export (<name> value)
@@ -484,12 +488,41 @@
     [+3 _.iconst-3]
     [+4 _.iconst-4]
     [+5 _.iconst-5])]
-  [float java/lang/Float //constant.float //constant/pool.float _.ldc-w/float
-   (<| (:coerce Frac) host.float-to-double)
-   ([+0.0 _.fconst-0]
-    [+1.0 _.fconst-1]
-    [+2.0 _.fconst-2])]
   )
+
+(def: (arbitrary-float value)
+  (-> java/lang/Float (Bytecode Any))
+  (do ..monad
+    [index (..lift (//constant/pool.float (//constant.float value)))]
+    (case (|> index //index.value //unsigned.value //unsigned.u1)
+      (#try.Success index)
+      (..bytecode $0 $1 @_ _.ldc [index])
+
+      (#try.Failure _)
+      (..bytecode $0 $1 @_ _.ldc-w/float [index]))))
+
+(def: float-bits
+  (-> java/lang/Float Int)
+  (|>> java/lang/Float::floatToRawIntBits
+       host.int-to-long
+       (:coerce Int)))
+
+(def: negative-zero-float-bits
+  (|> -0.0 host.double-to-float ..float-bits))
+
+(def: #export (float value)
+  (-> java/lang/Float (Bytecode Any))
+  (if (i.= ..negative-zero-float-bits
+           (..float-bits value))
+    (..arbitrary-float value)
+    (case (|> value host.float-to-double (:coerce Frac))
+      (^template [<special> <instruction>]
+        <special> (..bytecode $0 $1 @_ <instruction> []))
+      ([+0.0 _.fconst-0]
+       [+1.0 _.fconst-1]
+       [+2.0 _.fconst-2])
+      
+      _ (..arbitrary-float value))))
 
 (template [<name> <type> <constructor> <constant> <wide> <to-lux> <specializations>]
   [(def: #export (<name> value)
@@ -507,11 +540,34 @@
    (<|)
    ([+0 _.lconst-0]
     [+1 _.lconst-1])]
-  [double Frac //constant.double //constant/pool.double _.ldc2-w/double
-   (<|)
-   ([+0.0 _.dconst-0]
-    [+1.0 _.dconst-1])]
   )
+
+(def: (arbitrary-double value)
+  (-> java/lang/Double (Bytecode Any))
+  (do ..monad
+    [index (..lift (//constant/pool.double (//constant.double value)))]
+    (..bytecode $0 $2 @_ _.ldc2-w/double [index])))
+
+(def: double-bits
+  (-> java/lang/Double Int)
+  (|>> java/lang/Double::doubleToRawLongBits
+       (:coerce Int)))
+
+(def: negative-zero-double-bits
+  (..double-bits -0.0))
+
+(def: #export (double value)
+  (-> java/lang/Double (Bytecode Any))
+  (if (i.= ..negative-zero-double-bits
+           (..double-bits value))
+    (..arbitrary-double value)
+    (case value
+      (^template [<special> <instruction>]
+        <special> (..bytecode $0 $2 @_ <instruction> []))
+      ([+0.0 _.dconst-0]
+       [+1.0 _.dconst-1])
+      
+      _ (..arbitrary-double value))))
 
 (exception: #export (invalid-register {id Nat})
   (exception.report

@@ -1,0 +1,153 @@
+(.module:
+  [lux #*
+   [data
+    ["." text ("#@." equivalence)]
+    [collection
+     ["." dictionary (#+ Dictionary)]
+     ["." list ("#@." functor)]
+     ["." set (#+ Set)]]]
+   [macro
+    ["." code]]]
+  ["." // #_
+   ["/" profile]
+   ["#." project (#+ Project)]
+   ["#." artifact (#+ Artifact)]
+   ["#." dependency (#+ Dependency)]])
+
+(type: #export (Format a)
+  (-> a Code))
+
+(def: (license [name url type])
+  (Format /.License)
+  (`' {#name (~ (code.text name))
+       #url (~ (code.text url))
+       #type (~ (case type
+                  #/.Repo
+                  (' #repo)
+
+                  #/.Manual
+                  (' #manual)))}))
+
+(def: (organization [name url])
+  (Format /.Organization)
+  (`' {#name (~ (code.text name))
+       #url (~ (code.text url))}))
+
+(def: (developer [name url organization])
+  (Format /.Developer)
+  (case organization
+    #.None
+    (`' {#name (~ (code.text name))
+         #url (~ (code.text url))})
+
+    (#.Some value)
+    (`' {#name (~ (code.text name))
+         #url (~ (code.text url))
+         #organization (~ (..organization value))})))
+
+(def: contributor
+  (Format /.Contributor)
+  ..developer)
+
+(type: Aggregate
+  (Dictionary Text Code))
+
+(def: aggregate
+  (Format Aggregate)
+  (|>> dictionary.entries
+       (list@map (function (_ [key value])
+                   [(code.local-tag key) value]))
+       code.record))
+
+(def: empty
+  Aggregate
+  (dictionary.new text.hash))
+
+(def: (on-maybe field value format aggregate)
+  (All [a]
+    (-> Text (Maybe a) (Format a) Aggregate Aggregate))
+  (case value
+    #.None
+    aggregate
+
+    (#.Some value)
+    (dictionary.put field (format value) aggregate)))
+
+(def: (on-list field value format aggregate)
+  (All [a]
+    (-> Text (List a) (Format a) Aggregate Aggregate))
+  (case value
+    #.Nil
+    aggregate
+
+    value
+    (dictionary.put field (` [(~+ (list@map format value))]) aggregate)))
+
+(def: (on-set field value format aggregate)
+  (All [a]
+    (-> Text (Set a) (Format a) Aggregate Aggregate))
+  (..on-list field (set.to-list value) format aggregate))
+
+(def: (on-dictionary field value key-format value-format aggregate)
+  (All [k v]
+    (-> Text (Dictionary k v) (Format k) (Format v) Aggregate Aggregate))
+  (if (dictionary.empty? value)
+    aggregate
+    (dictionary.put field
+                    (|> value
+                        dictionary.entries
+                        (list@map (function (_ [key value])
+                                    [(key-format key) (value-format value)]))
+                        code.record)
+                    aggregate)))
+
+(def: (info value)
+  (Format /.Info)
+  (|> ..empty
+      (..on-maybe "url" (get@ #/.url value) code.text)
+      (..on-maybe "scm" (get@ #/.scm value) code.text)
+      (..on-maybe "description" (get@ #/.description value) code.text)
+      (..on-list "licenses" (get@ #/.licenses value) ..license)
+      (..on-maybe "organization" (get@ #/.organization value) ..organization)
+      (..on-list "developers" (get@ #/.developers value) ..developer)
+      (..on-list "contributors" (get@ #/.contributors value) ..contributor)
+      ..aggregate))
+
+(def: (artifact' [group name version])
+  (-> Artifact (List Code))
+  (list (code.text group)
+        (code.text name)
+        (code.text version)))
+
+(def: (artifact value)
+  (Format Artifact)
+  (` [(~+ (..artifact' value))]))
+
+(def: (dependency [artifact type])
+  (Format Dependency)
+  (if (text@= //dependency.lux-library type)
+    (` [(~+ (..artifact' artifact))])
+    (` [(~+ (..artifact' artifact))
+        (~ (code.text type))])))
+
+(def: #export (profile value)
+  (Format /.Profile)
+  (|> ..empty
+      (..on-list "parents" (get@ #/.parents value) code.text)
+      (..on-maybe "identity" (get@ #/.identity value) ..artifact)
+      (..on-maybe "info" (get@ #/.info value) ..info)
+      (..on-set "repositories" (get@ #/.repositories value) code.text)
+      (..on-set "dependencies" (get@ #/.dependencies value) ..dependency)
+      (..on-set "sources" (get@ #/.sources value) code.text)
+      (..on-maybe "target" (get@ #/.target value) code.text)
+      (..on-maybe "program" (get@ #/.program value) code.text)
+      (..on-maybe "test" (get@ #/.test value) code.text)
+      (..on-dictionary "deploy-repositories" (get@ #/.deploy-repositories value) code.text code.text)
+      ..aggregate))
+
+(def: #export project
+  (Format Project)
+  (|>> dictionary.entries
+       (list@map (function (_ [key value])
+                   [(code.text key) (..profile value)]))
+       code.record))

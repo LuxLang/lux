@@ -226,8 +226,8 @@
 (def: $Float::random
   (Random java/lang/Float)
   (:: random.monad map
-      (|>> (i.% +1024) i.frac (:coerce java/lang/Double) host.double-to-float)
-      random.int))
+      (|>> (:coerce java/lang/Double) host.double-to-float)
+      random.frac))
 (def: $Float::literal /.float)
 (def: $Float::primitive
   (Primitive java/lang/Float)
@@ -288,27 +288,23 @@
    #random ..$String::random
    #literal ..$String::literal})
 
-(with-expansions [<comparison> (for {@.old
-                                     "jvm leq"
-                                     @.jvm
-                                     "jvm long ="})]
-  (template [<name> <bits> <type> <push> <wrap> <message> <to-long> <unsigned>]
-    [(def: <name>
-       Test
-       (do {@ random.monad}
-         [expected (:: @ map (i64.and (i64.mask <bits>)) random.nat)]
-         (<| (_.lift <message>)
-             (..bytecode (for {@.old
-                               (|>> (:coerce <type>) <to-long> (<comparison> expected))
-                               @.jvm
-                               (|>> (:coerce <type>) <to-long> "jvm object cast" (<comparison> ("jvm object cast" (:coerce java/lang/Long expected))))}))
-             (do /.monad
-               [_ (<push> (|> expected <unsigned> try.assume))]
-               <wrap>))))]
+(template [<name> <bits> <type> <push> <wrap> <message> <to-long> <unsigned>]
+  [(def: <name>
+     Test
+     (do {@ random.monad}
+       [expected (:: @ map (i64.and (i64.mask <bits>)) random.nat)]
+       (<| (_.lift <message>)
+           (..bytecode (for {@.old
+                             (|>> (:coerce <type>) <to-long> ("jvm leq" expected))
+                             @.jvm
+                             (|>> (:coerce <type>) <to-long> "jvm object cast" ("jvm long =" ("jvm object cast" (:coerce java/lang/Long expected))))}))
+           (do /.monad
+             [_ (<push> (|> expected <unsigned> try.assume))]
+             <wrap>))))]
 
-    [byte 7 java/lang/Byte /.bipush ..$Byte::wrap "BIPUSH" host.byte-to-long /unsigned.u1]
-    [short 15 java/lang/Short /.sipush ..$Short::wrap "SIPUSH" host.short-to-long /unsigned.u2]
-    ))
+  [byte 7 java/lang/Byte /.bipush ..$Byte::wrap "BIPUSH" host.byte-to-long /unsigned.u1]
+  [short 15 java/lang/Short /.sipush ..$Short::wrap "SIPUSH" host.short-to-long /unsigned.u2]
+  )
 
 (template [<name> <type>]
   [(template: (<name> <old-extension> <new-extension>)
@@ -341,19 +337,16 @@
 
 (def: int
   Test
-  (let [int (with-expansions [<comparison> (for {@.old "jvm ieq"
-                                                 @.jvm "jvm int ="})]
-              (: (-> java/lang/Integer (Bytecode Any) (Random Bit))
-                 (function (_ expected bytecode)
-                   (<| (..bytecode (for {@.old
-                                         (|>> (:coerce java/lang/Integer) (<comparison> expected))
-                                         
-                                         @.jvm
-                                         (|>> (:coerce java/lang/Integer) "jvm object cast"
-                                              (<comparison> ("jvm object cast" expected)))}))
-                       (do /.monad
-                         [_ bytecode]
-                         ..$Integer::wrap)))))
+  (let [int (: (-> java/lang/Integer (Bytecode Any) (Random Bit))
+               (function (_ expected bytecode)
+                 (<| (..bytecode (for {@.old
+                                       (|>> (:coerce java/lang/Integer) ("jvm ieq" expected))
+                                       
+                                       @.jvm
+                                       (|>> (:coerce java/lang/Integer) "jvm object cast" ("jvm int =" ("jvm object cast" expected)))}))
+                     (do /.monad
+                       [_ bytecode]
+                       ..$Integer::wrap))))
         unary (: (-> (-> java/lang/Integer java/lang/Integer) (Bytecode Any) (Random Bit))
                  (function (_ reference instruction)
                    (do random.monad
@@ -425,290 +418,296 @@
 
 (def: long
   Test
-  (with-expansions [<comparison> (for {@.old "jvm leq"
-                                       @.jvm "jvm long ="})]
-    (let [long (: (-> java/lang/Long (Bytecode Any) (Random Bit))
-                  (function (_ expected bytecode)
-                    (<| (..bytecode (for {@.old
-                                          (|>> (:coerce Int) (i.= expected))
-                                          
-                                          @.jvm
-                                          (|>> (:coerce java/lang/Long) "jvm object cast" (<comparison> ("jvm object cast" expected)))}))
-                        (do /.monad
-                          [_ bytecode]
-                          ..$Long::wrap))))
-          unary (: (-> (-> java/lang/Long java/lang/Long) (Bytecode Any) (Random Bit))
-                   (function (_ reference instruction)
-                     (do random.monad
-                       [subject ..$Long::random]
-                       (long (reference subject)
-                             (do /.monad
-                               [_ (..$Long::literal subject)]
-                               instruction)))))
-          binary (: (-> (-> java/lang/Long java/lang/Long java/lang/Long) (Bytecode Any) (Random Bit))
-                    (function (_ reference instruction)
-                      (do random.monad
-                        [parameter ..$Long::random
-                         subject ..$Long::random]
-                        (long (reference parameter subject)
-                              (do /.monad
-                                [_ (..$Long::literal subject)
-                                 _ (..$Long::literal parameter)]
-                                instruction)))))
-          shift (: (-> (-> java/lang/Integer java/lang/Long java/lang/Long) (Bytecode Any) (Random Bit))
-                   (function (_ reference instruction)
-                     (do {@ random.monad}
-                       [parameter (:: @ map (|>> (n.% 64) (:coerce java/lang/Long)) random.nat)
-                        subject ..$Long::random]
-                       (long (reference (host.long-to-int parameter) subject)
-                             (do /.monad
-                               [_ (..$Long::literal subject)
-                                _ (..$Integer::literal (host.long-to-int parameter))]
-                               instruction)))))
-          literal ($_ _.and
-                      (_.lift "LCONST_0" (long (:coerce java/lang/Long +0) /.lconst-0))
-                      (_.lift "LCONST_1" (long (:coerce java/lang/Long +1) /.lconst-1))
-                      (_.lift "LDC2_W/LONG"
-                              (do random.monad
-                                [expected ..$Long::random]
-                                (long expected (..$Long::literal expected)))))
-          arithmetic ($_ _.and
-                         (_.lift "LADD" (binary (long/2 "jvm ladd" "jvm long +") /.ladd))
-                         (_.lift "LSUB" (binary (long/2 "jvm lsub" "jvm long -") /.lsub))
-                         (_.lift "LMUL" (binary (long/2 "jvm lmul" "jvm long *") /.lmul))
-                         (_.lift "LDIV" (binary (long/2 "jvm ldiv" "jvm long /") /.ldiv))
-                         (_.lift "LREM" (binary (long/2 "jvm lrem" "jvm long %") /.lrem))
-                         (_.lift "LNEG" (unary (function (_ value)
-                                                 ((long/2 "jvm lsub" "jvm long -")
-                                                  value
-                                                  (:coerce java/lang/Long +0)))
-                                               /.lneg)))
-          bitwise ($_ _.and
-                      (_.lift "LAND" (binary (long/2 "jvm land" "jvm long and") /.land))
-                      (_.lift "LOR" (binary (long/2 "jvm lor" "jvm long or") /.lor))
-                      (_.lift "LXOR" (binary (long/2 "jvm lxor" "jvm long xor") /.lxor))
-                      (_.lift "LSHL" (shift (int+long/2 "jvm lshl" "jvm long shl") /.lshl))
-                      (_.lift "LSHR" (shift (int+long/2 "jvm lshr" "jvm long shr") /.lshr))
-                      (_.lift "LUSHR" (shift (int+long/2 "jvm lushr" "jvm long ushr") /.lushr)))
-          comparison (_.lift "LCMP"
-                             (do random.monad
-                               [reference ..$Long::random
-                                subject ..$Long::random
-                                #let [expected (cond (i.= (:coerce Int reference) (:coerce Int subject))
-                                                     (:coerce java/lang/Long +0)
+  (let [long (: (-> java/lang/Long (Bytecode Any) (Random Bit))
+                (function (_ expected bytecode)
+                  (<| (..bytecode (for {@.old
+                                        (|>> (:coerce Int) (i.= expected))
+                                        
+                                        @.jvm
+                                        (|>> (:coerce java/lang/Long) "jvm object cast" ("jvm long =" ("jvm object cast" expected)))}))
+                      (do /.monad
+                        [_ bytecode]
+                        ..$Long::wrap))))
+        unary (: (-> (-> java/lang/Long java/lang/Long) (Bytecode Any) (Random Bit))
+                 (function (_ reference instruction)
+                   (do random.monad
+                     [subject ..$Long::random]
+                     (long (reference subject)
+                           (do /.monad
+                             [_ (..$Long::literal subject)]
+                             instruction)))))
+        binary (: (-> (-> java/lang/Long java/lang/Long java/lang/Long) (Bytecode Any) (Random Bit))
+                  (function (_ reference instruction)
+                    (do random.monad
+                      [parameter ..$Long::random
+                       subject ..$Long::random]
+                      (long (reference parameter subject)
+                            (do /.monad
+                              [_ (..$Long::literal subject)
+                               _ (..$Long::literal parameter)]
+                              instruction)))))
+        shift (: (-> (-> java/lang/Integer java/lang/Long java/lang/Long) (Bytecode Any) (Random Bit))
+                 (function (_ reference instruction)
+                   (do {@ random.monad}
+                     [parameter (:: @ map (|>> (n.% 64) (:coerce java/lang/Long)) random.nat)
+                      subject ..$Long::random]
+                     (long (reference (host.long-to-int parameter) subject)
+                           (do /.monad
+                             [_ (..$Long::literal subject)
+                              _ (..$Integer::literal (host.long-to-int parameter))]
+                             instruction)))))
+        literal ($_ _.and
+                    (_.lift "LCONST_0" (long (:coerce java/lang/Long +0) /.lconst-0))
+                    (_.lift "LCONST_1" (long (:coerce java/lang/Long +1) /.lconst-1))
+                    (_.lift "LDC2_W/LONG"
+                            (do random.monad
+                              [expected ..$Long::random]
+                              (long expected (..$Long::literal expected)))))
+        arithmetic ($_ _.and
+                       (_.lift "LADD" (binary (long/2 "jvm ladd" "jvm long +") /.ladd))
+                       (_.lift "LSUB" (binary (long/2 "jvm lsub" "jvm long -") /.lsub))
+                       (_.lift "LMUL" (binary (long/2 "jvm lmul" "jvm long *") /.lmul))
+                       (_.lift "LDIV" (binary (long/2 "jvm ldiv" "jvm long /") /.ldiv))
+                       (_.lift "LREM" (binary (long/2 "jvm lrem" "jvm long %") /.lrem))
+                       (_.lift "LNEG" (unary (function (_ value)
+                                               ((long/2 "jvm lsub" "jvm long -")
+                                                value
+                                                (:coerce java/lang/Long +0)))
+                                             /.lneg)))
+        bitwise ($_ _.and
+                    (_.lift "LAND" (binary (long/2 "jvm land" "jvm long and") /.land))
+                    (_.lift "LOR" (binary (long/2 "jvm lor" "jvm long or") /.lor))
+                    (_.lift "LXOR" (binary (long/2 "jvm lxor" "jvm long xor") /.lxor))
+                    (_.lift "LSHL" (shift (int+long/2 "jvm lshl" "jvm long shl") /.lshl))
+                    (_.lift "LSHR" (shift (int+long/2 "jvm lshr" "jvm long shr") /.lshr))
+                    (_.lift "LUSHR" (shift (int+long/2 "jvm lushr" "jvm long ushr") /.lushr)))
+        comparison (_.lift "LCMP"
+                           (do random.monad
+                             [reference ..$Long::random
+                              subject ..$Long::random
+                              #let [expected (cond (i.= (:coerce Int reference) (:coerce Int subject))
+                                                   (:coerce java/lang/Long +0)
 
-                                                     (i.> (:coerce Int reference) (:coerce Int subject))
-                                                     (:coerce java/lang/Long +1)
+                                                   (i.> (:coerce Int reference) (:coerce Int subject))
+                                                   (:coerce java/lang/Long +1)
 
-                                                     ## (i.< (:coerce Int reference) (:coerce Int subject))
-                                                     (:coerce java/lang/Long -1))]]
-                               (<| (..bytecode (for {@.old
-                                                     (|>> (:coerce Int) (i.= expected))
-                                                     
-                                                     @.jvm
-                                                     (|>> (:coerce java/lang/Long) "jvm object cast" (<comparison> ("jvm object cast" expected)))}))
-                                   (do /.monad
-                                     [_ (..$Long::literal subject)
-                                      _ (..$Long::literal reference)
-                                      _ /.lcmp
-                                      _ /.i2l]
-                                     ..$Long::wrap))))]
-      ($_ _.and
-          (<| (_.context "literal")
-              literal)
-          (<| (_.context "arithmetic")
-              arithmetic)
-          (<| (_.context "bitwise")
-              bitwise)
-          (<| (_.context "comparison")
-              comparison)
-          ))))
+                                                   ## (i.< (:coerce Int reference) (:coerce Int subject))
+                                                   (:coerce java/lang/Long -1))]]
+                             (<| (..bytecode (for {@.old
+                                                   (|>> (:coerce Int) (i.= expected))
+                                                   
+                                                   @.jvm
+                                                   (|>> (:coerce java/lang/Long) "jvm object cast" ("jvm long =" ("jvm object cast" expected)))}))
+                                 (do /.monad
+                                   [_ (..$Long::literal subject)
+                                    _ (..$Long::literal reference)
+                                    _ /.lcmp
+                                    _ /.i2l]
+                                   ..$Long::wrap))))]
+    ($_ _.and
+        (<| (_.context "literal")
+            literal)
+        (<| (_.context "arithmetic")
+            arithmetic)
+        (<| (_.context "bitwise")
+            bitwise)
+        (<| (_.context "comparison")
+            comparison)
+        )))
 
 (def: float
   Test
-  (with-expansions [<comparison> (for {@.old "jvm feq"
-                                       @.jvm "jvm float ="})]
-    (let [float (: (-> java/lang/Float (Bytecode Any) (Random Bit))
-                   (function (_ expected bytecode)
-                     (<| (..bytecode (for {@.old
-                                           (|>> (:coerce java/lang/Float) ("jvm feq" expected))
-                                           
-                                           @.jvm
-                                           (|>> (:coerce java/lang/Float) "jvm object cast" (<comparison> ("jvm object cast" expected)))}))
-                         (do /.monad
-                           [_ bytecode]
-                           ..$Float::wrap))))
-          unary (: (-> (-> java/lang/Float java/lang/Float)
-                       (Bytecode Any)
-                       (Random Bit))
-                   (function (_ reference instruction)
-                     (do random.monad
-                       [subject ..$Float::random]
-                       (float (reference subject)
-                              (do /.monad
-                                [_ (..$Float::literal subject)]
-                                instruction)))))
-          binary (: (-> (-> java/lang/Float java/lang/Float java/lang/Float)
-                        (Bytecode Any)
-                        (Random Bit))
-                    (function (_ reference instruction)
-                      (do random.monad
-                        [parameter ..$Float::random
-                         subject ..$Float::random]
-                        (float (reference parameter subject)
-                               (do /.monad
-                                 [_ (..$Float::literal subject)
-                                  _ (..$Float::literal parameter)]
-                                 instruction)))))
-          literal ($_ _.and
-                      (_.lift "FCONST_0" (float (host.double-to-float (:coerce java/lang/Double +0.0)) /.fconst-0))
-                      (_.lift "FCONST_1" (float (host.double-to-float (:coerce java/lang/Double +1.0)) /.fconst-1))
-                      (_.lift "FCONST_2" (float (host.double-to-float (:coerce java/lang/Double +2.0)) /.fconst-2))
-                      (_.lift "LDC_W/FLOAT"
-                              (do random.monad
-                                [expected ..$Float::random]
-                                (float expected (..$Float::literal expected)))))
-          arithmetic ($_ _.and
-                         (_.lift "FADD" (binary (float/2 "jvm fadd" "jvm float +") /.fadd))
-                         (_.lift "FSUB" (binary (float/2 "jvm fsub" "jvm float -") /.fsub))
-                         (_.lift "FMUL" (binary (float/2 "jvm fmul" "jvm float *") /.fmul))
-                         (_.lift "FDIV" (binary (float/2 "jvm fdiv" "jvm float /") /.fdiv))
-                         (_.lift "FREM" (binary (float/2 "jvm frem" "jvm float %") /.frem))
-                         (_.lift "FNEG" (unary (function (_ value)
-                                                 ((float/2 "jvm fsub" "jvm float -")
-                                                  value
-                                                  (host.double-to-float (:coerce java/lang/Double +0.0))))
-                                               /.fneg)))
-          comparison (: (-> (Bytecode Any) (-> java/lang/Float java/lang/Float Bit) (Random Bit))
-                        (function (_ instruction standard)
-                          (do random.monad
-                            [reference ..$Float::random
-                             subject ..$Float::random
-                             #let [expected (if (for {@.old
-                                                      ("jvm feq" reference subject)
-                                                      
-                                                      @.jvm
-                                                      (<comparison> ("jvm object cast" reference) ("jvm object cast" subject))})
-                                              +0
-                                              (if (standard reference subject)
-                                                +1
-                                                -1))]]
-                            (<| (..bytecode (|>> (:coerce Int) (i.= expected)))
-                                (do /.monad
-                                  [_ (..$Float::literal subject)
-                                   _ (..$Float::literal reference)
-                                   _ instruction
-                                   _ /.i2l]
-                                  ..$Long::wrap)))))
-          comparison-standard (: (-> java/lang/Float java/lang/Float Bit)
-                                 (function (_ reference subject)
-                                   (for {@.old
-                                         ("jvm fgt" subject reference)
+  (let [float (: (-> java/lang/Float (Bytecode Any) (Random Bit))
+                 (function (_ expected bytecode)
+                   (<| (..bytecode (for {@.old
+                                         (function (_ actual)
+                                           (or (|> actual (:coerce java/lang/Float) ("jvm feq" expected))
+                                               (and (f.not-a-number? (:coerce Frac (host.float-to-double expected)))
+                                                    (f.not-a-number? (:coerce Frac (host.float-to-double (:coerce java/lang/Float actual)))))))
                                          
                                          @.jvm
-                                         ("jvm float <" ("jvm object cast" subject) ("jvm object cast" reference))})))
-          comparison ($_ _.and
-                         (_.lift "FCMPL" (comparison /.fcmpl comparison-standard))
-                         (_.lift "FCMPG" (comparison /.fcmpg comparison-standard)))]
-      ($_ _.and
-          (<| (_.context "literal")
-              literal)
-          (<| (_.context "arithmetic")
-              arithmetic)
-          (<| (_.context "comparison")
-              comparison)
-          ))))
+                                         (function (_ actual)
+                                           (or (|> actual (:coerce java/lang/Float) "jvm object cast" ("jvm float =" ("jvm object cast" expected)))
+                                               (and (f.not-a-number? (:coerce Frac (host.float-to-double expected)))
+                                                    (f.not-a-number? (:coerce Frac (host.float-to-double (:coerce java/lang/Float actual)))))))}))
+                       (do /.monad
+                         [_ bytecode]
+                         ..$Float::wrap))))
+        unary (: (-> (-> java/lang/Float java/lang/Float)
+                     (Bytecode Any)
+                     (Random Bit))
+                 (function (_ reference instruction)
+                   (do random.monad
+                     [subject ..$Float::random]
+                     (float (reference subject)
+                            (do /.monad
+                              [_ (..$Float::literal subject)]
+                              instruction)))))
+        binary (: (-> (-> java/lang/Float java/lang/Float java/lang/Float)
+                      (Bytecode Any)
+                      (Random Bit))
+                  (function (_ reference instruction)
+                    (do random.monad
+                      [parameter ..$Float::random
+                       subject ..$Float::random]
+                      (float (reference parameter subject)
+                             (do /.monad
+                               [_ (..$Float::literal subject)
+                                _ (..$Float::literal parameter)]
+                               instruction)))))
+        literal ($_ _.and
+                    (_.lift "FCONST_0" (float (host.double-to-float (:coerce java/lang/Double +0.0)) /.fconst-0))
+                    (_.lift "FCONST_1" (float (host.double-to-float (:coerce java/lang/Double +1.0)) /.fconst-1))
+                    (_.lift "FCONST_2" (float (host.double-to-float (:coerce java/lang/Double +2.0)) /.fconst-2))
+                    (_.lift "LDC_W/FLOAT"
+                            (do random.monad
+                              [expected ..$Float::random]
+                              (float expected (..$Float::literal expected)))))
+        arithmetic ($_ _.and
+                       (_.lift "FADD" (binary (float/2 "jvm fadd" "jvm float +") /.fadd))
+                       (_.lift "FSUB" (binary (float/2 "jvm fsub" "jvm float -") /.fsub))
+                       (_.lift "FMUL" (binary (float/2 "jvm fmul" "jvm float *") /.fmul))
+                       (_.lift "FDIV" (binary (float/2 "jvm fdiv" "jvm float /") /.fdiv))
+                       (_.lift "FREM" (binary (float/2 "jvm frem" "jvm float %") /.frem))
+                       (_.lift "FNEG" (unary (function (_ value)
+                                               ((float/2 "jvm fsub" "jvm float -")
+                                                value
+                                                (host.double-to-float (:coerce java/lang/Double +0.0))))
+                                             /.fneg)))
+        comparison (: (-> (Bytecode Any) (-> java/lang/Float java/lang/Float Bit) (Random Bit))
+                      (function (_ instruction standard)
+                        (do random.monad
+                          [reference ..$Float::random
+                           subject ..$Float::random
+                           #let [expected (if (for {@.old
+                                                    ("jvm feq" reference subject)
+                                                    
+                                                    @.jvm
+                                                    ("jvm float =" ("jvm object cast" reference) ("jvm object cast" subject))})
+                                            +0
+                                            (if (standard reference subject)
+                                              +1
+                                              -1))]]
+                          (<| (..bytecode (|>> (:coerce Int) (i.= expected)))
+                              (do /.monad
+                                [_ (..$Float::literal subject)
+                                 _ (..$Float::literal reference)
+                                 _ instruction
+                                 _ /.i2l]
+                                ..$Long::wrap)))))
+        comparison-standard (: (-> java/lang/Float java/lang/Float Bit)
+                               (function (_ reference subject)
+                                 (for {@.old
+                                       ("jvm fgt" subject reference)
+                                       
+                                       @.jvm
+                                       ("jvm float <" ("jvm object cast" subject) ("jvm object cast" reference))})))
+        comparison ($_ _.and
+                       (_.lift "FCMPL" (comparison /.fcmpl comparison-standard))
+                       (_.lift "FCMPG" (comparison /.fcmpg comparison-standard)))]
+    ($_ _.and
+        (<| (_.context "literal")
+            literal)
+        (<| (_.context "arithmetic")
+            arithmetic)
+        (<| (_.context "comparison")
+            comparison)
+        )))
 
 (def: double
   Test
-  (with-expansions [<comparison> (for {@.old "jvm deq"
-                                       @.jvm "jvm double ="})]
-    (let [double (: (-> java/lang/Double (Bytecode Any) (Random Bit))
-                    (function (_ expected bytecode)
-                      (<| (..bytecode (for {@.old
-                                            (|>> (:coerce java/lang/Double) ("jvm deq" expected))
-                                            
-                                            @.jvm
-                                            (|>> (:coerce java/lang/Double) "jvm object cast" (<comparison> ("jvm object cast" expected)))}))
-                          (do /.monad
-                            [_ bytecode]
-                            ..$Double::wrap))))
-          unary (: (-> (-> java/lang/Double java/lang/Double) (Bytecode Any) (Random Bit))
-                   (function (_ reference instruction)
-                     (do random.monad
-                       [subject ..$Double::random]
-                       (double (reference subject)
-                               (do /.monad
-                                 [_ (..$Double::literal subject)]
-                                 instruction)))))
-          binary (: (-> (-> java/lang/Double java/lang/Double java/lang/Double) (Bytecode Any) (Random Bit))
-                    (function (_ reference instruction)
-                      (do random.monad
-                        [parameter ..$Double::random
-                         subject ..$Double::random]
-                        (double (reference parameter subject)
-                                (do /.monad
-                                  [_ (..$Double::literal subject)
-                                   _ (..$Double::literal parameter)]
-                                  instruction)))))
-          literal ($_ _.and
-                      (_.lift "DCONST_0" (double (:coerce java/lang/Double +0.0) /.dconst-0))
-                      (_.lift "DCONST_1" (double (:coerce java/lang/Double +1.0) /.dconst-1))
-                      (_.lift "LDC2_W/DOUBLE"
-                              (do random.monad
-                                [expected ..$Double::random]
-                                (double expected (..$Double::literal expected)))))
-          arithmetic ($_ _.and
-                         (_.lift "DADD" (binary (double/2 "jvm dadd" "jvm double +") /.dadd))
-                         (_.lift "DSUB" (binary (double/2 "jvm dsub" "jvm double -") /.dsub))
-                         (_.lift "DMUL" (binary (double/2 "jvm dmul" "jvm double *") /.dmul))
-                         (_.lift "DDIV" (binary (double/2 "jvm ddiv" "jvm double /") /.ddiv))
-                         (_.lift "DREM" (binary (double/2 "jvm drem" "jvm double %") /.drem))
-                         (_.lift "DNEG" (unary (function (_ value)
-                                                 ((double/2 "jvm dsub" "jvm double -")
-                                                  value
-                                                  (:coerce java/lang/Double +0.0)))
-                                               /.dneg)))
-          comparison (: (-> (Bytecode Any) (-> java/lang/Double java/lang/Double Bit) (Random Bit))
-                        (function (_ instruction standard)
-                          (do random.monad
-                            [reference ..$Double::random
-                             subject ..$Double::random
-                             #let [expected (if (for {@.old
-                                                      ("jvm deq" reference subject)
-                                                      
-                                                      @.jvm
-                                                      (<comparison> ("jvm object cast" reference) ("jvm object cast" subject))})
-                                              +0
-                                              (if (standard reference subject)
-                                                +1
-                                                -1))]]
-                            (<| (..bytecode (|>> (:coerce Int) (i.= expected)))
-                                (do /.monad
-                                  [_ (..$Double::literal subject)
-                                   _ (..$Double::literal reference)
-                                   _ instruction
-                                   _ /.i2l]
-                                  ..$Long::wrap)))))
-          ## https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-6.html#jvms-6.5.dcmp_op
-          comparison-standard (: (-> java/lang/Double java/lang/Double Bit)
-                                 (function (_ reference subject)
-                                   (for {@.old
-                                         ("jvm dgt" subject reference)
-                                         
-                                         @.jvm
-                                         ("jvm double <" ("jvm object cast" subject) ("jvm object cast" reference))})))
-          comparison ($_ _.and
-                         (_.lift "DCMPL" (comparison /.dcmpl comparison-standard))
-                         (_.lift "DCMPG" (comparison /.dcmpg comparison-standard)))]
-      ($_ _.and
-          (<| (_.context "literal")
-              literal)
-          (<| (_.context "arithmetic")
-              arithmetic)
-          (<| (_.context "comparison")
-              comparison)
-          ))))
+  (let [double (: (-> java/lang/Double (Bytecode Any) (Random Bit))
+                  (function (_ expected bytecode)
+                    (<| (..bytecode (for {@.old
+                                          (function (_ actual)
+                                            (or (|> actual (:coerce java/lang/Double) ("jvm deq" expected))
+                                                (and (f.not-a-number? (:coerce Frac expected))
+                                                     (f.not-a-number? (:coerce Frac actual)))))
+                                          
+                                          @.jvm
+                                          (function (_ actual)
+                                            (or (|> actual (:coerce java/lang/Double) "jvm object cast" ("jvm double =" ("jvm object cast" expected)))
+                                                (and (f.not-a-number? (:coerce Frac expected))
+                                                     (f.not-a-number? (:coerce Frac actual)))))}))
+                        (do /.monad
+                          [_ bytecode]
+                          ..$Double::wrap))))
+        unary (: (-> (-> java/lang/Double java/lang/Double) (Bytecode Any) (Random Bit))
+                 (function (_ reference instruction)
+                   (do random.monad
+                     [subject ..$Double::random]
+                     (double (reference subject)
+                             (do /.monad
+                               [_ (..$Double::literal subject)]
+                               instruction)))))
+        binary (: (-> (-> java/lang/Double java/lang/Double java/lang/Double) (Bytecode Any) (Random Bit))
+                  (function (_ reference instruction)
+                    (do random.monad
+                      [parameter ..$Double::random
+                       subject ..$Double::random]
+                      (double (reference parameter subject)
+                              (do /.monad
+                                [_ (..$Double::literal subject)
+                                 _ (..$Double::literal parameter)]
+                                instruction)))))
+        literal ($_ _.and
+                    (_.lift "DCONST_0" (double (:coerce java/lang/Double +0.0) /.dconst-0))
+                    (_.lift "DCONST_1" (double (:coerce java/lang/Double +1.0) /.dconst-1))
+                    (_.lift "LDC2_W/DOUBLE"
+                            (do random.monad
+                              [expected ..$Double::random]
+                              (double expected (..$Double::literal expected)))))
+        arithmetic ($_ _.and
+                       (_.lift "DADD" (binary (double/2 "jvm dadd" "jvm double +") /.dadd))
+                       (_.lift "DSUB" (binary (double/2 "jvm dsub" "jvm double -") /.dsub))
+                       (_.lift "DMUL" (binary (double/2 "jvm dmul" "jvm double *") /.dmul))
+                       (_.lift "DDIV" (binary (double/2 "jvm ddiv" "jvm double /") /.ddiv))
+                       (_.lift "DREM" (binary (double/2 "jvm drem" "jvm double %") /.drem))
+                       (_.lift "DNEG" (unary (function (_ value)
+                                               ((double/2 "jvm dsub" "jvm double -")
+                                                value
+                                                (:coerce java/lang/Double +0.0)))
+                                             /.dneg)))
+        comparison (: (-> (Bytecode Any) (-> java/lang/Double java/lang/Double Bit) (Random Bit))
+                      (function (_ instruction standard)
+                        (do random.monad
+                          [reference ..$Double::random
+                           subject ..$Double::random
+                           #let [expected (if (for {@.old
+                                                    ("jvm deq" reference subject)
+                                                    
+                                                    @.jvm
+                                                    ("jvm double =" ("jvm object cast" reference) ("jvm object cast" subject))})
+                                            +0
+                                            (if (standard reference subject)
+                                              +1
+                                              -1))]]
+                          (<| (..bytecode (|>> (:coerce Int) (i.= expected)))
+                              (do /.monad
+                                [_ (..$Double::literal subject)
+                                 _ (..$Double::literal reference)
+                                 _ instruction
+                                 _ /.i2l]
+                                ..$Long::wrap)))))
+        ## https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-6.html#jvms-6.5.dcmp_op
+        comparison-standard (: (-> java/lang/Double java/lang/Double Bit)
+                               (function (_ reference subject)
+                                 (for {@.old
+                                       ("jvm dgt" subject reference)
+                                       
+                                       @.jvm
+                                       ("jvm double <" ("jvm object cast" subject) ("jvm object cast" reference))})))
+        comparison ($_ _.and
+                       (_.lift "DCMPL" (comparison /.dcmpl comparison-standard))
+                       (_.lift "DCMPG" (comparison /.dcmpg comparison-standard)))]
+    ($_ _.and
+        (<| (_.context "literal")
+            literal)
+        (<| (_.context "arithmetic")
+            arithmetic)
+        (<| (_.context "comparison")
+            comparison)
+        )))
 
 (def: primitive
   Test
@@ -773,7 +772,8 @@
   ($_ _.and
       (<| (_.lift "INVOKESTATIC")
           (do random.monad
-            [expected ..$Double::random])
+            [expected (random.filter (|>> (:coerce Frac) f.not-a-number? not)
+                                     ..$Double::random)])
           (..bytecode (for {@.old
                             (|>> (:coerce java/lang/Double) ("jvm deq" expected))
                             
@@ -793,7 +793,8 @@
             ..$Boolean::wrap))
       (<| (_.lift "INVOKESPECIAL")
           (do random.monad
-            [expected ..$Double::random])
+            [expected (random.filter (|>> (:coerce Frac) f.not-a-number? not)
+                                     ..$Double::random)])
           (..bytecode (for {@.old
                             (|>> (:coerce java/lang/Double) ("jvm deq" expected))
                             

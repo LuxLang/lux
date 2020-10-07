@@ -90,6 +90,12 @@ cd ~/lux/stdlib/ && lein clean && lein with-profile scriptum lux auto build
 cd ~/lux/stdlib/ && lein clean && lein with-profile aedifex lux auto build
 ```
 
+## Test
+
+```
+cd ~/lux/stdlib/ && lein clean && lein with-profile aedifex lux auto test
+```
+
 ---
 
 # Licentia: License maker
