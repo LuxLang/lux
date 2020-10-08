@@ -234,7 +234,7 @@
 (let [function-flags (+ Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL Opcodes/ACC_SUPER)
       datum-flags (+ Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL)]
   (defn compile-function [compile ?prev-writer arity ?scope ?env ?body]
-    (|do [[file-name _ _] &/cursor
+    (|do [[file-name _ _] &/location
           :let [??scope (&/|reverse ?scope)
                 name (&host/location (&/|tail ??scope))
                 class-name (str (&host/->module-class (&/|head ??scope)) "/" name)

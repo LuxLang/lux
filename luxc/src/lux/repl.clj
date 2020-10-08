@@ -16,7 +16,7 @@
 ;; [Utils]
 (def ^:private repl-module "REPL")
 
-(defn ^:private repl-cursor [repl-line]
+(defn ^:private repl-location [repl-line]
   (&/T [repl-module repl-line 0]))
 
 (defn ^:private init [source-dirs]
@@ -26,7 +26,7 @@
                   _ (&module/create-module repl-module 0)
                   _ (fn [?state]
                       (return* (&/set$ &/$source
-                                       (&/|list (&/T [(repl-cursor -1) "(;module: lux)"]))
+                                       (&/|list (&/T [(repl-location -1) "(;module: lux)"]))
                                        ?state)
                                nil))
                   analysed-tokens (&analyser/repl-analyse &optimizer/optimize &compiler/eval! (partial &compiler/compile-module source-dirs) &compiler/all-compilers)
@@ -58,14 +58,14 @@
             line (.readLine input)]
         (if (= "exit" line)
           (println "Till next time...")
-          (let [line* (&/|list (&/T [(repl-cursor repl-line) line]))
+          (let [line* (&/|list (&/T [(repl-location repl-line) line]))
                 state* (&/update$ &/$source
                                   (fn [_source] (&/|++ _source line*))
                                   state)]
             (|case ((|do [analysed-tokens (&analyser/repl-analyse &optimizer/optimize &compiler/eval! (partial &compiler/compile-module source-dirs) &compiler/all-compilers)
                           eval-values (->> analysed-tokens (&/|map &optimizer/optimize) (&/map% &compiler/eval!))
                           :let [outputs (map (fn [analysis value]
-                                               (|let [[[_type _cursor] _term] analysis]
+                                               (|let [[[_type _location] _term] analysis]
                                                  [_type value]))
                                              (&/->seq analysed-tokens)
                                              (&/->seq eval-values))]]

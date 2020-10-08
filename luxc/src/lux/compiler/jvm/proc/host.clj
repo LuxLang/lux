@@ -90,10 +90,10 @@
 ;; [Resources]
 (defn ^:private compile-annotation [^ClassWriter writer ann]
   (doto ^AnnotationVisitor (.visitAnnotation writer (&host-generics/->type-signature (:name ann)) true)
-        (-> (.visit param-name param-value)
-            (->> (|let [[param-name param-value] param])
-                 (doseq [param (&/->seq (:params ann))])))
-        (.visitEnd))
+    (-> (.visit param-name param-value)
+        (->> (|let [[param-name param-value] param])
+             (doseq [param (&/->seq (:params ann))])))
+    (.visitEnd))
   nil)
 
 (defn ^:private compile-field [^ClassWriter writer field]
@@ -457,7 +457,7 @@
 (declare compile-jvm-putstatic)
 (defn compile-jvm-class [compile class-decl ?super-class ?interfaces ?inheritance-modifier ?anns ?fields ?methods env ??ctor-args]
   (|do [module &/get-module-name
-        [file-name line column] &/cursor
+        [file-name line column] &/location
         :let [[?name ?params] class-decl
               class-signature (&host-generics/gclass-decl->signature class-decl (&/$Cons ?super-class ?interfaces))
               full-name (str module "/" ?name)
@@ -495,7 +495,7 @@
 (defn compile-jvm-interface [interface-decl ?supers ?anns ?methods]
   (|do [:let [[interface-name interface-vars] interface-decl]
         module &/get-module-name
-        [file-name _ _] &/cursor
+        [file-name _ _] &/location
         :let [interface-signature (&host-generics/gclass-decl->signature interface-decl ?supers)
               =interface (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                            (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_ABSTRACT Opcodes/ACC_INTERFACE)

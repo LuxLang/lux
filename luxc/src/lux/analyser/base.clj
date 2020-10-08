@@ -38,8 +38,8 @@
     term))
 
 (defn with-type [new-type analysis]
-  (|let [[[type cursor] adt] analysis]
-    (&/T [(&/T [new-type cursor]) adt])))
+  (|let [[[type location] adt] analysis]
+    (&/T [(&/T [new-type location]) adt])))
 
 (defn clean-analysis
   "(-> Type Analysis (Lux Analysis))"
@@ -80,8 +80,8 @@
     (and (= "lux" module)
          (contains? tag-names name))))
 
-(defn |meta [type cursor analysis]
-  (&/T [(&/T [type cursor]) analysis]))
+(defn |meta [type location analysis]
+  (&/T [(&/T [type location]) analysis]))
 
 (defn de-meta
   "(-> Analysis Analysis)"

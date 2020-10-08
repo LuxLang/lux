@@ -120,8 +120,8 @@
                                             (&/$Product Ident Type)))))))))))
                                   )))))
 
-(def Cursor
-  (&/$Named (&/T ["lux" "Cursor"])
+(def Location
+  (&/$Named (&/T ["lux" "Location"])
             (&/$Product Text (&/$Product Nat Nat))))
 
 (def Meta
@@ -165,7 +165,7 @@
 
 (def Code
   (&/$Named (&/T ["lux" "Code"])
-            (let [w (&/$Apply Cursor Meta)]
+            (let [w (&/$Apply Location Meta)]
               (&/$Apply (&/$Apply w Code*) w))))
 
 (def Macro*)
@@ -221,7 +221,7 @@
         
         (&/$None)
         (return* (&/update$ &/$type-context (fn [ts] (&/update$ &/$var-bindings #(&/|put id (&/$Some type) %)
-                                                               ts))
+                                                                ts))
                             state)
                  nil))
       ((&/fail-with-loc (str "[Type Error] Unknown type-var: " id " | " (->> state (&/get$ &/$type-context) (&/get$ &/$var-bindings) &/|length)))
@@ -231,7 +231,7 @@
   (fn [state]
     (if-let [tvar (->> state (&/get$ &/$type-context) (&/get$ &/$var-bindings) (&/|get id))]
       (return* (&/update$ &/$type-context (fn [ts] (&/update$ &/$var-bindings #(&/|put id (&/$Some type) %)
-                                                             ts))
+                                                              ts))
                           state)
                nil)
       ((&/fail-with-loc (str "[Type Error] Unknown type-var: " id " | " (->> state (&/get$ &/$type-context) (&/get$ &/$var-bindings) &/|length)))
@@ -241,7 +241,7 @@
   (fn [state]
     (if-let [tvar (->> state (&/get$ &/$type-context) (&/get$ &/$var-bindings) (&/|get id))]
       (return* (&/update$ &/$type-context (fn [ts] (&/update$ &/$var-bindings #(&/|put id &/$None %)
-                                                             ts))
+                                                              ts))
                           state)
                nil)
       ((&/fail-with-loc (str "[Type Error] Unknown type-var: " id " | " (->> state (&/get$ &/$type-context) (&/get$ &/$var-bindings) &/|length)))
@@ -288,23 +288,23 @@
     (if (= ?tid ?id)
       (|do [? (bound? ?id)]
         (if ?
-          (deref ?id)
+            (deref ?id)
           (return type)))
       (|do [? (bound? ?id)]
         (if ?
-          (|do [=type (deref ?id)
-                ==type (clean* ?tid =type)]
-            (|case ==type
-              (&/$Var =id)
-              (if (= ?tid =id)
-                (|do [_ (unset-var ?id)]
-                  (return type))
-                (|do [_ (reset-var ?id ==type)]
-                  (return type)))
+            (|do [=type (deref ?id)
+                  ==type (clean* ?tid =type)]
+              (|case ==type
+                (&/$Var =id)
+                (if (= ?tid =id)
+                  (|do [_ (unset-var ?id)]
+                    (return type))
+                  (|do [_ (reset-var ?id ==type)]
+                    (return type)))
 
-              _
-              (|do [_ (reset-var ?id ==type)]
-                (return ==type))))
+                _
+                (|do [_ (reset-var ?id ==type)]
+                  (return ==type))))
           (return type)))
       )
 
@@ -365,14 +365,14 @@
 
 (defn ^:private unravel-app
   ([fun-type tail]
-     (|case fun-type
-       (&/$Apply ?arg ?func)
-       (unravel-app ?func (&/$Cons ?arg tail))
+   (|case fun-type
+     (&/$Apply ?arg ?func)
+     (unravel-app ?func (&/$Cons ?arg tail))
 
-       _
-       (&/T [fun-type tail])))
+     _
+     (&/T [fun-type tail])))
   ([fun-type]
-     (unravel-app fun-type &/$Nil)))
+   (unravel-app fun-type &/$Nil)))
 
 (do-template [<tag> <flatten> <at> <desc>]
   (do (defn <flatten>
@@ -757,7 +757,7 @@
           (|case (fp-get fp-pair fixpoints)
             (&/$Some ?)
             (if ?
-              (return fixpoints)
+                (return fixpoints)
               (check-error "" expected actual))
 
             (&/$None)
@@ -800,15 +800,15 @@
         [(&/$Primitive e!data) (&/$Primitive a!data)]
         (|do [? &/jvm?]
           (if ?
-            (|do [class-loader &/loader]
-              (&&host/check-host-types (partial check* fixpoints true)
-                                       check-error
-                                       fixpoints
-                                       existential
-                                       class-loader
-                                       invariant??
-                                       e!data
-                                       a!data))
+              (|do [class-loader &/loader]
+                (&&host/check-host-types (partial check* fixpoints true)
+                                         check-error
+                                         fixpoints
+                                         existential
+                                         class-loader
+                                         invariant??
+                                         e!data
+                                         a!data))
             (|let [[e!name e!params] e!data
                    [a!name a!params] a!data]
               (if (and (= e!name a!name)
@@ -897,7 +897,7 @@
     (&/$Var id)
     (|do [? (bound? id)]
       (if ?
-        (deref id)
+          (deref id)
         (return type)))
 
     _

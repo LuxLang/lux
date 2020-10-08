@@ -126,7 +126,7 @@
   (&/with-eval
     (|do [module &/get-module-name
           id &/gen-id
-          [file-name _ _] &/cursor
+          [file-name _ _] &/location
           :let [class-name (str (&host/->module-class module) "/" id)
                 =class (doto (new ClassWriter ClassWriter/COMPUTE_MAXS)
                          (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)

@@ -67,14 +67,14 @@
 
 (declare deserialize)
 
-(def dummy-cursor
+(def dummy-location
   (&/T ["" 0 0]))
 
 (do-template [<name> <signal> <ctor> <parser>]
   (defn <name> [^String input]
     (when (.startsWith input <signal>)
       (let [[value* ^String input*] (.split (.substring input 1) stop 2)]
-        [(&/T [dummy-cursor (<ctor> (<parser> value*))]) input*])))
+        [(&/T [dummy-location (<ctor> (<parser> value*))]) input*])))
 
   ^:private deserialize-bit  "B" &/$Bit  Boolean/parseBoolean
   ^:private deserialize-nat  "N" &/$Nat  Long/parseLong
@@ -89,7 +89,7 @@
     (when (.startsWith input <marker>)
       (let [[^String ident* ^String input*] (.split (.substring input 1) stop 2)
             [_module _name] (.split ident* "\\." 2)]
-        [(&/T [dummy-cursor (<tag> (&/T [_module _name]))]) input*])))
+        [(&/T [dummy-location (<tag> (&/T [_module _name]))]) input*])))
 
   ^:private deserialize-identifier "@" &/$Identifier
   ^:private deserialize-tag        "#" &/$Tag)
@@ -114,7 +114,7 @@
     (when (.startsWith input <signal>)
       (when-let [[elems ^String input*] (deserialize-seq <deserializer>
                                                          (.substring input 1))]
-        [(&/T [dummy-cursor (<type> elems)]) input*])))
+        [(&/T [dummy-location (<type> elems)]) input*])))
 
   ^:private deserialize-form   "(" &/$Form   deserialize
   ^:private deserialize-tuple  "[" &/$Tuple  deserialize

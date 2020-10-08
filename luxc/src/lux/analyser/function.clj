@@ -17,8 +17,8 @@
             (return (&/T [scope-name =captured =return]))))))))
 
 (defn close-over [scope name register frame]
-  (|let [[[register-type register-cursor] _] register
-         register* (&&/|meta register-type register-cursor
+  (|let [[[register-type register-location] _] register
+         register* (&&/|meta register-type register-location
                              (&&/$captured (&/T [scope
                                                  (->> frame (&/get$ &/$captured) (&/get$ &/$counter))
                                                  register])))]

@@ -13,8 +13,8 @@
             =reference (&&/analyse-1 analyse $var reference)
             =sample (&&/analyse-1 analyse $var sample)
             _ (&type/check exo-type &type/Bit)
-            _cursor &/cursor]
-        (return (&/|list (&&/|meta exo-type _cursor
+            _location &/location]
+        (return (&/|list (&&/|meta exo-type _location
                                    (&&/$proc (&/T ["lux" "is"]) (&/|list =sample =reference) (&/|list)))))))))
 
 (defn- analyse-lux-try [analyse exo-type ?values]
@@ -25,15 +25,15 @@
             _ (&type/check exo-type (&/$Sum &type/Text ;; lux.Left
                                             $var ;; lux.Right
                                             ))
-            _cursor &/cursor]
-        (return (&/|list (&&/|meta exo-type _cursor
+            _location &/location]
+        (return (&/|list (&&/|meta exo-type _location
                                    (&&/$proc (&/T ["lux" "try"]) (&/|list =op) (&/|list)))))))))
 
 (defn- analyse-lux-macro [analyse exo-type ?values]
   (|do [:let [(&/$Cons macro (&/$Nil)) ?values]
-        [[=macro*-type =cursor] =macro] (&&/analyse-1 analyse &type/Macro* macro)
+        [[=macro*-type =location] =macro] (&&/analyse-1 analyse &type/Macro* macro)
         _ (&type/check exo-type &type/Macro)]
-    (return (&/|list (&&/|meta exo-type =cursor
+    (return (&/|list (&&/|meta exo-type =location
                                =macro)))))
 
 (do-template [<name> <proc> <input-type> <output-type>]
@@ -42,8 +42,8 @@
           =reference (&&/analyse-1 analyse <input-type> reference)
           =sample (&&/analyse-1 analyse <input-type> sample)
           _ (&type/check exo-type <output-type>)
-          _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor
+          _location &/location]
+      (return (&/|list (&&/|meta exo-type _location
                                  (&&/$proc (&/T <proc>) (&/|list =sample =reference) (&/|list)))))))
 
   analyse-text-eq     ["text" "="]      &type/Text &type/Bit
@@ -55,8 +55,8 @@
         =parameter (&&/analyse-1 analyse &type/Text parameter)
         =subject (&&/analyse-1 analyse &type/Text subject)
         _ (&type/check exo-type &type/Text)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta exo-type _cursor
+        _location &/location]
+    (return (&/|list (&&/|meta exo-type _location
                                (&&/$proc (&/T ["text" "concat"]) (&/|list =parameter =subject) (&/|list)))))))
 
 (defn- analyse-text-index [analyse exo-type ?values]
@@ -65,8 +65,8 @@
         =part (&&/analyse-1 analyse &type/Text part)
         =text (&&/analyse-1 analyse &type/Text text)
         _ (&type/check exo-type (&/$Apply &type/Nat &type/Maybe))
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta exo-type _cursor
+        _location &/location]
+    (return (&/|list (&&/|meta exo-type _location
                                (&&/$proc (&/T ["text" "index"])
                                          (&/|list =text =part =start)
                                          (&/|list)))))))
@@ -77,8 +77,8 @@
         =to (&&/analyse-1 analyse &type/Nat to)
         =text (&&/analyse-1 analyse &type/Text text)
         _ (&type/check exo-type &type/Text)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta exo-type _cursor
+        _location &/location]
+    (return (&/|list (&&/|meta exo-type _location
                                (&&/$proc (&/T ["text" "clip"])
                                          (&/|list =text =from =to)
                                          (&/|list)))))))
@@ -88,8 +88,8 @@
     (|do [:let [(&/$Cons text (&/$Nil)) ?values]
           =text (&&/analyse-1 analyse &type/Text text)
           _ (&type/check exo-type &type/Nat)
-          _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor
+          _location &/location]
+      (return (&/|list (&&/|meta exo-type _location
                                  (&&/$proc (&/T ["text" <proc>])
                                            (&/|list =text)
                                            (&/|list)))))))
@@ -102,8 +102,8 @@
         =idx (&&/analyse-1 analyse &type/Nat idx)
         =text (&&/analyse-1 analyse &type/Text text)
         _ (&type/check exo-type &type/Nat)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta exo-type _cursor
+        _location &/location]
+    (return (&/|list (&&/|meta exo-type _location
                                (&&/$proc (&/T ["text" "char"])
                                          (&/|list =text =idx)
                                          (&/|list)))))))
@@ -116,8 +116,8 @@
             =mask (&&/analyse-1 analyse inputT mask)
             =input (&&/analyse-1 analyse inputT input)
             _ (&type/check exo-type outputT)
-            _cursor &/cursor]
-        (return (&/|list (&&/|meta exo-type _cursor
+            _location &/location]
+        (return (&/|list (&&/|meta exo-type _location
                                    (&&/$proc (&/T ["i64" <op>]) (&/|list =input =mask) (&/|list))))))))
 
   analyse-i64-and "and"
@@ -133,8 +133,8 @@
             =shift (&&/analyse-1 analyse &type/Nat shift)
             =input (&&/analyse-1 analyse inputT input)
             _ (&type/check exo-type outputT)
-            _cursor &/cursor]
-        (return (&/|list (&&/|meta exo-type _cursor
+            _location &/location]
+        (return (&/|list (&&/|meta exo-type _location
                                    (&&/$proc (&/T ["i64" <op>]) (&/|list =input =shift) (&/|list))))))))
 
   analyse-i64-left-shift             "left-shift"
@@ -150,8 +150,8 @@
             parameterA (&&/analyse-1 analyse <input-type> parameterC)
             subjectA (&&/analyse-1 analyse <input-type> subjectC)
             _ (&type/check exo-type <output-type>)
-            _cursor &/cursor]
-        (return (&/|list (&&/|meta exo-type _cursor
+            _location &/location]
+        (return (&/|list (&&/|meta exo-type _location
                                    (&&/$proc (&/T <proc>) (&/|list subjectA parameterA) (&/|list))))))))
 
   analyse-i64-eq   ["i64" "="]  (&/$Apply &type/Any &type/I64)  &type/Bit
@@ -177,8 +177,8 @@
         (|do [:let [(&/$Cons x (&/$Nil)) ?values]
               =x (&&/analyse-1 analyse <type> x)
               _ (&type/check exo-type &type/Text)
-              _cursor &/cursor]
-          (return (&/|list (&&/|meta exo-type _cursor
+              _location &/location]
+          (return (&/|list (&&/|meta exo-type _location
                                      (&&/$proc (&/T <encode-op>) (&/|list =x) (&/|list)))))))
 
     (let [decode-type (&/$Apply <type> &type/Maybe)]
@@ -186,8 +186,8 @@
         (|do [:let [(&/$Cons x (&/$Nil)) ?values]
               =x (&&/analyse-1 analyse &type/Text x)
               _ (&type/check exo-type decode-type)
-              _cursor &/cursor]
-          (return (&/|list (&&/|meta exo-type _cursor
+              _location &/location]
+          (return (&/|list (&&/|meta exo-type _location
                                      (&&/$proc (&/T <decode-op>) (&/|list =x) (&/|list)))))))))
 
   analyse-frac-encode ["f64" "encode"] analyse-frac-decode ["f64" "decode"] &type/Frac
@@ -197,8 +197,8 @@
   (defn- <name> [analyse exo-type ?values]
     (|do [:let [(&/$Nil) ?values]
           _ (&type/check exo-type <type>)
-          _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor
+          _location &/location]
+      (return (&/|list (&&/|meta exo-type _location
                                  (&&/$proc (&/T <op>) (&/|list) (&/|list)))))))
 
   analyse-frac-smallest           &type/Frac ["f64"  "smallest"]
@@ -211,8 +211,8 @@
     (|do [:let [(&/$Cons x (&/$Nil)) ?values]
           =x (&&/analyse-1 analyse <from-type> x)
           _ (&type/check exo-type <to-type>)
-          _cursor &/cursor]
-      (return (&/|list (&&/|meta exo-type _cursor
+          _location &/location]
+      (return (&/|list (&&/|meta exo-type _location
                                  (&&/$proc (&/T <op>) (&/|list =x) (&/|list)))))))
 
   analyse-int-char  &type/Int  &type/Text   ["i64" "char"]
@@ -227,13 +227,13 @@
 (defn- analyse-io-current-time [analyse exo-type ?values]
   (|do [:let [(&/$Nil) ?values]
         _ (&type/check exo-type &type/Int)
-        _cursor &/cursor]
-    (return (&/|list (&&/|meta exo-type _cursor
+        _location &/location]
+    (return (&/|list (&&/|meta exo-type _location
                                (&&/$proc (&/T ["io" "current-time"]) (&/|list) (&/|list)))))))
 
 (defn- analyse-syntax-char-case! [analyse exo-type ?values]
   (|do [:let [(&/$Cons ?input (&/$Cons [_ (&/$Tuple ?pairs)] (&/$Cons ?else (&/$Nil)))) ?values]
-        _cursor &/cursor
+        _location &/location
         =input (&&/analyse-1 analyse &type/Nat ?input)
         _ (assert! (even? (&/|length ?pairs)) "The number of matches must be even!")
         =pairs (&/map% (fn [?pair]
@@ -246,10 +246,10 @@
                                            =match])))))
                        (&/|as-pairs ?pairs))
         =else (&&/analyse-1 analyse exo-type ?else)]
-    (return (&/|list (&&/|meta exo-type _cursor
+    (return (&/|list (&&/|meta exo-type _location
                                (&&/$proc (&/T ["lux" "syntax char case!"])
                                          (&/|list =input
-                                                  (&&/|meta exo-type _cursor (&&/$tuple (&/|map &/|second =pairs)))
+                                                  (&&/|meta exo-type _location (&&/$tuple (&/|map &/|second =pairs)))
                                                   =else)
                                          (&/|map &/|first =pairs)))))))
 

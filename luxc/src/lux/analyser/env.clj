@@ -14,7 +14,7 @@
     (let [old-mappings (->> state (&/get$ &/$scopes) &/|head (&/get$ &/$locals) (&/get$ &/$mappings))
           =return (body (&/update$ &/$scopes
                                    (fn [stack]
-                                     (let [var-analysis (&&/|meta type &/empty-cursor (&&/$var (&/$Local (->> (&/|head stack) (&/get$ &/$locals) (&/get$ &/$counter)))))]
+                                     (let [var-analysis (&&/|meta type &/empty-location (&&/$var (&/$Local (->> (&/|head stack) (&/get$ &/$locals) (&/get$ &/$counter)))))]
                                        (&/$Cons (&/update$ &/$locals #(->> %
                                                                            (&/update$ &/$counter inc)
                                                                            (&/update$ &/$mappings (fn [m] (&/|put name (&/T [type var-analysis]) m))))
@@ -42,9 +42,9 @@
                                    (fn [stack]
                                      (&/$Cons (&/update$ &/$locals #(->> %
                                                                          (&/update$ &/$mappings (fn [m] (&/|put name
-                                                                                                               (&/T [(&&/expr-type* var-analysis)
-                                                                                                                     var-analysis])
-                                                                                                               m))))
+                                                                                                                (&/T [(&&/expr-type* var-analysis)
+                                                                                                                      var-analysis])
+                                                                                                                m))))
                                                          (&/|head stack))
                                               (&/|tail stack)))
                                    state))]

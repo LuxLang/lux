@@ -272,7 +272,7 @@
         (|let [[_ (&o/$function _ _arity _scope _captured ?body+)] (&o/shift-function-body (&/|tail __scope) __scope
                                                                                            false
                                                                                            (de-ann ?body))]
-          (|do [[file-name _ _] &/cursor
+          (|do [[file-name _ _] &/location
                 :let [datum-sig "Ljava/lang/Object;"
                       def-name (&host/def-name ?name)
                       current-class (str (&host/->module-class module-name) "/" def-name)
@@ -300,7 +300,7 @@
             (return def-value)))
 
         _
-        (|do [[file-name _ _] &/cursor
+        (|do [[file-name _ _] &/location
               :let [datum-sig "Ljava/lang/Object;"
                     def-name (&host/def-name ?name)
                     current-class (str (&host/->module-class module-name) "/" def-name)

@@ -147,7 +147,7 @@
 (deftuple
   ["info"
    "source"
-   "cursor"
+   "location"
    "current-module"
    "modules"
    "scopes"
@@ -221,7 +221,7 @@
 (def ^:const ^String version "0.6.0")
 
 ;; Constructors
-(def empty-cursor (T ["" -1 -1]))
+(def empty-location (T ["" -1 -1]))
 
 (defn get$ [slot ^objects record]
   (aget record slot))
@@ -590,7 +590,7 @@
 
 (defn fail-with-loc [msg]
   (fn [state]
-    (fail* (add-loc (get$ $cursor state) msg))))
+    (fail* (add-loc (get$ $location state) msg))))
 
 (defn assert! [test message]
   (if test
@@ -820,7 +820,7 @@
       (default-info name mode)
       ;; "lux;source"
       $Nil
-      ;; "lux;cursor"
+      ;; "lux;location"
       (T ["" -1 -1])
       ;; "current-module"
       $None
@@ -1024,26 +1024,26 @@
         _
         output))))
 
-(defn with-cursor
-  "(All [a] (-> Cursor (Meta a)))"
-  [^objects cursor body]
-  (|let [[_file-name _ _] cursor]
+(defn with-location
+  "(All [a] (-> Location (Meta a)))"
+  [^objects location body]
+  (|let [[_file-name _ _] location]
     (if (= "" _file-name)
       body
       (fn [state]
-        (let [output (body (set$ $cursor cursor state))]
+        (let [output (body (set$ $location location state))]
           (|case output
             ($Right ?state ?value)
-            (return* (set$ $cursor (get$ $cursor state) ?state)
+            (return* (set$ $location (get$ $location state) ?state)
                      ?value)
 
             _
             output))))))
 
 (defn with-analysis-meta
-  "(All [a] (-> Cursor Type (Meta a)))"
-  [^objects cursor type body]
-  (|let [[_file-name _ _] cursor]
+  "(All [a] (-> Location Type (Meta a)))"
+  [^objects location type body]
+  (|let [[_file-name _ _] location]
     (if (= "" _file-name)
       (fn [state]
         (let [output (body (->> state
@@ -1058,12 +1058,12 @@
             output)))
       (fn [state]
         (let [output (body (->> state
-                                (set$ $cursor cursor)
+                                (set$ $location location)
                                 (set$ $expected ($Some type))))]
           (|case output
             ($Right ?state ?value)
             (return* (->> ?state
-                          (set$ $cursor (get$ $cursor state))
+                          (set$ $location (get$ $location state))
                           (set$ $expected (get$ $expected state)))
                      ?value)
 
@@ -1081,10 +1081,10 @@
       ((fail-with-loc "[Error] All directives must be top-level forms.")
        state))))
 
-(def cursor
-  ;; (Meta Cursor)
+(def location
+  ;; (Meta Location)
   (fn [state]
-    (return* state (get$ $cursor state))))
+    (return* state (get$ $location state))))
 
 (def rev-bits 64)
 
@@ -1118,14 +1118,14 @@
                             output)))
       rev-digits-lt (fn rev-digits-lt
                       ([subject param index]
-                         (and (< index rev-bits)
-                              (or (< (get subject index)
-                                     (get param index))
-                                  (and (= (get subject index)
-                                          (get param index))
-                                       (rev-digits-lt subject param (inc index))))))
+                       (and (< index rev-bits)
+                            (or (< (get subject index)
+                                   (get param index))
+                                (and (= (get subject index)
+                                        (get param index))
+                                     (rev-digits-lt subject param (inc index))))))
                       ([subject param]
-                         (rev-digits-lt subject param 0)))
+                       (rev-digits-lt subject param 0)))
       rev-digits-sub-once (fn [subject param-digit index]
                             (if (>= (get subject index)
                                     param-digit)
