@@ -10,7 +10,9 @@
    [target
     [jvm
      ["_" bytecode (#+ Bytecode)]
-     ["." type]]]]
+     ["." type]
+     [encoding
+      ["." signed]]]]]
   ["." // #_
    ["#." runtime (#+ Operation Phase Generator)]
    ["#." primitive]
@@ -23,15 +25,11 @@
 (def: $Object
   (type.class "java.lang.Object" (list)))
 
-(def: unitG
-  (Bytecode Any)
-  (//primitive.text /////synthesis.unit))
-
 (def: #export (tuple generate archive membersS)
   (Generator (Tuple Synthesis))
   (case membersS
     #.Nil
-    (:: phase.monad wrap ..unitG)
+    (:: phase.monad wrap //runtime.unit)
 
     (#.Cons singletonS #.Nil)
     (generate archive singletonS)
@@ -53,29 +51,42 @@
                _ (_.anewarray $Object)]
               (monad.seq @ membersI))))))
 
-(def: (flagG right?)
+(def: #export (tag lefts right?)
+  (-> Nat Bit (Bytecode Any))
+  (case (if right?
+          (.inc lefts)
+          lefts)
+    0 _.iconst-0
+    1 _.iconst-1
+    2 _.iconst-2
+    3 _.iconst-3
+    4 _.iconst-4
+    5 _.iconst-5
+    tag (case (signed.s1 (.int tag))
+          (#try.Success value)
+          (_.bipush value)
+
+          (#try.Failure _)
+          (case (signed.s2 (.int tag))
+            (#try.Success value)
+            (_.sipush value)
+
+            (#try.Failure _)
+            (_.int (.i64 tag))))))
+
+(def: #export (flag right?)
   (-> Bit (Bytecode Any))
   (if right?
-    ..unitG
-    _.aconst-null))
+    //runtime.right-flag
+    //runtime.left-flag))
 
 (def: #export (variant generate archive [lefts right? valueS])
   (Generator (Variant Synthesis))
   (do phase.monad
-    [valueI (generate archive valueS)
-     #let [tagI (case (if right?
-                        (.inc lefts)
-                        lefts)
-                  0 _.iconst-0
-                  1 _.iconst-1
-                  2 _.iconst-2
-                  3 _.iconst-3
-                  4 _.iconst-4
-                  5 _.iconst-5
-                  tag (_.int (.i64 tag)))]]
+    [valueI (generate archive valueS)]
     (wrap (do _.monad
-            [_ tagI
-             _ (flagG right?)
+            [_ (..tag lefts right?)
+             _ (..flag right?)
              _ valueI]
             (_.invokestatic //runtime.class "variant"
                             (type.method [(list type.int $Object $Object)

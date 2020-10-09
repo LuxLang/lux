@@ -282,11 +282,16 @@
   (&/fold% (partial raise* existential) (&/T [class params]) lineage))
 
 ;; [Exports]
+(defn find-class! [class class-loader]
+  (try (return (Class/forName class true class-loader))
+    (catch java.lang.ClassNotFoundException ex
+      (&/fail-with-loc (str "[Host Error] Cannot find class: " (pr-str class))))))
+
 (defn ->super-type
   "(-> Text Text (List Type) (Lux Type))"
   [existential class-loader super-class sub-class sub-params]
-  (let [super-class+ (Class/forName super-class true class-loader)
-        sub-class+ (Class/forName sub-class true class-loader)]
+  (|do [^Class super-class+ (find-class! super-class class-loader)
+        ^Class sub-class+ (find-class! sub-class class-loader)]
     (if (.isAssignableFrom super-class+ sub-class+)
       (let [lineage (trace-lineage sub-class+ super-class+)]
         (|do [[^Class sub-class* sub-params*] (raise existential lineage sub-class+ sub-params)]

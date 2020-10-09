@@ -1182,7 +1182,7 @@
   ;; Based on the LuxRT.decode_rev method
   (defn decode-rev [^String input]
     (if (and (.startsWith input ".")
-             (< (.length input) (inc rev-bits)))
+             (<= (.length input) (inc rev-bits)))
       (loop [digits-left (-> input
                              (.substring 1)
                              clean-separators
@@ -1199,7 +1199,7 @@
                      (inc index)
                      ouput)))
           ouput))
-      (throw (str "Bad format for Rev number: " input))))
+      (throw (new java.lang.Exception (str "Bad format for Rev number: " input)))))
   )
 
 (defn show-ast [ast]

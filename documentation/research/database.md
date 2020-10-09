@@ -15,6 +15,8 @@
 
 # Query
 
+1. https://calcite.apache.org/
+1. https://juxt.pro/blog/crux-sql
 1. https://www.influxdata.com/blog/why-were-building-flux-a-new-data-scripting-and-query-language/
 1. https://crate.io/a/lab-notes-how-we-made-joins-23-thousand-times-faster-part-two/
 1. GC: A Graph Caching System for Subgraph/Supergraph Queries

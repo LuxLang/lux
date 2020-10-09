@@ -1,0 +1,108 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   [abstract
+    [monad (#+ do)]
+    {[0 #spec]
+     [/
+      ["$." equivalence]]}]
+   [control
+    [pipe (#+ case>)]
+    ["." try]
+    [parser
+     ["." cli]]]
+   [data
+    ["." text ("#@." equivalence)]]
+   [math
+    ["." random (#+ Random) ("#@." monad)]]]
+  {#program
+   ["." /
+    ["/#" // #_
+     ["#" profile]
+     [upload (#+ User Password)]]]})
+
+(def: compilation
+  (Random /.Compilation)
+  (random.or (random@wrap [])
+             (random@wrap [])))
+
+(def: command
+  (Random /.Command)
+  ($_ random.or
+      ## #POM
+      (random@wrap [])
+      ## #Dependencies
+      (random@wrap [])
+      ## #Install
+      (random@wrap [])
+      ## #Deploy
+      ($_ random.and
+          (random.ascii/alpha 1)
+          (random.ascii/alpha 1)
+          (random.ascii/alpha 1))
+      ## #Compilation
+      ..compilation
+      ## #Auto
+      ..compilation))
+
+(def: (format-compilation value)
+  (-> /.Compilation (List Text))
+  (case value
+    #/.Build (list "build")
+    #/.Test (list "test")))
+
+(def: (format value)
+  (-> /.Command (List Text))
+  (case value
+    #/.POM (list "pom")
+    #/.Dependencies (list "deps")
+    #/.Install (list "install")
+    (#/.Deploy repository user password) (list "deploy" repository user password)
+    (#/.Compilation compilation) (..format-compilation compilation)
+    (#/.Auto compilation) (list& "auto" (..format-compilation compilation))))
+
+(def: without-profile
+  Test
+  (do random.monad
+    [expected ..command]
+    (_.test "Without profile."
+            (|> expected
+                ..format
+                (cli.run /.command)
+                (case> (#try.Success [name actual])
+                       (and (text@= //.default name)
+                            (:: /.equivalence = expected actual))
+                       
+                       (#try.Failure error)
+                       false)))))
+
+(def: with-profile
+  Test
+  (do random.monad
+    [expected-profile (random.ascii/alpha 1)
+     expected-command ..command]
+    (_.test "With profile."
+            (|> expected-command
+                ..format
+                (list& "with" expected-profile)
+                (cli.run /.command)
+                (case> (#try.Success [actual-profile actual-command])
+                       (and (text@= expected-profile actual-profile)
+                            (:: /.equivalence = expected-command actual-command))
+                       
+                       (#try.Failure error)
+                       false)))))
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      (_.with-cover [/.Compilation /.Command]
+        ($_ _.and
+            (_.with-cover [/.equivalence]
+              ($equivalence.spec /.equivalence ..command))
+
+            (_.with-cover [/.command]
+              ($_ _.and
+                  ..without-profile
+                  ..with-profile
+                  ))))))
