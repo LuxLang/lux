@@ -226,19 +226,7 @@
   (#MethodDecl      [ImportMethodCommons ImportMethodDecl])
   (#FieldAccessDecl ImportFieldDecl))
 
-(type: Class-Imports
-  (List [Text Text]))
-
 ## Utils
-(def: (short-class-name name)
-  (-> Text Text)
-  (case (list.reverse (text.split-all-with "/" name))
-    (#.Cons short-name _)
-    short-name
-
-    #.Nil
-    name))
-
 (def: (manual-primitive-to-type class)
   (-> Text (Maybe Code))
   (case class
@@ -349,132 +337,6 @@
                           class-params)]
     (` (primitive (~ (code.text (sanitize class-name)))
                   [(~+ =params)]))))
-
-(def: empty-imports
-  Class-Imports
-  (list))
-
-(def: (get-import name imports)
-  (-> Text Class-Imports (Maybe Text))
-  (:: maybe.functor map product.right
-      (list.find (|>> product.left (text@= name))
-                 imports)))
-
-(def: (add-import short+full imports)
-  (-> [Text Text] Class-Imports Class-Imports)
-  (#.Cons short+full imports))
-
-(def: (class-imports compiler)
-  (-> Lux Class-Imports)
-  (case (meta.run compiler
-                  (: (Meta Class-Imports)
-                     (do meta.monad
-                       [current-module meta.current-module-name
-                        definitions (meta.definitions current-module)]
-                       (wrap (list@fold (: (-> [Text Definition] Class-Imports Class-Imports)
-                                           (function (_ [short-name [_ _ meta _]] imports)
-                                             (case (annotation.text (name-of #..jvm-class) meta)
-                                               (#.Some full-class-name)
-                                               (add-import [short-name full-class-name] imports)
-
-                                               _
-                                               imports)))
-                                        empty-imports
-                                        definitions)))))
-    (#.Left _)
-    (list)
-    
-    (#.Right imports)
-    imports))
-
-(def: java/lang/*
-  (List Text)
-  (list ## Interfaces
-   "Appendable"
-   "AutoCloseable"
-   "CharSequence"
-   "Cloneable"
-   "Comparable"
-   "Iterable"
-   "Readable"
-   "Runnable"
-
-   ## Classes
-   "Boolean"
-   "Byte"
-   "Character"
-   "Class"
-   "ClassLoader"
-   "ClassValue"
-   "Compiler"
-   "Double"
-   "Enum"
-   "Float"
-   "InheritableThreadLocal"
-   "Integer"
-   "Long"
-   "Math"
-   "Number"
-   "Object"
-   "Package"
-   "Process"
-   "ProcessBuilder"
-   "Runtime"
-   "RuntimePermission"
-   "SecurityManager"
-   "Short"
-   "StackTraceElement"
-   "StrictMath"
-   "String"
-   "StringBuffer"
-   "StringBuilder"
-   "System"
-   "Thread"
-   "ThreadGroup"
-   "ThreadLocal"
-   "Throwable"
-   "Void"
-
-   ## Exceptions
-   "ArithmeticException"
-   "ArrayIndexOutOfBoundsException"
-   "ArrayStoreException"
-   "ClassCastException"
-   "ClassNotFoundException"
-   "CloneNotSupportedException"
-   "EnumConstantNotPresentException"
-   "Exception"
-   "IllegalAccessException"
-   "IllegalArgumentException"
-   "IllegalMonitorStateException"
-   "IllegalStateException"
-   "IllegalThreadStateException"
-   "IndexOutOfBoundsException"
-   "InstantiationException"
-   "InterruptedException"
-   "NegativeArraySizeException"
-   "NoSuchFieldException"
-   "NoSuchMethodException"
-   "NullPointerException"
-   "NumberFormatException"
-   "ReflectiveOperationException"
-   "RuntimeException"
-   "SecurityException"
-   "StringIndexOutOfBoundsException"
-   "TypeNotPresentException"
-   "UnsupportedOperationException"
-
-   ## Annotations
-   "Deprecated"
-   "Override"
-   "SafeVarargs"
-   "SuppressWarnings"))
-
-(def: (qualify imports name)
-  (-> Class-Imports Text Text)
-  (if (list.member? text.equivalence java/lang/* name)
-    (format "java/lang/" name)
-    (maybe.default name (get-import name imports))))
 
 (def: type-var-class Text "java.lang.Object")
 
@@ -639,12 +501,6 @@
     (make-virtual-method-parser params class-name method-name args)))
 
 ## Parsers
-(def: (full-class-name^ imports)
-  (-> Class-Imports (Parser Text))
-  (do p.monad
-    [name s.local-identifier]
-    (wrap (qualify imports name))))
-
 (def: privacy-modifier^
   (Parser PrivacyModifier)
   (let [(^open ".") p.monad]
@@ -672,8 +528,8 @@
   (p.assert "Names in class declarations cannot contain periods."
             (not (text.contains? "." name))))
 
-(def: (generic-type^ imports type-vars)
-  (-> Class-Imports (List Type-Parameter) (Parser GenericType))
+(def: (generic-type^ type-vars)
+  (-> (List Type-Parameter) (Parser GenericType))
   (p.rec
    (function (_ recur^)
      ($_ p.either
@@ -686,7 +542,7 @@
                      bound recur^]
                     (wrap (#GenericWildcard (#.Some [bound-kind bound])))))
          (do p.monad
-           [name (full-class-name^ imports)
+           [name s.local-identifier
             _ (assert-no-periods name)]
            (if (list.member? text.equivalence (list@map product.left type-vars) name)
              (wrap (#GenericTypeVar name))
@@ -709,7 +565,7 @@
                       _
                       (wrap (#GenericArray component)))))
          (s.form (do p.monad
-                   [name (full-class-name^ imports)
+                   [name s.local-identifier
                     _ (assert-no-periods name)
                     params (p.some recur^)
                     _ (p.assert (format name " cannot be a type-parameter!")
@@ -717,91 +573,94 @@
                    (wrap (#GenericClass name params))))
          ))))
 
-(def: (type-param^ imports)
-  (-> Class-Imports (Parser Type-Parameter))
+(def: type-param^
+  (Parser Type-Parameter)
   (p.either (do p.monad
               [param-name s.local-identifier]
               (wrap [param-name (list)]))
             (s.tuple (do p.monad
                        [param-name s.local-identifier
                         _ (s.this! (' <))
-                        bounds (p.many (generic-type^ imports (list)))]
+                        bounds (p.many (..generic-type^ (list)))]
                        (wrap [param-name bounds])))))
 
-(def: (type-params^ imports)
-  (-> Class-Imports (Parser (List Type-Parameter)))
-  (s.tuple (p.some (type-param^ imports))))
+(def: type-params^
+  (Parser (List Type-Parameter))
+  (|> ..type-param^
+      p.some
+      s.tuple
+      (p.default (list))))
 
-(def: (class-decl^ imports)
-  (-> Class-Imports (Parser Class-Declaration))
+(def: class-decl^
+  (Parser Class-Declaration)
   (p.either (do p.monad
-              [name (full-class-name^ imports)
+              [name s.local-identifier
                _ (assert-no-periods name)]
               (wrap [name (list)]))
             (s.form (do p.monad
-                      [name (full-class-name^ imports)
+                      [name s.local-identifier
                        _ (assert-no-periods name)
-                       params (p.some (type-param^ imports))]
+                       params (p.some ..type-param^)]
                       (wrap [name params])))
             ))
 
-(def: (super-class-decl^ imports type-vars)
-  (-> Class-Imports (List Type-Parameter) (Parser Super-Class-Decl))
+(def: (super-class-decl^ type-vars)
+  (-> (List Type-Parameter) (Parser Super-Class-Decl))
   (p.either (do p.monad
-              [name (full-class-name^ imports)
+              [name s.local-identifier
                _ (assert-no-periods name)]
               (wrap [name (list)]))
             (s.form (do p.monad
-                      [name (full-class-name^ imports)
+                      [name s.local-identifier
                        _ (assert-no-periods name)
-                       params (p.some (generic-type^ imports type-vars))]
+                       params (p.some (..generic-type^ type-vars))]
                       (wrap [name params])))))
 
 (def: annotation-params^
   (Parser (List AnnotationParam))
   (s.record (p.some (p.and s.local-tag s.any))))
 
-(def: (annotation^ imports)
-  (-> Class-Imports (Parser Annotation))
+(def: annotation^
+  (Parser Annotation)
   (p.either (do p.monad
-              [ann-name (full-class-name^ imports)]
+              [ann-name s.local-identifier]
               (wrap [ann-name (list)]))
-            (s.form (p.and (full-class-name^ imports)
+            (s.form (p.and s.local-identifier
                            annotation-params^))))
 
-(def: (annotations^' imports)
-  (-> Class-Imports (Parser (List Annotation)))
+(def: annotations^'
+  (Parser (List Annotation))
   (do p.monad
     [_ (s.this! (' #ann))]
-    (s.tuple (p.some (annotation^ imports)))))
+    (s.tuple (p.some ..annotation^))))
 
-(def: (annotations^ imports)
-  (-> Class-Imports (Parser (List Annotation)))
+(def: annotations^
+  (Parser (List Annotation))
   (do p.monad
-    [anns?? (p.maybe (annotations^' imports))]
+    [anns?? (p.maybe ..annotations^')]
     (wrap (maybe.default (list) anns??))))
 
-(def: (throws-decl'^ imports type-vars)
-  (-> Class-Imports (List Type-Parameter) (Parser (List GenericType)))
+(def: (throws-decl'^ type-vars)
+  (-> (List Type-Parameter) (Parser (List GenericType)))
   (do p.monad
     [_ (s.this! (' #throws))]
-    (s.tuple (p.some (generic-type^ imports type-vars)))))
+    (s.tuple (p.some (..generic-type^ type-vars)))))
 
-(def: (throws-decl^ imports type-vars)
-  (-> Class-Imports (List Type-Parameter) (Parser (List GenericType)))
+(def: (throws-decl^ type-vars)
+  (-> (List Type-Parameter) (Parser (List GenericType)))
   (do p.monad
-    [exs? (p.maybe (throws-decl'^ imports type-vars))]
+    [exs? (p.maybe (throws-decl'^ type-vars))]
     (wrap (maybe.default (list) exs?))))
 
-(def: (method-decl^ imports type-vars)
-  (-> Class-Imports (List Type-Parameter) (Parser [Member-Declaration MethodDecl]))
+(def: (method-decl^ type-vars)
+  (-> (List Type-Parameter) (Parser [Member-Declaration MethodDecl]))
   (s.form (do p.monad
-            [tvars (p.default (list) (type-params^ imports))
+            [tvars ..type-params^
              name s.local-identifier
-             anns (annotations^ imports)
-             inputs (s.tuple (p.some (generic-type^ imports type-vars)))
-             output (generic-type^ imports type-vars)
-             exs (throws-decl^ imports type-vars)]
+             anns ..annotations^
+             inputs (s.tuple (p.some (..generic-type^ type-vars)))
+             output (..generic-type^ type-vars)
+             exs (..throws-decl^ type-vars)]
             (wrap [[name #PublicPM anns] {#method-tvars tvars
                                           #method-inputs inputs
                                           #method-output output
@@ -814,73 +673,73 @@
       (s.this! (' #final))
       (:: p.monad wrap [])))
 
-(def: (field-decl^ imports type-vars)
-  (-> Class-Imports (List Type-Parameter) (Parser [Member-Declaration FieldDecl]))
+(def: (field-decl^ type-vars)
+  (-> (List Type-Parameter) (Parser [Member-Declaration FieldDecl]))
   (p.either (s.form (do p.monad
                       [_ (s.this! (' #const))
                        name s.local-identifier
-                       anns (annotations^ imports)
-                       type (generic-type^ imports type-vars)
+                       anns ..annotations^
+                       type (..generic-type^ type-vars)
                        body s.any]
                       (wrap [[name #PublicPM anns] (#ConstantField [type body])])))
             (s.form (do p.monad
                       [pm privacy-modifier^
                        sm state-modifier^
                        name s.local-identifier
-                       anns (annotations^ imports)
-                       type (generic-type^ imports type-vars)]
+                       anns ..annotations^
+                       type (..generic-type^ type-vars)]
                       (wrap [[name pm anns] (#VariableField [sm type])])))))
 
-(def: (arg-decl^ imports type-vars)
-  (-> Class-Imports (List Type-Parameter) (Parser ArgDecl))
+(def: (arg-decl^ type-vars)
+  (-> (List Type-Parameter) (Parser ArgDecl))
   (s.record (p.and s.local-identifier
-                   (generic-type^ imports type-vars))))
+                   (..generic-type^ type-vars))))
 
-(def: (arg-decls^ imports type-vars)
-  (-> Class-Imports (List Type-Parameter) (Parser (List ArgDecl)))
-  (p.some (arg-decl^ imports type-vars)))
+(def: (arg-decls^ type-vars)
+  (-> (List Type-Parameter) (Parser (List ArgDecl)))
+  (p.some (arg-decl^ type-vars)))
 
-(def: (constructor-arg^ imports type-vars)
-  (-> Class-Imports (List Type-Parameter) (Parser ConstructorArg))
-  (s.record (p.and (generic-type^ imports type-vars) s.any)))
+(def: (constructor-arg^ type-vars)
+  (-> (List Type-Parameter) (Parser ConstructorArg))
+  (s.record (p.and (..generic-type^ type-vars) s.any)))
 
-(def: (constructor-args^ imports type-vars)
-  (-> Class-Imports (List Type-Parameter) (Parser (List ConstructorArg)))
-  (s.tuple (p.some (constructor-arg^ imports type-vars))))
+(def: (constructor-args^ type-vars)
+  (-> (List Type-Parameter) (Parser (List ConstructorArg)))
+  (s.tuple (p.some (constructor-arg^ type-vars))))
 
-(def: (constructor-method^ imports class-vars)
-  (-> Class-Imports (List Type-Parameter) (Parser [Member-Declaration Method-Definition]))
+(def: (constructor-method^ class-vars)
+  (-> (List Type-Parameter) (Parser [Member-Declaration Method-Definition]))
   (s.form (do p.monad
             [pm privacy-modifier^
              strict-fp? (p.parses? (s.this! (' #strict)))
-             method-vars (p.default (list) (type-params^ imports))
+             method-vars ..type-params^
              #let [total-vars (list@compose class-vars method-vars)]
              [_ arg-decls] (s.form (p.and (s.this! (' new))
-                                          (arg-decls^ imports total-vars)))
-             constructor-args (constructor-args^ imports total-vars)
-             exs (throws-decl^ imports total-vars)
-             annotations (annotations^ imports)
+                                          (..arg-decls^ total-vars)))
+             constructor-args (..constructor-args^ total-vars)
+             exs (..throws-decl^ total-vars)
+             annotations ..annotations^
              body s.any]
             (wrap [{#member-name constructor-method-name
                     #member-privacy pm
                     #member-anns annotations}
                    (#ConstructorMethod strict-fp? method-vars arg-decls constructor-args body exs)]))))
 
-(def: (virtual-method-def^ imports class-vars)
-  (-> Class-Imports (List Type-Parameter) (Parser [Member-Declaration Method-Definition]))
+(def: (virtual-method-def^ class-vars)
+  (-> (List Type-Parameter) (Parser [Member-Declaration Method-Definition]))
   (s.form (do p.monad
             [pm privacy-modifier^
              strict-fp? (p.parses? (s.this! (' #strict)))
              final? (p.parses? (s.this! (' #final)))
-             method-vars (p.default (list) (type-params^ imports))
+             method-vars ..type-params^
              #let [total-vars (list@compose class-vars method-vars)]
              [name this-name arg-decls] (s.form ($_ p.and
                                                     s.local-identifier
                                                     s.local-identifier
-                                                    (arg-decls^ imports total-vars)))
-             return-type (generic-type^ imports total-vars)
-             exs (throws-decl^ imports total-vars)
-             annotations (annotations^ imports)
+                                                    (..arg-decls^ total-vars)))
+             return-type (..generic-type^ total-vars)
+             exs (..throws-decl^ total-vars)
+             annotations ..annotations^
              body s.any]
             (wrap [{#member-name name
                     #member-privacy pm
@@ -890,20 +749,20 @@
                                    this-name arg-decls return-type
                                    body exs)]))))
 
-(def: (overriden-method-def^ imports)
-  (-> Class-Imports (Parser [Member-Declaration Method-Definition]))
+(def: overriden-method-def^
+  (Parser [Member-Declaration Method-Definition])
   (s.form (do p.monad
             [strict-fp? (p.parses? (s.this! (' #strict)))
-             owner-class (class-decl^ imports)
-             method-vars (p.default (list) (type-params^ imports))
+             owner-class ..class-decl^
+             method-vars ..type-params^
              #let [total-vars (list@compose (product.right owner-class) method-vars)]
              [name this-name arg-decls] (s.form ($_ p.and
                                                     s.local-identifier
                                                     s.local-identifier
-                                                    (arg-decls^ imports total-vars)))
-             return-type (generic-type^ imports total-vars)
-             exs (throws-decl^ imports total-vars)
-             annotations (annotations^ imports)
+                                                    (..arg-decls^ total-vars)))
+             return-type (..generic-type^ total-vars)
+             exs (..throws-decl^ total-vars)
+             annotations ..annotations^
              body s.any]
             (wrap [{#member-name name
                     #member-privacy #PublicPM
@@ -913,68 +772,68 @@
                                      this-name arg-decls return-type
                                      body exs)]))))
 
-(def: (static-method-def^ imports)
-  (-> Class-Imports (Parser [Member-Declaration Method-Definition]))
+(def: static-method-def^
+  (Parser [Member-Declaration Method-Definition])
   (s.form (do p.monad
             [pm privacy-modifier^
              strict-fp? (p.parses? (s.this! (' #strict)))
              _ (s.this! (' #static))
-             method-vars (p.default (list) (type-params^ imports))
+             method-vars ..type-params^
              #let [total-vars method-vars]
              [name arg-decls] (s.form (p.and s.local-identifier
-                                             (arg-decls^ imports total-vars)))
-             return-type (generic-type^ imports total-vars)
-             exs (throws-decl^ imports total-vars)
-             annotations (annotations^ imports)
+                                             (..arg-decls^ total-vars)))
+             return-type (..generic-type^ total-vars)
+             exs (..throws-decl^ total-vars)
+             annotations ..annotations^
              body s.any]
             (wrap [{#member-name name
                     #member-privacy pm
                     #member-anns annotations}
                    (#StaticMethod strict-fp? method-vars arg-decls return-type body exs)]))))
 
-(def: (abstract-method-def^ imports)
-  (-> Class-Imports (Parser [Member-Declaration Method-Definition]))
+(def: abstract-method-def^
+  (Parser [Member-Declaration Method-Definition])
   (s.form (do p.monad
             [pm privacy-modifier^
              _ (s.this! (' #abstract))
-             method-vars (p.default (list) (type-params^ imports))
+             method-vars ..type-params^
              #let [total-vars method-vars]
              [name arg-decls] (s.form (p.and s.local-identifier
-                                             (arg-decls^ imports total-vars)))
-             return-type (generic-type^ imports total-vars)
-             exs (throws-decl^ imports total-vars)
-             annotations (annotations^ imports)]
+                                             (..arg-decls^ total-vars)))
+             return-type (..generic-type^ total-vars)
+             exs (..throws-decl^ total-vars)
+             annotations ..annotations^]
             (wrap [{#member-name name
                     #member-privacy pm
                     #member-anns annotations}
                    (#AbstractMethod method-vars arg-decls return-type exs)]))))
 
-(def: (native-method-def^ imports)
-  (-> Class-Imports (Parser [Member-Declaration Method-Definition]))
+(def: native-method-def^
+  (Parser [Member-Declaration Method-Definition])
   (s.form (do p.monad
             [pm privacy-modifier^
              _ (s.this! (' #native))
-             method-vars (p.default (list) (type-params^ imports))
+             method-vars ..type-params^
              #let [total-vars method-vars]
              [name arg-decls] (s.form (p.and s.local-identifier
-                                             (arg-decls^ imports total-vars)))
-             return-type (generic-type^ imports total-vars)
-             exs (throws-decl^ imports total-vars)
-             annotations (annotations^ imports)]
+                                             (..arg-decls^ total-vars)))
+             return-type (..generic-type^ total-vars)
+             exs (..throws-decl^ total-vars)
+             annotations ..annotations^]
             (wrap [{#member-name name
                     #member-privacy pm
                     #member-anns annotations}
                    (#NativeMethod method-vars arg-decls return-type exs)]))))
 
-(def: (method-def^ imports class-vars)
-  (-> Class-Imports (List Type-Parameter) (Parser [Member-Declaration Method-Definition]))
+(def: (method-def^ class-vars)
+  (-> (List Type-Parameter) (Parser [Member-Declaration Method-Definition]))
   ($_ p.either
-      (constructor-method^ imports class-vars)
-      (virtual-method-def^ imports class-vars)
-      (overriden-method-def^ imports)
-      (static-method-def^ imports)
-      (abstract-method-def^ imports)
-      (native-method-def^ imports)))
+      (..constructor-method^ class-vars)
+      (..virtual-method-def^ class-vars)
+      ..overriden-method-def^
+      ..static-method-def^
+      ..abstract-method-def^
+      ..native-method-def^))
 
 (def: partial-call^
   (Parser Partial-Call)
@@ -996,9 +855,9 @@
              [_ (s.this! (' #as))]
              s.local-identifier)))
 
-(def: (import-member-args^ imports type-vars)
-  (-> Class-Imports (List Type-Parameter) (Parser (List [Bit GenericType])))
-  (s.tuple (p.some (p.and (p.parses? (s.this! (' #?))) (generic-type^ imports type-vars)))))
+(def: (import-member-args^ type-vars)
+  (-> (List Type-Parameter) (Parser (List [Bit GenericType])))
+  (s.tuple (p.some (p.and (p.parses? (s.this! (' #?))) (..generic-type^ type-vars)))))
 
 (def: import-member-return-flags^
   (Parser [Bit Bit Bit])
@@ -1009,20 +868,20 @@
   (p.or (s.this! (' #manual))
         (s.this! (' #auto))))
 
-(def: (import-member-decl^ imports owner-vars)
-  (-> Class-Imports (List Type-Parameter) (Parser Import-Member-Declaration))
+(def: (import-member-decl^ owner-vars)
+  (-> (List Type-Parameter) (Parser Import-Member-Declaration))
   ($_ p.either
       (s.form (do p.monad
                 [_ (s.this! (' #enum))
                  enum-members (p.some s.local-identifier)]
                 (wrap (#EnumDecl enum-members))))
       (s.form (do p.monad
-                [tvars (p.default (list) (type-params^ imports))
+                [tvars ..type-params^
                  _ (s.this! (' new))
                  ?alias import-member-alias^
                  #let [total-vars (list@compose owner-vars tvars)]
                  ?prim-mode (p.maybe primitive-mode^)
-                 args (import-member-args^ imports total-vars)
+                 args (..import-member-args^ total-vars)
                  [io? try? maybe?] import-member-return-flags^]
                 (wrap (#ConstructorDecl [{#import-member-mode    (maybe.default #AutoPrM ?prim-mode)
                                           #import-member-alias   (maybe.default "new" ?alias)
@@ -1038,14 +897,14 @@
                 [kind (: (Parser ImportMethodKind)
                          (p.or (s.this! (' #static))
                                (wrap [])))
-                 tvars (p.default (list) (type-params^ imports))
+                 tvars ..type-params^
                  name s.local-identifier
                  ?alias import-member-alias^
                  #let [total-vars (list@compose owner-vars tvars)]
                  ?prim-mode (p.maybe primitive-mode^)
-                 args (import-member-args^ imports total-vars)
+                 args (..import-member-args^ total-vars)
                  [io? try? maybe?] import-member-return-flags^
-                 return (generic-type^ imports total-vars)]
+                 return (..generic-type^ total-vars)]
                 (wrap (#MethodDecl [{#import-member-mode    (maybe.default #AutoPrM ?prim-mode)
                                      #import-member-alias   (maybe.default name ?alias)
                                      #import-member-kind    kind
@@ -1061,7 +920,7 @@
                 [static? (p.parses? (s.this! (' #static)))
                  name s.local-identifier
                  ?prim-mode (p.maybe primitive-mode^)
-                 gtype (generic-type^ imports owner-vars)
+                 gtype (..generic-type^ owner-vars)
                  maybe? (p.parses? (s.this! (' #?)))
                  setter? (p.parses? (s.this! (' #!)))]
                 (wrap (#FieldAccessDecl {#import-field-mode    (maybe.default #AutoPrM ?prim-mode)
@@ -1300,20 +1159,17 @@
    #super-class-params (list)})
 
 (syntax: #export (class:
-                   {#let [imports (class-imports *compiler*)]}
                    {im inheritance-modifier^}
-                   {class-decl (class-decl^ imports)}
-                   {#let [full-class-name (product.left class-decl)
-                          imports (add-import [(short-class-name full-class-name) full-class-name]
-                                              (class-imports *compiler*))]}
+                   {class-decl ..class-decl^}
+                   {#let [full-class-name (product.left class-decl)]}
                    {#let [class-vars (product.right class-decl)]}
                    {super (p.default object-super-class
-                                     (super-class-decl^ imports class-vars))}
+                                     (..super-class-decl^ class-vars))}
                    {interfaces (p.default (list)
-                                          (s.tuple (p.some (super-class-decl^ imports class-vars))))}
-                   {annotations (annotations^ imports)}
-                   {fields (p.some (field-decl^ imports class-vars))}
-                   {methods (p.some (method-def^ imports class-vars))})
+                                          (s.tuple (p.some (..super-class-decl^ class-vars))))}
+                   {annotations ..annotations^}
+                   {fields (p.some (..field-decl^ class-vars))}
+                   {methods (p.some (..method-def^ class-vars))})
   {#.doc (doc "Allows defining JVM classes in Lux code."
               "For example:"
               (class: #final (TestClass A) [Runnable]
@@ -1363,16 +1219,12 @@
     (wrap (list (` ((~ (code.text def-code))))))))
 
 (syntax: #export (interface:
-                   {#let [imports (class-imports *compiler*)]}
-                   {class-decl (class-decl^ imports)}
-                   {#let [full-class-name (product.left class-decl)
-                          imports (add-import [(short-class-name full-class-name) full-class-name]
-                                              (class-imports *compiler*))]}
+                   {class-decl ..class-decl^}
                    {#let [class-vars (product.right class-decl)]}
                    {supers (p.default (list)
-                                      (s.tuple (p.some (super-class-decl^ imports class-vars))))}
-                   {annotations (annotations^ imports)}
-                   {members (p.some (method-decl^ imports class-vars))})
+                                      (s.tuple (p.some (..super-class-decl^ class-vars))))}
+                   {annotations ..annotations^}
+                   {members (p.some (..method-decl^ class-vars))})
   {#.doc (doc "Allows defining JVM interfaces."
               (interface: TestInterface
                 ([] foo [boolean String] void #throws [Exception])))}
@@ -1385,14 +1237,13 @@
     ))
 
 (syntax: #export (object
-                   {#let [imports (class-imports *compiler*)]}
-                   {class-vars (s.tuple (p.some (type-param^ imports)))}
+                   {class-vars (s.tuple (p.some ..type-param^))}
                    {super (p.default object-super-class
-                                     (super-class-decl^ imports class-vars))}
+                                     (..super-class-decl^ class-vars))}
                    {interfaces (p.default (list)
-                                          (s.tuple (p.some (super-class-decl^ imports class-vars))))}
-                   {constructor-args (constructor-args^ imports class-vars)}
-                   {methods (p.some (overriden-method-def^ imports))})
+                                          (s.tuple (p.some (..super-class-decl^ class-vars))))}
+                   {constructor-args (..constructor-args^ class-vars)}
+                   {methods (p.some ..overriden-method-def^)})
   {#.doc (doc "Allows defining anonymous classes."
               "The 1st tuple corresponds to class-level type-variables."
               "The 2nd tuple corresponds to parent interfaces."
@@ -1461,8 +1312,7 @@
                 (recover-from-failure error)))}
   (wrap (list (` ("lux try" ((~! io.io) (~ expression)))))))
 
-(syntax: #export (check {#let [imports (class-imports *compiler*)]}
-                        {class (generic-type^ imports (list))}
+(syntax: #export (check {class (..generic-type^ (list))}
                         {unchecked (p.maybe s.any)})
   {#.doc (doc "Checks whether an object is an instance of a particular class."
               "Caveat emptor: Cannot check for polymorphism, so avoid using parameterized classes."
@@ -1507,13 +1357,10 @@
                      (exec (~+ (list@map (complete-call$ g!obj) methods))
                        (~ g!obj))))))))
 
-(def: (class-import$ long-name? [full-name params])
-  (-> Bit Class-Declaration Code)
-  (let [def-name (if long-name?
-                   full-name
-                   (short-class-name full-name))
-        params' (list@map (|>> product.left code.local-identifier) params)]
-    (` (def: (~ (code.identifier ["" def-name]))
+(def: (class-import$ [full-name params])
+  (-> Class-Declaration Code)
+  (let [params' (list@map (|>> product.left code.local-identifier) params)]
+    (` (def: (~ (code.identifier ["" full-name]))
          {#..jvm-class (~ (code.text full-name))}
          Type
          (All [(~+ params')]
@@ -1768,12 +1615,9 @@
         (wrap (list& getter-interop setter-interop)))
       )))
 
-(def: (member-import$ type-params long-name? kind class member)
-  (-> (List Type-Parameter) Bit Class-Kind Class-Declaration Import-Member-Declaration (Meta (List Code)))
-  (let [[full-name _] class
-        method-prefix (if long-name?
-                        full-name
-                        (short-class-name full-name))]
+(def: (member-import$ type-params kind class member)
+  (-> (List Type-Parameter) Class-Kind Class-Declaration Import-Member-Declaration (Meta (List Code)))
+  (let [[method-prefix _] class]
     (do meta.monad
       [=args (member-def-arg-bindings type-params class member)]
       (member-def-interop type-params kind class =args member method-prefix))))
@@ -1799,19 +1643,13 @@
       (meta.fail (format "Unknown class: " class-name)))))
 
 (syntax: #export (import:
-                   {#let [imports (class-imports *compiler*)]}
-                   {long-name? (p.parses? (s.this! (' #long)))}
-                   {class-decl (class-decl^ imports)}
-                   {#let [full-class-name (product.left class-decl)
-                          imports (add-import [(short-class-name full-class-name) full-class-name]
-                                              (class-imports *compiler*))]}
-                   {members (p.some (import-member-decl^ imports (product.right class-decl)))})
+                   {class-decl ..class-decl^}
+                   {members (p.some (..import-member-decl^ (product.right class-decl)))})
   {#.doc (doc "Allows importing JVM classes, and using them as types."
               "Their methods, fields and enum options can also be imported."
-              "Also, classes which get imported into a module can also be referred-to with their short names in other macros that require JVM classes."
               (import: java/lang/Object
                 (new [])
-                (equals [Object] boolean)
+                (equals [java/lang/Object] boolean)
                 (wait [int] #io #try void))
               
               "Special options can also be given for the return values."
@@ -1821,44 +1659,43 @@
               "These options must show up in the following order [#io #try #?] (although, each option can be used independently)."
               (import: java/lang/String
                 (new [[byte]])
-                (#static valueOf [char] String)
-                (#static valueOf #as int-valueOf [int] String))
+                (#static valueOf [char] java/lang/String)
+                (#static valueOf #as int-valueOf [int] java/lang/String))
 
-              (import: #long (java/util/List e)
+              (import: (java/util/List e)
                 (size [] int)
                 (get [int] e))
 
               (import: (java/util/ArrayList a)
                 ([T] toArray [[T]] [T]))
               
-              "#long makes it so the class-type that is generated is of the fully-qualified name."
-              "In this case, it avoids a clash between the java.util.List type, and Lux's own List type."
+              "The class-type that is generated is of the fully-qualified name."
+              "This avoids a clash between the java.util.List type, and Lux's own List type."
               "All enum options to be imported must be specified."
               (import: java/lang/Character$UnicodeScript
                 (#enum ARABIC CYRILLIC LATIN))
 
               "It should also be noted, the only types that may show up in method arguments or return values may be Java classes, arrays, primitives, void or type-parameters."
               "Lux types, such as Maybe cannot be named (otherwise, they'd be confused for Java classes)."
-              (import: #long (lux/concurrency/promise/JvmPromise A)
+              (import: (lux/concurrency/promise/JvmPromise A)
                 (resolve [A] boolean)
                 (poll [] A)
                 (wasResolved [] boolean)
                 (waitOn [lux/Function] void)
-                (#static [A] make [A] (JvmPromise A)))
+                (#static [A] make [A] (lux/concurrency/promise/JvmPromise A)))
               
               "Also, the names of the imported members will look like Class::member"
-              (Object::new [])
-              (Object::equals [other-object] my-object)
+              (java/lang/Object::new [])
+              (java/lang/Object::equals [other-object] my-object)
               (java/util/List::size [] my-list)
-              Character$UnicodeScript::LATIN
+              java/lang/Character$UnicodeScript::LATIN
               )}
   (do {@ meta.monad}
     [kind (class-kind class-decl)
-     =members (monad.map @ (member-import$ (product.right class-decl) long-name? kind class-decl) members)]
-    (wrap (list& (class-import$ long-name? class-decl) (list@join =members)))))
+     =members (monad.map @ (member-import$ (product.right class-decl) kind class-decl) members)]
+    (wrap (list& (class-import$ class-decl) (list@join =members)))))
 
-(syntax: #export (array {#let [imports (class-imports *compiler*)]}
-                        {type (generic-type^ imports (list))}
+(syntax: #export (array {type (..generic-type^ (list))}
                         size)
   {#.doc (doc "Create an array of the given type, with the given size."
               (array Object 10))}
@@ -1963,27 +1800,10 @@
       (wrap (list (` (let [(~ g!array) (~ array)]
                        (..array-write (~ idx) (~ value) (~ g!array)))))))))
 
-(syntax: #export (class-for {#let [imports (class-imports *compiler*)]}
-                            {type (generic-type^ imports (list))})
+(syntax: #export (class-for {type (..generic-type^ (list))})
   {#.doc (doc "Loads the class as a java.lang.Class object."
               (class-for java/lang/String))}
   (wrap (list (` ("jvm object class" (~ (code.text (simple-class$ (list) type))))))))
 
-(def: get-compiler
-  (Meta Lux)
-  (function (_ compiler)
-    (#.Right [compiler compiler])))
-
-(def: #export (resolve class)
-  {#.doc (doc "Given a potentially unqualified class name, qualifies it if necessary."
-              (resolve "String")
-              =>
-              "java.lang.String")}
-  (-> Text (Meta Text))
-  (do meta.monad
-    [*compiler* get-compiler]
-    (wrap (qualify (class-imports *compiler*) class))))
-
-(syntax: #export (type {#let [imports (class-imports *compiler*)]}
-                       {type (generic-type^ imports (list))})
+(syntax: #export (type {type (..generic-type^ (list))})
   (wrap (list (class->type #ManualPrM (list) type))))
