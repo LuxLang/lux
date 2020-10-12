@@ -1,5 +1,5 @@
 (.module:
-  [lux (#- and or not)
+  [lux (#- and or not false true)
    [abstract
     [equivalence (#+ Equivalence)]
     [hash (#+ Hash)]
@@ -16,8 +16,8 @@
 
 (def: #export width
   Nat
-  (n.* bits-per-byte
-       bytes-per-i64))
+  (n.* ..bits-per-byte
+       ..bytes-per-i64))
 
 (template [<parameter-type> <name> <op> <doc>]
   [(def: #export (<name> parameter subject)
@@ -39,17 +39,32 @@
   (All [s] (-> (I64 s) (I64 s)))
   (xor (:coerce I64 -1)))
 
-(type: #export Mask I64)
+(type: #export Mask
+  I64)
 
-(def: #export (mask bits)
+(def: #export false
+  Mask
+  (.i64 0))
+
+(def: #export true
+  Mask
+  (..not ..false))
+
+(def: #export (mask amount-of-bits)
   (-> Nat Mask)
-  (let [multiple-of-width? (.and (.not (n.= 0 bits))
-                                 (n.= 0 (n.% ..width bits)))]
-    (if multiple-of-width?
-      (.i64 -1)
-      (|> 1 .i64 (..left-shift (n.% ..width bits)) .dec))))
+  (case amount-of-bits
+    0 ..false
+    bits (case (n.% ..width bits)
+           0 ..true
+           bits (|> 1 .i64 (..left-shift (n.% ..width bits)) .dec))))
 
-(def: #export sign Mask (|> 1 .i64 (..left-shift 63)))
+(def: #export (bit position)
+  (-> Nat Mask)
+  (|> 1 .i64 (..left-shift (n.% ..width position))))
+
+(def: #export sign
+  Mask
+  (..bit 63))
 
 (def: (add-shift shift value)
   (-> Nat Nat Nat)
@@ -68,20 +83,16 @@
         (add-shift 32)
         (..and 127))))
 
-(def: (flag idx)
-  (-> Nat I64)
-  (|> 1 (:coerce I64) (left-shift idx)))
-
 (def: #export (clear idx input)
   {#.doc "Clear bit at given index."}
   (All [s] (-> Nat (I64 s) (I64 s)))
-  (|> idx flag ..not (..and input)))
+  (|> idx ..bit ..not (..and input)))
 
 (template [<name> <op> <doc>]
   [(def: #export (<name> idx input)
      {#.doc <doc>}
      (All [s] (-> Nat (I64 s) (I64 s)))
-     (|> idx flag (<op> input)))]
+     (|> idx ..bit (<op> input)))]
 
   [set  ..or  "Set bit at given index."]
   [flip ..xor "Flip bit at given index."]
@@ -89,7 +100,7 @@
 
 (def: #export (set? idx input)
   (-> Nat (I64 Any) Bit)
-  (|> input (:coerce I64) (..and (flag idx)) (n.= 0) .not))
+  (|> input (:coerce I64) (..and (..bit idx)) (n.= 0) .not))
 
 (template [<name> <main> <comp>]
   [(def: #export (<name> distance input)
@@ -120,18 +131,16 @@
 
   (def: hash .nat))
 
-(structure: #export disjunction
-  (All [a] (Monoid (I64 a)))
+(template [<monoid> <identity> <compose>]
+  [(structure: #export <monoid>
+     (All [a] (Monoid (I64 a)))
 
-  (def: identity (.i64 0))
-  (def: compose ..or)
-  )
+     (def: identity <identity>)
+     (def: compose <compose>)
+     )]
 
-(structure: #export conjunction
-  (All [a] (Monoid (I64 a)))
-
-  (def: identity (.i64 (..not 0)))
-  (def: compose ..and)
+  [disjunction ..false ..or]
+  [conjunction ..true ..and]
   )
 
 (type: #export (Sub size)
@@ -145,7 +154,7 @@
             (n.< ..width width))
     (let [top (dec width)
           shift (n.- width ..width)
-          sign (: Mask (|> 1 .i64 (..left-shift top)))
+          sign (..bit top)
           number (..mask (dec width))]
       (#.Some {#narrow (function (narrow value)
                          (..or (|> value (..and ..sign) (..logic-right-shift shift))

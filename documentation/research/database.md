@@ -15,6 +15,7 @@
 
 # Query
 
+1. [A Short Story About SQL’s Biggest Rival](https://www.holistics.io/blog/quel-vs-sql/)
 1. https://calcite.apache.org/
 1. https://juxt.pro/blog/crux-sql
 1. https://www.influxdata.com/blog/why-were-building-flux-a-new-data-scripting-and-query-language/

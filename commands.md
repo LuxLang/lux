@@ -39,16 +39,6 @@ cd ~/lux/jbe/ && ./jbe.sh
 
 ---
 
-# Leiningen plugin
-
-## Install
-
-```
-cd ~/lux/lux-lein/ && lein install
-```
-
----
-
 # Standard Library
 
 ## Test
@@ -94,6 +84,16 @@ cd ~/lux/stdlib/ && lein clean && lein with-profile aedifex lux auto build
 
 ```
 cd ~/lux/stdlib/ && lein clean && lein with-profile aedifex lux auto test
+```
+
+---
+
+# Leiningen plugin
+
+## Install
+
+```
+cd ~/lux/lux-lein/ && lein install
 ```
 
 ---
