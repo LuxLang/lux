@@ -88,7 +88,7 @@
                           (return (&/T [meta (&/T [module-name token])])))
                         (|do [[meta _ _] (&reader/read-text &/+name-separator+)
                               [_ _ token] (&reader/read-regex +ident-re+)]
-                          (return (&/T [meta (&/T ["lux" token])])))
+                          (return (&/T [meta (&/T [&/prelude token])])))
                         )))
 
 (def ^:private lex-identifier

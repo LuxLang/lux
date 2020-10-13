@@ -168,9 +168,6 @@
             (let [w (&/$Apply Location Meta)]
               (&/$Apply (&/$Apply w Code*) w))))
 
-(def Macro*)
-(defn set-macro*-type! [type] (def Macro* type))
-
 (def Macro
   (&/$Named (&/T ["lux" "Macro"])
             (&/$Primitive "#Macro" &/$Nil)))

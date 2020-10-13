@@ -126,8 +126,6 @@
 
 (defn define [module name exported? def-type def-meta def-value]
   (fn [state]
-    (when (and (= "Macro'" name) (= "lux" module))
-      (&type/set-macro*-type! def-value))
     (|case (&/get$ &/$scopes state)
       (&/$Cons ?env (&/$Nil))
       (return* (->> state
@@ -264,7 +262,7 @@
             (&/$Right [exported? ?type ?meta ?value])
             (if (or (.equals ^Object current-module module)
                     (and exported?
-                         (or (.equals ^Object module "lux")
+                         (or (.equals ^Object module &/prelude)
                              (imports? state module current-module))))
               (return* state (&/T [(&/T [module name])
                                    (&/T [exported? ?type ?meta ?value])]))

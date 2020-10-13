@@ -170,6 +170,7 @@
 
 # Geometric Algebra | Clifford Algebra
 
+1. [Plane-based Geometric Algebra for Computer Science](https://bivector.net/PGA4CS.html)
 1. [Differential geometric algebra foundations: Grassmann.jl Ascend](https://www.youtube.com/watch?v=7hlDRLEhc8o&feature=youtu.be)
 1. [Projective Geometric Algebra Done Right](http://terathon.com/blog/projective-geometric-algebra-done-right/)
 1. [Siggraph2019 Geometric Algebra](https://www.youtube.com/watch?v=tX4H_ctggYo)

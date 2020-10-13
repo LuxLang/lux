@@ -4,6 +4,9 @@
             [clojure.core.match :as M :refer [matchv]]
             clojure.core.match.array))
 
+(def prelude
+  "lux")
+
 (def !log! (atom false))
 (defn flag-prn! [& args]
   (when @!log!

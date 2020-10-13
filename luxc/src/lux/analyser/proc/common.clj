@@ -4,7 +4,8 @@
             clojure.core.match.array
             (lux [base :as & :refer [|let |do return* return |case assert!]]
                  [type :as &type])
-            (lux.analyser [base :as &&])))
+            (lux.analyser [base :as &&]
+                          [module :as &&module])))
 
 (defn- analyse-lux-is [analyse exo-type ?values]
   (&type/with-var
@@ -31,7 +32,8 @@
 
 (defn- analyse-lux-macro [analyse exo-type ?values]
   (|do [:let [(&/$Cons macro (&/$Nil)) ?values]
-        [[=macro*-type =location] =macro] (&&/analyse-1 analyse &type/Macro* macro)
+        [_real-name [_exported? _def-type _meta macro-type]] (&&module/find-def! &/prelude "Macro'")
+        [[=macro*-type =location] =macro] (&&/analyse-1 analyse macro-type macro)
         _ (&type/check exo-type &type/Macro)]
     (return (&/|list (&&/|meta exo-type =location
                                =macro)))))
@@ -257,7 +259,7 @@
   (try (case proc
          "lux is"                   (analyse-lux-is analyse exo-type ?values)
          "lux try"                  (analyse-lux-try analyse exo-type ?values)
-         "lux macro" (analyse-lux-macro analyse exo-type ?values)
+         "lux macro"                (analyse-lux-macro analyse exo-type ?values)
 
          "lux io log"                  (analyse-io-log analyse exo-type ?values)
          "lux io error"                (analyse-io-error analyse exo-type ?values)
