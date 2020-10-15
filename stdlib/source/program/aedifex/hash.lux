@@ -1,12 +1,23 @@
 (.module:
   [lux #*
    ["." host (#+ import:)]
+   [abstract
+    [codec (#+ Codec)]
+    [equivalence (#+ Equivalence)]
+    [monad (#+ do)]]
+   [control
+    ["." try (#+ Try)]
+    ["." exception (#+ exception:)]]
    [data
     ["." binary (#+ Binary)]
     ["." text
-     ["%" format (#+ format)]]
+     ["%" format (#+ Format format)]
+     ["." encoding]]
     [number
-     ["." nat]]]])
+     ["." i64]
+     ["n" nat]]]
+   [type
+    abstract]])
 
 ## TODO: Replace with pure-Lux implementations of these algorithms
 ## https://en.wikipedia.org/wiki/SHA-1#SHA-1_pseudocode
@@ -17,25 +28,136 @@
   (#static getInstance [java/lang/String] java/security/MessageDigest)
   (digest [[byte]] [byte]))
 
-(type: #export Hash
-  Binary)
+(abstract: #export SHA-1 Any)
+(abstract: #export MD5 Any)
 
-(template [<name> <algorithm>]
-  [(def: #export (<name> value)
-     (-> Binary Hash)
-     (|> (java/security/MessageDigest::getInstance [<algorithm>])
-         (java/security/MessageDigest::digest [value])))]
+(abstract: #export (Hash h)
+  Binary
 
-  [sha1 "SHA-1"]
-  [md5 "MD5"]
+  (def: #export data
+    (All [h] (-> (Hash h) Binary))
+    (|>> :representation))
+
+  (template [<name> <kind> <algorithm>]
+    [(def: #export (<name> value)
+       (-> Binary (Hash <kind>))
+       (|> (java/security/MessageDigest::getInstance [<algorithm>])
+           (java/security/MessageDigest::digest [value])
+           :abstraction))]
+
+    [sha1 ..SHA-1 "SHA-1"]
+    [md5 ..MD5 "MD5"]
+    )
+
+  (def: encode
+    (Format Binary)
+    (binary.fold (function (_ byte representation)
+                   (let [hex (:: n.hex encode byte)
+                         hex (case (text.size hex)
+                               1 (format "0" hex)
+                               _ hex)]
+                     (format representation hex)))
+                 ""))
+
+  (template [<factor> <name>]
+    [(def: <name>
+       Nat
+       <factor>)]
+
+    [20 sha1::size]
+    [16 md5::size]
+    )
+
+  (def: hex-per-byte
+    2)
+
+  (def: hex-per-chunk
+    (n.* hex-per-byte i64.bytes-per-i64))
+
+  (exception: #export (not-a-hash {size Nat} {value Text})
+    (exception.report
+     ["Pseudo hash" (%.text value)]
+     ["Expected size" (%.nat size)]
+     ["Actual size" (%.nat (text.size value))]))
+  
+  (template [<name> <size>]
+    [(exception: #export (<name> {data Binary})
+       (exception.report
+        ["Pseudo hash" (%.text (..encode data))]
+        ["Expected size" (%.nat <size>)]
+        ["Actual size" (%.nat (binary.size data))]))]
+
+    [not-a-sha1 ..sha1::size]
+    [not-a-md5 ..md5::size]
+    )
+
+  (template [<name> <kind> <size> <exception>]
+    [(def: #export (<name> data)
+       (-> Binary (Try (Hash <kind>)))
+       (if (n.= <size> (binary.size data))
+         (#try.Success (:abstraction data))
+         (exception.throw <exception> [data])))]
+
+    [as-sha1 SHA-1 ..sha1::size ..not-a-sha1]
+    [as-md5 MD5 ..md5::size ..not-a-md5]
+    )
+
+  (def: hash-size
+    (-> Text Nat)
+    (|>> text.size (n./ ..hex-per-byte)))
+
+  (def: encoding-size
+    (-> Nat Nat)
+    (n.* ..hex-per-byte))
+
+  (def: (decode size constructor encoded)
+    (All [h]
+      (-> Nat (-> Binary (Try (Hash h)))
+          (-> Text (Try (Hash h)))))
+    (let [hash-size (..hash-size encoded)]
+      (if (n.= size hash-size)
+        (loop [input encoded
+               chunk 0
+               output (binary.create hash-size)]
+          (let [index (n.* chunk i64.bytes-per-i64)]
+            (case (text.split ..hex-per-chunk input)
+              (#.Some [head tail])
+              (do try.monad
+                [head (:: n.hex decode head)
+                 output (binary.write/64 index head output)]
+                (recur tail (inc chunk) output))
+              
+              #.None
+              (case (..hash-size input)
+                0 (constructor output)
+                (^template [<size> <write>]
+                  <size>
+                  (do try.monad
+                    [head (:: n.hex decode input)
+                     output (<write> index head output)]
+                    (constructor output)))
+                ([1 binary.write/8]
+                 [2 binary.write/16]
+                 [4 binary.write/32])
+                _ (exception.throw ..not-a-hash [(..encoding-size size) encoded])))))
+        (exception.throw ..not-a-hash [(..encoding-size size) encoded]))))
+
+  (template [<codec> <hash> <nat> <constructor>]
+    [(structure: #export <codec>
+       (Codec Text (Hash <hash>))
+
+       (def: encode (|>> :representation ..encode))
+       (def: decode (..decode <nat> <constructor>)))]
+
+    [sha1-codec SHA-1 ..sha1::size ..as-sha1]
+    [md5-codec MD5 ..md5::size ..as-md5]
+    )
+
+  (structure: #export equivalence
+    (All [h] (Equivalence (Hash h)))
+
+    (def: (= reference subject)
+      (:: binary.equivalence =
+          (:representation reference)
+          (:representation subject))))
   )
-
-(def: #export representation
-  (-> Hash Text)
-  (binary.fold (function (_ byte representation)
-                 (let [hex (:: nat.hex encode byte)
-                       hex (case (text.size hex)
-                             1 (format "0" hex)
-                             _ hex)]
-                   (format representation hex)))
-               ""))
