@@ -1,3 +1,7 @@
+# Concolic Testing
+
+1. [Robby Findler: Concolic Testing with Higher-Order Inputs](https://www.youtube.com/watch?v=aO9nOCqNdfQ)
+
 # Symbolic
 
 1. [Crux](https://crux.galois.com/)

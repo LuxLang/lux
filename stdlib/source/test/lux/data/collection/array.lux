@@ -1,25 +1,24 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
    [abstract
-    [monad (#+ do Monad)]
+    [monad (#+ do)]
     {[0 #spec]
      [/
       ["$." equivalence]
       ["$." monoid]
       ["$." fold]
       ["$." functor (#+ Injection)]]}]
-   [control
-    pipe]
    [data
+    ["." bit]
     ["." maybe]
     [number
      ["n" nat]]
     [collection
-     ["." list]]]
+     ["." list]
+     ["." set]]]
    [math
-    ["r" random (#+ Random)]]]
+    ["." random (#+ Random)]]]
   {1
    ["." / (#+ Array)]})
 
@@ -29,90 +28,167 @@
 
 (def: bounded-size
   (Random Nat)
-  (|> r.nat
-      (:: r.monad map (|>> (n.% 100) (n.+ 1)))))
+  (:: random.monad map (|>> (n.% 100) (n.+ 1))
+      random.nat))
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /.Array)))
-      (do {@ r.monad}
-        [size bounded-size]
+  (<| (_.covering /._)
+      (_.with-cover [/.Array])
+      (do {@ random.monad}
+        [size ..bounded-size
+         base random.nat
+         shift random.nat
+         dummy (random.filter (|>> (n.= base) not) random.nat)
+         #let [expected (n.+ base shift)]
+         the-array (random.array size random.nat)]
         ($_ _.and
-            ($equivalence.spec (/.equivalence n.equivalence) (r.array size r.nat))
-            ($monoid.spec (/.equivalence n.equivalence) /.monoid (r.array size r.nat))
-            ($functor.spec ..injection /.equivalence /.functor)
-            ($fold.spec ..injection /.equivalence /.fold)
+            (_.with-cover [/.equivalence]
+              ($equivalence.spec (/.equivalence n.equivalence) (random.array size random.nat)))
+            (_.with-cover [/.monoid]
+              ($monoid.spec (/.equivalence n.equivalence) /.monoid (random.array size random.nat)))
+            (_.with-cover [/.functor]
+              ($functor.spec ..injection /.equivalence /.functor))
+            (_.with-cover [/.fold]
+              ($fold.spec ..injection /.equivalence /.fold))
 
+            (_.cover [/.new /.size]
+                     (n.= size (/.size (: (Array Nat)
+                                          (/.new size)))))
+            (_.cover [/.read /.write!]
+                     (let [the-array (|> (/.new 2)
+                                         (: (Array Nat))
+                                         (/.write! 0 expected))]
+                       (case [(/.read 0 the-array)
+                              (/.read 1 the-array)]
+                         [(#.Some actual) #.None]
+                         (n.= expected actual)
+
+                         _
+                         false)))
+            (_.cover [/.delete!]
+                     (let [the-array (|> (/.new 1)
+                                         (: (Array Nat))
+                                         (/.write! 0 expected))]
+                       (case [(/.read 0 the-array)
+                              (/.read 0 (/.delete! 0 the-array))]
+                         [(#.Some actual) #.None]
+                         (n.= expected actual)
+
+                         _
+                         false)))
+            (_.cover [/.contains?]
+                     (let [the-array (|> (/.new 2)
+                                         (: (Array Nat))
+                                         (/.write! 0 expected))]
+                       (and (/.contains? 0 the-array)
+                            (not (/.contains? 1 the-array)))))
+            
+            (_.cover [/.update!]
+                     (let [the-array (|> (/.new 1)
+                                         (: (Array Nat))
+                                         (/.write! 0 base)
+                                         (/.update! 0 (n.+ shift)))]
+                       (case (/.read 0 the-array)
+                         (#.Some actual)
+                         (n.= expected actual)
+
+                         _
+                         false)))
+            (_.cover [/.upsert!]
+                     (let [the-array (|> (/.new 2)
+                                         (: (Array Nat))
+                                         (/.write! 0 base)
+                                         (/.upsert! 0 dummy (n.+ shift))
+                                         (/.upsert! 1 base (n.+ shift)))]
+                       (case [(/.read 0 the-array)
+                              (/.read 1 the-array)]
+                         [(#.Some actual/0) (#.Some actual/1)]
+                         (and (n.= expected actual/0)
+                              (n.= expected actual/1))
+
+                         _
+                         false)))
             (do @
-              [size bounded-size
-               original (r.array size r.nat)]
-              ($_ _.and
-                  (_.test "Size function must correctly return size of array."
-                          (n.= size (/.size original)))
-                  (_.test "Cloning an array should yield and identical array, but not the same one."
-                          (let [clone (/.clone original)]
-                            (and (:: (/.equivalence n.equivalence) = original clone)
-                                 (not (is? original clone)))))
-                  (_.test "Full-range manual copies should give the same result as cloning."
-                          (let [copy (: (Array Nat)
-                                        (/.new size))]
-                            (exec (/.copy size 0 original 0 copy)
-                              (and (:: (/.equivalence n.equivalence) = original copy)
-                                   (not (is? original copy))))))
-                  (_.test "Array folding should go over all values."
-                          (let [manual-copy (: (Array Nat)
-                                               (/.new size))]
-                            (exec (:: /.fold fold
-                                      (function (_ x idx)
-                                        (exec (/.write idx x manual-copy)
-                                          (inc idx)))
-                                      0
-                                      original)
-                              (:: (/.equivalence n.equivalence) = original manual-copy))))
-                  (_.test "Transformations between (full) arrays and lists shouldn't cause lose or change any values."
-                          (|> original
-                              /.to-list /.from-list
-                              (:: (/.equivalence n.equivalence) = original)))
-                  ))
+              [occupancy (:: @ map (n.% (inc size)) random.nat)]
+              (_.cover [/.occupancy /.vacancy]
+                       (let [the-array (loop [output (: (Array Nat)
+                                                        (/.new size))
+                                              idx 0]
+                                         (if (n.< occupancy idx)
+                                           (recur (/.write! idx expected output)
+                                                  (inc idx))
+                                           output))]
+                         (and (n.= occupancy (/.occupancy the-array))
+                              (n.= size (n.+ (/.occupancy the-array)
+                                             (/.vacancy the-array)))))))
             (do @
-              [size bounded-size
-               idx (:: @ map (n.% size) r.nat)
-               array (|> (r.array size r.nat)
-                         (r.filter (|>> /.to-list (list.any? n.odd?))))
-               #let [value (maybe.assume (/.read idx array))]]
-              ($_ _.and
-                  (_.test "Shouldn't be able to find a value in an unoccupied cell."
-                          (case (/.read idx (/.delete idx array))
-                            (#.Some _) false
-                            #.None     true))
-                  (_.test "You should be able to access values put into the array."
-                          (case (/.read idx (/.write idx value array))
-                            (#.Some value') (n.= value' value)
-                            #.None          false))
-                  (_.test "All cells should be occupied on a full array."
-                          (and (n.= size (/.occupied array))
-                               (n.= 0 (/.vacant array))))
-                  (_.test "Filtering mutates the array to remove invalid values."
-                          (exec (/.filter! n.even? array)
-                            (and (n.< size (/.occupied array))
-                                 (n.> 0 (/.vacant array))
-                                 (n.= size (n.+ (/.occupied array)
-                                                (/.vacant array))))))
-                  ))
+              [the-list (random.list size random.nat)]
+              (_.cover [/.from-list /.to-list]
+                       (and (|> the-list /.from-list /.to-list
+                                (:: (list.equivalence n.equivalence) = the-list))
+                            (|> the-array /.to-list /.from-list
+                                (:: (/.equivalence n.equivalence) = the-array)))))
             (do @
-              [size bounded-size
-               array (|> (r.array size r.nat)
-                         (r.filter (|>> /.to-list (list.any? n.even?))))]
-              ($_ _.and
-                  (_.test "Can find values inside arrays."
-                          (|> (/.find n.even? array)
-                              (case> (#.Some _) true
-                                     #.None     false)))
-                  (_.test "Can find values inside arrays (with access to indices)."
-                          (|> (/.find+ (function (_ idx n)
-                                         (and (n.even? n)
-                                              (n.< size idx)))
-                                       array)
-                              (case> (#.Some _) true
-                                     #.None     false)))))
+              [amount (:: @ map (n.% (inc size)) random.nat)]
+              (_.cover [/.copy!]
+                       (let [copy (: (Array Nat)
+                                     (/.new size))]
+                         (exec (/.copy! amount 0 the-array 0 copy)
+                           (:: (list.equivalence n.equivalence) =
+                               (list.take amount (/.to-list the-array))
+                               (/.to-list copy))))))
+            (_.cover [/.clone]
+                     (let [clone (/.clone the-array)]
+                       (and (not (is? the-array clone))
+                            (:: (/.equivalence n.equivalence) = the-array clone))))
+            (let [the-array (/.clone the-array)
+                  evens (|> the-array /.to-list (list.filter n.even?))
+                  odds (|> the-array /.to-list (list.filter n.odd?))]
+              (_.cover [/.filter!]
+                       (exec (/.filter! n.even? the-array)
+                         (and (n.= (list.size evens) (/.occupancy the-array))
+                              (n.= (list.size odds) (/.vacancy the-array))
+                              (|> the-array /.to-list (:: (list.equivalence n.equivalence) = evens))))))
+            (do @
+              [#let [the-array (/.clone the-array)
+                     members (|> the-array /.to-list (set.from-list n.hash))]
+               default (random.filter (function (_ value)
+                                        (not (or (n.even? value)
+                                                 (set.member? members value))))
+                                      random.nat)]
+              (_.cover [/.to-list']
+                       (exec (/.filter! n.even? the-array)
+                         (list.every? (function (_ value)
+                                        (or (n.even? value)
+                                            (is? default value)))
+                                      (/.to-list' default the-array)))))
+            (_.cover [/.find]
+                     (:: (maybe.equivalence n.equivalence) =
+                         (/.find n.even? the-array)
+                         (list.find n.even? (/.to-list the-array))))
+            (_.cover [/.find+]
+                     (case [(/.find n.even? the-array)
+                            (/.find+ (function (_ idx member)
+                                       (n.even? member))
+                                     the-array)]
+                       [(#.Some expected) (#.Some [idx actual])]
+                       (case (/.read idx the-array)
+                         (#.Some again)
+                         (and (n.= expected actual)
+                              (n.= actual again))
+                         
+                         #.None
+                         false)
+
+                       [#.None #.None]
+                       true))
+            (_.cover [/.every?]
+                     (:: bit.equivalence =
+                         (list.every? n.even? (/.to-list the-array))
+                         (/.every? n.even? the-array)))
+            (_.cover [/.any?]
+                     (:: bit.equivalence =
+                         (list.any? n.even? (/.to-list the-array))
+                         (/.any? n.even? the-array)))
             ))))

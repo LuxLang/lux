@@ -6,21 +6,22 @@
    [control
     ["." function]
     ["." exception (#+ exception:)]
-    ["p" parser
-     ["s" code (#+ Parser)]]]
+    ["<>" parser
+     ["<c>" code (#+ Parser)]]]
    [data
+    ["." maybe]
     ["." text ("#@." monoid equivalence)]
     ["." name ("#@." equivalence codec)]
     [number
      ["n" nat ("#@." decimal)]]
-    ["." maybe]
     [collection
      ["." array]
      ["." list ("#@." functor monoid fold)]]]
-   ["." meta]
    [macro
-    ["." code]
-    [syntax (#+ syntax:)]]])
+    [syntax (#+ syntax:)]
+    ["." code]]
+   ["." meta
+    ["." location]]])
 
 (template [<name> <tag>]
   [(def: #export (<name> type)
@@ -353,32 +354,46 @@
     0 elem-type
     _ (|> elem-type (array (dec depth)) (list) (#.Primitive array.type-name))))
 
-(syntax: #export (:log! {input (p.or s.identifier
-                                     s.any)})
+(syntax: (new-secret-marker)
+  (meta.with-gensyms [g!_secret-marker_]
+    (wrap (list g!_secret-marker_))))
+
+(def: secret-marker
+  (`` (name-of (~~ (new-secret-marker)))))
+
+(syntax: #export (:log! {input (<>.or (<>.and <c>.identifier
+                                              (<>.maybe (<>.after (<c>.identifier! ..secret-marker) <c>.any)))
+                                      <c>.any)})
   (case input
-    (#.Left valueN)
+    (#.Left [valueN valueC])
     (do meta.monad
       [location meta.location
        valueT (meta.find-type valueN)
        #let [_ (log! ($_ text@compose
-                         (name@encode (name-of ..:log!)) " @ " (.location-description location) text.new-line
-                         "Value: " (name@encode valueN) text.new-line
-                         " Type: " (..to-text valueT) text.new-line))]]
+                         (name@encode (name-of ..:log!)) " " (location.format location) text.new-line
+                         "Expression: " (case valueC
+                                          (#.Some valueC)
+                                          (code.to-text valueC)
+                                          
+                                          #.None
+                                          (name@encode valueN))
+                         text.new-line
+                         "      Type: " (..to-text valueT)))]]
       (wrap (list (code.identifier valueN))))
-
+    
     (#.Right valueC)
     (meta.with-gensyms [g!value]
       (wrap (list (` (.let [(~ g!value) (~ valueC)]
-                       (..:log! (~ g!value)))))))))
+                       (..:log! (~ valueC) (~ (code.identifier ..secret-marker)) (~ g!value)))))))))
 
 (def: type-parameters
   (Parser (List Text))
-  (s.tuple (p.some s.local-identifier)))
+  (<c>.tuple (<>.some <c>.local-identifier)))
 
 (syntax: #export (:cast {type-vars type-parameters}
                         input
                         output
-                        {value (p.maybe s.any)})
+                        {value (<>.maybe <c>.any)})
   (let [casterC (` (: (All [(~+ (list@map code.local-identifier type-vars))]
                         (-> (~ input) (~ output)))
                       (|>> :assume)))]
@@ -395,7 +410,7 @@
 
 (def: typed
   (Parser Typed)
-  (s.record (p.and s.any s.any)))
+  (<c>.record (<>.and <c>.any <c>.any)))
 
 ## TODO: Make sure the generated code always gets optimized away.
 (syntax: #export (:share {type-vars type-parameters}
@@ -411,7 +426,7 @@
 
 (syntax: #export (:by-example {type-vars type-parameters}
                               {exemplar typed}
-                              {extraction s.any})
+                              {extraction <c>.any})
   (wrap (list (` (:of ((~! :share)
                        [(~+ (list@map code.local-identifier type-vars))]
                        {(~ (get@ #type exemplar))
@@ -421,7 +436,7 @@
 
 (exception: #export (hole-type {location Location} {type Type})
   (exception.report
-   ["Location" (.location-description location)]
+   ["Location" (location.format location)]
    ["Type" (..to-text type)]))
 
 (syntax: #export (:hole)

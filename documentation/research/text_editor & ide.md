@@ -205,6 +205,7 @@
 
 ## Structured editing
 
+1. [Towards Tactic Metaprogramming in Haskell](https://reasonablypolymorphic.com/blog/towards-tactics/index.html)
 1. https://github.com/Raathigesh/waypoint
 1. [Going beyond regular expressions with structural code search](https://about.sourcegraph.com/blog/going-beyond-regular-expressions-with-structural-code-search)
 1. [俺のlisp](https://github.com/illiichi/orenolisp)
