@@ -1,22 +1,35 @@
 (.module:
   [lux #*
+   [abstract
+    [monad (#+ do)]]
    [control
     [pipe (#+ case>)]
     ["." try (#+ Try)]
-    ["." exception]]
+    ["." exception]
+    ["<>" parser
+     ["<xml>" xml (#+ Parser)]]]
    [data
+    ["." name]
     ["." maybe ("#@." functor)]
     [format
-     ["_" xml (#+ XML)]]
+     ["_" xml (#+ Tag XML)]]
     [collection
-     ["." list ("#@." monoid functor)]
-     ["." set]]]]
+     ["." list ("#@." monoid functor fold)]
+     ["." set]
+     ["." dictionary]]]]
   ["." // #_
    ["/" profile]
-   ["#." artifact (#+ Artifact)]
-   ["#." dependency (#+ Repository Dependency)]])
+   ["#." dependency (#+ Repository Dependency)]
+   ["#." artifact (#+ Artifact)
+    ["#/." type]]])
 
 ## https://maven.apache.org/pom.html
+
+(def: project-tag "project")
+(def: dependencies-tag "dependencies")
+(def: group-tag "groupId")
+(def: artifact-tag "artifactId")
+(def: version-tag "version")
 
 (def: #export file
   "pom.xml")
@@ -34,9 +47,9 @@
 
 (def: (artifact value)
   (-> Artifact (List XML))
-  (list (..property "groupId" (get@ #//artifact.group value))
-        (..property "artifactId" (get@ #//artifact.name value))
-        (..property "version" (get@ #//artifact.version value))))
+  (list (..property ..group-tag (get@ #//artifact.group value))
+        (..property ..artifact-tag (get@ #//artifact.name value))
+        (..property ..version-tag (get@ #//artifact.version value))))
 
 (def: distribution
   (-> /.Distribution XML)
@@ -64,66 +77,109 @@
            (list@compose (..artifact (get@ #//dependency.artifact value))
                          (list (..property "type" (get@ #//dependency.type value))))))
 
-(def: scm
-  (-> /.SCM XML)
-  (|>> (..property "url")
-       list
-       (#_.Node ["" "scm"] _.attrs)))
-
-(def: (organization [name url])
-  (-> /.Organization XML)
-  (|> (list (..property "name" name)
-            (..property "url" url))
-      (#_.Node ["" "organization"] _.attrs)))
-
-(def: (developer-organization [name url])
-  (-> /.Organization (List XML))
-  (list (..property "organization" name)
-        (..property "organizationUrl" url)))
-
-(def: (developer' [name email organization])
-  (-> /.Developer (List XML))
-  (list& (..property "name" name)
-         (..property "email" email)
-         (|> organization (maybe@map ..developer-organization) (maybe.default (list)))))
-
-(template [<name> <type> <tag>]
-  [(def: <name>
-     (-> <type> XML)
-     (|>> ..developer' (#_.Node ["" <tag>] _.attrs)))]
-
-  [developer /.Developer "developer"]
-  [contributor /.Contributor "contributor"]
-  )
-
 (def: (group tag)
   (-> Text (-> (List XML) XML))
   (|>> (#_.Node ["" tag] _.attrs)))
 
-(def: (info value)
-  (-> /.Info (List XML))
-  ($_ list@compose
-      (|> value (get@ #/.url) (maybe@map (..property "url")) maybe.to-list)
-      (|> value (get@ #/.description) (maybe@map (..property "description")) maybe.to-list)
-      (|> value (get@ #/.licenses) (list@map ..license) (..group "licenses") list)
-      (|> value (get@ #/.scm) (maybe@map ..scm) maybe.to-list)
-      (|> value (get@ #/.organization) (maybe@map ..organization) maybe.to-list)
-      (|> value (get@ #/.developers) (list@map ..developer) (..group "developers") list)
-      (|> value (get@ #/.contributors) (list@map ..contributor) (..group "contributors") list)
-      ))
+(comment
+  (def: scm
+    (-> /.SCM XML)
+    (|>> (..property "url")
+         list
+         (#_.Node ["" "scm"] _.attrs)))
 
-(def: #export (project value)
+  (def: (organization [name url])
+    (-> /.Organization XML)
+    (|> (list (..property "name" name)
+              (..property "url" url))
+        (#_.Node ["" "organization"] _.attrs)))
+
+  (def: (developer-organization [name url])
+    (-> /.Organization (List XML))
+    (list (..property "organization" name)
+          (..property "organizationUrl" url)))
+
+  (def: (developer' [name email organization])
+    (-> /.Developer (List XML))
+    (list& (..property "name" name)
+           (..property "email" email)
+           (|> organization (maybe@map ..developer-organization) (maybe.default (list)))))
+
+  (template [<name> <type> <tag>]
+    [(def: <name>
+       (-> <type> XML)
+       (|>> ..developer' (#_.Node ["" <tag>] _.attrs)))]
+
+    [developer /.Developer "developer"]
+    [contributor /.Contributor "contributor"]
+    )
+
+  (def: (info value)
+    (-> /.Info (List XML))
+    ($_ list@compose
+        (|> value (get@ #/.url) (maybe@map (..property "url")) maybe.to-list)
+        (|> value (get@ #/.description) (maybe@map (..property "description")) maybe.to-list)
+        (|> value (get@ #/.licenses) (list@map ..license) (..group "licenses") list)
+        (|> value (get@ #/.scm) (maybe@map ..scm) maybe.to-list)
+        (|> value (get@ #/.organization) (maybe@map ..organization) maybe.to-list)
+        (|> value (get@ #/.developers) (list@map ..developer) (..group "developers") list)
+        (|> value (get@ #/.contributors) (list@map ..contributor) (..group "contributors") list)
+        ))
+  )
+
+(def: #export (write value)
   (-> /.Profile (Try XML))
   (case (get@ #/.identity value)
     (#.Some identity)
     (#try.Success
-     (#_.Node ["" "project"] _.attrs
+     (#_.Node ["" ..project-tag] _.attrs
               ($_ list@compose
                   (list ..version)
                   (..artifact identity)
                   (|> value (get@ #/.repositories) set.to-list (list@map ..repository) (..group "repositories") list)
-                  (|> value (get@ #/.dependencies) set.to-list (list@map ..dependency) (..group "dependencies") list)
+                  (|> value (get@ #/.dependencies) set.to-list (list@map ..dependency) (..group ..dependencies-tag) list)
                   )))
 
     _
     (exception.throw /.no-identity [])))
+
+(def: parse-property
+  (Parser [Tag Text])
+  (<>.and <xml>.tag
+          (<xml>.children <xml>.text)))
+
+(def: parse-dependency
+  (Parser Dependency)
+  (do {@ <>.monad}
+    [properties (:: @ map (dictionary.from-list name.hash)
+                    (<xml>.children (<>.some ..parse-property)))]
+    (<| <>.lift
+        try.from-maybe
+        (do maybe.monad
+          [group (dictionary.get ["" ..group-tag] properties)
+           artifact (dictionary.get ["" ..artifact-tag] properties)
+           version (dictionary.get ["" ..version-tag] properties)]
+          (wrap {#//dependency.artifact {#//artifact.group group
+                                         #//artifact.name artifact
+                                         #//artifact.version version}
+                 #//dependency.type (|> properties
+                                        (dictionary.get ["" "type"])
+                                        (maybe.default //artifact/type.lux-library))})))))
+
+(def: parse-dependencies
+  (Parser (List Dependency))
+  (do {@ <>.monad}
+    [_ (<xml>.node ["" ..dependencies-tag])]
+    (<xml>.children (<>.some ..parse-dependency))))
+
+(def: #export parser
+  (Parser /.Profile)
+  (do {@ <>.monad}
+    [_ (<xml>.node ["" ..project-tag])]
+    (<xml>.children
+     (do @
+       [dependencies (<xml>.somewhere ..parse-dependencies)
+        _ (<>.some <xml>.ignore)]
+       (wrap (|> (:: /.monoid identity)
+                 (update@ #/.dependencies (function (_ empty)
+                                            (list@fold set.add empty dependencies)))))))))

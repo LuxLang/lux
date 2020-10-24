@@ -9,7 +9,9 @@
     [concurrency
      ["." promise (#+ Promise)]]
     [security
-     ["!" capability]]]
+     ["!" capability]]
+    ["<>" parser
+     ["<.>" xml]]]
    [data
     [binary (#+ Binary)]
     ["." text
@@ -31,11 +33,12 @@
   ["." // #_
    ["/" profile (#+ Profile)]
    ["#." pom]
-   ["#." dependency (#+ Package Resolution Dependency)]
    ["#." hash]
    ["#." artifact (#+ Artifact)
     ["#/." type]
-    ["#/." extension]]])
+    ["#/." extension]]
+   ["#." dependency (#+ Dependency)
+    ["#/." resolution (#+ Package Resolution)]]])
 
 (def: (local system)
   (All [a] (-> (file.System a) Path))
@@ -80,7 +83,7 @@
        package (export.library system (set.to-list (get@ #/.sources profile)))
        _ (..save! system (binary.run tar.writer package)
                   (format artifact-name //artifact/extension.lux-library))
-       pom (:: promise.monad wrap (//pom.project profile))]
+       pom (:: promise.monad wrap (//pom.write profile))]
       (..save! system (|> pom (:: xml.codec encode) encoding.to-utf8)
                (format artifact-name //artifact/extension.pom)))
 
@@ -95,16 +98,16 @@
      directory (: (Promise (Try (Directory Promise)))
                   (file.get-directory promise.monad system directory))
      _ (..save! system
-                (get@ #//dependency.library package)
+                (get@ #//dependency/resolution.library package)
                 (format prefix (//artifact/extension.extension type)))
      _ (..save! system
-                (encoding.to-utf8 (get@ #//dependency.sha1 package))
+                (encoding.to-utf8 (get@ #//dependency/resolution.sha1 package))
                 (format prefix //artifact/extension.sha1))
      _ (..save! system
-                (encoding.to-utf8 (get@ #//dependency.md5 package))
+                (encoding.to-utf8 (get@ #//dependency/resolution.md5 package))
                 (format prefix //artifact/extension.md5))
      _ (..save! system
-                (|> package (get@ #//dependency.pom) (:: xml.codec encode) encoding.to-utf8)
+                (|> package (get@ #//dependency/resolution.pom) (:: xml.codec encode) encoding.to-utf8)
                 (format prefix //artifact/extension.pom))]
     (wrap [])))
 
@@ -133,20 +136,20 @@
                             (do try.monad
                               [pom (encoding.from-utf8 pom)
                                pom (:: xml.codec decode pom)
-                               dependencies (//dependency.from-pom pom)]
-                              (wrap [pom dependencies])))
+                               profile (<xml>.run //pom.parser pom)]
+                              (wrap [pom (set.to-list (get@ #/.dependencies profile))])))
      library (..read! system (format prefix (//artifact/extension.extension type)))
      sha1 (..read! system (format prefix //artifact/extension.sha1))
      md5 (..read! system (format prefix //artifact/extension.md5))]
-    (wrap {#//dependency.library library
-           #//dependency.pom pom
-           #//dependency.dependencies dependencies
-           #//dependency.sha1 (|> sha1
-                                  (:coerce (//hash.Hash //hash.SHA-1))
-                                  (:: //hash.sha1-codec encode))
-           #//dependency.md5 (|> md5
-                                 (:coerce (//hash.Hash //hash.MD5))
-                                 (:: //hash.md5-codec encode))})))
+    (wrap {#//dependency/resolution.library library
+           #//dependency/resolution.pom pom
+           #//dependency/resolution.dependencies dependencies
+           #//dependency/resolution.sha1 (|> sha1
+                                             (:coerce (//hash.Hash //hash.SHA-1))
+                                             (:: //hash.sha1-codec encode))
+           #//dependency/resolution.md5 (|> md5
+                                            (:coerce (//hash.Hash //hash.MD5))
+                                            (:: //hash.md5-codec encode))})))
 
 (def: #export (all-cached system dependencies resolution)
   (-> (file.System Promise) (List Dependency) Resolution (Promise (Try Resolution)))
@@ -167,7 +170,7 @@
           (#try.Success package)
           (let [resolution (dictionary.put head package resolution)]
             (do (try.with promise.monad)
-              [resolution (all-cached system (get@ #//dependency.dependencies package) resolution)]
+              [resolution (all-cached system (get@ #//dependency/resolution.dependencies package) resolution)]
               <next>))
           
           (#try.Failure error)

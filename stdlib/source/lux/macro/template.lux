@@ -3,8 +3,8 @@
    [abstract
     ["." monad (#+ do)]]
    [control
-    ["p" parser ("#@." functor)
-     ["s" code (#+ Parser)]]]
+    ["<>" parser ("#@." functor)
+     ["<.>" code (#+ Parser)]]]
    [data
     ["." bit ("#@." codec)]
     ["." text]
@@ -20,13 +20,13 @@
    [syntax (#+ syntax:)]
    ["." code]])
 
-(syntax: #export (splice {parts (s.tuple (p.some s.any))})
+(syntax: #export (splice {parts (<code>.tuple (<>.some <code>.any))})
   (wrap parts))
 
-(syntax: #export (count {parts (s.tuple (p.some s.any))})
+(syntax: #export (count {parts (<code>.tuple (<>.some <code>.any))})
   (wrap (list (code.nat (list.size parts)))))
 
-(syntax: #export (with-locals {locals (s.tuple (p.some s.local-identifier))}
+(syntax: #export (with-locals {locals (<code>.tuple (<>.some <code>.local-identifier))}
                    body)
   (do {@ meta.monad}
     [g!locals (|> locals
@@ -38,35 +38,52 @@
                                               list@join))]
                      (~ body)))))))
 
-(def: snippet
-  (Parser Text)
-  ($_ p.either
-      s.text
-      s.local-identifier
-      s.local-tag
-      (p@map bit@encode s.bit)
-      (p@map nat@encode s.nat)
-      (p@map int@encode s.int)
-      (p@map rev@encode s.rev)
-      (p@map frac@encode s.frac)
-      ))
+(def: (name-side module-side? parser)
+  (-> Bit (Parser Name) (Parser Text))
+  (do <>.monad
+    [[module short] parser]
+    (wrap (if module-side?
+            module
+            short))))
 
-(def: part
-  (Parser (List Text))
-  (s.tuple (p.many ..snippet)))
+(def: (snippet module-side?)
+  (-> Bit (Parser Text))
+  (let [full-identifier (..name-side module-side? <code>.identifier)
+        full-tag (..name-side module-side? <code>.tag)]
+    ($_ <>.either
+        <code>.text
+        (if module-side?
+          full-identifier
+          (<>.either <code>.local-identifier
+                     full-identifier))
+        (if module-side?
+          full-tag
+          (<>.either <code>.local-tag
+                     full-tag))
+        (<>@map bit@encode <code>.bit)
+        (<>@map nat@encode <code>.nat)
+        (<>@map int@encode <code>.int)
+        (<>@map rev@encode <code>.rev)
+        (<>@map frac@encode <code>.frac)
+        )))
 
-(syntax: #export (text {simple ..part})
+(def: (part module-side?)
+  (-> Bit (Parser (List Text)))
+  (<code>.tuple (<>.many (..snippet module-side?))))
+
+(syntax: #export (text {simple (..part false)})
   (wrap (list (|> simple (text.join-with "") code.text))))
 
 (template [<name> <simple> <complex>]
-  [(syntax: #export (<name> {simple ..part} {complex (p.maybe ..part)})
-     (case complex
-       #.None
-       (wrap (list (|> simple (text.join-with "") <simple>)))
-       
-       (#.Some complex)
+  [(syntax: #export (<name> {name (<>.or (<>.and (..part true) (..part false))
+                                         (..part false))})
+     (case name
+       (#.Left [simple complex])
        (wrap (list (<complex> [(text.join-with "" simple)
-                               (text.join-with "" complex)])))))]
+                               (text.join-with "" complex)])))
+       
+       (#.Right simple)
+       (wrap (list (|> simple (text.join-with "") <simple>)))))]
 
   [identifier code.local-identifier code.identifier]
   [tag code.local-tag code.tag]

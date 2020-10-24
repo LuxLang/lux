@@ -1,16 +1,16 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
    [abstract
     [monad (#+ do)]
-    ["eq" equivalence]
+    ["." equivalence]
     {[0 #spec]
      [/
       ["$." equivalence]
       ["$." functor (#+ Injection)]]}]
    [control
-    ["." try]]
+    ["." try]
+    ["." exception]]
    [data
     ["." maybe]
     [number
@@ -18,7 +18,7 @@
     [collection
      ["." list ("#@." functor)]]]
    [math
-    ["r" random]]]
+    ["." random]]]
   {1
    ["." /]})
 
@@ -26,111 +26,190 @@
   (Injection (/.Dictionary Nat))
   (|>> [0] list (/.from-list n.hash)))
 
+(def: for-dictionaries
+  Test
+  (do random.monad
+    [#let [capped-nat (:: random.monad map (n.% 100) random.nat)]
+     size capped-nat
+     dict (random.dictionary n.hash size random.nat capped-nat)
+     non-key (|> random.nat (random.filter (function (_ key) (not (/.contains? key dict)))))
+     test-val (|> random.nat (random.filter (function (_ val) (not (list.member? n.equivalence (/.values dict) val)))))]
+    ($_ _.and
+        (_.cover [/.size]
+                 (n.= size (/.size dict)))
+        
+        (_.cover [/.empty?]
+                 (case size
+                   0 (/.empty? dict)
+                   _ (not (/.empty? dict))))
+        
+        (_.cover [/.new]
+                 (let [sample (/.new n.hash)]
+                   (and (n.= 0 (/.size sample))
+                        (/.empty? sample))))
+        
+        (_.cover [/.entries /.keys /.values]
+                 (:: (list.equivalence (equivalence.product n.equivalence n.equivalence)) =
+                     (/.entries dict)
+                     (list.zip2 (/.keys dict)
+                                (/.values dict))))
+
+        (_.cover [/.merge]
+                 (let [merging-with-oneself (let [(^open ".") (/.equivalence n.equivalence)]
+                                              (= dict (/.merge dict dict)))
+                       overwritting-keys (let [dict' (|> dict /.entries
+                                                         (list@map (function (_ [k v]) [k (inc v)]))
+                                                         (/.from-list n.hash))
+                                               (^open ".") (/.equivalence n.equivalence)]
+                                           (= dict' (/.merge dict' dict)))]
+                   (and merging-with-oneself
+                        overwritting-keys)))
+        
+        (_.cover [/.merge-with]
+                 (list.every? (function (_ [x x*2]) (n.= (n.* 2 x) x*2))
+                              (list.zip2 (/.values dict)
+                                         (/.values (/.merge-with n.+ dict dict)))))
+
+        (_.cover [/.from-list]
+                 (let [(^open ".") (/.equivalence n.equivalence)]
+                   (and (= dict dict)
+                        (|> dict /.entries (/.from-list n.hash) (= dict)))))
+        )))
+
+(def: for-entries
+  Test
+  (do random.monad
+    [#let [capped-nat (:: random.monad map (n.% 100) random.nat)]
+     size capped-nat
+     dict (random.dictionary n.hash size random.nat capped-nat)
+     non-key (|> random.nat (random.filter (function (_ key) (not (/.contains? key dict)))))
+     test-val (|> random.nat (random.filter (function (_ val) (not (list.member? n.equivalence (/.values dict) val)))))]
+    ($_ _.and
+        (_.cover [/.contains?]
+                 (list.every? (function (_ key) (/.contains? key dict))
+                              (/.keys dict)))
+        
+        (_.cover [/.get]
+                 (and (list.every? (function (_ key) (case (/.get key dict)
+                                                       (#.Some _) true
+                                                       _          false))
+                                   (/.keys dict))
+                      (case (/.get non-key dict)
+                        (#.Some _) false
+                        _          true)))
+        
+        (_.cover [/.put]
+                 (and (n.= (inc (/.size dict))
+                           (/.size (/.put non-key test-val dict)))
+                      (case (/.get non-key (/.put non-key test-val dict))
+                        (#.Some v) (n.= test-val v)
+                        _          true)))
+        
+        (_.cover [/.try-put /.key-already-exists]
+                 (let [can-put-new-keys!
+                       (case (/.try-put non-key test-val dict)
+                         (#try.Success dict)
+                         (case (/.get non-key dict)
+                           (#.Some v) (n.= test-val v)
+                           _          true)
+
+                         (#try.Failure _)
+                         false)
+                       
+                       cannot-put-old-keys!
+                       (or (n.= 0 size)
+                           (let [first-key (|> dict /.keys list.head maybe.assume)]
+                             (case (/.try-put first-key test-val dict)
+                               (#try.Success _)
+                               false
+                               
+                               (#try.Failure error)
+                               (exception.match? /.key-already-exists error))))]
+                   (and can-put-new-keys!
+                        cannot-put-old-keys!)))
+        
+        (_.cover [/.remove]
+                 (and (let [base (/.put non-key test-val dict)]
+                        (and (/.contains? non-key base)
+                             (not (/.contains? non-key (/.remove non-key base)))))
+                      (case (list.head (/.keys dict))
+                        #.None
+                        true
+                        
+                        (#.Some known-key)
+                        (n.= (dec (/.size dict))
+                             (/.size (/.remove known-key dict))))))
+        
+        (_.cover [/.update]
+                 (let [base (/.put non-key test-val dict)
+                       updt (/.update non-key inc base)]
+                   (case [(/.get non-key base) (/.get non-key updt)]
+                     [(#.Some x) (#.Some y)]
+                     (n.= (inc x) y)
+
+                     _
+                     false)))
+        
+        (_.cover [/.upsert]
+                 (let [can-upsert-new-key!
+                       (case (/.get non-key (/.upsert non-key test-val inc dict))
+                         (#.Some inserted)
+                         (n.= (inc test-val) inserted)
+
+                         #.None
+                         false)
+
+                       can-upsert-old-key!
+                       (case (list.head (/.entries dict))
+                         #.None
+                         true
+                         
+                         (#.Some [known-key known-value])
+                         (case (/.get known-key (/.upsert known-key test-val inc dict))
+                           (#.Some updated)
+                           (n.= (inc known-value) updated)
+
+                           #.None
+                           false))]
+                   (and can-upsert-new-key!
+                        can-upsert-old-key!)))
+
+        (_.cover [/.select]
+                 (|> dict
+                     (/.put non-key test-val)
+                     (/.select (list non-key))
+                     /.size
+                     (n.= 1)))
+        
+        (_.cover [/.re-bind]
+                 (or (n.= 0 size)
+                     (let [first-key (|> dict /.keys list.head maybe.assume)
+                           rebound (/.re-bind first-key non-key dict)]
+                       (and (n.= (/.size dict) (/.size rebound))
+                            (/.contains? non-key rebound)
+                            (not (/.contains? first-key rebound))
+                            (n.= (maybe.assume (/.get first-key dict))
+                                 (maybe.assume (/.get non-key rebound)))))))
+        )))
+
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /.Dictionary)))
-      (do r.monad
-        [#let [capped-nat (:: r.monad map (n.% 100) r.nat)]
+  (<| (_.covering /._)
+      (_.with-cover [/.Dictionary])
+      (do random.monad
+        [#let [capped-nat (:: random.monad map (n.% 100) random.nat)]
          size capped-nat
-         dict (r.dictionary n.hash size r.nat capped-nat)
-         non-key (|> r.nat (r.filter (function (_ key) (not (/.contains? key dict)))))
-         test-val (|> r.nat (r.filter (function (_ val) (not (list.member? n.equivalence (/.values dict) val)))))]
+         dict (random.dictionary n.hash size random.nat capped-nat)
+         non-key (|> random.nat (random.filter (function (_ key) (not (/.contains? key dict)))))
+         test-val (|> random.nat (random.filter (function (_ val) (not (list.member? n.equivalence (/.values dict) val)))))]
         ($_ _.and
-            ($equivalence.spec (/.equivalence n.equivalence)
-                               (r.dictionary n.hash size r.nat r.nat))
-            ($functor.spec ..injection /.equivalence /.functor)
+            (_.with-cover [/.equivalence]
+              ($equivalence.spec (/.equivalence n.equivalence)
+                                 (random.dictionary n.hash size random.nat random.nat)))
             
-            (_.test "Size function should correctly represent Dictionary size."
-                    (n.= size (/.size dict)))
-            (_.test "Dictionaries of size 0 should be considered empty."
-                    (if (n.= 0 size)
-                      (/.empty? dict)
-                      (not (/.empty? dict))))
-            (_.test "The functions 'entries', 'keys' and 'values' should be synchronized."
-                    (:: (list.equivalence (eq.product n.equivalence n.equivalence)) =
-                        (/.entries dict)
-                        (list.zip2 (/.keys dict)
-                                   (/.values dict))))
-            (_.test "Dictionary should be able to recognize it's own keys."
-                    (list.every? (function (_ key) (/.contains? key dict))
-                                 (/.keys dict)))
-            (_.test "Should be able to get every key."
-                    (list.every? (function (_ key) (case (/.get key dict)
-                                                     (#.Some _) #1
-                                                     _          #0))
-                                 (/.keys dict)))
-            (_.test "Shouldn't be able to access non-existant keys."
-                    (case (/.get non-key dict)
-                      (#.Some _) #0
-                      _          #1))
-            (_.test "Should be able to put and then get a value."
-                    (case (/.get non-key (/.put non-key test-val dict))
-                      (#.Some v) (n.= test-val v)
-                      _          #1))
+            (_.with-cover [/.functor]
+              ($functor.spec ..injection /.equivalence /.functor))
 
-            (_.test "Should be able to try-put and then get a value."
-                    (case (/.try-put non-key test-val dict)
-                      (#try.Success dict)
-                      (case (/.get non-key dict)
-                        (#.Some v) (n.= test-val v)
-                        _          true)
-
-                      (#try.Failure _)
-                      false))
-            (_.test "Shouldn't be able to try-put an existing key."
-                    (or (n.= 0 size)
-                        (let [first-key (|> dict /.keys list.head maybe.assume)]
-                          (case (/.try-put first-key test-val dict)
-                            (#try.Success _) false
-                            (#try.Failure _) true))))
-            (_.test "Removing a key should make it's value inaccessible."
-                    (let [base (/.put non-key test-val dict)]
-                      (and (/.contains? non-key base)
-                           (not (/.contains? non-key (/.remove non-key base))))))
-            (_.test "Should be possible to update values via their keys."
-                    (let [base (/.put non-key test-val dict)
-                          updt (/.update non-key inc base)]
-                      (case [(/.get non-key base) (/.get non-key updt)]
-                        [(#.Some x) (#.Some y)]
-                        (n.= (inc x) y)
-
-                        _
-                        #0)))
-            (_.test "Additions and removals to a Dictionary should affect its size."
-                    (let [plus (/.put non-key test-val dict)
-                          base (/.remove non-key plus)]
-                      (and (n.= (inc (/.size dict)) (/.size plus))
-                           (n.= (dec (/.size plus)) (/.size base)))))
-            (_.test "A Dictionary should equal itself & going to<->from lists shouldn't change that."
-                    (let [(^open ".") (/.equivalence n.equivalence)]
-                      (and (= dict dict)
-                           (|> dict /.entries (/.from-list n.hash) (= dict)))))
-            (_.test "Merging a Dictionary to itself changes nothing."
-                    (let [(^open ".") (/.equivalence n.equivalence)]
-                      (= dict (/.merge dict dict))))
-            (_.test "If you merge, and the second dict has overlapping keys, it should overwrite yours."
-                    (let [dict' (|> dict /.entries
-                                    (list@map (function (_ [k v]) [k (inc v)]))
-                                    (/.from-list n.hash))
-                          (^open ".") (/.equivalence n.equivalence)]
-                      (= dict' (/.merge dict' dict))))
-            (_.test "Can merge values in such a way that they become combined."
-                    (list.every? (function (_ [x x*2]) (n.= (n.* 2 x) x*2))
-                                 (list.zip2 (/.values dict)
-                                            (/.values (/.merge-with n.+ dict dict)))))
-            (_.test "Should be able to select subset of keys from dict."
-                    (|> dict
-                        (/.put non-key test-val)
-                        (/.select (list non-key))
-                        /.size
-                        (n.= 1)))
-            (_.test "Should be able to re-bind existing values to different keys."
-                    (or (n.= 0 size)
-                        (let [first-key (|> dict /.keys list.head maybe.assume)
-                              rebound (/.re-bind first-key non-key dict)]
-                          (and (n.= (/.size dict) (/.size rebound))
-                               (/.contains? non-key rebound)
-                               (not (/.contains? first-key rebound))
-                               (n.= (maybe.assume (/.get first-key dict))
-                                    (maybe.assume (/.get non-key rebound)))))))
+            ..for-dictionaries
+            ..for-entries
             ))))

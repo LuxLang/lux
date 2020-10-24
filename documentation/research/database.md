@@ -79,6 +79,7 @@
 
 # Storage
 
+1. [Understanding LSM Trees: What Powers Write-Heavy Databases](https://yetanotherdevblog.com/lsm/)
 1. http://www.benstopford.com/2015/02/14/log-structured-merge-trees/
 1. A Comparison of Adaptive Radix Trees and Hash Tables
 

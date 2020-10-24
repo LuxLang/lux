@@ -22,26 +22,18 @@
 (exception: #export empty-input)
 (exception: #export unexpected-input)
 
-(def: (label [namespace name])
-  (-> Name Text)
-  (format namespace ":" name))
-
-(template [<exception> <type> <header>]
+(template [<exception> <type> <header> <format>]
   [(exception: #export (<exception> {label <type>})
      (exception.report
-      [<header> (%.text (..label label))]))]
+      [<header> (%.text (<format> label))]))]
 
-  [wrong-tag Tag "Tag"]
-  [unknown-attribute Attribute "Attribute"]
+  [wrong-tag Tag "Tag" /.tag]
+  [unknown-attribute Attribute "Attribute" /.attribute]
   )
 
-(def: blank-line
-  (format text.new-line text.new-line))
-
 (exception: #export (unconsumed-inputs {inputs (List XML)})
-  (|> inputs
-      (list@map (:: /.codec encode))
-      (text.join-with blank-line)))
+  (exception.report
+   ["Inputs" (exception.enumerate (:: /.codec encode) inputs)]))
 
 (def: #export text
   (Parser Text)
@@ -70,7 +62,7 @@
         (#/.Text _)
         (exception.throw ..unexpected-input [])
         
-        (#/.Node _tag _attrs _children)
+        (#/.Node _tag _attributes _children)
         (if (name@= tag _tag)
           (#try.Success [docs []])
           (exception.throw ..wrong-tag tag))))))
@@ -87,10 +79,10 @@
         (#/.Text _)
         (exception.throw ..unexpected-input [])
         
-        (#/.Node tag _attrs _children)
+        (#/.Node tag _attributes _children)
         (#try.Success [docs tag])))))
 
-(def: #export (attr name)
+(def: #export (attribute name)
   (-> Attribute (Parser Text))
   (function (_ docs)
     (case docs
@@ -102,8 +94,8 @@
         (#/.Text _)
         (exception.throw ..unexpected-input [])
         
-        (#/.Node tag attrs children)
-        (case (dictionary.get name attrs)
+        (#/.Node tag attributes children)
+        (case (dictionary.get name attributes)
           #.None
           (exception.throw ..unknown-attribute [name])
           
@@ -133,7 +125,7 @@
         (#/.Text _)
         (exception.throw ..unexpected-input [])
         
-        (#/.Node _tag _attrs children)
+        (#/.Node _tag _attributes children)
         (do try.monad
           [output (run' parser children)]
           (wrap [tail output]))))))
@@ -151,3 +143,23 @@
 (def: #export (run parser document)
   (All [a] (-> (Parser a) XML (Try a)))
   (..run' parser (list document)))
+
+(exception: #export nowhere)
+
+(def: #export (somewhere parser)
+  (All [a] (-> (Parser a) (Parser a)))
+  (function (recur input)
+    (case (//.run parser input)
+      (#try.Success [remaining output])
+      (#try.Success [remaining output])
+      
+      (#try.Failure error)
+      (case input
+        #.Nil
+        (exception.throw ..nowhere [])
+        
+        (#.Cons head tail)
+        (do try.monad
+          [[tail' output] (recur tail)]
+          (wrap [(#.Cons head tail')
+                 output]))))))
