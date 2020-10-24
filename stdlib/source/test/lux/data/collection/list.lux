@@ -1,10 +1,10 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
    [abstract
     [monad (#+ do)]
     ["." enum]
+    ["." equivalence]
     {[0 #spec]
      [/
       ["$." equivalence]
@@ -15,170 +15,400 @@
       ["$." monad]]}]
    [control
     pipe
-    ["." io]]
+    ["." io]
+    ["." function]]
    [data
     ["." bit]
     ["." product]
     ["." maybe]
+    ["." text ("#@." equivalence)]
     [number
      ["n" nat]
-     ["." int]]]
+     ["." int]]
+    [collection
+     ["." set]]]
    [math
-    ["r" random]]]
+    ["." random (#+ Random)]]]
   {1
    ["." / ("#@." monad)]})
 
 (def: bounded-size
-  (r.Random Nat)
-  (|> r.nat
-      (:: r.monad map (|>> (n.% 100) (n.+ 10)))))
+  (Random Nat)
+  (:: random.monad map (n.% 100)
+      random.nat))
+
+(def: random
+  (Random (List Nat))
+  (do {@ random.monad}
+    [size ..bounded-size]
+    (|> random.nat
+        (random.set n.hash size)
+        (:: @ map set.to-list))))
 
 (def: signatures
   Test
-  (do {@ r.monad}
-    [size bounded-size]
-    ($_ _.and
-        ($equivalence.spec (/.equivalence n.equivalence) (r.list size r.nat))
-        ($monoid.spec (/.equivalence n.equivalence) /.monoid (r.list size r.nat))
-        ($fold.spec /@wrap /.equivalence /.fold)
-        ($functor.spec /@wrap /.equivalence /.functor)
-        ($apply.spec /@wrap /.equivalence /.apply)
-        ($monad.spec /@wrap /.equivalence /.monad)
+  ($_ _.and
+      (_.with-cover [/.equivalence]
+        ($equivalence.spec (/.equivalence n.equivalence) ..random))
+      (_.with-cover [/.monoid]
+        ($monoid.spec (/.equivalence n.equivalence) /.monoid ..random))
+      (_.with-cover [/.fold]
+        ($fold.spec /@wrap /.equivalence /.fold))
+      (_.with-cover [/.functor]
+        ($functor.spec /@wrap /.equivalence /.functor))
+      (_.with-cover [/.apply]
+        ($apply.spec /@wrap /.equivalence /.apply))
+      (_.with-cover [/.monad]
+        ($monad.spec /@wrap /.equivalence /.monad))
 
-        (do @
-          [parameter r.nat
-           subject r.nat]
-          (let [lift (/.lift io.monad)
-                (^open "io@.") io.monad
-                expected (n.+ parameter subject)]
-            (_.test "Can add list functionality to any monad."
-                    (|> (io.run (do (/.with io.monad)
-                                  [a (lift (io@wrap parameter))
-                                   b (wrap subject)]
-                                  (wrap (n.+ a b))))
-                        (case> (^ (list actual))
-                               (n.= expected actual)
-                               
-                               _
-                               false)))))
+      (do {@ random.monad}
+        [parameter random.nat
+         subject random.nat]
+        (let [lift (/.lift io.monad)
+              (^open "io@.") io.monad
+              expected (n.+ parameter subject)]
+          (_.cover [/.with /.lift]
+                   (|> (io.run (do (/.with io.monad)
+                                 [a (lift (io@wrap parameter))
+                                  b (wrap subject)]
+                                 (wrap (n.+ a b))))
+                       (case> (^ (list actual))
+                              (n.= expected actual)
+                              
+                              _
+                              false)))))
+      ))
+
+(def: whole
+  Test
+  (do {@ random.monad}
+    [size ..bounded-size
+     #let [(^open "/@.") (/.equivalence n.equivalence)]
+     sample (:: @ map set.to-list (random.set n.hash size random.nat))]
+    ($_ _.and
+        (_.cover [/.size]
+                 (n.= size (/.size sample)))
+        (_.cover [/.empty?]
+                 (:: bit.equivalence =
+                     (/.empty? sample)
+                     (n.= 0 (/.size sample))))
+        (_.cover [/.repeat]
+                 (n.= size (/.size (/.repeat size []))))
+        (_.cover [/.reverse]
+                 (and (not (/@= sample
+                                (/.reverse sample)))
+                      (/@= sample
+                           (/.reverse (/.reverse sample)))))
+        (_.cover [/.every? /.any?]
+                 (if (/.every? n.even? sample)
+                   (not (/.any? (bit.complement n.even?) sample))
+                   (/.any? (bit.complement n.even?) sample)))
+        (_.cover [/.sort]
+                 (let [<<< n.<
+                       
+                       size-preservation!
+                       (n.= (/.size sample)
+                            (/.size (/.sort <<< sample)))
+                       
+                       symmetry!
+                       (/@= (/.sort <<< sample)
+                            (/.reverse (/.sort (function.flip <<<) sample)))]
+                   (and size-preservation!
+                        symmetry!)))
         )))
+
+(def: indices
+  Test
+  (let [(^open "/@.") (/.equivalence n.equivalence)
+        (^open "/@.") /.functor]
+    (do {@ random.monad}
+      [sample ..random
+       #let [size (/.size sample)]]
+      ($_ _.and
+          (_.cover [/.indices]
+                   (let [indices (/.indices size)
+
+                         expected-amount!
+                         (n.= size (/.size indices))
+
+                         already-sorted!
+                         (/@= indices
+                              (/.sort n.< indices))
+
+                         expected-numbers!
+                         (/.every? (n.= (dec size))
+                                   (/.zip-with/2 n.+
+                                                 indices
+                                                 (/.sort n.> indices)))]
+                     (and expected-amount!
+                          already-sorted!
+                          expected-numbers!)))
+          (_.cover [/.enumeration]
+                   (let [enumeration (/.enumeration sample)]
+                     (and (/@= (/.indices (/.size enumeration))
+                               (/@map product.left enumeration))
+                          (/@= sample
+                               (/@map product.right enumeration)))))
+          (_.cover [/.nth]
+                   (/.every? (function (_ [index expected])
+                               (case (/.nth index sample)
+                                 (#.Some actual)
+                                 (n.= expected actual)
+                                 
+                                 #.None
+                                 false))
+                             (/.enumeration sample)))
+          ))))
+
+(def: slice
+  Test
+  (let [(^open "/@.") (/.equivalence n.equivalence)
+        (^open "/@.") /.monoid]
+    (do {@ random.monad}
+      [sample ..random
+       #let [size (/.size sample)]
+       idx (:: @ map (n.% size) random.nat)
+       chunk-size (:: @ map (|>> (n.% size) inc) random.nat)]
+      ($_ _.and
+          (_.cover [/.filter]
+                   (let [positives (/.filter n.even? sample)
+                         negatives (/.filter (bit.complement n.even?) sample)]
+                     (and (/.every? n.even? positives)
+                          (not (/.any? n.even? negatives))
+
+                          (n.= (/.size sample)
+                               (n.+ (/.size positives)
+                                    (/.size negatives))))))
+          (_.cover [/.partition]
+                   (let [[positives negatives] (/.partition n.even? sample)]
+                     (and (/@= (/.filter n.even? sample)
+                               positives)
+                          (/@= (/.filter (bit.complement n.even?) sample)
+                               negatives))))
+          (_.cover [/.split]
+                   (let [[left right] (/.split idx sample)]
+                     (/@= sample
+                          (/@compose left right))))
+          (_.cover [/.split-with]
+                   (let [[left right] (/.split-with n.even? sample)]
+                     (/@= sample
+                          (/@compose left right))))
+          (_.cover [/.take /.drop]
+                   (/@= sample
+                        (/@compose (/.take idx sample)
+                                   (/.drop idx sample))))
+          (_.cover [/.take-while /.drop-while]
+                   (/@= sample
+                        (/@compose (/.take-while n.even? sample)
+                                   (/.drop-while n.even? sample))))
+          (_.cover [/.chunk]
+                   (let [chunks (/.chunk chunk-size sample)]
+                     (and (/.every? (|>> /.size (n.<= chunk-size)) chunks)
+                          (/@= sample
+                               (/.concat chunks)))))
+          ))))
+
+(def: member
+  Test
+  (let [(^open "/@.") (/.equivalence n.equivalence)]
+    (do {@ random.monad}
+      [sample ..random]
+      (`` ($_ _.and
+              (_.cover [/.member?]
+                       (/.every? (/.member? n.equivalence sample)
+                                 sample))
+              (~~ (template [<head> <tail> <pre>]
+                    [($_ _.and
+                         (_.cover [<head>]
+                                  (case [(<pre> sample) (<head> sample)]
+                                    [(#.Cons expected _) (#.Some actual)]
+                                    (n.= expected actual)
+
+                                    [#.Nil #.None]
+                                    true
+
+                                    _
+                                    false))
+                         (_.cover [<tail>]
+                                  (case [(<pre> sample) (<tail> sample)]
+                                    [(#.Cons _ expected) (#.Some actual)]
+                                    (/@= (<pre> expected) actual)
+
+                                    [#.Nil #.None]
+                                    true
+
+                                    _
+                                    false))
+                         )]
+
+                    [/.head /.tail |>]
+                    [/.last /.inits /.reverse]
+                    ))
+              )))))
+
+(def: grouping
+  Test
+  (let [(^open "/@.") (/.equivalence n.equivalence)
+        (^open "/@.") /.functor
+        (^open "/@.") /.monoid
+        
+        +/2 (: (-> Nat Nat Nat)
+               (function (_ left right)
+                 ($_ n.+ left right)))
+        +/3 (: (-> Nat Nat Nat Nat)
+               (function (_ left mid right)
+                 ($_ n.+ left mid right)))]
+    (do {@ random.monad}
+      [sample/0 ..random
+       sample/1 ..random
+       sample/2 ..random]
+      ($_ _.and
+          (_.cover [/.as-pairs]
+                   (n.= (n./ 2 (/.size sample/0))
+                        (/.size (/.as-pairs sample/0))))
+          (_.cover [/.zip/2]
+                   (let [zipped (/.zip/2 sample/0 sample/1)
+                         zipped::size (/.size zipped)
+
+                         size-of-smaller-list!
+                         (n.= zipped::size
+                              (n.min (/.size sample/0) (/.size sample/1)))
+
+                         can-extract-values!
+                         (and (/@= (/.take zipped::size sample/0)
+                                   (/@map product.left zipped))
+                              (/@= (/.take zipped::size sample/1)
+                                   (/@map product.right zipped)))]
+                     (and size-of-smaller-list!
+                          can-extract-values!)))
+          (_.cover [/.zip/3]
+                   (let [zipped (/.zip/3 sample/0 sample/1 sample/2)
+                         zipped::size (/.size zipped)
+                         
+                         size-of-smaller-list!
+                         (n.= zipped::size
+                              ($_ n.min
+                                  (/.size sample/0)
+                                  (/.size sample/1)
+                                  (/.size sample/2)))
+
+                         can-extract-values!
+                         (and (/@= (/.take zipped::size sample/0)
+                                   (/@map product.left zipped))
+                              (/@= (/.take zipped::size sample/1)
+                                   (/@map (|>> product.right product.left) zipped))
+                              (/@= (/.take zipped::size sample/2)
+                                   (/@map (|>> product.right product.right) zipped)))]
+                     (and size-of-smaller-list!
+                          can-extract-values!)))
+          (_.cover [/.zip]
+                   (and (:: (/.equivalence (equivalence.product n.equivalence n.equivalence)) =
+                            (/.zip/2 sample/0 sample/1)
+                            ((/.zip 2) sample/0 sample/1))
+                        (:: (/.equivalence ($_ equivalence.product n.equivalence n.equivalence n.equivalence)) =
+                            (/.zip/3 sample/0 sample/1 sample/2)
+                            ((/.zip 3) sample/0 sample/1 sample/2))))
+
+          (_.cover [/.zip-with/2]
+                   (/@= (/@map (function (_ [left right])
+                                 (+/2 left right))
+                               (/.zip/2 sample/0 sample/1))
+                        (/.zip-with/2 +/2 sample/0 sample/1)))
+          (_.cover [/.zip-with/3]
+                   (/@= (/@map (function (_ [left mid right])
+                                 (+/3 left mid right))
+                               (/.zip/3 sample/0 sample/1 sample/2))
+                        (/.zip-with/3 +/3 sample/0 sample/1 sample/2)))
+          (_.cover [/.zip-with]
+                   (and (/@= (/.zip-with/2 +/2 sample/0 sample/1)
+                             ((/.zip-with 2) +/2 sample/0 sample/1))
+                        (/@= (/.zip-with/3 +/3 sample/0 sample/1 sample/2)
+                             ((/.zip-with 3) +/3 sample/0 sample/1 sample/2))))
+          (_.cover [/.concat]
+                   (and (/@= (/@compose sample/0 sample/1)
+                             (/.concat (list sample/0 sample/1)))
+                        (/@= ($_ /@compose sample/0 sample/1 sample/2)
+                             (/.concat (list sample/0 sample/1 sample/2)))))
+          ))))
+
+(def: search
+  Test
+  (let [(^open "/@.") /.functor
+        
+        choose (: (-> Nat (Maybe Text))
+                  (function (_ value)
+                    (if (n.even? value)
+                      (#.Some (:: n.decimal encode value))
+                      #.None)))]
+    (do {@ random.monad}
+      [sample ..random]
+      ($_ _.and
+          (_.cover [/.one]
+                   (case [(|> sample
+                              (/.filter n.even?)
+                              (/@map (:: n.decimal encode))
+                              /.head)
+                          (/.one choose sample)]
+                     [(#.Some expected) (#.Some actual)]
+                     (text@= expected actual)
+
+                     [#.None #.None]
+                     true
+
+                     _
+                     false))
+          (_.cover [/.all]
+                   (:: (/.equivalence text.equivalence) =
+                       (|> sample
+                           (/.filter n.even?)
+                           (/@map (:: n.decimal encode)))
+                       (/.all choose sample)))
+          (_.cover [/.find]
+                   (case (/.find n.even? sample)
+                     (#.Some found)
+                     (and (n.even? found)
+                          (/.any? n.even? sample)
+                          (not (/.every? (bit.complement n.even?) sample)))
+
+                     #.None
+                     (and (not (/.any? n.even? sample))
+                          (/.every? (bit.complement n.even?) sample))))
+          ))))
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of .List)))
-      (do {@ r.monad}
-        [size bounded-size
-         #let [(^open "/@.") (/.equivalence n.equivalence)
-               (^open "/@.") /.functor
-               (^open "/@.") /.monoid]
-         idx (:: @ map (n.% size) r.nat)
-         sample (r.list size r.nat)
-         other-size bounded-size
-         other-sample (r.list other-size r.nat)
-         separator r.nat]
-        ($_ _.and
-            ..signatures
-            
-            (_.test "The size function should correctly portray the size of the list."
-                    (n.= size (/.size sample)))
-            (_.test "The repeat function should produce as many elements as asked of it."
-                    (n.= size (/.size (/.repeat size []))))
-            (_.test "Reversing a list does not change it's size."
-                    (n.= (/.size sample)
-                         (/.size (/.reverse sample))))
-            (_.test "Reversing a list twice results in the original list."
-                    (/@= sample
-                         (/.reverse (/.reverse sample))))
-            (_.test "Filtering by a predicate and its complement should result in a number of elements equal to the original list."
-                    (and (n.= (/.size sample)
-                              (n.+ (/.size (/.filter n.even? sample))
-                                   (/.size (/.filter (bit.complement n.even?) sample))))
-                         (let [[plus minus] (/.partition n.even? sample)]
-                           (n.= (/.size sample)
-                                (n.+ (/.size plus)
-                                     (/.size minus))))))
-            (_.test "If every element in a list satisfies a predicate, there can't be any that satisfy its complement."
-                    (if (/.every? n.even? sample)
-                      (and (not (/.any? (bit.complement n.even?) sample))
-                           (/.empty? (/.filter (bit.complement n.even?) sample)))
-                      (/.any? (bit.complement n.even?) sample)))
-            (_.test "Any element of the list can be considered its member."
-                    (let [elem (maybe.assume (/.nth idx sample))]
-                      (/.member? n.equivalence sample elem)))
-            (_.test "Appending the head and the tail should yield the original list."
-                    (let [head (maybe.assume (/.head sample))
-                          tail (maybe.assume (/.tail sample))]
-                      (/@= sample
-                           (#.Cons head tail))))
-            (_.test "Appending the inits and the last should yield the original list."
-                    (let [inits (maybe.assume (/.inits sample))
-                          last (maybe.assume (/.last sample))]
-                      (/@= sample
-                           (/@compose inits (list last)))))
-            (_.test "Splitting a list into chunks and re-appending them should yield the original list."
-                    (let [[left right] (/.split idx sample)
-                          [left' right'] (/.split-with n.even? sample)]
-                      (and (/@= sample
-                                (/@compose left right))
-                           (/@= sample
-                                (/@compose left' right'))
-                           (/@= sample
-                                (/@compose (/.take idx sample)
-                                           (/.drop idx sample)))
-                           (/@= sample
-                                (/@compose (/.take-while n.even? sample)
-                                           (/.drop-while n.even? sample)))
-                           )))
-            (_.test "Segmenting the list in pairs should yield as many elements as N/2."
-                    (n.= (n./ 2 size)
-                         (/.size (/.as-pairs sample))))
-            (_.test "Sorting a list shouldn't change it's size."
-                    (n.= (/.size sample)
-                         (/.size (/.sort n.< sample))))
-            (_.test "Sorting a list with one order should yield the reverse of sorting it with the opposite order."
-                    (/@= (/.sort n.< sample)
-                         (/.reverse (/.sort n.> sample))))
-            (_.test "If you zip 2 lists, the result's size will be that of the smaller list."
-                    (n.= (/.size (/.zip2 sample other-sample))
-                         (n.min (/.size sample) (/.size other-sample))))
-            (_.test "I can pair-up elements of a list in order."
-                    (let [zipped (/.zip2 sample other-sample)
-                          num-zipper (/.size zipped)]
-                      (and (|> zipped (/@map product.left) (/@= (/.take num-zipper sample)))
-                           (|> zipped (/@map product.right) (/@= (/.take num-zipper other-sample))))))
-            (_.test "You can generate indices for any size, and they will be in ascending order."
-                    (let [indices (/.indices size)]
-                      (and (n.= size (/.size indices))
-                           (/@= indices
-                                (/.sort n.< indices))
-                           (/.every? (n.= (dec size))
-                                     (/.zip2-with n.+
-                                                  indices
-                                                  (/.sort n.> indices)))
-                           )))
-            (_.test "The 'interpose' function places a value between every member of a list."
-                    (let [sample+ (/.interpose separator sample)]
-                      (and (n.= (|> size (n.* 2) dec)
-                                (/.size sample+))
-                           (|> sample+ /.as-pairs (/@map product.right) (/.every? (n.= separator))))))
-            (_.test "You can find any value that satisfies some criterium, if such values exist in the list."
-                    (case (/.find n.even? sample)
-                      (#.Some found)
-                      (and (n.even? found)
-                           (/.any? n.even? sample)
-                           (not (/.every? (bit.complement n.even?) sample)))
-
-                      #.None
-                      (and (not (/.any? n.even? sample))
-                           (/.every? (bit.complement n.even?) sample))))
-            (_.test "You can iteratively construct a list, generating values until you're done."
-                    (/@= (enum.range n.enum 0 (dec size))
-                         (/.iterate (function (_ n) (if (n.< size n) (#.Some (inc n)) #.None))
-                                    0)))
-            (_.test "Can enumerate all elements in a list."
-                    (let [enum-sample (/.enumerate sample)]
-                      (and (/@= (/.indices (/.size enum-sample))
-                                (/@map product.left enum-sample))
-                           (/@= sample
-                                (/@map product.right enum-sample)))))
-            ))))
+  (<| (_.covering /._)
+      (_.with-cover [.List])
+      (let [(^open "/@.") (/.equivalence n.equivalence)
+            (^open "/@.") /.functor]
+        (do {@ random.monad}
+          [sample ..random
+           separator random.nat]
+          ($_ _.and
+              ..signatures
+              ..whole
+              ..indices
+              ..slice
+              ..member
+              ..grouping
+              ..search
+              
+              (_.cover [/.interpose]
+                       (let [sample+ (/.interpose separator sample)]
+                         (and (n.= (|> (/.size sample) (n.* 2) dec)
+                                   (/.size sample+))
+                              (|> sample+ /.as-pairs (/.every? (|>> product.right (n.= separator)))))))
+              (_.cover [/.iterate]
+                       (let [size (/.size sample)]
+                         (/@= (/.indices size)
+                              (/.iterate (function (_ index)
+                                           (if (n.< size index)
+                                             (#.Some (inc index))
+                                             #.None))
+                                         0))))
+              (_.cover [/.folds]
+                       (/@= (/@map (function (_ index)
+                                     (:: /.fold fold n.+ 0 (/.take index sample)))
+                                   (/.indices (inc (/.size sample))))
+                            (/.folds n.+ 0 sample)))
+              )))))
