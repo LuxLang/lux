@@ -8,8 +8,10 @@
     ["." try (#+ Try) ("#@." functor)]
     ["." exception (#+ Exception exception:)]
     ["." io (#+ IO) ("#@." functor)]
+    ["." function]
     [concurrency
-     ["." promise (#+ Promise)]]
+     ["." promise (#+ Promise)]
+     ["." stm (#+ Var STM)]]
     [security
      ["!" capability (#+ capability:)]]]
    [data
@@ -23,7 +25,8 @@
      ["f" frac]]
     [collection
      ["." array (#+ Array)]
-     ["." list ("#@." functor)]]]
+     ["." list ("#@." functor)]
+     ["." dictionary (#+ Dictionary)]]]
    [time
     ["." instant (#+ Instant)]
     ["." duration]]
@@ -194,6 +197,7 @@
   [cannot-create-file]
   [cannot-find-file]
   [cannot-delete-file]
+  [not-a-file]
 
   [cannot-create-directory]
   [cannot-find-directory]
@@ -674,3 +678,451 @@
 
           (#try.Failure _)
           (wrap false))))))
+
+(type: Mock-File
+  {#mock-last-modified Instant
+   #mock-can-execute Bit
+   #mock-content Binary})
+
+(type: #rec Mock
+  (Dictionary Text (Either Mock-File Mock)))
+
+(def: empty-mock
+  Mock
+  (dictionary.new text.hash))
+
+(def: (create-mock-file! separator path now mock)
+  (-> Text Path Instant Mock (Try [Text Mock]))
+  (loop [directory mock
+         trail (text.split-all-with separator path)]
+    (case trail
+      (#.Cons head tail)
+      (case (dictionary.get head directory)
+        #.None
+        (case tail
+          #.Nil
+          (#try.Success [head (dictionary.put head
+                                              (#.Left {#mock-last-modified now
+                                                       #mock-can-execute false
+                                                       #mock-content (binary.create 0)})
+                                              directory)])
+
+          (#.Cons _)
+          (exception.throw ..cannot-create-file [path]))
+        
+        (#.Some node)
+        (case [node tail]
+          [(#.Right sub-directory) (#.Cons _)]
+          (do try.monad
+            [[file-name sub-directory] (recur sub-directory tail)]
+            (wrap [file-name (dictionary.put head (#.Right sub-directory) directory)]))
+
+          _
+          (exception.throw ..cannot-create-file [path])))
+
+      #.Nil
+      (exception.throw ..cannot-create-file [path]))))
+
+(def: (retrieve-mock-file! separator path mock)
+  (-> Text Path Mock (Try [Text Mock-File]))
+  (loop [directory mock
+         trail (text.split-all-with separator path)]
+    (case trail
+      (#.Cons head tail)
+      (case (dictionary.get head directory)
+        #.None
+        (exception.throw ..cannot-find-file [path])
+        
+        (#.Some node)
+        (case [node tail]
+          [(#.Left file) #.Nil]
+          (#try.Success [head file])
+
+          [(#.Right sub-directory) (#.Cons _)]
+          (recur sub-directory tail)
+
+          _
+          (exception.throw ..cannot-find-file [path])))
+
+      #.Nil
+      (exception.throw ..not-a-file [path]))))
+
+(def: (update-mock-file! separator path now content mock)
+  (-> Text Path Instant Binary Mock (Try Mock))
+  (loop [directory mock
+         trail (text.split-all-with separator path)]
+    (case trail
+      (#.Cons head tail)
+      (case (dictionary.get head directory)
+        #.None
+        (exception.throw ..cannot-find-file [path])
+        
+        (#.Some node)
+        (case [node tail]
+          [(#.Left file) #.Nil]
+          (#try.Success (dictionary.put head
+                                        (#.Left (|> file
+                                                    (set@ #mock-last-modified now)
+                                                    (set@ #mock-content content)))
+                                        directory))
+
+          [(#.Right sub-directory) (#.Cons _)]
+          (do try.monad
+            [sub-directory (recur sub-directory tail)]
+            (wrap (dictionary.put head (#.Right sub-directory) directory)))
+
+          _
+          (exception.throw ..cannot-find-file [path])))
+
+      #.Nil
+      (exception.throw ..cannot-find-file [path]))))
+
+(def: (delete-mock-file! separator path mock)
+  (-> Text Path Mock (Try Mock))
+  (loop [directory mock
+         trail (text.split-all-with separator path)]
+    (case trail
+      (#.Cons head tail)
+      (case (dictionary.get head directory)
+        #.None
+        (exception.throw ..cannot-delete-file [path])
+        
+        (#.Some node)
+        (case [node tail]
+          [(#.Left file) #.Nil]
+          (#try.Success (dictionary.remove head directory))
+
+          [(#.Right sub-directory) (#.Cons _)]
+          (do try.monad
+            [sub-directory (recur sub-directory tail)]
+            (wrap (dictionary.put head (#.Right sub-directory) directory)))
+
+          _
+          (exception.throw ..cannot-delete-file [path])))
+
+      #.Nil
+      (exception.throw ..cannot-delete-file [path]))))
+
+(def: (try-update! transform var)
+  (All [a] (-> (-> a (Try a)) (Var a) (STM (Try Any))))
+  (do {@ stm.monad}
+    [|var| (stm.read var)]
+    (case (transform |var|)
+      (#try.Success |var|)
+      (do @
+        [_ (stm.write |var| var)]
+        (wrap (#try.Success [])))
+      
+      (#try.Failure error)
+      (wrap (#try.Failure error)))))
+
+(def: (mock-file separator name path store)
+  (-> Text Text Path (Var Mock) (File Promise))
+  (structure
+   (def: name
+     (..can-see
+      (function.constant name)))
+
+   (def: path
+     (..can-see
+      (function.constant path)))
+   
+   (def: size
+     (..can-query
+      (function (_ _)
+        (stm.commit
+         (do stm.monad
+           [|store| (stm.read store)]
+           (wrap (do try.monad
+                   [[name file] (..retrieve-mock-file! separator path |store|)]
+                   (wrap (binary.size (get@ #mock-content file))))))))))
+
+   (def: content
+     (..can-query
+      (function (_ _)
+        (stm.commit
+         (do stm.monad
+           [|store| (stm.read store)]
+           (wrap (do try.monad
+                   [[name file] (..retrieve-mock-file! separator path |store|)]
+                   (wrap (get@ #mock-content file)))))))))
+
+   (def: last-modified
+     (..can-query
+      (function (_ _)
+        (stm.commit
+         (do stm.monad
+           [|store| (stm.read store)]
+           (wrap (do try.monad
+                   [[name file] (..retrieve-mock-file! separator path |store|)]
+                   (wrap (get@ #mock-last-modified file)))))))))
+
+   (def: can-execute?
+     (..can-query
+      (function (_ _)
+        (stm.commit
+         (do stm.monad
+           [|store| (stm.read store)]
+           (wrap (do try.monad
+                   [[name file] (..retrieve-mock-file! separator path |store|)]
+                   (wrap (get@ #mock-can-execute file)))))))))
+
+   (def: over-write
+     (..can-modify
+      (function (_ content)
+        (do promise.monad
+          [now (promise.future instant.now)]
+          (stm.commit
+           (..try-update! (..update-mock-file! separator path now content) store))))))
+
+   (def: append
+     (..can-modify
+      (function (_ content)
+        (do promise.monad
+          [now (promise.future instant.now)]
+          (stm.commit
+           (..try-update! (function (_ |store|)
+                            (do try.monad
+                              [[name file] (..retrieve-mock-file! separator path |store|)]
+                              (..update-mock-file! separator path now
+                                                   (:: binary.monoid compose
+                                                       (get@ #mock-content file)
+                                                       content)
+                                                   |store|)))
+                          store))))))
+
+   (def: modify
+     (..can-modify
+      (function (_ now)
+        (stm.commit
+         (..try-update! (function (_ |store|)
+                          (do try.monad
+                            [[name file] (..retrieve-mock-file! separator path |store|)]
+                            (..update-mock-file! separator path now (get@ #mock-content file) |store|)))
+                        store)))))
+
+   (def: delete
+     (..can-delete
+      (function (_ _)
+        (stm.commit
+         (..try-update! (..delete-mock-file! separator path) store)))))
+
+   (def: move
+     (..can-open
+      (function (_ path)
+        (stm.commit
+         (do {@ stm.monad}
+           [|store| (stm.read store)]
+           (case (do try.monad
+                   [[name file] (..retrieve-mock-file! separator path |store|)
+                    |store| (..delete-mock-file! separator path |store|)
+                    [name |store|] (..create-mock-file! separator path (get@ #mock-last-modified file) |store|)
+                    |store| (..update-mock-file! separator path (get@ #mock-last-modified file) (get@ #mock-content file) |store|)]
+                   (wrap [|store| (mock-file separator name path store)]))
+             (#try.Success [|store| moved])
+             (do @
+               [_ (stm.write |store| store)]
+               (wrap (#try.Success moved)))
+             
+             (#try.Failure error)
+             (wrap (#try.Failure error))))))))
+   ))
+
+(def: (create-mock-directory! separator path mock)
+  (-> Text Path Mock (Try Mock))
+  (loop [directory mock
+         trail (text.split-all-with separator path)]
+    (case trail
+      (#.Cons head tail)
+      (case (dictionary.get head directory)
+        #.None
+        (case tail
+          #.Nil
+          (#try.Success (dictionary.put head (#.Right ..empty-mock) directory))
+
+          (#.Cons _)
+          (exception.throw ..cannot-create-directory [path]))
+        
+        (#.Some node)
+        (case [node tail]
+          [(#.Right sub-directory) (#.Cons _)]
+          (do try.monad
+            [sub-directory (recur sub-directory tail)]
+            (wrap (dictionary.put head (#.Right sub-directory) directory)))
+
+          _
+          (exception.throw ..cannot-create-directory [path])))
+
+      #.Nil
+      (exception.throw ..cannot-create-directory [path]))))
+
+(def: (retrieve-mock-directory! separator path mock)
+  (-> Text Path Mock (Try Mock))
+  (loop [directory mock
+         trail (text.split-all-with separator path)]
+    (case trail
+      (#.Cons head tail)
+      (case (dictionary.get head directory)
+        #.None
+        (exception.throw ..cannot-find-directory [path])
+        
+        (#.Some node)
+        (case [node tail]
+          [(#.Right sub-directory) #.Nil]
+          (#try.Success sub-directory)
+
+          [(#.Right sub-directory) (#.Cons _)]
+          (recur sub-directory tail)
+
+          _
+          (exception.throw ..cannot-find-directory [path])))
+
+      #.Nil
+      (#try.Success directory))))
+
+(def: (delete-mock-directory! separator path mock)
+  (-> Text Path Mock (Try Mock))
+  (loop [directory mock
+         trail (text.split-all-with separator path)]
+    (case trail
+      (#.Cons head tail)
+      (case (dictionary.get head directory)
+        #.None
+        (exception.throw ..cannot-discard-directory [path])
+        
+        (#.Some node)
+        (case [node tail]
+          [(#.Right directory) #.Nil]
+          (if (dictionary.empty? directory)
+            (#try.Success (dictionary.remove head directory))
+            (exception.throw ..cannot-discard-directory [path]))
+
+          [(#.Right sub-directory) (#.Cons _)]
+          (do try.monad
+            [sub-directory (recur sub-directory tail)]
+            (wrap (dictionary.put head (#.Right sub-directory) directory)))
+
+          _
+          (exception.throw ..cannot-discard-directory [path])))
+
+      #.Nil
+      (exception.throw ..cannot-discard-directory [path]))))
+
+(def: (mock-directory separator path store)
+  (-> Text Path (Var Mock) (Directory Promise))
+  (structure
+   (def: files
+     (..can-query
+      (function (_ _)
+        (stm.commit
+         (do stm.monad
+           [|store| (stm.read store)]
+           (wrap (do try.monad
+                   [directory (..retrieve-mock-directory! separator path |store|)]
+                   (wrap (|> directory
+                             dictionary.entries
+                             (list.all (function (_ [node-name node])
+                                         (case node
+                                           (#.Left file)
+                                           (#.Some (..mock-file separator
+                                                                node-name
+                                                                (format path separator node-name)
+                                                                store))
+                                           
+                                           (#.Right directory)
+                                           #.None))))))))))))
+
+   (def: directories
+     (..can-query
+      (function (_ _)
+        (stm.commit
+         (do stm.monad
+           [|store| (stm.read store)]
+           (wrap (do try.monad
+                   [directory (..retrieve-mock-directory! separator path |store|)]
+                   (wrap (|> directory
+                             dictionary.entries
+                             (list.all (function (_ [node-name node])
+                                         (case node
+                                           (#.Left file)
+                                           #.None
+                                           
+                                           (#.Right directory)
+                                           (#.Some (mock-directory separator
+                                                                   (format path separator node-name)
+                                                                   store))))))))))))))
+
+   (def: discard
+     (..can-delete
+      (function (_ _)
+        (stm.commit
+         (do {@ stm.monad}
+           [|store| (stm.read store)]
+           (case (..delete-mock-directory! separator path |store|)
+             (#try.Success |store|)
+             (do @
+               [_ (stm.write |store| store)]
+               (wrap (#try.Success [])))
+             
+             (#try.Failure error)
+             (wrap (#try.Failure error))))))))
+   ))
+
+(def: #export (mock separator)
+  (-> Text (System Promise))
+  (let [store (stm.var ..empty-mock)]
+    (structure
+     (def: separator separator)
+
+     (def: file
+       (..can-open
+        (function (_ path)
+          (stm.commit
+           (do stm.monad
+             [|store| (stm.read store)]
+             (wrap (do try.monad
+                     [[name file] (..retrieve-mock-file! separator path |store|)]
+                     (wrap (..mock-file separator name path store)))))))))
+
+     (def: create-file
+       (..can-open
+        (function (_ path)
+          (do promise.monad
+            [now (promise.future instant.now)]
+            (stm.commit
+             (do {@ stm.monad}
+               [|store| (stm.read store)]
+               (case (..create-mock-file! separator path now |store|)
+                 (#try.Success [name |store|])
+                 (do @
+                   [_ (stm.write |store| store)]
+                   (wrap (#try.Success (..mock-file separator name path store))))
+                 
+                 (#try.Failure error)
+                 (wrap (#try.Failure error)))))))))
+
+     (def: directory
+       (..can-open
+        (function (_ path)
+          (stm.commit
+           (do stm.monad
+             [|store| (stm.read store)]
+             (wrap (do try.monad
+                     [directory (..retrieve-mock-directory! separator path |store|)]
+                     (wrap (..mock-directory separator path store)))))))))
+
+     (def: create-directory
+       (..can-open
+        (function (_ path)
+          (stm.commit
+           (do {@ stm.monad}
+             [|store| (stm.read store)]
+             (case (..create-mock-directory! separator path |store|)
+               (#try.Success _)
+               (do @
+                 [_ (stm.write |store| store)]
+                 (wrap (#try.Success (..mock-directory separator path store))))
+               
+               (#try.Failure error)
+               (wrap (#try.Failure error))))))))
+     )))

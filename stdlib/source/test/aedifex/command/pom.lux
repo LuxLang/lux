@@ -1,0 +1,67 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["." try (#+ Try) ("#@." functor)]
+    [concurrency
+     ["." promise (#+ Promise)]]
+    [security
+     ["!" capability]]]
+   [data
+    ["." binary]
+    ["." text ("#@." equivalence)
+     ["." encoding]]
+    [format
+     ["." xml]]]
+   [math
+    ["." random (#+ Random)]]
+   [world
+    ["." file (#+ File)]]]
+  [///
+   ["@." profile]]
+  {#program
+   ["." /
+    ["//#" /// #_
+     ["#" profile]
+     ["#." action]
+     ["#." pom]]]})
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      (do random.monad
+        [sample @profile.random
+         #let [fs (file.mock (:: file.system separator))]]
+        (wrap (do {@ promise.monad}
+                [outcome (/.do! fs sample)]
+                (case outcome
+                  (#try.Success path)
+                  (do @
+                    [verdict (do ///action.monad
+                               [expected (|> (///pom.write sample)
+                                             (try@map (|>> (:: xml.codec encode) encoding.to-utf8))
+                                             (:: @ wrap))
+                                file (: (Promise (Try (File Promise)))
+                                        (file.get-file promise.monad fs path))
+                                actual (!.use (:: file content) [])
+
+                                #let [expected-path!
+                                      (text@= ///pom.file path)
+
+                                      expected-content!
+                                      (:: binary.equivalence = expected actual)]]
+                               (wrap (and expected-path!
+                                          expected-content!)))]
+                    (_.claim [/.do!]
+                             (try.default false verdict)))
+                  
+                  (#try.Failure error)
+                  (_.claim [/.do!]
+                           (case (get@ #///.identity sample)
+                             (#.Some _)
+                             false
+
+                             #.None
+                             true))))))))

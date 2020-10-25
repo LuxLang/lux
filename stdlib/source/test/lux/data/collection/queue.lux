@@ -1,6 +1,5 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
    [abstract
     [monad (#+ do)]
@@ -9,10 +8,15 @@
       ["$." equivalence]
       ["$." functor (#+ Injection)]]}]
    [data
+    ["." bit ("#@." equivalence)]
+    ["%" text/format (#+ format)]
     [number
-     ["n" nat]]]
+     ["n" nat]]
+    [collection
+     ["." set]
+     ["." list ("#@." monoid)]]]
    [math
-    ["r" random]]]
+    ["." random]]]
   {1
    ["." /]})
 
@@ -22,43 +26,95 @@
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /.Queue)))
-      (do {@ r.monad}
-        [size (:: @ map (n.% 100) r.nat)
-         sample (r.queue size r.nat)
-         non-member (|> r.nat
-                        (r.filter (|>> (/.member? n.equivalence sample) not)))]
+  (<| (_.covering /._)
+      (_.with-cover [/.Queue])
+      (do {@ random.monad}
+        [size (:: @ map (n.% 100) random.nat)
+         members (random.set n.hash size random.nat)
+         non-member (random.filter (|>> (set.member? members) not)
+                                   random.nat)
+         #let [members (set.to-list members)
+               sample (/.from-list members)]]
         ($_ _.and
-            ($equivalence.spec (/.equivalence n.equivalence) (r.queue size r.nat))
-            ($functor.spec ..injection /.equivalence /.functor)
-            
-            (_.test "I can query the size of a queue (and empty queues have size 0)."
-                    (if (n.= 0 size)
-                      (/.empty? sample)
-                      (n.= size (/.size sample))))
-            (_.test "Enqueueing and dequeing affects the size of queues."
-                    (and (n.= (inc size) (/.size (/.push non-member sample)))
-                         (or (/.empty? sample)
-                             (n.= (dec size) (/.size (/.pop sample))))
-                         (n.= size (/.size (/.pop (/.push non-member sample))))))
-            (_.test "Transforming to/from list can't change the queue."
-                    (let [(^open "/;.") (/.equivalence n.equivalence)]
-                      (|> sample
-                          /.to-list /.from-list
-                          (/;= sample))))
-            (_.test "I can always peek at a non-empty queue."
-                    (case (/.peek sample)
-                      #.None     (/.empty? sample)
-                      (#.Some _) #1))
-            (_.test "I can query whether an element belongs to a queue."
-                    (and (not (/.member? n.equivalence sample non-member))
-                         (/.member? n.equivalence (/.push non-member sample)
-                                    non-member)
-                         (case (/.peek sample)
-                           #.None
-                           (/.empty? sample)
-                           
-                           (#.Some first)
-                           (and (/.member? n.equivalence sample first)
-                                (not (/.member? n.equivalence (/.pop sample) first))))))
+            (_.with-cover [/.equivalence]
+              ($equivalence.spec (/.equivalence n.equivalence) (random.queue size random.nat)))
+            (_.with-cover [/.functor]
+              ($functor.spec ..injection /.equivalence /.functor))
+
+            (_.cover [/.from-list /.to-list]
+                     (|> members /.from-list /.to-list
+                         (:: (list.equivalence n.equivalence) = members)))
+            (_.cover [/.size]
+                     (n.= size (/.size sample)))
+            (_.cover [/.empty?]
+                     (bit@= (n.= 0 size) (/.empty? sample)))
+            (_.cover [/.empty]
+                     (let [empty-is-empty!
+                           (/.empty? /.empty)
+
+                           all-empty-queues-look-the-same!
+                           (bit@= (/.empty? sample)
+                                  (:: (/.equivalence n.equivalence) =
+                                      sample
+                                      /.empty))]
+                       (and empty-is-empty!
+                            all-empty-queues-look-the-same!)))
+            (_.cover [/.peek]
+                     (case [members (/.peek sample)]
+                       [(#.Cons head tail) (#.Some first)]
+                       (n.= head first)
+                       
+                       [#.Nil #.None]
+                       true
+
+                       _
+                       false))
+            (_.cover [/.member?]
+                     (let [every-member-is-identified!
+                           (list.every? (/.member? n.equivalence sample)
+                                        (/.to-list sample))
+
+                           non-member-is-not-identified!
+                           (not (/.member? n.equivalence sample non-member))]
+                       (and every-member-is-identified!
+                            non-member-is-not-identified!)))
+            (_.cover [/.push]
+                     (let [pushed (/.push non-member sample)
+
+                           size-increases!
+                           (n.= (inc (/.size sample)) (/.size pushed))
+
+                           new-member-is-identified!
+                           (/.member? n.equivalence pushed non-member)
+
+                           has-expected-order!
+                           (:: (list.equivalence n.equivalence) =
+                               (list@compose (/.to-list sample) (list non-member))
+                               (/.to-list pushed))]
+                       (and size-increases!
+                            new-member-is-identified!
+                            has-expected-order!)))
+            (_.cover [/.pop]
+                     (case members
+                       (#.Cons target expected)
+                       (let [popped (/.pop sample)
+
+                             size-decreases!
+                             (n.= (dec (/.size sample))
+                                  (/.size popped))
+
+                             popped-member-is-not-identified!
+                             (not (/.member? n.equivalence popped target))
+
+                             has-expected-order!
+                             (:: (list.equivalence n.equivalence) =
+                                 expected
+                                 (/.to-list popped))]
+                         (and size-decreases!
+                              popped-member-is-not-identified!
+                              has-expected-order!))
+                       
+                       #.Nil
+                       (and (/.empty? sample)
+                            (/.empty? (/.pop sample)))))
             ))))
