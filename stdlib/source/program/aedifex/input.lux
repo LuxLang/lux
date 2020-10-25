@@ -1,0 +1,59 @@
+(.module:
+  [lux #*
+   [abstract
+    [monad (#+ Monad do)]]
+   [control
+    [pipe (#+ do>)]
+    ["." try (#+ Try)]
+    [parser
+     ["<c>" code]]
+    [security
+     ["!" capability]]]
+   [data
+    [binary (#+ Binary)]
+    ["." text
+     ["." encoding]]]
+   [meta
+    ["." location]]
+   [tool
+    [compiler
+     [language
+      [lux
+       ["." syntax]]]]]
+   [world
+    ["." file]]]
+  ["." // #_
+   ["#" profile (#+ Profile)]
+   ["#." action (#+ Action)]
+   ["#." project (#+ Project)]
+   ["#." parser]])
+
+(def: (parse-lux source-code)
+  (-> Text (Try Code))
+  (let [parse (syntax.parse ""
+                            syntax.no-aliases
+                            (text.size source-code))]
+    (case (parse [location.dummy 0 source-code])
+      (#.Left [_ error])
+      (#try.Failure error)
+      
+      (#.Right [_ lux-code])
+      (#try.Success lux-code))))
+
+(def: parse-project
+  (-> Binary (Try Project))
+  (|>> (do> try.monad
+            [encoding.from-utf8]
+            [..parse-lux]
+            [(list) (<c>.run //parser.project)])))
+
+(def: #export (read monad fs profile)
+  (All [!] (-> (Monad !) (file.System !) Text (! (Try Profile))))
+  (do (try.with monad)
+    [project-file (!.use (:: fs file) //project.file)
+     project-file (!.use (:: project-file content) [])]
+    (:: monad wrap
+        (|> project-file
+            (do> try.monad
+                 [..parse-project]
+                 [(//project.profile profile)])))))

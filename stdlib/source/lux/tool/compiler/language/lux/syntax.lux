@@ -95,8 +95,6 @@
 
 (def: #export prelude "lux")
 
-(def: #export space " ")
-
 (def: #export text-delimiter text.double-quote)
 
 (def: #export open-form "(")
@@ -117,13 +115,13 @@
 
 (def: #export frac-separator ".")
 
-## The parts of an name are separated by a single mark.
+## The parts of a name are separated by a single mark.
 ## E.g. module.short.
 ## Only one such mark may be used in an name, since there
-## can only be 2 parts to an name (the module [before the
+## can only be 2 parts to a name (the module [before the
 ## mark], and the short [after the mark]).
 ## There are also some extra rules regarding name syntax,
-## encoded on the parser.
+## encoded in the parser.
 (def: #export name-separator ".")
 
 (exception: #export (end-of-file {module Text})
@@ -151,7 +149,7 @@
 
 (template: (!failure parser where offset source-code)
   (#.Left [[where offset source-code]
-           (exception.construct unrecognized-input [where (%.name (name-of parser)) source-code offset])]))
+           (exception.construct ..unrecognized-input [where (%.name (name-of parser)) source-code offset])]))
 
 (template: (!end-of-file where offset source-code current-module)
   (#.Left [[where offset source-code]
@@ -174,9 +172,10 @@
   (case <computation>
     (#.Right <binding>)
     <body>
-    
-    (#.Left error)
-    (#.Left error)))
+
+    ## (#.Left error)
+    <<otherwise>>
+    (:assume <<otherwise>>)))
 
 (template: (!horizontal where offset source-code)
   [(update@ #.column inc where)
@@ -277,29 +276,31 @@
       (or (!digit? char)
           ("lux i64 =" (.char (~~ (static ..digit-separator))) char))))
 
-(with-expansions [<clauses> (template [<char>]
-                              [("lux i64 =" (.char (~~ (static <char>))) char)
-                               #0]
+(with-expansions [<non-name-chars> (template [<char>]
+                                     [(~~ (static <char>))]
 
-                              [..space] [text.new-line]
-                              [..name-separator]
-                              [..open-form] [..close-form]
-                              [..open-tuple] [..close-tuple]
-                              [..open-record] [..close-record]
-                              [..text-delimiter]
-                              [..sigil])]
+                                     [text.space]
+                                     [text.new-line]
+                                     [..name-separator]
+                                     [..open-form] [..close-form]
+                                     [..open-tuple] [..close-tuple]
+                                     [..open-record] [..close-record]
+                                     [..text-delimiter]
+                                     [..sigil])]
   (`` (template: (!strict-name-char? char)
-        (cond <clauses>
-              ## else
-              #1))))
+        ("lux syntax char case!" char
+         [[<non-name-chars>]
+          #0]
+
+         ## else
+         #1))))
 
 (template: (!name-char?|head char)
   (and (!strict-name-char? char)
        (not (!digit? char))))
 
 (template: (!name-char? char)
-  (or (!strict-name-char? char)
-      (!digit? char)))
+  (!strict-name-char? char))
 
 (template: (!number-output <start> <end> <codec> <tag>)
   (case (|> source-code
@@ -418,20 +419,20 @@
 (with-expansions [<simple> (as-is (#.Right [source' ["" simple]]))]
   (`` (def: (parse-full-name aliases start source)
         (-> Aliases Offset (Parser Name))
-        (!letE [source' simple] (..parse-name-part start source)
-               (let [[where' offset' source-code'] source']
-                 (<| (!with-char source-code' offset' char/separator <simple>)
-                     (if (!n/= (char (~~ (static ..name-separator))) char/separator)
-                       (let [offset'' (!inc offset')]
-                         (!letE [source'' complex] (..parse-name-part offset'' [(!forward 1 where') offset'' source-code'])
-                                (if ("lux text =" "" complex)
-                                  (let [[where offset source-code] source]
-                                    (!failure ..parse-full-name where offset source-code))
-                                  (#.Right [source'' [(|> aliases
-                                                          (dictionary.get simple)
-                                                          (maybe.default simple))
-                                                      complex]]))))
-                       <simple>)))))))
+        (<| (!letE [source' simple] (..parse-name-part start source))
+            (let [[where' offset' source-code'] source'])
+            (!with-char source-code' offset' char/separator <simple>)
+            (if (!n/= (char (~~ (static ..name-separator))) char/separator)
+              (let [offset'' (!inc offset')]
+                (!letE [source'' complex] (..parse-name-part offset'' [(!forward 1 where') offset'' source-code'])
+                       (if ("lux text =" "" complex)
+                         (let [[where offset source-code] source]
+                           (!failure ..parse-full-name where offset source-code))
+                         (#.Right [source'' [(|> aliases
+                                                 (dictionary.get simple)
+                                                 (maybe.default simple))
+                                             complex]]))))
+              <simple>)))))
 
 (template: (!parse-full-name @offset @source @where @aliases @tag)
   (!letE [source' full-name] (..parse-full-name @aliases @offset @source)
@@ -470,9 +471,9 @@
                                              [..open-tuple ..close-tuple parse-tuple]
                                              [..open-record ..close-record parse-record]
                                              )]
-              ## TODO: Add ..space as just another case for "lux syntax char case!" ASAP.
-              ## It"s currently failing for some reason.
-              (`` (if (!n/= (char (~~ (static ..space))) char/0)
+              ## TODO: Add text.space as just another case for "lux syntax char case!" ASAP.
+              ## It's currently failing for some reason.
+              (`` (if (!n/= (char (~~ (static text.space))) char/0)
                     <horizontal-move>
                     ("lux syntax char case!" char/0
                      [[(~~ (static text.carriage-return))]
@@ -523,7 +524,7 @@
                                    ## else
                                    (!failure ..parse where offset/0 source-code)))))
 
-                      ## Coincidentally (= name-separator frac-separator)
+                      ## Coincidentally (= ..name-separator ..frac-separator)
                       [(~~ (static ..name-separator))]
                       (let [offset/1 (!inc offset/0)]
                         (<| (!with-char+ source-code//size source-code offset/1 char/1

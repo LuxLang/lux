@@ -1,6 +1,5 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
    [abstract
     [monad (#+ do)]
@@ -13,69 +12,176 @@
       ["$." apply]
       ["$." monad]]}]
    [control
-    ["." try]]
+    ["." try (#+ Try)]
+    ["." exception]]
    [data
+    ["." bit ("#@." equivalence)]
     [number
      ["n" nat]]
     [collection
-     ["." list ("#@." fold)]]]
+     ["." list ("#@." fold)]
+     ["." set]]]
    [math
-    ["r" random]]]
+    ["." random]]]
   {1
    ["." / ("#@." monad)]})
 
+(def: signatures
+  Test
+  (do {@ random.monad}
+    [size (:: @ map (n.% 100) random.nat)]
+    ($_ _.and
+        (_.with-cover [/.equivalence]
+          ($equivalence.spec (/.equivalence n.equivalence) (random.row size random.nat)))
+        (_.with-cover [/.monoid]
+          ($monoid.spec (/.equivalence n.equivalence) /.monoid (random.row size random.nat)))
+        (_.with-cover [/.fold]
+          ($fold.spec /@wrap /.equivalence /.fold))
+        (_.with-cover [/.functor]
+          ($functor.spec /@wrap /.equivalence /.functor))
+        (_.with-cover [/.apply]
+          ($apply.spec /@wrap /.equivalence /.apply))
+        (_.with-cover [/.monad]
+          ($monad.spec /@wrap /.equivalence /.monad))
+        )))
+
+(def: whole
+  Test
+  (do {@ random.monad}
+    [size (:: @ map (n.% 100) random.nat)
+     sample (random.set n.hash size random.nat)
+     #let [sample (|> sample set.to-list /.from-list)]
+     #let [(^open "/@.") (/.equivalence n.equivalence)]]
+    ($_ _.and
+        (_.cover [/.size]
+                 (n.= size (/.size sample)))
+        (_.cover [/.empty?]
+                 (bit@= (/.empty? sample) (n.= 0 (/.size sample))))
+        (_.cover [/.empty]
+                 (/.empty? /.empty))
+        (_.cover [/.to-list /.from-list]
+                 (|> sample /.to-list /.from-list (/@= sample)))
+        (_.cover [/.reverse]
+                 (or (n.< 2 (/.size sample))
+                     (let [not-same!
+                           (not (/@= sample
+                                     (/.reverse sample)))
+
+                           self-symmetry!
+                           (/@= sample
+                                (/.reverse (/.reverse sample)))]
+                       (and not-same!
+                            self-symmetry!))))
+        (_.cover [/.every? /.any?]
+                 (if (/.every? n.even? sample)
+                   (not (/.any? (bit.complement n.even?) sample))
+                   (/.any? (bit.complement n.even?) sample)))
+        )))
+
+(def: index-based
+  Test
+  (do {@ random.monad}
+    [size (:: @ map (|>> (n.% 100) inc) random.nat)]
+    ($_ _.and
+        (do @
+          [good-index (|> random.nat (:: @ map (n.% size)))
+           #let [bad-index (n.+ size good-index)]
+           sample (random.set n.hash size random.nat)
+           non-member (random.filter (|>> (set.member? sample) not)
+                                     random.nat)
+           #let [sample (|> sample set.to-list /.from-list)]]
+          ($_ _.and
+              (_.cover [/.nth]
+                       (case (/.nth good-index sample)
+                         (#try.Success member)
+                         (/.member? n.equivalence sample member)
+                         
+                         (#try.Failure error)
+                         false))
+              (_.cover [/.put]
+                       (<| (try.default false)
+                           (do try.monad
+                             [sample (/.put good-index non-member sample)
+                              actual (/.nth good-index sample)]
+                             (wrap (is? non-member actual)))))
+              (_.cover [/.update]
+                       (<| (try.default false)
+                           (do try.monad
+                             [sample (/.put good-index non-member sample)
+                              sample (/.update good-index inc sample)
+                              actual (/.nth good-index sample)]
+                             (wrap (n.= (inc non-member) actual)))))
+              (_.cover [/.within-bounds?]
+                       (and (/.within-bounds? sample good-index)
+                            (not (/.within-bounds? sample bad-index))))
+              (_.cover [/.index-out-of-bounds]
+                       (let [fails! (: (All [a] (-> (Try a) Bit))
+                                       (function (_ situation)
+                                         (case situation
+                                           (#try.Success member)
+                                           false
+                                           
+                                           (#try.Failure error)
+                                           (exception.match? /.index-out-of-bounds error))))]
+                         (and (fails! (/.nth bad-index sample))
+                              (fails! (/.put bad-index non-member sample))
+                              (fails! (/.update bad-index inc sample)))))
+              ))
+        )))
+
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /._)))
-      (do {@ r.monad}
-        [size (|> r.nat (:: @ map (|>> (n.% 100) (n.max 10))))]
+  (<| (_.covering /._)
+      (_.with-cover [/.Row])
+      (do {@ random.monad}
+        [size (:: @ map (|>> (n.% 100) inc) random.nat)]
         ($_ _.and
-            ($equivalence.spec (/.equivalence n.equivalence) (r.row size r.nat))
-            ($monoid.spec (/.equivalence n.equivalence) /.monoid (r.row size r.nat))
-            ($fold.spec /@wrap /.equivalence /.fold)
-            ($functor.spec /@wrap /.equivalence /.functor)
-            ($apply.spec /@wrap /.equivalence /.apply)
-            ($monad.spec /@wrap /.equivalence /.monad)
+            ..signatures
+            ..whole
+            ..index-based
 
             (do @
-              [idx (|> r.nat (:: @ map (n.% size)))
-               sample (r.row size r.nat)
-               other-sample (r.row size r.nat)
-               non-member (|> r.nat (r.filter (|>> (/.member? n.equivalence sample) not)))
+              [sample (random.set n.hash size random.nat)
+               non-member (random.filter (|>> (set.member? sample) not)
+                                         random.nat)
+               #let [sample (|> sample set.to-list /.from-list)]
                #let [(^open "/@.") (/.equivalence n.equivalence)]]
               ($_ _.and
-                  (_.test (format (%.name (name-of /.size))
-                                  " " (%.name (name-of /.empty?)))
-                          (if (/.empty? sample)
-                            (and (n.= 0 size)
-                                 (n.= 0 (/.size sample)))
-                            (n.= size (/.size sample))))
-                  (_.test (format (%.name (name-of /.add))
-                                  " " (%.name (name-of /.pop)))
-                          (and (n.= (inc size) (/.size (/.add non-member sample)))
-                               (n.= (dec size) (/.size (/.pop sample)))))
-                  (_.test (format (%.name (name-of /.put))
-                                  " &&& " (%.name (name-of /.nth)))
-                          (|> sample
-                              (/.put idx non-member) try.assume
-                              (/.nth idx) try.assume
-                              (is? non-member)))
-                  (_.test (%.name (name-of /.update))
-                          (|> sample
-                              (/.put idx non-member) try.assume
-                              (/.update idx inc) try.assume
-                              (/.nth idx) try.assume
-                              (n.= (inc non-member))))
-                  (_.test (format (%.name (name-of /.to-list))
-                                  " &&& " (%.name (name-of /.from-list)))
-                          (|> sample /.to-list /.from-list (/@= sample)))
-                  (_.test (%.name (name-of /.member?))
-                          (and (not (/.member? n.equivalence sample non-member))
-                               (/.member? n.equivalence (/.add non-member sample) non-member)))
-                  (_.test (%.name (name-of /.reverse))
-                          (and (not (/@= sample
-                                         (/.reverse sample)))
-                               (/@= sample
-                                    (/.reverse (/.reverse sample)))))
+                  (do @
+                    [value/0 random.nat
+                     value/1 random.nat
+                     value/2 random.nat]
+                    (_.cover [/.row]
+                             (/@= (/.from-list (list value/0 value/1 value/2))
+                                  (/.row value/0 value/1 value/2))))
+                  (_.cover [/.member?]
+                           (and (list.every? (/.member? n.equivalence sample)
+                                             (/.to-list sample))
+                                (not (/.member? n.equivalence sample non-member))))
+                  (_.cover [/.add]
+                           (let [added (/.add non-member sample)
+
+                                 size-increases!
+                                 (n.= (inc (/.size sample))
+                                      (/.size added))
+
+                                 is-a-member!
+                                 (/.member? n.equivalence added non-member)]
+                             (and size-increases!
+                                  is-a-member!)))
+                  (_.cover [/.pop]
+                           (if (/.empty? sample)
+                             (/.empty? (/.pop sample))
+                             (let [expected-size!
+                                   (n.= (dec (/.size sample))
+                                        (/.size (/.pop sample)))
+
+                                   symmetry!
+                                   (|> sample
+                                       (/.add non-member)
+                                       /.pop
+                                       (/@= sample))]
+                               (and expected-size!
+                                    symmetry!))))
                   ))
             ))))
