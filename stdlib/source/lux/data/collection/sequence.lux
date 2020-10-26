@@ -4,79 +4,72 @@
     [functor (#+ Functor)]
     [comonad (#+ CoMonad)]]
    [control
-    ["." continuation (#+ Cont pending)]
-    ["p" parser
-     ["s" code (#+ Parser)]]]
+    ["//" continuation (#+ Cont)]
+    ["<>" parser
+     ["<.>" code (#+ Parser)]]]
    [meta (#+ with-gensyms)]
    [macro
-    ["." code]
-    [syntax (#+ syntax:)]]
+    [syntax (#+ syntax:)]
+    ["." code]]
    [data
     ["." bit]
     [number
      ["n" nat]]
     [collection
-     ["." list ("#;." monad)]]]])
+     ["." list ("#@." monad)]]]])
 
 (type: #export (Sequence a)
   {#.doc "An infinite sequence of values."}
   (Cont [a (Sequence a)]))
 
-(def: (cycle' x xs init full)
-  (All [a]
-    (-> a (List a) a (List a) (Sequence a)))
-  (case xs
-    #.Nil
-    (pending [x (cycle' init full init full)])
-    
-    (#.Cons x' xs')
-    (pending [x (cycle' x' xs' init full)])))
-
 (def: #export (iterate f x)
   {#.doc "Create a sequence by applying a function to a value, and to its result, on and on..."}
   (All [a]
     (-> (-> a a) a (Sequence a)))
-  (pending [x (iterate f (f x))]))
+  (//.pending [x (iterate f (f x))]))
 
 (def: #export (repeat x)
   {#.doc "Repeat a value forever."}
   (All [a]
     (-> a (Sequence a)))
-  (pending [x (repeat x)]))
+  (//.pending [x (repeat x)]))
 
-(def: #export (cycle xs)
+(def: #export (cycle [start next])
   {#.doc (doc "Go over the elements of a list forever."
               "The list should not be empty.")}
   (All [a]
-    (-> (List a) (Maybe (Sequence a))))
-  (case xs
-    #.Nil
-    #.None
-    
-    (#.Cons x xs')
-    (#.Some (cycle' x xs' x xs'))))
+    (-> [a (List a)] (Sequence a)))
+  (loop [head start
+         tail next]
+    (//.pending [head (case tail
+                        #.Nil
+                        (recur start next)
+                        
+                        (#.Cons head' tail')
+                        (recur head' tail'))])))
 
-(template [<name> <return> <part>]
-  [(def: #export (<name> s)
+(template [<name> <return>]
+  [(def: #export (<name> sequence)
      (All [a] (-> (Sequence a) <return>))
-     (let [[h t] (continuation.run s)]
-       <part>))]
+     (let [[head tail] (//.run sequence)]
+       <name>))]
 
-  [head a          h]
-  [tail (Sequence a) t])
+  [head a]
+  [tail (Sequence a)]
+  )
 
-(def: #export (nth idx s)
+(def: #export (nth idx sequence)
   (All [a] (-> Nat (Sequence a) a))
-  (let [[h t] (continuation.run s)]
-    (if (n.> 0 idx)
-      (nth (dec idx) t)
-      h)))
+  (let [[head tail] (//.run sequence)]
+    (case idx
+      0 head
+      _ (nth (dec idx) tail))))
 
 (template [<taker> <dropper> <splitter> <pred-type> <pred-test> <pred-step>]
   [(def: #export (<taker> pred xs)
      (All [a]
        (-> <pred-type> (Sequence a) (List a)))
-     (let [[x xs'] (continuation.run xs)]
+     (let [[x xs'] (//.run xs)]
        (if <pred-test>
          (list& x (<taker> <pred-step> xs'))
          (list))))
@@ -84,7 +77,7 @@
    (def: #export (<dropper> pred xs)
      (All [a]
        (-> <pred-type> (Sequence a) (Sequence a)))
-     (let [[x xs'] (continuation.run xs)]
+     (let [[x xs'] (//.run xs)]
        (if <pred-test>
          (<dropper> <pred-step> xs')
          xs)))
@@ -92,13 +85,13 @@
    (def: #export (<splitter> pred xs)
      (All [a]
        (-> <pred-type> (Sequence a) [(List a) (Sequence a)]))
-     (let [[x xs'] (continuation.run xs)]
+     (let [[x xs'] (//.run xs)]
        (if <pred-test>
          (let [[tail next] (<splitter> <pred-step> xs')]
            [(#.Cons [x tail]) next])
          [(list) xs])))]
   
-  [take-while drop-while split-while (-> a Bit) (pred x)      pred]
+  [take-while drop-while split-while (-> a Bit) (pred x)     pred]
   [take       drop       split       Nat        (n.> 0 pred) (dec pred)]
   )
 
@@ -107,14 +100,14 @@
   (All [a b]
     (-> (-> a [a b]) a (Sequence b)))
   (let [[next x] (step init)]
-    (pending [x (unfold step next)])))
+    (//.pending [x (unfold step next)])))
 
-(def: #export (filter p xs)
+(def: #export (filter predicate sequence)
   (All [a] (-> (-> a Bit) (Sequence a) (Sequence a)))
-  (let [[x xs'] (continuation.run xs)]
-    (if (p x)
-      (pending [x (filter p xs')])
-      (filter p xs'))))
+  (let [[head tail] (//.run sequence)]
+    (if (predicate head)
+      (//.pending [head (filter predicate tail)])
+      (filter predicate tail))))
 
 (def: #export (partition left? xs)
   {#.doc (doc "Split a sequence in two based on a predicate."
@@ -123,29 +116,35 @@
   (All [a] (-> (-> a Bit) (Sequence a) [(Sequence a) (Sequence a)]))
   [(filter left? xs) (filter (bit.complement left?) xs)])
 
-(structure: #export functor (Functor Sequence)
+(structure: #export functor
+  (Functor Sequence)
+  
   (def: (map f fa)
-    (let [[h t] (continuation.run fa)]
-      (pending [(f h) (map f t)]))))
+    (let [[head tail] (//.run fa)]
+      (//.pending [(f head) (map f tail)]))))
 
-(structure: #export comonad (CoMonad Sequence)
+(structure: #export comonad
+  (CoMonad Sequence)
+  
   (def: &functor ..functor)
+  
   (def: unwrap head)
+  
   (def: (split wa)
-    (let [[head tail] (continuation.run wa)]
-      (pending [wa (split tail)]))))
+    (let [[head tail] (//.run wa)]
+      (//.pending [wa (split tail)]))))
 
-(syntax: #export (^sequence& {patterns (s.form (p.many s.any))}
+(syntax: #export (^sequence& {patterns (<code>.form (<>.many <code>.any))}
                              body
-                             {branches (p.some s.any)})
+                             {branches (<>.some <code>.any)})
   {#.doc (doc "Allows destructuring of sequences in pattern-matching expressions."
               "Caveat emptor: Only use it for destructuring, and not for testing values within the sequences."
               (let [(^sequence& x y z _tail) (some-sequence-func +1 +2 +3)]
                 (func x y z)))}
   (with-gensyms [g!sequence]
-    (let [body+ (` (let [(~+ (list;join (list;map (function (_ pattern)
+    (let [body+ (` (let [(~+ (list@join (list@map (function (_ pattern)
                                                     (list (` [(~ pattern) (~ g!sequence)])
-                                                          (` ((~! continuation.run) (~ g!sequence)))))
+                                                          (` ((~! //.run) (~ g!sequence)))))
                                                   patterns)))]
                      (~ body)))]
       (wrap (list& g!sequence body+ branches)))))

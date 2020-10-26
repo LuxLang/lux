@@ -1,102 +1,116 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
    [abstract
-    comonad
+    [comonad (#+)]
     [functor (#+)]
     [monad (#+ do)]
-    ["." enum]]
+    [equivalence (#+ Equivalence)]
+    ["." enum]
+    {[0 #spec]
+     [/
+      ["$." functor]
+      ["$." comonad]]}]
    [data
-    ["." maybe]
     [number
-     ["n" nat ("#@." decimal)]]
-    ["." text ("#@." monoid)]
+     ["n" nat]]
+    ["." text
+     ["%" format (#+ format)]]
     [collection
-     ["." list]]]
+     ["." list ("#@." functor)]]]
    [math
-    ["r" random]]]
+    ["." random]]]
   {1
    ["." /]})
 
+(structure: (equivalence super)
+  (All [a] (-> (Equivalence a) (Equivalence (/.Sequence a))))
+
+  (def: (= reference subject)
+    (:: (list.equivalence super) =
+        (/.take 100 reference)
+        (/.take 100 subject))))
+
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /.Sequence)))
-      (do {@ r.monad}
-        [size (|> r.nat (:: @ map (|>> (n.% 100) (n.max 2))))
-         offset (|> r.nat (:: @ map (n.% 100)))
-         factor (|> r.nat (:: @ map (|>> (n.% 100) (n.max 2))))
-         elem r.nat
-         cycle-seed (r.list size r.nat)
-         cycle-sample-idx (|> r.nat (:: @ map (n.% 1000)))
-         #let [(^open "list@.") (list.equivalence n.equivalence)
-               sample0 (/.iterate inc 0)
-               sample1 (/.iterate inc offset)]]
+  (<| (_.covering /._)
+      (_.with-cover [/.Sequence])
+      (let [(^open "list@.") (list.equivalence n.equivalence)])
+      (do {@ random.monad}
+        [repeated random.nat
+         index (:: @ map (n.% 100) random.nat)
+         size (:: @ map (|>> (n.% 10) inc) random.nat)
+         offset (:: @ map (n.% 100) random.nat)
+         cycle-start random.nat
+         cycle-next (random.list size random.nat)]
         ($_ _.and
-            (_.test "Can move along a sequence and take slices off it."
-                    (and (and (list@= (enum.range n.enum 0 (dec size))
-                                      (/.take size sample0))
-                              (list@= (enum.range n.enum offset (dec (n.+ offset size)))
-                                      (/.take size (/.drop offset sample0)))
-                              (let [[drops takes] (/.split size sample0)]
-                                (and (list@= (enum.range n.enum 0 (dec size))
-                                             drops)
-                                     (list@= (enum.range n.enum size (dec (n.* 2 size)))
-                                             (/.take size takes)))))
-                         (and (list@= (enum.range n.enum 0 (dec size))
-                                      (/.take-while (n.< size) sample0))
-                              (list@= (enum.range n.enum offset (dec (n.+ offset size)))
-                                      (/.take-while (n.< (n.+ offset size))
-                                                    (/.drop-while (n.< offset) sample0)))
-                              (let [[drops takes] (/.split-while (n.< size) sample0)]
-                                (and (list@= (enum.range n.enum 0 (dec size))
-                                             drops)
-                                     (list@= (enum.range n.enum size (dec (n.* 2 size)))
-                                             (/.take-while (n.< (n.* 2 size)) takes)))))
-                         ))
-            (_.test "Can repeat any element and infinite number of times."
-                    (n.= elem (/.nth offset (/.repeat elem))))
-            (_.test "Can obtain the head & tail of a sequence."
-                    (and (n.= offset (/.head sample1))
-                         (list@= (enum.range n.enum (inc offset) (n.+ offset size))
-                                 (/.take size (/.tail sample1)))))
-            (_.test "Can filter sequences."
-                    (and (n.= (n.* 2 offset)
-                              (/.nth offset
-                                     (/.filter n.even? sample0)))
-                         (let [[evens odds] (/.partition n.even? (/.iterate inc 0))]
-                           (and (n.= (n.* 2 offset)
-                                     (/.nth offset evens))
-                                (n.= (inc (n.* 2 offset))
-                                     (/.nth offset odds))))))
-            (_.test "Functor goes over 'all' elements in a sequence."
-                    (let [(^open "/@.") /.functor
-                          there (/@map (n.* factor) sample0)
-                          back-again (/@map (n./ factor) there)]
-                      (and (not (list@= (/.take size sample0)
-                                        (/.take size there)))
-                           (list@= (/.take size sample0)
-                                   (/.take size back-again)))))
-            (_.test "CoMonad produces a value for every element in a sequence."
-                    (let [(^open "/@.") /.functor]
-                      (list@= (/.take size (/@map (n.* factor) sample1))
-                              (/.take size
-                                      (be /.comonad
-                                        [inputs sample1]
-                                        (n.* factor (/.head inputs)))))))
-            (_.test "'unfold' generalizes 'iterate'."
-                    (let [(^open "/@.") /.functor
-                          (^open "list@.") (list.equivalence text.equivalence)]
-                      (list@= (/.take size
-                                      (/@map n@encode (/.iterate inc offset)))
-                              (/.take size
-                                      (/.unfold (function (_ n) [(inc n) (n@encode n)])
-                                                offset)))))
-            (_.test "Can cycle over the same elements as an infinite sequence."
-                    (|> (/.cycle cycle-seed)
-                        maybe.assume
-                        (/.nth cycle-sample-idx)
-                        (n.= (|> cycle-seed
-                                 (list.nth (n.% size cycle-sample-idx))
-                                 maybe.assume))))
+            (_.with-cover [/.functor]
+              ($functor.spec /.repeat ..equivalence /.functor))
+            (_.with-cover [/.comonad]
+              ($comonad.spec /.repeat ..equivalence /.comonad))
+            
+            (_.cover [/.iterate /.nth]
+                     (n.= (n.+ offset index)
+                          (/.nth index (/.iterate inc offset))))
+            (_.cover [/.repeat]
+                     (n.= repeated
+                          (/.nth index (/.repeat repeated))))
+            (_.cover [/.take]
+                     (list@= (enum.range n.enum offset (dec (n.+ size offset)))
+                             (/.take size (/.iterate inc offset))))
+            (_.cover [/.drop]
+                     (list@= (enum.range n.enum offset (dec (n.+ size offset)))
+                             (/.take size (/.drop offset (/.iterate inc 0)))))
+            (_.cover [/.split]
+                     (let [[drops takes] (/.split size (/.iterate inc 0))]
+                       (and (list@= (enum.range n.enum 0 (dec size))
+                                    drops)
+                            (list@= (enum.range n.enum size (dec (n.* 2 size)))
+                                    (/.take size takes)))))
+            (_.cover [/.take-while]
+                     (list@= (enum.range n.enum 0 (dec size))
+                             (/.take-while (n.< size) (/.iterate inc 0))))
+            (_.cover [/.drop-while]
+                     (list@= (enum.range n.enum offset (dec (n.+ size offset)))
+                             (/.take-while (n.< (n.+ size offset))
+                                           (/.drop-while (n.< offset) (/.iterate inc 0)))))
+            (_.cover [/.split-while]
+                     (let [[drops takes] (/.split-while (n.< size) (/.iterate inc 0))]
+                       (and (list@= (enum.range n.enum 0 (dec size))
+                                    drops)
+                            (list@= (enum.range n.enum size (dec (n.* 2 size)))
+                                    (/.take-while (n.< (n.* 2 size)) takes)))))
+            (_.cover [/.head]
+                     (n.= offset
+                          (/.head (/.iterate inc offset))))
+            (_.cover [/.tail]
+                     (list@= (enum.range n.enum (inc offset) (n.+ size offset))
+                             (/.take size (/.tail (/.iterate inc offset)))))
+            (_.cover [/.filter]
+                     (list@= (list@map (n.* 2) (enum.range n.enum 0 (dec size)))
+                             (/.take size (/.filter n.even? (/.iterate inc 0)))))
+            (_.cover [/.partition]
+                     (let [[evens odds] (/.partition n.even? (/.iterate inc 0))]
+                       (and (n.= (n.* 2 offset)
+                                 (/.nth offset evens))
+                            (n.= (inc (n.* 2 offset))
+                                 (/.nth offset odds)))))
+            (_.cover [/.unfold]
+                     (let [(^open "/@.") /.functor
+                           (^open "list@.") (list.equivalence text.equivalence)]
+                       (list@= (/.take size
+                                       (/@map %.nat (/.iterate inc offset)))
+                               (/.take size
+                                       (/.unfold (function (_ n) [(inc n) (%.nat n)])
+                                                 offset)))))
+            (_.cover [/.cycle]
+                     (let [cycle (list& cycle-start cycle-next)]
+                       (list@= (list.concat (list.repeat size cycle))
+                               (/.take (n.* size (list.size cycle))
+                                       (/.cycle [cycle-start cycle-next])))))
+            (_.cover [/.^sequence&]
+                     (let [(/.^sequence& first second third next) (/.iterate inc offset)]
+                       (and (n.= offset first)
+                            (n.= (n.+ 1 offset) second)
+                            (n.= (n.+ 2 offset) third))))
             ))))

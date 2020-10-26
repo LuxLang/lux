@@ -26,7 +26,9 @@
      ["." tar]
      ["." xml]]]
    [world
-    ["." file (#+ Path File Directory)]]]
+    ["." file (#+ Path File Directory)]
+    [net
+     ["." uri]]]]
   [program
    [compositor
     ["." export]]]
@@ -40,31 +42,17 @@
    ["#." dependency (#+ Dependency)
     ["#/." resolution (#+ Package Resolution)]]])
 
-(def: (local system)
-  (All [a] (-> (file.System a) Path))
-  (format "~" (:: system separator) ".m2"))
-
 (def: (repository system)
   (All [a] (-> (file.System a) Path))
-  (format (..local system) (:: system separator) "repository"))
+  (let [/ (:: system separator)]
+    (format "~" / ".m2" / "repository")))
 
-(def: (guarantee-repository! system artifact)
-  (-> (file.System Promise) Artifact (Promise (Try Path)))
-  (do {@ (try.with promise.monad)}
-    [_ (: (Promise (Try (Directory Promise)))
-          (file.get-directory promise.monad system (..local system)))
-     #let [root (..repository system)]
-     _ (: (Promise (Try (Directory Promise)))
-          (file.get-directory promise.monad system root))]
-    (monad.fold @
-                (function (_ child parent)
-                  (do @
-                    [#let [path (format parent (:: system separator) child)]
-                     _ (: (Promise (Try (Directory Promise)))
-                          (file.get-directory promise.monad system path))]
-                    (wrap path)))
-                root
-                (//artifact.local artifact))))
+(def: #export (path system artifact)
+  (All [a] (-> (file.System a) Artifact Path))
+  (format (..repository system)
+          (:: system separator)
+          (text.replace-all uri.separator (:: system separator)
+                            (//artifact.path artifact))))
 
 (def: (save! system content file)
   (-> (file.System Promise) Binary Path (Promise (Try Any)))
@@ -78,7 +66,8 @@
   (case (get@ #/.identity profile)
     (#.Some identity)
     (do (try.with promise.monad)
-      [repository (..guarantee-repository! system identity)
+      [repository (: (Promise (Try Path))
+                     (file.make-directories promise.monad system (..path system identity)))
        #let [artifact-name (format repository (:: system separator) (//artifact.identity identity))]
        package (export.library system (set.to-list (get@ #/.sources profile)))
        _ (..save! system (binary.run tar.writer package)
@@ -93,7 +82,8 @@
 (def: #export (cache system [artifact type] package)
   (-> (file.System Promise) Dependency Package (Promise (Try Any)))
   (do (try.with promise.monad)
-    [directory (..guarantee-repository! system artifact)
+    [directory (: (Promise (Try Path))
+                  (file.make-directories promise.monad system (..path system artifact)))
      #let [prefix (format directory (:: system separator) (//artifact.identity artifact))]
      directory (: (Promise (Try (Directory Promise)))
                   (file.get-directory promise.monad system directory))
@@ -129,7 +119,8 @@
 (def: #export (cached system [artifact type])
   (-> (file.System Promise) Dependency (Promise (Try Package)))
   (do (try.with promise.monad)
-    [directory (..guarantee-repository! system artifact)
+    [directory (: (Promise (Try Path))
+                  (file.make-directories promise.monad system (..path system artifact)))
      #let [prefix (format directory (:: system separator) (//artifact.identity artifact))]
      pom (..read! system (format prefix //artifact/extension.pom))
      [pom dependencies] (:: promise.monad wrap
@@ -175,9 +166,3 @@
           
           (#try.Failure error)
           <next>)))))
-
-(def: #export (path system artifact)
-  (All [a] (-> (file.System a) Artifact Path))
-  (format (..repository system)
-          (:: system separator)
-          (//artifact.identity artifact)))
