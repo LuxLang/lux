@@ -9,66 +9,108 @@
       ["$." equivalence]
       ["$." monoid]]}]
    [data
+    ["." bit ("#@." equivalence)]
     [number
      ["n" nat]]
     [collection
      ["." list]]]
    [math
-    ["r" random]]]
+    ["." random (#+ Random)]]]
   {1
    ["." /]})
 
 (def: gen-nat
-  (r.Random Nat)
-  (|> r.nat
-      (:: r.monad map (n.% 100))))
+  (Random Nat)
+  (:: random.monad map (n.% 100)
+      random.nat))
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /.Set)))
-      (do r.monad
-        [size gen-nat]
+  (<| (_.covering /._)
+      (_.with-cover [/.Set])
+      (let [(^open "/@.") /.equivalence])
+      (do random.monad
+        [size ..gen-nat]
         ($_ _.and
-            ($equivalence.spec /.equivalence (r.set n.hash size r.nat))
-            ($monoid.spec /.equivalence (/.monoid n.hash) (r.set n.hash size r.nat))
+            (_.with-cover [/.equivalence]
+              ($equivalence.spec /.equivalence (random.set n.hash size random.nat)))
+            (_.with-cover [/.monoid]
+              ($monoid.spec /.equivalence (/.monoid n.hash) (random.set n.hash size random.nat)))
 
-            (do r.monad
-              [sizeL gen-nat
-               sizeR gen-nat
-               setL (r.set n.hash sizeL gen-nat)
-               setR (r.set n.hash sizeR gen-nat)
-               non-member (|> gen-nat
-                              (r.filter (|>> (/.member? setL) not)))
-               #let [(^open "/@.") /.equivalence]]
+            (do random.monad
+              [sizeL ..gen-nat
+               sizeR ..gen-nat
+               setL (random.set n.hash sizeL random.nat)
+               setR (random.set n.hash sizeR random.nat)
+               non-memberL (random.filter (|>> (/.member? setL) not)
+                                          random.nat)]
               ($_ _.and
-                  (_.test "I can query the size of a set."
-                          (and (n.= sizeL (/.size setL))
-                               (n.= sizeR (/.size setR))))
-                  (_.test "Converting sets to/from lists can't change their values."
-                          (|> setL
-                              /.to-list (/.from-list n.hash)
-                              (/@= setL)))
-                  (_.test "Every set is a sub-set of the union of itself with another."
-                          (let [setLR (/.union setL setR)]
-                            (and (/.sub? setLR setL)
-                                 (/.sub? setLR setR))))
-                  (_.test "Every set is a super-set of the intersection of itself with another."
-                          (let [setLR (/.intersection setL setR)]
-                            (and (/.super? setLR setL)
-                                 (/.super? setLR setR))))
-                  (_.test "Union with the empty set leaves a set unchanged."
-                          (/@= setL
-                               (/.union (/.new n.hash)
-                                        setL)))
-                  (_.test "Intersection with the empty set results in the empty set."
-                          (let [empty-set (/.new n.hash)]
-                            (/@= empty-set
-                                 (/.intersection empty-set setL))))
-                  (_.test "After substracting a set A from another B, no member of A can be a member of B."
-                          (let [sub (/.difference setR setL)]
-                            (not (list.any? (/.member? sub) (/.to-list setR)))))
-                  (_.test "Every member of a set must be identifiable."
-                          (and (not (/.member? setL non-member))
-                               (/.member? (/.add non-member setL) non-member)
-                               (not (/.member? (/.remove non-member (/.add non-member setL)) non-member))))
+                  (_.cover [/.size]
+                           (n.= sizeL (/.size setL)))
+                  (_.cover [/.empty?]
+                           (bit@= (/.empty? setL)
+                                  (n.= 0 (/.size setL))))
+                  (_.cover [/.to-list /.from-list]
+                           (|> setL /.to-list (/.from-list n.hash) (/@= setL)))
+                  (_.cover [/.member?]
+                           (and (list.every? (/.member? setL) (/.to-list setL))
+                                (not (/.member? setL non-memberL))))
+                  (_.cover [/.add]
+                           (let [before-addition!
+                                 (not (/.member? setL non-memberL))
+
+                                 after-addition!
+                                 (/.member? (/.add non-memberL setL) non-memberL)
+
+                                 size-increase!
+                                 (n.= (inc (/.size setL))
+                                      (/.size (/.add non-memberL setL)))]
+                             (and before-addition!
+                                  after-addition!)))
+                  (_.cover [/.remove]
+                           (let [symmetry!
+                                 (|> setL
+                                     (/.add non-memberL)
+                                     (/.remove non-memberL)
+                                     (/@= setL))
+
+                                 idempotency!
+                                 (|> setL
+                                     (/.remove non-memberL)
+                                     (/@= setL))]
+                             (and symmetry!
+                                  idempotency!)))
+                  (_.cover [/.union /.sub?]
+                           (let [setLR (/.union setL setR)
+                                 
+                                 sets-are-subs-of-their-unions!
+                                 (and (/.sub? setLR setL)
+                                      (/.sub? setLR setR))
+
+                                 union-with-empty-set!
+                                 (|> setL
+                                     (/.union (/.new n.hash))
+                                     (/@= setL))]
+                             (and sets-are-subs-of-their-unions!
+                                  union-with-empty-set!)))
+                  (_.cover [/.intersection /.super?]
+                           (let [setLR (/.intersection setL setR)
+                                 
+                                 sets-are-supers-of-their-intersections!
+                                 (and (/.super? setLR setL)
+                                      (/.super? setLR setR))
+
+                                 intersection-with-empty-set!
+                                 (|> setL
+                                     (/.intersection (/.new n.hash))
+                                     /.empty?)]
+                             (and sets-are-supers-of-their-intersections!
+                                  intersection-with-empty-set!)))
+                  (_.cover [/.difference]
+                           (let [setL+R (/.union setR setL)
+                                 setL-R (/.difference setR setL+R)]
+                             (and (list.every? (/.member? setL+R) (/.to-list setR))
+                                  (not (list.any? (/.member? setL-R) (/.to-list setR))))))
+                  (_.cover [/.predicate]
+                           (list.every? (/.predicate setL) (/.to-list setL)))
                   ))))))

@@ -1,8 +1,9 @@
 (.module: {#.doc "Tools for unit & property-based/generative testing."}
   [lux (#- and)
    [abstract
-    ["." monad (#+ Monad do)]]
+    ["." monad (#+ do)]]
    [control
+    ["." try]
     ["." exception (#+ exception:)]
     ["." io]
     [concurrency
@@ -140,12 +141,12 @@
   (format documentation ..separator ..separator
           "Failed with this seed: " (%.nat seed)))
 
-(exception: #export (must-try-test-at-least-once) "")
+(exception: #export must-try-test-at-least-once)
 
 (def: #export (times amount test)
   (-> Nat Test Test)
   (cond (n.= 0 amount)
-        (fail (exception.construct must-try-test-at-least-once []))
+        (fail (exception.construct ..must-try-test-at-least-once []))
 
         (n.= 1 amount)
         test
@@ -321,6 +322,10 @@
                     (~ (code.text coverage))
                     (~ test)))))))
 
+(exception: #export (error-during-execution {error Text})
+  (exception.report
+   ["Error" (%.text error)]))
+
 (def: #export (in-parallel tests)
   (-> (List Test) Test)
   (do random.monad
@@ -328,14 +333,21 @@
      #let [prng (random.pcg-32 [..pcg-32-magic-inc seed])
            run! (: (-> Test Assertion)
                    (function (_ test)
-                     (|> test
-                         (random.run prng)
-                         product.right
+                     (|> (case (|> test
+                                   (random.run prng)
+                                   product.right
+                                   io.io
+                                   "lux try")
+                           (#try.Success output)
+                           output
+                           
+                           (#try.Failure error)
+                           (..assert (exception.construct ..error-during-execution [error]) false))
                          io.io
                          promise.future
                          promise@join)))]]
-    (wrap (do {@ promise.monad}
-            [assertions (monad.seq @ (list@map run! tests))]
+    (wrap (do {! promise.monad}
+            [assertions (monad.seq ! (list@map run! tests))]
             (wrap [(|> assertions
                        (list@map product.left)
                        (list@fold ..add-counters ..start))
