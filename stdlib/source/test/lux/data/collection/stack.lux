@@ -1,6 +1,5 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
    [abstract
     [monad (#+ do)]
@@ -10,10 +9,11 @@
       ["$." functor (#+ Injection)]]}]
    [data
     ["." maybe]
+    ["." bit ("#@." equivalence)]
     [number
      ["n" nat]]]
    [math
-    ["r" random]]]
+    ["." random]]]
   {1
    ["." /]})
 
@@ -21,48 +21,49 @@
   (Injection /.Stack)
   (/.push value /.empty))
 
-(def: gen-nat
-  (r.Random Nat)
-  (|> r.nat
-      (:: r.monad map (n.% 100))))
-
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /._)))
-      (do r.monad
-        [size gen-nat
-         sample (r.stack size gen-nat)
-         new-top gen-nat]
+  (<| (_.covering /._)
+      (_.with-cover [/.Stack])
+      (do random.monad
+        [size (:: random.monad map (n.% 100) random.nat)
+         sample (random.stack size random.nat)
+         expected-top random.nat]
         ($_ _.and
-            ($equivalence.spec (/.equivalence n.equivalence) (r.stack size r.nat))
-            ($functor.spec ..injection /.equivalence /.functor)
+            (_.with-cover [/.equivalence]
+              ($equivalence.spec (/.equivalence n.equivalence) (random.stack size random.nat)))
+            (_.with-cover [/.functor]
+              ($functor.spec ..injection /.equivalence /.functor))
             
-            (_.test (%.name (name-of /.size))
-                    (n.= size (/.size sample)))
-            (_.test (%.name (name-of /.peek))
-                    (case (/.peek sample)
-                      #.None     (/.empty? sample)
-                      (#.Some _) (not (/.empty? sample))))
-            (_.test (%.name (name-of /.pop))
-                    (case (/.size sample)
-                      0 (case (/.pop sample)
-                          #.None
-                          (/.empty? sample)
-                          
-                          (#.Some _)
-                          false)
-                      expected (case (/.pop sample)
-                                 (#.Some sample')
-                                 (and (n.= (dec expected) (/.size sample'))
-                                      (not (/.empty? sample)))
-                                 
-                                 #.None
-                                 false)))
-            (_.test (%.name (name-of /.push))
-                    (and (is? sample
-                              (|> sample (/.push new-top) /.pop maybe.assume))
-                         (n.= (inc (/.size sample))
-                              (/.size (/.push new-top sample)))
-                         (|> (/.push new-top sample) /.peek maybe.assume
-                             (is? new-top))))
+            (_.cover [/.size]
+                     (n.= size (/.size sample)))
+            (_.cover [/.empty?]
+                     (bit@= (n.= 0 (/.size sample))
+                            (/.empty? sample)))
+            (_.cover [/.empty]
+                     (/.empty? /.empty))
+            (_.cover [/.peek]
+                     (case (/.peek sample)
+                       #.None
+                       (/.empty? sample)
+                       
+                       (#.Some _)
+                       (not (/.empty? sample))))
+            (_.cover [/.pop]
+                     (case (/.pop sample)
+                       #.None
+                       (/.empty? sample)
+                       
+                       (#.Some [top remaining])
+                       (:: (/.equivalence n.equivalence) =
+                           sample
+                           (/.push top remaining))))
+            (_.cover [/.push]
+                     (case (/.pop (/.push expected-top sample))
+                       (#.Some [actual-top actual-sample])
+                       (and (is? expected-top actual-top)
+                            (is? sample actual-sample))
+                       
+                       #.None
+                       false))
             ))))

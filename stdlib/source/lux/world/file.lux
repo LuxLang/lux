@@ -647,37 +647,43 @@
   [(def: #export (<get> monad system path)
      (All [!] (-> (Monad !) (System !) Path (! (Try (<signature> !)))))
      (do monad
-       [outcome (!.use (:: system <create>) path)]
+       [outcome (!.use (:: system <find>) path)]
        (case outcome
          (#try.Success file)
          (wrap (#try.Success file))
          
          (#try.Failure error)
          (if (exception.match? <exception> error)
-           (!.use (:: system <find>) path)
+           (!.use (:: system <create>) path)
            (wrap (#try.Failure error))))))]
 
-  [get-file      File      create-file      file      ..cannot-create-file]
-  [get-directory Directory create-directory directory ..cannot-create-directory]
+  [get-file      File      create-file      file      ..cannot-find-file]
+  [get-directory Directory create-directory directory ..cannot-find-directory]
+  )
+
+(template [<predicate> <capability>]
+  [(def: #export (<predicate> monad system path)
+     (All [!] (-> (Monad !) (System !) Path (! Bit)))
+     (do monad
+       [?file (!.use (:: system <capability>) path)]
+       (case ?file
+         (#try.Success file)
+         (wrap true)
+
+         (#try.Failure _)
+         (wrap false))))]
+
+  [file-exists? file]
+  [directory-exists? directory]
   )
 
 (def: #export (exists? monad system path)
   (All [!] (-> (Monad !) (System !) Path (! Bit)))
   (do monad
-    [?file (!.use (:: system file) path)]
-    (case ?file
-      (#try.Success file)
-      (wrap true)
-
-      (#try.Failure _)
-      (do monad
-        [?directory (!.use (:: system directory) path)]
-        (case ?directory
-          (#try.Success directory)
-          (wrap true)
-
-          (#try.Failure _)
-          (wrap false))))))
+    [verdict (..file-exists? monad system path)]
+    (if verdict
+      (wrap verdict)
+      (..directory-exists? monad system path))))
 
 (type: Mock-File
   {#mock-last-modified Instant
@@ -1118,7 +1124,7 @@
            (do {! stm.monad}
              [|store| (stm.read store)]
              (case (..create-mock-directory! separator path |store|)
-               (#try.Success _)
+               (#try.Success |store|)
                (do !
                  [_ (stm.write |store| store)]
                  (wrap (#try.Success (..mock-directory separator path store))))
