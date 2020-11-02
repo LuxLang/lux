@@ -33,6 +33,7 @@
     ["/" profile]
     ["#." hash]
     ["#." pom]
+    ["#." package (#+ Package)]
     ["#." artifact
      ["#/." extension]]]])
 
@@ -85,23 +86,16 @@
         ["Type" (%.text type)]
         ["Hash" (%.text hash)])))]
 
-  [sha1-does-not-match]
+  [sha-1-does-not-match]
   [md5-does-not-match]
   )
-
-(type: #export Package
-  {#library Binary
-   #pom XML
-   #dependencies (List Dependency)
-   #sha1 Text
-   #md5 Text})
 
 (def: (verified-hash dependency library url hash codec exception)
   (All [h]
     (-> Dependency Binary URL
         (-> Binary (///hash.Hash h)) (Codec Text (///hash.Hash h))
         (Exception [Dependency Text])
-        (IO (Try Text))))
+        (IO (Try (///hash.Hash h)))))
   (do (try.with io.monad)
     [#let [expected (hash library)]
      actual (..download url)]
@@ -111,7 +105,7 @@
            actual (:: codec decode output)
            _ (exception.assert exception [dependency output]
                                (:: ///hash.equivalence = expected actual))]
-          (wrap output)))))
+          (wrap actual)))))
 
 (def: #export (resolve repository dependency)
   (-> Repository Dependency (IO (Try Package)))
@@ -119,7 +113,7 @@
         prefix (format repository uri.separator (///artifact.uri artifact))]
     (do (try.with io.monad)
       [library (..download (format prefix (///artifact/extension.extension type)))
-       sha1 (..verified-hash dependency library (format prefix ///artifact/extension.sha1) ///hash.sha1 ///hash.sha1-codec ..sha1-does-not-match)
+       sha-1 (..verified-hash dependency library (format prefix ///artifact/extension.sha-1) ///hash.sha-1 ///hash.sha-1-codec ..sha-1-does-not-match)
        md5 (..verified-hash dependency library (format prefix ///artifact/extension.md5) ///hash.md5 ///hash.md5-codec ..md5-does-not-match)
        pom (..download (format prefix ///artifact/extension.pom))]
       (:: io.monad wrap
@@ -127,11 +121,10 @@
             [pom (encoding.from-utf8 pom)
              pom (:: xml.codec decode pom)
              profile (<xml>.run ///pom.parser pom)]
-            (wrap {#library library
-                   #pom pom
-                   #dependencies (set.to-list (get@ #/.dependencies profile))
-                   #sha1 sha1
-                   #md5 md5}))))))
+            (wrap {#///package.library library
+                   #///package.pom pom
+                   #///package.sha-1 sha-1
+                   #///package.md5 md5}))))))
 
 (type: #export Resolution
   (Dictionary Dependency Package))
@@ -179,6 +172,8 @@
 
                  #.None
                  (..resolve-any repositories head))
-       #let [resolution (dictionary.put head package resolution)]
-       resolution (resolve-all repositories (get@ #dependencies package) resolution)]
+       sub-dependencies (:: io.monad wrap (///package.dependencies package))
+       resolution (|> resolution
+                      (dictionary.put head package)
+                      (resolve-all repositories (set.to-list sub-dependencies)))]
       (resolve-all repositories tail resolution))))

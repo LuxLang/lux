@@ -1,63 +1,91 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
    [abstract
-    [monad (#+ do)]
+    ["." monad (#+ do)]
     {[0 #spec]
      [/
       ["$." equivalence]
       ["$." fold]
       ["$." functor]]}]
    [data
+    ["." product]
     [number
      ["n" nat]]
     [collection
      ["." list ("#@." functor fold)]]]
    [math
-    ["r" random (#+ Random)]]]
+    ["." random (#+ Random)]]]
   {1
    ["." / (#+ Tree)]})
 
-(def: #export (tree size gen-value)
-  (All [a] (-> Nat (Random a) (Random (Tree a))))
-  (let [singleton (:: r.monad map /.leaf gen-value)]
-    (case size
-      0
-      singleton
-      
-      1
-      singleton
-
-      2
-      (do r.monad
-        [value gen-value
-         single (tree 1 gen-value)]
-        (wrap (/.branch value (list single))))
-      
-      _
-      (do r.monad
-        [value gen-value
-         #let [size (dec size)]
-         left (tree (n./ 2 size) gen-value)
-         right (tree (n.+ (n.% 2 size) (n./ 2 size))
-                     gen-value)]
-        (wrap (/.branch value (list left right))))
-      )))
+(def: #export (tree gen-value)
+  (All [a] (-> (Random a) (Random [Nat (Tree a)])))
+  (do {! random.monad}
+    [value gen-value
+     num-children (:: ! map (n.% 2) random.nat)
+     children (random.list num-children (tree gen-value))]
+    (wrap [(|> children
+               (list@map product.left)
+               (list@fold n.+ 1))
+           {#/.value value
+            #/.children (list@map product.right children)}])))
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /.Tree)))
-      (do {! r.monad}
-        [size (:: ! map (|>> (n.% 100) (n.+ 1)) r.nat)]
-        ($_ _.and
-            ($equivalence.spec (/.equivalence n.equivalence) (..tree size r.nat))
-            ($fold.spec /.leaf /.equivalence /.fold)
-            ($functor.spec /.leaf /.equivalence /.functor)
-            
-            (do !
-              [sample (..tree size r.nat)]
-              (_.test "Can flatten a tree to get all the nodes as a flat tree."
-                      (n.= size
-                           (list.size (/.flatten sample)))))
-            ))))
+  (<| (_.covering /._)
+      (_.with-cover [/.Tree])
+      ($_ _.and
+          (_.with-cover [/.equivalence]
+            (|> (..tree random.nat)
+                (:: random.monad map product.right)
+                ($equivalence.spec (/.equivalence n.equivalence))))
+          (_.with-cover [/.fold]
+            ($fold.spec /.leaf /.equivalence /.fold))
+          (_.with-cover [/.functor]
+            ($functor.spec /.leaf /.equivalence /.functor))
+          
+          (do random.monad
+            [[size sample] (..tree random.nat)]
+            (_.cover [/.flatten]
+                     (n.= size
+                          (list.size (/.flatten sample)))))
+          (do random.monad
+            [expected random.nat]
+            (_.cover [/.leaf]
+                     (:: (list.equivalence n.equivalence) =
+                         (list expected)
+                         (/.flatten (/.leaf expected)))))
+          (do {! random.monad}
+            [value random.nat
+             num-children (:: ! map (n.% 3) random.nat)
+             children (random.list num-children random.nat)]
+            (_.cover [/.branch]
+                     (:: (list.equivalence n.equivalence) =
+                         (list& value children)
+                         (/.flatten (/.branch value (list@map /.leaf children))))))
+          (do random.monad
+            [expected/0 random.nat
+             expected/1 random.nat
+             expected/2 random.nat
+             expected/3 random.nat
+             expected/4 random.nat
+             expected/5 random.nat]
+            (_.cover [/.tree]
+                     (and (:: (list.equivalence n.equivalence) =
+                              (list expected/0)
+                              (/.flatten (/.tree expected/0)))
+                          (:: (list.equivalence n.equivalence) =
+                              (list expected/0 expected/1 expected/2)
+                              (/.flatten (/.tree expected/0
+                                                 {expected/1 {}
+                                                  expected/2 {}})))
+                          (:: (list.equivalence n.equivalence) =
+                              (list expected/0 expected/1 expected/2
+                                    expected/3 expected/4 expected/5)
+                              (/.flatten (/.tree expected/0
+                                                 {expected/1 {}
+                                                  expected/2 {expected/3 {}
+                                                              expected/4 {expected/5 {}}}})))
+                          )))
+          )))
