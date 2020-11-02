@@ -264,7 +264,7 @@ Called by `imenu--generic-function'."
 							(code//super-quotation (altRE "``" "~~"))
 							(code//template (altRE "template" "template:"))
 							;; Miscellaneous
-							(actor (altRE "actor:" "message:" "on:"))
+							(actor (altRE "actor:" "message:" "actor"))
 							(jvm-host (altRE "class:" "interface:" "import:" "object" "do-to" "synchronized" "class-for"))
 							(alternative-format (altRE "char" "bin" "oct" "hex"))
 							(documentation (altRE "doc" "comment"))

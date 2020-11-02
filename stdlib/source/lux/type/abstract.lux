@@ -1,5 +1,5 @@
 (.module:
-  [lux (#- Scope)
+  [lux #*
    [abstract
     [monad (#+ Monad do)]]
    [control
@@ -34,14 +34,14 @@
   (All [a] (-> (Stack a) (Maybe (Stack a))))
   list.tail)
 
-(type: Scope
+(type: #export Frame
   {#name Text
    #type-vars (List Code)
    #abstraction Code
    #representation Code})
 
-(def: scopes
-  (Stack Scope)
+(def: frames
+  (Stack Frame)
   #.Nil)
 
 (template: (!peek <source> <reference> <then>)
@@ -55,53 +55,49 @@
       #.Nil
       (undefined))))
 
-(def: (peek-scopes-definition reference source)
-  (-> Text (List [Text Global]) (Stack Scope))
+(def: (peek-frames-definition reference source)
+  (-> Text (List [Text Global]) (Stack Frame))
   (!peek source reference
          (case head
            (#.Left _)
            (undefined)
 
-           (#.Right [exported? scope-type scope-anns scope-value])
-           (:coerce (Stack Scope) scope-value))))
+           (#.Right [exported? frame-type frame-anns frame-value])
+           (:coerce (Stack Frame) frame-value))))
 
-(def: (peek-scopes reference definition-reference source)
-  (-> Text Text (List [Text Module]) (Stack Scope))
+(def: (peek-frames reference definition-reference source)
+  (-> Text Text (List [Text Module]) (Stack Frame))
   (!peek source reference
-         (peek-scopes-definition definition-reference (get@ #.definitions head))))
+         (peek-frames-definition definition-reference (get@ #.definitions head))))
 
-(exception: #export no-active-scopes)
+(exception: #export no-active-frames)
 
-(def: (peek! scope)
-  (-> (Maybe Text) (Meta Scope))
+(def: (peek! frame)
+  (-> (Maybe Text) (Meta Frame))
   (function (_ compiler)
-    (let [[reference definition-reference] (name-of ..scopes)
-          current-scopes (peek-scopes reference definition-reference (get@ #.modules compiler))]
-      (case (case scope
-              (#.Some scope)
+    (let [[reference definition-reference] (name-of ..frames)
+          current-frames (peek-frames reference definition-reference (get@ #.modules compiler))]
+      (case (case frame
+              (#.Some frame)
               (list.find (function (_ [actual _])
-                           (text@= scope actual))
-                         current-scopes)
+                           (text@= frame actual))
+                         current-frames)
               
               #.None
-              (..peek current-scopes))
-        (#.Some scope)
-        (#.Right [compiler scope])
+              (..peek current-frames))
+        (#.Some frame)
+        (#.Right [compiler frame])
         
         #.None
-        (exception.throw ..no-active-scopes [])))))
+        (exception.throw ..no-active-frames [])))))
 
 (def: #export current
-  (Meta [Text (List Text)])
-  (do meta.monad
-    [[name type-vars abstraction representation] (..peek! #.None)]
-    (wrap [name (list@map code.format type-vars)])))
+  (Meta Frame)
+  (..peek! #.None))
 
 (def: #export (specific name)
-  (-> Text (Meta (List Text)))
-  (do meta.monad
-    [[name type-vars abstraction representation] (..peek! (#.Some name))]
-    (wrap (list@map code.format type-vars))))
+  (-> Text (Meta Frame))
+  (..peek! (#.Some name)))
 
 (template: (!push <source> <reference> <then>)
   (loop [entries <source>]
@@ -116,60 +112,60 @@
       #.Nil
       (undefined))))
 
-(def: (push-scope-definition reference scope source)
-  (-> Text Scope (List [Text Global]) (List [Text Global]))
+(def: (push-frame-definition reference frame source)
+  (-> Text Frame (List [Text Global]) (List [Text Global]))
   (!push source reference
          (case head
            (#.Left _)
            (undefined)
 
-           (#.Right [exported? scopes-type scopes-anns scopes-value])
+           (#.Right [exported? frames-type frames-anns frames-value])
            (#.Right [exported?
-                     scopes-type
-                     scopes-anns
-                     (..push scope (:coerce (Stack Scope) scopes-value))]))))
+                     frames-type
+                     frames-anns
+                     (..push frame (:coerce (Stack Frame) frames-value))]))))
 
-(def: (push-scope [module-reference definition-reference] scope source)
-  (-> Name Scope (List [Text Module]) (List [Text Module]))
+(def: (push-frame [module-reference definition-reference] frame source)
+  (-> Name Frame (List [Text Module]) (List [Text Module]))
   (!push source module-reference
-         (update@ #.definitions (push-scope-definition definition-reference scope) head)))
+         (update@ #.definitions (push-frame-definition definition-reference frame) head)))
 
-(def: (push! scope)
-  (-> Scope (Meta Any))
+(def: (push! frame)
+  (-> Frame (Meta Any))
   (function (_ compiler)
     (#.Right [(update@ #.modules
-                       (..push-scope (name-of ..scopes) scope)
+                       (..push-frame (name-of ..frames) frame)
                        compiler)
               []])))
 
-(def: (pop-scope-definition reference source)
+(def: (pop-frame-definition reference source)
   (-> Text (List [Text Global]) (List [Text Global]))
   (!push source reference
          (case head
            (#.Left _)
            (undefined)
 
-           (#.Right [exported? scopes-type scopes-anns scopes-value])
+           (#.Right [exported? frames-type frames-anns frames-value])
            (#.Right [exported?
-                     scopes-type
-                     scopes-anns
-                     (let [current-scopes (:coerce (Stack Scope) scopes-value)]
-                       (case (..pop current-scopes)
-                         (#.Some current-scopes')
-                         current-scopes'
+                     frames-type
+                     frames-anns
+                     (let [current-frames (:coerce (Stack Frame) frames-value)]
+                       (case (..pop current-frames)
+                         (#.Some current-frames')
+                         current-frames'
 
                          #.None
-                         current-scopes))]))))
+                         current-frames))]))))
 
-(def: (pop-scope [module-reference definition-reference] source)
+(def: (pop-frame [module-reference definition-reference] source)
   (-> Name (List [Text Module]) (List [Text Module]))
   (!push source module-reference
-         (|> head (update@ #.definitions (pop-scope-definition definition-reference)))))
+         (|> head (update@ #.definitions (pop-frame-definition definition-reference)))))
 
 (syntax: (pop!)
   (function (_ compiler)
     (#.Right [(update@ #.modules
-                       (..pop-scope (name-of ..scopes))
+                       (..pop-frame (name-of ..frames))
                        compiler)
               (list)])))
 
@@ -179,9 +175,9 @@
              (<>.and (<>@wrap #.None) <c>.any)))
 
 (template [<name> <from> <to>]
-  [(syntax: #export (<name> {[scope value] ..cast})
+  [(syntax: #export (<name> {[frame value] ..cast})
      (do meta.monad
-       [[name type-vars abstraction representation] (peek! scope)]
+       [[name type-vars abstraction representation] (peek! frame)]
        (wrap (list (` ((~! :cast) [(~+ type-vars)] (~ <from>) (~ <to>)
                        (~ value)))))))]
 

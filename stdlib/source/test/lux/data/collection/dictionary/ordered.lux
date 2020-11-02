@@ -1,6 +1,5 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
    [abstract
     [monad (#+ do)]
@@ -11,13 +10,15 @@
       ["$." equivalence]]}]
    [data
     ["." product]
+    ["." bit ("#@." equivalence)]
+    ["." maybe ("#@." monad)]
     [number
      ["n" nat]]
     [collection
      ["." set]
      ["." list ("#@." functor)]]]
    [math
-    ["r" random (#+ Random) ("#@." monad)]]]
+    ["." random (#+ Random) ("#@." monad)]]]
   {1
    ["." /]})
 
@@ -26,26 +27,29 @@
     (-> (Order k) (Random k) (Random v) Nat (Random (/.Dictionary k v))))
   (case size
     0
-    (r@wrap (/.new order))
+    (random@wrap (/.new order))
     
     _
-    (do r.monad
+    (do random.monad
       [partial (dictionary order gen-key gen-value (dec size))
-       key (r.filter (function (_ candidate)
-                       (not (/.contains? candidate partial)))
-                     gen-key)
+       key (random.filter (function (_ candidate)
+                            (not (/.contains? candidate partial)))
+                          gen-key)
        value gen-value]
       (wrap (/.put key value partial)))))
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /.Dictionary)))
-      (do {! r.monad}
-        [size (|> r.nat (:: ! map (n.% 100)))
-         keys (r.set n.hash size r.nat)
-         values (r.set n.hash size r.nat)
-         extra-key (|> r.nat (r.filter (|>> (set.member? keys) not)))
-         extra-value r.nat
+  (<| (_.covering /._)
+      (_.with-cover [/.Dictionary])
+      (do {! random.monad}
+        [size (:: ! map (n.% 100) random.nat)
+         keys (random.set n.hash size random.nat)
+         values (random.set n.hash size random.nat)
+         extra-key (random.filter (|>> (set.member? keys) not)
+                                  random.nat)
+         extra-value random.nat
+         shift random.nat
          #let [pairs (list.zip/2 (set.to-list keys)
                                  (set.to-list values))
                sample (/.from-list n.order pairs)
@@ -53,58 +57,81 @@
                                          (n.< left right))
                                        pairs)
                sorted-values (list@map product.right sorted-pairs)
+               (^open "list@.") (list.equivalence (: (Equivalence [Nat Nat])
+                                                     (function (_ [kr vr] [ks vs])
+                                                       (and (n.= kr ks)
+                                                            (n.= vr vs)))))
                (^open "/@.") (/.equivalence n.equivalence)]]
         ($_ _.and
-            ($equivalence.spec (/.equivalence n.equivalence) (..dictionary n.order r.nat r.nat size))
+            (_.with-cover [/.equivalence]
+              ($equivalence.spec (/.equivalence n.equivalence) (..dictionary n.order random.nat random.nat size)))
             
-            (_.test "Can query the size of a dictionary."
-                    (n.= size (/.size sample)))
-            (_.test "Can query value for minimum key."
-                    (case [(/.min sample) (list.head sorted-values)]
-                      [#.None #.None]
-                      #1
+            (_.cover [/.size]
+                     (n.= size (/.size sample)))
+            (_.cover [/.empty?]
+                     (bit@= (n.= 0 (/.size sample))
+                            (/.empty? sample)))
+            (_.cover [/.new]
+                     (/.empty? (/.new n.order)))
+            (_.cover [/.min]
+                     (case [(/.min sample) (list.head sorted-values)]
+                       [#.None #.None]
+                       #1
 
-                      [(#.Some reference) (#.Some sample)]
-                      (n.= reference sample)
+                       [(#.Some reference) (#.Some sample)]
+                       (n.= reference sample)
 
-                      _
-                      #0))
-            (_.test "Can query value for maximum key."
-                    (case [(/.max sample) (list.last sorted-values)]
-                      [#.None #.None]
-                      #1
+                       _
+                       #0))
+            (_.cover [/.max]
+                     (case [(/.max sample) (list.last sorted-values)]
+                       [#.None #.None]
+                       #1
 
-                      [(#.Some reference) (#.Some sample)]
-                      (n.= reference sample)
+                       [(#.Some reference) (#.Some sample)]
+                       (n.= reference sample)
 
-                      _
-                      #0))
-            (_.test "Converting dictionaries to/from lists cannot change their values."
-                    (|> sample
-                        /.entries (/.from-list n.order)
-                        (/@= sample)))
-            (_.test "Order is preserved."
-                    (let [(^open "list@.") (list.equivalence (: (Equivalence [Nat Nat])
-                                                                (function (_ [kr vr] [ks vs])
-                                                                  (and (n.= kr ks)
-                                                                       (n.= vr vs)))))]
-                      (list@= (/.entries sample)
-                              sorted-pairs)))
-            (_.test "Every key in a dictionary must be identifiable."
-                    (list.every? (function (_ key) (/.contains? key sample))
-                                 (/.keys sample)))
-            (_.test "Can add and remove elements in a dictionary."
-                    (and (not (/.contains? extra-key sample))
-                         (let [sample' (/.put extra-key extra-value sample)
-                               sample'' (/.remove extra-key sample')]
-                           (and (/.contains? extra-key sample')
-                                (not (/.contains? extra-key sample''))
-                                (case [(/.get extra-key sample')
-                                       (/.get extra-key sample'')]
-                                  [(#.Some found) #.None]
-                                  (n.= extra-value found)
-
-                                  _
-                                  #0)))
-                         ))
+                       _
+                       #0))
+            (_.cover [/.entries]
+                     (list@= (/.entries sample)
+                             sorted-pairs))
+            (_.cover [/.keys /.values]
+                     (list@= (/.entries sample)
+                             (list.zip/2 (/.keys sample) (/.values sample))))
+            (_.cover [/.from-list]
+                     (|> sample
+                         /.entries (/.from-list n.order)
+                         (/@= sample)))
+            (_.cover [/.contains?]
+                     (and (list.every? (function (_ key) (/.contains? key sample))
+                                       (/.keys sample))
+                          (not (/.contains? extra-key sample))))
+            (_.cover [/.put]
+                     (and (not (/.contains? extra-key sample))
+                          (let [sample+ (/.put extra-key extra-value sample)]
+                            (and (/.contains? extra-key sample+)
+                                 (n.= (inc (/.size sample))
+                                      (/.size sample+))))))
+            (_.cover [/.get]
+                     (let [sample+ (/.put extra-key extra-value sample)]
+                       (case [(/.get extra-key sample)
+                              (/.get extra-key sample+)]
+                         [#.None (#.Some actual)]
+                         (n.= extra-value actual)
+                         
+                         _
+                         false)))
+            (_.cover [/.remove]
+                     (|> sample
+                         (/.put extra-key extra-value)
+                         (/.remove extra-key)
+                         (/@= sample)))
+            (_.cover [/.update]
+                     (|> sample
+                         (/.put extra-key extra-value)
+                         (/.update extra-key (n.+ shift))
+                         (/.get extra-key)
+                         (maybe@map (n.= (n.+ shift extra-value)))
+                         (maybe.default false)))
             ))))

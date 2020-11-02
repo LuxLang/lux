@@ -1,0 +1,137 @@
+(.module:
+  [lux (#- Type type)
+   ["_" test (#+ Test)]
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    ["." try]
+    [concurrency
+     ["." promise (#+ Promise)]]]
+   [data
+    [binary (#+ Binary)]
+    ["." text]
+    [number
+     ["n" nat]]
+    [format
+     [xml (#+ XML)]]
+    [collection
+     ["." set]
+     ["." dictionary]]]
+   [math
+    ["." random (#+ Random) ("#@." monad)]]
+   [world
+    ["." file]]]
+  [//
+   ["@." profile]
+   ["@." artifact]
+   [//
+    [lux
+     [data
+      ["_." binary]]]]]
+  {#program
+   ["." /
+    ["/#" // #_
+     ["#" profile (#+ Profile)]
+     ["#." package (#+ Package)]
+     ["#." pom]
+     ["#." dependency (#+ Dependency)
+      ["#/." resolution (#+ Resolution)]]
+     ["#." artifact (#+ Artifact)
+      ["#/." type (#+ Type)]]]]})
+
+(def: type
+  (Random Type)
+  ($_ random.either
+      (random@wrap //artifact/type.lux-library)
+      (random@wrap //artifact/type.jvm-library)))
+
+(def: profile
+  (Random [Artifact Profile XML])
+  (random.one (function (_ profile)
+                (try.to-maybe
+                 (do try.monad
+                   [pom (//pom.write profile)
+                    identity (try.from-maybe (get@ #//.identity profile))]
+                   (wrap [identity profile pom]))))
+              @profile.random))
+
+(def: content
+  (Random Binary)
+  (do {! random.monad}
+    [content-size (:: ! map (n.% 100) random.nat)]
+    (_binary.random content-size)))
+
+(def: package
+  (Random [Dependency Package])
+  (do {! random.monad}
+    [[identity profile pom] ..profile
+     type ..type
+     content ..content]
+    (wrap [{#//dependency.artifact identity
+            #//dependency.type type}
+           (//package.local pom content)])))
+
+(def: resolution
+  (Random Resolution)
+  (do {! random.monad}
+    [[main-dependency main-package] ..package
+     dependencies (|> (//package.dependencies main-package)
+                      (:: try.monad map set.to-list)
+                      (try.default (list))
+                      (monad.map ! (function (_ dependency)
+                                     (do !
+                                       [pom (random.one (function (_ [identity profile pom])
+                                                          (|> profile
+                                                              (set@ #//.dependencies (set.new //dependency.hash))
+                                                              (set@ #//.identity (#.Some (get@ #//dependency.artifact dependency)))
+                                                              //pom.write
+                                                              try.to-maybe))
+                                                        ..profile)
+                                        content ..content]
+                                       (wrap [dependency
+                                              (//package.local pom content)])))))]
+    (wrap (dictionary.from-list //dependency.hash (list& [main-dependency main-package] dependencies)))))
+
+(def: singular
+  Test
+  (do {! random.monad}
+    [[dependency expected-package] ..package
+     #let [fs (: (file.System Promise)
+                 (file.mock (:: file.default separator)))]]
+    (wrap (do promise.monad
+            [wrote! (/.write-one fs dependency expected-package)
+             read! (/.read-one fs dependency)]
+            (_.claim [/.write-one /.read-one]
+                     (<| (try.default false)
+                         (do try.monad
+                           [_ wrote!
+                            actual-package read!]
+                           (wrap (:: //package.equivalence =
+                                     expected-package
+                                     actual-package)))))))))
+
+(def: plural
+  Test
+  (do {! random.monad}
+    [expected ..resolution
+     #let [fs (: (file.System Promise)
+                 (file.mock (:: file.default separator)))]]
+    (wrap (do promise.monad
+            [wrote! (/.write-all fs expected)
+             read! (/.read-all fs (dictionary.keys expected) //dependency/resolution.empty)]
+            (_.claim [/.write-all /.read-all]
+                     (<| (try.default false)
+                         (do try.monad
+                           [_ wrote!
+                            actual read!]
+                           (wrap (:: //dependency/resolution.equivalence =
+                                     expected
+                                     actual)))))))))
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      ($_ _.and
+          ..singular
+          ..plural
+          )))

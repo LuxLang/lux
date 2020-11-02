@@ -45,11 +45,12 @@
   Test
   (do random.monad
     [initial-state random.nat
-     #let [inc! (: (/.Mail Nat)
-                   (function (_ state actor)
-                     (promise@wrap
-                      (#try.Success
-                       (inc state)))))]]
+     #let [as-mail (: (All [a] (-> (-> a a) (/.Mail a)))
+                      (function (_ transform)
+                        (function (_ state actor)
+                          (|> state transform #try.Success promise@wrap))))
+           inc! (: (/.Mail Nat) (as-mail inc))
+           dec! (: (/.Mail Nat) (as-mail dec))]]
     (<| (_.covering /._)
         (_.with-cover [/.Actor])
         ($_ _.and
@@ -159,4 +160,33 @@
 
                                (#try.Failure error)
                                false))))
+
+            (wrap (do promise.monad
+                    [verdict (promise.future
+                              (do io.monad
+                                [anonymous (/.actor {Nat
+                                                     initial-state}
+                                                    ((on-mail message state self)
+                                                     (message (inc state) self))
+
+                                                    ((on-stop cause state)
+                                                     (promise@wrap (exec (%.nat state)
+                                                                     []))))
+                                 sent/inc? (/.mail! inc! anonymous)
+                                 sent/dec? (/.mail! dec! anonymous)
+                                 poisoned? (/.poison! anonymous)
+                                 obituary (/.obituary anonymous)]
+                                (wrap (and (..mailed? sent/inc?)
+                                           (..mailed? sent/dec?)
+                                           (..mailed? poisoned?)
+                                           (case obituary
+                                             (^ (#.Some [error final-state (list)]))
+                                             (and (exception.match? /.poisoned error)
+                                                  (n.= (inc (inc initial-state))
+                                                       final-state))
+                                             
+                                             _
+                                             false)))))]
+                    (_.claim [/.actor]
+                             verdict)))
             ))))

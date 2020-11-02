@@ -301,7 +301,7 @@
     {#.doc (doc "Defines an actor, with its behavior and internal state."
                 "Messages for the actor must be defined after the on-mail and on-stop handlers."
                 <examples>)}
-    (with-gensyms [g!_ g!init]
+    (with-gensyms [g!_]
       (do meta.monad
         [g!type (meta.gensym (format name "-abstract-type"))
          #let [g!actor (code.local-identifier name)
@@ -313,10 +313,21 @@
                           (All [(~+ g!vars)]
                             (..Behavior (~ state-type) ((~ g!type) (~+ g!vars))))
                           {#..on-init (|>> ((~! abstract.:abstraction) (~ g!type)))
-                           #..on-mail (~ (on-mail g!_ ?on-mail))
-                           #..on-stop (~ (on-stop g!_ ?on-stop))})
+                           #..on-mail (~ (..on-mail g!_ ?on-mail))
+                           #..on-stop (~ (..on-stop g!_ ?on-stop))})
 
                         (~+ messages))))))))
+
+  (syntax: #export (actor {[state-type init] (<c>.record (<>.and <c>.any <c>.any))}
+                          {[?on-mail ?on-stop messages] behavior^})
+    (with-gensyms [g!_]
+      (wrap (list (` (: ((~! io.IO) (..Actor (~ state-type)))
+                        (..spawn! (: (..Behavior (~ state-type) (~ state-type))
+                                     {#..on-init (|>>)
+                                      #..on-mail (~ (..on-mail g!_ ?on-mail))
+                                      #..on-stop (~ (..on-stop g!_ ?on-stop))})
+                                  (: (~ state-type)
+                                     (~ init)))))))))
 
   (type: Signature
     {#vars (List Text)
@@ -354,10 +365,10 @@
                 <examples>)}
     (with-gensyms [g!_ g!return]
       (do meta.monad
-        [[actor-name actor-vars] abstract.current
-         #let [g!type (code.local-identifier actor-name)
+        [actor-scope abstract.current
+         #let [g!type (code.local-identifier (get@ #abstract.name actor-scope))
                g!message (code.local-identifier (get@ #name signature))
-               g!actor-vars (list@map code.local-identifier actor-vars)
+               g!actor-vars (get@ #abstract.type-vars actor-scope)
                g!all-vars (|> (get@ #vars signature) (list@map code.local-identifier) (list@compose g!actor-vars))
                g!inputsC (|> (get@ #inputs signature) (list@map product.left))
                g!inputsT (|> (get@ #inputs signature) (list@map product.right))
@@ -367,13 +378,14 @@
                          (~ (csw.annotations annotations))
                          (All [(~+ g!all-vars)]
                            (-> (~+ g!inputsT)
-                               (..Message ((~ g!type) (~+ g!actor-vars)) (~ (get@ #output signature)))))
+                               (..Message (~ (get@ #abstract.abstraction actor-scope))
+                                          (~ (get@ #output signature)))))
                          (function ((~ g!_) (~ g!state) (~ g!self))
-                           (let [(~ g!state) ((~! abstract.:representation) (~ g!type) (~ g!state))]
-                             ((~! do) (~! promise.monad)
-                              [(~ g!return) (~ body)]
-                              ((~' wrap) ((~! do) (~! try.monad)
-                                          [[(~ g!state) (~ g!return)] (~ g!return)]
-                                          ((~' wrap) [((~! abstract.:abstraction) (~ g!type) (~ g!state))
-                                                      (~ g!return)]))))))))
+                           (let [(~ g!state) (:coerce (~ (get@ #abstract.representation actor-scope))
+                                                      (~ g!state))]
+                             (|> (~ body)
+                                 (: ((~! promise.Promise) ((~! try.Try) [(~ (get@ #abstract.representation actor-scope))
+                                                                         (~ (get@ #output signature))])))
+                                 (:coerce ((~! promise.Promise) ((~! try.Try) [(~ (get@ #abstract.abstraction actor-scope))
+                                                                               (~ (get@ #output signature))]))))))))
                     ))))))
