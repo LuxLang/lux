@@ -1,0 +1,91 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   [abstract
+    [monad (#+ do)]
+    {[0 #spec]
+     [/
+      ["$." equivalence]]}]
+   [data
+    ["." bit ("#@." equivalence)]
+    ["." maybe ("#@." monad)]
+    ["." text]
+    [number
+     ["n" nat]]
+    [collection
+     ["." set]
+     ["." list]]]
+   [math
+    ["." random (#+ Random)]]]
+  {1
+   ["." /]})
+
+(def: #export (random size gen-key gen-value)
+  (All [v]
+    (-> Nat (Random Text) (Random v) (Random (/.PList v))))
+  (do random.monad
+    [keys (random.set text.hash size gen-key)
+     values (random.list size gen-value)]
+    (wrap (list.zip/2 (set.to-list keys) values))))
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      (_.with-cover [/.PList])
+      (do {! random.monad}
+        [#let [gen-key (random.ascii/alpha 10)]
+         size (:: ! map (n.% 100) random.nat)
+         sample (..random size gen-key random.nat)
+
+         #let [keys (|> sample /.keys (set.from-list text.hash))]
+         extra-key (random.filter (|>> (set.member? keys) not)
+                                  gen-key)
+         extra-value random.nat
+         shift random.nat]
+        ($_ _.and
+            (_.with-cover [/.equivalence]
+              ($equivalence.spec (/.equivalence n.equivalence)
+                                 (..random size gen-key random.nat)))
+            
+            (_.cover [/.size]
+                     (n.= size (/.size sample)))
+            (_.cover [/.empty?]
+                     (bit@= (n.= 0 (/.size sample))
+                            (/.empty? sample)))
+            (_.cover [/.empty]
+                     (/.empty? /.empty))
+            (_.cover [/.keys /.values]
+                     (:: (/.equivalence n.equivalence) =
+                         sample
+                         (list.zip/2 (/.keys sample)
+                                     (/.values sample))))
+            (_.cover [/.contains?]
+                     (and (list.every? (function (_ key)
+                                         (/.contains? key sample))
+                                       (/.keys sample))
+                          (not (/.contains? extra-key sample))))
+            (_.cover [/.put]
+                     (let [sample+ (/.put extra-key extra-value sample)]
+                       (and (not (/.contains? extra-key sample))
+                            (/.contains? extra-key sample+)
+                            (n.= (inc (/.size sample))
+                                 (/.size sample+)))))
+            (_.cover [/.get]
+                     (|> sample
+                         (/.put extra-key extra-value)
+                         (/.get extra-key)
+                         (maybe@map (n.= extra-value))
+                         (maybe.default false)))
+            (_.cover [/.update]
+                     (|> sample
+                         (/.put extra-key extra-value)
+                         (/.update extra-key (n.+ shift))
+                         (/.get extra-key)
+                         (maybe@map (n.= (n.+ shift extra-value)))
+                         (maybe.default false)))
+            (_.cover [/.remove]
+                     (|> sample
+                         (/.put extra-key extra-value)
+                         (/.remove extra-key)
+                         (:: (/.equivalence n.equivalence) = sample)))
+            ))))

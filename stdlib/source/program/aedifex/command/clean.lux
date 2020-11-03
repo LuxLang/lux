@@ -1,0 +1,47 @@
+(.module:
+  [lux #*
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    ["." try (#+ Try)]
+    [security
+     ["!" capability]]
+    [concurrency
+     ["." promise (#+ Promise)]]]
+   [world
+    ["." file (#+ Path File Directory)]]]
+  ["." /// #_
+   [command (#+ Command)]
+   ["#" profile]
+   ["#." action (#+ Action)]])
+
+(def: (clean-files! root)
+  (-> (Directory Promise) (Promise (Try Any)))
+  (do {! ///action.monad}
+    [nodes (: (Promise (Try (List (File Promise))))
+              (!.use (:: root files) []))
+     _ (monad.map ! (function (_ node)
+                      (!.use (:: node delete) []))
+                  nodes)]
+    (wrap [])))
+
+(def: #export (do! fs profile)
+  (-> (file.System Promise) (Command Any))
+  (case (get@ #///.target profile)
+    (#.Some target)
+    (do {! ///action.monad}
+      [target (: (Promise (Try (Directory Promise)))
+                 (!.use (:: fs directory) target))
+       _ (loop [root target]
+           (do !
+             [_ (..clean-files! root)
+              subs (: (Promise (Try (List (Directory Promise))))
+                      (!.use (:: root directories) []))
+              _ (monad.map ! recur subs)]
+             (!.use (:: root discard) [])))]
+      (exec (log! "No 'target' defined for clean-up.")
+        (wrap [])))
+    
+    #.None
+    (exec (log! "No 'target' defined for clean-up.")
+      (:: ///action.monad wrap []))))

@@ -1054,11 +1054,26 @@
             (&/$Cons [(&a-case/$StoreTestAC _register) _body] (&/$Nil))
             (&/T [meta ($let (pass-0 top-level-func? value) _register (pass-0 top-level-func? _body))])
 
+            (&/$Cons [(&a-case/$BitTestAC true) _then]
+                     (&/$Cons [(&a-case/$BitTestAC false) _else]
+                              (&/$Nil)))
+            (&/T [meta ($if (pass-0 top-level-func? value) (pass-0 top-level-func? _then) (pass-0 top-level-func? _else))])
+
+            (&/$Cons [(&a-case/$BitTestAC true) _then]
+                     (&/$Cons [(&a-case/$NoTestAC false) _else]
+                              (&/$Nil)))
+            (&/T [meta ($if (pass-0 top-level-func? value) (pass-0 top-level-func? _then) (pass-0 top-level-func? _else))])
+
             (&/$Cons [(&a-case/$BitTestAC false) _else]
                      (&/$Cons [(&a-case/$BitTestAC true) _then]
                               (&/$Nil)))
             (&/T [meta ($if (pass-0 top-level-func? value) (pass-0 top-level-func? _then) (pass-0 top-level-func? _else))])
-            
+
+            (&/$Cons [(&a-case/$BitTestAC false) _else]
+                     (&/$Cons [(&a-case/$NoTestAC) _then]
+                              (&/$Nil)))
+            (&/T [meta ($if (pass-0 top-level-func? value) (pass-0 top-level-func? _then) (pass-0 top-level-func? _else))])
+
             ;; The pattern for a record-get is a single branch, with a
             ;; tuple pattern and a body corresponding to a
             ;; local-variable extracted from the tuple.

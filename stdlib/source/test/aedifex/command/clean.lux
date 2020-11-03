@@ -1,0 +1,118 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    ["." try (#+ Try)]
+    [concurrency
+     ["." promise (#+ Promise)]]
+    [security
+     ["!" capability]]]
+   [data
+    [binary (#+ Binary)]
+    ["." product]
+    ["." text
+     ["%" format (#+ format)]]
+    [number
+     ["n" nat]]
+    [collection
+     ["." list ("#@." functor)]
+     ["." set]]]
+   [math
+    ["." random (#+ Random)]]
+   [world
+    ["." file (#+ Path File)]]]
+  [///
+   ["@." profile]
+   [//
+    [lux
+     [data
+      ["_." binary]]]]]
+  {#program
+   ["." /
+    ["//#" /// #_
+     ["#" profile]
+     ["#." action (#+ Action)]]]})
+
+(def: node-name
+  (Random Text)
+  (random.ascii/alpha 10))
+
+(def: (files prefix)
+  (-> Path (Random (List [Path Binary])))
+  (do {! random.monad}
+    [count (:: ! map (n.% 10) random.nat)
+     names (random.set text.hash count ..node-name)
+     contents (random.list count (_binary.random 100))]
+    (wrap (list.zip/2 (list@map (|>> (format prefix)) (set.to-list names))
+                      contents))))
+
+(def: (create-file! fs [path content])
+  (-> (file.System Promise) [Path Binary] (Promise (Try Any)))
+  (do {! (try.with promise.monad)}
+    [file (: (Promise (Try (File Promise)))
+             (file.get-file promise.monad fs path))]
+    (!.use (:: file over-write) content)))
+
+(def: (create-directory! fs path files)
+  (-> (file.System Promise) Path (List [Path Binary]) (Promise (Try Any)))
+  (do {! (try.with promise.monad)}
+    [_ (: (Promise (Try Path))
+          (file.make-directories promise.monad fs path))
+     _ (monad.map ! (..create-file! fs) files)]
+    (wrap [])))
+
+(def: (directory-exists? fs)
+  (-> (file.System Promise) Path (Promise (Try Bit)))
+  (|>> (file.directory-exists? promise.monad fs) (try.lift promise.monad)))
+
+(def: (file-exists? fs)
+  (-> (file.System Promise) Path (Promise (Try Bit)))
+  (|>> (file.file-exists? promise.monad fs) (try.lift promise.monad)))
+
+(def: (assets-exist? fs directory-path files)
+  (-> (file.System Promise) Path (List [Path Binary]) (Promise (Try Bit)))
+  (do {! (try.with promise.monad)}
+    [directory-exists? (..directory-exists? fs directory-path)
+     files-exist? (: (Action (List Bit))
+                     (|> files
+                         (list@map product.left)
+                         (monad.map ///action.monad (..file-exists? fs))))]
+    (wrap (and directory-exists?
+               (list.every? (|>>) files-exist?)))))
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      (do {! random.monad}
+        [context ..node-name
+         target ..node-name
+         sub ..node-name
+         #let [fs (file.mock (:: file.default separator))
+               / (:: fs separator)
+               target-path (format context / target)
+               sub-path (format target-path / sub)]
+         direct-files (..files (format target-path /))
+         sub-files (..files (format sub-path /))
+
+         dummy @profile.random]
+        (wrap (do promise.monad
+                [verdict (do {! (try.with promise.monad)}
+                           [_ (..create-directory! fs target-path direct-files)
+                            _ (..create-directory! fs sub-path sub-files)
+                            context-exists!/pre (..directory-exists? fs context)
+                            target-exists!/pre (..assets-exist? fs target-path direct-files)
+                            sub-exists!/pre (..assets-exist? fs sub-path sub-files)
+                            _ (/.do! fs (set@ #///.target (#.Some target-path) dummy))
+                            context-exists!/post (..directory-exists? fs context)
+                            target-exists!/post (..assets-exist? fs target-path direct-files)
+                            sub-exists!/post (..assets-exist? fs sub-path sub-files)]
+                           (wrap (and (and context-exists!/pre
+                                           context-exists!/post)
+                                      (and target-exists!/pre
+                                           (not target-exists!/post))
+                                      (and sub-exists!/pre
+                                           (not sub-exists!/post)))))]
+                (_.claim [/.do!]
+                         (try.default false verdict)))))))
