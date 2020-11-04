@@ -1,15 +1,21 @@
 (.module:
   [lux #*
-   ["." io (#+ IO)]
+   ["@" target]
    ["jvm" host (#+ import:)]
    [abstract
-    ["." enum]]
+    [monad (#+ do)]]
    [control
-    [monad (#+ do)]
-    ["." try (#+ Try)]]
+    ["." function]
+    ["." try (#+ Try)]
+    ["." io (#+ IO)]
+    [security
+     ["!" capability (#+ capability:)]
+     ["?" policy (#+ Safety Safe)]]
+    [concurrency
+     ["." stm (#+ Var STM)]
+     ["." promise (#+ Promise) ("#@." monad)]]]
    [data
     ["." product]
-    ["." maybe]
     [number (#+ hex)
      ["n" nat]]
     ["." text
@@ -19,146 +25,366 @@
      ["." context (#+ Context)]]
     [collection
      ["." array (#+ Array)]
-     ["." list ("#;." fold functor)]
-     ["." dictionary]]]
-   [tool
-    [compiler
-     ["." host]]]
-   [world
-    ["." console (#+ Console)]]])
+     ["." list ("#@." fold functor)]
+     ["." dictionary]]]])
+
+(capability: #export (Can-Read !)
+  (can-read [] (! (Try Text))))
+
+(capability: #export (Can-Write !)
+  (can-write Text (! (Try Any))))
+
+(capability: #export (Can-Destroy !)
+  (can-destroy [] (! (Try Any))))
+
+(type: #export Exit
+  Int)
+
+(def: #export normal
+  Exit
+  +0)
+
+(capability: #export (Can-Wait !)
+  (can-wait [] (! (Try Exit))))
+
+(signature: #export (Process !)
+  (: (Can-Read !)
+     read)
+  (: (Can-Read !)
+     error)
+  (: (Can-Write !)
+     write)
+  (: (Can-Destroy !)
+     destroy)
+  (: (Can-Wait !)
+     await))
+
+(def: (async-process process)
+  (-> (Process IO) (Process Promise))
+  (`` (structure
+       (~~ (template [<method> <capability>]
+             [(def: <method>
+                (<capability>
+                 (|>> (!.use (:: process <method>))
+                      promise.future)))]
+
+             [read ..can-read]
+             [error ..can-read]
+             [write ..can-write]
+             [destroy ..can-destroy]
+             [await ..can-wait]
+             )))))
+
+(type: #export Environment
+  Context)
+
+(type: #export Command
+  Text)
+
+(type: #export Argument
+  Text)
+
+(capability: #export (Can-Execute !)
+  (can-execute [Environment Command (List Argument)] (! (Try (Process !)))))
+
+(signature: #export (Shell !)
+  (: (Can-Execute !)
+     execute))
+
+(def: #export (async shell)
+  (-> (Shell IO) (Shell Promise))
+  (structure
+   (def: execute
+     (..can-execute
+      (function (_ input)
+        (promise.future
+         (do (try.with io.monad)
+           [process (!.use (:: shell execute) input)]
+           (wrap (..async-process process)))))))))
+
+(signature: (Policy ?)
+  (: (-> Command (Safe Command ?))
+     command)
+  (: (-> Argument (Safe Argument ?))
+     argument)
+  (: (All [a] (-> (Safe a ?) a))
+     value))
+
+(type: (Sanitizer a)
+  (-> a a))
+
+(type: Replacer
+  (-> Text Text))
+
+(def: (replace bad replacer)
+  (-> Text Replacer (-> Text Text))
+  (text.replace-all bad (replacer bad)))
+
+(def: sanitize-common-command
+  (-> Replacer (Sanitizer Command))
+  (let [x0A (text.from-code (hex "0A"))
+        xFF (text.from-code (hex "FF"))]
+    (function (_ replacer)
+      (|>> (..replace x0A replacer)
+           (..replace xFF replacer)
+           (..replace "\" replacer)
+           (..replace "&" replacer)
+           (..replace "#" replacer)
+           (..replace ";" replacer)
+           (..replace "`" replacer)
+           (..replace "|" replacer)
+           (..replace "*" replacer)
+           (..replace "?" replacer)
+           (..replace "~" replacer)
+           (..replace "^" replacer)
+           (..replace "$" replacer)
+           (..replace "<" replacer) (..replace ">" replacer)
+           (..replace "(" replacer) (..replace ")" replacer)
+           (..replace "[" replacer) (..replace "]" replacer)
+           (..replace "{" replacer) (..replace "}" replacer)))))
+
+(def: (policy sanitize-command sanitize-argument)
+  (Ex [?] (-> (Sanitizer Command) (Sanitizer Argument) (Policy ?)))
+  (?.with-policy
+    (: (?.Context Safety Policy)
+       (function (_ (^open "?@."))
+         (structure
+          (def: command (|>> sanitize-command (!.use ?@can-upgrade)))
+          (def: argument (|>> sanitize-argument (!.use ?@can-upgrade)))
+          (def: value (!.use ?@can-downgrade)))))))
+
+(def: unix-policy
+  (let [replacer (: Replacer
+                    (|>> (format "\")))
+        sanitize-command (: (Sanitizer Command)
+                            (..sanitize-common-command replacer))
+        sanitize-argument (: (Sanitizer Argument)
+                             (|>> (..replace "'" replacer)
+                                  (text.enclose' "'")))]
+    (..policy sanitize-command sanitize-argument)))
+
+(def: windows-policy
+  (let [replacer (: Replacer
+                    (function.constant " "))
+        sanitize-command (: (Sanitizer Command)
+                            (|>> (..sanitize-common-command replacer)
+                                 (..replace "%" replacer)
+                                 (..replace "!" replacer)))
+        sanitize-argument (: (Sanitizer Argument)
+                             (|>> (..replace "%" replacer)
+                                  (..replace "!" replacer)
+                                  (..replace text.double-quote replacer)
+                                  (text.enclose' text.double-quote)))]
+    (..policy sanitize-command sanitize-argument)))
+
+(with-expansions [<jvm> (as-is (import: java/lang/String
+                                 (toLowerCase [] java/lang/String))
+
+                               (def: (jvm::arguments-array arguments)
+                                 (-> (List Argument) (Array java/lang/String))
+                                 (product.right
+                                  (list@fold (function (_ argument [idx output])
+                                               [(inc idx) (jvm.array-write idx argument output)])
+                                             [0 (jvm.array java/lang/String (list.size arguments))]
+                                             arguments)))
+
+                               (import: (java/util/Map k v)
+                                 (put [k v] v))
+
+                               (def: (jvm::load-environment input target)
+                                 (-> Environment
+                                     (java/util/Map java/lang/String java/lang/String)
+                                     (java/util/Map java/lang/String java/lang/String))
+                                 (list@fold (function (_ [key value] target')
+                                              (exec (java/util/Map::put key value target')
+                                                target'))
+                                            target
+                                            (dictionary.entries input)))
+                               
+                               (import: java/io/Reader
+                                 (read [] #io #try int))
+
+                               (import: java/io/BufferedReader
+                                 (new [java/io/Reader])
+                                 (readLine [] #io #try java/lang/String))
+
+                               (import: java/io/InputStream)
+                               
+                               (import: java/io/InputStreamReader
+                                 (new [java/io/InputStream]))
+
+                               (import: java/io/OutputStream
+                                 (write [[byte]] #io #try void))
+
+                               (import: java/lang/Process
+                                 (getInputStream [] #io #try java/io/InputStream)
+                                 (getErrorStream [] #io #try java/io/InputStream)
+                                 (getOutputStream [] #io #try java/io/OutputStream)
+                                 (destroy [] #io #try void)
+                                 (waitFor [] #io #try int))
+
+                               (def: (default-process process)
+                                 (-> java/lang/Process (IO (Try (Process IO))))
+                                 (do (try.with io.monad)
+                                   [jvm-input (java/lang/Process::getInputStream process)
+                                    jvm-error (java/lang/Process::getErrorStream process)
+                                    jvm-output (java/lang/Process::getOutputStream process)
+                                    #let [jvm-input (|> jvm-input
+                                                        java/io/InputStreamReader::new
+                                                        java/io/BufferedReader::new)
+                                          jvm-error (|> jvm-error
+                                                        java/io/InputStreamReader::new
+                                                        java/io/BufferedReader::new)]]
+                                   (wrap (: (Process IO)
+                                            (`` (structure
+                                                 (~~ (template [<name> <stream>]
+                                                       [(def: <name>
+                                                          (..can-read
+                                                           (function (_ _)
+                                                             (java/io/BufferedReader::readLine <stream>))))]
+
+                                                       [read jvm-input]
+                                                       [error jvm-error]
+                                                       ))
+                                                 (def: write
+                                                   (..can-write
+                                                    (function (_ message)
+                                                      (|> jvm-output
+                                                          (java/io/OutputStream::write (encoding.to-utf8 message))))))
+                                                 (~~ (template [<name> <capability> <method>]
+                                                       [(def: <name>
+                                                          (<capability>
+                                                           (function (_ _)
+                                                             (<method> process))))]
+
+                                                       [destroy ..can-destroy java/lang/Process::destroy]
+                                                       [await ..can-wait java/lang/Process::waitFor]
+                                                       ))))))))
+
+                               (import: java/lang/ProcessBuilder
+                                 (new [[java/lang/String]])
+                                 (environment [] #io #try (java/util/Map java/lang/String java/lang/String))
+                                 (start [] #io #try java/lang/Process))
+
+                               (import: java/lang/System
+                                 (#static getProperty [java/lang/String] #io #try java/lang/String))
+                               )]
+  (for {@.old (as-is <jvm>)
+        @.jvm (as-is <jvm>)}))
 
 ## https://en.wikipedia.org/wiki/Code_injection#Shell_injection
 (def: windows?
-  (-> Text Bit)
-  (text.starts-with? "windows"))
+  (IO (Try Bit))
+  (:: (try.with io.monad) map
+      (|>> java/lang/String::toLowerCase (text.starts-with? "windows"))
+      (java/lang/System::getProperty "os.name")))
 
-(def: (sanitize-command windows?)
-  (-> Bit (-> Text Text))
-  (let [dangerous (format "\&#;`|*?~<>^()[]{}$"
-                          (text.from-code (hex "0A"))
-                          (text.from-code (hex "FF")))
-        dangerous (if windows?
-                    (format dangerous "%!")
-                    dangerous)
-        indices (enum.range n.enum 0 (dec (text.size dangerous)))]
-    (function (_ unsafe)
-      (list;fold (function (_ index safer)
-                   (let [bad (|> dangerous (text.nth index) maybe.assume text.from-code)
-                         good (if windows?
-                                " "
-                                (format "\" bad))]
-                     (text.replace-all bad good safer)))
-                 unsafe
-                 indices))))
+(def: (jvm::process-builder policy command arguments)
+  (All [?]
+    (-> (Policy ?) (Safe Command ?) (List (Safe Argument ?))
+        java/lang/ProcessBuilder))
+  (|> (list@map (:: policy value) arguments)
+      (list& (:: policy value command))
+      ..jvm::arguments-array
+      java/lang/ProcessBuilder::new))
 
-(def: (sanitize-argument windows?)
-  (-> Bit (-> Text Text))
-  (if windows?
-    (|>> (text.replace-all "%" " ")
-         (text.replace-all "!" " ")
-         (text.replace-all text.double-quote " ")
-         (text.enclose' text.double-quote))
-    (|>> (text.replace-all "'" "\'")
-         (text.enclose' "'"))))
+(structure: #export default
+  (Shell IO)
 
-(`` (for {(~~ (static host.old))
-          (as-is (import: java/lang/String
-                   (toLowerCase [] java/lang/String))
+  (def: execute
+    (..can-execute
+     (function (_ [environment command arguments])
+       (with-expansions [<jvm> (as-is (do {! (try.with io.monad)}
+                                        [windows? ..windows?
+                                         #let [builder (if windows?
+                                                         (..jvm::process-builder ..windows-policy
+                                                                                 (:: ..windows-policy command command)
+                                                                                 (list@map (:: ..windows-policy argument) arguments))
+                                                         (..jvm::process-builder ..unix-policy
+                                                                                 (:: ..unix-policy command command)
+                                                                                 (list@map (:: ..unix-policy argument) arguments)))]
+                                         _ (:: ! map (..jvm::load-environment environment)
+                                               (java/lang/ProcessBuilder::environment builder))
+                                         process (java/lang/ProcessBuilder::start builder)]
+                                        (..default-process process)))]
+         (for {@.old (as-is <jvm>)
+               @.jvm (as-is <jvm>)}))))))
 
-                 (def: (arguments-array arguments)
-                   (-> (List Text) (Array java/lang/String))
-                   (product.right
-                    (list;fold (function (_ argument [idx output])
-                                 [(inc idx) (jvm.array-write idx argument output)])
-                               [0 (jvm.array java/lang/String (list.size arguments))]
-                               arguments)))
+(signature: #export (Simulation s)
+  (: (-> s (Try [s Text]))
+     on-read)
+  (: (-> s (Try [s Text]))
+     on-error)
+  (: (-> Text s (Try s))
+     on-write)
+  (: (-> s (Try s))
+     on-destroy)
+  (: (-> s (Try [s Exit]))
+     on-await))
 
-                 (import: (java/util/Map k v)
-                   (put [k v] v))
+(`` (structure: (mock-process simulation state)
+      (All [s] (-> (Simulation s) (Var s) (Process Promise)))
 
-                 (def: (load-environment input target)
-                   (-> Context
-                       (java/util/Map java/lang/String java/lang/String)
-                       (java/util/Map java/lang/String java/lang/String))
-                   (list;fold (function (_ [key value] target')
-                                (exec (java/util/Map::put key value target')
-                                  target'))
-                              target
-                              (dictionary.entries input)))
-                 
-                 (import: java/io/Reader
-                   (read [] #io #try int))
+      (~~ (template [<name> <capability> <simulation>]
+            [(def: <name>
+               (<capability>
+                (function (_ _)
+                  (stm.commit
+                   (do {! stm.monad}
+                     [|state| (stm.read state)]
+                     (case (:: simulation <simulation> |state|)
+                       (#try.Success [|state| output])
+                       (do !
+                         [_ (stm.write |state| state)]
+                         (wrap (#try.Success output)))
+                       
+                       (#try.Failure error)
+                       (wrap (#try.Failure error))))))))]
 
-                 (import: java/io/BufferedReader
-                   (new [java/io/Reader])
-                   (readLine [] #io #try java/lang/String))
+            [read ..can-read on-read]
+            [error ..can-read on-error]
+            [await ..can-wait on-await]
+            ))
+      (def: write
+        (..can-write
+         (function (_ message)
+           (stm.commit
+            (do {! stm.monad}
+              [|state| (stm.read state)]
+              (case (:: simulation on-write message |state|)
+                (#try.Success |state|)
+                (do !
+                  [_ (stm.write |state| state)]
+                  (wrap (#try.Success [])))
+                
+                (#try.Failure error)
+                (wrap (#try.Failure error))))))))
+      (def: destroy
+        (..can-destroy
+         (function (_ _)
+           (stm.commit
+            (do {! stm.monad}
+              [|state| (stm.read state)]
+              (case (:: simulation on-destroy |state|)
+                (#try.Success |state|)
+                (do !
+                  [_ (stm.write |state| state)]
+                  (wrap (#try.Success [])))
+                
+                (#try.Failure error)
+                (wrap (#try.Failure error))))))))))
 
-                 (import: java/io/InputStream)
-                 
-                 (import: java/io/InputStreamReader
-                   (new [java/io/InputStream]))
+(structure: #export (mock simulation init)
+  (All [s]
+    (-> (-> [Environment Command (List Argument)]
+            (Try (Simulation s)))
+        s
+        (Shell Promise)))
 
-                 (import: java/io/OutputStream
-                   (write [[byte]] #io #try void))
-
-                 (import: java/lang/Process
-                   (getInputStream [] #io #try java/io/InputStream)
-                   (getOutputStream [] #io #try java/io/OutputStream)
-                   (destroy [] #io #try void))
-
-                 (def: (process-console process)
-                   (-> java/lang/Process (IO (Try (Console IO))))
-                   (do (try.with io.monad)
-                     [jvm-input (java/lang/Process::getInputStream process)
-                      #let [jvm-input (|> jvm-input
-                                          java/io/InputStreamReader::new
-                                          java/io/BufferedReader::new)]
-                      jvm-output (java/lang/Process::getOutputStream process)]
-                     (wrap (: (Console IO)
-                              (structure
-                               (def: can-read
-                                 (console.can-read
-                                  (function (_ _)
-                                    (|> jvm-input
-                                        java/io/Reader::read
-                                        (:: (try.with io.monad) map .nat)))))
-                               
-                               (def: can-read-line
-                                 (console.can-read
-                                  (function (_ _)
-                                    (|> jvm-input
-                                        java/io/BufferedReader::readLine))))
-                               
-                               (def: can-write
-                                 (console.can-write
-                                  (function (_ message)
-                                    (|> jvm-output
-                                        (java/io/OutputStream::write (encoding.to-utf8 message))))))
-                               
-                               (def: can-close
-                                 (console.can-close
-                                  (function (_ _)
-                                    (|> process
-                                        java/lang/Process::destroy)))))))))
-
-                 (import: java/lang/ProcessBuilder
-                   (new [[java/lang/String]])
-                   (environment [] #io #try (java/util/Map java/lang/String java/lang/String))
-                   (start [] #io #try java/lang/Process))
-
-                 (import: java/lang/System
-                   (#static getProperty [java/lang/String] #io #try java/lang/String))
-                 )}))
-
-(def: #export (execute environment command arguments)
-  (-> Context Text (List Text) (IO (Try (Console IO))))
-  (`` (for {(~~ (static host.old))
-            (do {! (try.with io.monad)}
-              [windows? (:: ! map (|>> java/lang/String::toLowerCase ..windows?)
-                            (java/lang/System::getProperty "os.name"))
-               #let [builder (java/lang/ProcessBuilder::new (arguments-array (list& (sanitize-command windows? command)
-                                                                                    (list;map (sanitize-argument windows?) arguments))))]
-               environment (:: ! map (load-environment environment)
-                               (java/lang/ProcessBuilder::environment builder))
-               process (java/lang/ProcessBuilder::start builder)]
-              (process-console process))})))
+  (def: execute
+    (..can-execute
+     (function (_ input)
+       (promise@wrap
+        (do try.monad
+          [simulation (simulation input)]
+          (wrap (..mock-process simulation (stm.var init)))))))))

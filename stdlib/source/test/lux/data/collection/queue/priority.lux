@@ -1,56 +1,92 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
    [abstract
     ["." monad (#+ do)]]
    [data
-    ["." maybe]
+    ["." maybe ("#@." functor)]
+    ["." bit ("#@." equivalence)]
     [number
      ["n" nat]]]
    [math
-    ["r" random (#+ Random)]]]
+    ["." random (#+ Random)]]]
   {1
    ["." / (#+ Queue)]})
 
-(def: #export (queue size)
+(def: #export (random size)
   (-> Nat (Random (Queue Nat)))
-  (do {! r.monad}
-    [inputs (r.list size r.nat)]
+  (do {! random.monad}
+    [inputs (random.list size random.nat)]
     (monad.fold ! (function (_ head tail)
                     (do !
-                      [priority r.nat]
+                      [priority random.nat]
                       (wrap (/.push priority head tail))))
                 /.empty
                 inputs)))
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /.Queue)))
-      (do {! r.monad}
-        [size (|> r.nat (:: ! map (n.% 100)))
-         sample (..queue size)
-         non-member-priority r.nat
-         non-member (|> r.nat (r.filter (|>> (/.member? n.equivalence sample) not)))]
+  (<| (_.covering /._)
+      (_.with-cover [/.Queue])
+      (do {! random.monad}
+        [size (:: ! map (n.% 100) random.nat)
+         sample (..random size)
+         non-member-priority random.nat
+         non-member (random.filter (|>> (/.member? n.equivalence sample) not)
+                                   random.nat)
+
+         max-member random.nat
+         min-member random.nat]
         ($_ _.and
-            (_.test "I can query the size of a queue (and empty queues have size 0)."
-                    (n.= size (/.size sample)))
-            (_.test "Enqueueing and dequeing affects the size of queues."
-                    (and (n.= (inc size)
-                              (/.size (/.push non-member-priority non-member sample)))
-                         (or (n.= 0 (/.size sample))
-                             (n.= (dec size)
-                                  (/.size (/.pop sample))))))
-            (_.test "I can query whether an element belongs to a queue."
-                    (and (and (not (/.member? n.equivalence sample non-member))
-                              (/.member? n.equivalence
-                                         (/.push non-member-priority non-member sample)
-                                         non-member))
-                         (or (n.= 0 (/.size sample))
-                             (and (/.member? n.equivalence
-                                             sample
-                                             (maybe.assume (/.peek sample)))
-                                  (not (/.member? n.equivalence
-                                                  (/.pop sample)
-                                                  (maybe.assume (/.peek sample))))))))
+            (_.cover [/.size]
+                     (n.= size (/.size sample)))
+            (_.cover [/.empty?]
+                     (bit@= (n.= 0 (/.size sample))
+                            (/.empty? sample)))
+            (_.cover [/.empty]
+                     (/.empty? /.empty))
+            (_.cover [/.peek]
+                     (case (/.peek sample)
+                       (#.Some first)
+                       (n.> 0 (/.size sample))
+                       
+                       #.None
+                       (/.empty? sample)))
+            (_.cover [/.member?]
+                     (case (/.peek sample)
+                       (#.Some first)
+                       (/.member? n.equivalence sample first)
+                       
+                       #.None
+                       (/.empty? sample)))
+            (_.cover [/.push]
+                     (let [sample+ (/.push non-member-priority non-member sample)]
+                       (and (not (/.member? n.equivalence sample non-member))
+                            (n.= (inc (/.size sample))
+                                 (/.size sample+))
+                            (/.member? n.equivalence sample+ non-member))))
+            (_.cover [/.pop]
+                     (let [sample- (/.pop sample)]
+                       (or (and (/.empty? sample)
+                                (/.empty? sample-))
+                           (n.= (dec (/.size sample))
+                                (/.size sample-)))))
+            (_.with-cover [/.Priority]
+              ($_ _.and
+                  (_.cover [/.max]
+                           (|> /.empty
+                               (/.push /.min min-member)
+                               (/.push /.max max-member)
+                               /.peek
+                               (maybe@map (n.= max-member))
+                               (maybe.default false)))
+                  (_.cover [/.min]
+                           (|> /.empty
+                               (/.push /.max max-member)
+                               (/.push /.min min-member)
+                               /.pop
+                               /.peek
+                               (maybe@map (n.= min-member))
+                               (maybe.default false)))
+                  ))
             ))))
