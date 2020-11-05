@@ -11,13 +11,18 @@
     [number
      ["n" nat]]
     [text
-     ["%" format (#+ format)]]]
+     ["%" format (#+ format)]]
+    [collection
+     ["." list]
+     ["." row (#+ Row)]]]
    [math
     ["." random]]]
   {1
    ["." / (#+ actor: message:)
     [//
-     ["." promise (#+ Promise Resolver) ("#@." monad)]]]})
+     ["." atom (#+ Atom)]
+     ["." promise (#+ Promise Resolver) ("#@." monad)]
+     ["." frp]]]})
 
 (exception: got-wrecked)
 
@@ -43,7 +48,7 @@
 
 (def: #export test
   Test
-  (do random.monad
+  (do {! random.monad}
     [initial-state random.nat
      #let [as-mail (: (All [a] (-> (-> a a) (/.Mail a)))
                       (function (_ transform)
@@ -189,4 +194,47 @@
                                              false)))))]
                     (_.claim [/.actor]
                              verdict)))
+            (do !
+              [num-events (:: ! map (|>> (n.% 10) inc) random.nat)
+               events (random.list num-events random.nat)
+               num-observations (:: ! map (n.% num-events) random.nat)
+               #let [expected (list.take num-observations events)
+                     sink (: (Atom (Row Nat))
+                             (atom.atom row.empty))
+                     [signal signal!] (: [(Promise Any) (Resolver Any)]
+                                         (promise.promise []))]]
+              (wrap (do promise.monad
+                      [agent (promise.future
+                              (do {! io.monad}
+                                [agent (/.actor {Nat 0})
+                                 _ (/.observe (function (_ event stop)
+                                                (function (_ events-seen self)
+                                                  (promise.future
+                                                   (cond (n.< num-observations events-seen)
+                                                         (do !
+                                                           [_ (atom.update (row.add event) sink)]
+                                                           (wrap (#try.Success (inc events-seen))))
+                                                         
+                                                         (n.= num-observations events-seen)
+                                                         (do !
+                                                           [_ stop
+                                                            _ (signal! [])]
+                                                           (wrap (#try.Success (inc events-seen))))
+
+                                                         (wrap (#try.Failure "YOLO"))))))
+                                              (frp.sequential 0 events)
+                                              agent)]
+                                (wrap agent)))
+                       _ signal
+                       actual (promise.future (atom.read sink))
+                       died? (promise.time-out 1,000 (/.await agent))
+                       #let [died? (case died?
+                                     (#.Some _)
+                                     true
+
+                                     #.None
+                                     false)]]
+                      (_.claim [/.observe]
+                               (and (:: (list.equivalence n.equivalence) = expected (row.to-list actual))
+                                    (not died?))))))
             ))))

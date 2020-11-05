@@ -6,14 +6,15 @@
     [monad (#+ do)]]
    [control
     ["." try (#+ Try)]
-    ["ex" exception (#+ exception:)]
+    ["." exception (#+ exception:)]
     ["." io (#+ IO io)]
     [concurrency
-     ["." promise (#+ Promise)]]
+     ["." promise (#+ Promise)]
+     ["." stm]]
     [security
      ["!" capability (#+ capability:)]]]
    [data
-    ["." text
+    ["." text (#+ Char)
      ["%" format (#+ format)]]]])
 
 (template [<name>]
@@ -34,14 +35,14 @@
   (can-close [] (! (Try Any))))
 
 (signature: #export (Console !)
-  (: (Can-Read ! Nat)
-     can-read)
+  (: (Can-Read ! Char)
+     read)
   (: (Can-Read ! Text)
-     can-read-line)
+     read-line)
   (: (Can-Write ! Text)
-     can-write)
+     write)
   (: (Can-Close !)
-     can-close))
+     close))
 
 (def: #export (async console)
   (-> (Console IO) (Console Promise))
@@ -50,10 +51,10 @@
                           (<forge>
                            (|>> (!.use (:: console <capability>)) promise.future)))]
 
-                       [can-read ..can-read]
-                       [can-read-line ..can-read]
-                       [can-write ..can-write]
-                       [can-close ..can-close])))))
+                       [read ..can-read]
+                       [read-line ..can-read]
+                       [write ..can-write]
+                       [close ..can-close])))))
 
 (with-expansions [<jvm> (as-is (import: java/lang/String)
 
@@ -77,42 +78,103 @@
                                    [?jvm-console (java/lang/System::console)]
                                    (case ?jvm-console
                                      #.None
-                                     (wrap (ex.throw cannot-open []))
+                                     (wrap (exception.throw ..cannot-open []))
 
                                      (#.Some jvm-console)
                                      (let [jvm-input (java/lang/System::in)
                                            jvm-output (java/lang/System::out)]
                                        (<| wrap
-                                           ex.return
+                                           exception.return
                                            (: (Console IO)) ## TODO: Remove ASAP
                                            (structure
-                                            (def: can-read
+                                            (def: read
                                               (..can-read
                                                (function (_ _)
                                                  (|> jvm-input
                                                      java/io/InputStream::read
                                                      (:: (try.with io.monad) map .nat)))))
                                             
-                                            (def: can-read-line
+                                            (def: read-line
                                               (..can-read
                                                (function (_ _)
                                                  (java/io/Console::readLine jvm-console))))
                                             
-                                            (def: can-write
+                                            (def: write
                                               (..can-write
                                                (function (_ message)
                                                  (java/io/PrintStream::print message jvm-output))))
                                             
-                                            (def: can-close
+                                            (def: close
                                               (..can-close
-                                               (|>> (ex.throw cannot-close) wrap))))))))))]
-  (for {@.old
-        (as-is <jvm>)
-
-        @.jvm
-        (as-is <jvm>)
-        }))
+                                               (|>> (exception.throw ..cannot-close) wrap))))))))))]
+  (for {@.old (as-is <jvm>)
+        @.jvm (as-is <jvm>)}))
 
 (def: #export (write-line message console)
   (All [!] (-> Text (Console !) (! Any)))
-  (!.use (:: console can-write) (format message text.new-line)))
+  (!.use (:: console write) (format message text.new-line)))
+
+(signature: #export (Simulation s)
+  (: (-> s (Try [s Char]))
+     on-read)
+  (: (-> s (Try [s Text]))
+     on-read-line)
+  (: (-> Text s (Try s))
+     on-write)
+  (: (-> s (Try s))
+     on-close))
+
+(def: #export (mock simulation init)
+  (All [s] (-> (Simulation s) s (Console Promise)))
+  (let [state (stm.var init)]
+    (`` (structure
+         (~~ (template [<method> <simulation>]
+               [(def: <method>
+                  (..can-read
+                   (function (_ _)
+                     (stm.commit
+                      (do {! stm.monad}
+                        [|state| (stm.read state)]
+                        (case (:: simulation <simulation> |state|)
+                          (#try.Success [|state| output])
+                          (do !
+                            [_ (stm.write |state| state)]
+                            (wrap (#try.Success output)))
+                          
+                          (#try.Failure error)
+                          (wrap (#try.Failure error))))))))]
+
+               [read on-read]
+               [read-line on-read-line]
+               ))
+
+         (def: write
+           (..can-write
+            (function (_ input)
+              (stm.commit
+               (do {! stm.monad}
+                 [|state| (stm.read state)]
+                 (case (:: simulation on-write input |state|)
+                   (#try.Success |state|)
+                   (do !
+                     [_ (stm.write |state| state)]
+                     (wrap (#try.Success [])))
+                   
+                   (#try.Failure error)
+                   (wrap (#try.Failure error))))))))
+
+         (def: close
+           (..can-close
+            (function (_ _)
+              (stm.commit
+               (do {! stm.monad}
+                 [|state| (stm.read state)]
+                 (case (:: simulation on-close |state|)
+                   (#try.Success |state|)
+                   (do !
+                     [_ (stm.write |state| state)]
+                     (wrap (#try.Success [])))
+                   
+                   (#try.Failure error)
+                   (wrap (#try.Failure error))))))))
+         ))))

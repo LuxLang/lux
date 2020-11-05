@@ -30,7 +30,8 @@
     ["." abstract (#+ abstract: :representation :abstraction)]]]
   [//
    ["." atom (#+ Atom atom)]
-   ["." promise (#+ Promise Resolver) ("#@." monad)]])
+   ["." promise (#+ Promise Resolver) ("#@." monad)]
+   ["." frp (#+ Channel)]])
 
 (exception: #export poisoned)
 (exception: #export dead)
@@ -121,6 +122,12 @@
       (All [s] (-> (Actor s) (IO (Maybe (Obituary s)))))
       (let [[obituary _] (get@ #obituary (:representation actor))]
         (promise.poll obituary)))
+
+    (def: #export await
+      (All [s] (-> (Actor s) (Promise (Obituary s))))
+      (|>> :representation
+           (get@ #obituary)
+           product.left))
 
     (def: #export (mail! mail actor)
       {#.doc "Send mail to an actor.."}
@@ -389,3 +396,25 @@
                                  (:coerce ((~! promise.Promise) ((~! try.Try) [(~ (get@ #abstract.abstraction actor-scope))
                                                                                (~ (get@ #output signature))]))))))))
                     ))))))
+
+(type: #export Stop
+  (IO Any))
+
+(def: continue! true)
+(def: stop! false)
+
+(def: #export (observe action channel actor)
+  (All [e s] (-> (-> e Stop (Mail s)) (Channel e) (Actor s) (IO Any)))
+  (let [signal (: (Atom Bit)
+                  (atom.atom ..continue!))
+        stop (: Stop
+                (atom.write ..stop! signal))]
+    (frp.subscribe (function (_ event)
+                     (do {! io.monad}
+                       [continue? (atom.read signal)]
+                       (if continue?
+                         (do !
+                           [outcome (..mail! (action event stop) actor)]
+                           (wrap (try.to-maybe outcome)))
+                         (wrap #.None))))
+                   channel)))
