@@ -1,6 +1,5 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
    [abstract
     [monad (#+ do)]
@@ -9,105 +8,170 @@
      [/
       ["$." equivalence]]}]
    [data
+    ["." bit ("#@." equivalence)]
     [number
      ["n" nat]]
     [collection
      ["." list]]]
    [math
-    ["r" random (#+ Random) ("#@." monad)]]]
+    ["." random (#+ Random) ("#@." monad)]]]
   {1
    ["." / (#+ Set)
     ["." //]]})
 
-(def: gen-nat
-  (r.Random Nat)
-  (|> r.nat
-      (:: r.monad map (n.% 100))))
+(def: size
+  (random.Random Nat)
+  (:: random.monad map (n.% 100) random.nat))
 
-(def: #export (set &order gen-value size)
-  (All [a] (-> (Order a) (Random a) Nat (Random (Set a))))
+(def: #export (random size &order gen-value)
+  (All [a] (-> Nat (Order a) (Random a) (Random (Set a))))
   (case size
     0
-    (r@wrap (/.new &order))
+    (random@wrap (/.new &order))
 
     _
-    (do r.monad
-      [partial (set &order gen-value (dec size))
-       value (r.filter (|>> (/.member? partial) not)
-                       gen-value)]
+    (do random.monad
+      [partial (random (dec size) &order gen-value)
+       value (random.filter (|>> (/.member? partial) not)
+                            gen-value)]
       (wrap (/.add value partial)))))
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /.Set)))
-      ($_ _.and
-          (do r.monad
-            [size gen-nat]
-            ($_ _.and
-                ($equivalence.spec /.equivalence (..set n.order r.nat size))
-                ))
-          (do {! r.monad}
-            [sizeL gen-nat
-             sizeR gen-nat
-             listL (|> (r.set n.hash sizeL gen-nat) (:: ! map //.to-list))
-             listR (|> (r.set n.hash sizeR gen-nat) (:: ! map //.to-list))
-             #let [(^open "/@.") /.equivalence
-                   setL (/.from-list n.order listL)
-                   setR (/.from-list n.order listR)
-                   sortedL (list.sort n.< listL)
-                   minL (list.head sortedL)
-                   maxL (list.last sortedL)]]
-            ($_ _.and
-                (_.test "I can query the size of a set."
-                        (n.= sizeL (/.size setL)))
-                (_.test "Can query minimum value."
-                        (case [(/.min setL) minL]
-                          [#.None #.None]
-                          true
+  (<| (_.covering /._)
+      (_.with-cover [/.Set])
+      (do {! random.monad}
+        [sizeL ..size
+         sizeR ..size
+         usetL (random.set n.hash sizeL random.nat)
+         non-memberL (random.filter (|>> (//.member? usetL) not)
+                                    random.nat)
+         #let [listL (//.to-list usetL)]
+         listR (|> (random.set n.hash sizeR random.nat) (:: ! map //.to-list))
+         #let [(^open "/@.") /.equivalence
+               setL (/.from-list n.order listL)
+               setR (/.from-list n.order listR)
+               empty (/.new n.order)]]
+        (`` ($_ _.and
+                (_.with-cover [/.equivalence]
+                  ($equivalence.spec /.equivalence (..random sizeL n.order random.nat)))
 
-                          [(#.Some reference) (#.Some sample)]
-                          (n.= reference sample)
+                (_.cover [/.size]
+                         (n.= sizeL (/.size setL)))
+                (_.cover [/.empty?]
+                         (bit@= (n.= 0 (/.size setL))
+                                (/.empty? setL)))
+                (_.cover [/.new]
+                         (/.empty? (/.new n.order)))
+                (_.cover [/.to-list]
+                         (:: (list.equivalence n.equivalence) =
+                             (/.to-list (/.from-list n.order listL))
+                             (list.sort (:: n.order <) listL)))
+                (_.cover [/.from-list]
+                         (|> setL
+                             /.to-list (/.from-list n.order)
+                             (/@= setL)))
+                (~~ (template [<coverage> <comparison>]
+                      [(_.cover [<coverage>]
+                                (case (<coverage> setL)
+                                  (#.Some value)
+                                  (|> setL /.to-list (list.every? (<comparison> value)))
 
-                          _
-                          false))
-                (_.test "Can query maximum value."
-                        (case [(/.max setL) maxL]
-                          [#.None #.None]
-                          true
+                                  #.None
+                                  (/.empty? setL)))]
 
-                          [(#.Some reference) (#.Some sample)]
-                          (n.= reference sample)
+                      [/.min n.>=]
+                      [/.max n.<=]
+                      ))
+                (_.cover [/.member?]
+                         (let [members-are-identified!
+                               (list.every? (/.member? setL) (/.to-list setL))
 
-                          _
-                          false))
-                (_.test "Converting sets to/from lists can't change their values."
-                        (|> setL
-                            /.to-list (/.from-list n.order)
-                            (/@= setL)))
-                (_.test "Order is preserved."
-                        (let [listL (/.to-list setL)
-                              (^open "list@.") (list.equivalence n.equivalence)]
-                          (list@= listL
-                                  (list.sort n.< listL))))
-                (_.test "Every set is a sub-set of the union of itself with another."
-                        (let [setLR (/.union setL setR)]
-                          (and (/.sub? setLR setL)
-                               (/.sub? setLR setR))))
-                (_.test "Every set is a super-set of the intersection of itself with another."
-                        (let [setLR (/.intersection setL setR)]
-                          (and (/.super? setLR setL)
-                               (/.super? setLR setR))))
-                (_.test "Union with the empty set leaves a set unchanged."
-                        (/@= setL
-                             (/.union (/.new n.order)
-                                      setL)))
-                (_.test "Intersection with the empty set results in the empty set."
-                        (let [empty-set (/.new n.order)]
-                          (/@= empty-set
-                               (/.intersection empty-set setL))))
-                (_.test "After substracting a set A from another B, no member of A can be a member of B."
-                        (let [sub (/.difference setR setL)]
-                          (not (list.any? (/.member? sub) (/.to-list setR)))))
-                (_.test "Every member of a set must be identifiable."
-                        (list.every? (/.member? setL) (/.to-list setL)))
+                               non-members-are-not-identified!
+                               (not (/.member? setL non-memberL))]
+                           (and members-are-identified!
+                                non-members-are-not-identified!)))
+                (_.cover [/.add]
+                         (let [setL+ (/.add non-memberL setL)]
+                           (and (not (/.member? setL non-memberL))
+                                (/.member? setL+ non-memberL)
+                                (n.= (inc (/.size setL))
+                                     (/.size setL+)))))
+                (_.cover [/.remove]
+                         (|> setL
+                             (/.add non-memberL)
+                             (/.remove non-memberL)
+                             (:: /.equivalence = setL)))
+                (_.cover [/.sub?]
+                         (let [self!
+                               (/.sub? setL setL)
+
+                               empty!
+                               (/.sub? setL empty)]
+                           (and self!
+                                empty!)))
+                (_.cover [/.super?]
+                         (let [self!
+                               (/.super? setL setL)
+
+                               empty!
+                               (/.super? empty setL)
+
+                               symmetry!
+                               (bit@= (/.super? setL setR)
+                                      (/.sub? setR setL))]
+                           (and self!
+                                empty!
+                                symmetry!)))
+                (~~ (template [<coverage> <relation> <empty?>]
+                      [(_.cover [<coverage>]
+                                (let [self!
+                                      (:: /.equivalence =
+                                          setL
+                                          (<coverage> setL setL))
+
+                                      super!
+                                      (and (<relation> (<coverage> setL setR) setL)
+                                           (<relation> (<coverage> setL setR) setR))
+
+                                      empty!
+                                      (:: /.equivalence =
+                                          (if <empty?> empty setL)
+                                          (<coverage> setL empty))
+
+                                      idempotence!
+                                      (:: /.equivalence =
+                                          (<coverage> setL (<coverage> setL setR))
+                                          (<coverage> setR (<coverage> setL setR)))]
+                                  (and self!
+                                       super!
+                                       empty!
+                                       idempotence!)))]
+
+                      [/.union /.sub? false]
+                      [/.intersection /.super? true]
+                      ))
+                (_.cover [/.difference]
+                         (let [self!
+                               (|> setL
+                                   (/.difference setL)
+                                   (:: /.equivalence = empty))
+
+                               empty!
+                               (|> setL
+                                   (/.difference empty)
+                                   (:: /.equivalence = setL))
+
+                               difference!
+                               (not (list.any? (/.member? (/.difference setL setR))
+                                               (/.to-list setL)))
+
+                               idempotence!
+                               (:: /.equivalence =
+                                   (/.difference setL setR)
+                                   (/.difference setL (/.difference setL setR)))]
+                           (and self!
+                                empty!
+                                difference!
+                                idempotence!)))
                 )))))

@@ -1,0 +1,93 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   [abstract
+    ["." hash (#+ Hash)]
+    ["." equivalence (#+ Equivalence)]
+    ["." monad (#+ do)]]
+   [control
+    ["." io]
+    ["." try]
+    ["." exception (#+ exception:)]]
+   [data
+    ["." binary (#+ Binary)]
+    ["." text
+     ["%" format (#+ format)]]
+    [collection
+     ["." dictionary (#+ Dictionary)]]]
+   [math
+    ["." random (#+ Random)]]]
+  [//
+   ["@." artifact]]
+  {#spec
+   ["$." /]}
+  {#program
+   ["." / (#+ Identity)
+    ["/#" // #_
+     ["#." artifact (#+ Version Artifact)
+      ["#/." extension (#+ Extension)]]]]})
+
+(def: identity
+  (Random Identity)
+  (random.and (random.ascii/alpha 10)
+              (random.ascii/alpha 10)))
+
+(def: identity-equivalence
+  (Equivalence Identity)
+  (equivalence.product text.equivalence
+                       text.equivalence))
+
+(def: artifact
+  (-> Version Artifact)
+  (|>> ["com.github.luxlang" "test-artifact"]))
+
+(def: item-hash
+  (Hash [Artifact Extension])
+  (hash.product //artifact.hash
+                text.hash))
+
+(exception: (not-found {artifact Artifact}
+                       {extension Extension})
+  (exception.report
+   ["Artifact" (//artifact.format artifact)]
+   ["Extension" (%.text extension)]))
+
+(exception: (invalid-identity {[user _] Identity})
+  (exception.report
+   ["User" (%.text user)]))
+
+(type: Store
+  (Dictionary [Artifact Extension] Binary))
+
+(def: empty
+  Store
+  (dictionary.new ..item-hash))
+
+(structure: (simulation identity)
+  (-> Identity (/.Simulation Store))
+
+  (def: (on-download artifact extension state)
+    (case (dictionary.get [artifact extension] state)
+      (#.Some content)
+      (exception.return [state content])
+      
+      #.None
+      (exception.throw ..not-found [artifact extension])))
+  (def: (on-upload requester artifact extension content state)
+    (if (:: identity-equivalence = identity requester)
+      (exception.return (dictionary.put [artifact extension] content state))
+      (exception.throw ..invalid-identity [requester]))))
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      (do {! random.monad}
+        [valid ..identity
+         invalid (random.filter (|>> (:: identity-equivalence = valid) not)
+                                ..identity)]
+        ($_ _.and
+            (_.with-cover [/.mock /.Simulation]
+              ($/.spec valid (..artifact "1.2.3-YES")
+                       invalid (..artifact "4.5.6-NO")
+                       (/.mock (..simulation valid) ..empty)))
+            ))))
