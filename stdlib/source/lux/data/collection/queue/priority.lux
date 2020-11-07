@@ -8,104 +8,111 @@
     [number
      ["n" nat ("#@." interval)]]
     [collection
-     [tree
-      ["." finger (#+ Tree)]]]]])
+     ["." tree #_
+      ["#" finger (#+ Tree)]]]]
+   [type (#+ :by-example)
+    [abstract (#+ abstract: :abstraction :representation)]]])
 
-(type: #export Priority Nat)
-
-(type: #export (Queue a)
-  (Maybe (Tree Priority a)))
+(type: #export Priority
+  Nat)
 
 (def: #export max Priority n@top)
 (def: #export min Priority n@bottom)
 
-(def: #export empty
-  Queue
-  #.None)
+(def: builder
+  (tree.builder n.maximum))
 
-(def: #export (peek queue)
-  (All [a] (-> (Queue a) (Maybe a)))
-  (do maybe.monad
-    [fingers queue]
-    (wrap (maybe.assume (finger.search (n.= (finger.tag fingers)) fingers)))))
+(def: :@:
+  (:by-example [@]
+               {(tree.Builder @ Priority)
+                ..builder}
+               @))
 
-(def: #export (size queue)
-  (All [a] (-> (Queue a) Nat))
-  (case queue
-    #.None
-    0
+(abstract: #export (Queue a)
+  (Maybe (Tree :@: Priority a))
 
-    (#.Some fingers)
-    (loop [node (get@ #finger.node fingers)]
-      (case node
-        (#finger.Leaf _ _)
-        1
+  (def: #export empty
+    Queue
+    (:abstraction #.None))
 
-        (#finger.Branch _ left right)
-        (n.+ (recur left) (recur right))))))
+  (def: #export (peek queue)
+    (All [a] (-> (Queue a) (Maybe a)))
+    (do maybe.monad
+      [tree (:representation queue)]
+      (tree.search (n.= (tree.tag tree))
+                   tree)))
+
+  (def: #export (size queue)
+    (All [a] (-> (Queue a) Nat))
+    (case (:representation queue)
+      #.None
+      0
+
+      (#.Some tree)
+      (loop [node tree]
+        (case (tree.root node)
+          (0 #0 _)
+          1
+
+          (0 #1 [left right])
+          (n.+ (recur left) (recur right))))))
+
+  (def: #export (member? equivalence queue member)
+    (All [a] (-> (Equivalence a) (Queue a) a Bit))
+    (case (:representation queue)
+      #.None
+      false
+
+      (#.Some tree)
+      (loop [node tree]
+        (case (tree.root node)
+          (0 #0 reference)
+          (:: equivalence = reference member)
+
+          (0 #1 [left right])
+          (or (recur left)
+              (recur right))))))
+
+  (def: #export (pop queue)
+    (All [a] (-> (Queue a) (Queue a)))
+    (:abstraction
+     (do maybe.monad
+       [tree (:representation queue)
+        #let [highest-priority (tree.tag tree)]]
+       (loop [node tree]
+         (case (tree.root node)
+           (0 #0 reference)
+           (if (n.= highest-priority (tree.tag node))
+             #.None
+             (#.Some node))
+
+           (0 #1 left right)
+           (if (n.= highest-priority (tree.tag left))
+             (case (recur left)
+               #.None
+               (#.Some right)
+
+               (#.Some =left)
+               (#.Some (:: ..builder branch =left right)))
+             (case (recur right)
+               #.None
+               (#.Some left)
+
+               (#.Some =right)
+               (#.Some (:: ..builder branch left =right)))))))))
+
+  (def: #export (push priority value queue)
+    (All [a] (-> Priority a (Queue a) (Queue a)))
+    (let [addition (:: ..builder leaf priority value)]
+      (:abstraction
+       (case (:representation queue)
+         #.None
+         (#.Some addition)
+
+         (#.Some tree)
+         (#.Some (:: ..builder branch tree addition))))))
+  )
 
 (def: #export empty?
   (All [a] (-> (Queue a) Bit))
   (|>> ..size (n.= 0)))
-
-(def: #export (member? equivalence queue member)
-  (All [a] (-> (Equivalence a) (Queue a) a Bit))
-  (case queue
-    #.None
-    #0
-
-    (#.Some fingers)
-    (loop [node (get@ #finger.node fingers)]
-      (case node
-        (#finger.Leaf _ reference)
-        (:: equivalence = reference member)
-
-        (#finger.Branch _ left right)
-        (or (recur left)
-            (recur right))))))
-
-(def: #export (pop queue)
-  (All [a] (-> (Queue a) (Queue a)))
-  (do maybe.monad
-    [fingers queue
-     #let [highest-priority (finger.tag fingers)]
-     node' (loop [node (get@ #finger.node fingers)]
-             (case node
-               (#finger.Leaf priority reference)
-               (if (n.= highest-priority priority)
-                 #.None
-                 (#.Some node))
-
-               (#finger.Branch priority left right)
-               (if (n.= highest-priority (finger.tag (set@ #finger.node left fingers)))
-                 (case (recur left)
-                   #.None
-                   (#.Some right)
-
-                   (#.Some =left)
-                   (|> (finger.branch (set@ #finger.node =left fingers)
-                                      (set@ #finger.node right fingers))
-                       (get@ #finger.node)
-                       #.Some))
-                 (case (recur right)
-                   #.None
-                   (#.Some left)
-
-                   (#.Some =right)
-                   (|> (finger.branch (set@ #finger.node left fingers)
-                                      (set@ #finger.node =right fingers))
-                       (get@ #finger.node)
-                       #.Some))
-                 )))]
-    (wrap (set@ #finger.node node' fingers))))
-
-(def: #export (push priority value queue)
-  (All [a] (-> Priority a (Queue a) (Queue a)))
-  (let [addition {#finger.monoid n.maximum
-                  #finger.node (#finger.Leaf priority value)}]
-    (case queue
-      #.None
-      (#.Some addition)
-
-      (#.Some fingers)
-      (#.Some (finger.branch fingers addition)))))

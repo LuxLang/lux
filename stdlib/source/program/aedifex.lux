@@ -4,15 +4,16 @@
     [monad (#+ do)]]
    [control
     [pipe (#+ do>)]
-    ["." try (#+ Try)]
     ["." io (#+ IO)]
+    ["." try (#+ Try)]
+    ["." exception (#+ exception:)]
     [parser
      ["." cli (#+ program:)]
      ["<c>" code]]
     [security
      ["!" capability]]
     [concurrency
-     ["." promise (#+ Promise)]]]
+     ["." promise (#+ Promise) ("#@." monad)]]]
    [data
     [binary (#+ Binary)]
     ["." text
@@ -21,7 +22,8 @@
     [format
      ["." xml]]
     [collection
-     ["." set]]]
+     ["." set]
+     ["." dictionary (#+ Dictionary)]]]
    [tool
     [compiler
      [language
@@ -38,6 +40,7 @@
    ["#." pom]
    ["#." cli]
    ["#." cache]
+   ["#." repository (#+ Address)]
    ["#." dependency #_
     ["#" resolution]]
    ["#." command
@@ -70,6 +73,14 @@
             (log! (format "Could not resolve dependencies:" text.new-line
                           error))))))
 
+(exception: (cannot-find-repository {repository Text}
+                                    {options (Dictionary Text Address)})
+  (exception.report
+   ["Repository" (%.text repository)]
+   ["Options" (exception.enumerate (function (_ [name repo])
+                                     (format (%.text name) " := " (%.text repo)))
+                                   (dictionary.entries options))]))
+
 (program: [{[profile operation] /cli.command}]
   (do {! io.monad}
     [?profile (/input.read io.monad file.default profile)]
@@ -92,10 +103,23 @@
         (exec (/command/install.do! (file.async file.default) profile)
           (wrap []))
 
-        (#/cli.Deploy repository user password)
-        (exec (/command/deploy.do! repository user password profile)
-          (wrap []))
+        (#/cli.Deploy repository identity)
+        (exec (case [(get@ #/.identity profile)
+                     (dictionary.get repository (get@ #/.deploy-repositories profile))]
+                [(#.Some artifact) (#.Some repository)]
+                (/command/deploy.do! (/repository.async (/repository.default repository))
+                                     (file.async file.default)
+                                     identity
+                                     artifact
+                                     profile)
 
+                [#.None _]
+                (promise@wrap (exception.throw /.no-identity []))
+
+                [_ #.None]
+                (promise@wrap (exception.throw ..cannot-find-repository [repository (get@ #/.deploy-repositories profile)])))
+          (wrap []))
+        
         (#/cli.Compilation compilation)
         (case compilation
           #/cli.Build (exec (/command/build.do! profile)

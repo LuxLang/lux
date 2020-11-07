@@ -1,17 +1,23 @@
 (.module:
   [lux #*
+   ["." host (#+ import:)]
    [abstract
     [monad (#+ do)]]
    [control
     ["." io (#+ IO)]
     ["." try (#+ Try)]
+    ["." exception (#+ exception:)]
     [concurrency
      ["." promise (#+ Promise)]
      ["." stm]]]
    [data
-    [binary (#+ Binary)]]
+    [binary (#+ Binary)]
+    ["." text
+     ["%" format (#+ format)]
+     ["." encoding]]]
    [world
-    [net (#+ URL)]]]
+    [net (#+ URL)
+     ["." uri]]]]
   ["." // #_
    ["#." artifact (#+ Artifact)
     ["#/." extension (#+ Extension)]]])
@@ -83,3 +89,69 @@
             (#try.Failure error)
             (wrap (#try.Failure error))))))
      )))
+
+(import: java/lang/AutoCloseable
+  (close [] #io #try void))
+
+(import: java/io/OutputStream
+  (flush [] #io #try void)
+  (write [[byte]] #io #try void))
+
+(import: java/lang/String)
+
+(import: java/net/URLConnection
+  (setDoOutput [boolean] #io #try void)
+  (setRequestProperty [java/lang/String java/lang/String] #io #try void)
+  (getOutputStream [] #io #try java/io/OutputStream))
+
+(import: java/net/HttpURLConnection
+  (setRequestMethod [java/lang/String] #io #try void)
+  (getResponseCode [] #io #try int))
+
+(import: java/net/URL
+  (new [java/lang/String])
+  (openConnection [] #io #try java/net/URLConnection))
+
+(import: java/util/Base64$Encoder
+  (encodeToString [[byte]] java/lang/String))
+
+(import: java/util/Base64
+  (#static getEncoder [] java/util/Base64$Encoder))
+
+(exception: #export (failure {code Int})
+  (exception.report
+   ["Code" (%.int code)]))
+
+(def: (basic-auth user password)
+  (-> User Password Text)
+  (format "Basic " (java/util/Base64$Encoder::encodeToString (encoding.to-utf8 (format user ":" password))
+                                                             (java/util/Base64::getEncoder))))
+
+(def: (url address artifact extension)
+  (-> Address Artifact Extension URL)
+  (format address uri.separator (//artifact.uri artifact) extension))
+
+(structure: #export (default address)
+  (All [s] (-> Address (Repository IO)))
+
+  (def: (download artifact extension)
+    (io.io (#try.Failure "YOLO")))
+
+  (def: (upload [user password] artifact extension content)
+    (do (try.with io.monad)
+      [connection (|> (..url address artifact extension)
+                      java/net/URL::new
+                      java/net/URL::openConnection)
+       #let [connection (:coerce java/net/HttpURLConnection connection)]
+       _ (java/net/HttpURLConnection::setRequestMethod "PUT" connection)
+       _ (java/net/URLConnection::setDoOutput true connection)
+       _ (java/net/URLConnection::setRequestProperty "Authorization" (..basic-auth user password) connection)
+       stream (java/net/URLConnection::getOutputStream connection)
+       _ (java/io/OutputStream::write content stream)
+       _ (java/io/OutputStream::flush stream)
+       _ (java/lang/AutoCloseable::close stream)
+       code (java/net/HttpURLConnection::getResponseCode connection)]
+      (case code
+        +200 (wrap [])
+        _ (:: io.monad wrap (exception.throw ..failure [code])))))
+  )

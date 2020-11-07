@@ -195,19 +195,6 @@
   analyse-frac-encode ["f64" "encode"] analyse-frac-decode ["f64" "decode"] &type/Frac
   )
 
-(do-template [<name> <type> <op>]
-  (defn- <name> [analyse exo-type ?values]
-    (|do [:let [(&/$Nil) ?values]
-          _ (&type/check exo-type <type>)
-          _location &/location]
-      (return (&/|list (&&/|meta exo-type _location
-                                 (&&/$proc (&/T <op>) (&/|list) (&/|list)))))))
-
-  analyse-frac-smallest           &type/Frac ["f64"  "smallest"]
-  analyse-frac-min                &type/Frac ["f64"  "min"]
-  analyse-frac-max                &type/Frac ["f64"  "max"]
-  )
-
 (do-template [<name> <from-type> <to-type> <op>]
   (defn- <name> [analyse exo-type ?values]
     (|do [:let [(&/$Cons x (&/$Nil)) ?values]
@@ -300,9 +287,6 @@
          "lux f64 <" (analyse-frac-lt analyse exo-type ?values)
          "lux f64 encode" (analyse-frac-encode analyse exo-type ?values)
          "lux f64 decode" (analyse-frac-decode analyse exo-type ?values)
-         "lux f64 smallest" (analyse-frac-smallest analyse exo-type ?values)
-         "lux f64 min" (analyse-frac-min analyse exo-type ?values)
-         "lux f64 max" (analyse-frac-max analyse exo-type ?values)
          "lux f64 i64" (analyse-frac-int analyse exo-type ?values)
 
          ;; Special extensions for performance reasons

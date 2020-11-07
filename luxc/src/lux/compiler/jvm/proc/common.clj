@@ -146,20 +146,6 @@
   ^:private compile-frac-lt Opcodes/DCMPG -1 &&/unwrap-double
   )
 
-(do-template [<name> <instr>]
-  (defn <name> [compile ?values special-args]
-    (|do [:let [(&/$Nil) ?values]
-          ^MethodVisitor *writer* &/get-writer
-          :let [_ (doto *writer*
-                    (.visitLdcInsn <instr>)
-                    &&/wrap-double)]]
-      (return nil)))
-
-  ^:private compile-frac-smallest Double/MIN_VALUE
-  ^:private compile-frac-min (* -1.0 Double/MAX_VALUE)
-  ^:private compile-frac-max Double/MAX_VALUE
-  )
-
 (defn ^:private compile-frac-encode [compile ?values special-args]
   (|do [:let [(&/$Cons ?input (&/$Nil)) ?values]
         ^MethodVisitor *writer* &/get-writer
@@ -458,19 +444,16 @@
     
     "f64"
     (case proc
-      "+"         (compile-frac-add compile ?values special-args)
-      "-"         (compile-frac-sub compile ?values special-args)
-      "*"         (compile-frac-mul compile ?values special-args)
-      "/"         (compile-frac-div compile ?values special-args)
-      "%"         (compile-frac-rem compile ?values special-args)
-      "="         (compile-frac-eq compile ?values special-args)
-      "<"         (compile-frac-lt compile ?values special-args)
-      "smallest" (compile-frac-smallest compile ?values special-args)
-      "max" (compile-frac-max compile ?values special-args)
-      "min" (compile-frac-min compile ?values special-args)
+      "+"      (compile-frac-add compile ?values special-args)
+      "-"      (compile-frac-sub compile ?values special-args)
+      "*"      (compile-frac-mul compile ?values special-args)
+      "/"      (compile-frac-div compile ?values special-args)
+      "%"      (compile-frac-rem compile ?values special-args)
+      "="      (compile-frac-eq compile ?values special-args)
+      "<"      (compile-frac-lt compile ?values special-args)
       "i64"    (compile-frac-int compile ?values special-args)
-      "encode"    (compile-frac-encode compile ?values special-args)
-      "decode"    (compile-frac-decode compile ?values special-args)
+      "encode" (compile-frac-encode compile ?values special-args)
+      "decode" (compile-frac-decode compile ?values special-args)
       )
 
     ;; else

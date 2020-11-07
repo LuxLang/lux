@@ -3,16 +3,13 @@
    [abstract
     [monad (#+ do)]]
    [control
-    ["." exception (#+ exception:)]
     [concurrency
-     ["." promise ("#@." monad)]]]
+     ["." promise (#+ Promise) ("#@." monad)]]]
    [data
     [binary (#+ Binary)]
     [text
-     ["%" format (#+ format)]
      ["." encoding]]
     [collection
-     ["." dictionary (#+ Dictionary)]
      ["." set]]
     [format
      ["." binary]
@@ -24,53 +21,28 @@
    [compositor
     ["." export]]]
   ["." /// #_
-   ["/" profile (#+ Profile)]
-   ["//" upload]
+   [repository (#+ Identity Repository)]
+   [command (#+ Command)]
+   ["/" profile]
    ["#." action (#+ Action)]
-   ["#." command (#+ Command)]
    ["#." pom]
    ["#." hash]
-   ["#." repository (#+ User Password)]
-   ["#." artifact
-    ["#/." type]]
-   ["#." dependency
-    ["#/." resolution]]])
+   ["#." artifact (#+ Artifact)
+    ["#/." extension (#+ Extension)]]])
 
-(exception: #export (cannot-find-repository {repository Text}
-                                            {options (Dictionary Text ///repository.Address)})
-  (exception.report
-   ["Repository" (%.text repository)]
-   ["Options" (exception.enumerate (function (_ [name repo])
-                                     (format (%.text name) " := " (%.text repo)))
-                                   (dictionary.entries options))]))
-
-(def: #export (do! repository user password profile)
-  (-> Text User Password (Command Any))
-  (case [(get@ #/.identity profile)
-         (dictionary.get repository (get@ #/.deploy-repositories profile))]
-    [#.None _]
-    (promise@wrap (exception.throw /.no-identity []))
-
-    [_ #.None]
-    (promise@wrap (exception.throw ..cannot-find-repository [repository (get@ #/.deploy-repositories profile)]))
-
-    [(#.Some identity) (#.Some repository)]
-    (let [deploy! (: (-> ///artifact/type.Type Binary (Action Any))
-                     (function (_ type content)
-                       (promise.future
-                        (//.upload repository
-                                   user
-                                   password
-                                   {#///dependency.artifact identity
-                                    #///dependency.type type}
-                                   content))))]
-      (do {! ///action.monad}
-        [library (:: ! map (binary.run tar.writer)
-                     (export.library (file.async file.default)
-                                     (set.to-list (get@ #/.sources profile))))
-         pom (promise@wrap (///pom.write profile))
-         _ (deploy! ///artifact/type.pom (|> pom (:: xml.codec encode) encoding.to-utf8))
-         _ (deploy! ///artifact/type.lux-library library)
-         _ (deploy! ///artifact/type.sha-1 (///hash.data (///hash.sha-1 library)))
-         _ (deploy! ///artifact/type.md5 (///hash.data (///hash.md5 library)))]
-        (wrap [])))))
+(def: #export (do! repository fs identity artifact profile)
+  (-> (Repository Promise) (file.System Promise) Identity Artifact (Command Any))
+  (let [deploy! (: (-> Extension Binary (Action Any))
+                   (:: repository upload identity artifact))]
+    (do {! ///action.monad}
+      [library (|> profile
+                   (get@ #/.sources)
+                   set.to-list
+                   (export.library fs)
+                   (:: ! map (binary.run tar.writer)))
+       pom (promise@wrap (///pom.write profile))
+       _ (deploy! ///artifact/extension.pom (|> pom (:: xml.codec encode) encoding.to-utf8))
+       _ (deploy! ///artifact/extension.lux-library library)
+       _ (deploy! ///artifact/extension.sha-1 (///hash.data (///hash.sha-1 library)))
+       _ (deploy! ///artifact/extension.md5 (///hash.data (///hash.md5 library)))]
+      (wrap []))))
