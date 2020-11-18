@@ -32,8 +32,8 @@
    [world
     ["." file (#+ Path)]]]
   ["." / #_
-   [action (#+ Action)]
    ["#" profile]
+   ["#." action (#+ Action)]
    ["#." project (#+ Project)]
    ["#." input]
    ["#." parser]
@@ -43,35 +43,21 @@
    ["#." repository (#+ Address)]
    ["#." dependency #_
     ["#" resolution]]
-   ["#." command
+   ["#." command (#+ Command)
     ["#/." clean]
     ["#/." pom]
     ["#/." install]
+    ["#/." deps]
     ["#/." build]
     ["#/." test]
     ["#/." auto]
     ["#/." deploy]]])
 
-(def: (fetch-dependencies! profile)
-  (-> /.Profile (Promise Any))
-  (do promise.monad
-    [outcome (do (try.with promise.monad)
-               [cache (/cache.read-all (file.async file.default)
-                                       (set.to-list (get@ #/.dependencies profile))
-                                       /dependency.empty)
-                resolution (promise.future
-                            (/dependency.resolve-all (set.to-list (get@ #/.repositories profile))
-                                                     (set.to-list (get@ #/.dependencies profile))
-                                                     cache))]
-               (/cache.write-all (file.async file.default)
-                                 resolution))]
-    (wrap (case outcome
-            (#try.Success _)
-            (log! "Successfully resolved dependencies!")
-            
-            (#try.Failure error)
-            (log! (format "Could not resolve dependencies:" text.new-line
-                          error))))))
+(def: (with-dependencies command profile)
+  (All [a] (-> (Command a) (Command a)))
+  (do /action.monad
+    [_ (/command/deps.do! profile)]
+    (command profile)))
 
 (exception: (cannot-find-repository {repository Text}
                                     {options (Dictionary Text Address)})
@@ -95,10 +81,6 @@
         (exec (/command/pom.do! (file.async file.default) profile)
           (wrap []))
         
-        #/cli.Dependencies
-        (exec (..fetch-dependencies! profile)
-          (wrap []))
-
         #/cli.Install
         (exec (/command/install.do! (file.async file.default) profile)
           (wrap []))
@@ -107,7 +89,7 @@
         (exec (case [(get@ #/.identity profile)
                      (dictionary.get repository (get@ #/.deploy-repositories profile))]
                 [(#.Some artifact) (#.Some repository)]
-                (/command/deploy.do! (/repository.async (/repository.default repository))
+                (/command/deploy.do! (/repository.async (/repository.remote repository))
                                      (file.async file.default)
                                      identity
                                      artifact
@@ -120,17 +102,21 @@
                 (promise@wrap (exception.throw ..cannot-find-repository [repository (get@ #/.deploy-repositories profile)])))
           (wrap []))
         
+        #/cli.Dependencies
+        (exec (/command/deps.do! profile)
+          (wrap []))
+
         (#/cli.Compilation compilation)
         (case compilation
-          #/cli.Build (exec (/command/build.do! profile)
+          #/cli.Build (exec (..with-dependencies /command/build.do! profile)
                         (wrap []))
-          #/cli.Test (exec (/command/test.do! profile)
+          #/cli.Test (exec (..with-dependencies /command/test.do! profile)
                        (wrap [])))
 
         (#/cli.Auto auto)
         (exec (case auto
-                #/cli.Build (/command/auto.do! /command/build.do! profile)
-                #/cli.Test (/command/auto.do! /command/test.do! profile))
+                #/cli.Build (..with-dependencies (/command/auto.do! /command/build.do!) profile)
+                #/cli.Test (..with-dependencies (/command/auto.do! /command/test.do!) profile))
           (wrap [])))
       
       (#try.Failure error)

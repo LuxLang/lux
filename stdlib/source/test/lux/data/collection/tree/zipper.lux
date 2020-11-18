@@ -1,114 +1,261 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
-   [abstract/monad (#+ do Monad)]
+   [abstract
+    [monad (#+ do)]
+    {[0 #spec]
+     [/
+      ["$." equivalence]
+      ["$." functor]
+      ["$." comonad]]}]
    [control
     pipe]
    [data
-    ["." maybe]
+    ["." product]
+    ["." maybe ("#\." functor)]
     ["." text]
     [number
      ["n" nat]]
     [collection
      ["." list]]]
    [math
-    ["r" random]]]
+    ["." random]]]
   ["." //]
   {1
    ["." / (#+ Zipper)
-    ["tree" //]]}
-  )
+    ["tree" //]]})
+
+(def: move
+  Test
+  (do random.monad
+    [expected random.nat
+     dummy (random.filter (|>> (n.= expected) not) random.nat)]
+    ($_ _.and
+        (_.cover [/.down]
+                 (|> (tree.branch dummy (list (tree.leaf expected)))
+                     /.zip
+                     (do> maybe.monad
+                          [/.down]
+                          [/.value (n.= expected) wrap])
+                     (maybe.default false)))
+        (_.cover [/.up]
+                 (|> (tree.branch expected (list (tree.leaf dummy)))
+                     /.zip
+                     (do> maybe.monad
+                          [/.down]
+                          [/.up]
+                          [/.value (n.= expected) wrap])
+                     (maybe.default false)))
+        (_.cover [/.right]
+                 (|> (tree.branch dummy (list (tree.leaf dummy) (tree.leaf expected)))
+                     /.zip
+                     (do> maybe.monad
+                          [/.down]
+                          [/.right]
+                          [/.value (n.= expected) wrap])
+                     (maybe.default false)))
+        (_.cover [/.rightmost]
+                 (|> (tree.branch dummy
+                                  (list (tree.leaf dummy)
+                                        (tree.leaf dummy)
+                                        (tree.leaf dummy)
+                                        (tree.leaf expected)))
+                     /.zip
+                     (do> maybe.monad
+                          [/.down]
+                          [/.rightmost]
+                          [/.value (n.= expected) wrap])
+                     (maybe.default false)))
+        (_.cover [/.left]
+                 (|> (tree.branch dummy (list (tree.leaf expected) (tree.leaf dummy)))
+                     /.zip
+                     (do> maybe.monad
+                          [/.down]
+                          [/.right]
+                          [/.left]
+                          [/.value (n.= expected) wrap])
+                     (maybe.default false)))
+        (_.cover [/.leftmost]
+                 (|> (tree.branch dummy
+                                  (list (tree.leaf expected)
+                                        (tree.leaf dummy)
+                                        (tree.leaf dummy)
+                                        (tree.leaf dummy)))
+                     /.zip
+                     (do> maybe.monad
+                          [/.down]
+                          [/.rightmost]
+                          [/.leftmost]
+                          [/.value (n.= expected) wrap])
+                     (maybe.default false)))
+        (_.cover [/.next]
+                 (and (|> (tree.branch dummy
+                                       (list (tree.leaf expected)
+                                             (tree.leaf dummy)))
+                          /.zip
+                          (do> maybe.monad
+                               [/.next]
+                               [/.value (n.= expected) wrap])
+                          (maybe.default false))
+                      (|> (tree.branch dummy
+                                       (list (tree.leaf dummy)
+                                             (tree.leaf expected)))
+                          /.zip
+                          (do> maybe.monad
+                               [/.next]
+                               [/.next]
+                               [/.value (n.= expected) wrap])
+                          (maybe.default false))))
+        (_.cover [/.end]
+                 (|> (tree.branch dummy
+                                  (list (tree.leaf dummy)
+                                        (tree.leaf dummy)
+                                        (tree.leaf dummy)
+                                        (tree.leaf expected)))
+                     /.zip
+                     (do> maybe.monad
+                          [/.end]
+                          [/.value (n.= expected) wrap])
+                     (maybe.default false)))
+        (_.cover [/.start]
+                 (|> (tree.branch expected
+                                  (list (tree.leaf dummy)
+                                        (tree.leaf dummy)
+                                        (tree.leaf dummy)
+                                        (tree.leaf dummy)))
+                     /.zip
+                     (do> maybe.monad
+                          [/.end]
+                          [/.start]
+                          [/.value (n.= expected) wrap])
+                     (maybe.default false)))
+        (_.cover [/.previous]
+                 (and (|> (tree.branch expected
+                                       (list (tree.leaf dummy)
+                                             (tree.leaf dummy)))
+                          /.zip
+                          (do> maybe.monad
+                               [/.next]
+                               [/.previous]
+                               [/.value (n.= expected) wrap])
+                          (maybe.default false))
+                      (|> (tree.branch dummy
+                                       (list (tree.leaf expected)
+                                             (tree.leaf dummy)))
+                          /.zip
+                          (do> maybe.monad
+                               [/.next]
+                               [/.next]
+                               [/.previous]
+                               [/.value (n.= expected) wrap])
+                          (maybe.default false))))
+        )))
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /.Zipper)))
-      (do {! r.monad}
-        [[size sample] (//.tree r.nat)
-         mid-val r.nat
-         new-val r.nat
-         pre-val r.nat
-         post-val r.nat
-         #let [(^open "tree@.") (tree.equivalence n.equivalence)
-               (^open "list@.") (list.equivalence n.equivalence)]]
+  (<| (_.covering /._)
+      (_.with-cover [/.Zipper])
+      (do {! random.monad}
+        [[size sample] (//.tree random.nat)
+         expected random.nat
+         dummy (random.filter (|>> (n.= expected) not) random.nat)
+         #let [(^open "tree\.") (tree.equivalence n.equivalence)
+               (^open "list\.") (list.equivalence n.equivalence)]]
         ($_ _.and
-            (_.test "Trees can be converted to/from zippers."
-                    (|> sample
-                        /.zip /.unzip
-                        (tree@= sample)))
-            (_.test "Creating a zipper gives you a start node."
-                    (|> sample /.zip /.start?))
-            (_.test "Can move down inside branches. Can move up from lower nodes."
-                    (let [zipper (/.zip sample)]
-                      (if (/.branch? zipper)
-                        (let [child (|> zipper /.down)]
-                          (and (not (tree@= sample (/.unzip child)))
-                               (|> child /.up (is? zipper) not)
-                               (|> child /.start (is? zipper) not)))
-                        (and (/.leaf? zipper)
-                             (|> zipper (/.prepend-child new-val) /.branch?)))))
-            (do !
-              [branch-value r.nat
-               #let [zipper (|> (/.zip (tree.branch branch-value (list (tree.leaf mid-val))))
-                                (/.prepend-child pre-val)
-                                (/.append-child post-val))]]
-              (_.test "Can prepend and append children."
-                      (and (and (|> zipper /.down /.value (is? pre-val))
-                                (|> zipper /.down /.right /.left /.value (is? pre-val))
-                                (|> zipper /.down /.rightmost /.leftmost /.value (is? pre-val)))
-                           (|> zipper /.down /.right /.value (is? mid-val))
-                           (and (|> zipper /.down /.right /.right /.value (is? post-val))
-                                (|> zipper /.down /.rightmost /.value (is? post-val))))))
-            (do !
-              [branch-value r.nat
-               #let [zipper (/.zip (tree.branch branch-value (list (tree.leaf mid-val))))]]
-              (_.test "Can insert children around a node (unless it's start)."
-                      (and (let [zipper (|> zipper
-                                            /.down
-                                            (/.insert-left pre-val)
-                                            maybe.assume
-                                            (/.insert-right post-val)
-                                            maybe.assume
-                                            /.up)]
-                             (and (|> zipper /.down /.value (is? pre-val))
-                                  (|> zipper /.down /.right /.value (is? mid-val))
-                                  (|> zipper /.down /.right /.right /.value (is? post-val))
-                                  (|> zipper /.down /.rightmost /.leftmost /.value (is? pre-val))
-                                  (|> zipper /.down /.right /.left /.value (is? pre-val))
-                                  (|> zipper /.down /.rightmost /.value (is? post-val))))
-                           (and (|> zipper
-                                    (/.insert-left pre-val)
-                                    (case> (#.Some _) false
-                                           #.None     true))
-                                (|> zipper
-                                    (/.insert-right post-val)
-                                    (case> (#.Some _) false
-                                           #.None     true))))))
-            (_.test "Can set and update the value of a node."
-                    (|> sample /.zip (/.set new-val) /.value (n.= new-val)))
-            (_.test "Zipper traversal follows the outline of the tree depth-first."
-                    (let [root (/.zip sample)]
-                      (list@= (tree.flatten sample)
-                              (loop [zipper (/.start root)]
-                                (let [zipper' (/.next zipper)]
-                                  (#.Cons (/.value zipper)
-                                          (if (:: (/.equivalence n.equivalence) = root zipper')
-                                            (list)
-                                            (recur zipper'))))))))
-            (_.test "Backwards zipper traversal yield reverse tree flatten."
-                    (let [root (/.zip sample)]
-                      (list@= (list.reverse (tree.flatten sample))
-                              (loop [zipper (/.end root)]
-                                (#.Cons (/.value zipper)
-                                        (if (:: (/.equivalence n.equivalence) = root zipper)
-                                          (list)
-                                          (recur (/.prev zipper))))))))
-            (_.test "Can remove nodes (except start nodes)."
-                    (let [zipper (/.zip sample)]
-                      (if (/.branch? zipper)
-                        (and (|> zipper /.down /.start? not)
-                             (|> zipper /.down /.remove (case> #.None false
-                                                               (#.Some node) (/.start? node))))
-                        (|> zipper /.remove (case> #.None     true
-                                                   (#.Some _) false)))))
+            (_.with-cover [/.equivalence]
+              ($equivalence.spec (/.equivalence n.equivalence) (:: ! map (|>> product.right /.zip) (//.tree random.nat))))
+            (_.with-cover [/.functor]
+              ($functor.spec (|>> tree.leaf /.zip) /.equivalence /.functor))
+            (_.with-cover [/.comonad]
+              ($comonad.spec (|>> tree.leaf /.zip) /.equivalence /.comonad))
+            
+            (_.cover [/.zip /.unzip]
+                     (|> sample /.zip /.unzip (tree\= sample)))
+            (_.cover [/.start?]
+                     (|> sample /.zip /.start?))
+            (_.cover [/.leaf?]
+                     (/.leaf? (/.zip (tree.leaf expected))))
+            (_.cover [/.branch?]
+                     (and (/.branch? (/.zip (tree.branch expected (list (tree.leaf expected)))))
+                          (not (/.branch? (/.zip (tree.branch expected (list)))))))
+            (_.cover [/.value]
+                     (and (n.= expected (/.value (/.zip (tree.leaf expected))))
+                          (n.= expected (/.value (/.zip (tree.branch expected (list (tree.leaf expected))))))))
+            (_.cover [/.set]
+                     (|> (/.zip (tree.leaf dummy))
+                         (/.set expected)
+                         /.value
+                         (n.= expected)))
+            (_.cover [/.update]
+                     (|> (/.zip (tree.leaf expected))
+                         (/.update inc)
+                         /.value
+                         (n.= (inc expected))))
+            ..move
+            (_.cover [/.end?]
+                     (or (/.end? (/.zip sample))
+                         (|> sample
+                             /.zip
+                             /.end
+                             (maybe\map /.end?)
+                             (maybe.default false))))
+            (_.cover [/.interpose]
+                     (let [cursor (|> (tree.branch dummy (list (tree.leaf dummy)))
+                                      /.zip
+                                      (/.interpose expected))]
+                       (and (n.= dummy (/.value cursor))
+                            (|> cursor
+                                (do> maybe.monad
+                                     [/.down]
+                                     [/.value (n.= expected) wrap])
+                                (maybe.default false))
+                            (|> cursor
+                                (do> maybe.monad
+                                     [/.down]
+                                     [/.down]
+                                     [/.value (n.= dummy) wrap])
+                                (maybe.default false)))))
+            (_.cover [/.adopt]
+                     (let [cursor (|> (tree.branch dummy (list (tree.leaf dummy)))
+                                      /.zip
+                                      (/.adopt expected))]
+                       (and (n.= dummy (/.value cursor))
+                            (|> cursor
+                                (do> maybe.monad
+                                     [/.down]
+                                     [/.value (n.= expected) wrap])
+                                (maybe.default false))
+                            (|> cursor
+                                (do> maybe.monad
+                                     [/.down]
+                                     [/.right]
+                                     [/.value (n.= dummy) wrap])
+                                (maybe.default false)))))
+            (_.cover [/.insert-left]
+                     (|> (tree.branch dummy (list (tree.leaf dummy)))
+                         /.zip
+                         (do> maybe.monad
+                              [/.down]
+                              [(/.insert-left expected)]
+                              [/.left]
+                              [/.value (n.= expected) wrap])
+                         (maybe.default false)))
+            (_.cover [/.insert-right]
+                     (|> (tree.branch dummy (list (tree.leaf dummy)))
+                         /.zip
+                         (do> maybe.monad
+                              [/.down]
+                              [(/.insert-right expected)]
+                              [/.right]
+                              [/.value (n.= expected) wrap])
+                         (maybe.default false)))
+            (_.cover [/.remove]
+                     (|> (tree.branch dummy (list (tree.leaf dummy)))
+                         /.zip
+                         (do> maybe.monad
+                              [/.down]
+                              [(/.insert-left expected)]
+                              [/.remove]
+                              [/.value (n.= expected) wrap])
+                         (maybe.default false)))
             ))))

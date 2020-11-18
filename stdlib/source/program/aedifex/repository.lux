@@ -11,10 +11,12 @@
      ["." promise (#+ Promise)]
      ["." stm]]]
    [data
-    [binary (#+ Binary)]
+    ["." binary (#+ Binary)]
     ["." text
      ["%" format (#+ format)]
-     ["." encoding]]]
+     ["." encoding]]
+    [number
+     ["n" nat]]]
    [world
     [net (#+ URL)
      ["." uri]]]]
@@ -90,14 +92,14 @@
             (wrap (#try.Failure error))))))
      )))
 
+(import: java/lang/String)
+
 (import: java/lang/AutoCloseable
   (close [] #io #try void))
 
 (import: java/io/OutputStream
   (flush [] #io #try void)
   (write [[byte]] #io #try void))
-
-(import: java/lang/String)
 
 (import: java/net/URLConnection
   (setDoOutput [boolean] #io #try void)
@@ -110,13 +112,20 @@
 
 (import: java/net/URL
   (new [java/lang/String])
-  (openConnection [] #io #try java/net/URLConnection))
+  (openConnection [] #io #try java/net/URLConnection)
+  (openStream [] #io #try java/io/InputStream))
 
 (import: java/util/Base64$Encoder
   (encodeToString [[byte]] java/lang/String))
 
 (import: java/util/Base64
   (#static getEncoder [] java/util/Base64$Encoder))
+
+(import: java/io/InputStream)
+
+(import: java/io/BufferedInputStream
+  (new [java/io/InputStream])
+  (read [[byte] int int] #io #try int))
 
 (exception: #export (failure {code Int})
   (exception.report
@@ -131,11 +140,31 @@
   (-> Address Artifact Extension URL)
   (format address uri.separator (//artifact.uri artifact) extension))
 
-(structure: #export (default address)
+(def: buffer-size
+  (n.* 512 1,024))
+
+(structure: #export (remote address)
   (All [s] (-> Address (Repository IO)))
 
   (def: (download artifact extension)
-    (io.io (#try.Failure "YOLO")))
+    (let [url (..url address artifact extension)]
+      (do {! (try.with io.monad)}
+        [input (|> (java/net/URL::new url)
+                   java/net/URL::openStream
+                   (:: ! map (|>> java/io/BufferedInputStream::new)))
+         #let [buffer (binary.create ..buffer-size)]]
+        (loop [output (:: binary.monoid identity)]
+          (do !
+            [bytes-read (java/io/BufferedInputStream::read buffer +0 (.int ..buffer-size) input)]
+            (case bytes-read
+              -1 (do !
+                   [_ (java/lang/AutoCloseable::close input)]
+                   (wrap output))
+              _ (if (n.= ..buffer-size bytes-read)
+                  (recur (:: binary.monoid compose output buffer))
+                  (do !
+                    [chunk (:: io.monad wrap (binary.slice 0 (.nat bytes-read) buffer))]
+                    (recur (:: binary.monoid compose output chunk))))))))))
 
   (def: (upload [user password] artifact extension content)
     (do (try.with io.monad)

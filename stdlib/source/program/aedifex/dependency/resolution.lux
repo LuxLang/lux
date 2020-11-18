@@ -4,13 +4,14 @@
    [abstract
     [codec (#+ Codec)]
     [equivalence (#+ Equivalence)]
-    [monad (#+ do)]]
+    [monad (#+ Monad do)]]
    [control
-    ["." io (#+ IO)]
     ["." try (#+ Try)]
     ["." exception (#+ Exception exception:)]
     ["<>" parser
-     ["<.>" xml (#+ Parser)]]]
+     ["<.>" xml (#+ Parser)]]
+    [concurrency
+     ["." promise (#+ Promise)]]]
    [data
     ["." binary (#+ Binary)]
     ["." name]
@@ -32,98 +33,60 @@
   ["." // (#+ Dependency)
    ["/#" // #_
     ["/" profile]
-    ["#." repository (#+ Address)]
+    ["#." repository (#+ Address Repository)]
     ["#." hash]
     ["#." pom]
     ["#." package (#+ Package)]
-    ["#." artifact
-     ["#/." extension]]]])
-
-(import: java/lang/String)
-
-(import: java/lang/AutoCloseable
-  (close [] #io #try void))
-
-(import: java/io/InputStream)
-
-(import: java/net/URL
-  (new [java/lang/String])
-  (openStream [] #io #try java/io/InputStream))
-
-(import: java/io/BufferedInputStream
-  (new [java/io/InputStream])
-  (read [[byte] int int] #io #try int))
-
-(def: buffer-size
-  (n.* 512 1,024))
-
-(def: (download url)
-  (-> URL (IO (Try Binary)))
-  (do {! (try.with io.monad)}
-    [input (|> (java/net/URL::new url)
-               java/net/URL::openStream
-               (:: ! map (|>> java/io/BufferedInputStream::new)))
-     #let [buffer (binary.create ..buffer-size)]]
-    (loop [output (:: binary.monoid identity)]
-      (do !
-        [bytes-read (java/io/BufferedInputStream::read buffer +0 (.int ..buffer-size) input)]
-        (case bytes-read
-          -1 (do !
-               [_ (java/lang/AutoCloseable::close input)]
-               (wrap output))
-          _ (if (n.= ..buffer-size bytes-read)
-              (recur (:: binary.monoid compose output buffer))
-              (do !
-                [chunk (:: io.monad wrap (binary.slice 0 (.nat bytes-read) buffer))]
-                (recur (:: binary.monoid compose output chunk)))))))))
+    ["#." artifact (#+ Artifact)
+     ["#/." extension (#+ Extension)]]]])
 
 (template [<name>]
   [(exception: #export (<name> {dependency Dependency} {hash Text})
-     (let [artifact (get@ #//.artifact dependency)
-           type (get@ #//.type dependency)]
-       (exception.report
-        ["Artifact" (format (get@ #///artifact.group artifact)
-                            " " (get@ #///artifact.name artifact)
-                            " " (get@ #///artifact.version artifact))]
-        ["Type" (%.text type)]
-        ["Hash" (%.text hash)])))]
+     (exception.report
+      ["Artifact" (///artifact.format (get@ #//.artifact dependency))]
+      ["Type" (%.text (get@ #//.type dependency))]
+      ["Hash" (%.text hash)]))]
 
   [sha-1-does-not-match]
   [md5-does-not-match]
   )
 
-(def: (verified-hash dependency library url hash codec exception)
+(def: (verified-hash dependency library repository artifact extension hash codec exception)
   (All [h]
-    (-> Dependency Binary URL
+    (-> Dependency Binary (Repository Promise) Artifact Extension
         (-> Binary (///hash.Hash h)) (Codec Text (///hash.Hash h))
         (Exception [Dependency Text])
-        (IO (Try (///hash.Hash h)))))
-  (do (try.with io.monad)
-    [#let [expected (hash library)]
-     actual (..download url)]
-    (:: io.monad wrap
+        (Promise (Try (///hash.Hash h)))))
+  (do (try.with promise.monad)
+    [actual (:: repository download artifact extension)]
+    (:: promise.monad wrap
         (do try.monad
           [output (encoding.from-utf8 actual)
            actual (:: codec decode output)
            _ (exception.assert exception [dependency output]
-                               (:: ///hash.equivalence = expected actual))]
+                               (:: ///hash.equivalence = (hash library) actual))]
           (wrap actual)))))
 
-(def: #export (resolve repository dependency)
-  (-> Address Dependency (IO (Try Package)))
+(def: #export (one repository dependency)
+  (-> (Repository Promise) Dependency (Promise (Try Package)))
   (let [[artifact type] dependency
-        prefix (format repository uri.separator (///artifact.uri artifact))]
-    (do (try.with io.monad)
-      [library (..download (format prefix (///artifact/extension.extension type)))
-       sha-1 (..verified-hash dependency library (format prefix ///artifact/extension.sha-1) ///hash.sha-1 ///hash.sha-1-codec ..sha-1-does-not-match)
-       md5 (..verified-hash dependency library (format prefix ///artifact/extension.md5) ///hash.md5 ///hash.md5-codec ..md5-does-not-match)
-       pom (..download (format prefix ///artifact/extension.pom))]
-      (:: io.monad wrap
+        extension (///artifact/extension.extension type)]
+    (do (try.with promise.monad)
+      [library (:: repository download artifact extension)
+       sha-1 (..verified-hash dependency library
+                              repository artifact ///artifact/extension.sha-1
+                              ///hash.sha-1 ///hash.sha-1-codec ..sha-1-does-not-match)
+       md5 (..verified-hash dependency library
+                            repository artifact ///artifact/extension.md5
+                            ///hash.md5 ///hash.md5-codec ..md5-does-not-match)
+       pom (:: repository download artifact ///artifact/extension.pom)]
+      (:: promise.monad wrap
           (do try.monad
             [pom (encoding.from-utf8 pom)
              pom (:: xml.codec decode pom)
              profile (<xml>.run ///pom.parser pom)]
-            (wrap {#///package.library library
+            (wrap {#///package.origin #///package.Remote
+                   #///package.library library
                    #///package.pom pom
                    #///package.sha-1 sha-1
                    #///package.md5 md5}))))))
@@ -140,46 +103,44 @@
   (dictionary.equivalence ///package.equivalence))
 
 (exception: #export (cannot-resolve {dependency Dependency})
-  (let [artifact (get@ #//.artifact dependency)
-        type (get@ #//.type dependency)]
-    (exception.report
-     ["Artifact" (%.text (///artifact.format artifact))]
-     ["Type" (%.text type)])))
+  (exception.report
+   ["Artifact" (%.text (///artifact.format (get@ #//.artifact dependency)))]
+   ["Type" (%.text (get@ #//.type dependency))]))
 
-(def: (resolve-any repositories dependency)
-  (-> (List Address) Dependency (IO (Try Package)))
+(def: (any repositories dependency)
+  (-> (List (Repository Promise)) Dependency (Promise (Try Package)))
   (case repositories
     #.Nil
     (|> dependency
         (exception.throw ..cannot-resolve)
-        (:: io.monad wrap))
+        (:: promise.monad wrap))
 
     (#.Cons repository alternatives)
-    (do io.monad
-      [outcome (..resolve repository dependency)]
+    (do promise.monad
+      [outcome (..one repository dependency)]
       (case outcome
         (#try.Success package)
         (wrap outcome)
 
         (#try.Failure error)
-        (resolve-any alternatives dependency)))))
+        (any alternatives dependency)))))
 
-(def: #export (resolve-all repositories dependencies resolution)
-  (-> (List Address) (List Dependency) Resolution (IO (Try Resolution)))
+(def: #export (all repositories dependencies resolution)
+  (-> (List (Repository Promise)) (List Dependency) Resolution (Promise (Try Resolution)))
   (case dependencies
     #.Nil
-    (:: (try.with io.monad) wrap resolution)
+    (:: (try.with promise.monad) wrap resolution)
 
     (#.Cons head tail)
-    (do (try.with io.monad)
+    (do (try.with promise.monad)
       [package (case (dictionary.get head resolution)
                  (#.Some package)
                  (wrap package)
 
                  #.None
-                 (..resolve-any repositories head))
-       sub-dependencies (:: io.monad wrap (///package.dependencies package))
+                 (..any repositories head))
+       sub-dependencies (:: promise.monad wrap (///package.dependencies package))
        resolution (|> resolution
                       (dictionary.put head package)
-                      (resolve-all repositories (set.to-list sub-dependencies)))]
-      (resolve-all repositories tail resolution))))
+                      (all repositories (set.to-list sub-dependencies)))]
+      (all repositories tail resolution))))

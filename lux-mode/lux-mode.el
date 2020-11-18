@@ -151,13 +151,91 @@ ENDP and DELIM."
           t))
     t))
 
+(defun lux-enable-paredit-backslash ()
+  "Getting paredit to work with backslashes (\)"
+  (advice-add 'paredit-backslash :around
+			  (lambda (self &rest inputs)
+				(if (derived-mode-p 'lux-mode)
+					(insert ?\\)
+				  (apply self inputs))))
+  (advice-add 'paredit-in-string-escape-p :around
+			  (lambda (self &rest inputs)
+				(if (derived-mode-p 'lux-mode)
+					nil
+				  (apply self inputs))))
+  (advice-add 'paredit-unescape-string :around
+			  (lambda (self &rest inputs)
+				(if (derived-mode-p 'lux-mode)
+					nil
+				  (apply self inputs))))
+  ;; This codes originates from Paredit, but I had to modify it so it stops messing with backslashes (\).
+  (advice-add 'paredit-forward-delete-in-string :around
+			  (lambda (self &rest inputs)
+				(if (derived-mode-p 'lux-mode)
+					(let ((start+end (paredit-string-start+end-points)))
+					  (cond ((not (eq (point) (cdr start+end)))
+							 (delete-char +1))
+							((eq (1- (point)) (car start+end))
+							 (delete-char -1)
+							 (delete-char +1))))
+				  (apply self inputs))))
+  (advice-add 'paredit-forward-delete :around
+			  (lambda (self &optional argument)
+				(if (derived-mode-p 'lux-mode)
+					(progn
+					  (interactive "P")
+					  (cond ((or (consp argument) (eobp))
+							 (delete-char +1))
+							((integerp argument)
+							 (if (< argument 0)
+								 (paredit-backward-delete argument)
+							   (while (> argument 0)
+								 (paredit-forward-delete)
+								 (setq argument (- argument 1)))))
+							((paredit-in-string-p)
+							 (paredit-forward-delete-in-string))
+							((paredit-in-comment-p)
+							 (paredit-forward-delete-in-comment))
+							((let ((syn (char-syntax (char-after))))
+							   (or (eq syn ?\( )
+								   (eq syn ?\" )))
+							 (if (save-excursion
+								   (paredit-handle-sexp-errors (progn (forward-sexp) t)
+									 nil))
+								 (forward-char)
+							   (message "Deleting spurious opening delimiter.")
+							   (delete-char +1)))
+							((and (not (paredit-in-char-p (1- (point))))
+								  (eq (char-syntax (char-after)) ?\) )
+								  (eq (char-before) (matching-paren (char-after))))
+							 (delete-char -1) ; Empty list -- delete both
+							 (delete-char +1))	;   delimiters.
+							((eq ?\; (char-after))
+							 (paredit-forward-delete-comment-start))
+							((eq (char-syntax (char-after)) ?\) )
+							 (if (paredit-handle-sexp-errors
+									 (save-excursion (forward-char) (backward-sexp) t)
+								   nil)
+								 (message "End of list!")
+							   (progn
+								 (message "Deleting spurious closing delimiter.")
+								 (delete-char +1))))
+							;; Just delete a single character, if it's not a closing
+							;; delimiter.  (The character literal case is already handled
+							;; by now.)
+							(t (delete-char +1))))
+				  (funcall self argument))))
+  )
+
 (defun lux-paredit-setup ()
   "Make \"paredit-mode\" play nice with `lux-mode'."
   (when (>= paredit-version 21)
     (define-key lux-mode-map "{" #'paredit-open-curly)
     (define-key lux-mode-map "}" #'paredit-close-curly)
     (add-to-list 'paredit-space-for-delimiter-predicates
-                 #'lux-space-for-delimiter-p)))
+                 #'lux-space-for-delimiter-p)
+	(lux-enable-paredit-backslash)
+	))
 
 (defun lux-mode-variables ()
   "Set up initial buffer-local variables for Lux mode."

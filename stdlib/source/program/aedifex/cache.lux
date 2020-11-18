@@ -11,12 +11,14 @@
      ["!" capability]]]
    [data
     [binary (#+ Binary)]
+    ["." product]
     [text
      ["%" format (#+ format)]
      ["." encoding]]
     [collection
      ["." dictionary]
-     ["." set]]
+     ["." set (#+ Set)]
+     ["." list]]
     [format
      ["." xml]]]
    [world
@@ -25,7 +27,7 @@
    ["#" local]
    ["#." hash]
    ["#." package (#+ Package)]
-   ["#." artifact
+   ["#." artifact (#+ Artifact)
     ["#/." extension]]
    [dependency (#+ Dependency)
     [resolution (#+ Resolution)]]])
@@ -38,7 +40,7 @@
     (!.use (:: file over-write) [content])))
 
 (def: #export (write-one system [artifact type] package)
-  (-> (file.System Promise) Dependency Package (Promise (Try Any)))
+  (-> (file.System Promise) Dependency Package (Promise (Try Artifact)))
   (do (try.with promise.monad)
     [directory (: (Promise (Try Path))
                   (file.make-directories promise.monad system (//.path system artifact)))
@@ -63,15 +65,17 @@
      _ (..write! system
                  (|> package (get@ #//package.pom) (:: xml.codec encode) encoding.to-utf8)
                  (format prefix //artifact/extension.pom))]
-    (wrap [])))
+    (wrap artifact)))
 
 (def: #export (write-all system resolution)
-  (-> (file.System Promise) Resolution (Promise (Try Any)))
+  (-> (file.System Promise) Resolution (Promise (Try (Set Artifact))))
   (do {! (try.with promise.monad)}
-    [_ (monad.map ! (function (_ [dependency package])
-                      (..write-one system dependency package))
-                  (dictionary.entries resolution))]
-    (wrap [])))
+    []
+    (|> (dictionary.entries resolution)
+        (list.filter (|>> product.right //package.local?))
+        (monad.map ! (function (_ [dependency package])
+                       (..write-one system dependency package)))
+        (:: ! map (set.from-list //artifact.hash)))))
 
 (def: (read! system path)
   (-> (file.System Promise) Path (Promise (Try Binary)))
@@ -103,7 +107,8 @@
             [pom (..decode xml.codec pom)
              sha-1 (..decode //hash.sha-1-codec sha-1)
              md5 (..decode //hash.md5-codec md5)]
-            (wrap {#//package.library library
+            (wrap {#//package.origin #//package.Local
+                   #//package.library library
                    #//package.pom pom
                    #//package.sha-1 sha-1
                    #//package.md5 md5}))))))

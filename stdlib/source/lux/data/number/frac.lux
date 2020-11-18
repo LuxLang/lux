@@ -6,7 +6,8 @@
     [equivalence (#+ Equivalence)]
     [codec (#+ Codec)]
     [predicate (#+ Predicate)]
-    ["." order (#+ Order)]]
+    [order (#+ Order)]
+    [monad (#+ do)]]
    [control
     ["." try (#+ Try)]]
    [data
@@ -91,6 +92,9 @@
         ## else
         +1.0))
 
+(def: min-exponent -1022)
+(def: max-exponent +1023)
+
 (template [<name> <test> <doc>]
   [(def: #export (<name> left right)
      {#.doc <doc>}
@@ -120,7 +124,7 @@
   (-> Frac Rev)
   (|>> ..abs
        (..% +1.0)
-       (..* frac-denominator)
+       (..* ..frac-denominator)
        "lux f64 i64"
        ("lux i64 left-shift" 11)))
 
@@ -135,14 +139,18 @@
   (def: &equivalence ..equivalence)
   (def: < ..<))
 
+(def: mantissa-size Nat 52)
+(def: exponent-size Nat 11)
+
 (def: #export smallest
   Frac
-  (math.pow -1074.0 +2.0))
+  (math.pow (//int.frac (//int.- (.int ..mantissa-size) ..min-exponent))
+            +2.0))
 
 (def: #export biggest
   Frac
-  (let [f2^-52 (math.pow -52.0 +2.0)
-        f2^+1023 (math.pow +1023.0 +2.0)]
+  (let [f2^-52 (math.pow (//nat.frac (//nat.- ..mantissa-size 0)) +2.0)
+        f2^+1023 (math.pow (//int.frac ..max-exponent) +2.0)]
     (|> +2.0
         (..- f2^-52)
         (..* f2^+1023))))
@@ -178,9 +186,9 @@
 
 (def: #export (frac? value)
   (-> Frac Bit)
-  (not (or (not-a-number? value)
-           (..= positive-infinity value)
-           (..= negative-infinity value))))
+  (not (or (..not-a-number? value)
+           (..= ..positive-infinity value)
+           (..= ..negative-infinity value))))
 
 (structure: #export decimal
   (Codec Text Frac)
@@ -203,251 +211,28 @@
       #.None
       (#try.Failure "Could not decode Frac"))))
 
-(template [<struct> <int> <base> <char-set> <error>]
-  [(structure: #export <struct>
-     (Codec Text Frac)
-     
-     (def: (encode value)
-       (let [whole (..int value)
-             whole-part (:: <int> encode whole)
-             decimal (|> value (..% +1.0) ..abs)
-             decimal-part (if (..= +0.0 decimal)
-                            ".0"
-                            (loop [dec-left decimal
-                                   output ""]
-                              (if (..= +0.0 dec-left)
-                                ("lux text concat" "." output)
-                                (let [shifted (..* <base> dec-left)
-                                      digit-idx (|> shifted (..% <base>) ..int .nat)]
-                                  (recur (..% +1.0 shifted)
-                                         ("lux text concat" output ("lux text clip" digit-idx (inc digit-idx) <char-set>)))))))]
-         ("lux text concat" whole-part decimal-part)))
-
-     (def: (decode repr)
-       (case ("lux text index" 0 "." repr)
-         (#.Some split-index)
-         (let [whole-part ("lux text clip" 0 split-index repr)
-               decimal-part ("lux text clip" (inc split-index) ("lux text size" repr) repr)]
-           (case [(:: <int> decode whole-part)
-                  (:: <int> decode ("lux text concat" "+" decimal-part))]
-             (^multi [(#try.Success whole) (#try.Success decimal)]
-                     (//int.>= +0 decimal))
-             (let [sign (if (//int.< +0 whole)
-                          -1.0
-                          +1.0)
-                   div-power (loop [muls-left ("lux text size" decimal-part)
-                                    output +1.0]
-                               (if (//nat.= 0 muls-left)
-                                 output
-                                 (recur (dec muls-left)
-                                        (..* <base> output))))
-                   adjusted-decimal (|> decimal //int.frac (../ div-power))
-                   dec-rev (case (:: //rev.hex decode ("lux text concat" "." decimal-part))
-                             (#try.Success dec-rev)
-                             dec-rev
-
-                             (#try.Failure error)
-                             (error! error))]
-               (#try.Success (..+ (//int.frac whole)
-                                  (..* sign adjusted-decimal))))
-
-             _
-             (#try.Failure ("lux text concat" <error> repr))))
-
-         _
-         (#try.Failure ("lux text concat" <error> repr)))))]
-
-  [binary //int.binary +2.0 "01" "Invalid binary syntax: "]
-  )
-
-(def: (segment-digits chunk-size digits)
-  (-> Nat Text (List Text))
-  (case digits
-    ""
-    (list)
-
-    _
-    (let [num-digits ("lux text size" digits)]
-      (if (//nat.<= chunk-size num-digits)
-        (list digits)
-        (let [boundary (//nat.- chunk-size num-digits)
-              chunk ("lux text clip" boundary num-digits digits)
-              remaining ("lux text clip" 0 boundary digits)]
-          (list& chunk (segment-digits chunk-size remaining)))))))
-
-(def: (bin-segment-to-hex input)
-  (-> Text Text)
-  (case input
-    "0000" "0"
-    "0001" "1"
-    "0010" "2"
-    "0011" "3"
-    "0100" "4"
-    "0101" "5"
-    "0110" "6"
-    "0111" "7"
-    "1000" "8"
-    "1001" "9"
-    "1010" "A"
-    "1011" "B"
-    "1100" "C"
-    "1101" "D"
-    "1110" "E"
-    "1111" "F"
-    _ (undefined)))
-
-(def: (hex-segment-to-bin input)
-  (-> Text Text)
-  (case input
-    "0" "0000"
-    "1" "0001"
-    "2" "0010"
-    "3" "0011"
-    "4" "0100"
-    "5" "0101"
-    "6" "0110"
-    "7" "0111"
-    "8" "1000"
-    "9" "1001"
-    (^or "a" "A") "1010"
-    (^or "b" "B") "1011"
-    (^or "c" "C") "1100"
-    (^or "d" "D") "1101"
-    (^or "e" "E") "1110"
-    (^or "f" "F") "1111"
-    _ (undefined)))
-
-(def: (bin-segment-to-octal input)
-  (-> Text Text)
-  (case input
-    "000" "0"
-    "001" "1"
-    "010" "2"
-    "011" "3"
-    "100" "4"
-    "101" "5"
-    "110" "6"
-    "111" "7"
-    _ (undefined)))
-
-(def: (octal-segment-to-bin input)
-  (-> Text Text)
-  (case input
-    "0" "000"
-    "1" "001"
-    "2" "010"
-    "3" "011"
-    "4" "100"
-    "5" "101"
-    "6" "110"
-    "7" "111"
-    _ (undefined)))
-
-(def: (map f xs)
-  (All [a b] (-> (-> a b) (List a) (List b)))
-  (case xs
-    #.Nil
-    #.Nil
-    
-    (#.Cons x xs')
-    (#.Cons (f x) (map f xs'))))
-
-(def: (re-join-chunks xs)
-  (-> (List Text) Text)
-  (case xs
-    #.Nil
-    ""
-
-    (#.Cons x xs')
-    ("lux text concat" x (re-join-chunks xs'))))
-
-(template [<from> <from-translator> <to> <to-translator> <base-bits>]
-  [(def: (<from> on-left? input)
-     (-> Bit Text Text)
-     (let [max-num-chars (//nat./ <base-bits> 64)
-           input-size ("lux text size" input)
-           zero-padding (let [num-digits-that-need-padding (//nat.% <base-bits> input-size)]
-                          (if (//nat.= 0 num-digits-that-need-padding)
-                            ""
-                            (loop [zeroes-left (//nat.- num-digits-that-need-padding
-                                                        <base-bits>)
-                                   output ""]
-                              (if (//nat.= 0 zeroes-left)
-                                output
-                                (recur (dec zeroes-left)
-                                       ("lux text concat" "0" output))))))
-           padded-input (if on-left?
-                          ("lux text concat" zero-padding input)
-                          ("lux text concat" input zero-padding))]
-       (|> padded-input
-           (segment-digits <base-bits>)
-           (map <from-translator>)
-           re-join-chunks)))
-
-   (def: <to>
-     (-> Text Text)
-     (|>> (segment-digits 1)
-          (map <to-translator>)
-          re-join-chunks))]
-
-  [binary-to-hex   bin-segment-to-hex   hex-to-binary   hex-segment-to-bin   4]
-  [binary-to-octal bin-segment-to-octal octal-to-binary octal-segment-to-bin 3]
-  )
-
-(template [<struct> <error> <from> <to>]
-  [(structure: #export <struct>
-     (Codec Text Frac)
-     
-     (def: (encode value)
-       (let [sign (..signum value)
-             raw-bin (:: ..binary encode value)
-             dot-idx (maybe.assume ("lux text index" 0 "." raw-bin))
-             whole-part ("lux text clip" 1 dot-idx raw-bin)
-             decimal-part ("lux text clip" (inc dot-idx) ("lux text size" raw-bin) raw-bin)]
-         (|> (<from> #0 decimal-part)
-             ("lux text concat" ".")
-             ("lux text concat" (<from> #1 whole-part))
-             ("lux text concat" (if (..= -1.0 sign) "-" "+")))))
-
-     (def: (decode repr)
-       (let [sign (case ("lux text index" 0 "-" repr)
-                    (#.Some 0)
-                    -1.0
-
-                    _
-                    +1.0)]
-         (case ("lux text index" 0 "." repr)
-           (#.Some split-index)
-           (let [whole-part ("lux text clip" 1 split-index repr)
-                 decimal-part ("lux text clip" (inc split-index) ("lux text size" repr) repr)
-                 as-binary (|> (<to> decimal-part)
-                               ("lux text concat" ".")
-                               ("lux text concat" (<to> whole-part))
-                               ("lux text concat" (if (..= -1.0 sign) "-" "+")))]
-             (case (:: ..binary decode as-binary)
-               (#try.Failure _)
-               (#try.Failure ("lux text concat" <error> repr))
-
-               output
-               output))
-
-           _
-           (#try.Failure ("lux text concat" <error> repr))))))]
-
-  [octal "Invalid octaladecimal syntax: " binary-to-octal octal-to-binary]
-  [hex   "Invalid hexadecimal syntax: "   binary-to-hex   hex-to-binary]
-  )
-
-(def: (log2 input)
+(def: log/2
   (-> Frac Frac)
-  (../ (math.log +2.0)
-       (math.log input)))
+  (|>> math.log
+       (../ (math.log +2.0))))
 
 (def: double-bias Nat 1023)
 
-(def: mantissa-size Nat 52)
-(def: exponent-size Nat 11)
-(def: sign-offset (//nat.+ ..exponent-size ..mantissa-size))
+(def: exponent-mask (//i64.mask ..exponent-size))
+
+(def: exponent-offset ..mantissa-size)
+(def: sign-offset (//nat.+ ..exponent-size ..exponent-offset))
+
+(template [<getter> <size> <offset>]
+  [(def: <getter>
+     (-> (I64 Any) I64)
+     (let [mask (|> 1 (//i64.left-shift <size>) dec (//i64.left-shift <offset>))]
+       (|>> (//i64.and mask) (//i64.logic-right-shift <offset>) .i64)))]
+
+  [mantissa ..mantissa-size 0]
+  [exponent ..exponent-size ..mantissa-size]
+  [sign     1               ..sign-offset]
+  )
 
 (template [<hex> <name>]
   [(def: <name> (|> <hex> (:: //nat.hex decode) try.assume .i64))]
@@ -459,6 +244,12 @@
   ["8000000000000000" negative-zero-bits]
   ["7FF"              special-exponent-bits]
   )
+
+(def: normal
+  (math.pow (//nat.frac ..mantissa-size) +2.0))
+
+(def: smallest-exponent
+  (..log/2 ..smallest))
 
 (def: #export (to-bits input)
   (-> Frac I64)
@@ -484,31 +275,29 @@
                               1
                               0)
                    input (..abs input)
-                   exponent (math.floor (log2 input))
-                   exponent-mask (|> 1 (//i64.left-shift ..exponent-size) dec) 
-                   mantissa (|> input
-                                ## Normalize
-                                (../ (math.pow exponent +2.0))
-                                ## Make it int-equivalent
-                                (..* (math.pow +52.0 +2.0)))
-                   exponent-bits (|> exponent ..int .nat (//nat.+ ..double-bias) (//i64.and exponent-mask))
-                   mantissa-bits (|> mantissa ..int .nat)]
+                   exponent (|> (math.floor (..log/2 input))
+                                (..min (//int.frac ..max-exponent)))
+                   tiny? (..= ..smallest-exponent exponent)
+                   mantissa (..* (math.pow (if tiny?
+                                             (|> exponent ..abs (..- (//nat.frac ..mantissa-size)))
+                                             (..- exponent (//nat.frac ..mantissa-size)))
+                                           +2.0)
+                                 input)
+                   exponent-bits (|> (if tiny?
+                                       (|> (..int exponent)
+                                           (//int.+ (.int ..mantissa-size))
+                                           dec)
+                                       (..int exponent))
+                                     (//int.+ (.int ..double-bias))
+                                     (//i64.and ..exponent-mask))
+                   mantissa-bits (if tiny?
+                                   (|> mantissa (..* ..normal) ..int .nat)
+                                   (|> mantissa ..int .nat))]
                ($_ //i64.or
                    (//i64.left-shift ..sign-offset sign-bit)
-                   (//i64.left-shift ..mantissa-size exponent-bits)
+                   (//i64.left-shift ..exponent-offset exponent-bits)
                    (//i64.clear ..mantissa-size mantissa-bits)))
              )))
-
-(template [<getter> <size> <offset>]
-  [(def: <getter>
-     (-> (I64 Any) I64)
-     (let [mask (|> 1 (//i64.left-shift <size>) dec (//i64.left-shift <offset>))]
-       (|>> (//i64.and mask) (//i64.logic-right-shift <offset>) .i64)))]
-
-  [mantissa ..mantissa-size 0]
-  [exponent ..exponent-size ..mantissa-size]
-  [sign     1               ..sign-offset]
-  )
 
 (def: #export (from-bits input)
   (-> I64 Frac)
@@ -533,12 +322,88 @@
                               .int (//int.* (if positive?
                                               +1
                                               -1)))
-                denominator (math.pow +52.0 +2.0)
-                power (math.pow (|> E (//nat.- ..double-bias) .int //int.frac)
+                denominator ..normal
+                power (math.pow (//int.frac (if (//nat.= 0 (.nat E))
+                                              (|> E (//nat.- ..double-bias) (//nat.- ..mantissa-size) inc .int)
+                                              (|> E (//nat.- ..double-bias) .int)))
                                 +2.0)]
             (|> (//int.frac numerator)
                 (../ denominator)
                 (..* power))))))
+
+(def: (split-exponent codec representation)
+  (-> (Codec Text Nat) Text (Try [Text Int]))
+  (case [("lux text index" 0 "e+" representation)
+         ("lux text index" 0 "E+" representation)
+         ("lux text index" 0 "e-" representation)
+         ("lux text index" 0 "E-" representation)]
+    (^template [<factor> <patterns>]
+      [<patterns>
+       (do try.monad
+         [exponent (|> representation
+                       ("lux text clip" (//nat.+ 2 split-index) ("lux text size" representation))
+                       (:: codec decode))]
+         (wrap [("lux text clip" 0 split-index representation)
+                (//int.* <factor> (.int exponent))]))])
+    ([+1 (^or [(#.Some split-index) #.None #.None #.None]
+              [#.None (#.Some split-index) #.None #.None])]
+     [-1 (^or [#.None #.None (#.Some split-index) #.None]
+              [#.None #.None #.None (#.Some split-index)])])
+    
+    _
+    (#try.Success [representation +0])))
+
+(template [<struct> <nat> <int> <error>]
+  [(structure: #export <struct>
+     (Codec Text Frac)
+     
+     (def: (encode value)
+       (let [bits (..to-bits value)
+             mantissa (..mantissa bits)
+             exponent (//int.- (.int ..double-bias) (..exponent bits))
+             sign (..sign bits)]
+         ($_ "lux text concat"
+             (case (.nat sign)
+               1 "-"
+               0 "+"
+               _ (undefined))
+             (:: <nat> encode (.nat mantissa))
+             ".0E"
+             (:: <int> encode exponent))))
+
+     (def: (decode representation)
+       (let [negative? (text.starts-with? "-" representation)
+             positive? (text.starts-with? "+" representation)]
+         (if (or negative? positive?)
+           (do {! try.monad}
+             [[mantissa exponent] (..split-exponent <nat> representation)
+              [whole decimal] (case ("lux text index" 0 "." mantissa)
+                                (#.Some split-index)
+                                (do !
+                                  [decimal (|> mantissa
+                                               ("lux text clip" (inc split-index) ("lux text size" mantissa))
+                                               (:: <nat> decode))]
+                                  (wrap [("lux text clip" 0 split-index mantissa)
+                                         decimal]))
+
+                                #.None
+                                (#try.Failure ("lux text concat" <error> representation)))
+              #let [whole ("lux text clip" 1 ("lux text size" whole) whole)]
+              mantissa (:: <nat> decode (case decimal
+                                          0 whole
+                                          _ ("lux text concat" whole (:: <nat> encode decimal))))
+              #let [sign (if negative? 1 0)]]
+             (wrap (..from-bits
+                    ($_ //i64.or
+                        (//i64.left-shift ..sign-offset (.i64 sign))
+                        (//i64.left-shift ..mantissa-size (.i64 (//int.+ (.int ..double-bias) exponent)))
+                        (//i64.clear ..mantissa-size (.i64 mantissa))))))
+           (#try.Failure ("lux text concat" <error> representation))))))]
+
+  [binary //nat.binary //int.binary "Invalid binary syntax: "]
+  [octal //nat.octal //int.octal "Invalid octaladecimal syntax: "]
+  [hex //nat.hex //int.hex "Invalid hexadecimal syntax: "]
+  )
 
 (structure: #export hash
   (Hash Frac)

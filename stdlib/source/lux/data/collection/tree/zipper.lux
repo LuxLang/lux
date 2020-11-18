@@ -1,281 +1,303 @@
 (.module:
   [lux #*
    ["@" target]
-   [type (#+ :share)]
    [abstract
     functor
     comonad
-    [equivalence (#+ Equivalence)]]
+    [monad (#+ do)]
+    ["." equivalence (#+ Equivalence)]]
    [data
     ["." maybe ("#@." monad)]
+    [text
+     ["%" format (#+ format)]]
     [collection
      ["." list ("#@." functor fold monoid)]]]]
   ["." // (#+ Tree) ("#@." functor)])
 
-(type: #export (Zipper a)
-  {#.doc "Tree zippers, for easy navigation and editing over trees."}
-  {#parent (Maybe (Zipper a))
+(type: (Family Zipper a)
+  {#parent (Zipper a)
    #lefts (List (Tree a))
-   #rights (List (Tree a))
+   #rights (List (Tree a))})
+
+(type: #export (Zipper a)
+  {#.doc "Tree zippers, for easy navigation and editing of trees."}
+  {#family (Maybe (Family Zipper a))
    #node (Tree a)})
 
-(structure: #export (equivalence ,equivalence)
+(structure: #export (equivalence super)
   (All [a]
     (-> (Equivalence a)
         (Equivalence (Zipper a))))
+  
   (def: (= reference sample)
-    (and (:: (//.equivalence ,equivalence) =
-             (get@ #node reference)
-             (get@ #node sample))
-         (:: (list.equivalence (//.equivalence ,equivalence)) =
-             (get@ #lefts reference)
-             (get@ #lefts sample))
-         (:: (list.equivalence (//.equivalence ,equivalence)) =
-             (get@ #rights reference)
-             (get@ #rights sample))
-         (:: (maybe.equivalence (equivalence ,equivalence)) =
-             (get@ #parent reference)
-             (get@ #parent sample))
-         )))
+    (let [== ($_ equivalence.product
+                 (maybe.equivalence
+                  ($_ equivalence.product
+                      =
+                      (list.equivalence (//.equivalence super))
+                      (list.equivalence (//.equivalence super))))
+                 (//.equivalence super))]
+      (== reference sample))))
 
 (def: #export (zip tree)
   (All [a] (-> (Tree a) (Zipper a)))
-  {#parent #.None
-   #lefts #.Nil
-   #rights #.Nil
+  {#family #.None
    #node tree})
 
-(def: #export (unzip zipper)
+(def: #export unzip
   (All [a] (-> (Zipper a) (Tree a)))
-  (get@ #node zipper))
+  (get@ #node))
 
-(def: #export (value zipper)
+(def: #export value
   (All [a] (-> (Zipper a) a))
-  (|> zipper (get@ [#node #//.value])))
+  (get@ [#node #//.value]))
 
-(def: #export (children zipper)
+(def: #export set
+  (All [a] (-> a (Zipper a) (Zipper a)))
+  (set@ [#node #//.value]))
+
+(def: #export update
+  (All [a] (-> (-> a a) (Zipper a) (Zipper a)))
+  (update@ [#node #//.value]))
+
+(def: children
   (All [a] (-> (Zipper a) (List (Tree a))))
-  (|> zipper (get@ [#node #//.children])))
+  (get@ [#node #//.children]))
 
-(def: #export (branch? zipper)
+(def: #export leaf?
   (All [a] (-> (Zipper a) Bit))
-  (|> zipper children list.empty? not))
+  (|>> ..children list.empty?))
 
-(def: #export (leaf? zipper)
+(def: #export branch?
   (All [a] (-> (Zipper a) Bit))
-  (|> zipper branch? not))
+  (|>> ..leaf? not))
 
 (def: #export (start? zipper)
   (All [a] (-> (Zipper a) Bit))
-  (case (get@ #parent zipper)
+  (case (get@ #family zipper)
     #.None
-    #1
+    true
 
     _
-    #0))
+    false))
 
 (def: #export (down zipper)
-  (All [a] (-> (Zipper a) (Zipper a)))
-  (case (children zipper)
+  (All [a] (-> (Zipper a) (Maybe (Zipper a))))
+  (case (..children zipper)
     #.Nil
-    zipper
+    #.None
 
     (#.Cons head tail)
-    {#parent (#.Some zipper)
-     #lefts #.Nil
-     #rights tail
-     #node head}))
+    (#.Some {#family (#.Some {#parent (set@ [#node #//.children] (list) zipper)
+                              #lefts #.Nil
+                              #rights tail})
+             #node head})))
 
 (def: #export (up zipper)
-  (All [a] (-> (Zipper a) (Zipper a)))
-  (case (get@ #parent zipper)
-    #.None
-    zipper
-
-    (#.Some parent)
-    (for {@.old
-          (update@ #node (: (-> (Tree ($ 0)) (Tree ($ 0)))
-                            (set@ #//.children (list@compose (list.reverse (get@ #lefts zipper))
-                                                             (#.Cons (get@ #node zipper)
-                                                                     (get@ #rights zipper)))))
-                   parent)}
-         (set@ [#node #//.children]
-               (list@compose (list.reverse (get@ #lefts zipper))
-                             (#.Cons (get@ #node zipper)
-                                     (get@ #rights zipper)))
-               parent))))
-
-(def: #export (start zipper)
-  (All [a] (-> (Zipper a) (Zipper a)))
-  (let [ancestor (..up zipper)]
-    (if (is? zipper ancestor)
-      zipper
-      (start ancestor))))
+  (All [a] (-> (Zipper a) (Maybe (Zipper a))))
+  (do maybe.monad
+    [family (get@ #family zipper)]
+    (wrap (let [(^slots [#parent #lefts #rights]) family]
+            (for {@.old
+                  (update@ #node (: (-> (Tree ($ 0)) (Tree ($ 0)))
+                                    (set@ #//.children (list@compose (list.reverse lefts)
+                                                                     (#.Cons (get@ #node zipper)
+                                                                             rights))))
+                           parent)}
+                 (set@ [#node #//.children]
+                       (list@compose (list.reverse lefts)
+                                     (#.Cons (get@ #node zipper)
+                                             rights))
+                       parent))))))
 
 (template [<one> <all> <side> <op-side>]
   [(def: #export (<one> zipper)
-     (All [a] (-> (Zipper a) (Zipper a)))
-     (case (get@ <side> zipper)
-       #.Nil
-       zipper
+     (All [a] (-> (Zipper a) (Maybe (Zipper a))))
+     (case (get@ #family zipper)
+       #.None
+       #.None
 
-       (#.Cons next side')
-       (|> zipper
-           (update@ <op-side> (function (_ op-side)
-                                (#.Cons (get@ #node zipper) op-side)))
-           (set@ <side> side')
-           (set@ #node next))))
+       (#.Some family)
+       (case (get@ <side> family)
+         #.Nil
+         #.None
+
+         (#.Cons next side')
+         (#.Some {#family (|> family
+                              (set@ <side> side')
+                              (update@ <op-side> (|>> (#.Cons (get@ #node zipper))))
+                              #.Some)
+                  #node next}))))
 
    (def: #export (<all> zipper)
-     (All [a] (-> (Zipper a) (Zipper a)))
-     (case (list.reverse (get@ <side> zipper))
-       #.Nil
-       zipper
+     (All [a] (-> (Zipper a) (Maybe (Zipper a))))
+     (case (get@ #family zipper)
+       #.None
+       #.None
 
-       (#.Cons last prevs)
-       (|> zipper
-           (set@ <side> #.Nil)
-           (set@ <op-side> (|> (get@ <op-side> zipper)
-                               (#.Cons (get@ #node zipper))
-                               (list@compose prevs)))
-           (set@ #node last))))]
+       (#.Some family)
+       (case (list.reverse (get@ <side> family))
+         #.Nil
+         #.None
+
+         (#.Cons last prevs)
+         (#.Some {#family (#.Some (|> family
+                                      (set@ <side> #.Nil)
+                                      (update@ <op-side> (|>> (#.Cons (get@ #node zipper))
+                                                              (list@compose prevs)))))
+                  #node last}))))]
 
   [right rightmost #rights #lefts]
   [left  leftmost  #lefts  #rights]
   )
 
 (def: #export (next zipper)
-  (All [a] (-> (Zipper a) (Zipper a)))
-  (let [forward (..down zipper)]
-    (if (is? zipper forward)
-      (loop [zipper zipper]
-        (let [jump (..right zipper)]
-          (if (is? zipper jump)
-            (let [backward (..up zipper)]
-              (if (is? zipper backward)
-                zipper
-                (recur backward)))
-            jump)))
-      forward)))
-
-(def: #export (end zipper)
-  (All [a] (-> (Zipper a) (Zipper a)))
-  (case (get@ #rights zipper)
-    #.Nil
-    (case (get@ [#node #//.children] zipper)
-      #.Nil
-      zipper
-      
-      (#.Cons _)
-      (end (..down zipper)))
+  (All [a] (-> (Zipper a) (Maybe (Zipper a))))
+  (case (..down zipper)
+    (#.Some forward)
+    (#.Some forward)
     
-    (#.Cons _)
-    (end (..rightmost zipper))))
+    #.None
+    (loop [@ zipper]
+      (case (..right @)
+        (#.Some forward)
+        (#.Some forward)
+        
+        #.None
+        (do maybe.monad
+          [@ (..up @)]
+          (recur @))))))
+
+(def: (bottom zipper)
+  (All [a] (-> (Zipper a) (Zipper a)))
+  (case (..right zipper)
+    (#.Some forward)
+    (bottom forward)
+
+    #.None
+    (case (..down zipper)
+      (#.Some forward)
+      (bottom forward)
+
+      #.None
+      zipper)))
+
+(def: #export (previous zipper)
+  (All [a] (-> (Zipper a) (Maybe (Zipper a))))
+  (case (..left zipper)
+    #.None
+    (..up zipper)
+
+    (#.Some backward)
+    (#.Some (case (..down backward)
+              (#.Some then)
+              (..bottom then)
+
+              #.None
+              backward))))
+
+(template [<name> <move>]
+  [(def: #export (<name> zipper)
+     (All [a] (-> (Zipper a) (Maybe (Zipper a))))
+     (case (<move> zipper)
+       #.None
+       #.None
+
+       (#.Some @)
+       (loop [@ @]
+         (case (<move> @)
+           #.None
+           (#.Some @)
+
+           (#.Some @)
+           (recur @)))))]
+
+  [end ..next]
+  [start ..previous]
+  )
 
 (def: #export (end? zipper)
   (All [a] (-> (Zipper a) Bit))
-  (is? zipper (end zipper)))
+  (case (..end zipper)
+    #.None
+    true
 
-(def: #export (prev zipper)
-  (All [a] (-> (Zipper a) (Zipper a)))
-  (let [forward (..left zipper)]
-    (if (is? zipper forward)
-      (..up zipper)
-      (case (get@ [#node #//.children] forward)
-        #.Nil
-        forward
-        
-        (#.Cons _)
-        (..end (..down forward))))))
+    (#.Some _)
+    false))
 
-(def: #export (set value zipper)
-  (All [a] (-> a (Zipper a) (Zipper a)))
-  (set@ [#node #//.value] value zipper))
-
-(def: #export (update f zipper)
-  (All [a] (-> (-> a a) (Zipper a) (Zipper a)))
-  (update@ [#node #//.value] f zipper))
-
-(def: #export (prepend-child value zipper)
+(def: #export (interpose value zipper)
   (All [a] (-> a (Zipper a) (Zipper a)))
   (update@ [#node #//.children]
-           (function (_ children)
-             (list& (for {@.old
-                          (: (Tree ($ 0))
-                             (//.tree value {}))}
-                         (//.tree value {}))
-                    children))
+           (|>> (//.branch value) list)
            zipper))
 
-(def: #export (append-child value zipper)
+(def: #export (adopt value zipper)
   (All [a] (-> a (Zipper a) (Zipper a)))
   (update@ [#node #//.children]
-           (function (_ children)
-             (list@compose children
-                           (list (for {@.old
-                                       (: (Tree ($ 0))
-                                          (//.tree value {}))}
-                                      (//.tree value {})))))
+           (|>> (#.Cons (//.leaf value)))
            zipper))
 
 (def: #export (remove zipper)
   (All [a] (-> (Zipper a) (Maybe (Zipper a))))
-  (case (get@ #lefts zipper)
-    #.Nil
-    (case (get@ #parent zipper)
-      #.None
-      #.None
+  (do maybe.monad
+    [family (get@ #family zipper)]
+    (case (get@ #lefts family)
+      #.Nil
+      (wrap (set@ [#node #//.children]
+                  (get@ #rights family)
+                  (get@ #parent family)))
 
-      (#.Some next)
-      (#.Some (|> next
-                  (update@ [#node #//.children] (|>> list.tail (maybe.default (list)))))))
-
-    (#.Cons next side)
-    (#.Some (|> zipper
-                (set@ #lefts side)
-                (set@ #node next)))))
+      (#.Cons next side)
+      (wrap (|> zipper
+                (set@ #family (|> family
+                                  (set@ #lefts side)
+                                  #.Some))
+                (set@ #node next))))))
 
 (template [<name> <side>]
   [(def: #export (<name> value zipper)
      (All [a] (-> a (Zipper a) (Maybe (Zipper a))))
-     (case (get@ #parent zipper)
+     (case (get@ #family zipper)
        #.None
        #.None
 
-       _
-       (#.Some (|> zipper
-                   (update@ <side> (function (_ side)
-                                     (#.Cons (for {@.old
-                                                   (: (Tree ($ 0))
-                                                      (//.tree value {}))}
-                                                  (//.tree value {}))
-                                             side)))))))]
+       (#.Some family)
+       (#.Some (set@ #family
+                     (#.Some (update@ <side> (|>> (#.Cons (//.leaf value))) family))
+                     zipper))))]
 
   [insert-left  #lefts]
   [insert-right #rights]
   )
 
-(structure: #export functor (Functor Zipper)
-  (def: (map f fa)
-    {#parent (|> fa (get@ #parent) (maybe@map (map f)))
-     #lefts (|> fa (get@ #lefts) (list@map (//@map f)))
-     #rights (|> fa (get@ #rights) (list@map (//@map f)))
-     #node (//@map f (get@ #node fa))}))
+(structure: #export functor
+  (Functor Zipper)
+  
+  (def: (map f (^slots [#family #node]))
+    {#family (maybe@map (function (_ (^slots [#parent #lefts #rights]))
+                          {#parent (map f parent)
+                           #lefts (list@map (//@map f) lefts)
+                           #rights (list@map (//@map f) rights)})
+                        family)
+     #node (//@map f node)}))
 
-(for {@.old
-      (as-is)}
-     (structure: #export comonad (CoMonad Zipper)
-       (def: &functor ..functor)
+(structure: #export comonad
+  (CoMonad Zipper)
+  
+  (def: &functor ..functor)
 
-       (def: unwrap (get@ [#node #//.value]))
+  (def: unwrap (get@ [#node #//.value]))
 
-       (def: (split [parent lefts rights node])
-         (let [tree-splitter (: (All [a] (-> (Tree a) (Tree (Zipper a))))
-                                (function (tree-splitter tree)
-                                  {#//.value (zip tree)
-                                   #//.children (list@map tree-splitter
-                                                          (get@ #//.children tree))}))]
-           {#parent (maybe@map split parent)
-            #lefts (list@map tree-splitter lefts)
-            #rights (list@map tree-splitter rights)
-            #node (tree-splitter node)}))))
+  (def: (split (^slots [#family #node]))
+    (let [tree-splitter (: (All [a] (-> (Tree a) (Tree (Zipper a))))
+                           (function (tree-splitter tree)
+                             {#//.value (..zip tree)
+                              #//.children (|> tree
+                                               (get@ #//.children)
+                                               (list@map tree-splitter))}))]
+      {#family (maybe@map (function (_ (^slots [#parent #lefts #rights]))
+                            {#parent (split parent)
+                             #lefts (list@map tree-splitter lefts)
+                             #rights (list@map tree-splitter rights)})
+                          family)
+       #node (tree-splitter node)})))

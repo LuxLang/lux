@@ -102,6 +102,7 @@
 
 # Reference
 
+1. [The little book about OS development](http://littleosbook.github.io/)
 1. [Rethinking files](https://www.devever.net/~hl/objectworld)
 1. [Writing an OS in Rust (Second Edition)](https://os.phil-opp.com/)
 1. https://archiveos.org/
