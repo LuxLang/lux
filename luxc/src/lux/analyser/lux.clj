@@ -539,8 +539,15 @@
 
 (defn ^:private ensure-undefined! [module-name local-name]
   (|do [verdict (&&module/defined? module-name local-name)]
-    (&/assert! (not verdict)
-               (str "[Analyser Error] Cannot re-define " module-name &/+name-separator+ local-name))))
+    (if verdict
+      (|do [[[real-module real-name] _] (&&module/find-def module-name local-name)
+            :let [wanted-name (str module-name &/+name-separator+ local-name)
+                  source-name (str real-module &/+name-separator+ real-name)]]
+        (&/assert! false (str "[Analyser Error] Cannot re-define " wanted-name
+                              (if (= wanted-name source-name)
+                                ""
+                                (str "\nThis is an alias for " source-name)))))
+      (return &/$Nil))))
 
 (defn analyse-def* [analyse optimize eval! compile-def ?name ?value ?meta exported? & [?expected-type]]
   (|do [_ &/ensure-directive
