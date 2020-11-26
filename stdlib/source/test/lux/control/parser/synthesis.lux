@@ -19,7 +19,7 @@
      ["n" nat]
      ["." frac]]
     [collection
-     ["." list ("#@." functor)]]]
+     ["." list ("#\." functor)]]]
    [tool
     [compiler
      [reference (#+)
@@ -57,10 +57,6 @@
         (:: ! map (|>> synthesis.variable))
         (random.list size))))
 
-(def: valid-frac
-  (Random Frac)
-  (random.filter (|>> frac.not-a-number? not) random.frac))
-
 (def: simple
   Test
   (`` ($_ _.and
@@ -82,7 +78,7 @@
 
                 [/.bit /.bit! random.bit synthesis.bit bit.equivalence]
                 [/.i64 /.i64! (:: ! map .i64 random.nat) synthesis.i64 i64.equivalence]
-                [/.f64 /.f64! ..valid-frac synthesis.f64 frac.equivalence]
+                [/.f64 /.f64! random.safe-frac synthesis.f64 frac.equivalence]
                 [/.text /.text! (random.unicode 1) synthesis.text text.equivalence]
                 [/.local /.local! random.nat synthesis.variable/local n.equivalence]
                 [/.foreign /.foreign! random.nat synthesis.variable/foreign n.equivalence]
@@ -96,7 +92,7 @@
       (do {! random.monad}
         [expected-bit random.bit
          expected-i64 (:: ! map .i64 random.nat)
-         expected-f64 ..valid-frac
+         expected-f64 random.safe-frac
          expected-text (random.unicode 1)]
         (_.cover [/.tuple]
                  (and (|> (/.run (/.tuple ($_ <>.and /.bit /.i64 /.f64 /.text))
@@ -117,7 +113,7 @@
         [arity random.nat
          expected-environment ..random-environment
          expected-body (random.unicode 1)]
-        (_.cover [/.function /.wrong-arity]
+        (_.cover [/.function]
                  (and (|> (/.run (/.function arity /.text)
                                  (list (synthesis.function/abstraction [expected-environment arity (synthesis.text expected-body)])))
                           (!expect (^multi (#try.Success [actual-environment actual-body])
@@ -128,11 +124,36 @@
                       (|> (/.run (/.function arity /.text)
                                  (list (synthesis.text expected-body)))
                           (!expect (^multi (#try.Failure error)
-                                           (exception.match? /.cannot-parse error))))
-                      (|> (/.run (/.function (inc arity) /.text)
-                                 (list (synthesis.function/abstraction [expected-environment arity (synthesis.text expected-body)])))
+                                           (exception.match? /.cannot-parse error)))))))
+      (do {! random.monad}
+        [arity random.nat
+         expected-environment ..random-environment
+         expected-body (random.unicode 1)]
+        (_.cover [/.wrong-arity]
+                 (|> (/.run (/.function (inc arity) /.text)
+                            (list (synthesis.function/abstraction [expected-environment arity (synthesis.text expected-body)])))
+                     (!expect (^multi (#try.Failure error)
+                                      (exception.match? /.wrong-arity error))))))
+      (do {! random.monad}
+        [arity (:: ! map (|>> (n.% 10) inc) random.nat)
+         expected-offset random.nat
+         expected-inits (random.list arity random.bit)
+         expected-body (random.unicode 1)]
+        (_.cover [/.loop]
+                 (and (|> (/.run (/.loop (<>.many /.bit) /.text)
+                                 (list (synthesis.loop/scope [expected-offset
+                                                              (list\map (|>> synthesis.bit) expected-inits)
+                                                              (synthesis.text expected-body)])))
+                          (!expect (^multi (#try.Success [actual-offset actual-inits actual-body])
+                                           (and (:: n.equivalence = expected-offset actual-offset)
+                                                (:: (list.equivalence bit.equivalence) =
+                                                    expected-inits
+                                                    actual-inits)
+                                                (:: text.equivalence = expected-body actual-body)))))
+                      (|> (/.run (/.loop (<>.many /.bit) /.text)
+                                 (list (synthesis.text expected-body)))
                           (!expect (^multi (#try.Failure error)
-                                           (exception.match? /.wrong-arity error)))))))
+                                           (exception.match? /.cannot-parse error)))))))
       ))
 
 (def: #export test

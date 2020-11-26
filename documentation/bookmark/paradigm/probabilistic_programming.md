@@ -15,6 +15,7 @@
 
 # Reference
 
+1. [Foundations of Probabilistic Programming](https://www.cambridge.org/core/books/foundations-of-probabilistic-programming/819623B1B5B33836476618AC0621F0EE)
 1. [An unorthodox path for implementing a probabilistic programming language](http://hyperparameter.space/blog/an-unorthodox-path-for-implementing-a-probabilistic-programming-language/)
 1. [The Distribution Monad](http://blog.russelldmatt.com/2018/10/15/the-distribution-monad.html)
 1. ["New programming constructs for probabilistic AI" by Marco Cusumano-Towner](https://www.youtube.com/watch?v=xNutxms6SH4)

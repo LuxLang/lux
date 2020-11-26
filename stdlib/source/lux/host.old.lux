@@ -931,6 +931,13 @@
                                          #import-field-type    gtype}))))
       ))
 
+(def: bundle
+  (-> (List Type-Parameter) (Parser [Text (List Import-Member-Declaration)]))
+  (|>> ..import-member-decl^
+       p.some
+       (p.and s.text)
+       s.tuple))
+
 ## Generators
 (def: with-parens
   (-> JVM-Code JVM-Code)
@@ -1486,8 +1493,14 @@
       (list.zip/2 classes)
       (list\map (auto-convert-input mode))))
 
-(def: (member-def-interop type-params kind class [arg-function-inputs arg-classes arg-types] member method-prefix)
-  (-> (List Type-Parameter) Class-Kind Class-Declaration [(List [Bit Code]) (List Text) (List Code)] Import-Member-Declaration Text (Meta (List Code)))
+(def: (import-name format class member)
+  (-> Text Text Text Text)
+  (|> format
+      (text.replace-all "#" class)
+      (text.replace-all "." member)))
+
+(def: (member-def-interop type-params kind class [arg-function-inputs arg-classes arg-types] member method-prefix import-format)
+  (-> (List Type-Parameter) Class-Kind Class-Declaration [(List [Bit Code]) (List Text) (List Code)] Import-Member-Declaration Text Text (Meta (List Code)))
   (let [[full-name class-tvars] class
         full-name (sanitize full-name)
         all-params (|> (member-type-vars class-tvars member)
@@ -1508,7 +1521,7 @@
                                 (` (All [(~+ =class-tvars)] (primitive (~ (code.text full-name)) [(~+ =class-tvars)]))))))
                getter-interop (: (-> Text Code)
                                  (function (_ name)
-                                   (let [getter-name (code.identifier ["" (format method-prefix member-separator name)])]
+                                   (let [getter-name (code.identifier ["" (..import-name import-format method-prefix name)])]
                                      (` (def: (~ getter-name)
                                           (~ enum-type)
                                           ((~ (code.text (format "jvm getstatic" ":" full-name ":" name)))))))))]]
@@ -1516,7 +1529,7 @@
       
       (#ConstructorDecl [commons _])
       (do meta.monad
-        [#let [def-name (code.identifier ["" (format method-prefix member-separator (get@ #import-member-alias commons))])
+        [#let [def-name (code.identifier ["" (..import-name import-format method-prefix (get@ #import-member-alias commons))])
                jvm-extension (code.text (format "jvm new" ":" full-name ":" (text.join-with "," arg-classes)))
                jvm-interop (|> (` ((~ jvm-extension)
                                    (~+ (jvm-extension-inputs (get@ #import-member-mode commons) arg-classes arg-function-inputs))))
@@ -1529,7 +1542,7 @@
       (#MethodDecl [commons method])
       (with-gensyms [g!obj]
         (do meta.monad
-          [#let [def-name (code.identifier ["" (format method-prefix member-separator (get@ #import-member-alias commons))])
+          [#let [def-name (code.identifier ["" (..import-name import-format method-prefix (get@ #import-member-alias commons))])
                  (^slots [#import-member-kind]) commons
                  (^slots [#import-method-name]) method
                  [jvm-op object-ast] (: [Text (List Code)]
@@ -1571,8 +1584,8 @@
                             (|> class-tvars
                                 (list.filter free-type-param?)
                                 (list\map type-param->type-arg)))
-               getter-name (code.identifier ["" (format method-prefix member-separator import-field-name)])
-               setter-name (code.identifier ["" (format method-prefix member-separator import-field-name "!")])]
+               getter-name (code.identifier ["" (..import-name import-format method-prefix import-field-name)])
+               setter-name (code.identifier ["" (..import-name import-format method-prefix (format import-field-name "!"))])]
          getter-interop (with-gensyms [g!obj]
                           (let [getter-call (if import-field-static?
                                               (` ((~ getter-name)))
@@ -1615,12 +1628,12 @@
         (wrap (list& getter-interop setter-interop)))
       )))
 
-(def: (member-import$ type-params kind class member)
-  (-> (List Type-Parameter) Class-Kind Class-Declaration Import-Member-Declaration (Meta (List Code)))
+(def: (member-import$ type-params kind class [import-format member])
+  (-> (List Type-Parameter) Class-Kind Class-Declaration [Text Import-Member-Declaration] (Meta (List Code)))
   (let [[method-prefix _] class]
     (do meta.monad
       [=args (member-def-arg-bindings type-params class member)]
-      (member-def-interop type-params kind class =args member method-prefix))))
+      (member-def-interop type-params kind class =args member method-prefix import-format))))
 
 (def: (interface? class)
   (All [a] (-> (primitive "java.lang.Class" [a]) Bit))
@@ -1644,13 +1657,14 @@
 
 (syntax: #export (import:
                    {class-decl ..class-decl^}
-                   {members (p.some (..import-member-decl^ (product.right class-decl)))})
+                   {bundles (p.some (..bundle (product.right class-decl)))})
   {#.doc (doc "Allows importing JVM classes, and using them as types."
               "Their methods, fields and enum options can also be imported."
               (import: java/lang/Object
-                (new [])
-                (equals [java/lang/Object] boolean)
-                (wait [int] #io #try void))
+                ["#::."
+                 (new [])
+                 (equals [java/lang/Object] boolean)
+                 (wait [int] #io #try void)])
               
               "Special options can also be given for the return values."
               "#? means that the values will be returned inside a Maybe type. That way, null becomes #.None."
@@ -1658,31 +1672,36 @@
               "#io means the computation has side effects, and will be wrapped by the IO type."
               "These options must show up in the following order [#io #try #?] (although, each option can be used independently)."
               (import: java/lang/String
-                (new [[byte]])
-                (#static valueOf [char] java/lang/String)
-                (#static valueOf #as int-valueOf [int] java/lang/String))
+                ["#::."
+                 (new [[byte]])
+                 (#static valueOf [char] java/lang/String)
+                 (#static valueOf #as int-valueOf [int] java/lang/String)])
 
               (import: (java/util/List e)
-                (size [] int)
-                (get [int] e))
+                ["#::."
+                 (size [] int)
+                 (get [int] e)])
 
               (import: (java/util/ArrayList a)
-                ([T] toArray [[T]] [T]))
+                ["#::."
+                 ([T] toArray [[T]] [T])])
               
               "The class-type that is generated is of the fully-qualified name."
               "This avoids a clash between the java.util.List type, and Lux's own List type."
               "All enum options to be imported must be specified."
               (import: java/lang/Character$UnicodeScript
-                (#enum ARABIC CYRILLIC LATIN))
+                ["#::."
+                 (#enum ARABIC CYRILLIC LATIN)])
 
               "It should also be noted, the only types that may show up in method arguments or return values may be Java classes, arrays, primitives, void or type-parameters."
               "Lux types, such as Maybe cannot be named (otherwise, they'd be confused for Java classes)."
               (import: (lux/concurrency/promise/JvmPromise A)
-                (resolve [A] boolean)
-                (poll [] A)
-                (wasResolved [] boolean)
-                (waitOn [lux/Function] void)
-                (#static [A] make [A] (lux/concurrency/promise/JvmPromise A)))
+                ["#::."
+                 (resolve [A] boolean)
+                 (poll [] A)
+                 (wasResolved [] boolean)
+                 (waitOn [lux/Function] void)
+                 (#static [A] make [A] (lux/concurrency/promise/JvmPromise A))])
               
               "Also, the names of the imported members will look like Class::member"
               (java/lang/Object::new [])
@@ -1692,7 +1711,11 @@
               )}
   (do {! meta.monad}
     [kind (class-kind class-decl)
-     =members (monad.map ! (member-import$ (product.right class-decl) kind class-decl) members)]
+     =members (|> bundles
+                  (list\map (function (_ [import-format members])
+                              (list\map (|>> [import-format]) members)))
+                  list.concat
+                  (monad.map ! (member-import$ (product.right class-decl) kind class-decl)))]
     (wrap (list& (class-import$ class-decl) (list\join =members)))))
 
 (syntax: #export (array {type (..generic-type^ (list))}

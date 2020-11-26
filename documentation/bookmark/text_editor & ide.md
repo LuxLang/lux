@@ -1,3 +1,10 @@
+# Rendering
+
+1. [Graphics for JVM](https://tonsky.me/blog/skija/)
+1. https://github.com/JetBrains/skija/
+1. https://github.com/JetBrains/skiko/
+1. https://github.com/JetBrains/compose-jb
+
 # Residential programming
 
 1. [Residential Programming without Mutable State - Thomas Getgood](https://www.youtube.com/watch?v=Kgw9fblSOx4)
