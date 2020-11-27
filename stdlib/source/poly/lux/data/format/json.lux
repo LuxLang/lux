@@ -5,12 +5,10 @@
     [equivalence (#+ Equivalence)]
     ["." codec]]
    [control
-    ["e" try]
-    ["p" parser
+    ["." try]
+    ["<>" parser
      ["<.>" type]
-     ["</>" json]
-     ["l" text]
-     ["s" code]]]
+     ["</>" json]]]
    [data
     ["." bit]
     maybe
@@ -66,7 +64,7 @@
                      (|> low .int int.frac #/.Number)))))
   (def: decode
     (</>.run (</>.array
-              (do p.monad
+              (do <>.monad
                 [high </>.number
                  low </>.number]
                 (wrap (n.+ (|> high frac.int .nat (i64.left-shift 32))
@@ -77,7 +75,7 @@
   
   (def: encode (|>> .nat (:: nat-codec encode)))
   (def: decode
-    (|>> (:: nat-codec decode) (:: e.functor map .int))))
+    (|>> (:: nat-codec decode) (:: try.functor map .int))))
 
 (def: (nullable writer)
   {#.doc "Builds a JSON generator for potentially inexistent values."}
@@ -94,9 +92,9 @@
   (def: encode
     (|>> unit.out (:: ..int-codec encode)))
   (def: decode
-    (|>> (:: ..int-codec decode) (:: e.functor map unit.in))))
+    (|>> (:: ..int-codec decode) (:: try.functor map unit.in))))
 
-(poly: #export codec\encode
+(poly: encode
   (with-expansions
     [<basic> (template [<matcher> <encoder>]
                [(do !
@@ -122,28 +120,28 @@
               [date.Date date.codec]
               [day.Day day.codec]
               [month.Month month.codec])]
-    (do {! p.monad}
+    (do {! <>.monad}
       [*env* <type>.env
        #let [@JSON\encode (: (-> Type Code)
                              (function (_ type)
                                (` (-> (~ (poly.to-code *env* type)) /.JSON))))]
        inputT <type>.peek]
-      ($_ p.either
+      ($_ <>.either
           <basic>
           <time>
           (do !
-            [unitT (<type>.apply (p.after (<type>.exactly unit.Qty)
-                                          <type>.any))]
+            [unitT (<type>.apply (<>.after (<type>.exactly unit.Qty)
+                                           <type>.any))]
             (wrap (` (: (~ (@JSON\encode inputT))
                         (:: (~! qty-codec) (~' encode))))))
           (do !
             [#let [g!_ (code.local-identifier "_______")
                    g!key (code.local-identifier "_______key")
                    g!val (code.local-identifier "_______val")]
-             [_ _ =val=] (<type>.apply ($_ p.and
+             [_ _ =val=] (<type>.apply ($_ <>.and
                                            (<type>.exactly d.Dictionary)
                                            (<type>.exactly .Text)
-                                           codec\encode))]
+                                           encode))]
             (wrap (` (: (~ (@JSON\encode inputT))
                         (|>> ((~! d.entries))
                              ((~! list\map) (function ((~ g!_) [(~ g!key) (~ g!val)])
@@ -151,21 +149,21 @@
                              ((~! d.from-list) (~! text.hash))
                              #/.Object)))))
           (do !
-            [[_ =sub=] (<type>.apply ($_ p.and
+            [[_ =sub=] (<type>.apply ($_ <>.and
                                          (<type>.exactly .Maybe)
-                                         codec\encode))]
+                                         encode))]
             (wrap (` (: (~ (@JSON\encode inputT))
                         ((~! ..nullable) (~ =sub=))))))
           (do !
-            [[_ =sub=] (<type>.apply ($_ p.and
+            [[_ =sub=] (<type>.apply ($_ <>.and
                                          (<type>.exactly .List)
-                                         codec\encode))]
+                                         encode))]
             (wrap (` (: (~ (@JSON\encode inputT))
                         (|>> ((~! list\map) (~ =sub=)) ((~! row.from-list)) #/.Array)))))
           (do !
             [#let [g!_ (code.local-identifier "_______")
                    g!input (code.local-identifier "_______input")]
-             members (<type>.variant (p.many codec\encode))
+             members (<type>.variant (<>.many encode))
              #let [last (dec (list.size members))]]
             (wrap (` (: (~ (@JSON\encode inputT))
                         (function ((~ g!_) (~ g!input))
@@ -182,7 +180,7 @@
                                                                                 ((~ g!encode) (~ g!input))])))))
                                                      (list.enumeration members))))))))))
           (do !
-            [g!encoders (<type>.tuple (p.many codec\encode))
+            [g!encoders (<type>.tuple (<>.many encode))
              #let [g!_ (code.local-identifier "_______")
                    g!members (|> (list.size g!encoders)
                                  list.indices
@@ -194,7 +192,7 @@
                                                       (list.zip/2 g!members g!encoders)))]))))))
           ## Type recursion
           (do !
-            [[selfC non-recC] (<type>.recursive codec\encode)
+            [[selfC non-recC] (<type>.recursive encode)
              #let [g! (code.local-identifier "____________")]]
             (wrap (` (: (~ (@JSON\encode inputT))
                         ((~! ..rec-encode) (.function ((~ g!) (~ selfC))
@@ -202,11 +200,11 @@
           <type>.recursive-self
           ## Type applications
           (do !
-            [partsC (<type>.apply (p.many codec\encode))]
+            [partsC (<type>.apply (<>.many encode))]
             (wrap (` ((~+ partsC)))))
           ## Polymorphism
           (do !
-            [[funcC varsC bodyC] (<type>.polymorphic codec\encode)]
+            [[funcC varsC bodyC] (<type>.polymorphic encode)]
             (wrap (` (: (All [(~+ varsC)]
                           (-> (~+ (list\map (function (_ varC) (` (-> (~ varC) /.JSON)))
                                             varsC))
@@ -217,10 +215,10 @@
           <type>.parameter
           <type>.recursive-call
           ## If all else fails...
-          (p.fail (format "Cannot create JSON encoder for: " (type.format inputT)))
+          (<>.fail (format "Cannot create JSON encoder for: " (type.format inputT)))
           ))))
 
-(poly: #export codec\decode
+(poly: decode
   (with-expansions
     [<basic> (template [<matcher> <decoder>]
                [(do !
@@ -230,87 +228,87 @@
 
                [(<type>.exactly Any)  </>.null]
                [(<type>.sub Bit)      </>.boolean]
-               [(<type>.sub Nat)      (p.codec ..nat-codec </>.any)]
-               [(<type>.sub Int)      (p.codec ..int-codec </>.any)]
+               [(<type>.sub Nat)      (<>.codec ..nat-codec </>.any)]
+               [(<type>.sub Int)      (<>.codec ..int-codec </>.any)]
                [(<type>.sub Frac)     </>.number]
                [(<type>.sub Text)     </>.string])
      <time> (template [<type> <codec>]
               [(do !
                  [_ (<type>.exactly <type>)]
                  (wrap (` (: (~ (@JSON\decode inputT))
-                             ((~! p.codec) (~! <codec>) (~! </>.string))))))]
+                             ((~! <>.codec) (~! <codec>) (~! </>.string))))))]
 
               ## [duration.Duration duration.codec]
               ## [instant.Instant instant.codec]
               [date.Date date.codec]
               [day.Day day.codec]
               [month.Month month.codec])]
-    (do {! p.monad}
+    (do {! <>.monad}
       [*env* <type>.env
        #let [@JSON\decode (: (-> Type Code)
                              (function (_ type)
                                (` (</>.Parser (~ (poly.to-code *env* type))))))]
        inputT <type>.peek]
-      ($_ p.either
+      ($_ <>.either
           <basic>
           <time>
           (do !
-            [unitT (<type>.apply (p.after (<type>.exactly unit.Qty)
-                                          <type>.any))]
+            [unitT (<type>.apply (<>.after (<type>.exactly unit.Qty)
+                                           <type>.any))]
             (wrap (` (: (~ (@JSON\decode inputT))
-                        ((~! p.codec) (~! qty-codec) (~! </>.any))))))
+                        ((~! <>.codec) (~! qty-codec) (~! </>.any))))))
           (do !
-            [[_ _ valC] (<type>.apply ($_ p.and
+            [[_ _ valC] (<type>.apply ($_ <>.and
                                           (<type>.exactly d.Dictionary)
                                           (<type>.exactly .Text)
-                                          codec\decode))]
+                                          decode))]
             (wrap (` (: (~ (@JSON\decode inputT))
                         ((~! </>.dictionary) (~ valC))))))
           (do !
-            [[_ subC] (<type>.apply (p.and (<type>.exactly .Maybe)
-                                           codec\decode))]
+            [[_ subC] (<type>.apply (<>.and (<type>.exactly .Maybe)
+                                            decode))]
             (wrap (` (: (~ (@JSON\decode inputT))
                         ((~! </>.nullable) (~ subC))))))
           (do !
-            [[_ subC] (<type>.apply (p.and (<type>.exactly .List)
-                                           codec\decode))]
+            [[_ subC] (<type>.apply (<>.and (<type>.exactly .List)
+                                            decode))]
             (wrap (` (: (~ (@JSON\decode inputT))
-                        ((~! </>.array) ((~! p.some) (~ subC)))))))
+                        ((~! </>.array) ((~! <>.some) (~ subC)))))))
           (do !
-            [members (<type>.variant (p.many codec\decode))
+            [members (<type>.variant (<>.many decode))
              #let [last (dec (list.size members))]]
             (wrap (` (: (~ (@JSON\decode inputT))
-                        ($_ ((~! p.or))
+                        ($_ ((~! <>.or))
                             (~+ (list\map (function (_ [tag memberC])
                                             (if (n.= last tag)
                                               (` (|> (~ memberC)
-                                                     ((~! p.after) ((~! </>.boolean!) (~ (code.bit #1))))
-                                                     ((~! p.after) ((~! </>.number!) (~ (code.frac (..tag (dec tag))))))
+                                                     ((~! <>.after) ((~! </>.boolean!) (~ (code.bit #1))))
+                                                     ((~! <>.after) ((~! </>.number!) (~ (code.frac (..tag (dec tag))))))
                                                      ((~! </>.array))))
                                               (` (|> (~ memberC)
-                                                     ((~! p.after) ((~! </>.boolean!) (~ (code.bit #0))))
-                                                     ((~! p.after) ((~! </>.number!) (~ (code.frac (..tag tag)))))
+                                                     ((~! <>.after) ((~! </>.boolean!) (~ (code.bit #0))))
+                                                     ((~! <>.after) ((~! </>.number!) (~ (code.frac (..tag tag)))))
                                                      ((~! </>.array))))))
                                           (list.enumeration members))))))))
           (do !
-            [g!decoders (<type>.tuple (p.many codec\decode))]
+            [g!decoders (<type>.tuple (<>.many decode))]
             (wrap (` (: (~ (@JSON\decode inputT))
-                        ((~! </>.array) ($_ ((~! p.and)) (~+ g!decoders)))))))
+                        ((~! </>.array) ($_ ((~! <>.and)) (~+ g!decoders)))))))
           ## Type recursion
           (do !
-            [[selfC bodyC] (<type>.recursive codec\decode)
+            [[selfC bodyC] (<type>.recursive decode)
              #let [g! (code.local-identifier "____________")]]
             (wrap (` (: (~ (@JSON\decode inputT))
-                        ((~! p.rec) (.function ((~ g!) (~ selfC))
-                                      (~ bodyC)))))))
+                        ((~! <>.rec) (.function ((~ g!) (~ selfC))
+                                       (~ bodyC)))))))
           <type>.recursive-self
           ## Type applications
           (do !
-            [[funcC argsC] (<type>.apply (p.and codec\decode (p.many codec\decode)))]
+            [[funcC argsC] (<type>.apply (<>.and decode (<>.many decode)))]
             (wrap (` ((~ funcC) (~+ argsC)))))
           ## Polymorphism
           (do !
-            [[funcC varsC bodyC] (<type>.polymorphic codec\decode)]
+            [[funcC varsC bodyC] (<type>.polymorphic decode)]
             (wrap (` (: (All [(~+ varsC)]
                           (-> (~+ (list\map (|>> (~) </>.Parser (`)) varsC))
                               (</>.Parser ((~ (poly.to-code *env* inputT)) (~+ varsC)))))
@@ -319,7 +317,7 @@
           <type>.parameter
           <type>.recursive-call
           ## If all else fails...
-          (p.fail (format "Cannot create JSON decoder for: " (type.format inputT)))
+          (<>.fail (format "Cannot create JSON decoder for: " (type.format inputT)))
           ))))
 
 (syntax: #export (codec inputT)
@@ -342,7 +340,7 @@
               (derived: (..codec Record)))}
   (wrap (list (` (: (codec.Codec /.JSON (~ inputT))
                     (structure (def: (~' encode)
-                                 (..codec\encode (~ inputT)))
+                                 ((~! ..encode) (~ inputT)))
                                (def: (~' decode)
-                                 ((~! </>.run) (..codec\decode (~ inputT))))
+                                 ((~! </>.run) ((~! ..decode) (~ inputT))))
                                ))))))

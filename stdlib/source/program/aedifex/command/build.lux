@@ -8,7 +8,7 @@
     ["." exception (#+ exception:)]
     ["." io (#+ IO)]
     [concurrency
-     ["." promise ("#@." monad)]]]
+     ["." promise (#+ Promise) ("#@." monad)]]]
    [data
     ["." product]
     ["." maybe]
@@ -27,9 +27,10 @@
    ["#." local]
    ["#." cache]
    ["#." repository]
+   ["#." shell]
+   ["#." runtime]
    ["#." dependency (#+ Dependency)
     ["#/." resolution (#+ Resolution)]]
-   ["#." shell]
    ["#." artifact (#+ Group Name Artifact)
     ["#/." type]]])
 
@@ -87,11 +88,11 @@
     _
     (exception.throw ..no-available-compiler [])))
 
-(def: libraries
-  (-> Resolution (List Path))
+(def: (libraries fs)
+  (All [!] (-> (file.System !) Resolution (List Path)))
   (|>> dictionary.keys
        (list.filter (|>> (get@ #///dependency.type) (text@= ///artifact/type.lux-library)))
-       (list@map (|>> (get@ #///dependency.artifact) (///local.path file.default)))))
+       (list@map (|>> (get@ #///dependency.artifact) (///local.path fs)))))
 
 (import: java/lang/String)
 
@@ -114,9 +115,8 @@
   (-> Text (List Text) Text)
   (|> values (list@map (|>> (format name " "))) (text.join-with " ")))
 
-(def: #export (do! profile)
-  (Command [Compiler
-            Path])
+(def: #export (do! fs resolution profile)
+  (-> (file.System Promise) Resolution (Command [Compiler Path]))
   (case [(get@ #///.program profile)
          (get@ #///.target profile)]
     [#.None _]
@@ -127,26 +127,16 @@
     
     [(#.Some program) (#.Some target)]
     (do ///action.monad
-      [cache (///cache.read-all (file.async file.default)
-                                (set.to-list (get@ #///.dependencies profile))
-                                ///dependency/resolution.empty)
-       resolution (///dependency/resolution.all (list@map (|>> ///repository.remote ///repository.async)
-                                                          (set.to-list (get@ #///.repositories profile)))
-                                                (set.to-list (get@ #///.dependencies profile))
-                                                cache)
-       _ (///cache.write-all (file.async file.default)
-                             resolution)
-       [resolution compiler] (promise@wrap (..compiler resolution))
+      [[resolution compiler] (promise@wrap (..compiler resolution))
        working-directory (promise.future ..working-directory)
-       #let [libraries (..libraries resolution)
-             [prefix output] (case compiler
-                               (#JVM artifact) [(format "java -jar " (///local.path file.default artifact))
+       #let [[prefix output] (case compiler
+                               (#JVM artifact) [(///runtime.java (///local.path fs artifact))
                                                 "program.jar"]
-                               (#JS artifact) [(format "node --stack_size=8192 " (///local.path file.default artifact))
+                               (#JS artifact) [(///runtime.node (///local.path fs artifact))
                                                "program.js"])
-             cache-directory (format working-directory (:: file.default separator) target)
+             cache-directory (format working-directory (:: fs separator) target)
              command (format prefix " build"
-                             " " (..plural-parameter "--library" libraries)
+                             " " (..plural-parameter "--library" (..libraries fs resolution))
                              " " (..plural-parameter "--source" (set.to-list (get@ #///.sources profile)))
                              " " (..singular-parameter "--target" cache-directory)
                              " " (..singular-parameter "--module" program))]
@@ -154,5 +144,5 @@
        outcome (///shell.execute command working-directory)
        #let [_ (log! "[BUILD ENDED]")]]
       (wrap [compiler
-             (format cache-directory (:: file.default separator) output)]))
+             (format cache-directory (:: fs separator) output)]))
     ))

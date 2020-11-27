@@ -7,19 +7,21 @@
     ["." try (#+ Try)]
     ["." io (#+ IO)]
     [concurrency
-     ["." promise]]]
+     ["." promise (#+ Promise)]]]
    [data
     [collection
      ["." array]
      ["." list]
      ["." set]]]
    [world
-    [file (#+ Path)]]]
+    ["." file (#+ Path)]]]
   ["." // #_
    ["/#" // #_
     ["#" profile]
     ["#." action (#+ Action)]
-    ["#." command (#+ Command)]]])
+    ["#." command (#+ Command)]
+    [dependency
+     [resolution (#+ Resolution)]]]])
 
 (import: java/nio/file/WatchKey
   ["#::."
@@ -124,18 +126,21 @@
       #.None
       (wrap []))))
 
-(def: #export (do! command profile)
-  (All [a] (-> (Command a) (Command Any)))
+(def: #export (do! command fs resolution profile)
+  (All [a]
+    (-> (-> (file.System Promise) Resolution (Command a))
+        (-> (file.System Promise) Resolution (Command Any))))
   (do {! ///action.monad}
-    [#let [fs (java/nio/file/FileSystems::getDefault)]
-     watcher (promise.future (java/nio/file/FileSystem::newWatchService fs))
+    [watcher (promise.future
+              (java/nio/file/FileSystem::newWatchService
+               (java/nio/file/FileSystems::getDefault)))
      targets (|> profile
                  (get@ #///.sources)
                  set.to-list
                  (monad.map ! ..targets)
                  (:: ! map list.concat))
      _ (monad.map ! (..watch! watcher) targets)
-     _ (command profile)]
+     _ (command fs resolution profile)]
     (loop [_ []]
       (do !
         [?key (..poll! watcher)
@@ -143,7 +148,7 @@
              (#.Some key)
              (do !
                [_ (promise.future (..drain! watcher))
-                _ (command profile)]
+                _ (command fs resolution profile)]
                (wrap []))
 
              #.None
