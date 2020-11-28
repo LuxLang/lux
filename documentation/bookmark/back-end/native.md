@@ -1,3 +1,11 @@
+# Java
+
+1. [Java Grinder](https://www.mikekohn.net/micro/java_grinder.php)
+
+# Register allocation
+
+1. [A Quick Introduction to Register Allocation](https://hassamuddin.com/blog/reg-alloc/)
+
 # Call stack
 
 1. http://stffrdhrn.github.io/software/embedded/openrisc/2018/06/08/gcc_stack_frames.html

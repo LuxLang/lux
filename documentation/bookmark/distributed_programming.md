@@ -59,6 +59,7 @@
 
 # Programming language
 
+1. [Choral: a choreographic programming language](https://www.choral-lang.org/)
 1. ["Unison: a new distributed programming language" by Paul Chiusano](https://www.youtube.com/watch?v=gCWtkvDQ2ZI)
 1. http://radicle.xyz/
 1. [Lambda World 2018 - Introduction to the Unison programming language - Rúnar Bjarnason](https://www.youtube.com/watch?v=rp_Eild1aq8)
@@ -83,6 +84,7 @@
 
 # Logical clock
 
+1. [Interval Tree Clocks](https://ferd.ca/interval-tree-clocks.html)
 1. [Version Vectors are not Vector Clocks](https://haslab.wordpress.com/2011/07/08/version-vectors-are-not-vector-clocks/)
 1. [Distributed Systems: Physical, Logical, and Vector Clocks](https://levelup.gitconnected.com/distributed-systems-physical-logical-and-vector-clocks-7ca989f5f780)
 1. [The Bloom Clock](https://arxiv.org/pdf/1905.13064.pdf)

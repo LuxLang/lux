@@ -26,7 +26,8 @@
      ["." list ("#@." fold functor)]
      ["." dictionary]]]]
   [//
-   [environment (#+ Environment)]])
+   [environment (#+ Environment)]
+   [file (#+ Path)]])
 
 (capability: #export (Can-Read !)
   (can-read [] (! (Try Text))))
@@ -87,7 +88,7 @@
   Text)
 
 (capability: #export (Can-Execute !)
-  (can-execute [Environment Command (List Argument)] (! (Try (Process !)))))
+  (can-execute [Environment Path Command (List Argument)] (! (Try (Process !)))))
 
 (signature: #export (Shell !)
   (: (Can-Execute !)
@@ -270,10 +271,15 @@
                                                        [await ..can-wait java/lang/Process::waitFor]
                                                        ))))))))
 
+                               (import: java/io/File
+                                 ["#::."
+                                  (new [java/lang/String])])
+
                                (import: java/lang/ProcessBuilder
                                  ["#::."
                                   (new [[java/lang/String]])
-                                  (environment [] #io #try (java/util/Map java/lang/String java/lang/String))
+                                  (environment [] #try (java/util/Map java/lang/String java/lang/String))
+                                  (directory [java/io/File] java/lang/ProcessBuilder)
                                   (start [] #io #try java/lang/Process)])
 
                                (import: java/lang/System
@@ -304,7 +310,7 @@
 
   (def: execute
     (..can-execute
-     (function (_ [environment command arguments])
+     (function (_ [environment working-directory command arguments])
        (with-expansions [<jvm> (as-is (do {! (try.with io.monad)}
                                         [windows? ..windows?
                                          #let [builder (if windows?
@@ -314,8 +320,11 @@
                                                          (..jvm::process-builder ..unix-policy
                                                                                  (:: ..unix-policy command command)
                                                                                  (list@map (:: ..unix-policy argument) arguments)))]
-                                         _ (:: ! map (..jvm::load-environment environment)
-                                               (java/lang/ProcessBuilder::environment builder))
+                                         _ (|> builder
+                                               (java/lang/ProcessBuilder::directory (java/io/File::new working-directory))
+                                               java/lang/ProcessBuilder::environment
+                                               (:: try.functor map (..jvm::load-environment environment))
+                                               (:: io.monad wrap))
                                          process (java/lang/ProcessBuilder::start builder)]
                                         (..default-process process)))]
          (for {@.old (as-is <jvm>)
@@ -387,7 +396,7 @@
 
 (structure: #export (mock simulation init)
   (All [s]
-    (-> (-> [Environment Command (List Argument)]
+    (-> (-> [Environment Path Command (List Argument)]
             (Try (Simulation s)))
         s
         (Shell Promise)))

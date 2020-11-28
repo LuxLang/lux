@@ -14,7 +14,9 @@
      ["." list]
      ["." set]]]
    [world
-    ["." file (#+ Path)]]]
+    [environment (#+ Environment)]
+    ["." file (#+ Path)]
+    ["." shell (#+ Shell)]]]
   ["." // #_
    ["/#" // #_
     ["#" profile]
@@ -126,31 +128,34 @@
       #.None
       (wrap []))))
 
-(def: #export (do! command fs resolution profile)
+(def: #export (do! command)
   (All [a]
-    (-> (-> (file.System Promise) Resolution (Command a))
-        (-> (file.System Promise) Resolution (Command Any))))
-  (do {! ///action.monad}
-    [watcher (promise.future
-              (java/nio/file/FileSystem::newWatchService
-               (java/nio/file/FileSystems::getDefault)))
-     targets (|> profile
-                 (get@ #///.sources)
-                 set.to-list
-                 (monad.map ! ..targets)
-                 (:: ! map list.concat))
-     _ (monad.map ! (..watch! watcher) targets)
-     _ (command fs resolution profile)]
-    (loop [_ []]
-      (do !
-        [?key (..poll! watcher)
-         _ (case ?key
-             (#.Some key)
-             (do !
-               [_ (promise.future (..drain! watcher))
-                _ (command fs resolution profile)]
-               (wrap []))
+    (-> (-> Environment (file.System Promise) (Shell Promise) Resolution (Command a))
+        (-> Environment (file.System Promise) (Shell Promise) Resolution (Command Any))))
+  (function (_ environment fs shell resolution)
+    (function (_ profile)
+      (with-expansions [<call> ((command environment fs shell resolution) profile)]
+        (do {! ///action.monad}
+          [watcher (promise.future
+                    (java/nio/file/FileSystem::newWatchService
+                     (java/nio/file/FileSystems::getDefault)))
+           targets (|> profile
+                       (get@ #///.sources)
+                       set.to-list
+                       (monad.map ! ..targets)
+                       (:: ! map list.concat))
+           _ (monad.map ! (..watch! watcher) targets)
+           _ <call>]
+          (loop [_ []]
+            (do !
+              [?key (..poll! watcher)
+               _ (case ?key
+                   (#.Some key)
+                   (do !
+                     [_ (promise.future (..drain! watcher))
+                      _ <call>]
+                     (wrap []))
 
-             #.None
-             (wrap []))]
-        (recur [])))))
+                   #.None
+                   (wrap []))]
+              (recur []))))))))

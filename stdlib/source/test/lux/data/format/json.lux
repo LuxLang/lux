@@ -1,67 +1,199 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
+   ["." meta]
    [abstract
-    codec
-    [monad (#+ do Monad)]
-    [equivalence (#+ Equivalence)]
+    [monad (#+ do)]
     {[0 #spec]
      [/
       ["$." equivalence]
       ["$." codec]]}]
    [control
-    pipe
-    ["p" parser]]
+    ["." try ("#\." functor)]]
    [data
+    ["." product]
     ["." bit]
-    ["." maybe]
-    ["." text]
+    ["." text
+     ["%" format (#+ format)]]
     [number
      ["n" nat]
      ["." frac]]
     [collection
-     [row (#+ row)]
-     ["d" dictionary]
-     ["." list]]]
-   [macro
-    [poly (#+ derived:)]]
-   [type
-    ["." unit]]
+     ["." row]
+     ["." dictionary]
+     ["." set]
+     ["." list ("#\." functor)]]]
    [math
-    ["r" random (#+ Random)]]
-   [time
-    ["ti" instant]
-    ["tda" date]
-    ## ["tdu" duration]
-    ]]
-  [test
-   [lux
-    [time
-     ["_." instant]
-     ## ["_." duration]
-     ["_." date]]]]
+    ["." random (#+ Random)]]
+   [macro
+    ["." syntax (#+ syntax:)]
+    ["." code]]]
   {1
-   ["." / (#+ JSON)]})
+   ["." / (#+ JSON) ("\." equivalence)]})
 
 (def: #export json
-  (Random JSON)
-  (r.rec (function (_ recur)
-           (do {! r.monad}
-             [size (:: ! map (n.% 2) r.nat)]
-             ($_ r.or
-                 (:: ! wrap [])
-                 r.bit
-                 r.safe-frac
-                 (r.unicode size)
-                 (r.row size recur)
-                 (r.dictionary text.hash size (r.unicode size) recur)
-                 )))))
+  (Random /.JSON)
+  (random.rec
+   (function (_ recur)
+     (do {! random.monad}
+       [size (:: ! map (n.% 2) random.nat)]
+       ($_ random.or
+           (:: ! wrap [])
+           random.bit
+           random.safe-frac
+           (random.unicode size)
+           (random.row size recur)
+           (random.dictionary text.hash size (random.unicode size) recur)
+           )))))
+
+(syntax: (boolean)
+  (do meta.monad
+    [value meta.count]
+    (wrap (list (code.bit (n.even? value))))))
+
+(syntax: (number)
+  (do meta.monad
+    [value meta.count]
+    (wrap (list (code.frac (n.frac value))))))
+
+(syntax: (string)
+  (do meta.monad
+    [value (meta.gensym "string")]
+    (wrap (list (code.text (%.code value))))))
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /._)))
-      ($_ _.and
-          ($equivalence.spec /.equivalence ..json)
-          ($codec.spec /.equivalence /.codec ..json)
-          )))
+  (<| (_.covering /._)
+      (_.with-cover [/.JSON])
+      (`` ($_ _.and
+              (_.with-cover [/.equivalence]
+                ($equivalence.spec /.equivalence ..json))
+              (_.with-cover [/.codec]
+                ($codec.spec /.equivalence /.codec ..json))
+
+              (do random.monad
+                [sample ..json]
+                (_.cover [/.Null /.null?]
+                         (:: bit.equivalence =
+                             (/.null? sample)
+                             (case sample
+                               #/.Null true
+                               _ false))))
+              (do random.monad
+                [expected ..json]
+                (_.cover [/.format]
+                         (|> expected
+                             /.format
+                             (:: /.codec decode)
+                             (try\map (\= expected))
+                             (try.default false))))
+              (do random.monad
+                [keys (random.set text.hash 3 (random.ascii/alpha 1))
+                 values (random.set frac.hash 3 random.safe-frac)
+                 #let [expected (list.zip/2 (set.to-list keys)
+                                            (list\map (|>> #/.Number) (set.to-list values)))
+                       object (/.object expected)]]
+                ($_ _.and
+                    (_.cover [/.object /.fields]
+                             (case (/.fields object)
+                               (#try.Success actual)
+                               (:: (list.equivalence text.equivalence) =
+                                   (list\map product.left expected)
+                                   actual)
+                               
+                               (#try.Failure error)
+                               false))
+                    (_.cover [/.get]
+                             (list.every? (function (_ [key expected])
+                                            (|> (/.get key object)
+                                                (try\map (\= expected))
+                                                (try.default false)))
+                                          expected))
+                    ))
+              (do random.monad
+                [key (random.ascii/alpha 1)
+                 unknown (random.filter (|>> (:: text.equivalence = key) not)
+                                        (random.ascii/alpha 1))
+                 expected random.safe-frac]
+                (_.cover [/.set]
+                         (<| (try.default false)
+                             (do try.monad
+                               [object (/.set key (#/.Number expected) (/.object (list)))
+                                #let [can-find-known-key!
+                                      (|> object
+                                          (/.get key)
+                                          (try\map (\= (#/.Number expected)))
+                                          (try.default false))
+
+                                      cannot-find-unknown-key!
+                                      (case (/.get unknown object)
+                                        (#try.Success _)
+                                        false
+
+                                        (#try.Failure error)
+                                        true)]]
+                               (wrap (and can-find-known-key!
+                                          cannot-find-unknown-key!))))))
+              (~~ (template [<type> <get> <tag> <random> <equivalence>]
+                    [(do random.monad
+                       [key (random.ascii/alpha 1)
+                        value <random>]
+                       (_.cover [<type> <get>]
+                                (|> (/.object (list [key (<tag> value)]))
+                                    (<get> key)
+                                    (try\map (:: <equivalence> = value))
+                                    (try.default false))))]
+
+                    [/.Boolean /.get-boolean #/.Boolean random.bit bit.equivalence]
+                    [/.Number /.get-number #/.Number random.safe-frac frac.equivalence]
+                    [/.String /.get-string #/.String (random.ascii/alpha 1) text.equivalence]
+                    [/.Array /.get-array #/.Array (random.row 3 ..json) (row.equivalence /.equivalence)]
+                    [/.Object /.get-object #/.Object (random.dictionary text.hash 3 (random.ascii/alpha 1) ..json) (dictionary.equivalence /.equivalence)]
+                    ))
+              (with-expansions [<boolean> (boolean)
+                                <number> (number)
+                                <string> (string)
+                                <array-row> (row.row #/.Null
+                                                     (#/.Boolean <boolean>)
+                                                     (#/.Number <number>)
+                                                     (#/.String <string>))
+                                <key0> (string)
+                                <key1> (string)
+                                <key2> (string)
+                                <key3> (string)
+                                <key4> (string)
+                                <key5> (string)
+                                <key6> (string)]
+                (_.cover [/.json]
+                         (and (\= #/.Null (/.json #null))
+                              (~~ (template [<tag> <value>]
+                                    [(\= (<tag> <value>) (/.json <value>))]
+                                    
+                                    [#/.Boolean <boolean>]
+                                    [#/.Number <number>]
+                                    [#/.String <string>]
+                                    ))
+                              (\= (#/.Array <array-row>) (/.json [#null <boolean> <number> <string>]))
+                              (let [object (/.json {<key0> #null
+                                                    <key1> <boolean>
+                                                    <key2> <number>
+                                                    <key3> <string>
+                                                    <key4> [#null <boolean> <number> <string>]
+                                                    <key5> {<key6> <number>}})]
+                                (<| (try.default false)
+                                    (do try.monad
+                                      [value0 (/.get <key0> object)
+                                       value1 (/.get <key1> object)
+                                       value2 (/.get <key2> object)
+                                       value3 (/.get <key3> object)
+                                       value4 (/.get <key4> object)
+                                       value5 (/.get <key5> object)
+                                       value6 (/.get <key6> value5)]
+                                      (wrap (and (\= #/.Null value0)
+                                                 (\= (#/.Boolean <boolean>) value1)
+                                                 (\= (#/.Number <number>) value2)
+                                                 (\= (#/.String <string>) value3)
+                                                 (\= (#/.Array <array-row>) value4)
+                                                 (\= (#/.Number <number>) value6))))))
+                              )))
+              ))))

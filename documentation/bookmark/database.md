@@ -1,3 +1,7 @@
+# Pagination
+
+1. [Pagination with Relative Cursors](https://shopify.engineering/pagination-relative-cursors)
+
 # Reference
 
 1. ["Temporal Databases for Streaming Architectures" by Jeremy Taylor and Jon Pither](https://www.youtube.com/watch?v=ykbYNBE-V3k)
@@ -15,6 +19,7 @@
 
 # Query
 
+1. [Reasons why SELECT * is bad for SQL performance](https://tanelpoder.com/posts/reasons-why-select-star-is-bad-for-sql-performance/)
 1. [A Short Story About SQL’s Biggest Rival](https://www.holistics.io/blog/quel-vs-sql/)
 1. https://calcite.apache.org/
 1. https://juxt.pro/blog/crux-sql

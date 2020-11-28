@@ -1,34 +1,36 @@
 (.module: {#.doc (.doc "Functionality for reading and writing values in the JSON format."
                        "For more information, please see: http://www.json.org/")}
   [lux #*
+   ["." meta (#+ monad with-gensyms)]
    [abstract
-    ["." monad (#+ do)]
     [equivalence (#+ Equivalence)]
-    codec]
+    [codec (#+ Codec)]
+    [predicate (#+ Predicate)]
+    ["." monad (#+ do)]]
    [control
     pipe
     ["." try (#+ Try)]
     ["<>" parser ("#@." monad)
-     ["<t>" text (#+ Parser)]]]
+     ["<.>" text (#+ Parser)]]]
    [data
     ["." bit]
     ["." maybe]
     ["." product]
+    ["." text ("#@." equivalence monoid)]
     [number
      ["n" nat]
      ["f" frac ("#@." decimal)]]
-    ["." text ("#@." equivalence monoid)]
     [collection
      ["." list ("#@." fold functor)]
      ["." row (#+ Row row) ("#@." monad)]
      ["." dictionary (#+ Dictionary)]]]
-   ["." meta (#+ monad with-gensyms)]
    [macro
     [syntax (#+ syntax:)]
     ["." code]]])
 
 (template [<name> <type>]
-  [(type: #export <name> <type>)]
+  [(type: #export <name>
+     <type>)]
 
   [Null    Any]
   [Boolean Bit]
@@ -45,11 +47,17 @@
   (#Object  (Dictionary String JSON)))
 
 (template [<name> <type>]
-  [(type: #export <name> <type>)]
+  [(type: #export <name>
+     <type>)]
 
   [Array  (Row JSON)]
   [Object (Dictionary String JSON)]
   )
+
+(def: #export null?
+  (Predicate JSON)
+  (|>> (case> #Null true
+              _ false)))
 
 (def: #export object
   (-> (List [String JSON]) JSON)
@@ -57,10 +65,10 @@
 
 (syntax: #export (json token)
   {#.doc (doc "A simple way to produce JSON literals."
+              (json #null)
               (json #1)
               (json +123.456)
-              (json "Some text")
-              (json #null)
+              (json "this is a string")
               (json ["this" "is" "an" "array"])
               (json {"this" "is"
                      "an" "object"}))}
@@ -98,7 +106,7 @@
       _
       (wrap (list token)))))
 
-(def: #export (get-fields json)
+(def: #export (fields json)
   {#.doc "Get all the fields in a JSON object."}
   (-> JSON (Try (List String)))
   (case json
@@ -198,7 +206,9 @@
 ############################################################
 ############################################################
 
-(def: (format-null _) (-> Null Text) "null")
+(def: (format-null _)
+  (-> Null Text)
+  "null")
 
 (def: format-boolean
   (-> Boolean Text)
@@ -209,29 +219,56 @@
 (def: format-number
   (-> Number Text)
   (|>> (case>
-        +0.0 "0.0"
-        -0.0 "0.0"
+        (^or +0.0 -0.0) "0.0"
         value (let [raw (:: f.decimal encode value)]
                 (if (f.< +0.0 value)
                   raw
                   (|> raw (text.split 1) maybe.assume product.right))))))
 
-(def: format-string (-> String Text) text.encode)
+(def: escape "\")
+(def: escaped-dq (text@compose ..escape text.double-quote))
 
-(def: (format-array format elems)
+(def: format-string
+  (-> String Text)
+  (|>> (text.replace-all text.double-quote ..escaped-dq)
+       (text.enclose [text.double-quote text.double-quote])))
+
+(template [<token> <name>]
+  [(def: <name>
+     Text
+     <token>)]
+
+  ["," separator]
+  [":" entry-separator]
+
+  ["[" open-array]
+  ["]" close-array]
+
+  ["{" open-object]
+  ["}" close-object]
+  )
+
+(def: (format-array format)
   (-> (-> JSON Text) (-> Array Text))
-  ($_ text@compose "["
-      (|> elems (row@map format) row.to-list (text.join-with ","))
-      "]"))
+  (|>> (row@map format)
+       row.to-list
+       (text.join-with ..separator)
+       (text.enclose [..open-array ..close-array])))
 
-(def: (format-object format object)
+(def: (format-kv format [key value])
+  (-> (-> JSON Text) (-> [String JSON] Text))
+  ($_ text@compose
+      (..format-string key)
+      ..entry-separator
+      (format value)
+      ))
+
+(def: (format-object format)
   (-> (-> JSON Text) (-> Object Text))
-  ($_ text@compose "{"
-      (|> object
-          dictionary.entries
-          (list@map (function (_ [key value]) ($_ text@compose (format-string key) ":" (format value))))
-          (text.join-with ","))
-      "}"))
+  (|>> dictionary.entries
+       (list@map (..format-kv format))
+       (text.join-with ..separator)
+       (text.enclose [..open-object ..close-object])))
 
 (def: #export (format json)
   (-> JSON Text)
@@ -239,61 +276,66 @@
     (^template [<tag> <format>]
       [(<tag> value)
        (<format> value)])
-    ([#Null    format-null]
-     [#Boolean format-boolean]
-     [#Number  format-number]
-     [#String  format-string]
-     [#Array   (format-array format)]
-     [#Object  (format-object format)])
+    ([#Null    ..format-null]
+     [#Boolean ..format-boolean]
+     [#Number  ..format-number]
+     [#String  ..format-string]
+     [#Array   (..format-array format)]
+     [#Object  (..format-object format)])
     ))
 
 ############################################################
 ############################################################
 ############################################################
 
-(def: space~
+(def: parse-space
   (Parser Text)
-  (<t>.some <t>.space))
+  (<text>.some <text>.space))
 
-(def: data-sep
+(def: parse-separator
   (Parser [Text Any Text])
-  ($_ <>.and space~ (<t>.this ",") space~))
+  ($_ <>.and
+      ..parse-space
+      (<text>.this ..separator)
+      ..parse-space))
 
-(def: null~
+(def: parse-null
   (Parser Null)
   (do <>.monad
-    [_ (<t>.this "null")]
+    [_ (<text>.this "null")]
     (wrap [])))
 
 (template [<name> <token> <value>]
   [(def: <name>
      (Parser Boolean)
      (do <>.monad
-       [_ (<t>.this <token>)]
+       [_ (<text>.this <token>)]
        (wrap <value>)))]
 
-  [true~  "true"  #1]
-  [false~ "false" #0]
+  [parse-true  "true"  #1]
+  [parse-false "false" #0]
   )
 
-(def: boolean~
+(def: parse-boolean
   (Parser Boolean)
-  (<>.either true~ false~))
+  ($_ <>.either
+      ..parse-true
+      ..parse-false))
 
-(def: number~
+(def: parse-number
   (Parser Number)
   (do {! <>.monad}
-    [signed? (<>.parses? (<t>.this "-"))
-     digits (<t>.many <t>.decimal)
+    [signed? (<>.parses? (<text>.this "-"))
+     digits (<text>.many <text>.decimal)
      decimals (<>.default "0"
                           (do !
-                            [_ (<t>.this ".")]
-                            (<t>.many <t>.decimal)))
+                            [_ (<text>.this ".")]
+                            (<text>.many <text>.decimal)))
      exp (<>.default ""
                      (do !
-                       [mark (<t>.one-of "eE")
-                        signed?' (<>.parses? (<t>.this "-"))
-                        offset (<t>.many <t>.decimal)]
+                       [mark (<text>.one-of "eE")
+                        signed?' (<>.parses? (<text>.this "-"))
+                        offset (<text>.many <text>.decimal)]
                        (wrap ($_ text@compose mark (if signed?' "-" "") offset))))]
     (case (f@decode ($_ text@compose (if signed? "-" "") digits "." decimals exp))
       (#try.Failure message)
@@ -302,77 +344,77 @@
       (#try.Success value)
       (wrap value))))
 
-(def: escaped~
+(def: parse-escaped
   (Parser Text)
   ($_ <>.either
-      (<>.after (<t>.this "\t")
+      (<>.after (<text>.this "\t")
                 (<>@wrap text.tab))
-      (<>.after (<t>.this "\b")
+      (<>.after (<text>.this "\b")
                 (<>@wrap text.back-space))
-      (<>.after (<t>.this "\n")
+      (<>.after (<text>.this "\n")
                 (<>@wrap text.new-line))
-      (<>.after (<t>.this "\r")
+      (<>.after (<text>.this "\r")
                 (<>@wrap text.carriage-return))
-      (<>.after (<t>.this "\f")
+      (<>.after (<text>.this "\f")
                 (<>@wrap text.form-feed))
-      (<>.after (<t>.this (text@compose "\" text.double-quote))
+      (<>.after (<text>.this (text@compose "\" text.double-quote))
                 (<>@wrap text.double-quote))
-      (<>.after (<t>.this "\\")
+      (<>.after (<text>.this "\\")
                 (<>@wrap "\"))))
 
-(def: string~
+(def: parse-string
   (Parser String)
-  (<| (<t>.enclosed [text.double-quote text.double-quote])
+  (<| (<text>.enclosed [text.double-quote text.double-quote])
       (loop [_ []])
       (do {! <>.monad}
-        [chars (<t>.some (<t>.none-of (text@compose "\" text.double-quote)))
-         stop <t>.peek])
+        [chars (<text>.some (<text>.none-of (text@compose "\" text.double-quote)))
+         stop <text>.peek])
       (if (text@= "\" stop)
         (do !
-          [escaped escaped~
+          [escaped parse-escaped
            next-chars (recur [])]
           (wrap ($_ text@compose chars escaped next-chars)))
         (wrap chars))))
 
-(def: (kv~ json~)
+(def: (parse-kv parse-json)
   (-> (Parser JSON) (Parser [String JSON]))
   (do <>.monad
-    [key string~
-     _ space~
-     _ (<t>.this ":")
-     _ space~
-     value json~]
+    [key ..parse-string
+     _ ..parse-space
+     _ (<text>.this ..entry-separator)
+     _ ..parse-space
+     value parse-json]
     (wrap [key value])))
 
 (template [<name> <type> <open> <close> <elem-parser> <prep>]
-  [(def: (<name> json~)
+  [(def: (<name> parse-json)
      (-> (Parser JSON) (Parser <type>))
      (do <>.monad
-       [_ (<t>.this <open>)
-        _ space~
-        elems (<>.sep-by data-sep <elem-parser>)
-        _ space~
-        _ (<t>.this <close>)]
+       [_ (<text>.this <open>)
+        _ parse-space
+        elems (<>.sep-by ..parse-separator <elem-parser>)
+        _ parse-space
+        _ (<text>.this <close>)]
        (wrap (<prep> elems))))]
 
-  [array~  Array  "[" "]" json~  row.from-list]
-  [object~ Object "{" "}" (kv~ json~) (dictionary.from-list text.hash)]
+  [parse-array  Array  ..open-array ..close-array parse-json  row.from-list]
+  [parse-object Object ..open-object ..close-object (parse-kv parse-json) (dictionary.from-list text.hash)]
   )
 
-(def: json~
+(def: parse-json
   (Parser JSON)
   (<>.rec
-   (function (_ json~)
+   (function (_ parse-json)
      ($_ <>.or
-         null~
-         boolean~
-         number~
-         string~
-         (array~ json~)
-         (object~ json~)))))
+         parse-null
+         parse-boolean
+         parse-number
+         parse-string
+         (parse-array parse-json)
+         (parse-object parse-json)))))
 
 (structure: #export codec
   (Codec Text JSON)
   
   (def: encode ..format)
-  (def: decode (<t>.run json~)))
+  (def: decode (<text>.run parse-json)))

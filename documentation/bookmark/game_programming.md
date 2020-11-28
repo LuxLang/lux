@@ -1,3 +1,11 @@
+# Board game
+
+1. [Ludology](https://ludology.libsyn.com/)
+
+# Pattern
+
+1. [Game Programming Patterns](http://gameprogrammingpatterns.com/)
+
 # Path finding
 
 1. [Friday Facts #317 - New pathfinding algorithm](https://factorio.com/blog/post/fff-317)
@@ -91,7 +99,6 @@
 1. http://www.jagregory.com/abrash-black-book/
 1. http://docs.godotengine.org/en/3.0/tutorials/math/rotations.html
 1. http://www.essentialmath.com/
-1. http://gameprogrammingpatterns.com/
 1. http://higherorderfun.com/blog/2012/05/20/the-guide-to-implementing-2d-platformers/
 1. https://github.com/Dvergar/awesome-haxe-gamedev
 

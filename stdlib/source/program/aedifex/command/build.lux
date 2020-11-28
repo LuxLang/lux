@@ -1,6 +1,5 @@
 (.module:
   [lux (#- Name)
-   ["." host (#+ import:)]
    [abstract
     [monad (#+ do)]]
    [control
@@ -8,18 +7,24 @@
     ["." exception (#+ exception:)]
     ["." io (#+ IO)]
     [concurrency
-     ["." promise (#+ Promise) ("#@." monad)]]]
+     ["." promise (#+ Promise) ("#\." monad)]]
+    [security
+     ["!" capability]]]
    [data
     ["." product]
     ["." maybe]
-    ["." text ("#@." equivalence)
+    ["." text ("#\." equivalence)
      ["%" format (#+ format)]]
     [collection
-     ["." list ("#@." functor)]
+     ["." list ("#\." functor)]
      ["." dictionary]
-     ["." set]]]
+     ["." set]]
+    [number
+     ["i" int]]]
    [world
-    ["." file (#+ Path)]]]
+    [environment (#+ Environment)]
+    ["." file (#+ Path)]
+    ["." shell (#+ Shell)]]]
   ["." /// #_
    ["#" profile]
    ["#." action]
@@ -41,22 +46,30 @@
   (-> Group Name Finder)
   (|>> dictionary.entries
        (list.one (function (_ [dependency package])
-                   (if (and (text@= group (get@ [#///dependency.artifact #///artifact.group] dependency))
-                            (text@= name (get@ [#///dependency.artifact #///artifact.name] dependency)))
+                   (if (and (text\= group (get@ [#///dependency.artifact #///artifact.group] dependency))
+                            (text\= name (get@ [#///dependency.artifact #///artifact.name] dependency)))
                      (#.Some dependency)
                      #.None)))))
 
-(def: lux-group
+(def: #export lux-group
   Group
   "com.github.luxlang")
 
-(template [<name> <finder>]
+(def: #export jvm-compiler-name
+  Name
+  "lux-jvm")
+
+(def: #export js-compiler-name
+  Name
+  "lux-js")
+
+(template [<finder> <name>]
   [(def: <finder>
      Finder
      (..dependency-finder ..lux-group <name>))]
 
-  ["lux-jvm" jvm-compiler]
-  ["lux-js" js-compiler]
+  [jvm-compiler ..jvm-compiler-name]
+  [js-compiler ..js-compiler-name]
   )
 
 (exception: #export no-available-compiler)
@@ -91,58 +104,55 @@
 (def: (libraries fs)
   (All [!] (-> (file.System !) Resolution (List Path)))
   (|>> dictionary.keys
-       (list.filter (|>> (get@ #///dependency.type) (text@= ///artifact/type.lux-library)))
-       (list@map (|>> (get@ #///dependency.artifact) (///local.path fs)))))
-
-(import: java/lang/String)
-
-## https://docs.oracle.com/javase/tutorial/essential/environment/sysprop.html
-(import: java/lang/System
-  ["#::."
-   (#static getProperty [java/lang/String] #io #? java/lang/String)])
+       (list.filter (|>> (get@ #///dependency.type) (text\= ///artifact/type.lux-library)))
+       (list\map (|>> (get@ #///dependency.artifact) (///local.path fs)))))
 
 (def: #export working-directory
-  (IO (Try Text))
-  (do io.monad
-    [?value (java/lang/System::getProperty "user.dir")]
-    (wrap (#try.Success (maybe.default "~" ?value)))))
+  (-> Environment (Try Text))
+  (|>> (dictionary.get "user.dir") try.from-maybe))
 
-(def: (singular-parameter name value)
-  (-> Text Text Text)
-  (format name " " value))
+(def: (singular name)
+  (-> Text Text (List Text))
+  (|>> (list name)))
 
-(def: (plural-parameter name values)
-  (-> Text (List Text) Text)
-  (|> values (list@map (|>> (format name " "))) (text.join-with " ")))
+(def: (plural name)
+  (-> Text (List Text) (List Text))
+  (|>> (list\map (|>> (list name))) list.concat))
 
-(def: #export (do! fs resolution profile)
-  (-> (file.System Promise) Resolution (Command [Compiler Path]))
+(def: #export (do! environment fs shell resolution profile)
+  (-> Environment (file.System Promise) (Shell Promise) Resolution (Command [Compiler Path]))
   (case [(get@ #///.program profile)
          (get@ #///.target profile)]
     [#.None _]
-    (promise@wrap (exception.throw ..no-specified-program []))
+    (promise\wrap (exception.throw ..no-specified-program []))
 
     [_ #.None]
-    (promise@wrap (exception.throw ..no-specified-target []))
+    (promise\wrap (exception.throw ..no-specified-target []))
     
     [(#.Some program) (#.Some target)]
     (do ///action.monad
-      [[resolution compiler] (promise@wrap (..compiler resolution))
-       working-directory (promise.future ..working-directory)
-       #let [[prefix output] (case compiler
-                               (#JVM artifact) [(///runtime.java (///local.path fs artifact))
-                                                "program.jar"]
-                               (#JS artifact) [(///runtime.node (///local.path fs artifact))
-                                               "program.js"])
-             cache-directory (format working-directory (:: fs separator) target)
-             command (format prefix " build"
-                             " " (..plural-parameter "--library" (..libraries fs resolution))
-                             " " (..plural-parameter "--source" (set.to-list (get@ #///.sources profile)))
-                             " " (..singular-parameter "--target" cache-directory)
-                             " " (..singular-parameter "--module" program))]
+      [[resolution compiler] (promise\wrap (..compiler resolution))
+       working-directory (promise\wrap (..working-directory environment))
+       #let [[command output] (let [[compiler output] (case compiler
+                                                        (#JVM artifact) [(///runtime.java (///local.path fs artifact))
+                                                                         "program.jar"]
+                                                        (#JS artifact) [(///runtime.node (///local.path fs artifact))
+                                                                        "program.js"])]
+                                [(format compiler " build") output])
+             / (:: fs separator)
+             cache-directory (format working-directory / target)]
        #let [_ (log! "[BUILD STARTED]")]
-       outcome (///shell.execute command working-directory)
-       #let [_ (log! "[BUILD ENDED]")]]
+       process (!.use (:: shell execute)
+                      [environment
+                       working-directory
+                       command
+                       (list.concat (list (..plural "--library" (..libraries fs resolution))
+                                          (..plural "--source" (set.to-list (get@ #///.sources profile)))
+                                          (..singular "--target" cache-directory)
+                                          (..singular "--module" program)))])
+       exit (!.use (:: process await) [])
+       #let [_ (log! (if (i.= shell.normal exit)
+                       "[BUILD ENDED]"
+                       "[BUILD FAILED]"))]]
       (wrap [compiler
-             (format cache-directory (:: fs separator) output)]))
-    ))
+             (format cache-directory / output)]))))

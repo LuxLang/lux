@@ -146,6 +146,7 @@
 
 # Rendering
 
+1. [Incrementally Improving The DOM](https://blog.functorial.com/posts/2018-04-08-Incrementally-Improving-The-DOM.html)
 1. https://medium.com/@ryansolid/the-fastest-way-to-render-the-dom-e3b226b15ca3
 1. https://github.com/Famous/engine
 1. https://redom.js.org/

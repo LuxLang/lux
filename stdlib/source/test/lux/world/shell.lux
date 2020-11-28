@@ -1,6 +1,7 @@
 (.module:
   [lux #*
    ["_" test (#+ Test)]
+   ["." debug]
    [abstract
     [monad (#+ do)]]
    [control
@@ -25,19 +26,15 @@
   {1
    ["." /
     [//
-     [environment (#+ Environment)]]]}
+     [environment (#+ Environment)]
+     [file (#+ Path)]]]}
   {[1 #spec]
    ["$." /]})
 
-(macro: (|private| definition+ compiler)
-  (let [[module _] (name-of /._)]
-    (#.Right [compiler (list (` ("lux in-module" (~ [["" 0 0] (#.Text module)])
-                                 (~+ definition+))))])))
-
 (exception: dead)
 
-(def: (simulation [environment command arguments])
-  (-> [Environment /.Command (List /.Argument)]
+(def: (simulation [environment working-directory command arguments])
+  (-> [Environment Path /.Command (List /.Argument)]
       (/.Simulation Bit))
   (structure
    (def: (on-read dead?)
@@ -71,30 +68,30 @@
   (-> /.Command Text Text Text /.Exit (/.Shell IO))
   (structure
    (def: execute
-     ((|private| /.can-execute)
-      (function (_ [environment command arguments])
+     ((debug.private /.can-execute)
+      (function (_ [environment working-directory command arguments])
         (io.io
          (#try.Success
           (: (/.Process IO)
              (structure
               (def: read
-                ((|private| /.can-read)
+                ((debug.private /.can-read)
                  (function (_ _)
                    (io.io (#try.Success command)))))
               (def: error
-                ((|private| /.can-read)
+                ((debug.private /.can-read)
                  (function (_ _)
                    (io.io (#try.Success oops)))))
               (def: write
-                ((|private| /.can-write)
+                ((debug.private /.can-write)
                  (function (_ message)
                    (io.io (#try.Failure message)))))
               (def: destroy
-                ((|private| /.can-destroy)
+                ((debug.private /.can-destroy)
                  (function (_ _)
                    (io.io (#try.Failure destruction)))))
               (def: await
-                ((|private| /.can-wait)
+                ((debug.private /.can-wait)
                  (function (_ _)
                    (io.io (#try.Success exit))))))))))))))
 
@@ -116,10 +113,10 @@
              #let [shell (/.async (..io-shell command oops input destruction exit))]]
             (wrap (do {! promise.monad}
                     [verdict (do (try.with !)
-                               [process (!.use (:: shell execute) [environment.empty command (list)])
+                               [process (!.use (:: shell execute) [environment.empty "~" command (list)])
                                 read (!.use (:: process read) [])
                                 error (!.use (:: process error) [])
-                                write? (do !
+                                wrote! (do !
                                          [write (!.use (:: process write) [input])]
                                          (wrap (#try.Success (case write
                                                                (#try.Success _)
@@ -127,19 +124,19 @@
                                                                
                                                                (#try.Failure write)
                                                                (text\= input write)))))
-                                destroy? (do !
-                                           [destroy (!.use (:: process destroy) [])]
-                                           (wrap (#try.Success (case destroy
-                                                                 (#try.Success _)
-                                                                 false
-                                                                 
-                                                                 (#try.Failure destroy)
-                                                                 (text\= destruction destroy)))))
+                                destroyed! (do !
+                                             [destroy (!.use (:: process destroy) [])]
+                                             (wrap (#try.Success (case destroy
+                                                                   (#try.Success _)
+                                                                   false
+                                                                   
+                                                                   (#try.Failure destroy)
+                                                                   (text\= destruction destroy)))))
                                 await (!.use (:: process await) [])]
                                (wrap (and (text\= command read)
                                           (text\= oops error)
-                                          write?
-                                          destroy?
+                                          wrote!
+                                          destroyed!
                                           (i.= exit await))))]
                     (_.claim [/.async /.Can-Write]
                              (try.default false verdict)))))

@@ -1,3 +1,7 @@
+# Arithmetic
+
+1. [The Definitive Higher Math Guide on Integer Long Division (and Its Variants)](https://mathvault.ca/long-division/)
+
 # Tensor calculus
 
 1. [Introduction to Tensor Calculus](http://www.ita.uni-heidelberg.de/~dullemond/lectures/tensor/tensor.pdf)
@@ -63,6 +67,7 @@
 
 # Quaternions
 
+1. [Maths - Quaternions](http://www.euclideanspace.com/maths/algebra/realNormedAlgebra/quaternions/index.htm)
 1. [Dual Quaternions for Mere Mortals](https://www.jeremyong.com/math/2019/08/05/dual-quaternions-for-mere-mortals/)
 1. [Stepping into a New Dimension: Using Quaternions to See the Invisible](https://medium.com/@vieyrasoftware/stepping-into-a-new-dimension-using-quaternions-to-see-the-invisible-478087c9ebbf)
 1. [How Quaternions Produce 3D Rotation](https://penguinmaths.blogspot.com/2019/06/how-quaternions-produce-3d-rotation.html)
@@ -169,6 +174,7 @@
 
 # Geometric Algebra | Clifford Algebra
 
+1. [Geometric Algebra](https://arxiv.org/abs/1205.5935)
 1. [A Swift Introduction to Geometric Algebra](https://www.youtube.com/watch?v=60z_hpEAtD8)
 1. [Euclidean Geometry and Geometric Algebra](http://geometry.mrao.cam.ac.uk/2020/06/euclidean-geometry-and-geometric-algebra/)
 1. [Plane-based Geometric Algebra for Computer Science](https://bivector.net/PGA4CS.html)

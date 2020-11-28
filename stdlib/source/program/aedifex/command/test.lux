@@ -4,12 +4,18 @@
     [monad (#+ do)]]
    [control
     [concurrency
-     ["." promise (#+ Promise)]]]
+     ["." promise (#+ Promise) ("#\." monad)]]
+    [security
+     ["!" capability]]]
    [data
     [text
-     ["%" format (#+ format)]]]
+     ["%" format (#+ format)]]
+    [number
+     ["i" int]]]
    [world
-    ["." file]]]
+    [environment (#+ Environment)]
+    ["." file]
+    ["." shell (#+ Shell)]]]
   ["." // #_
    ["#." build]
    ["/#" // #_
@@ -20,15 +26,21 @@
     [dependency
      [resolution (#+ Resolution)]]]])
 
-(def: #export (do! fs resolution profile)
-  (-> (file.System Promise) Resolution (Command Any))
+(def: #export (do! environment fs shell resolution profile)
+  (-> Environment (file.System Promise) (Shell Promise) Resolution (Command Any))
   (do ///action.monad
-    [[compiler program] (//build.do! fs resolution profile)
-     working-directory (promise.future //build.working-directory)
-     #let [command (case compiler
-                     (#//build.JVM artifact) (///runtime.java program)
-                     (#//build.JS artifact) (///runtime.node program))]
+    [[compiler program] (//build.do! environment fs shell resolution profile)
+     working-directory (promise\wrap (//build.working-directory environment))
      #let [_ (log! "[TEST STARTED]")]
-     outcome (///shell.execute command working-directory)
-     #let [_ (log! "[TEST ENDED]")]]
+     process (!.use (:: shell execute)
+                    [environment
+                     working-directory
+                     (case compiler
+                       (#//build.JVM artifact) (///runtime.java program)
+                       (#//build.JS artifact) (///runtime.node program))
+                     (list)])
+     exit (!.use (:: process await) [])
+     #let [_ (log! (if (i.= shell.normal exit)
+                     "[TEST ENDED]"
+                     "[TEST FAILED]"))]]
     (wrap [])))

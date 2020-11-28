@@ -1,0 +1,147 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   [abstract
+    [monad (#+ do)]
+    ["." predicate]]
+   [control
+    ["." try]
+    ["." exception]
+    [concurrency
+     ["." promise]]
+    [parser
+     ["." environment]]]
+   [data
+    [text
+     ["%" format (#+ format)]]
+    [collection
+     ["." dictionary]
+     ["." set]]]
+   [math
+    ["." random (#+ Random)]]
+   [world
+    ["." file]
+    ["." shell]]]
+  ["$." /// #_
+   ["#." package]
+   ["#." artifact]
+   ["#." dependency #_
+    ["#/." resolution]]]
+  {#program
+   ["." /
+    ["//#" /// #_
+     ["#" profile (#+ Profile)]
+     ["#." action]
+     ["#." pom]
+     ["#." package]
+     ["#." cache]
+     ["#." repository]
+     ["#." artifact
+      ["#/." type]]
+     ["#." dependency
+      ["#/." resolution]]]]})
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      (do {! random.monad}
+        [#let [fs (file.mock (:: file.default separator))
+               shell (shell.mock
+                      (function (_ [actual-environment actual-working-directory actual-command actual-arguments])
+                        (#try.Success
+                         (: (shell.Simulation [])
+                            (structure
+                             (def: (on-read state)
+                               (#try.Failure "on-read"))
+                             (def: (on-error state)
+                               (#try.Failure "on-error"))
+                             (def: (on-write input state)
+                               (#try.Failure "on-write"))
+                             (def: (on-destroy state)
+                               (#try.Failure "on-destroy"))
+                             (def: (on-await state)
+                               (#try.Success [state shell.normal]))))))
+                      [])]
+         program (random.ascii/alpha 5)
+         target (random.ascii/alpha 5)
+         working-directory (random.ascii/alpha 5)
+         #let [empty-profile (: Profile
+                                (:: ///.monoid identity))
+               with-target (: (-> Profile Profile)
+                              (set@ #///.target (#.Some target)))
+               with-program (: (-> Profile Profile)
+                               (set@ #///.program (#.Some program)))
+               
+               profile (|> empty-profile
+                           with-program
+                           with-target)
+               
+               no-working-directory environment.empty
+               
+               environment (dictionary.put "user.dir" working-directory environment.empty)]]
+        ($_ _.and
+            (_.cover [/.working-directory]
+                     (and (case (/.working-directory no-working-directory)
+                            (#try.Success _)
+                            false
+
+                            (#try.Failure error)
+                            true)
+                          (case (/.working-directory environment)
+                            (#try.Success _)
+                            true
+
+                            (#try.Failure error)
+                            false)))
+            (wrap (do promise.monad
+                    [outcome (/.do! environment fs shell ///dependency/resolution.empty
+                                    (with-target empty-profile))]
+                    (_.claim [/.no-specified-program]
+                             (case outcome
+                               (#try.Success _)
+                               false
+
+                               (#try.Failure error)
+                               (exception.match? /.no-specified-program error)))))
+            (wrap (do promise.monad
+                    [outcome (/.do! environment fs shell ///dependency/resolution.empty
+                                    (with-program empty-profile))]
+                    (_.claim [/.no-specified-target]
+                             (case outcome
+                               (#try.Success _)
+                               false
+
+                               (#try.Failure error)
+                               (exception.match? /.no-specified-target error)))))
+            (wrap (do promise.monad
+                    [outcome (/.do! environment fs shell ///dependency/resolution.empty profile)]
+                    (_.claim [/.Compiler /.no-available-compiler]
+                             (case outcome
+                               (#try.Success _)
+                               false
+
+                               (#try.Failure error)
+                               (exception.match? /.no-available-compiler error)))))
+            (do !
+              [lux-version (random.ascii/alpha 5)
+               [_ compiler-package] $///package.random
+               #let [jvm-compiler {#///dependency.artifact {#///artifact.group /.lux-group
+                                                            #///artifact.name /.jvm-compiler-name
+                                                            #///artifact.version lux-version}
+                                   #///dependency.type ///artifact/type.lux-library}
+                     js-compiler {#///dependency.artifact {#///artifact.group /.lux-group
+                                                           #///artifact.name /.js-compiler-name
+                                                           #///artifact.version lux-version}
+                                  #///dependency.type ///artifact/type.lux-library}]
+               compiler-dependency (random.either (wrap jvm-compiler)
+                                                  (wrap js-compiler))]
+              (wrap (do promise.monad
+                      [verdict (do ///action.monad
+                                 [#let [resolution (|> ///dependency/resolution.empty
+                                                       (dictionary.put compiler-dependency compiler-package))]
+                                  _ (/.do! environment fs shell resolution profile)]
+                                 (wrap true))]
+                      (_.claim [/.do!
+                                /.lux-group /.jvm-compiler-name /.js-compiler-name]
+                               (try.default false verdict)))))
+            ))))
