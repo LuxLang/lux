@@ -10,7 +10,7 @@
       ["$." codec]]}]
    [control
     pipe
-    ["E" try]
+    ["." try]
     ["p" parser
      ["</>" xml]]]
    [data
@@ -23,7 +23,7 @@
      ["." dictionary]
      ["." list ("#\." functor)]]]
    [math
-    ["r" random (#+ Random) ("#\." monad)]]]
+    ["." random (#+ Random) ("#\." monad)]]]
   {1
    ["." / (#+ XML)]})
 
@@ -35,81 +35,61 @@
 
 (def: char
   (Random Nat)
-  (do {! r.monad}
-    [idx (|> r.nat (:: ! map (n.% (text.size char-range))))]
+  (do {! random.monad}
+    [idx (|> random.nat (:: ! map (n.% (text.size char-range))))]
     (wrap (maybe.assume (text.nth idx char-range)))))
 
 (def: (size bottom top)
   (-> Nat Nat (Random Nat))
   (let [constraint (|>> (n.% top) (n.max bottom))]
-    (r\map constraint r.nat)))
+    (random\map constraint random.nat)))
 
 (def: (text bottom top)
   (-> Nat Nat (Random Text))
-  (do r.monad
+  (do random.monad
     [size (..size bottom top)]
-    (r.text ..char size)))
+    (random.text ..char size)))
 
-(def: xml-identifier^
+(def: identifier
   (Random Name)
-  (r.and (..text 0 10)
-         (..text 1 10)))
+  (random.and (..text 0 10)
+              (..text 1 10)))
 
 (def: #export xml
   (Random XML)
-  (r.rec (function (_ xml)
-           (r.or (..text 1 10)
-                 (do r.monad
-                   [size (..size 0 2)]
-                   ($_ r.and
-                       xml-identifier^
-                       (r.dictionary name.hash size xml-identifier^ (..text 0 10))
-                       (r.list size xml)))))))
+  (random.rec (function (_ xml)
+                (random.or (..text 1 10)
+                           (do random.monad
+                             [size (..size 0 2)]
+                             ($_ random.and
+                                 ..identifier
+                                 (random.dictionary name.hash size ..identifier (..text 0 10))
+                                 (random.list size xml)))))))
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /.XML)))
+  (<| (_.covering /._)
+      (_.with-cover [/.XML])
       ($_ _.and
-          ($equivalence.spec /.equivalence ..xml)
-          ($codec.spec /.equivalence /.codec ..xml)
+          (_.with-cover [/.equivalence]
+            ($equivalence.spec /.equivalence ..xml))
+          (_.with-cover [/.codec]
+            ($codec.spec /.equivalence /.codec ..xml))
 
-          (do {! r.monad}
-            [text (..text 1 10)
-             num-children (|> r.nat (:: ! map (n.% 5)))
-             children (r.list num-children (..text 1 10))
-             tag xml-identifier^
-             attribute xml-identifier^
-             value (..text 1 10)
-             #let [node (#/.Node tag
-                                 (dictionary.put attribute value /.attrs)
-                                 (list\map (|>> #/.Text) children))]]
-            ($_ _.and
-                (_.test "Can parse text."
-                        (E.default #0
-                                   (do E.monad
-                                     [output (</>.run </>.text
-                                                      (#/.Text text))]
-                                     (wrap (text\= text output)))))
-                (_.test "Can parse attributes."
-                        (E.default #0
-                                   (do E.monad
-                                     [output (</>.run (p.before </>.ignore
-                                                                (</>.attribute attribute))
-                                                      node)]
-                                     (wrap (text\= value output)))))
-                (_.test "Can parse nodes."
-                        (E.default #0
-                                   (do E.monad
-                                     [_ (</>.run (p.before </>.ignore
-                                                           (</>.node tag))
-                                                 node)]
-                                     (wrap #1))))
-                (_.test "Can parse children."
-                        (E.default #0
-                                   (do E.monad
-                                     [outputs (</>.run (</>.children (p.some </>.text)) node)]
-                                     (wrap (:: (list.equivalence text.equivalence) =
-                                               children
-                                               outputs)))))
-                ))
+          (do {! random.monad}
+            [(^@ identifier [namespace name]) ..identifier]
+            (`` ($_ _.and
+                    (~~ (template [<type> <format>]
+                          [(_.cover [<type> <format>]
+                                    (and (text\= name (<format> ["" name]))
+                                         (let [identifier (<format> identifier)]
+                                           (and (text.starts-with? namespace identifier)
+                                                (text.ends-with? name identifier)))))]
+
+                          [/.Tag /.tag]
+                          [/.Attribute /.attribute]
+                          ))
+                    (_.cover [/.Attrs /.attributes]
+                             (dictionary.empty? /.attributes))
+                    )))
           )))
