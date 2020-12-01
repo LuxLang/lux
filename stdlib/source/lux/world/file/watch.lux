@@ -1,0 +1,457 @@
+(.module:
+  [lux #*
+   ["@" target]
+   ["." host (#+ import:)]
+   [abstract
+    [predicate (#+ Predicate)]
+    ["." monad (#+ do)]]
+   [control
+    ["." io (#+ IO)]
+    ["." try (#+ Try)]
+    ["." exception (#+ exception:)]
+    [concurrency
+     ["." promise (#+ Promise)]
+     ["." stm (#+ STM Var)]]
+    [security
+     ["!" capability]]]
+   [data
+    ["." product]
+    ["." maybe]
+    ["." text
+     ["%" format (#+ format)]]
+    [number
+     ["n" nat]]
+    [collection
+     ["." dictionary (#+ Dictionary)]
+     ["." list ("#\." functor monoid fold)]
+     ["." set]
+     ["." array]]]
+   [time
+    ["." instant (#+ Instant) ("#\." equivalence)]]
+   [type
+    [abstract (#+ abstract: :representation :abstraction)]]]
+  ["." //])
+
+(abstract: #export Concern
+  {#create Bit
+   #modify Bit
+   #delete Bit}
+
+  (def: none
+    Concern
+    (:abstraction
+     {#create false
+      #modify false
+      #delete false}))
+
+  (template [<concern> <predicate> <event> <create> <modify> <delete>]
+    [(def: #export <concern>
+       Concern
+       (:abstraction
+        {#create <create>
+         #modify <modify>
+         #delete <delete>}))
+
+     (def: #export <predicate>
+       (Predicate Concern)
+       (|>> :representation (get@ <event>)))]
+
+    [creation creation? #create
+     true false false]
+    [modification modification? #modify
+     false true false]
+    [deletion deletion? #delete
+     false false true]
+    )
+
+  (def: #export (also left right)
+    (-> Concern Concern Concern)
+    (:abstraction
+     {#create (or (..creation? left) (..creation? right))
+      #modify (or (..modification? left) (..modification? right))
+      #delete (or (..deletion? left) (..deletion? right))}))
+
+  (def: #export all
+    Concern
+    ($_ ..also
+        ..creation
+        ..modification
+        ..deletion
+        ))
+  )
+
+(signature: #export (Watcher !)
+  (: (-> Concern //.Path (! (Try Any)))
+     start)
+  (: (-> //.Path (! (Try Concern)))
+     concern)
+  (: (-> //.Path (! (Try Concern)))
+     stop)
+  (: (-> [] (! (Try (List [//.Path Concern]))))
+     poll))
+
+(exception: #export (not-being-watched {path //.Path})
+  (exception.report
+   ["Path" (%.text path)]))
+
+(type: File-Tracker
+  (Dictionary //.Path [(//.File Promise) Instant]))
+
+(type: Directory-Tracker
+  (Dictionary //.Path [Concern (//.Directory Promise) File-Tracker]))
+
+(def: (update-watch! new-concern path tracker)
+  (-> Concern //.Path (Var Directory-Tracker) (STM Bit))
+  (do {! stm.monad}
+    [@tracker (stm.read tracker)]
+    (case (dictionary.get path @tracker)
+      (#.Some [old-concern file last-modified])
+      (do !
+        [_ (stm.update (dictionary.put path [new-concern file last-modified]) tracker)]
+        (wrap true))
+      
+      #.None
+      (wrap false))))
+
+(def: (file-tracker fs directory)
+  (-> (//.System Promise) (//.Directory Promise) (Promise (Try File-Tracker)))
+  (do {! (try.with promise.monad)}
+    [files (!.use (:: directory files) [])]
+    (monad.fold !
+                (function (_ file tracker)
+                  (do !
+                    [last-modified (!.use (:: file last-modified) [])]
+                    (wrap (dictionary.put (!.use (:: file path) [])
+                                          [file last-modified]
+                                          tracker))))
+                (: File-Tracker
+                   (dictionary.new text.hash))
+                files)))
+
+(def: (poll-files directory file-tracker)
+  (-> (//.Directory Promise) File-Tracker (Promise (Try (List [//.Path (//.File Promise) Instant]))))
+  (do {! (try.with promise.monad)}
+    [files (!.use (:: directory files) [])]
+    (monad.map ! (function (_ file)
+                   (do !
+                     [last-modified (!.use (:: file last-modified) [])]
+                     (wrap [(!.use (:: file path) []) file last-modified])))
+               files)))
+
+(def: (poll-directory-changes [path [concern directory file-tracker]])
+  (-> [//.Path [Concern (//.Directory Promise) File-Tracker]]
+      (Promise (Try [[//.Path [Concern (//.Directory Promise) File-Tracker]]
+                     [(List [//.Path (//.File Promise) Instant])
+                      (List [//.Path Instant Instant])
+                      (List [//.Path])]])))
+  (do {! (try.with promise.monad)}
+    [current-files (..poll-files directory file-tracker)
+     #let [creations (if (..creation? concern)
+                       (list.filter (function (_ [path file last-modified])
+                                      (not (dictionary.contains? path file-tracker)))
+                                    current-files)
+                       (list))
+           available (|> current-files
+                         (list\map product.left)
+                         (set.from-list text.hash))
+           deletions (if (..deletion? concern)
+                       (|> (dictionary.entries file-tracker)
+                           (list\map product.left)
+                           (list.filter (|>> (set.member? available) not)))
+                       (list))
+           modifications (list.all (function (_ [path file current-modification])
+                                     (do maybe.monad
+                                       [[_ previous-modification] (dictionary.get path file-tracker)]
+                                       (wrap [path previous-modification current-modification])))
+                                   current-files)]]
+    (wrap [[path
+            [concern
+             directory
+             (let [with-deletions (list\fold dictionary.remove file-tracker deletions)
+                   with-creations (list\fold (function (_ [path file last-modified] tracker)
+                                               (dictionary.put path [file last-modified] tracker))
+                                             with-deletions
+                                             creations)
+                   with-modifications (list\fold (function (_ [path previous-modification current-modification] tracker)
+                                                   (dictionary.update path
+                                                                      (function (_ [file _])
+                                                                        [file current-modification])
+                                                                      tracker))
+                                                 with-creations
+                                                 modifications)]
+               with-modifications)]]
+           [creations
+            modifications
+            deletions]])))
+
+(def: #export (polling fs)
+  (-> (//.System Promise) (Watcher Promise))
+  (let [tracker (: (Var Directory-Tracker)
+                   (stm.var (dictionary.new text.hash)))]
+    (structure
+     (def: (start new-concern path)
+       (do {! promise.monad}
+         [updated? (stm.commit (..update-watch! new-concern path tracker))]
+         (if updated?
+           (wrap (#try.Success []))
+           (do (try.with !)
+             [directory (!.use (:: fs directory) path)
+              file-tracker (..file-tracker fs directory)]
+             (do !
+               [_ (stm.commit (stm.update (dictionary.put path [new-concern directory file-tracker]) tracker))]
+               (wrap (#try.Success [])))))))
+     (def: (concern path)
+       (stm.commit
+        (do stm.monad
+          [@tracker (stm.read tracker)]
+          (wrap (case (dictionary.get path @tracker)
+                  (#.Some [concern directory file-tracker])
+                  (#try.Success concern)
+
+                  #.None
+                  (exception.throw ..not-being-watched [path]))))))
+     (def: (stop path)
+       (stm.commit
+        (do {! stm.monad}
+          [@tracker (stm.read tracker)]
+          (case (dictionary.get path @tracker)
+            (#.Some [concern directory file-tracker])
+            (do !
+              [_ (stm.update (dictionary.remove path) tracker)]
+              (wrap (#try.Success concern)))
+
+            #.None
+            (wrap (exception.throw ..not-being-watched [path]))))))
+     (def: (poll _)
+       (do promise.monad
+         [@tracker (stm.commit (stm.read tracker))]
+         (do {! (try.with promise.monad)}
+           [changes (|> @tracker
+                        dictionary.entries
+                        (monad.map ! ..poll-directory-changes))
+            _ (do promise.monad
+                [_ (stm.commit (stm.write (|> changes
+                                              (list\map product.left)
+                                              (dictionary.from-list text.hash))
+                                          tracker))]
+                (wrap (#try.Success [])))
+            #let [[creations modifications deletions]
+                  (list\fold (function (_ [_ [creations modifications deletions]]
+                                          [all-creations all-modifications all-deletions])
+                               [(list\compose creations all-creations)
+                                (list\compose modifications all-modifications)
+                                (list\compose deletions all-deletions)])
+                             [(list) (list) (list)]
+                             changes)]]
+           (wrap ($_ list\compose
+                     (list\map (function (_ [path file last-modification]) [path ..creation]) creations)
+                     (|> modifications
+                         (list.filter (function (_ [path previous-modification current-modification])
+                                        (not (instant\= previous-modification current-modification))))
+                         (list\map (function (_ [path previous-modification current-modification])
+                                     [path ..modification])))
+                     (list\map (function (_ path) [path ..deletion]) deletions)
+                     )))))
+     )))
+
+(def: #export (mock separator)
+  (-> Text [(//.System Promise) (Watcher Promise)])
+  (let [fs (//.mock separator)]
+    [fs
+     (..polling fs)]))
+
+(with-expansions [<jvm> (as-is (import: java/lang/Object)
+
+                               (import: java/lang/String)
+
+                               (import: (java/util/List a)
+                                 ["#::."
+                                  (size [] int)
+                                  (get [int] a)])
+
+                               (def: (default\\list list)
+                                 (All [a] (-> (java/util/List a) (List a)))
+                                 (let [size (.nat (java/util/List::size list))]
+                                   (loop [idx 0
+                                          output #.Nil]
+                                     (if (n.< size idx)
+                                       (recur (inc idx)
+                                              (#.Cons (java/util/List::get (.int idx) list)
+                                                      output))
+                                       output))))
+                               
+                               (import: (java/nio/file/WatchEvent$Kind a))
+
+                               (import: (java/nio/file/WatchEvent a)
+                                 ["#::."
+                                  (kind [] (java/nio/file/WatchEvent$Kind a))])
+
+                               (import: java/nio/file/Watchable)
+
+                               (import: java/nio/file/Path
+                                 ["#::."
+                                  (register [java/nio/file/WatchService [(java/nio/file/WatchEvent$Kind ?)]] #io #try java/nio/file/WatchKey)
+                                  (toString [] java/lang/String)])
+
+                               (import: java/nio/file/StandardWatchEventKinds
+                                 ["#::."
+                                  (#static ENTRY_CREATE (java/nio/file/WatchEvent$Kind java/nio/file/Path))
+                                  (#static ENTRY_MODIFY (java/nio/file/WatchEvent$Kind java/nio/file/Path))
+                                  (#static ENTRY_DELETE (java/nio/file/WatchEvent$Kind java/nio/file/Path))])
+
+                               (def: (default\\event-concern event)
+                                 (All [a]
+                                   (-> (java/nio/file/WatchEvent a) Concern))
+                                 (let [kind (:coerce (java/nio/file/WatchEvent$Kind java/nio/file/Path)
+                                                     (java/nio/file/WatchEvent::kind event))]
+                                   (cond (is? (java/nio/file/StandardWatchEventKinds::ENTRY_CREATE)
+                                              kind)
+                                         ..creation
+                                         
+                                         (is? (java/nio/file/StandardWatchEventKinds::ENTRY_MODIFY)
+                                              kind)
+                                         ..modification
+                                         
+                                         (is? (java/nio/file/StandardWatchEventKinds::ENTRY_DELETE)
+                                              kind)
+                                         ..deletion
+                                         
+                                         ## else
+                                         ..none
+                                         )))
+
+                               (import: java/nio/file/WatchKey
+                                 ["#::."
+                                  (reset [] #io boolean)
+                                  (cancel [] #io void)
+                                  (watchable [] java/nio/file/Watchable)
+                                  (pollEvents [] #io (java/util/List (java/nio/file/WatchEvent ?)))])
+
+                               (def: default\\key-concern
+                                 (-> java/nio/file/WatchKey (IO Concern))
+                                 (|>> java/nio/file/WatchKey::pollEvents
+                                      (:: io.monad map (|>> ..default\\list
+                                                            (list\map default\\event-concern)
+                                                            (list\fold ..also ..none)))))
+
+                               (import: java/nio/file/WatchService
+                                 ["#::."
+                                  (poll [] #io #try #? java/nio/file/WatchKey)])
+
+                               (import: java/nio/file/FileSystem
+                                 ["#::."
+                                  (newWatchService [] #io #try java/nio/file/WatchService)])
+
+                               (import: java/nio/file/FileSystems
+                                 ["#::."
+                                  (#static getDefault [] java/nio/file/FileSystem)])
+
+                               (import: java/io/File
+                                 ["#::."
+                                  (new [java/lang/String])
+                                  (exists [] #io #try boolean)
+                                  (isDirectory [] #io #try boolean)
+                                  (listFiles [] #io #try [java/io/File])
+                                  (getAbsolutePath [] #io #try java/lang/String)
+                                  (toPath [] java/nio/file/Path)])
+
+                               (type: Watch-Event
+                                 (java/nio/file/WatchEvent$Kind java/lang/Object))
+
+                               (def: (default\\start watch-events watcher path)
+                                 (-> (List Watch-Event) java/nio/file/WatchService //.Path (Promise (Try java/nio/file/WatchKey)))
+                                 (promise.future
+                                  (java/nio/file/Path::register watcher
+                                                                (array.from-list watch-events)
+                                                                (|> path java/io/File::new java/io/File::toPath))))
+
+                               (def: (default\\poll watcher)
+                                 (-> java/nio/file/WatchService (IO (Try (List [//.Path Concern]))))
+                                 (loop [output (: (List [//.Path Concern])
+                                                  (list))]
+                                   (do (try.with io.monad)
+                                     [?key (java/nio/file/WatchService::poll watcher)]
+                                     (case ?key
+                                       (#.Some key)
+                                       (do {! io.monad}
+                                         [valid? (java/nio/file/WatchKey::reset key)]
+                                         (if valid?
+                                           (do !
+                                             [#let [path (|> key
+                                                             java/nio/file/WatchKey::watchable
+                                                             (:coerce java/nio/file/Path)
+                                                             java/nio/file/Path::toString
+                                                             (:coerce //.Path))]
+                                              concern (..default\\key-concern key)]
+                                             (recur (#.Cons [path concern]
+                                                            output)))
+                                           (recur output)))
+                                       
+                                       #.None
+                                       (wrap output)))))
+
+                               (def: (watch-events concern)
+                                 (-> Concern (List Watch-Event))
+                                 ($_ list\compose
+                                     (if (..creation? concern)
+                                       (list (:coerce Watch-Event (java/nio/file/StandardWatchEventKinds::ENTRY_CREATE)))
+                                       (list))
+                                     (if (..modification? concern)
+                                       (list (:coerce Watch-Event (java/nio/file/StandardWatchEventKinds::ENTRY_MODIFY)))
+                                       (list))
+                                     (if (..deletion? concern)
+                                       (list (:coerce Watch-Event (java/nio/file/StandardWatchEventKinds::ENTRY_DELETE)))
+                                       (list))
+                                     ))
+
+                               (def: #export default
+                                 (IO (Try (Watcher Promise)))
+                                 (do (try.with io.monad)
+                                   [watcher (java/nio/file/FileSystem::newWatchService
+                                             (java/nio/file/FileSystems::getDefault))
+                                    #let [tracker (stm.var (: (Dictionary //.Path [Concern java/nio/file/WatchKey])
+                                                              (dictionary.new text.hash)))
+
+                                          stop (: (-> //.Path (Promise (Try Concern)))
+                                                  (function (_ path)
+                                                    (do {! promise.monad}
+                                                      [@tracker (stm.commit (stm.read tracker))]
+                                                      (case (dictionary.get path @tracker)
+                                                        (#.Some [concern key])
+                                                        (do !
+                                                          [_ (promise.future
+                                                              (java/nio/file/WatchKey::cancel key))
+                                                           _ (stm.commit (stm.update (dictionary.remove path) tracker))]
+                                                          (wrap (#try.Success concern)))
+
+                                                        #.None
+                                                        (wrap (exception.throw ..not-being-watched [path]))))))]]
+                                   (wrap (: (Watcher Promise)
+                                            (structure
+                                             (def: (start concern path)
+                                               (do promise.monad
+                                                 [?concern (stop path)]
+                                                 (do (try.with promise.monad)
+                                                   [key (..default\\start (..watch-events (..also (try.default ..none ?concern)
+                                                                                                  concern))
+                                                                          watcher
+                                                                          path)]
+                                                   (do promise.monad
+                                                     [_ (stm.commit (stm.update (dictionary.put path [concern key]) tracker))]
+                                                     (wrap (#try.Success []))))))
+                                             (def: (concern path)
+                                               (do promise.monad
+                                                 [@tracker (stm.commit (stm.read tracker))]
+                                                 (case (dictionary.get path @tracker)
+                                                   (#.Some [concern key])
+                                                   (wrap (#try.Success concern))
+
+                                                   #.None
+                                                   (wrap (exception.throw ..not-being-watched [path])))))
+                                             (def: stop stop)
+                                             (def: (poll _)
+                                               (promise.future (..default\\poll watcher)))
+                                             )))))
+                               )]
+  (for {@.old (as-is <jvm>)
+        @.jvm (as-is <jvm>)}))
