@@ -334,8 +334,8 @@ Called by `imenu--generic-function'."
 							(type//capability (altRE "capability:"))
 							;; Data
 							(data//record (altRE "get@" "set@" "update@"))
-							(data//signature (altRE "open:" "structure" "::"))
-							(data//implicit (altRE "implicit:" "implicit" ":::"))
+							(data//signature (altRE "open:" "structure" "\\\\"))
+							(data//implicit (altRE "implicit:" "implicit" "\\\\\\\\"))
 							(data//collection (altRE "list" "list&" "row" "tree"))
 							;; Code
 							(code//quotation (altRE "`" "`'" "'" "~" "~\\+" "~!" "~'"))
