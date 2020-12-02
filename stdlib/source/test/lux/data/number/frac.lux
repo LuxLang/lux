@@ -1,6 +1,5 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
    [abstract
     [monad (#+ do)]
@@ -10,44 +9,171 @@
       ["$." order]
       ["$." monoid]
       ["$." codec]]}]
+   [data
+    ["." bit ("#\." equivalence)]]
    [math
-    ["." random]]]
+    ["." random (#+ Random)]]]
   {1
    ["." /
     [// #*
-     ["i" int]]]})
+     ["n" nat]
+     ["i" int]
+     ["r" rev]
+     ["." i64]]]})
+
+(def: random
+  (Random Frac)
+  (:: random.monad map (|>> (i.% +1,000,000) i.frac) random.int))
+
+(def: signature
+  Test
+  (`` ($_ _.and
+          (_.with-cover [/.equivalence /.=]
+            ($equivalence.spec /.equivalence random.safe-frac))
+          (_.with-cover [/.order /.<]
+            ($order.spec /.order random.safe-frac))
+          (~~ (template [<monoid> <compose>]
+                [(_.with-cover [<monoid> <compose>]
+                   ($monoid.spec /.equivalence <monoid> ..random))]
+
+                [/.addition /.+]
+                [/.multiplication /.*]
+                [/.minimum /.min]
+                [/.maximum /.max]
+                ))
+          (~~ (template [<codec>]
+                [(_.with-cover [<codec>]
+                   ($codec.spec /.equivalence <codec> random.safe-frac))]
+
+                [/.binary] [/.octal] [/.decimal] [/.hex]
+                ))
+          )))
+
+(def: constant
+  Test
+  (do random.monad
+    [sample random.safe-frac]
+    ($_ _.and
+        (_.cover [/.biggest]
+                 (/.<= /.biggest sample))
+        (_.cover [/.positive-infinity]
+                 (/.< /.positive-infinity sample))
+        (_.cover [/.smallest]
+                 (bit\= (/.positive? sample)
+                        (/.>= /.smallest sample)))
+        (_.cover [/.negative-infinity]
+                 (/.> /.negative-infinity sample))
+        (_.cover [/.not-a-number /.not-a-number?]
+                 (and (/.not-a-number? /.not-a-number)
+                      (not (or (/.= /.not-a-number sample)
+                               (/.not-a-number? sample)))))
+        )))
+
+(def: predicate
+  Test
+  (do {! random.monad}
+    [sample ..random
+     shift (:: ! map /.abs ..random)]
+    ($_ _.and
+        (_.cover [/.negative?]
+                 (bit\= (/.negative? sample)
+                        (/.< +0.0 sample)))
+        (_.cover [/.positive?]
+                 (bit\= (/.positive? sample)
+                        (/.> +0.0 sample)))
+        (_.cover [/.zero?]
+                 (bit\= (/.zero? sample)
+                        (/.= +0.0 sample)))
+        (_.cover [/.within?]
+                 (and (/.within? /.smallest sample sample)
+                      (/.within? (/.+ +1.0 shift) sample (/.+ shift sample))))
+        (_.cover [/.number?]
+                 (and (not (/.number? /.not-a-number))
+                      (not (/.number? /.positive-infinity))
+                      (not (/.number? /.negative-infinity))
+                      (/.number? sample)))
+        )))
+
+(def: conversion
+  Test
+  ($_ _.and
+      (do {! random.monad}
+        [expected (:: ! map (n.% 1,000,000) random.nat)]
+        (_.cover [/.nat]
+                 (|> expected n.frac /.nat (n.= expected))))
+      (do {! random.monad}
+        [expected (:: ! map (i.% +1,000,000) random.int)]
+        (_.cover [/.int]
+                 (|> expected i.frac /.int (i.= expected))))
+      (do {! random.monad}
+        [expected (:: ! map (|>> (i64.left-shift 32) .rev)
+                      random.nat)]
+        (_.cover [/.rev]
+                 (|> expected r.frac /.rev (r.= expected))))
+      ))
 
 (def: #export test
   Test
-  (let [gen-frac (:: random.monad map (|>> (i.% +100) i.frac) random.int)]
-    (<| (_.context (%.name (name-of /._)))
-        (`` ($_ _.and
-                ($equivalence.spec /.equivalence gen-frac)
-                ($order.spec /.order gen-frac)
-                (~~ (template [<monoid>]
-                      [(<| (_.context (%.name (name-of <monoid>)))
-                           ($monoid.spec /.equivalence <monoid> gen-frac))]
-
-                      [/.addition] [/.multiplication] [/.minimum] [/.maximum]
-                      ))
-                ## TODO: Uncomment ASAP
-                ## (~~ (template [<codec>]
-                ##     [(<| (_.context (%.name (name-of /.binary)))
-                ##          ($codec.spec /.equivalence <codec> gen-frac))]
-
-                ##     [/.binary] [/.octal] [/.decimal] [/.hex]
-                ##     ))
-                
-                (_.test "Alternate notations."
-                        (and (/.= (bin "+1100.1001")
-                                  (bin "+11,00.10,01"))
-                             (/.= (oct "-6152.43")
-                                  (oct "-615,2.43"))
-                             (/.= (hex "+deadBE.EF")
-                                  (hex "+dead,BE.EF"))))
-                (do random.monad
-                  [sample gen-frac]
-                  (_.test (format (%.name (name-of /.to-bits))
-                                  " & " (%.name (name-of /.from-bits)))
-                          (|> sample /.to-bits /.from-bits (/.= sample))))
-                )))))
+  (<| (_.covering /._)
+      (_.with-cover [.Frac])
+      (`` ($_ _.and
+              (do random.monad
+                [left random.safe-frac
+                 right random.safe-frac]
+                ($_ _.and
+                    (_.cover [/.>]
+                             (bit\= (/.> left right)
+                                    (/.< right left)))
+                    (_.cover [/.<= /.>=]
+                             (bit\= (/.<= left right)
+                                    (/.>= right left)))
+                    ))
+              (do random.monad
+                [left ..random
+                 right ..random]
+                ($_ _.and
+                    (_.cover [/.%]
+                             (let [rem (/.% left right)
+                                   div (|> right (/.- rem) (/./ left))]
+                               (/.= right
+                                    (|> div (/.* left) (/.+ rem)))))
+                    (_.cover [/./%]
+                             (let [[div rem] (/./% left right)]
+                               (and (/.= div (/./ left right))
+                                    (/.= rem (/.% left right)))))
+                    ))
+              (do random.monad
+                [sample random.safe-frac]
+                ($_ _.and
+                    (_.cover [/.-]
+                             (and (/.= +0.0 (/.- sample sample))
+                                  (/.= sample (/.- +0.0 sample))
+                                  (/.= (/.negate sample)
+                                       (/.- sample +0.0))))
+                    (_.cover [/./]
+                             (and (/.= +1.0 (/./ sample sample))
+                                  (/.= sample (/./ +1.0 sample))))
+                    (_.cover [/.abs]
+                             (bit\= (/.> sample (/.abs sample))
+                                    (/.negative? sample)))
+                    (_.cover [/.signum]
+                             (/.= (/.abs sample)
+                                  (/.* (/.signum sample) sample)))))
+              (do random.monad
+                [expected random.frac]
+                ($_ _.and
+                    (_.cover [/.to-bits /.from-bits]
+                             (let [actual (|> expected /.to-bits /.from-bits)]
+                               (or (/.= expected actual)
+                                   (and (/.not-a-number? expected)
+                                        (/.not-a-number? actual)))))
+                    (_.cover [/.negate]
+                             (and (/.= +0.0 (/.+ (/.negate expected) expected))
+                                  (|> expected /.negate /.negate (/.= expected))))
+                    ))
+              
+              ..signature
+              ..constant
+              ..predicate
+              ..conversion
+              ))))

@@ -1,161 +1,77 @@
 (.module:
   [lux #*
-   ["." host (#+ import:)]
    [abstract
     ["." monad (#+ do)]]
    [control
     ["." try (#+ Try)]
-    ["." io (#+ IO)]
     [concurrency
-     ["." promise (#+ Promise)]]]
+     ["." promise (#+ Promise)]]
+    [security
+     ["!" capability]]]
    [data
     [collection
-     ["." array]
      ["." list]
      ["." set]]]
    [world
     [environment (#+ Environment)]
-    ["." file (#+ Path)]
-    ["." shell (#+ Shell)]]]
+    [shell (#+ Shell)]
+    ["." file (#+ Path)
+     ["." watch (#+ Watcher)]]]]
   ["." // #_
    ["/#" // #_
+    [command (#+ Command)]
     ["#" profile]
     ["#." action (#+ Action)]
-    ["#." command (#+ Command)]
     [dependency
      [resolution (#+ Resolution)]]]])
 
-(import: java/nio/file/WatchKey
-  ["#::."
-   (reset [] #io boolean)])
+(def: (targets fs path)
+  (-> (file.System Promise) Path (Promise (List Path)))
+  (do {! promise.monad}
+    [?root (!.use (:: fs directory) [path])]
+    (case ?root
+      (#try.Success root)
+      (loop [root root]
+        (do !
+          [subs (:: ! map (|>> (try.default (list)))
+                    (!.use (:: root directories) []))]
+          (:: ! map (|>> list.concat (list& (!.use (:: root scope) [])))
+              (monad.map ! recur subs))))
 
-(import: java/util/concurrent/TimeUnit
-  ["#::."
-   (#enum SECONDS)])
+      (#try.Failure error)
+      (wrap (list)))))
 
-(import: java/nio/file/WatchService
-  ["#::."
-   (poll [long java/util/concurrent/TimeUnit] #io #try #? java/nio/file/WatchKey)
-   (poll #as fetch [] #io #try #? java/nio/file/WatchKey)])
+(def: (pause _)
+  (-> Any (Promise (Try Any)))
+  (promise.delay 1,000 (#try.Success [])))
 
-(import: java/nio/file/FileSystem
-  ["#::."
-   (newWatchService [] #io #try java/nio/file/WatchService)])
-
-(import: java/nio/file/FileSystems
-  ["#::."
-   (#static getDefault [] java/nio/file/FileSystem)])
-
-(import: java/lang/Object)
-
-(import: java/lang/String)
-
-(import: (java/nio/file/WatchEvent$Kind a))
-
-(import: java/nio/file/StandardWatchEventKinds
-  ["#::."
-   (#static ENTRY_CREATE (java/nio/file/WatchEvent$Kind java/nio/file/Path))
-   (#static ENTRY_MODIFY (java/nio/file/WatchEvent$Kind java/nio/file/Path))
-   (#static ENTRY_DELETE (java/nio/file/WatchEvent$Kind java/nio/file/Path))])
-
-(import: java/nio/file/Path
-  ["#::."
-   (register [java/nio/file/WatchService [(java/nio/file/WatchEvent$Kind ?)]] #io #try java/nio/file/WatchKey)])
-
-(import: java/io/File
-  ["#::."
-   (new [java/lang/String])
-   (exists [] #io #try boolean)
-   (isDirectory [] #io #try boolean)
-   (listFiles [] #io #try [java/io/File])
-   (getAbsolutePath [] #io #try java/lang/String)
-   (toPath [] java/nio/file/Path)])
-
-(def: (targets path)
-  (-> Path (Action (List Path)))
-  (promise.future
-   (loop [path path]
-     (let [file (java/io/File::new path)]
-       (do {! (try.with io.monad)}
-         [exists? (java/io/File::exists file)
-          directory? (java/io/File::isDirectory file)]
-         (if (and exists?
-                  directory?)
-           (do !
-             [children (java/io/File::listFiles file)
-              children (|> children
-                           array.to-list
-                           (monad.map ! (|>> java/io/File::getAbsolutePath)))
-              descendants (monad.map ! recur children)]
-             (wrap (#.Cons path (list.concat descendants))))
-           (wrap (list))))))))
-
-(type: Watch-Event
-  (java/nio/file/WatchEvent$Kind java/lang/Object))
-
-(def: watch-events
-  (List Watch-Event)
-  (list (:coerce Watch-Event (java/nio/file/StandardWatchEventKinds::ENTRY_CREATE))
-        (:coerce Watch-Event (java/nio/file/StandardWatchEventKinds::ENTRY_MODIFY))
-        (:coerce Watch-Event (java/nio/file/StandardWatchEventKinds::ENTRY_DELETE))))
-
-(def: (watch! watcher path)
-  (-> java/nio/file/WatchService Path (Action Any))
-  (promise.future
-   (do (try.with io.monad)
-     [_ (java/nio/file/Path::register watcher
-                                      (array.from-list ..watch-events)
-                                      (|> path java/io/File::new java/io/File::toPath))]
-     (wrap []))))
-
-(def: (poll! watcher)
-  (-> java/nio/file/WatchService (Action (Maybe java/nio/file/WatchKey)))
-  (promise.future
-   (java/nio/file/WatchService::poll 1 java/util/concurrent/TimeUnit::SECONDS watcher)))
-
-(def: (drain! watcher)
-  (-> java/nio/file/WatchService (IO (Try Any)))
-  (do (try.with io.monad)
-    [?key (java/nio/file/WatchService::fetch watcher)]
-    (case ?key
-      (#.Some key)
-      (do io.monad
-        [valid? (java/nio/file/WatchKey::reset key)]
-        (if valid?
-          (drain! watcher)
-          (wrap (:: try.monad wrap []))))
-      
-      #.None
-      (wrap []))))
-
-(def: #export (do! command)
+(def: #export (do! watcher command)
   (All [a]
-    (-> (-> Environment (file.System Promise) (Shell Promise) Resolution (Command a))
+    (-> (Watcher Promise)
+        (-> Environment (file.System Promise) (Shell Promise) Resolution (Command a))
         (-> Environment (file.System Promise) (Shell Promise) Resolution (Command Any))))
   (function (_ environment fs shell resolution)
     (function (_ profile)
       (with-expansions [<call> ((command environment fs shell resolution) profile)]
-        (do {! ///action.monad}
-          [watcher (promise.future
-                    (java/nio/file/FileSystem::newWatchService
-                     (java/nio/file/FileSystems::getDefault)))
-           targets (|> profile
+        (do {! promise.monad}
+          [targets (|> profile
                        (get@ #///.sources)
                        set.to-list
-                       (monad.map ! ..targets)
-                       (:: ! map list.concat))
-           _ (monad.map ! (..watch! watcher) targets)
-           _ <call>]
-          (loop [_ []]
-            (do !
-              [?key (..poll! watcher)
-               _ (case ?key
-                   (#.Some key)
-                   (do !
-                     [_ (promise.future (..drain! watcher))
-                      _ <call>]
-                     (wrap []))
+                       (monad.map ! (..targets fs))
+                       (:: ! map list.concat))]
+          (do {! ///action.monad}
+            [_ (monad.map ! (:: watcher start watch.all) targets)
+             _ <call>]
+            (loop [_ []]
+              (do !
+                [_ (..pause [])
+                 events (:: watcher poll [])
+                 _ (case events
+                     (#.Cons _)
+                     (do !
+                       [_ <call>]
+                       (wrap []))
 
-                   #.None
-                   (wrap []))]
-              (recur []))))))))
+                     #.Nil
+                     (wrap []))]
+                (recur [])))))))))
