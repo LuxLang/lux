@@ -4,7 +4,7 @@
    [abstract
     ["." monad (#+ do)]]
    [control
-    ["." try (#+ Try)]
+    ["." try (#+ Try) ("#\." functor)]
     ["." exception]
     [concurrency
      ["." promise (#+ Promise)]]
@@ -13,7 +13,7 @@
    [data
     ["." maybe]
     ["." binary]
-    ["." text
+    ["." text ("#\." equivalence)
      ["%" format (#+ format)]
      ["." encoding]]
     [format
@@ -24,17 +24,22 @@
     ["." random (#+ Random)]]
    [world
     ["." file (#+ Path File)]]]
-  [///
-   ["@." profile]]
+  [//
+   ["@." version]
+   [//
+    ["@." profile]
+    ["@." artifact]]]
   {#program
    ["." /
-    ["//#" /// #_
-     ["#" profile]
-     ["#." action]
-     ["#." pom]
-     ["#." local]
-     ["#." artifact
-      ["#/." extension]]]]})
+    ["/#" // #_
+     ["#." clean]
+     ["/#" // #_
+      ["#" profile]
+      ["#." action]
+      ["#." pom]
+      ["#." local]
+      ["#." artifact
+       ["#/." extension]]]]]})
 
 (def: (make-sources! fs sources)
   (-> (file.System Promise) (Set Path) (Promise (Try Any)))
@@ -54,48 +59,49 @@
         (recur tail)))))
 
 (def: (execute! fs sample)
-  (-> (file.System Promise) ///.Profile (Promise (Try Any)))
+  (-> (file.System Promise) ///.Profile (Promise (Try Text)))
   (do ///action.monad
-    [_ (..make-sources! fs (get@ #///.sources sample))
+    [#let [console (@version.echo "")]
+     _ (..make-sources! fs (get@ #///.sources sample))
      _ (: (Promise (Try Path))
-          (file.make-directories promise.monad fs (///local.repository fs)))]
-    (/.do! fs sample)))
+          (file.make-directories promise.monad fs (///local.repository fs)))
+     _ (/.do! console fs sample)]
+    (!.use (\ console read-line) [])))
 
 (def: #export test
   Test
   (<| (_.covering /._)
-      (do random.monad
-        [sample @profile.random
-         #let [fs (file.mock (\ file.default separator))]]
-        (wrap (case (get@ #///.identity sample)
-                (#.Some identity)
-                (do {! promise.monad}
-                  [verdict (do ///action.monad
-                             [_ (..execute! fs sample)
-                              #let [artifact-path (format (///local.path fs identity)
-                                                          (\ fs separator)
-                                                          (///artifact.identity identity))
-                                    library-path (format artifact-path ///artifact/extension.lux-library)
-                                    pom-path (format artifact-path ///artifact/extension.pom)]
+      (do {! random.monad}
+        [identity @artifact.random
+         sample (\ ! map (set@ #///.identity (#.Some identity))
+                   @profile.random)]
+        ($_ _.and
+            (wrap (do {! promise.monad}
+                    [#let [fs (file.mock (\ file.default separator))]
+                     verdict (do ///action.monad
+                               [logging (..execute! fs sample)
+                                #let [artifact-path (format (///local.path fs identity)
+                                                            (\ fs separator)
+                                                            (///artifact.identity identity))
+                                      library-path (format artifact-path ///artifact/extension.lux-library)
+                                      pom-path (format artifact-path ///artifact/extension.pom)]
 
-                              library-exists! (\ promise.monad map
-                                                 exception.return
-                                                 (file.file-exists? promise.monad fs library-path))
-                              pom-exists! (\ promise.monad map
-                                             exception.return
-                                             (file.file-exists? promise.monad fs pom-path))]
-                             (wrap (and library-exists!
-                                        pom-exists!)))]
-                  (_.cover' [/.do!]
-                            (try.default false verdict)))
-
-                #.None
-                (do {! promise.monad}
-                  [outcome (..execute! fs sample)]
-                  (_.cover' [/.do!]
-                            (case outcome
-                              (#try.Success _)
-                              false
-
-                              (#try.Failure error)
-                              true))))))))
+                                library-exists! (\ promise.monad map
+                                                   exception.return
+                                                   (file.file-exists? promise.monad fs library-path))
+                                pom-exists! (\ promise.monad map
+                                               exception.return
+                                               (file.file-exists? promise.monad fs pom-path))]
+                               (wrap (and (text\= //clean.success logging)
+                                          library-exists!
+                                          pom-exists!)))]
+                    (_.cover' [/.do!]
+                              (try.default false verdict))))
+            (wrap (do {! promise.monad}
+                    [#let [fs (file.mock (\ file.default separator))]
+                     logging (..execute! fs (set@ #///.identity #.None sample))]
+                    (_.cover' [/.failure]
+                              (|> logging
+                                  (try\map (text\= /.failure))
+                                  (try.default false)))))
+            ))))

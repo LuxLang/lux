@@ -8,8 +8,11 @@
     [concurrency
      ["." promise]]
     [parser
-     ["." environment]]]
+     ["." environment]]
+    [security
+     ["!" capability]]]
    [data
+    ["." text ("#\." equivalence)]
     [collection
      ["." dictionary]]]
    [math
@@ -17,8 +20,11 @@
    [world
     ["." file]
     ["." shell]]]
-  ["$." /// #_
-   ["#." package]]
+  ["." // #_
+   ["@." version]
+   ["@." build]
+   ["$/#" // #_
+    ["#." package]]]
   {#program
    ["." /
     ["/#" // #_
@@ -35,24 +41,7 @@
   Test
   (<| (_.covering /._)
       (do {! random.monad}
-        [#let [fs (file.mock (\ file.default separator))
-               shell (shell.mock
-                      (function (_ [actual-environment actual-working-directory actual-command actual-arguments])
-                        (#try.Success
-                         (: (shell.Simulation [])
-                            (structure
-                             (def: (on-read state)
-                               (#try.Failure "on-read"))
-                             (def: (on-error state)
-                               (#try.Failure "on-error"))
-                             (def: (on-write input state)
-                               (#try.Failure "on-write"))
-                             (def: (on-destroy state)
-                               (#try.Failure "on-destroy"))
-                             (def: (on-await state)
-                               (#try.Success [state shell.normal]))))))
-                      [])]
-         program (random.ascii/alpha 5)
+        [program (random.ascii/alpha 5)
          target (random.ascii/alpha 5)
          working-directory (random.ascii/alpha 5)
          #let [empty-profile (: Profile
@@ -68,27 +57,56 @@
                
                no-working-directory environment.empty
                
-               environment (dictionary.put "user.dir" working-directory environment.empty)]]
+               environment (dictionary.put "user.dir" working-directory environment.empty)]
+         resolution @build.resolution]
         ($_ _.and
-            (do !
-              [lux-version (random.ascii/alpha 5)
-               [_ compiler-package] $///package.random
-               #let [jvm-compiler {#///dependency.artifact {#///artifact.group //build.lux-group
-                                                            #///artifact.name //build.jvm-compiler-name
-                                                            #///artifact.version lux-version}
-                                   #///dependency.type ///artifact/type.lux-library}
-                     js-compiler {#///dependency.artifact {#///artifact.group //build.lux-group
-                                                           #///artifact.name //build.js-compiler-name
-                                                           #///artifact.version lux-version}
-                                  #///dependency.type ///artifact/type.lux-library}]
-               compiler-dependency (random.either (wrap jvm-compiler)
-                                                  (wrap js-compiler))]
+            (let [fs (file.mock (\ file.default separator))
+                  console (@version.echo "")]
               (wrap (do promise.monad
                       [verdict (do ///action.monad
-                                 [#let [resolution (|> ///dependency/resolution.empty
-                                                       (dictionary.put compiler-dependency compiler-package))]
-                                  _ (/.do! environment fs shell resolution profile)]
-                                 (wrap true))]
-                      (_.cover' [/.do!]
+                                 [_ (/.do! console environment fs (@build.good-shell []) resolution profile)
+                                  build-start (!.use (\ console read-line) [])
+                                  build-end (!.use (\ console read-line) [])
+                                  test-start (!.use (\ console read-line) [])
+                                  test-end (!.use (\ console read-line) [])]
+                                 (wrap (and (and (text\= //build.start build-start)
+                                                 (text\= //build.success build-end))
+                                            (and (text\= /.start test-start)
+                                                 (text\= /.success test-end)))))]
+                      (_.cover' [/.do!
+                                 /.start /.success]
+                                (try.default false verdict)))))
+            (let [fs (file.mock (\ file.default separator))
+                  console (@version.echo "")]
+              (wrap (do promise.monad
+                      [verdict (do ///action.monad
+                                 [#let [bad-shell (shell.mock
+                                                   (function (_ [actual-environment actual-working-directory actual-command actual-arguments])
+                                                     (#try.Success
+                                                      (: (shell.Simulation [])
+                                                         (structure
+                                                          (def: (on-read state)
+                                                            (#try.Failure "on-read"))
+                                                          (def: (on-error state)
+                                                            (#try.Failure "on-error"))
+                                                          (def: (on-write input state)
+                                                            (#try.Failure "on-write"))
+                                                          (def: (on-destroy state)
+                                                            (#try.Failure "on-destroy"))
+                                                          (def: (on-await state)
+                                                            (#try.Success [state (if (text.ends-with? " build" actual-command)
+                                                                                   shell.normal
+                                                                                   shell.error)]))))))
+                                                   [])]
+                                  _ (/.do! console environment fs bad-shell resolution profile)
+                                  build-start (!.use (\ console read-line) [])
+                                  build-end (!.use (\ console read-line) [])
+                                  test-start (!.use (\ console read-line) [])
+                                  test-end (!.use (\ console read-line) [])]
+                                 (wrap (and (and (text\= //build.start build-start)
+                                                 (text\= //build.success build-end))
+                                            (and (text\= /.start test-start)
+                                                 (text\= /.failure test-end)))))]
+                      (_.cover' [/.failure]
                                 (try.default false verdict)))))
             ))))

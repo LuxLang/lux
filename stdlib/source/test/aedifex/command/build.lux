@@ -7,19 +7,24 @@
     ["." try]
     ["." exception]
     [concurrency
-     ["." promise]]
+     ["." promise (#+ Promise)]]
     [parser
-     ["." environment]]]
+     ["." environment]]
+    [security
+     ["!" capability]]]
    [data
+    ["." text ("#\." equivalence)]
     [collection
      ["." dictionary]]]
    [math
     ["." random]]
    [world
     ["." file]
-    ["." shell]]]
-  ["$." /// #_
-   ["#." package]]
+    ["." shell (#+ Shell)]]]
+  ["." // #_
+   ["@." version]
+   ["$/#" // #_
+    ["#." package]]]
   {#program
    ["." /
     ["//#" /// #_
@@ -30,27 +35,69 @@
      ["#." dependency
       ["#/." resolution]]]]})
 
+(def: #export good-shell
+  (-> Any (Shell Promise))
+  (shell.mock
+   (function (_ [actual-environment actual-working-directory actual-command actual-arguments])
+     (#try.Success
+      (: (shell.Simulation [])
+         (structure
+          (def: (on-read state)
+            (#try.Failure "on-read"))
+          (def: (on-error state)
+            (#try.Failure "on-error"))
+          (def: (on-write input state)
+            (#try.Failure "on-write"))
+          (def: (on-destroy state)
+            (#try.Failure "on-destroy"))
+          (def: (on-await state)
+            (#try.Success [state shell.normal]))))))))
+
+(def: #export bad-shell
+  (-> Any (Shell Promise))
+  (shell.mock
+   (function (_ [actual-environment actual-working-directory actual-command actual-arguments])
+     (#try.Success
+      (: (shell.Simulation [])
+         (structure
+          (def: (on-read state)
+            (#try.Failure "on-read"))
+          (def: (on-error state)
+            (#try.Failure "on-error"))
+          (def: (on-write input state)
+            (#try.Failure "on-write"))
+          (def: (on-destroy state)
+            (#try.Failure "on-destroy"))
+          (def: (on-await state)
+            (#try.Success [state shell.error]))))))))
+
+(def: compiler
+  (do random.monad
+    [lux-version (random.ascii/alpha 5)
+     #let [jvm-compiler {#///dependency.artifact {#///artifact.group /.lux-group
+                                                  #///artifact.name /.jvm-compiler-name
+                                                  #///artifact.version lux-version}
+                         #///dependency.type ///artifact/type.lux-library}
+           js-compiler {#///dependency.artifact {#///artifact.group /.lux-group
+                                                 #///artifact.name /.js-compiler-name
+                                                 #///artifact.version lux-version}
+                        #///dependency.type ///artifact/type.lux-library}]]
+    (random.either (wrap jvm-compiler)
+                   (wrap js-compiler))))
+
+(def: #export resolution
+  (do random.monad
+    [dependency ..compiler
+     [_ package] $///package.random]
+    (wrap (|> ///dependency/resolution.empty
+              (dictionary.put dependency package)))))
+
 (def: #export test
   Test
   (<| (_.covering /._)
       (do {! random.monad}
         [#let [fs (file.mock (\ file.default separator))
-               shell (shell.mock
-                      (function (_ [actual-environment actual-working-directory actual-command actual-arguments])
-                        (#try.Success
-                         (: (shell.Simulation [])
-                            (structure
-                             (def: (on-read state)
-                               (#try.Failure "on-read"))
-                             (def: (on-error state)
-                               (#try.Failure "on-error"))
-                             (def: (on-write input state)
-                               (#try.Failure "on-write"))
-                             (def: (on-destroy state)
-                               (#try.Failure "on-destroy"))
-                             (def: (on-await state)
-                               (#try.Success [state shell.normal]))))))
-                      [])]
+               shell (..good-shell [])]
          program (random.ascii/alpha 5)
          target (random.ascii/alpha 5)
          working-directory (random.ascii/alpha 5)
@@ -83,7 +130,7 @@
                             (#try.Failure error)
                             false)))
             (wrap (do promise.monad
-                    [outcome (/.do! environment fs shell ///dependency/resolution.empty
+                    [outcome (/.do! (@version.echo "") environment fs shell ///dependency/resolution.empty
                                     (with-target empty-profile))]
                     (_.cover' [/.no-specified-program]
                               (case outcome
@@ -93,7 +140,7 @@
                                 (#try.Failure error)
                                 (exception.match? /.no-specified-program error)))))
             (wrap (do promise.monad
-                    [outcome (/.do! environment fs shell ///dependency/resolution.empty
+                    [outcome (/.do! (@version.echo "") environment fs shell ///dependency/resolution.empty
                                     (with-program empty-profile))]
                     (_.cover' [/.no-specified-target]
                               (case outcome
@@ -103,7 +150,7 @@
                                 (#try.Failure error)
                                 (exception.match? /.no-specified-target error)))))
             (wrap (do promise.monad
-                    [outcome (/.do! environment fs shell ///dependency/resolution.empty profile)]
+                    [outcome (/.do! (@version.echo "") environment fs shell ///dependency/resolution.empty profile)]
                     (_.cover' [/.Compiler /.no-available-compiler]
                               (case outcome
                                 (#try.Success _)
@@ -112,25 +159,29 @@
                                 (#try.Failure error)
                                 (exception.match? /.no-available-compiler error)))))
             (do !
-              [lux-version (random.ascii/alpha 5)
-               [_ compiler-package] $///package.random
-               #let [jvm-compiler {#///dependency.artifact {#///artifact.group /.lux-group
-                                                            #///artifact.name /.jvm-compiler-name
-                                                            #///artifact.version lux-version}
-                                   #///dependency.type ///artifact/type.lux-library}
-                     js-compiler {#///dependency.artifact {#///artifact.group /.lux-group
-                                                           #///artifact.name /.js-compiler-name
-                                                           #///artifact.version lux-version}
-                                  #///dependency.type ///artifact/type.lux-library}]
-               compiler-dependency (random.either (wrap jvm-compiler)
-                                                  (wrap js-compiler))]
+              [#let [console (@version.echo "")]
+               resolution ..resolution]
               (wrap (do promise.monad
                       [verdict (do ///action.monad
-                                 [#let [resolution (|> ///dependency/resolution.empty
-                                                       (dictionary.put compiler-dependency compiler-package))]
-                                  _ (/.do! environment fs shell resolution profile)]
-                                 (wrap true))]
+                                 [_ (/.do! console environment fs shell resolution profile)
+                                  start (!.use (\ console read-line) [])
+                                  end (!.use (\ console read-line) [])]
+                                 (wrap (and (text\= /.start start)
+                                            (text\= /.success end))))]
                       (_.cover' [/.do!
-                                 /.lux-group /.jvm-compiler-name /.js-compiler-name]
+                                 /.lux-group /.jvm-compiler-name /.js-compiler-name
+                                 /.start /.success]
+                                (try.default false verdict)))))
+            (do !
+              [#let [console (@version.echo "")]
+               resolution ..resolution]
+              (wrap (do promise.monad
+                      [verdict (do ///action.monad
+                                 [_ (/.do! console environment fs (..bad-shell []) resolution profile)
+                                  start (!.use (\ console read-line) [])
+                                  end (!.use (\ console read-line) [])]
+                                 (wrap (and (text\= /.start start)
+                                            (text\= /.failure end))))]
+                      (_.cover' [/.failure]
                                 (try.default false verdict)))))
             ))))

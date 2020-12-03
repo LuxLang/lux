@@ -2,9 +2,9 @@
   [lux #*
    ["_" test (#+ Test)]
    [data
-    ["." name]
-    ["%" text/format (#+ format)]
+    ["." bit ("#\." equivalence)]
     [number
+     ["n" nat]
      ["i" int]]]
    [abstract
     [monad (#+ do)]
@@ -13,96 +13,258 @@
       ["$." equivalence]
       ["$." monoid]]}]
    [math
-    ["r" random]]]
+    ["." random (#+ Random)]]]
   {1
-   ["." /
-    ["/#" // #_
-     ["#." nat]]]})
+   ["." / ("\." equivalence)]})
+
+(def: bit
+  Test
+  (do {! random.monad}
+    [pattern random.nat
+     idx (\ ! map (n.% /.width) random.nat)]
+    ($_ _.and
+        (_.cover [/.set? /.set]
+                 (if (/.set? idx pattern)
+                   (\= pattern (/.set idx pattern))
+                   (not (\= pattern (/.set idx pattern)))))
+        (_.cover [/.clear? /.clear]
+                 (if (/.clear? idx pattern)
+                   (\= pattern (/.clear idx pattern))
+                   (not (\= pattern (/.clear idx pattern)))))
+        (_.cover [/.flip]
+                 (\= (/.flip idx pattern)
+                     (if (/.set? idx pattern)
+                       (/.clear idx pattern)
+                       (/.set idx pattern))))
+        (_.cover [/.bit]
+                 (bit\= (/.clear? idx pattern)
+                        (\= /.false (/.and (/.bit idx) pattern))))
+        )))
+
+(def: shift
+  Test
+  (do {! random.monad}
+    [pattern random.nat]
+    ($_ _.and
+        (do !
+          [idx (\ ! map (n.% /.width) random.nat)]
+          (_.cover [/.arithmetic-right-shift]
+                   (let [value (.int pattern)
+
+                         nullity!
+                         (\= pattern (/.arithmetic-right-shift 0 pattern))
+
+                         idempotency!
+                         (\= value (/.arithmetic-right-shift /.width value))
+
+                         sign-preservation!
+                         (bit\= (i.negative? value)
+                                (i.negative? (/.arithmetic-right-shift idx value)))]
+                     (and nullity!
+                          idempotency!
+                          sign-preservation!))))
+        (do !
+          [idx (\ ! map (|>> (n.% (dec /.width)) inc) random.nat)]
+          (_.cover [/.left-shift /.logic-right-shift]
+                   (let [nullity!
+                         (and (\= pattern (/.left-shift 0 pattern))
+                              (\= pattern (/.logic-right-shift 0 pattern)))
+
+                         idempotency!
+                         (and (\= pattern (/.left-shift /.width pattern))
+                              (\= pattern (/.logic-right-shift /.width pattern)))
+
+                         movement!
+                         (let [shift (n.- idx /.width)]
+                           (\= (/.and (/.mask idx) pattern)
+                               (|> pattern
+                                   (/.left-shift shift)
+                                   (/.logic-right-shift shift))))]
+                     (and nullity!
+                          idempotency!
+                          movement!))))
+        )))
+
+(def: mask
+  Test
+  (<| (_.with-cover [/.Mask])
+      (do {! random.monad}
+        [pattern random.nat
+         idx (\ ! map (n.% /.width) random.nat)
+         signed random.int]
+        ($_ _.and
+            (_.cover [/.sign]
+                     (bit\= (\= (.i64 0) (/.and /.sign signed))
+                            (i.positive? signed)))
+            (_.cover [/.mask]
+                     (let [mask (/.mask idx)
+                           idempotency! (\= (/.and mask pattern)
+                                            (/.and mask (/.and mask pattern)))
+
+                           limit (inc (.nat mask))
+                           limit! (if (n.< limit pattern)
+                                    (\= pattern (/.and mask pattern))
+                                    (n.< limit (/.and mask pattern)))
+
+                           empty! (\= /.false (/.mask 0))
+                           full! (\= /.true (/.mask /.width))]
+                       (and idempotency!
+                            limit!
+
+                            empty!
+                            full!)))
+            (do !
+              [size (\ ! map (n.% /.width) random.nat)
+               #let [spare (n.- size /.width)]
+               offset (\ ! map (n.% spare) random.nat)]
+              (_.cover [/.region]
+                       (\= (|> pattern
+                               ## NNNNYYYYNNNN
+                               (/.logic-right-shift offset)
+                               ## ____NNNNYYYY
+                               (/.left-shift spare)
+                               ## YYYY________
+                               (/.logic-right-shift spare)
+                               ## ________YYYY
+                               (/.left-shift offset)
+                               ## ____YYYY____
+                               )
+                           (/.and (/.region size offset) pattern))))
+            ))))
+
+(def: sub
+  Test
+  (_.with-cover [/.Sub]
+    (do {! random.monad}
+      [size (\ ! map (n.% /.width) random.nat)]
+      (case (/.sub size)
+        #.None
+        (_.cover [/.sub]
+                 (n.= 0 size))
+
+        (#.Some sub)
+        (do {! random.monad}
+          [#let [limit (|> (dec (\ sub width))
+                           /.mask
+                           .int
+                           inc)]
+           expected (\ ! map (i.% limit) random.int)
+           #let [random (: (All [size]
+                             (-> (-> I64 (I64 size)) (Random (I64 size))))
+                           (function (_ narrow)
+                             (\ random.functor map narrow random.i64)))]]
+          ($_ _.and
+              ($equivalence.spec (\ sub &equivalence) (random (\ sub narrow)))
+              (_.cover [/.sub]
+                       (let [actual (|> expected .i64 (\ sub narrow) (\ sub widen))]
+                         (\= expected actual)))
+              ))))))
+
+(def: signature
+  Test
+  ($_ _.and
+      (_.with-cover [/.equivalence]
+        ($equivalence.spec /.equivalence random.i64))
+      (_.with-cover [/.disjunction]
+        ($monoid.spec n.equivalence /.disjunction random.nat))
+      (_.with-cover [/.conjunction]
+        ($monoid.spec n.equivalence /.conjunction random.nat))
+      ))
 
 (def: #export test
   Test
-  (<| (_.context (name.module (name-of /._)))
-      (do {! r.monad}
-        [pattern r.nat
-         idx (\ ! map (//nat.% /.width) r.nat)]
+  (<| (_.covering /._)
+      (_.with-cover [.I64])
+      (do {! random.monad}
+        [pattern random.nat
+         idx (\ ! map (n.% /.width) random.nat)]
         ($_ _.and
-            ($equivalence.spec /.equivalence r.i64)
-            ($monoid.spec //nat.equivalence /.disjunction r.nat)
-            ($monoid.spec //nat.equivalence /.conjunction r.nat)
+            (_.cover [/.width /.bits-per-byte /.bytes-per-i64]
+                     (and (n.= /.bytes-per-i64
+                               (n./ /.bits-per-byte /.width))
+                          (n.= /.bits-per-byte
+                               (n./ /.bytes-per-i64 /.width))))
+            (_.cover [/.false]
+                     (n.= 0 (/.count /.false)))
+            (_.cover [/.or]
+                     (and (\= /.true (/.or /.true pattern))
+                          (\= pattern (/.or /.false pattern))))
+            (_.cover [/.true]
+                     (n.= /.width (/.count /.true)))
+            (_.cover [/.and]
+                     (and (\= pattern (/.and /.true pattern))
+                          (\= /.false (/.and /.false pattern))))
+            (_.cover [/.not]
+                     (and (\= /.false
+                              (/.and pattern
+                                     (/.not pattern)))
+                          (\= /.true
+                              (/.or pattern
+                                    (/.not pattern)))))
+            (_.cover [/.xor]
+                     (and (\= /.true
+                              (/.xor pattern
+                                     (/.not pattern)))
+                          (\= /.false
+                              (/.xor pattern
+                                     pattern))))
+            (_.cover [/.count]
+                     (let [clear&set!
+                           (if (/.set? idx pattern)
+                             (n.= (dec (/.count pattern)) (/.count (/.clear idx pattern)))
+                             (n.= (inc (/.count pattern)) (/.count (/.set idx pattern))))
+
+                           complementarity!
+                           (n.= /.width
+                                (n.+ (/.count pattern)
+                                     (/.count (/.not pattern))))]
+                       (and clear&set!
+                            complementarity!)))
+            (_.cover [/.rotate-left /.rotate-right]
+                     (let [false!
+                           (and (\= /.false (/.rotate-left idx /.false))
+                                (\= /.false (/.rotate-right idx /.false)))
+
+                           true!
+                           (and (\= /.true (/.rotate-left idx /.true))
+                                (\= /.true (/.rotate-right idx /.true)))
+
+                           inverse!
+                           (and (|> pattern
+                                    (/.rotate-left idx)
+                                    (/.rotate-right idx)
+                                    (\= pattern))
+                                (|> pattern
+                                    (/.rotate-right idx)
+                                    (/.rotate-left idx)
+                                    (\= pattern)))
+
+                           nullity!
+                           (and (|> pattern
+                                    (/.rotate-left 0)
+                                    (\= pattern))
+                                (|> pattern
+                                    (/.rotate-right 0)
+                                    (\= pattern)))
+
+                           futility!
+                           (and (|> pattern
+                                    (/.rotate-left /.width)
+                                    (\= pattern))
+                                (|> pattern
+                                    (/.rotate-right /.width)
+                                    (\= pattern)))]
+                       (and false!
+                            true!
+                            inverse!
+                            nullity!
+                            futility!)))
+            (_.cover [/.hash]
+                     (n.= pattern (\ /.hash hash pattern)))
             
-            (_.test "Clearing and settings bits should alter the count."
-                    (and (//nat.= (dec (/.count (/.set idx pattern)))
-                                  (/.count (/.clear idx pattern)))
-                         (|> (/.count pattern)
-                             (//nat.- (/.count (/.clear idx pattern)))
-                             (//nat.<= 1))
-                         (|> (/.count (/.set idx pattern))
-                             (//nat.- (/.count pattern))
-                             (//nat.<= 1))))
-            (_.test "Can query whether a bit is set."
-                    (and (or (and (/.set? idx pattern)
-                                  (not (/.set? idx (/.clear idx pattern))))
-                             (and (not (/.set? idx pattern))
-                                  (/.set? idx (/.set idx pattern))))
-
-                         (or (and (/.set? idx pattern)
-                                  (not (/.set? idx (/.flip idx pattern))))
-                             (and (not (/.set? idx pattern))
-                                  (/.set? idx (/.flip idx pattern))))))
-            (_.test "The negation of a bit pattern should have a complementary bit-count."
-                    (//nat.= /.width
-                             (//nat.+ (/.count pattern)
-                                      (/.count (/.not pattern)))))
-            (_.test "Can do simple binary logic."
-                    (and (//nat.= 0
-                                  (/.and pattern
-                                         (/.not pattern)))
-                         (//nat.= (/.not 0)
-                                  (/.or pattern
-                                        (/.not pattern)))
-                         (//nat.= (/.not 0)
-                                  (/.xor pattern
-                                         (/.not pattern)))
-                         (//nat.= 0
-                                  (/.xor pattern
-                                         pattern))))
-            (_.test "rotate-left and rotate-right are inverses of one another."
-                    (and (|> pattern
-                             (/.rotate-left idx)
-                             (/.rotate-right idx)
-                             (//nat.= pattern))
-                         (|> pattern
-                             (/.rotate-right idx)
-                             (/.rotate-left idx)
-                             (//nat.= pattern))))
-            (_.test "Rotate as many spaces as the bit-pattern's width leaves the pattern unchanged."
-                    (and (|> pattern
-                             (/.rotate-left /.width)
-                             (//nat.= pattern))
-                         (|> pattern
-                             (/.rotate-right /.width)
-                             (//nat.= pattern))))
-            (_.test "Shift right respect the sign of ints."
-                    (let [value (.int pattern)]
-                      (if (i.< +0 value)
-                        (i.< +0 (/.arithmetic-right-shift idx value))
-                        (i.>= +0 (/.arithmetic-right-shift idx value)))))
-            (_.cover [/.mask]
-                     (let [mask (/.mask idx)
-                           idempotent? (\ /.equivalence =
-                                          (/.and mask pattern)
-                                          (/.and mask (/.and mask pattern)))
-
-                           limit (inc (.nat mask))
-                           below-limit? (if (//nat.< limit pattern)
-                                          (//nat.= pattern (/.and mask pattern))
-                                          (//nat.< limit (/.and mask pattern)))
-
-                           with-empty-mask? (//nat.= 0 (/.and (/.mask 0) pattern))
-                           with-full-mask? (//nat.= pattern (/.and (/.mask /.width) pattern))]
-                       (and idempotent?
-                            below-limit?
-
-                            with-empty-mask?
-                            with-full-mask?)))
+            ..bit
+            ..shift
+            ..mask
+            ..sub
+            ..signature
             ))))

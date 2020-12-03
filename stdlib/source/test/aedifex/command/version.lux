@@ -5,14 +5,62 @@
     [monad (#+ do)]]
    [control
     ["." try]
+    ["." exception (#+ exception:)]
     [concurrency
-     ["." promise]]]
+     ["." promise (#+ Promise)]]
+    [security
+     ["!" capability]]]
+   [data
+    ["." maybe]
+    ["." text ("#\." equivalence)
+     ["%" format (#+ format)]]]
    [math
-    ["." random]]]
+    ["." random]]
+   [tool
+    [compiler
+     ["." version]
+     ["." language #_
+      ["#/." lux #_
+       ["#" version]]]]]
+   [world
+    ["." console (#+ Console Simulation)]]]
   [///
    ["@." profile]]
   {#program
    ["." /]})
+
+(exception: #export console-is-closed!)
+
+(structure: simulation
+  (Simulation [Bit Text])
+
+  (def: (on-read [open? state])
+    (if open?
+      (try.from-maybe
+       (do maybe.monad
+         [head (text.nth 0 state)
+          [_ tail] (text.split 1 state)]
+         (wrap [[open? tail] head])))
+      (exception.throw ..console-is-closed! [])))
+  (def: (on-read-line [open? state])
+    (if open?
+      (try.from-maybe
+       (do maybe.monad
+         [[output state] (text.split-with text.new-line state)]
+         (wrap [[open? state] output])))
+      (exception.throw ..console-is-closed! [])))
+  (def: (on-write input [open? state])
+    (if open?
+      (#try.Success [open? (format state input)])
+      (exception.throw ..console-is-closed! [])))
+  (def: (on-close [open? buffer])
+    (if open?
+      (#try.Success [false buffer])
+      (exception.throw ..console-is-closed! []))))
+
+(def: #export echo
+  (-> Text (Console Promise))
+  (|>> [true] (console.mock ..simulation)))
 
 (def: #export test
   Test
@@ -20,8 +68,11 @@
       (do random.monad
         [profile @profile.random]
         (wrap (do promise.monad
-                [verdict (do (try.with promise.monad)
-                           [_ (/.do! profile)]
-                           (wrap true))]
+                [#let [console (..echo "")]
+                 verdict (do (try.with promise.monad)
+                           [_ (/.do! console profile)
+                            logging (!.use (\ console read-line) [])]
+                           (wrap (text\= (version.format language/lux.version)
+                                         logging)))]
                 (_.cover' [/.do!]
                           (try.default false verdict)))))))

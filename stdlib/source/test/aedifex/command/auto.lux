@@ -25,11 +25,15 @@
     ["." random]]
    [world
     [environment (#+ Environment)]
+    [console (#+ Console)]
     ["." shell (#+ Shell)]
     ["." file (#+ Path)
      ["." watch]]]]
-  ["$." /// #_
-   ["#." package]]
+  ["." // #_
+   ["@." version]
+   ["@." build]
+   ["$/#" // #_
+    ["#." package]]]
   {#program
    ["." /
     ["/#" // #_
@@ -46,11 +50,11 @@
 (def: (command end-signal dummy-files)
   (-> Text (List Path)
       [(Atom [Nat (List Path)])
-       (-> Environment (file.System Promise) (Shell Promise) Resolution (Command Any))])
+       (-> (Console Promise) Environment (file.System Promise) (Shell Promise) Resolution (Command Any))])
   (let [@runs (: (Atom [Nat (List Path)])
                  (atom.atom [0 dummy-files]))]
     [@runs
-     (function (_ environment fs shell resolution profile)
+     (function (_ console environment fs shell resolution profile)
        (do {! promise.monad}
          [[runs remaining-files] (promise.future
                                   (atom.update (function (_ [runs remaining-files])
@@ -72,23 +76,7 @@
   (<| (_.covering /._)
       (do {! random.monad}
         [#let [/ (\ file.default separator)
-               [fs watcher] (watch.mock /)
-               shell (shell.mock
-                      (function (_ [actual-environment actual-working-directory actual-command actual-arguments])
-                        (#try.Success
-                         (: (shell.Simulation [])
-                            (structure
-                             (def: (on-read state)
-                               (#try.Failure "on-read"))
-                             (def: (on-error state)
-                               (#try.Failure "on-error"))
-                             (def: (on-write input state)
-                               (#try.Failure "on-write"))
-                             (def: (on-destroy state)
-                               (#try.Failure "on-destroy"))
-                             (def: (on-await state)
-                               (#try.Success [state shell.normal]))))))
-                      [])]
+               [fs watcher] (watch.mock /)]
          end-signal (random.ascii/alpha 5)
          program (random.ascii/alpha 5)
          target (random.ascii/alpha 5)
@@ -110,38 +98,24 @@
                            with-target
                            (set@ #///.sources (set.from-list text.hash (list source))))
                
-               environment (dictionary.put "user.dir" working-directory environment.empty)]]
+               environment (dictionary.put "user.dir" working-directory environment.empty)]
+         resolution @build.resolution]
         ($_ _.and
-            (do !
-              [lux-version (random.ascii/alpha 5)
-               [_ compiler-package] $///package.random
-               #let [jvm-compiler {#///dependency.artifact {#///artifact.group //build.lux-group
-                                                            #///artifact.name //build.jvm-compiler-name
-                                                            #///artifact.version lux-version}
-                                   #///dependency.type ///artifact/type.lux-library}
-                     js-compiler {#///dependency.artifact {#///artifact.group //build.lux-group
-                                                           #///artifact.name //build.js-compiler-name
-                                                           #///artifact.version lux-version}
-                                  #///dependency.type ///artifact/type.lux-library}]
-               compiler-dependency (random.either (wrap jvm-compiler)
-                                                  (wrap js-compiler))
-               #let [[@runs command] (..command end-signal dummy-files)]]
-              (wrap (do promise.monad
-                      [verdict (do ///action.monad
-                                 [_ (!.use (\ fs create-directory) [source])
-                                  _ (\ watcher poll [])
-                                  #let [resolution (|> ///dependency/resolution.empty
-                                                       (dictionary.put compiler-dependency compiler-package))]]
-                                 (do promise.monad
-                                   [outcome ((/.do! watcher command) environment fs shell resolution profile)
-                                    [actual-runs _] (promise.future (atom.read @runs))]
-                                   (wrap (#try.Success (and (n.= expected-runs actual-runs)
-                                                            (case outcome
-                                                              (#try.Failure error)
-                                                              (is? end-signal error)
+            (wrap (do promise.monad
+                    [verdict (do ///action.monad
+                               [#let [[@runs command] (..command end-signal dummy-files)]
+                                _ (!.use (\ fs create-directory) [source])
+                                _ (\ watcher poll [])]
+                               (do promise.monad
+                                 [outcome ((/.do! watcher command) (@version.echo "") environment fs (@build.good-shell []) resolution profile)
+                                  [actual-runs _] (promise.future (atom.read @runs))]
+                                 (wrap (#try.Success (and (n.= expected-runs actual-runs)
+                                                          (case outcome
+                                                            (#try.Failure error)
+                                                            (is? end-signal error)
 
-                                                              (#try.Success _)
-                                                              false))))))]
-                      (_.cover' [/.do!]
-                                (try.default false verdict)))))
+                                                            (#try.Success _)
+                                                            false))))))]
+                    (_.cover' [/.do!]
+                              (try.default false verdict))))
             ))))
