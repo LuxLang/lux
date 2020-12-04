@@ -5,7 +5,7 @@
    [control
     [pipe (#+ do>)]
     ["." io (#+ IO)]
-    ["." try (#+ Try)]
+    ["." try (#+ Try) ("#\." functor)]
     ["." exception (#+ exception:)]
     [parser
      ["." cli (#+ program:)]
@@ -86,70 +86,80 @@
 
 (program: [{[profile operation] /cli.command}]
   (do {! io.monad}
-    [?profile (/input.read io.monad file.default profile)
-     ?console console.default]
-    (case [?profile ?console]
-      [(#try.Success profile) (#try.Success console)]
-      (let [console (console.async console)]
-        (case operation
-          #/cli.Version
-          (exec (/command/version.do! console profile)
-            (wrap []))
-          
-          #/cli.Clean
-          (exec (/command/clean.do! console (file.async file.default) profile)
-            (wrap []))
+    [?console console.default]
+    (case (try\map console.async ?console)
+      (#try.Failure error)
+      (wrap (log! error))
 
-          #/cli.POM
-          (exec (/command/pom.do! console (file.async file.default) profile)
-            (wrap []))
-          
-          #/cli.Install
-          (exec (/command/install.do! console (file.async file.default) profile)
-            (wrap []))
+      (#try.Success console)
+      (case operation
+        #/cli.Version
+        (exec (/command/version.do! console (\ /.monoid identity))
+          (wrap []))
 
-          (#/cli.Deploy repository identity)
-          (exec (case [(get@ #/.identity profile)
-                       (dictionary.get repository (get@ #/.deploy-repositories profile))]
-                  [(#.Some artifact) (#.Some repository)]
-                  (/command/deploy.do! console
-                                       (/repository.async (/repository.remote repository))
-                                       (file.async file.default)
-                                       identity
-                                       artifact
-                                       profile)
+        _
+        (do !
+          [?profile (/input.read io.monad file.default profile)]
+          (case ?profile
+            (#try.Failure error)
+            (wrap (log! error))
 
-                  [#.None _]
-                  (promise\wrap (exception.throw /.no-identity []))
-
-                  [_ #.None]
-                  (promise\wrap (exception.throw ..cannot-find-repository [repository (get@ #/.deploy-repositories profile)])))
-            (wrap []))
-          
-          #/cli.Dependencies
-          (exec (/command/deps.do! console (file.async file.default) (..repositories profile) profile)
-            (wrap []))
-
-          (#/cli.Compilation compilation)
-          (case compilation
-            #/cli.Build (exec (..with-dependencies console /command/build.do! profile)
-                          (wrap []))
-            #/cli.Test (exec (..with-dependencies console /command/test.do! profile)
-                         (wrap [])))
-
-          (#/cli.Auto auto)
-          (do !
-            [?watcher watch.default]
-            (case ?watcher
-              (#try.Failure error)
-              (wrap (log! error))
+            (#try.Success profile)
+            (case operation
+              #/cli.Version
+              (wrap [])
               
-              (#try.Success watcher)
-              (exec (case auto
-                      #/cli.Build (..with-dependencies console (/command/auto.do! watcher /command/build.do!) profile)
-                      #/cli.Test (..with-dependencies console (/command/auto.do! watcher /command/test.do!) profile))
-                (wrap []))))))
-      
-      (^or [(#try.Failure error) _]
-           [_ (#try.Failure error)])
-      (wrap (log! error)))))
+              #/cli.Clean
+              (exec (/command/clean.do! console (file.async file.default) profile)
+                (wrap []))
+
+              #/cli.POM
+              (exec (/command/pom.do! console (file.async file.default) profile)
+                (wrap []))
+              
+              #/cli.Install
+              (exec (/command/install.do! console (file.async file.default) profile)
+                (wrap []))
+
+              (#/cli.Deploy repository identity)
+              (exec (case [(get@ #/.identity profile)
+                           (dictionary.get repository (get@ #/.deploy-repositories profile))]
+                      [(#.Some artifact) (#.Some repository)]
+                      (/command/deploy.do! console
+                                           (/repository.async (/repository.remote repository))
+                                           (file.async file.default)
+                                           identity
+                                           artifact
+                                           profile)
+
+                      [#.None _]
+                      (promise\wrap (exception.throw /.no-identity []))
+
+                      [_ #.None]
+                      (promise\wrap (exception.throw ..cannot-find-repository [repository (get@ #/.deploy-repositories profile)])))
+                (wrap []))
+              
+              #/cli.Dependencies
+              (exec (/command/deps.do! console (file.async file.default) (..repositories profile) profile)
+                (wrap []))
+
+              (#/cli.Compilation compilation)
+              (case compilation
+                #/cli.Build (exec (..with-dependencies console /command/build.do! profile)
+                              (wrap []))
+                #/cli.Test (exec (..with-dependencies console /command/test.do! profile)
+                             (wrap [])))
+
+              (#/cli.Auto auto)
+              (do !
+                [?watcher watch.default]
+                (case ?watcher
+                  (#try.Failure error)
+                  (wrap (log! error))
+                  
+                  (#try.Success watcher)
+                  (exec (case auto
+                          #/cli.Build (..with-dependencies console (/command/auto.do! watcher /command/build.do!) profile)
+                          #/cli.Test (..with-dependencies console (/command/auto.do! watcher /command/test.do!) profile))
+                    (wrap [])))))
+            ))))))

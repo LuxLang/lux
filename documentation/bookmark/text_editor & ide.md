@@ -213,6 +213,7 @@
 
 ## Structured editing
 
+1. [Dion Systems - The How And Why Of Reinventing The Wheel](https://vimeo.com/485177664)
 1. [Towards Tactic Metaprogramming in Haskell](https://reasonablypolymorphic.com/blog/towards-tactics/index.html)
 1. https://github.com/Raathigesh/waypoint
 1. [Going beyond regular expressions with structural code search](https://about.sourcegraph.com/blog/going-beyond-regular-expressions-with-structural-code-search)

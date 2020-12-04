@@ -1,6 +1,5 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
    [abstract
     [monad (#+ do)]
@@ -12,38 +11,160 @@
       ["$." interval]
       ["$." monoid]
       ["$." codec]]}]
+   [data
+    ["." bit ("#\." equivalence)]
+    [number
+     ["f" frac]
+     ["." i64 ("#\." hash)]]]
    [math
-    ["r" random]]]
+    ["." random]]]
   {1
-   ["." /
-    //]})
+   ["." /]})
+
+(def: signature
+  Test
+  (`` ($_ _.and
+          (_.with-cover [/.equivalence /.=]
+            ($equivalence.spec /.equivalence random.int))
+          (_.with-cover [/.order /.<]
+            ($order.spec /.order random.int))
+          (_.with-cover [/.enum]
+            ($enum.spec /.enum random.int))
+          (_.with-cover [/.interval]
+            ($interval.spec /.interval random.int))
+          (~~ (template [<compose> <monoid>]
+                [(_.with-cover [<monoid> <compose>]
+                   ($monoid.spec /.equivalence <monoid> random.int))]
+                
+                [/.+ /.addition]
+                [/.* /.multiplication]
+
+                [/.min /.minimum]
+                [/.max /.maximum]
+                ))
+          (~~ (template [<codec>]
+                [(_.with-cover [<codec>]
+                   ($codec.spec /.equivalence <codec> random.int))]
+
+                [/.binary] [/.octal] [/.decimal] [/.hex]
+                ))
+          )))
+
+(def: predicate
+  Test
+  (do {! random.monad}
+    [sample random.int
+     shift (\ ! map /.abs random.int)]
+    ($_ _.and
+        (_.cover [/.negative?]
+                 (bit\= (/.negative? sample)
+                        (/.< +0 sample)))
+        (_.cover [/.positive?]
+                 (bit\= (/.positive? sample)
+                        (/.> +0 sample)))
+        (_.cover [/.zero?]
+                 (bit\= (/.zero? sample)
+                        (/.= +0 sample)))
+        (_.cover [/.even? /.odd?]
+                 (bit\= (/.even? sample)
+                        (not (/.odd? sample))))
+        )))
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /._)))
-      (`` ($_ _.and
-              ($equivalence.spec /.equivalence r.int)
-              ($order.spec /.order r.int)
-              ($enum.spec /.enum r.int)
-              ($interval.spec /.interval r.int)
-              (~~ (template [<monoid>]
-                    [(<| (_.context (%.name (name-of <monoid>)))
-                         ($monoid.spec /.equivalence <monoid> r.int))]
+  (<| (_.covering /._)
+      (_.with-cover [.Int])
+      ($_ _.and
+          (do random.monad
+            [sample random.int]
+            ($_ _.and
+                (_.cover [/.-]
+                         (and (/.= +0 (/.- sample sample))
+                              (/.= sample (/.- +0 sample))
+                              (/.= (/.negate sample)
+                                   (/.- sample +0))))
+                (_.cover [/./]
+                         (and (/.= +1 (/./ sample sample))
+                              (/.= sample (/./ +1 sample))))
+                (_.cover [/.abs]
+                         (bit\= (/.> sample (/.abs sample))
+                                (/.negative? sample)))
+                (_.cover [/.signum]
+                         (/.= (/.abs sample)
+                              (/.* (/.signum sample) sample)))
+                ))
+          (do random.monad
+            [left random.int
+             right random.int]
+            ($_ _.and
+                (_.cover [/.>]
+                         (bit\= (/.> left right)
+                                (/.< right left)))
+                (_.cover [/.<= /.>=]
+                         (bit\= (/.<= left right)
+                                (/.>= right left)))
+                ))
+          (do random.monad
+            [left (random.filter (|>> (/.= +0) not)
+                                 random.int)
+             right random.int]
+            ($_ _.and
+                (_.cover [/.%]
+                         (let [rem (/.% left right)
+                               div (|> right (/.- rem) (/./ left))]
+                           (/.= right
+                                (|> div (/.* left) (/.+ rem)))))
+                (_.cover [/./%]
+                         (let [[div rem] (/./% left right)]
+                           (and (/.= div (/./ left right))
+                                (/.= rem (/.% left right)))))
+                (_.cover [/.mod]
+                         (and (/.= (/.signum left)
+                                   (/.signum (/.mod left right)))
+                              (/.= (/.signum right)
+                                   (/.signum (/.% left right)))
+                              (if (/.= (/.signum left) (/.signum right))
+                                (/.= (/.% left right)
+                                     (/.mod left right))
+                                (or (and (/.= +0 (/.% left right))
+                                         (/.= +0 (/.mod left right)))
+                                    (/.= (/.+ left (/.% left right))
+                                         (/.mod left right))))))
+                ))
+          (do {! random.monad}
+            [#let [random (\ ! map (/.% +1,000) random.int)]
+             left random
+             right random]
+            ($_ _.and
+                (_.cover [/.gcd]
+                         (let [gcd (/.gcd left right)]
+                           (and (/.= +0 (/.% gcd left))
+                                (/.= +0 (/.% gcd right)))))
+                (_.cover [/.lcm]
+                         (let [lcm (/.lcm left right)]
+                           (and (/.= +0 (/.% left lcm))
+                                (/.= +0 (/.% right lcm)))))
+                ))
+          (do random.monad
+            [expected random.int]
+            (_.cover [/.negate]
+                     (let [subtraction!
+                           (/.= +0 (/.+ (/.negate expected) expected))
 
-                    [/.addition] [/.multiplication] [/.minimum] [/.maximum]
-                    ))
-              (~~ (template [<codec>]
-                    [(<| (_.context (%.name (name-of /.binary)))
-                         ($codec.spec /.equivalence <codec> r.int))]
+                           inverse!
+                           (|> expected /.negate /.negate (/.= expected))]
+                       (and subtraction!
+                            inverse!))))
+          (do {! random.monad}
+            [expected (\ ! map (/.% +1,000,000) random.int)]
+            (_.cover [/.frac]
+                     (|> expected /.frac f.int (/.= expected))))
+          (do random.monad
+            [sample random.int]
+            (_.cover [/.hash]
+                     (i64\= (i64\hash sample)
+                            (\ /.hash hash sample))))
 
-                    [/.binary] [/.octal] [/.decimal] [/.hex]
-                    ))
-
-              (_.test "Alternate notations."
-                      (and (/.= (bin "+11001001")
-                                (bin "+11,00,10,01"))
-                           (/.= (oct "-615243")
-                                (oct "-615,243"))
-                           (/.= (hex "+deadBEEF")
-                                (hex "+dead,BEEF"))))
-              ))))
+          ..predicate
+          ..signature
+          )))

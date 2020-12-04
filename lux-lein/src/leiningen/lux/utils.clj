@@ -31,7 +31,7 @@
   [(get project :group) (get project :name)])
 
 (def ^:private lux-group "com.github.luxlang")
-(def ^:private compiler-id [lux-group "luxc-jvm"])
+(def ^:private compiler-id [lux-group "lux-bootstrapper"])
 (def ^:private jvm-compiler-id [lux-group "lux-jvm"])
 (def ^:private stdlib-id [lux-group "stdlib"])
 

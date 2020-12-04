@@ -20,7 +20,7 @@
   :scm {:name "git"
         :url ~(str repo ".git")}
 
-  :dependencies [[com.github.luxlang/luxc-jvm ~version]
+  :dependencies [[com.github.luxlang/lux-bootstrapper ~version]
                  [com.github.luxlang/stdlib ~version]
                  ;; JVM Bytecode (TODO: Remove ASAP)
                  [org.ow2.asm/asm-all "5.0.3"]]

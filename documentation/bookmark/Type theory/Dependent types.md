@@ -5,6 +5,7 @@
 
 # Reference
 
+1. [Program = Proof](http://www.lix.polytechnique.fr/Labo/Samuel.Mimram/teaching/INF551/course.pdf)
 1. [Multimodal Dependent Type Theory](https://arxiv.org/abs/2011.15021)
 1. [Thorsten Altenkirch - The power of Π - Lambda Days 2020](https://www.youtube.com/watch?v=3zT5eVHpQwA)
 1. [A Path To DOT: Formalizing Fully Path-Dependent Types](https://arxiv.org/abs/1904.07298)

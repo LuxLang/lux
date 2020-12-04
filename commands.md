@@ -9,7 +9,7 @@ cd ~/lux/ && find . -name '*.lux' | xargs wc -l
 # Clean all
 
 ```
-cd ~/lux/luxc/ && lein clean && \
+cd ~/lux/lux-bootstrapper/ && lein clean && \
 cd ~/lux/stdlib/ && lein clean
 ```
 
@@ -28,7 +28,7 @@ cd ~/lux/jbe/ && ./jbe.sh
 ## Build & install
 
 ```
-cd ~/lux/luxc/ && lein clean && lein install
+cd ~/lux/lux-bootstrapper/ && lein clean && lein install
 ```
 
 ## Run JBE
