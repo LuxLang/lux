@@ -7,10 +7,9 @@
     [monoid (#+ Monoid)]
     [equivalence (#+ Equivalence)]
     [codec (#+ Codec)]
-    ["." order (#+ Order)]]
+    [order (#+ Order)]]
    [control
-    ["." function]
-    ["." try (#+ Try)]]
+    ["." try]]
    [data
     ["." maybe]
     [collection
@@ -20,6 +19,25 @@
    ["#." nat]
    ["#." int]])
 
+(template [<power> <name>]
+  [(def: #export <name>
+     Rev
+     (.rev (//i64.left-shift (//nat.- <power> //i64.width) 1)))]
+
+  [01 /2]
+  [02 /4]
+  [03 /8]
+  [04 /16]
+  [05 /32]
+  [06 /64]
+  [07 /128]
+  [08 /256]
+  [09 /512]
+  [10 /1024]
+  [11 /2048]
+  [12 /4096]
+  )
+
 (def: #export (= reference sample)
   {#.doc "Rev(olution) equivalence."}
   (-> Rev Rev Bit)
@@ -28,15 +46,13 @@
 (def: #export (< reference sample)
   {#.doc "Rev(olution) less-than."}
   (-> Rev Rev Bit)
-  (//nat.< (:coerce Nat reference)
-           (:coerce Nat sample)))
+  (//nat.< (.nat reference) (.nat sample)))
 
 (def: #export (<= reference sample)
   {#.doc "Rev(olution) less-than or equal."}
   (-> Rev Rev Bit)
-  (if (//nat.< (:coerce Nat reference)
-               (:coerce Nat sample))
-    #1
+  (if (//nat.< (.nat reference) (.nat sample))
+    true
     ("lux i64 =" reference sample)))
 
 (def: #export (> reference sample)
@@ -48,7 +64,7 @@
   {#.doc "Rev(olution) greater-than or equal."}
   (-> Rev Rev Bit)
   (if (..< sample reference)
-    #1
+    true
     ("lux i64 =" reference sample)))
 
 (template [<name> <test> <doc>]
@@ -101,79 +117,82 @@
         ..high
         ("lux i64 +" top))))
 
-(def: least-significant-bit-mask (I64 Any) 1)
+(def: even-one (//i64.rotate-right 1 1))
+(def: odd-one (dec 0))
 
-(def: (without-trailing-zeroes count remaining)
-  (-> Nat Nat [Nat Nat])
-  (if (|> remaining
-          ("lux i64 and" least-significant-bit-mask)
-          ("lux i64 =" 0))
-    (without-trailing-zeroes
-     ("lux i64 +" 1 count)
-     ("lux i64 logical-right-shift" 1 remaining))
-    [count remaining]))
+(def: (even-reciprocal numerator)
+  (-> Nat Nat)
+  (//nat./ (//i64.logic-right-shift 1 numerator)
+           ..even-one))
 
-(def: #export (/ param subject)
-  {#.doc "Rev(olution) division."}
-  (-> Rev Rev Rev)
-  (if ("lux i64 =" +0 param)
-    (error! "Cannot divide Rev by zero!")
-    (let [[trailing-zeroes remaining] (without-trailing-zeroes 0 (:coerce Nat param))
-          [trailing-zeroes denominator] (: [Nat Nat]
-                                           (if ("lux i64 =" +0 trailing-zeroes)
-                                             [1 ("lux i64 logical-right-shift" 1 remaining)]
-                                             [trailing-zeroes remaining]))
-          shift ("lux i64 -" trailing-zeroes 64)
-          numerator ("lux i64 left-shift" shift 1)]
-      (|> (:coerce Int numerator)
-          ("lux i64 /" (:coerce Int denominator))
-          ("lux i64 *" (:coerce Int subject))
-          (:coerce Rev)))))
+(def: (odd-reciprocal numerator)
+  (-> Nat Nat)
+  (//nat./ numerator ..odd-one))
 
-(def: #export (% param subject)
-  {#.doc "Rev(olution) remainder."}
-  (-> Rev Rev Rev)
-  (|> (:coerce Nat subject)
-      (//nat.% (:coerce Nat param))
-      (:coerce Rev)))
+(with-expansions [<least-significant-bit> 1]
+  (def: #export (reciprocal numerator)
+    {#.doc "Rev(olution) reciprocal of a Nat(ural)."}
+    (-> Nat Rev)
+    (.rev (case (: Nat ("lux i64 and" <least-significant-bit> numerator))
+            0 (..even-reciprocal numerator)
+            _ (..odd-reciprocal numerator))))
+  
+  (def: #export (/ param subject)
+    {#.doc "Rev(olution) division."}
+    (-> Rev Rev Rev)
+    (if ("lux i64 =" +0 param)
+      (error! "Cannot divide Rev by zero!")
+      (let [reciprocal (case (: Nat ("lux i64 and" <least-significant-bit> param))
+                         0 (..even-reciprocal (.nat param))
+                         _ (..odd-reciprocal (.nat param)))]
+        (.rev (//nat.* reciprocal (.nat subject)))))))
 
-(def: #export (scale param subject)
-  {#.doc "Rev(olution) scale."}
-  (-> Nat Rev Rev)
-  (|> (:coerce Int subject)
-      ("lux i64 *" (:coerce Int param))
-      (:coerce Rev)))
+(template [<operator> <name> <output> <output-type> <documentation>]
+  [(def: #export (<name> param subject)
+     {#.doc <documentation>}
+     (-> Rev Rev <output-type>)
+     (<output> (<operator> (.nat param) (.nat subject))))]
 
-(def: #export (reciprocal numerator)
-  {#.doc "Rev(olution) reciprocal of a Nat(ural)."}
-  (-> Nat Rev)
-  (:coerce Rev
-           (let [[trailing-zeroes remaining] (without-trailing-zeroes 0 numerator)]
-             (//nat./ remaining
-                      ({0 (:coerce Nat -1)
-                        _ ("lux i64 left-shift" (//nat.- trailing-zeroes 64) 1)}
-                       trailing-zeroes)))))
+  [//nat.% % .rev Rev "Rev(olution) remainder."]
+  [//nat./ ratio |> Nat "Ratio between two rev(olution)s."]
+  )
+
+(template [<operator> <name>]
+  [(def: #export (<name> scale subject)
+     (-> Nat Rev Rev)
+     (.rev (<operator> (.nat scale) (.nat subject))))]
+
+  [//nat.* up]
+  [//nat./ down]
+  )
 
 (def: #export (/% param subject)
   (-> Rev Rev [Rev Rev])
   [(../ param subject)
    (..% param subject)])
 
-(def: to-significand
+(def: mantissa
   (-> (I64 Any) Frac)
   (|>> ("lux i64 logical-right-shift" 11)
        "lux i64 f64"))
 
-(def: frac-denominator (to-significand -1))
+(def: frac-denominator
+  (..mantissa -1))
 
 (def: #export frac
   (-> Rev Frac)
-  (|>> to-significand ("lux f64 /" frac-denominator)))
+  (|>> ..mantissa ("lux f64 /" ..frac-denominator)))
 
 (structure: #export equivalence
   (Equivalence Rev)
   
   (def: = ..=))
+
+(structure: #export hash
+  (Hash Rev)
+  
+  (def: &equivalence ..equivalence)
+  (def: hash .nat))
 
 (structure: #export order
   (Order Rev)
@@ -217,9 +236,9 @@
        (Codec Text Rev)
        
        (def: (encode value)
-         (let [raw-output (\ <codec> encode (:coerce Nat value))
-               max-num-chars (//nat.+ (//nat./ <char-bit-size> 64)
-                                      (case (//nat.% <char-bit-size> 64)
+         (let [raw-output (\ <codec> encode (.nat value))
+               max-num-chars (//nat.+ (//nat./ <char-bit-size> //i64.width)
+                                      (case (//nat.% <char-bit-size> //i64.width)
                                         0 0
                                         _ 1))
                raw-size ("lux text size" raw-output)
@@ -240,7 +259,7 @@
                (^ (char "."))
                (case (\ <codec> decode (de-prefix repr))
                  (#try.Success output)
-                 (#try.Success (:coerce Rev output))
+                 (#try.Success (.rev output))
 
                  _
                  <error-output>)
@@ -309,15 +328,15 @@
 (def: (digits::format digits)
   (-> Digits Text)
   (loop [idx (dec //i64.width)
-         all-zeroes? #1
+         all-zeroes? true
          output ""]
     (if (//int.>= +0 (.int idx))
       (let [digit (digits::get idx digits)]
         (if (and (//nat.= 0 digit)
                  all-zeroes?)
-          (recur (dec idx) #1 output)
+          (recur (dec idx) true output)
           (recur (dec idx)
-                 #0
+                 false
                  ("lux text concat"
                   (\ //nat.decimal encode digit)
                   output))))
@@ -392,7 +411,7 @@
   (Codec Text Rev)
   
   (def: (encode input)
-    (case (:coerce Nat input)
+    (case (.nat input)
       0
       ".0"
 
@@ -414,10 +433,10 @@
   (def: (decode input)
     (let [dotted? (case ("lux text index" 0 "." input)
                     (#.Some 0)
-                    #1
+                    true
 
                     _
-                    #0)
+                    false)
           within-limits? (//nat.<= (inc //i64.width)
                                    ("lux text size" input))]
       (if (and dotted? within-limits?)
@@ -434,34 +453,9 @@
                   (recur (digits::-! power digits)
                          (inc idx)
                          (//i64.set (//nat.- idx (dec //i64.width)) output))))
-              (#try.Success (:coerce Rev output))))
+              (#try.Success (.rev output))))
 
           #.None
           (#try.Failure ("lux text concat" "Wrong syntax for Rev: " input)))
         (#try.Failure ("lux text concat" "Wrong syntax for Rev: " input))))
     ))
-
-(structure: #export hash
-  (Hash Rev)
-  
-  (def: &equivalence ..equivalence)
-  (def: hash .nat))
-
-(template [<power> <name>]
-  [(def: #export <name>
-     Rev
-     (.rev (//i64.left-shift (//nat.- <power> 64) 1)))]
-
-  [01 /2]
-  [02 /4]
-  [03 /8]
-  [04 /16]
-  [05 /32]
-  [06 /64]
-  [07 /128]
-  [08 /256]
-  [09 /512]
-  [10 /1024]
-  [11 /2048]
-  [12 /4096]
-  )

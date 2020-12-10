@@ -9,9 +9,7 @@
     [concurrency
      ["." promise (#+ Promise) ("#\." monad)]]
     [security
-     ["!" capability]]
-    [parser
-     [environment (#+ Environment)]]]
+     ["!" capability]]]
    [data
     ["." product]
     ["." maybe]
@@ -24,6 +22,7 @@
     [number
      ["i" int]]]
    [world
+    [program (#+ Program)]
     ["." file (#+ Path)]
     ["." shell (#+ Shell)]
     ["." console (#+ Console)]]]
@@ -108,10 +107,6 @@
        (list.filter (|>> (get@ #///dependency.type) (text\= ///artifact/type.lux-library)))
        (list\map (|>> (get@ #///dependency.artifact) (///local.path fs)))))
 
-(def: #export working-directory
-  (-> Environment (Try Text))
-  (|>> (dictionary.get "user.dir") try.from-maybe))
-
 (def: (singular name)
   (-> Text Text (List Text))
   (|>> (list name)))
@@ -124,8 +119,8 @@
 (def: #export success "[BUILD ENDED]")
 (def: #export failure "[BUILD FAILED]")
 
-(def: #export (do! console environment fs shell resolution profile)
-  (-> (Console Promise) Environment (file.System Promise) (Shell Promise) Resolution (Command [Compiler Path]))
+(def: #export (do! console program fs shell resolution profile)
+  (-> (Console Promise) (Program Promise) (file.System Promise) (Shell Promise) Resolution (Command [Compiler Path]))
   (case [(get@ #///.program profile)
          (get@ #///.target profile)]
     [#.None _]
@@ -134,31 +129,33 @@
     [_ #.None]
     (promise\wrap (exception.throw ..no-specified-target []))
     
-    [(#.Some program) (#.Some target)]
-    (do ///action.monad
-      [[resolution compiler] (promise\wrap (..compiler resolution))
-       working-directory (promise\wrap (..working-directory environment))
-       #let [[command output] (let [[compiler output] (case compiler
-                                                        (#JVM artifact) [(///runtime.java (///local.path fs artifact))
-                                                                         "program.jar"]
-                                                        (#JS artifact) [(///runtime.node (///local.path fs artifact))
-                                                                        "program.js"])]
-                                [(format compiler " build") output])
-             / (\ fs separator)
-             cache-directory (format working-directory / target)]
-       _ (console.write-line ..start console)
-       process (!.use (\ shell execute)
-                      [environment
-                       working-directory
-                       command
-                       (list.concat (list (..plural "--library" (..libraries fs resolution))
-                                          (..plural "--source" (set.to-list (get@ #///.sources profile)))
-                                          (..singular "--target" cache-directory)
-                                          (..singular "--module" program)))])
-       exit (!.use (\ process await) [])
-       _ (console.write-line (if (i.= shell.normal exit)
-                               ..success
-                               ..failure)
-                             console)]
-      (wrap [compiler
-             (format cache-directory / output)]))))
+    [(#.Some program-module) (#.Some target)]
+    (do promise.monad
+      [environment (\ program environment [])
+       working-directory (\ program directory [])]
+      (do ///action.monad
+        [[resolution compiler] (promise\wrap (..compiler resolution))
+         #let [[command output] (let [[compiler output] (case compiler
+                                                          (#JVM artifact) [(///runtime.java (///local.path fs artifact))
+                                                                           "program.jar"]
+                                                          (#JS artifact) [(///runtime.node (///local.path fs artifact))
+                                                                          "program.js"])]
+                                  [(format compiler " build") output])
+               / (\ fs separator)
+               cache-directory (format working-directory / target)]
+         _ (console.write-line ..start console)
+         process (!.use (\ shell execute)
+                        [environment
+                         working-directory
+                         command
+                         (list.concat (list (..plural "--library" (..libraries fs resolution))
+                                            (..plural "--source" (set.to-list (get@ #///.sources profile)))
+                                            (..singular "--target" cache-directory)
+                                            (..singular "--module" program-module)))])
+         exit (!.use (\ process await) [])
+         _ (console.write-line (if (i.= shell.normal exit)
+                                 ..success
+                                 ..failure)
+                               console)]
+        (wrap [compiler
+               (format cache-directory / output)])))))

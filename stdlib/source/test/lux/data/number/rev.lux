@@ -1,6 +1,5 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
    [abstract
     [monad (#+ do)]
@@ -13,41 +12,49 @@
       ["$." monoid]
       ["$." codec]]}]
    [data
-    [number
-     ["." i64]]]
+    ["." bit ("#\." equivalence)]
+    [number (#+ hex)
+     ["n" nat]
+     ["f" frac]
+     ["." i64 ("#\." hash)]]]
    [math
-    ["r" random]]]
+    ["." random]]]
   {1
-   ["." /
-    //]})
+   ["." /]})
+
+(def: signature
+  Test
+  (`` ($_ _.and
+          (_.for [/.equivalence /.=]
+                 ($equivalence.spec /.equivalence random.rev))
+          (_.for [/.order /.<]
+                 ($order.spec /.order random.rev))
+          (_.for [/.enum]
+                 ($enum.spec /.enum random.rev))
+          (_.for [/.interval]
+                 ($interval.spec /.interval random.rev))
+          (~~ (template [<compose> <monoid>]
+                [(_.for [<monoid> <compose>]
+                        ($monoid.spec /.equivalence <monoid> random.rev))]
+
+                [/.+ /.addition]
+
+                [/.min /.minimum]
+                [/.max /.maximum]
+                ))
+          (~~ (template [<codec>]
+                [(_.for [<codec>]
+                        ($codec.spec /.equivalence <codec> random.rev))]
+
+                [/.binary] [/.octal] [/.decimal] [/.hex]
+                ))
+          )))
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /._)))
+  (<| (_.covering /._)
+      (_.for [.Rev])
       (`` ($_ _.and
-              ($equivalence.spec /.equivalence r.rev)
-              ($order.spec /.order r.rev)
-              ($enum.spec /.enum r.rev)
-              ($interval.spec /.interval r.rev)
-              (~~ (template [<monoid>]
-                    [(<| (_.context (%.name (name-of <monoid>)))
-                         ($monoid.spec /.equivalence <monoid> r.rev))]
-
-                    [/.addition] [/.minimum] [/.maximum]
-                    ))
-              (~~ (template [<codec>]
-                    [(<| (_.context (%.name (name-of /.binary)))
-                         ($codec.spec /.equivalence <codec> r.rev))]
-
-                    [/.binary] [/.octal] [/.decimal] [/.hex]
-                    ))
-              (_.test "Alternate notations."
-                      (and (/.= (bin ".11001001")
-                                (bin ".11,00,10,01"))
-                           (/.= (oct ".615243")
-                                (oct ".615,243"))
-                           (/.= (hex ".deadBEEF")
-                                (hex ".dead,BEEF"))))
               (~~ (template [<half> <whole>]
                     [(_.cover [<half>]
                               (/.= <whole>
@@ -66,4 +73,94 @@
                     [/./2048 /./1024]
                     [/./4096 /./2048]
                     ))
+              (do random.monad
+                [sample random.rev]
+                (_.cover [/.-]
+                         (and (/.= .0 (/.- sample sample))
+                              (/.= sample (/.- .0 sample)))))
+              (do {! random.monad}
+                [left random.rev
+                 right random.rev]
+                (_.cover [/.*]
+                         (and (/.< left (/.* left right))
+                              (/.< right (/.* left right)))))
+              (do {! random.monad}
+                [#let [dividend (\ ! map (i64.and (hex "FF"))
+                                   random.rev)
+                       divisor (\ ! map (|>> (i64.and (hex "F"))
+                                             (i64.or (hex "1"))
+                                             (i64.rotate-right 8)
+                                             .rev)
+                                  random.nat)]
+                 dividend dividend
+                 divisor/0 divisor
+                 divisor/1 (random.filter (|>> (/.= divisor/0) not)
+                                          divisor)
+                 scale (\ ! map (|>> (n.% 10) inc)
+                          random.nat)]
+                ($_ _.and
+                    (_.cover [/./]
+                             (bit\= (/.< divisor/0 divisor/1)
+                                    (/.> (/./ divisor/0 dividend) (/./ divisor/1 dividend))))
+                    (_.cover [/.%]
+                             (\ i64.equivalence =
+                                (.i64 (n.% (.nat divisor/0) (.nat dividend)))
+                                (.i64 (/.% divisor/0 dividend))))
+                    (_.cover [/.up /.down]
+                             (let [symmetry!
+                                   (|> dividend
+                                       (/.up scale)
+                                       (/.down scale)
+                                       (/.= dividend))
+
+                                   discrete-division!
+                                   (/.= (/.% (.rev scale) dividend)
+                                        (/.- (|> dividend
+                                                 (/.down scale)
+                                                 (/.up scale))
+                                             dividend))]
+                               (and symmetry!
+                                    discrete-division!)))
+                    (_.cover [/.ratio]
+                             (|> dividend
+                                 (/.up scale)
+                                 (/.ratio dividend)
+                                 (n.= scale)))
+                    ))
+              (do {! random.monad}
+                [dividend random.rev
+                 divisor (random.filter (|>> (/.= .0) not)
+                                        random.rev)]
+                (_.cover [/./%]
+                         (let [[quotient remainder] (/./% divisor dividend)]
+                           (and (/.= (/./ divisor dividend) quotient)
+                                (/.= (/.% divisor dividend) remainder)))))
+              (do random.monad
+                [left random.rev
+                 right random.rev]
+                ($_ _.and
+                    (_.cover [/.>]
+                             (bit\= (/.> left right)
+                                    (/.< right left)))
+                    (_.cover [/.<= /.>=]
+                             (bit\= (/.<= left right)
+                                    (/.>= right left)))
+                    ))
+              (do random.monad
+                [sample random.nat]
+                (_.cover [/.reciprocal]
+                         (/.= (/.reciprocal sample)
+                              (|> sample /.reciprocal .nat /.reciprocal .nat /.reciprocal))))
+              (do {! random.monad}
+                [expected (\ ! map (|>> f.abs (f.% +1.0))
+                             random.safe-frac)]
+                (_.cover [/.frac]
+                         (|> expected f.rev /.frac (f.= expected))))
+              (do random.monad
+                [sample random.rev]
+                (_.cover [/.hash]
+                         (i64\= (i64\hash sample)
+                                (\ /.hash hash sample))))
+
+              ..signature
               ))))
