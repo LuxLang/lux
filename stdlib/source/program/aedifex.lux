@@ -8,8 +8,8 @@
     ["." try (#+ Try) ("#\." functor)]
     ["." exception (#+ exception:)]
     [parser
-     ["." cli (#+ program:)]
-     ["<c>" code]]
+     [environment (#+ Environment)]
+     [cli (#+ program:)]]
     [security
      ["!" capability]]
     [concurrency
@@ -31,9 +31,9 @@
       [lux
        ["." syntax]]]]]
    [world
-    ["." environment (#+ Environment)]
     ["." shell (#+ Shell)]
     ["." console (#+ Console)]
+    ["." program]
     ["." file (#+ Path)
      ["." watch]]]]
   ["." / #_
@@ -71,7 +71,7 @@
         (-> (Console Promise) Environment (file.System Promise) (Shell Promise) Resolution (Command a))
         (Command a)))
   (do promise.monad
-    [environment (promise.future environment.read)]
+    [environment (promise.future (\ program.default environment []))]
     (do /action.monad
       [resolution (/command/deps.do! console (file.async file.default) (..repositories profile) profile)]
       ((command console environment (file.async file.default) (shell.async shell.default) resolution) profile))))
@@ -84,6 +84,20 @@
                                      (format (%.text name) " := " (%.text repo)))
                                    (dictionary.entries options))]))
 
+(def: (command action)
+  (All [a] (-> (Promise (Try a)) (IO Any)))
+  (exec (do promise.monad
+          [outcome action
+           #let [code (case outcome
+                        (#try.Failure error)
+                        (exec (log! error)
+                          shell.normal)
+                        
+                        (#try.Success _)
+                        shell.error)]]
+          (promise.future (\ program.default exit code)))
+    (\ io.monad wrap [])))
+
 (program: [{[profile operation] /cli.command}]
   (do {! io.monad}
     [?console console.default]
@@ -94,15 +108,16 @@
       (#try.Success console)
       (case operation
         #/cli.Version
-        (exec (/command/version.do! console (\ /.monoid identity))
-          (wrap []))
+        (..command
+         (/command/version.do! console (\ /.monoid identity)))
 
         _
         (do !
           [?profile (/input.read io.monad file.default profile)]
           (case ?profile
             (#try.Failure error)
-            (wrap (log! error))
+            (exec (log! error)
+              (\ program.default exit shell.error))
 
             (#try.Success profile)
             (case operation
@@ -110,45 +125,45 @@
               (wrap [])
               
               #/cli.Clean
-              (exec (/command/clean.do! console (file.async file.default) profile)
-                (wrap []))
+              (..command
+               (/command/clean.do! console (file.async file.default) profile))
 
               #/cli.POM
-              (exec (/command/pom.do! console (file.async file.default) profile)
-                (wrap []))
+              (..command
+               (/command/pom.do! console (file.async file.default) profile))
               
               #/cli.Install
-              (exec (/command/install.do! console (file.async file.default) profile)
-                (wrap []))
+              (..command
+               (/command/install.do! console (file.async file.default) profile))
 
               (#/cli.Deploy repository identity)
-              (exec (case [(get@ #/.identity profile)
-                           (dictionary.get repository (get@ #/.deploy-repositories profile))]
-                      [(#.Some artifact) (#.Some repository)]
-                      (/command/deploy.do! console
-                                           (/repository.async (/repository.remote repository))
-                                           (file.async file.default)
-                                           identity
-                                           artifact
-                                           profile)
+              (..command
+               (case [(get@ #/.identity profile)
+                      (dictionary.get repository (get@ #/.deploy-repositories profile))]
+                 [(#.Some artifact) (#.Some repository)]
+                 (/command/deploy.do! console
+                                      (/repository.async (/repository.remote repository))
+                                      (file.async file.default)
+                                      identity
+                                      artifact
+                                      profile)
 
-                      [#.None _]
-                      (promise\wrap (exception.throw /.no-identity []))
+                 [#.None _]
+                 (promise\wrap (exception.throw /.no-identity []))
 
-                      [_ #.None]
-                      (promise\wrap (exception.throw ..cannot-find-repository [repository (get@ #/.deploy-repositories profile)])))
-                (wrap []))
+                 [_ #.None]
+                 (promise\wrap (exception.throw ..cannot-find-repository [repository (get@ #/.deploy-repositories profile)]))))
               
               #/cli.Dependencies
-              (exec (/command/deps.do! console (file.async file.default) (..repositories profile) profile)
-                (wrap []))
+              (..command
+               (/command/deps.do! console (file.async file.default) (..repositories profile) profile))
 
               (#/cli.Compilation compilation)
               (case compilation
-                #/cli.Build (exec (..with-dependencies console /command/build.do! profile)
-                              (wrap []))
-                #/cli.Test (exec (..with-dependencies console /command/test.do! profile)
-                             (wrap [])))
+                #/cli.Build (..command
+                             (..with-dependencies console /command/build.do! profile))
+                #/cli.Test (..command
+                            (..with-dependencies console /command/test.do! profile)))
 
               (#/cli.Auto auto)
               (do !
@@ -158,8 +173,8 @@
                   (wrap (log! error))
                   
                   (#try.Success watcher)
-                  (exec (case auto
-                          #/cli.Build (..with-dependencies console (/command/auto.do! watcher /command/build.do!) profile)
-                          #/cli.Test (..with-dependencies console (/command/auto.do! watcher /command/test.do!) profile))
-                    (wrap [])))))
+                  (..command
+                   (case auto
+                     #/cli.Build (..with-dependencies console (/command/auto.do! watcher /command/build.do!) profile)
+                     #/cli.Test (..with-dependencies console (/command/auto.do! watcher /command/test.do!) profile))))))
             ))))))

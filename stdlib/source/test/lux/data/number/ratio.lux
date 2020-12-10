@@ -1,6 +1,5 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
    [abstract
     [monad (#+ do)]
@@ -11,43 +10,105 @@
       ["$." monoid]
       ["$." codec]]}]
    [data
+    ["." bit ("#\." equivalence)]
+    ["." maybe ("#\." functor)]
     [number
-     ["n" nat]]]
+     ["n" nat ("#\." equivalence)]]]
    [math
-    ["r" random (#+ Random)]]]
+    ["." random (#+ Random)]]]
   {1
-   ["." / (#+ Ratio)]})
+   ["." /]})
 
 (def: part
   (Random Nat)
-  (|> r.nat (\ r.monad map (|>> (n.% 1,000,000) (n.max 1)))))
+  (\ random.monad map
+     (|>> (n.% 1,000,000) (n.max 1))
+     random.nat))
 
-(def: #export ratio
-  (Random Ratio)
-  (do r.monad
+(def: #export random
+  (Random /.Ratio)
+  (do random.monad
     [numerator ..part
-     denominator (r.filter (|>> (n.= 0) not) ..part)]
+     denominator (random.filter (|>> (n.= 0) not)
+                                ..part)]
     (wrap (/.ratio numerator denominator))))
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name-of /._)))
+  (<| (_.covering /._)
+      (_.for [/.Ratio])
       (`` ($_ _.and
-              ($equivalence.spec /.equivalence ..ratio)
-              ($order.spec /.order ..ratio)
-              (~~ (template [<monoid>]
-                    [(<| (_.context (%.name (name-of <monoid>)))
-                         ($monoid.spec /.equivalence <monoid> ..ratio))]
+              (_.for [/.equivalence /.=]
+                     ($equivalence.spec /.equivalence ..random))
+              (_.for [/.order /.<]
+                     ($order.spec /.order ..random))
+              (~~ (template [<compose> <monoid>]
+                    [(_.for [<monoid> <compose>]
+                            ($monoid.spec /.equivalence <monoid> ..random))]
 
-                    [/.addition] [/.multiplication]
+                    [/.+ /.addition]
+                    [/.* /.multiplication]
                     ))
-              ($codec.spec /.equivalence /.codec ..ratio)
+              (_.for [/.codec]
+                     ($codec.spec /.equivalence /.codec ..random))
 
-              (do r.monad
-                [denom0 ..part
-                 denom1 ..part]
-                (_.test "All zeroes are the same."
-                        (let [(^open "/\.") /.equivalence]
-                          (/\= (/.ratio 0 denom0)
-                               (/.ratio 0 denom1)))))
+              (do random.monad
+                [#let [(^open "\.") /.equivalence]
+                 denom/0 ..part
+                 denom/1 ..part]
+                (_.cover [/.ratio]
+                         (\= (/.ratio 0 denom/0)
+                             (/.ratio 0 denom/1))))
+              (do random.monad
+                [numerator ..part
+                 denominator (random.filter (|>> (n\= 1) not)
+                                            ..part)]
+                (_.cover [/.nat]
+                         (and (|> (/.ratio numerator)
+                                  /.nat
+                                  (maybe\map (n\= numerator))
+                                  (maybe.default false))
+                              (|> (/.ratio numerator 1)
+                                  /.nat
+                                  (maybe\map (n\= numerator))
+                                  (maybe.default false))
+                              (case (/.nat (/.ratio numerator denominator))
+                                #.None true
+                                (#.Some _) false))))
+              (do random.monad
+                [sample ..random]
+                ($_ _.and
+                    (_.cover [/.-]
+                             (and (/.= (/.ratio 0) (/.- sample sample))
+                                  (/.= sample (/.- (/.ratio 0) sample))))
+                    (_.cover [/./]
+                             (and (/.= (/.ratio 1) (/./ sample sample))
+                                  (/.= sample (/./ (/.ratio 1) sample))))
+                    (_.cover [/.reciprocal]
+                             (/.= (/.ratio 1)
+                                  (/.* sample (/.reciprocal sample))))
+                    ))
+              (do random.monad
+                [left (random.filter (|>> (/.= (/.ratio 0)) not)
+                                     ..random)
+                 right ..random]
+                (_.cover [/.%]
+                         (let [rem (/.% left right)
+                               div (|> right (/.- rem) (/./ left))]
+                           (and (/.= right
+                                     (|> div (/.* left) (/.+ rem)))
+                                (case (/.nat div)
+                                  (#.Some _) true
+                                  #.None false)))))
+              (do random.monad
+                [left ..random
+                 right ..random]
+                ($_ _.and
+                    (_.cover [/.>]
+                             (bit\= (/.> left right)
+                                    (/.< right left)))
+                    (_.cover [/.<= /.>=]
+                             (bit\= (/.<= left right)
+                                    (/.>= right left)))
+                    ))
               ))))

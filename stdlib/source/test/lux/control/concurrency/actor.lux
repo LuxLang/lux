@@ -57,7 +57,7 @@
            inc! (: (/.Mail Nat) (as-mail inc))
            dec! (: (/.Mail Nat) (as-mail dec))]]
     (<| (_.covering /._)
-        (_.with-cover [/.Actor])
+        (_.for [/.Actor])
         ($_ _.and
             (_.cover [/.alive?]
                      (io.run (do io.monad
@@ -185,7 +185,7 @@
                                            (..mailed? sent/dec?)
                                            (..mailed? poisoned?)
                                            (case obituary
-                                             (^ (#.Some [error final-state (list)]))
+                                             (^ (#.Some [error final-state (list poison-pill)]))
                                              (and (exception.match? /.poisoned error)
                                                   (n.= (inc (inc initial-state))
                                                        final-state))
@@ -194,15 +194,14 @@
                                              false)))))]
                     (_.cover' [/.actor]
                               verdict)))
+            
             (do !
               [num-events (\ ! map (|>> (n.% 10) inc) random.nat)
                events (random.list num-events random.nat)
                num-observations (\ ! map (n.% num-events) random.nat)
                #let [expected (list.take num-observations events)
                      sink (: (Atom (Row Nat))
-                             (atom.atom row.empty))
-                     [signal signal!] (: [(Promise Any) (Resolver Any)]
-                                         (promise.promise []))]]
+                             (atom.atom row.empty))]]
               (wrap (do promise.monad
                       [agent (promise.future
                               (do {! io.monad}
@@ -210,31 +209,18 @@
                                  _ (/.observe (function (_ event stop)
                                                 (function (_ events-seen self)
                                                   (promise.future
-                                                   (cond (n.< num-observations events-seen)
-                                                         (do !
-                                                           [_ (atom.update (row.add event) sink)]
-                                                           (wrap (#try.Success (inc events-seen))))
-                                                         
-                                                         (n.= num-observations events-seen)
-                                                         (do !
-                                                           [_ stop
-                                                            _ (signal! [])]
-                                                           (wrap (#try.Success (inc events-seen))))
-
-                                                         (wrap (#try.Failure "YOLO"))))))
+                                                   (if (n.< num-observations events-seen)
+                                                     (do !
+                                                       [_ (atom.update (row.add event) sink)]
+                                                       (wrap (#try.Success (inc events-seen))))
+                                                     (do !
+                                                       [_ stop]
+                                                       (wrap (#try.Failure "YOLO")))))))
                                               (frp.sequential 0 events)
                                               agent)]
                                 (wrap agent)))
-                       _ signal
-                       actual (promise.future (atom.read sink))
-                       died? (promise.time-out 1,000 (/.await agent))
-                       #let [died? (case died?
-                                     (#.Some _)
-                                     true
-
-                                     #.None
-                                     false)]]
+                       _ (/.await agent)
+                       actual (promise.future (atom.read sink))]
                       (_.cover' [/.observe]
-                                (and (\ (list.equivalence n.equivalence) = expected (row.to-list actual))
-                                     (not died?))))))
+                                (\ (list.equivalence n.equivalence) = expected (row.to-list actual))))))
             ))))

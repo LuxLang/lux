@@ -18,14 +18,5 @@ aedifex() {
 	echo "$(home)/aedifex.jar"
 }
 
-command() {
-	local COMMAND=""
-	while [ $# -gt 0 ]; do
-		COMMAND="$COMMAND $1"
-		shift
-	done
-	echo $COMMAND
-}
-
-java -jar $(aedifex) $(command "$@")
+java -jar $(aedifex) $@
 

@@ -1,6 +1,6 @@
 (.module:
   {#.doc "Rational numbers."}
-  [lux #*
+  [lux (#- nat)
    [abstract
     [equivalence (#+ Equivalence)]
     [order (#+ Order)]
@@ -10,8 +10,8 @@
    [control
     ["." function]
     ["." try]
-    ["p" parser
-     ["s" code (#+ Parser)]]]
+    ["<>" parser
+     ["<.>" code (#+ Parser)]]]
    [data
     ["." product]
     ["." maybe]
@@ -27,12 +27,11 @@
   {#numerator Nat
    #denominator Nat})
 
-(def: (equalize parameter subject)
-  (-> Ratio Ratio [Nat Nat])
-  [(n.* (get@ #denominator subject)
-        (get@ #numerator parameter))
-   (n.* (get@ #denominator parameter)
-        (get@ #numerator subject))])
+(def: #export (nat value)
+  (-> Ratio (Maybe Nat))
+  (case (get@ #denominator value)
+    1 (#.Some (get@ #numerator value))
+    _ #.None))
 
 (def: (normalize (^slots [#numerator #denominator]))
   (-> Ratio Ratio)
@@ -40,20 +39,58 @@
     {#numerator (n./ common numerator)
      #denominator (n./ common denominator)}))
 
-(structure: #export equivalence (Equivalence Ratio)
-  (def: (= parameter subject)
-    (and (n.= (get@ #numerator parameter)
-              (get@ #numerator subject))
-         (n.= (get@ #denominator parameter)
-              (get@ #denominator subject)))))
+(syntax: #export (ratio numerator {?denominator (<>.maybe <code>.any)})
+  {#.doc (doc "Rational literals."
+              (ratio numerator denominator)
+              "The denominator can be omitted if it's 1."
+              (ratio numerator))}
+  (wrap (list (` ((~! ..normalize) {#..numerator (~ numerator)
+                                    #..denominator (~ (maybe.default (' 1)
+                                                                     ?denominator))})))))
 
-(structure: #export order (Order Ratio)
+(def: #export (= parameter subject)
+  (-> Ratio Ratio Bit)
+  (and (n.= (get@ #numerator parameter)
+            (get@ #numerator subject))
+       (n.= (get@ #denominator parameter)
+            (get@ #denominator subject))))
+
+(structure: #export equivalence
+  (Equivalence Ratio)
+  
+  (def: = ..=))
+
+(def: (equalize parameter subject)
+  (-> Ratio Ratio [Nat Nat])
+  [(n.* (get@ #denominator subject)
+        (get@ #numerator parameter))
+   (n.* (get@ #denominator parameter)
+        (get@ #numerator subject))])
+
+(def: #export (< parameter subject)
+  (-> Ratio Ratio Bit)
+  (let [[parameter' subject'] (..equalize parameter subject)]
+    (n.< parameter' subject')))
+
+(def: #export (<= parameter subject)
+  (-> Ratio Ratio Bit)
+  (or (< parameter subject)
+      (= parameter subject)))
+
+(def: #export (> parameter subject)
+  (-> Ratio Ratio Bit)
+  (..< subject parameter))
+
+(def: #export (>= parameter subject)
+  (-> Ratio Ratio Bit)
+  (or (> parameter subject)
+      (= parameter subject)))
+
+(structure: #export order
+  (Order Ratio)
+  
   (def: &equivalence ..equivalence)
-
-  (def: (< parameter subject)
-    (let [[parameter' subject'] (..equalize parameter subject)]
-      (n.< parameter' subject')))
-  )
+  (def: < ..<))
 
 (def: #export (+ parameter subject)
   (-> Ratio Ratio Ratio)
@@ -95,7 +132,9 @@
 
 (def: separator ":")
 
-(structure: #export codec (Codec Text Ratio)
+(structure: #export codec
+  (Codec Text Ratio)
+  
   (def: (encode (^slots [#numerator #denominator]))
     ($_ text\compose (n\encode numerator) ..separator (n\encode denominator)))
 
@@ -111,22 +150,12 @@
       #.None
       (#.Left (text\compose "Invalid syntax for ratio: " input)))))
 
-(syntax: #export (ratio numerator {?denominator (p.maybe s.any)})
-  {#.doc (doc "Rational literals."
-              (ratio numerator denominator)
-              "The denominator can be omitted if it's 1."
-              (ratio numerator))}
-  (wrap (list (` ((~! ..normalize) {#..numerator (~ numerator)
-                                    #..denominator (~ (maybe.default (' 1)
-                                                                     ?denominator))})))))
-
 (template [<identity> <compose> <name>]
   [(structure: #export <name>
      (Monoid Ratio)
 
      (def: identity (..ratio <identity>))
-     (def: compose <compose>)
-     )]
+     (def: compose <compose>))]
   
   [0 ..+ addition]
   [1 ..* multiplication]

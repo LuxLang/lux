@@ -8,13 +8,14 @@
     ["." exception]]
    [data
     ["." text ("#\." equivalence)]
-    ["." name]
+    ["." name ("#\." equivalence)]
     [format
      ["." xml]]
     [number
      ["n" nat]]
     [collection
-     ["." dictionary]]]
+     ["." dictionary]
+     ["." list]]]
    [math
     ["." random (#+ Random)]]
    [macro
@@ -55,7 +56,7 @@
 (def: #export test
   Test
   (<| (_.covering /._)
-      (_.with-cover [/.Parser])
+      (_.for [/.Parser])
       ($_ _.and
           (do {! random.monad}
             [expected (random.ascii/alpha 1)]
@@ -71,6 +72,15 @@
             (_.cover [/.ignore]
                      (|> (/.run /.ignore (#xml.Text expected))
                          (!expect (#try.Success [])))))
+          (do {! random.monad}
+            [expected ..random-tag]
+            (_.cover [/.tag]
+                     (|> (/.run (do //.monad
+                                  [actual /.tag
+                                   _ /.ignore]
+                                  (wrap (name\= expected actual)))
+                                (#xml.Node expected (dictionary.new name.hash) (list)))
+                         (!expect (#try.Success #1)))))
           (do {! random.monad}
             [expected ..random-tag]
             (_.cover [/.node]
@@ -168,4 +178,33 @@
                            [_ (/.node [expected expected])]
                            /.ignore)))
                       (#xml.Text expected)]])
+          (do {! random.monad}
+            [#let [node (: (-> xml.Tag (List xml.XML) xml.XML)
+                           (function (_ tag children)
+                             (#xml.Node tag (dictionary.new name.hash) children)))]
+             parent ..random-tag
+             right ..random-tag
+             wrong (random.filter (|>> (name\= right) not)
+                                  ..random-tag)
+             #let [parser (/.children
+                           (do //.monad
+                             [_ (/.somewhere (/.node right))
+                              _ (//.some /.ignore)]
+                             (wrap [])))]
+             repetitions (\ ! map (n.% 10) random.nat)]
+            ($_ _.and
+                (_.cover [/.somewhere]
+                         (|> (/.run parser
+                                    (node parent
+                                          (list.concat (list (list.repeat repetitions (node wrong (list)))
+                                                             (list (node right (list)))
+                                                             (list.repeat repetitions (node wrong (list)))))))
+                             (!expect (#try.Success []))))
+                (_.cover [/.nowhere]
+                         (|> (/.run parser
+                                    (node parent
+                                          (list.repeat repetitions (node wrong (list)))))
+                             (!expect (^multi (#try.Failure error)
+                                              (exception.match? /.nowhere error)))))
+                ))
           )))
