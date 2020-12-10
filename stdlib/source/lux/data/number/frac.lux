@@ -93,7 +93,7 @@
         +1.0))
 
 (def: min-exponent -1022)
-(def: max-exponent +1023)
+(def: max-exponent (//int.frac +1023))
 
 (template [<name> <test> <doc>]
   [(def: #export (<name> left right)
@@ -150,7 +150,7 @@
 (def: #export biggest
   Frac
   (let [f2^-52 (math.pow (//nat.frac (//nat.- ..mantissa-size 0)) +2.0)
-        f2^+1023 (math.pow (//int.frac ..max-exponent) +2.0)]
+        f2^+1023 (math.pow ..max-exponent +2.0)]
     (|> +2.0
         (..- f2^-52)
         (..* f2^+1023))))
@@ -223,6 +223,72 @@
 (def: exponent-offset ..mantissa-size)
 (def: sign-offset (//nat.+ ..exponent-size ..exponent-offset))
 
+(template [<cast> <hex> <name>]
+  [(def: <name> (|> <hex> (\ //nat.hex decode) try.assume <cast>))]
+
+  [.i64 "FFF8000000000000" not-a-number-bits]
+  [.i64 "7FF0000000000000" positive-infinity-bits]
+  [.i64 "FFF0000000000000" negative-infinity-bits]
+  [.i64 "0000000000000000" positive-zero-bits]
+  [.i64 "8000000000000000" negative-zero-bits]
+  [.nat "7FF"              special-exponent-bits]
+  )
+
+(def: smallest-exponent
+  (..log/2 ..smallest))
+
+(def: #export (to-bits input)
+  (-> Frac I64)
+  (.i64 (cond (..not-a-number? input)
+              ..not-a-number-bits
+
+              (..= positive-infinity input)
+              ..positive-infinity-bits
+
+              (..= negative-infinity input)
+              ..negative-infinity-bits
+
+              (..= +0.0 input)
+              (let [reciprocal (../ input +1.0)]
+                (if (..= positive-infinity reciprocal)
+                  ## Positive zero
+                  ..positive-zero-bits
+                  ## Negative zero
+                  ..negative-zero-bits))
+
+              ## else
+              (let [sign-bit (if (..< -0.0 input)
+                               1
+                               0)
+                    input (..abs input)
+                    exponent (|> input
+                                 ..log/2
+                                 math.floor
+                                 (..min ..max-exponent))
+                    min-gap (..- (//int.frac ..min-exponent) exponent)
+                    power (|> (//nat.frac ..mantissa-size)
+                              (..+ (..min +0.0 min-gap))
+                              (..- exponent))
+                    max-gap (..- ..max-exponent power)
+                    mantissa (|> input
+                                 (..* (math.pow (..min ..max-exponent power) +2.0))
+                                 (..* (if (..> +0.0 max-gap)
+                                        (math.pow max-gap +2.0)
+                                        +1.0)))
+                    exponent-bits (|> (if (..< +0.0 min-gap)
+                                        (|> (..int exponent)
+                                            (//int.- (..int min-gap))
+                                            dec)
+                                        (..int exponent))
+                                      (//int.+ (.int ..double-bias))
+                                      (//i64.and ..exponent-mask))
+                    mantissa-bits (..int mantissa)]
+                ($_ //i64.or
+                    (//i64.left-shift ..sign-offset sign-bit)
+                    (//i64.left-shift ..exponent-offset exponent-bits)
+                    (//i64.clear ..mantissa-size mantissa-bits)))
+              )))
+
 (template [<getter> <size> <offset>]
   [(def: <getter>
      (-> (I64 Any) I64)
@@ -234,102 +300,44 @@
   [sign     1               ..sign-offset]
   )
 
-(template [<hex> <name>]
-  [(def: <name> (|> <hex> (\ //nat.hex decode) try.assume .i64))]
-
-  ["7FF7FFFFFFFFFFFF" not-a-number-bits]
-  ["7FF0000000000000" positive-infinity-bits]
-  ["FFF0000000000000" negative-infinity-bits]
-  ["0000000000000000" positive-zero-bits]
-  ["8000000000000000" negative-zero-bits]
-  ["7FF"              special-exponent-bits]
-  )
-
-(def: normal
-  (math.pow (//nat.frac ..mantissa-size) +2.0))
-
-(def: smallest-exponent
-  (..log/2 ..smallest))
-
-(def: #export (to-bits input)
-  (-> Frac I64)
-  (i64 (cond (not-a-number? input)
-             ..not-a-number-bits
-
-             (..= positive-infinity input)
-             ..positive-infinity-bits
-
-             (..= negative-infinity input)
-             ..negative-infinity-bits
-
-             (..= +0.0 input)
-             (let [reciprocal (../ input +1.0)]
-               (if (..= positive-infinity reciprocal)
-                 ## Positive zero
-                 ..positive-zero-bits
-                 ## Negative zero
-                 ..negative-zero-bits))
-
-             ## else
-             (let [sign-bit (if (..= -1.0 (..signum input))
-                              1
-                              0)
-                   input (..abs input)
-                   exponent (|> (math.floor (..log/2 input))
-                                (..min (//int.frac ..max-exponent)))
-                   tiny? (..= ..smallest-exponent exponent)
-                   mantissa (..* (math.pow (if tiny?
-                                             (|> exponent ..abs (..- (//nat.frac ..mantissa-size)))
-                                             (..- exponent (//nat.frac ..mantissa-size)))
-                                           +2.0)
-                                 input)
-                   exponent-bits (|> (if tiny?
-                                       (|> (..int exponent)
-                                           (//int.+ (.int ..mantissa-size))
-                                           dec)
-                                       (..int exponent))
-                                     (//int.+ (.int ..double-bias))
-                                     (//i64.and ..exponent-mask))
-                   mantissa-bits (if tiny?
-                                   (|> mantissa (..* ..normal) ..int .nat)
-                                   (|> mantissa ..int .nat))]
-               ($_ //i64.or
-                   (//i64.left-shift ..sign-offset sign-bit)
-                   (//i64.left-shift ..exponent-offset exponent-bits)
-                   (//i64.clear ..mantissa-size mantissa-bits)))
-             )))
-
 (def: #export (from-bits input)
   (-> I64 Frac)
-  (let [S (..sign input)
-        positive? (//nat.= 0 S)
-        E (..exponent input)
-        M (..mantissa input)]
-    (cond (//nat.= ..special-exponent-bits E)
-          (if (//nat.= 0 M)
-            (if positive?
-              ..positive-infinity
-              ..negative-infinity)
-            ..not-a-number)
+  (case [(: Nat (..exponent input))
+         (: Nat (..mantissa input))
+         (: Nat (..sign input))]
+    (^ [(static ..special-exponent-bits) 0 0])
+    ..positive-infinity
 
-          (and (//nat.= 0 E) (//nat.= 0 M))
-          (if positive?
-            +0.0
-            (..* -1.0 +0.0))
+    (^ [(static ..special-exponent-bits) 0 1])
+    ..negative-infinity
 
-          ## else
-          (let [numerator (|> M (//i64.set ..mantissa-size)
-                              .int (//int.* (if positive?
-                                              +1
-                                              -1)))
-                denominator ..normal
-                power (math.pow (//int.frac (if (//nat.= 0 (.nat E))
-                                              (|> E (//nat.- ..double-bias) (//nat.- ..mantissa-size) inc .int)
-                                              (|> E (//nat.- ..double-bias) .int)))
-                                +2.0)]
-            (|> (//int.frac numerator)
-                (../ denominator)
-                (..* power))))))
+    (^ [(static ..special-exponent-bits) _ _])
+    ..not-a-number
+
+    ## Positive zero
+    [0 0 0] +0.0
+    ## Negative zero
+    [0 0 1] (..* -1.0 +0.0)
+
+    [E M S]
+    (let [sign (if (//nat.= 0 S)
+                 +1.0
+                 -1.0)
+          [mantissa power] (if (//nat.< ..mantissa-size E)
+                             [(if (//nat.= 0 E)
+                                M
+                                (//i64.set ..mantissa-size M))
+                              (|> E
+                                  (//nat.- ..double-bias)
+                                  .int
+                                  (//int.max ..min-exponent)
+                                  (//int.- (.int ..mantissa-size)))]
+                             [(//i64.set ..mantissa-size M)
+                              (|> E (//nat.- ..double-bias) (//nat.- ..mantissa-size) .int)])
+          exponent (math.pow (//int.frac power) +2.0)]
+      (|> (//nat.frac mantissa)
+          (..* exponent)
+          (..* sign)))))
 
 (def: (split-exponent codec representation)
   (-> (Codec Text Nat) Text (Try [Text Int]))
@@ -420,8 +428,10 @@
 
 (def: #export (mod divisor dividend)
   (All [m] (-> Frac Frac Frac))
-  (if (..= (..signum divisor) (..signum dividend))
-    (..% divisor dividend)
-    (case (..% divisor dividend)
-      +0.0 +0.0
-      rem (..+ divisor rem))))
+  (let [remainder (..% divisor dividend)]
+    (if (or (and (..< +0.0 divisor)
+                 (..> +0.0 remainder))
+            (and (..> +0.0 divisor)
+                 (..< +0.0 remainder)))
+      (..+ divisor remainder)
+      remainder)))

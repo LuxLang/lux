@@ -250,8 +250,8 @@
          (wrap (<plus> x xs)))
        (\ ..monad wrap <zero>)))]
 
-  [list     List   (.list)      #.Cons]
-  [row Row row.empty row.add]
+  [list List (.list)   #.Cons]
+  [row  Row  row.empty row.add]
   )
 
 (template [<name> <type> <ctor>]
@@ -338,21 +338,27 @@
   (All [a] (-> PRNG (Random a) [PRNG a]))
   (calc prng))
 
-(def: pcg-32-magic Nat 6364136223846793005)
+(def: #export (prng update return)
+  (All [a] (-> (-> a a) (-> a I64) (-> a PRNG)))
+  (function (recur state)
+    (function (_ _)
+      [(recur (update state))
+       (return state)])))
 
 (def: #export (pcg-32 [increase seed])
   {#.doc (doc "An implementation of the PCG32 algorithm."
               "For more information, please see: http://www.pcg-random.org/")}
   (-> [(I64 Any) (I64 Any)] PRNG)
-  (function (_ _)
-    [(|> seed .nat (n.* ..pcg-32-magic) ("lux i64 +" increase) [increase] pcg-32)
-     (let [rot (|> seed .i64 (i64.logic-right-shift 59))]
-       (|> seed
-           (i64.logic-right-shift 18)
-           (i64.xor seed)
-           (i64.logic-right-shift 27)
-           (i64.rotate-right rot)
-           .i64))]))
+  (let [magic 6364136223846793005]
+    (function (_ _)
+      [(|> seed .nat (n.* magic) ("lux i64 +" increase) [increase] pcg-32)
+       (let [rot (|> seed .i64 (i64.logic-right-shift 59))]
+         (|> seed
+             (i64.logic-right-shift 18)
+             (i64.xor seed)
+             (i64.logic-right-shift 27)
+             (i64.rotate-right rot)
+             .i64))])))
 
 (def: #export (xoroshiro-128+ [s0 s1])
   {#.doc (doc "An implementation of the Xoroshiro128+ algorithm."
@@ -366,3 +372,22 @@
                             (i64.xor (i64.left-shift 14 s01)))
                         (i64.rotate-left 36 s01)]))
      ("lux i64 +" s0 s1)]))
+
+## https://en.wikipedia.org/wiki/Xorshift#Initialization
+## http://xorshift.di.unimi.it/splitmix64.c
+(def: #export split-mix-64
+  {#.doc (doc "An implementation of the SplitMix64 algorithm.")}
+  (-> Nat PRNG)
+  (let [twist (: (-> Nat Nat Nat)
+                 (function (_ shift value)
+                   (i64.xor (i64.logic-right-shift shift value) value)))
+        mix n.*]
+    (..prng (n.+ (hex "9E,37,79,B9,7F,4A,7C,15"))
+            (|>> (twist 30)
+                 (mix (hex "BF,58,47,6D,1C,E4,E5,B9"))
+
+                 (twist 27)
+                 (mix (hex "94,D0,49,BB,13,31,11,EB"))
+
+                 (twist 31)
+                 .i64))))

@@ -1,0 +1,128 @@
+(.module:
+  [lux #*
+   ["@" target]
+   [host (#+ import:)]
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["." function]
+    ["." io (#+ IO)]
+    [concurrency
+     ["." atom]
+     ["." promise (#+ Promise)]]
+    [parser
+     [environment (#+ Environment)]]]
+   [data
+    ["." maybe]
+    ["." text
+     ["%" format (#+ format)]]
+    [collection
+     ["." dictionary (#+ Dictionary)]]]]
+  [//
+   [file (#+ Path)]
+   [shell (#+ Exit)]])
+
+(signature: #export (Program !)
+  (: (-> Any (! Environment))
+     environment)
+  (: (-> Any (! Path))
+     directory)
+  (: (-> Exit (! Nothing))
+     exit))
+
+(def: #export (async program)
+  (-> (Program IO) (Program Promise))
+  (structure
+   (def: environment
+     (|>> (\ program environment) promise.future))
+   (def: directory
+     (|>> (\ program directory) promise.future))
+   (def: exit
+     (|>> (\ program exit) promise.future))))
+
+(def: #export (mock environment directory)
+  (-> Environment Path (Program IO))
+  (let [@dead? (atom.atom false)]
+    (structure
+     (def: environment
+       (function.constant (io.io environment)))
+     (def: directory
+       (function.constant (io.io directory)))
+     (def: (exit code)
+       (io.io (error! (%.int code)))))))
+
+## Do not trust the values of environment variables
+## https://wiki.sei.cmu.edu/confluence/display/java/ENV02-J.+Do+not+trust+the+values+of+environment+variables
+
+(with-expansions [<jvm> (as-is (import: java/lang/String)
+
+                               (import: (java/util/Map$Entry k v)
+                                 ["#::."
+                                  (getKey [] k)
+                                  (getValue [] v)])
+
+                               (import: (java/util/Iterator a)
+                                 ["#::."
+                                  (hasNext [] boolean)
+                                  (next [] a)])
+
+                               (import: (java/util/Set a)
+                                 ["#::."
+                                  (iterator [] (java/util/Iterator a))])
+
+                               (import: (java/util/Map k v)
+                                 ["#::."
+                                  (entrySet [] (java/util/Set (java/util/Map$Entry k v)))])
+
+                               (import: java/lang/System
+                                 ["#::."
+                                  (#static getenv [] (java/util/Map java/lang/String java/lang/String))
+                                  (#static exit [int] #io void)])
+
+                               (def: (jvm\\consume f iterator)
+                                 (All [a b] (-> (-> a b) (java/util/Iterator a) (List b)))
+                                 (if (java/util/Iterator::hasNext iterator)
+                                   (#.Cons (f (java/util/Iterator::next iterator))
+                                           (jvm\\consume f iterator))
+                                   #.Nil))
+
+                               (def: (jvm\\to-kv entry)
+                                 (All [k v] (-> (java/util/Map$Entry k v) [k v]))
+                                 [(java/util/Map$Entry::getKey entry)
+                                  (java/util/Map$Entry::getValue entry)])
+
+                               (def: jvm\\environment
+                                 (IO Environment)
+                                 (with-expansions [<jvm> (as-is (io.io (|> (java/lang/System::getenv)
+                                                                           java/util/Map::entrySet
+                                                                           java/util/Set::iterator
+                                                                           (..jvm\\consume ..jvm\\to-kv)
+                                                                           (dictionary.from-list text.hash))))]
+                                   (for {@.old <jvm>
+                                         @.jvm <jvm>})))
+                               )]
+  (for {@.old (as-is <jvm>)
+        @.jvm (as-is <jvm>)}))
+
+(structure: #export default
+  (Program IO)
+
+  (def: (environment _)
+    (with-expansions [<jvm> ..jvm\\environment]
+      (for {@.old <jvm>
+            @.jvm <jvm>})))
+  
+  (def: (directory _)
+    (with-expansions [<jvm> (\ io.monad map
+                               (|>> (dictionary.get "user.dir")
+                                    (maybe.default ""))
+                               ..jvm\\environment)]
+      (for {@.old <jvm>
+            @.jvm <jvm>})))
+  
+  (def: (exit code)
+    (with-expansions [<jvm> (do io.monad
+                              [_ (java/lang/System::exit code)]
+                              (wrap (undefined)))]
+      (for {@.old <jvm>
+            @.jvm <jvm>}))))

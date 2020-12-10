@@ -13,12 +13,16 @@
 
 (.module:
   [lux #*
+   [host (#+ import:)]
    [abstract
     [monad (#+ do)]]
    [control
     [remember (#+ to-do)]
+    ["." io (#+ IO) ("#\." monad)]
     ["." try (#+ Try)]
-    ["." parser]
+    ["." parser
+     ["." cli (#+ program:)]
+     ["<.>" json]]
     [security
      ["!" capability]]]
    [data
@@ -28,21 +32,19 @@
      ["." encoding]]
     [format
      ["." json]]]
-   ["." cli (#+ program:)]
-   ["." io (#+ IO) ("#\." monad)]
    [world
-    ["." file (#+ Path File)]]
-   [host (#+ import:)]]
+    ["." file (#+ Path File)]]]
   ["." / #_
    ["#." input]
    ["#." output]])
 
-(with-expansions [<expiry> "2019-04-01"]
+(with-expansions [<expiry> "2021-04-01"]
   (to-do <expiry> "Replace _.work with _.covered-work or _.licensed-work")
   (to-do <expiry> "Create a short notice to add as a comment to each file in the _.work"))
 
 (import: java/lang/String
-  (trim [] java/lang/String))
+  ["#::."
+   (trim [] java/lang/String)])
 
 (def: default-output-file "LICENSE")
 
@@ -57,23 +59,24 @@
   (do io.monad
     [?done (: (IO (Try Any))
               (do (try.with io.monad)
-                [file (!.use (\ file.default file) input)
+                [file (!.use (\ file.default file) [input])
                  blob (!.use (\ file content) [])
-                 document (io\wrap (do try.monad
+                 document (io\wrap (do {! try.monad}
                                      [raw-json (encoding.from-utf8 blob)
                                       json (|> raw-json
                                                (:coerce java/lang/String)
                                                java/lang/String::trim
                                                (:coerce Text)
-                                               (\ json.codec decode))
-                                      license (json.run json /input.license)]
-                                     (wrap (/output.license license))))
+                                               (\ json.codec decode))]
+                                     (|> json
+                                         (<json>.run /input.license)
+                                         (\ ! map /output.license))))
                  output-file (: (IO (Try (File IO)))
                                 (file.get-file io.monad file.default output))]
                 (!.use (\ output-file over-write) (encoding.to-utf8 document))))]
-    (case ?done
-      (#try.Success _)
-      (wrap (log! (success-message output)))
+    (wrap (log! (case ?done
+                  (#try.Success _)
+                  (success-message output)
 
-      (#try.Failure message)
-      (wrap (log! message)))))
+                  (#try.Failure message)
+                  message)))))

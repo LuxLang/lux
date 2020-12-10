@@ -210,7 +210,6 @@
 
   analyse-io-log    &type/Text &type/Any    ["io" "log"]
   analyse-io-error  &type/Text &type/Nothing ["io" "error"]
-  analyse-io-exit   &type/Int  &type/Nothing ["io" "exit"]
   )
 
 (defn- analyse-io-current-time [analyse exo-type ?values]
@@ -250,7 +249,6 @@
 
          "lux io log"                  (analyse-io-log analyse exo-type ?values)
          "lux io error"                (analyse-io-error analyse exo-type ?values)
-         "lux io exit"                 (analyse-io-exit analyse exo-type ?values)
          "lux io current-time"         (analyse-io-current-time analyse exo-type ?values)
          
          "lux text ="                    (analyse-text-eq analyse exo-type ?values)

@@ -106,11 +106,13 @@
 
 (def: #export (mod divisor dividend)
   (All [m] (-> Int Int Int))
-  (if (..= (..signum divisor) (..signum dividend))
-    (..% divisor dividend)
-    (case (..% divisor dividend)
-      +0 +0
-      rem (..+ divisor rem))))
+  (let [remainder (..% divisor dividend)]
+    (if (or (and (..< +0 divisor)
+                 (..> +0 remainder))
+            (and (..> +0 divisor)
+                 (..< +0 remainder)))
+      (..+ divisor remainder)
+      remainder)))
 
 (def: #export even?
   (-> Int Bit)
@@ -190,70 +192,39 @@
 (def: -sign "-")
 (def: +sign "+")
 
-(def: (sign!! value)
-  (-> Int Text)
-  (if (..< +0 value)
-    ..-sign
-    ..+sign))
-
-(def: (sign?? representation)
-  (-> Text (Maybe Int))
-  (`` (case ("lux text char" 0 representation)
-        (^ (char (~~ (static ..-sign))))
-        (#.Some -1)
-
-        (^ (char (~~ (static ..+sign))))
-        (#.Some +1)
-
-        _
-        #.None)))
-
-(def: (int-decode-loop input-size repr sign <base> <to-value> <error>)
-  (-> Nat Text Int Int (-> Char (Maybe Nat)) Text (Try Int))
-  (loop [idx 1
-         output +0]
-    (if (//nat.< input-size idx)
-      (case (<to-value> ("lux text char" idx repr))
-        #.None
-        (#try.Failure <error>)
-
-        (#.Some digit-value)
-        (recur (inc idx)
-               (|> output (..* <base>) (..+ (.int digit-value)))))
-      (#try.Success (..* sign output)))))
-
-(template [<base> <struct> <to-character> <to-value> <error>]
+(template [<struct> <codec> <error>]
   [(structure: #export <struct>
      (Codec Text Int)
      
      (def: (encode value)
-       (if (..= +0 value)
-         "+0"
-         (loop [input (|> value (../ <base>) ..abs)
-                output (|> value (..% <base>) ..abs .nat
-                           <to-character>
-                           maybe.assume)]
-           (if (..= +0 input)
-             ("lux text concat" (sign!! value) output)
-             (let [digit (maybe.assume (<to-character> (.nat (..% <base> input))))]
-               (recur (../ <base> input)
-                      ("lux text concat" digit output)))))))
+       (if (..< +0 value)
+         (|> value inc ..negate .nat inc (\ <codec> encode) ("lux text concat" ..-sign))
+         (|> value .nat (\ <codec> encode) ("lux text concat" ..+sign))))
 
      (def: (decode repr)
        (let [input-size ("lux text size" repr)]
          (if (//nat.> 1 input-size)
-           (case (sign?? repr)
-             (#.Some sign)
-             (int-decode-loop input-size repr sign <base> <to-value> <error>)
-
-             #.None
+           (case ("lux text clip" 0 1 repr)
+             (^ (static ..+sign))
+             (|> repr
+                 ("lux text clip" 1 input-size)
+                 (\ <codec> decode)
+                 (\ try.functor map .int))
+             
+             (^ (static ..-sign))
+             (|> repr
+                 ("lux text clip" 1 input-size)
+                 (\ <codec> decode)
+                 (\ try.functor map (|>> dec .int ..negate dec)))
+             
+             _
              (#try.Failure <error>))
            (#try.Failure <error>)))))]
 
-  [+02 binary  //nat.binary-character      //nat.binary-value      "Invalid binary syntax for Int: "]
-  [+08 octal   //nat.octal-character       //nat.octal-value       "Invalid octal syntax for Int: "]
-  [+10 decimal //nat.decimal-character     //nat.decimal-value     "Invalid syntax for Int: "]
-  [+16 hex     //nat.hexadecimal-character //nat.hexadecimal-value "Invalid hexadecimal syntax for Int: "]
+  [binary  //nat.binary  "Invalid binary syntax for Int: "]
+  [octal   //nat.octal   "Invalid octal syntax for Int: "]
+  [decimal //nat.decimal "Invalid syntax for Int: "]
+  [hex     //nat.hex     "Invalid hexadecimal syntax for Int: "]
   )
 
 (structure: #export hash

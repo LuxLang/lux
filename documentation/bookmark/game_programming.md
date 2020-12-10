@@ -1,3 +1,7 @@
+# Random Number Generation
+
+1. [Andrew Clifton - Don't generate, hash! (Or, how I learned to stop worrying and love SplitMix64)](https://www.youtube.com/watch?v=e4b--cyXEsM)
+
 # Board game
 
 1. [Ludology](https://ludology.libsyn.com/)
@@ -210,7 +214,6 @@
 # NPC artificial intelligence
 
 1. [Mark R Johnson - Speech Generation in a Procedurally Generated World](https://www.youtube.com/watch?v=qh9vyoMviJI)
-1. [Jim Shepard - Blooming on the Battlefield: Relationships, Rivals, and Romance in Gameplay](https://www.youtube.com/watch?v=LKCRim02opc)
 1. [Max Kreminski - Designing AI systems to support player storytelling](https://www.youtube.com/watch?v=BDcZSWHu8RQ)
 1. https://en.wikipedia.org/wiki/Monte_Carlo_tree_search
 1. http://www.roguelikeradio.com/2018/02/episode-144-ai.html
@@ -240,6 +243,9 @@
 
 # Design
 
+1. [Lee Tusman - Lower Dimensional Dungeons](https://www.youtube.com/watch?v=-e4gF_SKWPk)
+1. [droqen - The roguelike spirit without procedural generation](https://www.youtube.com/watch?v=6Whz8bvjAKo)
+1. [Darren Grey - What Is A *Rogue* Like?](https://www.youtube.com/watch?v=C2sm-z7Ag4U)
 1. [Benjamin Berman - Tips, Tricks and History for Card Game Roguelike Design](https://www.youtube.com/watch?v=DT9_7sW5knY)
 1. [WIRED by Design: A Game Designer Explains the Counterintuitive Secret to Fun](https://www.youtube.com/watch?v=78rPt0RsosQ)
 1. [How to Add Literally Infinite Features into Minecraft (with one update)](https://www.youtube.com/watch?v=CS5DQVSp058)
@@ -486,4 +492,39 @@
 # Planning
 
 1. https://github.com/adnzzzzZ/blog/issues/47
+
+---
+
+# Mechanics
+
+## Vision
+
+1. [Albert Ford - Vision Visualized](https://www.youtube.com/watch?v=y1zkrTcNJbc)
+
+## Difficulty
+
+1. [Rosalind Miles Chapman - Hungry Rogues: The evolution of roguelike hunger mechanics](https://www.youtube.com/watch?v=j9ykOdQRUQk)
+
+## Progression
+
+1. [Dustin Freeman - Procedurally Generating Technology Trees](https://www.youtube.com/watch?v=8HDmpu7Kp-A)
+
+## Multiplayer
+
+1. [Tyriq Plummer - YASDery Loves Company: Multiplayer in Traditional Roguelikes](https://www.youtube.com/watch?v=neuJCYmbAG8)
+
+## Flavor
+
+## Story
+
+1. [Aaron A Reed - Cadences, Lacunae, and Subcutaneans: Ten Years of Procedural Novels](https://www.youtube.com/watch?v=x0Xh4oCX9t0)
+
+### Economy
+
+1. [Mark Gritter - Procedurally Generating Economies with Graph Grammars (and Math)](https://www.youtube.com/watch?v=Q_MFTUYnaf0)
+1. [emojiconomy](https://github.com/mgritter/emojiconomy)
+
+### Relationship
+
+1. [Jim Shepard - Blooming on the Battlefield: Relationships, Rivals, and Romance in Gameplay](https://www.youtube.com/watch?v=LKCRim02opc)
 

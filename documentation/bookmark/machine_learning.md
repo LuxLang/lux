@@ -30,6 +30,7 @@
 
 # Deep learning
 
+1. [GAME2020 4. Dr. Vincent Nozick Geometric Neurons](https://www.youtube.com/watch?v=KC3c_Mdj1dk)
 1. [Evolution Strategies](https://lilianweng.github.io/lil-log/2019/09/05/evolution-strategies.html)
 1. [Monadic Deep Learning: Performing monadic automatic differentiation in parallel](https://deeplearning.thoughtworks.school/assets/paper.pdf)
 1. [Demystifying Differentiable Programming: Shift/Reset the Penultimate Backpropagator](https://arxiv.org/abs/1803.10228)

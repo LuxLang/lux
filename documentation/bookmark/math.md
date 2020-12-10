@@ -174,13 +174,19 @@
 
 # Geometric Algebra | Clifford Algebra
 
+1. [Siggraph2019 Geometric Algebra](https://www.youtube.com/watch?v=tX4H_ctggYo)
+1. [Dr Leo Dorst' Keynote talk at CGI2020](https://www.youtube.com/watch?v=T7xVTBpHMjA)
+1. [GAME2020 0. Steven De Keninck. Dual Quaternions Demystified](https://www.youtube.com/watch?v=ichOiuBoBoQ)
+1. [GAME2020 - 1. Dr. Leo Dorst. Get Real!](https://www.youtube.com/watch?v=0fF2xToQmgs)
+1. [GAME2020 3. Professor Anthony Lasenby. A new language for physics.](https://www.youtube.com/watch?v=x7eLEtmq6PY)
+1. [HestenesJMM2019](https://www.youtube.com/watch?v=zsQQ7djCg_Y)
+1. http://geocalc.clas.asu.edu/
 1. [Geometric Algebra](https://arxiv.org/abs/1205.5935)
 1. [A Swift Introduction to Geometric Algebra](https://www.youtube.com/watch?v=60z_hpEAtD8)
 1. [Euclidean Geometry and Geometric Algebra](http://geometry.mrao.cam.ac.uk/2020/06/euclidean-geometry-and-geometric-algebra/)
 1. [Plane-based Geometric Algebra for Computer Science](https://bivector.net/PGA4CS.html)
 1. [Differential geometric algebra foundations: Grassmann.jl Ascend](https://www.youtube.com/watch?v=7hlDRLEhc8o&feature=youtu.be)
 1. [Projective Geometric Algebra Done Right](http://terathon.com/blog/projective-geometric-algebra-done-right/)
-1. [Siggraph2019 Geometric Algebra](https://www.youtube.com/watch?v=tX4H_ctggYo)
 1. [Introduction to Clifford Algebra](https://www.av8n.com/physics/clifford-intro.htm)
 1. [An Introduction to Geometric Algebra over R^2](https://bitworking.org/news/ga/2d)
 1. [Exterior Product](https://medium.com/@marksaroufim/exterior-product-ecd5836c28ab)
@@ -257,6 +263,7 @@
 
 # Division by Zero
 
+1. [29. Dividing by zero to invert matrices](https://graphicallinearalgebra.net/2016/06/22/29-inverting-matrices-and-dividing-by-zero/)
 1. https://www.hillelwayne.com/post/divide-by-zero/
 1. https://www.1dividedby0.com/
 

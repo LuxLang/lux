@@ -103,13 +103,13 @@ cd ~/lux/lux-lein/ && lein install
 ## Build
 
 ```
-cd ~/lux/stdlib/ && lein with-profile licentia lux auto build
+cd ~/lux/stdlib/ && lein clean && lein with-profile licentia lux auto build
 ```
 
 ## Test
 
 ```
-cd ~/lux/stdlib/ && lein with-profile licentia lux auto test
+cd ~/lux/stdlib/ && lein clean && lein with-profile licentia lux auto test
 ```
 
 ## Run

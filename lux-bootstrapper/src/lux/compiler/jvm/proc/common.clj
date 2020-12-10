@@ -337,17 +337,6 @@
                   (.visitInsn Opcodes/ATHROW))]]
     (return nil)))
 
-(defn ^:private compile-io-exit [compile ?values special-args]
-  (|do [:let [(&/$Cons ?code (&/$Nil)) ?values]
-        ^MethodVisitor *writer* &/get-writer
-        _ (compile ?code)
-        :let [_ (doto *writer*
-                  &&/unwrap-long
-                  (.visitInsn Opcodes/L2I)
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "java/lang/System" "exit" "(I)V")
-                  (.visitInsn Opcodes/ACONST_NULL))]]
-    (return nil)))
-
 (defn ^:private compile-io-current-time [compile ?values special-args]
   (|do [:let [(&/$Nil) ?values]
         ^MethodVisitor *writer* &/get-writer
@@ -408,7 +397,6 @@
     (case proc
       "log"                  (compile-io-log compile ?values special-args)
       "error"                (compile-io-error compile ?values special-args)
-      "exit"                 (compile-io-exit compile ?values special-args)
       "current-time"         (compile-io-current-time compile ?values special-args)
       )
 
