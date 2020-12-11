@@ -9,7 +9,9 @@
     [concurrency
      ["." promise (#+ Promise)]]
     [security
-     ["!" capability]]]
+     ["!" capability]]
+    [parser
+     ["." environment (#+ Environment)]]]
    [data
     ["." maybe]
     ["." binary]
@@ -23,7 +25,8 @@
    [math
     ["." random (#+ Random)]]
    [world
-    ["." file (#+ Path File)]]]
+    ["." file (#+ Path File)]
+    ["." program (#+ Program)]]]
   [//
    ["@." version]
    [//
@@ -58,15 +61,17 @@
               (file.get-file promise.monad fs (format head (\ fs separator) head ".lux")))]
         (recur tail)))))
 
-(def: (execute! fs sample)
-  (-> (file.System Promise) ///.Profile (Promise (Try Text)))
-  (do ///action.monad
-    [#let [console (@version.echo "")]
-     _ (..make-sources! fs (get@ #///.sources sample))
-     _ (: (Promise (Try Path))
-          (file.make-directories promise.monad fs (///local.repository fs)))
-     _ (/.do! console fs sample)]
-    (!.use (\ console read-line) [])))
+(def: (execute! program fs sample)
+  (-> (Program Promise) (file.System Promise) ///.Profile (Promise (Try Text)))
+  (do promise.monad
+    [home (\ program home [])]
+    (do ///action.monad
+      [#let [console (@version.echo "")]
+       _ (..make-sources! fs (get@ #///.sources sample))
+       _ (: (Promise (Try Path))
+            (file.make-directories promise.monad fs (///local.repository fs home)))
+       _ (/.do! program console fs sample)]
+      (!.use (\ console read-line) []))))
 
 (def: #export test
   Test
@@ -74,13 +79,16 @@
       (do {! random.monad}
         [identity @artifact.random
          sample (\ ! map (set@ #///.identity (#.Some identity))
-                   @profile.random)]
+                   @profile.random)
+         home (random.ascii/alpha 5)
+         working-directory (random.ascii/alpha 5)]
         ($_ _.and
             (wrap (do {! promise.monad}
-                    [#let [fs (file.mock (\ file.default separator))]
+                    [#let [fs (file.mock (\ file.default separator))
+                           program (program.async (program.mock environment.empty home working-directory))]
                      verdict (do ///action.monad
-                               [logging (..execute! fs sample)
-                                #let [artifact-path (format (///local.path fs identity)
+                               [logging (..execute! program fs sample)
+                                #let [artifact-path (format (///local.path fs home identity)
                                                             (\ fs separator)
                                                             (///artifact.identity identity))
                                       library-path (format artifact-path ///artifact/extension.lux-library)
@@ -98,8 +106,9 @@
                     (_.cover' [/.do!]
                               (try.default false verdict))))
             (wrap (do {! promise.monad}
-                    [#let [fs (file.mock (\ file.default separator))]
-                     logging (..execute! fs (set@ #///.identity #.None sample))]
+                    [#let [fs (file.mock (\ file.default separator))
+                           program (program.async (program.mock environment.empty home working-directory))]
+                     logging (..execute! program fs (set@ #///.identity #.None sample))]
                     (_.cover' [/.failure]
                               (|> logging
                                   (try\map (text\= /.failure))

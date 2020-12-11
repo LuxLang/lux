@@ -9,7 +9,9 @@
     [concurrency
      ["." promise (#+ Promise)]]
     [security
-     ["!" capability]]]
+     ["!" capability]]
+    [parser
+     ["." environment (#+ Environment)]]]
    [data
     ["." maybe]
     ["." binary]
@@ -26,7 +28,8 @@
    [math
     ["." random (#+ Random)]]
    [world
-    ["." file (#+ Path File)]]]
+    ["." file (#+ Path File)]
+    ["." program (#+ Program)]]]
   [program
    [compositor
     ["." export]]]
@@ -66,17 +69,19 @@
               (file.get-file promise.monad fs (format head (\ fs separator) head ".lux")))]
         (recur tail)))))
 
-(def: (execute! repository fs identity artifact profile)
-  (-> (Repository Promise) (file.System Promise)
+(def: (execute! program repository fs identity artifact profile)
+  (-> (Program Promise) (Repository Promise) (file.System Promise)
       Identity Artifact ///.Profile
       (Promise (Try Text)))
-  (do ///action.monad
-    [#let [console (@version.echo "")]
-     _ (..make-sources! fs (get@ #///.sources profile))
-     _ (: (Promise (Try Path))
-          (file.make-directories promise.monad fs (///local.repository fs)))
-     _ (/.do! console repository fs identity artifact profile)]
-    (!.use (\ console read-line) [])))
+  (do promise.monad
+    [home (\ program home [])]
+    (do ///action.monad
+      [#let [console (@version.echo "")]
+       _ (..make-sources! fs (get@ #///.sources profile))
+       _ (: (Promise (Try Path))
+            (file.make-directories promise.monad fs (///local.repository fs home)))
+       _ (/.do! console repository fs identity artifact profile)]
+      (!.use (\ console read-line) []))))
 
 (def: #export test
   Test
@@ -91,12 +96,15 @@
                      @profile.random)
          
          identity @repository.identity
+         home (random.ascii/alpha 5)
+         working-directory (random.ascii/alpha 5)
          #let [repository (///repository.mock (@repository.simulation identity)
                                               @repository.empty)
-               fs (file.mock (\ file.default separator))]]
+               fs (file.mock (\ file.default separator))
+               program (program.async (program.mock environment.empty home working-directory))]]
         (wrap (do {! promise.monad}
                 [verdict (do {! ///action.monad}
-                           [logging (..execute! repository fs identity artifact profile)
+                           [logging (..execute! program repository fs identity artifact profile)
                             expected-library (|> profile
                                                  (get@ #///.sources)
                                                  set.to-list

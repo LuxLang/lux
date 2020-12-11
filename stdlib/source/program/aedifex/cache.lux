@@ -22,6 +22,7 @@
     [format
      ["." xml]]]
    [world
+    [program (#+ Program)]
     ["." file (#+ Path File Directory)]]]
   ["." // #_
    ["#" local]
@@ -39,42 +40,44 @@
              (file.get-file promise.monad system file))]
     (!.use (\ file over-write) [content])))
 
-(def: #export (write-one system [artifact type] package)
-  (-> (file.System Promise) Dependency Package (Promise (Try Artifact)))
-  (do (try.with promise.monad)
-    [directory (: (Promise (Try Path))
-                  (file.make-directories promise.monad system (//.path system artifact)))
-     #let [prefix (format directory (\ system separator) (//artifact.identity artifact))]
-     directory (: (Promise (Try (Directory Promise)))
-                  (file.get-directory promise.monad system directory))
-     _ (..write! system
-                 (get@ #//package.library package)
-                 (format prefix (//artifact/extension.extension type)))
-     _ (..write! system
-                 (|> package
-                     (get@ #//package.sha-1)
-                     (\ //hash.sha-1-codec encode)
-                     encoding.to-utf8)
-                 (format prefix //artifact/extension.sha-1))
-     _ (..write! system
-                 (|> package
-                     (get@ #//package.md5)
-                     (\ //hash.md5-codec encode)
-                     encoding.to-utf8)
-                 (format prefix //artifact/extension.md5))
-     _ (..write! system
-                 (|> package (get@ #//package.pom) (\ xml.codec encode) encoding.to-utf8)
-                 (format prefix //artifact/extension.pom))]
-    (wrap artifact)))
+(def: #export (write-one program system [artifact type] package)
+  (-> (Program Promise) (file.System Promise) Dependency Package (Promise (Try Artifact)))
+  (do promise.monad
+    [home (\ program home [])]
+    (do (try.with promise.monad)
+      [directory (: (Promise (Try Path))
+                    (file.make-directories promise.monad system (//.path system home artifact)))
+       #let [prefix (format directory (\ system separator) (//artifact.identity artifact))]
+       directory (: (Promise (Try (Directory Promise)))
+                    (file.get-directory promise.monad system directory))
+       _ (..write! system
+                   (get@ #//package.library package)
+                   (format prefix (//artifact/extension.extension type)))
+       _ (..write! system
+                   (|> package
+                       (get@ #//package.sha-1)
+                       (\ //hash.sha-1-codec encode)
+                       encoding.to-utf8)
+                   (format prefix //artifact/extension.sha-1))
+       _ (..write! system
+                   (|> package
+                       (get@ #//package.md5)
+                       (\ //hash.md5-codec encode)
+                       encoding.to-utf8)
+                   (format prefix //artifact/extension.md5))
+       _ (..write! system
+                   (|> package (get@ #//package.pom) (\ xml.codec encode) encoding.to-utf8)
+                   (format prefix //artifact/extension.pom))]
+      (wrap artifact))))
 
-(def: #export (write-all system resolution)
-  (-> (file.System Promise) Resolution (Promise (Try (Set Artifact))))
+(def: #export (write-all program system resolution)
+  (-> (Program Promise) (file.System Promise) Resolution (Promise (Try (Set Artifact))))
   (do {! (try.with promise.monad)}
     []
     (|> (dictionary.entries resolution)
         (list.filter (|>> product.right //package.local? not))
         (monad.map ! (function (_ [dependency package])
-                       (..write-one system dependency package)))
+                       (..write-one program system dependency package)))
         (\ ! map (set.from-list //artifact.hash)))))
 
 (def: (read! system path)
@@ -92,11 +95,13 @@
         (_\map (\ codec decode))
         _\join)))
 
-(def: #export (read-one system [artifact type])
-  (-> (file.System Promise) Dependency (Promise (Try Package)))
-  (let [prefix (format (//.path system artifact)
-                       (\ system separator)
-                       (//artifact.identity artifact))]
+(def: #export (read-one program system [artifact type])
+  (-> (Program Promise) (file.System Promise) Dependency (Promise (Try Package)))
+  (do promise.monad
+    [home (\ program home [])
+     #let [prefix (format (//.path system home artifact)
+                          (\ system separator)
+                          (//artifact.identity artifact))]]
     (do (try.with promise.monad)
       [pom (..read! system (format prefix //artifact/extension.pom))
        library (..read! system (format prefix (//artifact/extension.extension type)))
@@ -113,8 +118,8 @@
                   #//package.sha-1 sha-1
                   #//package.md5 md5}))))))
 
-(def: #export (read-all system dependencies resolution)
-  (-> (file.System Promise) (List Dependency) Resolution (Promise (Try Resolution)))
+(def: #export (read-all program system dependencies resolution)
+  (-> (Program Promise) (file.System Promise) (List Dependency) Resolution (Promise (Try Resolution)))
   (case dependencies
     #.Nil
     (\ (try.with promise.monad) wrap resolution)
@@ -126,8 +131,8 @@
                  (wrap (#try.Success package))
 
                  #.None
-                 (..read-one system head))]
-      (with-expansions [<next> (as-is (read-all system tail resolution))]
+                 (..read-one program system head))]
+      (with-expansions [<next> (as-is (read-all program system tail resolution))]
         (case package
           (#try.Success package)
           (do (try.with promise.monad)
@@ -136,7 +141,7 @@
                                   (\ promise.monad wrap))
              resolution (|> resolution
                             (dictionary.put head package)
-                            (read-all system (set.to-list sub-dependencies)))]
+                            (read-all program system (set.to-list sub-dependencies)))]
             <next>)
           
           (#try.Failure error)

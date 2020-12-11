@@ -11,10 +11,10 @@
    [data
     ["." product]
     ["." name ("#\." equivalence codec)]
+    ["." text ("#\." equivalence monoid)]
     [number
      ["n" nat]
      ["." int]]
-    ["." text ("#\." equivalence monoid)]
     [collection
      ["." list ("#\." functor)]
      ["." dictionary (#+ Dictionary)]]]])
@@ -217,28 +217,48 @@
 
 (def: xml-header
   Text
-  ($_ text\compose "<?xml version=" text.double-quote "1.0" text.double-quote " encoding=" text.double-quote "UTF-8" text.double-quote "?>"))
+  (let [quote (: (-> Text Text)
+                 (function (_ value)
+                   ($_ text\compose text.double-quote value text.double-quote)))]
+    ($_ text\compose
+        "<?xml"
+        " version=" (quote "1.0")
+        " encoding=" (quote "UTF-8")
+        "?>")))
 
 (def: (write input)
   (-> XML Text)
-  ($_ text\compose xml-header
-      (loop [input input]
+  ($_ text\compose
+      ..xml-header text.new-line
+      (loop [prefix ""
+             input input]
         (case input
           (#Text value)
           (sanitize-value value)
+
+          (^ (#Node xml-tag xml-attrs (list (#Text value))))
+          (let [tag (..tag xml-tag)
+                attrs (if (dictionary.empty? xml-attrs)
+                        ""
+                        ($_ text\compose " " (..write-attrs xml-attrs)))]
+            ($_ text\compose
+                prefix "<" tag attrs ">"
+                (sanitize-value value)
+                "</" tag ">"))
           
           (#Node xml-tag xml-attrs xml-children)
           (let [tag (..tag xml-tag)
                 attrs (if (dictionary.empty? xml-attrs)
                         ""
-                        ($_ text\compose " " (write-attrs xml-attrs)))]
+                        ($_ text\compose " " (..write-attrs xml-attrs)))]
             (if (list.empty? xml-children)
-              ($_ text\compose "<" tag attrs "/>")
-              ($_ text\compose "<" tag attrs ">"
+              ($_ text\compose prefix "<" tag attrs "/>")
+              ($_ text\compose prefix "<" tag attrs ">"
                   (|> xml-children
-                      (list\map recur)
+                      (list\map (|>> (recur (text\compose prefix text.tab)) (text\compose text.new-line)))
                       (text.join-with ""))
-                  "</" tag ">")))))))
+                  text.new-line prefix "</" tag ">")))))
+      ))
 
 (structure: #export codec
   (Codec Text XML)
