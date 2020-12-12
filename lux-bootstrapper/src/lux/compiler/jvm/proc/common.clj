@@ -346,7 +346,7 @@
     (return nil)))
 
 (defn ^:private compile-syntax-char-case! [compile ?values ?patterns]
-  (|do [:let [(&/$Cons ?input (&/$Cons [_ (&a/$tuple ?matches)] (&/$Cons ?else (&/$Nil)))) ?values]
+  (|do [:let [(&/$Cons ?input (&/$Cons ?else ?matches)) ?values]
         ^MethodVisitor *writer* &/get-writer
         :let [pattern-labels (&/|map (fn [_] (new Label)) ?patterns)
               matched-patterns (->> (&/zip2 ?patterns pattern-labels)

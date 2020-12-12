@@ -236,9 +236,7 @@
         =else (&&/analyse-1 analyse exo-type ?else)]
     (return (&/|list (&&/|meta exo-type _location
                                (&&/$proc (&/T ["lux" "syntax char case!"])
-                                         (&/|list =input
-                                                  (&&/|meta exo-type _location (&&/$tuple (&/|map &/|second =pairs)))
-                                                  =else)
+                                         (&/$Cons =input (&/$Cons =else (&/|map &/|second =pairs)))
                                          (&/|map &/|first =pairs)))))))
 
 (defn analyse-proc [analyse exo-type proc ?values]

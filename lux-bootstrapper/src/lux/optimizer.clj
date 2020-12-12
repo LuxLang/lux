@@ -813,6 +813,14 @@
       ($ann _value-expr _type-expr)
       (&/T [meta ($ann (optimize-iter arity _value-expr) _type-expr)])
 
+      ($proc ["lux" "syntax char case!"] (&/$Cons ?input (&/$Cons ?else ?matches)) ?special-args)
+      (&/T [meta ($proc (&/T ["lux" "syntax char case!"])
+                        (&/$Cons ?input
+                                 (&/$Cons (optimize-iter arity ?else)
+                                          (&/|map (partial optimize-iter arity)
+                                                  ?matches)))
+                        ?special-args)])
+
       _
       optim
       )))
@@ -850,6 +858,11 @@
       (or (contains-self-reference? func)
           (&/fold stepwise-test false args))
       
+      ($proc ["lux" "syntax char case!"] (&/$Cons ?input (&/$Cons ?else ?matches)) ?special-args)
+      (or (contains-self-reference? ?input)
+          (contains-self-reference? ?else)
+          (&/fold stepwise-test false ?matches))
+
       ($proc proc-ident args special-args)
       (&/fold stepwise-test false args)
 
@@ -871,7 +884,7 @@
       (or (contains-self-reference? _test)
           (contains-self-reference? _then)
           (contains-self-reference? _else))
-      
+
       _
       false
       )))
@@ -946,7 +959,7 @@
                          (&/|map (partial loop-transform register-offset direct?) args))])
       
       ;; Captured-vars are ignored because they'll be handled properly at shift-function-body
-      
+
       ($proc proc-ident args special-args)
       (&/T [meta ($proc proc-ident (&/|map (partial loop-transform register-offset direct?) args) special-args)])
 
