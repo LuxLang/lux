@@ -1,0 +1,84 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   [abstract
+    [monad (#+ do)]
+    {[0 #spec]
+     [/
+      ["$." equivalence]]}]
+   [control
+    ["." try ("#\." functor)]
+    [parser
+     ["<.>" xml]]]
+   [data
+    [number
+     ["n" nat]]]
+   ["." time
+    ["." date]
+    ["." year]
+    ["." month]
+    ["." instant (#+ Instant)]
+    ["." duration]]
+   [math
+    ["." random (#+ Random)]]
+   [macro
+    ["." code]]]
+  ["$." /// #_
+   [artifact
+    ["#." type]]]
+  {#program
+   ["." /]})
+
+(def: random-instant
+  (Random Instant)
+  (do {! random.monad}
+    [year (\ ! map (|>> (n.% 10,000) .int) random.nat)
+     month (\ ! map (n.% 13) random.nat)
+     day-of-month (\ ! map (n.% 29) random.nat)
+     hour (\ ! map (n.% 24) random.nat)
+     minute (\ ! map (n.% 60) random.nat)
+     second (\ ! map (n.% 60) random.nat)]
+    (wrap (try.assume
+           (do try.monad
+             [year (year.year year)
+              month (month.by-number month)
+              date (date.date year month day-of-month)
+              time (time.time
+                    {#time.hour hour
+                     #time.minute minute
+                     #time.second second
+                     #time.milli-second 0})]
+             (wrap (instant.from-date-time date time)))))))
+
+(def: random-versioning
+  (Random /.Versioning)
+  ($_ random.and
+      ..random-instant
+      random.nat
+      (random.list 5 $///type.random)
+      ))
+
+(def: #export random
+  (Random /.Metadata)
+  ($_ random.and
+      (random.ascii/alpha 5)
+      (random.ascii/alpha 5)
+      (random.ascii/alpha 5)
+      ..random-versioning))
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      (_.for [/.Metadata])
+      ($_ _.and
+          (_.for [/.equivalence]
+                 ($equivalence.spec /.equivalence ..random))
+          (do random.monad
+            [expected ..random]
+            (_.cover [/.write /.parser]
+                     (|> expected
+                         /.write
+                         (<xml>.run /.parser)
+                         (try\map (\ /.equivalence = expected))
+                         (try.default false))))
+          )))

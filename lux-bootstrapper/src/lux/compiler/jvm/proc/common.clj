@@ -349,24 +349,31 @@
   (|do [:let [(&/$Cons ?input (&/$Cons ?else ?matches)) ?values]
         ^MethodVisitor *writer* &/get-writer
         :let [pattern-labels (&/|map (fn [_] (new Label)) ?patterns)
-              matched-patterns (->> (&/zip2 ?patterns pattern-labels)
-                                    (&/flat-map (fn [?chars+?label]
-                                                  (|let [[?chars ?label] ?chars+?label]
-                                                    (&/|map (fn [?char]
-                                                              (&/T [?char ?label]))
-                                                            ?chars))))
-                                    &/->seq
-                                    (sort-by &/|first <)
-                                    &/->list)
+              matched-patterns (&/fold (fn [matches chars+label]
+                                         (|let [[chars label] chars+label]
+                                           (&/fold (fn [matches char]
+                                                     (assoc matches char label))
+                                                   matches
+                                                   chars)))
+                                       {}
+                                       (&/zip2 ?patterns pattern-labels))
               end-label (new Label)
-              else-label (new Label)]
+              else-label (new Label)
+              match-keys (keys matched-patterns)
+              min (apply min match-keys)
+              max (apply max match-keys)
+              capacity (inc (- max min))
+              switch (map-indexed (fn [index label]
+                                    (get matched-patterns (+ min index) else-label))
+                                  (repeat capacity else-label))]
         _ (compile ?input)
         :let [_ (doto *writer*
                   &&/unwrap-long
                   (.visitInsn Opcodes/L2I)
-                  (.visitLookupSwitchInsn else-label
-                                          (int-array (&/->seq (&/|map &/|first matched-patterns)))
-                                          (into-array (&/->seq (&/|map &/|second matched-patterns)))))]
+                  (.visitTableSwitchInsn (int min)
+                                         (int max)
+                                         else-label
+                                         (into-array switch)))]
         _ (&/map% (fn [?label+?match]
                     (|let [[?label ?match] ?label+?match]
                       (|do [:let [_ (doto *writer*
@@ -389,7 +396,7 @@
     (case proc
       "is"                   (compile-lux-is compile ?values special-args)
       "try"                  (compile-lux-try compile ?values special-args)
-      ;; Special extensions for performance reasons
+      ;; TODO: Special extensions for performance reasons
       ;; Will be replaced by custom extensions in the future.
       "syntax char case!" (compile-syntax-char-case! compile ?values special-args))
 
