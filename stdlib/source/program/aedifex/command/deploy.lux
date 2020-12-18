@@ -3,11 +3,16 @@
    [abstract
     [monad (#+ do)]]
    [control
+    [pipe (#+ do>)]
+    ["." try (#+ Try)]
     [concurrency
-     ["." promise (#+ Promise) ("#\." monad)]]]
+     ["." promise (#+ Promise) ("#\." monad)]]
+    ["<>" parser
+     ["<.>" xml]]]
    [data
     [binary (#+ Binary)]
     [text
+     ["%" format (#+ format)]
      ["." encoding]]
     [collection
      ["." set]]
@@ -15,6 +20,8 @@
      ["." binary]
      ["." tar]
      ["." xml]]]
+   [time
+    ["." instant (#+ Instant)]]
    [world
     ["." file]
     ["." console (#+ Console)]]]
@@ -24,28 +31,107 @@
   ["." // #_
    ["#." clean]
    ["/#" // #_
-    [repository (#+ Identity Repository)]
     [command (#+ Command)]
     ["/" profile]
     ["#." action (#+ Action)]
     ["#." pom]
     ["#." hash]
+    ["#." repository (#+ Identity Repository)]
+    ["#." metadata
+     ["#/." artifact]
+     ["#/." snapshot]]
     ["#." artifact (#+ Artifact)
-     ["#/." extension (#+ Extension)]]]])
+     ["#/." extension (#+ Extension)]
+     ["#/." type]]]])
+
+(def: epoch
+  Instant
+  (instant.from-millis +0))
+
+(template [<name> <type> <uri> <parser> <default>]
+  [(def: (<name> repository artifact)
+     (-> (Repository Promise) Artifact (Promise (Try <type>)))
+     (do promise.monad
+       [project (\ repository download (<uri> artifact))]
+       (case project
+         (#try.Success project)
+         (wrap (|> project
+                   (do> try.monad
+                        [(\ encoding.utf8 decode)]
+                        [(\ xml.codec decode)]
+                        [(<xml>.run <parser>)])))
+         
+         (#try.Failure error)
+         (wrap (#try.Success <default>)))))]
+
+  [read-project-metadata ///metadata/artifact.Metadata ///metadata.project ///metadata/artifact.parser
+   (let [(^slots [#///artifact.group #///artifact.name #///artifact.version]) artifact]
+     {#///metadata/artifact.group group
+      #///metadata/artifact.name name
+      #///metadata/artifact.versions (list)
+      #///metadata/artifact.last-updated ..epoch})]
+  [read-version-metadata ///metadata/snapshot.Metadata ///metadata.version ///metadata/snapshot.parser
+   (let [(^slots [#///artifact.group #///artifact.name #///artifact.version]) artifact]
+     {#///metadata/snapshot.group group
+      #///metadata/snapshot.name name
+      #///metadata/snapshot.version version
+      #///metadata/snapshot.versioning {#///metadata/snapshot.time-stamp ..epoch
+                                        #///metadata/snapshot.build 0
+                                        #///metadata/snapshot.snapshot (list)}})]
+  )
+
+(def: snapshot-artifacts
+  (List ///artifact/type.Type)
+  (list ///artifact/type.pom
+        (format ///artifact/type.pom ///artifact/extension.sha-1)
+        (format ///artifact/type.pom ///artifact/extension.md5)
+        ///artifact/type.lux-library
+        (format ///artifact/type.lux-library ///artifact/extension.sha-1)
+        (format ///artifact/type.lux-library ///artifact/extension.md5)))
 
 (def: #export (do! console repository fs identity artifact profile)
   (-> (Console Promise) (Repository Promise) (file.System Promise) Identity Artifact (Command Any))
   (let [deploy! (: (-> Extension Binary (Action Any))
-                   (\ repository upload identity artifact))]
-    (do {! ///action.monad}
-      [library (|> profile
-                   (get@ #/.sources)
-                   set.to-list
-                   (export.library fs)
-                   (\ ! map (binary.run tar.writer)))
-       pom (promise\wrap (///pom.write profile))
-       _ (deploy! ///artifact/extension.pom (|> pom (\ xml.codec encode) encoding.to-utf8))
-       _ (deploy! ///artifact/extension.lux-library library)
-       _ (deploy! ///artifact/extension.sha-1 (///hash.data (///hash.sha-1 library)))
-       _ (deploy! ///artifact/extension.md5 (///hash.data (///hash.md5 library)))]
-      (console.write-line //clean.success console))))
+                   (|>> (///repository.uri artifact)
+                        (\ repository upload identity)))
+        fully-deploy! (: (-> Extension Binary (Action Any))
+                         (function (_ extension payload)
+                           (do ///action.monad
+                             [_ (deploy! extension payload)
+                              _ (deploy! (format extension ///artifact/extension.sha-1)
+                                         (///hash.data (///hash.sha-1 payload)))
+                              _ (deploy! (format extension ///artifact/extension.md5)
+                                         (///hash.data (///hash.md5 payload)))]
+                             (wrap []))))
+        (^slots [#///artifact.group #///artifact.name #///artifact.version]) artifact]
+    (do promise.monad
+      [now (promise.future instant.now)]
+      (do {! ///action.monad}
+        [project (..read-project-metadata repository artifact)
+         snapshot (..read-version-metadata repository artifact)
+         pom (\ ! map (|>> (\ xml.codec encode) (\ encoding.utf8 encode))
+                (promise\wrap (///pom.write profile)))
+         library (|> profile
+                     (get@ #/.sources)
+                     set.to-list
+                     (export.library fs)
+                     (\ ! map (binary.run tar.writer)))
+
+         _ (fully-deploy! ///artifact/extension.pom pom)
+         _ (fully-deploy! ///artifact/extension.lux-library library)
+         _ (|> snapshot
+               (set@ [#///metadata/snapshot.versioning #///metadata/snapshot.time-stamp] now)
+               (update@ [#///metadata/snapshot.versioning #///metadata/snapshot.build] inc)
+               (set@ [#///metadata/snapshot.versioning #///metadata/snapshot.snapshot] ..snapshot-artifacts)
+               ///metadata/snapshot.write
+               (\ xml.codec encode)
+               (\ encoding.utf8 encode)
+               (\ repository upload identity (///metadata.version artifact)))
+         _ (|> project
+               (set@ #///metadata/artifact.versions (list version))
+               (set@ #///metadata/artifact.last-updated now)
+               ///metadata/artifact.write
+               (\ xml.codec encode)
+               (\ encoding.utf8 encode)
+               (\ repository upload identity (///metadata.project artifact)))]
+        (console.write-line //clean.success console)))))

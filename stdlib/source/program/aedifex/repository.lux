@@ -17,9 +17,15 @@
      ["." encoding]]
     [number
      ["n" nat]]]
+   [tool
+    [compiler
+     ["." version]
+     ["." language #_
+      ["#/." lux #_
+       ["#" version]]]]]
    [world
     [net (#+ URL)
-     ["." uri]]]]
+     ["." uri (#+ URI)]]]]
   ["." // #_
    ["#." artifact (#+ Artifact)
     ["#/." extension (#+ Extension)]]])
@@ -38,38 +44,36 @@
    #password Password})
 
 (signature: #export (Repository !)
-  (: (-> Artifact Extension (! (Try Binary)))
+  (: (-> URI (! (Try Binary)))
      download)
-  (: (-> Identity Artifact Extension Binary (! (Try Any)))
+  (: (-> Identity URI Binary (! (Try Any)))
      upload))
 
 (def: #export (async repository)
   (-> (Repository IO) (Repository Promise))
   (structure
-   (def: (download artifact extension)
-     (promise.future (\ repository download artifact extension)))
+   (def: (download uri)
+     (promise.future (\ repository download uri)))
 
-   (def: (upload identity artifact extension content)
-     (promise.future (\ repository upload identity artifact extension content)))
+   (def: (upload identity uri content)
+     (promise.future (\ repository upload identity uri content)))
    ))
 
 (signature: #export (Simulation s)
-  (: (-> Artifact Extension s
-         (Try [s Binary]))
+  (: (-> URI s (Try [s Binary]))
      on-download)
-  (: (-> Identity Artifact Extension Binary s
-         (Try s))
+  (: (-> Identity URI Binary s (Try s))
      on-upload))
 
 (def: #export (mock simulation init)
   (All [s] (-> (Simulation s) s (Repository Promise)))
   (let [state (stm.var init)]
     (structure
-     (def: (download artifact extension)
+     (def: (download uri)
        (stm.commit
         (do {! stm.monad}
           [|state| (stm.read state)]
-          (case (\ simulation on-download artifact extension |state|)
+          (case (\ simulation on-download uri |state|)
             (#try.Success [|state| output])
             (do !
               [_ (stm.write |state| state)]
@@ -78,11 +82,11 @@
             (#try.Failure error)
             (wrap (#try.Failure error))))))
 
-     (def: (upload identity artifact extension content)
+     (def: (upload identity uri content)
        (stm.commit
         (do {! stm.monad}
           [|state| (stm.read state)]
-          (case (\ simulation on-upload identity artifact extension content |state|)
+          (case (\ simulation on-upload identity uri content |state|)
             (#try.Success |state|)
             (do !
               [_ (stm.write |state| state)]
@@ -98,6 +102,8 @@
   ["#::."
    (close [] #io #try void)])
 
+(import: java/io/InputStream)
+
 (import: java/io/OutputStream
   ["#::."
    (flush [] #io #try void)
@@ -107,6 +113,7 @@
   ["#::."
    (setDoOutput [boolean] #io #try void)
    (setRequestProperty [java/lang/String java/lang/String] #io #try void)
+   (getInputStream [] #io #try java/io/InputStream)
    (getOutputStream [] #io #try java/io/OutputStream)])
 
 (import: java/net/HttpURLConnection
@@ -117,8 +124,7 @@
 (import: java/net/URL
   ["#::."
    (new [java/lang/String])
-   (openConnection [] #io #try java/net/URLConnection)
-   (openStream [] #io #try java/io/InputStream)])
+   (openConnection [] #io #try java/net/URLConnection)])
 
 (import: java/util/Base64$Encoder
   ["#::."
@@ -127,8 +133,6 @@
 (import: java/util/Base64
   ["#::."
    (#static getEncoder [] java/util/Base64$Encoder)])
-
-(import: java/io/InputStream)
 
 (import: java/io/BufferedInputStream
   ["#::."
@@ -141,42 +145,50 @@
 
 (def: (basic-auth user password)
   (-> User Password Text)
-  (format "Basic " (java/util/Base64$Encoder::encodeToString (encoding.to-utf8 (format user ":" password))
+  (format "Basic " (java/util/Base64$Encoder::encodeToString (\ encoding.utf8 encode (format user ":" password))
                                                              (java/util/Base64::getEncoder))))
 
-(def: (url address artifact extension)
-  (-> Address Artifact Extension URL)
-  (format address uri.separator (//artifact.uri artifact) extension))
+(def: #export (uri artifact extension)
+  (-> Artifact Extension URI)
+  (format (//artifact.uri artifact) extension))
 
 (def: buffer-size
   (n.* 512 1,024))
 
+(def: user-agent
+  (format "LuxAedifex/" (version.format language/lux.version)))
+
 (structure: #export (remote address)
   (All [s] (-> Address (Repository IO)))
 
-  (def: (download artifact extension)
-    (let [url (..url address artifact extension)]
-      (do {! (try.with io.monad)}
-        [input (|> (java/net/URL::new url)
-                   java/net/URL::openStream
-                   (\ ! map (|>> java/io/BufferedInputStream::new)))
-         #let [buffer (binary.create ..buffer-size)]]
-        (loop [output (\ binary.monoid identity)]
-          (do !
-            [bytes-read (java/io/BufferedInputStream::read buffer +0 (.int ..buffer-size) input)]
-            (case bytes-read
-              -1 (do !
-                   [_ (java/lang/AutoCloseable::close input)]
-                   (wrap output))
-              _ (if (n.= ..buffer-size bytes-read)
-                  (recur (\ binary.monoid compose output buffer))
-                  (do !
-                    [chunk (\ io.monad wrap (binary.slice 0 (.nat bytes-read) buffer))]
-                    (recur (\ binary.monoid compose output chunk))))))))))
+  (def: (download uri)
+    (do {! (try.with io.monad)}
+      [connection (|> (format address uri)
+                      java/net/URL::new
+                      java/net/URL::openConnection)
+       #let [connection (:coerce java/net/HttpURLConnection connection)]
+       _ (java/net/HttpURLConnection::setRequestMethod "GET" connection)
+       _ (java/net/URLConnection::setRequestProperty "User-Agent" ..user-agent connection)
+       input (|> connection
+                 java/net/URLConnection::getInputStream
+                 (\ ! map (|>> java/io/BufferedInputStream::new)))
+       #let [buffer (binary.create ..buffer-size)]]
+      (loop [output (\ binary.monoid identity)]
+        (do !
+          [bytes-read (java/io/BufferedInputStream::read buffer +0 (.int ..buffer-size) input)]
+          (case bytes-read
+            -1 (do !
+                 [_ (java/lang/AutoCloseable::close input)]
+                 (wrap output))
+            _ (if (n.= ..buffer-size bytes-read)
+                (recur (\ binary.monoid compose output buffer))
+                (do !
+                  [chunk (\ io.monad wrap (binary.slice 0 (.nat bytes-read) buffer))]
+                  (recur (\ binary.monoid compose output chunk)))))))))
 
-  (def: (upload [user password] artifact extension content)
+  (def: (upload [user password] uri content)
     (do (try.with io.monad)
-      [connection (|> (..url address artifact extension)
+      [connection (|> (format address uri)
                       java/net/URL::new
                       java/net/URL::openConnection)
        #let [connection (:coerce java/net/HttpURLConnection connection)]
@@ -189,6 +201,6 @@
        _ (java/lang/AutoCloseable::close stream)
        code (java/net/HttpURLConnection::getResponseCode connection)]
       (case code
-        +200 (wrap [])
+        +201 (wrap [])
         _ (\ io.monad wrap (exception.throw ..deployment-failure [code])))))
   )
