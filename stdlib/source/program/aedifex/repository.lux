@@ -13,8 +13,7 @@
    [data
     ["." binary (#+ Binary)]
     ["." text
-     ["%" format (#+ format)]
-     ["." encoding]]
+     ["%" format (#+ format)]]
     [number
      ["n" nat]]]
    [tool
@@ -26,27 +25,19 @@
    [world
     [net (#+ URL)
      ["." uri (#+ URI)]]]]
-  ["." // #_
-   ["#." artifact (#+ Artifact)
-    ["#/." extension (#+ Extension)]]])
+  ["." / #_
+   ["#." identity (#+ Identity)]
+   ["/#" // #_
+    ["#." artifact (#+ Artifact)
+     ["#/." extension (#+ Extension)]]]])
 
 (type: #export Address
   URL)
 
-(type: #export User
-  Text)
-
-(type: #export Password
-  Text)
-
-(type: #export Identity
-  {#user User
-   #password Password})
-
 (signature: #export (Repository !)
   (: (-> URI (! (Try Binary)))
      download)
-  (: (-> Identity URI Binary (! (Try Any)))
+  (: (-> URI Binary (! (Try Any)))
      upload))
 
 (def: #export (async repository)
@@ -55,14 +46,14 @@
    (def: (download uri)
      (promise.future (\ repository download uri)))
 
-   (def: (upload identity uri content)
-     (promise.future (\ repository upload identity uri content)))
+   (def: (upload uri content)
+     (promise.future (\ repository upload uri content)))
    ))
 
 (signature: #export (Simulation s)
   (: (-> URI s (Try [s Binary]))
      on-download)
-  (: (-> Identity URI Binary s (Try s))
+  (: (-> URI Binary s (Try s))
      on-upload))
 
 (def: #export (mock simulation init)
@@ -82,11 +73,11 @@
             (#try.Failure error)
             (wrap (#try.Failure error))))))
 
-     (def: (upload identity uri content)
+     (def: (upload uri content)
        (stm.commit
         (do {! stm.monad}
           [|state| (stm.read state)]
-          (case (\ simulation on-upload identity uri content |state|)
+          (case (\ simulation on-upload uri content |state|)
             (#try.Success |state|)
             (do !
               [_ (stm.write |state| state)]
@@ -126,27 +117,18 @@
    (new [java/lang/String])
    (openConnection [] #io #try java/net/URLConnection)])
 
-(import: java/util/Base64$Encoder
-  ["#::."
-   (encodeToString [[byte]] java/lang/String)])
-
-(import: java/util/Base64
-  ["#::."
-   (#static getEncoder [] java/util/Base64$Encoder)])
-
 (import: java/io/BufferedInputStream
   ["#::."
    (new [java/io/InputStream])
    (read [[byte] int int] #io #try int)])
 
+(exception: #export (no-credentials {address Address})
+  (exception.report
+   ["Address" (%.text address)]))
+
 (exception: #export (deployment-failure {code Int})
   (exception.report
    ["Code" (%.int code)]))
-
-(def: (basic-auth user password)
-  (-> User Password Text)
-  (format "Basic " (java/util/Base64$Encoder::encodeToString (\ encoding.utf8 encode (format user ":" password))
-                                                             (java/util/Base64::getEncoder))))
 
 (def: #export (uri artifact extension)
   (-> Artifact Extension URI)
@@ -158,8 +140,8 @@
 (def: user-agent
   (format "LuxAedifex/" (version.format language/lux.version)))
 
-(structure: #export (remote address)
-  (All [s] (-> Address (Repository IO)))
+(structure: #export (remote identity address)
+  (All [s] (-> (Maybe Identity) Address (Repository IO)))
 
   (def: (download uri)
     (do {! (try.with io.monad)}
@@ -186,21 +168,26 @@
                   [chunk (\ io.monad wrap (binary.slice 0 (.nat bytes-read) buffer))]
                   (recur (\ binary.monoid compose output chunk)))))))))
 
-  (def: (upload [user password] uri content)
-    (do (try.with io.monad)
-      [connection (|> (format address uri)
-                      java/net/URL::new
-                      java/net/URL::openConnection)
-       #let [connection (:coerce java/net/HttpURLConnection connection)]
-       _ (java/net/HttpURLConnection::setRequestMethod "PUT" connection)
-       _ (java/net/URLConnection::setDoOutput true connection)
-       _ (java/net/URLConnection::setRequestProperty "Authorization" (..basic-auth user password) connection)
-       stream (java/net/URLConnection::getOutputStream connection)
-       _ (java/io/OutputStream::write content stream)
-       _ (java/io/OutputStream::flush stream)
-       _ (java/lang/AutoCloseable::close stream)
-       code (java/net/HttpURLConnection::getResponseCode connection)]
-      (case code
-        +201 (wrap [])
-        _ (\ io.monad wrap (exception.throw ..deployment-failure [code])))))
+  (def: (upload uri content)
+    (case identity
+      #.None
+      (\ io.monad wrap (exception.throw ..no-credentials [address]))
+      
+      (#.Some [user password])
+      (do (try.with io.monad)
+        [connection (|> (format address uri)
+                        java/net/URL::new
+                        java/net/URL::openConnection)
+         #let [connection (:coerce java/net/HttpURLConnection connection)]
+         _ (java/net/HttpURLConnection::setRequestMethod "PUT" connection)
+         _ (java/net/URLConnection::setDoOutput true connection)
+         _ (java/net/URLConnection::setRequestProperty "Authorization" (/identity.basic-auth user password) connection)
+         stream (java/net/URLConnection::getOutputStream connection)
+         _ (java/io/OutputStream::write content stream)
+         _ (java/io/OutputStream::flush stream)
+         _ (java/lang/AutoCloseable::close stream)
+         code (java/net/HttpURLConnection::getResponseCode connection)]
+        (case code
+          +201 (wrap [])
+          _ (\ io.monad wrap (exception.throw ..deployment-failure [code]))))))
   )

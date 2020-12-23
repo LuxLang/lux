@@ -31,65 +31,70 @@
     [net (#+ URL)
      ["." uri]]]]
   ["." // (#+ Dependency)
+   ["#." status (#+ Status)]
    ["/#" // #_
     ["/" profile]
     ["#." repository (#+ Address Repository)]
-    ["#." hash]
+    ["#." hash (#+ Hash SHA-1 MD5)]
     ["#." pom]
     ["#." package (#+ Package)]
     ["#." artifact (#+ Artifact)
      ["#/." extension (#+ Extension)]]]])
 
 (template [<name>]
-  [(exception: #export (<name> {dependency Dependency} {hash Text})
+  [(exception: #export (<name> {artifact Artifact} {extension Extension} {hash Text})
      (exception.report
-      ["Artifact" (///artifact.format (get@ #//.artifact dependency))]
-      ["Type" (%.text (get@ #//.type dependency))]
+      ["Artifact" (///artifact.format artifact)]
+      ["Extension" (%.text extension)]
       ["Hash" (%.text hash)]))]
 
   [sha-1-does-not-match]
   [md5-does-not-match]
   )
 
-(def: (verified-hash dependency library repository artifact extension hash codec exception)
+(def: (verified-hash library repository artifact extension hash codec exception)
   (All [h]
-    (-> Dependency Binary (Repository Promise) Artifact Extension
-        (-> Binary (///hash.Hash h)) (Codec Text (///hash.Hash h))
-        (Exception [Dependency Text])
-        (Promise (Try (///hash.Hash h)))))
+    (-> Binary (Repository Promise) Artifact Extension
+        (-> Binary (Hash h)) (Codec Text (Hash h))
+        (Exception [Artifact Extension Text])
+        (Promise (Try (Hash h)))))
   (do (try.with promise.monad)
     [actual (\ repository download (///repository.uri artifact extension))]
     (\ promise.monad wrap
        (do try.monad
          [output (\ encoding.utf8 decode actual)
           actual (\ codec decode output)
-          _ (exception.assert exception [dependency output]
+          _ (exception.assert exception [artifact extension output]
                               (\ ///hash.equivalence = (hash library) actual))]
          (wrap actual)))))
+
+(def: (hashed repository artifact extension)
+  (-> (Repository Promise) Artifact Extension (Promise (Try [Binary Status])))
+  (do (try.with promise.monad)
+    [data (\ repository download (///repository.uri artifact extension))
+     sha-1 (..verified-hash data
+                            repository artifact (format extension ///artifact/extension.sha-1)
+                            ///hash.sha-1 ///hash.sha-1-codec ..sha-1-does-not-match)
+     md5 (..verified-hash data
+                          repository artifact (format extension ///artifact/extension.md5)
+                          ///hash.md5 ///hash.md5-codec ..md5-does-not-match)]
+    (wrap [data (#//status.Verified sha-1 md5)])))
 
 (def: #export (one repository dependency)
   (-> (Repository Promise) Dependency (Promise (Try Package)))
   (let [[artifact type] dependency
         extension (///artifact/extension.extension type)]
     (do (try.with promise.monad)
-      [library (\ repository download (///repository.uri artifact extension))
-       sha-1 (..verified-hash dependency library
-                              repository artifact ///artifact/extension.sha-1
-                              ///hash.sha-1 ///hash.sha-1-codec ..sha-1-does-not-match)
-       md5 (..verified-hash dependency library
-                            repository artifact ///artifact/extension.md5
-                            ///hash.md5 ///hash.md5-codec ..md5-does-not-match)
-       pom (\ repository download (///repository.uri artifact ///artifact/extension.pom))]
+      [[pom pom-status] (..hashed repository artifact ///artifact/extension.pom)
+       library-&-status (..hashed repository artifact extension)]
       (\ promise.monad wrap
          (do try.monad
            [pom (\ encoding.utf8 decode pom)
             pom (\ xml.codec decode pom)
             profile (<xml>.run ///pom.parser pom)]
            (wrap {#///package.origin #///package.Remote
-                  #///package.library library
-                  #///package.pom pom
-                  #///package.sha-1 sha-1
-                  #///package.md5 md5}))))))
+                  #///package.library library-&-status
+                  #///package.pom [pom pom-status]}))))))
 
 (type: #export Resolution
   (Dictionary Dependency Package))

@@ -10,8 +10,11 @@
     ["." random]]
    [data
     ["." product]
+    [text
+     ["%" format (#+ format)]]
     [number
-     ["n" nat]]
+     ["n" nat]
+     ["." i64]]
     [collection
      ["." dictionary (#+ Dictionary)]
      ["." list ("#\." functor fold)]]]
@@ -46,11 +49,17 @@
   (-> Duration Nat)
   (|>> (duration.query duration.milli-second) .nat))
 
+## the wiggle room is there to account for GC pauses
+## and other issues that might mess with duration
+(def: wiggle-room
+  Nat
+  (i64.left-shift 4 1))
+
 (def: #export test
   Test
   (<| (_.covering /._)
       (do {! random.monad}
-        [input (|> random.nat (\ ! map (|>> (n.% 5) (n.+ 20))))])
+        [input (|> random.nat (\ ! map (|>> (n.% 5) (n.+ 21))))])
       (_.for [/.Memo])
       ($_ _.and
           (_.cover [/.closed /.none]
@@ -59,11 +68,16 @@
                       [#let [slow (/.none n.hash ..fibonacci)
                              fast (/.closed n.hash fibonacci)]
                        [slow-time slow-output] (..time slow input)
-                       [fast-time fast-output] (..time fast input)]
-                      (wrap (and (n.= slow-output
-                                      fast-output)
-                                 (n.< (milli-seconds slow-time)
-                                      (milli-seconds fast-time)))))))
+                       [fast-time fast-output] (..time fast input)
+                       #let [same-output!
+                             (n.= slow-output
+                                  fast-output)
+
+                             memo-is-faster!
+                             (n.< (n.+ ..wiggle-room (milli-seconds slow-time))
+                                  (milli-seconds fast-time))]]
+                      (wrap (and same-output!
+                                 memo-is-faster!)))))
           (_.cover [/.open]
                    (io.run
                     (do io.monad
@@ -78,15 +92,12 @@
                                   open-output)
 
                              memo-is-faster!
-                             (n.< (milli-seconds none-time)
+                             (n.< (n.+ ..wiggle-room (milli-seconds none-time))
                                   (milli-seconds open-time))
 
                              incrementalism-is-faster!
-                             ## the wiggle room is there to account for GC pauses
-                             ## and other issues that might mess with duration
-                             (let [wiggle-room 2]
-                               (n.< (n.+ wiggle-room (milli-seconds open-time))
-                                    (milli-seconds open-time/+1)))]]
+                             (n.< (n.+ ..wiggle-room (milli-seconds open-time))
+                                  (milli-seconds open-time/+1))]]
                       (wrap (and same-output!
                                  memo-is-faster!
                                  incrementalism-is-faster!)))))

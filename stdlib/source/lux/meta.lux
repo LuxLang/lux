@@ -142,8 +142,7 @@
       (#try.Success [compiler current-module])
 
       _
-      (#try.Failure "No current module.")
-      )))
+      (#try.Failure "No current module."))))
 
 (def: #export current-module
   (Meta Module)
@@ -159,6 +158,19 @@
 
     _
     false))
+
+(def: #export (normalize name)
+  {#.doc (doc "If given a name without a module prefix, gives it the current module's name as prefix."
+              "Otherwise, returns the name as-is.")}
+  (-> Name (Meta Name))
+  (case name
+    ["" name]
+    (do ..monad
+      [module-name current-module-name]
+      (wrap [module-name name]))
+
+    _
+    (\ ..monad wrap name)))
 
 (def: (find-macro' modules this-module module name)
   (-> (List [Text Module]) Text Text Text
@@ -178,27 +190,19 @@
         (#.Some (:coerce Macro def-value))
         #.None))))
 
-(def: #export (normalize name)
-  {#.doc (doc "If given a name without a module prefix, gives it the current module's name as prefix."
-              "Otherwise, returns the name as-is.")}
-  (-> Name (Meta Name))
-  (case name
-    ["" name]
-    (do ..monad
-      [module-name current-module-name]
-      (wrap [module-name name]))
-
-    _
-    (\ ..monad wrap name)))
-
 (def: #export (find-macro full-name)
   (-> Name (Meta (Maybe Macro)))
   (do ..monad
-    [[module name] (normalize full-name)
-     this-module current-module-name]
+    [[module name] (normalize full-name)]
     (: (Meta (Maybe Macro))
        (function (_ compiler)
-         (#try.Success [compiler (find-macro' (get@ #.modules compiler) this-module module name)])))))
+         (let [macro (case (..current-module-name compiler)
+                       (#try.Failure error)
+                       #.None
+
+                       (#try.Success [_ this-module])
+                       (find-macro' (get@ #.modules compiler) this-module module name))]
+           (#try.Success [compiler macro]))))))
 
 (def: #export (expand-once syntax)
   {#.doc (doc "Given code that requires applying a macro, does it once and returns the result."
@@ -701,3 +705,12 @@
   [log-expand-all!  expand-all]
   [log-expand-once! expand-once]
   )
+
+(def: #export (lift result)
+  (All [a] (-> (Try a) (Meta a)))
+  (case result
+    (#try.Success output)
+    (\ ..monad wrap output)
+
+    (#try.Failure error)
+    (..fail error)))
