@@ -1,0 +1,141 @@
+(.module:
+  [lux (#- Definition)
+   ["." meta]
+   [abstract
+    [equivalence (#+ Equivalence)]
+    [monad (#+ do)]]
+   [control
+    ["." exception (#+ exception:)]
+    ["<>" parser
+     ["<.>" code (#+ Parser)]]]
+   [data
+    ["." sum]
+    ["." product]
+    ["." bit]
+    ["." name]
+    ["." text
+     ["%" format (#+ format)]]
+    [collection
+     ["." list]]]
+   [macro
+    ["." code]]
+   [meta
+    ["." location]]]
+  ["." // (#+ Annotations)
+   ["#." check (#+ Check)]])
+
+(type: #export Definition
+  {#name Text
+   #value (Either Check
+                  Code)
+   #anns Annotations
+   #export? Bit})
+
+(def: #export equivalence
+  (Equivalence Definition)
+  ($_ product.equivalence
+      text.equivalence
+      ($_ sum.equivalence
+          //check.equivalence
+          code.equivalence
+          )
+      (list.equivalence (product.equivalence name.equivalence
+                                             code.equivalence))
+      bit.equivalence
+      ))
+
+(def: extension
+  "lux def")
+
+(def: (write-tag [module short])
+  (-> Name Code)
+  (` [(~ (code.text module))
+      (~ (code.text short))]))
+
+(def: (write-annotations value)
+  (-> Annotations Code)
+  (case value
+    #.Nil
+    (` #.Nil)
+    
+    (#.Cons [name value] tail)
+    (` (#.Cons [(~ (..write-tag name))
+                (~ value)]
+               (~ (write-annotations tail))))))
+
+(def: dummy
+  Code
+  (` {#.module (~ (code.text (get@ #.module location.dummy)))
+      #.line   (~ (code.nat (get@ #.line location.dummy)))
+      #.column (~ (code.nat (get@ #.column location.dummy)))}))
+
+(def: #export (write (^slots [#name #value #anns #export?]))
+  (-> Definition Code)
+  (` ((~ (code.text ..extension))
+      (~ (code.local-identifier name))
+      (~ (case value
+           (#.Left check)
+           (//check.write check)
+
+           (#.Right value)
+           value))
+      [(~ ..dummy) (#.Record (~ (..write-annotations anns)))]
+      (~ (code.bit export?)))))
+
+(def: tag-parser
+  (Parser Name)
+  (<code>.tuple (<>.and <code>.text <code>.text)))
+
+(def: annotations-parser
+  (Parser Annotations)
+  (<>.rec
+   (function (_ recur)
+     ($_ <>.or
+         (<code>.tag! (name-of #.Nil))
+         (<code>.form (do <>.monad
+                        [_ (<code>.tag! (name-of #.Cons))
+                         [head tail] (<>.and (<code>.tuple (<>.and tag-parser <code>.any))
+                                             recur)]
+                        (wrap [head tail])))
+         ))))
+
+(def: #export (parser compiler)
+  {#.doc "A reader that first macro-expands and then analyses the input Code, to ensure it's a definition."}
+  (-> Lux (Parser Definition))
+  (do {! <>.monad}
+    [raw <code>.any
+     me-raw (|> raw
+                meta.expand-all
+                (meta.run compiler)
+                <>.lift)]
+    (<| (<code>.local me-raw)
+        <code>.form
+        (<>.after (<code>.text! ..extension))
+        ($_ <>.and
+            <code>.local-identifier
+            (<>.or //check.parser
+                   <code>.any)
+            (<| <code>.tuple
+                (<>.after <code>.any)
+                <code>.form
+                (<>.after (<code>.this! (` #.Record)))
+                ..annotations-parser)
+            <code>.bit
+            ))))
+
+(exception: #export (lacks-type! {definition Definition})
+  (exception.report
+   ["Definition" (%.code (..write definition))]))
+
+(def: #export (typed compiler)
+  {#.doc "Only works for typed definitions."}
+  (-> Lux (Parser Definition))
+  (do <>.monad
+    [definition (..parser compiler)
+     _ (case (get@ #value definition)
+         (#.Left _)
+         (wrap [])
+
+         (#.Right _)
+         (<>.lift (exception.throw ..lacks-type! [definition])))]
+    (wrap definition)))

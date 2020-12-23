@@ -82,18 +82,27 @@
                                      (format (%.text name) " := " (%.text repo)))
                                    (dictionary.entries options))]))
 
+(def: succeed!
+  (IO Any)
+  (\ program.default exit shell.normal))
+
+(def: (fail! error)
+  (-> Text (IO Any))
+  (exec
+    (log! error)
+    (\ program.default exit shell.error)))
+
 (def: (command action)
   (All [a] (-> (Promise (Try a)) (IO Any)))
   (exec (do promise.monad
-          [outcome action
-           #let [code (case outcome
-                        (#try.Failure error)
-                        (exec (log! error)
-                          shell.normal)
-                        
-                        (#try.Success _)
-                        shell.error)]]
-          (promise.future (\ program.default exit code)))
+          [outcome action]
+          (promise.future
+           (case outcome
+             (#try.Success _)
+             ..succeed!
+
+             (#try.Failure error)
+             (..fail! error))))
     (\ io.monad wrap [])))
 
 (program: [{[profile operation] /cli.command}]
@@ -101,7 +110,7 @@
     [?console console.default]
     (case (try\map console.async ?console)
       (#try.Failure error)
-      (wrap (log! error))
+      (..fail! error)
 
       (#try.Success console)
       (case operation
@@ -114,8 +123,7 @@
           [?profile (/input.read io.monad file.default profile)]
           (case ?profile
             (#try.Failure error)
-            (exec (log! error)
-              (\ program.default exit shell.error))
+            (..fail! error)
 
             (#try.Success profile)
             (let [program (program.async program.default)]
@@ -169,7 +177,7 @@
                   [?watcher watch.default]
                   (case ?watcher
                     (#try.Failure error)
-                    (wrap (log! error))
+                    (..fail! error)
                     
                     (#try.Success watcher)
                     (..command

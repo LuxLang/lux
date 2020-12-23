@@ -1,0 +1,103 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   [abstract
+    [monad (#+ do)]
+    {[0 #spec]
+     [/
+      ["$." equivalence]]}]
+   [control
+    ["." try]
+    ["." exception]
+    ["<>" parser
+     ["<.>" code]]]
+   [math
+    ["." random (#+ Random)]]
+   [macro
+    ["." code ("#\." equivalence)]]
+   [meta
+    ["." location]]]
+  {1
+   ["." /
+    [// (#+ Annotations)]]}
+  ["$."// #_
+   ["#." check]
+   ["#//" /// #_
+    ["#." code]]])
+
+(def: random-annotations
+  (Random Annotations)
+  (let [name (random.and (random.ascii/alpha 5)
+                         (random.ascii/alpha 5))]
+    (random.list 5 (random.and name $////code.random))))
+
+(def: #export random
+  (Random /.Definition)
+  ($_ random.and
+      (random.ascii/alpha 5)
+      (random.or $//check.random
+                 $////code.random)
+      ..random-annotations
+      random.bit
+      ))
+
+(def: compiler
+  {#.info            {#.target  "FAKE"
+                      #.version "0.0.0"
+                      #.mode    #.Build}
+   #.source          [location.dummy 0 ""]
+   #.location        location.dummy
+   #.current-module  #.None
+   #.modules         (list)
+   #.scopes          (list)
+   #.type-context    {#.ex-counter 0
+                      #.var-counter 0
+                      #.var-bindings (list)}
+   #.expected        #.None
+   #.seed            0
+   #.scope-type-vars (list)
+   #.extensions      []
+   #.host            []})
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      (_.for [/.Definition])
+      ($_ _.and
+          (_.for [/.equivalence]
+                 ($equivalence.spec /.equivalence ..random))
+
+          (do random.monad
+            [expected ..random
+
+             type $////code.random
+             untyped-value $////code.random]
+            ($_ _.and
+                (_.cover [/.write /.parser]
+                         (case (<code>.run (/.parser compiler)
+                                           (list (/.write expected)))
+                           (#try.Failure error)
+                           false
+                           
+                           (#try.Success actual)
+                           (\ /.equivalence = expected actual)))
+                (_.cover [/.typed]
+                         (let [expected (set@ #/.value (#.Left [type untyped-value]) expected)]
+                           (case (<code>.run (/.typed compiler)
+                                             (list (/.write expected)))
+                             (#try.Failure error)
+                             false
+                             
+                             (#try.Success actual)
+                             (\ /.equivalence = expected actual))))
+                (_.cover [/.lacks-type!]
+                         (let [expected (set@ #/.value (#.Right untyped-value) expected)]
+                           (case (<code>.run (/.typed compiler)
+                                             (list (/.write expected)))
+                             (#try.Failure error)
+                             (exception.match? /.lacks-type! error)
+                             
+                             (#try.Success actual)
+                             false)))
+                )))
+      ))
