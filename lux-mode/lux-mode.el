@@ -326,7 +326,7 @@ Called by `imenu--generic-function'."
 							(control//contract (altRE "pre" "post"))
 							;; Type
 							(type//syntax (altRE "|" "&" "->" "All" "Ex" "Rec" "primitive" "\\$" "type"))
-							(type//checking (altRE ":" ":coerce" ":let" ":~" ":assume" ":of" ":cast" ":share" ":by-example" ":hole"))
+							(type//checking (altRE ":" ":coerce" ":let" ":~" ":assume" ":of" ":cast" ":share" ":by_example" ":hole"))
 							(type//abstract (altRE "abstract:" ":abstraction" ":representation" ":transmutation" "\\^:representation"))
 							(type//unit (altRE "unit:" "scale:"))
 							(type//poly (altRE "poly:" "derived:"))
@@ -343,12 +343,12 @@ Called by `imenu--generic-function'."
 							(code//template (altRE "template" "template:"))
 							;; Miscellaneous
 							(actor (altRE "actor:" "message:" "actor"))
-							(jvm-host (altRE "class:" "interface:" "import:" "object" "do-to" "synchronized" "class-for"))
+							(jvm-host (altRE "class:" "interface:" "import:" "object" "do_to" "synchronized" "class_for"))
 							(alternative-format (altRE "char" "bin" "oct" "hex"))
 							(documentation (altRE "doc" "comment"))
 							(function-application (altRE "|>" "<|" "_\\$" "\\$_"))
 							(function-definition (altRE "function" "|>>" "<<|" "||>"))
-							(remember (altRE "remember" "to-do" "fix-me"))
+							(remember (altRE "remember" "to_do" "fix_me"))
 							(definition (altRE "\\.module:"
 											   "def:" "type:" "program:"
 											   "signature:" "structure:"
@@ -391,8 +391,8 @@ Called by `imenu--generic-function'."
 							remember
 							definition
 							;;;;;;;;;;;;;;;;;;;;;;;;
-							"with-expansions"
-							"undefined" "name-of" "static"
+							"with_expansions"
+							"undefined" "name_of" "static"
 							"for"
 							"io"
 							"infix"
