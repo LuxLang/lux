@@ -16,8 +16,7 @@
     [text
      ["%" format (#+ format)]]
     [number
-     ["n" nat]
-     ["." i64]]
+     ["n" nat]]
     [collection
      ["." list ("#\." fold monoid)]
      ["." row (#+ Row)]]]
@@ -26,7 +25,7 @@
   {1
    ["." /
     [//
-     ["." promise ("#\." monad)]
+     ["." promise (#+ Promise) ("#\." monad)]
      ["." atom (#+ Atom atom)]]]})
 
 (def: injection
@@ -49,11 +48,27 @@
                _
                false))))))
 
+(def: (take_amount amount_of_polls [channel sink])
+  (All [a] (-> Nat [(/.Channel a) (/.Sink a)] (Promise (List a))))
+  (case amount_of_polls
+    0 (do promise.monad
+        [_ (promise.future (\ sink close))]
+        (wrap #.Nil))
+    _ (do {! promise.monad}
+        [event channel]
+        (case event
+          #.None
+          (wrap #.Nil)
+
+          (#.Some [head tail])
+          (\ ! map (|>> (#.Cons head))
+             (take_amount (dec amount_of_polls) [channel sink]))))))
+
 (def: #export test
   Test
   (<| (_.covering /._)
       (let [(^open "list\.") (list.equivalence n.equivalence)]
-        (do random.monad
+        (do {! random.monad}
           [inputs (random.list 5 random.nat)
            sample random.nat
            distint/0 random.nat
@@ -69,7 +84,7 @@
                      ($apply.spec ..injection ..comparison /.apply))
               (_.for [/.monad]
                      ($monad.spec ..injection ..comparison /.monad))
-              
+
               (_.cover [/.Channel /.Sink /.channel]
                        (case (io.run
                               (do (try.with io.monad)
@@ -125,19 +140,22 @@
                                 (list\= (list.filter n.even? inputs)
                                         output))))
               (wrap (do {! promise.monad}
-                      [#let [sink (: (Atom (Row Nat))
-                                     (atom.atom row.empty))
-                             channel (/.sequential 0 (list\compose inputs inputs))]
+                      [#let [[?signal !signal] (: [(promise.Promise Any) (promise.Resolver Any)]
+                                                  (promise.promise []))
+                             sink (: (Atom (Row Nat))
+                                     (atom.atom row.empty))]
                        _ (promise.future (/.subscribe (function (_ value)
                                                         (do {! io.monad}
                                                           [current (atom.read sink)
                                                            _ (atom.update (row.add value) sink)]
-                                                          (wrap (if (n.< (list.size inputs)
-                                                                         (inc (row.size current)))
-                                                                  (#.Some [])
-                                                                  #.None))))
-                                                      channel))
-                       _ (/.consume channel)
+                                                          (if (n.< (list.size inputs)
+                                                                   (inc (row.size current)))
+                                                            (wrap (#.Some []))
+                                                            (do !
+                                                              [_ (!signal [])]
+                                                              (wrap #.None)))))
+                                                      (/.sequential 0 (list\compose inputs inputs))))
+                       _ ?signal
                        listened (|> sink
                                     atom.read
                                     promise.future
@@ -172,36 +190,24 @@
                       (_.cover' [/.distinct]
                                 (list\= (list distint/0 distint/1 distint/2)
                                         actual))))
-              (let [polling_delay 1
-                    amount_of_polls 5
-                    wiggle_room ($_ n.*
-                                    (i64.left_shift 6 1)
-                                    amount_of_polls
-                                    polling_delay)
-                    total_delay (|> polling_delay
-                                    (n.* amount_of_polls)
-                                    (n.+ wiggle_room))]
+              (do !
+                [polling_delay (\ ! map (|>> (n.% 10) inc) random.nat)
+                 amount_of_polls (\ ! map (|>> (n.% 10) inc) random.nat)]
                 ($_ _.and
-                    (wrap (do promise.monad
-                            [#let [[channel sink] (/.poll polling_delay (: (IO Nat) (io.io sample)))]
-                             _ (promise.delay total_delay [])
-                             _ (promise.future (\ sink close))
-                             actual (/.consume channel)
+                    (wrap (do {! promise.monad}
+                            [actual (..take_amount amount_of_polls (/.poll polling_delay (: (IO Nat) (io.io sample))))
                              #let [correct_values!
                                    (list.every? (n.= sample) actual)
-
+                                   
                                    enough_polls!
-                                   (n.>= amount_of_polls (list.size actual))]]
+                                   (n.= amount_of_polls (list.size actual))]]
                             (_.cover' [/.poll]
                                       (and correct_values!
                                            enough_polls!))))
-                    (wrap (do promise.monad
-                            [#let [[channel sink] (/.periodic polling_delay)]
-                             _ (promise.delay total_delay [])
-                             _ (promise.future (\ sink close))
-                             actual (/.consume channel)]
+                    (wrap (do {! promise.monad}
+                            [actual (..take_amount amount_of_polls (/.periodic polling_delay))]
                             (_.cover' [/.periodic]
-                                      (n.>= amount_of_polls (list.size actual)))))))
+                                      (n.= amount_of_polls (list.size actual)))))))
               (wrap (do promise.monad
                       [#let [max_iterations 10]
                        actual (|> [0 sample]
