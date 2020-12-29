@@ -442,7 +442,7 @@ highlighted region)."
           (font-lock-syntactic-face-function
            . lux-font-lock-syntactic-face-function))))
 
-(defvar withRE (concat "\\`" "with" (altRE "-" "\\'")))
+(defvar withRE (concat "\\`" "with" (altRE "_" "\\'")))
 (defvar definitionRE ":\\'")
 
 (defun lux-indent-function (indent-point state)

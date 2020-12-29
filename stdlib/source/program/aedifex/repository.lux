@@ -1,38 +1,18 @@
 (.module:
   [lux #*
-   ["." host (#+ import:)]
    [abstract
     [monad (#+ do)]]
    [control
-    ["." io (#+ IO)]
+    [io (#+ IO)]
     ["." try (#+ Try)]
-    ["." exception (#+ exception:)]
     [concurrency
      ["." promise (#+ Promise)]
      ["." stm]]]
    [data
-    ["." binary (#+ Binary)]
-    ["." text
-     ["%" format (#+ format)]]
-    [number
-     ["n" nat]]]
-   [tool
-    [compiler
-     ["." version]
-     ["." language #_
-      ["#/." lux #_
-       ["#" version]]]]]
+    [binary (#+ Binary)]]
    [world
-    [net (#+ URL)
-     ["." uri (#+ URI)]]]]
-  ["." / #_
-   ["#." identity (#+ Identity)]
-   ["/#" // #_
-    ["#." artifact (#+ Artifact)
-     ["#/." extension (#+ Extension)]]]])
-
-(type: #export Address
-  URL)
+    [net
+     [uri (#+ URI)]]]])
 
 (signature: #export (Repository !)
   (: (-> URI (! (Try Binary)))
@@ -86,108 +66,3 @@
             (#try.Failure error)
             (wrap (#try.Failure error))))))
      )))
-
-(import: java/lang/String)
-
-(import: java/lang/AutoCloseable
-  ["#::."
-   (close [] #io #try void)])
-
-(import: java/io/InputStream)
-
-(import: java/io/OutputStream
-  ["#::."
-   (flush [] #io #try void)
-   (write [[byte]] #io #try void)])
-
-(import: java/net/URLConnection
-  ["#::."
-   (setDoOutput [boolean] #io #try void)
-   (setRequestProperty [java/lang/String java/lang/String] #io #try void)
-   (getInputStream [] #io #try java/io/InputStream)
-   (getOutputStream [] #io #try java/io/OutputStream)])
-
-(import: java/net/HttpURLConnection
-  ["#::."
-   (setRequestMethod [java/lang/String] #io #try void)
-   (getResponseCode [] #io #try int)])
-
-(import: java/net/URL
-  ["#::."
-   (new [java/lang/String])
-   (openConnection [] #io #try java/net/URLConnection)])
-
-(import: java/io/BufferedInputStream
-  ["#::."
-   (new [java/io/InputStream])
-   (read [[byte] int int] #io #try int)])
-
-(exception: #export (no_credentials {address Address})
-  (exception.report
-   ["Address" (%.text address)]))
-
-(exception: #export (deployment_failure {code Int})
-  (exception.report
-   ["Code" (%.int code)]))
-
-(def: #export (uri artifact extension)
-  (-> Artifact Extension URI)
-  (format (//artifact.uri artifact) extension))
-
-(def: buffer_size
-  (n.* 512 1,024))
-
-(def: user_agent
-  (format "LuxAedifex/" (version.format language/lux.version)))
-
-(structure: #export (remote identity address)
-  (All [s] (-> (Maybe Identity) Address (Repository IO)))
-
-  (def: (download uri)
-    (do {! (try.with io.monad)}
-      [connection (|> (format address uri)
-                      java/net/URL::new
-                      java/net/URL::openConnection)
-       #let [connection (:coerce java/net/HttpURLConnection connection)]
-       _ (java/net/HttpURLConnection::setRequestMethod "GET" connection)
-       _ (java/net/URLConnection::setRequestProperty "User-Agent" ..user_agent connection)
-       input (|> connection
-                 java/net/URLConnection::getInputStream
-                 (\ ! map (|>> java/io/BufferedInputStream::new)))
-       #let [buffer (binary.create ..buffer_size)]]
-      (loop [output (\ binary.monoid identity)]
-        (do !
-          [bytes_read (java/io/BufferedInputStream::read buffer +0 (.int ..buffer_size) input)]
-          (case bytes_read
-            -1 (do !
-                 [_ (java/lang/AutoCloseable::close input)]
-                 (wrap output))
-            _ (if (n.= ..buffer_size bytes_read)
-                (recur (\ binary.monoid compose output buffer))
-                (do !
-                  [chunk (\ io.monad wrap (binary.slice 0 (.nat bytes_read) buffer))]
-                  (recur (\ binary.monoid compose output chunk)))))))))
-
-  (def: (upload uri content)
-    (case identity
-      #.None
-      (\ io.monad wrap (exception.throw ..no_credentials [address]))
-      
-      (#.Some [user password])
-      (do (try.with io.monad)
-        [connection (|> (format address uri)
-                        java/net/URL::new
-                        java/net/URL::openConnection)
-         #let [connection (:coerce java/net/HttpURLConnection connection)]
-         _ (java/net/HttpURLConnection::setRequestMethod "PUT" connection)
-         _ (java/net/URLConnection::setDoOutput true connection)
-         _ (java/net/URLConnection::setRequestProperty "Authorization" (/identity.basic_auth user password) connection)
-         stream (java/net/URLConnection::getOutputStream connection)
-         _ (java/io/OutputStream::write content stream)
-         _ (java/io/OutputStream::flush stream)
-         _ (java/lang/AutoCloseable::close stream)
-         code (java/net/HttpURLConnection::getResponseCode connection)]
-        (case code
-          +201 (wrap [])
-          _ (\ io.monad wrap (exception.throw ..deployment_failure [code]))))))
-  )
