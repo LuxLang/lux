@@ -4,13 +4,18 @@
     [monad (#+ do)]
     [equivalence (#+ Equivalence)]]
    [control
+    [pipe (#+ do>)]
+    ["." try (#+ Try)]
     ["<>" parser
      ["<.>" xml (#+ Parser)]
-     ["<.>" text]]]
+     ["<.>" text]]
+    [concurrency
+     ["." promise (#+ Promise)]]]
    [data
     ["." product]
     ["." text
-     ["%" format (#+ format)]]
+     ["%" format]
+     ["." encoding]]
     [format
      ["." xml (#+ XML)]]
     [collection
@@ -22,9 +27,14 @@
     ["." instant (#+ Instant)]
     ["." date (#+ Date)]
     ["." year]
-    ["." month]]]
-  ["." /// #_
-   ["#." artifact (#+ Group Name Version Artifact)]])
+    ["." month]]
+   [world
+    [net
+     ["." uri (#+ URI)]]]]
+  ["." //
+   ["/#" // #_
+    [repository (#+ Repository)]
+    ["#." artifact (#+ Group Name Version Artifact)]]])
 
 (type: #export Metadata
   {#group Group
@@ -35,26 +45,26 @@
 (def: (pad value)
   (-> Nat Text)
   (if (n.< 10 value)
-    (format "0" (%.nat value))
+    (%.format "0" (%.nat value))
     (%.nat value)))
 
 (def: (date_format value)
   (%.Format Date)
-  (format (|> value date.year year.value .nat %.nat)
-          (|> value date.month month.number ..pad)
-          (|> value date.day_of_month ..pad)))
+  (%.format (|> value date.year year.value .nat %.nat)
+            (|> value date.month month.number ..pad)
+            (|> value date.day_of_month ..pad)))
 
 (def: (time_format value)
   (%.Format Time)
   (let [(^slots [#time.hour #time.minute #time.second]) (time.clock value)]
-    (format (..pad hour)
-            (..pad minute)
-            (..pad second))))
+    (%.format (..pad hour)
+              (..pad minute)
+              (..pad second))))
 
 (def: (instant_format value)
   (%.Format Instant)
-  (format (..date_format (instant.date value))
-          (..time_format (instant.time value))))
+  (%.format (..date_format (instant.date value))
+            (..time_format (instant.time value))))
 
 (template [<definition> <tag>]
   [(def: <definition> xml.Tag ["" <tag>])]
@@ -73,26 +83,26 @@
      (-> <type> XML)
      (|>> <pre> #xml.Text list (#xml.Node <tag> xml.attributes)))]
 
-  [write_group Group ..<group> (|>)]
-  [write_name Name ..<name> (|>)]
-  [write_version Version ..<version> (|>)]
-  [write_last_updated Instant ..<last_updated> ..instant_format]
+  [format_group Group ..<group> (|>)]
+  [format_name Name ..<name> (|>)]
+  [format_version Version ..<version> (|>)]
+  [format_last_updated Instant ..<last_updated> ..instant_format]
   )
 
-(def: write_versions
+(def: format_versions
   (-> (List Version) XML)
-  (|>> (list\map ..write_version) (#xml.Node ..<versions> xml.attributes)))
+  (|>> (list\map ..format_version) (#xml.Node ..<versions> xml.attributes)))
 
-(def: #export (write value)
+(def: #export (format value)
   (-> Metadata XML)
   (#xml.Node ..<metadata>
              xml.attributes
-             (list (..write_group (get@ #group value))
-                   (..write_name (get@ #name value))
+             (list (..format_group (get@ #group value))
+                   (..format_name (get@ #name value))
                    (#xml.Node ..<versioning>
                               xml.attributes
-                              (list (..write_versions (get@ #versions value))
-                                    (..write_last_updated (get@ #last_updated value)))))))
+                              (list (..format_versions (get@ #versions value))
+                                    (..format_last_updated (get@ #last_updated value)))))))
 
 (def: (sub tag parser)
   (All [a] (-> xml.Tag (Parser a) (Parser a)))
@@ -157,3 +167,42 @@
       (list.equivalence text.equivalence)
       instant.equivalence
       ))
+
+(def: #export (uri artifact)
+  (-> Artifact URI)
+  (let [/ uri.separator
+        group (///artifact.directory / (get@ #///artifact.group artifact))
+        name (get@ #///artifact.name artifact)]
+    (%.format group / name / //.file)))
+
+(def: epoch
+  Instant
+  (instant.from_millis +0))
+
+(def: #export (read repository artifact)
+  (-> (Repository Promise) Artifact (Promise (Try Metadata)))
+  (do promise.monad
+    [project (\ repository download (..uri artifact))]
+    (case project
+      (#try.Success project)
+      (wrap (|> project
+                (do> try.monad
+                     [(\ encoding.utf8 decode)]
+                     [(\ xml.codec decode)]
+                     [(<xml>.run ..parser)])))
+      
+      (#try.Failure error)
+      (wrap (#try.Success
+             (let [(^slots [#///artifact.group #///artifact.name]) artifact]
+               {#group group
+                #name name
+                #versions (list)
+                #last_updated ..epoch}))))))
+
+(def: #export (write repository artifact metadata)
+  (-> (Repository Promise) Artifact Metadata (Promise (Try Any)))
+  (|> metadata
+      ..format
+      (\ xml.codec encode)
+      (\ encoding.utf8 encode)
+      (\ repository upload (..uri artifact))))

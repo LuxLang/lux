@@ -36,9 +36,14 @@
     ["#." action (#+ Action)]
     ["#." pom]
     ["#." hash]
+    ["#." package]
+    ["#." dependency
+     ["#/." deployment]
+     ["#/." status (#+ Status)]]
     ["#." repository (#+ Repository)
      [identity (#+ Identity)]
-     ["#/." remote]]
+     ["#/." remote]
+     ["#/." origin]]
     ["#." metadata
      ["#/." artifact]
      ["#/." snapshot]]
@@ -46,94 +51,24 @@
      ["#/." extension (#+ Extension)]
      ["#/." type]]]])
 
-(def: epoch
-  Instant
-  (instant.from_millis +0))
-
-(template [<name> <type> <uri> <parser> <default>]
-  [(def: (<name> repository artifact)
-     (-> (Repository Promise) Artifact (Promise (Try <type>)))
-     (do promise.monad
-       [project (\ repository download (<uri> artifact))]
-       (case project
-         (#try.Success project)
-         (wrap (|> project
-                   (do> try.monad
-                        [(\ encoding.utf8 decode)]
-                        [(\ xml.codec decode)]
-                        [(<xml>.run <parser>)])))
-         
-         (#try.Failure error)
-         (wrap (#try.Success <default>)))))]
-
-  [read_project_metadata ///metadata/artifact.Metadata ///metadata.project ///metadata/artifact.parser
-   (let [(^slots [#///artifact.group #///artifact.name #///artifact.version]) artifact]
-     {#///metadata/artifact.group group
-      #///metadata/artifact.name name
-      #///metadata/artifact.versions (list)
-      #///metadata/artifact.last_updated ..epoch})]
-  [read_version_metadata ///metadata/snapshot.Metadata ///metadata.version ///metadata/snapshot.parser
-   (let [(^slots [#///artifact.group #///artifact.name #///artifact.version]) artifact]
-     {#///metadata/snapshot.group group
-      #///metadata/snapshot.name name
-      #///metadata/snapshot.version version
-      #///metadata/snapshot.versioning {#///metadata/snapshot.time_stamp ..epoch
-                                        #///metadata/snapshot.build 0
-                                        #///metadata/snapshot.snapshot (list)}})]
-  )
-
-(def: snapshot_artifacts
-  (List ///artifact/type.Type)
-  (list ///artifact/type.pom
-        (format ///artifact/type.pom ///artifact/extension.sha-1)
-        (format ///artifact/type.pom ///artifact/extension.md5)
-        ///artifact/type.lux_library
-        (format ///artifact/type.lux_library ///artifact/extension.sha-1)
-        (format ///artifact/type.lux_library ///artifact/extension.md5)))
-
 (def: #export (do! console repository fs artifact profile)
   (-> (Console Promise) (Repository Promise) (file.System Promise) Artifact (Command Any))
-  (let [deploy! (: (-> Extension Binary (Action Any))
-                   (|>> (///repository/remote.uri artifact)
-                        (\ repository upload)))
-        fully_deploy! (: (-> Extension Binary (Action Any))
-                         (function (_ extension payload)
-                           (do ///action.monad
-                             [_ (deploy! extension payload)
-                              _ (deploy! (format extension ///artifact/extension.sha-1)
-                                         (///hash.data (///hash.sha-1 payload)))
-                              _ (deploy! (format extension ///artifact/extension.md5)
-                                         (///hash.data (///hash.md5 payload)))]
-                             (wrap []))))
-        (^slots [#///artifact.group #///artifact.name #///artifact.version]) artifact]
-    (do promise.monad
-      [now (promise.future instant.now)]
-      (do {! ///action.monad}
-        [project (..read_project_metadata repository artifact)
-         snapshot (..read_version_metadata repository artifact)
-         pom (\ ! map (|>> (\ xml.codec encode) (\ encoding.utf8 encode))
-                (promise\wrap (///pom.write profile)))
-         library (|> profile
-                     (get@ #/.sources)
-                     set.to_list
-                     (export.library fs)
-                     (\ ! map (binary.run tar.writer)))
-
-         _ (fully_deploy! ///artifact/extension.pom pom)
-         _ (fully_deploy! ///artifact/extension.lux_library library)
-         _ (|> snapshot
-               (set@ [#///metadata/snapshot.versioning #///metadata/snapshot.time_stamp] now)
-               (update@ [#///metadata/snapshot.versioning #///metadata/snapshot.build] inc)
-               (set@ [#///metadata/snapshot.versioning #///metadata/snapshot.snapshot] ..snapshot_artifacts)
-               ///metadata/snapshot.write
-               (\ xml.codec encode)
-               (\ encoding.utf8 encode)
-               (\ repository upload (///metadata.version artifact)))
-         _ (|> project
-               (set@ #///metadata/artifact.versions (list version))
-               (set@ #///metadata/artifact.last_updated now)
-               ///metadata/artifact.write
-               (\ xml.codec encode)
-               (\ encoding.utf8 encode)
-               (\ repository upload (///metadata.project artifact)))]
-        (console.write_line //clean.success console)))))
+  (do {! ///action.monad}
+    [library (|> profile
+                 (get@ #/.sources)
+                 set.to_list
+                 (export.library fs)
+                 (\ ! map (binary.run tar.writer)))
+     pom (\ promise.monad wrap (///pom.write profile))
+     _ (///dependency/deployment.one
+        repository
+        [artifact ///artifact/type.lux_library]
+        {#///package.origin (#///repository/origin.Remote "")
+         #///package.library [library
+                              (///dependency/status.verified library)]
+         #///package.pom [pom
+                          (|> pom
+                              (\ xml.codec encode)
+                              (\ encoding.utf8 encode)
+                              ///dependency/status.verified)]})]
+    (console.write_line //clean.success console)))

@@ -60,28 +60,43 @@
     (-> Binary (Repository Promise) Artifact Extension
         (-> Binary (Hash h)) (Codec Text (Hash h))
         (Exception [Artifact Extension Text])
-        (Promise (Try (Hash h)))))
-  (do (try.with promise.monad)
-    [actual (\ repository download (///repository/remote.uri artifact extension))]
-    (\ promise.monad wrap
-       (do try.monad
-         [output (\ encoding.utf8 decode actual)
-          actual (\ codec decode output)
-          _ (exception.assert exception [artifact extension output]
-                              (\ ///hash.equivalence = (hash library) actual))]
-         (wrap actual)))))
+        (Promise (Try (Maybe (Hash h))))))
+  (do promise.monad
+    [?actual (\ repository download (///repository/remote.uri artifact extension))]
+    (case ?actual
+      (#try.Success actual)
+      (wrap (do try.monad
+              [output (\ encoding.utf8 decode actual)
+               actual (\ codec decode output)
+               _ (exception.assert exception [artifact extension output]
+                                   (\ ///hash.equivalence = (hash library) actual))]
+              (wrap (#.Some actual))))
+      
+      (#try.Failure error)
+      (wrap (#try.Success #.None)))))
 
 (def: (hashed repository artifact extension)
   (-> (Repository Promise) Artifact Extension (Promise (Try [Binary Status])))
   (do (try.with promise.monad)
     [data (\ repository download (///repository/remote.uri artifact extension))
-     sha-1 (..verified_hash data
-                            repository artifact (format extension ///artifact/extension.sha-1)
-                            ///hash.sha-1 ///hash.sha-1_codec ..sha-1_does_not_match)
-     md5 (..verified_hash data
-                          repository artifact (format extension ///artifact/extension.md5)
-                          ///hash.md5 ///hash.md5_codec ..md5_does_not_match)]
-    (wrap [data (#//status.Verified sha-1 md5)])))
+     ?sha-1 (..verified_hash data
+                             repository artifact (format extension ///artifact/extension.sha-1)
+                             ///hash.sha-1 ///hash.sha-1_codec ..sha-1_does_not_match)
+     ?md5 (..verified_hash data
+                           repository artifact (format extension ///artifact/extension.md5)
+                           ///hash.md5 ///hash.md5_codec ..md5_does_not_match)]
+    (wrap [data (case [?sha-1 ?md5]
+                  [(#.Some sha-1) (#.Some md5)]
+                  (#//status.Verified sha-1 md5)
+
+                  [(#.Some sha-1) _]
+                  (#//status.Partial (#.Left sha-1))
+
+                  [_ (#.Some md5)]
+                  (#//status.Partial (#.Right md5))
+
+                  [#.None #.None]
+                  #//status.Unverified)])))
 
 (def: #export (one repository dependency)
   (-> (Repository Promise) Dependency (Promise (Try Package)))

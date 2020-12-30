@@ -1,0 +1,128 @@
+(.module:
+  [lux #*
+   [abstract
+    [codec (#+ Codec)]
+    ["." monad (#+ do)]]
+   [control
+    ["." try (#+ Try)]
+    [concurrency
+     ["." promise (#+ Promise)]]
+    [security
+     ["!" capability]]]
+   [data
+    [binary (#+ Binary)]
+    ["." product]
+    [text
+     ["%" format (#+ format)]
+     ["." encoding]]
+    [collection
+     ["." dictionary]
+     ["." set (#+ Set)]
+     ["." list ("#\." monoid)]]
+    [format
+     ["." xml]]]
+   [time
+    ["." instant]]
+   [world
+    [program (#+ Program)]
+    ["." file (#+ Path File Directory)]]]
+  ["." /// #_
+   ["#" local]
+   ["#." hash (#+ Hash SHA-1 MD5)]
+   ["#." package (#+ Package)]
+   ["#." artifact (#+ Artifact)
+    ["#/." type]
+    ["#/." extension (#+ Extension)]]
+   ["#." metadata
+    ["#/." artifact]
+    ["#/." snapshot]]
+   ["#." dependency (#+ Dependency)
+    [resolution (#+ Resolution)]
+    ["#/." status (#+ Status)]]
+   ["#." repository (#+ Repository)
+    ["#/." origin]]])
+
+(def: (with_status repository [artifact type] [data status])
+  (-> (Repository Promise) Dependency [Binary Status] (Promise (Try Any)))
+  (let [artifact (format (///artifact.uri artifact)
+                         (///artifact/extension.extension type))
+        deploy_hash (: (All [h] (-> (Codec Text (Hash h)) Extension (Hash h) (Promise (Try Any))))
+                       (function (_ codec extension hash)
+                         (|> hash
+                             (\ codec encode)
+                             (\ encoding.utf8 encode)
+                             (\ repository upload (format artifact extension)))))]
+    (do {! (try.with promise.monad)}
+      [_ (\ repository upload artifact data)]
+      (case status
+        #///dependency/status.Unverified
+        (wrap [])
+        
+        (#///dependency/status.Partial partial)
+        (case partial
+          (#.Left sha-1)
+          (deploy_hash ///hash.sha-1_codec ///artifact/extension.sha-1 sha-1)
+          
+          (#.Right md5)
+          (deploy_hash ///hash.md5_codec ///artifact/extension.md5 md5))
+        
+        (#///dependency/status.Verified sha-1 md5)
+        (do !
+          [_ (deploy_hash ///hash.sha-1_codec ///artifact/extension.sha-1 sha-1)]
+          (deploy_hash ///hash.md5_codec ///artifact/extension.md5 md5))))))
+
+(def: (artifacts type status)
+  (-> ///artifact/type.Type Status (List ///artifact/type.Type))
+  (with_expansions [<sha-1> (format type ///artifact/extension.sha-1)
+                    <md5> (format type ///artifact/extension.md5)]
+    (list& type
+           (case status
+             #///dependency/status.Unverified
+             (list)
+             
+             (#///dependency/status.Partial partial)
+             (list (case partial
+                     (#.Left _) <sha-1>
+                     (#.Right _) <md5>))
+             
+             (#///dependency/status.Verified _)
+             (list <sha-1> <md5>)))))
+
+(def: #export (one repository [artifact type] package)
+  (-> (Repository Promise) Dependency Package (Promise (Try Artifact)))
+  (do {! promise.monad}
+    [now (promise.future instant.now)]
+    (do (try.with !)
+      [_ (with_status repository [artifact type] (get@ #///package.library package))
+
+       _ (let [[pom status] (get@ #///package.pom package)]
+           (with_status repository
+             [artifact ///artifact/type.pom]
+             [(|> pom (\ xml.codec encode) (\ encoding.utf8 encode))
+              status]))
+
+       snapshot (///metadata/snapshot.read repository artifact)
+       _ (|> snapshot
+             (set@ [#///metadata/snapshot.versioning #///metadata/snapshot.time_stamp] now)
+             (update@ [#///metadata/snapshot.versioning #///metadata/snapshot.build] inc)
+             (set@ [#///metadata/snapshot.versioning #///metadata/snapshot.snapshot]
+                   (list\compose (..artifacts type (product.right (get@ #///package.library package)))
+                                 (..artifacts ///artifact/type.pom (product.right (get@ #///package.pom package)))))
+             (///metadata/snapshot.write repository artifact))
+
+       project (///metadata/artifact.read repository artifact)
+       #let [version (get@ #///artifact.version artifact)]
+       _ (|> project
+             (set@ #///metadata/artifact.versions (list version))
+             (set@ #///metadata/artifact.last_updated now)
+             (///metadata/artifact.write repository artifact))]
+      (wrap artifact))))
+
+(def: #export (all repository resolution)
+  (-> (Repository Promise) Resolution (Promise (Try (Set Artifact))))
+  (do {! (try.with promise.monad)}
+    []
+    (|> (dictionary.entries resolution)
+        (monad.map ! (function (_ [dependency package])
+                       (..one repository dependency package)))
+        (\ ! map (set.from_list ///artifact.hash)))))

@@ -35,36 +35,35 @@
     ["#." command (#+ Command)]
     ["#." local]
     ["#." pom]
+    ["#." package]
+    [repository (#+ Repository)
+     ["#." origin]]
+    ["#." dependency #_
+     ["#/." deployment]
+     ["#/." status]]
     ["#." artifact (#+ Artifact)
-     ["#/." extension]]]])
-
-(def: (save! system content file)
-  (-> (file.System Promise) Binary Path (Promise (Try Any)))
-  (do (try.with promise.monad)
-    [file (: (Promise (Try (File Promise)))
-             (file.get_file promise.monad system file))]
-    (!.use (\ file over_write) [content])))
+     ["#/." type]]]])
 
 (def: #export failure
   "Failure: No 'identity' defined for the project.")
 
-(def: #export (do! program console system profile)
-  (-> (Program Promise) (Console Promise) (file.System Promise) (Command Any))
+(def: #export (do! console system repository profile)
+  (-> (Console Promise) (file.System Promise) (Repository Promise) (Command Any))
   (case (get@ #/.identity profile)
     (#.Some identity)
-    (do promise.monad
-      [home (\ program home [])]
-      (do ///action.monad
-        [package (export.library system (set.to_list (get@ #/.sources profile)))
-         repository (: (Promise (Try Path))
-                       (file.make_directories promise.monad system (///local.path system home identity)))
-         #let [artifact_name (format repository (\ system separator) (///artifact.identity identity))]
-         _ (..save! system (binary.run tar.writer package)
-                    (format artifact_name ///artifact/extension.lux_library))
-         pom (\ promise.monad wrap (///pom.write profile))
-         _ (..save! system (|> pom (\ xml.codec encode) (\ encoding.utf8 encode))
-                    (format artifact_name ///artifact/extension.pom))]
-        (console.write_line //clean.success console)))
+    (do ///action.monad
+      [package (export.library system (set.to_list (get@ #/.sources profile)))
+       pom (\ promise.monad wrap (///pom.write profile))
+       _ (///dependency/deployment.one repository [identity ///artifact/type.lux_library]
+                                       {#///package.origin (#///origin.Local "")
+                                        #///package.library (let [library (binary.run tar.writer package)]
+                                                              [library (///dependency/status.verified library)])
+                                        #///package.pom [pom
+                                                         (|> pom
+                                                             (\ xml.codec encode)
+                                                             (\ encoding.utf8 encode)
+                                                             ///dependency/status.verified)]})]
+      (console.write_line //clean.success console))
 
     _
     (console.write_line ..failure console)))

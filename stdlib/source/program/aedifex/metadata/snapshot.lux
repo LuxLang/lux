@@ -4,14 +4,19 @@
     [monad (#+ do)]
     [equivalence (#+ Equivalence)]]
    [control
+    [pipe (#+ do>)]
+    ["." try (#+ Try)]
     ["." exception (#+ exception:)]
     ["<>" parser
      ["<.>" xml (#+ Parser)]
-     ["<.>" text]]]
+     ["<.>" text]]
+    [concurrency
+     ["." promise (#+ Promise)]]]
    [data
     ["." product]
     ["." text
-     ["%" format (#+ format)]]
+     ["%" format]
+     ["." encoding]]
     [format
      ["." xml (#+ XML)]]
     [collection
@@ -23,10 +28,16 @@
     ["." instant (#+ Instant)]
     ["." date (#+ Date)]
     ["." year]
-    ["." month]]]
-  ["." /// #_
-   ["#." artifact (#+ Group Name Version Artifact)
-    ["#/." type (#+ Type)]]])
+    ["." month]]
+   [world
+    [net
+     ["." uri (#+ URI)]]]]
+  ["." //
+   ["." artifact]
+   ["/#" // #_
+    [repository (#+ Repository)]
+    ["#." artifact (#+ Group Name Version Artifact)
+     ["#/." type (#+ Type)]]]])
 
 (def: snapshot
   "SNAPSHOT")
@@ -46,34 +57,32 @@
   [Version Time_Stamp Build])
 
 (type: #export Metadata
-  {#group Group
-   #name Name
-   #version Version
+  {#artifact Artifact
    #versioning Versioning})
 
 (def: (pad value)
   (-> Nat Text)
   (if (n.< 10 value)
-    (format "0" (%.nat value))
+    (%.format "0" (%.nat value))
     (%.nat value)))
 
 (def: (date_format value)
   (%.Format Date)
-  (format (|> value date.year year.value .nat %.nat)
-          (|> value date.month month.number ..pad)
-          (|> value date.day_of_month ..pad)))
+  (%.format (|> value date.year year.value .nat %.nat)
+            (|> value date.month month.number ..pad)
+            (|> value date.day_of_month ..pad)))
 
 (def: (time_format value)
   (%.Format Time)
   (let [(^slots [#time.hour #time.minute #time.second]) (time.clock value)]
-    (format (..pad hour)
-            (..pad minute)
-            (..pad second))))
+    (%.format (..pad hour)
+              (..pad minute)
+              (..pad second))))
 
 (def: (instant_format value)
   (%.Format Instant)
-  (format (..date_format (instant.date value))
-          (..time_format (instant.time value))))
+  (%.format (..date_format (instant.date value))
+            (..time_format (instant.time value))))
 
 (template [<separator> <name>]
   [(def: <name>
@@ -85,17 +94,17 @@
 
 (def: (time_stamp_format value)
   (%.Format Time_Stamp)
-  (format (..date_format (instant.date value))
-          ..time_stamp_separator
-          (..time_format (instant.time value))))
+  (%.format (..date_format (instant.date value))
+            ..time_stamp_separator
+            (..time_format (instant.time value))))
 
 (def: (value_format [version time_stamp build])
   (%.Format Value)
-  (format (text.replace_all ..snapshot
-                            (..time_stamp_format time_stamp)
-                            version)
-          ..value_separator
-          (%.nat build)))
+  (%.format (text.replace_all ..snapshot
+                              (..time_stamp_format time_stamp)
+                              version)
+            ..value_separator
+            (%.nat build)))
 
 (template [<definition> <tag>]
   [(def: <definition> xml.Tag ["" <tag>])]
@@ -121,44 +130,45 @@
      (-> <type> XML)
      (|>> <pre> #xml.Text list (#xml.Node <tag> xml.attributes)))]
 
-  [write_group Group ..<group> (|>)]
-  [write_name Name ..<name> (|>)]
-  [write_version Version ..<version> (|>)]
-  [write_last_updated Instant ..<last_updated> ..instant_format]
-  [write_time_stamp Instant ..<timestamp> ..time_stamp_format]
-  [write_build_number Nat ..<build_number> %.nat]
-  [write_extension Type ..<extension> (|>)]
-  [write_value Value ..<value> ..value_format]
-  [write_updated Instant ..<updated> ..instant_format]
+  [format_group Group ..<group> (|>)]
+  [format_name Name ..<name> (|>)]
+  [format_version Version ..<version> (|>)]
+  [format_last_updated Instant ..<last_updated> ..instant_format]
+  [format_time_stamp Instant ..<timestamp> ..time_stamp_format]
+  [format_build_number Nat ..<build_number> %.nat]
+  [format_extension Type ..<extension> (|>)]
+  [format_value Value ..<value> ..value_format]
+  [format_updated Instant ..<updated> ..instant_format]
   )
 
-(def: (write_snapshot value type)
+(def: (format_snapshot value type)
   (-> Value Type XML)
   (<| (#xml.Node ..<snapshot_version> xml.attributes)
-      (list (..write_extension type)
-            (..write_value value)
+      (list (..format_extension type)
+            (..format_value value)
             (let [[version time_stamp build] value]
-              (..write_updated time_stamp)))))
+              (..format_updated time_stamp)))))
 
-(def: (write_versioning version (^slots [#time_stamp #build #snapshot]))
+(def: (format_versioning version (^slots [#time_stamp #build #snapshot]))
   (-> Version Versioning XML)
   (<| (#xml.Node ..<versioning> xml.attributes)
       (list (<| (#xml.Node ..<snapshot> xml.attributes)
-                (list (..write_time_stamp time_stamp)
-                      (..write_build_number build)))
-            (..write_last_updated time_stamp)
+                (list (..format_time_stamp time_stamp)
+                      (..format_build_number build)))
+            (..format_last_updated time_stamp)
             (<| (#xml.Node ..<snapshot_versions> xml.attributes)
-                (list\map (..write_snapshot [version time_stamp build])
+                (list\map (..format_snapshot [version time_stamp build])
                           snapshot)))))
 
-(def: #export (write (^slots [#group #name #version #versioning]))
+(def: #export (format (^slots [#artifact #versioning]))
   (-> Metadata XML)
-  (#xml.Node ..<metadata>
-             xml.attributes
-             (list (..write_group group)
-                   (..write_name name)
-                   (..write_version version)
-                   (..write_versioning version versioning))))
+  (let [(^slots [#///artifact.group #///artifact.name #///artifact.version]) artifact]
+    (#xml.Node ..<metadata>
+               xml.attributes
+               (list (..format_group group)
+                     (..format_name name)
+                     (..format_version version)
+                     (..format_versioning version versioning)))))
 
 (def: (sub tag parser)
   (All [a] (-> xml.Tag (Parser a) (Parser a)))
@@ -264,9 +274,9 @@
          name (<xml>.somewhere (..text ..<name>))
          version (<xml>.somewhere (..text ..<version>))
          versioning (<xml>.somewhere (..versioning_parser version))]
-        (wrap {#group group
-               #name name
-               #version version
+        (wrap {#artifact {#///artifact.group group
+                          #///artifact.name name
+                          #///artifact.version version}
                #versioning versioning}))))
 
 (def: versioning_equivalence
@@ -280,8 +290,47 @@
 (def: #export equivalence
   (Equivalence Metadata)
   ($_ product.equivalence
-      text.equivalence
-      text.equivalence
-      text.equivalence
+      ///artifact.equivalence
       ..versioning_equivalence
       ))
+
+(def: #export (uri artifact)
+  (-> Artifact URI)
+  (let [/ uri.separator
+        version (get@ #///artifact.version artifact)
+        artifact (///artifact.uri artifact)]
+    (%.format artifact / version / //.file)))
+
+(def: epoch
+  Instant
+  (instant.from_millis +0))
+
+(def: init_versioning
+  {#time_stamp ..epoch
+   #build 0
+   #snapshot (list)})
+
+(def: #export (read repository artifact)
+  (-> (Repository Promise) Artifact (Promise (Try Metadata)))
+  (do promise.monad
+    [project (\ repository download (..uri artifact))]
+    (case project
+      (#try.Success project)
+      (wrap (|> project
+                (do> try.monad
+                     [(\ encoding.utf8 decode)]
+                     [(\ xml.codec decode)]
+                     [(<xml>.run ..parser)])))
+      
+      (#try.Failure error)
+      (wrap (#try.Success
+             {#artifact artifact
+              #versioning ..init_versioning})))))
+
+(def: #export (write repository artifact metadata)
+  (-> (Repository Promise) Artifact Metadata (Promise (Try Any)))
+  (|> metadata
+      ..format
+      (\ xml.codec encode)
+      (\ encoding.utf8 encode)
+      (\ repository upload (..uri artifact))))

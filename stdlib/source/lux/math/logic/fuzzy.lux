@@ -1,131 +1,130 @@
 (.module:
   [lux #*
    [abstract
-    [predicate (#+ Predicate)]]
+    [predicate (#+ Predicate)]
+    [functor
+     ["." contravariant]]]
    [data
     [collection
      ["." list]
      ["." set (#+ Set)]]]
    [math
     [number
-     ["r" rev]]]]
-  [//
-   ["&" continuous]])
+     ["/" rev]]]]
+  ["." // #_
+   ["#" continuous]])
 
 (type: #export (Fuzzy a)
   (-> a Rev))
 
-(def: #export (membership elem set)
-  (All [a] (-> a (Fuzzy a) Rev))
+(structure: #export functor
+  (contravariant.Functor Fuzzy)
+  
+  (def: (map f fb)
+    (|>> f fb)))
+
+(template [<name> <verdict>]
+  [(def: #export <name>
+     Fuzzy
+     (function (_ _)
+       <verdict>))]
+
+  [empty //.false]
+  [full //.true]
+  )
+
+(def: #export (membership set elem)
+  (All [a] (-> (Fuzzy a) a Rev))
   (set elem))
 
-(def: #export (union left right)
-  (All [a] (-> (Fuzzy a) (Fuzzy a) (Fuzzy a)))
-  (function (_ elem)
-    (&.or (membership elem left)
-          (membership elem right))))
+(template [<set_composition> <membership_composition>]
+  [(def: #export (<set_composition> left right)
+     (All [a] (-> (Fuzzy a) (Fuzzy a) (Fuzzy a)))
+     (function (_ elem)
+       (<membership_composition> (left elem)
+                                 (right elem))))]
 
-(def: #export (intersection left right)
-  (All [a] (-> (Fuzzy a) (Fuzzy a) (Fuzzy a)))
-  (function (_ elem)
-    (&.and (membership elem left)
-           (membership elem right))))
+  [union //.or]
+  [intersection //.and]
+  )
 
 (def: #export (complement set)
   (All [a] (-> (Fuzzy a) (Fuzzy a)))
-  (function (_ elem)
-    (&.not (membership elem set))))
+  (|>> set //.not))
 
 (def: #export (difference sub base)
   (All [a] (-> (Fuzzy a) (Fuzzy a) (Fuzzy a)))
-  (function (_ elem)
-    (&.and (membership elem base)
-           (&.not (membership elem sub)))))
+  (..intersection (..complement sub) base))
 
 (def: #export (from_predicate predicate)
   (All [a] (-> (Predicate a) (Fuzzy a)))
   (function (_ elem)
     (if (predicate elem)
-      &.true
-      &.false)))
+      //.true
+      //.false)))
 
-(def: #export (from_set set)
+(def: #export (to_predicate treshold set)
+  (All [a] (-> Rev (Fuzzy a) (Predicate a)))
+  (function (_ elem)
+    (/.> treshold (set elem))))
+
+(def: #export from_set
   (All [a] (-> (Set a) (Fuzzy a)))
-  (from_predicate (set.member? set)))
+  (|>> set.member? ..from_predicate))
 
 (def: (ascending from to)
   (-> Rev Rev (Fuzzy Rev))
-  (function (_ elem)
-    (cond (r.<= from elem)
-          &.false
+  (let [measure (/.- from to)]
+    (function (_ elem)
+      (cond (/.< from elem)
+            ## below
+            //.false
 
-          (r.>= to elem)
-          &.true
+            (/.< to elem)
+            ## in the middle...
+            (/./ measure
+                 (/.- from elem))
 
-          ## in the middle...
-          (r./ (r.- from to)
-               (r.- from elem)))))
+            ## above
+            //.true))))
 
 (def: (descending from to)
   (-> Rev Rev (Fuzzy Rev))
-  (function (_ elem)
-    (cond (r.<= from elem)
-          &.true
-
-          (r.>= to elem)
-          &.false
-
-          ## in the middle...
-          (r./ (r.- from to)
-               (r.- elem to)))))
+  (..complement (..ascending from to)))
 
 (def: #export (gradient from to)
   (-> Rev Rev (Fuzzy Rev))
-  (if (r.< to from)
-    (ascending from to)
-    (descending from to)))
+  (if (/.< to from)
+    (..ascending from to)
+    (..descending from to)))
+
+(template: (!sort_2 <low> <high>)
+  (if (/.> <low> <high>)
+    [<low> <high>]
+    [<high> <low>]))
 
 (def: #export (triangle bottom middle top)
   (-> Rev Rev Rev (Fuzzy Rev))
-  (case (list.sort r.< (list bottom middle top))
-    (^ (list bottom middle top))
-    (intersection (ascending bottom middle)
-                  (descending middle top))
-
-    _
-    (undefined)))
+  (let [[low_0 high_0] (!sort_2 bottom middle)
+        [bottom' high_1] (!sort_2 low_0 top)
+        [middle' top'] (!sort_2 high_0 high_1)]
+    (..intersection (..ascending bottom' middle')
+                    (..descending middle' top'))))
 
 (def: #export (trapezoid bottom middle_bottom middle_top top)
   (-> Rev Rev Rev Rev (Fuzzy Rev))
-  (case (list.sort r.< (list bottom middle_bottom middle_top top))
-    (^ (list bottom middle_bottom middle_top top))
-    (intersection (ascending bottom middle_bottom)
-                  (descending middle_top top))
-
-    _
-    (undefined)))
+  (let [[low_0 high_0] (!sort_2 bottom middle_bottom)
+        [low_1 high_1] (!sort_2 middle_top top)
+        [bottom' middle_0] (!sort_2 low_0 low_1)
+        [middle_1 top'] (!sort_2 high_0 high_1)
+        [middle_bottom' middle_top'] (!sort_2 middle_0 middle_1)]
+    (..intersection (..ascending bottom' middle_bottom')
+                    (..descending middle_top' top'))))
 
 (def: #export (cut treshold set)
   (All [a] (-> Rev (Fuzzy a) (Fuzzy a)))
   (function (_ elem)
     (let [membership (set elem)]
-      (if (r.> treshold membership)
-        (|> membership (r.- treshold) (r.* &.true))
-        &.false))))
-
-(def: #export (to_predicate treshold set)
-  (All [a] (-> Rev (Fuzzy a) (Predicate a)))
-  (function (_ elem)
-    (r.> treshold (set elem))))
-
-(type: #export (Fuzzy2 a)
-  (-> a [Rev Rev]))
-
-(def: #export (type_2 lower upper)
-  (All [a] (-> (Fuzzy a) (Fuzzy a) (Fuzzy2 a)))
-  (function (_ elem)
-    (let [l_rev (lower elem)
-          u_rev (upper elem)]
-      [(r.min l_rev
-              u_rev)
-       u_rev])))
+      (if (/.< treshold membership)
+        //.false
+        (|> membership (/.- treshold) (/.* //.true))))))
