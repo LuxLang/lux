@@ -1,25 +1,13 @@
 (.module:
   [lux #*
-   ["@" target]
    [abstract
     [monad (#+ do)]]
    [control
     ["." try (#+ Try)]]
    [data
-    [collection
-     ["." list ("#\." monoid monad)]]
     ["." text ("#\." equivalence)
-     ["%" format (#+ format)]]]
-   [meta (#+ with_gensyms)]
-   [macro
-    ["." code]
-    [syntax (#+ syntax:)]]]
-  ["." //
-   ["s" code]
-   [//
-    ["." io]
-    [concurrency
-     ["." thread]]]])
+     ["%" format (#+ format)]]]]
+  ["." //])
 
 (type: #export (Parser a)
   {#.doc "A command-line interface parser."}
@@ -108,73 +96,3 @@
   (|> value
       (//.after (//.either (..this short) (..this long)))
       ..somewhere))
-
-(type: Program_Args
-  (#Raw Text)
-  (#Parsed (List [Code Code])))
-
-(def: program_args^
-  (s.Parser Program_Args)
-  (//.or s.local_identifier
-         (s.tuple (//.some (//.either (do //.monad
-                                        [name s.local_identifier]
-                                        (wrap [(code.identifier ["" name]) (` any)]))
-                                      (s.record (//.and s.any s.any)))))))
-
-(syntax: #export (program:
-                   {args program_args^}
-                   body)
-  {#.doc (doc "Defines the entry-point to a program (similar to the 'main' function/method in other programming languages)."
-              "Can take a list of all the input parameters to the program, or can destructure them using CLI-option combinators from the lux/cli module."
-              (program: all_args
-                (do io.monad
-                  [foo init_program
-                   bar (do_something all_args)]
-                  (wrap [])))
-
-              (program: [name]
-                (io (log! (\ text.monoid compose "Hello, " name))))
-
-              (program: [{config config^}]
-                (do io.monad
-                  [data (init_program config)]
-                  (do_something data))))}
-  (with_gensyms [g!program g!args g!_ g!output g!message]
-    (let [initialization+event_loop
-          (` ((~! do) (~! io.monad)
-              [(~ g!output) (~ body)
-               (~+ (for {@.old
-                         (list)
-                         
-                         @.jvm
-                         (list)
-
-                         @.js
-                         (list)}
-                        (list g!_
-                              (` ((~! thread.run!) [])))))]
-              ((~' wrap) (~ g!output))))]
-      (case args
-        (#Raw args)
-        (wrap (list (` ("lux def program"
-                        (.function ((~ g!program) (~ (code.identifier ["" args])))
-                          (~ initialization+event_loop))))))
-        
-        (#Parsed args)
-        (wrap (list (` ("lux def program"
-                        (.function ((~ g!program) (~ g!args))
-                          (case ((: (~! (..Parser (io.IO .Any)))
-                                    ((~! do) (~! //.monad)
-                                     [(~+ (|> args
-                                              (list\map (function (_ [binding parser])
-                                                          (list binding parser)))
-                                              list\join))]
-                                     ((~' wrap) (~ initialization+event_loop))))
-                                 (~ g!args))
-                            (#.Right [(~ g!_) (~ g!output)])
-                            (~ g!output)
-
-                            (#.Left (~ g!message))
-                            (.error! (~ g!message))))))
-                    ))
-        ))))

@@ -1,0 +1,176 @@
+(.module:
+  [lux (#- Name Type)
+   [abstract
+    [equivalence (#+ Equivalence)]
+    [monad (#+ do)]]
+   [control
+    ["." exception (#+ exception:)]
+    ["<>" parser
+     ["<.>" xml (#+ Parser)]
+     ["<.>" text]]]
+   [data
+    ["." product]
+    ["." text
+     ["%" format]]
+    [format
+     ["." xml (#+ XML)]]
+    [collection
+     ["." list ("#\." functor)]]]
+   [math
+    [number
+     ["n" nat]]]
+   ["." time (#+ Time)
+    ["." instant (#+ Instant)]
+    ["." date (#+ Date)]
+    ["." year]
+    ["." month]]]
+  ["." // (#+ Version)
+   [type (#+ Type)]
+   ["#." value (#+ Build Value)]
+   ["#." time_stamp (#+ Time_Stamp)
+    ["#/." date]
+    ["#/." time]]])
+
+(type: #export Versioning
+  {#time_stamp Time_Stamp
+   #build Build
+   #snapshot (List Type)})
+
+(def: #export init
+  {#time_stamp (instant.from_millis +0)
+   #build 0
+   #snapshot (list)})
+
+(def: #export equivalence
+  (Equivalence Versioning)
+  ($_ product.equivalence
+      instant.equivalence
+      n.equivalence
+      (list.equivalence text.equivalence)
+      ))
+
+(template [<definition> <tag>]
+  [(def: <definition> xml.Tag ["" <tag>])]
+
+  [<extension> "extension"]
+  [<value> "value"]
+  [<updated> "updated"]
+
+  [<timestamp> "timestamp"]
+  [<build_number> "buildNumber"]
+  [<last_updated> "lastUpdated"]
+  
+  [<snapshot_versions> "snapshotVersions"]
+  [<snapshot_version> "snapshotVersion"]
+  
+  [<snapshot> "snapshot"]
+  [<versioning> "versioning"]
+  )
+
+(def: (instant_format value)
+  (%.Format Instant)
+  (%.format (//time_stamp/date.format (instant.date value))
+            (//time_stamp/time.format (instant.time value))))
+
+(template [<name> <type> <tag> <pre>]
+  [(def: <name>
+     (-> <type> XML)
+     (|>> <pre> #xml.Text list (#xml.Node <tag> xml.attributes)))]
+
+  [format_extension Type ..<extension> (|>)]
+  [format_value Value ..<value> //value.format]
+  [format_updated Instant ..<updated> ..instant_format]
+
+  [format_time_stamp Instant ..<timestamp> //time_stamp.format]
+  [format_build_number Nat ..<build_number> %.nat]
+  [format_last_updated Instant ..<last_updated> ..instant_format]
+  )
+
+(def: (format_snapshot value type)
+  (-> Value Type XML)
+  (<| (#xml.Node ..<snapshot_version> xml.attributes)
+      (list (..format_extension type)
+            (..format_value value)
+            (let [[version time_stamp build] value]
+              (..format_updated time_stamp)))))
+
+(def: #export (format version (^slots [#time_stamp #build #snapshot]))
+  (-> Version Versioning XML)
+  (<| (#xml.Node ..<versioning> xml.attributes)
+      (list (<| (#xml.Node ..<snapshot> xml.attributes)
+                (list (..format_time_stamp time_stamp)
+                      (..format_build_number build)))
+            (..format_last_updated time_stamp)
+            (<| (#xml.Node ..<snapshot_versions> xml.attributes)
+                (list\map (..format_snapshot [version time_stamp build])
+                          snapshot)))))
+
+(exception: #export (time_stamp_mismatch {expected Time_Stamp} {actual Text})
+  (exception.report
+   ["Expected time-stamp" (instant_format expected)]
+   ["Actual time-stamp" actual]))
+
+(exception: #export (value_mismatch {expected Value} {actual Text})
+  (exception.report
+   ["Expected" (//value.format expected)]
+   ["Actual" actual]))
+
+(def: (sub tag parser)
+  (All [a] (-> xml.Tag (Parser a) (Parser a)))
+  (do <>.monad
+    [_ (<xml>.node tag)]
+    (<xml>.children parser)))
+
+(def: (text tag)
+  (-> xml.Tag (Parser Text))
+  (..sub tag <xml>.text))
+
+(def: last_updated_parser
+  (Parser Instant)
+  (<text>.embed (do <>.monad
+                  [date //time_stamp/date.parser
+                   time //time_stamp/time.parser]
+                  (wrap (instant.from_date_time date time)))
+                (..text ..<last_updated>)))
+
+(def: time_stamp_parser
+  (Parser Time_Stamp)
+  (<text>.embed //time_stamp.parser
+                (..text ..<timestamp>)))
+
+(def: build_parser
+  (Parser Build)
+  (<text>.embed (<>.codec n.decimal
+                          (<text>.many <text>.decimal))
+                (..text ..<build_number>)))
+
+(def: (snapshot_parser expected)
+  (-> Value (Parser Type))
+  (<| (..sub ..<snapshot_version>)
+      (do <>.monad
+        [#let [[version time_stamp build] expected]
+         updated (<xml>.somewhere (..text ..<updated>))
+         _ (<>.assert (exception.construct ..time_stamp_mismatch [time_stamp updated])
+                      (\ text.equivalence = (instant_format time_stamp) updated))
+         actual (<xml>.somewhere (..text ..<value>))
+         _ (<>.assert (exception.construct ..value_mismatch [expected actual])
+                      (\ text.equivalence = (//value.format expected) actual))]
+        (<xml>.somewhere (..text ..<extension>)))))
+
+(def: #export (parser version)
+  (-> Version (Parser Versioning))
+  (<| (..sub ..<versioning>)
+      (do <>.monad
+        [[time_stamp build] (<| <xml>.somewhere
+                                (..sub ..<snapshot>)
+                                (<>.and (<xml>.somewhere ..time_stamp_parser)
+                                        (<xml>.somewhere ..build_parser)))
+         last_updated (<xml>.somewhere ..last_updated_parser)
+         _ (<>.assert (exception.construct ..time_stamp_mismatch [time_stamp (instant_format last_updated)])
+                      (\ instant.equivalence = time_stamp last_updated))
+         snapshot (<| <xml>.somewhere
+                      (..sub ..<snapshot_versions>)
+                      (<>.some (..snapshot_parser [version time_stamp build])))]
+        (wrap {#time_stamp time_stamp
+               #build build
+               #snapshot snapshot}))))
