@@ -4,13 +4,17 @@
    [abstract
     ["." monad (#+ do)]]
    [control
+    ["." try (#+ Try)]
+    ["." exception (#+ exception:)]
     ["<>" parser ("#\." functor)
      ["<.>" code (#+ Parser)]]]
    [data
     ["." bit ("#\." codec)]
     ["." text]
     [collection
-     ["." list ("#\." monad)]]]
+     ["." list ("#\." monad fold)]
+     ["." dictionary (#+ Dictionary)
+      ["." plist]]]]
    [math
     [number
      ["." nat ("#\." decimal)]
@@ -91,3 +95,124 @@
   [identifier code.local_identifier code.identifier]
   [tag code.local_tag code.tag]
   )
+
+(type: Environment
+  (Dictionary Text Code))
+
+(def: (apply env template)
+  (-> Environment Code Code)
+  (case template
+    [_ (#.Identifier "" name)]
+    (case (dictionary.get name env)
+      (#.Some substitute)
+      substitute
+      
+      #.None
+      template)
+
+    (^template [<tag>]
+      [[meta (<tag> elems)]
+       [meta (<tag> (list\map (apply env) elems))]])
+    ([#.Tuple]
+     [#.Form])
+
+    [meta (#.Record members)]
+    [meta (#.Record (list\map (: (-> [Code Code] [Code Code])
+                                 (function (_ [key value])
+                                   [(apply env key)
+                                    (apply env value)]))
+                              members))]
+
+    _
+    template))
+
+(type: Local
+  {#name Text
+   #parameters (List Text)
+   #template Code})
+
+(exception: #export (irregular_arguments {expected Nat} {actual Nat})
+  (exception.report
+   ["Expected" (\ nat.decimal encode expected)]
+   ["Actual" (\ nat.decimal encode actual)]))
+
+(def: (macro (^slots [#parameters #template]))
+  (-> Local Macro')
+  (function (_ inputs compiler)
+    (let [parameters_count (list.size parameters)
+          inputs_count (list.size inputs)]
+      (if (nat.= parameters_count inputs_count)
+        (let [environment (: Environment
+                             (|> (list.zip/2 parameters inputs)
+                                 (dictionary.from_list text.hash)))]
+          (#.Right [compiler (list (..apply environment template))]))
+        (exception.throw ..irregular_arguments [parameters_count inputs_count])))))
+
+(def: local
+  (Parser Local)
+  (do <>.monad
+    [[name parameters] (<code>.form (<>.and <code>.local_identifier
+                                            (<>.many <code>.local_identifier)))
+     template <code>.any]
+    (wrap {#name name
+           #parameters parameters
+           #template template})))
+
+(exception: #export (cannot_shadow_definition {module Text} {definition Text})
+  (exception.report
+   ["Module" (text.encode module)]
+   ["Definition" (text.encode definition)]))
+
+(def: (push module_name local module)
+  (-> Text Local Module (Try Module))
+  (let [definition (get@ #name local)]
+    (case (plist.get definition (get@ #.definitions module))
+      #.None
+      (#try.Success (update@ #.definitions
+                             (plist.put definition
+                                        (#.Definition [false .Macro (' []) (..macro local)]))
+                             module))
+      
+      (#.Some _)
+      (exception.throw ..cannot_shadow_definition [module_name definition]))))
+
+(syntax: (pop {locals (<>.some <code>.text)})
+  (do meta.monad
+    [here_name meta.current_module_name
+     here meta.current_module]
+    (function (_ compiler)
+      (#.Right [(let [definitions (list\fold plist.remove
+                                             (get@ #.definitions here)
+                                             locals)]
+                  (update@ #.modules
+                           (plist.put here_name (set@ #.definitions definitions here))
+                           compiler))
+                (case (get@ #.expected compiler)
+                  #.None
+                  (list)
+
+                  (#.Some _)
+                  (list (' [])))]))))
+
+(syntax: #export (with {locals (<code>.tuple (<>.some ..local))}
+                   body)
+  (do meta.monad
+    [here_name meta.current_module_name
+     here meta.current_module]
+    (meta.with_gensyms [g!body]
+      (function (_ compiler)
+        (do try.monad
+          [here (monad.fold try.monad (..push here_name) here locals)
+           #let [compiler (update@ #.modules (plist.put here_name here) compiler)
+                 pop! (` ((~! ..pop) (~+ (list\map (|>> (get@ #name) code.text)
+                                                   locals))))]]
+          (wrap [compiler
+                 (case (get@ #.expected compiler)
+                   #.None
+                   (list body
+                         pop!)
+
+                   (#.Some _)
+                   (list (` (let [(~ g!body) (~ body)]
+                              (exec (~ pop!)
+                                (~ g!body))))))]))))))

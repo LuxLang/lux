@@ -1,35 +1,91 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
-   [math
-    ["." random (#+ Random)]]
    [abstract
-    ["." monad (#+ do)]
+    [monad (#+ do)]
     {[0 #spec]
      [/
       ["$." equivalence]
       ["$." order]
+      ["$." enum]
       ["$." codec]]}]
    [control
-    ["." try]]]
-  [//
-   ["_." instant]]
+    ["." try ("#\." functor)]
+    ["." exception]
+    [parser
+     ["<.>" text]]]
+   [data
+    [text
+     ["%" format (#+ format)]]]
+   [math
+    ["." random (#+ Random)]
+    [number
+     ["n" nat]]]]
   {1
-   ["." / (#+ Date)
-    ["." // #_
-     ["#." instant]]]})
-
-(def: #export date
-  (Random Date)
-  (\ random.monad map //instant.date
-     _instant.instant))
+   ["." /]})
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name_of /._)))
+  (<| (_.covering /._)
+      (_.for [/.Date])
       ($_ _.and
-          ($equivalence.spec /.equivalence ..date)
-          ($order.spec /.order ..date)
-          ($codec.spec /.equivalence /.codec ..date)
+          (_.for [/.equivalence]
+                 ($equivalence.spec /.equivalence random.date))
+          (_.for [/.order]
+                 ($order.spec /.order random.date))
+          (_.for [/.enum]
+                 ($enum.spec /.enum random.date))
+          (_.for [/.codec]
+                 ($codec.spec /.equivalence /.codec random.date))
+
+          (do random.monad
+            [expected random.date]
+            (_.cover [/.date /.year /.month /.day_of_month]
+                     (|> (/.date (/.year expected)
+                                 (/.month expected)
+                                 (/.day_of_month expected))
+                         (try\map (\ /.equivalence = expected))
+                         (try.default false))))
+          (do random.monad
+            [expected random.date]
+            (_.cover [/.invalid_day]
+                     (case (/.date (/.year expected)
+                                   (/.month expected)
+                                   (n.+ 31 (/.day_of_month expected)))
+                       (#try.Failure error)
+                       (exception.match? /.invalid_day error)
+                       
+                       (#try.Success _)
+                       false)))
+          (do random.monad
+            [expected random.date]
+            (_.cover [/.to_days /.from_days]
+                     (|> expected
+                         /.to_days
+                         /.from_days
+                         (\ /.equivalence = expected))))
+          (do random.monad
+            [expected random.date]
+            (_.cover [/.parser]
+                     (|> (\ /.codec encode expected)
+                         (<text>.run /.parser)
+                         (try\map (\ /.equivalence = expected))
+                         (try.default false))))
+          (do {! random.monad}
+            [year (\ ! map (|>> (n.% 10,000) inc)
+                     random.nat)
+             month (\ ! map (|>> (n.% 10) (n.+ 13))
+                      random.nat)
+             day (\ ! map (|>> (n.% 10) (n.+ 10))
+                    random.nat)
+             #let [input (format (%.nat year)
+                                 "-" (%.nat month)
+                                 "-" (%.nat day))]]
+            (_.cover [/.invalid_month]
+                     (case (<text>.run /.parser input)
+                       (#try.Failure error)
+                       (exception.match? /.invalid_month error)
+                       
+                       (#try.Success _)
+                       false)))
           )))

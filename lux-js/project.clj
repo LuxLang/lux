@@ -20,8 +20,9 @@
                         ["snapshots" {:url ~sonatype-snapshots :creds :gpg}]]
   
   :plugins [[com.github.luxlang/lein-luxc ~version]]
-  :dependencies [[com.github.luxlang/luxc-jvm ~version]
-                 [com.github.luxlang/stdlib ~version]]
+  :dependencies [[com.github.luxlang/lux-bootstrapper ~version]
+                 [com.github.luxlang/stdlib ~version]
+                 [org.openjdk.nashorn/nashorn-core "15.0"]]
 
   :manifest {"lux" ~version}
   :source-paths ["source"]
