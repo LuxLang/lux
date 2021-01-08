@@ -1,158 +1,44 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
-   [abstract/monad (#+ do)]
    ["_" test (#+ Test)]
    [abstract
-    [equivalence (#+ Equivalence)]]
-   [control
-    ["." try (#+ Try)]
-    ["p" parser
-     ["s" code (#+ Parser)]]]
-   [data
-    ["." bit]
-    ["." name]
-    ["." text]]
-   [macro
-    ["." code]]
+    [monad (#+ do)]]
    [math
-    [random (#+ Random)]
+    ["." random]
     [number
-     ["." nat]
-     ["." int]
-     ["." rev]
-     ["." frac]]]]
+     ["n" nat]]]]
   {1
-   ["." / (#+ syntax:)]})
+   ["." /]}
+  ["." / #_
+   ["#." annotations]
+   ["#." check]
+   ["#." declaration]
+   ["#." definition]
+   ["#." export]
+   ["#." input]
+   ["#." type #_
+    ["#/." variable]]])
 
-(def: (enforced? parser input)
-  (-> (Parser []) (List Code) Bit)
-  (case (p.run parser input)
-    (#.Right [_ []])
-    #1
-
-    _
-    #0))
-
-(def: (found? parser input)
-  (-> (Parser Bit) (List Code) Bit)
-  (case (p.run parser input)
-    (#.Right [_ #1])
-    #1
-
-    _
-    #0))
-
-(def: (equals? Equivalence<a> reference parser input)
-  (All [a] (-> (Equivalence a) a (Parser a) (List Code) Bit))
-  (case (p.run parser input)
-    (#.Right [_ output])
-    (\ Equivalence<a> = reference output)
-
-    _
-    #0))
-
-(def: (fails? input)
-  (All [a] (-> (Try a) Bit))
-  (case input
-    (#.Left _)
-    #1
-
-    _
-    #0))
-
-(syntax: (match pattern input)
-  (wrap (list (` (case (~ input)
-                   (^ (#.Right [(~' _) (~ pattern)]))
-                   #1
-
-                   (~' _)
-                   #0)))))
-
-(def: simple_values
-  Test
-  (`` ($_ _.and
-          (~~ (template [<assertion> <value> <ctor> <Equivalence> <get>]
-                [(_.test <assertion>
-                         (and (equals? <Equivalence> <value> <get> (list (<ctor> <value>)))
-                              (found? (p.parses? (s.this! (<ctor> <value>))) (list (<ctor> <value>)))
-                              (enforced? (s.this! (<ctor> <value>)) (list (<ctor> <value>)))))]
-
-                ["Can parse Bit syntax."        #1             code.bit        bit.equivalence  s.bit]
-                ["Can parse Nat syntax."        123            code.nat        nat.equivalence  s.nat]
-                ["Can parse Int syntax."        +123           code.int        int.equivalence  s.int]
-                ["Can parse Rev syntax."       .123            code.rev        rev.equivalence  s.rev]
-                ["Can parse Frac syntax."       +123.0         code.frac       frac.equivalence s.frac]
-                ["Can parse Text syntax."       text.new_line  code.text       text.equivalence s.text]
-                ["Can parse Identifier syntax." ["yolo" "lol"] code.identifier name.equivalence s.identifier]
-                ["Can parse Tag syntax."        ["yolo" "lol"] code.tag        name.equivalence s.tag]
-                ))
-          (_.test "Can parse identifiers belonging to the current namespace."
-                  (and (match "yolo"
-                              (p.run s.local_identifier
-                                     (list (code.local_identifier "yolo"))))
-                       (fails? (p.run s.local_identifier
-                                      (list (code.identifier ["yolo" "lol"]))))))
-          (_.test "Can parse tags belonging to the current namespace."
-                  (and (match "yolo"
-                              (p.run s.local_tag
-                                     (list (code.local_tag "yolo"))))
-                       (fails? (p.run s.local_tag
-                                      (list (code.tag ["yolo" "lol"]))))))
-          )))
-
-(def: complex_values
-  Test
-  (`` ($_ _.and
-          (~~ (template [<type> <parser> <ctor>]
-                [(_.test (format "Can parse " <type> " syntax.")
-                         (and (match [#1 +123]
-                                     (p.run (<parser> (p.and s.bit s.int))
-                                            (list (<ctor> (list (code.bit #1) (code.int +123))))))
-                              (match #1
-                                     (p.run (<parser> s.bit)
-                                            (list (<ctor> (list (code.bit #1))))))
-                              (fails? (p.run (<parser> s.bit)
-                                             (list (<ctor> (list (code.bit #1) (code.int +123))))))
-                              (match (#.Left #1)
-                                     (p.run (<parser> (p.or s.bit s.int))
-                                            (list (<ctor> (list (code.bit #1))))))
-                              (match (#.Right +123)
-                                     (p.run (<parser> (p.or s.bit s.int))
-                                            (list (<ctor> (list (code.int +123))))))
-                              (fails? (p.run (<parser> (p.or s.bit s.int))
-                                             (list (<ctor> (list (code.frac +123.0))))))))]
-
-                ["form"  s.form  code.form]
-                ["tuple" s.tuple code.tuple]))
-          (_.test "Can parse record syntax."
-                  (match [#1 +123]
-                         (p.run (s.record (p.and s.bit s.int))
-                                (list (code.record (list [(code.bit #1) (code.int +123)]))))))
-          )))
+(/.syntax: (+/3 a b c)
+  (wrap (list (` ($_ n.+ (~ a) (~ b) (~ c))))))
 
 (def: #export test
   Test
-  (<| (_.context (name.module (name_of /._)))
+  (<| (_.covering /._)
       ($_ _.and
-          ..simple_values
-          ..complex_values
-          ($_ _.and
-              (_.test "Can parse any Code."
-                      (match [_ (#.Bit #1)]
-                             (p.run s.any
-                                    (list (code.bit #1) (code.int +123)))))
-              (_.test "Can check whether the end has been reached."
-                      (and (match #1
-                                  (p.run s.end?
-                                         (list)))
-                           (match #0
-                                  (p.run s.end?
-                                         (list (code.bit #1))))))
-              (_.test "Can ensure the end has been reached."
-                      (and (match []
-                                  (p.run s.end!
-                                         (list)))
-                           (fails? (p.run s.end!
-                                          (list (code.bit #1))))))
-              ))))
+          (do random.monad
+            [x random.nat
+             y random.nat
+             z random.nat]
+            (_.cover [/.syntax:]
+                     (n.= ($_ n.+ x y z)
+                          (+/3 x y z)))) 
+
+          /annotations.test
+          /check.test
+          /declaration.test
+          /definition.test
+          /export.test
+          /input.test
+          /type/variable.test
+          )))

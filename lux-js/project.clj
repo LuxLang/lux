@@ -22,7 +22,7 @@
   :plugins [[com.github.luxlang/lein-luxc ~version]]
   :dependencies [[com.github.luxlang/lux-bootstrapper ~version]
                  [com.github.luxlang/stdlib ~version]
-                 [org.openjdk.nashorn/nashorn-core "15.0"]]
+                 [org.openjdk.nashorn/nashorn-core "15.1"]]
 
   :manifest {"lux" ~version}
   :source-paths ["source"]

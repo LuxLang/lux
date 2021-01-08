@@ -11,8 +11,11 @@
    [control
     ["." try]]
    [data
+    ["." bit ("#\." equivalence)]
     ["." text ("#\." equivalence)
-     ["%" format (#+ format)]]]
+     ["%" format (#+ format)]]
+    [collection
+     ["." list]]]
    [meta
     ["." location]]
    [math
@@ -41,10 +44,6 @@
      expected_seed random.nat
      expected random.nat
      dummy (random.filter (|>> (n.= expected) not) random.nat)
-     expected_error (random.ascii/upper_alpha 1)
-     expected_short (random.ascii/upper_alpha 1)
-     dummy_module (random.filter (|>> (text\= expected_current_module) not)
-                                 (random.ascii/upper_alpha 1))
      expected_gensym (random.ascii/upper_alpha 1)
      #let [expected_lux {#.info            {#.target  target
                                             #.version version
@@ -166,17 +165,26 @@
      expected_seed random.nat
      expected random.nat
      dummy (random.filter (|>> (n.= expected) not) random.nat)
-     expected_error (random.ascii/upper_alpha 1)
      expected_short (random.ascii/upper_alpha 1)
      dummy_module (random.filter (|>> (text\= expected_current_module) not)
                                  (random.ascii/upper_alpha 1))
-     #let [expected_lux {#.info            {#.target  target
+     #let [expected_module {#.module_hash        0
+                            #.module_aliases     (list)
+                            #.definitions        (list)
+                            #.imports            (list)
+                            #.tags               (list)
+                            #.types              (list)
+                            #.module_annotations #.None
+                            #.module_state       #.Active}
+           expected_modules (list [expected_current_module
+                                   expected_module])
+           expected_lux {#.info            {#.target  target
                                             #.version version
                                             #.mode    #.Build}
                          #.source          [location.dummy 0 source_code]
                          #.location         location.dummy
                          #.current_module  (#.Some expected_current_module)
-                         #.modules         (list)
+                         #.modules         expected_modules
                          #.scopes          (list)
                          #.type_context    {#.ex_counter 0
                                             #.var_counter 0
@@ -192,6 +200,28 @@
                      (/.run expected_lux)
                      (!expect (^multi (#try.Success actual_current_module)
                                       (text\= expected_current_module actual_current_module)))))
+        (_.cover [/.current_module]
+                 (|> /.current_module
+                     (/.run expected_lux)
+                     (!expect (^multi (#try.Success actual_module)
+                                      (is? expected_module actual_module)))))
+        (_.cover [/.find_module]
+                 (|> (/.find_module expected_current_module)
+                     (/.run expected_lux)
+                     (!expect (^multi (#try.Success actual_module)
+                                      (is? expected_module actual_module)))))
+        (_.cover [/.module_exists?]
+                 (and (|> (/.module_exists? expected_current_module)
+                          (/.run expected_lux)
+                          (!expect (#try.Success #1)))
+                      (|> (/.module_exists? dummy_module)
+                          (/.run expected_lux)
+                          (!expect (#try.Success #0)))))
+        (_.cover [/.modules]
+                 (|> /.modules
+                     (/.run expected_lux)
+                     (!expect (^multi (#try.Success actual_modules)
+                                      (is? expected_modules actual_modules)))))
         (_.cover [/.normalize]
                  (and (|> (/.normalize ["" expected_short])
                           (/.run expected_lux)
@@ -211,6 +241,342 @@
       (random.ascii/upper_alpha 1)
       random.nat
       random.nat))
+
+(def: context_related
+  (do {! random.monad}
+    [target (random.ascii/upper_alpha 1)
+     version (random.ascii/upper_alpha 1)
+     source_code (random.ascii/upper_alpha 1)
+     expected_current_module (random.ascii/upper_alpha 1)
+     expected_type (\ ! map (function (_ name)
+                              (#.Primitive name (list)))
+                      (random.ascii/upper_alpha 1))
+     expected_seed random.nat
+     expected random.nat
+     dummy (random.filter (|>> (n.= expected) not) random.nat)
+     expected_gensym (random.ascii/upper_alpha 1)
+     expected_location ..random_location
+     #let [expected_lux {#.info            {#.target  target
+                                            #.version version
+                                            #.mode    #.Build}
+                         #.source          [location.dummy 0 source_code]
+                         #.location         expected_location
+                         #.current_module  (#.Some expected_current_module)
+                         #.modules         (list)
+                         #.scopes          (list)
+                         #.type_context    {#.ex_counter 0
+                                            #.var_counter 0
+                                            #.var_bindings (list)}
+                         #.expected        (#.Some expected_type)
+                         #.seed            expected_seed
+                         #.scope_type_vars (list)
+                         #.extensions      []
+                         #.host            []}]]
+    ($_ _.and
+        (_.cover [/.count]
+                 (|> (do /.monad
+                       [pre /.count
+                        post /.count]
+                       (wrap [pre post]))
+                     (/.run expected_lux)
+                     (!expect (^multi (#try.Success [actual_pre actual_post])
+                                      (and (n.= expected_seed actual_pre)
+                                           (n.= (inc expected_seed) actual_post))))))
+        (_.cover [/.gensym]
+                 (|> (/.gensym expected_gensym)
+                     (\ /.monad map %.code)
+                     (/.run expected_lux)
+                     (!expect (^multi (#try.Success actual_gensym)
+                                      (and (text.contains? expected_gensym actual_gensym)
+                                           (text.contains? (%.nat expected_seed) actual_gensym))))))
+        (_.cover [/.location]
+                 (|> /.location
+                     (/.run expected_lux)
+                     (!expect (^multi (#try.Success actual_location)
+                                      (is? expected_location actual_location)))))
+        (_.cover [/.expected_type]
+                 (|> /.expected_type
+                     (/.run expected_lux)
+                     (!expect (^multi (#try.Success actual_type)
+                                      (is? expected_type actual_type)))))
+        )))
+
+(def: definition_related
+  Test
+  (do {! random.monad}
+    [expected_current_module (random.ascii/upper_alpha 1)
+     expected_macro_module (random.filter (|>> (text\= expected_current_module) not)
+                                          (random.ascii/upper_alpha 1))
+     expected_short (random.ascii/upper_alpha 1)
+     expected_type (\ ! map (function (_ name)
+                              (#.Primitive name (list)))
+                      (random.ascii/upper_alpha 1))
+     expected_value (random.either (wrap .def:)
+                                   (wrap .macro:))
+     #let [expected_lux
+           (: (-> Bit (Maybe Type)
+                  [(List [Text .Global])
+                   (List [Text .Global])
+                   Lux])
+              (function (_ exported? def_type)
+                (let [current_globals (: (List [Text .Global])
+                                         (list [expected_short
+                                                (#.Alias [expected_macro_module expected_short])]))
+                      macro_globals (: (List [Text .Global])
+                                       (case def_type
+                                         (#.Some def_type)
+                                         (list [expected_short
+                                                (#.Definition [exported? def_type (' []) expected_value])])
+
+                                         #.None
+                                         (list)))]
+                  [current_globals
+                   macro_globals
+                   {#.info            {#.target  ""
+                                       #.version ""
+                                       #.mode    #.Build}
+                    #.source          [location.dummy 0 ""]
+                    #.location         location.dummy
+                    #.current_module  (#.Some expected_current_module)
+                    #.modules         (list [expected_current_module
+                                             {#.module_hash        0
+                                              #.module_aliases     (list)
+                                              #.definitions        current_globals
+                                              #.imports            (list)
+                                              #.tags               (list)
+                                              #.types              (list)
+                                              #.module_annotations #.None
+                                              #.module_state       #.Active}]
+                                            [expected_macro_module
+                                             {#.module_hash        0
+                                              #.module_aliases     (list)
+                                              #.definitions        macro_globals
+                                              #.imports            (list)
+                                              #.tags               (list)
+                                              #.types              (list)
+                                              #.module_annotations #.None
+                                              #.module_state       #.Active}])
+                    #.scopes          (list)
+                    #.type_context    {#.ex_counter 0
+                                       #.var_counter 0
+                                       #.var_bindings (list)}
+                    #.expected        #.None
+                    #.seed            0
+                    #.scope_type_vars (list)
+                    #.extensions      []
+                    #.host            []}])))]]
+    ($_ _.and
+        (_.cover [/.globals]
+                 (let [[current_globals macro_globals expected_lux]
+                       (expected_lux true (#.Some .Macro))
+
+                       current_globals!
+                       (|> (/.globals expected_current_module)
+                           (/.run expected_lux)
+                           (!expect (^multi (#try.Success actual_globals)
+                                            (is? current_globals actual_globals))))
+
+                       macro_globals!
+                       (|> (/.globals expected_macro_module)
+                           (/.run expected_lux)
+                           (!expect (^multi (#try.Success actual_globals)
+                                            (is? macro_globals actual_globals))))]
+                   (and current_globals!
+                        macro_globals!)))
+        (_.cover [/.definitions]
+                 (let [[current_globals macro_globals expected_lux]
+                       (expected_lux true (#.Some .Macro))]
+                   (and (|> (/.definitions expected_current_module)
+                            (/.run expected_lux)
+                            (!expect (^multi (#try.Success actual_definitions)
+                                             (n.= 0 (list.size actual_definitions)))))
+                        (|> (/.definitions expected_macro_module)
+                            (/.run expected_lux)
+                            (!expect (^multi (#try.Success actual_definitions)
+                                             (n.= 1 (list.size actual_definitions)))))
+                        )))
+        (_.cover [/.exports]
+                 (and (let [[current_globals macro_globals expected_lux]
+                            (expected_lux true (#.Some .Macro))]
+                        (and (|> (/.exports expected_current_module)
+                                 (/.run expected_lux)
+                                 (!expect (^multi (#try.Success actual_definitions)
+                                                  (n.= 0 (list.size actual_definitions)))))
+                             (|> (/.exports expected_macro_module)
+                                 (/.run expected_lux)
+                                 (!expect (^multi (#try.Success actual_definitions)
+                                                  (n.= 1 (list.size actual_definitions)))))
+                             ))
+                      (let [[current_globals macro_globals expected_lux]
+                            (expected_lux false (#.Some .Macro))]
+                        (and (|> (/.exports expected_current_module)
+                                 (/.run expected_lux)
+                                 (!expect (^multi (#try.Success actual_definitions)
+                                                  (n.= 0 (list.size actual_definitions)))))
+                             (|> (/.exports expected_macro_module)
+                                 (/.run expected_lux)
+                                 (!expect (^multi (#try.Success actual_definitions)
+                                                  (n.= 0 (list.size actual_definitions)))))
+                             ))))
+        )))
+
+(def: search_related
+  Test
+  (do {! random.monad}
+    [expected_exported? random.bit
+     expected_current_module (random.ascii/upper_alpha 1)
+     expected_macro_module (random.filter (|>> (text\= expected_current_module) not)
+                                          (random.ascii/upper_alpha 1))
+     expected_short (random.ascii/upper_alpha 1)
+     expected_type (\ ! map (function (_ name)
+                              (#.Primitive name (list)))
+                      (random.ascii/upper_alpha 1))
+     #let [expected_annotations (' [])]
+     expected_value (random.either (wrap .def:)
+                                   (wrap .macro:))
+     #let [expected_lux
+           (: (-> Bit (Maybe Type)
+                  [(List [Text .Global])
+                   (List [Text .Global])
+                   Lux])
+              (function (_ exported? def_type)
+                (let [current_globals (: (List [Text .Global])
+                                         (list [expected_short
+                                                (#.Alias [expected_macro_module expected_short])]))
+                      macro_globals (: (List [Text .Global])
+                                       (case def_type
+                                         (#.Some def_type)
+                                         (list [expected_short
+                                                (#.Definition [exported? def_type expected_annotations expected_value])])
+
+                                         #.None
+                                         (list)))]
+                  [current_globals
+                   macro_globals
+                   {#.info            {#.target  ""
+                                       #.version ""
+                                       #.mode    #.Build}
+                    #.source          [location.dummy 0 ""]
+                    #.location         location.dummy
+                    #.current_module  (#.Some expected_current_module)
+                    #.modules         (list [expected_current_module
+                                             {#.module_hash        0
+                                              #.module_aliases     (list)
+                                              #.definitions        current_globals
+                                              #.imports            (list)
+                                              #.tags               (list)
+                                              #.types              (list)
+                                              #.module_annotations #.None
+                                              #.module_state       #.Active}]
+                                            [expected_macro_module
+                                             {#.module_hash        0
+                                              #.module_aliases     (list)
+                                              #.definitions        macro_globals
+                                              #.imports            (list)
+                                              #.tags               (list)
+                                              #.types              (list)
+                                              #.module_annotations #.None
+                                              #.module_state       #.Active}])
+                    #.scopes          (list)
+                    #.type_context    {#.ex_counter 0
+                                       #.var_counter 0
+                                       #.var_bindings (list)}
+                    #.expected        #.None
+                    #.seed            0
+                    #.scope_type_vars (list)
+                    #.extensions      []
+                    #.host            []}])))]]
+    ($_ _.and
+        (_.cover [/.find_macro]
+                 (let [same_module!
+                       (let [[current_globals macro_globals expected_lux]
+                             (expected_lux true (#.Some .Macro))]
+                         (|> (/.find_macro [expected_macro_module expected_short])
+                             (/.run expected_lux)
+                             (!expect (^multi (#try.Success (#.Some actual_value))
+                                              (is? expected_value actual_value)))))
+
+                       not_macro!
+                       (let [[current_globals macro_globals expected_lux]
+                             (expected_lux true (#.Some expected_type))]
+                         (|> (/.find_macro [expected_macro_module expected_short])
+                             (/.run expected_lux)
+                             (!expect (#try.Success #.None))))
+
+                       not_found!
+                       (let [[current_globals macro_globals expected_lux]
+                             (expected_lux true #.None)]
+                         (|> (/.find_macro [expected_macro_module expected_short])
+                             (/.run expected_lux)
+                             (!expect (#try.Success #.None))))
+
+                       aliasing!
+                       (let [[current_globals macro_globals expected_lux]
+                             (expected_lux true (#.Some .Macro))]
+                         (|> (/.find_macro [expected_current_module expected_short])
+                             (/.run expected_lux)
+                             (!expect (^multi (#try.Success (#.Some actual_value))
+                                              (is? expected_value actual_value)))))]
+                   (and same_module!
+                        not_macro!
+                        not_found!
+                        aliasing!)))
+        (_.cover [/.find_def]
+                 (let [[current_globals macro_globals expected_lux]
+                       (expected_lux expected_exported? (#.Some expected_type))
+
+                       definition!
+                       (|> (/.find_def [expected_macro_module expected_short])
+                           (/.run expected_lux)
+                           (!expect (^multi (#try.Success (#.Definition [actual_exported? actual_type actual_annotations actual_value]))
+                                            (and (bit\= expected_exported? actual_exported?)
+                                                 (is? expected_type actual_type)
+                                                 (is? expected_annotations actual_annotations)
+                                                 (is? (:coerce Any expected_value) actual_value)))))
+
+                       alias!
+                       (|> (/.find_def [expected_current_module expected_short])
+                           (/.run expected_lux)
+                           (!expect (^multi (#try.Success (#.Alias [actual_module actual_short]))
+                                            (and (is? expected_macro_module actual_module)
+                                                 (is? expected_short actual_short)))))]
+                   (and definition!
+                        alias!)))
+        (_.cover [/.find_def_type]
+                 (let [[current_globals macro_globals expected_lux]
+                       (expected_lux expected_exported? (#.Some expected_type))
+
+                       definition!
+                       (|> (/.find_def_type [expected_macro_module expected_short])
+                           (/.run expected_lux)
+                           (!expect (^multi (#try.Success actual_type)
+                                            (is? expected_type actual_type))))
+
+                       alias!
+                       (|> (/.find_def_type [expected_current_module expected_short])
+                           (/.run expected_lux)
+                           (!expect (^multi (#try.Success actual_type)
+                                            (is? expected_type actual_type))))]
+                   (and definition!
+                        alias!)))
+        (_.cover [/.find_type_def]
+                 (let [[current_globals macro_globals expected_lux]
+                       (expected_lux expected_exported? (#.Some .Type))
+
+                       definition!
+                       (|> (/.find_type_def [expected_macro_module expected_short])
+                           (/.run expected_lux)
+                           (!expect (^multi (#try.Success actual_value)
+                                            (is? (:coerce .Type expected_value) actual_value))))
+
+                       alias!
+                       (|> (/.find_type_def [expected_current_module expected_short])
+                           (/.run expected_lux)
+                           (!expect (^multi (#try.Success actual_value)
+                                            (is? (:coerce .Type expected_value) actual_value))))]
+                   (and definition!
+                        alias!)))
+        )))
 
 (def: injection
   (Injection Meta)
@@ -242,10 +608,6 @@
              expected_seed random.nat
              expected random.nat
              dummy (random.filter (|>> (n.= expected) not) random.nat)
-             expected_error (random.ascii/upper_alpha 1)
-             expected_short (random.ascii/upper_alpha 1)
-             dummy_module (random.filter (|>> (text\= expected_current_module) not)
-                                         (random.ascii/upper_alpha 1))
              expected_gensym (random.ascii/upper_alpha 1)
              expected_location ..random_location
              #let [expected_lux {#.info            {#.target  target
@@ -275,32 +637,9 @@
                 ..compiler_related
                 ..error_handling
                 ..module_related
-                (_.cover [/.count]
-                         (|> (do /.monad
-                               [pre /.count
-                                post /.count]
-                               (wrap [pre post]))
-                             (/.run expected_lux)
-                             (!expect (^multi (#try.Success [actual_pre actual_post])
-                                              (and (n.= expected_seed actual_pre)
-                                                   (n.= (inc expected_seed) actual_post))))))
-                (_.cover [/.gensym]
-                         (|> (/.gensym expected_gensym)
-                             (\ /.monad map %.code)
-                             (/.run expected_lux)
-                             (!expect (^multi (#try.Success actual_gensym)
-                                              (and (text.contains? expected_gensym actual_gensym)
-                                                   (text.contains? (%.nat expected_seed) actual_gensym))))))
-                (_.cover [/.location]
-                         (|> /.location
-                             (/.run expected_lux)
-                             (!expect (^multi (#try.Success actual_location)
-                                              (is? expected_location actual_location)))))
-                (_.cover [/.expected_type]
-                         (|> /.expected_type
-                             (/.run expected_lux)
-                             (!expect (^multi (#try.Success actual_type)
-                                              (is? expected_type actual_type)))))
+                ..context_related
+                ..definition_related
+                ..search_related
                 ))
           
           /annotation.test

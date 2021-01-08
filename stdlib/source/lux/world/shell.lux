@@ -291,50 +291,51 @@
                                (import: java/lang/System
                                  ["#::."
                                   (#static getProperty [java/lang/String] #io #try java/lang/String)])
+
+                               ## https://en.wikipedia.org/wiki/Code_injection#Shell_injection
+                               (def: windows?
+                                 (IO (Try Bit))
+                                 (\ (try.with io.monad) map
+                                    (|>> java/lang/String::toLowerCase (text.starts_with? "windows"))
+                                    (java/lang/System::getProperty "os.name")))
+
+                               (def: (jvm::process_builder policy command arguments)
+                                 (All [?]
+                                   (-> (Policy ?) (Safe Command ?) (List (Safe Argument ?))
+                                       java/lang/ProcessBuilder))
+                                 (|> (list\map (\ policy value) arguments)
+                                     (list& (\ policy value command))
+                                     ..jvm::arguments_array
+                                     java/lang/ProcessBuilder::new))
+
+                               (structure: #export default
+                                 (Shell IO)
+
+                                 (def: execute
+                                   (..can_execute
+                                    (function (_ [environment working_directory command arguments])
+                                      (with_expansions [<jvm> (as_is (do {! (try.with io.monad)}
+                                                                       [windows? ..windows?
+                                                                        #let [builder (if windows?
+                                                                                        (..jvm::process_builder ..windows_policy
+                                                                                                                (\ ..windows_policy command command)
+                                                                                                                (list\map (\ ..windows_policy argument) arguments))
+                                                                                        (..jvm::process_builder ..unix_policy
+                                                                                                                (\ ..unix_policy command command)
+                                                                                                                (list\map (\ ..unix_policy argument) arguments)))]
+                                                                        _ (|> builder
+                                                                              (java/lang/ProcessBuilder::directory (java/io/File::new working_directory))
+                                                                              java/lang/ProcessBuilder::environment
+                                                                              (\ try.functor map (..jvm::load_environment environment))
+                                                                              (\ io.monad wrap))
+                                                                        process (java/lang/ProcessBuilder::start builder)]
+                                                                       (..default_process process)))]
+                                        (for {@.old (as_is <jvm>)
+                                              @.jvm (as_is <jvm>)}))))))
                                )]
   (for {@.old (as_is <jvm>)
-        @.jvm (as_is <jvm>)}))
-
-## https://en.wikipedia.org/wiki/Code_injection#Shell_injection
-(def: windows?
-  (IO (Try Bit))
-  (\ (try.with io.monad) map
-     (|>> java/lang/String::toLowerCase (text.starts_with? "windows"))
-     (java/lang/System::getProperty "os.name")))
-
-(def: (jvm::process_builder policy command arguments)
-  (All [?]
-    (-> (Policy ?) (Safe Command ?) (List (Safe Argument ?))
-        java/lang/ProcessBuilder))
-  (|> (list\map (\ policy value) arguments)
-      (list& (\ policy value command))
-      ..jvm::arguments_array
-      java/lang/ProcessBuilder::new))
-
-(structure: #export default
-  (Shell IO)
-
-  (def: execute
-    (..can_execute
-     (function (_ [environment working_directory command arguments])
-       (with_expansions [<jvm> (as_is (do {! (try.with io.monad)}
-                                        [windows? ..windows?
-                                         #let [builder (if windows?
-                                                         (..jvm::process_builder ..windows_policy
-                                                                                 (\ ..windows_policy command command)
-                                                                                 (list\map (\ ..windows_policy argument) arguments))
-                                                         (..jvm::process_builder ..unix_policy
-                                                                                 (\ ..unix_policy command command)
-                                                                                 (list\map (\ ..unix_policy argument) arguments)))]
-                                         _ (|> builder
-                                               (java/lang/ProcessBuilder::directory (java/io/File::new working_directory))
-                                               java/lang/ProcessBuilder::environment
-                                               (\ try.functor map (..jvm::load_environment environment))
-                                               (\ io.monad wrap))
-                                         process (java/lang/ProcessBuilder::start builder)]
-                                        (..default_process process)))]
-         (for {@.old (as_is <jvm>)
-               @.jvm (as_is <jvm>)}))))))
+        @.jvm (as_is <jvm>)}
+       (as_is)))
 
 (signature: #export (Simulation s)
   (: (-> s (Try [s Text]))
