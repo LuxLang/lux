@@ -1,6 +1,7 @@
 (.module:
   [lux #*
    ["_" test (#+ Test)]
+   ["." type ("#\." equivalence)]
    [abstract
     [monad (#+ do)]
     {[0 #spec]
@@ -9,13 +10,17 @@
       ["$." apply]
       ["$." monad]]}]
    [control
-    ["." try]]
+    ["." try (#+ Try) ("#\." functor)]]
    [data
+    ["." product]
+    ["." maybe]
     ["." bit ("#\." equivalence)]
+    ["." name ("#\." equivalence)]
     ["." text ("#\." equivalence)
      ["%" format (#+ format)]]
     [collection
-     ["." list]]]
+     ["." list ("#\." functor monoid)]
+     ["." set]]]
    [meta
     ["." location]]
    [math
@@ -161,14 +166,18 @@
      version (random.ascii/upper_alpha 1)
      source_code (random.ascii/upper_alpha 1)
      expected_current_module (random.ascii/upper_alpha 1)
+     imported_module_name (random.filter (|>> (text\= expected_current_module) not)
+                                         (random.ascii/upper_alpha 1))
      primitive_type (random.ascii/upper_alpha 1)
      expected_seed random.nat
      expected random.nat
      dummy (random.filter (|>> (n.= expected) not) random.nat)
      expected_short (random.ascii/upper_alpha 1)
-     dummy_module (random.filter (|>> (text\= expected_current_module) not)
+     dummy_module (random.filter (function (_ module)
+                                   (not (or (text\= expected_current_module module)
+                                            (text\= imported_module_name module))))
                                  (random.ascii/upper_alpha 1))
-     #let [expected_module {#.module_hash        0
+     #let [imported_module {#.module_hash        0
                             #.module_aliases     (list)
                             #.definitions        (list)
                             #.imports            (list)
@@ -176,8 +185,18 @@
                             #.types              (list)
                             #.module_annotations #.None
                             #.module_state       #.Active}
+           expected_module {#.module_hash        0
+                            #.module_aliases     (list)
+                            #.definitions        (list)
+                            #.imports            (list imported_module_name)
+                            #.tags               (list)
+                            #.types              (list)
+                            #.module_annotations #.None
+                            #.module_state       #.Active}
            expected_modules (list [expected_current_module
-                                   expected_module])
+                                   expected_module]
+                                  [imported_module_name
+                                   imported_module])
            expected_lux {#.info            {#.target  target
                                             #.version version
                                             #.mode    #.Build}
@@ -222,6 +241,25 @@
                      (/.run expected_lux)
                      (!expect (^multi (#try.Success actual_modules)
                                       (is? expected_modules actual_modules)))))
+        (_.cover [/.imported_modules]
+                 (and (|> (/.imported_modules expected_current_module)
+                          (/.run expected_lux)
+                          (try\map (\ (list.equivalence text.equivalence) =
+                                      (list imported_module_name)))
+                          (try.default false))
+                      (|> (/.imported_modules imported_module_name)
+                          (/.run expected_lux)
+                          (try\map (\ (list.equivalence text.equivalence) =
+                                      (list)))
+                          (try.default false))))
+        (_.cover [/.imported_by?]
+                 (|> (/.imported_by? imported_module_name expected_current_module)
+                     (/.run expected_lux)
+                     (try.default false)))
+        (_.cover [/.imported?]
+                 (|> (/.imported? imported_module_name)
+                     (/.run expected_lux)
+                     (try.default false)))
         (_.cover [/.normalize]
                  (and (|> (/.normalize ["" expected_short])
                           (/.run expected_lux)
@@ -256,7 +294,10 @@
      dummy (random.filter (|>> (n.= expected) not) random.nat)
      expected_gensym (random.ascii/upper_alpha 1)
      expected_location ..random_location
-     #let [expected_lux {#.info            {#.target  target
+     #let [type_context {#.ex_counter 0
+                         #.var_counter 0
+                         #.var_bindings (list)}
+           expected_lux {#.info            {#.target  target
                                             #.version version
                                             #.mode    #.Build}
                          #.source          [location.dummy 0 source_code]
@@ -264,9 +305,7 @@
                          #.current_module  (#.Some expected_current_module)
                          #.modules         (list)
                          #.scopes          (list)
-                         #.type_context    {#.ex_counter 0
-                                            #.var_counter 0
-                                            #.var_bindings (list)}
+                         #.type_context    type_context
                          #.expected        (#.Some expected_type)
                          #.seed            expected_seed
                          #.scope_type_vars (list)
@@ -299,6 +338,11 @@
                      (/.run expected_lux)
                      (!expect (^multi (#try.Success actual_type)
                                       (is? expected_type actual_type)))))
+        (_.cover [/.type_context]
+                 (|> /.type_context
+                     (/.run expected_lux)
+                     (try\map (is? type_context))
+                     (try.default false)))
         )))
 
 (def: definition_related
@@ -487,6 +531,17 @@
                     #.extensions      []
                     #.host            []}])))]]
     ($_ _.and
+        (_.cover [/.find_export]
+                 (and (let [[current_globals macro_globals expected_lux]
+                            (expected_lux true (#.Some expected_type))]
+                        (|> (/.find_export [expected_macro_module expected_short])
+                            (/.run expected_lux)
+                            (!expect (#try.Success _))))
+                      (let [[current_globals macro_globals expected_lux]
+                            (expected_lux false (#.Some expected_type))]
+                        (|> (/.find_export [expected_macro_module expected_short])
+                            (/.run expected_lux)
+                            (!expect (#try.Failure _))))))
         (_.cover [/.find_macro]
                  (let [same_module!
                        (let [[current_globals macro_globals expected_lux]
@@ -521,6 +576,17 @@
                         not_macro!
                         not_found!
                         aliasing!)))
+        (_.cover [/.un_alias]
+                 (let [[current_globals macro_globals expected_lux]
+                       (expected_lux true (#.Some .Macro))]
+                   (and (|> (/.un_alias [expected_macro_module expected_short])
+                            (/.run expected_lux)
+                            (try\map (name\= [expected_macro_module expected_short]))
+                            (try.default false))
+                        (|> (/.un_alias [expected_current_module expected_short])
+                            (/.run expected_lux)
+                            (try\map (name\= [expected_macro_module expected_short]))
+                            (try.default false)))))
         (_.cover [/.find_def]
                  (let [[current_globals macro_globals expected_lux]
                        (expected_lux expected_exported? (#.Some expected_type))
@@ -578,6 +644,113 @@
                         alias!)))
         )))
 
+(def: tags_related
+  Test
+  (do {! random.monad}
+    [current_module (random.ascii/upper_alpha 1)
+     tag_module (random.filter (|>> (text\= current_module) not)
+                               (random.ascii/upper_alpha 1))
+
+     name_0 (random.ascii/upper_alpha 1)
+     name_1 (random.filter (|>> (text\= name_0) not)
+                           (random.ascii/upper_alpha 1))
+     
+     #let [random_tag (\ ! map (|>> [tag_module])
+                         (random.ascii/upper_alpha 1))]
+     all_tags (|> random_tag
+                  (random.set name.hash 10)
+                  (\ ! map set.to_list))
+     #let [tags_0 (list.take 5 all_tags)
+           tags_1 (list.drop 5 all_tags)
+
+           type_0 (#.Primitive name_0 (list))
+           type_1 (#.Primitive name_1 (list))
+           
+           entry_0 [name_0 [tags_0 false type_0]]
+           entry_1 [name_1 [tags_1 true type_1]]
+
+           expected_lux
+           (: Lux
+              {#.info            {#.target  ""
+                                  #.version ""
+                                  #.mode    #.Build}
+               #.source          [location.dummy 0 ""]
+               #.location        location.dummy
+               #.current_module  (#.Some current_module)
+               #.modules         (list [current_module
+                                        {#.module_hash        0
+                                         #.module_aliases     (list)
+                                         #.definitions        (list)
+                                         #.imports            (list tag_module)
+                                         #.tags               (list)
+                                         #.types              (list)
+                                         #.module_annotations #.None
+                                         #.module_state       #.Active}]
+                                       [tag_module
+                                        {#.module_hash        0
+                                         #.module_aliases     (list)
+                                         #.definitions        (list)
+                                         #.imports            (list)
+                                         #.tags               (list\compose (|> tags_0
+                                                                                list.enumeration
+                                                                                (list\map (function (_ [index [_ short]])
+                                                                                            [short [index tags_0 false type_0]])))
+                                                                            (|> tags_1
+                                                                                list.enumeration
+                                                                                (list\map (function (_ [index [_ short]])
+                                                                                            [short [index tags_1 true type_1]]))))
+                                         #.types              (list entry_0 entry_1)
+                                         #.module_annotations #.None
+                                         #.module_state       #.Active}])
+               #.scopes          (list)
+               #.type_context    {#.ex_counter 0
+                                  #.var_counter 0
+                                  #.var_bindings (list)}
+               #.expected        #.None
+               #.seed            0
+               #.scope_type_vars (list)
+               #.extensions      []
+               #.host            []})]]
+    ($_ _.and
+        (_.cover [/.tag_lists]
+                 (let [equivalence (list.equivalence
+                                    (product.equivalence
+                                     (list.equivalence name.equivalence)
+                                     type.equivalence))]
+                   (|> (/.tag_lists tag_module)
+                       (/.run expected_lux)
+                       (try\map (\ equivalence = (list [tags_1 type_1])))
+                       (try.default false))))
+        (_.cover [/.tags_of]
+                 (|> (/.tags_of [tag_module name_1])
+                     (/.run expected_lux)
+                     (try\map (\ (maybe.equivalence (list.equivalence name.equivalence)) = (#.Some tags_1)))
+                     (try.default false)))
+        (_.cover [/.resolve_tag]
+                 (|> tags_1
+                     list.enumeration
+                     (list.every? (function (_ [expected_index tag])
+                                    (|> tag
+                                        /.resolve_tag
+                                        (/.run expected_lux)
+                                        (!expect (^multi (^ (#try.Success [actual_index actual_tags actual_type]))
+                                                         (let [correct_index!
+                                                               (n.= expected_index
+                                                                    actual_index)
+
+                                                               correct_tags!
+                                                               (\ (list.equivalence name.equivalence) =
+                                                                  tags_1
+                                                                  actual_tags)
+
+                                                               correct_type!
+                                                               (type\= type_1
+                                                                       actual_type)]
+                                                           (and correct_index!
+                                                                correct_tags!
+                                                                correct_type!)))))))))
+        )))
+
 (def: injection
   (Injection Meta)
   (\ /.monad wrap))
@@ -613,7 +786,7 @@
              #let [expected_lux {#.info            {#.target  target
                                                     #.version version
                                                     #.mode    #.Build}
-                                 #.source          [location.dummy 0 source_code]
+                                 #.source          [expected_location 0 source_code]
                                  #.location         expected_location
                                  #.current_module  (#.Some expected_current_module)
                                  #.modules         (list)
@@ -633,6 +806,26 @@
                        ($apply.spec ..injection (..comparison expected_lux) /.apply))
                 (_.for [/.monad]
                        ($monad.spec ..injection (..comparison expected_lux) /.monad))
+
+                (do random.monad
+                  [expected_value random.nat
+                   expected_error (random.ascii/upper_alpha 1)]
+                  (_.cover [/.lift]
+                           (and (|> expected_error
+                                    #try.Failure
+                                    (: (Try Nat))
+                                    /.lift
+                                    (/.run expected_lux)
+                                    (!expect (^multi (#try.Failure actual)
+                                                     (text\= (location.with expected_location expected_error)
+                                                             actual))))
+                                (|> expected_value
+                                    #try.Success
+                                    (: (Try Nat))
+                                    /.lift
+                                    (/.run expected_lux)
+                                    (!expect (^multi (#try.Success actual)
+                                                     (is? expected_value actual)))))))
                 
                 ..compiler_related
                 ..error_handling
@@ -640,6 +833,7 @@
                 ..context_related
                 ..definition_related
                 ..search_related
+                ..tags_related
                 ))
           
           /annotation.test

@@ -1,5 +1,5 @@
 (.module:
-  [lux #*
+  [lux (#- i64)
    ["." meta]
    [abstract
     ["." monad (#+ do)]]
@@ -193,14 +193,19 @@
 (def: #export variant_flag_field "_lux_flag")
 (def: #export variant_value_field "_lux_value")
 
-(runtime: (variant//create tag last? value)
-  (_.return (_.object (list [..variant_tag_field tag]
-                            [..variant_flag_field last?]
-                            [..variant_value_field value]))))
+(runtime: (variant//new tag last? value)
+  (let [@this (_.var "this")]
+    (with_vars [tag is_last value]
+      (_.closure (list tag is_last value)
+                 ($_ _.then
+                     (_.set (_.the ..variant_tag_field @this) tag)
+                     (_.set (_.the ..variant_flag_field @this) is_last)
+                     (_.set (_.the ..variant_value_field @this) value)
+                     )))))
 
 (def: #export (variant tag last? value)
   (-> Expression Expression Expression Computation)
-  (..variant//create tag last? value))
+  (_.new ..variant//new (list tag last? value)))
 
 (runtime: (sum//get sum wants_last wanted_tag)
   (let [no_match! (_.return _.null)
@@ -249,7 +254,7 @@
   ($_ _.then
       @tuple//left
       @tuple//right
-      @variant//create
+      @variant//new
       @sum//get
       ))
 
@@ -281,8 +286,17 @@
 (def: #export i64_high_field Text "_lux_high")
 
 (runtime: (i64//new high low)
-  (_.return (_.object (list [..i64_high_field high]
-                            [..i64_low_field low]))))
+  (let [@this (_.var "this")]
+    (with_vars [high low]
+      (_.closure (list high low)
+                 ($_ _.then
+                     (_.set (_.the ..i64_high_field @this) high)
+                     (_.set (_.the ..i64_low_field @this) low)
+                     )))))
+
+(def: #export (i64 high low)
+  (-> Expression Expression Computation)
+  (_.new ..i64//new (list high low)))
 
 (runtime: i64//2^16
   (_.left_shift (_.i32 +16) (_.i32 +1)))
@@ -306,16 +320,18 @@
                 (_.+ (i64//unsigned_low i64)))))
 
 (runtime: i64//zero
-  (i64//new (_.i32 +0) (_.i32 +0)))
+  (..i64 (_.i32 +0) (_.i32 +0)))
 
 (runtime: i64//min
-  (i64//new (_.i32 (hex "+80000000")) (_.i32 +0)))
+  (..i64 (_.i32 (hex "+80,00,00,00"))
+         (_.i32 +0)))
 
 (runtime: i64//max
-  (i64//new (_.i32 (hex "+7FFFFFFF")) (_.i32 (hex "+FFFFFFFF"))))
+  (..i64 (_.i32 (hex "+7F,FF,FF,FF"))
+         (_.i32 (hex "+FF,FF,FF,FF"))))
 
 (runtime: i64//one
-  (i64//new (_.i32 +0) (_.i32 +1)))
+  (..i64 (_.i32 +0) (_.i32 +1)))
 
 (runtime: (i64//= reference sample)
   (_.return (_.and (_.= (_.the ..i64_high_field reference)
@@ -355,16 +371,16 @@
           (_.define x48 (|> (high_16 x32) (_.+ l48) (_.+ r48) low_16))
           (_.set x32 (low_16 x32))
 
-          (_.return (i64//new (_.bit_or (up_16 x48) x32)
-                              (_.bit_or (up_16 x16) x00)))
+          (_.return (..i64 (_.bit_or (up_16 x48) x32)
+                           (_.bit_or (up_16 x16) x00)))
           ))))
 
 (template [<name> <op>]
   [(runtime: (<name> subject parameter)
-     (_.return (i64//new (<op> (_.the ..i64_high_field subject)
-                               (_.the ..i64_high_field parameter))
-                         (<op> (_.the ..i64_low_field subject)
-                               (_.the ..i64_low_field parameter)))))]
+     (_.return (..i64 (<op> (_.the ..i64_high_field subject)
+                            (_.the ..i64_high_field parameter))
+                      (<op> (_.the ..i64_low_field subject)
+                            (_.the ..i64_low_field parameter)))))]
 
   [i64//xor _.bit_xor]
   [i64//or  _.bit_or]
@@ -372,8 +388,8 @@
   )
 
 (runtime: (i64//not value)
-  (_.return (i64//new (_.bit_not (_.the ..i64_high_field value))
-                      (_.bit_not (_.the ..i64_low_field value)))))
+  (_.return (..i64 (_.bit_not (_.the ..i64_high_field value))
+                   (_.bit_not (_.the ..i64_low_field value)))))
 
 (runtime: (i64//negate value)
   (_.if (i64//= i64//min value)
@@ -392,8 +408,8 @@
                  (_.return i64//max)]
                 [(|> value (_.< (_.i32 +0)))
                  (_.return (|> value _.negate i64//from_number i64//negate))])
-          (_.return (i64//new (|> value (_./ i64//2^32) _.to_i32)
-                              (|> value (_.% i64//2^32) _.to_i32)))))
+          (_.return (..i64 (|> value (_./ i64//2^32) _.to_i32)
+                           (|> value (_.% i64//2^32) _.to_i32)))))
 
 (def: (cap_shift! shift)
   (-> Var Statement)
@@ -416,9 +432,9 @@
                      (let [high (_.bit_or (|> input (_.the ..i64_high_field) (_.left_shift shift))
                                           (|> input (_.the ..i64_low_field) (_.logic_right_shift (_.- shift (_.i32 +32)))))
                            low (|> input (_.the ..i64_low_field) (_.left_shift shift))]
-                       (_.return (i64//new high low)))])
+                       (_.return (..i64 high low)))])
               (let [high (|> input (_.the ..i64_low_field) (_.left_shift (_.- (_.i32 +32) shift)))]
-                (_.return (i64//new high (_.i32 +0)))))))
+                (_.return (..i64 high (_.i32 +0)))))))
 
 (runtime: (i64//arithmetic_right_shift input shift)
   ($_ _.then
@@ -428,12 +444,12 @@
                      (let [high (|> input (_.the ..i64_high_field) (_.arithmetic_right_shift shift))
                            low (|> input (_.the ..i64_low_field) (_.logic_right_shift shift)
                                    (_.bit_or (|> input (_.the ..i64_high_field) (_.left_shift (_.- shift (_.i32 +32))))))]
-                       (_.return (i64//new high low)))])
+                       (_.return (..i64 high low)))])
               (let [high (_.? (|> input (_.the ..i64_high_field) (_.>= (_.i32 +0)))
                               (_.i32 +0)
                               (_.i32 -1))
                     low (|> input (_.the ..i64_high_field) (_.arithmetic_right_shift (_.- (_.i32 +32) shift)))]
-                (_.return (i64//new high low))))))
+                (_.return (..i64 high low))))))
 
 (runtime: (i64//logic_right_shift input shift)
   ($_ _.then
@@ -443,11 +459,11 @@
                      (let [high (|> input (_.the ..i64_high_field) (_.logic_right_shift shift))
                            low (|> input (_.the ..i64_low_field) (_.logic_right_shift shift)
                                    (_.bit_or (|> input (_.the ..i64_high_field) (_.left_shift (_.- shift (_.i32 +32))))))]
-                       (_.return (i64//new high low)))]
+                       (_.return (..i64 high low)))]
                     [(|> shift (_.= (_.i32 +32)))
-                     (_.return (i64//new (_.i32 +0) (|> input (_.the ..i64_high_field))))])
-              (_.return (i64//new (_.i32 +0)
-                                  (|> input (_.the ..i64_high_field) (_.logic_right_shift (_.- (_.i32 +32) shift))))))))
+                     (_.return (..i64 (_.i32 +0) (|> input (_.the ..i64_high_field))))])
+              (_.return (..i64 (_.i32 +0)
+                               (|> input (_.the ..i64_high_field) (_.logic_right_shift (_.- (_.i32 +32) shift))))))))
 
 (def: runtime//bit
   Statement
@@ -520,8 +536,8 @@
                                    (_.+ (_.* l00 r48))
                                    low_16))
 
-                    (_.return (i64//new (_.bit_or (up_16 x48) x32)
-                                        (_.bit_or (up_16 x16) x00)))
+                    (_.return (..i64 (_.bit_or (up_16 x48) x32)
+                                     (_.bit_or (up_16 x16) x00)))
                     ))))))
 
 (runtime: (i64//< parameter subject)

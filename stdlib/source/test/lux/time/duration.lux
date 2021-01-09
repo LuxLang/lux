@@ -1,6 +1,5 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
    [abstract
     [monad (#+ do)]
@@ -8,43 +7,94 @@
      [/
       ["$." equivalence]
       ["$." order]
+      ["$." enum]
       ["$." monoid]
       ["$." codec]]}]
+   [data
+    ["." bit ("#\." equivalence)]]
    [math
     ["." random (#+ Random)]
     [number
      ["n" nat]
      ["i" int]]]]
   {1
-   ["." / (#+ Duration)]})
-
-(def: #export duration
-  (Random Duration)
-  (\ random.monad map /.from_millis random.int))
+   ["." /]})
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name_of /._)))
+  (<| (_.covering /._)
+      (_.for [/.Duration])
       ($_ _.and
-          ($equivalence.spec /.equivalence ..duration)
-          ($order.spec /.order ..duration)
-          ($monoid.spec /.equivalence /.monoid ..duration)
-          ($codec.spec /.equivalence /.codec ..duration)
+          (_.for [/.equivalence]
+                 ($equivalence.spec /.equivalence random.duration))
+          (_.for [/.order]
+                 ($order.spec /.order random.duration))
+          (_.for [/.enum]
+                 ($enum.spec /.enum random.duration))
+          (_.for [/.monoid]
+                 ($monoid.spec /.equivalence /.monoid random.duration))
+          (_.for [/.codec]
+                 ($codec.spec /.equivalence /.codec random.duration))
 
           (do random.monad
-            [millis random.int]
-            (_.test "Can convert from/to milliseconds."
-                    (|> millis /.from_millis /.to_millis (i.= millis))))
-          (do {! random.monad}
-            [sample (|> duration (\ ! map (/.frame /.day)))
-             frame duration
-             factor (|> random.nat (\ ! map (|>> (n.% 10) (n.max 1))))
-             #let [(^open "/\.") /.order]]
+            [duration random.duration]
+            (_.cover [/.from_millis /.to_millis]
+                     (|> duration /.to_millis /.from_millis (\ /.equivalence = duration))))
+          (do random.monad
+            [#let [(^open "\.") /.equivalence]
+             expected random.duration
+             parameter random.duration]
             ($_ _.and
-                (_.test "Can scale a duration."
-                        (|> sample (/.up factor) (/.query sample) (i.= (.int factor))))
-                (_.test "Scaling a duration by one does not change it."
-                        (|> sample (/.up 1) (/\= sample)))
-                (_.test "Merging a duration with it's opposite yields an empty duration."
-                        (|> sample (/.merge (/.inverse sample)) (/\= /.empty)))))
+                (_.cover [/.merge /.difference]
+                         (|> expected (/.merge parameter) (/.difference parameter) (\= expected)))
+                (_.cover [/.empty]
+                         (|> expected (/.merge /.empty) (\= expected)))
+                (_.cover [/.inverse]
+                         (and (|> expected /.inverse /.inverse (\= expected))
+                              (|> expected (/.merge (/.inverse expected)) (\= /.empty))))
+                (_.cover [/.positive? /.negative? /.neutral?]
+                         (or (bit\= (/.positive? expected)
+                                    (/.negative? (/.inverse expected)))
+                             (bit\= (/.neutral? expected)
+                                    (/.neutral? (/.inverse expected)))))
+                ))
+          (do random.monad
+            [#let [(^open "\.") /.equivalence]
+             factor random.nat]
+            (_.cover [/.up /.down]
+                     (|> /.milli_second (/.up factor) (/.down factor) (\= /.milli_second))))
+          (do {! random.monad}
+            [#let [(^open "\.") /.order
+                   positive (|> random.duration
+                                (random.filter (|>> (\= /.empty) not))
+                                (\ ! map (function (_ duration)
+                                           (if (/.positive? duration)
+                                             duration
+                                             (/.inverse duration)))))]
+             sample positive
+             frame positive]
+            (`` ($_ _.and
+                    (_.cover [/.frame]
+                             (let [sample' (/.frame frame sample)]
+                               (and (\< frame sample')
+                                    (bit\= (\< frame sample)
+                                           (\= sample sample')))))
+                    (_.cover [/.query]
+                             (i.= +1 (/.query sample sample)))
+                    (_.cover [/.milli_second]
+                             (\= /.empty (\ /.enum pred /.milli_second)))
+                    (~~ (template [<factor> <big> <small>]
+                          [(_.cover [<big>]
+                                    (|> <big> (/.query <small>) (i.= <factor>)))]
+
+                          [+1,000 /.second /.milli_second]
+                          [+60 /.minute /.second]
+                          [+60 /.hour /.minute]
+                          [+24 /.day /.hour]
+
+                          [+7 /.week /.day]
+                          [+365 /.normal_year /.day]
+                          [+366 /.leap_year /.day]
+                          ))
+                    )))
           )))

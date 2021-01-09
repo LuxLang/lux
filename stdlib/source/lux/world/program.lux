@@ -1,7 +1,7 @@
 (.module:
   [lux #*
    ["@" target]
-   [host (#+ import:)]
+   ["." host (#+ import:)]
    [abstract
     [monad (#+ do)]]
    [control
@@ -11,13 +11,17 @@
      ["." atom]
      ["." promise (#+ Promise)]]
     [parser
-     [environment (#+ Environment)]]]
+     ["." environment (#+ Environment)]]]
    [data
     ["." maybe]
     ["." text
      ["%" format (#+ format)]]
     [collection
-     ["." dictionary (#+ Dictionary)]]]]
+     ["." array (#+ Array) ("#\." fold)]
+     ["." dictionary (#+ Dictionary)]]]
+   [math
+    [number
+     ["i" int]]]]
   [//
    [file (#+ Path)]
    [shell (#+ Exit)]])
@@ -109,7 +113,61 @@
                                          @.jvm <jvm>})))
                                )]
   (for {@.old (as_is <jvm>)
-        @.jvm (as_is <jvm>)}))
+        @.jvm (as_is <jvm>)
+        @.js (as_is (def: default_exit!
+                      (-> Exit (IO Nothing))
+                      (|>> %.int error! io.io))
+
+                    (import: NodeJs_Process
+                      (exit [host.Number] #io Nothing)
+                      (cwd [] #io Path))
+
+                    (def: (exit_node_js! code)
+                      (-> Exit (IO Nothing))
+                      (case (host.constant ..NodeJs_Process [process])
+                        (#.Some process)
+                        (NodeJs_Process::exit (i.frac code) process)
+                        
+                        #.None
+                        (..default_exit! code)))
+
+                    (import: Browser_Window
+                      (close [] Nothing))
+
+                    (import: Browser_Location
+                      (reload [] Nothing))
+
+                    (def: (exit_browser! code)
+                      (-> Exit (IO Nothing))
+                      (case [(host.constant ..Browser_Window [window])
+                             (host.constant ..Browser_Location [location])]
+                        [(#.Some window) (#.Some location)]
+                        (exec
+                          (Browser_Window::close [] window)
+                          (Browser_Location::reload [] location)
+                          (..default_exit! code))
+
+                        [(#.Some window) #.None]
+                        (exec
+                          (Browser_Window::close [] window)
+                          (..default_exit! code))
+
+                        [#.None (#.Some location)]
+                        (exec
+                          (Browser_Location::reload [] location)
+                          (..default_exit! code))
+                        
+                        [#.None #.None]
+                        (..default_exit! code)))
+
+                    (import: JS_Object
+                      (entries [] (Array (Array host.String))))
+
+                    (import: NodeJs_OS
+                      (homedir [] #io Path))
+
+                    (import: (require [host.String] Any)))}
+       (as_is)))
 
 (structure: #export default
   (Program IO)
@@ -117,21 +175,66 @@
   (def: (environment _)
     (with_expansions [<jvm> ..jvm\\environment]
       (for {@.old <jvm>
-            @.jvm <jvm>})))
+            @.jvm <jvm>
+            @.js (io.io (if host.on_node_js?
+                          (case (host.constant JS_Object [process env])
+                            (#.Some process/env)
+                            (|> process/env
+                                (JS_Object::entries [])
+                                (array\fold (function (_ entry environment)
+                                              (<| (maybe.default environment)
+                                                  (do maybe.monad
+                                                    [variable (array.read 0 entry)
+                                                     value (array.read 1 entry)]
+                                                    (wrap (dictionary.put variable value environment)))))
+                                            environment.empty))
+
+                            #.None
+                            (undefined))
+                          environment.empty))}
+           ## TODO: Replace dummy implementation.
+           (io.io environment.empty))))
   
   (def: (home _)
-    (with_expansions [<jvm> (io.io (maybe.default "" (java/lang/System::getProperty "user.home")))]
+    (with_expansions [<default> (io.io "~")
+                      <jvm> (io.io (maybe.default "" (java/lang/System::getProperty "user.home")))]
       (for {@.old <jvm>
-            @.jvm <jvm>})))
+            @.jvm <jvm>
+            @.js (if host.on_node_js?
+                   (|> (..require "os")
+                       (:coerce NodeJs_OS)
+                       (NodeJs_OS::homedir []))
+                   <default>)}
+           ## TODO: Replace dummy implementation.
+           <default>)))
 
   (def: (directory _)
-    (with_expansions [<jvm> (io.io (maybe.default "" (java/lang/System::getProperty "user.dir")))]
+    (with_expansions [<default> (io.io ".")
+                      <jvm> (io.io (maybe.default "" (java/lang/System::getProperty "user.dir")))]
       (for {@.old <jvm>
-            @.jvm <jvm>})))
+            @.jvm <jvm>
+            @.js (if host.on_node_js?
+                   (case (host.constant ..NodeJs_Process [process])
+                     (#.Some process)
+                     (NodeJs_Process::cwd [] process)
+                     
+                     #.None
+                     <default>)
+                   <default>)}
+           ## TODO: Replace dummy implementation.
+           <default>)))
   
   (def: (exit code)
     (with_expansions [<jvm> (do io.monad
                               [_ (java/lang/System::exit code)]
                               (wrap (undefined)))]
       (for {@.old <jvm>
-            @.jvm <jvm>}))))
+            @.jvm <jvm>
+            @.js (cond host.on_node_js?
+                       (..exit_node_js! code)
+
+                       host.on_browser?
+                       (..exit_browser! code)
+
+                       ## else
+                       (..default_exit! code))}))))
