@@ -1,0 +1,194 @@
+(.module:
+  [lux #*
+   [abstract
+    ["." monad (#+ do)]]
+   [data
+    ["." text ("#\." monoid)]
+    ["." name ("#\." codec)]
+    [collection
+     ["." list ("#\." monoid monad)]]]
+   [macro
+    ["." code]]
+   [math
+    [number
+     ["." nat]
+     ["." int]]]]
+  ["." // #_
+   ["#" meta
+    ["." location]]])
+
+(def: #export (expand_once syntax)
+  {#.doc (doc "Given code that requires applying a macro, does it once and returns the result."
+              "Otherwise, returns the code as-is.")}
+  (-> Code (Meta (List Code)))
+  (case syntax
+    [_ (#.Form (#.Cons [[_ (#.Identifier name)] args]))]
+    (do //.monad
+      [?macro (//.find_macro name)]
+      (case ?macro
+        (#.Some macro)
+        ((:coerce Macro' macro) args)
+        
+        #.None
+        (\ //.monad wrap (list syntax))))
+
+    _
+    (\ //.monad wrap (list syntax))))
+
+(def: #export (expand syntax)
+  {#.doc (doc "Given code that requires applying a macro, expands repeatedly until no more direct macro-calls are left."
+              "Otherwise, returns the code as-is.")}
+  (-> Code (Meta (List Code)))
+  (case syntax
+    [_ (#.Form (#.Cons [[_ (#.Identifier name)] args]))]
+    (do //.monad
+      [?macro (//.find_macro name)]
+      (case ?macro
+        (#.Some macro)
+        (do //.monad
+          [expansion ((:coerce Macro' macro) args)
+           expansion' (monad.map //.monad expand expansion)]
+          (wrap (list\join expansion')))
+        
+        #.None
+        (\ //.monad wrap (list syntax))))
+
+    _
+    (\ //.monad wrap (list syntax))))
+
+(def: #export (expand_all syntax)
+  {#.doc "Expands all macro-calls everywhere recursively, until only primitive/base code remains."}
+  (-> Code (Meta (List Code)))
+  (case syntax
+    [_ (#.Form (#.Cons [[_ (#.Identifier name)] args]))]
+    (do //.monad
+      [?macro (//.find_macro name)]
+      (case ?macro
+        (#.Some macro)
+        (do //.monad
+          [expansion ((:coerce Macro' macro) args)
+           expansion' (monad.map //.monad expand_all expansion)]
+          (wrap (list\join expansion')))
+        
+        #.None
+        (do //.monad
+          [parts' (monad.map //.monad expand_all (list& (code.identifier name) args))]
+          (wrap (list (code.form (list\join parts')))))))
+
+    [_ (#.Form (#.Cons [harg targs]))]
+    (do //.monad
+      [harg+ (expand_all harg)
+       targs+ (monad.map //.monad expand_all targs)]
+      (wrap (list (code.form (list\compose harg+ (list\join (: (List (List Code)) targs+)))))))
+
+    [_ (#.Tuple members)]
+    (do //.monad
+      [members' (monad.map //.monad expand_all members)]
+      (wrap (list (code.tuple (list\join members')))))
+
+    _
+    (\ //.monad wrap (list syntax))))
+
+(def: #export (gensym prefix)
+  {#.doc (doc "Generates a unique name as an Code node (ready to be used in code templates)."
+              "A prefix can be given (or just be empty text) to better identify the code for debugging purposes.")}
+  (-> Text (Meta Code))
+  (do //.monad
+    [id //.count]
+    (wrap (|> id
+              (\ nat.decimal encode)
+              ($_ text\compose "__gensym__" prefix)
+              [""] code.identifier))))
+
+(def: (get_local_identifier ast)
+  (-> Code (Meta Text))
+  (case ast
+    [_ (#.Identifier [_ name])]
+    (\ //.monad wrap name)
+
+    _
+    (//.fail (text\compose "Code is not a local identifier: " (code.format ast)))))
+
+(def: #export wrong_syntax_error
+  (-> Name Text)
+  (|>> name\encode
+       (text\compose "Wrong syntax for ")))
+
+(macro: #export (with_gensyms tokens)
+  {#.doc (doc "Creates new identifiers and offers them to the body expression."
+              (syntax: #export (synchronized lock body)
+                (with_gensyms [g!lock g!body g!_]
+                  (wrap (list (` (let [(~ g!lock) (~ lock)
+                                       (~ g!_) ("jvm monitorenter" (~ g!lock))
+                                       (~ g!body) (~ body)
+                                       (~ g!_) ("jvm monitorexit" (~ g!lock))]
+                                   (~ g!body)))))
+                  )))}
+  (case tokens
+    (^ (list [_ (#.Tuple identifiers)] body))
+    (do {! //.monad}
+      [identifier_names (monad.map ! ..get_local_identifier identifiers)
+       #let [identifier_defs (list\join (list\map (: (-> Text (List Code))
+                                                     (function (_ name) (list (code.identifier ["" name]) (` (gensym (~ (code.text name)))))))
+                                                  identifier_names))]]
+      (wrap (list (` ((~! do) (~! //.monad)
+                      [(~+ identifier_defs)]
+                      (~ body))))))
+
+    _
+    (//.fail (..wrong_syntax_error (name_of ..with_gensyms)))))
+
+(def: #export (expand_1 token)
+  {#.doc "Works just like expand, except that it ensures that the output is a single Code token."}
+  (-> Code (Meta Code))
+  (do //.monad
+    [token+ (..expand token)]
+    (case token+
+      (^ (list token'))
+      (wrap token')
+
+      _
+      (//.fail "Macro expanded to more than 1 element."))))
+
+(template [<macro> <func>]
+  [(macro: #export (<macro> tokens)
+     {#.doc (doc "Performs a macro-expansion and logs the resulting code."
+                 "You can either use the resulting code, or omit them."
+                 "By omitting them, this macro produces nothing (just like the lux.comment macro)."
+                 (<macro> #omit
+                          (def: (foo bar baz)
+                            (-> Int Int Int)
+                            (int.+ bar baz))))}
+     (let [[module _] (name_of .._)
+           [_ short] (name_of <macro>)
+           macro_name [module short]]
+       (case (: (Maybe [Bit Code])
+                (case tokens
+                  (^ (list [_ (#.Tag ["" "omit"])]
+                           token))
+                  (#.Some [#1 token])
+
+                  (^ (list token))
+                  (#.Some [#0 token])
+
+                  _
+                  #.None))
+         (#.Some [omit? token])
+         (do //.monad
+           [location //.location
+            output (<func> token)
+            #let [_ ("lux io log" ($_ text\compose (name\encode macro_name) " @ " (location.format location)))
+                  _ (list\map (|>> code.format "lux io log")
+                              output)
+                  _ ("lux io log" "")]]
+           (wrap (if omit?
+                   (list)
+                   output)))
+
+         #.None
+         (//.fail (..wrong_syntax_error macro_name)))))]
+
+  [log_expand_once! expand_once]
+  [log_expand!      expand]
+  [log_expand_all!  expand_all]
+  )

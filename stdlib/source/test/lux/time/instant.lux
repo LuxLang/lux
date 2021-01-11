@@ -1,9 +1,9 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
+   ["." host]
    [abstract
-    [monad (#+ do Monad)]
+    [monad (#+ do)]
     {[0 #spec]
      [/
       ["$." equivalence]
@@ -11,48 +11,96 @@
       ["$." enum]
       ["$." codec]]}]
    [control
+    ["." function]
     ["." try]]
    [data
-    ["." text]]
+    [collection
+     ["." list ("#\." fold)]]]
    [math
-    ["." random (#+ Random)]
-    [number
-     ["i" int]]]
+    ["." random]]
    [time
-    ["@d" duration]
-    ["@." date]]]
+    ["." duration (#+ Duration)]
+    ["." day (#+ Day) ("#\." enum)]]]
   {1
-   ["." / (#+ Instant)]})
-
-(def: #export instant
-  (Random Instant)
-  (\ random.monad map /.from_millis random.int))
+   ["." /]})
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name_of /._)))
+  (<| (_.covering /._)
+      (_.for [/.Instant])
       ($_ _.and
-          ($equivalence.spec /.equivalence ..instant)
-          ($order.spec /.order ..instant)
-          ($enum.spec /.enum ..instant)
-          ($codec.spec /.equivalence /.codec ..instant)
+          (_.for [/.equivalence]
+                 ($equivalence.spec /.equivalence random.instant))
+          (_.for [/.order]
+                 ($order.spec /.order random.instant))
+          (_.for [/.enum]
+                 ($enum.spec /.enum random.instant))
+          (_.for [/.codec]
+                 ($codec.spec /.equivalence /.codec random.instant))
 
           (do random.monad
-            [millis random.int]
-            (_.test "Can convert from/to milliseconds."
-                    (|> millis /.from_millis /.to_millis (i.= millis))))
-          (do random.monad
-            [sample instant
-             span random.duration
-             #let [(^open "@/.") /.equivalence
-                   (^open "@d/.") @d.equivalence]]
+            [#let [(^open "\.") /.equivalence]
+             expected random.instant]
             ($_ _.and
-                (_.test "The span of a instant and itself has an empty duration."
-                        (|> sample (/.span sample) (@d/= @d.empty)))
-                (_.test "Can shift a instant by a duration."
-                        (|> sample (/.shift span) (/.span sample) (@d/= span)))
-                (_.test "Can obtain the time-span between the epoch and an instant."
-                        (|> sample /.relative /.absolute (@/= sample)))
-                (_.test "All instants are relative to the epoch."
-                        (|> /.epoch (/.shift (/.relative sample)) (@/= sample)))))
+                (_.cover [/.to_millis /.from_millis]
+                         (|> expected /.to_millis /.from_millis (\= expected)))
+                (_.cover [/.relative /.absolute]
+                         (|> expected /.relative /.absolute (\= expected)))
+                (_.cover [/.date /.time /.from_date_time]
+                         (\= expected
+                             (/.from_date_time (/.date expected)
+                                               (/.time expected))))
+                ))
+          (do random.monad
+            [#let [(^open "\.") /.equivalence
+                   (^open "duration\.") duration.equivalence]
+             from random.instant
+             to random.instant]
+            ($_ _.and
+                (_.cover [/.span]
+                         (|> from (/.span from) (duration\= duration.empty)))
+                (_.cover [/.shift]
+                         (|> from (/.shift (/.span from to)) (\= to)))
+                (_.cover [/.epoch]
+                         (duration\= (/.relative to)
+                                     (/.span /.epoch to)))
+                ))
+          (do random.monad
+            [instant random.instant
+             #let [d0 (/.day_of_week instant)]]
+            (_.cover [/.day_of_week]
+                     (let [apply (: (-> (-> Duration Duration) (-> Day Day) Nat Bit)
+                                    (function (_ polarity move steps)
+                                      (let [day_shift (list\fold (function.constant move)
+                                                                 d0
+                                                                 (list.repeat steps []))
+                                            instant_shift (|> instant
+                                                              (/.shift (polarity (duration.up steps duration.day)))
+                                                              /.day_of_week)]
+                                        (day\= day_shift
+                                               instant_shift))))]
+                       (and (apply function.identity day\succ 0)
+                            (apply function.identity day\succ 1)
+                            (apply function.identity day\succ 2)
+                            (apply function.identity day\succ 3)
+                            (apply function.identity day\succ 4)
+                            (apply function.identity day\succ 5)
+                            (apply function.identity day\succ 6)
+                            (apply function.identity day\succ 7)
+
+                            (apply duration.inverse day\pred 0)
+                            (apply duration.inverse day\pred 1)
+                            (apply duration.inverse day\pred 2)
+                            (apply duration.inverse day\pred 3)
+                            (apply duration.inverse day\pred 4)
+                            (apply duration.inverse day\pred 5)
+                            (apply duration.inverse day\pred 6)
+                            (apply duration.inverse day\pred 7)))))
+          (_.cover [/.now]
+                   (case (host.try /.now)
+                     (#try.Success _)
+                     true
+                     
+                     (#try.Failure _)
+                     false))
           )))

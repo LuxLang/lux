@@ -1,17 +1,185 @@
 (.module:
   [lux #*
-   ["_" test (#+ Test)]]
+   ["_" test (#+ Test)]
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["." try ("#\." functor)]
+    [parser
+     ["<.>" code]]]
+   [data
+    ["." bit ("#\." equivalence)]
+    ["." name]
+    ["." text
+     ["%" format (#+ format)]]
+    [collection
+     ["." list]]]
+   [math
+    ["." random (#+ Random)]
+    [number
+     ["." nat]]]
+   ["." meta
+    ["." location]]]
+  {1
+   ["." /
+    [syntax (#+ syntax:)]
+    ["." code ("#\." equivalence)]
+    ["." template]]}
   ["." / #_
    ["#." code]
    ["#." template]
    ["#." poly]
    ["#." syntax]])
 
+(template: (!expect <pattern> <value>)
+  (case <value>
+    <pattern> true
+    _ false))
+
+(template: (!global <definition>)
+  (: [Text .Global]
+     [(template.text [<definition>]) (#.Definition [true .Macro (' []) <definition>])]))
+
+(syntax: (pow/2 number)
+  (wrap (list (` (nat.* (~ number) (~ number))))))
+
+(syntax: (pow/4 number)
+  (wrap (list (` (..pow/2 (..pow/2 (~ number)))))))
+
+(syntax: (repeat {times <code>.nat} token)
+  (wrap (list.repeat times token)))
+
+(syntax: (fresh_identifier)
+  (do meta.monad
+    [g!fresh (/.gensym "fresh")]
+    (wrap (list g!fresh))))
+
+(def: random_lux
+  (Random [Nat Text .Lux])
+  (do {! random.monad}
+    [seed random.nat
+     gensym_prefix (random.ascii/upper_alpha 1)
+     #let [macro_module (name.module (name_of /._))
+           current_module (name.module (name_of .._))]]
+    (wrap [seed
+           gensym_prefix
+           {#.info            {#.target  ""
+                               #.version ""
+                               #.mode    #.Build}
+            #.source          [location.dummy 0 ""]
+            #.location         location.dummy
+            #.current_module  (#.Some current_module)
+            #.modules         (list [macro_module
+                                     {#.module_hash        0
+                                      #.module_aliases     (list)
+                                      #.definitions        (: (List [Text .Global])
+                                                              (list (!global /.log_expand_once!)
+                                                                    (!global /.log_expand!)
+                                                                    (!global /.log_expand_all!)))
+                                      #.imports            (list)
+                                      #.tags               (list)
+                                      #.types              (list)
+                                      #.module_annotations #.None
+                                      #.module_state       #.Active}]
+                                    [current_module
+                                     {#.module_hash        0
+                                      #.module_aliases     (list)
+                                      #.definitions        (: (List [Text .Global])
+                                                              (list (!global ..pow/2)
+                                                                    (!global ..pow/4)
+                                                                    (!global ..repeat)))
+                                      #.imports            (list)
+                                      #.tags               (list)
+                                      #.types              (list)
+                                      #.module_annotations #.None
+                                      #.module_state       #.Active}])
+            #.scopes          (list)
+            #.type_context    {#.ex_counter 0
+                               #.var_counter 0
+                               #.var_bindings (list)}
+            #.expected        #.None
+            #.seed            seed
+            #.scope_type_vars (list)
+            #.extensions      []
+            #.host            []}])))
+
+(def: expander
+  Test
+  (do {! random.monad}
+    [[seed gensym_prefix lux] ..random_lux
+
+     pow/1 (\ ! map code.nat random.nat)
+
+     repetitions (\ ! map (nat.% 10) random.nat)
+     #let [expand_once (` (..pow/2 (..pow/2 (~ pow/1))))
+           expand (` (nat.* (..pow/2 (~ pow/1))
+                            (..pow/2 (~ pow/1))))
+           expand_all (` (nat.* (nat.* (~ pow/1) (~ pow/1))
+                                (nat.* (~ pow/1) (~ pow/1))))]]
+    (`` ($_ _.and
+            (~~ (template [<expander> <logger> <expansion>]
+                  [(_.cover [<expander>]
+                            (|> (<expander> (` (..pow/4 (~ pow/1))))
+                                (meta.run lux)
+                                (try\map (\ (list.equivalence code.equivalence) =
+                                            (list <expansion>)))
+                                (try.default false)))
+
+                   (_.cover [<logger>]
+                            (and (|> (/.expand_once (` (<logger> (~' #omit) (..pow/4 (~ pow/1)))))
+                                     (meta.run lux)
+                                     (try\map (\ (list.equivalence code.equivalence) = (list)))
+                                     (try.default false))
+                                 (|> (/.expand_once (` (<logger> (..pow/4 (~ pow/1)))))
+                                     (meta.run lux)
+                                     (try\map (\ (list.equivalence code.equivalence) = (list <expansion>)))
+                                     (try.default false))))]
+
+                  [/.expand_once /.log_expand_once! expand_once]
+                  [/.expand /.log_expand! expand]
+                  [/.expand_all /.log_expand_all! expand_all]
+                  ))
+            (_.cover [/.expand_1]
+                     (bit\= (not (nat.= 1 repetitions))
+                            (|> (/.expand_1 (` (..repeat (~ (code.nat repetitions)) (~ pow/1))))
+                                (meta.run lux)
+                                (!expect (#try.Failure _)))))
+            ))))
+
 (def: #export test
   Test
-  ($_ _.and
-      /code.test
-      /template.test
-      /syntax.test
-      /poly.test
-      ))
+  (<| (_.covering /._)
+      ($_ _.and
+          (do {! random.monad}
+            [[seed gensym_prefix lux] ..random_lux]
+            ($_ _.and
+                (_.cover [/.gensym]
+                         (|> (/.gensym gensym_prefix)
+                             (\ meta.monad map %.code)
+                             (meta.run lux)
+                             (!expect (^multi (#try.Success actual_gensym)
+                                              (and (text.contains? gensym_prefix actual_gensym)
+                                                   (text.contains? (%.nat seed) actual_gensym))))))
+                (_.cover [/.wrong_syntax_error]
+                         (|> (/.expand_once (` (/.log_expand_once!)))
+                             (meta.run lux)
+                             (!expect (^multi (#try.Failure error)
+                                              (text.contains? (/.wrong_syntax_error (name_of /.log_expand_once!))
+                                                              error)))))
+                (_.cover [/.with_gensyms]
+                         (with_expansions [<expected> (fresh_identifier)]
+                           (|> (/.with_gensyms [<expected>]
+                                 (\ meta.monad wrap <expected>))
+                               (meta.run lux)
+                               (!expect (^multi (#try.Success [_ (#.Identifier ["" actual])])
+                                                (text.contains? (template.text [<expected>])
+                                                                actual))))))
+                ))
+
+          ..expander
+          
+          /code.test
+          /template.test
+          /syntax.test
+          /poly.test
+          )))

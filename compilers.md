@@ -77,6 +77,8 @@ cd ~/lux/lux-js/ && lein clean && lein lux auto test
 ```
 cd ~/lux/lux-js/ && lein lux auto build
 cd ~/lux/lux-js/ && lein clean && lein lux auto build
+
+## Use JVM-based compiler to produce a JS/Node-based compiler.
 cd ~/lux/lux-js/ && lein clean && lein lux build && mv target/program.jar program.jar
 ```
 
@@ -89,6 +91,12 @@ cd ~/lux/stdlib/target/ && node program.js
 cd ~/lux/lux-js/ && lein clean && time java -jar program.jar build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program && mv target/program.js program.js
 
 cd ~/lux/stdlib/ && lein clean && cd ~/lux/lux-js/ && time node --stack_size=8192 program.js build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
+
+## Use JS/Node-based compiler to produce another JS/Node-based compiler.
+cd ~/lux/lux-js/ \
+&& lein clean \
+&& cd ~/lux/lux-js/ \
+&& time node --stack_size=8192 program.js build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program
 ```
 
 ---

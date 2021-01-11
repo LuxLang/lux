@@ -358,6 +358,10 @@
 
 1. [Hyperbolic Functions and Non-Hyperbolic Claims](https://elliptigon.com/hyperbolic-functions-explained/)
 
+# Dual numbers
+
+1. [The Dual Numbers](https://www.youtube.com/watch?v=4nU-09e3iP8)
+
 # **Temp Cache**
 
 1. [Quadratic splines are useful too](https://wordsandbuttons.online/quadric_splines_are_useful_too.html)
