@@ -78,8 +78,23 @@ cd ~/lux/lux-js/ && lein clean && lein lux auto test
 cd ~/lux/lux-js/ && lein lux auto build
 cd ~/lux/lux-js/ && lein clean && lein lux auto build
 
+## Build JVM-based compiler
+cd ~/lux/lux-js/ \
+&& lein clean \
+&& lein lux build \
+&& mv target/program.jar program.jar
+
 ## Use JVM-based compiler to produce a JS/Node-based compiler.
-cd ~/lux/lux-js/ && lein clean && lein lux build && mv target/program.jar program.jar
+cd ~/lux/lux-js/ \
+&& lein clean \
+&& time java -jar program.jar build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program \
+&& mv target/program.js program.js
+
+## Use JS/Node-based compiler to produce another JS/Node-based compiler.
+cd ~/lux/lux-js/ \
+&& lein clean \
+&& cd ~/lux/lux-js/ \
+&& time node --stack_size=8192 program.js build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program
 ```
 
 ## Try
@@ -88,15 +103,7 @@ cd ~/lux/lux-js/ && lein clean && lein lux build && mv target/program.jar progra
 cd ~/lux/stdlib/ && lein clean && cd ~/lux/lux-js/ && time java -jar program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
 cd ~/lux/stdlib/target/ && node program.js
 
-cd ~/lux/lux-js/ && lein clean && time java -jar program.jar build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program && mv target/program.js program.js
-
 cd ~/lux/stdlib/ && lein clean && cd ~/lux/lux-js/ && time node --stack_size=8192 program.js build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
-
-## Use JS/Node-based compiler to produce another JS/Node-based compiler.
-cd ~/lux/lux-js/ \
-&& lein clean \
-&& cd ~/lux/lux-js/ \
-&& time node --stack_size=8192 program.js build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program
 ```
 
 ---
@@ -113,8 +120,22 @@ cd ~/lux/lux-python/ && lein clean && lein lux auto test
 ## Build
 
 ```
-cd ~/lux/lux-python/ && lein lux auto build
-cd ~/lux/lux-python/ && lein clean && lein lux auto build
+## Develop
+cd ~/lux/lux-python/ \
+&& lein clean \
+&& lein lux auto build
+
+## Build JVM-based compiler
+cd ~/lux/lux-python/ \
+&& lein clean \
+&& lein lux build \
+&& mv target/program.jar program.jar
+
+## Use JVM-based compiler to produce a Python-based compiler.
+cd ~/lux/lux-python/ \
+&& lein clean \
+&& time java -jar program.jar build --source ~/lux/lux-python/source --target ~/lux/lux-python/target --module program \
+&& mv target/program.js program.js
 ```
 
 ## Try

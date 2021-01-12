@@ -1,32 +1,39 @@
 (.module:
   [lux (#- inc)
+   ["." meta]
    [abstract
-    [monad (#+ do)]]
+    ["." monad (#+ do)]]
    [control
     ["." function]
-    ["p" parser
-     ["s" code]]]
+    ["<>" parser
+     ["<.>" code]]]
    [data
-    [number (#+ hex)
-     ["." i64]]
-    ["." text
-     ["%" format (#+ format)]]
+    ["." product]
+    ["." text ("#\." hash)
+     ["%" format (#+ format)]
+     ["." encoding]]
     [collection
-     ["." list ("#\." functor)]]]
+     ["." list ("#\." functor)]
+     ["." row]]]
    ["." macro
-    ["." code]
-    [syntax (#+ syntax:)]]
+    [syntax (#+ syntax:)]
+    ["." code]]
+   [math
+    [number (#+ hex)
+     ["." i64]]]
    [target
     ["_" python (#+ Expression SVar Computation Literal Statement)]]]
   ["." /// #_
    ["#." reference]
    ["//#" /// #_
+    ["$" version]
     ["#." synthesis]
-    ["#." generation (#+ Buffer)]
-    ["//#" /// #_
+    ["#." generation]
+    ["//#" /// (#+ Output)
      ["#." phase]
      [meta
-      [archive (#+ Archive)]]]]])
+      [archive (#+ Archive)
+       ["." artifact (#+ Registry)]]]]]])
 
 (template [<name> <base>]
   [(type: #export <name>
@@ -77,74 +84,78 @@
   (-> (Expression Any) Literal)
   (..variant 1 #1))
 
-(def: runtime-name
+(def: (runtime_name name)
   (-> Text SVar)
-  (|>> ///reference.sanitize
-       (format ..prefix "_")
-       _.var))
+  (let [identifier (format ..prefix
+                           "_" (%.nat $.version)
+                           "_" (%.nat (text\hash name)))]
+    (_.var identifier)))
 
 (def: (feature name definition)
   (-> SVar (-> SVar (Statement Any)) (Statement Any))
   (definition name))
 
-(syntax: #export (with-vars {vars (s.tuple (p.some s.local-identifier))}
+(syntax: #export (with_vars {vars (<code>.tuple (<>.some <code>.local_identifier))}
                    body)
-  (wrap (list (` (let [(~+ (|> vars
-                               (list\map (function (_ var)
-                                           (list (code.local-identifier var)
-                                                 (` (_.var (~ (code.text (///reference.sanitize var))))))))
-                               list.concat))]
-                   (~ body))))))
+  (do {! meta.monad}
+    [ids (monad.seq ! (list.repeat (list.size vars) meta.count))]
+    (wrap (list (` (let [(~+ (|> vars
+                                 (list.zip/2 ids)
+                                 (list\map (function (_ [id var])
+                                             (list (code.local_identifier var)
+                                                   (` (_.var (~ (code.text (format "v" (%.nat id)))))))))
+                                 list.concat))]
+                     (~ body)))))))
 
-(syntax: (runtime: {declaration (p.or s.local-identifier
-                                      (s.form (p.and s.local-identifier
-                                                     (p.some s.local-identifier))))}
+(syntax: (runtime: {declaration (<>.or <code>.local_identifier
+                                       (<code>.form (<>.and <code>.local_identifier
+                                                            (<>.some <code>.local_identifier))))}
            code)
   (case declaration
     (#.Left name)
-    (macro.with-gensyms [g!_]
-      (let [nameC (code.local-identifier name)
-            code-nameC (code.local-identifier (format "@" name))
-            runtime-nameC (` (runtime-name (~ (code.text name))))]
-        (wrap (list (` (def: #export (~ nameC) SVar (~ runtime-nameC)))
-                    (` (def: (~ code-nameC)
+    (macro.with_gensyms [g!_]
+      (let [nameC (code.local_identifier name)
+            code_nameC (code.local_identifier (format "@" name))
+            runtime_nameC (` (runtime_name (~ (code.text name))))]
+        (wrap (list (` (def: #export (~ nameC) SVar (~ runtime_nameC)))
+                    (` (def: (~ code_nameC)
                          (Statement Any)
-                         (..feature (~ runtime-nameC)
+                         (..feature (~ runtime_nameC)
                                     (function ((~ g!_) (~ nameC))
                                       (~ code)))))))))
     
     (#.Right [name inputs])
-    (macro.with-gensyms [g!_]
-      (let [nameC (code.local-identifier name)
-            code-nameC (code.local-identifier (format "@" name))
-            runtime-nameC (` (runtime-name (~ (code.text name))))
-            inputsC (list\map code.local-identifier inputs)
-            inputs-typesC (list\map (function.constant (` (_.Expression Any)))
+    (macro.with_gensyms [g!_]
+      (let [nameC (code.local_identifier name)
+            code_nameC (code.local_identifier (format "@" name))
+            runtime_nameC (` (runtime_name (~ (code.text name))))
+            inputsC (list\map code.local_identifier inputs)
+            inputs_typesC (list\map (function.constant (` (_.Expression Any)))
                                     inputs)]
         (wrap (list (` (def: #export ((~ nameC) (~+ inputsC))
-                         (-> (~+ inputs-typesC) (Computation Any))
-                         (_.apply/* (~ runtime-nameC) (list (~+ inputsC)))))
-                    (` (def: (~ code-nameC)
+                         (-> (~+ inputs_typesC) (Computation Any))
+                         (_.apply/* (~ runtime_nameC) (list (~+ inputsC)))))
+                    (` (def: (~ code_nameC)
                          (Statement Any)
-                         (..feature (~ runtime-nameC)
+                         (..feature (~ runtime_nameC)
                                     (function ((~ g!_) (~ g!_))
-                                      (..with-vars [(~+ inputsC)]
+                                      (..with_vars [(~+ inputsC)]
                                         (_.def (~ g!_) (list (~+ inputsC))
                                                (~ code)))))))))))))
 
 (runtime: (lux//try op)
-  (with-vars [error value]
+  (with_vars [error value]
     (_.try ($_ _.then
                (_.set (list value) (_.apply/* op (list unit)))
                (_.return (right value)))
            (list [(list (_.var "Exception")) error
                   (_.return (left (_.str/1 error)))]))))
 
-(runtime: (lux//program-args program-args)
-  (with-vars [inputs value]
+(runtime: (lux//program_args program_args)
+  (with_vars [inputs value]
     ($_ _.then
         (_.set (list inputs) none)
-        (<| (_.for-in value program-args)
+        (<| (_.for_in value program_args)
             (_.set (list inputs)
                    (some (_.tuple (list value inputs)))))
         (_.return inputs))))
@@ -153,7 +164,7 @@
   (Statement Any)
   ($_ _.then
       @lux//try
-      @lux//program-args
+      @lux//program_args
       ))
 
 (runtime: (io//log! message)
@@ -172,7 +183,7 @@
       (_.statement (|> (_.var "sys") (_.do "exit" (list code))))
       (_.return ..unit)))
 
-(runtime: (io//current-time! _)
+(runtime: (io//current_time! _)
   ($_ _.then
       (_.import "time")
       (_.return (|> (_.var "time")
@@ -186,63 +197,63 @@
       @io//log!
       @io//throw!
       @io//exit!
-      @io//current-time!
+      @io//current_time!
       ))
 
-(def: last-index
+(def: last_index
   (|>> _.len/1 (_.- (_.int +1))))
 
-(with-expansions [<recur> (as-is ($_ _.then
-                                     (_.set (list lefts) (_.- last-index-right lefts))
-                                     (_.set (list tuple) (_.nth last-index-right tuple))))]
+(with_expansions [<recur> (as_is ($_ _.then
+                                     (_.set (list lefts) (_.- last_index_right lefts))
+                                     (_.set (list tuple) (_.nth last_index_right tuple))))]
   (runtime: (tuple//left lefts tuple)
-    (with-vars [last-index-right]
+    (with_vars [last_index_right]
       (<| (_.while (_.bool true))
           ($_ _.then
-              (_.set (list last-index-right) (..last-index tuple))
-              (_.if (_.> lefts last-index-right)
+              (_.set (list last_index_right) (..last_index tuple))
+              (_.if (_.> lefts last_index_right)
                 ## No need for recursion
                 (_.return (_.nth lefts tuple))
                 ## Needs recursion
                 <recur>)))))
 
   (runtime: (tuple//right lefts tuple)
-    (with-vars [last-index-right right-index]
+    (with_vars [last_index_right right_index]
       (<| (_.while (_.bool true))
           ($_ _.then
-              (_.set (list last-index-right) (..last-index tuple))
-              (_.set (list right-index) (_.+ (_.int +1) lefts))
-              (_.cond (list [(_.= last-index-right right-index)
-                             (_.return (_.nth right-index tuple))]
-                            [(_.> last-index-right right-index)
+              (_.set (list last_index_right) (..last_index tuple))
+              (_.set (list right_index) (_.+ (_.int +1) lefts))
+              (_.cond (list [(_.= last_index_right right_index)
+                             (_.return (_.nth right_index tuple))]
+                            [(_.> last_index_right right_index)
                              ## Needs recursion.
                              <recur>])
-                      (_.return (_.slice-from right-index tuple)))
+                      (_.return (_.slice_from right_index tuple)))
               )))))
 
 (runtime: (sum//get sum wantsLast wantedTag)
-  (let [no-match! (_.return _.none)
-        sum-tag (_.nth (_.int +0) sum)
-        sum-flag (_.nth (_.int +1) sum)
-        sum-value (_.nth (_.int +2) sum)
-        is-last? (_.= (_.string "") sum-flag)
-        test-recursion! (_.if is-last?
+  (let [no_match! (_.return _.none)
+        sum_tag (_.nth (_.int +0) sum)
+        sum_flag (_.nth (_.int +1) sum)
+        sum_value (_.nth (_.int +2) sum)
+        is_last? (_.= (_.string "") sum_flag)
+        test_recursion! (_.if is_last?
                           ## Must recurse.
-                          (_.return (sum//get sum-value wantsLast (_.- sum-tag wantedTag)))
-                          no-match!)]
-    (_.cond (list [(_.= sum-tag wantedTag)
-                   (_.if (_.= wantsLast sum-flag)
-                     (_.return sum-value)
-                     test-recursion!)]
+                          (_.return (sum//get sum_value wantsLast (_.- sum_tag wantedTag)))
+                          no_match!)]
+    (_.cond (list [(_.= sum_tag wantedTag)
+                   (_.if (_.= wantsLast sum_flag)
+                     (_.return sum_value)
+                     test_recursion!)]
 
-                  [(_.> sum-tag wantedTag)
-                   test-recursion!]
+                  [(_.> sum_tag wantedTag)
+                   test_recursion!]
 
-                  [(_.and (_.< sum-tag wantedTag)
+                  [(_.and (_.< sum_tag wantedTag)
                           (_.= (_.string "") wantsLast))
-                   (_.return (variant' (_.- wantedTag sum-tag) sum-flag sum-value))])
+                   (_.return (variant' (_.- wantedTag sum_tag) sum_flag sum_value))])
 
-            no-match!)))
+            no_match!)))
 
 (def: runtime//adt
   (Statement Any)
@@ -252,14 +263,14 @@
       @sum//get
       ))
 
-(def: full-64-bits
+(def: full_64_bits
   Literal
   (_.manual "0xFFFFFFFFFFFFFFFF"))
 
 (runtime: (i64//64 input)
-  (with-vars [capped]
-    (_.cond (list [(|> input (_.> full-64-bits))
-                   (_.return (|> input (_.bit-and full-64-bits) i64//64))]
+  (with_vars [capped]
+    (_.cond (list [(|> input (_.> full_64_bits))
+                   (_.return (|> input (_.bit_and full_64_bits) i64//64))]
                   [(|> input (_.> (: Literal (_.manual "0x7FFFFFFFFFFFFFFF"))))
                    ($_ _.then
                        (_.set (list capped)
@@ -270,23 +281,23 @@
                          (_.return (: Literal (_.manual "-9223372036854775808L")))))])
             (_.return input))))
 
-(runtime: (i64//logic-right-shift param subject)
+(runtime: (i64//logic_right_shift param subject)
   (let [mask (|> (_.int +1)
-                 (_.bit-shl (_.- param (_.int +64)))
+                 (_.bit_shl (_.- param (_.int +64)))
                  (_.- (_.int +1)))]
     (_.return (|> subject
-                  (_.bit-shr param)
-                  (_.bit-and mask)))))
+                  (_.bit_shr param)
+                  (_.bit_and mask)))))
 
 (def: runtime//i64
   (Statement Any)
   ($_ _.then
       @i64//64
-      @i64//logic-right-shift
+      @i64//logic_right_shift
       ))
 
 (runtime: (frac//decode input)
-  (with-vars [ex]
+  (with_vars [ex]
     (_.try
      (_.return (..some (_.float/1 input)))
      (list [(list (_.var "Exception")) ex
@@ -299,7 +310,7 @@
       ))
 
 (runtime: (text//index subject param start)
-  (with-vars [idx]
+  (with_vars [idx]
     ($_ _.then
         (_.set (list idx) (|> subject (_.do "find" (list param start))))
         (_.if (_.= (_.int -1) idx)
@@ -340,14 +351,19 @@
       runtime//io
       ))
 
-(def: #export artifact ..prefix)
+(def: #export artifact
+  ..prefix)
 
 (def: #export generate
-  (Operation (Buffer (Statement Any)))
-  (/////generation.with-buffer
+  (Operation [Registry Output])
+  (/////generation.with_buffer
     (do ///////phase.monad
-      [#let [directive (<| (_.comment "-*- coding: utf-8 -*-")
-                           ..runtime)]
-       _ (/////generation.execute! directive)
-       _ (/////generation.save! ..prefix directive)]
-      /////generation.buffer)))
+      [_ (/////generation.execute! ..runtime)
+       _ (/////generation.save! ..prefix ..runtime)]
+      (wrap [(|> artifact.empty
+                 artifact.resource
+                 product.right)
+             (row.row ["0"
+                       (|> ..runtime
+                           _.code
+                           (\ encoding.utf8 encode))])]))))

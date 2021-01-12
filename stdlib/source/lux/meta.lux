@@ -12,7 +12,9 @@
     ["." text ("#\." monoid equivalence)]
     ["." name ("#\." codec equivalence)]
     [collection
-     ["." list ("#\." monoid monad)]]]
+     ["." list ("#\." monoid monad)]
+     [dictionary
+      ["." plist]]]]
    [macro
     ["." code]]
    [math
@@ -74,18 +76,6 @@
         (#try.Success [compiler' ma])
         (ma compiler')))))
 
-(def: (get k plist)
-  (All [a]
-    (-> Text (List [Text a]) (Maybe a)))
-  (case plist
-    #.Nil
-    #.None
-
-    (#.Cons [k' v] plist')
-    (if (text\= k k')
-      (#.Some v)
-      (get k plist'))))
-
 (def: #export (run' compiler action)
   (All [a] (-> Lux (Meta a) (Try [Lux a])))
   (action compiler))
@@ -128,7 +118,7 @@
 (def: #export (find_module name)
   (-> Text (Meta Module))
   (function (_ compiler)
-    (case (get name (get@ #.modules compiler))
+    (case (plist.get name (get@ #.modules compiler))
       (#.Some module)
       (#try.Success [compiler module])
 
@@ -178,11 +168,11 @@
   (-> (List [Text Module]) Text Text Text
       (Maybe Macro))
   (do maybe.monad
-    [$module (get module modules)
+    [$module (plist.get module modules)
      definition (: (Maybe Global)
                    (|> (: Module $module)
                        (get@ #.definitions)
-                       (get name)))]
+                       (plist.get name)))]
     (case definition
       (#.Alias [r_module r_name])
       (find_macro' modules this_module r_module r_name)
@@ -215,7 +205,7 @@
 (def: #export (module_exists? module)
   (-> Text (Meta Bit))
   (function (_ compiler)
-    (#try.Success [compiler (case (get module (get@ #.modules compiler))
+    (#try.Success [compiler (case (plist.get module (get@ #.modules compiler))
                               (#.Some _)
                               #1
                               
@@ -286,13 +276,15 @@
   {#.doc "Looks-up a definition's whole data in the available modules (including the current one)."}
   (-> Name (Meta Global))
   (do ..monad
-    [name (normalize name)]
+    [name (normalize name)
+     #let [[normal_module normal_short] name]]
     (function (_ compiler)
       (case (: (Maybe Global)
                (do maybe.monad
-                 [#let [[v_prefix v_name] name]
-                  (^slots [#.definitions]) (get v_prefix (get@ #.modules compiler))]
-                 (get v_name definitions)))
+                 [(^slots [#.definitions]) (|> compiler
+                                               (get@ #.modules)
+                                               (plist.get normal_module))]
+                 (plist.get normal_short definitions)))
         (#.Some definition)
         (#try.Success [compiler definition])
 
@@ -302,15 +294,39 @@
           (#try.Failure ($_ text\compose
                             "Unknown definition: " (name\encode name) text.new_line
                             "    Current module: " current_module text.new_line
-                            (case (get current_module (get@ #.modules compiler))
+                            (case (plist.get current_module (get@ #.modules compiler))
                               (#.Some this_module)
-                              ($_ text\compose
-                                  "           Imports: " (|> this_module (get@ #.imports) (text.join_with separator)) text.new_line
-                                  "           Aliases: " (|> this_module (get@ #.module_aliases) (list\map (function (_ [alias real]) ($_ text\compose alias " => " real))) (text.join_with separator)) text.new_line)
+                              (let [candidates (|> compiler
+                                                   (get@ #.modules)
+                                                   (list\map (function (_ [module_name module])
+                                                               (|> module
+                                                                   (get@ #.definitions)
+                                                                   (list.all (function (_ [def_name global])
+                                                                               (case global
+                                                                                 (#.Definition _)
+                                                                                 (if (text\= normal_short def_name)
+                                                                                   (#.Some (name\encode [module_name def_name]))
+                                                                                   #.None)
+
+                                                                                 (#.Alias _)
+                                                                                 #.None))))))
+                                                   list.concat
+                                                   (text.join_with separator))
+                                    imports (|> this_module
+                                                (get@ #.imports)
+                                                (text.join_with separator))
+                                    aliases (|> this_module
+                                                (get@ #.module_aliases)
+                                                (list\map (function (_ [alias real]) ($_ text\compose alias " => " real)))
+                                                (text.join_with separator))]
+                                ($_ text\compose
+                                    "        Candidates: " candidates text.new_line
+                                    "           Imports: " imports text.new_line
+                                    "           Aliases: " aliases text.new_line))
 
                               _
                               "")
-                            " All Known modules: " (|> compiler (get@ #.modules) (list\map product.left) (text.join_with separator)) text.new_line)))))))
+                            " All known modules: " (|> compiler (get@ #.modules) (list\map product.left) (text.join_with separator)) text.new_line)))))))
 
 (def: #export (find_export name)
   {#.doc "Looks-up a definition's type in the available modules (including the current one)."}
@@ -376,7 +392,7 @@
   {#.doc "The entire list of globals in a module (including the non-exported/private ones)."}
   (-> Text (Meta (List [Text Global])))
   (function (_ compiler)
-    (case (get module (get@ #.modules compiler))
+    (case (plist.get module (get@ #.modules compiler))
       #.None
       (#try.Failure ($_ text\compose "Unknown module: " module))
       
@@ -422,7 +438,7 @@
   (do ..monad
     [#let [[module name] type_name]
      module (find_module module)]
-    (case (get name (get@ #.types module))
+    (case (plist.get name (get@ #.types module))
       (#.Some [tags _])
       (wrap (#.Some tags))
 
@@ -473,7 +489,7 @@
      =module (..find_module module)
      this_module_name ..current_module_name
      imported! (..imported? module)]
-    (case (get name (get@ #.tags =module))
+    (case (plist.get name (get@ #.tags =module))
       (#.Some [idx tag_list exported? type])
       (if (or (text\= this_module_name module)
               (and imported! exported?))

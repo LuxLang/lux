@@ -1,38 +1,89 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
    [abstract
+    [monad (#+ do)]
+    ["." predicate]
     {[0 #spec]
      [/
       ["$." equivalence]
+      ["$." hash]
       ["$." order]
       ["$." enum]]}]
+   [control
+    ["." try ("#\." functor)]
+    ["." exception]]
+   [data
+    [collection
+     ["." set]
+     ["." list ("#\." functor fold)]]]
    [math
-    ["r" random (#+ Random) ("#\." monad)]]]
+    ["." random (#+ Random)]
+    [number
+     ["n" nat]]]]
   {1
-   ["." / (#+ Month)]})
+   ["." /
+    [//
+     ["." duration]]]})
 
-(def: #export month
-  (Random Month)
-  (r.either (r.either (r.either (r\wrap #/.January)
-                                (r.either (r\wrap #/.February)
-                                          (r\wrap #/.March)))
-                      (r.either (r\wrap #/.April)
-                                (r.either (r\wrap #/.May)
-                                          (r\wrap #/.June))))
-            (r.either (r.either (r\wrap #/.July)
-                                (r.either (r\wrap #/.August)
-                                          (r\wrap #/.September)))
-                      (r.either (r\wrap #/.October)
-                                (r.either (r\wrap #/.November)
-                                          (r\wrap #/.December))))))
+(def: #export random
+  (Random /.Month)
+  (let [december (/.number #/.December)]
+    (|> random.nat
+        (\ random.monad map (|>> (n.% december) inc))
+        (random.one (|>> /.by_number try.to_maybe)))))
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name_of /._)))
+  (<| (_.covering /._)
+      (_.for [/.Month])
       ($_ _.and
-          ($equivalence.spec /.equivalence ..month)
-          ($order.spec /.order ..month)
-          ($enum.spec /.enum ..month)
+          (_.for [/.equivalence]
+                 ($equivalence.spec /.equivalence ..random))
+          (_.for [/.hash]
+                 ($hash.spec /.hash ..random))
+          (_.for [/.order]
+                 ($order.spec /.order ..random))
+          (_.for [/.enum]
+                 ($enum.spec /.enum ..random))
+
+          (do random.monad
+            [expected ..random
+             invalid (random.filter (predicate.unite (n.< (/.number #/.January))
+                                                     (n.> (/.number #/.December)))
+                                    random.nat)]
+            ($_ _.and
+                (_.cover [/.number /.by_number]
+                         (|> expected
+                             /.number
+                             /.by_number
+                             (try\map (\ /.equivalence = expected))
+                             (try.default false)))
+                (_.cover [/.invalid_month]
+                         (case (/.by_number invalid)
+                           (#try.Failure error)
+                           (exception.match? /.invalid_month error)
+                           
+                           (#try.Success _)
+                           false))
+                (_.cover [/.year]
+                         (let [all (list.size /.year)
+                               uniques (set.size (set.from_list /.hash /.year))]
+                           (and (n.= (/.number #/.December)
+                                     all)
+                                (n.= all
+                                     uniques))))
+                (_.cover [/.days]
+                         (let [expected (.nat (duration.query duration.day duration.normal_year))]
+                           (|> /.year
+                               (list\map /.days)
+                               (list\fold n.+ 0)
+                               (n.= expected))))
+                (_.cover [/.leap_year_days]
+                         (let [expected (.nat (duration.query duration.day duration.leap_year))]
+                           (|> /.year
+                               (list\map /.leap_year_days)
+                               (list\fold n.+ 0)
+                               (n.= expected))))
+                ))
           )))

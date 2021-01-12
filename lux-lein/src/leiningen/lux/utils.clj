@@ -116,16 +116,17 @@
                                    deps
                                    (list* stdlib-path deps)))
           compiler-path (prepare-path (find-compiler-path raw-paths))
-          class-path (->> compiler-dependencies
-                          (list* compiler-path)
-                          (interpose java.io.File/pathSeparator)
-                          (reduce str "")
-                          sanitize-path)
-          module-path (->> program-dependencies
-                          (interpose java.io.File/pathSeparator)
-                          (reduce str "")
-                          sanitize-path)]
-      (str (java-command project) " -cp " class-path " --module-path " module-path
+          compiler-class-path (->> compiler-dependencies
+                                   (list* compiler-path)
+                                   (interpose java.io.File/pathSeparator)
+                                   (reduce str "")
+                                   sanitize-path)
+          program-class-path (->> program-dependencies
+                                  (interpose java.io.File/pathSeparator)
+                                  (reduce str "")
+                                  sanitize-path)]
+      (str (java-command project)
+           " -cp " (str compiler-class-path java.io.File/pathSeparator program-class-path)
            " " (lux-command project <mode> program-dependencies source-paths))))
 
   compile-path (str "release " module)
