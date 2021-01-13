@@ -32,9 +32,6 @@
   ((on_mail message state self)
    (message state self))
 
-  ((on_stop cause state)
-   (promise\wrap []))
-
   (message: (count! {increment Nat} state self Nat)
     (let [state' (n.+ increment state)]
       (promise\wrap (#try.Success [state' state']))))
@@ -90,9 +87,16 @@
                                            [actor (/.spawn! (: (/.Behavior Any Any)
                                                                {#/.on_init (|>>)
                                                                 #/.on_mail (function (_ message state self)
-                                                                             (message state self))
-                                                                #/.on_stop (function (_ cause state)
-                                                                             (promise.future (write cause)))})
+                                                                             (do {! promise.monad}
+                                                                               [outcome (message state self)]
+                                                                               (case outcome
+                                                                                 (#try.Failure cause)
+                                                                                 (do !
+                                                                                   [_ (promise.future (write cause))]
+                                                                                   (wrap outcome))
+                                                                                 
+                                                                                 (#try.Success _)
+                                                                                 (wrap outcome))))})
                                                             [])]
                                            (/.poison! actor)))
                        _ (promise.wait 100)
@@ -172,11 +176,7 @@
                                 [anonymous (/.actor {Nat
                                                      initial_state}
                                                     ((on_mail message state self)
-                                                     (message (inc state) self))
-
-                                                    ((on_stop cause state)
-                                                     (promise\wrap (exec (%.nat state)
-                                                                     []))))
+                                                     (message (inc state) self)))
                                  sent/inc? (/.mail! inc! anonymous)
                                  sent/dec? (/.mail! dec! anonymous)
                                  poisoned? (/.poison! anonymous)

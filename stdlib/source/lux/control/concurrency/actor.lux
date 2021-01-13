@@ -74,13 +74,12 @@
     (type: #export (Behavior o s)
       {#.doc "An actor's behavior when mail is received and when a fatal error occurs."}
       {#on_init (-> o s)
-       #on_mail (-> (Mail s) s (Actor s) (Promise (Try s)))
-       #on_stop (-> Text s (Promise Any))})
+       #on_mail (-> (Mail s) s (Actor s) (Promise (Try s)))})
 
     (def: #export (spawn! behavior init)
       {#.doc "Given a behavior and initial state, spawns an actor and returns it."}
       (All [o s] (-> (Behavior o s) o (IO (Actor s))))
-      (io (let [[on_init on_mail on_stop] behavior
+      (io (let [[on_init on_mail] behavior
                 self (:share [o s]
                              {(Behavior o s)
                               behavior}
@@ -94,14 +93,12 @@
                              ?state' (on_mail head state self)]
                             (case ?state'
                               (#try.Failure error)
-                              (do !
-                                [_ (on_stop error state)]
-                                (let [[_ resolve] (get@ #obituary (:representation self))]
-                                  (exec (io.run
-                                         (do io.monad
-                                           [pending (..pending tail)]
-                                           (resolve [error state (#.Cons head pending)])))
-                                    (wrap []))))
+                              (let [[_ resolve] (get@ #obituary (:representation self))]
+                                (exec (io.run
+                                       (do io.monad
+                                         [pending (..pending tail)]
+                                         (resolve [error state (#.Cons head pending)])))
+                                  (wrap [])))
 
                               (#try.Success state')
                               (recur state' tail))))]
@@ -199,15 +196,10 @@
   (All [s] (-> (Mail s) s (Actor s) (Promise (Try s))))
   (mail state self))
 
-(def: (default_on_stop cause state)
-  (All [s] (-> Text s (Promise Any)))
-  (promise\wrap []))
-
 (def: #export default
   (All [s] (Behavior s s))
   {#on_init function.identity
-   #on_mail ..default_on_mail
-   #on_stop ..default_on_stop})
+   #on_mail ..default_on_mail})
 
 (def: #export (poison! actor)
   {#.doc (doc "Kills the actor by sending mail that will kill it upon processing,"
@@ -225,11 +217,8 @@
 (type: On_MailC
   [[Text Text Text] Code])
 
-(type: On_StopC
-  [[Text Text] Code])
-
 (type: BehaviorC
-  [(Maybe On_MailC) (Maybe On_StopC) (List Code)])
+  [(Maybe On_MailC) (List Code)])
 
 (def: argument
   (Parser Text)
@@ -237,12 +226,9 @@
 
 (def: behavior^
   (Parser BehaviorC)
-  (let [on_mail_args ($_ <>.and ..argument ..argument ..argument)
-        on_stop_args ($_ <>.and ..argument ..argument)]
+  (let [on_mail_args ($_ <>.and ..argument ..argument ..argument)]
     ($_ <>.and
         (<>.maybe (<c>.form (<>.and (<c>.form (<>.after (<c>.this! (' on_mail)) on_mail_args))
-                                    <c>.any)))
-        (<>.maybe (<c>.form (<>.and (<c>.form (<>.after (<c>.this! (' on_stop)) on_stop_args))
                                     <c>.any)))
         (<>.some <c>.any))))
 
@@ -257,18 +243,6 @@
                   (~ (code.local_identifier mailN))
                   (~ (code.local_identifier stateN))
                   (~ (code.local_identifier selfN)))
-         (~ bodyC)))))
-
-(def: (on_stop g!_ ?on_stop)
-  (-> Code (Maybe On_StopC) Code)
-  (case ?on_stop
-    #.None
-    (` (~! ..default_on_stop))
-
-    (#.Some [[causeN stateN] bodyC])
-    (` (function ((~ g!_)
-                  (~ (code.local_identifier causeN))
-                  (~ (code.local_identifier stateN)))
          (~ bodyC)))))
 
 (with_expansions [<examples> (as_is (actor: #export (Stack a)
@@ -288,12 +262,6 @@
                                     (actor: #export Counter
                                       Nat
 
-                                      ((on_stop cause state)
-                                       (\ promise.monad wrap
-                                          (log! (if (exception.match? ..poisoned cause)
-                                                  (format "Counter was poisoned: " (%.nat state))
-                                                  cause))))
-
                                       (message: #export (count! {increment Nat} state self Any)
                                         (let [state' (n.+ increment state)]
                                           (promise.resolved (#try.Success [state' state']))))
@@ -305,9 +273,9 @@
                      {[name vars] actor_decl^}
                      {annotations (<>.default |annotations|.empty |annotations|.parser)}
                      state_type
-                     {[?on_mail ?on_stop messages] behavior^})
+                     {[?on_mail messages] behavior^})
     {#.doc (doc "Defines an actor, with its behavior and internal state."
-                "Messages for the actor must be defined after the on_mail and on_stop handlers."
+                "Messages for the actor must be defined after the on_mail handler."
                 <examples>)}
     (with_gensyms [g!_]
       (do meta.monad
@@ -321,19 +289,17 @@
                           (All [(~+ g!vars)]
                             (..Behavior (~ state_type) ((~ g!type) (~+ g!vars))))
                           {#..on_init (|>> ((~! abstract.:abstraction) (~ g!type)))
-                           #..on_mail (~ (..on_mail g!_ ?on_mail))
-                           #..on_stop (~ (..on_stop g!_ ?on_stop))})
+                           #..on_mail (~ (..on_mail g!_ ?on_mail))})
 
                         (~+ messages))))))))
 
   (syntax: #export (actor {[state_type init] (<c>.record (<>.and <c>.any <c>.any))}
-                          {[?on_mail ?on_stop messages] behavior^})
+                          {[?on_mail messages] behavior^})
     (with_gensyms [g!_]
       (wrap (list (` (: ((~! io.IO) (..Actor (~ state_type)))
                         (..spawn! (: (..Behavior (~ state_type) (~ state_type))
                                      {#..on_init (|>>)
-                                      #..on_mail (~ (..on_mail g!_ ?on_mail))
-                                      #..on_stop (~ (..on_stop g!_ ?on_stop))})
+                                      #..on_mail (~ (..on_mail g!_ ?on_mail))})
                                   (: (~ state_type)
                                      (~ init)))))))))
 

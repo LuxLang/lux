@@ -11,9 +11,10 @@
    [target
     ["_" python (#+ SVar Expression Statement)]]]
   ["." // #_
-   [runtime (#+ Operation Phase Generator)]
+   [runtime (#+ Operation Phase Generator Phase! Generator!)]
    ["#." reference]
    ["#." case]
+   ["#." loop]
    ["/#" // #_
     ["#." reference]
     ["//#" /// #_
@@ -26,11 +27,11 @@
       [reference
        [variable (#+ Register Variable)]]]]]])
 
-(def: #export (apply generate archive [functionS argsS+])
+(def: #export (apply expression archive [functionS argsS+])
   (Generator (Application Synthesis))
   (do {! ///////phase.monad}
-    [functionO (generate archive functionS)
-     argsO+ (monad.map ! (generate archive) argsS+)]
+    [functionO (expression archive functionS)
+     argsO+ (monad.map ! (expression archive) argsS+)]
     (wrap (_.apply/* functionO argsO+))))
 
 (def: #export capture
@@ -62,16 +63,18 @@
 (def: input
   (|>> inc //case.register))
 
-(def: #export (function generate archive [environment arity bodyS])
-  (Generator (Abstraction Synthesis))
+(def: #export (function statement expression archive [environment arity bodyS])
+  (-> Phase! (Generator (Abstraction Synthesis)))
   (do {! ///////phase.monad}
-    [[function_name bodyO] (/////generation.with_new_context archive
+    [@expected_exception (//case.gensym "expected_exception")
+     @actual_exception (//case.gensym "actual_exception")
+     [function_name body!] (/////generation.with_new_context archive
                              (do !
                                [function_name (\ ! map ///reference.artifact
                                                  (/////generation.context archive))]
-                               (/////generation.with_anchor (_.var function_name)
-                                 (generate archive bodyS))))
-     environment (monad.map ! (generate archive) environment)
+                               (/////generation.with_anchor [1 @expected_exception]
+                                 (statement expression archive bodyS))))
+     environment (monad.map ! (expression archive) environment)
      #let [function_name (///reference.artifact function_name)
            @curried (_.var "curried")
            arityO (|> arity .int _.int)
@@ -91,9 +94,9 @@
              ($_ _.then
                  (_.set (list @num_args) (_.len/1 @curried))
                  (_.cond (list [(|> @num_args (_.= arityO))
-                                ($_ _.then
-                                    initialize!
-                                    (_.return bodyO))]
+                                (<| (_.then initialize!)
+                                    (//loop.set_scope @expected_exception @actual_exception)
+                                    body!)]
                                [(|> @num_args (_.> arityO))
                                 (let [arity_inputs (_.slice (_.int +0) arityO @curried)
                                       extra_inputs (_.slice arityO @num_args @curried)]

@@ -94,7 +94,8 @@ cd ~/lux/lux-js/ \
 cd ~/lux/lux-js/ \
 && lein clean \
 && cd ~/lux/lux-js/ \
-&& time node --stack_size=8192 program.js build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program
+&& time node --stack_size=8192 _program.js build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program \
+&& mv target/program.js program.js
 ```
 
 ## Try
@@ -103,7 +104,11 @@ cd ~/lux/lux-js/ \
 cd ~/lux/stdlib/ && lein clean && cd ~/lux/lux-js/ && time java -jar program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
 cd ~/lux/stdlib/target/ && node program.js
 
-cd ~/lux/stdlib/ && lein clean && cd ~/lux/lux-js/ && time node --stack_size=8192 program.js build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
+## Compile Lux's Standard Library's tests using a JS/Node-based compiler.
+cd ~/lux/stdlib/ \
+&& lein clean \
+&& cd ~/lux/lux-js/ \
+&& time node --stack_size=8192 program.js build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
 ```
 
 ---

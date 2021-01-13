@@ -1,0 +1,110 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   ["." meta]
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["." try]
+    ["." exception]]
+   [data
+    ["." text ("#\." equivalence)]]
+   ["." macro
+    [syntax (#+ syntax:)]
+    ["." code]
+    ["." template]]
+   ["." math
+    ["." random]
+    [number
+     ["n" nat]]]]
+  {1
+   ["." /]})
+
+(template.with_locals [g!Foo g!Bar]
+  (as_is (template [<syntax> <meta>]
+           [(syntax: (<syntax>)
+              (do meta.monad
+                [frame <meta>]
+                (wrap (list (code.text (get@ #/.name frame))))))]
+
+           [current /.current]
+           [specific (/.specific (template.text [g!Foo]))]
+           )
+
+         (syntax: (with_no_active_frames macro)
+           (function (_ compiler)
+             (let [verdict (case ((macro.expand macro) compiler)
+                             (#try.Failure error)
+                             (exception.match? /.no_active_frames error)
+                             
+                             (#try.Success _)
+                             false)]
+               (#try.Success [compiler (list (code.bit verdict))]))))
+
+         (with_expansions [no_current! (..with_no_active_frames (..current))
+                           no_specific! (..with_no_active_frames (..specific))]
+           (/.abstract: (g!Foo a)
+             Text
+
+             (/.abstract: (g!Bar a)
+               Nat
+
+               (def: #export test
+                 Test
+                 (<| (_.covering /._)
+                     (_.for [/.abstract:])
+                     (do random.monad
+                       [expected_foo (random.ascii/lower 5)
+                        expected_bar random.nat]
+                       ($_ _.and
+                           (_.cover [/.:abstraction]
+                                    (and (exec (: (g!Foo Text)
+                                                  (/.:abstraction g!Foo expected_foo))
+                                           true)
+                                         (exec (: (g!Bar Text)
+                                                  (/.:abstraction expected_bar))
+                                           true)))
+                           (_.cover [/.:representation]
+                                    (and (|> expected_foo
+                                             (/.:abstraction g!Foo)
+                                             (: (g!Foo Bit))
+                                             (/.:representation g!Foo)
+                                             (text\= expected_foo))
+                                         (|> (/.:abstraction expected_bar)
+                                             (: (g!Bar Bit))
+                                             /.:representation
+                                             (n.= expected_bar))))
+                           (_.cover [/.:transmutation]
+                                    (and (exec (|> expected_foo
+                                                   (/.:abstraction g!Foo)
+                                                   (: (g!Foo .Macro))
+                                                   (/.:transmutation g!Foo)
+                                                   (: (g!Foo .Lux)))
+                                           true)
+                                         (exec (|> (/.:abstraction expected_bar)
+                                                   (: (g!Bar .Macro))
+                                                   /.:transmutation
+                                                   (: (g!Bar .Lux)))
+                                           true)))
+                           (_.cover [/.^:representation]
+                                    (and (let [(/.^:representation g!Foo actual_foo)
+                                               (: (g!Foo .Module)
+                                                  (/.:abstraction g!Foo expected_foo))]
+                                           (text\= expected_foo actual_foo))
+                                         (let [(/.^:representation actual_bar)
+                                               (: (g!Bar .Module)
+                                                  (/.:abstraction expected_bar))]
+                                           (n.= expected_bar actual_bar))))
+                           (_.for [/.Frame]
+                                  ($_ _.and
+                                      (_.cover [/.current]
+                                               (text\= (template.text [g!Bar])
+                                                       (..current)))
+                                      (_.cover [/.specific]
+                                               (text\= (template.text [g!Foo])
+                                                       (..specific)))
+                                      (_.cover [/.no_active_frames]
+                                               (and no_current!
+                                                    no_specific!))
+                                      ))
+                           )))))))))

@@ -7,7 +7,7 @@
    [control
     ["." exception (#+ exception:)]
     ["<>" parser ("#\." monad)
-     ["<c>" code (#+ Parser)]]]
+     ["<.>" code (#+ Parser)]]]
    [data
     ["." name ("#\." codec)]
     ["." text ("#\." equivalence monoid)]
@@ -170,8 +170,8 @@
 
 (def: cast
   (Parser [(Maybe Text) Code])
-  (<>.either (<>.and (<>.maybe <c>.local_identifier) <c>.any)
-             (<>.and (<>\wrap #.None) <c>.any)))
+  (<>.either (<>.and (<>.maybe <code>.local_identifier) <code>.any)
+             (<>.and (<>\wrap #.None) <code>.any)))
 
 (template [<name> <from> <to>]
   [(syntax: #export (<name> {[frame value] ..cast})
@@ -194,13 +194,13 @@
 (def: representation_definition_name
   (-> Text Text)
   (|>> ($_ text\compose
-           (name\encode (name_of #Representation))
+           (name\encode (name_of #..Representation))
            " ")))
 
 (def: declaration
   (Parser [Text (List Text)])
-  (<>.either (<c>.form (<>.and <c>.local_identifier (<>.some <c>.local_identifier)))
-             (<>.and <c>.local_identifier (\ <>.monad wrap (list)))))
+  (<>.either (<code>.form (<>.and <code>.local_identifier (<>.some <code>.local_identifier)))
+             (<>.and <code>.local_identifier (\ <>.monad wrap (list)))))
 
 ## TODO: Make sure the generated code always gets optimized away.
 ## (This applies to uses of ":abstraction" and ":representation")
@@ -209,7 +209,7 @@
                    {[name type_vars] declaration}
                    representation_type
                    {annotations (<>.default |annotations|.empty |annotations|.parser)}
-                   {primitives (<>.some <c>.any)})
+                   {primitives (<>.some <code>.any)})
   (do meta.monad
     [current_module meta.current_module_name
      #let [type_varsC (list\map code.local_identifier type_vars)
@@ -230,14 +230,39 @@
                      primitives
                      (list (` ((~! ..pop!)))))))))
 
-(syntax: #export (:transmutation value)
-  (wrap (list (` (..:abstraction (..:representation (~ value)))))))
+(type: (Selection a)
+  (#Specific Code a)
+  (#Current a))
 
-(syntax: #export (^:representation {name (<c>.form <c>.local_identifier)}
+(def: (selection parser)
+  (All [a] (-> (Parser a) (Parser (Selection a))))
+  (<>.or (<>.and <code>.any parser)
+         parser))
+
+(syntax: #export (:transmutation {selection (..selection <code>.any)})
+  (case selection
+    (#Specific specific value)
+    (wrap (list (` (..:abstraction (~ specific)
+                                   (..:representation (~ specific)
+                                                      (~ value))))))
+    
+    (#Current value)
+    (wrap (list (` (..:abstraction (..:representation (~ value))))))))
+
+(syntax: #export (^:representation {selection (<code>.form (..selection <code>.local_identifier))}
                                    body
-                                   {branches (<>.some <c>.any)})
-  (let [g!var (code.local_identifier name)]
-    (wrap (list& g!var
-                 (` (.let [(~ g!var) (..:representation (~ g!var))]
-                      (~ body)))
-                 branches))))
+                                   {branches (<>.some <code>.any)})
+  (case selection
+    (#Specific specific name)
+    (let [g!var (code.local_identifier name)]
+      (wrap (list& g!var
+                   (` (.let [(~ g!var) (..:representation (~ specific) (~ g!var))]
+                        (~ body)))
+                   branches)))
+    
+    (#Current name)
+    (let [g!var (code.local_identifier name)]
+      (wrap (list& g!var
+                   (` (.let [(~ g!var) (..:representation (~ g!var))]
+                        (~ body)))
+                   branches)))))

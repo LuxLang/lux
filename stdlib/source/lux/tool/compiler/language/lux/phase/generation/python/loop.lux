@@ -7,15 +7,15 @@
     [text
      ["%" format (#+ format)]]
     [collection
-     ["." list ("#\." functor)]
+     ["." list ("#\." functor fold)]
      ["." set]]]
    [math
     [number
      ["n" nat]]]
    [target
-    ["_" python (#+ Expression SVar)]]]
+    ["_" python (#+ Expression SVar Statement)]]]
   ["." // #_
-   [runtime (#+ Operation Phase Generator)]
+   [runtime (#+ Operation Phase Generator Phase! Generator!)]
    ["#." case]
    ["//#" /// #_
     [synthesis
@@ -26,44 +26,89 @@
      ["//#" /// #_
       ["#." phase]
       [reference
-       ["#." variable]]]]]])
+       ["#." variable (#+ Register)]]]]]])
 
 (def: loop_name
   (-> Nat SVar)
   (|>> %.nat (format "loop") _.var))
 
-(def: #export (scope generate archive [start initsS+ bodyS])
-  (Generator (Scope Synthesis))
+(def: (setup offset bindings body)
+  (-> Register (List (Expression Any)) (Statement Any) (Statement Any))
+  (|> bindings
+      list.enumeration
+      (list\map (function (_ [register value])
+                  (_.set (list (//case.register (n.+ offset register)))
+                         value)))
+      list.reverse
+      (list\fold _.then body)))
+
+(def: #export (set_scope @expected_exception @actual_exception body!)
+  (-> SVar SVar (Statement Any) (Statement Any))
+  (let [exception_class (_.var "Exception")]
+    ($_ _.then
+        (_.set (list @expected_exception) (_.apply/* exception_class (list (_.string ""))))
+        (_.while (_.bool true)
+                 (_.try body!
+                        (list {#_.classes (list exception_class)
+                               #_.exception @actual_exception
+                               #_.handler (_.if (_.is @expected_exception @actual_exception)
+                                            _.continue
+                                            (_.raise @actual_exception))}))))))
+
+(def: #export (scope! statement expression archive [start initsS+ bodyS])
+  (Generator! (Scope Synthesis))
   (case initsS+
     ## function/false/non-independent loop
     #.Nil
-    (generate archive bodyS)
+    (statement expression archive bodyS)
+
+    ## true loop
+    _
+    (do {! ///////phase.monad}
+      [initsO+ (monad.map ! (expression archive) initsS+)
+       @expected_exception (//case.gensym "expected_exception")
+       @actual_exception (//case.gensym "actual_exception")
+       body! (/////generation.with_anchor [start @expected_exception]
+               (statement expression archive bodyS))]
+      (wrap (<| (..setup start initsO+)
+                (set_scope @expected_exception @actual_exception)
+                body!)))))
+
+(def: #export (scope statement expression archive [start initsS+ bodyS])
+  (-> Phase! (Generator (Scope Synthesis)))
+  (case initsS+
+    ## function/false/non-independent loop
+    #.Nil
+    (expression archive bodyS)
 
     ## true loop
     _
     (do {! ///////phase.monad}
       [@loop (\ ! map ..loop_name /////generation.next)
-       initsO+ (monad.map ! (generate archive) initsS+)
-       bodyO (/////generation.with_anchor @loop
-               (generate archive bodyS))
+       @expected_exception (//case.gensym "expected_exception")
+       @actual_exception (//case.gensym "actual_exception")
+       initsO+ (monad.map ! (expression archive) initsS+)
+       body! (/////generation.with_anchor [start @expected_exception]
+               (statement expression archive bodyS))
        #let [locals (|> initsS+
                         list.enumeration
                         (list\map (|>> product.left (n.+ start) //case.register)))
+             actual_loop (<| (_.def @loop locals)
+                             (set_scope @expected_exception @actual_exception)
+                             body!)
              [directive instantiation] (case (|> (synthesis.path/then bodyS)
                                                  //case.dependencies
                                                  (set.from_list _.hash)
                                                  (set.difference (set.from_list _.hash locals))
                                                  set.to_list)
                                          #.Nil
-                                         [(_.def @loop locals
-                                                 (_.return bodyO))
+                                         [actual_loop
                                           (_.apply/* @loop initsO+)]
 
                                          foreigns
                                          [(_.def @loop foreigns
                                                  ($_ _.then
-                                                     (_.def @loop locals
-                                                            (_.return bodyO))
+                                                     actual_loop
                                                      (_.return @loop)
                                                      ))
                                           (_.apply/* (_.apply/* @loop
@@ -73,9 +118,17 @@
        _ (/////generation.save! (_.code @loop) directive)]
       (wrap instantiation))))
 
-(def: #export (recur generate archive argsS+)
-  (Generator (List Synthesis))
+(def: #export (recur! statement expression archive argsS+)
+  (Generator! (List Synthesis))
   (do {! ///////phase.monad}
-    [@scope /////generation.anchor
-     argsO+ (monad.map ! (generate archive) argsS+)]
-    (wrap (_.apply/* @scope argsO+))))
+    [[offset @exception] /////generation.anchor
+     @temp (//case.gensym "lux_recur_values")
+     argsO+ (monad.map ! (expression archive) argsS+)
+     #let [re_binds (|> argsO+
+                        list.enumeration
+                        (list\map (function (_ [idx _])
+                                    (_.nth (_.int (.int idx)) @temp))))]]
+    (wrap ($_ _.then
+              (_.set (list @temp) (_.list argsO+))
+              (..setup offset re_binds
+                       (_.raise @exception))))))
