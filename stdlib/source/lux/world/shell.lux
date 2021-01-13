@@ -12,8 +12,8 @@
      ["!" capability (#+ capability:)]
      ["?" policy (#+ Context Safety Safe)]]
     [concurrency
-     ["." stm (#+ Var STM)]
-     ["." promise (#+ Promise) ("#\." monad)]]
+     ["." atom (#+ Atom)]
+     ["." promise (#+ Promise)]]
     [parser
      [environment (#+ Environment)]]]
    [data
@@ -350,23 +350,22 @@
      on_await))
 
 (`` (structure: (mock_process simulation state)
-      (All [s] (-> (Simulation s) (Var s) (Process Promise)))
+      (All [s] (-> (Simulation s) (Atom s) (Process IO)))
 
       (~~ (template [<name> <capability> <simulation>]
             [(def: <name>
                (<capability>
                 (function (_ _)
-                  (stm.commit
-                   (do {! stm.monad}
-                     [|state| (stm.read state)]
-                     (case (\ simulation <simulation> |state|)
-                       (#try.Success [|state| output])
-                       (do !
-                         [_ (stm.write |state| state)]
-                         (wrap (#try.Success output)))
-                       
-                       (#try.Failure error)
-                       (wrap (#try.Failure error))))))))]
+                  (do {! io.monad}
+                    [|state| (atom.read state)]
+                    (case (\ simulation <simulation> |state|)
+                      (#try.Success [|state| output])
+                      (do !
+                        [_ (atom.write |state| state)]
+                        (wrap (#try.Success output)))
+                      
+                      (#try.Failure error)
+                      (wrap (#try.Failure error)))))))]
 
             [read ..can_read on_read]
             [error ..can_read on_error]
@@ -375,43 +374,40 @@
       (def: write
         (..can_write
          (function (_ message)
-           (stm.commit
-            (do {! stm.monad}
-              [|state| (stm.read state)]
-              (case (\ simulation on_write message |state|)
-                (#try.Success |state|)
-                (do !
-                  [_ (stm.write |state| state)]
-                  (wrap (#try.Success [])))
-                
-                (#try.Failure error)
-                (wrap (#try.Failure error))))))))
+           (do {! io.monad}
+             [|state| (atom.read state)]
+             (case (\ simulation on_write message |state|)
+               (#try.Success |state|)
+               (do !
+                 [_ (atom.write |state| state)]
+                 (wrap (#try.Success [])))
+               
+               (#try.Failure error)
+               (wrap (#try.Failure error)))))))
       (def: destroy
         (..can_destroy
          (function (_ _)
-           (stm.commit
-            (do {! stm.monad}
-              [|state| (stm.read state)]
-              (case (\ simulation on_destroy |state|)
-                (#try.Success |state|)
-                (do !
-                  [_ (stm.write |state| state)]
-                  (wrap (#try.Success [])))
-                
-                (#try.Failure error)
-                (wrap (#try.Failure error))))))))))
+           (do {! io.monad}
+             [|state| (atom.read state)]
+             (case (\ simulation on_destroy |state|)
+               (#try.Success |state|)
+               (do !
+                 [_ (atom.write |state| state)]
+                 (wrap (#try.Success [])))
+               
+               (#try.Failure error)
+               (wrap (#try.Failure error)))))))))
 
 (structure: #export (mock simulation init)
   (All [s]
     (-> (-> [Environment Path Command (List Argument)]
             (Try (Simulation s)))
         s
-        (Shell Promise)))
+        (Shell IO)))
 
   (def: execute
     (..can_execute
      (function (_ input)
-       (promise\wrap
-        (do try.monad
-          [simulation (simulation input)]
-          (wrap (..mock_process simulation (stm.var init)))))))))
+       (io.io (do try.monad
+                [simulation (simulation input)]
+                (wrap (..mock_process simulation (atom.atom init)))))))))

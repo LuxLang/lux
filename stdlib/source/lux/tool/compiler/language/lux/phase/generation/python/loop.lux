@@ -7,7 +7,8 @@
     [text
      ["%" format (#+ format)]]
     [collection
-     ["." list ("#\." functor)]]]
+     ["." list ("#\." functor)]
+     ["." set]]]
    [math
     [number
      ["n" nat]]]
@@ -16,11 +17,16 @@
   ["." // #_
    [runtime (#+ Operation Phase Generator)]
    ["#." case]
-   ["///#" //// #_
-    [synthesis (#+ Scope Synthesis)]
-    ["#." generation]
-    ["//#" /// #_
-     ["#." phase]]]])
+   ["//#" /// #_
+    [synthesis
+     ["." case]]
+    ["/#" // #_
+     ["." synthesis (#+ Scope Synthesis)]
+     ["#." generation]
+     ["//#" /// #_
+      ["#." phase]
+      [reference
+       ["#." variable]]]]]])
 
 (def: loop_name
   (-> Nat SVar)
@@ -28,18 +34,44 @@
 
 (def: #export (scope generate archive [start initsS+ bodyS])
   (Generator (Scope Synthesis))
-  (do {! ///////phase.monad}
-    [@loop (\ ! map ..loop_name /////generation.next)
-     initsO+ (monad.map ! (generate archive) initsS+)
-     bodyO (/////generation.with_anchor @loop
-             (generate archive bodyS))
-     #let [directive (_.def @loop (|> initsS+
-                                      list.enumeration
-                                      (list\map (|>> product.left (n.+ start) //case.register)))
-                            (_.return bodyO))]
-     _ (/////generation.execute! directive)
-     _ (/////generation.save! (_.code @loop) directive)]
-    (wrap (_.apply/* @loop initsO+))))
+  (case initsS+
+    ## function/false/non-independent loop
+    #.Nil
+    (generate archive bodyS)
+
+    ## true loop
+    _
+    (do {! ///////phase.monad}
+      [@loop (\ ! map ..loop_name /////generation.next)
+       initsO+ (monad.map ! (generate archive) initsS+)
+       bodyO (/////generation.with_anchor @loop
+               (generate archive bodyS))
+       #let [locals (|> initsS+
+                        list.enumeration
+                        (list\map (|>> product.left (n.+ start) //case.register)))
+             [directive instantiation] (case (|> (synthesis.path/then bodyS)
+                                                 //case.dependencies
+                                                 (set.from_list _.hash)
+                                                 (set.difference (set.from_list _.hash locals))
+                                                 set.to_list)
+                                         #.Nil
+                                         [(_.def @loop locals
+                                                 (_.return bodyO))
+                                          (_.apply/* @loop initsO+)]
+
+                                         foreigns
+                                         [(_.def @loop foreigns
+                                                 ($_ _.then
+                                                     (_.def @loop locals
+                                                            (_.return bodyO))
+                                                     (_.return @loop)
+                                                     ))
+                                          (_.apply/* (_.apply/* @loop
+                                                                foreigns)
+                                                     initsO+)])]
+       _ (/////generation.execute! directive)
+       _ (/////generation.save! (_.code @loop) directive)]
+      (wrap instantiation))))
 
 (def: #export (recur generate archive argsS+)
   (Generator (List Synthesis))

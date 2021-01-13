@@ -135,7 +135,7 @@ cd ~/lux/lux-python/ \
 cd ~/lux/lux-python/ \
 && lein clean \
 && time java -jar program.jar build --source ~/lux/lux-python/source --target ~/lux/lux-python/target --module program \
-&& mv target/program.js program.js
+&& mv target/program.py program.py
 ```
 
 ## Try

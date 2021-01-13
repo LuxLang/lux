@@ -6,7 +6,14 @@
    [control
     ["." io]
     ["." try (#+ Try)]
-    ["." exception (#+ exception:)]]]
+    ["." exception (#+ exception:)]
+    [security
+     ["!" capability]]]
+   [data
+    ["." text ("#\." equivalence)
+     ["%" format (#+ format)]]]
+   [math
+    ["." random]]]
   {1
    ["." /]}
   {[1 #spec]
@@ -15,30 +22,50 @@
 (exception: dead)
 
 (def: simulation
-  (/.Simulation Bit)
+  (/.Simulation [Bit Text])
   (structure
-   (def: (on_read dead?)
-     (if dead?
-       (exception.throw ..dead [])
-       (#try.Success [dead? (char "a")])))
+   (def: (on_read [dead? content])
+     (do try.monad
+       [char (try.from_maybe (text.nth 0 content))
+        [_ content] (try.from_maybe (text.split 1 content))]
+       (if dead?
+         (exception.throw ..dead [])
+         (wrap [[dead? content] char]))))
 
-   (def: (on_read_line dead?)
-     (if dead?
-       (exception.throw ..dead [])
-       (#try.Success [dead? "YOLO"])))
+   (def: (on_read_line [dead? content])
+     (do try.monad
+       [[line content] (try.from_maybe (text.split_with text.new_line content))]
+       (if dead?
+         (exception.throw ..dead [])
+         (wrap [[dead? content] line]))))
 
-   (def: (on_write message dead?)
+   (def: (on_write message [dead? content])
      (if dead?
        (exception.throw ..dead [])
-       (#try.Success dead?)))
+       (#try.Success [dead? (format content message)])))
 
-   (def: (on_close dead?)
+   (def: (on_close [dead? content])
      (if dead?
        (exception.throw ..dead [])
-       (#try.Success true)))))
+       (#try.Success [true content])))))
 
 (def: #export test
   Test
   (<| (_.covering /._)
-      (_.for [/.mock /.Simulation]
-             ($/.spec (io.io (/.mock ..simulation false))))))
+      ($_ _.and
+          (_.for [/.async /.mock /.Simulation]
+                 ($/.spec (io.io (/.async (/.mock ..simulation [false ""])))))
+          (do random.monad
+            [expected (random.ascii/alpha 10)
+             #let [console (/.mock ..simulation [false ""])]]
+            (_.cover [/.write_line]
+                     (io.run
+                      (do io.monad
+                        [?_ (/.write_line expected console)
+                         ?actual (!.use (\ console read_line) [])]
+                        (wrap (<| (try.default false)
+                                  (do try.monad
+                                    [_ ?_
+                                     actual ?actual]
+                                    (wrap (text\= expected actual)))))))))
+          )))
