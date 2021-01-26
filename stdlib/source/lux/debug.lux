@@ -1,5 +1,5 @@
 (.module:
-  [lux #*
+  [lux (#- type)
    ["@" target]
    ["." type]
    ["." host (#+ import:)]
@@ -58,17 +58,21 @@
                                   (intValue [] int)
                                   (longValue [] long)
                                   (doubleValue [] double)]))]
-  (for {@.old
-        (as_is <jvm>)
-
-        @.jvm
-        (as_is <jvm>)
+  (for {@.old (as_is <jvm>)
+        @.jvm (as_is <jvm>)
 
         @.js
         (as_is (import: JSON
                  (#static stringify [.Any] host.String))
                (import: Array
-                 (#static isArray [.Any] host.Boolean)))}))
+                 (#static isArray [.Any] host.Boolean)))
+
+        @.python
+        (as_is (type: PyType
+                 (primitive "python_type"))
+               
+               (import: (type [.Any] PyType))
+               (import: (str [.Any] host.String)))}))
 
 (def: Inspector (-> Any Text))
 
@@ -117,11 +121,8 @@
                                           (inspect_tuple inspect value)))
                                       #.None)
                                     (java/lang/Object::toString object))))]
-    (for {@.old
-          <jvm>
-
-          @.jvm
-          <jvm>
+    (for {@.old <jvm>
+          @.jvm <jvm>
 
           @.js
           (case (host.type_of value)
@@ -156,7 +157,39 @@
                     (JSON::stringify value)))
 
             _
-            (undefined))
+            (JSON::stringify value))
+
+          @.python
+          (case (..str (..type value))
+            (^template [<type_of> <then>]
+              [<type_of>
+               (`` (|> value (~~ (template.splice <then>))))])
+            (["<type 'bool'>" [(:coerce .Bit) %.bit]]
+             ["<type 'int'>" [(:coerce .Int) %.int]]
+             ["<type 'float'>" [(:coerce .Frac) %.frac]]
+             ["<type 'str'>" [(:coerce .Text) %.text]]
+             ["<type 'unicode'>" [(:coerce .Text) %.text]])
+
+            "<type 'list'>"
+            (inspect_tuple inspect value)
+
+            "<type 'tuple'>"
+            (let [variant (:coerce (array.Array Any) value)]
+              (case (array.size variant)
+                3 (let [variant_tag ("python array read" 0 variant)
+                        variant_flag ("python array read" 1 variant)
+                        variant_value ("python array read" 2 variant)]
+                    (if (or ("python object none?" variant_tag)
+                            ("python object none?" variant_value))
+                      (..str value)
+                      (|> (format (|> variant_tag (:coerce .Int) %.int)
+                                  " " (|> variant_flag "python object none?" not %.bit)
+                                  " " (inspect variant_value))
+                          (text.enclose ["(" ")"]))))
+                _ (..str value)))
+
+            _
+            (..str value))
           })))
 
 (exception: #export (cannot_represent_value {type Type})

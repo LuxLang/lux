@@ -1,7 +1,7 @@
 (.module:
   [lux #*
    [program (#+ program:)]
-   ["." host (#+ import: interface: do_to object)]
+   ["." host (#+ import:)]
    [abstract
     [monad (#+ do)]]
    [control
@@ -44,6 +44,8 @@
        [phase
         ["." extension (#+ Extender Handler)
          ["#/." bundle]
+         ["." analysis #_
+          ["#" python]]
          ["." generation #_
           ["#" python]]]
         [generation
@@ -60,219 +62,269 @@
     ["/." cli]
     ["/." static]]])
 
-(import: java/lang/String)
+(for {@.old
+      (as_is (import: java/lang/String)
 
-(import: (java/lang/Class a))
+             (import: (java/lang/Class a))
 
-(import: java/lang/Object
-  ["#::."
-   (new [])
-   (toString [] java/lang/String)
-   (getClass [] (java/lang/Class java/lang/Object))])
+             (import: java/lang/Object
+               ["#::."
+                (new [])
+                (toString [] java/lang/String)
+                (getClass [] (java/lang/Class java/lang/Object))])
 
-(import: org/python/core/PyNone)
-(import: org/python/core/PyBoolean)
-(import: org/python/core/PyInteger)
-(import: org/python/core/PyLong)
-(import: org/python/core/PyFloat)
-(import: org/python/core/PyTuple)
-(import: org/python/core/PyList)
+             (import: org/python/core/PyNone)
+             (import: org/python/core/PyBoolean)
+             (import: org/python/core/PyInteger)
+             (import: org/python/core/PyLong)
+             (import: org/python/core/PyFloat)
+             (import: org/python/core/PyTuple)
+             (import: org/python/core/PyList)
 
-(import: org/python/core/PyString
-  ["#::."
-   (new [java/lang/String])])
+             (import: org/python/core/PyString
+               ["#::."
+                (new [java/lang/String])])
 
-(import: org/python/core/PyObject
-  ["#::."
-   (asInt [] java/lang/Integer)
-   (asLong [] long)
-   (asDouble [] double)
-   (asString [] java/lang/String)
-   (__nonzero__ [] boolean)
-   (__getitem__ [int] #try org/python/core/PyObject)
-   (__getitem__ #as __getitem__dict [org/python/core/PyObject] #try org/python/core/PyObject)
-   (__len__ [] int)])
+             (import: org/python/core/PyObject
+               ["#::."
+                (asInt [] java/lang/Integer)
+                (asLong [] long)
+                (asDouble [] double)
+                (asString [] java/lang/String)
+                (__nonzero__ [] boolean)
+                (__getitem__ [int] #try org/python/core/PyObject)
+                (__getitem__ #as __getitem__dict [org/python/core/PyObject] #try org/python/core/PyObject)
+                (__len__ [] int)])
 
-(import: org/python/core/PyFunction
-  ["#::."
-   (__call__ [[org/python/core/PyObject]] #try org/python/core/PyObject)])
+             (import: org/python/core/PyFunction
+               ["#::."
+                (__call__ [[org/python/core/PyObject]] #try org/python/core/PyObject)])
 
-(import: org/python/core/PyArray
-  ["#::."
-   (new [(java/lang/Class java/lang/Object) java/lang/Object])
-   (getArray [] java/lang/Object)])
+             (import: org/python/core/PyArray
+               ["#::."
+                (new [(java/lang/Class java/lang/Object) java/lang/Object])
+                (getArray [] java/lang/Object)])
 
-(import: org/python/util/PythonInterpreter
-  ["#::."
-   (new [])
-   (exec [java/lang/String] #try void)
-   (eval [java/lang/String] #try PyObject)])
+             (import: org/python/util/PythonInterpreter
+               ["#::."
+                (new [])
+                (exec [java/lang/String] #try void)
+                (eval [java/lang/String] #try PyObject)])
 
-(type: Translator
-  (-> org/python/core/PyObject (Try Any)))
+             (type: Translator
+               (-> org/python/core/PyObject (Try Any)))
 
-(def: (read_tuple read host_object)
-  (-> Translator Translator)
-  (let [size (|> host_object org/python/core/PyObject::__len__ .nat)]
-    (loop [idx 0
-           output (:coerce (Array Any) (array.new size))]
-      (if (n.< size idx)
-        (case (org/python/core/PyObject::__getitem__ (.int idx) host_object)
-          (#try.Failure try)
-          (#try.Failure try)
-          
-          (#try.Success value)
-          (case (read value)
-            (#try.Failure try)
-            (#try.Failure try)
+             (def: (read_tuple read host_object)
+               (-> Translator Translator)
+               (let [size (|> host_object org/python/core/PyObject::__len__ .nat)]
+                 (loop [idx 0
+                        output (:coerce (Array Any) (array.new size))]
+                   (if (n.< size idx)
+                     (case (org/python/core/PyObject::__getitem__ (.int idx) host_object)
+                       (#try.Failure try)
+                       (#try.Failure try)
+                       
+                       (#try.Success value)
+                       (case (read value)
+                         (#try.Failure try)
+                         (#try.Failure try)
 
-            (#try.Success lux_value)
-            (recur (inc idx) (array.write! idx lux_value output))))
-        (#try.Success output)))))
+                         (#try.Success lux_value)
+                         (recur (inc idx) (array.write! idx lux_value output))))
+                     (#try.Success output)))))
 
-(exception: (unknown_kind_of_object {object java/lang/Object})
-  (exception.report
-   ["Object" (java/lang/Object::toString object)]))
+             (exception: (unknown_kind_of_object {object java/lang/Object})
+               (exception.report
+                ["Object" (java/lang/Object::toString object)]))
 
-(def: (read_variant read host_object)
-  (-> Translator Translator)
-  (case [(org/python/core/PyObject::__getitem__ +0 host_object)
-         (org/python/core/PyObject::__getitem__ +1 host_object)
-         (org/python/core/PyObject::__getitem__ +2 host_object)]
-    (^or [(#try.Failure try) _ _] [_ (#try.Failure try) _] [_ _ (#try.Failure try)])
-    (#try.Failure try)
-    
-    (^multi [(#try.Success tag) (#try.Success flag) (#try.Success value)]
-            [(read tag)
-             (#try.Success tag)]
-            [(read value)
-             (#try.Success value)])
-    (#try.Success [tag
-                   (: Any
-                      (case (host.check org/python/core/PyNone flag)
-                        (#.Some _)
-                        (host.null)
+             (def: (read_variant read host_object)
+               (-> Translator Translator)
+               (case [(org/python/core/PyObject::__getitem__ +0 host_object)
+                      (org/python/core/PyObject::__getitem__ +1 host_object)
+                      (org/python/core/PyObject::__getitem__ +2 host_object)]
+                 (^or [(#try.Failure try) _ _] [_ (#try.Failure try) _] [_ _ (#try.Failure try)])
+                 (#try.Failure try)
+                 
+                 (^multi [(#try.Success tag) (#try.Success flag) (#try.Success value)]
+                         [(read tag)
+                          (#try.Success tag)]
+                         [(read value)
+                          (#try.Success value)])
+                 (#try.Success [tag
+                                (: Any
+                                   (case (host.check org/python/core/PyNone flag)
+                                     (#.Some _)
+                                     (host.null)
 
-                        #.None
-                        synthesis.unit))
-                   value])
+                                     #.None
+                                     synthesis.unit))
+                                value])
 
-    _
-    (exception.throw ..unknown_kind_of_object host_object)))
+                 _
+                 (exception.throw ..unknown_kind_of_object host_object)))
 
-(def: (read host_object)
-  Translator
-  (`` (<| (~~ (template [<class> <processing>]
-                [(case (host.check <class> host_object)
-                   (#.Some host_object)
-                   (#try.Success (<| <processing> host_object))
+             (def: (read host_object)
+               Translator
+               (`` (<| (~~ (template [<class> <processing>]
+                             [(case (host.check <class> host_object)
+                                (#.Some host_object)
+                                (#try.Success (<| <processing> host_object))
 
-                   _)]
+                                _)]
 
-                [org/python/core/PyNone (new> [] [])]
-                [org/python/core/PyBoolean org/python/core/PyObject::__nonzero__]
-                [org/python/core/PyInteger org/python/core/PyObject::asInt]
-                [org/python/core/PyLong org/python/core/PyObject::asLong]
-                [org/python/core/PyFloat org/python/core/PyObject::asDouble]
-                [org/python/core/PyString org/python/core/PyObject::asString]
-                [org/python/core/PyFunction (|>)]
-                [org/python/core/PyArray org/python/core/PyArray::getArray]
-                [[java/lang/Object] (|>)]
-                ))
-          (~~ (template [<class> <processing>]
-                [(case (host.check <class> host_object)
-                   (#.Some host_object)
-                   (<| <processing> host_object)
+                             [org/python/core/PyNone (new> [] [])]
+                             [org/python/core/PyBoolean org/python/core/PyObject::__nonzero__]
+                             [org/python/core/PyInteger org/python/core/PyObject::asInt]
+                             [org/python/core/PyLong org/python/core/PyObject::asLong]
+                             [org/python/core/PyFloat org/python/core/PyObject::asDouble]
+                             [org/python/core/PyString org/python/core/PyObject::asString]
+                             [org/python/core/PyFunction (|>)]
+                             [org/python/core/PyArray org/python/core/PyArray::getArray]
+                             [[java/lang/Object] (|>)]
+                             ))
+                       (~~ (template [<class> <processing>]
+                             [(case (host.check <class> host_object)
+                                (#.Some host_object)
+                                (<| <processing> host_object)
 
-                   _)]
+                                _)]
 
-                [org/python/core/PyTuple (..read_variant read)]
-                [org/python/core/PyList (..read_tuple read)]
-                ))
-          (exception.throw ..unknown_kind_of_object host_object))))
+                             [org/python/core/PyTuple (..read_variant read)]
+                             [org/python/core/PyList (..read_tuple read)]
+                             ))
+                       ## (exception.throw ..unknown_kind_of_object host_object)
+                       (exception.return host_object))))
 
-(exception: (cannot_apply_a_non_function {object java/lang/Object})
-  (exception.report
-   ["Non-function" (java/lang/Object::toString object)]))
+             (exception: (cannot_apply_a_non_function {object java/lang/Object})
+               (exception.report
+                ["Non-function" (java/lang/Object::toString object)]))
 
-(def: (ensure_macro macro)
-  (-> Macro (Maybe org/python/core/PyFunction))
-  (host.check org/python/core/PyFunction (:coerce java/lang/Object macro)))
+             (def: (ensure_macro macro)
+               (-> Macro (Maybe org/python/core/PyFunction))
+               (host.check org/python/core/PyFunction (:coerce java/lang/Object macro)))
 
-(def: object_class
-  (java/lang/Class java/lang/Object)
-  (java/lang/Object::getClass (java/lang/Object::new)))
+             (def: object_class
+               (java/lang/Class java/lang/Object)
+               (java/lang/Object::getClass (java/lang/Object::new)))
 
-(def: to_host
-  (-> Any org/python/core/PyObject)
-  (|>> (:coerce java/lang/Object) (org/python/core/PyArray::new ..object_class)))
+             (def: to_host
+               (-> Any org/python/core/PyObject)
+               (|>> (:coerce java/lang/Object) (org/python/core/PyArray::new ..object_class)))
 
-(def: ensure_function
-  (-> Any (Maybe org/python/core/PyFunction))
-  (|>> (:coerce java/lang/Object)
-       (host.check org/python/core/PyFunction)))
+             (def: ensure_function
+               (-> Any (Maybe org/python/core/PyFunction))
+               (|>> (:coerce java/lang/Object)
+                    (host.check org/python/core/PyFunction)))
+             )
+      
+      @.python
+      (as_is)})
 
-(def: (call_macro inputs lux macro)
-  (-> (List Code) Lux org/python/core/PyFunction (Try (Try [Lux (List Code)])))
-  (:assume
-   (do try.monad
-     [expansion (org/python/core/PyFunction::__call__ (|> (host.array org/python/core/PyObject 2)
-                                                          (host.array_write 0 (..to_host inputs))
-                                                          (host.array_write 1 (..to_host lux)))
-                                                      macro)]
-     (..read expansion))))
-
-(def: (expander macro inputs lux)
-  Expander
-  (case (ensure_macro macro)
-    (#.Some macro)
-    (case (..call_macro inputs lux macro)
-      (#try.Success output)
-      (|> output
-          (:coerce org/python/core/PyObject)
-          ..read
-          (:coerce (Try (Try [Lux (List Code)]))))
-
-      (#try.Failure error)
-      (#try.Failure error))
-
-    #.None
-    (exception.throw ..cannot_apply_a_non_function (:coerce java/lang/Object macro))))
-
-(def: host
-  (IO (Host (_.Expression Any) (_.Statement Any)))
-  (io (let [interpreter (org/python/util/PythonInterpreter::new)
-            evaluate! (: (-> Context (_.Expression Any) (Try Any))
-                         (function (evaluate! context input)
-                           (do try.monad
-                             [output (org/python/util/PythonInterpreter::eval (_.code input) interpreter)]
-                             (..read output))))
-            execute! (: (-> (_.Statement Any) (Try Any))
-                        (function (execute! input)
-                          (org/python/util/PythonInterpreter::exec (_.code input) interpreter)))]
-        (: (Host (_.Expression Any) (_.Statement Any))
-           (structure
-            (def: evaluate! evaluate!)
-            (def: execute! execute!)
-            (def: (define! context input)
-              (let [global (reference.artifact context)
-                    @global (_.var global)]
+(for {@.old
+      (as_is (def: (call_macro inputs lux macro)
+               (-> (List Code) Lux org/python/core/PyFunction (Try (Try [Lux (List Code)])))
+               (:assume
                 (do try.monad
-                  [#let [definition (_.set (list @global) input)]
-                   _ (execute! definition)
-                   value (evaluate! context @global)]
-                  (wrap [global value definition]))))
+                  [expansion (org/python/core/PyFunction::__call__ (|> (host.array org/python/core/PyObject 2)
+                                                                       (host.array_write 0 (..to_host inputs))
+                                                                       (host.array_write 1 (..to_host lux)))
+                                                                   macro)]
+                  (..read expansion))))
 
-            (def: (ingest context content)
-              (|> content (\ encoding.utf8 decode) try.assume (:coerce (_.Statement Any))))
+             (def: (expander macro inputs lux)
+               Expander
+               (case (ensure_macro macro)
+                 (#.Some macro)
+                 (case (..call_macro inputs lux macro)
+                   (#try.Success output)
+                   (|> output
+                       (:coerce org/python/core/PyObject)
+                       ..read
+                       (:coerce (Try (Try [Lux (List Code)]))))
 
-            (def: (re_learn context content)
-              (execute! content))
-            
-            (def: (re_load context content)
-              (do try.monad
-                [_ (execute! content)]
-                (evaluate! context (_.var (reference.artifact context))))))))))
+                   (#try.Failure error)
+                   (#try.Failure error))
+
+                 #.None
+                 (exception.throw ..cannot_apply_a_non_function (:coerce java/lang/Object macro)))))
+
+      @.python
+      (def: (expander macro inputs lux)
+        Expander
+        (#try.Success ((:coerce Macro' macro) inputs lux)))})
+
+(for {@.old
+      (def: host
+        (IO (Host (_.Expression Any) (_.Statement Any)))
+        (io (let [interpreter (org/python/util/PythonInterpreter::new)
+                  evaluate! (: (-> Context (_.Expression Any) (Try Any))
+                               (function (evaluate! context input)
+                                 (do try.monad
+                                   [output (org/python/util/PythonInterpreter::eval (_.code input) interpreter)]
+                                   (..read output))))
+                  execute! (: (-> (_.Statement Any) (Try Any))
+                              (function (execute! input)
+                                (org/python/util/PythonInterpreter::exec (_.code input) interpreter)))]
+              (: (Host (_.Expression Any) (_.Statement Any))
+                 (structure
+                  (def: evaluate! evaluate!)
+                  (def: execute! execute!)
+                  (def: (define! context input)
+                    (let [global (reference.artifact context)
+                          @global (_.var global)]
+                      (do try.monad
+                        [#let [definition (_.set (list @global) input)]
+                         _ (execute! definition)
+                         value (evaluate! context @global)]
+                        (wrap [global value definition]))))
+
+                  (def: (ingest context content)
+                    (|> content (\ encoding.utf8 decode) try.assume (:coerce (_.Statement Any))))
+
+                  (def: (re_learn context content)
+                    (execute! content))
+                  
+                  (def: (re_load context content)
+                    (do try.monad
+                      [_ (execute! content)]
+                      (evaluate! context (_.var (reference.artifact context))))))))))
+
+      @.python
+      (as_is (import: (eval [host.String] #try Any))
+
+             (def: host
+               (IO (Host (_.Expression Any) (_.Statement Any)))
+               (io (: (Host (_.Expression Any) (_.Statement Any))
+                      (let [evaluate! (: (-> Context (_.Expression Any) (Try Any))
+                                         (function (evaluate! context input)
+                                           (..eval (_.code input))))
+                            execute! (: (-> (_.Statement Any) (Try Any))
+                                        (function (execute! input)
+                                          (host.try ("python exec" (_.code input)))))
+                            define! (: (-> Context (_.Expression Any) (Try [Text Any (_.Statement Any)]))
+                                       (function (define! context input)
+                                         (let [global (reference.artifact context)
+                                               @global (_.var global)]
+                                           (do try.monad
+                                             [#let [definition (_.set (list @global) input)]
+                                              _ (execute! definition)
+                                              value (evaluate! context @global)]
+                                             (wrap [global value definition])))))]
+                        (structure
+                         (def: evaluate! evaluate!)
+                         (def: execute! execute!)
+                         (def: define! define!)
+
+                         (def: (ingest context content)
+                           (|> content (\ encoding.utf8 decode) try.assume (:coerce (_.Statement Any))))
+
+                         (def: (re_learn context content)
+                           (execute! content))
+                         
+                         (def: (re_load context content)
+                           (do try.monad
+                             [_ (execute! content)]
+                             (evaluate! context (_.var (reference.artifact context)))))))))))})
 
 (def: platform
   (IO (Platform [Register _.SVar] (_.Expression Any) (_.Statement Any)))
@@ -344,7 +396,7 @@
                             #/static.target (/cli.target service)
                             #/static.artifact_extension extension}
                            ..expander
-                           extension/bundle.empty
+                           analysis.bundle
                            ..platform
                            generation.bundle
                            extension/bundle.empty

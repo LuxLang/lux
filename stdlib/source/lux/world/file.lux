@@ -1,6 +1,6 @@
 (.module:
   [lux #*
-   ["." host (#+ import:)]
+   ["." host]
    ["@" target]
    [abstract
     ["." monad (#+ Monad do)]]
@@ -226,9 +226,9 @@
                                       ["Instant" (%.instant instant)]
                                       ["Path" file]))
 
-                                   (import: java/lang/String)
+                                   (host.import: java/lang/String)
 
-                                   (`` (import: java/io/File
+                                   (`` (host.import: java/io/File
                                          ["#::."
                                           (new [java/lang/String])
                                           (~~ (template [<name>]
@@ -258,24 +258,24 @@
                                          _
                                          (wrap (exception.throw exception [path])))))
 
-                                   (import: java/lang/AutoCloseable
+                                   (host.import: java/lang/AutoCloseable
                                      ["#::."
                                       (close [] #io #try void)])
 
-                                   (import: java/io/OutputStream
+                                   (host.import: java/io/OutputStream
                                      ["#::."
                                       (write [[byte]] #io #try void)
                                       (flush [] #io #try void)])
 
-                                   (import: java/io/FileOutputStream
+                                   (host.import: java/io/FileOutputStream
                                      ["#::."
                                       (new [java/io/File boolean] #io #try)])
 
-                                   (import: java/io/InputStream
+                                   (host.import: java/io/InputStream
                                      ["#::."
                                       (read [[byte]] #io #try int)])
 
-                                   (import: java/io/FileInputStream
+                                   (host.import: java/io/FileInputStream
                                      ["#::."
                                       (new [java/io/File] #io #try)])
 
@@ -435,31 +435,28 @@
 
                                          (def: separator (java/io/File::separator))
                                          )))]
-  (for {@.old
-        (as_is <for_jvm>)
-
-        @.jvm
-        (as_is <for_jvm>)
+  (for {@.old (as_is <for_jvm>)
+        @.jvm (as_is <for_jvm>)
 
         @.js
-        (as_is (import: Buffer
+        (as_is (host.import: Buffer
                  (#static from [Binary] ..Buffer))
                
-               (import: FileDescriptor)
+               (host.import: FileDescriptor)
 
-               (import: Stats
+               (host.import: Stats
                  (size host.Number)
                  (mtimeMs host.Number)
                  (isFile [] #io #try host.Boolean)
                  (isDirectory [] #io #try host.Boolean))
 
-               (import: FsConstants
+               (host.import: FsConstants
                  (F_OK host.Number)
                  (R_OK host.Number)
                  (W_OK host.Number)
                  (X_OK host.Number))
                
-               (import: Fs
+               (host.import: Fs
                  (constants FsConstants)
                  (readFileSync [host.String] #io #try Binary)
                  (appendFileSync [host.String Buffer] #io #try Any)
@@ -473,7 +470,7 @@
                  (mkdirSync [host.String] #io #try Any)
                  (rmdirSync [host.String] #io #try Any))
 
-               (import: JsPath
+               (host.import: JsPath
                  (sep host.String)
                  (basename [host.String] host.String))
                
@@ -676,6 +673,202 @@
                        (if host.on_node_js?
                          (JsPath::sep (..node_path []))
                          "/"))
+                     ))
+               )
+
+        @.python
+        (as_is (type: (Tuple/2 left right)
+                 (primitive "python_tuple[2]" [left right]))
+
+               (host.import: (open [host.String host.String] #io #try Any))
+               (host.import: (tuple [[host.Integer host.Integer]] (Tuple/2 host.Integer host.Integer)))
+
+               (host.import: os
+                 (#static F_OK host.Integer)
+                 (#static R_OK host.Integer)
+                 (#static W_OK host.Integer)
+                 (#static X_OK host.Integer)
+
+                 (#static mkdir [host.String] #io #try Any)
+                 (#static access [host.String host.Integer] #io #try host.Boolean)
+                 (#static remove [host.String] #io #try Any)
+                 (#static rmdir [host.String] #io #try Any)
+                 (#static rename [host.String host.String] #io #try Any)
+                 (#static utime [host.String (Tuple/2 host.Integer host.Integer)] #io #try Any)
+                 (#static listdir [host.String] #io #try (Array host.String)))
+
+               (host.import: os/path
+                 (#static isfile [] #io #try host.Boolean)
+                 (#static isdir [] #io #try host.Boolean)
+                 (#static sep host.String)
+                 (#static basename [host.String] host.String)
+                 (#static getsize [host.String] #io #try host.Integer)
+                 (#static getmtime [host.String] #io #try host.Float))
+
+               (`` (structure: (file path)
+                     (-> Path (File IO))
+
+                     (~~ (template [<name> <mode>]
+                           [(def: <name>
+                              (..can_modify
+                               (function (<name> data)
+                                 (do (try.with io.monad)
+                                   [file (..open [path <mode>])]
+                                   (io.io (do try.monad
+                                            [_ (host.try ("python object do" "write" (:assume file) data))]
+                                            (host.try ("python object do" "close" (:assume file)))))))))]
+                           
+                           [over_write  "wb"]
+                           [append      "ab"]
+                           ))
+
+                     (def: content
+                       (..can_query
+                        (function (_ _)
+                          (do (try.with io.monad)
+                            [file (..open [path "rb"])]
+                            (io.io (do try.monad
+                                     [data (:coerce (Try Binary)
+                                                    (host.try ("python object do" "read" (:assume file))))
+                                      _ (host.try ("python object do" "close" (:assume file)))]
+                                     (wrap data)))))))
+
+                     (def: name
+                       (..can_see
+                        (function (_ _)
+                          (os/path::basename [path]))))
+
+                     (def: path
+                       (..can_see
+                        (function (_ _)
+                          path)))
+
+                     (def: size
+                       (..can_query
+                        (function (_ _)
+                          (do (try.with io.monad)
+                            [size (os/path::getsize [path])]
+                            (wrap (.nat size))))))
+
+                     (def: last_modified
+                       (..can_query
+                        (function (_ _)
+                          (do (try.with io.monad)
+                            [seconds_since_epoch (os/path::getmtime [path])]
+                            (wrap (|> seconds_since_epoch
+                                      f.int
+                                      (i.* +1,000)
+                                      duration.from_millis
+                                      instant.absolute))))))
+
+                     (def: can_execute?
+                       (..can_query
+                        (function (can_execute? _)
+                          (os::access [path (os::X_OK)]))))
+
+                     (def: move
+                       (..can_open
+                        (function (move destination)
+                          (do (try.with io.monad)
+                            [_ (os::rename [path destination])]
+                            (wrap (file destination))))))
+
+                     (def: modify
+                       (..can_modify
+                        (function (modify time_stamp)
+                          (let [when (|> time_stamp instant.relative duration.to_millis (i./ +1,000))]
+                            (os::utime [path (..tuple [when when])])))))
+
+                     (def: delete
+                       (..can_delete
+                        (function (delete _)
+                          (os::remove [path]))))
+                     ))
+
+               (`` (structure: (directory path)
+                     (-> Path (Directory IO))
+
+                     (def: scope
+                       (..can_see
+                        (function (_ _)
+                          path)))
+                     
+                     (~~ (template [<name> <method> <capability>]
+                           [(def: <name>
+                              (..can_query
+                               (function (<name> _)
+                                 (do {! (try.with io.monad)}
+                                   [subs (os::listdir [path])
+                                    subs (monad.map ! (function (_ sub)
+                                                        (do !
+                                                          [verdict (<method> [sub])]
+                                                          (wrap [verdict sub])))
+                                                    (array.to_list subs))]
+                                   (wrap (|> subs
+                                             (list.filter product.left)
+                                             (list\map (|>> product.right <capability>))))))))]
+
+                           [files       os/path::isfile ..file]
+                           [directories os/path::isdir  directory]
+                           ))
+
+                     (def: discard
+                       (..can_delete
+                        (function (discard _)
+                          (os::rmdir [path]))))
+                     ))
+
+               (`` (structure: #export default
+                     (System IO)
+                     
+                     (~~ (template [<name> <method> <capability> <exception>]
+                           [(with_expansions [<failure> (exception.throw <exception> [path])]
+                              (def: <name>
+                                (..can_open
+                                 (function (<name> path)
+                                   (do io.monad
+                                     [?verdict (<method> [path])]
+                                     (wrap (case ?verdict
+                                             (#try.Success verdict)
+                                             (if verdict
+                                               (#try.Success (<capability> path))
+                                               <failure>)
+                                             
+                                             (#try.Failure _)
+                                             <failure>)))))))]
+
+                           [file      os/path::isfile  ..file      ..cannot_find_file]
+                           [directory os/path::isdir   ..directory ..cannot_find_directory]
+                           ))
+
+                     (def: create_file
+                       (..can_open
+                        (function (create_file path)
+                          (do io.monad
+                            [outcome (..open [path "x"])]
+                            (wrap (case outcome
+                                    (#try.Success _)
+                                    (do try.monad
+                                      [_ (host.try ("python object do" "close" (:assume outcome)))]
+                                      (wrap (..file path)))
+                                    
+                                    (#try.Failure error)
+                                    (exception.throw ..cannot_create_file [path])))))))
+
+                     (def: create_directory
+                       (..can_open
+                        (function (create_directory path)
+                          (do io.monad
+                            [outcome (os::mkdir [path])]
+                            (wrap (case outcome
+                                    (#try.Success _)
+                                    (#try.Success (..directory path))
+                                    
+                                    (#try.Failure error)
+                                    (exception.throw ..cannot_create_directory [path])))))))
+
+                     (def: separator
+                       (os/path::sep))
                      ))
                )
         }))

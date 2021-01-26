@@ -21,7 +21,7 @@
    [math
     [number (#+ hex)
      ["." i64]]]
-   [target
+   ["@" target
     ["_" python (#+ Expression SVar Computation Literal Statement)]]]
   ["." /// #_
    ["#." reference]
@@ -61,12 +61,12 @@
 
 (def: #export
   unit
-  (_.string /////synthesis.unit))
+  (_.unicode /////synthesis.unit))
 
 (def: (flag value)
   (-> Bit Literal)
   (if value
-    (_.string "")
+    (_.unicode "")
     _.none))
 
 (def: (variant' tag last? value)
@@ -132,8 +132,8 @@
                     (` (def: (~ code_nameC)
                          (Statement Any)
                          (..feature (~ runtime_nameC)
-                                    (function ((~ g!_) (~ nameC))
-                                      (~ code)))))))))
+                                    (function ((~ g!_) (~ g!_))
+                                      (_.set (list (~ g!_)) (~ code))))))))))
     
     (#.Right [name inputs])
     (macro.with_gensyms [g!_]
@@ -165,17 +165,22 @@
 (runtime: (lux//program_args program_args)
   (with_vars [inputs value]
     ($_ _.then
-        (_.set (list inputs) none)
+        (_.set (list inputs) ..none)
         (<| (_.for_in value program_args)
             (_.set (list inputs)
-                   (some (_.tuple (list value inputs)))))
+                   (..some (_.tuple (list value inputs)))))
         (_.return inputs))))
+
+(runtime: (lux//exec code)
+  (<| (_.exec code)
+      (_.return ..unit)))
 
 (def: runtime//lux
   (Statement Any)
   ($_ _.then
       @lux//try
       @lux//program_args
+      @lux//exec
       ))
 
 (runtime: (io//log! message)
@@ -184,9 +189,7 @@
       (_.return ..unit)))
 
 (runtime: (io//throw! message)
-  ($_ _.then
-      (_.raise (_.Exception/1 message))
-      (_.return ..unit)))
+  (_.raise (_.Exception/1 message)))
 
 (runtime: (io//current_time! _)
   ($_ _.then
@@ -240,7 +243,7 @@
         sum_tag (_.nth (_.int +0) sum)
         sum_flag (_.nth (_.int +1) sum)
         sum_value (_.nth (_.int +2) sum)
-        is_last? (_.= (_.string "") sum_flag)
+        is_last? (_.= (_.unicode "") sum_flag)
         test_recursion! (_.if is_last?
                           ## Must recurse.
                           (_.return (sum//get sum_value wantsLast (_.- sum_tag wantedTag)))
@@ -254,7 +257,7 @@
                    test_recursion!]
 
                   [(_.and (_.< sum_tag wantedTag)
-                          (_.= (_.string "") wantsLast))
+                          (_.= (_.unicode "") wantsLast))
                    (_.return (variant' (_.- wantedTag sum_tag) sum_flag sum_value))])
 
             no_match!)))
@@ -267,37 +270,71 @@
       @sum//get
       ))
 
-(def: full_64_bits
-  Literal
-  (_.manual "0xFFFFFFFFFFFFFFFF"))
+(runtime: i64//top
+  (|> (_.int +1)
+      (_.bit_shl (_.int +63))
+      (_.- (_.int +1))))
+
+(runtime: i64//bottom
+  (_.- (|> (_.int +1)
+           (_.bit_shl (_.int +63)))
+       (_.int +0)))
 
 (runtime: (i64//64 input)
-  (with_vars [capped]
-    (_.cond (list [(|> input (_.> full_64_bits))
-                   (_.return (|> input (_.bit_and full_64_bits) i64//64))]
-                  [(|> input (_.> (: Literal (_.manual "0x7FFFFFFFFFFFFFFF"))))
-                   ($_ _.then
-                       (_.set (list capped)
-                              (_.int/1 (|> (: Literal (_.manual "0x10000000000000000"))
-                                           (_.- input))))
-                       (_.if (|> capped (_.<= (: Literal (_.manual "9223372036854775807L"))))
-                         (_.return (|> capped (_.* (_.int -1))))
-                         (_.return (: Literal (_.manual "-9223372036854775808L")))))])
-            (_.return input))))
+  (_.return (<| (_.? (|> input (_.< ..i64//bottom))
+                     (|> input (_.- ..i64//bottom) (_.+ (_.int +1)) (_.+ i64//top) i64//64))
+                (_.? (|> input (_.> ..i64//top))
+                     (|> input (_.- ..i64//top) (_.- (_.int +1)) (_.+ ..i64//bottom) i64//64))
+                (for {@.python input}
+                     ## This +- is only necessary to guaranteed that values within the limits are always longs in Python 2
+                     (|> input (_.+ i64//top) (_.- ..i64//top))))))
+
+(runtime: i64//nat_top
+  (|> (_.int +1)
+      (_.bit_shl (_.int +64))
+      (_.- (_.int +1))))
+
+(def: as_nat
+  (_.% (_.manual "0x10000000000000000")))
+
+(runtime: (i64//left_shift param subject)
+  (_.return (|> subject
+                ..as_nat
+                (_.bit_shl param)
+                ..as_nat
+                ..i64//64)))
 
 (runtime: (i64//logic_right_shift param subject)
-  (let [mask (|> (_.int +1)
-                 (_.bit_shl (_.- param (_.int +64)))
-                 (_.- (_.int +1)))]
-    (_.return (|> subject
-                  (_.bit_shr param)
-                  (_.bit_and mask)))))
+  (_.return (|> subject
+                ..as_nat
+                (_.bit_shr param))))
+
+(runtime: (i64//remainder param subject)
+  (_.return (_.- (|> subject (_.// param) (_.* param))
+                 subject)))
+
+(template [<runtime> <python>]
+  [(runtime: (<runtime> left right)
+     (_.return (..i64//64 (<python> (..as_nat left) (..as_nat right)))))]
+
+  [i64//and _.bit_and]
+  [i64//or _.bit_or]
+  [i64//xor _.bit_xor]
+  )
 
 (def: runtime//i64
   (Statement Any)
   ($_ _.then
+      @i64//top
+      @i64//bottom
       @i64//64
+      @i64//left_shift
       @i64//logic_right_shift
+      @i64//nat_top
+      @i64//and
+      @i64//or
+      @i64//xor
+      @i64//remainder
       ))
 
 (runtime: (f64//decode input)
@@ -313,28 +350,29 @@
       @f64//decode
       ))
 
-(runtime: (text//index subject param start)
+(runtime: (text//index start param subject)
   (with_vars [idx]
     ($_ _.then
         (_.set (list idx) (|> subject (_.do "find" (list param start))))
-        (_.if (_.= (_.int -1) idx)
-          (_.return ..none)
-          (_.return (..some idx))))))
+        (_.return (_.? (_.= (_.int -1) idx)
+                       ..none
+                       (..some (..i64//64 idx)))))))
 
-(def: inc (|>> (_.+ (_.int +1))))
+(def: inc
+  (|>> (_.+ (_.int +1))))
 
 (def: (within? top value)
   (-> (Expression Any) (Expression Any) (Computation Any))
   (_.and (|> value (_.>= (_.int +0)))
          (|> value (_.< top))))
 
-(runtime: (text//clip @text @from @to)
-  (_.return (|> @text (_.slice @from (inc @to)))))
+(runtime: (text//clip @from @to @text)
+  (_.return (|> @text (_.slice @from @to))))
 
 (runtime: (text//char idx text)
   (_.if (|> idx (within? (_.len/1 text)))
-    (_.return (..some (_.ord/1 (|> text (_.slice idx (inc idx))))))
-    (_.return ..none)))
+    (_.return (|> text (_.slice idx (..inc idx)) _.ord/1 ..i64//64))
+    (_.raise (_.Exception/1 (_.unicode "[Lux Error] Cannot get char from text.")))))
 
 (def: runtime//text
   (Statement Any)
@@ -342,6 +380,17 @@
       @text//index
       @text//clip
       @text//char
+      ))
+
+(runtime: (array//write idx value array)
+  ($_ _.then
+      (_.set (list (_.nth idx array)) value)
+      (_.return array)))
+
+(def: runtime//array
+  (Statement Any)
+  ($_ _.then
+      @array//write
       ))
 
 (def: runtime
@@ -353,6 +402,7 @@
       runtime//f64
       runtime//text
       runtime//io
+      runtime//array
       ))
 
 (def: #export artifact
