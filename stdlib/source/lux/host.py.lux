@@ -32,6 +32,7 @@
 
   [None]
   [Function]
+  [Dict]
   )
 
 (template [<name> <type>]
@@ -148,11 +149,16 @@
 (def: (without_none g!temp [noneable? outputT] output)
   (-> Code Noneable Code Code)
   (if noneable?
-    (` (let [(~ g!temp) (~ output)]
-         (if ("python object none?" (~ g!temp))
-           #.None
-           (#.Some (~ g!temp)))))
-    output))
+    (` (: (Maybe (~ outputT))
+          (let [(~ g!temp) (~ output)]
+            (if ("python object none?" (~ g!temp))
+              #.None
+              (#.Some (~ g!temp))))))
+    (` (: (~ outputT)
+          (let [(~ g!temp) (~ output)]
+            (if ("python object none?" (~ g!temp))
+              (.error! "None is an invalid value!")
+              (~ g!temp)))))))
 
 (type: Import
   (#Class [Text (List Member)])
@@ -213,7 +219,7 @@
                  (with_try try?)
                  (without_none g!temp outputT)
                  (` ("python apply"
-                     (~ source)
+                     (:coerce ..Function (~ source))
                      (~+ (list\map (with_none g!temp) g!inputs)))))))))))
 
 (syntax: #export (import: {import ..import})
@@ -228,7 +234,8 @@
               imported (case (text.split_all_with "/" class)
                          (#.Cons head tail)
                          (list\fold (function (_ sub super)
-                                      (` ("python object get" (~ (code.text sub)) (~ super))))
+                                      (` ("python object get" (~ (code.text sub))
+                                          (:coerce (..Object .Any) (~ super)))))
                                     (` ("python import" (~ (code.text head))))
                                     tail)
                          
@@ -247,27 +254,30 @@
                                             (:assume
                                              ("python apply"
                                               (:coerce ..Function (~ imported))
-                                              [(~+ (list\map (with_none g!temp) g!inputs))])))))
+                                              (~+ (list\map (with_none g!temp) g!inputs)))))))
                                      
                                      (#Field [static? field fieldT])
                                      (if static?
                                        (` ((~! syntax:) ((~ (qualify field)))
                                            (\ (~! meta.monad) (~' wrap)
                                               (list (` (.:coerce (~ (noneable_type fieldT))
-                                                                 ("python object get" (~ (code.text field)) (~ imported))))))))
+                                                                 ("python object get" (~ (code.text field))
+                                                                  (:coerce (..Object .Any) (~ imported)))))))))
                                        (` (def: ((~ (qualify field))
                                                  (~ g!object))
                                             (-> (~ g!type)
                                                 (~ (noneable_type fieldT)))
                                             (:assume
-                                             (~ (without_none g!temp fieldT (` ("python object get" (~ (code.text field)) (~ g!object)))))))))
+                                             (~ (without_none g!temp fieldT (` ("python object get" (~ (code.text field))
+                                                                                (:coerce (..Object .Any) (~ g!object))))))))))
                                      
                                      (#Method method)
                                      (case method
                                        (#Static [method alias inputsT io? try? outputT])
                                        (..make_function (qualify (maybe.default method alias))
                                                         g!temp
-                                                        (` ("python object get" (~ (code.text method)) (~ imported)))
+                                                        (` ("python object get" (~ (code.text method))
+                                                            (:coerce (..Object .Any) (~ imported))))
                                                         inputsT
                                                         io?
                                                         try?
@@ -290,7 +300,7 @@
                                                       (` ("python object do"
                                                           (~ (code.text method))
                                                           (~ g!object)
-                                                          [(~+ (list\map (with_none g!temp) g!inputs))])))))))))))
+                                                          (~+ (list\map (with_none g!temp) g!inputs)))))))))))))
                                  members)))))
       
       (#Function [name alias inputsT io? try? outputT])
@@ -302,10 +312,6 @@
                                    try?
                                    outputT)))
       )))
-
-(def: #export none
-  (<| (:coerce None)
-      ("python object none")))
 
 (template: #export (lambda <inputs> <output>)
   (.:coerce ..Function

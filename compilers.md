@@ -27,7 +27,11 @@ cd ~/lux/lux-jvm/ && lein clean && lein lux auto test
 
 ```
 cd ~/lux/lux-jvm/ && lein lux auto build
-cd ~/lux/lux-jvm/ && lein clean && lein lux auto build
+
+## Use bootstrapping compiler to build new JVM compiler
+cd ~/lux/lux-jvm/ \
+&& lein clean \
+&& lein lux auto build
 ```
 
 ## REPL
@@ -40,11 +44,20 @@ cd ~/lux/lux-jvm/ && java -jar target/program.jar repl --source ~/lux/stdlib/sou
 
 ```
 cd ~/lux/lux-jvm/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
-cd ~/lux/stdlib/ && lein clean && cd ~/lux/lux-jvm/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
-cd ~/lux/stdlib/ && cd ~/lux/lux-jvm/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --library ~/lux/stdlib/target/library.tar --target ~/lux/stdlib/target --module test/lux
 cd ~/lux/lux-jvm/ && java -jar target/program.jar export --source ~/lux/stdlib/source --target ~/lux/stdlib/target
 
-cd ~/lux/stdlib/target/ && java -jar program.jar
+cd ~/lux/stdlib/ \
+&& cd ~/lux/lux-jvm/ \
+&& time java -jar target/program.jar build --source ~/lux/stdlib/source --library ~/lux/stdlib/target/library.tar --target ~/lux/stdlib/target --module test/lux
+
+## Use new JVM compiler to compile tests for the Standard Library
+cd ~/lux/stdlib/ \
+&& lein clean \
+&& time java -jar ~/lux/lux-jvm/target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
+
+## Run tests for the Standard Library
+cd ~/lux/stdlib/target/ \
+&& java -jar program.jar
 ```
 
 ## Deploy
@@ -88,12 +101,11 @@ cd ~/lux/lux-js/ \
 cd ~/lux/lux-js/ \
 && lein clean \
 && time java -jar program.jar build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program \
-&& mv target/program.js program.js
+&& mv target/program.js _program.js
 
 ## Use JS/Node-based compiler to produce another JS/Node-based compiler.
 cd ~/lux/lux-js/ \
 && lein clean \
-&& cd ~/lux/lux-js/ \
 && time node --stack_size=8192 _program.js build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program \
 && mv target/program.js program.js
 ```
@@ -134,13 +146,19 @@ cd ~/lux/lux-python/ \
 cd ~/lux/lux-python/ \
 && lein clean \
 && lein lux build \
-&& mv target/program.jar program.jar
+&& mv target/program.jar jvm_based_compiler.jar
 
 ## Use JVM-based compiler to produce a Python-based compiler.
 cd ~/lux/lux-python/ \
 && lein clean \
-&& time java -jar program.jar build --source ~/lux/lux-python/source --target ~/lux/lux-python/target --module program \
-&& mv target/program.py program.py
+&& time java -jar jvm_based_compiler.jar build --source ~/lux/lux-python/source --target ~/lux/lux-python/target --module program \
+&& mv target/program.py python_based_compiler.py
+
+## Use Python-based compiler to produce another Python-based compiler.
+cd ~/lux/lux-python/ \
+&& lein clean \
+&& time python3 python_based_compiler.py build --source ~/lux/lux-python/source --target ~/lux/lux-python/target --module program \
+&& mv target/program.py lux.py
 ```
 
 ## Try

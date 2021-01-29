@@ -680,7 +680,12 @@
         (as_is (type: (Tuple/2 left right)
                  (primitive "python_tuple[2]" [left right]))
 
-               (host.import: (open [host.String host.String] #io #try Any))
+               (host.import: PyFile
+                 (read [] #io #try Binary)
+                 (write [Binary] #io #try #? Any)
+                 (close [] #io #try #? Any))
+
+               (host.import: (open [host.String host.String] #io #try PyFile))
                (host.import: (tuple [[host.Integer host.Integer]] (Tuple/2 host.Integer host.Integer)))
 
                (host.import: os
@@ -689,17 +694,17 @@
                  (#static W_OK host.Integer)
                  (#static X_OK host.Integer)
 
-                 (#static mkdir [host.String] #io #try Any)
+                 (#static mkdir [host.String] #io #try #? Any)
                  (#static access [host.String host.Integer] #io #try host.Boolean)
-                 (#static remove [host.String] #io #try Any)
-                 (#static rmdir [host.String] #io #try Any)
-                 (#static rename [host.String host.String] #io #try Any)
-                 (#static utime [host.String (Tuple/2 host.Integer host.Integer)] #io #try Any)
+                 (#static remove [host.String] #io #try #? Any)
+                 (#static rmdir [host.String] #io #try #? Any)
+                 (#static rename [host.String host.String] #io #try #? Any)
+                 (#static utime [host.String (Tuple/2 host.Integer host.Integer)] #io #try #? Any)
                  (#static listdir [host.String] #io #try (Array host.String)))
 
                (host.import: os/path
-                 (#static isfile [] #io #try host.Boolean)
-                 (#static isdir [] #io #try host.Boolean)
+                 (#static isfile [host.String] #io #try host.Boolean)
+                 (#static isdir [host.String] #io #try host.Boolean)
                  (#static sep host.String)
                  (#static basename [host.String] host.String)
                  (#static getsize [host.String] #io #try host.Integer)
@@ -713,10 +718,10 @@
                               (..can_modify
                                (function (<name> data)
                                  (do (try.with io.monad)
-                                   [file (..open [path <mode>])]
-                                   (io.io (do try.monad
-                                            [_ (host.try ("python object do" "write" (:assume file) data))]
-                                            (host.try ("python object do" "close" (:assume file)))))))))]
+                                   [file (..open [path <mode>])
+                                    _ (PyFile::write [data] file)
+                                    _ (PyFile::close [] file)]
+                                   (wrap [])))))]
                            
                            [over_write  "wb"]
                            [append      "ab"]
@@ -726,12 +731,10 @@
                        (..can_query
                         (function (_ _)
                           (do (try.with io.monad)
-                            [file (..open [path "rb"])]
-                            (io.io (do try.monad
-                                     [data (:coerce (Try Binary)
-                                                    (host.try ("python object do" "read" (:assume file))))
-                                      _ (host.try ("python object do" "close" (:assume file)))]
-                                     (wrap data)))))))
+                            [file (..open [path "rb"])
+                             data (PyFile::read [] file)
+                             _ (PyFile::close [] file)]
+                            (wrap data)))))
 
                      (def: name
                        (..can_see
@@ -844,16 +847,16 @@
                      (def: create_file
                        (..can_open
                         (function (create_file path)
-                          (do io.monad
-                            [outcome (..open [path "x"])]
-                            (wrap (case outcome
-                                    (#try.Success _)
-                                    (do try.monad
-                                      [_ (host.try ("python object do" "close" (:assume outcome)))]
-                                      (wrap (..file path)))
-                                    
-                                    (#try.Failure error)
-                                    (exception.throw ..cannot_create_file [path])))))))
+                          (do {! io.monad}
+                            [file (..open [path "x"])]
+                            (case file
+                              (#try.Success file)
+                              (do (try.with !)
+                                [_ (PyFile::close [] file)]
+                                (wrap (..file path)))
+                              
+                              (#try.Failure error)
+                              (wrap (exception.throw ..cannot_create_file [path])))))))
 
                      (def: create_directory
                        (..can_open

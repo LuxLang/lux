@@ -139,12 +139,11 @@
         (return (&/|list (&&/|meta exo-type _location
                                    (&&/$proc (&/T ["i64" <op>]) (&/|list =input =shift) (&/|list))))))))
 
-  analyse-i64-left-shift             "left-shift"
-  analyse-i64-arithmetic-right-shift "arithmetic-right-shift"
-  analyse-i64-logical-right-shift    "logical-right-shift"
+  analyse-i64-left-shift  "left-shift"
+  analyse-i64-right-shift "right-shift"
   )
 
-(do-template [<name> <proc> <input-type> <output-type>]
+(do-template [<proc> <name> <input-type> <output-type>]
   (let [inputT <input-type>
         outputT <output-type>]
     (defn- <name> [analyse exo-type ?values]
@@ -156,22 +155,22 @@
         (return (&/|list (&&/|meta exo-type _location
                                    (&&/$proc (&/T <proc>) (&/|list subjectA parameterA) (&/|list))))))))
 
-  analyse-i64-eq   ["i64" "="]  (&/$Apply &type/Any &type/I64)  &type/Bit
-  analyse-i64-add  ["i64" "+"]  (&/$Apply &type/Any &type/I64)  &type/I64
-  analyse-i64-sub  ["i64" "-"]  (&/$Apply &type/Any &type/I64)  &type/I64
+  ["i64" "="] analyse-i64-eq   (&/$Apply &type/Any &type/I64) &type/Bit
+  ["i64" "+"] analyse-i64-add  (&/$Apply &type/Any &type/I64) &type/I64
+  ["i64" "-"] analyse-i64-sub  (&/$Apply &type/Any &type/I64) &type/I64
   
-  analyse-int-mul  ["i64" "*"]  &type/Int  &type/Int
-  analyse-int-div  ["i64" "/"]  &type/Int  &type/Int
-  analyse-int-rem  ["i64" "%"]  &type/Int  &type/Int
-  analyse-int-lt   ["i64" "<"]  &type/Int  &type/Bit
+  ["i64" "*"] analyse-int-mul  &type/Int  &type/Int
+  ["i64" "/"] analyse-int-div  &type/Int  &type/Int
+  ["i64" "%"] analyse-int-rem  &type/Int  &type/Int
+  ["i64" "<"] analyse-int-lt   &type/Int  &type/Bit
 
-  analyse-frac-add ["f64" "+"] &type/Frac &type/Frac
-  analyse-frac-sub ["f64" "-"] &type/Frac &type/Frac
-  analyse-frac-mul ["f64" "*"] &type/Frac &type/Frac
-  analyse-frac-div ["f64" "/"] &type/Frac &type/Frac
-  analyse-frac-rem ["f64" "%"] &type/Frac &type/Frac
-  analyse-frac-eq  ["f64" "="] &type/Frac &type/Bit
-  analyse-frac-lt  ["f64" "<"] &type/Frac &type/Bit
+  ["f64" "+"] analyse-frac-add &type/Frac &type/Frac
+  ["f64" "-"] analyse-frac-sub &type/Frac &type/Frac
+  ["f64" "*"] analyse-frac-mul &type/Frac &type/Frac
+  ["f64" "/"] analyse-frac-div &type/Frac &type/Frac
+  ["f64" "%"] analyse-frac-rem &type/Frac &type/Frac
+  ["f64" "="] analyse-frac-eq  &type/Frac &type/Bit
+  ["f64" "<"] analyse-frac-lt  &type/Frac &type/Bit
   )
 
 (do-template [<encode> <encode-op> <decode> <decode-op> <type>]
@@ -249,20 +248,19 @@
          "lux io error"                (analyse-io-error analyse exo-type ?values)
          "lux io current-time"         (analyse-io-current-time analyse exo-type ?values)
          
-         "lux text ="                    (analyse-text-eq analyse exo-type ?values)
-         "lux text <"                    (analyse-text-lt analyse exo-type ?values)
-         "lux text concat"               (analyse-text-concat analyse exo-type ?values)
-         "lux text clip"                 (analyse-text-clip analyse exo-type ?values)
-         "lux text index"                (analyse-text-index analyse exo-type ?values)
-         "lux text size"                 (analyse-text-size analyse exo-type ?values)
-         "lux text char"                 (analyse-text-char analyse exo-type ?values)
+         "lux text ="      (analyse-text-eq analyse exo-type ?values)
+         "lux text <"      (analyse-text-lt analyse exo-type ?values)
+         "lux text concat" (analyse-text-concat analyse exo-type ?values)
+         "lux text clip"   (analyse-text-clip analyse exo-type ?values)
+         "lux text index"  (analyse-text-index analyse exo-type ?values)
+         "lux text size"   (analyse-text-size analyse exo-type ?values)
+         "lux text char"   (analyse-text-char analyse exo-type ?values)
          
-         "lux i64 and"                  (analyse-i64-and analyse exo-type ?values)
-         "lux i64 or"                   (analyse-i64-or analyse exo-type ?values)
-         "lux i64 xor"                  (analyse-i64-xor analyse exo-type ?values)
-         "lux i64 left-shift"           (analyse-i64-left-shift analyse exo-type ?values)
-         "lux i64 arithmetic-right-shift" (analyse-i64-arithmetic-right-shift analyse exo-type ?values)
-         "lux i64 logical-right-shift" (analyse-i64-logical-right-shift analyse exo-type ?values)
+         "lux i64 and"         (analyse-i64-and analyse exo-type ?values)
+         "lux i64 or"          (analyse-i64-or analyse exo-type ?values)
+         "lux i64 xor"         (analyse-i64-xor analyse exo-type ?values)
+         "lux i64 left-shift"  (analyse-i64-left-shift analyse exo-type ?values)
+         "lux i64 right-shift" (analyse-i64-right-shift analyse exo-type ?values)
          "lux i64 +" (analyse-i64-add analyse exo-type ?values)
          "lux i64 -" (analyse-i64-sub analyse exo-type ?values)
          "lux i64 =" (analyse-i64-eq analyse exo-type ?values)

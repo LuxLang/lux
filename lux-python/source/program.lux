@@ -290,17 +290,19 @@
                       (evaluate! context (_.var (reference.artifact context))))))))))
 
       @.python
-      (as_is (import: (eval [host.String] #try Any))
+      (as_is (import: (dict [] host.Dict))
+             (import: (eval [host.String host.Dict] #try Any))
 
              (def: host
                (IO (Host (_.Expression Any) (_.Statement Any)))
                (io (: (Host (_.Expression Any) (_.Statement Any))
-                      (let [evaluate! (: (-> Context (_.Expression Any) (Try Any))
+                      (let [globals (..dict [])
+                            evaluate! (: (-> Context (_.Expression Any) (Try Any))
                                          (function (evaluate! context input)
-                                           (..eval (_.code input))))
+                                           (..eval [(_.code input) globals])))
                             execute! (: (-> (_.Statement Any) (Try Any))
                                         (function (execute! input)
-                                          (host.try ("python exec" (_.code input)))))
+                                          (host.try ("python exec" (_.code input) globals))))
                             define! (: (-> Context (_.Expression Any) (Try [Text Any (_.Statement Any)]))
                                        (function (define! context input)
                                          (let [global (reference.artifact context)
@@ -342,7 +344,11 @@
       (_.import "sys")
       (_.when (_.= (_.string "__main__") (_.var "__name__"))
               (_.statement (_.apply/2 program
-                                      (runtime.lux//program_args (|> (_.var "sys") (_.the "argv")))
+                                      (|> (_.var "sys") (_.the "argv")
+                                          ## The first entry in the list will be the program.py file itself
+                                          ## so, it must be removed so only the program's arguments are left.
+                                          (_.slice_from (_.int +1))
+                                          runtime.lux//program_args)
                                       _.none)))))
 
 (for {@.old
@@ -382,11 +388,16 @@
 
 (def: (scope body)
   (-> (_.Statement Any) (_.Statement Any))
-  (let [@program (_.var "lux_program")]
-    ($_ _.then
-        (_.def @program (list) body)
-        (_.statement (_.apply/* @program (list)))
-        )))
+  (let [@program (_.var "lux_program")
+        max_recursion (|> (_.int +10) (_.** (_.int +6)))
+        ; _.statement]
+    (<| (_.comment "-*- coding: utf-8 -*-")
+        ($_ _.then
+            (; (|> (_.__import__/1 (_.unicode "sys"))
+                   (_.do "setrecursionlimit" (list max_recursion))))
+            (_.def @program (list) body)
+            (; (_.apply/* @program (list)))
+            ))))
 
 (program: [{service /cli.service}]
   (let [extension ".py"]
@@ -401,11 +412,12 @@
                            generation.bundle
                            extension/bundle.empty
                            ..program
-                           [(& Register _.SVar) (type (_.Expression Any)) (type (_.Statement Any))]
+                           [(type [Register _.SVar])
+                            (type (_.Expression Any))
+                            (type (_.Statement Any))]
                            ..extender
                            service
-                           [(packager.package (<| (_.comment "-*- coding: utf-8 -*-")
-                                                  (: (_.Statement Any) (_.manual "")))
+                           [(packager.package (: (_.Statement Any) (_.manual ""))
                                               _.code
                                               _.then
                                               ..scope)
@@ -415,4 +427,3 @@
                                     extension)])]
             (..declare_success! []))
       (io.io []))))
-

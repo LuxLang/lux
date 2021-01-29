@@ -56,8 +56,7 @@
       (return nil)))
 
   Opcodes/LSHL ^:private compile-i64-left-shift
-  Opcodes/LSHR ^:private compile-i64-arithmetic-right-shift
-  Opcodes/LUSHR ^:private compile-i64-logical-right-shift
+  Opcodes/LUSHR ^:private compile-i64-right-shift
   )
 
 (defn ^:private compile-lux-is [compile ?values special-args]
@@ -420,21 +419,20 @@
     
     "i64"
     (case proc
-      "and"                    (compile-i64-and compile ?values special-args)
-      "or"                     (compile-i64-or compile ?values special-args)
-      "xor"                    (compile-i64-xor compile ?values special-args)
-      "left-shift"             (compile-i64-left-shift compile ?values special-args)
-      "arithmetic-right-shift" (compile-i64-arithmetic-right-shift compile ?values special-args)
-      "logical-right-shift"    (compile-i64-logical-right-shift compile ?values special-args)
-      "="                      (compile-i64-eq compile ?values special-args)
-      "+"                      (compile-i64-add compile ?values special-args)
-      "-"                      (compile-i64-sub compile ?values special-args)
-      "*"                      (compile-int-mul compile ?values special-args)
-      "/"                      (compile-int-div compile ?values special-args)
-      "%"                      (compile-int-rem compile ?values special-args)
-      "<"                      (compile-int-lt compile ?values special-args)
-      "f64"                    (compile-int-frac compile ?values special-args)
-      "char"                   (compile-int-char compile ?values special-args)
+      "and"         (compile-i64-and compile ?values special-args)
+      "or"          (compile-i64-or compile ?values special-args)
+      "xor"         (compile-i64-xor compile ?values special-args)
+      "left-shift"  (compile-i64-left-shift compile ?values special-args)
+      "right-shift" (compile-i64-right-shift compile ?values special-args)
+      "="           (compile-i64-eq compile ?values special-args)
+      "+"           (compile-i64-add compile ?values special-args)
+      "-"           (compile-i64-sub compile ?values special-args)
+      "*"           (compile-int-mul compile ?values special-args)
+      "/"           (compile-int-div compile ?values special-args)
+      "%"           (compile-int-rem compile ?values special-args)
+      "<"           (compile-int-lt compile ?values special-args)
+      "f64"         (compile-int-frac compile ?values special-args)
+      "char"        (compile-int-char compile ?values special-args)
       )
     
     "f64"

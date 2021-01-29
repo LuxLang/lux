@@ -36,6 +36,78 @@
                      (list.zip/2 element_counts
                                  (set.to_list elements))))))
 
+(def: signature
+  Test
+  (do {! random.monad}
+    [diversity (\ ! map (n.% 10) random.nat)]
+    ($_ _.and
+        (_.for [/.equivalence]
+               ($equivalence.spec /.equivalence (..random diversity n.hash ..count random.nat)))
+        (_.for [/.hash]
+               (|> random.nat
+                   (\ random.monad map (function (_ single)
+                                         (/.add 1 single (/.new n.hash))))
+                   ($hash.spec /.hash)))
+        )))
+
+(def: composition
+  Test
+  (do {! random.monad}
+    [diversity (\ ! map (n.% 10) random.nat)
+     sample (..random diversity n.hash ..count random.nat)
+     another (..random diversity n.hash ..count random.nat)]
+    (`` ($_ _.and
+            (~~ (template [<name> <composition>]
+                  [(_.cover [<name>]
+                            (let [|sample| (/.support sample)
+                                  |another| (/.support another)
+                                  sample_only (set.difference |another| |sample|)
+                                  another_only (set.difference |sample| |another|)
+                                  common (set.intersection |sample| |another|)
+                                  composed (<name> sample another)
+
+                                  no_left_changes! (list.every? (function (_ member)
+                                                                  (n.= (/.multiplicity sample member)
+                                                                       (/.multiplicity composed member)))
+                                                                (set.to_list sample_only))
+                                  no_right_changes! (list.every? (function (_ member)
+                                                                   (n.= (/.multiplicity another member)
+                                                                        (/.multiplicity composed member)))
+                                                                 (set.to_list another_only))
+                                  common_changes! (list.every? (function (_ member)
+                                                                 (n.= (<composition> (/.multiplicity sample member)
+                                                                                     (/.multiplicity another member))
+                                                                      (/.multiplicity composed member)))
+                                                               (set.to_list common))]
+                              (and no_left_changes!
+                                   no_right_changes!
+                                   common_changes!)))]
+
+                  [/.sum n.+]
+                  [/.union n.max]
+                  ))
+            (_.cover [/.intersection]
+                     (let [|sample| (/.support sample)
+                           |another| (/.support another)
+                           sample_only (set.difference |another| |sample|)
+                           another_only (set.difference |sample| |another|)
+                           common (set.intersection |sample| |another|)
+                           composed (/.intersection sample another)
+
+                           left_removals! (list.every? (|>> (/.member? composed) not)
+                                                       (set.to_list sample_only))
+                           right_removals! (list.every? (|>> (/.member? composed) not)
+                                                        (set.to_list another_only))
+                           common_changes! (list.every? (function (_ member)
+                                                          (n.= (n.min (/.multiplicity sample member)
+                                                                      (/.multiplicity another member))
+                                                               (/.multiplicity composed member)))
+                                                        (set.to_list common))]
+                       (and left_removals!
+                            right_removals!
+                            common_changes!)))
+            ))))
+
 (def: #export test
   Test
   (<| (_.covering /._)
@@ -48,175 +120,121 @@
          addition_count ..count
          partial_removal_count (\ ! map (n.% addition_count) random.nat)
          another (..random diversity n.hash ..count random.nat)]
-        (`` ($_ _.and
-                (_.for [/.equivalence]
-                       ($equivalence.spec /.equivalence (..random diversity n.hash ..count random.nat)))
-                (_.for [/.hash]
-                       (|> random.nat
-                           (\ random.monad map (function (_ single)
-                                                 (/.add 1 single (/.new n.hash))))
-                           ($hash.spec /.hash)))
+        ($_ _.and
+            (_.cover [/.to_list /.from_list]
+                     (|> sample
+                         /.to_list
+                         (/.from_list n.hash)
+                         (\ /.equivalence = sample)))
+            (_.cover [/.size]
+                     (n.= (list.size (/.to_list sample))
+                          (/.size sample)))
+            (_.cover [/.empty?]
+                     (bit\= (/.empty? sample)
+                            (n.= 0 (/.size sample))))
+            (_.cover [/.new]
+                     (/.empty? (/.new n.hash)))
+            (_.cover [/.support]
+                     (list.every? (set.member? (/.support sample))
+                                  (/.to_list sample)))
+            (_.cover [/.member?]
+                     (let [non_member_is_not_identified!
+                           (not (/.member? sample non_member))
 
-                (_.cover [/.to_list /.from_list]
-                         (|> sample
-                             /.to_list
-                             (/.from_list n.hash)
-                             (\ /.equivalence = sample)))
-                (_.cover [/.size]
-                         (n.= (list.size (/.to_list sample))
-                              (/.size sample)))
-                (_.cover [/.empty?]
-                         (bit\= (/.empty? sample)
-                                (n.= 0 (/.size sample))))
-                (_.cover [/.new]
-                         (/.empty? (/.new n.hash)))
-                (_.cover [/.support]
-                         (list.every? (set.member? (/.support sample))
-                                      (/.to_list sample)))
-                (_.cover [/.member?]
-                         (let [non_member_is_not_identified!
-                               (not (/.member? sample non_member))
+                           all_members_are_identified!
+                           (list.every? (/.member? sample)
+                                        (/.to_list sample))]
+                       (and non_member_is_not_identified!
+                            all_members_are_identified!)))
+            (_.cover [/.multiplicity]
+                     (let [non_members_have_0_multiplicity!
+                           (n.= 0 (/.multiplicity sample non_member))
 
-                               all_members_are_identified!
-                               (list.every? (/.member? sample)
-                                            (/.to_list sample))]
-                           (and non_member_is_not_identified!
-                                all_members_are_identified!)))
-                (_.cover [/.multiplicity]
-                         (let [non_members_have_0_multiplicity!
-                               (n.= 0 (/.multiplicity sample non_member))
+                           every_member_has_positive_multiplicity!
+                           (list.every? (|>> (/.multiplicity sample) (n.> 0))
+                                        (/.to_list sample))]
+                       (and non_members_have_0_multiplicity!
+                            every_member_has_positive_multiplicity!)))
+            (_.cover [/.add]
+                     (let [null_scenario!
+                           (|> sample
+                               (/.add 0 non_member)
+                               (\ /.equivalence = sample))
 
-                               every_member_has_positive_multiplicity!
-                               (list.every? (|>> (/.multiplicity sample) (n.> 0))
-                                            (/.to_list sample))]
-                           (and non_members_have_0_multiplicity!
-                                every_member_has_positive_multiplicity!)))
-                (_.cover [/.add]
-                         (let [null_scenario!
-                               (|> sample
-                                   (/.add 0 non_member)
-                                   (\ /.equivalence = sample))
+                           normal_scenario!
+                           (let [sample+ (/.add addition_count non_member sample)]
+                             (and (not (/.member? sample non_member))
+                                  (/.member? sample+ non_member)
+                                  (n.= addition_count (/.multiplicity sample+ non_member))))]
+                       (and null_scenario!
+                            normal_scenario!)))
+            (_.cover [/.remove]
+                     (let [null_scenario!
+                           (\ /.equivalence =
+                              (|> sample
+                                  (/.add addition_count non_member))
+                              (|> sample
+                                  (/.add addition_count non_member)
+                                  (/.remove 0 non_member)))
 
-                               normal_scenario!
-                               (let [sample+ (/.add addition_count non_member sample)]
-                                 (and (not (/.member? sample non_member))
-                                      (/.member? sample+ non_member)
-                                      (n.= addition_count (/.multiplicity sample+ non_member))))]
-                           (and null_scenario!
-                                normal_scenario!)))
-                (_.cover [/.remove]
-                         (let [null_scenario!
-                               (\ /.equivalence =
-                                  (|> sample
-                                      (/.add addition_count non_member))
-                                  (|> sample
-                                      (/.add addition_count non_member)
-                                      (/.remove 0 non_member)))
+                           partial_scenario!
+                           (let [sample* (|> sample
+                                             (/.add addition_count non_member)
+                                             (/.remove partial_removal_count non_member))]
+                             (and (/.member? sample* non_member)
+                                  (n.= (n.- partial_removal_count
+                                            addition_count)
+                                       (/.multiplicity sample* non_member))))
 
-                               partial_scenario!
-                               (let [sample* (|> sample
-                                                 (/.add addition_count non_member)
-                                                 (/.remove partial_removal_count non_member))]
-                                 (and (/.member? sample* non_member)
-                                      (n.= (n.- partial_removal_count
-                                                addition_count)
-                                           (/.multiplicity sample* non_member))))
+                           total_scenario!
+                           (|> sample
+                               (/.add addition_count non_member)
+                               (/.remove addition_count non_member)
+                               (\ /.equivalence = sample))]
+                       (and null_scenario!
+                            partial_scenario!
+                            total_scenario!)))
+            (_.cover [/.from_set]
+                     (let [unary (|> sample /.support /.from_set)]
+                       (list.every? (|>> (/.multiplicity unary) (n.= 1))
+                                    (/.to_list unary))))
+            (_.cover [/.sub?]
+                     (let [unary (|> sample /.support /.from_set)]
+                       (and (/.sub? sample unary)
+                            (or (not (/.sub? unary sample))
+                                (\ /.equivalence = sample unary)))))
+            (_.cover [/.super?]
+                     (let [unary (|> sample /.support /.from_set)]
+                       (and (/.super? unary sample)
+                            (or (not (/.super? sample unary))
+                                (\ /.equivalence = sample unary)))))
+            (_.cover [/.difference]
+                     (let [|sample| (/.support sample)
+                           |another| (/.support another)
+                           sample_only (set.difference |another| |sample|)
+                           another_only (set.difference |sample| |another|)
+                           common (set.intersection |sample| |another|)
+                           composed (/.difference sample another)
 
-                               total_scenario!
-                               (|> sample
-                                   (/.add addition_count non_member)
-                                   (/.remove addition_count non_member)
-                                   (\ /.equivalence = sample))]
-                           (and null_scenario!
-                                partial_scenario!
-                                total_scenario!)))
-                (_.cover [/.from_set]
-                         (let [unary (|> sample /.support /.from_set)]
-                           (list.every? (|>> (/.multiplicity unary) (n.= 1))
-                                        (/.to_list unary))))
-                (_.cover [/.sub?]
-                         (let [unary (|> sample /.support /.from_set)]
-                           (and (/.sub? sample unary)
-                                (or (not (/.sub? unary sample))
-                                    (\ /.equivalence = sample unary)))))
-                (_.cover [/.super?]
-                         (let [unary (|> sample /.support /.from_set)]
-                           (and (/.super? unary sample)
-                                (or (not (/.super? sample unary))
-                                    (\ /.equivalence = sample unary)))))
-                (~~ (template [<name> <composition>]
-                      [(_.cover [<name>]
-                                (let [|sample| (/.support sample)
-                                      |another| (/.support another)
-                                      sample_only (set.difference |another| |sample|)
-                                      another_only (set.difference |sample| |another|)
-                                      common (set.intersection |sample| |another|)
-                                      composed (<name> sample another)
+                           ommissions! (list.every? (|>> (/.member? composed) not)
+                                                    (set.to_list sample_only))
+                           intact! (list.every? (function (_ member)
+                                                  (n.= (/.multiplicity another member)
+                                                       (/.multiplicity composed member)))
+                                                (set.to_list another_only))
+                           subtractions! (list.every? (function (_ member)
+                                                        (let [sample_multiplicity (/.multiplicity sample member)
+                                                              another_multiplicity (/.multiplicity another member)]
+                                                          (n.= (if (n.> another_multiplicity sample_multiplicity)
+                                                                 0
+                                                                 (n.- sample_multiplicity
+                                                                      another_multiplicity))
+                                                               (/.multiplicity composed member))))
+                                                      (set.to_list common))]
+                       (and ommissions!
+                            intact!
+                            subtractions!)))
 
-                                      no_left_changes! (list.every? (function (_ member)
-                                                                      (n.= (/.multiplicity sample member)
-                                                                           (/.multiplicity composed member)))
-                                                                    (set.to_list sample_only))
-                                      no_right_changes! (list.every? (function (_ member)
-                                                                       (n.= (/.multiplicity another member)
-                                                                            (/.multiplicity composed member)))
-                                                                     (set.to_list another_only))
-                                      common_changes! (list.every? (function (_ member)
-                                                                     (n.= (<composition> (/.multiplicity sample member)
-                                                                                         (/.multiplicity another member))
-                                                                          (/.multiplicity composed member)))
-                                                                   (set.to_list common))]
-                                  (and no_left_changes!
-                                       no_right_changes!
-                                       common_changes!)))]
-
-                      [/.sum n.+]
-                      [/.union n.max]
-                      ))
-                (_.cover [/.intersection]
-                         (let [|sample| (/.support sample)
-                               |another| (/.support another)
-                               sample_only (set.difference |another| |sample|)
-                               another_only (set.difference |sample| |another|)
-                               common (set.intersection |sample| |another|)
-                               composed (/.intersection sample another)
-
-                               left_removals! (list.every? (|>> (/.member? composed) not)
-                                                           (set.to_list sample_only))
-                               right_removals! (list.every? (|>> (/.member? composed) not)
-                                                            (set.to_list another_only))
-                               common_changes! (list.every? (function (_ member)
-                                                              (n.= (n.min (/.multiplicity sample member)
-                                                                          (/.multiplicity another member))
-                                                                   (/.multiplicity composed member)))
-                                                            (set.to_list common))]
-                           (and left_removals!
-                                right_removals!
-                                common_changes!)))
-                (_.cover [/.difference]
-                         (let [|sample| (/.support sample)
-                               |another| (/.support another)
-                               sample_only (set.difference |another| |sample|)
-                               another_only (set.difference |sample| |another|)
-                               common (set.intersection |sample| |another|)
-                               composed (/.difference sample another)
-
-                               ommissions! (list.every? (|>> (/.member? composed) not)
-                                                        (set.to_list sample_only))
-                               intact! (list.every? (function (_ member)
-                                                      (n.= (/.multiplicity another member)
-                                                           (/.multiplicity composed member)))
-                                                    (set.to_list another_only))
-                               subtractions! (list.every? (function (_ member)
-                                                            (let [sample_multiplicity (/.multiplicity sample member)
-                                                                  another_multiplicity (/.multiplicity another member)]
-                                                              (n.= (if (n.> another_multiplicity sample_multiplicity)
-                                                                     0
-                                                                     (n.- sample_multiplicity
-                                                                          another_multiplicity))
-                                                                   (/.multiplicity composed member))))
-                                                          (set.to_list common))]
-                           (and ommissions!
-                                intact!
-                                subtractions!)))
-                )))))
+            ..signature
+            ..composition
+            ))))
