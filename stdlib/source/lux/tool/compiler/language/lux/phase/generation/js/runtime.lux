@@ -99,57 +99,46 @@
                                  list.concat))]
                      (~ body)))))))
 
-(def: (runtime_name name)
-  (-> Text [Code Code])
-  (let [identifier (format ..prefix
-                           "_" (%.nat $.version)
-                           "_" (%.nat (text\hash name)))]
-    [(` (_.var (~ (code.text identifier))))
-     (code.local_identifier identifier)]))
-
 (syntax: (runtime: {declaration (<>.or <code>.local_identifier
                                        (<code>.form (<>.and <code>.local_identifier
                                                             (<>.some <code>.local_identifier))))}
            code)
-  (case declaration
-    (#.Left name)
-    (macro.with_gensyms [g!_]
-      (let [[runtime_nameC runtime_nameC!] (..runtime_name name)
-            nameC (code.local_identifier name)]
-        (wrap (list (` (def: (~ runtime_nameC!)
-                         Var
-                         (~ runtime_nameC)))
+  (macro.with_gensyms [g!_ runtime]
+    (let [runtime_name (` (_.var (~ (code.text (%.code runtime)))))]
+      (case declaration
+        (#.Left name)
+        (let [g!name (code.local_identifier name)]
+          (wrap (list (` (def: (~ runtime)
+                           Var
+                           (~ runtime_name)))
 
-                    (` (def: #export (~ nameC)
-                         (~ runtime_nameC!)))
-                    
-                    (` (def: (~ (code.local_identifier (format "@" name)))
-                         Statement
-                         (..feature (~ runtime_nameC)
-                                    (function ((~ g!_) (~ nameC))
-                                      (~ code)))))))))
-    
-    (#.Right [name inputs])
-    (macro.with_gensyms [g!_]
-      (let [[runtime_nameC runtime_nameC!] (..runtime_name name)
-            nameC (code.local_identifier name)
-            code_nameC (code.local_identifier (format "@" name))
-            inputsC (list\map code.local_identifier inputs)
-            inputs_typesC (list\map (function.constant (` _.Expression)) inputs)]
-        (wrap (list (` (def: ((~ runtime_nameC!) (~+ inputsC))
-                         (-> (~+ inputs_typesC) Computation)
-                         (_.apply/* (~ runtime_nameC) (list (~+ inputsC)))))
-                    
-                    (` (def: #export (~ nameC)
-                         (~ runtime_nameC!)))
-                    
-                    (` (def: (~ (code.local_identifier (format "@" name)))
-                         Statement
-                         (..feature (~ runtime_nameC)
-                                    (function ((~ g!_) (~ g!_))
-                                      (..with_vars [(~+ inputsC)]
-                                        (_.function (~ g!_) (list (~+ inputsC))
-                                          (~ code)))))))))))))
+                      (` (def: #export (~ g!name)
+                           (~ runtime)))
+                      
+                      (` (def: (~ (code.local_identifier (format "@" name)))
+                           Statement
+                           (..feature (~ runtime_name)
+                                      (function ((~ g!_) (~ g!name))
+                                        (~ code))))))))
+        
+        (#.Right [name inputs])
+        (let [g!name (code.local_identifier name)
+              inputsC (list\map code.local_identifier inputs)
+              inputs_typesC (list\map (function.constant (` _.Expression)) inputs)]
+          (wrap (list (` (def: ((~ runtime) (~+ inputsC))
+                           (-> (~+ inputs_typesC) Computation)
+                           (_.apply/* (~ runtime_name) (list (~+ inputsC)))))
+                      
+                      (` (def: #export (~ g!name)
+                           (~ runtime)))
+                      
+                      (` (def: (~ (code.local_identifier (format "@" name)))
+                           Statement
+                           (..feature (~ runtime_name)
+                                      (function ((~ g!_) (~ g!_))
+                                        (..with_vars [(~+ inputsC)]
+                                          (_.function (~ g!_) (list (~+ inputsC))
+                                            (~ code))))))))))))))
 
 (def: length
   (-> Expression Computation)
@@ -318,7 +307,9 @@
                  (|> i64 (_.the ..i64_low_field) (_.+ i64//2^32)))))
 
 (runtime: (i64//to_number i64)
-  (_.return (|> i64 (_.the ..i64_high_field) (_.* i64//2^32)
+  (_.return (|> i64
+                (_.the ..i64_high_field)
+                (_.* i64//2^32)
                 (_.+ (i64//unsigned_low i64)))))
 
 (runtime: i64//zero
@@ -364,13 +355,21 @@
           (_.define r00 (ll parameter))
 
           (_.define x00 (_.+ l00 r00))
-          (_.define x16 (high_16 x00))
+          
+          (_.define x16 (|> (high_16 x00)
+                            (_.+ l16)
+                            (_.+ r16)))
           (_.set x00 (low_16 x00))
-          (_.set x16 (|> x16 (_.+ l16) (_.+ r16)))
-          (_.define x32 (high_16 x16))
+          
+          (_.define x32 (|> (high_16 x16)
+                            (_.+ l32)
+                            (_.+ r32)))
           (_.set x16 (low_16 x16))
-          (_.set x32 (|> x32 (_.+ l32) (_.+ r32)))
-          (_.define x48 (|> (high_16 x32) (_.+ l48) (_.+ r48) low_16))
+          
+          (_.define x48 (|> (high_16 x32)
+                            (_.+ l48)
+                            (_.+ r48)
+                            low_16))
           (_.set x32 (low_16 x32))
 
           (_.return (..i64 (_.bit_or (up_16 x48) x32)
@@ -394,33 +393,33 @@
                    (_.bit_not (_.the ..i64_low_field value)))))
 
 (runtime: (i64//negate value)
-  (_.if (i64//= i64//min value)
-    (_.return i64//min)
-    (_.return (i64//+ i64//one (i64//not value)))))
+  (_.return (_.? (i64//= i64//min value)
+                 i64//min
+                 (i64//+ i64//one (i64//not value)))))
 
 (runtime: i64//-one
   (i64//negate i64//one))
 
 (runtime: (i64//from_number value)
-  (_.cond (list [(_.not_a_number? value)
-                 (_.return i64//zero)]
-                [(_.<= (_.negate i64//2^63) value)
-                 (_.return i64//min)]
-                [(|> value (_.+ (_.i32 +1)) (_.>= i64//2^63))
-                 (_.return i64//max)]
-                [(|> value (_.< (_.i32 +0)))
-                 (_.return (|> value _.negate i64//from_number i64//negate))])
-          (_.return (..i64 (|> value (_./ i64//2^32) _.to_i32)
-                           (|> value (_.% i64//2^32) _.to_i32)))))
+  (_.return (<| (_.? (_.not_a_number? value)
+                     i64//zero)
+                (_.? (_.<= (_.negate i64//2^63) value)
+                     i64//min)
+                (_.? (|> value (_.+ (_.i32 +1)) (_.>= i64//2^63))
+                     i64//max)
+                (_.? (|> value (_.< (_.i32 +0)))
+                     (|> value _.negate i64//from_number i64//negate))
+                (..i64 (|> value (_./ i64//2^32) _.to_i32)
+                       (|> value (_.% i64//2^32) _.to_i32)))))
 
 (def: (cap_shift! shift)
   (-> Var Statement)
   (_.set shift (|> shift (_.bit_and (_.i32 +63)))))
 
 (def: (no_shift! shift input)
-  (-> Var Var [Expression Statement])
-  [(|> shift (_.= (_.i32 +0)))
-   (_.return input)])
+  (-> Var Var (-> Expression Expression))
+  (_.? (|> shift (_.= (_.i32 +0)))
+       input))
 
 (def: small_shift?
   (-> Var Expression)
@@ -429,43 +428,44 @@
 (runtime: (i64//left_shift input shift)
   ($_ _.then
       (..cap_shift! shift)
-      (_.cond (list (..no_shift! shift input)
-                    [(..small_shift? shift)
-                     (let [high (_.bit_or (|> input (_.the ..i64_high_field) (_.left_shift shift))
-                                          (|> input (_.the ..i64_low_field) (_.logic_right_shift (_.- shift (_.i32 +32)))))
-                           low (|> input (_.the ..i64_low_field) (_.left_shift shift))]
-                       (_.return (..i64 high low)))])
-              (let [high (|> input (_.the ..i64_low_field) (_.left_shift (_.- (_.i32 +32) shift)))]
-                (_.return (..i64 high (_.i32 +0)))))))
+      (_.return (<| (..no_shift! shift input)
+                    (_.? (..small_shift? shift)
+                         (let [high (_.bit_or (|> input (_.the ..i64_high_field) (_.left_shift shift))
+                                              (|> input (_.the ..i64_low_field) (_.logic_right_shift (_.- shift (_.i32 +32)))))
+                               low (|> input (_.the ..i64_low_field) (_.left_shift shift))]
+                           (..i64 high low)))
+                    (let [high (|> input (_.the ..i64_low_field) (_.left_shift (_.- (_.i32 +32) shift)))]
+                      (..i64 high (_.i32 +0)))))
+      ))
 
 (runtime: (i64//arithmetic_right_shift input shift)
   ($_ _.then
       (..cap_shift! shift)
-      (_.cond (list (..no_shift! shift input)
-                    [(..small_shift? shift)
-                     (let [high (|> input (_.the ..i64_high_field) (_.arithmetic_right_shift shift))
-                           low (|> input (_.the ..i64_low_field) (_.logic_right_shift shift)
-                                   (_.bit_or (|> input (_.the ..i64_high_field) (_.left_shift (_.- shift (_.i32 +32))))))]
-                       (_.return (..i64 high low)))])
-              (let [high (_.? (|> input (_.the ..i64_high_field) (_.>= (_.i32 +0)))
-                              (_.i32 +0)
-                              (_.i32 -1))
-                    low (|> input (_.the ..i64_high_field) (_.arithmetic_right_shift (_.- (_.i32 +32) shift)))]
-                (_.return (..i64 high low))))))
+      (_.return (<| (..no_shift! shift input)
+                    (_.? (..small_shift? shift)
+                         (let [high (|> input (_.the ..i64_high_field) (_.arithmetic_right_shift shift))
+                               low (|> input (_.the ..i64_low_field) (_.logic_right_shift shift)
+                                       (_.bit_or (|> input (_.the ..i64_high_field) (_.left_shift (_.- shift (_.i32 +32))))))]
+                           (..i64 high low)))
+                    (let [high (_.? (|> input (_.the ..i64_high_field) (_.>= (_.i32 +0)))
+                                    (_.i32 +0)
+                                    (_.i32 -1))
+                          low (|> input (_.the ..i64_high_field) (_.arithmetic_right_shift (_.- (_.i32 +32) shift)))]
+                      (..i64 high low))))))
 
 (runtime: (i64//right_shift input shift)
   ($_ _.then
       (..cap_shift! shift)
-      (_.cond (list (..no_shift! shift input)
-                    [(..small_shift? shift)
-                     (let [high (|> input (_.the ..i64_high_field) (_.logic_right_shift shift))
-                           low (|> input (_.the ..i64_low_field) (_.logic_right_shift shift)
-                                   (_.bit_or (|> input (_.the ..i64_high_field) (_.left_shift (_.- shift (_.i32 +32))))))]
-                       (_.return (..i64 high low)))]
-                    [(|> shift (_.= (_.i32 +32)))
-                     (_.return (..i64 (_.i32 +0) (|> input (_.the ..i64_high_field))))])
-              (_.return (..i64 (_.i32 +0)
-                               (|> input (_.the ..i64_high_field) (_.logic_right_shift (_.- (_.i32 +32) shift))))))))
+      (_.return (<| (..no_shift! shift input)
+                    (_.? (..small_shift? shift)
+                         (let [high (|> input (_.the ..i64_high_field) (_.logic_right_shift shift))
+                               low (|> input (_.the ..i64_low_field) (_.logic_right_shift shift)
+                                       (_.bit_or (|> input (_.the ..i64_high_field) (_.left_shift (_.- shift (_.i32 +32))))))]
+                           (..i64 high low)))
+                    (_.? (|> shift (_.= (_.i32 +32)))
+                         (..i64 (_.i32 +0) (|> input (_.the ..i64_high_field))))
+                    (..i64 (_.i32 +0)
+                           (|> input (_.the ..i64_high_field) (_.logic_right_shift (_.- (_.i32 +32) shift))))))))
 
 (def: runtime//bit
   Statement
@@ -483,64 +483,67 @@
   (_.return (i64//+ (i64//negate parameter) subject)))
 
 (runtime: (i64//* parameter subject)
-  (let [negative? (|>> (_.the ..i64_high_field) (_.< (_.i32 +0)))]
-    (_.cond (list [(negative? subject)
-                   (_.if (negative? parameter)
-                     ## Both are negative
-                     (_.return (i64//* (i64//negate parameter) (i64//negate subject)))
-                     ## Subject is negative
-                     (_.return (i64//negate (i64//* parameter (i64//negate subject)))))]
-                  [(negative? parameter)
-                   ## Parameter is negative
-                   (_.return (i64//negate (i64//* (i64//negate parameter) subject)))])
-            ## Both are positive
-            (let [up_16 (_.left_shift (_.i32 +16))
-                  high_16 (_.logic_right_shift (_.i32 +16))
-                  low_16 (_.bit_and (_.i32 (.int (hex "FFFF"))))
-                  hh (|>> (_.the ..i64_high_field) high_16)
-                  hl (|>> (_.the ..i64_high_field) low_16)
-                  lh (|>> (_.the ..i64_low_field) high_16)
-                  ll (|>> (_.the ..i64_low_field) low_16)]
-              (with_vars [l48 l32 l16 l00
-                          r48 r32 r16 r00
-                          x48 x32 x16 x00]
-                ($_ _.then
-                    (_.define l48 (hh subject))
-                    (_.define l32 (hl subject))
-                    (_.define l16 (lh subject))
-                    (_.define l00 (ll subject))
+  (let [up_16 (_.left_shift (_.i32 +16))
+        high_16 (_.logic_right_shift (_.i32 +16))
+        low_16 (_.bit_and (_.i32 (.int (hex "FFFF"))))
+        hh (|>> (_.the ..i64_high_field) high_16)
+        hl (|>> (_.the ..i64_high_field) low_16)
+        lh (|>> (_.the ..i64_low_field) high_16)
+        ll (|>> (_.the ..i64_low_field) low_16)]
+    (with_vars [l48 l32 l16 l00
+                r48 r32 r16 r00
+                x48 x32 x16 x00]
+      ($_ _.then
+          (_.define l48 (hh subject))
+          (_.define l32 (hl subject))
+          (_.define l16 (lh subject))
+          (_.define l00 (ll subject))
 
-                    (_.define r48 (hh parameter))
-                    (_.define r32 (hl parameter))
-                    (_.define r16 (lh parameter))
-                    (_.define r00 (ll parameter))
+          (_.define r48 (hh parameter))
+          (_.define r32 (hl parameter))
+          (_.define r16 (lh parameter))
+          (_.define r00 (ll parameter))
 
-                    (_.define x00 (_.* l00 r00))
-                    (_.define x16 (high_16 x00))
-                    (_.set x00 (low_16 x00))
-                    
-                    (_.set x16 (|> x16 (_.+ (_.* l16 r00))))
-                    (_.define x32 (high_16 x16)) (_.set x16 (low_16 x16))
-                    (_.set x16 (|> x16 (_.+ (_.* l00 r16))))
-                    (_.set x32 (|> x32 (_.+ (high_16 x16)))) (_.set x16 (low_16 x16))
+          (_.define x00 (_.* l00 r00))
+          (_.define x16 (high_16 x00))
+          (_.set x00 (low_16 x00))
+          
+          (_.set x16 (|> x16 (_.+ (_.* l16 r00))))
+          (_.define x32 (high_16 x16)) (_.set x16 (low_16 x16))
+          (_.set x16 (|> x16 (_.+ (_.* l00 r16))))
+          (_.set x32 (|> x32 (_.+ (high_16 x16)))) (_.set x16 (low_16 x16))
 
-                    (_.set x32 (|> x32 (_.+ (_.* l32 r00))))
-                    (_.define x48 (high_16 x32)) (_.set x32 (low_16 x32))
-                    (_.set x32 (|> x32 (_.+ (_.* l16 r16))))
-                    (_.set x48 (|> x48 (_.+ (high_16 x32)))) (_.set x32 (low_16 x32))
-                    (_.set x32 (|> x32 (_.+ (_.* l00 r32))))
-                    (_.set x48 (|> x48 (_.+ (high_16 x32)))) (_.set x32 (low_16 x32))
-                    
-                    (_.set x48 (|> x48
-                                   (_.+ (_.* l48 r00))
-                                   (_.+ (_.* l32 r16))
-                                   (_.+ (_.* l16 r32))
-                                   (_.+ (_.* l00 r48))
-                                   low_16))
+          (_.set x32 (|> x32 (_.+ (_.* l32 r00))))
+          (_.define x48 (high_16 x32)) (_.set x32 (low_16 x32))
+          (_.set x32 (|> x32 (_.+ (_.* l16 r16))))
+          (_.set x48 (|> x48 (_.+ (high_16 x32)))) (_.set x32 (low_16 x32))
+          (_.set x32 (|> x32 (_.+ (_.* l00 r32))))
+          (_.set x48 (|> x48 (_.+ (high_16 x32)))) (_.set x32 (low_16 x32))
+          
+          (_.set x48 (|> x48
+                         (_.+ (_.* l48 r00))
+                         (_.+ (_.* l32 r16))
+                         (_.+ (_.* l16 r32))
+                         (_.+ (_.* l00 r48))
+                         low_16))
 
-                    (_.return (..i64 (_.bit_or (up_16 x48) x32)
-                                     (_.bit_or (up_16 x16) x00)))
-                    ))))))
+          (_.return (..i64 (_.bit_or (up_16 x48) x32)
+                           (_.bit_or (up_16 x16) x00)))
+          ))))
+
+## (runtime: (i64//* parameter subject)
+##   (let [negative? (|>> (_.the ..i64_high_field) (_.< (_.i32 +0)))]
+##     (_.cond (list [(negative? subject)
+##                    (_.if (negative? parameter)
+##                      ## Both are negative
+##                      (_.return (i64//*' (i64//negate parameter) (i64//negate subject)))
+##                      ## Subject is negative
+##                      (_.return (i64//negate (i64//*' parameter (i64//negate subject)))))]
+##                   [(negative? parameter)
+##                    ## Parameter is negative
+##                    (_.return (i64//negate (i64//*' (i64//negate parameter) subject)))])
+##             ## Both are positive
+##             (_.return (i64//*' parameter subject)))))
 
 (runtime: (i64//< parameter subject)
   (let [negative? (|>> (_.the ..i64_high_field) (_.< (_.i32 +0)))]
@@ -548,16 +551,17 @@
       ($_ _.then
           (_.define -subject? (negative? subject))
           (_.define -parameter? (negative? parameter))
-          (_.cond (list [(_.and -subject? (_.not -parameter?))
-                         (_.return (_.boolean true))]
-                        [(_.and (_.not -subject?) -parameter?)
-                         (_.return (_.boolean false))])
-                  (_.return (negative? (i64//- parameter subject))))))))
+          (_.return (<| (_.? (_.and -subject? (_.not -parameter?))
+                             (_.boolean true))
+                        (_.? (_.and (_.not -subject?) -parameter?)
+                             (_.boolean false))
+                        (negative? (i64//- parameter subject))))
+          ))))
 
 (def: (i64//<= param subject)
   (-> Expression Expression Expression)
-  (_.or (i64//< param subject)
-        (i64//= param subject)))
+  (|> (i64//< param subject)
+      (_.or (i64//= param subject))))
 
 (runtime: (i64/// parameter subject)
   (let [negative? (function (_ value)
@@ -668,6 +672,7 @@
       @i64//to_number
       @i64//from_number
       @i64//-
+      ## @i64//*'
       @i64//*
       @i64//<
       @i64///
@@ -679,9 +684,9 @@
   (with_vars [idx]
     ($_ _.then
         (_.define idx (|> text (_.do "indexOf" (list part (i64//to_number start)))))
-        (_.if (_.= (_.i32 -1) idx)
-          (_.return ..none)
-          (_.return (..some (i64//from_number idx)))))))
+        (_.return (_.? (_.= (_.i32 -1) idx)
+                       ..none
+                       (..some (i64//from_number idx)))))))
 
 (runtime: (text//clip start end text)
   (_.return (|> text (_.do "substring" (list (_.the ..i64_low_field start)
@@ -735,9 +740,9 @@
   (with_vars [temp]
     ($_ _.then
         (_.define temp (_.at field object))
-        (_.if (_.= _.undefined temp)
-          (_.return ..none)
-          (_.return (..some temp))))))
+        (_.return (_.? (_.= _.undefined temp)
+                       ..none
+                       (..some temp))))))
 
 (runtime: (js//set object field input)
   ($_ _.then

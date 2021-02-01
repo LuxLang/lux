@@ -35,6 +35,10 @@
        [meta
         [archive (#+ Archive)]]]]]]])
 
+(def: #export (gensym prefix)
+  (-> Text (Operation SVar))
+  (///////phase\map (|>> %.nat (format prefix) _.var) /////generation.next))
+
 (def: #export register
   (-> Register SVar)
   (|>> (///reference.local //reference.system) :assume))
@@ -147,19 +151,30 @@
   [right_choice (_.string "") inc]
   )
 
-(def: (alternation pre! post!)
-  (-> (Statement Any) (Statement Any) (Statement Any))
-  ($_ _.then
-      (_.while (_.bool true)
-               ($_ _.then
-                   ..save!
-                   pre!))
-      ($_ _.then
-          ..restore!
-          post!)))
+(def: (alternation in_closure? g!once pre! post!)
+  (-> Bit SVar (Statement Any) (Statement Any) (Statement Any))
+  (.if in_closure?
+    ($_ _.then
+        (_.while (_.bool true)
+                 ($_ _.then
+                     ..save!
+                     pre!)
+                 #.None)
+        ..restore!
+        post!)
+    ($_ _.then
+        (_.set (list g!once) (_.bool true))
+        (_.while g!once
+                 ($_ _.then
+                     (_.set (list g!once) (_.bool false))
+                     ..save!
+                     pre!)
+                 (#.Some _.continue))
+        ..restore!
+        post!)))
 
-(def: (pattern_matching' statement expression archive)
-  (-> Phase! Phase Archive Path (Operation (Statement Any)))
+(def: (pattern_matching' in_closure? statement expression archive)
+  (-> Bit Phase! Phase Archive Path (Operation (Statement Any)))
   (function (recur pathP)
     (.case pathP
       (^ (/////synthesis.path/then bodyS))
@@ -249,23 +264,38 @@
                                  (..multi_pop! (n.+ 2 extra_pops))
                                  next!))))
 
-      (^template [<tag> <combinator>]
-        [(^ (<tag> preP postP))
-         (do ///////phase.monad
-           [pre! (recur preP)
-            post! (recur postP)]
-           (wrap (<combinator> pre! post!)))])
-      ([/////synthesis.path/seq _.then]
-       [/////synthesis.path/alt ..alternation]))))
+      (^ (/////synthesis.path/seq preP postP))
+      (do ///////phase.monad
+        [pre! (recur preP)
+         post! (recur postP)]
+        (wrap (_.then pre! post!)))
 
-(def: (pattern_matching statement expression archive pathP)
-  (-> Phase! Phase Archive Path (Operation (Statement Any)))
+      (^ (/////synthesis.path/alt preP postP))
+      (do ///////phase.monad
+        [pre! (recur preP)
+         post! (recur postP)
+         g!once (..gensym "once")]
+        (wrap (..alternation in_closure? g!once pre! post!))))))
+
+(def: (pattern_matching in_closure? statement expression archive pathP)
+  (-> Bit Phase! Phase Archive Path (Operation (Statement Any)))
   (do ///////phase.monad
-    [pattern_matching! (pattern_matching' statement expression archive pathP)]
-    (wrap ($_ _.then
-              (_.while (_.bool true)
-                       pattern_matching!)
-              (_.raise (_.Exception/1 (_.string case.pattern_matching_error)))))))
+    [pattern_matching! (pattern_matching' in_closure? statement expression archive pathP)
+     g!once (..gensym "once")]
+    (wrap (.if in_closure?
+            ($_ _.then
+                (_.while (_.bool true)
+                         pattern_matching!
+                         #.None)
+                (_.raise (_.Exception/1 (_.string case.pattern_matching_error))))
+            ($_ _.then
+                (_.set (list g!once) (_.bool true))
+                (_.while g!once
+                         ($_ _.then
+                             (_.set (list g!once) (_.bool false))
+                             pattern_matching!)
+                         (#.Some _.continue))
+                (_.raise (_.Exception/1 (_.string case.pattern_matching_error))))))))
 
 (def: #export dependencies
   (-> Path (List SVar))
@@ -280,15 +310,11 @@
                      (#///////variable.Foreign register)
                      (..capture register))))))
 
-(def: #export (gensym prefix)
-  (-> Text (Operation SVar))
-  (///////phase\map (|>> %.nat (format prefix) _.var) /////generation.next))
-
-(def: #export (case! statement expression archive [valueS pathP])
-  (Generator! [Synthesis Path])
+(def: #export (case! in_closure? statement expression archive [valueS pathP])
+  (-> Bit (Generator! [Synthesis Path]))
   (do ///////phase.monad
     [stack_init (expression archive valueS)
-     pattern_matching! (pattern_matching statement expression archive pathP)]
+     pattern_matching! (pattern_matching in_closure? statement expression archive pathP)]
     (wrap ($_ _.then
               (_.set (list @cursor) (_.list (list stack_init)))
               (_.set (list @savepoint) (_.list (list)))
@@ -299,7 +325,7 @@
   (-> Phase! (Generator [Synthesis Path]))
   (do ///////phase.monad
     [[[case_module case_artifact] pattern_matching!] (/////generation.with_new_context archive
-                                                       (case! statement expression archive [valueS pathP]))
+                                                       (case! true statement expression archive [valueS pathP]))
      #let [@case (_.var (///reference.artifact [case_module case_artifact]))
            @dependencies+ (..dependencies (/////synthesis.path/seq (/////synthesis.path/then valueS)
                                                                    pathP))

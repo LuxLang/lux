@@ -95,32 +95,30 @@ cd ~/lux/lux-js/ && lein clean && lein lux auto build
 cd ~/lux/lux-js/ \
 && lein clean \
 && lein lux build \
-&& mv target/program.jar program.jar
+&& mv target/program.jar jvm_based_compiler.jar
 
 ## Use JVM-based compiler to produce a JS/Node-based compiler.
 cd ~/lux/lux-js/ \
 && lein clean \
-&& time java -jar program.jar build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program \
-&& mv target/program.js _program.js
+&& time java -jar jvm_based_compiler.jar build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program \
+&& mv target/program.js node_based_compiler.js
 
 ## Use JS/Node-based compiler to produce another JS/Node-based compiler.
 cd ~/lux/lux-js/ \
 && lein clean \
-&& time node --stack_size=8192 _program.js build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program \
-&& mv target/program.js program.js
+&& time node --stack_size=8192 node_based_compiler.js build --source ~/lux/lux-js/source --target ~/lux/lux-js/target --module program \
+&& mv target/program.js lux.js
 ```
 
 ## Try
 
 ```
-cd ~/lux/stdlib/ && lein clean && cd ~/lux/lux-js/ && time java -jar program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
-cd ~/lux/stdlib/target/ && node program.js
-
 ## Compile Lux's Standard Library's tests using a JS/Node-based compiler.
 cd ~/lux/stdlib/ \
 && lein clean \
-&& cd ~/lux/lux-js/ \
-&& time node --stack_size=8192 program.js build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
+&& time node --stack_size=8192 ~/lux/lux-js/lux.js build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
+
+node ~/lux/stdlib/target/program.js
 ```
 
 ---
@@ -153,18 +151,27 @@ cd ~/lux/lux-python/ \
 && lein clean \
 && time java -jar jvm_based_compiler.jar build --source ~/lux/lux-python/source --target ~/lux/lux-python/target --module program \
 && mv target/program.py python_based_compiler.py
+&& python3 -m compileall python_based_compiler.py
+&& mv __pycache__/python_based_compiler.cpython-38.pyc python_based_compiler.pyc
 
 ## Use Python-based compiler to produce another Python-based compiler.
 cd ~/lux/lux-python/ \
 && lein clean \
-&& time python3 python_based_compiler.py build --source ~/lux/lux-python/source --target ~/lux/lux-python/target --module program \
+&& time python3 python_based_compiler.pyc build --source ~/lux/lux-python/source --target ~/lux/lux-python/target --module program \
 && mv target/program.py lux.py
+&& python3 -m compileall lux.py
+&& mv __pycache__/lux.cpython-38.pyc lux.pyc
 ```
 
 ## Try
 
 ```
-cd ~/lux/lux-python/ && java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
+## Compile Lux's Standard Library's tests using a Python-based compiler.
+cd ~/lux/stdlib/ \
+&& lein clean \
+&& time python3 ~/lux/lux-python/lux.pyc build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
+
+python3 ~/lux/stdlib/target/program.py
 ```
 
 ---

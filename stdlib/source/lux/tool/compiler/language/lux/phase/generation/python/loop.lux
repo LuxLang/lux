@@ -40,18 +40,11 @@
       list.reverse
       (list\fold _.then body)))
 
-(def: #export (set_scope @expected_exception @actual_exception body!)
-  (-> SVar SVar (Statement Any) (Statement Any))
-  (let [exception_class (_.var "Exception")]
-    ($_ _.then
-        (_.set (list @expected_exception) (_.apply/* exception_class (list (_.string ""))))
-        (_.while (_.bool true)
-                 (_.try body!
-                        (list {#_.classes (list exception_class)
-                               #_.exception @actual_exception
-                               #_.handler (_.if (_.is @expected_exception @actual_exception)
-                                            _.continue
-                                            (_.raise @actual_exception))}))))))
+(def: #export (set_scope body!)
+  (-> (Statement Any) (Statement Any))
+  (_.while (_.bool true)
+           body!
+           #.None))
 
 (def: #export (scope! statement expression archive [start initsS+ bodyS])
   (Generator! (Scope Synthesis))
@@ -64,12 +57,10 @@
     _
     (do {! ///////phase.monad}
       [initsO+ (monad.map ! (expression archive) initsS+)
-       @expected_exception (//case.gensym "expected_exception")
-       @actual_exception (//case.gensym "actual_exception")
-       body! (/////generation.with_anchor [start @expected_exception]
+       body! (/////generation.with_anchor start
                (statement expression archive bodyS))]
       (wrap (<| (..setup start initsO+)
-                (set_scope @expected_exception @actual_exception)
+                ..set_scope
                 body!)))))
 
 (def: #export (scope statement expression archive [start initsS+ bodyS])
@@ -82,18 +73,16 @@
     ## true loop
     _
     (do {! ///////phase.monad}
-      [@expected_exception (//case.gensym "expected_exception")
-       @actual_exception (//case.gensym "actual_exception")
-       initsO+ (monad.map ! (expression archive) initsS+)
+      [initsO+ (monad.map ! (expression archive) initsS+)
        [[loop_module loop_artifact] body!] (/////generation.with_new_context archive
-                                             (/////generation.with_anchor [start @expected_exception]
+                                             (/////generation.with_anchor start
                                                (statement expression archive bodyS)))
        #let [@loop (_.var (///reference.artifact [loop_module loop_artifact]))
              locals (|> initsS+
                         list.enumeration
                         (list\map (|>> product.left (n.+ start) //case.register)))
              actual_loop (<| (_.def @loop locals)
-                             (set_scope @expected_exception @actual_exception)
+                             ..set_scope
                              body!)
              [directive instantiation] (: [(Statement Any) (Expression Any)]
                                           (case (|> (synthesis.path/then bodyS)
@@ -119,7 +108,7 @@
 (def: #export (recur! statement expression archive argsS+)
   (Generator! (List Synthesis))
   (do {! ///////phase.monad}
-    [[offset @exception] /////generation.anchor
+    [offset /////generation.anchor
      @temp (//case.gensym "lux_recur_values")
      argsO+ (monad.map ! (expression archive) argsS+)
      #let [re_binds (|> argsO+
@@ -129,4 +118,4 @@
     (wrap ($_ _.then
               (_.set (list @temp) (_.list argsO+))
               (..setup offset re_binds
-                       (_.raise @exception))))))
+                       _.continue)))))
