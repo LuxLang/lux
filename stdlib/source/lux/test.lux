@@ -5,6 +5,7 @@
    [abstract
     ["." monad (#+ do)]]
    [control
+    [pipe (#+ case>)]
     ["." try]
     ["." exception (#+ exception:)]
     ["." io]
@@ -155,22 +156,18 @@
 
 (def: #export (times amount test)
   (-> Nat Test Test)
-  (cond (n.= 0 amount)
-        (fail (exception.construct ..must_try_test_at_least_once []))
-
-        (n.= 1 amount)
-        test
-
-        ## else
-        (do random.monad
-          [seed random.nat]
-          (function (_ prng)
-            (let [[prng' instance] (random.run (random.pcg32 [..pcg32_magic_inc seed]) test)]
-              [prng' (do promise.monad
-                       [[counters documentation] instance]
-                       (if (failed? counters)
-                         (wrap [counters (times_failure seed documentation)])
-                         (product.right (random.run prng' (times (dec amount) test)))))])))))
+  (case amount
+    0 (..fail (exception.construct ..must_try_test_at_least_once []))
+    1 test
+    _ (do random.monad
+        [seed random.nat]
+        (function (_ prng)
+          (let [[prng' instance] (random.run (random.pcg32 [..pcg32_magic_inc seed]) test)]
+            [prng' (do promise.monad
+                     [[counters documentation] instance]
+                     (if (failed? counters)
+                       (wrap [counters (times_failure seed documentation)])
+                       (|> test (times (dec amount)) (random.run prng') product.right)))])))))
 
 (def: (tally duration counters)
   (-> Duration Counters Text)
@@ -343,20 +340,18 @@
     [seed random.nat
      #let [prng (random.pcg32 [..pcg32_magic_inc seed])
            run! (: (-> Test Assertion)
-                   (function (_ test)
-                     (|> (case (|> test
-                                   (random.run prng)
-                                   product.right
-                                   io.io
-                                   "lux try")
-                           (#try.Success output)
-                           output
-                           
-                           (#try.Failure error)
-                           (..assert (exception.construct ..error_during_execution [error]) false))
-                         io.io
-                         promise.future
-                         promise\join)))]]
+                   (|>> (random.run prng)
+                        product.right
+                        io.io
+                        "lux try"
+                        (case> (#try.Success output)
+                               output
+                               
+                               (#try.Failure error)
+                               (..assert (exception.construct ..error_during_execution [error]) false))
+                        io.io
+                        promise.future
+                        promise\join))]]
     (wrap (do {! promise.monad}
             [assertions (monad.seq ! (list\map run! tests))]
             (wrap [(|> assertions

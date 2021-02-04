@@ -1,0 +1,88 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   [abstract
+    [predicate (#+ Predicate)]
+    [monad (#+ do)]]
+   [data
+    ["." maybe ("#\." monad)]
+    [collection
+     ["." list ("#\." functor)]]]
+   [math
+    ["." random]
+    [number
+     ["n" nat]]]]
+  {1
+   ["." /]})
+
+(def: _refiner
+  (/.refinement (n.> 123)))
+
+(def: _type
+  (/.type _refiner))
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      (_.for [/.Refined])
+      (do {! random.monad}
+        [raw random.nat
+         modulus (\ ! map (|>> (n.% 10) (n.+ 2)) random.nat)
+         #let [predicate (: (Predicate Nat)
+                            (|>> (n.% modulus) (n.= 0)))]
+         total_raws (\ ! map (|>> (n.% 20) inc) random.nat)
+         raws (random.list total_raws random.nat)]
+        ($_ _.and
+            (_.for [/.Refiner]
+                   ($_ _.and
+                       (_.cover [/.refinement]
+                                (case (/.refinement predicate raw)
+                                  (#.Some refined)
+                                  (predicate raw)
+                                  
+                                  #.None
+                                  (not (predicate raw))))
+                       (_.cover [/.predicate]
+                                (|> (/.refinement predicate modulus)
+                                    (maybe\map (|>> /.predicate (is? predicate)))
+                                    (maybe.default false)))
+                       ))
+            (_.cover [/.un_refine]
+                     (|> (/.refinement predicate modulus)
+                         (maybe\map (|>> /.un_refine (n.= modulus)))
+                         (maybe.default false)))
+            (_.cover [/.lift]
+                     (and (|> (/.refinement predicate modulus)
+                              (maybe\map (/.lift (n.+ modulus)))
+                              maybe\join
+                              (maybe\map (|>> /.un_refine (n.= (n.+ modulus modulus))))
+                              (maybe.default false))
+                          (|> (/.refinement predicate modulus)
+                              (maybe\map (/.lift (n.+ (inc modulus))))
+                              maybe\join
+                              (maybe\map (|>> /.un_refine (n.= (n.+ modulus (inc modulus)))))
+                              (maybe.default false)
+                              not)))
+            (_.cover [/.filter]
+                     (let [expected (list.filter predicate raws)
+                           actual (/.filter (/.refinement predicate) raws)]
+                       (and (n.= (list.size expected)
+                                 (list.size actual))
+                            (\ (list.equivalence n.equivalence) =
+                               expected
+                               (list\map /.un_refine actual)))))
+            (_.cover [/.partition]
+                     (let [expected (list.filter predicate raws)
+                           [actual alternative] (/.partition (/.refinement predicate) raws)]
+                       (and (n.= (list.size expected)
+                                 (list.size actual))
+                            (n.= (n.- (list.size expected) total_raws)
+                                 (list.size alternative))
+                            (\ (list.equivalence n.equivalence) =
+                               expected
+                               (list\map /.un_refine actual)))))
+            (_.cover [/.type]
+                     (exec (: (Maybe .._type)
+                              (.._refiner raw))
+                       true))
+            ))))

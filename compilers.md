@@ -188,8 +188,28 @@ cd ~/lux/lux-lua/ && lein clean && lein lux auto test
 ## Build
 
 ```
-cd ~/lux/lux-lua/ && lein lux auto build
-cd ~/lux/lux-lua/ && lein clean && lein lux auto build
+## Develop
+cd ~/lux/lux-lua/ \
+&& lein clean \
+&& lein lux auto build
+
+## Build JVM-based compiler
+cd ~/lux/lux-lua/ \
+&& lein clean \
+&& lein lux build \
+&& mv target/program.jar jvm_based_compiler.jar
+
+## Use JVM-based compiler to produce a Lua-based compiler.
+cd ~/lux/lux-lua/ \
+&& lein clean \
+&& time java -jar jvm_based_compiler.jar build --source ~/lux/lux-lua/source --target ~/lux/lux-lua/target --module program \
+&& mv target/program.lua host_based_compiler.lua
+
+## Use Lua-based compiler to produce another Lua-based compiler.
+cd ~/lux/lux-lua/ \
+&& lein clean \
+&& time lua host_based_compiler.lua build --source ~/lux/lux-lua/source --target ~/lux/lux-lua/target --module program \
+&& mv target/program.lua lux.lua
 ```
 
 ## Try
