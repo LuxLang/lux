@@ -6,6 +6,8 @@
     pipe]
    [data
     ["." product]
+    [text
+     ["%" format (#+ format)]]
     [collection
      ["." list ("#\." functor fold)]]]
    [target
@@ -37,23 +39,24 @@
   (-> Register Var)
   (|>> (///reference.foreign //reference.system) :assume))
 
-(def: (with_closure function_name inits function_definition)
-  (-> Text (List Expression) Statement (Operation Expression))
+(def: (with_closure function_name inits @function @args @body)
+  (-> Text (List Expression) Var (List Var) Statement (Operation Expression))
   (case inits
     #.Nil
     (do ///////phase.monad
-      [_ (/////generation.execute! function_definition)
+      [#let [function_definition (_.function @function @args @body)]
+       _ (/////generation.execute! function_definition)
        _ (/////generation.save! function_name function_definition)]
-      (wrap (|> (_.var function_name) (_.apply/* inits))))
+      (wrap (_.var function_name)))
 
     _
     (do {! ///////phase.monad}
-      [@closure (\ ! map _.var (/////generation.gensym "closure"))
-       #let [directive (_.function @closure
+      [#let [@closure (_.var (format function_name "_closure"))
+             directive (_.function @closure
                          (|> (list.enumeration inits)
                              (list\map (|>> product.left ..capture)))
                          ($_ _.then
-                             function_definition
+                             (_.local_function @function @args @body)
                              (_.return (_.var function_name))))]
        _ (/////generation.execute! directive)
        _ (/////generation.save! (_.code @closure) directive)]
@@ -77,35 +80,35 @@
            arityO (|> arity .int _.int)
            @num_args (_.var "num_args")
            @self (_.var function_name)
-           initialize_self! (_.let (list (//case.register 0)) @self)
+           initialize_self! (_.local/1 (//case.register 0) @self)
            initialize! (list\fold (.function (_ post pre!)
                                     ($_ _.then
                                         pre!
-                                        (_.let (list (..input post)) (_.nth (|> post inc .int _.int) @curried))))
+                                        (_.local/1 (..input post) (_.nth (|> post inc .int _.int) @curried))))
                                   initialize_self!
                                   (list.indices arity))
-           pack (|>> (list) _.apply/* (|> (_.var "table.pack")))
+           pack (|>> (list) _.array)
            unpack (|>> (list) _.apply/* (|> (_.var "table.unpack")))
            @var_args (_.var "...")]]
     (with_closure function_name closureO+
-      (_.function @self (list @var_args)
-        ($_ _.then
-            (_.let (list @curried) (pack @var_args))
-            (_.let (list @num_args) (_.the "n" @curried))
-            (_.cond (list [(|> @num_args (_.= (_.int +0)))
-                           (_.return @self)]
-                          [(|> @num_args (_.= arityO))
-                           ($_ _.then
-                               initialize!
-                               (_.return bodyO))]
-                          [(|> @num_args (_.> arityO))
-                           (let [arity_inputs (//runtime.array//sub (_.int +0) arityO @curried)
-                                 extra_inputs (//runtime.array//sub arityO @num_args @curried)]
-                             (_.return (|> @self
-                                           (_.apply/* (list (unpack arity_inputs)))
-                                           (_.apply/* (list (unpack extra_inputs))))))])
-                    ## (|> @num_args (_.< arityO))
-                    (_.return (_.closure (list @var_args)
-                                         (_.return (|> @self (_.apply/* (list (unpack (//runtime.array//concat @curried (pack @var_args))))))))))
-            )))
+      @self (list @var_args)
+      ($_ _.then
+          (_.local/1 @curried (pack @var_args))
+          (_.local/1 @num_args (_.length @curried))
+          (_.cond (list [(|> @num_args (_.= (_.int +0)))
+                         (_.return @self)]
+                        [(|> @num_args (_.= arityO))
+                         ($_ _.then
+                             initialize!
+                             (_.return bodyO))]
+                        [(|> @num_args (_.> arityO))
+                         (let [arity_inputs (//runtime.array//sub (_.int +0) arityO @curried)
+                               extra_inputs (//runtime.array//sub arityO @num_args @curried)]
+                           (_.return (|> @self
+                                         (_.apply/* (list (unpack arity_inputs)))
+                                         (_.apply/* (list (unpack extra_inputs))))))])
+                  ## (|> @num_args (_.< arityO))
+                  (_.return (_.closure (list @var_args)
+                                       (_.return (|> @self (_.apply/* (list (unpack (//runtime.array//concat @curried (pack @var_args))))))))))
+          ))
     ))

@@ -43,3 +43,7 @@
 1. https://cs.ru.nl/~wouters/Publications/ThePowerOfPi.pdf
 1. [Algebraic Presentations of Dependent Type Theories](https://arxiv.org/abs/1602.08504v3)
 
+# Math | Proofs
+
+1. http://logipedia.inria.fr/about/about.php
+

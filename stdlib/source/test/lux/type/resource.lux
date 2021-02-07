@@ -1,53 +1,192 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
+   ["." meta]
    [abstract
-    [monad
+    ["." monad
      [indexed (#+ do)]]]
    [control
-    ["." io]]
+    ["." io]
+    ["." try]
+    ["." exception (#+ Exception)]
+    [concurrency
+     ["." promise]]
+    [parser
+     ["<.>" code]]]
+   [data
+    ["." text ("#\." equivalence)
+     ["%" format (#+ format)]]]
+   ["." macro
+    [syntax (#+ syntax:)]
+    ["." code]]
    [math
-    [number
-     ["n" nat]]]]
+    ["." random]]]
   {1
    ["." / (#+ Res)]})
 
+(def: pure
+  Test
+  (monad.do {! random.monad}
+    [pre (\ ! map %.nat random.nat)
+     post (\ ! map %.nat random.nat)]
+    (_.for [/.Linear /.pure /.run_pure]
+           (`` ($_ _.and
+                   (~~ (template [<coverage> <bindings>]
+                         [(_.cover <coverage>
+                                   (<| (text\= (format pre post))
+                                       /.run_pure
+                                       (do /.pure
+                                         <bindings>
+                                         (wrap (format left right)))))]
+                         
+                         [[/.Affine /.Key /.Res /.Ordered /.ordered_pure
+                           /.Relevant /.read_pure]
+                          [res|left (/.ordered_pure pre)
+                           res|right (/.ordered_pure post)
+                           right (/.read_pure res|right)
+                           left (/.read_pure res|left)]]
+                         [[/.Commutative /.commutative_pure /.exchange_pure]
+                          [res|left (/.commutative_pure pre)
+                           res|right (/.commutative_pure post)
+                           _ (/.exchange_pure [1 0])
+                           left (/.read_pure res|left)
+                           right (/.read_pure res|right)]]
+                         [[/.group_pure /.un_group_pure]
+                          [res|left (/.commutative_pure pre)
+                           res|right (/.commutative_pure post)
+                           _ (/.group_pure 2)
+                           _ (/.un_group_pure 2)
+                           right (/.read_pure res|right)
+                           left (/.read_pure res|left)]]
+                         [[/.lift_pure]
+                          [left (/.lift_pure pre)
+                           right (/.lift_pure post)]]
+                         ))
+                   )))))
+
+(def: sync
+  Test
+  (monad.do {! random.monad}
+    [pre (\ ! map %.nat random.nat)
+     post (\ ! map %.nat random.nat)]
+    (_.for [/.Linear /.sync /.run_sync]
+           (`` ($_ _.and
+                   (~~ (template [<coverage> <bindings>]
+                         [(_.cover <coverage>
+                                   (<| (text\= (format pre post))
+                                       io.run
+                                       /.run_sync
+                                       (do /.sync
+                                         <bindings>
+                                         (wrap (format left right)))))]
+
+                         [[/.Affine /.Key /.Res /.Ordered /.ordered_sync
+                           /.Relevant /.read_sync]
+                          [res|left (/.ordered_sync pre)
+                           res|right (/.ordered_sync post)
+                           right (/.read_sync res|right)
+                           left (/.read_sync res|left)]]
+                         [[/.Commutative /.commutative_sync /.exchange_sync]
+                          [res|left (/.commutative_sync pre)
+                           res|right (/.commutative_sync post)
+                           _ (/.exchange_sync [1 0])
+                           left (/.read_sync res|left)
+                           right (/.read_sync res|right)]]
+                         [[/.group_sync /.un_group_sync]
+                          [res|left (/.commutative_sync pre)
+                           res|right (/.commutative_sync post)
+                           _ (/.group_sync 2)
+                           _ (/.un_group_sync 2)
+                           right (/.read_sync res|right)
+                           left (/.read_sync res|left)]]
+                         [[/.lift_sync]
+                          [left (/.lift_sync (io.io pre))
+                           right (/.lift_sync (io.io post))]]
+                         ))
+                   )))))
+
+(def: async
+  Test
+  (monad.do {! random.monad}
+    [pre (\ ! map %.nat random.nat)
+     post (\ ! map %.nat random.nat)]
+    (_.for [/.Linear /.async /.run_async]
+           (`` ($_ _.and
+                   (~~ (template [<coverage> <bindings>]
+                         [(wrap (monad.do promise.monad
+                                  [outcome (/.run_async
+                                            (do /.async
+                                              <bindings>
+                                              (wrap (format left right))))]
+                                  (_.cover' <coverage>
+                                            (text\= (format pre post)
+                                                    outcome))))]
+
+                         [[/.Affine /.Key /.Res /.Ordered /.ordered_async
+                           /.Relevant /.read_async]
+                          [res|left (/.ordered_async pre)
+                           res|right (/.ordered_async post)
+                           right (/.read_async res|right)
+                           left (/.read_async res|left)]]
+                         [[/.Commutative /.commutative_async /.exchange_async]
+                          [res|left (/.commutative_async pre)
+                           res|right (/.commutative_async post)
+                           _ (/.exchange_async [1 0])
+                           left (/.read_async res|left)
+                           right (/.read_async res|right)]]
+                         [[/.group_async /.un_group_async]
+                          [res|left (/.commutative_async pre)
+                           res|right (/.commutative_async post)
+                           _ (/.group_async 2)
+                           _ (/.un_group_async 2)
+                           right (/.read_async res|right)
+                           left (/.read_async res|left)]]
+                         [[/.lift_async]
+                          [left (/.lift_async (promise.resolved pre))
+                           right (/.lift_async (promise.resolved post))]]
+                         ))
+                   )))))
+
+(syntax: (with_error {exception <code>.identifier} to_expand)
+  (monad.do meta.monad
+    [[_ _ _ exception] (meta.find_export exception)]
+    (function (_ compiler)
+      (#.Right [compiler
+                (list (code.bit (case ((macro.expand_once to_expand) compiler)
+                                  (#try.Success _)
+                                  false
+                                  
+                                  (#try.Failure error)
+                                  true)))]))))
+
 (def: #export test
   Test
-  (<| (_.context (%.name (name_of /._)))
+  (<| (_.covering /._)
+      (_.for [/.Procedure])
       ($_ _.and
-          (_.test "Can produce and consume keys in an ordered manner."
-                  (<| (n.= (n.+ 123 456))
-                      io.run
-                      /.run_sync
-                      (do /.sync
-                        [res|left (/.ordered_sync 123)
-                         res|right (/.ordered_sync 456)
-                         right (/.read_sync res|right)
-                         left (/.read_sync res|left)]
-                        (wrap (n.+ left right)))))
-          (_.test "Can exchange commutative keys."
-                  (<| (n.= (n.+ 123 456))
-                      io.run
-                      /.run_sync
-                      (do /.sync
-                        [res|left (/.commutative_sync 123)
-                         res|right (/.commutative_sync 456)
-                         _ (/.exchange_sync [1 0])
-                         left (/.read_sync res|left)
-                         right (/.read_sync res|right)]
-                        (wrap (n.+ left right)))))
-          (_.test "Can group and un-group keys."
-                  (<| (n.= (n.+ 123 456))
-                      io.run
-                      /.run_sync
-                      (do /.sync
-                        [res|left (/.commutative_sync 123)
-                         res|right (/.commutative_sync 456)
-                         _ (/.group_sync 2)
-                         _ (/.un_group_sync 2)
-                         right (/.read_sync res|right)
-                         left (/.read_sync res|left)]
-                        (wrap (n.+ left right)))))
+          ..pure
+          ..sync
+          ..async
+
+          (_.cover [/.amount_cannot_be_zero]
+                   (`` (and (~~ (template [<group|un_group>]
+                                  [(with_error /.amount_cannot_be_zero
+                                     (<group|un_group> 0))]
+
+                                  [/.group_pure]
+                                  [/.group_sync]
+                                  [/.group_async]
+                                  [/.un_group_pure]
+                                  [/.un_group_sync]
+                                  [/.un_group_async]
+                                  )))))
+          (_.cover [/.index_cannot_be_repeated]
+                   (`` (and (~~ (template [<exchange>]
+                                  [(with_error /.index_cannot_be_repeated
+                                     (<exchange> [0 0]))]
+
+                                  [/.exchange_pure]
+                                  [/.exchange_sync]
+                                  [/.exchange_async]
+                                  )))))
           )))

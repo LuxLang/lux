@@ -1,12 +1,13 @@
 (.module:
   [lux (#- Name)
+   ["." debug]
    ["." host (#+ import:)]
    [abstract
     [codec (#+ Codec)]
     [equivalence (#+ Equivalence)]
     [monad (#+ Monad do)]]
    [control
-    ["." try (#+ Try)]
+    ["." try (#+ Try) ("#\." functor)]
     ["." exception (#+ Exception exception:)]
     ["<>" parser
      ["<.>" xml (#+ Parser)]]
@@ -16,14 +17,15 @@
     ["." binary (#+ Binary)]
     ["." name]
     ["." maybe]
-    [text
+    ["." text
      ["%" format (#+ format)]
      ["." encoding]]
     [format
      ["." xml (#+ Tag XML)]]
     [collection
      ["." dictionary (#+ Dictionary)]
-     ["." set]]]
+     ["." set]
+     ["." list ("#\." functor monoid)]]]
    [math
     [number
      ["n" nat]
@@ -38,11 +40,17 @@
     ["#." hash (#+ Hash SHA-1 MD5)]
     ["#." pom]
     ["#." package (#+ Package)]
-    ["#." artifact (#+ Artifact)
-     ["#/." extension (#+ Extension)]]
+    ["#." artifact (#+ Version Artifact)
+     ["#/." extension (#+ Extension)]
+     ["#/." versioning]
+     ["." snapshot
+      [version
+       ["." value]]]]
     ["#." repository (#+ Repository)
      ["#/." remote (#+ Address)]
-     ["#/." origin (#+ Origin)]]]])
+     ["#/." origin (#+ Origin)]]
+    ["#." metadata
+     ["#/." snapshot]]]])
 
 (template [<name>]
   [(exception: #export (<name> {artifact Artifact} {extension Extension} {hash Text})
@@ -55,19 +63,30 @@
   [md5_does_not_match]
   )
 
-(def: (verified_hash library repository artifact extension hash codec exception)
+(import: java/lang/String
+  ["#::."
+   (trim [] java/lang/String)])
+
+(def: (verified_hash library repository version_template artifact extension hash codec exception)
   (All [h]
-    (-> Binary (Repository Promise) Artifact Extension
+    (-> Binary (Repository Promise) Version Artifact Extension
         (-> Binary (Hash h)) (Codec Text (Hash h))
         (Exception [Artifact Extension Text])
         (Promise (Try (Maybe (Hash h))))))
   (do promise.monad
-    [?actual (\ repository download (///repository/remote.uri artifact extension))]
+    [?actual (\ repository download (///repository/remote.uri version_template artifact extension))]
     (case ?actual
       (#try.Success actual)
-      (wrap (do try.monad
-              [output (\ encoding.utf8 decode actual)
-               actual (\ codec decode output)
+      (wrap (do {! try.monad}
+              [output (\ ! map (|>> (:coerce java/lang/String)
+                                    java/lang/String::trim
+                                    (:coerce Text))
+                         (\ encoding.utf8 decode actual))
+               actual (|> output
+                          (text.split_all_with " ")
+                          list.head
+                          (maybe.default output)
+                          (\ codec decode))
                _ (exception.assert exception [artifact extension output]
                                    (\ ///hash.equivalence = (hash library) actual))]
               (wrap (#.Some actual))))
@@ -75,15 +94,15 @@
       (#try.Failure error)
       (wrap (#try.Success #.None)))))
 
-(def: (hashed repository artifact extension)
-  (-> (Repository Promise) Artifact Extension (Promise (Try [Binary Status])))
+(def: (hashed repository version_template artifact extension)
+  (-> (Repository Promise) Version Artifact Extension (Promise (Try [Binary Status])))
   (do (try.with promise.monad)
-    [data (\ repository download (///repository/remote.uri artifact extension))
+    [data (\ repository download (///repository/remote.uri version_template artifact extension))
      ?sha-1 (..verified_hash data
-                             repository artifact (format extension ///artifact/extension.sha-1)
+                             repository version_template artifact (format extension ///artifact/extension.sha-1)
                              ///hash.sha-1 ///hash.sha-1_codec ..sha-1_does_not_match)
      ?md5 (..verified_hash data
-                           repository artifact (format extension ///artifact/extension.md5)
+                           repository version_template artifact (format extension ///artifact/extension.md5)
                            ///hash.md5 ///hash.md5_codec ..md5_does_not_match)]
     (wrap [data (case [?sha-1 ?md5]
                   [(#.Some sha-1) (#.Some md5)]
@@ -103,16 +122,21 @@
   (let [[artifact type] dependency
         extension (///artifact/extension.extension type)]
     (do (try.with promise.monad)
-      [[pom pom_status] (..hashed repository artifact ///artifact/extension.pom)
-       library_&_status (..hashed repository artifact extension)]
+      [snapshot (///metadata/snapshot.read repository artifact)
+       #let [version_template (get@ [#///metadata/snapshot.artifact #///artifact.version] snapshot)
+             artifact_version (value.format {#value.version version_template
+                                             #value.snapshot (get@ [#///metadata/snapshot.versioning #///artifact/versioning.snapshot] snapshot)})
+             artifact (set@ #///artifact.version artifact_version artifact)]
+       [pom_data pom_status] (..hashed repository version_template artifact ///artifact/extension.pom)
+       library_&_status (..hashed repository version_template artifact extension)]
       (\ promise.monad wrap
          (do try.monad
-           [pom (\ encoding.utf8 decode pom)
+           [pom (\ encoding.utf8 decode pom_data)
             pom (\ xml.codec decode pom)
-            profile (<xml>.run ///pom.parser pom)]
+            profile (<xml>.run ///pom.parser (list pom))]
            (wrap {#///package.origin (#///repository/origin.Remote "")
                   #///package.library library_&_status
-                  #///package.pom [pom pom_status]}))))))
+                  #///package.pom [pom pom_data pom_status]}))))))
 
 (type: #export Resolution
   (Dictionary Dependency Package))
@@ -149,21 +173,54 @@
         (any alternatives dependency)))))
 
 (def: #export (all repositories dependencies resolution)
-  (-> (List (Repository Promise)) (List Dependency) Resolution (Promise (Try Resolution)))
-  (case dependencies
-    #.Nil
-    (\ (try.with promise.monad) wrap resolution)
+  (-> (List (Repository Promise)) (List Dependency) Resolution
+      (Promise [(List Dependency)
+                (List Dependency)
+                Resolution]))
+  (loop [repositories repositories
+         successes (: (List Dependency) (list))
+         failures (: (List Dependency) (list))
+         dependencies dependencies
+         resolution resolution]
+    (case dependencies
+      #.Nil
+      (\ promise.monad wrap
+         [successes failures resolution])
 
-    (#.Cons head tail)
-    (do (try.with promise.monad)
-      [package (case (dictionary.get head resolution)
-                 (#.Some package)
-                 (wrap package)
+      (#.Cons head tail)
+      (case (get@ [#//.artifact #///artifact.version] head)
+        ## Skip if there is no version
+        "" (recur repositories
+                  successes
+                  failures
+                  tail
+                  resolution)
+        _ (do promise.monad
+            [?package (case (dictionary.get head resolution)
+                        (#.Some package)
+                        (wrap (#try.Success package))
 
-                 #.None
-                 (..any repositories head))
-       sub_dependencies (\ promise.monad wrap (///package.dependencies package))
-       resolution (|> resolution
-                      (dictionary.put head package)
-                      (all repositories (set.to_list sub_dependencies)))]
-      (all repositories tail resolution))))
+                        #.None
+                        (..any repositories head))]
+            (case ?package
+              (#try.Success package)
+              (let [sub_dependencies (|> package
+                                         ///package.dependencies
+                                         (try\map set.to_list)
+                                         (try.default (list)))
+                    sub_repositories (|> package
+                                         ///package.repositories
+                                         (try\map set.to_list)
+                                         (try.default (list))
+                                         (list\map (|>> (///repository/remote.repository #.None)
+                                                        ///repository.async))
+                                         (list\compose repositories))]
+                (|> resolution
+                    (dictionary.put head package)
+                    (recur sub_repositories
+                           (#.Cons head successes)
+                           failures
+                           sub_dependencies)))
+
+              (#try.Failure error)
+              (wrap [successes (#.Cons head failures) resolution])))))))

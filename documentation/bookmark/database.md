@@ -1,3 +1,8 @@
+# Multiversion Concurrency Control
+
+1. [Multiversion Concurrency Control: Theory and Algorithms](http://sungsoo.github.io/papers/bernstein-1983.pdf)
+1. []()
+
 # Pagination
 
 1. [Pagination with Relative Cursors](https://shopify.engineering/pagination-relative-cursors)

@@ -71,7 +71,7 @@
 
 (def: xml_char^
   (Parser Text)
-  (<>.either (<text>.none_of ($_ text\compose "<>&'" text.double_quote))
+  (<>.either (<text>.none_of ($_ text\compose "<>&" text.double_quote))
              xml_escape_char^))
 
 (def: xml_identifier
@@ -134,7 +134,7 @@
   (Parser Text)
   (|> (<text>.not (<text>.this "--"))
       <text>.some
-      (<text>.enclosed ["<--" "-->"])
+      (<text>.enclosed ["<!--" "-->"])
       spaced^))
 
 (def: xml_header^
@@ -154,8 +154,8 @@
 
 (def: text^
   (Parser XML)
-  (|> (<>.either cdata^
-                 (..spaced^ (<text>.many xml_char^)))
+  (|> (..spaced^ (<text>.many xml_char^))
+      (<>.either cdata^)
       (<>\map (|>> #Text))))
 
 (def: null^
@@ -166,28 +166,33 @@
   (Parser XML)
   (|> (<>.rec
        (function (_ node^)
-         (<>.either text^
-                    (spaced^
-                     (do <>.monad
-                       [_ (<text>.this "<")
-                        tag (spaced^ tag^)
-                        attrs (spaced^ attrs^)
-                        #let [no_children^ (do <>.monad
-                                             [_ (<text>.this "/>")]
-                                             (wrap (#Node tag attrs (list))))
-                              with_children^ (do <>.monad
-                                               [_ (<text>.this ">")
-                                                children (<>.some node^)
-                                                _ (close_tag^ tag)]
-                                               (wrap (#Node tag attrs children)))]]
-                       (<>.either no_children^
-                                  with_children^))))))
-      ## This is put outside of the call to "rec" because comments
-      ## cannot be located inside of XML nodes.
-      ## This way, the comments can only be before or after the main document.
-      (<>.before (<>.some comment^))
+         (|> (spaced^
+              (do <>.monad
+                [_ (<text>.this "<")
+                 tag (spaced^ tag^)
+                 attrs (spaced^ attrs^)
+                 #let [no_children^ (do <>.monad
+                                      [_ (<text>.this "/>")]
+                                      (wrap (#Node tag attrs (list))))
+                       ## TODO: Find a way to make do without this hack. Without it, some POM files fail when parsing them in Aedifex. Something like this fails: <configuration> </configuration>
+                       alternative_no_children^ (do <>.monad
+                                                  [_ (<text>.this ">")
+                                                   _ (<>.some <text>.space)
+                                                   _ (..close_tag^ tag)]
+                                                  (wrap (#Node tag attrs (list))))
+                       with_children^ (do <>.monad
+                                        [_ (<text>.this ">")
+                                         children (<>.some node^)
+                                         _ (..close_tag^ tag)]
+                                        (wrap (#Node tag attrs children)))]]
+                ($_ <>.either
+                    no_children^
+                    alternative_no_children^
+                    with_children^)))
+             (<>.before (<>.some ..comment^))
+             (<>.after (<>.some ..comment^))
+             (<>.either text^))))
       (<>.before (<>.some ..null^))
-      (<>.after (<>.some comment^))
       (<>.after (<>.maybe xml_header^))))
 
 (def: read

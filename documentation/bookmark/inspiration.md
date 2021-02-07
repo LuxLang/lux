@@ -13,6 +13,10 @@
 1. [Awesome Java](https://github.com/akullpp/awesome-java)
 1. [Build your own (insert technology here)](https://github.com/danistefanovic/build-your-own-x)
 1. https://github.com/charlax/professional-programming
+1. [Awesome Java Security Resources](https://github.com/guardrailsio/awesome-java-security)
+1. https://github.com/danluu/post-mortems
+1. [Awesome lists about all kinds of interesting topics](https://github.com/sindresorhus/awesome)
+1. https://github.com/hwayne/awesome-cold-showers
 1. []()
 
 # Opinion

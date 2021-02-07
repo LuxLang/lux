@@ -11,6 +11,7 @@
    [data
     ["." name]
     ["." maybe ("#\." functor)]
+    ["." text]
     [format
      ["_" xml (#+ Tag XML)]]
     [collection
@@ -150,8 +151,8 @@
   (<>.and <xml>.tag
           (<xml>.children <xml>.text)))
 
-(def: parse_dependency
-  (Parser Dependency)
+(def: (parse_dependency own_version parent_version)
+  (-> Text Text (Parser Dependency))
   (do {! <>.monad}
     [properties (\ ! map (dictionary.from_list name.hash)
                    (<xml>.children (<>.some ..parse_property)))]
@@ -159,28 +160,47 @@
         try.from_maybe
         (do maybe.monad
           [group (dictionary.get ["" ..group_tag] properties)
-           artifact (dictionary.get ["" ..artifact_tag] properties)
-           version (dictionary.get ["" ..version_tag] properties)]
+           artifact (dictionary.get ["" ..artifact_tag] properties)]
           (wrap {#//dependency.artifact {#//artifact.group group
                                          #//artifact.name artifact
-                                         #//artifact.version version}
+                                         #//artifact.version (|> properties
+                                                                 (dictionary.get ["" ..version_tag])
+                                                                 (maybe.default "")
+                                                                 (text.replace_all "${project.version}" own_version)
+                                                                 (text.replace_all "${project.parent.version}" parent_version))}
                  #//dependency.type (|> properties
                                         (dictionary.get ["" "type"])
-                                        (maybe.default //artifact/type.lux_library))})))))
+                                        (maybe.default //artifact/type.jvm_library))})))))
 
-(def: parse_dependencies
-  (Parser (List Dependency))
+(def: (parse_dependencies own_version parent_version)
+  (-> Text Text (Parser (List Dependency)))
   (do {! <>.monad}
     [_ (<xml>.node ["" ..dependencies_tag])]
-    (<xml>.children (<>.some ..parse_dependency))))
+    (<xml>.children (<>.some (..parse_dependency own_version parent_version)))))
+
+(def: own_version
+  (Parser Text)
+  (do <>.monad
+    [_ (<xml>.node ["" ..version_tag])]
+    (<xml>.children <xml>.text)))
+
+(def: parent_version
+  (Parser Text)
+  (do <>.monad
+    [_ (<xml>.node ["" "parent"])]
+    ..own_version))
 
 (def: #export parser
   (Parser /.Profile)
   (do {! <>.monad}
-    [_ (<xml>.node ["" ..project_tag])]
+    [own_version (<>.default "" (<xml>.somewhere ..own_version))
+     parent_version (<>.default "" (<xml>.somewhere ..parent_version))
+     _ (<xml>.node ["" ..project_tag])]
     (<xml>.children
      (do !
-       [dependencies (<xml>.somewhere ..parse_dependencies)
+       [dependencies (|> (..parse_dependencies own_version parent_version)
+                         <xml>.somewhere
+                         (<>.default (list)))
         _ (<>.some <xml>.ignore)]
        (wrap (|> (\ /.monoid identity)
                  (update@ #/.dependencies (function (_ empty)

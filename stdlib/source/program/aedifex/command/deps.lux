@@ -3,13 +3,16 @@
    [abstract
     [monad (#+ do)]]
    [control
+    ["." exception]
     [concurrency
      ["." promise (#+ Promise)]]]
    [data
     [collection
      ["." set (#+ Set)]
      ["." list ("#\." fold)]
-     ["." dictionary]]]
+     ["." dictionary]]
+    [text
+     ["%" format (#+ format)]]]
    [world
     [program (#+ Program)]
     ["." file]
@@ -18,22 +21,39 @@
    ["#." clean]
    ["/#" // #_
     [command (#+ Command)]
-    [artifact (#+ Artifact)]
     [repository (#+ Repository)]
     ["#" profile]
     ["#." action (#+ Action)]
-    ["#." dependency #_
+    ["#." artifact (#+ Artifact)]
+    ["#." dependency (#+ Dependency)
      ["#/." resolution (#+ Resolution)]
      ["#/." deployment]]]])
 
+(def: %dependency
+  (%.Format Dependency)
+  (|>> (get@ #///dependency.artifact)
+       ///artifact.format
+       %.text))
+
 (def: #export (do! console local remotes profile)
   (-> (Console Promise) (Repository Promise) (List (Repository Promise)) (Command Resolution))
-  (do ///action.monad
+  (do promise.monad
     [#let [dependencies (set.to_list (get@ #///.dependencies profile))]
-     cache (///dependency/resolution.all (list local) dependencies ///dependency/resolution.empty)
-     resolution (///dependency/resolution.all remotes dependencies cache)
-     cached (|> (dictionary.keys cache)
-                (list\fold dictionary.remove resolution)
-                (///dependency/deployment.all local))
-     _ (console.write_line //clean.success console)]
-    (wrap resolution)))
+     [local_successes local_failures cache] (///dependency/resolution.all (list local) dependencies ///dependency/resolution.empty)
+     [remote_successes remote_failures resolution] (///dependency/resolution.all remotes dependencies cache)]
+    (do ///action.monad
+      [cached (|> (dictionary.keys cache)
+                  (list\fold dictionary.remove resolution)
+                  (///dependency/deployment.all local))
+       _ (console.write_line //clean.success console)
+       _ (console.write_line (exception.report
+                              ["Local successes" (exception.enumerate %dependency local_successes)]
+                              ["Local failures" (exception.enumerate %dependency local_failures)]
+                              ["Remote successes" (let [remote_successes (|> remote_successes
+                                                                             (set.from_list ///dependency.hash)
+                                                                             (set.difference (set.from_list ///dependency.hash local_successes))
+                                                                             set.to_list)]
+                                                    (exception.enumerate %dependency remote_successes))]
+                              ["Remote failures" (exception.enumerate %dependency remote_failures)])
+                             console)]
+      (wrap resolution))))

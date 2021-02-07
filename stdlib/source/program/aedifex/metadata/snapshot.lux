@@ -4,7 +4,7 @@
     [monad (#+ do)]
     [equivalence (#+ Equivalence)]]
    [control
-    [pipe (#+ do>)]
+    [pipe (#+ do> case>)]
     ["." try (#+ Try)]
     ["." exception (#+ exception:)]
     ["<>" parser
@@ -33,78 +33,17 @@
     [net
      ["." uri (#+ URI)]]]]
   ["." //
-   ["." artifact]
    ["/#" // #_
     [repository (#+ Repository)]
     ["#." artifact (#+ Group Name Version Artifact)
-     ["#/." type (#+ Type)]]]])
-
-(def: snapshot
-  "SNAPSHOT")
-
-(type: #export Time_Stamp
-  Instant)
-
-(type: #export Build
-  Nat)
-
-(type: #export Versioning
-  {#time_stamp Time_Stamp
-   #build Build
-   #snapshot (List Type)})
-
-(type: #export Value
-  [Version Time_Stamp Build])
+     ["#/." type (#+ Type)]
+     ["#/." versioning (#+ Versioning)]
+     ["#/." snapshot
+      ["#/." version]]]]])
 
 (type: #export Metadata
   {#artifact Artifact
    #versioning Versioning})
-
-(def: (pad value)
-  (-> Nat Text)
-  (if (n.< 10 value)
-    (%.format "0" (%.nat value))
-    (%.nat value)))
-
-(def: (date_format value)
-  (%.Format Date)
-  (%.format (|> value date.year year.value .nat %.nat)
-            (|> value date.month month.number ..pad)
-            (|> value date.day_of_month ..pad)))
-
-(def: (time_format value)
-  (%.Format Time)
-  (let [(^slots [#time.hour #time.minute #time.second]) (time.clock value)]
-    (%.format (..pad hour)
-              (..pad minute)
-              (..pad second))))
-
-(def: (instant_format value)
-  (%.Format Instant)
-  (%.format (..date_format (instant.date value))
-            (..time_format (instant.time value))))
-
-(template [<separator> <name>]
-  [(def: <name>
-     <separator>)]
-
-  ["." time_stamp_separator]
-  ["-" value_separator]
-  )
-
-(def: (time_stamp_format value)
-  (%.Format Time_Stamp)
-  (%.format (..date_format (instant.date value))
-            ..time_stamp_separator
-            (..time_format (instant.time value))))
-
-(def: (value_format [version time_stamp build])
-  (%.Format Value)
-  (%.format (text.replace_all ..snapshot
-                              (..time_stamp_format time_stamp)
-                              version)
-            ..value_separator
-            (%.nat build)))
 
 (template [<definition> <tag>]
   [(def: <definition> xml.Tag ["" <tag>])]
@@ -112,17 +51,7 @@
   [<group> "groupId"]
   [<name> "artifactId"]
   [<version> "version"]
-  [<last_updated> "lastUpdated"]
   [<metadata> "metadata"]
-  [<versioning> "versioning"]
-  [<snapshot> "snapshot"]
-  [<timestamp> "timestamp"]
-  [<build_number> "buildNumber"]
-  [<snapshot_versions> "snapshotVersions"]
-  [<snapshot_version> "snapshotVersion"]
-  [<extension> "extension"]
-  [<value> "value"]
-  [<updated> "updated"]
   )
 
 (template [<name> <type> <tag> <pre>]
@@ -133,32 +62,7 @@
   [format_group Group ..<group> (|>)]
   [format_name Name ..<name> (|>)]
   [format_version Version ..<version> (|>)]
-  [format_last_updated Instant ..<last_updated> ..instant_format]
-  [format_time_stamp Instant ..<timestamp> ..time_stamp_format]
-  [format_build_number Nat ..<build_number> %.nat]
-  [format_extension Type ..<extension> (|>)]
-  [format_value Value ..<value> ..value_format]
-  [format_updated Instant ..<updated> ..instant_format]
   )
-
-(def: (format_snapshot value type)
-  (-> Value Type XML)
-  (<| (#xml.Node ..<snapshot_version> xml.attributes)
-      (list (..format_extension type)
-            (..format_value value)
-            (let [[version time_stamp build] value]
-              (..format_updated time_stamp)))))
-
-(def: (format_versioning version (^slots [#time_stamp #build #snapshot]))
-  (-> Version Versioning XML)
-  (<| (#xml.Node ..<versioning> xml.attributes)
-      (list (<| (#xml.Node ..<snapshot> xml.attributes)
-                (list (..format_time_stamp time_stamp)
-                      (..format_build_number build)))
-            (..format_last_updated time_stamp)
-            (<| (#xml.Node ..<snapshot_versions> xml.attributes)
-                (list\map (..format_snapshot [version time_stamp build])
-                          snapshot)))))
 
 (def: #export (format (^slots [#artifact #versioning]))
   (-> Metadata XML)
@@ -168,7 +72,7 @@
                (list (..format_group group)
                      (..format_name name)
                      (..format_version version)
-                     (..format_versioning version versioning)))))
+                     (///artifact/versioning.format versioning)))))
 
 (def: (sub tag parser)
   (All [a] (-> xml.Tag (Parser a) (Parser a)))
@@ -180,135 +84,46 @@
   (-> xml.Tag (Parser Text))
   (..sub tag <xml>.text))
 
-(def: date_parser
-  (<text>.Parser Date)
-  (do <>.monad
-    [year (<>.codec n.decimal (<text>.exactly 4 <text>.decimal))
-     year (<>.lift (year.year (.int year)))
-     month (<>.codec n.decimal (<text>.exactly 2 <text>.decimal))
-     month (<>.lift (month.by_number month))
-     day_of_month (<>.codec n.decimal (<text>.exactly 2 <text>.decimal))]
-    (<>.lift (date.date year month day_of_month))))
-
-(def: time_parser
-  (<text>.Parser Time)
-  (do <>.monad
-    [hour (<>.codec n.decimal (<text>.exactly 2 <text>.decimal))
-     minute (<>.codec n.decimal (<text>.exactly 2 <text>.decimal))
-     second (<>.codec n.decimal (<text>.exactly 2 <text>.decimal))]
-    (<>.lift (time.time
-              {#time.hour hour
-               #time.minute minute
-               #time.second second
-               #time.milli_second 0}))))
-
-(def: last_updated_parser
-  (Parser Instant)
-  (<text>.embed (do <>.monad
-                  [date ..date_parser
-                   time ..time_parser]
-                  (wrap (instant.from_date_time date time)))
-                (..text ..<last_updated>)))
-
-(def: time_stamp_parser
-  (Parser Time_Stamp)
-  (<text>.embed (do <>.monad
-                  [date ..date_parser
-                   _ (<text>.this ..time_stamp_separator)
-                   time ..time_parser]
-                  (wrap (instant.from_date_time date time)))
-                (..text ..<timestamp>)))
-
-(def: build_parser
-  (Parser Build)
-  (<text>.embed (<>.codec n.decimal
-                          (<text>.many <text>.decimal))
-                (..text ..<build_number>)))
-
-(exception: #export (time_stamp_mismatch {expected Time_Stamp} {actual Text})
-  (exception.report
-   ["Expected time-stamp" (instant_format expected)]
-   ["Actual time-stamp" actual]))
-
-(exception: #export (value_mismatch {expected Value} {actual Text})
-  (exception.report
-   ["Expected" (..value_format expected)]
-   ["Actual" actual]))
-
-(def: (snapshot_parser expected)
-  (-> Value (Parser Type))
-  (<| (..sub ..<snapshot_version>)
-      (do <>.monad
-        [#let [[version time_stamp build] expected]
-         updated (<xml>.somewhere (..text ..<updated>))
-         _ (<>.assert (exception.construct ..time_stamp_mismatch [time_stamp updated])
-                      (\ text.equivalence = (instant_format time_stamp) updated))
-         actual (<xml>.somewhere (..text ..<value>))
-         _ (<>.assert (exception.construct ..value_mismatch [expected actual])
-                      (\ text.equivalence = (..value_format expected) actual))]
-        (<xml>.somewhere (..text ..<extension>)))))
-
-(def: (versioning_parser version)
-  (-> Version (Parser Versioning))
-  (<| (..sub ..<versioning>)
-      (do <>.monad
-        [[time_stamp build] (<| <xml>.somewhere
-                                (..sub ..<snapshot>)
-                                (<>.and (<xml>.somewhere ..time_stamp_parser)
-                                        (<xml>.somewhere ..build_parser)))
-         last_updated (<xml>.somewhere ..last_updated_parser)
-         _ (<>.assert (exception.construct ..time_stamp_mismatch [time_stamp (instant_format last_updated)])
-                      (\ instant.equivalence = time_stamp last_updated))
-         snapshot (<| <xml>.somewhere
-                      (..sub ..<snapshot_versions>)
-                      (<>.some (..snapshot_parser [version time_stamp build])))]
-        (wrap {#time_stamp time_stamp
-               #build build
-               #snapshot snapshot}))))
-
 (def: #export parser
   (Parser Metadata)
   (<| (..sub ..<metadata>)
-      (do <>.monad
+      (do {! <>.monad}
         [group (<xml>.somewhere (..text ..<group>))
          name (<xml>.somewhere (..text ..<name>))
          version (<xml>.somewhere (..text ..<version>))
-         versioning (<xml>.somewhere (..versioning_parser version))]
+         versioning (\ ! map
+                       (update@ #///artifact/versioning.versions
+                                (: (-> (List ///artifact/snapshot/version.Version)
+                                       (List ///artifact/snapshot/version.Version))
+                                   (|>> (case> (^ (list))
+                                               (list {#///artifact/snapshot/version.extension ///artifact/type.jvm_library
+                                                      #///artifact/snapshot/version.value version
+                                                      #///artifact/snapshot/version.updated instant.epoch})
+
+                                               versions
+                                               versions))))
+                       (<xml>.somewhere ///artifact/versioning.parser))]
         (wrap {#artifact {#///artifact.group group
                           #///artifact.name name
                           #///artifact.version version}
                #versioning versioning}))))
 
-(def: versioning_equivalence
-  (Equivalence Versioning)
-  ($_ product.equivalence
-      instant.equivalence
-      n.equivalence
-      (list.equivalence text.equivalence)
-      ))
-
 (def: #export equivalence
   (Equivalence Metadata)
   ($_ product.equivalence
       ///artifact.equivalence
-      ..versioning_equivalence
+      ///artifact/versioning.equivalence
       ))
 
 (def: #export (uri artifact)
   (-> Artifact URI)
   (let [/ uri.separator
-        version (get@ #///artifact.version artifact)
-        artifact (///artifact.uri artifact)]
-    (%.format artifact / version / //.file)))
-
-(def: epoch
-  Instant
-  (instant.from_millis +0))
-
-(def: init_versioning
-  {#time_stamp ..epoch
-   #build 0
-   #snapshot (list)})
+        group (|> artifact
+                  (get@ #///artifact.group)
+                  (///artifact.directory /))
+        name (get@ #///artifact.name artifact)
+        version (get@ #///artifact.version artifact)]
+    (%.format group / name / version / //.remote_file)))
 
 (def: #export (read repository artifact)
   (-> (Repository Promise) Artifact (Promise (Try Metadata)))
@@ -320,12 +135,12 @@
                 (do> try.monad
                      [(\ encoding.utf8 decode)]
                      [(\ xml.codec decode)]
-                     [(<xml>.run ..parser)])))
+                     [list (<xml>.run ..parser)])))
       
       (#try.Failure error)
       (wrap (#try.Success
              {#artifact artifact
-              #versioning ..init_versioning})))))
+              #versioning ///artifact/versioning.init})))))
 
 (def: #export (write repository artifact metadata)
   (-> (Repository Promise) Artifact Metadata (Promise (Try Any)))
