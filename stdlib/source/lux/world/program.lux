@@ -7,6 +7,7 @@
    [control
     ["." function]
     ["." io (#+ IO)]
+    ["." try]
     [concurrency
      ["." atom]
      ["." promise (#+ Promise)]]
@@ -178,7 +179,36 @@
                           (#static get [host.String] #io host.String))
 
                         (import: sys
-                          (#static exit [host.Integer] #io Nothing)))}
+                          (#static exit [host.Integer] #io Nothing)))
+        @.lua (as_is (host.import: LuaFile
+                       (read [host.String] #io #? host.String)
+                       (close [] #io host.Boolean))
+
+                     (host.import: io
+                       (#static popen [host.String] #io #try #? LuaFile))
+
+                     (import: os
+                       (#static getenv [host.String] #io #? host.String)
+                       (#static exit [host.Integer] #io Nothing))
+
+                     (def: (run_command default command)
+                       (-> Text Text (IO Text))
+                       (do {! io.monad}
+                         [outcome (io::popen [command])]
+                         (case outcome
+                           (#try.Success outcome)
+                           (case outcome
+                             (#.Some file)
+                             (do !
+                               [?output (LuaFile::read ["*l"] file)
+                                _ (LuaFile::close [] file)]
+                               (wrap (maybe.default default ?output)))
+                             
+                             #.None
+                             (wrap default))
+                           
+                           (#try.Failure _)
+                           (wrap default)))))}
        (as_is)))
 
 (structure: #export default
@@ -224,12 +254,13 @@
                        (:coerce NodeJs_OS)
                        (NodeJs_OS::homedir []))
                    <default>)
-            @.python (os/path::expanduser ["~"])}
+            @.python (os/path::expanduser ["~"])
+            @.lua (..run_command "~" "echo ~")}
            ## TODO: Replace dummy implementation.
            <default>)))
 
   (def: (directory _)
-    (with_expansions [<default> (io.io ".")
+    (with_expansions [<default> "."
                       <jvm> (io.io (maybe.default "" (java/lang/System::getProperty "user.dir")))]
       (for {@.old <jvm>
             @.jvm <jvm>
@@ -239,11 +270,17 @@
                      (NodeJs_Process::cwd [] process)
                      
                      #.None
-                     <default>)
-                   <default>)
-            @.python (os::getcwd [])}
+                     (io.io <default>))
+                   (io.io <default>))
+            @.python (os::getcwd [])
+            @.lua (do io.monad
+                    [#let [default <default>]
+                     on_windows (..run_command default "cd")]
+                    (if (is? default on_windows)
+                      (..run_command default "pwd")
+                      (wrap on_windows)))}
            ## TODO: Replace dummy implementation.
-           <default>)))
+           (io.io <default>))))
   
   (def: (exit code)
     (with_expansions [<jvm> (do io.monad
@@ -259,4 +296,5 @@
 
                        ## else
                        (..default_exit! code))
-            @.python (sys::exit code)}))))
+            @.python (sys::exit code)
+            @.lua (os::exit [code])}))))

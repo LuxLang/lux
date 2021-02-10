@@ -11,7 +11,7 @@
     [collection
      ["." list ("#\." functor fold)]]]
    [target
-    ["_" lua (#+ Var Expression Statement)]]]
+    ["_" lua (#+ Var Expression Label Statement)]]]
   ["." // #_
    ["#." runtime (#+ Operation Phase Phase! Generator)]
    ["#." reference]
@@ -28,58 +28,55 @@
       [reference
        [variable (#+ Register Variable)]]]]]])
 
-(def: #export (apply generate archive [functionS argsS+])
+(def: #export (apply expression archive [functionS argsS+])
   (Generator (Application Synthesis))
   (do {! ///////phase.monad}
-    [functionO (generate archive functionS)
-     argsO+ (monad.map ! (generate archive) argsS+)]
+    [functionO (expression archive functionS)
+     argsO+ (monad.map ! (expression archive) argsS+)]
     (wrap (_.apply/* argsO+ functionO))))
 
-(def: #export capture
+(def: capture
   (-> Register Var)
   (|>> (///reference.foreign //reference.system) :assume))
 
-(def: (with_closure function_name inits @function @args @body)
-  (-> Text (List Expression) Var (List Var) Statement (Operation Expression))
+(def: (with_closure inits @self @args body!)
+  (-> (List Expression) Var (List Var) Statement [Statement Expression])
   (case inits
     #.Nil
-    (do ///////phase.monad
-      [#let [function_definition (_.function @function @args @body)]
-       _ (/////generation.execute! function_definition)
-       _ (/////generation.save! function_name function_definition)]
-      (wrap (_.var function_name)))
+    [(_.function @self @args body!)
+     @self]
 
     _
-    (do {! ///////phase.monad}
-      [#let [@closure (_.var (format function_name "_closure"))
-             directive (_.function @closure
-                         (|> (list.enumeration inits)
-                             (list\map (|>> product.left ..capture)))
-                         ($_ _.then
-                             (_.local_function @function @args @body)
-                             (_.return (_.var function_name))))]
-       _ (/////generation.execute! directive)
-       _ (/////generation.save! (_.code @closure) directive)]
-      (wrap (_.apply/* inits @closure)))))
+    (let [@inits (|> (list.enumeration inits)
+                     (list\map (|>> product.left ..capture)))]
+      [(_.function @self @inits
+         ($_ _.then
+             (_.local_function @self @args body!)
+             (_.return @self)))
+       (_.apply/* inits @self)])))
 
 (def: input
   (|>> inc //case.register))
 
-(def: #export (function generate archive [environment arity bodyS])
-  (Generator (Abstraction Synthesis))
+(def: (@scope function_name)
+  (-> Context Label)
+  (_.label (format (///reference.artifact function_name) "_scope")))
+
+(def: #export (function statement expression archive [environment arity bodyS])
+  (-> Phase! (Generator (Abstraction Synthesis)))
   (do {! ///////phase.monad}
-    [[function_name bodyO] (/////generation.with_new_context archive
+    [[function_name body!] (/////generation.with_new_context archive
                              (do !
-                               [function_name (\ ! map ///reference.artifact
-                                                 (/////generation.context archive))]
-                               (/////generation.with_anchor (_.var function_name)
-                                 (generate archive bodyS))))
-     closureO+ (monad.map ! (generate archive) environment)
-     #let [function_name (///reference.artifact function_name)
-           @curried (_.var "curried")
+                               [@scope (\ ! map ..@scope
+                                          (/////generation.context archive))]
+                               (/////generation.with_anchor [1 @scope]
+                                 (statement expression archive bodyS))))
+     closureO+ (monad.map ! (expression archive) environment)
+     #let [@curried (_.var "curried")
            arityO (|> arity .int _.int)
            @num_args (_.var "num_args")
-           @self (_.var function_name)
+           @scope (..@scope function_name)
+           @self (_.var (///reference.artifact function_name))
            initialize_self! (_.local/1 (//case.register 0) @self)
            initialize! (list\fold (.function (_ post pre!)
                                     ($_ _.then
@@ -89,26 +86,28 @@
                                   (list.indices arity))
            pack (|>> (list) _.array)
            unpack (|>> (list) _.apply/* (|> (_.var "table.unpack")))
-           @var_args (_.var "...")]]
-    (with_closure function_name closureO+
-      @self (list @var_args)
-      ($_ _.then
-          (_.local/1 @curried (pack @var_args))
-          (_.local/1 @num_args (_.length @curried))
-          (_.cond (list [(|> @num_args (_.= (_.int +0)))
-                         (_.return @self)]
-                        [(|> @num_args (_.= arityO))
-                         ($_ _.then
-                             initialize!
-                             (_.return bodyO))]
-                        [(|> @num_args (_.> arityO))
-                         (let [arity_inputs (//runtime.array//sub (_.int +0) arityO @curried)
-                               extra_inputs (//runtime.array//sub arityO @num_args @curried)]
-                           (_.return (|> @self
-                                         (_.apply/* (list (unpack arity_inputs)))
-                                         (_.apply/* (list (unpack extra_inputs))))))])
-                  ## (|> @num_args (_.< arityO))
-                  (_.return (_.closure (list @var_args)
-                                       (_.return (|> @self (_.apply/* (list (unpack (//runtime.array//concat @curried (pack @var_args))))))))))
-          ))
-    ))
+           @var_args (_.var "...")]
+     #let [[definition instantiation] (with_closure closureO+ @self (list @var_args)
+                                        ($_ _.then
+                                            (_.local/1 @curried (pack @var_args))
+                                            (_.local/1 @num_args (_.length @curried))
+                                            (_.cond (list [(|> @num_args (_.= (_.int +0)))
+                                                           (_.return @self)]
+                                                          [(|> @num_args (_.= arityO))
+                                                           ($_ _.then
+                                                               initialize!
+                                                               (_.set_label @scope)
+                                                               body!)]
+                                                          [(|> @num_args (_.> arityO))
+                                                           (let [arity_inputs (//runtime.array//sub (_.int +0) arityO @curried)
+                                                                 extra_inputs (//runtime.array//sub arityO @num_args @curried)]
+                                                             (_.return (|> @self
+                                                                           (_.apply/* (list (unpack arity_inputs)))
+                                                                           (_.apply/* (list (unpack extra_inputs))))))])
+                                                    ## (|> @num_args (_.< arityO))
+                                                    (_.return (_.closure (list @var_args)
+                                                                         (_.return (|> @self (_.apply/* (list (unpack (//runtime.array//concat @curried (pack @var_args))))))))))
+                                            ))]
+     _ (/////generation.execute! definition)
+     _ (/////generation.save! (%.nat (product.right function_name)) definition)]
+    (wrap instantiation)))

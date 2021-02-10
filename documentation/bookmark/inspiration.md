@@ -17,6 +17,8 @@
 1. https://github.com/danluu/post-mortems
 1. [Awesome lists about all kinds of interesting topics](https://github.com/sindresorhus/awesome)
 1. https://github.com/hwayne/awesome-cold-showers
+1. [One Hundred Ideas for Computing](https://github.com/samsquire/ideas)
+1. [Programming Talks](https://github.com/hellerve/programming-talks)
 1. []()
 
 # Opinion

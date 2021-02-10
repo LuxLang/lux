@@ -216,12 +216,16 @@
   [not_a_directory]
   )
 
-(with_expansions [<for_jvm> (as_is (exception: #export (cannot_move {target Path} {source Path})
-                                     (exception.report
-                                      ["Source" source]
-                                      ["Target" target]))
+(with_expansions [<extra> (as_is (exception: #export (cannot_move {target Path} {source Path})
+                                   (exception.report
+                                    ["Source" source]
+                                    ["Target" target])))]
+  (for {@.old (as_is <extra>)
+        @.jvm (as_is <extra>)
+        @.lua (as_is <extra>)}
+       (as_is)))
 
-                                   (exception: #export (cannot_modify {instant Instant} {file Path})
+(with_expansions [<for_jvm> (as_is (exception: #export (cannot_modify {instant Instant} {file Path})
                                      (exception.report
                                       ["Instant" (%.instant instant)]
                                       ["Path" file]))
@@ -723,7 +727,7 @@
                                     _ (PyFile::close [] file)]
                                    (wrap [])))))]
                            
-                           [over_write  "wb"]
+                           [over_write  "w+b"]
                            [append      "ab"]
                            ))
 
@@ -872,6 +876,270 @@
 
                      (def: separator
                        (os/path::sep))
+                     ))
+               )
+
+        @.lua
+        (as_is (host.import: LuaFile
+                 (read [host.String] #io host.String)
+                 (write [host.String] #io #? LuaFile)
+                 (flush [] #io host.Boolean)
+                 (close [] #io host.Boolean))
+
+               (host.import: io
+                 (#static open [host.String host.String] #io #? LuaFile))
+
+               (host.import: package
+                 (#static config host.String))
+
+               (host.import: os
+                 (#static rename [host.String host.String] #io #? host.Boolean)
+                 (#static remove [host.String] #io #? host.Boolean)
+                 (#static execute [host.String] #io #? host.Boolean))
+
+               (def: default_separator
+                 Text
+                 (|> (package::config)
+                     (text.split_all_with text.new_line)
+                     list.head
+                     (maybe.default "/")))
+
+               (template [<name>]
+                 [(exception: #export (<name> {file Path})
+                    (exception.report
+                     ["Path" file]))]
+
+                 [cannot_open_file]
+                 [cannot_close_file]
+                 [cannot_write_to_file]
+                 [file_already_exists]
+                 )
+
+               (exception: #export (invalid_operation {signature Name} {operation Text})
+                 (exception.report
+                  ["Platform" @.lua]
+                  ["Signature" (%.name signature)]
+                  ["Operation" (%.text operation)]))
+
+               (`` (structure: (file path)
+                     (-> Path (File IO))
+
+                     (~~ (template [<name> <mode>]
+                           [(def: <name>
+                              (..can_modify
+                               (function (<name> data)
+                                 (do {! io.monad}
+                                   [?file (io::open [path <mode>])]
+                                   (case ?file
+                                     (#.Some file)
+                                     (do !
+                                       [?wrote (LuaFile::write [("lua utf8 decode" data)] file)]
+                                       (case ?wrote
+                                         (#.Some _)
+                                         (do !
+                                           [flushed? (LuaFile::flush [] file)
+                                            closed? (LuaFile::close [] file)]
+                                           (wrap (cond (not flushed?)
+                                                       (exception.throw ..cannot_write_to_file [path])
+
+                                                       (not closed?)
+                                                       (exception.throw ..cannot_close_file [path])
+
+                                                       ## else
+                                                       (#try.Success []))))
+                                         
+                                         #.None
+                                         (wrap (exception.throw ..cannot_write_to_file [path]))))
+                                     
+                                     #.None
+                                     (wrap (exception.throw ..cannot_open_file [path])))))))]
+                           
+                           [over_write  "w+b"]
+                           [append      "ab"]
+                           ))
+
+                     (def: content
+                       (..can_query
+                        (function (_ _)
+                          (do {! io.monad}
+                            [?file (io::open [path "rb"])]
+                            (case ?file
+                              (#.Some file)
+                              (do !
+                                [data (LuaFile::read ["a"] file)
+                                 closed? (LuaFile::close [] file)]
+                                (wrap (if closed?
+                                        (#try.Success ("lua utf8 encode" data))
+                                        (exception.throw ..cannot_close_file [path]))))
+                              
+                              #.None
+                              (wrap (exception.throw ..cannot_read_all_data [path])))))))
+
+                     (def: name
+                       (..can_see
+                        (function (_ _)
+                          (|> path
+                              (text.split_all_with ..default_separator)
+                              list.reverse
+                              list.head
+                              (maybe.default path)))))
+
+                     (def: path
+                       (..can_see
+                        (function (_ _)
+                          path)))
+
+                     (~~ (template [<capability> <name>]
+                           [(def: <name>
+                              (<capability>
+                               (function (_ _)
+                                 (let [[_ short] (name_of <name>)]
+                                   (\ io.monad wrap (exception.throw ..invalid_operation [(name_of ..File) short]))))))]
+
+                           [..can_query size]
+                           [..can_query last_modified]
+                           [..can_query can_execute?]
+
+                           [..can_modify modify]
+                           ))
+
+                     (def: move
+                       (..can_open
+                        (function (move destination)
+                          (do io.monad
+                            [?verdict (os::rename [path destination])]
+                            (wrap (if (case ?verdict
+                                        (#.Some verdict)
+                                        verdict
+                                        
+                                        #.None
+                                        false)
+                                    (#try.Success (file destination))
+                                    (exception.throw ..cannot_move [destination path])))))))
+
+                     (def: delete
+                       (..can_delete
+                        (function (delete _)
+                          (do io.monad
+                            [?verdict (os::remove [path])]
+                            (wrap (if (case ?verdict
+                                        (#.Some verdict)
+                                        verdict
+                                        
+                                        #.None
+                                        false)
+                                    (#try.Success [])
+                                    (exception.throw ..cannot_delete_file path)))))))
+                     ))
+
+               (`` (structure: (directory path)
+                     (-> Path (Directory IO))
+
+                     (def: scope
+                       (..can_see
+                        (function (_ _)
+                          path)))
+
+                     (~~ (template [<name>]
+                           [(def: <name>
+                              (..can_query
+                               (function (_ _)
+                                 (let [[_ short] (name_of <name>)]
+                                   (\ io.monad wrap (exception.throw ..invalid_operation [(name_of ..File) short]))))))]
+
+                           [files]
+                           [directories]
+                           ))
+
+                     (def: discard
+                       (..can_delete
+                        (function (discard _)
+                          (do io.monad
+                            [?verdict (os::remove [path])]
+                            (wrap (if (case ?verdict
+                                        (#.Some verdict)
+                                        verdict
+                                        
+                                        #.None
+                                        false)
+                                    (#try.Success [])
+                                    (exception.throw ..cannot_discard_directory path)))))))
+                     ))
+
+               (def: (default_file path)
+                 (-> Path (IO (Try (File IO))))
+                 (do {! io.monad}
+                   [?file (io::open [path "r"])]
+                   (case ?file
+                     (#try.Success file)
+                     (do !
+                       [closed? (LuaFile::close [] file)]
+                       (wrap (if closed?
+                               (#try.Success (..file path))
+                               (exception.throw ..cannot_close_file [path]))))
+                     
+                     (#try.Failure _)
+                     (wrap (exception.throw ..cannot_find_file [path])))))
+
+               (def: (default_create_file path)
+                 (-> Path (IO (Try (File IO))))
+                 (do {! io.monad}
+                   [?file (..default_file path)]
+                   (case ?file
+                     (#try.Failure _)
+                     (do {! io.monad}
+                       [?file (io::open [path "w+b"])]
+                       (case ?file
+                         (#.Some file)
+                         (do !
+                           [closed? (LuaFile::close [] file)]
+                           (wrap (if closed?
+                                   (#try.Success (..file path))
+                                   (exception.throw ..cannot_close_file [path]))))
+                         
+                         #.None
+                         (wrap (exception.throw ..cannot_create_file [path]))))
+
+                     (#try.Success file)
+                     (wrap (exception.throw ..file_already_exists [path])))))
+
+               (`` (structure: #export default
+                     (System IO)
+
+                     (def: file (..can_open ..default_file))
+                     (def: create_file (..can_open ..default_create_file))
+
+                     (def: directory
+                       (let [dummy "lux_lua_dummy_file"]
+                         (..can_open
+                          (function (directory path)
+                            (do {! io.monad}
+                              [?file (..default_create_file (format path ..default_separator dummy))]
+                              (case ?file
+                                (#try.Success file)
+                                (do (try.with !)
+                                  [_ (!.use (\ file delete) [])]
+                                  (wrap (..directory path)))
+                                
+                                (#try.Failure error)
+                                (wrap (if (exception.match? ..file_already_exists error)
+                                        (#try.Success (..directory path))
+                                        (exception.throw ..cannot_find_directory [path])))))))))
+
+                     (def: create_directory
+                       (..can_open
+                        (function (create_directory path)
+                          (do io.monad
+                            [?verdict (os::execute [(format "mkdir " path)])]
+                            (wrap (case ?verdict
+                                    (#.Some verdict)
+                                    (#try.Success (..directory path))
+                                    
+                                    #.None
+                                    (exception.throw ..cannot_create_directory [path])))))))
+
+                     (def: separator
+                       ..default_separator)
                      ))
                )
         }))

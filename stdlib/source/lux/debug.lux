@@ -6,13 +6,13 @@
    [abstract
     [monad (#+ do)]]
    [control
+    [pipe (#+ case> new>)]
     ["." function]
     ["." try (#+ Try)]
     ["." exception (#+ exception:)]
     ["<>" parser
      ["<.>" type (#+ Parser)]
-     ["<.>" code]]
-    pipe]
+     ["<.>" code]]]
    [data
     ["." text
      ["%" format (#+ format)]]
@@ -72,7 +72,14 @@
                  (primitive "python_type"))
                
                (import: (type [.Any] PyType))
-               (import: (str [.Any] host.String)))}))
+               (import: (str [.Any] host.String)))
+
+        @.lua
+        (as_is (import: (type [.Any] host.String))
+               (import: (tostring [.Any] host.String))
+
+               (import: math
+                 (#static type [.Any] #? host.String)))}))
 
 (def: Inspector (-> Any Text))
 
@@ -190,6 +197,39 @@
 
             _
             (..str value))
+
+          @.lua
+          (case (..type value)
+            (^template [<type_of> <then>]
+              [<type_of>
+               (`` (|> value (~~ (template.splice <then>))))])
+            (["boolean" [(:coerce .Bit) %.bit]]
+             ["string" [(:coerce .Text) %.text]]
+             ["nil" [(new> "nil" [])]])
+
+            "number"
+            (case (math::type [value])
+              (#.Some "integer") (|> value (:coerce .Int) %.int)
+              (#.Some "float") (|> value (:coerce .Frac) %.frac)
+              
+              _
+              (..tostring value))
+            
+            "table"
+            (let [variant_tag ("lua object get" "_lux_tag" value)
+                  variant_flag ("lua object get" "_lux_flag" value)
+                  variant_value ("lua object get" "_lux_value" value)]
+              (if (not (or ("lua object nil?" variant_tag)
+                           ("lua object nil?" variant_flag)
+                           ("lua object nil?" variant_value)))
+                (|> (format (|> variant_tag (:coerce .Int) %.int)
+                            " " (%.bit (not ("lua object nil?" variant_flag)))
+                            " " (inspect variant_value))
+                    (text.enclose ["(" ")"]))
+                (inspect_tuple inspect value)))
+
+            _
+            (..tostring value))
           })))
 
 (exception: #export (cannot_represent_value {type Type})
@@ -336,8 +376,7 @@
                     (~ (code.identifier definition))))))))
 
 (def: #export (log! message)
-  {#.doc (doc "Logs message to standard output."
-              "Useful for debugging.")}
+  {#.doc "Logs message to standard output."}
   (-> Text Any)
   ("lux io log" message))
 

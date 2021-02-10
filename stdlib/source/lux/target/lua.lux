@@ -1,19 +1,25 @@
 (.module:
-  [lux (#- Location Code int if cond function or and not let)
+  [lux (#- Location Code int if cond function or and not let ^)
    [abstract
     [equivalence (#+ Equivalence)]
-    [hash (#+ Hash)]]
+    [hash (#+ Hash)]
+    ["." enum]]
    [control
-    [pipe (#+ case> cond> new>)]]
+    [pipe (#+ case> cond> new>)]
+    [parser
+     ["<.>" code]]]
    [data
     ["." text
      ["%" format (#+ format)]]
     [collection
      ["." list ("#\." functor fold)]]]
    [macro
-    ["." template]]
+    [syntax (#+ syntax:)]
+    ["." template]
+    ["." code]]
    [math
     [number
+     ["n" nat]
      ["i" int]
      ["f" frac]]]
    [type
@@ -69,6 +75,7 @@
     [Literal [Computation' Expression' Code]]
     [Var [Location' Computation' Expression' Code]]
     [Access [Location' Computation' Expression' Code]]
+    [Label [Code]]
     )
 
   (def: #export nil
@@ -99,7 +106,7 @@
                 [(new> "(0.0/0.0)" [])]
 
                 ## else
-                [%.frac])
+                [%.frac (text.replace_all "+" "")])
          :abstraction))
 
   (def: sanitize
@@ -122,6 +129,12 @@
   (def: #export string
     (-> Text Literal)
     (|>> ..sanitize (text.enclose' text.double_quote) :abstraction))
+
+  (def: #export multi
+    (-> (List Expression) Literal)
+    (|>> (list\map ..code)
+         (text.join_with ..input_separator)
+         :abstraction))
 
   (def: #export array
     (-> (List Expression) Literal)
@@ -161,8 +174,8 @@
         (format (:representation func))
         :abstraction))
 
-  (def: #export (do method table args)
-    (-> Text Expression (List Expression) Computation)
+  (def: #export (do method args table)
+    (-> Text (List Expression) Expression Computation)
     (|> args
         (list\map ..code)
         (text.join_with ..input_separator)
@@ -187,6 +200,7 @@
     ["+"  +]
     ["-"  -]
     ["*"  *]
+    ["^"  ^]
     ["/"  /]
     ["//" //]
     ["%"  %]
@@ -206,9 +220,14 @@
     (-> Expression Expression)
     (:abstraction (format "(not " (:representation subject) ")")))
 
-  (def: #export var
-    (-> Text Var)
-    (|>> :abstraction))
+  (template [<name> <type>]
+    [(def: #export <name>
+       (-> Text <type>)
+       (|>> :abstraction))]
+
+    [var Var]
+    [label Label]
+    )
 
   (def: #export statement
     (-> Expression Statement)
@@ -236,9 +255,7 @@
 
   (def: #export (let vars value)
     (-> (List Var) Expression Statement)
-    ($_ ..then
-        (local vars)
-        (set vars value)))
+    (:abstraction (format "local " (..locations vars) " = " (:representation value) ..statement_suffix)))
 
   (def: #export (local/1 var value)
     (-> Var Expression Statement)
@@ -319,6 +336,14 @@
     (|> "break"
         (text.suffix ..statement_suffix)
         :abstraction))
+
+  (def: #export (set_label label)
+    (-> Label Statement)
+    (:abstraction (format "::" (:representation label) "::")))
+
+  (def: #export (go_to label)
+    (-> Label Statement)
+    (:abstraction (format "goto " (:representation label))))
   )
 
 (def: #export (cond clauses else!)
@@ -327,3 +352,40 @@
                (..if test then! next!))
              else!
              (list.reverse clauses)))
+
+(syntax: (arity_inputs {arity <code>.nat})
+  (wrap (case arity
+          0 (.list)
+          _ (|> (dec arity)
+                (enum.range n.enum 0)
+                (list\map (|>> %.nat code.local_identifier))))))
+
+(syntax: (arity_types {arity <code>.nat})
+  (wrap (list.repeat arity (` ..Expression))))
+
+(template [<arity> <function>+]
+  [(with_expansions [<apply> (template.identifier ["apply/" <arity>])
+                     <inputs> (arity_inputs <arity>)
+                     <types> (arity_types <arity>)
+                     <definitions> (template.splice <function>+)]
+     (def: #export (<apply> function <inputs>)
+       (-> Expression <types> Computation)
+       (..apply/* (.list <inputs>) function))
+
+     (template [<function>]
+       [(`` (def: #export (~~ (template.identifier [<function> "/" <arity>]))
+              (<apply> (..var <function>))))]
+
+       <definitions>))]
+
+  [1
+   [["error"]
+    ["print"]
+    ["require"]]]
+
+  [2
+   []]
+
+  [3
+   []]
+  )

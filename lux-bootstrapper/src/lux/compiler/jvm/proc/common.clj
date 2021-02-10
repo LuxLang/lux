@@ -234,19 +234,21 @@
     (return nil)))
 
 (defn compile-text-clip [compile ?values special-args]
-  (|do [:let [(&/$Cons ?text (&/$Cons ?from (&/$Cons ?to (&/$Nil)))) ?values]
+  (|do [:let [(&/$Cons ?text (&/$Cons ?offset (&/$Cons ?length (&/$Nil)))) ?values]
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?text)
         :let [_ (doto *writer*
                   (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String"))]
-        _ (compile ?from)
+        _ (compile ?offset)
         :let [_ (doto *writer*
                   &&/unwrap-long
-                  (.visitInsn Opcodes/L2I))]
-        _ (compile ?to)
+                  (.visitInsn Opcodes/L2I)
+                  (.visitInsn Opcodes/DUP))]
+        _ (compile ?length)
         :let [_ (doto *writer*
                   &&/unwrap-long
-                  (.visitInsn Opcodes/L2I))]
+                  (.visitInsn Opcodes/L2I)
+                  (.visitInsn Opcodes/IADD))]
         :let [_ (doto *writer*
                   (.visitMethodInsn Opcodes/INVOKEVIRTUAL "java/lang/String" "substring" "(II)Ljava/lang/String;"))]]
     (return nil)))

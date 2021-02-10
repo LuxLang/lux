@@ -51,3 +51,7 @@
 
 1. http://chrjs.net/
 
+# Answer Set Programming
+
+1. [What Is Answer Set Programming?](https://www.cs.utexas.edu/users/vl/papers/wiasp.pdf)
+
