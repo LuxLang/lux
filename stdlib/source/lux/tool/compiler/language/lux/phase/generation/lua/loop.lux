@@ -24,6 +24,8 @@
      ["#." generation]
      ["//#" /// #_
       ["#." phase]
+      [meta
+       [archive (#+ Archive)]]
       [reference
        [variable (#+ Register)]]]]]])
 
@@ -31,23 +33,29 @@
   (-> Nat Label)
   (|>> %.nat (format "scope") _.label))
 
-(def: (setup initial? offset bindings body)
-  (-> Bit Register (List Expression) Statement Statement)
+(def: (setup initial? offset bindings as_expression? body)
+  (-> Bit Register (List Expression) Bit Statement Statement)
   (let [variables (|> bindings
                       list.enumeration
                       (list\map (|>> product.left (n.+ offset) //case.register)))]
-    ($_ _.then
-        (if initial?
-          (_.let variables (_.multi bindings))
-          (_.set variables (_.multi bindings)))
-        body)))
+    (if as_expression?
+      body
+      ($_ _.then
+          (if initial?
+            (_.let variables (_.multi bindings))
+            (_.set variables (_.multi bindings)))
+          body))))
 
-(def: #export (scope! statement expression archive [start initsS+ bodyS])
-  (Generator! (Scope Synthesis))
+(def: #export (scope! statement expression archive as_expression? [start initsS+ bodyS])
+  ## (Generator! (Scope Synthesis))
+  (-> Phase! Phase Archive Bit (Scope Synthesis)
+      (Operation [(List Expression) Statement]))
   (case initsS+
     ## function/false/non-independent loop
     #.Nil
-    (statement expression archive bodyS)
+    (|> bodyS
+        (statement expression archive)
+        (\ ///////phase.monad map (|>> [(list)])))
 
     ## true loop
     _
@@ -56,10 +64,11 @@
        initsO+ (monad.map ! (expression archive) initsS+)
        body! (/////generation.with_anchor [start @scope]
                (statement expression archive bodyS))]
-      (wrap (..setup true start initsO+
-                     ($_ _.then
-                         (_.set_label @scope)
-                         body!))))))
+      (wrap [initsO+
+             (..setup true start initsO+ as_expression?
+                      ($_ _.then
+                          (_.set_label @scope)
+                          body!))]))))
 
 (def: #export (scope statement expression archive [start initsS+ bodyS])
   (-> Phase! (Generator (Scope Synthesis)))
@@ -71,10 +80,10 @@
     ## true loop
     _
     (do {! ///////phase.monad}
-      [[[artifact_module artifact_id] scope!] (/////generation.with_new_context archive
-                                                (scope! statement expression archive [start initsS+ bodyS]))
+      [[[artifact_module artifact_id] [initsO+ scope!]] (/////generation.with_new_context archive
+                                                          (scope! statement expression archive true [start initsS+ bodyS]))
        #let [@loop (_.var (///reference.artifact [artifact_module artifact_id]))
-             locals (|> initsS+
+             locals (|> initsO+
                         list.enumeration
                         (list\map (|>> product.left (n.+ start) //case.register)))
              [directive instantiation] (: [Statement Expression]
@@ -96,14 +105,14 @@
                                                          scope!)
                                                      (_.return @loop)
                                                      ))
-                                               (_.apply/* foreigns @context)])))]
+                                               (|> @context (_.apply/* foreigns))])))]
        _ (/////generation.execute! directive)
        _ (/////generation.save! (%.nat artifact_id) directive)]
-      (wrap instantiation))))
+      (wrap (|> instantiation (_.apply/* initsO+))))))
 
 (def: #export (recur! statement expression archive argsS+)
   (Generator! (List Synthesis))
   (do {! ///////phase.monad}
     [[offset @scope] /////generation.anchor
      argsO+ (monad.map ! (expression archive) argsS+)]
-    (wrap (..setup false offset argsO+ (_.go_to @scope)))))
+    (wrap (..setup false offset argsO+ false (_.go_to @scope)))))

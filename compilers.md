@@ -208,7 +208,7 @@ cd ~/lux/lux-lua/ \
 ## Use Lua-based compiler to produce another Lua-based compiler.
 cd ~/lux/lux-lua/ \
 && lein clean \
-&& time lua host_based_compiler.lua build --source ~/lux/lux-lua/source --target ~/lux/lux-lua/target --module program \
+&& time ~/lua-5.4.2/install/bin/lua host_based_compiler.lua build --source ~/lux/lux-lua/source --target ~/lux/lux-lua/target --module program \
 && mv target/program.lua lux.lua
 ```
 

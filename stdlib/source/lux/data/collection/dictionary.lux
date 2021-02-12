@@ -31,7 +31,7 @@
 ## Represents the position of a node in a BitMap.
 ## It's meant to be a single bit set on a 32-bit word.
 ## The position of the bit reflects whether an entry in an analogous
-## position exists within a #Base, as reflected in it's BitMap.
+## position exists within a #Base, as reflected in its BitMap.
 (type: BitPosition
   Nat)
 
@@ -161,13 +161,15 @@
   (-> Level Level)
   (n.+ branching_exponent))
 
-(def: hierarchy_mask BitMap (dec hierarchy_nodes_size))
+(def: hierarchy_mask
+  BitMap
+  (dec hierarchy_nodes_size))
 
 ## Gets the branching-factor sized section of the hash corresponding
 ## to a particular level, and uses that as an index into the array.
 (def: (level_index level hash)
   (-> Level Hash_Code Index)
-  (i64.and hierarchy_mask
+  (i64.and ..hierarchy_mask
            (i64.right_shift level hash)))
 
 ## A mechanism to go from indices to bit-positions.
@@ -182,7 +184,10 @@
 
 (def: (bit_position_is_set? bit bitmap)
   (-> BitPosition BitMap Bit)
-  (not (n.= clean_bitmap (i64.and bit bitmap))))
+  (|> bitmap
+      (i64.and bit)
+      (n.= clean_bitmap)
+      not))
 
 ## Figures out whether a bitmap only contains a single bit-position.
 (def: only_bit_position?
@@ -210,7 +215,7 @@
   (-> BitPosition BitMap)
   dec)
 
-## The index on the base array, based on it's bit-position.
+## The index on the base array, based on its bit-position.
 (def: (base_index bit_position bitmap)
   (-> BitPosition BitMap Index)
   (bitmap_size (i64.and (bit_position_mask bit_position)
@@ -243,7 +248,7 @@
                             (list.indices (array.size h_array)))))
 
 ## When #Base nodes grow too large, they're promoted to #Hierarchy to
-## add some depth to the tree and help keep it's balance.
+## add some depth to the tree and help keep its balance.
 (def: hierarchy_indices (List Index) (list.indices hierarchy_nodes_size))
 
 (def: (promote_base put' Hash<k> level bitmap base)
@@ -287,8 +292,8 @@
 (def: (put' level hash key val Hash<k> node)
   (All [k v] (-> Level Hash_Code k v (Hash k) (Node k v) (Node k v)))
   (case node
-    ## For #Hierarchy nodes, I check whether I can add the element to
-    ## a sub-node. If impossible, I introduced a new singleton sub-node.
+    ## For #Hierarchy nodes, check whether one can add the element to
+    ## a sub-node. If impossible, introduce a new singleton sub-node.
     (#Hierarchy _size hierarchy)
     (let [idx (level_index level hash)
           [_size' sub_node] (case (array.read idx hierarchy)
@@ -301,7 +306,7 @@
                   (update! idx (put' (level_up level) hash key val Hash<k> sub_node)
                            hierarchy)))
 
-    ## For #Base nodes, I check if the corresponding BitPosition has
+    ## For #Base nodes, check if the corresponding BitPosition has
     ## already been used.
     (#Base bitmap base)
     (let [bit (bit_position level hash)]
@@ -309,20 +314,17 @@
         ## If so...
         (let [idx (base_index bit bitmap)]
           (case (array.read idx base)
-            #.None
-            (undefined)
-
-            ## If it's being used by a node, I add the KV to it.
+            ## If it's being used by a node, add the KV to it.
             (#.Some (#.Left sub_node))
             (let [sub_node' (put' (level_up level) hash key val Hash<k> sub_node)]
               (#Base bitmap (update! idx (#.Left sub_node') base)))
 
-            ## Otherwise, if it's being used by a KV, I compare the keys.
+            ## Otherwise, if it's being used by a KV, compare the keys.
             (#.Some (#.Right key' val'))
             (if (\ Hash<k> = key key')
-              ## If the same key is found, I replace the value.
+              ## If the same key is found, replace the value.
               (#Base bitmap (update! idx (#.Right key val) base))
-              ## Otherwise, I compare the hashes of the keys.
+              ## Otherwise, compare the hashes of the keys.
               (#Base bitmap (update! idx
                                      (#.Left (let [hash' (\ Hash<k> hash key')]
                                                (if (n.= hash hash')
@@ -333,38 +335,41 @@
                                                  (#Collisions hash (|> (array.new 2)
                                                                        (array.write! 0 [key' val'])
                                                                        (array.write! 1 [key val])))
-                                                 ## Otherwise, I can
+                                                 ## Otherwise, one can
                                                  ## just keep using
-                                                 ## #Base nodes, so I
+                                                 ## #Base nodes, so
                                                  ## add both KV-pairs
                                                  ## to the empty one.
                                                  (let [next_level (level_up level)]
                                                    (|> empty
                                                        (put' next_level hash' key' val' Hash<k>)
                                                        (put' next_level hash  key  val Hash<k>))))))
-                                     base)))))
-        ## However, if the BitPosition has not been used yet, I check
+                                     base)))
+
+            #.None
+            (undefined)))
+        ## However, if the BitPosition has not been used yet, check
         ## whether this #Base node is ready for a promotion.
         (let [base_count (bitmap_size bitmap)]
           (if (n.>= ..promotion_threshold base_count)
-            ## If so, I promote it to a #Hierarchy node, and add the new
+            ## If so, promote it to a #Hierarchy node, and add the new
             ## KV-pair as a singleton node to it.
             (#Hierarchy (inc base_count)
                         (|> (promote_base put' Hash<k> level bitmap base)
                             (array.write! (level_index level hash)
                                           (put' (level_up level) hash key val Hash<k> empty))))
-            ## Otherwise, I just resize the #Base node to accommodate the
+            ## Otherwise, just resize the #Base node to accommodate the
             ## new KV-pair.
             (#Base (set_bit_position bit bitmap)
                    (insert! (base_index bit bitmap) (#.Right [key val]) base))))))
     
-    ## For #Collisions nodes, I compare the hashes.
+    ## For #Collisions nodes, compare the hashes.
     (#Collisions _hash _colls)
     (if (n.= hash _hash)
       ## If they're equal, that means the new KV contributes to the
       ## collisions.
       (case (collision_index Hash<k> key _colls)
-        ## If the key was already present in the collisions-list, it's
+        ## If the key was already present in the collisions-list, its
         ## value gets updated.
         (#.Some coll_idx)
         (#Collisions _hash (update! coll_idx [key val] _colls))
@@ -372,7 +377,7 @@
         ## Otherwise, the KV-pair is added to the collisions-list.
         #.None
         (#Collisions _hash (insert! (array.size _colls) [key val] _colls)))
-      ## If the hashes are not equal, I create a new #Base node that
+      ## If the hashes are not equal, create a new #Base node that
       ## contains the old #Collisions node, plus the new KV-pair.
       (|> (#Base (bit_position level _hash)
                  (|> (array.new 1)
@@ -417,9 +422,6 @@
       (if (bit_position_is_set? bit bitmap)
         (let [idx (base_index bit bitmap)]
           (case (array.read idx base)
-            #.None
-            (undefined)
-
             ## If set, check if it's a sub_node, and remove the KV
             ## from it.
             (#.Some (#.Left sub_node))
@@ -451,7 +453,10 @@
               (#Base (unset_bit_position bit bitmap)
                      (remove! idx base))
               ## Otherwise, there's nothing to remove.
-              node)))
+              node)
+
+            #.None
+            (undefined)))
         ## If the BitPosition is not set, there's nothing to remove.
         node))
 
@@ -486,16 +491,16 @@
     (let [bit (bit_position level hash)]
       (if (bit_position_is_set? bit bitmap)
         (case (array.read (base_index bit bitmap) base)
-          #.None
-          (undefined)
-          
           (#.Some (#.Left sub_node))
           (get' (level_up level) hash key Hash<k> sub_node)
 
           (#.Some (#.Right [key' val']))
           (if (\ Hash<k> = key key')
             (#.Some val')
-            #.None))
+            #.None)
+
+          #.None
+          (undefined))
         #.None))
 
     ## For #Collisions nodes, do a linear scan of all the known KV-pairs.

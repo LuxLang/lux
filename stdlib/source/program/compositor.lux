@@ -74,32 +74,38 @@
 (def: (package! monad file_system [packager package] static archive context)
   (All [!] (-> (Monad !) (file.System !) [Packager Path] Static Archive Context (! (Try Any))))
   (for {@.old
-        (do (try.with monad)
-          [#let [packager (:share [!] {(Monad !) monad} {(Packager !) packager})]
-           content (packager monad file_system static archive context)
-           package (:share [!]
-                           {(Monad !)
-                            monad}
-                           {(! (Try (File !)))
-                            (:assume (file.get_file monad file_system package))})]
-          (!.use (\ (:share [!]
-                            {(Monad !)
-                             monad}
-                            {(File !)
-                             (:assume package)})
-                    over_write)
-                 [content]))}
+        (case (packager archive context)
+          (#try.Success content)
+          (do (try.with monad)
+            [package (:share [!]
+                             {(Monad !)
+                              monad}
+                             {(! (Try (File !)))
+                              (:assume (file.get_file monad file_system package))})]
+            (!.use (\ (:share [!]
+                              {(Monad !)
+                               monad}
+                              {(File !)
+                               (:assume package)})
+                      over_write)
+                   [content]))
+          
+          (#try.Failure error)
+          (\ monad wrap (#try.Failure error)))}
        ## TODO: Fix whatever type_checker bug is forcing me into this compromise...
        (:assume
         (: (Promise (Try Any))
            (let [monad (:coerce (Monad Promise) monad)
-                 file_system (:coerce (file.System Promise) file_system)
-                 packager (:coerce (Packager Promise) packager)]
-             (do (try.with monad)
-               [content (packager monad file_system static archive context)
-                package (: (Promise (Try (File Promise)))
-                           (file.get_file monad file_system package))]
-               (!.use (\ (: (File Promise) package) over_write) [content])))))))
+                 file_system (:coerce (file.System Promise) file_system)]
+             (case (packager archive context)
+               (#try.Success content)
+               (do (try.with monad)
+                 [package (: (Promise (Try (File Promise)))
+                             (file.get_file monad file_system package))]
+                 (!.use (\ (: (File Promise) package) over_write) [content]))
+               
+               (#try.Failure error)
+               (\ monad wrap (#try.Failure error))))))))
 
 (with_expansions [<parameters> (as_is anchor expression artifact)]
   (def: #export (compiler static

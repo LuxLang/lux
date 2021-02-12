@@ -35,7 +35,7 @@
   ["." // (#+ Context)
    ["#." context]
    ["/#" //
-    ["." archive (#+ Archive)
+    ["." archive (#+ Output Archive)
      ["." artifact (#+ Artifact)]
      ["." descriptor (#+ Module Descriptor)]
      ["." document (#+ Document)]]
@@ -180,7 +180,7 @@
     [modules (: (Try (List [Module .Module]))
                 (monad.map ! (function (_ module)
                                (do !
-                                 [[descriptor document] (archive.find module archive)
+                                 [[descriptor document output] (archive.find module archive)
                                   content (document.read $.key document)]
                                  (wrap [module content])))
                            (archive.archived archive)))]
@@ -323,17 +323,17 @@
     (wrap [(document.write $.key (set@ #.definitions definitions content))
            bundles])))
 
-(def: (load_definitions system static module_id host_environment [descriptor document])
+(def: (load_definitions system static module_id host_environment [descriptor document output])
   (All [expression directive]
     (-> (file.System Promise) Static archive.ID (generation.Host expression directive)
-        [Descriptor (Document .Module)]
-        (Promise (Try [[Descriptor (Document .Module)]
+        [Descriptor (Document .Module) Output]
+        (Promise (Try [[Descriptor (Document .Module) Output]
                        Bundles]))))
   (do (try.with promise.monad)
     [actual (cached_artifacts system static module_id)
      #let [expected (|> descriptor (get@ #descriptor.registry) artifact.artifacts)]
      [document bundles] (promise\wrap (loaded_document (get@ #static.artifact_extension static) host_environment module_id expected actual document))]
-    (wrap [[descriptor document] bundles])))
+    (wrap [[descriptor document output] bundles])))
 
 (def: (purge! system static [module_name module_id])
   (-> (file.System Promise) Static [Module archive.ID] (Promise (Try Any)))
@@ -358,7 +358,7 @@
   (Dictionary Module archive.ID))
 
 (def: initial_purge
-  (-> (List [Bit [Module [archive.ID [Descriptor (Document .Module)]]]])
+  (-> (List [Bit [Module [archive.ID [Descriptor (Document .Module) Output]]]])
       Purge)
   (|>> (list.all (function (_ [valid_cache? [module_name [module_id _]]])
                    (if valid_cache?
@@ -367,10 +367,10 @@
        (dictionary.from_list text.hash)))
 
 (def: (full_purge caches load_order)
-  (-> (List [Bit [Module [archive.ID [Descriptor (Document .Module)]]]])
+  (-> (List [Bit [Module [archive.ID [Descriptor (Document .Module) Output]]]])
       dependency.Order
       Purge)
-  (list\fold (function (_ [module_name [module_id [descriptor document]]] purge)
+  (list\fold (function (_ [module_name [module_id [descriptor document output]]] purge)
                (let [purged? (: (Predicate Module)
                                 (dictionary.key? purge))]
                  (if (purged? module_name)
@@ -397,16 +397,16 @@
                                              [descriptor document] (promise\wrap (<b>.run ..parser data))]
                                             (if (text\= archive.runtime_module module_name)
                                               (wrap [true
-                                                     [module_name [module_id [descriptor document]]]])
+                                                     [module_name [module_id [descriptor document (: Output row.empty)]]]])
                                               (do !
                                                 [input (//context.read system import contexts (get@ #static.host_module_extension static) module_name)]
                                                 (wrap [(..valid_cache? descriptor input)
-                                                       [module_name [module_id [descriptor document]]]])))))))
+                                                       [module_name [module_id [descriptor document (: Output row.empty)]]]])))))))
      load_order (|> pre_loaded_caches
                     (list\map product.right)
                     (monad.fold try.monad
-                                (function (_ [module [module_id descriptor,document]] archive)
-                                  (archive.add module descriptor,document archive))
+                                (function (_ [module [module_id descriptor,document,output]] archive)
+                                  (archive.add module descriptor,document,output archive))
                                 archive)
                     (\ try.monad map (dependency.load_order $.key))
                     (\ try.monad join)
@@ -416,12 +416,12 @@
            dictionary.entries
            (monad.map ! (..purge! system static)))
      loaded_caches (|> load_order
-                       (list.filter (function (_ [module_name [module_id [descriptor document]]])
+                       (list.filter (function (_ [module_name [module_id [descriptor document output]]])
                                       (not (dictionary.key? purge module_name))))
-                       (monad.map ! (function (_ [module_name [module_id descriptor,document]])
+                       (monad.map ! (function (_ [module_name [module_id descriptor,document,output]])
                                       (do !
-                                        [[descriptor,document bundles] (..load_definitions system static module_id host_environment descriptor,document)]
-                                        (wrap [[module_name descriptor,document]
+                                        [[descriptor,document,output bundles] (..load_definitions system static module_id host_environment descriptor,document,output)]
+                                        (wrap [[module_name descriptor,document,output]
                                                bundles])))))]
     (promise\wrap
      (do {! try.monad}

@@ -9,6 +9,7 @@
      ["!" capability]]]
    [data
     [binary (#+ Binary)]
+    ["." product]
     [text
      ["%" format (#+ format)]
      ["." encoding]]
@@ -22,7 +23,7 @@
     ["." static (#+ Static)]]]
   ["." // (#+ Packager)
    [//
-    ["." archive
+    ["." archive (#+ Output)
      ["." descriptor]
      ["." artifact]]
     [cache
@@ -38,51 +39,45 @@
 (type: (Action ! a)
   (! (Try a)))
 
-(def: (write_artifact monad file_system static context)
-  (All [!]
-    (-> (Monad !) (file.System !) Static Context
-        (Action ! Binary)))
-  (do (try.with monad)
-    [artifact (let [[module artifact] context]
-                (!.use (\ file_system file) [(io.artifact file_system static module (%.nat artifact))]))]
-    (!.use (\ artifact content) [])))
-
-(def: (write_module monad file_system static sequence [module artifacts] so_far)
-  (All [! directive]
-    (-> (Monad !) (file.System !) Static (-> directive directive directive) [archive.ID (List artifact.ID)] directive
-        (Action ! directive)))
-  (monad.fold (:assume (try.with monad))
-              (function (_ artifact so_far)
-                (do (try.with monad)
-                  [content (..write_artifact monad file_system static [module artifact])
-                   content (\ monad wrap (\ encoding.utf8 decode content))]
-                  (wrap (sequence so_far
-                                  (:share [directive]
-                                          {directive
-                                           so_far}
-                                          {directive
-                                           (:assume content)})))))
-              so_far
-              artifacts))
+(def: (write_module sequence [module artifacts output] so_far)
+  (All [directive]
+    (-> (-> directive directive directive) [archive.ID (List artifact.ID) Output] directive
+        (Try directive)))
+  (|> output
+      row.to_list
+      (list\map product.right)
+      (monad.fold try.monad
+                  (function (_ content so_far)
+                    (|> content
+                        (\ encoding.utf8 decode)
+                        (\ try.monad map
+                           (function (_ content)
+                             (sequence so_far
+                                       (:share [directive]
+                                               {directive
+                                                so_far}
+                                               {directive
+                                                (:assume content)}))))))
+                  so_far)))
 
 (def: #export (package header to_code sequence scope)
-  (All [! directive]
+  (All [directive]
     (-> directive
         (-> directive Text)
         (-> directive directive directive)
         (-> directive directive)
-        (Packager !)))
-  (function (package monad file_system static archive program)
-    (do {! (try.with monad)}
-      [cache (!.use (\ file_system directory) [(get@ #static.target static)])
-       order (\ monad wrap (dependency.load_order $.key archive))]
+        Packager))
+  (function (package archive program)
+    (do {! try.monad}
+      [order (dependency.load_order $.key archive)]
       (|> order
-          (list\map (function (_ [module [module_id [descriptor document]]])
+          (list\map (function (_ [module [module_id [descriptor document output]]])
                       [module_id
                        (|> descriptor
                            (get@ #descriptor.registry)
                            artifact.artifacts
                            row.to_list
-                           (list\map (|>> (get@ #artifact.id))))]))
-          (monad.fold ! (..write_module monad file_system static sequence) header)
+                           (list\map (|>> (get@ #artifact.id))))
+                       output]))
+          (monad.fold ! (..write_module sequence) header)
           (\ ! map (|>> scope to_code (\ encoding.utf8 encode)))))))
