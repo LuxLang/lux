@@ -276,6 +276,29 @@
     [_ (meta.find_export name)]
     (wrap (list (name_code name)))))
 
+(def: coverage_separator
+  Text
+  (text.from_code 31))
+
+(def: encode_coverage
+  (-> (List Text) Text)
+  (list\fold (function (_ short aggregate)
+               (case aggregate
+                 "" short
+                 _ (format short ..coverage_separator aggregate)))
+             ""))
+
+(def: (decode_coverage module encoding)
+  (-> Text Text (Set Name))
+  (loop [remaining encoding
+         output (set.from_list name.hash (list))]
+    (case (text.split_with ..coverage_separator remaining)
+      (#.Some [head tail])
+      (recur tail (set.add [module head] output))
+      
+      #.None
+      output)))
+
 (template [<macro> <function>]
   [(syntax: #export (<macro> {coverage (<c>.tuple (<>.many <c>.any))}
                              condition)
@@ -301,16 +324,9 @@
                        (.list (~+ coverage)))
                     (~ test)))))))
 
-(def: coverage_separator
-  Text
-  (text.from_code 31))
-
 (def: (covering' module coverage test)
   (-> Text Text Test Test)
-  (let [coverage (|> coverage
-                     (text.split_all_with ..coverage_separator)
-                     (list\map (|>> [module]))
-                     (set.from_list name.hash))]
+  (let [coverage (..decode_coverage module coverage)]
     (|> (..context module test)
         (random\map (promise\map (function (_ [counters documentation])
                                    [(update@ #expected_coverage (set.union coverage) counters)
@@ -322,9 +338,12 @@
     [#let [module (name.module module)]
      definitions (meta.definitions module)
      #let [coverage (|> definitions
-                        (list.filter (|>> product.right product.left))
-                        (list\map product.left)
-                        (text.join_with ..coverage_separator))]]
+                        (list\fold (function (_ [short [exported? _]] aggregate)
+                                     (if exported?
+                                       (#.Cons short aggregate)
+                                       aggregate))
+                                   #.Nil)
+                        ..encode_coverage)]]
     (wrap (list (` ((~! ..covering')
                     (~ (code.text module))
                     (~ (code.text coverage))

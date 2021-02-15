@@ -64,7 +64,7 @@
 (def: (flag value)
   (-> Bit Literal)
   (if value
-    (_.string "")
+    ..unit
     _.nil))
 
 (def: #export variant_tag_field "_lux_tag")
@@ -165,96 +165,71 @@
 (def: last_index
   (|>> _.length (_.- (_.int +1))))
 
-## No need to turn tuple//left and tuple//right into loops, as Lua
-## does tail-call optimization.
-## https://www.lua.org/pil/6.3.html
-(runtime: (tuple//left lefts tuple)
-  (with_vars [last_right]
-    ($_ _.then
-        (_.let (list last_right) (..last_index tuple))
-        (_.if (_.> lefts last_right)
-          ## No need for recursion
-          (_.return (..nth lefts tuple))
-          ## Needs recursion
-          (_.return (tuple//left (_.- last_right lefts)
-                                 (..nth last_right tuple)))))))
+(with_expansions [<recur> (as_is ($_ _.then
+                                     (_.set (list lefts) (_.- last_index_right lefts))
+                                     (_.set (list tuple) (..nth last_index_right tuple))))]
+  (runtime: (tuple//left lefts tuple)
+    (with_vars [last_index_right]
+      (<| (_.while (_.bool true))
+          ($_ _.then
+              (_.local/1 last_index_right (..last_index tuple))
+              (_.if (_.> lefts last_index_right)
+                ## No need for recursion
+                (_.return (..nth lefts tuple))
+                ## Needs recursion
+                <recur>)))))
 
-(runtime: (array//sub from to array)
-  (with_vars [temp idx]
-    ($_ _.then
-        (_.let (list temp) (_.array (list)))
-        (_.for_step idx from (_.- (_.int +1) to) (_.int +1)
-                    (|> (_.var "table.insert")
-                        (_.apply/* (list temp (..nth idx array)))
-                        _.statement))
-        (_.return temp))))
+  (runtime: (tuple//right lefts tuple)
+    (with_vars [last_index_right right_index]
+      (<| (_.while (_.bool true))
+          ($_ _.then
+              (_.local/1 last_index_right (..last_index tuple))
+              (_.local/1 right_index (_.+ (_.int +1) lefts))
+              (_.cond (list [(_.= last_index_right right_index)
+                             (_.return (..nth right_index tuple))]
+                            [(_.> last_index_right right_index)
+                             ## Needs recursion.
+                             <recur>])
+                      (_.return (_.apply/* (list tuple
+                                                 (_.+ (_.int +1) right_index)
+                                                 (_.length tuple)
+                                                 (_.int +1)
+                                                 (_.array (list)))
+                                           (_.var "table.move"))))
+              )))))
 
-(runtime: (tuple//right lefts tuple)
-  (with_vars [last_right right_index]
-    ($_ _.then
-        (_.let (list last_right) (..last_index tuple))
-        (_.let (list right_index) (_.+ (_.int +1) lefts))
-        (_.cond (list [(_.= last_right right_index)
-                       (_.return (..nth right_index tuple))]
-                      [(_.> last_right right_index)
-                       ## Needs recursion.
-                       (_.return (tuple//right (_.- last_right lefts)
-                                               (..nth last_right tuple)))])
-                (_.return (array//sub right_index (_.length tuple) tuple)))
-        )))
-
-(runtime: (sum//get sum wantsLast wantedTag)
+(runtime: (sum//get sum wants_last wanted_tag)
   (let [no_match! (_.return _.nil)
         sum_tag (_.the ..variant_tag_field sum)
         sum_flag (_.the ..variant_flag_field sum)
         sum_value (_.the ..variant_value_field sum)
-        is_last? (_.= (_.string "") sum_flag)
+        is_last? (_.= ..unit sum_flag)
+        extact_match! (_.return sum_value)
         test_recursion! (_.if is_last?
                           ## Must recurse.
-                          (_.return (sum//get sum_value wantsLast (_.- sum_tag wantedTag)))
-                          no_match!)]
-    (_.cond (list [(_.= sum_tag wantedTag)
-                   (_.if (_.= wantsLast sum_flag)
-                     (_.return sum_value)
-                     test_recursion!)]
-
-                  [(_.> sum_tag wantedTag)
-                   test_recursion!]
-
-                  [(_.and (_.< sum_tag wantedTag)
-                          (_.= (_.string "") wantsLast))
-                   (_.return (variant' (_.- wantedTag sum_tag) sum_flag sum_value))])
-
-            no_match!)))
-
-(runtime: (array//copy array)
-  (with_vars [temp idx]
-    ($_ _.then
-        (_.let (list temp) (_.array (list)))
-        (<| (_.for_step idx (_.int +1) (_.length array) (_.int +1))
-            (_.statement (|> (_.var "table.insert") (_.apply/* (list temp (_.nth idx array))))))
-        (_.return temp))))
-
-(runtime: (array//concat left right)
-  (with_vars [temp idx]
-    (let [copy! (function (_ input output)
-                  (<| (_.for_step idx (_.int +1) (_.length input) (_.int +1))
-                      (_.statement (|> (_.var "table.insert") (_.apply/* (list output (_.nth idx input)))))))]
-      ($_ _.then
-          (_.let (list temp) (_.array (list)))
-          (copy! left temp)
-          (copy! right temp)
-          (_.return temp)))))
+                          ($_ _.then
+                              (_.set (list wanted_tag) (_.- sum_tag wanted_tag))
+                              (_.set (list sum) sum_value))
+                          no_match!)
+        extrac_sub_variant! (_.return (variant' (_.- wanted_tag sum_tag) sum_flag sum_value))]
+    (<| (_.while (_.bool true))
+        (_.cond (list [(_.= sum_tag wanted_tag)
+                       (_.if (_.= wants_last sum_flag)
+                         extact_match!
+                         test_recursion!)]
+                      [(_.< wanted_tag sum_tag)
+                       test_recursion!]
+                      [(_.and (_.> wanted_tag sum_tag)
+                              (_.= ..unit wants_last))
+                       extrac_sub_variant!])
+                no_match!))))
 
 (def: runtime//adt
   Statement
   ($_ _.then
       @tuple//left
-      @array//sub
       @tuple//right
       @sum//get
-      @array//copy
-      @array//concat
       ))
 
 (runtime: (lux//try risky)
@@ -307,7 +282,7 @@
 (runtime: (i64//char subject)
   (with_expansions [<rembulan> (_.return (_.apply/1 (_.var "string.char") subject))
                     <normal> (_.return (_.apply/1 (_.var "utf8.char") subject))]
-    (for {@.lua <normal>}
+    (for {@.lua (_.return <normal>)}
          (_.if ..on_rembulan?
            <rembulan>
            <normal>))))
@@ -320,18 +295,61 @@
       @i64//char
       ))
 
+(def: (find_byte_index subject param start)
+  (-> Expression Expression Expression Expression)
+  (_.apply/4 (_.var "string.find") subject param start (_.bool #1)))
+
+(def: (char_index subject byte_index)
+  (-> Expression Expression Expression)
+  (|> byte_index
+      (_.apply/3 (_.var "utf8.len") subject (_.int +1))))
+
+(def: (byte_index subject char_index)
+  (-> Expression Expression Expression)
+  (|> char_index
+      (_.+ (_.int +1))
+      (_.apply/2 (_.var "utf8.offset") subject)))
+
+(def: lux_index
+  (-> Expression Expression)
+  (_.- (_.int +1)))
+
 (runtime: (text//index subject param start)
-  (with_vars [idx]
-    ($_ _.then
-        (_.local/1 idx (_.apply/* (list subject param start (_.bool #1))
-                                  (_.var "string.find")))
-        (_.if (_.= _.nil idx)
-          (_.return ..none)
-          (_.return (..some (_.- (_.int +1) idx)))))))
+  (with_expansions [<rembulan> ($_ _.then
+                                   (_.local/1 byte_index (|> start
+                                                             (_.+ (_.int +1))
+                                                             (..find_byte_index subject param)))
+                                   (_.if (_.= _.nil byte_index)
+                                     (_.return ..none)
+                                     (_.return (..some (..lux_index byte_index)))))
+                    <normal> ($_ _.then
+                                 (_.local/1 byte_index (|> start
+                                                           (..byte_index subject)
+                                                           (..find_byte_index subject param)))
+                                 (_.if (_.= _.nil byte_index)
+                                   (_.return ..none)
+                                   (_.return (..some (|> byte_index
+                                                         (..char_index subject)
+                                                         ..lux_index)))))]
+    (with_vars [byte_index]
+      (for {@.lua <normal>}
+           (_.if ..on_rembulan?
+             <rembulan>
+             <normal>)))))
 
 (runtime: (text//clip text offset length)
-  (_.return (_.apply/* (list text (_.+ (_.int +1) offset) (_.+ offset length))
-                       (_.var "string.sub"))))
+  (with_expansions [<rembulan> (_.return (_.apply/3 (_.var "string.sub") text (_.+ (_.int +1) offset) (_.+ offset length)))
+                    <normal> (_.return (_.apply/3 (_.var "string.sub")
+                                                  text
+                                                  (..byte_index text offset)
+                                                  (|> (_.+ offset length)
+                                                      ## (_.+ (_.int +1))
+                                                      (..byte_index text)
+                                                      (_.- (_.int +1)))))]
+    (for {@.lua <normal>}
+         (_.if ..on_rembulan?
+           <rembulan>
+           <normal>))))
 
 (runtime: (text//size subject)
   (with_expansions [<rembulan> (_.return (_.apply/1 (_.var "string.len") subject))
@@ -380,6 +398,22 @@
       @array//write
       ))
 
+(runtime: (io//current_time _)
+  (with_expansions [<rembulan> (_.return (_.int +0))
+                    <normal> (_.return (|> (_.var "os.time")
+                                           (_.apply/* (list))
+                                           (_.* (_.int +1,000))))]
+    (for {@.lua <normal>}
+         (_.if ..on_rembulan?
+           <rembulan>
+           <normal>))))
+
+(def: runtime//io
+  Statement
+  ($_ _.then
+      @io//current_time
+      ))
+
 (def: runtime
   Statement
   ($_ _.then
@@ -388,6 +422,7 @@
       ..runtime//i64
       ..runtime//text
       ..runtime//array
+      ..runtime//io
       ))
 
 (def: #export artifact ..prefix)

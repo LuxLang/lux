@@ -194,28 +194,17 @@ cd ~/lux/lux-lua/ \
 && lein lux auto build
 
 ## Build JVM-based compiler
+## NOTE: Must set lux/control/concurrency/thread.parallelism = 1 before compiling to make sure Rembulan doesn't cause trouble.
 cd ~/lux/lux-lua/ \
 && lein clean \
 && lein lux build \
 && mv target/program.jar jvm_based_compiler.jar
-
-## Use JVM-based compiler to produce a Lua-based compiler.
-cd ~/lux/lux-lua/ \
-&& lein clean \
-&& time java -jar jvm_based_compiler.jar build --source ~/lux/lux-lua/source --target ~/lux/lux-lua/target --module program \
-&& mv target/program.lua host_based_compiler.lua
-
-## Use Lua-based compiler to produce another Lua-based compiler.
-cd ~/lux/lux-lua/ \
-&& lein clean \
-&& time ~/lua-5.4.2/install/bin/lua host_based_compiler.lua build --source ~/lux/lux-lua/source --target ~/lux/lux-lua/target --module program \
-&& mv target/program.lua lux.lua
 ```
 
 ## Try
 
 ```
-## Compile Lux's Standard Library's tests using a Lua-based compiler.
+## Compile Lux's Standard Library's tests using a JVM-based compiler.
 cd ~/lux/stdlib/ \
 && lein clean \
 && time java -jar ~/lux/lux-lua/jvm_based_compiler.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux

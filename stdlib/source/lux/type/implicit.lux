@@ -14,7 +14,7 @@
      ["%" format (#+ format)]]
     [collection
      ["." list ("#\." monad fold)]
-     ["dict" dictionary (#+ Dictionary)]]]
+     ["." dictionary (#+ Dictionary)]]]
    ["." macro
     ["." code]
     [syntax (#+ syntax:)]]
@@ -116,46 +116,47 @@
      [idx tag_list sig_type] (meta.resolve_tag member)]
     (wrap [idx sig_type])))
 
-(def: (prepare_definitions source_module target_module constants)
-  (-> Text Text (List [Text Definition]) (List [Name Type]))
-  (do list.monad
-    [[name [exported? def_type def_anns def_value]] constants]
-    (if (and (annotation.structure? def_anns)
-             (or (text\= target_module source_module)
-                 exported?))
-      (list [[source_module name] def_type])
-      (list))))
+(def: (prepare_definitions source_module target_module constants aggregate)
+  (-> Text Text (List [Text Definition]) (-> (List [Name Type]) (List [Name Type])))
+  (list\fold (function (_ [name [exported? def_type def_anns def_value]] aggregate)
+               (if (and (annotation.structure? def_anns)
+                        (or (text\= target_module source_module)
+                            exported?))
+                 (#.Cons [[source_module name] def_type] aggregate)
+                 aggregate))
+             aggregate
+             constants))
 
 (def: local_env
   (Meta (List [Name Type]))
   (do meta.monad
     [local_batches meta.locals
      #let [total_locals (list\fold (function (_ [name type] table)
-                                     (try.default table (dict.try_put name type table)))
+                                     (try.default table (dictionary.try_put name type table)))
                                    (: (Dictionary Text Type)
-                                      (dict.new text.hash))
+                                      (dictionary.new text.hash))
                                    (list\join local_batches))]]
     (wrap (|> total_locals
-              dict.entries
+              dictionary.entries
               (list\map (function (_ [name type]) [["" name] type]))))))
 
 (def: local_structs
   (Meta (List [Name Type]))
   (do {! meta.monad}
-    [this_module_name meta.current_module_name]
-    (\ ! map (prepare_definitions this_module_name this_module_name)
-       (meta.definitions this_module_name))))
+    [this_module_name meta.current_module_name
+     definitions (meta.definitions this_module_name)]
+    (wrap (prepare_definitions this_module_name this_module_name definitions #.Nil))))
 
 (def: imported_structs
   (Meta (List [Name Type]))
   (do {! meta.monad}
     [this_module_name meta.current_module_name
-     imp_mods (meta.imported_modules this_module_name)
-     export_batches (monad.map ! (function (_ imp_mod)
-                                   (\ ! map (prepare_definitions imp_mod this_module_name)
-                                      (meta.definitions imp_mod)))
-                               imp_mods)]
-    (wrap (list\join export_batches))))
+     imported_modules (meta.imported_modules this_module_name)
+     accessible_definitions (monad.map ! meta.definitions imported_modules)]
+    (wrap (list\fold (function (_ [imported_module definitions] tail)
+                       (prepare_definitions imported_module this_module_name definitions tail))
+                     #.Nil
+                     (list.zip/2 imported_modules accessible_definitions)))))
 
 (def: (apply_function_type func arg)
   (-> Type Type (Check Type))
