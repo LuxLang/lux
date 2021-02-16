@@ -20,7 +20,7 @@
    [macro
     ["." template]]
    [math
-    [number
+    [number (#+ hex)
      ["n" nat]
      ["." i64]]]
    ["." world #_
@@ -329,55 +329,244 @@
         Expander
         (#try.Success ((:coerce Macro' macro) inputs lux)))})
 
-(for {@.old (def: host
-              (IO [Baggage (Host _.Expression _.Statement)])
-              (io (let [runtime_env (net/sandius/rembulan/env/RuntimeEnvironments::system)
-                        std_lib (net/sandius/rembulan/lib/StandardLibrary::in runtime_env)
-                        state_context (net/sandius/rembulan/impl/StateContexts::newDefaultInstance)
-                        table (net/sandius/rembulan/lib/StandardLibrary::installInto state_context std_lib)
-                        variable (net/sandius/rembulan/Variable::new table)
-                        loader (net/sandius/rembulan/compiler/CompilerChunkLoader::of "_lux_definition")
-                        executor (net/sandius/rembulan/exec/DirectCallExecutor::newExecutor)
-                        scheduling_context (net/sandius/rembulan/exec/DirectCallExecutor::schedulingContextFactory executor)
-                        run! (: (-> _.Statement (Try Any))
-                                (function (_ code)
+(for {@.old (as_is (with_expansions [$var_args (_.var "...")
+                                     $str_rel_to_abs (_.var "_utf8_str_rel_to_abs")
+                                     $decode (_.var "_utf8_decode")]
+                     (template.with [(!int <hex>)
+                                     (_.int (.int (hex <hex>)))
+
+                                     (!&| <or> <and> <raw>)
+                                     (|> <raw>
+                                         (_.bit_and (!int <and>))
+                                         (_.bit_or (!int <or>)))
+                                     
+                                     (!&|< <or> <and> <shift> <raw>)
+                                     (|> <raw>
+                                         (_.bit_shr (_.int <shift>))
+                                         (_.bit_and (!int <and>))
+                                         (_.bit_or (!int <or>)))]
+                       (as_is (def: rembulan//char
+                                (let [$buffer (_.var "buffer")
+                                      $k (_.var "k")
+                                      $v (_.var "v")
+                                      $b1 (_.var "b1")
+                                      $b2 (_.var "b2")
+                                      $b3 (_.var "b3")
+                                      $b4 (_.var "b4")
+                                      table/insert (_.apply/2 (_.var "table.insert"))]
+                                  (_.function (_.var "utf8.char") (list $var_args)
+                                    ($_ _.then
+                                        (_.local/1 $buffer (_.array (list)))
+                                        (<| (_.for_in (list $k $v) (_.ipairs/1 (_.array (list $var_args))))
+                                            ($_ _.then
+                                                (_.when (_.or (_.< (_.int +0) $v)
+                                                              (_.> (!int "10FFFF") $v))
+                                                        (_.statement (_.error/2 (|> (_.string "bad argument #")
+                                                                                    (_.concat $k)
+                                                                                    (_.concat (_.string " to char (out of range)")))
+                                                                                (_.int +2))))
+                                                (<| (_.if (_.< (!int "80") $v)
+                                                      ## Single-byte sequence
+                                                      (_.statement (|> (_.var "string.char")
+                                                                       (_.apply/* (list $v))
+                                                                       (table/insert $buffer))))
+                                                    (_.if (_.< (!int "800") $v)
+                                                      ## Two-byte sequence
+                                                      (_.statement (|> (_.var "string.char")
+                                                                       (_.apply/* (list (!&|< "C0" "1F" +6 $v)
+                                                                                        (!&| "80" "3F" $v)))
+                                                                       (table/insert $buffer))))
+                                                    (_.if (_.< (!int "10000") $v)
+                                                      ## Three-byte sequence
+                                                      (_.statement (|> (_.var "string.char")
+                                                                       (_.apply/* (list (!&|< "E0" "0F" +12 $v)
+                                                                                        (!&|< "80" "3F" +6 $v)
+                                                                                        (!&| "80" "3F" $v)))
+                                                                       (table/insert $buffer))))
+                                                    ## Four-byte sequence
+                                                    (_.statement (|> (_.var "string.char")
+                                                                     (_.apply/* (list (!&|< "F0" "07" +18 $v)
+                                                                                      (!&|< "80" "3F" +12 $v)
+                                                                                      (!&|< "80" "3F" +6 $v)
+                                                                                      (!&| "80" "3F" $v)))
+                                                                     (table/insert $buffer))))
+                                                ))
+                                        (_.return (_.apply/2 (_.var "table.concat") $buffer (_.string "")))
+                                        ))))
+
+                              ## (def: rembulan//str_rel_to_abs
+                              ##   (let [$string (_.var "string")
+                              ##         $args (_.var "args")
+                              ##         $k (_.var "k")
+                              ##         $v (_.var "v")]
+                              ##     (<| (_.local_function $str_rel_to_abs (list $string $var_args))
+                              ##         ($_ _.then
+                              ##             (_.local/1 $args (_.array (list $var_args)))
+                              ##             (<| (_.for_in (list $k $v) (_.ipairs/1 $args))
+                              ##                 ($_ _.then
+                              ##                     (_.if (_.> (_.int +0) $v)
+                              ##                       (_.set (list $v) $v)
+                              ##                       (_.set (list $v) (|> $v (_.+ (_.length $string)) (_.+ (_.int +1)))))
+                              ##                     (_.when (_.or (_.< (_.int +1) $v)
+                              ##                                   (_.> (_.length $string) $v))
+                              ##                             (_.statement (_.error/2 (_.string "bad index to string (out of range)") (_.int +3))))
+                              ##                     (_.set (list (_.nth $k $args)) $v)))
+                              ##             (_.return (_.apply/1 (_.var "table.unpack") $args))
+                              ##             ))))
+
+                              ## (def: rembulan//decode
+                              ##   (let [$string (_.var "string")
+                              ##         $start (_.var "start")
+                              ##         $b1 (_.var "b1")
+                              ##         $idx (_.var "idx")
+                              ##         $bx (_.var "bx")
+                              ##         $end (_.var "_end")]
+                              ##     (<| (_.local_function $decode (list $string $start))
+                              ##         ($_ _.then
+                              ##             (_.set (list $start) (_.apply/2 $str_rel_to_abs $string (_.or (_.int +1) $start)))
+                              ##             (_.local/1 $b1 (_.do "byte" (list $start $start) $string))
+                              ##             (<| (_.if (_.< (!int "80") $b1)
+                              ##                   ## Single-byte sequence
+                              ##                   (_.return (_.multi (list $start $start))))
+                              ##                 ## Validate first byte of multi-byte sequence
+                              ##                 (_.if (_.or (_.> (!int "F4") $b1)
+                              ##                             (_.< (!int "C2") $b1))
+                              ##                   (_.return _.nil))
+                              ##                 ## Get 'supposed' amount of continuation bytes from primary byte
+                              ##                 ($_ _.then
+                              ##                     (_.local/1 $end (|> (|> $b1 (_.>= (!int "F0")) (_.and (_.int +3)))
+                              ##                                         (_.or (|> $b1 (_.>= (!int "E0")) (_.and (_.int +2))))
+                              ##                                         (_.or (|> $b1 (_.>= (!int "C0")) (_.and (_.int +1))))
+                              ##                                         (_.+ $start)))
+                              ##                     ## Validate our continuation bytes
+                              ##                     (<| (_.for_in (list $idx $bx) (_.ipairs/1 (_.array (list (_.do "byte"
+                              ##                                                                                (list (_.+ (_.int +1) $start) $end)
+                              ##                                                                                $string)))))
+                              ##                         (_.when (|> $bx
+                              ##                                     (_.bit_and (!int "C0"))
+                              ##                                     (_.= (!int "80"))
+                              ##                                     _.not)
+                              ##                                 (_.return _.nil)))
+                              ##                     (_.return (_.multi (list $start $end)))
+                              ##                     ))
+                              ##             ))))
+
+                              ## (def: rembulan//codes
+                              ##   (let [$string (_.var "string")
+                              ##         $i (_.var "i")
+                              ##         $start (_.var "start")
+                              ##         $end (_.var "_end")]
+                              ##     (_.function (_.var "utf8.codes") (list $string)
+                              ##       ($_ _.then
+                              ##           (_.local/1 $i (_.int +1))
+                              ##           (_.return (<| (_.closure (list))
+                              ##                         (_.if (_.> (_.length $string) $i)
+                              ##                           (_.return _.nil)
+                              ##                           ($_ _.then
+                              ##                               (_.let (list $start $end) (_.apply/2 $decode $string $i))
+                              ##                               (_.if (_.not $start)
+                              ##                                 (_.statement (_.error/2 (_.string "invalid UTF-8 code") (_.int +2)))
+                              ##                                 ($_ _.then
+                              ##                                     (_.set (list $i) (_.+ (_.int +1) $end))
+                              ##                                     (_.return (_.multi (list $start (_.do "sub" (list $start $end) $string))))
+                              ##                                     ))
+                              ##                               ))))
+                              ##           ))))
+
+                              ## (def: rembulan//len
+                              ##   (let [$string (_.var "string")
+                              ##         $start (_.var "start")
+                              ##         $end (_.var "_end")
+                              ##         $seq_start (_.var "seq_start")
+                              ##         $seq_end (_.var "seq_end")
+                              ##         $size (_.var "size")]
+                              ##     (_.function (_.var "utf8.len") (list $string $start $end)
+                              ##       ($_ _.then
+                              ##           (_.set (list $start $end) (_.apply/3 $str_rel_to_abs $string (_.or (_.int +1) $start) (_.or (_.int -1) $end)))
+                              ##           (_.local/1 $size (_.int +0))
+                              ##           (_.repeat (_.>= $end $seq_end)
+                              ##                     ($_ _.then
+                              ##                         (_.let (list $seq_start $seq_end) (_.apply/2 $decode $string $start))
+                              ##                         (_.if (_.not $seq_start)
+                              ##                           ## Hit an invalid sequence!
+                              ##                           (_.return (_.multi (list (_.bool false) $start)))
+                              ##                           ($_ _.then
+                              ##                               (_.set (list $start) (_.+ (_.int +1) $seq_end))
+                              ##                               (_.set (list $size) (_.+ (_.int +1) $size))
+                              ##                               ))
+                              ##                         ))
+                              ##           (_.return $size)
+                              ##           ))))
+                              
+                              ## (def: rembulan//charpattern
+                              ##   (_.set (list (_.var "utf8.charpattern"))
+                              ##          (_.string "[%z\x01-\x7F\xC2-\xF4][\x80-\xBF]*")))
+                              
+                              (def: rembulan_prelude
+                                _.Statement
+                                ($_ _.then
+                                    (_.function (_.var "os.time") (list)
+                                      (_.return (_.int +0)))
+
+                                    ## Ported from https://github.com/meepen/Lua-5.1-UTF-8
+                                    ..rembulan//char
+                                    ## ..rembulan//str_rel_to_abs
+                                    ## ..rembulan//decode
+                                    ## ..rembulan//codes
+                                    ## ..rembulan//len
+                                    ## ..rembulan//charpattern
+                                    )))))
+                   
+                   (def: host
+                     (IO [Baggage (Host _.Expression _.Statement)])
+                     (io (let [runtime_env (net/sandius/rembulan/env/RuntimeEnvironments::system)
+                               std_lib (net/sandius/rembulan/lib/StandardLibrary::in runtime_env)
+                               state_context (net/sandius/rembulan/impl/StateContexts::newDefaultInstance)
+                               table (net/sandius/rembulan/lib/StandardLibrary::installInto state_context std_lib)
+                               variable (net/sandius/rembulan/Variable::new table)
+                               loader (net/sandius/rembulan/compiler/CompilerChunkLoader::of "_lux_definition")
+                               executor (net/sandius/rembulan/exec/DirectCallExecutor::newExecutor)
+                               scheduling_context (net/sandius/rembulan/exec/DirectCallExecutor::schedulingContextFactory executor)
+                               run! (: (-> _.Statement (Try Any))
+                                       (function (_ code)
+                                         (do try.monad
+                                           [lua_function (net/sandius/rembulan/load/ChunkLoader::loadTextChunk variable "lux compilation" (_.code code) loader)
+                                            output (net/sandius/rembulan/exec/DirectCallExecutor::call state_context (:coerce java/lang/Object lua_function) (array.new 0)
+                                                                                                       executor)]
+                                           (case (array.read 0 output)
+                                             #.None
+                                             (wrap [])
+
+                                             (#.Some value)
+                                             (read value)))))
+                               _ (try.assume (run! ..rembulan_prelude))]
+                           [[state_context executor]
+                            (: (Host _.Expression _.Statement)
+                               (structure
+                                (def: (evaluate! context code)
+                                  (run! (_.return code)))
+                                
+                                (def: execute! run!)
+                                
+                                (def: (define! context input)
+                                  (let [global (reference.artifact context)
+                                        @global (_.var global)]
+                                    (do try.monad
+                                      [#let [definition (_.set (list @global) input)]
+                                       _ (run! definition)
+                                       value (run! (_.return @global))]
+                                      (wrap [global value definition]))))
+
+                                (def: (ingest context content)
+                                  (|> content (\ encoding.utf8 decode) try.assume (:coerce _.Statement)))
+
+                                (def: (re_learn context content)
+                                  (run! content))
+                                
+                                (def: (re_load context content)
                                   (do try.monad
-                                    [lua_function (net/sandius/rembulan/load/ChunkLoader::loadTextChunk variable "lux compilation" (_.code code) loader)
-                                     output (net/sandius/rembulan/exec/DirectCallExecutor::call state_context (:coerce java/lang/Object lua_function) (array.new 0)
-                                                                                                executor)]
-                                    (case (array.read 0 output)
-                                      #.None
-                                      (wrap [])
-
-                                      (#.Some value)
-                                      (read value)))))]
-                    [[state_context executor]
-                     (: (Host _.Expression _.Statement)
-                        (structure
-                         (def: (evaluate! context code)
-                           (run! (_.return code)))
-                         
-                         (def: execute! run!)
-                         
-                         (def: (define! context input)
-                           (let [global (reference.artifact context)
-                                 @global (_.var global)]
-                             (do try.monad
-                               [#let [definition (_.set (list @global) input)]
-                                _ (run! definition)
-                                value (run! (_.return @global))]
-                               (wrap [global value definition]))))
-
-                         (def: (ingest context content)
-                           (|> content (\ encoding.utf8 decode) try.assume (:coerce _.Statement)))
-
-                         (def: (re_learn context content)
-                           (run! content))
-                         
-                         (def: (re_load context content)
-                           (do try.monad
-                             [_ (run! content)]
-                             (run! (_.return (_.var (reference.artifact context))))))))])))
+                                    [_ (run! content)]
+                                    (run! (_.return (_.var (reference.artifact context))))))))]))))
       @.lua (as_is (host.import: (load [host.String] #try host.Function))
                    (def: host
                      (IO (Host _.Expression _.Statement))
