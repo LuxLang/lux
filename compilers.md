@@ -214,6 +214,38 @@ cd ~/lux/stdlib/ \
 
 ---
 
+# PHP compiler
+
+## Test
+
+```
+cd ~/lux/lux-php/ && lein lux auto test
+cd ~/lux/lux-php/ && lein clean && lein lux auto test
+```
+
+## Build
+
+```
+## Develop
+cd ~/lux/lux-php/ \
+&& lein clean \
+&& lein lux auto build
+
+## Build JVM-based compiler
+cd ~/lux/lux-php/ \
+&& lein clean \
+&& lein lux build \
+&& mv target/program.jar jvm_based_compiler.jar
+```
+
+## Try
+
+```
+cd ~/lux/lux-php/ && java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
+```
+
+---
+
 # Ruby compiler
 
 ## Test
@@ -234,30 +266,6 @@ cd ~/lux/lux-ruby/ && lein clean && lein lux auto build
 
 ```
 cd ~/lux/lux-ruby/ && java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
-```
-
----
-
-# PHP compiler
-
-## Test
-
-```
-cd ~/lux/lux-php/ && lein lux auto test
-cd ~/lux/lux-php/ && lein clean && lein lux auto test
-```
-
-## Build
-
-```
-cd ~/lux/lux-php/ && lein lux auto build
-cd ~/lux/lux-php/ && lein clean && lein lux auto build
-```
-
-## Try
-
-```
-cd ~/lux/lux-php/ && java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
 ```
 
 ---

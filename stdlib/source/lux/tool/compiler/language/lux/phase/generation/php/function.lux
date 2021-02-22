@@ -1,105 +1,124 @@
 (.module:
-  [lux (#- function)
+  [lux (#- Global function)
    [abstract
     ["." monad (#+ do)]]
    [control
     pipe]
    [data
     ["." product]
-    ["." text]
+    ["." text
+     ["%" format (#+ format)]]
     [collection
      ["." list ("#\." functor fold)]]]
    [target
-    ["_" php (#+ Argument Expression Statement)]]]
+    ["_" php (#+ Var Global Expression Argument Statement)]]]
   ["." // #_
-   [runtime (#+ Operation Phase)]
+   ["#." runtime (#+ Operation Phase Phase! Generator)]
    ["#." reference]
    ["#." case]
-   ["#/" //
+   ["/#" // #_
     ["#." reference]
-    ["#/" //
-     ["." // #_
-      [reference (#+ Register Variable)]
+    ["//#" /// #_
+     [analysis (#+ Variant Tuple Abstraction Application Analysis)]
+     [synthesis (#+ Synthesis)]
+     ["#." generation (#+ Context)]
+     ["//#" /// #_
       [arity (#+ Arity)]
-      [analysis (#+ Variant Tuple Environment Abstraction Application Analysis)]
-      [synthesis (#+ Synthesis)]]]]])
+      ["#." phase ("#\." monad)]
+      [reference
+       [variable (#+ Register Variable)]]]]]])
 
-(def: #export (apply generate [functionS argsS+])
-  (-> Phase (Application Synthesis) (Operation (Expression Any)))
-  (do {! ////.monad}
-    [functionG (generate functionS)
-     argsG+ (monad.map ! generate argsS+)]
+(def: #export (apply expression archive [functionS argsS+])
+  (Generator (Application Synthesis))
+  (do {! ///////phase.monad}
+    [functionG (expression archive functionS)
+     argsG+ (monad.map ! (expression archive) argsS+)]
     (wrap (_.apply/* argsG+ functionG))))
 
-(def: #export capture
-  (///reference.foreign _.var))
+(def: capture
+  (-> Register Var)
+  (|>> (///reference.foreign //reference.system) :assume))
 
 (def: input
   (|>> inc //case.register))
 
-(def: #export (function generate [environment arity bodyS])
-  (-> Phase (Abstraction Synthesis) (Operation (Expression Any)))
-  (do {! ////.monad}
-    [[function-name bodyG] (///.with-context
+(def: (with_closure inits @selfG @selfL body!)
+  (-> (List Expression) Global Var Statement [Statement Expression])
+  (case inits
+    #.Nil
+    [($_ _.then
+         (_.; (_.set @selfL (_.closure (list (_.reference @selfL)) (list) body!)))
+         (_.; (_.set @selfG @selfL)))
+     @selfG]
+
+    _
+    (let [@inits (|> (list.enumeration inits)
+                     (list\map (|>> product.left ..capture _.reference)))]
+      [(_.; (_.set @selfG (_.closure (list) @inits
+                                     ($_ _.then
+                                         (_.; (_.set @selfL (_.closure (list& (_.reference @selfL) @inits)
+                                                                       (list)
+                                                                       body!)))
+                                         (_.return @selfL)))))
+       (_.apply/* inits @selfG)])))
+
+(def: #export (function expression archive [environment arity bodyS])
+  (Generator (Abstraction Synthesis))
+  (do {! ///////phase.monad}
+    [[function_name bodyG] (/////generation.with_new_context archive
                              (do !
-                               [function-name ///.context]
-                               (///.with-anchor (_.var function-name)
-                                 (generate bodyS))))
-     closureG+ (: (Operation (List Argument))
-                  (monad.map ! (|>> (\ //reference.system variable)
-                                    (\ ! map _.reference))
-                             environment))
+                               [function_name (\ ! map ///reference.artifact
+                                                 (/////generation.context archive))]
+                               (/////generation.with_anchor (_.var function_name)
+                                 (expression archive bodyS))))
+     closureG+ (monad.map ! (expression archive) environment)
      #let [@curried (_.var "curried")
            arityG (|> arity .int _.int)
-           @num-args (_.var "num_args")
-           @selfG (_.global function-name)
-           @selfL (_.var function-name)
-           initialize-self! (_.; (_.set (//case.register 0) @selfL))
+           @num_args (_.var "num_args")
+           @selfG (_.global (///reference.artifact function_name))
+           @selfL (_.var (///reference.artifact function_name))
+           initialize_self! (_.; (_.set (//case.register 0) @selfL))
            initialize! (list\fold (.function (_ post pre!)
                                     ($_ _.then
                                         pre!
                                         (_.; (_.set (..input post) (_.nth (|> post .int _.int) @curried)))))
-                                  initialize-self!
+                                  initialize_self!
                                   (list.indices arity))]
-     #let [directive ($_ _.then
-                         (<| _.;
-                             (_.set @selfL)
-                             (_.closure (list& (_.reference @selfL) closureG+) (list))
-                             ($_ _.then
-                                 (_.echo (_.string "'ello, world! "))
-                                 (_.; (_.set @num-args (_.func-num-args/0 [])))
-                                 (_.echo @num-args) (_.echo (_.string " ~ ")) (_.echo arityG)
-                                 (_.echo (_.string text.new-line))
-                                 (_.; (_.set @curried (_.func-get-args/0 [])))
-                                 (_.cond (list [(|> @num-args (_.= arityG))
-                                                ($_ _.then
-                                                    initialize!
-                                                    (_.return bodyG))]
-                                               [(|> @num-args (_.> arityG))
-                                                (let [arity-inputs (_.array-slice/3 [@curried (_.int +0) arityG])
-                                                      extra-inputs (_.array-slice/2 [@curried arityG])
-                                                      next (_.call-user-func-array/2 [@selfL arity-inputs])
-                                                      done (_.call-user-func-array/2 [next extra-inputs])]
-                                                  ($_ _.then
-                                                      (_.echo (_.string "STAGED ")) (_.echo (_.count/1 arity-inputs))
-                                                      (_.echo (_.string " + ")) (_.echo (_.count/1 extra-inputs))
-                                                      (_.echo (_.string text.new-line))
-                                                      (_.echo (_.string "@selfL ")) (_.echo @selfL) (_.echo (_.string text.new-line))
-                                                      (_.echo (_.string "  next ")) (_.echo next) (_.echo (_.string text.new-line))
-                                                      (_.echo (_.string "  done ")) (_.echo done) (_.echo (_.string text.new-line))
-                                                      (_.return done)))])
-                                         ## (|> @num-args (_.< arityG))
-                                         (let [@missing (_.var "missing")]
-                                           (_.return (<| (_.closure (list (_.reference @selfL) (_.reference @curried)) (list))
-                                                         ($_ _.then
-                                                             (_.; (_.set @missing (_.func-get-args/0 [])))
-                                                             (_.echo (_.string "NEXT ")) (_.echo (_.count/1 @curried))
-                                                             (_.echo (_.string " ")) (_.echo (_.count/1 @missing))
-                                                             (_.echo (_.string " ")) (_.echo (_.count/1 (_.array-merge/+ @curried (list @missing))))
-                                                             (_.echo (_.string text.new-line))
-                                                             (_.return (_.call-user-func-array/2 [@selfL (_.array-merge/+ @curried (list @missing))])))))))
-                                 ))
-                         (_.; (_.set @selfG @selfL)))]
-     _ (///.execute! directive)
-     _ (///.save! function-name directive)]
-    (wrap @selfG)))
+     #let [[definition instantiation] (..with_closure closureG+ @selfG @selfL
+                                        ($_ _.then
+                                            (_.echo (_.string "'ello, world! "))
+                                            (_.; (_.set @num_args (_.func_num_args/0 [])))
+                                            (_.echo @num_args) (_.echo (_.string " ~ ")) (_.echo arityG)
+                                            (_.echo (_.string text.new_line))
+                                            (_.; (_.set @curried (_.func_get_args/0 [])))
+                                            (_.cond (list [(|> @num_args (_.= arityG))
+                                                           ($_ _.then
+                                                               initialize!
+                                                               (_.return bodyG))]
+                                                          [(|> @num_args (_.> arityG))
+                                                           (let [arity_inputs (_.array_slice/3 [@curried (_.int +0) arityG])
+                                                                 extra_inputs (_.array_slice/2 [@curried arityG])
+                                                                 next (_.call_user_func_array/2 [@selfL arity_inputs])
+                                                                 done (_.call_user_func_array/2 [next extra_inputs])]
+                                                             ($_ _.then
+                                                                 (_.echo (_.string "STAGED ")) (_.echo (_.count/1 arity_inputs))
+                                                                 (_.echo (_.string " + ")) (_.echo (_.count/1 extra_inputs))
+                                                                 (_.echo (_.string text.new_line))
+                                                                 (_.echo (_.string "@selfL ")) (_.echo @selfL) (_.echo (_.string text.new_line))
+                                                                 (_.echo (_.string "  next ")) (_.echo next) (_.echo (_.string text.new_line))
+                                                                 (_.echo (_.string "  done ")) (_.echo done) (_.echo (_.string text.new_line))
+                                                                 (_.return done)))])
+                                                    ## (|> @num_args (_.< arityG))
+                                                    (let [@missing (_.var "missing")]
+                                                      (_.return (<| (_.closure (list (_.reference @selfL) (_.reference @curried)) (list))
+                                                                    ($_ _.then
+                                                                        (_.; (_.set @missing (_.func_get_args/0 [])))
+                                                                        (_.echo (_.string "NEXT ")) (_.echo (_.count/1 @curried))
+                                                                        (_.echo (_.string " ")) (_.echo (_.count/1 @missing))
+                                                                        (_.echo (_.string " ")) (_.echo (_.count/1 (_.array_merge/+ @curried (list @missing))))
+                                                                        (_.echo (_.string text.new_line))
+                                                                        (_.return (_.call_user_func_array/2 [@selfL (_.array_merge/+ @curried (list @missing))])))))))
+                                            ))]
+     _ (/////generation.execute! definition)
+     _ (/////generation.save! (%.nat (product.right function_name)) definition)]
+    (wrap instantiation)))
