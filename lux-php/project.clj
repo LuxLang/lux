@@ -4,9 +4,9 @@
 (def sonatype-snapshots "https://oss.sonatype.org/content/repositories/snapshots/")
 
 (defproject com.github.luxlang/lux-php #=(identity version)
-  :description "A Ruby compiler for Lux."
+  :description "A PHP compiler for Lux."
   :url ~repo
-  :license {:name "Lux License v0.1"
+  :license {:name "Lux License v0.1.1"
             :url ~(str repo "/blob/master/license.txt")}
   :scm {:name "git"
         :url ~(str repo ".git")}

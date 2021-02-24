@@ -145,31 +145,15 @@ cd ~/lux/lux-python/ \
 && lein clean \
 && lein lux build \
 && mv target/program.jar jvm_based_compiler.jar
-
-## Use JVM-based compiler to produce a Python-based compiler.
-cd ~/lux/lux-python/ \
-&& lein clean \
-&& time java -jar jvm_based_compiler.jar build --source ~/lux/lux-python/source --target ~/lux/lux-python/target --module program \
-&& mv target/program.py python_based_compiler.py
-&& python3 -m compileall python_based_compiler.py
-&& mv __pycache__/python_based_compiler.cpython-38.pyc python_based_compiler.pyc
-
-## Use Python-based compiler to produce another Python-based compiler.
-cd ~/lux/lux-python/ \
-&& lein clean \
-&& time python3 python_based_compiler.pyc build --source ~/lux/lux-python/source --target ~/lux/lux-python/target --module program \
-&& mv target/program.py lux.py
-&& python3 -m compileall lux.py
-&& mv __pycache__/lux.cpython-38.pyc lux.pyc
 ```
 
 ## Try
 
 ```
-## Compile Lux's Standard Library's tests using a Python-based compiler.
+## Compile Lux's Standard Library's tests using a JVM-based compiler.
 cd ~/lux/stdlib/ \
 && lein clean \
-&& time python3 ~/lux/lux-python/lux.pyc build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
+&& time java -jar ~/lux/lux-python/jvm_based_compiler.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
 
 python3 ~/lux/stdlib/target/program.py
 ```
@@ -241,7 +225,10 @@ cd ~/lux/lux-php/ \
 ## Try
 
 ```
-cd ~/lux/lux-php/ && java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
+## Compile Lux's Standard Library's tests using a JVM-based compiler.
+cd ~/lux/stdlib/ \
+&& lein clean \
+&& time java -jar ~/lux/lux-php/jvm_based_compiler.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
 ```
 
 ---

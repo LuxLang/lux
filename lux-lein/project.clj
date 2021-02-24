@@ -1,7 +1,7 @@
 (defproject com.github.luxlang/lein-luxc "0.6.0-SNAPSHOT"
   :description "The Leiningen plugin for the Lux programming language."
   :url "https://github.com/LuxLang/lein-luxc"
-  :license {:name "Lux License v0.1"
+  :license {:name "Lux License v0.1.1"
             :url "https://github.com/LuxLang/lux/blob/master/license.txt"}
   :dependencies [[org.clojure/clojure "1.6.0"]]
   :deploy-repositories [["releases" {:url "https://oss.sonatype.org/service/local/staging/deploy/maven2/"

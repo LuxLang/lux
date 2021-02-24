@@ -29,12 +29,12 @@
     ["$" version]
     ["#." synthesis (#+ Synthesis)]
     ["#." generation]
-    ["//#" /// (#+ Output)
+    ["//#" ///
      ["#." phase]
      [reference
       [variable (#+ Register)]]
      [meta
-      [archive (#+ Archive)
+      [archive (#+ Output Archive)
        ["." artifact (#+ Registry)]]]]]])
 
 (template [<name> <base>]
@@ -270,24 +270,48 @@
       @sum//get
       ))
 
-(runtime: i64//top
+(runtime: i64//+limit
   (|> (_.int +1)
       (_.bit_shl (_.int +63))
       (_.- (_.int +1))))
 
-(runtime: i64//bottom
+(runtime: i64//-limit
   (_.- (|> (_.int +1)
            (_.bit_shl (_.int +63)))
        (_.int +0)))
 
+(runtime: i64//+iteration
+  (|> (_.int +1)
+      (_.bit_shl (_.int +64))))
+
+(runtime: i64//-iteration
+  (|> ..i64//+iteration
+      _.negate))
+
+(runtime: i64//+cap
+  (|> ..i64//+limit
+      (_.+ (_.int +1))))
+
+(runtime: i64//-cap
+  (|> ..i64//-limit
+      (_.- (_.int +1))))
+
 (runtime: (i64//64 input)
-  (_.return (<| (_.? (|> input (_.< ..i64//bottom))
-                     (|> input (_.- ..i64//bottom) (_.+ (_.int +1)) (_.+ i64//top) i64//64))
-                (_.? (|> input (_.> ..i64//top))
-                     (|> input (_.- ..i64//top) (_.- (_.int +1)) (_.+ ..i64//bottom) i64//64))
-                (for {@.python input}
-                     ## This +- is only necessary to guaranteed that values within the limits are always longs in Python 2
-                     (|> input (_.+ i64//top) (_.- ..i64//top))))))
+  (with_vars [temp]
+    (`` (<| (~~ (template [<scenario> <iteration> <cap> <entrance>]
+                  [(_.if (|> input <scenario>)
+                     ($_ _.then
+                         (_.set (list temp) (_.% <iteration> input))
+                         (_.return (_.? (|> temp <scenario>)
+                                        (|> temp (_.- <cap>) (_.+ <entrance>))
+                                        temp))))]
+
+                  [(_.> ..i64//+limit) ..i64//+iteration ..i64//+cap ..i64//-limit]
+                  [(_.< ..i64//-limit) ..i64//-iteration ..i64//-cap ..i64//+limit]
+                  ))
+            (_.return (for {@.python input}
+                           ## This +- is only necessary to guarantee that values within the limits are always longs in Python 2
+                           (|> input (_.+ ..i64//+limit) (_.- ..i64//+limit))))))))
 
 (runtime: i64//nat_top
   (|> (_.int +1)
@@ -299,15 +323,17 @@
 
 (runtime: (i64//left_shift param subject)
   (_.return (|> subject
-                ..as_nat
-                (_.bit_shl param)
-                ..as_nat
+                (_.bit_shl (_.% (_.int +64) param))
                 ..i64//64)))
 
 (runtime: (i64//right_shift param subject)
-  (_.return (|> subject
-                ..as_nat
-                (_.bit_shr param))))
+  ($_ _.then
+      (_.set (list param) (_.% (_.int +64) param))
+      (_.return (_.? (_.= (_.int +0) param)
+                     subject
+                     (|> subject
+                         ..as_nat
+                         (_.bit_shr param))))))
 
 (runtime: (i64//division param subject)
   (with_vars [floored]
@@ -350,8 +376,12 @@
 (def: runtime//i64
   (Statement Any)
   ($_ _.then
-      @i64//top
-      @i64//bottom
+      @i64//+limit
+      @i64//-limit
+      @i64//+iteration
+      @i64//-iteration
+      @i64//+cap
+      @i64//-cap
       @i64//64
       @i64//nat_top
       @i64//left_shift

@@ -7,7 +7,7 @@
 (defproject com.github.luxlang/lux-jvm #=(identity version)
   :description "A JVM compiler for Lux."
   :url ~repo
-  :license {:name "Lux License v0.1"
+  :license {:name "Lux License v0.1.1"
             :url ~(str repo "/blob/master/license.txt")}
   :plugins [[com.github.luxlang/lein-luxc ~version]]
   :deploy-repositories [["releases" {:url ~sonatype-releases :creds :gpg}]
