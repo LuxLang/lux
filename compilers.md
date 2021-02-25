@@ -245,8 +245,16 @@ cd ~/lux/lux-ruby/ && lein clean && lein lux auto test
 ## Build
 
 ```
-cd ~/lux/lux-ruby/ && lein lux auto build
-cd ~/lux/lux-ruby/ && lein clean && lein lux auto build
+## Develop
+cd ~/lux/lux-ruby/ \
+&& lein clean \
+&& lein lux auto build
+
+## Build JVM-based compiler
+cd ~/lux/lux-ruby/ \
+&& lein clean \
+&& lein lux build \
+&& mv target/program.jar jvm_based_compiler.jar
 ```
 
 ## Try

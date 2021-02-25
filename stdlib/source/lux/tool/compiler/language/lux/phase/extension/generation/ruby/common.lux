@@ -3,64 +3,88 @@
    [abstract
     ["." monad (#+ do)]]
    [control
-    ["." function]]
+    ["." function]
+    ["." try]
+    ["<>" parser
+     ["<s>" synthesis (#+ Parser)]]]
    [data
     ["." product]
-    ["." text]
-    [number
-     ["f" frac]]
+    ["." text
+     ["%" format (#+ format)]]
     [collection
-     ["." dictionary]]]
+     ["." dictionary]
+     ["." list ("#\." functor fold)]]]
+   [math
+    [number
+     ["f" frac]]]
    [target
     ["_" ruby (#+ Expression)]]]
-  [////
+  ["." //// #_
    ["/" bundle]
-   [//
+   ["/#" // #_
+    ["." extension]
     [generation
      [extension (#+ Nullary Unary Binary Trinary
                     nullary unary binary trinary)]
      ["//" ruby #_
-      ["#." runtime (#+ Operation Phase Handler Bundle)]]]]])
+      ["#." runtime (#+ Operation Phase Handler Bundle Generator)]]]
+    [//
+     [synthesis (#+ %synthesis)]
+     ["." generation]
+     [///
+      ["#" phase]]]]])
 
-(def: lux-procs
+(def: #export (custom [parser handler])
+  (All [s]
+    (-> [(Parser s)
+         (-> Text (Generator s))]
+        Handler))
+  (function (_ extension_name phase archive input)
+    (case (<s>.run parser input)
+      (#try.Success input')
+      (handler extension_name phase archive input')
+
+      (#try.Failure error)
+      (/////.throw extension.invalid_syntax [extension_name %synthesis input]))))
+
+(def: lux_procs
   Bundle
   (|> /.empty
       (/.install "is" (binary (product.uncurry _.=)))
       (/.install "try" (unary //runtime.lux//try))))
 
-(def: keep-i64
+(def: keep_i64
   (All [input]
-    (-> (-> input (Expression Any))
-        (-> input (Expression Any))))
-  (function.compose (_.bit-and (_.manual "0xFFFFFFFFFFFFFFFF"))))
+    (-> (-> input Expression)
+        (-> input Expression)))
+  (function.compose (_.bit_and (_.manual "0xFFFFFFFFFFFFFFFF"))))
 
-(def: i64-procs
+(def: i64_procs
   Bundle
   (<| (/.prefix "i64")
       (|> /.empty
-          (/.install "and" (binary (product.uncurry _.bit-and)))
-          (/.install "or" (binary (product.uncurry _.bit-or)))
-          (/.install "xor" (binary (product.uncurry _.bit-xor)))
-          (/.install "left-shift" (binary (..keep-i64 (product.uncurry _.bit-shl))))
-          (/.install "logical-right-shift" (binary (product.uncurry //runtime.i64//logic-right-shift)))
-          (/.install "arithmetic-right-shift" (binary (product.uncurry _.bit-shr)))
+          (/.install "and" (binary (product.uncurry _.bit_and)))
+          (/.install "or" (binary (product.uncurry _.bit_or)))
+          (/.install "xor" (binary (product.uncurry _.bit_xor)))
+          (/.install "left-shift" (binary (..keep_i64 (product.uncurry _.bit_shl))))
+          (/.install "right-shift" (binary (product.uncurry //runtime.i64//logic_right_shift)))
           (/.install "=" (binary (product.uncurry _.=)))
-          (/.install "+" (binary (..keep-i64 (product.uncurry _.+))))
-          (/.install "-" (binary (..keep-i64 (product.uncurry _.-))))
+          (/.install "+" (binary (..keep_i64 (product.uncurry _.+))))
+          (/.install "-" (binary (..keep_i64 (product.uncurry _.-))))
           )))
 
-(def: int-procs
+(def: int_procs
   Bundle
   (<| (/.prefix "int")
       (|> /.empty
           (/.install "<" (binary (product.uncurry _.<)))
-          (/.install "*" (binary (..keep-i64 (product.uncurry _.*))))
+          (/.install "*" (binary (..keep_i64 (product.uncurry _.*))))
           (/.install "/" (binary (product.uncurry _./)))
           (/.install "%" (binary (product.uncurry _.%)))
           (/.install "frac" (unary (_./ (_.float +1.0))))
           (/.install "char" (unary (_.do "chr" (list)))))))
 
-(def: frac-procs
+(def: frac_procs
   Bundle
   (<| (/.prefix "frac")
       (|> /.empty
@@ -76,18 +100,18 @@
           (/.install "decode" (unary //runtime.f64//decode)))))
 
 (def: (text//char [subjectO paramO])
-  (Binary (Expression Any))
+  (Binary Expression)
   (//runtime.text//char subjectO paramO))
 
 (def: (text//clip [paramO extraO subjectO])
-  (Trinary (Expression Any))
+  (Trinary Expression)
   (//runtime.text//clip subjectO paramO extraO))
 
 (def: (text//index [startO partO textO])
-  (Trinary (Expression Any))
+  (Trinary Expression)
   (//runtime.text//index textO partO startO))
 
-(def: text-procs
+(def: text_procs
   Bundle
   (<| (/.prefix "text")
       (|> /.empty
@@ -101,43 +125,38 @@
           )))
 
 (def: (io//log! messageG)
-  (Unary (Expression Any))
-  (_.or (_.apply/* (list (|> messageG (_.+ (_.string text.new-line))))
+  (Unary Expression)
+  (_.or (_.apply/* (list (|> messageG (_.+ (_.string text.new_line))))
                    (_.local "puts"))
         //runtime.unit))
 
 (def: io//error!
-  (Unary (Expression Any))
+  (Unary Expression)
   _.raise)
 
-(def: (io//exit! code)
-  (Unary (Expression Any))
-  (_.apply/* (list code) (_.local "exit")))
-
-(def: (io//current-time! _)
-  (Nullary (Expression Any))
+(def: (io//current_time! _)
+  (Nullary Expression)
   (|> (_.local "Time")
       (_.do "now" (list))
       (_.do "to_f" (list))
       (_.* (_.float +1000.0))
       (_.do "to_i" (list))))
 
-(def: io-procs
+(def: io_procs
   Bundle
   (<| (/.prefix "io")
       (|> /.empty
           (/.install "log" (unary ..io//log!))
           (/.install "error" (unary ..io//error!))
-          (/.install "exit" (unary ..io//exit!))
-          (/.install "current-time" (nullary ..io//current-time!)))))
+          (/.install "current-time" (nullary ..io//current_time!)))))
 
 (def: #export bundle
   Bundle
   (<| (/.prefix "lux")
-      (|> lux-procs
-          (dictionary.merge ..i64-procs)
-          (dictionary.merge ..int-procs)
-          (dictionary.merge ..frac-procs)
-          (dictionary.merge ..text-procs)
-          (dictionary.merge ..io-procs)
+      (|> lux_procs
+          (dictionary.merge ..i64_procs)
+          (dictionary.merge ..int_procs)
+          (dictionary.merge ..frac_procs)
+          (dictionary.merge ..text_procs)
+          (dictionary.merge ..io_procs)
           )))

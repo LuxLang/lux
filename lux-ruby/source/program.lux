@@ -1,93 +1,131 @@
 (.module:
   [lux #*
+   [program (#+ program:)]
+   ["." host (#+ import:)]
+   ["." meta]
    [abstract
     ["." monad (#+ do)]]
    [control
-    pipe
-    [cli (#+ program:)]
-    ["p" parser]
+    [pipe (#+ new>)]
+    ["." try (#+ Try)]
     ["." exception (#+ exception:)]
-    ["." io (#+ IO io)]]
+    ["." io (#+ IO io)]
+    [concurrency
+     ["." promise (#+ Promise)]]
+    ["<>" parser
+     ["<.>" code]]]
    [data
     ["." maybe]
-    ["." error (#+ Error)]
-    [number
-     ["." i64]]
-    ["." text ("#@." hash)
-     format]
+    ["." text ("#\." hash)
+     ["%" format (#+ format)]
+     ["." encoding]]
     [collection
-     ["." array (#+ Array)]
-     ["." list ("#@." functor)]]]
+     ["." array (#+ Array)]]]
    ["." macro
-    ["s" syntax (#+ syntax:)]
-    ["." code]
-    ["." template]]
-   [world
-    ["." file]]
-   ["." host (#+ import: interface: do-to object)
+    [syntax (#+ syntax:)]
+    ["." template]
+    ["." code]]
+   [math
+    [number
+     ["n" nat]
+     ["." i64]]]
+   ["." world #_
+    ["." file]
+    ["#/." program]]
+   ["@" target
     ["_" ruby]]
    [tool
     [compiler
-     ["." name]
-     ["." synthesis]
-     [phase
-      [macro (#+ Expander)]
-      ["." generation
-       ["." ruby
-        ["." runtime]
-        ["." extension]]]]
+     [phase (#+ Operation Phase)]
+     [reference
+      [variable (#+ Register)]]
+     [language
+      [lux
+       [program (#+ Program)]
+       [generation (#+ Context Host)]
+       ["." synthesis]
+       [analysis
+        [macro (#+ Expander)]]
+       [phase
+        ["." extension (#+ Bundle Extender Handler)
+         ["#/." bundle]
+         ["." analysis #_
+          ["#" ruby]]
+         ["." generation #_
+          ["#" ruby]]]
+        [generation
+         ["." reference]
+         ["." ruby
+          ["." runtime]]]]]]
      [default
-      ["." platform (#+ Platform)]]]]]
+      ["." platform (#+ Platform)]]
+     [meta
+      ["." packager #_
+       ["#" script]]]]]]
   [program
    ["/" compositor
-    ["/." cli]]])
+    ["/." cli]
+    ["/." static]]])
 
-(import: #long java/lang/String)
+(import: java/lang/String)
 
-(import: #long (java/lang/Class a))
+(import: (java/lang/Class a))
 
-(import: #long java/lang/Object
-  (toString [] java/lang/String)
-  (getClass [] (java/lang/Class java/lang/Object)))
+(import: java/lang/Object
+  ["#::."
+   (toString [] java/lang/String)
+   (getClass [] (java/lang/Class java/lang/Object))])
 
-(import: #long java/lang/Integer)
+(import: java/lang/Integer)
 
-(import: #long java/lang/Long
-  (intValue [] java/lang/Integer))
+(import: java/lang/Long
+  ["#::."
+   (intValue [] java/lang/Integer)])
 
-(import: #long org/jruby/RubyArray
-  (getLength [] int)
-  (get [int] #? Object))
+(import: org/jruby/RubyArray
+  ["#::."
+   (getLength [] int)
+   (get [int] #? Object)])
 
-(import: #long org/jruby/RubyHash
-  (get [Object] #? Object))
+(import: org/jruby/RubyHash
+  ["#::."
+   (get [java/lang/Object] #? java/lang/Object)])
 
-(import: #long org/jruby/runtime/builtin/IRubyObject)
+(import: org/jruby/Ruby
+  ["#::."
+   (getCurrentContext [] org/jruby/runtime/ThreadContext)])
 
-(import: #long org/jruby/runtime/ThreadContext)
+(import: org/jruby/runtime/builtin/IRubyObject)
+
+(import: org/jruby/runtime/ThreadContext)
 
 (template [<name>]
-  [(interface: <name>
+  [(host.interface: <name>
      (getValue [] java/lang/Object))
 
    (`` (import: (~~ (template.identifier ["program/" <name>]))
-         (getValue [] java/lang/Object)))]
+         ["#::."
+          (getValue [] java/lang/Object)]))]
 
   [StructureValue]
   )
 
-(syntax: (method-inputs {input-classes (s.tuple (p.some s.any))})
-  (monad.map @ (function (_ class)
-                 (do @
-                   [var (macro.gensym "input")]
-                   (wrap (code.record (list [var class])))))
-             input-classes))
+(syntax: (method_inputs {input_classes (<code>.tuple (<>.some <code>.any))})
+  (monad.map meta.monad
+             (function (_ class)
+               (do meta.monad
+                 [var (macro.gensym "input")]
+                 (wrap (code.record (list [var class])))))
+             input_classes))
 
-(import: #long org/jruby/runtime/JavaSites$CheckedSites)
+(import: org/jruby/runtime/JavaSites$CheckedSites)
+(import: org/jruby/runtime/builtin/Variable)
+(import: org/jruby/runtime/builtin/InstanceVariables)
+(import: org/jruby/runtime/builtin/InternalVariables)
 
-(def: (lux-structure value)
+(def: (lux_structure value)
   (-> (Array java/lang/Object) org/jruby/runtime/builtin/IRubyObject)
-  (with-expansions [<checkers> (template [<name>]
+  (with_expansions [<checkers> (template [<name>]
                                  [[<name> [] boolean]]
 
                                  [isNil] [isTaint] [isClass] [isFrozen]
@@ -119,13 +157,26 @@
                              )
                     <placeholders> (template [<name> <inputs> <output>]
                                      [(org/jruby/runtime/builtin/IRubyObject
-                                       (<name> (~~ (method-inputs <inputs>)))
+                                       (<name> self (~~ (method_inputs <inputs>)))
                                        <output>
                                        (error! (template.text ["UNIMPLEMENTED METHOD: " <name>])))]
 
+                                     [getRuntime [] org/jruby/Ruby]
+                                     [copySpecialInstanceVariables [org/jruby/runtime/builtin/IRubyObject] void]
+                                     [syncVariables [org/jruby/runtime/builtin/IRubyObject] void]
+                                     [syncVariables [(java/util/List (org/jruby/runtime/builtin/Variable java/lang/Object))] void]
+                                     [dataWrapStruct [java/lang/Object] void]
+                                     [addFinalizer [org/jruby/runtime/builtin/IRubyObject] void]
+                                     [removeFinalizers [] void]
+                                     [getVariable [int] java/lang/Object]
+                                     [setVariable [int java/lang/Object] void]
+                                     [getVariableList [] (java/util/List (org/jruby/runtime/builtin/Variable java/lang/Object))]
+                                     [getVariableNameList [] (java/util/List java/lang/String)]
+                                     [getVariableCount [] int]
                                      [getJavaClass [] (java/lang/Class java/lang/Object)]
                                      [asJavaString [] java/lang/String]
                                      [getInstanceVariables [] org/jruby/runtime/builtin/InstanceVariables]
+                                     [getInternalVariables [] org/jruby/runtime/builtin/InternalVariables]
                                      [convertToInteger [] org/jruby/RubyInteger]
                                      [convertToInteger [java/lang/String] org/jruby/RubyInteger]
                                      [convertToInteger [int java/lang/String] org/jruby/RubyInteger]
@@ -164,10 +215,10 @@
                                        java/lang/String]
                                       org/jruby/runtime/builtin/IRubyObject]
                                      
-                                     ## [checkCallMethod
-                                     ##  [org/jruby/runtime/ThreadContext
-                                     ##   org/jruby/runtime/JavaSites$CheckedSites]
-                                     ##  org/jruby/runtime/builtin/IRubyObject]
+                                     [checkCallMethod
+                                      [org/jruby/runtime/ThreadContext
+                                       org/jruby/runtime/JavaSites$CheckedSites]
+                                      org/jruby/runtime/builtin/IRubyObject]
 
                                      <checkers>
                                      <markers>
@@ -175,219 +226,297 @@
                                      <class>
                                      <call>
                                      )]
-    (`` (object [] [program/StructureValue
-                    org/jruby/runtime/builtin/IRubyObject]
+    (`` (host.object [] [program/StructureValue
+                         org/jruby/runtime/builtin/IRubyObject]
           []
           ## Methods
           (program/StructureValue
-           (getValue)
+           [] (getValue self)
            java/lang/Object
            (:coerce (Array java/lang/Object) value))
           
           (org/jruby/runtime/builtin/IRubyObject
-           (callMethod {thread-context org/jruby/runtime/ThreadContext}
-                       {member java/lang/String}
-                       {inputs [org/jruby/runtime/builtin/IRubyObject]})
+           [] (callMethod self
+                          {thread_context org/jruby/runtime/ThreadContext}
+                          {member java/lang/String}
+                          {inputs [org/jruby/runtime/builtin/IRubyObject]})
            org/jruby/runtime/builtin/IRubyObject
            (exec
-             (log! (format "Was called: " (%t member)))
+             ("lux io log" (format "Was called: " (%.text member)))
              (error! "OOPS!")))
 
           <placeholders>
           ))))
 
-(import: #long org/jruby/RubyProc
-  (call [org/jruby/runtime/ThreadContext [org/jruby/runtime/builtin/IRubyObject]]
-        org/jruby/runtime/builtin/IRubyObject))
+(import: org/jruby/RubyProc
+  ["#::."
+   (call [org/jruby/runtime/ThreadContext [org/jruby/runtime/builtin/IRubyObject]]
+         #try org/jruby/runtime/builtin/IRubyObject)])
 
-(import: #long org/jruby/Ruby
-  (getCurrentContext [] org/jruby/runtime/ThreadContext))
-
-(import: #long org/jruby/javasupport/JavaArray
-  (new [org/jruby/Ruby java/lang/Object]))
+(import: org/jruby/javasupport/JavaArray
+  ["#::."
+   (new [org/jruby/Ruby java/lang/Object])])
 
 (type: Translator
-  (-> java/lang/Object (Error Any)))
+  (-> java/lang/Object (Try Any)))
 
-(def: (read-tuple read host-object)
-  (-> Translator org/jruby/RubyArray (Error Any))
-  (let [size (:coerce Nat (org/jruby/RubyArray::getLength host-object))]
+(def: (read_tuple read host_object)
+  (-> Translator org/jruby/RubyArray (Try Any))
+  (let [size (:coerce Nat (org/jruby/RubyArray::getLength host_object))]
     (loop [idx 0
            output (:coerce (Array Any) (array.new size))]
-      (if (n/< size idx)
-        (case (org/jruby/RubyArray::get (.int idx) host-object)
+      (if (n.< size idx)
+        (case (org/jruby/RubyArray::get (.int idx) host_object)
           #.None
           (recur (inc idx) output)
           
           (#.Some value)
           (case (read value)
-            (#error.Failure error)
-            (#error.Failure error)
+            (#try.Failure error)
+            (#try.Failure error)
 
-            (#error.Success lux-value)
-            (recur (inc idx) (array.write idx lux-value output))))
-        (#error.Success output)))))
+            (#try.Success lux_value)
+            (recur (inc idx) (array.write! idx lux_value output))))
+        (#try.Success output)))))
 
-(exception: (unknown-kind-of-object {object java/lang/Object})
+(exception: (unknown_kind_of_object {object java/lang/Object})
   (exception.report
    ["Class" (java/lang/Object::toString (java/lang/Object::getClass object))]
    ["Object" (java/lang/Object::toString object)]))
 
-(def: (read-variant read host-object)
-  (-> Translator org/jruby/RubyHash (Error Any))
-  (case [(org/jruby/RubyHash::get runtime.variant-tag-field host-object)
-         (org/jruby/RubyHash::get runtime.variant-flag-field host-object)
-         (org/jruby/RubyHash::get runtime.variant-value-field host-object)]
+(def: (read_variant read host_object)
+  (-> Translator org/jruby/RubyHash (Try Any))
+  (case [(org/jruby/RubyHash::get runtime.variant_tag_field host_object)
+         (org/jruby/RubyHash::get runtime.variant_flag_field host_object)
+         (org/jruby/RubyHash::get runtime.variant_value_field host_object)]
     (^multi [(#.Some tag) ?flag (#.Some value)]
             [(read value)
              (#.Some value)])
-    (#error.Success [(java/lang/Long::intValue (:coerce java/lang/Long tag))
-                     (: Any (case ?flag
-                              (#.Some _)
-                              ""
+    (#try.Success [(java/lang/Long::intValue (:coerce java/lang/Long tag))
+                   (: Any (case ?flag
+                            (#.Some _)
+                            ""
 
-                              #.None
-                              (host.null)))
-                     value])
+                            #.None
+                            (host.null)))
+                   value])
 
     _
-    (exception.throw ..unknown-kind-of-object host-object)))
+    (exception.throw ..unknown_kind_of_object host_object)))
 
-(exception: #export nil-has-no-lux-representation)
+(exception: #export nil_has_no_lux_representation)
 
-(def: (read host-object)
+(def: (read host_object)
   Translator
-  (`` (<| (if (host.null? host-object)
-            (exception.throw nil-has-no-lux-representation []))
-          (~~ (template [<class> <post-processing>]
-                [(case (host.check <class> host-object)
-                   (#.Some typed-object)
-                   (|> typed-object <post-processing>)
+  (`` (<| (if (host.null? host_object)
+            (exception.throw ..nil_has_no_lux_representation []))
+          (~~ (template [<class> <post_processing>]
+                [(case (host.check <class> host_object)
+                   (#.Some typed_object)
+                   (|> typed_object <post_processing>)
 
                    _)]
 
-                [java/lang/Boolean #error.Success]
-                [java/lang/Long #error.Success]
-                [java/lang/Double #error.Success]
-                [java/lang/String #error.Success]
-                [org/jruby/RubyArray (read-tuple read)]
-                [org/jruby/RubyHash (read-variant read)]
-                [org/jruby/RubySymbol #error.Success]
-                [org/jruby/RubyProc #error.Success]
+                [java/lang/Boolean #try.Success]
+                [java/lang/Long #try.Success]
+                [java/lang/Double #try.Success]
+                [java/lang/String #try.Success]
+                [org/jruby/RubyArray (read_tuple read)]
+                [org/jruby/RubyHash (read_variant read)]
+                [org/jruby/RubySymbol #try.Success]
+                [org/jruby/RubyProc #try.Success]
                 ))
-          (exception.throw ..unknown-kind-of-object host-object)
+          (exception.throw ..unknown_kind_of_object host_object)
           )))
 
-(exception: (cannot-apply-a-non-function {object java/lang/Object})
+(exception: (cannot_apply_a_non_function {object java/lang/Object})
   (exception.report
    ["Non-function" (java/lang/Object::toString object)]))
 
-(import: #long org/jruby/embed/internal/LocalContextProvider
-  (getRuntime [] org/jruby/Ruby))
+(import: org/jruby/embed/internal/LocalContextProvider
+  ["#::."
+   (getRuntime [] org/jruby/Ruby)])
 
-(import: #long org/jruby/embed/ScriptingContainer
-  (new [])
-  (runScriptlet [java/lang/String] #try #? java/lang/Object)
-  (getProvider [] org/jruby/embed/internal/LocalContextProvider))
+(import: org/jruby/embed/ScriptingContainer
+  ["#::."
+   (new [])
+   (runScriptlet [java/lang/String] #try #? java/lang/Object)
+   (getProvider [] org/jruby/embed/internal/LocalContextProvider)])
 
 ## TODO; Figure out a way to not need "interpreter" to be a global variable.
 (def: interpreter (org/jruby/embed/ScriptingContainer::new))
 
-(def: ensure-macro
+(def: ensure_macro
   (-> Macro (Maybe org/jruby/RubyProc))
   (|>> (:coerce java/lang/Object) (host.check org/jruby/RubyProc)))
 
-(template: (!ruby-runtime)
+(template: (!ruby_runtime)
   (|> ..interpreter
       org/jruby/embed/ScriptingContainer::getProvider
       org/jruby/embed/internal/LocalContextProvider::getRuntime))
 
-(template: (!ruby-thread-context)
-  (|> (!ruby-runtime)
+(template: (!ruby_thread_context)
+  (|> (!ruby_runtime)
       org/jruby/Ruby::getCurrentContext))
 
-(def: to-host
+(def: to_host
   (-> Any org/jruby/runtime/builtin/IRubyObject)
   (|>> (:coerce (Array java/lang/Object))
-       ..lux-structure
-       ## (org/jruby/javasupport/JavaArray::new (!ruby-runtime))
+       ..lux_structure
+       ## (org/jruby/javasupport/JavaArray::new (!ruby_runtime))
        ))
 
-(def: (call-macro inputs lux macro)
-  (-> (List Code) Lux org/jruby/RubyProc (Error (Error [Lux (List Code)])))
-  (<| :assume
-      ..read
-      (:coerce java/lang/Object)
-      (org/jruby/RubyProc::call (!ruby-thread-context)
-                                (|> (host.array org/jruby/runtime/builtin/IRubyObject 2)
-                                    (host.array-write 0 (..to-host inputs))
-                                    (host.array-write 1 (..to-host lux)))
-                                macro)))
+(def: (call_macro inputs lux macro)
+  (-> (List Code) Lux org/jruby/RubyProc (Try (Try [Lux (List Code)])))
+  (:assume
+   (do try.monad
+     [expansion (org/jruby/RubyProc::call (!ruby_thread_context)
+                                          (|> (host.array org/jruby/runtime/builtin/IRubyObject 2)
+                                              (host.array_write 0 (..to_host inputs))
+                                              (host.array_write 1 (..to_host lux)))
+                                          macro)]
+     (..read (:coerce java/lang/Object expansion)))))
 
 (def: (expander macro inputs lux)
   Expander
-  (case (ensure-macro macro)
+  (case (ensure_macro macro)
     (#.Some macro)
-    (case (call-macro inputs lux macro)
-      (#error.Success output)
+    (case (call_macro inputs lux macro)
+      (#try.Success output)
       (|> output
           (:coerce java/lang/Object)
           ..read
-          (:coerce (Error (Error [Lux (List Code)]))))
+          (:coerce (Try (Try [Lux (List Code)]))))
 
-      (#error.Failure error)
-      (#error.Failure error))
+      (#try.Failure error)
+      (#try.Failure error))
 
     #.None
-    (exception.throw cannot-apply-a-non-function (:coerce java/lang/Object macro))))
+    (exception.throw ..cannot_apply_a_non_function (:coerce java/lang/Object macro))))
 
 (def: separator "___")
 
-(type: Host
-  (generation.Host (_.Expression Any) (_.Statement Any)))
-
 (def: host
-  (IO Host)
-  (io (let [run! (: (-> Text (_.Code Any) (Error Any))
-                    (function (_ dummy-name code)
-                      (do error.monad
+  (IO (Host _.Expression _.Statement))
+  (io (let [run! (: (-> (_.Code Any) (Try Any))
+                    (function (_ code)
+                      (do try.monad
                         [output (org/jruby/embed/ScriptingContainer::runScriptlet (_.code code) ..interpreter)]
                         (..read (maybe.default (:coerce java/lang/Object [])
                                                output)))))]
-        (: Host
+        (: (Host _.Expression _.Statement)
            (structure
-            (def: evaluate! run!)
+            (def: (evaluate! context code)
+              (run! code))
+
             (def: execute! run!)
-            (def: (define! [module name] input)
-              (let [global (format (text.replace-all .module-separator ..separator module)
-                                   ..separator (name.normalize name)
-                                   "___" (%n (text@hash name)))
+
+            (def: (define! context input)
+              (let [global (reference.artifact context)
                     @global (_.global global)]
-                (do error.monad
+                (do try.monad
                   [#let [definition (_.set (list @global) input)]
-                   _ (run! global definition)
-                   value (run! global @global)]
-                  (wrap [global value definition])))))))))
+                   _ (run! definition)
+                   value (run! @global)]
+                  (wrap [global value definition]))))
+
+            (def: (ingest context content)
+              (|> content
+                  (\ encoding.utf8 decode)
+                  try.assume
+                  (:coerce _.Statement)))
+
+            (def: (re_learn context content)
+              (run! content))
+            
+            (def: (re_load context content)
+              (do try.monad
+                [_ (run! content)]
+                (run! (_.global (reference.artifact context))))))))))
 
 (def: platform
-  (IO (Platform IO _.LVar (_.Expression Any) (_.Statement Any)))
+  (IO (Platform _.LVar _.Expression _.Statement))
   (do io.monad
     [host ..host]
-    (wrap {#platform.&monad io.monad
-           #platform.&file-system file.system
+    (wrap {#platform.&file_system (file.async file.default)
            #platform.host host
            #platform.phase ruby.generate
-           #platform.runtime runtime.generate})))
+           #platform.runtime runtime.generate
+           #platform.write (|>> _.code (\ encoding.utf8 encode))})))
 
-(def: (program program)
-  (-> (_.Expression Any) (_.Statement Any))
-  (_.statement (_.apply/* (list (runtime.lux//program-args _.command-line-arguments)
+(def: (program context program)
+  (Program _.Expression _.Statement)
+  (_.statement (_.apply/* (list (runtime.lux//program_args _.command_line_arguments)
                                 _.nil)
                           program)))
 
+(import: org/jruby/RubyString
+  ["#::."
+   (#static newInternalFromJavaExternal [org/jruby/Ruby java/lang/String] org/jruby/RubyString)])
+
+(def: extender
+  Extender
+  ## TODO: Stop relying on coercions ASAP.
+  (<| (:coerce Extender)
+      (function (@self handler))
+      (:coerce Handler)
+      (function (@self name phase))
+      (:coerce Phase)
+      (function (@self archive parameters))
+      (:coerce Operation)
+      (function (@self state))
+      (:coerce Try)
+      try.assume
+      (:coerce Try)
+      (do try.monad
+        [handler (try.from_maybe (..ensure_macro handler))
+         output (org/jruby/RubyProc::call (!ruby_thread_context)
+                                          (|> (host.array org/jruby/runtime/builtin/IRubyObject 5)
+                                              (host.array_write 0 (org/jruby/RubyString::newInternalFromJavaExternal (!ruby_runtime) name))
+                                              (host.array_write 1 (..to_host phase))
+                                              (host.array_write 2 (..to_host archive))
+                                              (host.array_write 3 (..to_host parameters))
+                                              (host.array_write 4 (..to_host state)))
+                                          handler)]
+        (..read (:coerce java/lang/Object output)))))
+
+(def: (declare_success! _)
+  (-> Any (Promise Any))
+  (promise.future (\ world/program.default exit +0)))
+
+(def: (scope body!)
+  (-> _.Statement _.Statement)
+  (let [@program (_.local "lux_program")]
+    ($_ _.then
+        (_.function @program (list) body!)
+        (_.statement (_.apply/* (list) @program))
+        )))
+
 (program: [{service /cli.service}]
-  (/.compiler ..expander
-              ..platform
-              extension.bundle
-              ..program
-              service))
+  (let [extension ".rb"]
+    (exec (do promise.monad
+            [_ (/.compiler {#/static.host @.ruby
+                            #/static.host_module_extension extension
+                            #/static.target (/cli.target service)
+                            #/static.artifact_extension extension}
+                           ..expander
+                           analysis.bundle
+                           ..platform
+                           generation.bundle
+                           extension/bundle.empty
+                           ..program
+                           [_.LVar
+                            _.Expression
+                            _.Statement]
+                           ..extender
+                           service
+                           [(packager.package (: _.Statement (_.manual ""))
+                                              _.code
+                                              _.then
+                                              ..scope)
+                            (format (/cli.target service)
+                                    (\ file.default separator)
+                                    "program"
+                                    extension)])]
+            (..declare_success! []))
+      (io.io []))))

@@ -22,7 +22,7 @@
   :plugins [[com.github.luxlang/lein-luxc ~version]]
   :dependencies [[com.github.luxlang/luxc-jvm ~version]
                  [com.github.luxlang/stdlib ~version]
-                 [org.jruby/jruby-complete "9.2.6.0"]]
+                 [org.jruby/jruby-complete "9.2.15.0"]]
 
   :manifest {"lux" ~version}
   :source-paths ["source"]

@@ -1,36 +1,45 @@
 (.module:
   [lux (#- inc)
+   ["." meta]
    [abstract
-    [monad (#+ do)]]
+    ["." monad (#+ do)]]
    [control
     ["." function]
-    ["p" parser
-     ["s" code]]]
+    ["<>" parser
+     ["<.>" code]]]
    [data
-    [number (#+ hex)
-     ["." i64]]
-    ["." text
-     ["%" format (#+ format)]]
+    ["." product]
+    ["." text ("#\." hash)
+     ["%" format (#+ format)]
+     ["." encoding]]
     [collection
-     ["." list ("#\." functor)]]]
+     ["." list ("#\." functor)]
+     ["." row]]]
    ["." macro
-    ["." code]
-    [syntax (#+ syntax:)]]
-   [target
+    [syntax (#+ syntax:)]
+    ["." code]]
+   [math
+    [number (#+ hex)
+     ["." i64]]]
+   ["@" target
     ["_" ruby (#+ Expression LVar Computation Literal Statement)]]]
   ["." /// #_
    ["#." reference]
    ["//#" /// #_
-    ["#." synthesis]
-    ["#." generation (#+ Buffer)]
-    ["//#" /// #_
+    ["$" version]
+    ["#." synthesis (#+ Synthesis)]
+    ["#." generation]
+    ["//#" ///
      ["#." phase]
+     [reference
+      [variable (#+ Register)]]
      [meta
-      [archive (#+ Archive)]]]]])
+      [archive (#+ Output Archive)
+       ["." artifact (#+ Registry)]]]]]])
 
 (template [<name> <base>]
   [(type: #export <name>
-     (<base> LVar (Expression Any) (Statement Any)))]
+     (<base> LVar Expression Statement))]
 
   [Operation /////generation.Operation]
   [Phase /////generation.Phase]
@@ -39,163 +48,172 @@
   )
 
 (type: #export (Generator i)
-  (-> Phase Archive i (Operation (Expression Any))))
+  (-> Phase Archive i (Operation Expression)))
+
+(type: #export Phase!
+  (-> Phase Archive Synthesis (Operation (Statement Any))))
+
+(type: #export (Generator! i)
+  (-> Phase! Phase Archive i (Operation (Statement Any))))
 
 (def: prefix Text "LuxRuntime")
 
-(def: #export unit (_.string /////synthesis.unit))
+(def: #export unit
+  (_.string /////synthesis.unit))
 
 (def: (flag value)
   (-> Bit Literal)
   (if value
-    (_.string "")
+    ..unit
     _.nil))
 
-(def: #export variant-tag-field "_lux_tag")
-(def: #export variant-flag-field "_lux_flag")
-(def: #export variant-value-field "_lux_value")
+(def: #export variant_tag_field "_lux_tag")
+(def: #export variant_flag_field "_lux_flag")
+(def: #export variant_value_field "_lux_value")
 
 (def: (variant' tag last? value)
-  (-> (Expression Any) (Expression Any) (Expression Any) Literal)
-  (_.hash (list [(_.string ..variant-tag-field) tag]
-                [(_.string ..variant-flag-field) last?]
-                [(_.string ..variant-value-field) value])))
+  (-> Expression Expression Expression Literal)
+  (_.hash (list [(_.string ..variant_tag_field) tag]
+                [(_.string ..variant_flag_field) last?]
+                [(_.string ..variant_value_field) value])))
 
 (def: #export (variant tag last? value)
-  (-> Nat Bit (Expression Any) Literal)
+  (-> Nat Bit Expression Literal)
   (variant' (_.int (.int tag)) (..flag last?) value))
 
 (def: #export none
   Literal
-  (variant 0 #0 unit))
+  (..variant 0 #0 ..unit))
 
 (def: #export some
-  (-> (Expression Any) Literal)
-  (variant 1 #1))
+  (-> Expression Literal)
+  (..variant 1 #1))
 
 (def: #export left
-  (-> (Expression Any) Literal)
-  (variant 0 #0))
+  (-> Expression Literal)
+  (..variant 0 #0))
 
 (def: #export right
-  (-> (Expression Any) Literal)
-  (variant 1 #1))
-
-(def: runtime-name
-  (-> Text LVar)
-  (|>> ///reference.sanitize
-       (format ..prefix "_")
-       _.local))
+  (-> Expression Literal)
+  (..variant 1 #1))
 
 (def: (feature name definition)
-  (-> LVar (-> LVar (Statement Any)) (Statement Any))
+  (-> LVar (-> LVar Statement) Statement)
   (definition name))
 
-(syntax: #export (with-vars {vars (s.tuple (p.some s.local-identifier))}
+(syntax: #export (with_vars {vars (<code>.tuple (<>.some <code>.local_identifier))}
                    body)
-  (wrap (list (` (let [(~+ (|> vars
-                               (list\map (function (_ var)
-                                           (list (code.local-identifier var)
-                                                 (` (_.local (~ (code.text (///reference.sanitize var))))))))
-                               list.concat))]
-                   (~ body))))))
+  (do {! meta.monad}
+    [ids (monad.seq ! (list.repeat (list.size vars) meta.count))]
+    (wrap (list (` (let [(~+ (|> vars
+                                 (list.zip/2 ids)
+                                 (list\map (function (_ [id var])
+                                             (list (code.local_identifier var)
+                                                   (` (_.local (~ (code.text (format "v" (%.nat id)))))))))
+                                 list.concat))]
+                     (~ body)))))))
 
-(syntax: (runtime: {declaration (p.or s.local-identifier
-                                      (s.form (p.and s.local-identifier
-                                                     (p.some s.local-identifier))))}
+(def: module_id
+  0)
+
+(syntax: (runtime: {declaration (<>.or <code>.local_identifier
+                                       (<code>.form (<>.and <code>.local_identifier
+                                                            (<>.some <code>.local_identifier))))}
            code)
-  (case declaration
-    (#.Left name)
-    (macro.with-gensyms [g!_]
-      (let [nameC (code.local-identifier name)
-            code-nameC (code.local-identifier (format "@" name))
-            runtime-nameC (` (runtime-name (~ (code.text name))))]
-        (wrap (list (` (def: #export (~ nameC) LVar (~ runtime-nameC)))
-                    (` (def: (~ code-nameC)
-                         (Statement Any)
-                         (..feature (~ runtime-nameC)
-                                    (function ((~ g!_) (~ nameC))
-                                      (~ code)))))))))
-    
-    (#.Right [name inputs])
-    (macro.with-gensyms [g!_]
-      (let [nameC (code.local-identifier name)
-            code-nameC (code.local-identifier (format "@" name))
-            runtime-nameC (` (runtime-name (~ (code.text name))))
-            inputsC (list\map code.local-identifier inputs)
-            inputs-typesC (list\map (function.constant (` (_.Expression Any)))
-                                    inputs)]
-        (wrap (list (` (def: #export ((~ nameC) (~+ inputsC))
-                         (-> (~+ inputs-typesC) (Computation Any))
-                         (_.apply/* (list (~+ inputsC)) (~ runtime-nameC))))
-                    (` (def: (~ code-nameC)
-                         (Statement Any)
-                         (..feature (~ runtime-nameC)
-                                    (function ((~ g!_) (~ g!_))
-                                      (..with-vars [(~+ inputsC)]
-                                        (_.function (~ g!_) (list (~+ inputsC))
-                                          (~ code)))))))))))))
+  (do meta.monad
+    [runtime_id meta.count]
+    (macro.with_gensyms [g!_]
+      (let [runtime (code.local_identifier (///reference.artifact [..module_id runtime_id]))
+            runtime_name (` (_.local (~ (code.text (%.code runtime)))))]
+        (case declaration
+          (#.Left name)
+          (macro.with_gensyms [g!_]
+            (let [g!name (code.local_identifier name)]
+              (wrap (list (` (def: #export (~ g!name) LVar (~ runtime_name)))
+                          (` (def: (~ (code.local_identifier (format "@" name)))
+                               Statement
+                               (..feature (~ runtime_name)
+                                          (function ((~ g!_) (~ g!name))
+                                            (_.set (list (~ g!name)) (~ code))))))))))
+          
+          (#.Right [name inputs])
+          (macro.with_gensyms [g!_]
+            (let [g!name (code.local_identifier name)
+                  inputsC (list\map code.local_identifier inputs)
+                  inputs_typesC (list\map (function.constant (` _.Expression))
+                                          inputs)]
+              (wrap (list (` (def: #export ((~ g!name) (~+ inputsC))
+                               (-> (~+ inputs_typesC) Computation)
+                               (_.apply/* (list (~+ inputsC)) (~ runtime_name))))
+                          
+                          (` (def: (~ (code.local_identifier (format "@" name)))
+                               Statement
+                               (..feature (~ runtime_name)
+                                          (function ((~ g!_) (~ g!_))
+                                            (..with_vars [(~+ inputsC)]
+                                              (_.function (~ g!_) (list (~+ inputsC))
+                                                (~ code))))))))))))))))
 
-(def: tuple-size
+(def: tuple_size
   (_.the "length"))
 
-(def: last-index
-  (|>> ..tuple-size (_.- (_.int +1))))
+(def: last_index
+  (|>> ..tuple_size (_.- (_.int +1))))
 
-(with-expansions [<recur> (as-is ($_ _.then
-                                     (_.set (list lefts) (_.- last-index-right lefts))
-                                     (_.set (list tuple) (_.nth last-index-right tuple))))]
+(with_expansions [<recur> (as_is ($_ _.then
+                                     (_.set (list lefts) (_.- last_index_right lefts))
+                                     (_.set (list tuple) (_.nth last_index_right tuple))))]
   (runtime: (tuple//left lefts tuple)
-    (with-vars [last-index-right]
+    (with_vars [last_index_right]
       (<| (_.while (_.bool true))
           ($_ _.then
-              (_.set (list last-index-right) (..last-index tuple))
-              (_.if (_.> lefts last-index-right)
+              (_.set (list last_index_right) (..last_index tuple))
+              (_.if (_.> lefts last_index_right)
                 ## No need for recursion
                 (_.return (_.nth lefts tuple))
                 ## Needs recursion
                 <recur>)))))
 
   (runtime: (tuple//right lefts tuple)
-    (with-vars [last-index-right right-index]
+    (with_vars [last_index_right right_index]
       (<| (_.while (_.bool true))
           ($_ _.then
-              (_.set (list last-index-right) (..last-index tuple))
-              (_.set (list right-index) (_.+ (_.int +1) lefts))
-              (_.cond (list [(_.= last-index-right right-index)
-                             (_.return (_.nth right-index tuple))]
-                            [(_.> last-index-right right-index)
+              (_.set (list last_index_right) (..last_index tuple))
+              (_.set (list right_index) (_.+ (_.int +1) lefts))
+              (_.cond (list [(_.= last_index_right right_index)
+                             (_.return (_.nth right_index tuple))]
+                            [(_.> last_index_right right_index)
                              ## Needs recursion.
                              <recur>])
-                      (_.return (_.array-range right-index (..tuple-size tuple) tuple)))
+                      (_.return (_.array_range right_index (..tuple_size tuple) tuple)))
               )))))
 
 (runtime: (sum//get sum wantsLast wantedTag)
-  (let [no-match! (_.return _.nil)
-        sum-tag (_.nth (_.string ..variant-tag-field) sum)
-        sum-flag (_.nth (_.string ..variant-flag-field) sum)
-        sum-value (_.nth (_.string ..variant-value-field) sum)
-        is-last? (_.= (_.string "") sum-flag)
-        test-recursion! (_.if is-last?
+  (let [no_match! (_.return _.nil)
+        sum_tag (_.nth (_.string ..variant_tag_field) sum)
+        sum_flag (_.nth (_.string ..variant_flag_field) sum)
+        sum_value (_.nth (_.string ..variant_value_field) sum)
+        is_last? (_.= ..unit sum_flag)
+        test_recursion! (_.if is_last?
                           ## Must recurse.
-                          (_.return (sum//get sum-value wantsLast (_.- sum-tag wantedTag)))
-                          no-match!)]
-    (_.cond (list [(_.= sum-tag wantedTag)
-                   (_.if (_.= wantsLast sum-flag)
-                     (_.return sum-value)
-                     test-recursion!)]
+                          (_.return (sum//get sum_value wantsLast (_.- sum_tag wantedTag)))
+                          no_match!)]
+    (_.cond (list [(_.= sum_tag wantedTag)
+                   (_.if (_.= wantsLast sum_flag)
+                     (_.return sum_value)
+                     test_recursion!)]
 
-                  [(_.> sum-tag wantedTag)
-                   test-recursion!]
+                  [(_.> sum_tag wantedTag)
+                   test_recursion!]
 
-                  [(_.and (_.< sum-tag wantedTag)
-                          (_.= (_.string "") wantsLast))
-                   (_.return (variant' (_.- wantedTag sum-tag) sum-flag sum-value))])
+                  [(_.and (_.< sum_tag wantedTag)
+                          (_.= ..unit wantsLast))
+                   (_.return (variant' (_.- wantedTag sum_tag) sum_flag sum_value))])
 
-            no-match!)))
+            no_match!)))
 
 (def: runtime//adt
-  (Statement Any)
+  Statement
   ($_ _.then
       @tuple//left
       @tuple//right
@@ -203,44 +221,44 @@
       ))
 
 (runtime: (lux//try risky)
-  (with-vars [error value]
+  (with_vars [error value]
     (_.begin ($_ _.then
                  (_.set (list value) (_.do "call" (list ..unit) risky))
                  (_.return (..right value)))
              (list [(list) error
                     (_.return (..left (_.the "message" error)))]))))
 
-(runtime: (lux//program-args raw)
-  (with-vars [tail head]
+(runtime: (lux//program_args raw)
+  (with_vars [tail head]
     ($_ _.then
         (_.set (list tail) ..none)
-        (<| (_.for-in head raw)
+        (<| (_.for_in head raw)
             (_.set (list tail) (..some (_.array (list head tail)))))
         (_.return tail))))
 
 (def: runtime//lux
-  (Statement Any)
+  Statement
   ($_ _.then
       @lux//try
-      @lux//program-args
+      @lux//program_args
       ))
 
-(runtime: (i64//logic-right-shift param subject)
+(runtime: (i64//logic_right_shift param subject)
   (let [mask (|> (_.int +1)
-                 (_.bit-shl (_.- param (_.int +64)))
+                 (_.bit_shl (_.- param (_.int +64)))
                  (_.- (_.int +1)))]
     (_.return (|> subject
-                  (_.bit-shr param)
-                  (_.bit-and mask)))))
+                  (_.bit_shr param)
+                  (_.bit_and mask)))))
 
 (def: runtime//i64
-  (Statement Any)
+  Statement
   ($_ _.then
-      @i64//logic-right-shift
+      @i64//logic_right_shift
       ))
 
 (runtime: (f64//decode inputG)
-  (with-vars [@input @temp]
+  (with_vars [@input @temp]
     ($_ _.then
         (_.set (list @input) inputG)
         (_.set (list @temp) (_.do "to_f" (list) @input))
@@ -253,13 +271,13 @@
           (_.return ..none)))))
 
 (def: runtime//f64
-  (Statement Any)
+  Statement
   ($_ _.then
       @f64//decode
       ))
 
 (runtime: (text//index subject param start)
-  (with-vars [idx]
+  (with_vars [idx]
     ($_ _.then
         (_.set (list idx) (|> subject (_.do "index" (list param start))))
         (_.if (_.= _.nil idx)
@@ -267,20 +285,20 @@
           (_.return (..some idx))))))
 
 (def: (within? top value)
-  (-> (Expression Any) (Expression Any) (Computation Any))
+  (-> Expression Expression Computation)
   (_.and (|> value (_.>= (_.int +0)))
          (|> value (_.< top))))
 
 (runtime: (text//clip @text @from @to)
-  (_.return (|> @text (_.array-range @from @to))))
+  (_.return (|> @text (_.array_range @from @to))))
 
 (runtime: (text//char idx text)
   (_.if (|> idx (within? (_.the "length" text)))
-    (_.return (..some (|> text (_.array-range idx idx) (_.do "ord" (list)))))
+    (_.return (..some (|> text (_.array_range idx idx) (_.do "ord" (list)))))
     (_.return ..none)))
 
 (def: runtime//text
-  (Statement Any)
+  Statement
   ($_ _.then
       @text//index
       @text//clip
@@ -288,7 +306,7 @@
       ))
 
 (def: runtime
-  (Statement Any)
+  Statement
   ($_ _.then
       runtime//adt
       runtime//lux
@@ -301,9 +319,14 @@
   ..prefix)
 
 (def: #export generate
-  (Operation (Buffer (Statement Any)))
-  (/////generation.with-buffer
-    (do ///////phase.monad
-      [_ (/////generation.execute! ..runtime)
-       _ (/////generation.save! ..prefix ..runtime)]
-      /////generation.buffer)))
+  (Operation [Registry Output])
+  (do ///////phase.monad
+    [_ (/////generation.execute! ..runtime)
+     _ (/////generation.save! (%.nat ..module_id) ..runtime)]
+    (wrap [(|> artifact.empty
+               artifact.resource
+               product.right)
+           (row.row [(%.nat ..module_id)
+                     (|> ..runtime
+                         _.code
+                         (\ encoding.utf8 encode))])])))

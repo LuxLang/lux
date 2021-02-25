@@ -40,12 +40,15 @@
                             (return (&/|list head))))
        state*))))
 
+(def ^:private class-name-regex
+  #"^([a-zA-Z0-9_\.$]+)")
+
 (def ^:private parse-name
-  (|do [[_ _ =name] (&reader/read-regex #"^([a-zA-Z0-9_\.]+)")]
+  (|do [[_ _ =name] (&reader/read-regex class-name-regex)]
     (return =name)))
 
 (def ^:private parse-name?
-  (|do [[_ _ =name] (&reader/read-regex? #"^([a-zA-Z0-9_\.]+)")]
+  (|do [[_ _ =name] (&reader/read-regex? class-name-regex)]
     (return =name)))
 
 (def ^:private parse-ident
