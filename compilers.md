@@ -260,7 +260,10 @@ cd ~/lux/lux-ruby/ \
 ## Try
 
 ```
-cd ~/lux/lux-ruby/ && java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
+## Compile Lux's Standard Library's tests using a JVM-based compiler.
+cd ~/lux/stdlib/ \
+&& lein clean \
+&& time java -jar ~/lux/lux-ruby/jvm_based_compiler.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
 ```
 
 ---

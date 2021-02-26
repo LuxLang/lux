@@ -9,7 +9,7 @@
     [collection
      ["." list ("#\." functor fold)]]]
    [target
-    ["_" ruby (#+ LVar Expression Statement)]]]
+    ["_" ruby (#+ LVar GVar Expression Statement)]]]
   ["." // #_
    [runtime (#+ Operation Phase Generator Phase! Generator!)]
    ["#." reference]
@@ -35,25 +35,29 @@
   (do {! ///////phase.monad}
     [functionO (expression archive functionS)
      argsO+ (monad.map ! (expression archive) argsS+)]
-    (wrap (_.do "call" argsO+ functionO))))
+    (wrap (_.apply_lambda/* argsO+ functionO))))
 
 (def: #export capture
   (-> Register LVar)
   (|>> (///reference.foreign //reference.system) :assume))
 
-(def: (with_closure inits function_definition)
-  (-> (List Expression) Expression Expression)
+(def: (with_closure inits self function_definition)
+  (-> (List Expression) Text Expression [Statement Expression])
   (case inits
     #.Nil
-    function_definition
+    (let [@self (_.global self)]
+      [(_.set (list @self) function_definition)
+       @self])
 
     _
-    (|> function_definition
-        _.return
-        (_.lambda #.None
-                  (|> (list.enumeration inits)
-                      (list\map (|>> product.left ..capture))))
-        (_.do "call" inits))))
+    (let [@self (_.local self)]
+      [(_.function @self
+         (|> (list.enumeration inits)
+             (list\map (|>> product.left ..capture)))
+         ($_ _.then
+             (_.set (list @self) function_definition)
+             (_.return @self)))
+       (_.apply/* inits @self)])))
 
 (def: input
   (|>> inc //case.register))
@@ -61,14 +65,14 @@
 (def: #export (function expression archive [environment arity bodyS])
   (Generator (Abstraction Synthesis))
   (do {! ///////phase.monad}
-    [[function_name bodyO] (/////generation.with_new_context archive
-                             (do !
-                               [function_name (\ ! map ///reference.artifact
-                                                 (/////generation.context archive))]
-                               (/////generation.with_anchor (_.local function_name)
-                                 (expression archive bodyS))))
+    [[[function_module function_artifact] bodyO] (/////generation.with_new_context archive
+                                                   (do !
+                                                     [function_name (\ ! map ///reference.artifact
+                                                                       (/////generation.context archive))]
+                                                     (/////generation.with_anchor (_.local function_name)
+                                                       (expression archive bodyS))))
      closureO+ (monad.map ! (expression archive) environment)
-     #let [function_name (///reference.artifact function_name)
+     #let [function_name (///reference.artifact [function_module function_artifact])
            @curried (_.local "curried")
            arityO (|> arity .int _.int)
            limitO (|> arity dec .int _.int)
@@ -80,29 +84,31 @@
                                         pre!
                                         (_.set (list (..input post)) (_.nth (|> post .int _.int) @curried))))
                                   initialize_self!
-                                  (list.indices arity))]]
-    (wrap (with_closure closureO+
-            (_.lambda (#.Some @self) (list (_.variadic @curried))
-                      ($_ _.then
-                          (_.set (list @num_args) (_.the "length" @curried))
-                          (_.cond (list [(|> @num_args (_.= arityO))
-                                         ($_ _.then
-                                             initialize!
-                                             (_.return bodyO))]
-                                        [(|> @num_args (_.> arityO))
-                                         (let [slice (.function (_ from to)
-                                                       (_.array_range from to @curried))
-                                               arity_args (_.splat (slice (_.int +0) limitO))
-                                               output_func_args (_.splat (slice arityO @num_args))]
-                                           (_.return (|> @self
-                                                         (_.do "call" (list arity_args))
-                                                         (_.do "call" (list output_func_args)))))])
-                                  ## (|> @num_args (_.< arityO))
-                                  (let [@missing (_.local "missing")]
-                                    (_.return (_.lambda #.None (list (_.variadic @missing))
-                                                        (_.return (|> @self
-                                                                      (_.do "call" (list (_.splat (|> (_.array (list))
-                                                                                                      (_.do "concat" (list @curried))
-                                                                                                      (_.do "concat" (list @missing))))))))))))
-                          ))))
-    ))
+                                  (list.indices arity))
+           [declaration instatiation] (with_closure closureO+ function_name
+                                        (_.lambda (#.Some @self) (list (_.variadic @curried))
+                                                  ($_ _.then
+                                                      (_.set (list @num_args) (_.the "length" @curried))
+                                                      (_.cond (list [(|> @num_args (_.= arityO))
+                                                                     ($_ _.then
+                                                                         initialize!
+                                                                         (_.return bodyO))]
+                                                                    [(|> @num_args (_.> arityO))
+                                                                     (let [slice (.function (_ from to)
+                                                                                   (_.array_range from to @curried))
+                                                                           arity_args (_.splat (slice (_.int +0) limitO))
+                                                                           output_func_args (_.splat (slice arityO @num_args))]
+                                                                       (_.return (|> @self
+                                                                                     (_.apply_lambda/* (list arity_args))
+                                                                                     (_.apply_lambda/* (list output_func_args)))))])
+                                                              ## (|> @num_args (_.< arityO))
+                                                              (let [@missing (_.local "missing")]
+                                                                (_.return (_.lambda #.None (list (_.variadic @missing))
+                                                                                    (_.return (|> @self
+                                                                                                  (_.apply_lambda/* (list (_.splat (|> (_.array (list))
+                                                                                                                                       (_.do "concat" (list @curried))
+                                                                                                                                       (_.do "concat" (list @missing))))))))))))
+                                                      )))]
+     _ (/////generation.execute! declaration)
+     _ (/////generation.save! (%.nat function_artifact) declaration)]
+    (wrap instatiation)))

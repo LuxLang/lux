@@ -412,7 +412,9 @@
 
   (defn ^:private add-anon-class-<init> [^ClassWriter class-writer compile class-name super-class env ctor-args]
     (|let [[super-class-name super-class-params] super-class
-           init-types (->> ctor-args (&/|map (comp &host-generics/->type-signature &/|first)) (&/fold str ""))]
+           init-types (->> ctor-args
+                           (&/|map (comp &host-generics/gclass->signature &/|first))
+                           (&/fold str ""))]
       (&/with-writer (.visitMethod class-writer Opcodes/ACC_PUBLIC init-method (anon-class-<init>-signature env) nil nil)
         (|do [^MethodVisitor =method &/get-writer
               :let [_ (doto =method
@@ -421,7 +423,7 @@
               _ (&/map% (fn [type+term]
                           (|let [[type term] type+term]
                             (|do [_ (compile term)
-                                  :let [_ (prepare-ctor-arg =method type)]]
+                                  :let [_ (prepare-ctor-arg =method (&host-generics/gclass->class-name type))]]
                               (return nil))))
                         ctor-args)
               :let [_ (doto =method

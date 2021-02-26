@@ -52,7 +52,7 @@
     (wrap (|> bodyO
               _.return
               (_.lambda #.None (list (..register register)))
-              (_.do "call" (list valueO))))))
+              (_.apply_lambda/* (list valueO))))))
 
 (def: #export (if expression archive [testS thenS elseS])
   (Generator [Synthesis Synthesis Synthesis])
@@ -239,14 +239,40 @@
                        pattern_matching!)
               (_.statement (_.raise (_.string case.pattern_matching_error)))))))
 
+(def: #export dependencies
+  (-> Path (List LVar))
+  (|>> case.storage
+       (get@ #case.dependencies)
+       set.to_list
+       (list\map (function (_ variable)
+                   (.case variable
+                     (#///////variable.Local register)
+                     (..register register)
+                     
+                     (#///////variable.Foreign register)
+                     (..capture register))))))
+
 (def: #export (case expression archive [valueS pathP])
   (Generator [Synthesis Path])
   (do ///////phase.monad
     [initG (expression archive valueS)
-     pattern_matching! (pattern_matching expression archive pathP)]
-    (wrap (|> ($_ _.then
-                  (_.set (list @cursor) (_.array (list initG)))
-                  (_.set (list @savepoint) (_.array (list)))
-                  pattern_matching!)
-              (_.lambda #.None (list))
-              (_.do "call" (list))))))
+     [[case_module case_artifact] pattern_matching!] (/////generation.with_new_context archive
+                                                       (pattern_matching expression archive pathP))
+     #let [## @case (_.local (///reference.artifact [case_module case_artifact]))
+           ## @dependencies+ (..dependencies (/////synthesis.path/seq (/////synthesis.path/then valueS)
+           ##                                                         pathP))
+           ## directive (_.function @case @dependencies+
+           ##             ($_ _.then
+           ##                 (_.set (list @cursor) (_.array (list initG)))
+           ##                 (_.set (list @savepoint) (_.array (list)))
+           ##                 pattern_matching!))
+           directive (_.lambda #.None (list)
+                               ($_ _.then
+                                   (_.set (list @cursor) (_.array (list initG)))
+                                   (_.set (list @savepoint) (_.array (list)))
+                                   pattern_matching!))]
+     ## _ (/////generation.execute! directive)
+     ## _ (/////generation.save! (%.nat case_artifact) directive)
+     ]
+    ## (wrap (_.apply/* @dependencies+ @case))
+    (wrap (_.apply_lambda/* (list) directive))))

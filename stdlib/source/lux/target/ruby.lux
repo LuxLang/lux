@@ -2,17 +2,26 @@
   [lux (#- Location Code static int if cond function or and not comment)
    ["@" target]
    ["." host]
+   [abstract
+    [equivalence (#+ Equivalence)]
+    [hash (#+ Hash)]
+    ["." enum]]
    [control
-    [pipe (#+ case> cond> new>)]]
+    [pipe (#+ case> cond> new>)]
+    [parser
+     ["<.>" code]]]
    [data
     ["." text
      ["%" format (#+ format)]]
     [collection
      ["." list ("#\." functor fold)]]]
    [macro
-    ["." template]]
+    [syntax (#+ syntax:)]
+    ["." template]
+    ["." code]]
    [math
     [number
+     ["n" nat]
      ["f" frac]]]
    [type
     abstract]])
@@ -38,6 +47,18 @@
 
 (abstract: #export (Code brand)
   Text
+
+  (structure: #export code_equivalence
+    (All [brand] (Equivalence (Code brand)))
+
+    (def: (= reference subject)
+      (\ text.equivalence = (:representation reference) (:representation subject))))
+
+  (structure: #export code_hash
+    (All [brand] (Hash (Code brand)))
+
+    (def: &equivalence ..code_equivalence)
+    (def: hash (|>> :representation (\ text.hash hash))))
 
   (def: #export manual
     (-> Text Code)
@@ -201,6 +222,15 @@
         (format (:representation func))
         :abstraction))
 
+  (def: #export (apply_lambda/* args lambda)
+    (-> (List Expression) Expression Computation)
+    (|> args
+        (list\map (|>> :representation))
+        (text.join_with ..input_separator)
+        (text.enclose ["[" "]"])
+        (format (:representation lambda))
+        :abstraction))
+
   (def: #export (the field object)
     (-> Text Expression Access)
     (:abstraction (format (:representation object) "." field)))
@@ -251,9 +281,9 @@
     (<| :abstraction
         ..block
         (format "if " (:representation test)
-                text.new_line (..nest (:representation then!))
+                (..nest (:representation then!))
                 text.new_line "else"
-                text.new_line (..nest (:representation else!)))))
+                (..nest (:representation else!)))))
 
   (template [<name> <block>]
     [(def: #export (<name> test then!)
@@ -261,7 +291,7 @@
        (<| :abstraction
            ..block
            (format <block> " " (:representation test)
-                   text.new_line (..nest (:representation then!)))))]
+                   (..nest (:representation then!)))))]
 
     [when "if"]
     [while "while"]
@@ -274,7 +304,7 @@
         (format "for " (:representation var)
                 " in " (:representation array)
                 " do "
-                text.new_line (..nest (:representation iteration!)))))
+                (..nest (:representation iteration!)))))
 
   (type: #export Rescue
     {#classes (List Text)
@@ -285,13 +315,12 @@
     (-> Statement (List Rescue) Statement)
     (<| :abstraction
         ..block
-        (format "begin"
-                text.new_line (:representation body!)
+        (format "begin" (..nest (:representation body!))
                 (|> rescues
                     (list\map (.function (_ [classes exception rescue])
                                 (format text.new_line "rescue " (text.join_with ..input_separator classes)
                                         " => " (:representation exception)
-                                        text.new_line (..nest (:representation rescue)))))
+                                        (..nest (:representation rescue)))))
                     (text.join_with text.new_line)))))
 
   (def: #export (return value)
@@ -315,7 +344,7 @@
     )
 
   (def: #export (function name args body!)
-    (-> LVar (List Var) Statement Statement)
+    (-> LVar (List LVar) Statement Statement)
     (<| :abstraction
         ..block
         (format "def " (:representation name)
@@ -323,7 +352,7 @@
                     (list\map (|>> :representation))
                     (text.join_with ..input_separator)
                     (text.enclose ["(" ")"]))
-                text.new_line (:representation body!))))
+                (..nest (:representation body!)))))
 
   (def: #export (lambda name args body!)
     (-> (Maybe LVar) (List Var) Statement Literal)
@@ -392,3 +421,38 @@
                (..if test then! next!))
              else!
              (list.reverse clauses)))
+
+(syntax: (arity_inputs {arity <code>.nat})
+  (wrap (case arity
+          0 (.list)
+          _ (|> (dec arity)
+                (enum.range n.enum 0)
+                (list\map (|>> %.nat code.local_identifier))))))
+
+(syntax: (arity_types {arity <code>.nat})
+  (wrap (list.repeat arity (` ..Expression))))
+
+(template [<arity> <function>+]
+  [(with_expansions [<apply> (template.identifier ["apply/" <arity>])
+                     <inputs> (arity_inputs <arity>)
+                     <types> (arity_types <arity>)
+                     <definitions> (template.splice <function>+)]
+     (def: #export (<apply> function <inputs>)
+       (-> Expression <types> Computation)
+       (..apply/* (.list <inputs>) function))
+
+     (template [<function>]
+       [(`` (def: #export (~~ (template.identifier [<function> "/" <arity>]))
+              (<apply> (..local <function>))))]
+
+       <definitions>))]
+
+  [1
+   [["print"]]]
+
+  [2
+   []]
+
+  [3
+   []]
+  )
