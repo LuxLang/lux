@@ -1139,6 +1139,217 @@
                        ..default_separator)
                      ))
                )
+
+        @.ruby
+        (as_is (host.import: Time #as RubyTime
+                 (#static at [Frac] RubyTime)
+                 
+                 (to_f [] Frac))
+
+               (host.import: Stat #as RubyStat
+                 (executable? [] Bit)
+                 (size Int)
+                 (mtime [] RubyTime))
+
+               (host.import: File #as RubyFile
+                 (#static SEPARATOR host.String)
+                 (#static open [Path host.String] #io #try RubyFile)
+                 (#static stat [Path] #io #try RubyStat)
+                 (#static delete [Path] #io #try Int)
+                 (#static file? [Path] #io #try Bit)
+                 (#static directory? [Path] #io #try Bit)
+                 (#static utime [RubyTime RubyTime Path] #io #try Int)
+
+                 (read [] #io #try Binary)
+                 (write [Binary] #io #try Int)
+                 (flush [] #io #try #? Any)
+                 (close [] #io #try #? Any))
+
+               (host.import: Dir #as RubyDir
+                 (#static open [Path] #io #try RubyDir)
+                 
+                 (children [] #io #try (Array Path))
+                 (close [] #io #try #? Any))
+
+               (host.import: "fileutils" FileUtils #as RubyFileUtils
+                 (#static touch [Path] #io #try #? Any)
+                 (#static move [Path Path] #io #try #? Any)
+                 (#static rmdir [Path] #io #try #? Any)
+                 (#static mkdir [Path] #io #try #? Any))
+
+               (def: default_separator
+                 Text
+                 (..RubyFile::SEPARATOR))
+
+               (`` (structure: (file path)
+                     (-> Path (File IO))
+
+                     (~~ (template [<name> <mode>]
+                           [(def: <name>
+                              (..can_modify
+                               (function (<name> data)
+                                 (do {! (try.with io.monad)}
+                                   [file (RubyFile::open [path <mode>])
+                                    data (RubyFile::write [data] file)
+                                    _ (RubyFile::flush [] file)
+                                    _ (RubyFile::close [] file)]
+                                   (wrap [])))))]
+                           
+                           [over_write  "wb"]
+                           [append      "ab"]
+                           ))
+
+                     (def: content
+                       (..can_query
+                        (function (_ _)
+                          (do {! (try.with io.monad)}
+                            [file (RubyFile::open [path "rb"])
+                             data (RubyFile::read [] file)
+                             _ (RubyFile::close [] file)]
+                            (wrap data)))))
+
+                     (def: name
+                       (..can_see
+                        (function (_ _)
+                          (|> path
+                              (text.split_all_with ..default_separator)
+                              list.reverse
+                              list.head
+                              (maybe.default path)))))
+
+                     (def: path
+                       (..can_see
+                        (function (_ _)
+                          path)))
+
+                     (~~ (template [<capability> <name> <pipeline>]
+                           [(def: <name>
+                              (<capability>
+                               (function (_ _)
+                                 (do {! (try.with io.monad)}
+                                   [stat (: (IO (Try RubyStat))
+                                            (RubyFile::stat [path]))]
+                                   (wrap (`` (|> stat (: RubyStat) (~~ (template.splice <pipeline>)))))))))]
+
+                           [..can_query size [RubyStat::size .nat]]
+                           [..can_query last_modified [(RubyStat::mtime [])
+                                                       (RubyTime::to_f [])
+                                                       (f.* +1,000.0)
+                                                       f.int
+                                                       duration.from_millis
+                                                       instant.absolute]]
+                           [..can_query can_execute? [(RubyStat::executable? [])]]
+                           ))
+
+                     (def: modify
+                       (..can_modify
+                        (function (_ moment)
+                          (let [moment (|> moment
+                                           instant.relative
+                                           duration.to_millis
+                                           i.frac
+                                           (f./ +1,000.0)
+                                           RubyTime::at)]
+                            (do {! (try.with io.monad)}
+                              [_ (RubyFile::utime [moment moment path])]
+                              (wrap []))))))
+
+                     (def: move
+                       (..can_open
+                        (function (_ destination)
+                          (do {! (try.with io.monad)}
+                            [_ (RubyFileUtils::move [path destination])]
+                            (wrap (file destination))))))
+
+                     (def: delete
+                       (..can_delete
+                        (function (_ _)
+                          (do {! (try.with io.monad)}
+                            [_ (RubyFile::delete [path])]
+                            (wrap [])))))
+                     ))
+
+               (`` (structure: (directory path)
+                     (-> Path (Directory IO))
+
+                     (def: scope
+                       (..can_see
+                        (function (_ _)
+                          path)))
+
+                     (~~ (template [<name> <test> <constructor> <capability>]
+                           [(def: <name>
+                              (..can_query
+                               (function (_ _)
+                                 (do {! (try.with io.monad)}
+                                   [self (RubyDir::open [path])
+                                    children (RubyDir::children [] self)
+                                    output (loop [input (|> children
+                                                            array.to_list
+                                                            (list\map (|>> (format path ..default_separator))))
+                                                  output (: (List (<capability> IO))
+                                                            (list))]
+                                             (case input
+                                               #.Nil
+                                               (wrap output)
+
+                                               (#.Cons head tail)
+                                               (do !
+                                                 [verdict (<test> head)]
+                                                 (if verdict
+                                                   (recur tail (#.Cons (<constructor> head) output))
+                                                   (recur tail output)))))
+                                    _ (RubyDir::close [] self)]
+                                   (wrap output)))))]
+
+                           [files RubyFile::file? ..file File]
+                           [directories RubyFile::directory? directory Directory]
+                           ))
+
+                     (def: discard
+                       (..can_delete
+                        (function (discard _)
+                          (do {! (try.with io.monad)}
+                            [_ (RubyFileUtils::rmdir [path])]
+                            (wrap [])))))
+                     ))
+
+               (`` (structure: #export default
+                     (System IO)
+
+                     (~~ (template [<name> <test> <constructor> <exception>]
+                           [(def: <name>
+                              (..can_open
+                               (function (_ path)
+                                 (do {! (try.with io.monad)}
+                                   [verdict (<test> path)]
+                                   (\ io.monad wrap
+                                      (if verdict
+                                        (#try.Success (<constructor> path))
+                                        (exception.throw <exception> [path])))))))]
+
+                           [file RubyFile::file? ..file ..cannot_find_file]
+                           [directory RubyFile::directory? ..directory ..cannot_find_directory]
+                           ))
+                     
+                     (def: create_file
+                       (..can_open
+                        (function (_ path)
+                          (do {! (try.with io.monad)}
+                            [_ (RubyFileUtils::touch [path])]
+                            (wrap (..file path))))))
+
+                     (def: create_directory
+                       (..can_open
+                        (function (create_directory path)
+                          (do {! (try.with io.monad)}
+                            [_ (RubyFileUtils::mkdir path)]
+                            (wrap (..directory path))))))
+
+                     (def: separator
+                       ..default_separator)
+                     ))
+               )
         }))
 
 (template [<get> <signature> <create> <find> <exception>]

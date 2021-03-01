@@ -39,7 +39,7 @@
 
 (template [<name> <base>]
   [(type: #export <name>
-     (<base> LVar Expression Statement))]
+     (<base> Register Expression Statement))]
 
   [Operation /////generation.Operation]
   [Phase /////generation.Phase]
@@ -51,12 +51,10 @@
   (-> Phase Archive i (Operation Expression)))
 
 (type: #export Phase!
-  (-> Phase Archive Synthesis (Operation (Statement Any))))
+  (-> Phase Archive Synthesis (Operation Statement)))
 
 (type: #export (Generator! i)
-  (-> Phase! Phase Archive i (Operation (Statement Any))))
-
-(def: prefix Text "LuxRuntime")
+  (-> Phase! Phase Archive i (Operation Statement)))
 
 (def: #export unit
   (_.string /////synthesis.unit))
@@ -196,8 +194,8 @@
         test_recursion! (_.if is_last?
                           ## Must recurse.
                           ($_ _.then
-                              (_.set (list sum) sum_value)
-                              (_.set (list wantedTag) (_.- sum_tag wantedTag)))
+                              (_.set (list wantedTag) (_.- sum_tag wantedTag))
+                              (_.set (list sum) sum_value))
                           no_match!)]
     (<| (_.while (_.bool true))
         (_.cond (list [(_.= sum_tag wantedTag)
@@ -245,18 +243,76 @@
       @lux//program_args
       ))
 
-(runtime: (i64//logic_right_shift param subject)
-  (let [mask (|> (_.int +1)
-                 (_.bit_shl (_.- param (_.int +64)))
-                 (_.- (_.int +1)))]
+(def: i64//+limit (_.manual "+0x7FFFFFFFFFFFFFFF"))
+(def: i64//-limit (_.manual "-0x8000000000000000"))
+(def: i64//+iteration (_.manual "+0x10000000000000000"))
+(def: i64//-iteration (_.manual "-0x10000000000000000"))
+(def: i64//+cap (_.manual "+0x8000000000000000"))
+(def: i64//-cap (_.manual "-0x8000000000000001"))
+
+(runtime: (i64//64 input)
+  (with_vars [temp]
+    (`` (<| (~~ (template [<scenario> <iteration> <cap> <entrance>]
+                  [(_.if (|> input <scenario>)
+                     ($_ _.then
+                         (_.set (list temp) (_.% <iteration> input))
+                         (_.return (_.? (|> temp <scenario>)
+                                        (|> temp (_.- <cap>) (_.+ <entrance>))
+                                        temp))))]
+
+                  [(_.> ..i64//+limit) ..i64//+iteration ..i64//+cap ..i64//-limit]
+                  [(_.< ..i64//-limit) ..i64//-iteration ..i64//-cap ..i64//+limit]
+                  ))
+            (_.return input)))))
+
+(runtime: i64//nat_top
+  (|> (_.int +1)
+      (_.bit_shl (_.int +64))
+      (_.- (_.int +1))))
+
+(def: as_nat
+  (_.% (_.manual "0x10000000000000000")))
+
+(runtime: (i64//left_shift param subject)
+  (_.return (|> subject
+                (_.bit_shl (_.% (_.int +64) param))
+                ..i64//64)))
+
+(runtime: (i64//right_shift param subject)
+  ($_ _.then
+      (_.set (list param) (_.% (_.int +64) param))
+      (_.return (_.? (_.= (_.int +0) param)
+                     subject
+                     (|> subject
+                         ..as_nat
+                         (_.bit_shr param))))))
+
+(template [<runtime> <host>]
+  [(runtime: (<runtime> left right)
+     (_.return (..i64//64 (<host> (..as_nat left) (..as_nat right)))))]
+
+  [i64//and _.bit_and]
+  [i64//or _.bit_or]
+  [i64//xor _.bit_xor]
+  )
+
+(runtime: (i64//division parameter subject)
+  (let [extra (_.do "remainder" (list parameter) subject)]
     (_.return (|> subject
-                  (_.bit_shr param)
-                  (_.bit_and mask)))))
+                  (_.- extra)
+                  (_./ parameter)))))
 
 (def: runtime//i64
   Statement
   ($_ _.then
-      @i64//logic_right_shift
+      @i64//64
+      @i64//nat_top
+      @i64//left_shift
+      @i64//right_shift
+      @i64//and
+      @i64//or
+      @i64//xor
+      @i64//division
       ))
 
 (runtime: (f64//decode inputG)
@@ -291,13 +347,15 @@
   (_.and (|> value (_.>= (_.int +0)))
          (|> value (_.< top))))
 
-(runtime: (text//clip @text @from @to)
-  (_.return (|> @text (_.array_range @from @to))))
+(runtime: (text//clip offset length text)
+  (_.if (_.= (_.int +0) length)
+    (_.return (_.string ""))
+    (_.return (_.array_range offset (_.+ offset (_.- (_.int +1) length)) text))))
 
 (runtime: (text//char idx text)
   (_.if (|> idx (within? (_.the "length" text)))
-    (_.return (..some (|> text (_.array_range idx idx) (_.do "ord" (list)))))
-    (_.return ..none)))
+    (_.return (|> text (_.array_range idx idx) (_.do "ord" (list))))
+    (_.statement (_.raise (_.string "[Lux Error] Cannot get char from text.")))))
 
 (def: runtime//text
   Statement
@@ -305,6 +363,17 @@
       @text//index
       @text//clip
       @text//char
+      ))
+
+(runtime: (array//write idx value array)
+  ($_ _.then
+      (_.set (list (_.nth idx array)) value)
+      (_.return array)))
+
+(def: runtime//array
+  Statement
+  ($_ _.then
+      @array//write
       ))
 
 (def: runtime
@@ -315,10 +384,8 @@
       runtime//i64
       runtime//f64
       runtime//text
+      runtime//array
       ))
-
-(def: #export artifact
-  ..prefix)
 
 (def: #export generate
   (Operation [Registry Output])
