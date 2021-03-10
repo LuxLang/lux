@@ -231,46 +231,43 @@
 (def: (pattern_matching generate archive pathP)
   (-> Phase Archive Path (Operation Statement))
   (do ///////phase.monad
-    [pattern_matching! (pattern_matching' generate archive pathP)]
+    [iteration! (pattern_matching' generate archive pathP)]
     (wrap ($_ _.then
               (_.do_while (_.bool false)
-                          pattern_matching!)
+                          iteration!)
               (_.throw (_.new (_.constant "Exception") (list (_.string ////synthesis/case.pattern_matching_error))))))))
 
 (def: (gensym prefix)
   (-> Text (Operation Text))
   (\ ///////phase.monad map (|>> %.nat (format prefix)) /////generation.next))
 
+(def: #export dependencies
+  (-> Path (List Var))
+  (|>> ////synthesis/case.storage
+       (get@ #////synthesis/case.dependencies)
+       set.to_list
+       (list\map (function (_ variable)
+                   (.case variable
+                     (#///////variable.Local register)
+                     (..register register)
+                     
+                     (#///////variable.Foreign register)
+                     (..capture register))))))
+
 (def: #export (case generate archive [valueS pathP])
   (Generator [Synthesis Path])
   (do {! ///////phase.monad}
     [initG (generate archive valueS)
-     pattern_matching! (pattern_matching generate archive pathP)
-     @case (..gensym "case")
-     #let [@caseG (_.global @case)
-           @caseL (_.var @case)]
-     @init (\ ! map _.var (..gensym "init"))
-     #let [@dependencies+ (|> (////synthesis/case.storage pathP)
-                              (get@ #////synthesis/case.dependencies)
-                              set.to_list
-                              (list\map (function (_ variable)
-                                          [false (.case variable
-                                                   (#///////variable.Local register)
-                                                   (..register register)
-                                                   
-                                                   (#///////variable.Foreign register)
-                                                   (..capture register))])))]
-     #let [directive ($_ _.then
-                         (<| _.;
-                             (_.set @caseL)
-                             (_.closure (list (_.reference @caseL)) (list& [#0 @init]
-                                                                           @dependencies+))
-                             ($_ _.then
-                                 (_.; (_.set @cursor (_.array/* (list @init))))
-                                 (_.; (_.set @savepoint (_.array/* (list))))
-                                 pattern_matching!))
-                         (_.; (_.set @caseG @caseL)))]
+     [[case_module case_artifact] pattern_matching!] (/////generation.with_new_context archive
+                                                       (pattern_matching generate archive pathP))
+     #let [@case (_.constant (///reference.artifact [case_module case_artifact]))
+           @dependencies+ (..dependencies (/////synthesis.path/seq (/////synthesis.path/then valueS)
+                                                                   pathP))
+           directive (<| (_.define_function @case (list\map _.parameter @dependencies+))
+                         ($_ _.then
+                             (_.; (_.set @cursor (_.array/* (list initG))))
+                             (_.; (_.set @savepoint (_.array/* (list))))
+                             pattern_matching!))]
      _ (/////generation.execute! directive)
-     _ (/////generation.save! @case directive)]
-    (wrap (_.apply/* (list& initG (list\map product.right @dependencies+))
-                     @caseG))))
+     _ (/////generation.save! (%.nat case_artifact) directive)]
+    (wrap (_.apply/* @dependencies+ @case))))

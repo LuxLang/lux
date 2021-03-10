@@ -2,17 +2,26 @@
   [lux (#- Location Code Global static int if cond or and not comment for)
    ["@" target]
    ["." host]
+   [abstract
+    [equivalence (#+ Equivalence)]
+    [hash (#+ Hash)]
+    ["." enum]]
    [control
-    [pipe (#+ case> cond> new>)]]
+    [pipe (#+ case> cond> new>)]
+    [parser
+     ["<.>" code]]]
    [data
     ["." text
      ["%" format (#+ format)]]
     [collection
      ["." list ("#\." functor fold)]]]
    [macro
-    ["." template]]
+    [syntax (#+ syntax:)]
+    ["." template]
+    ["." code]]
    [math
     [number
+     ["n" nat]
      ["f" frac]]]
    [type
     abstract]])
@@ -46,6 +55,18 @@
 
 (abstract: #export (Code brand)
   Text
+
+  (structure: #export equivalence
+    (All [brand] (Equivalence (Code brand)))
+
+    (def: (= reference subject)
+      (\ text.equivalence = (:representation reference) (:representation subject))))
+
+  (structure: #export hash
+    (All [brand] (Hash (Code brand)))
+
+    (def: &equivalence ..equivalence)
+    (def: hash (|>> :representation (\ text.hash hash))))
 
   (def: #export manual
     (-> Text Code)
@@ -154,8 +175,13 @@
 
   (def: #export (apply/* args func)
     (-> (List Expression) Expression Computation)
-    (:abstraction
-     (format (:representation func) (..arguments args))))
+    (|> (format (:representation func) (..arguments args))
+        :abstraction))
+
+  ## TODO: Remove when no longer using JPHP.
+  (def: #export (apply/*' args func)
+    (-> (List Expression) Expression Computation)
+    (apply/* (list& func args) (..constant "call_user_func")))
 
   (def: parameters
     (-> (List Argument) Text)
@@ -189,46 +215,71 @@
           ..group
           :abstraction)))
 
-  (template [<apply> <input_var>+ <input_type>+ <function>+]
-    [(`` (def: #export (<apply> [(~~ (template.splice <input_var>+))] function)
-           (-> [(~~ (template.splice <input_type>+))] Expression Computation)
-           (..apply/* (list (~~ (template.splice <input_var>+))) function)))
+  (syntax: (arity_inputs {arity <code>.nat})
+    (wrap (case arity
+            0 (.list)
+            _ (|> (dec arity)
+                  (enum.range n.enum 0)
+                  (list\map (|>> %.nat code.local_identifier))))))
 
-     (`` (template [<lux_name> <php_name>]
-           [(def: #export (<lux_name> args)
-              (-> [(~~ (template.splice <input_type>+))] Computation)
-              (<apply> args (..constant <php_name>)))]
-           
-           (~~ (template.splice <function>+))))]
+  (syntax: (arity_types {arity <code>.nat})
+    (wrap (list.repeat arity (` ..Expression))))
 
-    [apply/0 [] []
-     [[func_num_args/0 "func_num_args"]
-      [func_get_args/0 "func_get_args"]
-      [time/0          "time"]]]
-    [apply/1 [in0] [Expression]
-     [[is_null/1   "is_null"]
-      [empty/1     "empty"]
-      [count/1     "count"]
-      [strlen/1    "strlen"]
-      [array_pop/1 "array_pop"]
-      [array_reverse/1 "array_reverse"]
-      [intval/1    "intval"]
-      [floatval/1  "floatval"]
-      [strval/1    "strval"]
-      [ord/1       "ord"]
-      [chr/1       "chr"]
-      [print/1     "print"]
-      [exit/1      "exit"]]]
-    [apply/2 [in0 in1] [Expression Expression]
-     [[call_user_func_array/2 "call_user_func_array"]
-      [array_slice/2          "array_slice"]
-      [array_push/2           "array_push"]]]
-    [apply/3 [in0 in1 in2] [Expression Expression Expression]
-     [[array_slice/3 "array_slice"]
-      [array_splice/3 "array_splice"]
-      [strpos/3 "strpos"]
-      [substr/3 "substr"]]]
+  (template [<arity> <function>+]
+    [(with_expansions [<apply> (template.identifier ["apply/" <arity>])
+                       <inputs> (arity_inputs <arity>)
+                       <types> (arity_types <arity>)
+                       <definitions> (template.splice <function>+)]
+       (def: #export (<apply> function [<inputs>])
+         (-> Expression [<types>] Computation)
+         (..apply/* (.list <inputs>) function))
+
+       (template [<function>]
+         [(`` (def: #export (~~ (template.identifier [<function> "/" <arity>]))
+                (<apply> (..constant <function>))))]
+
+         <definitions>))]
+
+    [0
+     [["func_num_args"]
+      ["func_get_args"]
+      ["time"]
+      ["phpversion"]]]
+
+    [1
+     [["is_null"]
+      ["empty"]
+      ["count"]
+      ["array_pop"]
+      ["array_reverse"]
+      ["intval"]
+      ["floatval"]
+      ["strval"]
+      ["ord"]
+      ["chr"]
+      ["print"]
+      ["exit"]
+      ["iconv_strlen"] ["strlen"]]]
+
+    [2
+     [["call_user_func_array"]
+      ["array_slice"]
+      ["array_push"]
+      ["pack"]
+      ["unpack"]
+      ["iconv_strpos"] ["strpos"]]]
+
+    [3
+     [["array_slice"]
+      ["array_splice"]
+      ["iconv"]
+      ["iconv_strpos"] ["strpos"]
+      ["iconv_substr"] ["substr"]]]
     )
+
+  (def: #export (key_value key value)
+    (-> Expression Expression Expression)
+    (:abstraction (format (:representation key) " => " (:representation value))))
 
   (def: #export (array/* values)
     (-> (List Expression) Literal)
@@ -274,9 +325,9 @@
 
   (def: #export (? test then else)
     (-> Expression Expression Expression Computation)
-    (|> (format (:representation test) " ? "
-                (:representation then) " : "
-                (:representation else))
+    (|> (format (..group (:representation test)) " ? "
+                (..group (:representation then)) " : "
+                (..group (:representation else)))
         ..group
         :abstraction))
 
@@ -343,7 +394,7 @@
   (def: #export (if test then! else!)
     (-> Expression Statement Statement Statement)
     (:abstraction
-     (format "if " (..group (:representation test)) " "
+     (format "if" (..group (:representation test)) " "
              (..block (:representation then!))
              " else "
              (..block (:representation else!)))))
@@ -351,7 +402,7 @@
   (def: #export (when test then!)
     (-> Expression Statement Statement)
     (:abstraction
-     (format "if " (..group (:representation test)) " "
+     (format "if" (..group (:representation test)) " "
              (..block (:representation then!)))))
 
   (def: #export (then pre! post!)
@@ -364,14 +415,14 @@
   (def: #export (while test body!)
     (-> Expression Statement Statement)
     (:abstraction
-     (format "while " (..group (:representation test)) " "
+     (format "while" (..group (:representation test)) " "
              (..block (:representation body!)))))
 
   (def: #export (do_while test body!)
     (-> Expression Statement Statement)
     (:abstraction
      (format "do " (..block (:representation body!))
-             " while " (..group (:representation test))
+             " while" (..group (:representation test))
              ..statement_suffix)))
 
   (def: #export (for_each array value body!)
@@ -414,15 +465,15 @@
 
   (def: #export (define name value)
     (-> Constant Expression Expression)
-    (..apply/2 [(|> name :representation ..string)
-                value]
-               (..constant "define")))
+    (..apply/2 (..constant "define")
+               [(|> name :representation ..string)
+                value]))
 
   (def: #export (define_function name arguments body!)
     (-> Constant (List Argument) Statement Statement)
     (:abstraction
      (format "function " (:representation name)
-             " " (..parameters arguments)
+             (..parameters arguments)
              " "
              (..block (:representation body!)))))
 

@@ -6,6 +6,7 @@
    [abstract
     ["." monad (#+ do)]]
    [control
+    [pipe (#+ exec> case>)]
     ["." try (#+ Try)]
     ["." exception (#+ exception:)]
     ["." io (#+ IO io)]
@@ -64,7 +65,17 @@
 
 (host.import: java/lang/String)
 
-(host.import: (java/lang/Class a))
+(host.import: java/lang/reflect/Field
+  ["#::."
+   (get [java/lang/Object] java/lang/Object)])
+
+(host.import: java/lang/reflect/AccessibleObject
+  ["#::."
+   (setAccessible [boolean] void)])
+
+(host.import: (java/lang/Class a)
+  ["#::."
+   (getDeclaredField [java/lang/String] java/lang/reflect/Field)])
 
 (host.import: java/lang/Object
   ["#::."
@@ -77,24 +88,37 @@
   ["#::."
    (intValue [] java/lang/Integer)])
 
-(host.import: php/runtime/Memory)
+(host.import: php/runtime/Memory
+  ["#::."
+   (valueOfIndex #as generic_valueOfIndex [php/runtime/env/TraceInfo php/runtime/Memory] php/runtime/Memory)
+   (valueOfIndex #as long_valueOfIndex [php/runtime/env/TraceInfo long] php/runtime/Memory)
+   (valueOfIndex #as string_valueOfIndex [php/runtime/env/TraceInfo java/lang/String] php/runtime/Memory)])
 
 (host.import: php/runtime/Memory$Type
   ["#::."
    (#enum ARRAY)])
 
-(host.import: php/runtime/memory/NullMemory)
+(host.import: php/runtime/memory/NullMemory
+  ["#::."
+   (#static INSTANCE php/runtime/memory/NullMemory)])
 
-(host.import: php/runtime/memory/FalseMemory)
-(host.import: php/runtime/memory/TrueMemory)
+(host.import: php/runtime/memory/FalseMemory
+  ["#::."
+   (#static INSTANCE php/runtime/memory/FalseMemory)])
+
+(host.import: php/runtime/memory/TrueMemory
+  ["#::."
+   (#static INSTANCE php/runtime/memory/TrueMemory)])
 
 (host.import: php/runtime/memory/LongMemory
   ["#::."
    (new [long])
-   (toLong [] long)])
+   (toLong [] long)
+   (#static valueOf #manual [int] php/runtime/Memory)])
 
 (host.import: php/runtime/memory/DoubleMemory
   ["#::."
+   (new [double])
    (toDouble [] double)])
 
 (host.import: php/runtime/memory/StringMemory
@@ -111,7 +135,7 @@
    (new [[java/lang/Object]])
    (size [] int)
    (isMap [] boolean)
-   (get [php/runtime/Memory] php/runtime/Memory)])
+   (get [php/runtime/Memory] #? php/runtime/Memory)])
 
 (host.import: php/runtime/lang/IObject)
 
@@ -119,9 +143,7 @@
   ["#::."
    (value php/runtime/lang/IObject)])
 
-(host.import: php/runtime/env/Environment
-  ["#::."
-   (#static current [] php/runtime/env/Environment)])
+(host.import: php/runtime/env/Environment)
 
 (host.import: php/runtime/env/TraceInfo
   ["#::."
@@ -157,145 +179,205 @@
    ["Class" (java/lang/Object::toString (java/lang/Object::getClass object))]
    ["Object" (java/lang/Object::toString object)]))
 
+(def: (value_wrapper lux_structure value)
+  (-> (-> (Array java/lang/Object) php/runtime/Memory) java/lang/Object php/runtime/Memory)
+  (<| (if (host.null? value)
+        (php/runtime/memory/NullMemory::INSTANCE))
+      (case (host.check java/lang/Boolean value)
+        (#.Some value)
+        (if (:coerce Bit value)
+          (php/runtime/memory/TrueMemory::INSTANCE)
+          (php/runtime/memory/FalseMemory::INSTANCE))
+
+        #.None)
+      (case (host.check java/lang/Long value)
+        (#.Some value)
+        (php/runtime/memory/LongMemory::new value)
+
+        #.None)
+      (case (host.check java/lang/Double value)
+        (#.Some value)
+        (php/runtime/memory/DoubleMemory::new value)
+
+        #.None)
+      (case (host.check java/lang/String value)
+        (#.Some value)
+        (php/runtime/memory/StringMemory::new value)
+
+        #.None)
+      (case (host.check [java/lang/Object] value)
+        (#.Some value)
+        (lux_structure (:coerce (Array java/lang/Object) value))
+
+        #.None)
+      (case (host.check php/runtime/memory/ObjectMemory value)
+        (#.Some value)
+        value
+
+        #.None)
+      (undefined)
+      ))
+
+(def: unit
+  (php/runtime/memory/StringMemory::new ""))
+
 (def: (lux_structure value)
   (-> (Array java/lang/Object)
-      php/runtime/memory/ArrayMemory
-      ## php/runtime/Memory
+      ## php/runtime/memory/ArrayMemory
+      php/runtime/Memory
       )
-  (`` (host.object [] ## php/runtime/Memory
-        php/runtime/memory/ArrayMemory
+  (`` (host.object [] php/runtime/Memory
+        ## php/runtime/memory/ArrayMemory
         [program/StructureValue]
-        [## {php/runtime/Memory$Type php/runtime/Memory$Type::ARRAY}
-         ]
+        [{php/runtime/Memory$Type php/runtime/Memory$Type::ARRAY}]
         ## Methods
         (program/StructureValue
          [] (getValue self) java/lang/Object
          (:assume value))
 
-        (php/runtime/memory/ArrayMemory
-         [] (size self)
-         int
-         (exec
-           (debug.log! "{lux_structure#size}")
-           (:assume (array.size value))))
-        
-        (php/runtime/memory/ArrayMemory
-         [] (get self {key php/runtime/Memory})
+        (php/runtime/Memory
+         [] (toString self)
+         java/lang/String
+         (debug.inspect value))
+
+        ## (php/runtime/memory/ArrayMemory
+        ##  [] (get self {key php/runtime/Memory})
+        ##  php/runtime/Memory
+        ##  (exec
+        ##    (debug.log! (format "{lux_structure#get}" text.new_line
+        ##                        (exception.construct ..unknown_kind_of_object key)))
+        ##    (error! "OOPS!")))
+
+        ## (php/runtime/memory/ArrayMemory
+        ##  [] (getOrCreate self {key php/runtime/Memory})
+        ##  php/runtime/memory/ReferenceMemory
+        ##  (exec
+        ##    (debug.log! (format "{lux_structure#getOrCreate}" text.new_line
+        ##                        (exception.construct ..unknown_kind_of_object key)))
+        ##    (error! "OOPS!")))
+
+        ## (php/runtime/memory/ArrayMemory
+        ##  [] (getOrCreateAsShortcut self {key php/runtime/Memory})
+        ##  php/runtime/memory/ReferenceMemory
+        ##  (exec
+        ##    (debug.log! (format "{lux_structure#getOrCreateAsShortcut}" text.new_line
+        ##                        (exception.construct ..unknown_kind_of_object key)))
+        ##    (error! "OOPS!")))
+
+        ## (php/runtime/memory/ArrayMemory
+        ##  [] (getByScalarOrCreateAsShortcut self {key java/lang/Object})
+        ##  php/runtime/memory/ReferenceMemory
+        ##  (exec
+        ##    (debug.log! (format "{lux_structure#getByScalarOrCreateAsShortcut}" text.new_line
+        ##                        (exception.construct ..unknown_kind_of_object key)))
+        ##    (error! "OOPS!")))
+
+        ## (php/runtime/memory/ArrayMemory
+        ##  [] (getByScalarOrCreate self {key java/lang/Object})
+        ##  php/runtime/memory/ReferenceMemory
+        ##  (exec
+        ##    (debug.log! (format "{lux_structure#getByScalarOrCreate}" text.new_line
+        ##                        (exception.construct ..unknown_kind_of_object key)))
+        ##    (error! "OOPS!")))
+
+        ## (php/runtime/memory/ArrayMemory
+        ##  [] (getByScalar self {key java/lang/Object})
+        ##  php/runtime/memory/ReferenceMemory
+        ##  (exec
+        ##    (debug.log! (format "{lux_structure#getByScalar}" text.new_line
+        ##                        (exception.construct ..unknown_kind_of_object key)))
+        ##    (error! "OOPS!")))
+
+        (php/runtime/Memory
+         [] (valueOfIndex self
+                          {trace php/runtime/env/TraceInfo}
+                          {index php/runtime/Memory})
          php/runtime/Memory
-         (exec
-           (debug.log! (format "{lux_structure#get}" text.new_line
-                               (exception.construct unknown_kind_of_object key)))
-           (error! "OOPS!")))
+         (`` (<| (~~ (template [<class> <method> <extractor>]
+                       [(case (host.check <class> index)
+                          (#.Some index)
+                          (<method> trace (<extractor> index) self)
+                          
+                          #.None)]
 
-        (php/runtime/memory/ArrayMemory
-         [] (getOrCreate self {key php/runtime/Memory})
-         php/runtime/memory/ReferenceMemory
-         (exec
-           (debug.log! (format "{lux_structure#getOrCreate}" text.new_line
-                               (exception.construct unknown_kind_of_object key)))
-           (error! "OOPS!")))
-
-        (php/runtime/memory/ArrayMemory
-         [] (getOrCreateAsShortcut self {key php/runtime/Memory})
-         php/runtime/memory/ReferenceMemory
-         (exec
-           (debug.log! (format "{lux_structure#getOrCreateAsShortcut}" text.new_line
-                               (exception.construct unknown_kind_of_object key)))
-           (error! "OOPS!")))
-
-        (php/runtime/memory/ArrayMemory
-         [] (getByScalarOrCreateAsShortcut self {key java/lang/Object})
-         php/runtime/memory/ReferenceMemory
-         (exec
-           (debug.log! (format "{lux_structure#getByScalarOrCreateAsShortcut}" text.new_line
-                               (exception.construct unknown_kind_of_object key)))
-           (error! "OOPS!")))
-
-        (php/runtime/memory/ArrayMemory
-         [] (getByScalarOrCreate self {key java/lang/Object})
-         php/runtime/memory/ReferenceMemory
-         (exec
-           (debug.log! (format "{lux_structure#getByScalarOrCreate}" text.new_line
-                               (exception.construct unknown_kind_of_object key)))
-           (error! "OOPS!")))
-
-        (php/runtime/memory/ArrayMemory
-         [] (getByScalar self {key java/lang/Object})
-         php/runtime/memory/ReferenceMemory
-         (exec
-           (debug.log! (format "{lux_structure#getByScalar}" text.new_line
-                               (exception.construct unknown_kind_of_object key)))
-           (error! "OOPS!")))
+                       [php/runtime/memory/ReferenceMemory
+                        php/runtime/Memory::generic_valueOfIndex
+                        php/runtime/memory/ReferenceMemory::getValue]
+                       [php/runtime/memory/LongMemory
+                        php/runtime/Memory::long_valueOfIndex
+                        php/runtime/memory/LongMemory::toLong]
+                       [php/runtime/memory/StringMemory
+                        php/runtime/Memory::string_valueOfIndex
+                        php/runtime/memory/StringMemory::toString]
+                       ))
+                 (undefined))))
 
         ## (php/runtime/Memory
-        ##  [] (refOfIndex self
-        ##                 {trace php/runtime/env/TraceInfo}
-        ##                 {index php/runtime/Memory})
+        ##  [] (valueOfIndexAsShortcut self
+        ##                             {trace php/runtime/env/TraceInfo}
+        ##                             {index php/runtime/Memory})
         ##  php/runtime/Memory
         ##  (exec
-        ##    (log! (format "{lux_structure#refOfIndex}" text.new_line
-        ##                  (exception.construct unknown_kind_of_object index)))
+        ##    (debug.log! (format "{lux_structure#valueOfIndexAsShortcut}" text.new_line
+        ##                        (exception.construct ..unknown_kind_of_object index)))
         ##    (error! "OOPS!")))
 
-        ## (php/runtime/Memory
-        ##  [] (refOfIndexAsShortcut self
-        ##                           {trace php/runtime/env/TraceInfo}
-        ##                           {index php/runtime/Memory})
-        ##  php/runtime/Memory
-        ##  (exec
-        ##    (log! (format "{lux_structure#refOfIndexAsShortcut}" text.new_line
-        ##                  (exception.construct unknown_kind_of_object index)))
-        ##    (error! "OOPS!")))
+        (php/runtime/Memory
+         [] (valueOfIndex self
+                          {trace php/runtime/env/TraceInfo}
+                          {index long})
+         php/runtime/Memory
+         (|> value
+             (array.read index)
+             maybe.assume
+             (..value_wrapper lux_structure)))
 
-        ## (php/runtime/Memory
-        ##  [] (refOfIndex self
-        ##                 {trace php/runtime/env/TraceInfo}
-        ##                 {index long})
-        ##  php/runtime/Memory
-        ##  (exec
-        ##    (log! (format "{lux_structure#refOfIndex long}" text.new_line
-        ##                  (exception.construct unknown_kind_of_object index)))
-        ##    (error! "OOPS!")))
+        (php/runtime/Memory
+         [] (valueOfIndex self
+                          {trace php/runtime/env/TraceInfo}
+                          {index java/lang/String})
+         php/runtime/Memory
+         (case (:coerce Text index)
+           (^ (static runtime.variant_tag_field))
+           (|> value
+               (array.read 0)
+               maybe.assume
+               (:coerce java/lang/Integer)
+               php/runtime/memory/LongMemory::valueOf)
 
-        ## (php/runtime/Memory
-        ##  [] (refOfIndex self
-        ##                 {trace php/runtime/env/TraceInfo}
-        ##                 {index java/lang/String})
-        ##  php/runtime/Memory
-        ##  (exec
-        ##    (log! (format "{lux_structure#refOfIndex java/lang/String}" text.new_line
-        ##                  (exception.construct unknown_kind_of_object index)))
-        ##    (error! "OOPS!")))
+           (^ (static runtime.variant_flag_field))
+           (case (array.read 1 value)
+             #.None
+             (php/runtime/memory/NullMemory::INSTANCE)
+             
+             (#.Some value)
+             ..unit)
 
-        ## (~~ (template [<name>]
-        ##       [(php/runtime/Memory [] (<name> self) php/runtime/Memory (undefined))]
+           (^ (static runtime.variant_value_field))
+           (|> value
+               (array.read 2)
+               maybe.assume
+               (..value_wrapper lux_structure))
 
-        ##       [inc] [dec] [negative] [toNumeric]
-        ##       ))
+           (^ (static runtime.tuple_size_field))
+           (php/runtime/memory/LongMemory::new (array.size value))
 
-        ## (~~ (template [<name>]
-        ##       [(php/runtime/Memory [] (<name> self {other php/runtime/Memory}) php/runtime/Memory (undefined))]
-
-        ##       [plus] [minus] [mul] [pow] [div]
-        ##       [identical] [equal] [notEqual]
-        ##       [smaller] [smallerEq] [greater] [greaterEq]
-        ##       ))
-
-        ## (php/runtime/Memory [] (toLong self) long (undefined))
-        ## (php/runtime/Memory [] (toDouble self) double (undefined))
-        ## (php/runtime/Memory [] (toBoolean self) boolean (undefined))
-        ## (php/runtime/Memory [] (toString self) java/lang/String (undefined))
-        ## (php/runtime/Memory [] (getBinaryBytes self {input java/nio/charset/Charset}) ByteArray (undefined))
+           _
+           (undefined)))
         )))
 
 (def: (read_tuple read host_object)
   (-> Reader php/runtime/memory/ArrayMemory (Try Any))
-  (let [size (:coerce Nat (php/runtime/memory/ArrayMemory::size host_object))]
+  (let [size (|> host_object
+                 php/runtime/memory/ArrayMemory::size
+                 (:coerce Nat)
+                 dec)]
     (loop [idx 0
            output (:coerce (Array Any) (array.new size))]
       (if (n.< size idx)
         (let [value (|> host_object
                         (php/runtime/memory/ArrayMemory::get (php/runtime/memory/LongMemory::new (.int idx)))
+                        maybe.assume
                         (:coerce php/runtime/memory/ReferenceMemory)
                         php/runtime/memory/ReferenceMemory::getValue)]
           (case (host.check php/runtime/memory/NullMemory value)
@@ -304,26 +386,38 @@
 
             #.None
             (case (read value)
-              (#try.Failure error)
-              (#try.Failure error)
-
               (#try.Success lux_value)
-              (recur (inc idx) (array.write! idx lux_value output)))))
+              (recur (inc idx) (array.write! idx lux_value output))
+
+              error
+              error)))
         (#try.Success output)))))
+
+(def: variant_tag_field
+  (php/runtime/memory/StringMemory::new runtime.variant_tag_field))
+
+(def: variant_value_field
+  (php/runtime/memory/StringMemory::new runtime.variant_value_field))
+
+(def: variant_flag_field
+  (php/runtime/memory/StringMemory::new runtime.variant_flag_field))
 
 (def: (read_variant read host_object)
   (-> Reader php/runtime/memory/ArrayMemory (Try Any))
   (case [(|> host_object
-             (php/runtime/memory/ArrayMemory::get (php/runtime/memory/StringMemory::new runtime.variant_tag_field))
+             (php/runtime/memory/ArrayMemory::get ..variant_tag_field)
+             maybe.assume
              read)
          (|> host_object
-             (php/runtime/memory/ArrayMemory::get (php/runtime/memory/StringMemory::new runtime.variant_value_field))
+             (php/runtime/memory/ArrayMemory::get ..variant_value_field)
+             maybe.assume
              read)]
     [(#try.Success tag) (#try.Success value)]
     (#try.Success [(java/lang/Long::intValue (:coerce java/lang/Long tag))
                    (: Any
                       (case (|> host_object
-                                (php/runtime/memory/ArrayMemory::get (php/runtime/memory/StringMemory::new runtime.variant_flag_field))
+                                (php/runtime/memory/ArrayMemory::get ..variant_flag_field)
+                                maybe.assume
                                 (:coerce php/runtime/memory/ReferenceMemory)
                                 php/runtime/memory/ReferenceMemory::getValue
                                 (host.check php/runtime/memory/NullMemory))
@@ -338,6 +432,9 @@
     (exception.throw ..unknown_kind_of_object host_object)))
 
 (exception: #export nulll_has_no_lux_representation)
+
+(def: tuple_size_field
+  (php/runtime/memory/StringMemory::new runtime.tuple_size_field))
 
 (def: (read host_object)
   Reader
@@ -358,6 +455,7 @@
 
                    #.None)]
 
+                [program/StructureValue [program/StructureValue::getValue #try.Success]]
                 [php/runtime/memory/LongMemory [php/runtime/memory/LongMemory::toLong #try.Success]]
                 [php/runtime/memory/DoubleMemory [php/runtime/memory/DoubleMemory::toDouble #try.Success]]
                 [php/runtime/memory/StringMemory [php/runtime/memory/StringMemory::toString #try.Success]]
@@ -366,7 +464,9 @@
                 ))
           (case (host.check php/runtime/memory/ArrayMemory host_object)
             (#.Some value)
-            (if (php/runtime/memory/ArrayMemory::isMap value)
+            (if (|> value
+                    (php/runtime/memory/ArrayMemory::get ..tuple_size_field)
+                    (case> (#.Some _) false #.None true))
               (read_variant read value)
               (read_tuple read value))
 
@@ -401,41 +501,29 @@
       (:coerce java/lang/Object)
       (host.check php/runtime/memory/ObjectMemory)))
 
+(def: interpreter
+  (org/develnext/jphp/scripting/JPHPScriptEngine::new))
+
+(def: default_environment
+  php/runtime/env/Environment
+  (|> ..interpreter
+      java/lang/Object::getClass
+      (java/lang/Class::getDeclaredField "environment")
+      (exec> [(java/lang/reflect/AccessibleObject::setAccessible true)])
+      (java/lang/reflect/Field::get ..interpreter)
+      (:coerce php/runtime/env/Environment)))
+
 (def: (call_macro inputs lux macro)
-  (-> (List Code) Lux
-      php/runtime/memory/ObjectMemory
-      ## php/runtime/lang/Closure
-      (Try (Try [Lux (List Code)])))
+  (-> (List Code) Lux php/runtime/memory/ObjectMemory (Try (Try [Lux (List Code)])))
   (<| :assume
       (do try.monad
-        [#let [_ (debug.log! (format "{call_macro 0} " (exception.construct ..unknown_kind_of_object (:coerce java/lang/Object (php/runtime/memory/ObjectMemory::value macro)))))]
-         output (php/runtime/lang/Closure::call (php/runtime/env/Environment::current)
+        [output (php/runtime/lang/Closure::call ..default_environment
                                                 (|> (host.array php/runtime/Memory 3)
                                                     (host.array_write 0 macro)
-                                                    (host.array_write 1
-                                                                      ## (php/runtime/memory/ArrayMemory::new (:coerce (Array java/lang/Object) inputs))
-                                                                      (lux_structure (:coerce (Array java/lang/Object) inputs))
-                                                                      )
-                                                    (host.array_write 2
-                                                                      ## (php/runtime/memory/ArrayMemory::new (:coerce (Array java/lang/Object) lux))
-                                                                      (lux_structure (:coerce (Array java/lang/Object) lux))
-                                                                      ))
+                                                    (host.array_write 1 (lux_structure (:coerce (Array java/lang/Object) inputs)))
+                                                    (host.array_write 2 (lux_structure (:coerce (Array java/lang/Object) lux))))
                                                 (:coerce php/runtime/lang/Closure
-                                                         (php/runtime/memory/ObjectMemory::value macro)))
-         ## output (php/runtime/invoke/InvokeHelper::callAny macro
-         ##                                                  (|> (host.array php/runtime/Memory 2)
-         ##                                                      ## (host.array_write 0 macro)
-         ##                                                      ## (host.array_write 1 macro)
-         ##                                                      (host.array_write 0 ## (php/runtime/memory/ArrayMemory::new (:coerce (Array java/lang/Object) inputs))
-         ##                                                                        (lux_structure (:coerce (Array java/lang/Object) inputs))
-         ##                                                                        )
-         ##                                                      (host.array_write 1 ## (php/runtime/memory/ArrayMemory::new (:coerce (Array java/lang/Object) lux))
-         ##                                                                        (lux_structure (:coerce (Array java/lang/Object) lux))
-         ##                                                                        ))
-         ##                                                  (php/runtime/env/Environment::current)
-         ##                                                  (php/runtime/env/TraceInfo::new "" +0 +0))
-         #let [_ (debug.log! (format "{call_macro 1} " (debug.inspect output)))
-               _ (debug.log! (format "{call_macro 2} " (exception.construct ..unknown_kind_of_object (:coerce java/lang/Object output))))]]
+                                                         (php/runtime/memory/ObjectMemory::value macro)))]
         (..read (:coerce java/lang/Object output)))))
 
 (def: (expander macro inputs lux)
@@ -447,28 +535,37 @@
     #.None
     (exception.throw ..cannot_apply_a_non_function (:coerce java/lang/Object macro))))
 
-(def: separator "___")
-
 (def: host
   (IO (Host _.Expression _.Statement))
-  (io (let [interpreter (org/develnext/jphp/scripting/JPHPScriptEngine::new)
-            run! (: (-> (_.Code Any) (Try Any))
-                    (function (_ code)
+  (io (let [run! (: (-> (_.Code Any) (Try Any))
+                    (function (recur code)
                       (do try.monad
-                        [output (javax/script/ScriptEngine::eval (format "<?php " (_.code code)) interpreter)]
+                        [output (case (javax/script/ScriptEngine::eval (format "<?php " (_.code code)) ..interpreter)
+                                  (#try.Success output)
+                                  (#try.Success output)
+
+                                  (#try.Failure error)
+                                  (exec
+                                    ("lux io log" "(#try.Failure error)")
+                                    ("lux io log" (_.code code))
+                                    (#try.Failure error)))]
                         (..read output))))]
         (: (Host _.Expression _.Statement)
            (structure
             (def: (evaluate! context code)
               (run! (_.return code)))
             
-            (def: execute! run!)
+            (def: (execute! code)
+              (exec
+                ("lux io log" (_.code code))
+                (run! code)))
             
             (def: (define! context input)
               (let [global (reference.artifact context)
                     @global (_.global global)]
                 (do try.monad
-                  [#let [definition (_.; (_.set @global input))]
+                  [#let [definition (_.; (_.set @global input))
+                         _ ("lux io log" (_.code definition))]
                    _ (run! definition)
                    value (run! (_.return @global))]
                   (wrap [global value definition]))))
@@ -485,7 +582,7 @@
                 (run! (_.return (_.var (reference.artifact context)))))))))))
 
 (def: platform
-  (IO (Platform _.Var _.Expression _.Statement))
+  (IO (Platform _.Location _.Expression _.Statement))
   (do io.monad
     [host ..host]
     (wrap {#platform.&file_system (file.async file.default)
@@ -496,9 +593,9 @@
 
 (def: (program context program)
   (Program _.Expression _.Statement)
-  (_.; (_.apply/2 [(runtime.lux//program_args _.command_line_arguments)
-                   _.null]
-                  program)))
+  (_.; (_.apply/2 program
+                  [(runtime.lux//program_args _.command_line_arguments)
+                   _.null])))
 
 (for {@.old
       (def: extender
@@ -519,7 +616,7 @@
               [handler (try.from_maybe (..ensure_macro handler))
                #let [to_php (: (-> Any php/runtime/Memory)
                                (|>> (:coerce (Array java/lang/Object)) lux_structure (:coerce php/runtime/Memory)))]
-               output (php/runtime/lang/Closure::call (php/runtime/env/Environment::current)
+               output (php/runtime/lang/Closure::call ..default_environment
                                                       (|> (host.array php/runtime/Memory 6)
                                                           (host.array_write 0 handler)
                                                           (host.array_write 1 (php/runtime/memory/StringMemory::new name))
@@ -548,13 +645,6 @@
         (_.; (_.apply/* (list) @program))
         )))
 
-## (program: [{service /cli.service}]
-##   (/.compiler ..expander
-##               ..platform
-##               extension.bundle
-##               ..program
-##               service))
-
 (`` (program: [{service /cli.service}]
       (let [extension ".php"]
         (do io.monad
@@ -570,7 +660,7 @@
                                  generation.bundle
                                  extension/bundle.empty
                                  ..program
-                                 [_.Var _.Expression _.Statement]
+                                 [_.Location _.Expression _.Statement]
                                  ..extender
                                  service
                                  [(packager.package (_.manual "")

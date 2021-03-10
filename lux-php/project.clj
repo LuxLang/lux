@@ -3,6 +3,8 @@
 (def sonatype-releases "https://oss.sonatype.org/service/local/staging/deploy/maven2/")
 (def sonatype-snapshots "https://oss.sonatype.org/content/repositories/snapshots/")
 
+(def jphp-version "0.9.2")
+
 (defproject com.github.luxlang/lux-php #=(identity version)
   :description "A PHP compiler for Lux."
   :url ~repo
@@ -24,8 +26,8 @@
   :dependencies [[com.github.luxlang/luxc-jvm ~version]
                  [com.github.luxlang/stdlib ~version]
                  ;; PHP 5
-                 [org.develnext.jphp/jphp-core "0.9.2"]
-                 [org.develnext.jphp/jphp-scripting "0.9.2"]]
+                 [org.develnext.jphp/jphp-core ~jphp-version]
+                 [org.develnext.jphp/jphp-scripting ~jphp-version]]
 
   :manifest {"lux" ~version}
   :source-paths ["source"]
