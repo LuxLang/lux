@@ -27,8 +27,176 @@
       [///
        ["." phase]]]]]])
 
+(def: array::new
+  Handler
+  (custom
+   [<c>.any
+    (function (_ extension phase archive lengthC)
+      (do phase.monad
+        [lengthA (analysis/type.with_type Nat
+                   (phase archive lengthC))
+         [var_id varT] (analysis/type.with_env check.var)
+         _ (analysis/type.infer (type (Array varT)))]
+        (wrap (#analysis.Extension extension (list lengthA)))))]))
+
+(def: array::length
+  Handler
+  (custom
+   [<c>.any
+    (function (_ extension phase archive arrayC)
+      (do phase.monad
+        [[var_id varT] (analysis/type.with_env check.var)
+         arrayA (analysis/type.with_type (type (Array varT))
+                  (phase archive arrayC))
+         _ (analysis/type.infer Nat)]
+        (wrap (#analysis.Extension extension (list arrayA)))))]))
+
+(def: array::read
+  Handler
+  (custom
+   [(<>.and <c>.any <c>.any)
+    (function (_ extension phase archive [indexC arrayC])
+      (do phase.monad
+        [indexA (analysis/type.with_type Nat
+                  (phase archive indexC))
+         [var_id varT] (analysis/type.with_env check.var)
+         arrayA (analysis/type.with_type (type (Array varT))
+                  (phase archive arrayC))
+         _ (analysis/type.infer varT)]
+        (wrap (#analysis.Extension extension (list indexA arrayA)))))]))
+
+(def: array::write
+  Handler
+  (custom
+   [($_ <>.and <c>.any <c>.any <c>.any)
+    (function (_ extension phase archive [indexC valueC arrayC])
+      (do phase.monad
+        [indexA (analysis/type.with_type Nat
+                  (phase archive indexC))
+         [var_id varT] (analysis/type.with_env check.var)
+         valueA (analysis/type.with_type varT
+                  (phase archive valueC))
+         arrayA (analysis/type.with_type (type (Array varT))
+                  (phase archive arrayC))
+         _ (analysis/type.infer (type (Array varT)))]
+        (wrap (#analysis.Extension extension (list indexA valueA arrayA)))))]))
+
+(def: array::delete
+  Handler
+  (custom
+   [($_ <>.and <c>.any <c>.any)
+    (function (_ extension phase archive [indexC arrayC])
+      (do phase.monad
+        [indexA (analysis/type.with_type Nat
+                  (phase archive indexC))
+         [var_id varT] (analysis/type.with_env check.var)
+         arrayA (analysis/type.with_type (type (Array varT))
+                  (phase archive arrayC))
+         _ (analysis/type.infer (type (Array varT)))]
+        (wrap (#analysis.Extension extension (list indexA arrayA)))))]))
+
+(def: bundle::array
+  Bundle
+  (<| (bundle.prefix "array")
+      (|> bundle.empty
+          (bundle.install "new" array::new)
+          (bundle.install "length" array::length)
+          (bundle.install "read" array::read)
+          (bundle.install "write" array::write)
+          (bundle.install "delete" array::delete)
+          )))
+
+(def: Null
+  (for {@.php host.Null}
+       Any))
+
+(def: Object
+  (for {@.php (type (host.Object Any))}
+       Any))
+
+(def: Function
+  (for {@.php host.Function}
+       Any))
+
+(def: object::get
+  Handler
+  (custom
+   [($_ <>.and <c>.text <c>.any)
+    (function (_ extension phase archive [fieldC objectC])
+      (do phase.monad
+        [objectA (analysis/type.with_type ..Object
+                   (phase archive objectC))
+         _ (analysis/type.infer .Any)]
+        (wrap (#analysis.Extension extension (list (analysis.text fieldC)
+                                                   objectA)))))]))
+
+(def: object::do
+  Handler
+  (custom
+   [($_ <>.and <c>.text <c>.any (<>.some <c>.any))
+    (function (_ extension phase archive [methodC objectC inputsC])
+      (do {! phase.monad}
+        [objectA (analysis/type.with_type ..Object
+                   (phase archive objectC))
+         inputsA (monad.map ! (|>> (phase archive) (analysis/type.with_type Any)) inputsC)
+         _ (analysis/type.infer .Any)]
+        (wrap (#analysis.Extension extension (list& (analysis.text methodC)
+                                                    objectA
+                                                    inputsA)))))]))
+
+(def: bundle::object
+  Bundle
+  (<| (bundle.prefix "object")
+      (|> bundle.empty
+          (bundle.install "get" object::get)
+          (bundle.install "do" object::do)
+          (bundle.install "null" (/.nullary ..Null))
+          (bundle.install "null?" (/.unary Any Bit))
+          )))
+
+(def: php::constant
+  Handler
+  (custom
+   [<c>.text
+    (function (_ extension phase archive name)
+      (do phase.monad
+        [_ (analysis/type.infer Any)]
+        (wrap (#analysis.Extension extension (list (analysis.text name))))))]))
+
+(def: php::apply
+  Handler
+  (custom
+   [($_ <>.and <c>.any (<>.some <c>.any))
+    (function (_ extension phase archive [abstractionC inputsC])
+      (do {! phase.monad}
+        [abstractionA (analysis/type.with_type ..Function
+                        (phase archive abstractionC))
+         inputsA (monad.map ! (|>> (phase archive) (analysis/type.with_type Any)) inputsC)
+         _ (analysis/type.infer Any)]
+        (wrap (#analysis.Extension extension (list& abstractionA inputsA)))))]))
+
+(def: php::pack
+  Handler
+  (custom
+   [($_ <>.and <c>.any <c>.any)
+    (function (_ extension phase archive [formatC dataC])
+      (do {! phase.monad}
+        [formatA (analysis/type.with_type Text
+                   (phase archive formatC))
+         dataA (analysis/type.with_type (type (Array (I64 Any)))
+                 (phase archive dataC))
+         _ (analysis/type.infer Text)]
+        (wrap (#analysis.Extension extension (list formatA dataA)))))]))
+
 (def: #export bundle
   Bundle
   (<| (bundle.prefix "php")
       (|> bundle.empty
+          (dictionary.merge bundle::array)
+          (dictionary.merge bundle::object)
+
+          (bundle.install "constant" php::constant)
+          (bundle.install "apply" php::apply)
+          (bundle.install "pack" php::pack)
+          (bundle.install "script universe" (/.nullary .Bit))
           )))

@@ -15,10 +15,11 @@
     [security
      ["!" capability (#+ capability:)]]]
    [data
+    ["." bit ("#\." equivalence)]
     ["." product]
     ["." maybe]
     ["." binary (#+ Binary)]
-    ["." text
+    ["." text ("#\." equivalence)
      ["%" format (#+ format)]]
     [collection
      ["." array (#+ Array)]
@@ -1345,6 +1346,223 @@
                           (do {! (try.with io.monad)}
                             [_ (RubyFileUtils::mkdir path)]
                             (wrap (..directory path))))))
+
+                     (def: separator
+                       ..default_separator)
+                     ))
+               )
+
+        @.php
+        (as_is (host.import: (FILE_APPEND Int))
+               ## https://www.php.net/manual/en/dir.constants.php
+               (host.import: (DIRECTORY_SEPARATOR host.String))
+               ## https://www.php.net/manual/en/function.pack.php
+               ## https://www.php.net/manual/en/function.unpack.php
+               (host.import: (unpack [host.String host.String] Binary))
+               ## https://www.php.net/manual/en/ref.filesystem.php
+               ## https://www.php.net/manual/en/function.file-get-contents.php
+               (host.import: (file_get_contents [Path] #io #try host.String))
+               ## https://www.php.net/manual/en/function.file-put-contents.php
+               (host.import: (file_put_contents [Path host.String Int] #io #try host.Integer))
+               (host.import: (filemtime [Path] #io #try host.Integer))
+               (host.import: (filesize [Path] #io #try host.Integer))
+               (host.import: (is_executable [Path] #io #try host.Boolean))
+               (host.import: (touch [Path host.Integer] #io #try host.Boolean))
+               (host.import: (rename [Path Path] #io #try host.Boolean))
+               (host.import: (unlink [Path] #io #try host.Boolean))
+
+               ## https://www.php.net/manual/en/function.rmdir.php
+               (host.import: (rmdir [Path] #io #try host.Boolean))
+               ## https://www.php.net/manual/en/function.scandir.php
+               (host.import: (scandir [Path] #io #try (Array Path)))
+               ## https://www.php.net/manual/en/function.is-file.php
+               (host.import: (is_file [Path] #io #try host.Boolean))
+               ## https://www.php.net/manual/en/function.is-dir.php
+               (host.import: (is_dir [Path] #io #try host.Boolean))
+               ## https://www.php.net/manual/en/function.mkdir.php
+               (host.import: (mkdir [Path] #io #try host.Boolean))
+
+               (def: byte_array_format "C*")
+               (def: default_separator (..DIRECTORY_SEPARATOR))
+
+               (template [<name>]
+                 [(exception: #export (<name> {file Path})
+                    (exception.report
+                     ["Path" file]))]
+
+                 [cannot_write_to_file]
+                 )
+
+               (`` (structure: (file path)
+                     (-> Path (File IO))
+
+                     (~~ (template [<name> <mode>]
+                           [(def: <name>
+                              (..can_modify
+                               (function (<name> data)
+                                 (do {! (try.with io.monad)}
+                                   [outcome (..file_put_contents [path ("php pack" ..byte_array_format data) <mode>])]
+                                   (if (bit\= false (:coerce Bit outcome))
+                                     (\ io.monad wrap (exception.throw ..cannot_write_to_file [path]))
+                                     (wrap []))))))]
+                           
+                           [over_write  +0]
+                           [append      (..FILE_APPEND)]
+                           ))
+
+                     (def: content
+                       (..can_query
+                        (function (_ _)
+                          (do {! (try.with io.monad)}
+                            [data (..file_get_contents [path])]
+                            (if (bit\= false (:coerce Bit data))
+                              (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
+                              (wrap (..unpack [..byte_array_format data])))))))
+
+                     (def: name
+                       (..can_see
+                        (function (_ _)
+                          (|> path
+                              (text.split_all_with ..default_separator)
+                              list.reverse
+                              list.head
+                              (maybe.default path)))))
+
+                     (def: path
+                       (..can_see
+                        (function (_ _)
+                          path)))
+
+                     (~~ (template [<capability> <name> <ffi> <pipeline>]
+                           [(def: <name>
+                              (<capability>
+                               (function (_ _)
+                                 (do {! (try.with io.monad)}
+                                   [value (<ffi> [path])]
+                                   (if (bit\= false (:coerce Bit value))
+                                     (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
+                                     (wrap (`` (|> value (~~ (template.splice <pipeline>))))))))))]
+
+                           [..can_query size ..filesize [.nat]]
+                           [..can_query last_modified ..filemtime [(i.* +1,000) duration.from_millis instant.absolute]]
+                           ))
+
+                     (def: can_execute?
+                       (..can_query
+                        (function (_ _)
+                          (..is_executable [path]))))
+
+                     (def: modify
+                       (..can_modify
+                        (function (_ moment)
+                          (do {! (try.with io.monad)}
+                            [verdict (..touch [path (|> moment instant.relative duration.to_millis (i./ +1,000))])]
+                            (if (bit\= false (:coerce Bit verdict))
+                              (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
+                              (wrap []))))))
+
+                     (def: move
+                       (..can_open
+                        (function (_ destination)
+                          (do {! (try.with io.monad)}
+                            [verdict (..rename [path destination])]
+                            (if (bit\= false (:coerce Bit verdict))
+                              (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
+                              (wrap (file destination)))))))
+
+                     (def: delete
+                       (..can_delete
+                        (function (_ _)
+                          (do {! (try.with io.monad)}
+                            [verdict (..unlink [path])]
+                            (if (bit\= false (:coerce Bit verdict))
+                              (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
+                              (wrap []))))))
+                     ))
+
+               (`` (structure: (directory path)
+                     (-> Path (Directory IO))
+
+                     (def: scope
+                       (..can_see
+                        (function (_ _)
+                          path)))
+
+                     (~~ (template [<name> <test> <constructor> <capability>]
+                           [(def: <name>
+                              (..can_query
+                               (function (_ _)
+                                 (do {! (try.with io.monad)}
+                                   [children (..scandir [path])]
+                                   (loop [input (|> children
+                                                    array.to_list
+                                                    (list.filter (function (_ child)
+                                                                   (not (or (text\= "." child)
+                                                                            (text\= ".." child))))))
+                                          output (: (List (<capability> IO))
+                                                    (list))]
+                                     (case input
+                                       #.Nil
+                                       (wrap output)
+
+                                       (#.Cons head tail)
+                                       (do !
+                                         [verdict (<test> head)]
+                                         (if verdict
+                                           (recur tail (#.Cons (<constructor> head) output))
+                                           (recur tail output)))))))))]
+
+                           [files ..is_file ..file File]
+                           [directories ..is_dir directory Directory]
+                           ))
+
+                     (def: discard
+                       (..can_delete
+                        (function (_ _)
+                          (do {! (try.with io.monad)}
+                            [verdict (..rmdir [path])]
+                            (if (bit\= false (:coerce Bit verdict))
+                              (\ io.monad wrap (exception.throw ..cannot_find_directory [path]))
+                              (wrap []))))))
+                     ))
+
+               (`` (structure: #export default
+                     (System IO)
+
+                     (~~ (template [<name> <test> <constructor> <exception>]
+                           [(def: <name>
+                              (..can_open
+                               (function (_ path)
+                                 (do {! (try.with io.monad)}
+                                   [verdict (<test> path)]
+                                   (\ io.monad wrap
+                                      (if verdict
+                                        (#try.Success (<constructor> path))
+                                        (exception.throw <exception> [path])))))))]
+
+                           [file ..is_file ..file ..cannot_find_file]
+                           [directory ..is_dir ..directory ..cannot_find_directory]
+                           ))
+
+                     (def: create_file
+                       (..can_open
+                        (function (_ path)
+                          (do {! (try.with io.monad)}
+                            [verdict (..touch [path (|> instant.now io.run instant.relative duration.to_millis (i./ +1,000))])]
+                            (\ io.monad wrap
+                               (if verdict
+                                 (#try.Success (..file path))
+                                 (exception.throw ..cannot_create_file [path])))))))
+                     
+                     (def: create_directory
+                       (..can_open
+                        (function (_ path)
+                          (do {! (try.with io.monad)}
+                            [verdict (..mkdir path)]
+                            (\ io.monad wrap
+                               (if verdict
+                                 (#try.Success (..directory path))
+                                 (exception.throw ..cannot_create_directory [path])))))))
 
                      (def: separator
                        ..default_separator)

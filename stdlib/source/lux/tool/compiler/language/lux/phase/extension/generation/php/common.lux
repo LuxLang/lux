@@ -13,6 +13,7 @@
      ["%" format (#+ format)]]
     [collection
      ["." dictionary]
+     ["." set]
      ["." list ("#\." functor fold)]]]
    [math
     [number
@@ -26,10 +27,12 @@
     [generation
      [extension (#+ Nullary Unary Binary Trinary
                     nullary unary binary trinary)]
+     ["." reference]
      ["//" php #_
-      ["#." runtime (#+ Operation Phase Handler Bundle Generator)]]]
+      ["#." runtime (#+ Operation Phase Handler Bundle Generator)]
+      ["#." case]]]
     [//
-     [synthesis (#+ %synthesis)]
+     ["." synthesis (#+ %synthesis)]
      ["." generation]
      [///
       ["#" phase]]]]])
@@ -50,45 +53,55 @@
 (template: (!unary function)
   (|>> list _.apply/* (|> (_.constant function))))
 
-## ## TODO: Get rid of this ASAP
-## (def: lux::syntax_char_case!
-##   (..custom [($_ <>.and
-##                  <s>.any
-##                  <s>.any
-##                  (<>.some (<s>.tuple ($_ <>.and
-##                                          (<s>.tuple (<>.many <s>.i64))
-##                                          <s>.any))))
-##              (function (_ extension_name phase archive [input else conditionals])
-##                (do {! /////.monad}
-##                  [inputG (phase archive input)
-##                   elseG (phase archive else)
-##                   @input (\ ! map _.var (generation.gensym "input"))
-##                   conditionalsG (: (Operation (List [Expression Expression]))
-##                                    (monad.map ! (function (_ [chars branch])
-##                                                   (do !
-##                                                     [branchG (phase archive branch)]
-##                                                     (wrap [(|> chars
-##                                                                (list\map (|>> .int _.int (_.= @input)))
-##                                                                (list\fold (function (_ clause total)
-##                                                                             (if (is? _.nil total)
-##                                                                               clause
-##                                                                               (_.or clause total)))
-##                                                                           _.nil))
-##                                                            branchG])))
-##                                               conditionals))
-##                   #let [closure (_.closure (list @input)
-##                                            (list\fold (function (_ [test then] else)
-##                                                         (_.if test (_.return then) else))
-##                                                       (_.return elseG)
-##                                                       conditionalsG))]]
-##                  (wrap (_.apply/1 closure inputG))))]))
+## TODO: Get rid of this ASAP
+(def: lux::syntax_char_case!
+  (..custom [($_ <>.and
+                 <s>.any
+                 <s>.any
+                 (<>.some (<s>.tuple ($_ <>.and
+                                         (<s>.tuple (<>.many <s>.i64))
+                                         <s>.any))))
+             (function (_ extension_name phase archive [input else conditionals])
+               (do {! /////.monad}
+                 [inputG (phase archive input)
+                  [[context_module context_artifact] elseG] (generation.with_new_context archive
+                                                              (phase archive else))
+                  @input (\ ! map _.var (generation.gensym "input"))
+                  conditionalsG (: (Operation (List [Expression Expression]))
+                                   (monad.map ! (function (_ [chars branch])
+                                                  (do !
+                                                    [branchG (phase archive branch)]
+                                                    (wrap [(|> chars
+                                                               (list\map (|>> .int _.int (_.=== @input)))
+                                                               (list\fold (function (_ clause total)
+                                                                            (if (is? _.null total)
+                                                                              clause
+                                                                              (_.or clause total)))
+                                                                          _.null))
+                                                           branchG])))
+                                              conditionals))
+                  #let [foreigns (|> conditionals
+                                     (list\map (|>> product.right synthesis.path/then //case.dependencies))
+                                     (list& (//case.dependencies (synthesis.path/then else)))
+                                     list.concat
+                                     (set.from_list _.hash)
+                                     set.to_list)
+                        @expression (_.constant (reference.artifact [context_module context_artifact]))
+                        directive (_.define_function @expression (list& (_.parameter @input) (list\map _.reference foreigns))
+                                                     (list\fold (function (_ [test then] else)
+                                                                  (_.if test (_.return then) else))
+                                                                (_.return elseG)
+                                                                conditionalsG))]
+                  _ (generation.execute! directive)
+                  _ (generation.save! (%.nat context_artifact) directive)]
+                 (wrap (_.apply/* (list& inputG foreigns) @expression))))]))
 
 (def: lux_procs
   Bundle
   (|> /.empty
-      ## (/.install "syntax char case!" lux::syntax_char_case!)
-      (/.install "is" (binary (product.uncurry _.=)))
-      ## (/.install "try" (unary //runtime.lux//try))
+      (/.install "syntax char case!" lux::syntax_char_case!)
+      (/.install "is" (binary (product.uncurry _.===)))
+      (/.install "try" (unary //runtime.lux//try))
       ))
 
 (def: i64_procs
@@ -100,12 +113,13 @@
           (/.install "xor" (binary (product.uncurry _.bit_xor)))
           (/.install "left-shift" (binary (product.uncurry _.bit_shl)))
           (/.install "right-shift" (binary (product.uncurry //runtime.i64//right_shift)))
-          (/.install "=" (binary (product.uncurry _.=)))
+          (/.install "=" (binary (product.uncurry _.==)))
           (/.install "+" (binary (product.uncurry _.+)))
           (/.install "-" (binary (product.uncurry _.-)))
           (/.install "<" (binary (product.uncurry _.<)))
           (/.install "*" (binary (product.uncurry _.*)))
-          (/.install "/" (binary (product.uncurry _./)))
+          (/.install "/" (binary (function (_ [parameter subject])
+                                   (_.intdiv/2 [subject parameter]))))
           (/.install "%" (binary (product.uncurry _.%)))
           (/.install "f64" (unary (_./ (_.float +1.0))))
           (/.install "char" (unary //runtime.i64//char))
@@ -124,7 +138,7 @@
           (/.install "*" (binary (product.uncurry _.*)))
           (/.install "/" (binary (product.uncurry _./)))
           (/.install "%" (binary ..f64//%))
-          (/.install "=" (binary (product.uncurry _.=)))
+          (/.install "=" (binary (product.uncurry _.==)))
           (/.install "<" (binary (product.uncurry _.<)))
           (/.install "i64" (unary _.intval/1))
           (/.install "encode" (unary _.strval/1))
@@ -142,7 +156,7 @@
   Bundle
   (<| (/.prefix "text")
       (|> /.empty
-          (/.install "=" (binary (product.uncurry _.=)))
+          (/.install "=" (binary (product.uncurry _.==)))
           (/.install "<" (binary (product.uncurry _.<)))
           (/.install "concat" (binary (product.uncurry (function.flip _.concat))))
           (/.install "index" (trinary ..text//index))
@@ -150,11 +164,6 @@
           (/.install "char" (binary (product.uncurry //runtime.text//char)))
           (/.install "clip" (trinary ..text//clip))
           )))
-
-(def: io//log!
-  (Unary Expression)
-  (|>> _.print/1
-       (_.or //runtime.unit)))
 
 (def: io//current-time
   (Nullary Expression)
@@ -165,7 +174,7 @@
   Bundle
   (<| (/.prefix "io")
       (|> /.empty
-          (/.install "log" (unary ..io//log!))
+          (/.install "log" (unary //runtime.io//log!))
           (/.install "error" (unary //runtime.io//throw!))
           (/.install "current-time" (nullary ..io//current-time)))))
 

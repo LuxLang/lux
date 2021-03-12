@@ -22,7 +22,7 @@
     [number (#+ hex)
      ["." i64]]]
    ["@" target
-    ["_" php (#+ Expression Location Constant Var Computation Literal Statement)]]]
+    ["_" php (#+ Expression Label Constant Var Computation Literal Statement)]]]
   ["." /// #_
    ["#." reference]
    ["//#" /// #_
@@ -38,7 +38,7 @@
 
 (template [<name> <base>]
   [(type: #export <name>
-     (<base> Location Expression Statement))]
+     (<base> [Nat Label] Expression Statement))]
 
   [Operation /////generation.Operation]
   [Phase /////generation.Phase]
@@ -128,6 +128,12 @@
                                                                  (list (~+ (list\map (|>> (~) [false] (`)) inputsC)))
                                                                  (~ code))))))))))))))))
 
+(runtime: (io//log! message)
+  ($_ _.then
+      (_.echo message)
+      (_.echo (_.string text.new_line))
+      (_.return ..unit)))
+
 (runtime: (io//throw! message)
   ($_ _.then
       (_.throw (_.new (_.constant "Exception") (list message)))
@@ -136,14 +142,38 @@
 (def: runtime//io
   Statement
   ($_ _.then
+      @io//log!
       @io//throw!
       ))
 
 (def: #export tuple_size_field
   "_lux_size")
 
-(def: tuple_size
+(def: #export tuple_size
   (_.nth (_.string ..tuple_size_field)))
+
+(def: jphp?
+  (_.=== (_.string "5.6.99") (_.phpversion/0 [])))
+
+(runtime: (array//length array)
+  ## TODO: Get rid of this as soon as JPHP is no longer necessary.
+  (_.if ..jphp?
+    (_.if (..tuple_size array)
+      (_.return (..tuple_size array))
+      (_.return (_.count/1 array)))
+    (_.return (_.count/1 array))))
+
+(runtime: (array//write idx value array)
+  ($_ _.then
+      (_.; (_.set (_.nth idx array) value))
+      (_.return array)))
+
+(def: runtime//array
+  Statement
+  ($_ _.then
+      @array//length
+      @array//write
+      ))
 
 (def: last_index
   (|>> ..tuple_size (_.- (_.int +1))))
@@ -167,20 +197,37 @@
                 ## Needs recursion
                 <recur>)))))
 
+  ## TODO: Get rid of this as soon as JPHP is no longer necessary.
+  (runtime: (tuple//slice offset input)
+    (with_vars [size index output]
+      ($_ _.then
+          (_.; (_.set size (..array//length input)))
+          (_.; (_.set index (_.int +0)))
+          (_.; (_.set output (_.array/* (list))))
+          (<| (_.while (|> index (_.+ offset) (_.< size)))
+              ($_ _.then
+                  (_.; (_.set (_.nth index output) (_.nth (_.+ offset index) input)))
+                  (_.; (_.set index (_.+ (_.int +1) index)))
+                  ))
+          (_.return (..tuple//make (_.- offset size) output))
+          )))
+
   (runtime: (tuple//right lefts tuple)
     (with_vars [last_index_right right_index]
       (<| (_.while (_.bool true))
           ($_ _.then
               (_.; (_.set last_index_right (..last_index tuple)))
               (_.; (_.set right_index (_.+ (_.int +1) lefts)))
-              (_.cond (list [(_.= last_index_right right_index)
+              (_.cond (list [(_.=== last_index_right right_index)
                              (_.return (_.nth right_index tuple))]
                             [(_.> last_index_right right_index)
                              ## Needs recursion.
                              <recur>])
-                      ($_ _.then
-                          (_.echo (_.string (format "[tuple//right] _.array_slice/2" text.new_line)))
-                          (_.return (_.array_slice/2 [tuple right_index]))))
+                      (_.if ..jphp?
+                        (_.return (..tuple//make (_.- right_index (..tuple_size tuple))
+                                                 (..tuple//slice right_index tuple)))
+                        (_.return (..tuple//make (_.- right_index (..tuple_size tuple))
+                                                 (_.array_slice/2 [tuple right_index])))))
               )))))
 
 (def: #export variant_tag_field "_lux_tag")
@@ -222,7 +269,7 @@
         ## sum_flag (_.nth (_.int +1) sum)
         sum_value (_.nth (_.string ..variant_value_field) sum)
         ## sum_value (_.nth (_.int +2) sum)
-        is_last? (_.= ..unit sum_flag)
+        is_last? (_.=== ..unit sum_flag)
         test_recursion! (_.if is_last?
                           ## Must recurse.
                           ($_ _.then
@@ -230,15 +277,15 @@
                               (_.; (_.set sum sum_value)))
                           no_match!)]
     (<| (_.while (_.bool true))
-        (_.cond (list [(_.= sum_tag wantedTag)
-                       (_.if (_.= wantsLast sum_flag)
+        (_.cond (list [(_.=== sum_tag wantedTag)
+                       (_.if (_.=== wantsLast sum_flag)
                          (_.return sum_value)
                          test_recursion!)]
 
                       [(_.< wantedTag sum_tag)
                        test_recursion!]
 
-                      [(_.= ..unit wantsLast)
+                      [(_.=== ..unit wantsLast)
                        (_.return (sum//make (_.- wantedTag sum_tag) sum_flag sum_value))])
                 no_match!))))
 
@@ -247,6 +294,7 @@
   ($_ _.then
       @tuple//make
       @tuple//left
+      @tuple//slice
       @tuple//right
       @sum//make
       @sum//get
@@ -281,12 +329,13 @@
   (let [mask (|> (_.int +1)
                  (_.bit_shl (_.- param (_.int +64)))
                  (_.- (_.int +1)))]
-    (_.return (|> subject
-                  (_.bit_and mask)
-                  (_.bit_shr param)))))
-
-(def: jphp?
-  (_.= (_.string "5.6.99") (_.phpversion/0 [])))
+    ($_ _.then
+        (_.; (_.set param (_.bit_and (_.int +63) param)))
+        (_.if (_.=== (_.int +0) param)
+          (_.return subject)
+          (_.return (|> subject
+                        (_.bit_and mask)
+                        (_.bit_shr param)))))))
 
 (runtime: (i64//char code)
   (_.if ..jphp?
@@ -314,12 +363,12 @@
     (_.if ..jphp?
       ($_ _.then
           (_.; (_.set idx (_.strpos/3 [subject param start])))
-          (_.if (_.= (_.bool false) idx)
+          (_.if (_.=== (_.bool false) idx)
             (_.return ..none)
             (_.return (..some idx))))
       ($_ _.then
           (_.; (_.set idx (_.iconv_strpos/3 [subject param start])))
-          (_.if (_.= (_.bool false) idx)
+          (_.if (_.=== (_.bool false) idx)
             (_.return ..none)
             (_.return (..some idx)))))))
 
@@ -335,15 +384,14 @@
 
 (runtime: (text//char idx text)
   (_.if (|> idx (within? (text//size text)))
-    (let [code_point (: (-> Expression Computation)
-                        (|>> [(_.string "UTF-8") (_.string "UTF-32LE")]
-                             _.iconv/3
-                             [(_.string "V")]
-                             _.unpack/2
-                             (_.nth (_.int +1))))]
-      (_.if ..jphp?
-        (_.return (code_point (_.substr/3 [text idx (_.int +1)])))
-        (_.return (code_point (_.iconv_substr/3 [text idx (_.int +1)])))))
+    (_.if ..jphp?
+      (_.return (_.ord/1 (_.substr/3 [text idx (_.int +1)])))
+      (_.return (|> (_.iconv_substr/3 [text idx (_.int +1)])
+                    [(_.string "UTF-8") (_.string "UTF-32LE")]
+                    _.iconv/3
+                    [(_.string "V")]
+                    _.unpack/2
+                    (_.nth (_.int +1)))))
     (_.throw (_.new (_.constant "Exception") (list (_.string "[Lux Error] Cannot get char from text."))))))
 
 (def: runtime//text
@@ -359,14 +407,14 @@
   (with_vars [output]
     ($_ _.then
         (_.; (_.set output (_.floatval/1 value)))
-        (_.if (_.= (_.float +0.0) output)
+        (_.if (_.=== (_.float +0.0) output)
           (_.if ($_ _.or
-                    (_.= (_.string "0.0") output)
-                    (_.= (_.string "+0.0") output)
-                    (_.= (_.string "-0.0") output)
-                    (_.= (_.string "0") output)
-                    (_.= (_.string "+0") output)
-                    (_.= (_.string "-0") output))
+                    (_.=== (_.string "0.0") output)
+                    (_.=== (_.string "+0.0") output)
+                    (_.=== (_.string "-0.0") output)
+                    (_.=== (_.string "0") output)
+                    (_.=== (_.string "+0") output)
+                    (_.=== (_.string "-0") output))
             (_.return (..some output))
             (_.return ..none))
           (_.return (..some output)))
@@ -380,7 +428,7 @@
 
 (def: check_necessary_conditions!
   Statement
-  (let [i64_support? (_.= (_.int +8) (_.constant "PHP_INT_SIZE"))
+  (let [i64_support? (_.=== (_.int +8) (_.constant "PHP_INT_SIZE"))
         i64_error (_.string (format "Cannot run program!" text.new_line
                                     "Lux/PHP programs require 64-bit PHP builds!"))]
     (_.when (_.not i64_support?)
@@ -390,6 +438,7 @@
   Statement
   ($_ _.then
       check_necessary_conditions!
+      runtime//array
       runtime//adt
       runtime//lux
       runtime//i64

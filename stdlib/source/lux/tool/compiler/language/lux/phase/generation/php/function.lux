@@ -11,7 +11,7 @@
     [collection
      ["." list ("#\." functor fold)]]]
    [target
-    ["_" php (#+ Var Global Expression Argument Statement)]]]
+    ["_" php (#+ Var Global Expression Argument Label Statement)]]]
   ["." // #_
    ["#." runtime (#+ Operation Phase Phase! Generator)]
    ["#." reference]
@@ -42,6 +42,10 @@
 (def: input
   (|>> inc //case.register))
 
+(def: (@scope function_name)
+  (-> Context Label)
+  (_.label (format (///reference.artifact function_name) "_scope")))
+
 (def: (with_closure inits @selfG @selfL body!)
   (-> (List Expression) Global Var Statement [Statement Expression])
   (case inits
@@ -53,28 +57,29 @@
 
     _
     (let [@inits (|> (list.enumeration inits)
-                     (list\map (|>> product.left ..capture _.reference)))]
-      [(_.; (_.set @selfG (_.closure (list) @inits
+                     (list\map (|>> product.left ..capture)))]
+      [(_.; (_.set @selfG (_.closure (list) (list\map _.parameter @inits)
                                      ($_ _.then
-                                         (_.; (_.set @selfL (_.closure (list& (_.reference @selfL) @inits)
+                                         (_.; (_.set @selfL (_.closure (list& (_.reference @selfL) (list\map _.reference @inits))
                                                                        (list)
                                                                        body!)))
                                          (_.return @selfL)))))
        (_.apply/* inits @selfG)])))
 
-(def: #export (function expression archive [environment arity bodyS])
-  (Generator (Abstraction Synthesis))
+(def: #export (function statement expression archive [environment arity bodyS])
+  (-> Phase! (Generator (Abstraction Synthesis)))
   (do {! ///////phase.monad}
-    [[function_name bodyG] (/////generation.with_new_context archive
+    [[function_name body!] (/////generation.with_new_context archive
                              (do !
-                               [function_name (\ ! map ///reference.artifact
-                                                 (/////generation.context archive))]
-                               (/////generation.with_anchor (_.global function_name)
-                                 (expression archive bodyS))))
+                               [@scope (\ ! map ..@scope
+                                          (/////generation.context archive))]
+                               (/////generation.with_anchor [1 @scope]
+                                 (statement expression archive bodyS))))
      closureG+ (monad.map ! (expression archive) environment)
      #let [@curried (_.var "curried")
            arityG (|> arity .int _.int)
            @num_args (_.var "num_args")
+           @scope (..@scope function_name)
            @selfG (_.global (///reference.artifact function_name))
            @selfL (_.var (///reference.artifact function_name))
            initialize_self! (_.; (_.set (//case.register 0) @selfL))
@@ -88,10 +93,11 @@
                                         ($_ _.then
                                             (_.; (_.set @num_args (_.func_num_args/0 [])))
                                             (_.; (_.set @curried (_.func_get_args/0 [])))
-                                            (_.cond (list [(|> @num_args (_.= arityG))
+                                            (_.cond (list [(|> @num_args (_.=== arityG))
                                                            ($_ _.then
                                                                initialize!
-                                                               (_.return bodyG))]
+                                                               (_.set_label @scope)
+                                                               body!)]
                                                           [(|> @num_args (_.> arityG))
                                                            (let [arity_inputs (_.array_slice/3 [@curried (_.int +0) arityG])
                                                                  extra_inputs (_.array_slice/2 [@curried arityG])

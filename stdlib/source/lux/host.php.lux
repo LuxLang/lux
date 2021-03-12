@@ -1,0 +1,307 @@
+(.module:
+  [lux (#- Alias)
+   ["." meta]
+   ["@" target]
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["." io]
+    ["<>" parser ("#\." monad)
+     ["<.>" code (#+ Parser)]]]
+   [data
+    ["." product]
+    ["." maybe]
+    ["." text
+     ["%" format (#+ format)]]
+    [collection
+     ["." list ("#\." functor fold)]]]
+   [type
+    abstract]
+   [macro (#+ with_gensyms)
+    [syntax (#+ syntax:)]
+    ["." code]
+    ["." template]]])
+
+(abstract: #export (Object brand) Any)
+
+(template [<name>]
+  [(with_expansions [<brand> (template.identifier [<name> "'"])]
+     (abstract: #export <brand> Any)
+     (type: #export <name>
+       (..Object <brand>)))]
+
+  [Null]
+  [Function]
+  )
+
+(template [<name> <type>]
+  [(type: #export <name>
+     <type>)]
+
+  [Boolean Bit]
+  [Integer Int]
+  [Float   Frac]
+  [String  Text]
+  )
+
+(type: Nullable
+  [Bit Code])
+
+(def: nullable
+  (Parser Nullable)
+  (let [token (' #?)]
+    (<| (<>.and (<>.parses? (<code>.this! token)))
+        (<>.after (<>.not (<code>.this! token)))
+        <code>.any)))
+
+(type: Alias
+  Text)
+
+(def: alias
+  (Parser Alias)
+  (<>.after (<code>.this! (' #as)) <code>.local_identifier))
+
+(type: Field
+  [Bit Text (Maybe Alias) Nullable])
+
+(def: static!
+  (Parser Any)
+  (<code>.this! (' #static)))
+
+(def: field
+  (Parser Field)
+  (<code>.form ($_ <>.and
+                   (<>.parses? ..static!)
+                   <code>.local_identifier
+                   (<>.maybe ..alias)
+                   ..nullable)))
+
+(def: constant
+  (Parser Field)
+  (<code>.form ($_ <>.and
+                   (<>\wrap true)
+                   <code>.local_identifier
+                   (<>.maybe ..alias)
+                   ..nullable)))
+
+(type: Common_Method
+  {#name Text
+   #alias (Maybe Alias)
+   #inputs (List Nullable)
+   #io? Bit
+   #try? Bit
+   #output Nullable})
+
+(type: Static_Method Common_Method)
+(type: Virtual_Method Common_Method)
+
+(type: Method
+  (#Static Static_Method)
+  (#Virtual Virtual_Method))
+
+(def: common_method
+  (Parser Common_Method)
+  ($_ <>.and
+      <code>.local_identifier
+      (<>.maybe ..alias)
+      (<code>.tuple (<>.some ..nullable))
+      (<>.parses? (<code>.this! (' #io)))
+      (<>.parses? (<code>.this! (' #try)))
+      ..nullable))
+
+(def: static_method
+  (<>.after ..static! ..common_method))
+
+(def: method
+  (Parser Method)
+  (<code>.form (<>.or ..static_method
+                      ..common_method)))
+
+(type: Member
+  (#Field Field)
+  (#Method Method))
+
+(def: member
+  (Parser Member)
+  ($_ <>.or
+      ..field
+      ..method
+      ))
+
+(def: input_variables
+  (-> (List Nullable) (List [Bit Code]))
+  (|>> list.enumeration
+       (list\map (function (_ [idx [nullable? type]])
+                   [nullable? (|> idx %.nat code.local_identifier)]))))
+
+(def: (nullable_type [nullable? type])
+  (-> Nullable Code)
+  (if nullable?
+    (` (.Maybe (~ type)))
+    type))
+
+(def: (with_null g!temp [nullable? input])
+  (-> Code [Bit Code] Code)
+  (if nullable?
+    (` (case (~ input)
+         (#.Some (~ g!temp))
+         (~ g!temp)
+
+         #.Null
+         ("php object null")))
+    input))
+
+(def: (without_null g!temp [nullable? outputT] output)
+  (-> Code Nullable Code Code)
+  (if nullable?
+    (` (let [(~ g!temp) (~ output)]
+         (if ("php object null?" (~ g!temp))
+           #.None
+           (#.Some (~ g!temp)))))
+    (` (let [(~ g!temp) (~ output)]
+         (if (not ("php object null?" (~ g!temp)))
+           (~ g!temp)
+           (.error! "Null is an invalid value!"))))))
+
+(type: Import
+  (#Class Text (Maybe Alias) (List Member))
+  (#Function Static_Method)
+  (#Constant Field))
+
+(def: import
+  (Parser Import)
+  ($_ <>.or
+      ($_ <>.and
+          <code>.local_identifier
+          (<>.maybe ..alias)
+          (<>.some member))
+      (<code>.form ..common_method)
+      ..constant
+      ))
+
+(syntax: #export (try expression)
+  {#.doc (doc (case (try (risky_computation input))
+                (#.Right success)
+                (do_something success)
+
+                (#.Left error)
+                (recover_from_failure error)))}
+  (wrap (list (` ("lux try" ((~! io.io) (~ expression)))))))
+
+(def: (with_io with? without)
+  (-> Bit Code Code)
+  (if with?
+    (` (io.io (~ without)))
+    without))
+
+(def: (io_type io? rawT)
+  (-> Bit Code Code)
+  (if io?
+    (` (io.IO (~ rawT)))
+    rawT))
+
+(def: (with_try with? without_try)
+  (-> Bit Code Code)
+  (if with?
+    (` (..try (~ without_try)))
+    without_try))
+
+(def: (try_type try? rawT)
+  (-> Bit Code Code)
+  (if try?
+    (` (.Either .Text (~ rawT)))
+    rawT))
+
+(def: (make_function g!method g!temp source inputsT io? try? outputT)
+  (-> Code Code Code (List Nullable) Bit Bit Nullable Code)
+  (let [g!inputs (input_variables inputsT)]
+    (` (def: ((~ g!method)
+              [(~+ (list\map product.right g!inputs))])
+         (-> [(~+ (list\map nullable_type inputsT))]
+             (~ (|> (nullable_type outputT)
+                    (try_type try?)
+                    (io_type io?))))
+         (:assume
+          (~ (<| (with_io io?)
+                 (with_try try?)
+                 (without_null g!temp outputT)
+                 (` ("php apply"
+                     (:coerce ..Function (~ source))
+                     (~+ (list\map (with_null g!temp) g!inputs)))))))))))
+
+(syntax: #export (import: {import ..import})
+  (with_gensyms [g!temp]
+    (case import
+      (#Class [class alias members])
+      (with_gensyms [g!object]
+        (let [qualify (: (-> Text Code)
+                         (|>> (format (maybe.default class alias) "::") code.local_identifier))
+              g!type (code.local_identifier (maybe.default class alias))
+              class_import (` ("php constant" (~ (code.text class))))]
+          (wrap (list& (` (type: (~ g!type)
+                            (..Object (primitive (~ (code.text class))))))
+                       (list\map (function (_ member)
+                                   (case member
+                                     (#Field [static? field alias fieldT])
+                                     (if static?
+                                       (` ((~! syntax:) ((~ (qualify (maybe.default field alias))))
+                                           (\ (~! meta.monad) (~' wrap)
+                                              (list (` (.:coerce (~ (nullable_type fieldT))
+                                                                 ("php constant" (~ (code.text (format class "::" field))))))))))
+                                       (` (def: ((~ (qualify field))
+                                                 (~ g!object))
+                                            (-> (~ g!type)
+                                                (~ (nullable_type fieldT)))
+                                            (:assume
+                                             (~ (without_null g!temp fieldT (` ("php object get" (~ (code.text field))
+                                                                                (:coerce (..Object .Any) (~ g!object))))))))))
+                                     
+                                     (#Method method)
+                                     (case method
+                                       (#Static [method alias inputsT io? try? outputT])
+                                       (..make_function (qualify (maybe.default method alias))
+                                                        g!temp
+                                                        (` ("php object get" (~ (code.text method))
+                                                            (:coerce (..Object .Any)
+                                                                     ("php constant" (~ (code.text (format class "::" method)))))))
+                                                        inputsT
+                                                        io?
+                                                        try?
+                                                        outputT)
+                                       
+                                       (#Virtual [method alias inputsT io? try? outputT])
+                                       (let [g!inputs (input_variables inputsT)]
+                                         (` (def: ((~ (qualify (maybe.default method alias)))
+                                                   [(~+ (list\map product.right g!inputs))]
+                                                   (~ g!object))
+                                              (-> [(~+ (list\map nullable_type inputsT))]
+                                                  (~ g!type)
+                                                  (~ (|> (nullable_type outputT)
+                                                         (try_type try?)
+                                                         (io_type io?))))
+                                              (:assume
+                                               (~ (<| (with_io io?)
+                                                      (with_try try?)
+                                                      (without_null g!temp outputT)
+                                                      (` ("php object do"
+                                                          (~ (code.text method))
+                                                          (~ g!object)
+                                                          (~+ (list\map (with_null g!temp) g!inputs)))))))))))))
+                                 members)))))
+      
+      (#Function [name alias inputsT io? try? outputT])
+      (let [imported (` ("php constant" (~ (code.text name))))]
+        (wrap (list (..make_function (code.local_identifier (maybe.default name alias))
+                                     g!temp
+                                     imported
+                                     inputsT
+                                     io?
+                                     try?
+                                     outputT))))
+
+      (#Constant [_ name alias fieldT])
+      (let [imported (` ("php constant" (~ (code.text name))))]
+        (wrap (list (` ((~! syntax:) ((~ (code.local_identifier (maybe.default name alias))))
+                        (\ (~! meta.monad) (~' wrap)
+                           (list (` (.:coerce (~ (nullable_type fieldT)) (~ imported))))))))))
+      )))

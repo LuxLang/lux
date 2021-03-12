@@ -4,16 +4,16 @@
     ["." monad (#+ do)]]
    [data
     ["." product]
-    [text
+    ["." text
      ["%" format (#+ format)]]
     [collection
-     ["." list ("#\." functor)]
+     ["." list ("#\." functor fold)]
      ["." set]]]
    [math
     [number
      ["n" nat]]]
    [target
-    ["_" php (#+ Var Expression Statement)]]]
+    ["_" php (#+ Var Expression Label Statement)]]]
   ["." // #_
    [runtime (#+ Operation Phase Phase! Generator Generator!)]
    ["#." case]
@@ -32,8 +32,41 @@
        [reference
         [variable (#+ Register)]]]]]]])
 
-(def: #export (scope expression archive [start initsS+ bodyS])
-  (Generator (Scope Synthesis))
+(def: @scope
+  (-> Nat Label)
+  (|>> %.nat (format "scope") _.label))
+
+(def: (setup offset bindings body)
+  (-> Register (List Expression) Statement Statement)
+  (|> bindings
+      list.enumeration
+      (list\map (function (_ [register value])
+                  (let [variable (//case.register (n.+ offset register))]
+                    (_.; (_.set variable value)))))
+      list.reverse
+      (list\fold _.then body)))
+
+(def: #export (scope! statement expression archive [start initsS+ bodyS])
+  (Generator! (Scope Synthesis))
+  (case initsS+
+    ## function/false/non-independent loop
+    #.Nil
+    (statement expression archive bodyS)
+
+    ## true loop
+    _
+    (do {! ///////phase.monad}
+      [@scope (\ ! map ..@scope /////generation.next)
+       initsO+ (monad.map ! (expression archive) initsS+)
+       body! (/////generation.with_anchor [start @scope]
+               (statement expression archive bodyS))]
+      (wrap (..setup start initsO+
+                     ($_ _.then
+                         (_.set_label @scope)
+                         body!))))))
+
+(def: #export (scope statement expression archive [start initsS+ bodyS])
+  (-> Phase! (Generator (Scope Synthesis)))
   (case initsS+
     ## function/false/non-independent loop
     #.Nil
@@ -42,15 +75,12 @@
     ## true loop
     _
     (do {! ///////phase.monad}
-      [initsO+ (monad.map ! (expression archive) initsS+)
-       [[loop_module loop_artifact] bodyO] (/////generation.with_new_context archive
-                                             (do !
-                                               [loop_context (/////generation.context archive)]
-                                               (/////generation.with_anchor (_.var (///reference.artifact loop_context))
-                                                 (expression archive bodyS))))
+      [[[loop_module loop_artifact] scope!] (/////generation.with_new_context archive
+                                              (..scope! statement expression archive [start initsS+ bodyS]))
        #let [locals (|> initsS+
                         list.enumeration
                         (list\map (|>> product.left (n.+ start) //case.register _.parameter)))
+             @loop (_.constant (///reference.artifact [loop_module loop_artifact]))
              [directive instantiation] (: [Statement Expression]
                                           (case (|> (synthesis.path/then bodyS)
                                                     //case.dependencies
@@ -58,30 +88,30 @@
                                                     (set.difference (set.from_list _.hash (list\map product.right locals)))
                                                     set.to_list)
                                             #.Nil
-                                            (let [@loop (_.var (///reference.artifact [loop_module loop_artifact]))]
-                                              [(_.; (_.set @loop
-                                                           (_.closure (list (_.reference @loop))
-                                                                      locals
-                                                                      (_.return bodyO))))
-                                               @loop])
+                                            [(_.define_function @loop (list) scope!)
+                                             @loop]
 
                                             foreigns
-                                            (let [@loop (_.constant (///reference.artifact [loop_module loop_artifact]))]
-                                              [(<| (_.define_function @loop (list\map _.parameter foreigns))
-                                                   (let [@loop (_.var (///reference.artifact [loop_module loop_artifact]))]
-                                                     (_.return (_.set @loop
-                                                                      (_.closure (list& (_.reference @loop)
-                                                                                        (list\map _.reference foreigns))
-                                                                                 locals
-                                                                                 (_.return bodyO))))))
-                                               (_.apply/* foreigns @loop)])))]
+                                            [(<| (_.define_function @loop (list\map _.parameter foreigns))
+                                                 (_.return (_.closure (list\map _.parameter foreigns) (list) scope!)))
+                                             (_.apply/* foreigns @loop)]))]
        _ (/////generation.execute! directive)
        _ (/////generation.save! (%.nat loop_artifact) directive)]
-      (wrap (_.apply/* initsO+ instantiation)))))
+      (wrap (_.apply/* (list) instantiation)))))
 
-(def: #export (recur expression archive argsS+)
-  (Generator (List Synthesis))
+(def: @temp
+  (_.var "lux_recur_values"))
+
+(def: #export (recur! statement expression archive argsS+)
+  (Generator! (List Synthesis))
   (do {! ///////phase.monad}
-    [@scope /////generation.anchor
+    [[offset @scope] /////generation.anchor
      argsO+ (monad.map ! (expression archive) argsS+)]
-    (wrap (_.apply/* argsO+ @scope))))
+    (wrap ($_ _.then
+              (_.; (_.set @temp (_.array/* argsO+)))
+              (..setup offset
+                       (|> argsO+
+                           list.enumeration
+                           (list\map (function (_ [idx _])
+                                       (_.nth (_.int (.int idx)) @temp))))
+                       (_.go_to @scope))))))
