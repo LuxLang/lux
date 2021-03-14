@@ -46,4 +46,5 @@
 1. https://v8project.blogspot.com/2018/08/embedded-builtins.html
 1. https://developers.google.com/web/updates/2018/09/inside-browser-part1
 1. https://addons.mozilla.org/en-US/firefox/addon/tree-style-tab/
+1. [Web Browser Engineering](https://browser.engineering/index.html)
 

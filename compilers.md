@@ -31,6 +31,8 @@ cd ~/lux/lux-php/ \
 cd ~/lux/stdlib/ \
 && lein clean \
 && time java -jar ~/lux/lux-php/target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
+
+php -f ~/lux/stdlib/target/program.php
 ```
 
 ---

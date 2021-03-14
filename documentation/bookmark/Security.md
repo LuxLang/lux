@@ -4,6 +4,7 @@
 
 # Privacy
 
+1. [Programming Differential Privacy](https://uvm-plaid.github.io/programming-dp/intro.html)
 1. https://privacypatterns.org/
 
 # Inspiration

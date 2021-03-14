@@ -149,7 +149,7 @@
 (def: #export tuple_size_field
   "_lux_size")
 
-(def: #export tuple_size
+(def: tuple_size
   (_.nth (_.string ..tuple_size_field)))
 
 (def: jphp?
@@ -158,9 +158,7 @@
 (runtime: (array//length array)
   ## TODO: Get rid of this as soon as JPHP is no longer necessary.
   (_.if ..jphp?
-    (_.if (..tuple_size array)
-      (_.return (..tuple_size array))
-      (_.return (_.count/1 array)))
+    (_.return (..tuple_size array))
     (_.return (_.count/1 array))))
 
 (runtime: (array//write idx value array)
@@ -175,22 +173,34 @@
       @array//write
       ))
 
-(def: last_index
+(def: jphp_last_index
   (|>> ..tuple_size (_.- (_.int +1))))
+
+(def: normal_last_index
+  (|>> _.count/1 (_.- (_.int +1))))
 
 (with_expansions [<recur> (as_is ($_ _.then
                                      (_.; (_.set lefts (_.- last_index_right lefts)))
                                      (_.; (_.set tuple (_.nth last_index_right tuple)))))]
   (runtime: (tuple//make size values)
-    ($_ _.then
-        (_.; (_.set (..tuple_size values) size))
-        (_.return values)))
+    (_.if ..jphp?
+      ($_ _.then
+          (_.; (_.set (..tuple_size values) size))
+          (_.return values))
+      ## https://www.php.net/manual/en/language.operators.assignment.php
+      ## https://www.php.net/manual/en/language.references.php
+      ## https://www.php.net/manual/en/functions.arguments.php
+      ## https://www.php.net/manual/en/language.oop5.references.php
+      ## https://www.php.net/manual/en/class.arrayobject.php
+      (_.return (_.new (_.constant "ArrayObject") (list values)))))
 
   (runtime: (tuple//left lefts tuple)
     (with_vars [last_index_right]
       (<| (_.while (_.bool true))
           ($_ _.then
-              (_.; (_.set last_index_right (..last_index tuple)))
+              (_.if ..jphp?
+                (_.; (_.set last_index_right (..jphp_last_index tuple)))
+                (_.; (_.set last_index_right (..normal_last_index tuple))))
               (_.if (_.> lefts last_index_right)
                 ## No need for recursion
                 (_.return (_.nth lefts tuple))
@@ -216,7 +226,9 @@
     (with_vars [last_index_right right_index]
       (<| (_.while (_.bool true))
           ($_ _.then
-              (_.; (_.set last_index_right (..last_index tuple)))
+              (_.if ..jphp?
+                (_.; (_.set last_index_right (..jphp_last_index tuple)))
+                (_.; (_.set last_index_right (..normal_last_index tuple))))
               (_.; (_.set right_index (_.+ (_.int +1) lefts)))
               (_.cond (list [(_.=== last_index_right right_index)
                              (_.return (_.nth right_index tuple))]
@@ -226,7 +238,7 @@
                       (_.if ..jphp?
                         (_.return (..tuple//make (_.- right_index (..tuple_size tuple))
                                                  (..tuple//slice right_index tuple)))
-                        (_.return (..tuple//make (_.- right_index (..tuple_size tuple))
+                        (_.return (..tuple//make (_.- right_index (_.count/1 tuple))
                                                  (_.array_slice/2 [tuple right_index])))))
               )))))
 
@@ -326,16 +338,23 @@
       ))
 
 (runtime: (i64//right_shift param subject)
-  (let [mask (|> (_.int +1)
-                 (_.bit_shl (_.- param (_.int +64)))
-                 (_.- (_.int +1)))]
+  (let [## The mask has to be calculated this way instead of in a more straightforward way
+        ## because in some languages, 1<<63 = max_negative_value
+        ## and max_negative_value-1 = max_positive_value.
+        ## And bitwise, max_positive_value works out to the mask that is desired when param = 0.
+        ## However, in PHP, max_negative_value-1 underflows and gets cast into a float.
+        ## And this messes up the computation.
+        ## This slightly more convoluted calculation avoids that problem.
+        mask (|> (_.int +1)
+                 (_.bit_shl (_.- param (_.int +63)))
+                 (_.- (_.int +1))
+                 (_.bit_shl (_.int +1))
+                 (_.+ (_.int +1)))]
     ($_ _.then
-        (_.; (_.set param (_.bit_and (_.int +63) param)))
-        (_.if (_.=== (_.int +0) param)
-          (_.return subject)
-          (_.return (|> subject
-                        (_.bit_and mask)
-                        (_.bit_shr param)))))))
+        (_.; (_.set param (_.% (_.int +64) param)))
+        (_.return (|> subject
+                      (_.bit_shr param)
+                      (_.bit_and mask))))))
 
 (runtime: (i64//char code)
   (_.if ..jphp?
