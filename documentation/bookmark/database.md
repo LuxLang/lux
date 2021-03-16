@@ -211,6 +211,9 @@
 1. https://github.com/yahoo/HaloDB
 1. https://chronicle.software/products/map/
 
+## Array
+1. [Array Databases: Concepts, Standards, Implementations](https://rd-alliance.org/system/files/Array-Databases_final-report.pdf)
+
 ## Blockchain
 
 1. https://flur.ee/

@@ -163,7 +163,7 @@
 
 (runtime: (array//write idx value array)
   ($_ _.then
-      (_.; (_.set (_.nth idx array) value))
+      (_.set! (_.nth idx array) value)
       (_.return array)))
 
 (def: runtime//array
@@ -180,12 +180,12 @@
   (|>> _.count/1 (_.- (_.int +1))))
 
 (with_expansions [<recur> (as_is ($_ _.then
-                                     (_.; (_.set lefts (_.- last_index_right lefts)))
-                                     (_.; (_.set tuple (_.nth last_index_right tuple)))))]
+                                     (_.set! lefts (_.- last_index_right lefts))
+                                     (_.set! tuple (_.nth last_index_right tuple))))]
   (runtime: (tuple//make size values)
     (_.if ..jphp?
       ($_ _.then
-          (_.; (_.set (..tuple_size values) size))
+          (_.set! (..tuple_size values) size)
           (_.return values))
       ## https://www.php.net/manual/en/language.operators.assignment.php
       ## https://www.php.net/manual/en/language.references.php
@@ -199,8 +199,8 @@
       (<| (_.while (_.bool true))
           ($_ _.then
               (_.if ..jphp?
-                (_.; (_.set last_index_right (..jphp_last_index tuple)))
-                (_.; (_.set last_index_right (..normal_last_index tuple))))
+                (_.set! last_index_right (..jphp_last_index tuple))
+                (_.set! last_index_right (..normal_last_index tuple)))
               (_.if (_.> lefts last_index_right)
                 ## No need for recursion
                 (_.return (_.nth lefts tuple))
@@ -211,13 +211,13 @@
   (runtime: (tuple//slice offset input)
     (with_vars [size index output]
       ($_ _.then
-          (_.; (_.set size (..array//length input)))
-          (_.; (_.set index (_.int +0)))
-          (_.; (_.set output (_.array/* (list))))
+          (_.set! size (..array//length input))
+          (_.set! index (_.int +0))
+          (_.set! output (_.array/* (list)))
           (<| (_.while (|> index (_.+ offset) (_.< size)))
               ($_ _.then
-                  (_.; (_.set (_.nth index output) (_.nth (_.+ offset index) input)))
-                  (_.; (_.set index (_.+ (_.int +1) index)))
+                  (_.set! (_.nth index output) (_.nth (_.+ offset index) input))
+                  (_.set! index (_.+ (_.int +1) index))
                   ))
           (_.return (..tuple//make (_.- offset size) output))
           )))
@@ -227,9 +227,9 @@
       (<| (_.while (_.bool true))
           ($_ _.then
               (_.if ..jphp?
-                (_.; (_.set last_index_right (..jphp_last_index tuple)))
-                (_.; (_.set last_index_right (..normal_last_index tuple))))
-              (_.; (_.set right_index (_.+ (_.int +1) lefts)))
+                (_.set! last_index_right (..jphp_last_index tuple))
+                (_.set! last_index_right (..normal_last_index tuple)))
+              (_.set! right_index (_.+ (_.int +1) lefts))
               (_.cond (list [(_.=== last_index_right right_index)
                              (_.return (_.nth right_index tuple))]
                             [(_.> last_index_right right_index)
@@ -239,7 +239,7 @@
                         (_.return (..tuple//make (_.- right_index (..tuple_size tuple))
                                                  (..tuple//slice right_index tuple)))
                         (_.return (..tuple//make (_.- right_index (_.count/1 tuple))
-                                                 (_.array_slice/2 [tuple right_index])))))
+                                                 (_.array_slice/2 [(_.do "getArrayCopy" (list) tuple) right_index])))))
               )))))
 
 (def: #export variant_tag_field "_lux_tag")
@@ -285,8 +285,8 @@
         test_recursion! (_.if is_last?
                           ## Must recurse.
                           ($_ _.then
-                              (_.; (_.set wantedTag (_.- sum_tag wantedTag)))
-                              (_.; (_.set sum sum_value)))
+                              (_.set! wantedTag (_.- sum_tag wantedTag))
+                              (_.set! sum sum_value))
                           no_match!)]
     (<| (_.while (_.bool true))
         (_.cond (list [(_.=== sum_tag wantedTag)
@@ -315,7 +315,7 @@
 (runtime: (lux//try op)
   (with_vars [value]
     (_.try ($_ _.then
-               (_.; (_.set value (_.apply/1 op [..unit])))
+               (_.set! value (_.apply/1 op [..unit]))
                (_.return (..right value)))
            (list (with_vars [error]
                    {#_.class (_.constant "Exception")
@@ -325,9 +325,9 @@
 (runtime: (lux//program_args inputs)
   (with_vars [head tail]
     ($_ _.then
-        (_.; (_.set tail ..none))
+        (_.set! tail ..none)
         (<| (_.for_each (_.array_reverse/1 inputs) head)
-            (_.; (_.set tail (..some (_.array/* (list head tail))))))
+            (_.set! tail (..some (_.array/* (list head tail)))))
         (_.return tail))))
 
 (def: runtime//lux
@@ -336,6 +336,15 @@
       @lux//try
       @lux//program_args
       ))
+
+(def: #export high
+  (-> (I64 Any) (I64 Any))
+  (i64.right_shift 32))
+
+(def: #export low
+  (-> (I64 Any) (I64 Any))
+  (let [mask (dec (i64.left_shift 32 1))]
+    (|>> (i64.and mask))))
 
 (runtime: (i64//right_shift param subject)
   (let [## The mask has to be calculated this way instead of in a more straightforward way
@@ -351,10 +360,12 @@
                  (_.bit_shl (_.int +1))
                  (_.+ (_.int +1)))]
     ($_ _.then
-        (_.; (_.set param (_.% (_.int +64) param)))
-        (_.return (|> subject
-                      (_.bit_shr param)
-                      (_.bit_and mask))))))
+        (_.set! param (_.% (_.int +64) param))
+        (_.if (_.=== (_.int +0) param)
+          (_.return subject)
+          (_.return (|> subject
+                        (_.bit_shr param)
+                        (_.bit_and mask)))))))
 
 (runtime: (i64//char code)
   (_.if ..jphp?
@@ -365,11 +376,129 @@
                   [(_.string "UTF-32LE") (_.string "UTF-8")]
                   _.iconv/3))))
 
+(runtime: (i64//+ parameter subject)
+  (let [high_16 (..i64//right_shift (_.int +16))
+        low_16 (_.bit_and (_.int (.int (hex "FFFF"))))
+
+        cap_16 low_16
+        hh (..i64//right_shift (_.int +48))
+        hl (|>> (..i64//right_shift (_.int +32)) cap_16)
+        lh (|>> (..i64//right_shift (_.int +16)) cap_16)
+        ll cap_16
+
+        up_16 (_.bit_shl (_.int +16))]
+    (with_vars [l48 l32 l16 l00
+                r48 r32 r16 r00
+                x48 x32 x16 x00]
+      ($_ _.then
+          (_.set! l48 (hh subject))
+          (_.set! l32 (hl subject))
+          (_.set! l16 (lh subject))
+          (_.set! l00 (ll subject))
+
+          (_.set! r48 (hh parameter))
+          (_.set! r32 (hl parameter))
+          (_.set! r16 (lh parameter))
+          (_.set! r00 (ll parameter))
+
+          (_.set! x00 (_.+ l00 r00))
+          
+          (_.set! x16 (|> (high_16 x00)
+                          (_.+ l16)
+                          (_.+ r16)))
+          (_.set! x00 (low_16 x00))
+          
+          (_.set! x32 (|> (high_16 x16)
+                          (_.+ l32)
+                          (_.+ r32)))
+          (_.set! x16 (low_16 x16))
+          
+          (_.set! x48 (|> (high_16 x32)
+                          (_.+ l48)
+                          (_.+ r48)
+                          low_16))
+          (_.set! x32 (low_16 x32))
+
+          (let [high32 (_.bit_or (up_16 x48) x32)
+                low32 (_.bit_or (up_16 x16) x00)]
+            (_.return (|> high32
+                          (_.bit_shl (_.int +32))
+                          (_.bit_or low32))))
+          ))))
+
+(runtime: (i64//negate value)
+  (let [i64//min (_.int (.int (hex "80,00,00,00,00,00,00,00")))]
+    (_.if (_.=== i64//min value)
+      (_.return i64//min)
+      (_.return (..i64//+ (_.int +1) (_.bit_not value))))))
+
+(runtime: (i64//- parameter subject)
+  (_.return (..i64//+ (..i64//negate parameter) subject)))
+
+(runtime: (i64//* parameter subject)
+  (let [high_16 (..i64//right_shift (_.int +16))
+        low_16 (_.bit_and (_.int (.int (hex "FFFF"))))
+        
+        cap_16 low_16
+        hh (..i64//right_shift (_.int +48))
+        hl (|>> (..i64//right_shift (_.int +32)) cap_16)
+        lh (|>> (..i64//right_shift (_.int +16)) cap_16)
+        ll cap_16
+
+        up_16 (_.bit_shl (_.int +16))]
+    (with_vars [l48 l32 l16 l00
+                r48 r32 r16 r00
+                x48 x32 x16 x00]
+      ($_ _.then
+          (_.set! l48 (hh subject))
+          (_.set! l32 (hl subject))
+          (_.set! l16 (lh subject))
+          (_.set! l00 (ll subject))
+
+          (_.set! r48 (hh parameter))
+          (_.set! r32 (hl parameter))
+          (_.set! r16 (lh parameter))
+          (_.set! r00 (ll parameter))
+
+          (_.set! x00 (_.* l00 r00))
+          (_.set! x16 (high_16 x00))
+          (_.set! x00 (low_16 x00))
+          
+          (_.set! x16 (|> x16 (_.+ (_.* l16 r00))))
+          (_.set! x32 (high_16 x16)) (_.set! x16 (low_16 x16))
+          (_.set! x16 (|> x16 (_.+ (_.* l00 r16))))
+          (_.set! x32 (|> x32 (_.+ (high_16 x16)))) (_.set! x16 (low_16 x16))
+
+          (_.set! x32 (|> x32 (_.+ (_.* l32 r00))))
+          (_.set! x48 (high_16 x32)) (_.set! x32 (low_16 x32))
+          (_.set! x32 (|> x32 (_.+ (_.* l16 r16))))
+          (_.set! x48 (|> x48 (_.+ (high_16 x32)))) (_.set! x32 (low_16 x32))
+          (_.set! x32 (|> x32 (_.+ (_.* l00 r32))))
+          (_.set! x48 (|> x48 (_.+ (high_16 x32)))) (_.set! x32 (low_16 x32))
+          
+          (_.set! x48 (|> x48
+                          (_.+ (_.* l48 r00))
+                          (_.+ (_.* l32 r16))
+                          (_.+ (_.* l16 r32))
+                          (_.+ (_.* l00 r48))
+                          low_16))
+
+          (let [high32 (_.bit_or (up_16 x48) x32)
+                low32 (_.bit_or (up_16 x16) x00)]
+            (_.return (|> high32
+                          (_.bit_shl (_.int +32))
+                          (_.bit_or low32))))
+          ))))
+
 (def: runtime//i64
   Statement
   ($_ _.then
       @i64//right_shift
       @i64//char
+      @i64//+
+      @i64//negate
+      @i64//-
+      @i64//*
       ))
 
 (runtime: (text//size value)
@@ -378,18 +507,20 @@
     (_.return (_.iconv_strlen/1 [value]))))
 
 (runtime: (text//index subject param start)
-  (with_vars [idx]
-    (_.if ..jphp?
-      ($_ _.then
-          (_.; (_.set idx (_.strpos/3 [subject param start])))
-          (_.if (_.=== (_.bool false) idx)
-            (_.return ..none)
-            (_.return (..some idx))))
-      ($_ _.then
-          (_.; (_.set idx (_.iconv_strpos/3 [subject param start])))
-          (_.if (_.=== (_.bool false) idx)
-            (_.return ..none)
-            (_.return (..some idx)))))))
+  (_.if (_.=== (_.string "") param)
+    (_.return (..some (_.int +0)))
+    (with_vars [idx]
+      (_.if ..jphp?
+        ($_ _.then
+            (_.set! idx (_.strpos/3 [subject param start]))
+            (_.if (_.=== (_.bool false) idx)
+              (_.return ..none)
+              (_.return (..some idx))))
+        ($_ _.then
+            (_.set! idx (_.iconv_strpos/3 [subject param start]))
+            (_.if (_.=== (_.bool false) idx)
+              (_.return ..none)
+              (_.return (..some idx))))))))
 
 (def: (within? top value)
   (-> Expression Expression Computation)
@@ -425,7 +556,7 @@
 (runtime: (f64//decode value)
   (with_vars [output]
     ($_ _.then
-        (_.; (_.set output (_.floatval/1 value)))
+        (_.set! output (_.floatval/1 value))
         (_.if (_.=== (_.float +0.0) output)
           (_.if ($_ _.or
                     (_.=== (_.string "0.0") output)
