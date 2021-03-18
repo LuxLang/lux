@@ -22,7 +22,7 @@
   :plugins [[com.github.luxlang/lein-luxc ~version]]
   :dependencies [[com.github.luxlang/luxc-jvm ~version]
                  [com.github.luxlang/stdlib ~version]
-                 [kawa-scheme/kawa-core "2.4"]]
+                 [com.github.arvyy/kawa "3.1.1"]]
 
   :manifest {"lux" ~version}
   :source-paths ["source"]

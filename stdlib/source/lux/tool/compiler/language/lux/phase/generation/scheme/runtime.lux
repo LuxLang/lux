@@ -1,47 +1,65 @@
 (.module:
-  [lux #*
+  [lux (#- Location inc)
+   ["." meta]
    [abstract
-    [monad (#+ do)]]
+    ["." monad (#+ do)]]
    [control
     ["." function]
-    ["p" parser ("#\." monad)
-     ["s" code (#+ Parser)]]]
+    ["<>" parser
+     ["<.>" code]]]
    [data
-    [number (#+ hex)]
-    [text
-     ["%" format (#+ format)]]
+    ["." product]
+    ["." text ("#\." hash)
+     ["%" format (#+ format)]
+     ["." encoding]]
     [collection
-     ["." list ("#\." monad)]]]
-   [macro
-    ["." code]
-    [syntax (#+ syntax:)]]
-   [target
+     ["." list ("#\." functor)]
+     ["." row]]]
+   ["." macro
+    [syntax (#+ syntax:)]
+    ["." code]]
+   [math
+    [number (#+ hex)
+     ["." i64]]]
+   ["@" target
     ["_" scheme (#+ Expression Computation Var)]]]
-  ["." ///
-   ["#/" //
-    ["#/" // #_
-     [analysis (#+ Variant)]
-     ["#." name]
-     ["#." synthesis]]]])
+  ["." /// #_
+   ["#." reference]
+   ["//#" /// #_
+    [analysis (#+ Variant)]
+    ["#." synthesis (#+ Synthesis)]
+    ["#." generation]
+    ["//#" ///
+     ["#." phase]
+     [reference
+      [variable (#+ Register)]]
+     [meta
+      [archive (#+ Output Archive)
+       ["." artifact (#+ Registry)]]]]]])
+
+(def: module_id
+  0)
 
 (template [<name> <base>]
   [(type: #export <name>
      (<base> Var Expression Expression))]
 
-  [Operation ///.Operation]
-  [Phase ///.Phase]
-  [Handler ///.Handler]
-  [Bundle ///.Bundle]
+  [Operation /////generation.Operation]
+  [Phase /////generation.Phase]
+  [Handler /////generation.Handler]
+  [Bundle /////generation.Bundle]
   )
 
-(def: prefix Text "LuxRuntime")
+(type: #export (Generator i)
+  (-> Phase Archive i (Operation Expression)))
 
-(def: unit (_.string /////synthesis.unit))
+(def: unit
+  (_.string /////synthesis.unit))
 
 (def: (flag value)
   (-> Bit Computation)
   (if value
-    (_.string "")
+    ..unit
     _.nil))
 
 (def: (variant' tag last? value)
@@ -70,44 +88,54 @@
   (-> Expression Computation)
   (|>> [0 #1] ..variant))
 
-(def: declaration
-  (Parser [Text (List Text)])
-  (p.either (p.and s.local-identifier (p\wrap (list)))
-            (s.form (p.and s.local-identifier (p.some s.local-identifier)))))
+(syntax: #export (with_vars {vars (<code>.tuple (<>.some <code>.local_identifier))}
+                   body)
+  (do {! meta.monad}
+    [ids (monad.seq ! (list.repeat (list.size vars) meta.count))]
+    (wrap (list (` (let [(~+ (|> vars
+                                 (list.zip/2 ids)
+                                 (list\map (function (_ [id var])
+                                             (list (code.local_identifier var)
+                                                   (` (_.var (~ (code.text (format "v" (%.nat id)))))))))
+                                 list.concat))]
+                     (~ body)))))))
 
-(syntax: (runtime: {[name args] declaration}
-           definition)
-  (let [implementation (code.local-identifier (format "@@" name))
-        runtime (format prefix "__" (/////name.normalize name))
-        @runtime (` (_.var (~ (code.text runtime))))
-        argsC+ (list\map code.local-identifier args)
-        argsLC+ (list\map (|>> /////name.normalize (format "LRV__") code.text (~) (_.var) (`))
-                          args)
-        declaration (` ((~ (code.local-identifier name))
-                        (~+ argsC+)))
-        type (` (-> (~+ (list.repeat (list.size argsC+) (` _.Expression)))
-                    _.Computation))]
-    (wrap (list (` (def: (~' #export) (~ declaration)
-                     (~ type)
-                     (~ (case argsC+
-                          #.Nil
-                          @runtime
+(syntax: (runtime: {declaration (<>.or <code>.local_identifier
+                                       (<code>.form (<>.and <code>.local_identifier
+                                                            (<>.some <code>.local_identifier))))}
+           code)
+  (do meta.monad
+    [runtime_id meta.count]
+    (macro.with_gensyms [g!_]
+      (let [runtime (code.local_identifier (///reference.artifact [..module_id runtime_id]))
+            runtime_name (` (_.var (~ (code.text (%.code runtime)))))]
+        (case declaration
+          (#.Left name)
+          (macro.with_gensyms [g!_]
+            (let [g!name (code.local_identifier name)]
+              (wrap (list (` (def: #export (~ g!name)
+                               Var
+                               (~ runtime_name)))
+                          
+                          (` (def: (~ (code.local_identifier (format "@" name)))
+                               _.Computation
+                               (_.define_constant (~ runtime_name) (~ code))))))))
+          
+          (#.Right [name inputs])
+          (macro.with_gensyms [g!_]
+            (let [g!name (code.local_identifier name)
+                  inputsC (list\map code.local_identifier inputs)
+                  inputs_typesC (list\map (function.constant (` _.Expression))
+                                          inputs)]
+              (wrap (list (` (def: #export ((~ g!name) (~+ inputsC))
+                               (-> (~+ inputs_typesC) _.Computation)
+                               (_.apply/* (list (~+ inputsC)) (~ runtime_name))))
 
-                          _
-                          (` (_.apply/* (~ @runtime) (list (~+ argsC+))))))))
-                (` (def: (~ implementation)
-                     _.Computation
-                     (~ (case argsC+
-                          #.Nil
-                          (` (_.define-constant (~ @runtime) [(list) #.None] (~ definition)))
-
-                          _
-                          (` (let [(~+ (|> (list.zip/2 argsC+ argsLC+)
-                                           (list\map (function (_ [left right])
-                                                       (list left right)))
-                                           list\join))]
-                               (_.define-function (~ @runtime) [(list (~+ argsLC+)) #.None]
-                                                  (~ definition))))))))))))
+                          (` (def: (~ (code.local_identifier (format "@" name)))
+                               _.Computation
+                               (..with_vars [(~+ inputsC)]
+                                 (_.define_function (~ runtime_name) [(list (~+ inputsC)) #.None]
+                                                    (~ code))))))))))))))
 
 (runtime: (slice offset length list)
   (<| (_.if (_.null?/1 list)
@@ -123,113 +151,104 @@
                          (_.cdr/1 list))))
       _.nil))
 
-(syntax: #export (with-vars {vars (s.tuple (p.many s.local-identifier))}
-                   body)
-  (wrap (list (` (let [(~+ (|> vars
-                               (list\map (function (_ var)
-                                           (list (code.local-identifier var)
-                                                 (` (_.var (~ (code.text (format "LRV__" (/////name.normalize var)))))))))
-                               list\join))]
-                   (~ body))))))
-
 (runtime: (lux//try op)
-  (with-vars [error]
-    (_.with-exception-handler
+  (with_vars [error]
+    (_.with_exception_handler
       (_.lambda [(list error) #.None]
                 (..left error))
       (_.lambda [(list) #.None]
-                (..right (_.apply/* op (list ..unit)))))))
+                (..right (_.apply/* (list ..unit) op))))))
 
-(runtime: (lux//program-args program-args)
-  (with-vars [@loop @input @output]
+(runtime: (lux//program_args program_args)
+  (with_vars [@loop @input @output]
     (_.letrec (list [@loop (_.lambda [(list @input @output) #.None]
                                      (_.if (_.eqv?/2 _.nil @input)
                                        @output
                                        (_.apply/2 @loop (_.cdr/1 @input) (..some (_.vector/* (list (_.car/1 @input) @output))))))])
-              (_.apply/2 @loop (_.reverse/1 program-args) ..none))))
+              (_.apply/2 @loop (_.reverse/1 program_args) ..none))))
 
 (def: runtime//lux
   Computation
-  (_.begin (list @@lux//try
-                 @@lux//program-args)))
+  (_.begin (list @lux//try
+                 @lux//program_args)))
 
-(def: last-index
+(def: last_index
   (-> Expression Computation)
   (|>> _.length/1 (_.-/2 (_.int +1))))
 
 (runtime: (tuple//left lefts tuple)
-  (with-vars [last-index-right]
+  (with_vars [last_index_right]
     (_.begin
-     (list (_.define-constant last-index-right (..last-index tuple))
-           (_.if (_.>/2 lefts last-index-right)
+     (list (_.define_constant last_index_right (..last_index tuple))
+           (_.if (_.>/2 lefts last_index_right)
              ## No need for recursion
-             (_.vector-ref/2 tuple lefts)
+             (_.vector_ref/2 tuple lefts)
              ## Needs recursion
-             (tuple//left (_.-/2 last-index-right lefts)
-                          (_.vector-ref/2 tuple last-index-right)))))))
+             (tuple//left (_.-/2 last_index_right lefts)
+                          (_.vector_ref/2 tuple last_index_right)))))))
 
 (runtime: (tuple//right lefts tuple)
-  (with-vars [last-index-right right-index @slice]
+  (with_vars [last_index_right right_index @slice]
     (_.begin
-     (list (_.define-constant last-index-right (..last-index tuple))
-           (_.define-constant right-index (_.+/2 (_.int +1) lefts))
-           (_.cond (list [(_.=/2 last-index-right right-index)
-                          (_.vector-ref/2 tuple right-index)]
-                         [(_.>/2 last-index-right right-index)
+     (list (_.define_constant last_index_right (..last_index tuple))
+           (_.define_constant right_index (_.+/2 (_.int +1) lefts))
+           (_.cond (list [(_.=/2 last_index_right right_index)
+                          (_.vector_ref/2 tuple right_index)]
+                         [(_.>/2 last_index_right right_index)
                           ## Needs recursion.
-                          (tuple//right (_.-/2 last-index-right lefts)
-                                        (_.vector-ref/2 tuple last-index-right))])
+                          (tuple//right (_.-/2 last_index_right lefts)
+                                        (_.vector_ref/2 tuple last_index_right))])
                    (_.begin
-                    (list (_.define-constant @slice (_.make-vector/1 (_.-/2 right-index (_.length/1 tuple))))
-                          (_.vector-copy!/5 @slice (_.int +0) tuple right-index (_.length/1 tuple))
+                    (list (_.define_constant @slice (_.make_vector/1 (_.-/2 right_index (_.length/1 tuple))))
+                          (_.vector_copy!/5 @slice (_.int +0) tuple right_index (_.length/1 tuple))
                           @slice))))
      )))
 
-(runtime: (sum//get sum last? wanted-tag)
-  (with-vars [sum-tag sum-flag sum-value]
-    (let [no-match _.nil
-          is-last? (|> sum-flag (_.eqv?/2 (_.string "")))
-          test-recursion (_.if is-last?
+(runtime: (sum//get sum last? wanted_tag)
+  (with_vars [sum_tag sum_flag sum_value]
+    (let [no_match _.nil
+          is_last? (|> sum_flag (_.eqv?/2 ..unit))
+          test_recursion (_.if is_last?
                            ## Must recurse.
-                           (sum//get sum-value
+                           (sum//get sum_value
                                      last?
-                                     (|> wanted-tag (_.-/2 sum-tag)))
-                           no-match)]
-      (<| (_.let (list [sum-tag (_.car/1 sum)]
-                       [sum-value (_.cdr/1 sum)]))
-          (_.let (list [sum-flag (_.car/1 sum-value)]
-                       [sum-value (_.cdr/1 sum-value)]))
-          (_.if (|> wanted-tag (_.=/2 sum-tag))
-            (_.if (|> sum-flag (_.eqv?/2 last?))
-              sum-value
-              test-recursion))
-          (_.if (|> wanted-tag (_.>/2 sum-tag))
-            test-recursion)
-          (_.if (_.and (list (|> last? (_.eqv?/2 (_.string "")))
-                             (|> wanted-tag (_.</2 sum-tag))))
-            (variant' (|> sum-tag (_.-/2 wanted-tag)) sum-flag sum-value))
-          no-match))))
+                                     (|> wanted_tag (_.-/2 sum_tag)))
+                           no_match)]
+      (<| (_.let (list [sum_tag (_.car/1 sum)]
+                       [sum_value (_.cdr/1 sum)]))
+          (_.let (list [sum_flag (_.car/1 sum_value)]
+                       [sum_value (_.cdr/1 sum_value)]))
+          (_.if (|> wanted_tag (_.=/2 sum_tag))
+            (_.if (|> sum_flag (_.eqv?/2 last?))
+              sum_value
+              test_recursion))
+          (_.if (|> wanted_tag (_.>/2 sum_tag))
+            test_recursion)
+          (_.if (_.and (list (|> last? (_.eqv?/2 ..unit))
+                             (|> wanted_tag (_.</2 sum_tag))))
+            (variant' (|> sum_tag (_.-/2 wanted_tag)) sum_flag sum_value))
+          no_match))))
 
 (def: runtime//adt
   Computation
-  (_.begin (list @@tuple//left
-                 @@tuple//right
-                 @@sum//get)))
+  (_.begin (list @tuple//left
+                 @tuple//right
+                 @sum//get)))
 
-(runtime: (i64//logical-right-shift shift input)
+(runtime: (i64//logical_right_shift shift input)
   (_.if (_.=/2 (_.int +0) shift)
     input
     (|> input
-        (_.arithmetic-shift/2 (_.*/2 (_.int -1) shift))
-        (_.bit-and/2 (_.int (hex "+7FFFFFFFFFFFFFFF"))))))
+        (_.arithmetic_shift/2 (_.*/2 (_.int -1) shift))
+        (_.bit_and/2 (_.int (hex "+7FFFFFFFFFFFFFFF"))))))
 
 (def: runtime//bit
   Computation
-  (_.begin (list @@i64//logical-right-shift)))
+  (_.begin (list @i64//logical_right_shift)))
 
 (runtime: (frac//decode input)
-  (with-vars [@output]
-    (_.let (list [@output ((_.apply/1 (_.global "string->number")) input)])
+  (with_vars [@output]
+    (_.let (list [@output ((_.apply/1 (_.var "string->number")) input)])
       (_.if (_.and (list (_.not/1 (_.=/2 @output @output))
                          (_.not/1 (_.eqv?/2 (_.string "+nan.0") input))))
         ..none
@@ -238,19 +257,19 @@
 (def: runtime//frac
   Computation
   (_.begin
-   (list @@frac//decode)))
+   (list @frac//decode)))
 
-(runtime: (io//current-time _)
-  (|> (_.apply/* (_.global "current-second") (list))
+(runtime: (io//current_time _)
+  (|> (_.apply/0 (_.var "current-second"))
       (_.*/2 (_.int +1,000))
       _.exact/1))
 
 (def: runtime//io
-  (_.begin (list @@io//current-time)))
+  (_.begin (list @io//current_time)))
 
 (def: runtime
   Computation
-  (_.begin (list @@slice
+  (_.begin (list @slice
                  runtime//lux
                  runtime//bit
                  runtime//adt
@@ -259,9 +278,14 @@
                  )))
 
 (def: #export generate
-  (Operation Any)
-  (///.with-buffer
-    (do ////.monad
-      [_ (///.execute! ..runtime)
-       _ (///.save! ..prefix ..runtime)]
-      (///.save-buffer! ""))))
+  (Operation [Registry Output])
+  (do ///////phase.monad
+    [_ (/////generation.execute! ..runtime)
+     _ (/////generation.save! (%.nat ..module_id) ..runtime)]
+    (wrap [(|> artifact.empty
+               artifact.resource
+               product.right)
+           (row.row [(%.nat ..module_id)
+                     (|> ..runtime
+                         _.code
+                         (\ encoding.utf8 encode))])])))
