@@ -164,7 +164,7 @@ Check out the Emacs plugin for it: https://github.com/LuxLang/lux/tree/master/lu
 
 ### Where do I learn Lux?
 
-The main resource is the book: https://www.gitbook.com/book/luxlang/the-lux-programming-language/details
+The main resource is the book: https://luxlang.gitbooks.io/the-lux-programming-language/content/
 
 It will always be up-to-date with the latest stable version of the language.
 
