@@ -1,0 +1,156 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   ["." debug]
+   ["." meta]
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["." try]
+    ["." exception]
+    [parser
+     ["<.>" code]]]
+   [data
+    ["." bit ("#\." equivalence)]
+    ["." text (#+ Char) ("#\." equivalence)
+     ["%" format (#+ format)]]
+    [collection
+     ["." set (#+ Set)]]]
+   [macro
+    [syntax (#+ syntax:)]
+    ["." code]
+    ["." template]]
+   [math
+    ["." random (#+ Random)]
+    [number (#+ hex)
+     ["n" nat]]]]
+  {1
+   ["." /
+    [//
+     ["." unicode #_
+      ["#" set]]]]})
+
+(def: (range max min)
+  (-> Char Char (Random Char))
+  (let [range (n.- min max)]
+    (\ random.monad map
+       (|>> (n.% range) (n.+ min))
+       random.nat)))
+
+(def: under_range
+  (Random Char)
+  (..range (debug.private /.ascii_bottom) 0))
+
+(def: over_range
+  (Random Char)
+  (..range (hex "FFFF") (inc (debug.private /.ascii_top))))
+
+(def: in_range
+  (Random Char)
+  (..range (inc (debug.private /.ascii_top)) (debug.private /.ascii_bottom)))
+
+(def: ascii_range
+  (Random Char)
+  (..range (inc (debug.private /.ascii_top)) 0))
+
+(def: valid_sigils
+  (Set Char)
+  (set.from_list n.hash
+                 (list (debug.private /.\0_sigil)
+                       (debug.private /.\a_sigil)
+                       (debug.private /.\b_sigil)
+                       (debug.private /.\t_sigil)
+                       (debug.private /.\n_sigil)
+                       (debug.private /.\v_sigil)
+                       (debug.private /.\f_sigil)
+                       (debug.private /.\r_sigil)
+                       (debug.private /.\''_sigil)
+                       (debug.private /.\\_sigil)
+                       (debug.private /.\u_sigil))))
+
+(syntax: (static_sample)
+  (do meta.monad
+    [seed meta.count
+     #let [[_ expected] (random.run (random.pcg32 [seed seed])
+                                    (random.unicode 10))]]
+    (wrap (list (code.text expected)))))
+
+(syntax: (static_escape {un_escaped <code>.text})
+  (wrap (list (code.text (/.escape un_escaped)))))
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      ($_ _.and
+          (do random.monad
+            [ascii ..ascii_range]
+            (_.cover [/.escapable?]
+                     (`` (if (or (~~ (template [<char>]
+                                       [(n.= (debug.private <char>) ascii)]
+                                       
+                                       [/.\0] [/.\a] [/.\b] [/.\t]
+                                       [/.\n] [/.\v] [/.\f] [/.\r]
+                                       [/.\''] [/.\\])))
+                           (/.escapable? ascii)
+                           (bit\= (/.escapable? ascii)
+                                  (or (n.< (debug.private /.ascii_bottom) ascii)
+                                      (n.> (debug.private /.ascii_top) ascii)))))))
+          (do random.monad
+            [left (random.char unicode.character)
+             right (random.char unicode.character)]
+            (_.cover [/.escape /.un_escape]
+                     (let [expected (format (text.from_code left) (text.from_code right))]
+                       (if (or (/.escapable? left)
+                               (/.escapable? right))
+                         (let [escaped (/.escape expected)]
+                           (case (/.un_escape escaped)
+                             (#try.Success un_escaped)
+                             (and (not (text\= escaped expected))
+                                  (text\= un_escaped expected))
+                             
+                             (#try.Failure error)
+                             false))
+                         (text\= expected (/.escape expected))))))
+          (do {! random.monad}
+            [dummy (|> (random.char unicode.character)
+                       (\ ! map text.from_code))]
+            (_.cover [/.dangling_escape]
+                     (case (/.un_escape (format (/.escape dummy) "\"))
+                       (#try.Success _)
+                       false
+
+                       (#try.Failure error)
+                       (exception.match? /.dangling_escape error))))
+          (do {! random.monad}
+            [dummy (|> (random.char unicode.character)
+                       (random.filter (|>> (set.member? ..valid_sigils) not))
+                       (\ ! map text.from_code))]
+            (_.cover [/.invalid_escape]
+                     (case (/.un_escape (format "\" dummy))
+                       (#try.Success _)
+                       false
+
+                       (#try.Failure error)
+                       (exception.match? /.invalid_escape error))))
+          (do {! random.monad}
+            [too_short (|> (random.char unicode.character)
+                           (\ ! map (n.% (hex "1000"))))
+             code (|> (random.unicode 4)
+                      (random.filter (function (_ code)
+                                       (case (\ n.hex decode code)
+                                         (#try.Failure error) true
+                                         (#try.Success _) false))))]
+            (_.cover [/.invalid_unicode_escape]
+                     (template.with [(!invalid <code>)
+                                     (case (/.un_escape (format "\u" <code>))
+                                       (#try.Success _)
+                                       false
+
+                                       (#try.Failure error)
+                                       (exception.match? /.invalid_unicode_escape error))]
+                       (and (!invalid (\ n.hex encode too_short))
+                            (!invalid code)))))
+          (_.cover [/.escaped]
+                   (with_expansions [<example> (..static_sample)]
+                     (text\= <example> (`` (/.escaped (~~ (..static_escape <example>)))))))
+          )))
