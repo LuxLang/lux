@@ -36,14 +36,14 @@
    [world
     ["." program]]])
 
-(type: #export Counters
+(type: #export Tally
   {#successes Nat
    #failures Nat
    #expected_coverage (Set Name)
    #actual_coverage (Set Name)})
 
-(def: (add_counters parameter subject)
-  (-> Counters Counters Counters)
+(def: (add_tally parameter subject)
+  (-> Tally Tally Tally)
   {#successes (n.+ (get@ #successes parameter) (get@ #successes subject))
    #failures (n.+ (get@ #failures parameter) (get@ #failures subject))
    #expected_coverage (set.union (get@ #expected_coverage parameter)
@@ -52,21 +52,21 @@
                                (get@ #actual_coverage subject))})
 
 (def: start
-  Counters
+  Tally
   {#successes 0
    #failures 0
    #expected_coverage (set.new name.hash)
    #actual_coverage (set.new name.hash)})
 
 (template [<name> <category>]
-  [(def: <name> Counters (update@ <category> .inc start))]
+  [(def: <name> Tally (update@ <category> .inc start))]
 
   [success #successes]
   [failure #failures]
   )
 
 (type: #export Assertion
-  (Promise [Counters Text]))
+  (Promise [Tally Text]))
 
 (type: #export Test
   (Random Assertion))
@@ -77,9 +77,9 @@
   {#.doc "Sequencing combinator."}
   (-> Assertion Assertion Assertion)
   (do promise.monad
-    [[l_counter l_documentation] left
-     [r_counter r_documentation] right]
-    (wrap [(add_counters l_counter r_counter)
+    [[l_tally l_documentation] left
+     [r_tally r_documentation] right]
+    (wrap [(add_tally l_tally r_tally)
            (format l_documentation ..separator r_documentation)])))
 
 (def: #export (and left right)
@@ -94,12 +94,12 @@
 
 (def: #export (context description)
   (-> Text Test Test)
-  (random\map (promise\map (function (_ [counters documentation])
-                             [counters (|> documentation
-                                           (text.split_all_with ..separator)
-                                           (list\map (|>> (format context_prefix)))
-                                           (text.join_with ..separator)
-                                           (format description ..separator))]))))
+  (random\map (promise\map (function (_ [tally documentation])
+                             [tally (|> documentation
+                                        (text.split_all_with ..separator)
+                                        (list\map (|>> (format context_prefix)))
+                                        (text.join_with ..separator)
+                                        (format description ..separator))]))))
 
 (def: failure_prefix "[Failure] ")
 (def: success_prefix "[Success] ")
@@ -144,7 +144,7 @@
       [prng result])))
 
 (def: failed?
-  (-> Counters Bit)
+  (-> Tally Bit)
   (|>> (get@ #failures) (n.> 0)))
 
 (def: (times_failure seed documentation)
@@ -158,33 +158,34 @@
   (-> Nat Test Test)
   (case amount
     0 (..fail (exception.construct ..must_try_test_at_least_once []))
-    1 test
     _ (do random.monad
         [seed random.nat]
         (function (_ prng)
           (let [[prng' instance] (random.run (random.pcg32 [..pcg32_magic_inc seed]) test)]
             [prng' (do promise.monad
-                     [[counters documentation] instance]
-                     (if (failed? counters)
-                       (wrap [counters (times_failure seed documentation)])
-                       (|> test (times (dec amount)) (random.run prng') product.right)))])))))
+                     [[tally documentation] instance]
+                     (if (failed? tally)
+                       (wrap [tally (times_failure seed documentation)])
+                       (case amount
+                         1 instance
+                         _ (|> test (times (dec amount)) (random.run prng') product.right))))])))))
 
-(def: (tally duration counters)
-  (-> Duration Counters Text)
-  (let [successes (get@ #successes counters)
-        failures (get@ #failures counters)
-        missing (set.difference (get@ #actual_coverage counters)
-                                (get@ #expected_coverage counters))
-        unexpected (set.difference (get@ #expected_coverage counters)
-                                   (get@ #actual_coverage counters))
+(def: (description duration tally)
+  (-> Duration Tally Text)
+  (let [successes (get@ #successes tally)
+        failures (get@ #failures tally)
+        missing (set.difference (get@ #actual_coverage tally)
+                                (get@ #expected_coverage tally))
+        unexpected (set.difference (get@ #expected_coverage tally)
+                                   (get@ #actual_coverage tally))
         report (: (-> (Set Name) Text)
                   (|>> set.to_list
                        (list.sort (\ name.order <))
                        (exception.enumerate %.name)))
-        expected_definitions_to_cover (set.size (get@ #expected_coverage counters))
+        expected_definitions_to_cover (set.size (get@ #expected_coverage tally))
         unexpected_definitions_covered (set.size unexpected)
         actual_definitions_covered (n.- unexpected_definitions_covered
-                                        (set.size (get@ #actual_coverage counters)))
+                                        (set.size (get@ #actual_coverage tally)))
         coverage (case expected_definitions_to_cover
                    0 "N/A"
                    expected (let [missing_ratio (f./ (n.frac expected)
@@ -228,14 +229,14 @@
     [pre (promise.future instant.now)
      #let [seed (instant.to_millis pre)
            prng (random.pcg32 [..pcg32_magic_inc seed])]
-     [counters documentation] (|> test (random.run prng) product.right)
+     [tally documentation] (|> test (random.run prng) product.right)
      post (promise.future instant.now)
      #let [duration (instant.span pre post)
            _ (debug.log! (format documentation text.new_line text.new_line
-                                 (tally duration counters)
+                                 (..description duration tally)
                                  text.new_line))]]
     (promise.future (\ program.default exit
-                       (case (get@ #failures counters)
+                       (case (get@ #failures tally)
                          0 ..success_exit_code
                          _ ..failure_exit_code)))))
 
@@ -246,8 +247,8 @@
                     (text.join_with " & "))
         coverage (set.from_list name.hash coverage)]
     (|> (..assert message condition)
-        (promise\map (function (_ [counters documentation])
-                       [(update@ #actual_coverage (set.union coverage) counters)
+        (promise\map (function (_ [tally documentation])
+                       [(update@ #actual_coverage (set.union coverage) tally)
                         documentation])))))
 
 (def: (|cover| coverage condition)
@@ -261,8 +262,8 @@
                     (list\map %.name)
                     (text.join_with " & "))
         coverage (set.from_list name.hash coverage)]
-    (random\map (promise\map (function (_ [counters documentation])
-                               [(update@ #actual_coverage (set.union coverage) counters)
+    (random\map (promise\map (function (_ [tally documentation])
+                               [(update@ #actual_coverage (set.union coverage) tally)
                                 documentation]))
                 (..context context test))))
 
@@ -328,8 +329,8 @@
   (-> Text Text Test Test)
   (let [coverage (..decode_coverage module coverage)]
     (|> (..context module test)
-        (random\map (promise\map (function (_ [counters documentation])
-                                   [(update@ #expected_coverage (set.union coverage) counters)
+        (random\map (promise\map (function (_ [tally documentation])
+                                   [(update@ #expected_coverage (set.union coverage) tally)
                                     documentation]))))))
 
 (syntax: #export (covering {module <c>.identifier}
@@ -375,7 +376,7 @@
             [assertions (monad.seq ! (list\map run! tests))]
             (wrap [(|> assertions
                        (list\map product.left)
-                       (list\fold ..add_counters ..start))
+                       (list\fold ..add_tally ..start))
                    (|> assertions
                        (list\map product.right)
                        (text.join_with ..separator))])))))
