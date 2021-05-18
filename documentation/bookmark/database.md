@@ -197,6 +197,7 @@
 1. https://juxt.pro/crux/docs/index.html
 1. https://github.com/juxt/crux
 1. [The Crux of Bitemporality - Jon Pither](https://www.youtube.com/watch?v=3Stja6YUB94)
+1. [Bitemporality: More Than a Design Pattern](https://juxt.pro/blog/bitemporality-more-than-a-design-pattern)
 
 ## Column
 

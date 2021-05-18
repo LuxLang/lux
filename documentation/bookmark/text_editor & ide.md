@@ -50,6 +50,7 @@
 
 # Reference
 
+1. [Build Your Own Text Editor](https://viewsourcecode.org/snaptoken/kilo/index.html)
 1. [On the design of text editors](https://arxiv.org/abs/2008.06030)
 1. [The Piece Table - the Unsung Hero of Your Text Editor](https://darrenburns.net/posts/piece-table/)
 1. [Build Your Own Text Editor](https://viewsourcecode.org/snaptoken/kilo/)

@@ -1,3 +1,7 @@
+# Ball arithmetic
+
+1. [Ball arithmetic](http://www.texmacs.org/joris/ball/ball.html)
+
 # Arithmetic
 
 1. [The Definitive Higher Math Guide on Integer Long Division (and Its Variants)](https://mathvault.ca/long-division/)
@@ -327,6 +331,7 @@
 
 # Knot theory
 
+1. [KNOT THEORY and ITS APPLICATIONS](https://www.maths.ed.ac.uk/~v1ranick/papers/murasug3.pdf)
 1. [Primes and Knots - Akshay Venkatesh](https://www.youtube.com/watch?v=jvoYgNYKyk0)
 1. [The Knot Book](http://math.harvard.edu/~ctm/home/text/books/adams/knot_book/knot_book.pdf)
 

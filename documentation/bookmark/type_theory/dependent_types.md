@@ -5,6 +5,8 @@
 
 # Reference
 
+1. [From Scheme to Dependent Types in 100 lines by Gershom Bazerman (Part 1)](https://vimeo.com/134561872)
+1. [From Scheme to Dependent Types in 100 Lines by Gershom Bazerman (Part 2)](https://vimeo.com/135746080)
 1. [Program = Proof](http://www.lix.polytechnique.fr/Labo/Samuel.Mimram/teaching/INF551/course.pdf)
 1. [Multimodal Dependent Type Theory](https://arxiv.org/abs/2011.15021)
 1. [Thorsten Altenkirch - The power of Π - Lambda Days 2020](https://www.youtube.com/watch?v=3zT5eVHpQwA)

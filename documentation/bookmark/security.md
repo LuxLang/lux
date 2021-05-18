@@ -60,6 +60,8 @@
 
 # Reference
 
+1. https://www.nomoreransom.org/en/index.html
+1. [Open Source Security Foundation (OpenSSF)](https://openssf.org/)
 1. [Don't get pwned: practicing the principle of least privilege](https://cloud.google.com/blog/products/identity-security/dont-get-pwned-practicing-the-principle-of-least-privilege)
 1. [Good Practices for Capability URLs](https://www.w3.org/TR/capability-urls/)
 1. [Secure Socket API](https://securesocketapi.org/)
