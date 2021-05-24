@@ -15,7 +15,7 @@
      ["<.>" code]]]
    [data
     ["." text
-     ["%" format (#+ format)]]
+     ["%" format]]
     [format
      [xml (#+ XML)]
      ["." json]]
@@ -28,6 +28,9 @@
     ["." template]
     ["." syntax (#+ syntax:)]
     ["." code]]
+   [math
+    [number
+     ["i" int]]]
    [time
     [instant (#+ Instant)]
     [duration (#+ Duration)]
@@ -90,6 +93,17 @@
         @.php
         (as_is (import: (gettype [.Any] host.String))
                (import: (strval [.Any] host.String)))
+
+        @.scheme
+        (as_is (import: (boolean? [.Any] Bit))
+               (import: (integer? [.Any] Bit))
+               (import: (real? [.Any] Bit))
+               (import: (string? [.Any] Bit))
+               (import: (vector? [.Any] Bit))
+               (import: (pair? [.Any] Bit))
+               (import: (car [.Any] .Any))
+               (import: (cdr [.Any] .Any))
+               (import: (format [Text .Any] Text)))
         }))
 
 (def: Inspector (-> Any Text))
@@ -130,9 +144,9 @@
                                           (let [last? (case last?
                                                         (#.Some _) #1
                                                         #.None #0)]
-                                            (|> (format (%.nat (.nat (java/lang/Integer::longValue tag)))
-                                                        " " (%.bit last?)
-                                                        " " (inspect choice))
+                                            (|> (%.format (%.nat (.nat (java/lang/Integer::longValue tag)))
+                                                          " " (%.bit last?)
+                                                          " " (inspect choice))
                                                 (text.enclose ["(" ")"])))
 
                                           _
@@ -159,9 +173,9 @@
               (cond (not (or ("js object undefined?" variant_tag)
                              ("js object undefined?" variant_flag)
                              ("js object undefined?" variant_value)))
-                    (|> (format (JSON::stringify variant_tag)
-                                " " (%.bit (not ("js object null?" variant_flag)))
-                                " " (inspect variant_value))
+                    (|> (%.format (JSON::stringify variant_tag)
+                                  " " (%.bit (not ("js object null?" variant_flag)))
+                                  " " (inspect variant_value))
                         (text.enclose ["(" ")"]))
 
                     (not (or ("js object undefined?" ("js object get" "_lux_low" value))
@@ -200,9 +214,9 @@
                     (if (or ("python object none?" variant_tag)
                             ("python object none?" variant_value))
                       (..str value)
-                      (|> (format (|> variant_tag (:coerce .Nat) %.nat)
-                                  " " (|> variant_flag "python object none?" not %.bit)
-                                  " " (inspect variant_value))
+                      (|> (%.format (|> variant_tag (:coerce .Nat) %.nat)
+                                    " " (|> variant_flag "python object none?" not %.bit)
+                                    " " (inspect variant_value))
                           (text.enclose ["(" ")"]))))
                 _ (..str value)))
 
@@ -233,9 +247,9 @@
               (if (not (or ("lua object nil?" variant_tag)
                            ("lua object nil?" variant_flag)
                            ("lua object nil?" variant_value)))
-                (|> (format (|> variant_tag (:coerce .Nat) %.nat)
-                            " " (%.bit (not ("lua object nil?" variant_flag)))
-                            " " (inspect variant_value))
+                (|> (%.format (|> variant_tag (:coerce .Nat) %.nat)
+                              " " (%.bit (not ("lua object nil?" variant_flag)))
+                              " " (inspect variant_value))
                     (text.enclose ["(" ")"]))
                 (inspect_tuple inspect value)))
 
@@ -265,9 +279,9 @@
                           (if (not (or ("ruby object nil?" variant_tag)
                                        ("ruby object nil?" variant_flag)
                                        ("ruby object nil?" variant_value)))
-                            (|> (format (|> variant_tag (:coerce .Nat) %.nat)
-                                        " " (%.bit (not ("ruby object nil?" variant_flag)))
-                                        " " (inspect variant_value))
+                            (|> (%.format (|> variant_tag (:coerce .Nat) %.nat)
+                                          " " (%.bit (not ("ruby object nil?" variant_flag)))
+                                          " " (inspect variant_value))
                                 (text.enclose ["(" ")"]))
                             (inspect_tuple inspect value)))
 
@@ -296,14 +310,44 @@
               (if (not (or ("php object null?" variant_tag)
                            ("php object null?" variant_flag)
                            ("php object null?" variant_value)))
-                (|> (format (|> variant_tag (:coerce .Nat) %.nat)
-                            " " (%.bit (not ("php object null?" variant_flag)))
-                            " " (inspect variant_value))
+                (|> (%.format (|> variant_tag (:coerce .Nat) %.nat)
+                              " " (%.bit (not ("php object null?" variant_flag)))
+                              " " (inspect variant_value))
                     (text.enclose ["(" ")"]))
                 (..strval value)))
 
             _
             (..strval value))
+
+          @.scheme
+          (`` (cond (~~ (template [<when> <then>]
+                          [(<when> value)
+                           (`` (|> value (~~ (template.splice <then>))))]
+
+                          [..boolean? [(:coerce .Bit) %.bit]]
+                          [..integer? [(:coerce .Int) %.int]]
+                          [..real? [(:coerce .Frac) %.frac]]
+                          [..string? [(:coerce .Text) %.text]]
+                          ["scheme object nil?" [(new> "()" [])]]
+                          [..vector? [(inspect_tuple inspect)]]))
+
+                    (..pair? value)
+                    (let [variant_tag (..car value)
+                          variant_rest (..cdr value)]
+                      (if (and (..integer? variant_tag)
+                               (i.> +0 (:coerce Int variant_tag))
+                               (..pair? variant_rest))
+                        (let [variant_flag (..car variant_rest)
+                              variant_value (..cdr variant_rest)]
+                          (|> (%.format (|> variant_tag (:coerce .Nat) %.nat)
+                                        " " (%.bit (not ("scheme object nil?" variant_flag)))
+                                        " " (inspect variant_value))
+                              (text.enclose ["(" ")"])))
+                        (..format ["~s" value])))
+
+                    ## else
+                    (..format ["~s" value])
+                    ))
           })))
 
 (exception: #export (cannot_represent_value {type Type})
@@ -361,7 +405,7 @@
                               "#.None"
 
                               (#.Some elemV)
-                              (format "(#.Some " (elemR elemV) ")"))))))))
+                              (%.format "(#.Some " (elemR elemV) ")"))))))))
 
 (def: (variant_representation representation)
   (-> (Parser Representation) (Parser Representation))
@@ -387,7 +431,7 @@
 
                                               _
                                               (undefined)))]
-              (format "(" (%.nat lefts) " " (%.bit right?) " " sub_repr ")"))))))
+              (%.format "(" (%.nat lefts) " " (%.bit right?) " " sub_repr ")"))))))
 
 (def: (tuple_representation representation)
   (-> (Parser Representation) (Parser Representation))
@@ -405,8 +449,8 @@
                                  
                                  (#.Cons headR tailR)
                                  (let [[leftV rightV] (:coerce [Any Any] tupleV)]
-                                   (format (headR leftV) " " (recur tailR rightV)))))]
-              (format "[" tuple_body "]"))))))
+                                   (%.format (headR leftV) " " (recur tailR rightV)))))]
+              (%.format "[" tuple_body "]"))))))
 
 (def: representation
   (Parser Representation)

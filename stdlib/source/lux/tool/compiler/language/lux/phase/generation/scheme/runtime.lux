@@ -53,40 +53,8 @@
 (type: #export (Generator i)
   (-> Phase Archive i (Operation Expression)))
 
-(def: unit
+(def: #export unit
   (_.string /////synthesis.unit))
-
-(def: (flag value)
-  (-> Bit Computation)
-  (if value
-    ..unit
-    _.nil))
-
-(def: (variant' tag last? value)
-  (-> Expression Expression Expression Computation)
-  (<| (_.cons/2 tag)
-      (_.cons/2 last?)
-      value))
-
-(def: #export (variant [lefts right? value])
-  (-> (Variant Expression) Computation)
-  (variant' (_.int (.int lefts)) (flag right?) value))
-
-(def: #export none
-  Computation
-  (variant [0 #0 ..unit]))
-
-(def: #export some
-  (-> Expression Computation)
-  (|>> [0 #1] ..variant))
-
-(def: #export left
-  (-> Expression Computation)
-  (|>> [0 #0] ..variant))
-
-(def: #export right
-  (-> Expression Computation)
-  (|>> [0 #1] ..variant))
 
 (syntax: #export (with_vars {vars (<code>.tuple (<>.some <code>.local_identifier))}
                    body)
@@ -137,6 +105,98 @@
                                  (_.define_function (~ runtime_name) [(list (~+ inputsC)) #.None]
                                                     (~ code))))))))))))))
 
+(def: last_index
+  (-> Expression Computation)
+  (|>> _.length/1 (_.-/2 (_.int +1))))
+
+(runtime: (tuple//left lefts tuple)
+  (with_vars [last_index_right]
+    (_.begin
+     (list (_.define_constant last_index_right (..last_index tuple))
+           (_.if (_.>/2 lefts last_index_right)
+             ## No need for recursion
+             (_.vector-ref/2 tuple lefts)
+             ## Needs recursion
+             (tuple//left (_.-/2 last_index_right lefts)
+                          (_.vector-ref/2 tuple last_index_right)))))))
+
+(runtime: (tuple//right lefts tuple)
+  (with_vars [last_index_right right_index @slice]
+    (_.begin
+     (list (_.define_constant last_index_right (..last_index tuple))
+           (_.define_constant right_index (_.+/2 (_.int +1) lefts))
+           (<| (_.if (_.=/2 last_index_right right_index)
+                 (_.vector-ref/2 tuple right_index))
+               (_.if (_.>/2 last_index_right right_index)
+                 ## Needs recursion.
+                 (tuple//right (_.-/2 last_index_right lefts)
+                               (_.vector-ref/2 tuple last_index_right)))
+               (_.begin
+                (list (_.define_constant @slice (_.make-vector/1 (_.-/2 right_index (_.length/1 tuple))))
+                      (_.vector-copy!/5 @slice (_.int +0) tuple right_index (_.length/1 tuple))
+                      @slice))))
+     )))
+
+(def: (variant' tag last? value)
+  (-> Expression Expression Expression Computation)
+  ($_ _.cons/2
+      tag
+      last?
+      value))
+
+(runtime: (sum//make tag last? value)
+  (variant' tag last? value))
+
+(def: #export (variant [lefts right? value])
+  (-> (Variant Expression) Computation)
+  (..sum//make (_.int (.int lefts)) (_.bool right?) value))
+
+(runtime: (sum//get sum last? wanted_tag)
+  (with_vars [sum_tag sum_flag sum_value sum_temp sum_dump]
+    (let [no_match _.nil
+          test_recursion (_.if sum_flag
+                           ## Must recurse.
+                           (sum//get sum_value
+                                     last?
+                                     (|> wanted_tag (_.-/2 sum_tag)))
+                           no_match)]
+      (<| (_.let (list [sum_tag (_.car/1 sum)]
+                       [sum_temp (_.cdr/1 sum)]))
+          (_.let (list [sum_flag (_.car/1 sum_temp)]
+                       [sum_value (_.cdr/1 sum_temp)]))
+          (_.if (_.=/2 wanted_tag sum_tag)
+            (_.if (_.eqv?/2 last? sum_flag)
+              sum_value
+              test_recursion))
+          (_.if (_.</2 wanted_tag sum_tag)
+            test_recursion)
+          (_.if last?
+            (variant' (|> sum_tag (_.-/2 wanted_tag)) sum_flag sum_value))
+          no_match))))
+
+(def: runtime//adt
+  Computation
+  (_.begin (list @tuple//left
+                 @tuple//right
+                 @sum//get
+                 @sum//make)))
+
+(def: #export none
+  Computation
+  (|> ..unit [0 #0] variant))
+
+(def: #export some
+  (-> Expression Computation)
+  (|>> [1 #1] ..variant))
+
+(def: #export left
+  (-> Expression Computation)
+  (|>> [0 #0] ..variant))
+
+(def: #export right
+  (-> Expression Computation)
+  (|>> [1 #1] ..variant))
+
 (runtime: (slice offset length list)
   (<| (_.if (_.null?/1 list)
         list)
@@ -162,7 +222,7 @@
 (runtime: (lux//program_args program_args)
   (with_vars [@loop @input @output]
     (_.letrec (list [@loop (_.lambda [(list @input @output) #.None]
-                                     (_.if (_.eqv?/2 _.nil @input)
+                                     (_.if (_.null?/1 @input)
                                        @output
                                        (_.apply/2 @loop (_.cdr/1 @input) (..some (_.vector/* (list (_.car/1 @input) @output))))))])
               (_.apply/2 @loop (_.reverse/1 program_args) ..none))))
@@ -172,97 +232,124 @@
   (_.begin (list @lux//try
                  @lux//program_args)))
 
-(def: last_index
-  (-> Expression Computation)
-  (|>> _.length/1 (_.-/2 (_.int +1))))
+(def: i64//+limit (_.manual "+9223372036854775807"
+                            ## "+0x7FFFFFFFFFFFFFFF"
+                            ))
+(def: i64//-limit (_.manual "-9223372036854775808"
+                            ## "-0x8000000000000000"
+                            ))
+(def: i64//+iteration (_.manual "+18446744073709551616"
+                                ## "+0x10000000000000000"
+                                ))
+(def: i64//-iteration (_.manual "-18446744073709551616"
+                                ## "-0x10000000000000000"
+                                ))
+(def: i64//+cap (_.manual "+9223372036854775808"
+                          ## "+0x8000000000000000"
+                          ))
+(def: i64//-cap (_.manual "-9223372036854775809"
+                          ## "-0x8000000000000001"
+                          ))
 
-(runtime: (tuple//left lefts tuple)
-  (with_vars [last_index_right]
-    (_.begin
-     (list (_.define_constant last_index_right (..last_index tuple))
-           (_.if (_.>/2 lefts last_index_right)
-             ## No need for recursion
-             (_.vector_ref/2 tuple lefts)
-             ## Needs recursion
-             (tuple//left (_.-/2 last_index_right lefts)
-                          (_.vector_ref/2 tuple last_index_right)))))))
+(runtime: (i64//64 input)
+  (with_vars [temp]
+    (`` (<| (~~ (template [<scenario> <iteration> <cap> <entrance>]
+                  [(_.if (|> input <scenario>)
+                     (_.let (list [temp (_.remainder/2 <iteration> input)])
+                       (_.if (|> temp <scenario>)
+                         (|> temp (_.-/2 <cap>) (_.+/2 <entrance>))
+                         temp)))]
 
-(runtime: (tuple//right lefts tuple)
-  (with_vars [last_index_right right_index @slice]
-    (_.begin
-     (list (_.define_constant last_index_right (..last_index tuple))
-           (_.define_constant right_index (_.+/2 (_.int +1) lefts))
-           (_.cond (list [(_.=/2 last_index_right right_index)
-                          (_.vector_ref/2 tuple right_index)]
-                         [(_.>/2 last_index_right right_index)
-                          ## Needs recursion.
-                          (tuple//right (_.-/2 last_index_right lefts)
-                                        (_.vector_ref/2 tuple last_index_right))])
-                   (_.begin
-                    (list (_.define_constant @slice (_.make_vector/1 (_.-/2 right_index (_.length/1 tuple))))
-                          (_.vector_copy!/5 @slice (_.int +0) tuple right_index (_.length/1 tuple))
-                          @slice))))
-     )))
+                  [(_.>/2 ..i64//+limit) ..i64//+iteration ..i64//+cap ..i64//-limit]
+                  [(_.</2 ..i64//-limit) ..i64//-iteration ..i64//-cap ..i64//+limit]
+                  ))
+            input))))
 
-(runtime: (sum//get sum last? wanted_tag)
-  (with_vars [sum_tag sum_flag sum_value]
-    (let [no_match _.nil
-          is_last? (|> sum_flag (_.eqv?/2 ..unit))
-          test_recursion (_.if is_last?
-                           ## Must recurse.
-                           (sum//get sum_value
-                                     last?
-                                     (|> wanted_tag (_.-/2 sum_tag)))
-                           no_match)]
-      (<| (_.let (list [sum_tag (_.car/1 sum)]
-                       [sum_value (_.cdr/1 sum)]))
-          (_.let (list [sum_flag (_.car/1 sum_value)]
-                       [sum_value (_.cdr/1 sum_value)]))
-          (_.if (|> wanted_tag (_.=/2 sum_tag))
-            (_.if (|> sum_flag (_.eqv?/2 last?))
-              sum_value
-              test_recursion))
-          (_.if (|> wanted_tag (_.>/2 sum_tag))
-            test_recursion)
-          (_.if (_.and (list (|> last? (_.eqv?/2 ..unit))
-                             (|> wanted_tag (_.</2 sum_tag))))
-            (variant' (|> sum_tag (_.-/2 wanted_tag)) sum_flag sum_value))
-          no_match))))
+(runtime: (i64//left_shift param subject)
+  (|> subject
+      (_.arithmetic-shift/2 (_.remainder/2 (_.int +64) param))
+      ..i64//64))
 
-(def: runtime//adt
+(def: as_nat
+  (_.remainder/2 ..i64//+iteration))
+
+(runtime: (i64//right_shift shift subject)
+  (_.let (list [shift (_.remainder/2 (_.int +64) shift)])
+    (_.if (_.=/2 (_.int +0) shift)
+      subject
+      (|> subject
+          ..as_nat
+          (_.arithmetic-shift/2 (_.-/2 shift (_.int +0)))))))
+
+(template [<runtime> <host>]
+  [(runtime: (<runtime> left right)
+     (..i64//64 (<host> (..as_nat left) (..as_nat right))))]
+
+  [i64//or _.bitwise-ior/2]
+  [i64//xor _.bitwise-xor/2]
+  [i64//and _.bitwise-and/2]
+  )
+
+(runtime: (i64//division param subject)
+  (|> subject (_.//2 param) _.truncate/1 ..i64//64))
+
+(def: runtime//i64
   Computation
-  (_.begin (list @tuple//left
-                 @tuple//right
-                 @sum//get)))
+  (_.begin (list @i64//64
+                 @i64//left_shift
+                 @i64//right_shift
+                 @i64//or
+                 @i64//xor
+                 @i64//and
+                 @i64//division)))
 
-(runtime: (i64//logical_right_shift shift input)
-  (_.if (_.=/2 (_.int +0) shift)
-    input
-    (|> input
-        (_.arithmetic_shift/2 (_.*/2 (_.int -1) shift))
-        (_.bit_and/2 (_.int (hex "+7FFFFFFFFFFFFFFF"))))))
-
-(def: runtime//bit
-  Computation
-  (_.begin (list @i64//logical_right_shift)))
-
-(runtime: (frac//decode input)
+(runtime: (f64//decode input)
   (with_vars [@output]
-    (_.let (list [@output ((_.apply/1 (_.var "string->number")) input)])
-      (_.if (_.and (list (_.not/1 (_.=/2 @output @output))
-                         (_.not/1 (_.eqv?/2 (_.string "+nan.0") input))))
-        ..none
-        (..some @output)))))
+    (let [output_is_not_a_number? (_.not/1 (_.=/2 @output @output))
+          input_is_not_a_number? (_.string=?/2 (_.string "+nan.0") input)]
+      (_.let (list [@output (_.string->number/1 input)])
+        (_.if (_.and (list output_is_not_a_number?
+                           (_.not/1 input_is_not_a_number?)))
+          ..none
+          (..some @output))))))
 
-(def: runtime//frac
+(def: runtime//f64
   Computation
-  (_.begin
-   (list @frac//decode)))
+  (_.begin (list @f64//decode)))
+
+(runtime: (text//index offset sub text)
+  (with_vars [index]
+    (_.let (list [index (_.string-contains/3 text sub offset)])
+      (_.if index
+        (..some index)
+        ..none))))
+
+(runtime: (text//clip offset length text)
+  (_.substring/3 text offset (_.+/2 offset length)))
+
+(runtime: (text//char index text)
+  (_.char->integer/1 (_.string-ref/2 text index)))
+
+(def: runtime//text
+  (_.begin (list @text//index
+                 @text//clip
+                 @text//char)))
+
+(runtime: (array//write idx value array)
+  (_.begin (list (_.vector-set!/3 array idx value)
+                 array)))
+
+(def: runtime//array
+  Computation
+  ($_ _.then
+      @array//write
+      ))
 
 (runtime: (io//current_time _)
   (|> (_.apply/0 (_.var "current-second"))
       (_.*/2 (_.int +1,000))
-      _.exact/1))
+      _.exact/1
+      _.truncate/1))
 
 (def: runtime//io
   (_.begin (list @io//current_time)))
@@ -271,9 +358,11 @@
   Computation
   (_.begin (list @slice
                  runtime//lux
-                 runtime//bit
+                 runtime//i64
                  runtime//adt
-                 runtime//frac
+                 runtime//f64
+                 runtime//text
+                 runtime//array
                  runtime//io
                  )))
 

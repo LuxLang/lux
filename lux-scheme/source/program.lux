@@ -6,7 +6,7 @@
    [abstract
     ["." monad (#+ do)]]
    [control
-    [pipe (#+ exec> case>)]
+    [pipe (#+ exec> case> new>)]
     ["." try (#+ Try)]
     ["." exception (#+ exception:)]
     ["." io (#+ IO io)]
@@ -94,19 +94,30 @@
   ["#::."
    (toString [] String)])
 
+(host.import: gnu/lists/IString
+  ["#::."
+   (toString [] String)])
+
 (host.import: gnu/lists/Pair
   ["#::."
    (getCar [] java/lang/Object)
    (getCdr [] java/lang/Object)])
+
+(host.import: gnu/lists/EmptyList
+  ["#::."
+   (#static emptyList gnu/lists/EmptyList)])
 
 (host.import: (gnu/lists/FVector E)
   ["#::."
    (getBufferLength [] int)
    (getRaw [int] E)])
 
+(host.import: gnu/lists/U8Vector)
+
 (host.import: gnu/mapping/Procedure
   ["#::."
-   (apply2 [java/lang/Object java/lang/Object] #try java/lang/Object)])
+   (apply2 [java/lang/Object java/lang/Object] #try java/lang/Object)
+   (applyN [[java/lang/Object]] #try java/lang/Object)])
 
 (host.import: gnu/mapping/Environment)
 
@@ -165,10 +176,10 @@
      (if cdr?
        (case (array.read 1 value)
          (#.Some flag_is_set)
-         (:coerce java/lang/Object "")
+         true
          
          #.None
-         (host.null))
+         false)
        (|> value
            (array.read 0)
            maybe.assume
@@ -185,7 +196,7 @@
 
 (def: (tuple_value lux_value value)
   (-> (-> java/lang/Object java/lang/Object) (Array java/lang/Object) gnu/lists/FVector)
-  (host.object [] gnu/lists/SimpleVector [program/TupleValue]
+  (host.object [] gnu/lists/SimpleVector [program/TupleValue gnu/lists/GVector]
     []
     ## Methods
     (program/TupleValue
@@ -255,12 +266,12 @@
   (do try.monad
     [tag (read (gnu/lists/Pair::getCar host_object))
      #let [host_object (:coerce gnu/lists/Pair (gnu/lists/Pair::getCdr host_object))
-           flag (case (host.check java/lang/String (gnu/lists/Pair::getCar host_object))
-                  (#.Some _)
-                  true
+           flag (case (host.check java/lang/Boolean (gnu/lists/Pair::getCar host_object))
+                  (#.Some flag)
+                  (:coerce Bit flag)
                   
                   #.None
-                  false)]
+                  (undefined))]
      value (read (gnu/lists/Pair::getCdr host_object))]
     (wrap (..variant (:coerce Nat tag) flag value))))
 
@@ -287,17 +298,23 @@
                    (#try.Success host_object)
                    #.None)]
 
-                [java/lang/Boolean] [java/lang/String] [gnu/mapping/Procedure]
+                [java/lang/Boolean] [java/lang/Long] [java/lang/Double] [java/lang/String]
+                [gnu/mapping/Procedure] [gnu/lists/U8Vector]
                 ))
-          (~~ (template [<class> <method>]
+          (~~ (template [<class> <processing>]
                 [(case (host.check <class> host_object)
                    (#.Some host_object)
-                   (#try.Success (<method> host_object))
+                   (#try.Success (<| <processing> host_object))
                    #.None)]
 
+                [java/lang/Integer java/lang/Integer::longValue]
+
+                [gnu/lists/EmptyList (new> [] [])]
                 [gnu/math/IntNum gnu/math/IntNum::longValue]
                 [gnu/math/DFloNum gnu/math/DFloNum::doubleValue]
                 [gnu/lists/FString gnu/lists/FString::toString]
+                [gnu/lists/IString gnu/lists/IString::toString]
+                
                 [program/VariantValue program/VariantValue::getValue]
                 [program/TupleValue program/TupleValue::getValue]
                 ))
@@ -318,7 +335,7 @@
 
 (def: (expander macro inputs lux)
   Expander
-  (case (ensure_macro macro)
+  (case (..ensure_macro macro)
     (#.Some macro)
     (case (gnu/mapping/Procedure::apply2 (lux_value (:coerce java/lang/Object inputs))
                                          (lux_value (:coerce java/lang/Object lux))
@@ -408,7 +425,15 @@
             (:coerce Try)
             try.assume
             (:coerce Try)
-            (#try.Failure "YOLO")))
+            (do try.monad
+              [handler (try.from_maybe (..ensure_macro (:coerce Macro handler)))
+               output (gnu/mapping/Procedure::applyN (array.from_list (list (lux_value (:coerce java/lang/Object name))
+                                                                            (lux_value (:coerce java/lang/Object phase))
+                                                                            (lux_value (:coerce java/lang/Object archive))
+                                                                            (lux_value (:coerce java/lang/Object parameters))
+                                                                            (lux_value (:coerce java/lang/Object state))))
+                                                     handler)]
+              (..read output))))
 
       @.scheme
       (def: (extender handler)

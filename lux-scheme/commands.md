@@ -11,6 +11,7 @@ cd ~/lux/lux-scheme/ && lein clean && lein lux auto test
 
 ```
 ## Develop
+## NOTE: Must set lux/control/concurrency/thread.parallelism = 1 before compiling to make sure Kawa doesn't cause trouble.
 cd ~/lux/lux-scheme/ \
 && lein clean \
 && lein lux auto build
@@ -19,6 +20,11 @@ cd ~/lux/lux-scheme/ \
 ## Try
 
 ```
-cd ~/lux/lux-scheme/ && java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
+## Compile Lux's Standard Library's tests using a JVM-based compiler.
+cd ~/lux/stdlib/ \
+&& lein clean \
+&& time java -jar ~/lux/lux-scheme/target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
+
+clear && time kawa ~/lux/stdlib/target/program.scm
 ```
 
