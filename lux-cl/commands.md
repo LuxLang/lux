@@ -19,5 +19,8 @@ cd ~/lux/lux-cl/ \
 ## Try
 
 ```
-cd ~/lux/lux-cl/ && java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
+## Compile Lux's Standard Library's tests using a JVM-based compiler.
+cd ~/lux/stdlib/ \
+&& lein clean \
+&& time java -jar ~/lux/lux-cl/target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
 ```

@@ -22,7 +22,7 @@
   :plugins [[com.github.luxlang/lein-luxc ~version]]
   :dependencies [[com.github.luxlang/luxc-jvm ~version]
                  [com.github.luxlang/stdlib ~version]
-                 [org.abcl/abcl "1.5.0"]]
+                 [org.abcl/abcl "1.8.0"]]
 
   :manifest {"lux" ~version}
   :source-paths ["source"]
