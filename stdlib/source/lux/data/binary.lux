@@ -26,16 +26,11 @@
    ["Size" (%.nat size)]
    ["Index" (%.nat index)]))
 
-(template [<name>]
-  [(exception: #export (<name> {size Nat} {from Nat} {to Nat})
-     (exception.report
-      ["Size" (%.nat size)]
-      ["From" (%.nat from)]
-      ["To" (%.nat to)]))]
-
-  [slice_out_of_bounds]
-  [inverted_slice]
-  )
+(exception: #export (slice_out_of_bounds {size Nat} {offset Nat} {length Nat})
+  (exception.report
+   ["Size" (%.nat size)]
+   ["Offset" (%.nat offset)]
+   ["Length" (%.nat length)]))
 
 (with_expansions [<jvm> (as_is (type: #export Binary (ffi.type [byte]))
 
@@ -328,32 +323,30 @@
                  (#try.Success target)))
              (exception.throw ..cannot_copy_bytes [bytes source_input target_output]))))))
 
-(def: #export (slice from to binary)
+(def: #export (slice offset length binary)
   (-> Nat Nat Binary (Try Binary))
-  (let [size (..!size binary)]
-    (if (n.<= to from)
-      (if (and (n.< size from)
-               (n.< size to))
-        (with_expansions [<jvm> (as_is (#try.Success (java/util/Arrays::copyOfRange binary (.int from) (.int (inc to)))))]
-          (for {@.old <jvm>
-                @.jvm <jvm>}
-               
-               ## Default
-               (let [how_many (inc (n.- from to))]
-                 (..copy how_many from binary 0 (..create how_many)))))
-        (exception.throw ..slice_out_of_bounds [size from to]))
-      (exception.throw ..inverted_slice [size from to]))))
+  (let [size (..!size binary)
+        limit (n.+ length offset)]
+    (if (n.<= size limit)
+      (with_expansions [<jvm> (as_is (#try.Success (java/util/Arrays::copyOfRange binary (.int offset) (.int limit))))]
+        (for {@.old <jvm>
+              @.jvm <jvm>}
+             
+             ## Default
+             (..copy length offset binary 0 (..create length))))
+      (exception.throw ..slice_out_of_bounds [size offset length]))))
 
-(def: #export (drop from binary)
+(def: #export (drop offset binary)
   (-> Nat Binary Binary)
-  (case from
+  (case offset
     0 binary
-    _ (case (..slice from (dec (..!size binary)) binary)
-        (#try.Success slice)
-        slice
-        
-        (#try.Failure _)
-        (..create 0))))
+    _ (let [distance (n.- offset (..!size binary))]
+        (case (..slice offset distance binary)
+          (#try.Success slice)
+          slice
+          
+          (#try.Failure _)
+          (..create 0)))))
 
 (structure: #export monoid
   (Monoid Binary)
