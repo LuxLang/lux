@@ -7,7 +7,7 @@
    [data
     ["." text]
     [collection
-     ["." list ("#\." functor fold)]
+     ["." list ("#\." functor fold monoid)]
      ["." set]]]
    [math
     [number
@@ -47,7 +47,7 @@
     [valueG (expression archive valueS)
      bodyG (expression archive bodyS)]
     (wrap (_.let (list [(..register register) valueG])
-            bodyG))))
+            (list bodyG)))))
 
 (def: #export (if expression archive [testS thenS elseS])
   (Generator [Synthesis Synthesis Synthesis])
@@ -94,10 +94,9 @@
   (_.setq @savepoint (_.cons/2 [@cursor @savepoint])))
 
 (def: restore!
-  (Expression Any)
-  ($_ _.progn
-      (_.setq @cursor (_.car/1 @savepoint))
-      (_.setq @savepoint (_.cdr/1 @savepoint))))
+  (List (Expression Any))
+  (list (_.setq @cursor (_.car/1 @savepoint))
+        (_.setq @savepoint (_.cdr/1 @savepoint))))
 
 (def: @fail (_.label "lux_pm_fail"))
 (def: @done (_.label "lux_pm_done"))
@@ -109,19 +108,23 @@
   (_.setq @cursor (_.nthcdr/2 [(_.int (.int pops)) @cursor])))
 
 (template [<name> <flag> <prep>]
-  [(def: (<name> simple? idx)
-     (-> Bit Nat (Expression Any))
+  [(def: (<name> simple? idx next!)
+     (-> Bit Nat (Maybe (Expression Any)) (Expression Any))
      (.let [<failure_condition> (_.eq/2 [@variant @temp])]
        (_.let (list [@variant ..peek])
-         ($_ _.progn
-             (_.setq @temp (|> idx <prep> .int _.int (//runtime.sum//get @variant <flag>)))
-             (.if simple?
-               (_.when <failure_condition>
-                       fail!)
-               (_.if <failure_condition>
-                 fail!
-                 (..push! @temp))
-               )))))]
+         (list& (_.setq @temp (|> idx <prep> .int _.int (//runtime.sum//get @variant <flag>)))
+                (.if simple?
+                  (_.when <failure_condition>
+                          fail!)
+                  (_.if <failure_condition>
+                    fail!
+                    (..push! @temp)))
+                (.case next!
+                  (#.Some next!)
+                  (list next!)
+                  
+                  #.None
+                  (list))))))]
 
   [left_choice  _.nil         (<|)]
   [right_choice (_.string "") inc]
@@ -129,12 +132,12 @@
 
 (def: (alternation pre! post!)
   (-> (Expression Any) (Expression Any) (Expression Any))
-  (_.progn (<| (_.block ..@fail)
-               (_.progn ..save!)
-               pre!)
-           ($_ _.progn
+  (_.progn ($_ list\compose
+               (list (_.block ..@fail
+                              (list ..save!
+                                    pre!)))
                ..restore!
-               post!)))
+               (list post!))))
 
 (def: (pattern_matching' expression archive)
   (Generator Path)
@@ -186,12 +189,12 @@
 
       (^template [<complex> <simple> <choice>]
         [(^ (<complex> idx))
-         (///////phase\wrap (<choice> false idx))
+         (///////phase\wrap (<choice> false idx #.None))
 
          (^ (<simple> idx nextP))
          (|> nextP
              recur
-             (\ ///////phase.monad map (_.progn (<choice> true idx))))])
+             (\ ///////phase.monad map (|>> #.Some (<choice> true idx))))])
       ([/////synthesis.side/left  /////synthesis.simple_left_side  ..left_choice]
        [/////synthesis.side/right /////synthesis.simple_right_side ..right_choice])
 
@@ -208,27 +211,29 @@
       (.let [[extra_pops nextP'] (////synthesis/case.count_pops nextP)]
         (do ///////phase.monad
           [next! (recur nextP')]
-          (///////phase\wrap ($_ _.progn
-                                 (..multi_pop! (n.+ 2 extra_pops))
-                                 next!))))
+          (///////phase\wrap (_.progn (list (..multi_pop! (n.+ 2 extra_pops))
+                                            next!)))))
 
-      (^template [<tag> <combinator>]
-        [(^ (<tag> preP postP))
-         (do ///////phase.monad
-           [pre! (recur preP)
-            post! (recur postP)]
-           (wrap (<combinator> pre! post!)))])
-      ([/////synthesis.path/alt ..alternation]
-       [/////synthesis.path/seq _.progn]))))
+      (^ (/////synthesis.path/alt preP postP))
+      (do ///////phase.monad
+        [pre! (recur preP)
+         post! (recur postP)]
+        (wrap (..alternation pre! post!)))
+
+      (^ (/////synthesis.path/seq preP postP))
+      (do ///////phase.monad
+        [pre! (recur preP)
+         post! (recur postP)]
+        (wrap (_.progn (list pre! post!)))))))
 
 (def: (pattern_matching expression archive pathP)
   (Generator Path)
   (do ///////phase.monad
     [pattern_matching! (pattern_matching' expression archive pathP)]
     (wrap (_.block ..@done
-                   (_.progn (_.block ..@fail
-                                     pattern_matching!)
-                            (_.error/1 (_.string ////synthesis/case.pattern_matching_error)))))))
+                   (list (_.block ..@fail
+                                  (list pattern_matching!))
+                         (_.error/1 (_.string ////synthesis/case.pattern_matching_error)))))))
 
 (def: #export (case expression archive [valueS pathP])
   (Generator [Synthesis Path])
@@ -246,4 +251,4 @@
                         [@savepoint (_.list/* (list))]
                         [@temp _.nil]
                         storage)
-            pattern_matching!))))
+            (list pattern_matching!)))))

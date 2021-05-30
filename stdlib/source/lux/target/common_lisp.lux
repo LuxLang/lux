@@ -6,7 +6,7 @@
     ["." text
      ["%" format (#+ format)]]
     [collection
-     ["." list ("#\." monad fold)]]]
+     ["." list ("#\." monad fold monoid)]]]
    [macro
     ["." template]]
    [math
@@ -35,7 +35,7 @@
        (`` (abstract: #export (<brand> brand) Any))
        (`` (type: #export (<type> brand)
              (<super> (<brand> brand)))))]
-    
+
     [Expression Code]
     [Computation Expression]
     [Access Computation]
@@ -50,6 +50,7 @@
        (`` (type: #export <type> (<super> <brand>))))]
 
     [Label Code]
+    [Tag Expression]
     [Literal Expression]
     [Var/1 Var]
     [Var/* Input]
@@ -191,10 +192,10 @@
                   body)))
 
   (def: #export (destructuring-bind [bindings expression] body)
-    (-> [Var/* (Expression Any)] (Expression Any) (Computation Any))
-    (..form (list (..var "destructuring-bind")
-                  (:transmutation bindings) expression
-                  body)))
+    (-> [Var/* (Expression Any)] (List (Expression Any)) (Computation Any))
+    (..form (list& (..var "destructuring-bind")
+                   (:transmutation bindings) expression
+                   body)))
 
   (template [<call> <input_var>+ <input_type>+ <function>+]
     [(`` (def: #export (<call> [(~~ (template.splice <input_var>+))] function)
@@ -232,6 +233,7 @@
       [hash-table-size/1 "hash-table-size"]
       [hash-table-rehash-size/1 "hash-table-rehash-size"]
       [code-char/1 "code-char"]
+      [char-code/1 "char-code"]
       [string/1 "string"]
       [write-line/1 "write-line"]
       [pprint/1 "pprint"]]]
@@ -340,13 +342,13 @@
 
   (template [<lux_name> <host_name>]
     [(def: #export (<lux_name> bindings body)
-       (-> (List [Var/1 (Expression Any)]) (Expression Any) (Computation Any))
-       (..form (list (..var <host_name>)
-                     (|> bindings
-                         (list\map (function (_ [name value])
-                                     (..form (list name value))))
-                         ..form)
-                     body)))]
+       (-> (List [Var/1 (Expression Any)]) (List (Expression Any)) (Computation Any))
+       (..form (list& (..var <host_name>)
+                      (|> bindings
+                          (list\map (function (_ [name value])
+                                      (..form (list name value))))
+                          ..form)
+                      body)))]
 
     [let  "let"]
     [let* "let*"]
@@ -360,9 +362,15 @@
     (-> Var/1 Var/* (Expression Any) (Expression Any))
     (..form (list (..var "defun") name (:transmutation inputs) body)))
 
-  (def: #export (progn pre post)
-    (-> (Expression Any) (Expression Any) (Computation Any))
-    (..form (list (..var "progn") pre post)))
+  (template [<name> <symbol>]
+    [(def: #export <name>
+       (-> (List (Expression Any)) (Computation Any))
+       (|>> (list& (..var <symbol>)) ..form))]
+
+    [progn "progn"]
+    [tagbody "tagbody"]
+    [values/* "values"]
+    )
 
   (def: #export (setq name value)
     (-> Var/1 (Expression Any) (Expression Any))
@@ -413,8 +421,8 @@
     (|>> :abstraction))
 
   (def: #export (block name body)
-    (-> Label (Expression Any) (Computation Any))
-    (..form (list (..var "block") (:transmutation name) body)))
+    (-> Label (List (Expression Any)) (Computation Any))
+    (..form (list& (..var "block") (:transmutation name) body)))
 
   (def: #export (return-from target value)
     (-> Label (Expression Any) (Computation Any))
@@ -422,10 +430,31 @@
 
   (def: #export (cond clauses else)
     (-> (List [(Expression Any) (Expression Any)]) (Expression Any) (Computation Any))
-    (list\fold (function (_ [test then] next)
-                 (..if test then next))
-               (:transmutation else)
-               (list.reverse clauses)))
+    (..form (list& (..var "cond")
+                   (list\compose (list\map (function (_ [test then])
+                                             (..form (list test then)))
+                                           clauses)
+                                 (list (..form (list (..bool true) else)))))))
+
+  (def: #export tag
+    (-> Text Tag)
+    (|>> :abstraction))
+
+  (def: #export go
+    (-> Tag (Expression Any))
+    (|>> (list (..var "go"))
+         ..form))
+
+  (def: #export values-list/1
+    (-> (Expression Any) (Expression Any))
+    (|>> (list (..var "values-list"))
+         ..form))
+
+  (def: #export (multiple-value-setq bindings values)
+    (-> Var/* (Expression Any) (Expression Any))
+    (..form (list (..var "multiple-value-setq")
+                  (:transmutation bindings)
+                  values)))
   )
 
 (def: #export (while condition body)

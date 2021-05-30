@@ -22,7 +22,7 @@
     [number (#+ hex)
      ["." i64]]]
    ["@" target
-    ["_" common_lisp (#+ Expression Var/1 Computation Literal)]]]
+    ["_" common_lisp (#+ Expression Computation Literal)]]]
   ["." /// #_
    ["#." reference]
    ["//#" /// #_
@@ -42,7 +42,7 @@
 
 (template [<name> <base>]
   [(type: #export <name>
-     (<base> Var/1 (Expression Any) (Expression Any)))]
+     (<base> [_.Tag Register] (Expression Any) (Expression Any)))]
 
   [Operation /////generation.Operation]
   [Phase /////generation.Phase]
@@ -157,10 +157,8 @@
                                   ..none)]))))
 
 (def: runtime//lux
-  ($_ _.progn
-      @lux//try
-      @lux//program_args
-      ))
+  (_.progn (list @lux//try
+                 @lux//program_args)))
 
 (def: last_index
   (|>> _.length/1 [(_.int +1)] _.-/2))
@@ -175,23 +173,22 @@
   (runtime: (tuple//left lefts tuple)
     (with_vars [last_index_right]
       (_.let (list [last_index_right (..last_index tuple)])
-        (_.if (_.>/2 [lefts last_index_right])
-          ## No need for recursion
-          (_.elt/2 [tuple lefts])
-          ## Needs recursion
-          (!recur tuple//left)))))
+        (list (_.if (_.>/2 [lefts last_index_right])
+                ## No need for recursion
+                (_.elt/2 [tuple lefts])
+                ## Needs recursion
+                (!recur tuple//left))))))
 
   (runtime: (tuple//right lefts tuple)
     (with_vars [last_index_right right_index]
       (_.let (list [last_index_right (..last_index tuple)]
                    [right_index (_.+/2 [(_.int +1) lefts])])
-        (_.cond (list [(_.=/2 [last_index_right right_index])
-                       (_.elt/2 [tuple right_index])]
-                      [(_.>/2 [last_index_right right_index])
-                       ## Needs recursion.
-                       (!recur tuple//right)])
-                (_.subseq/3 [tuple right_index (_.length/1 tuple)]))
-        ))))
+        (list (_.cond (list [(_.=/2 [last_index_right right_index])
+                             (_.elt/2 [tuple right_index])]
+                            [(_.>/2 [last_index_right right_index])
+                             ## Needs recursion.
+                             (!recur tuple//right)])
+                      (_.subseq/3 [tuple right_index (_.length/1 tuple)])))))))
 
 ## TODO: Find a way to extract parts of the sum without "nth", which
 ## does a linear search, and is thus expensive.
@@ -203,34 +200,31 @@
           sum_value (_.nth/2 [(_.int +2) sum])
           test_recursion! (_.if sum_flag
                             ## Must iterate.
-                            ($_ _.progn
-                                (_.setq wantedTag (_.-/2 [sum_tag wantedTag]))
-                                (_.setq sum sum_value))
+                            (_.progn (list (_.setq wantedTag (_.-/2 [sum_tag wantedTag]))
+                                           (_.setq sum sum_value)))
                             no_match!)]
-      (<| (_.progn (_.setq sum_tag (_.nth/2 [(_.int +0) sum])))
-          (_.progn (_.setq sum_flag (_.nth/2 [(_.int +1) sum])))
-          (_.block @exit)
-          (_.while (_.bool true))
-          (_.cond (list [(_.=/2 [sum_tag wantedTag])
-                         (_.if (_.equal/2 [wantsLast sum_flag])
-                           (return! sum_value)
-                           test_recursion!)]
+      (_.progn (list (_.setq sum_tag (_.nth/2 [(_.int +0) sum]))
+                     (_.setq sum_flag (_.nth/2 [(_.int +1) sum]))
+                     (_.block @exit
+                              (list (_.while (_.bool true)
+                                             (_.cond (list [(_.=/2 [sum_tag wantedTag])
+                                                            (_.if (_.equal/2 [wantsLast sum_flag])
+                                                              (return! sum_value)
+                                                              test_recursion!)]
 
-                        [(_.>/2 [sum_tag wantedTag])
-                         test_recursion!]
+                                                           [(_.>/2 [sum_tag wantedTag])
+                                                            test_recursion!]
 
-                        [(_.and (_.</2 [sum_tag wantedTag])
-                                wantsLast)
-                         (return! (variant' (_.-/2 [wantedTag sum_tag]) sum_flag sum_value))])
+                                                           [(_.and (_.</2 [sum_tag wantedTag])
+                                                                   wantsLast)
+                                                            (return! (variant' (_.-/2 [wantedTag sum_tag]) sum_flag sum_value))])
 
-                  no_match!)))))
+                                                     no_match!)))))))))
 
 (def: runtime//adt
-  ($_ _.progn
-      @tuple//left
-      @tuple//right
-      @sum//get
-      ))
+  (_.progn (list @tuple//left
+                 @tuple//right
+                 @sum//get)))
 
 (runtime: (i64//right_shift shift input)
   (_.if (_.=/2 [(_.int +0) shift])
@@ -244,56 +238,47 @@
           [mask] _.logand/2))))
 
 (def: runtime//i64
-  ($_ _.progn
-      @i64//right_shift
-      ))
+  @i64//right_shift)
 
-(runtime: (text//clip from to text)
-  (_.subseq/3 [text from to]))
+(runtime: (text//clip offset length text)
+  (_.subseq/3 [text offset (_.+/2 [offset length])]))
 
-(runtime: (text//index reference start space)
+(runtime: (text//index offset sub text)
   (with_vars [index]
-    (_.let (list [index (_.search/3 [reference space start])])
-      (_.if index
-        (..some index)
-        ..none))))
+    (_.let (list [index (_.search/3 [sub text offset])])
+      (list (_.if index
+              (..some index)
+              ..none)))))
 
 (def: runtime//text
-  ($_ _.progn
-      @text//index
-      @text//clip
-      ))
+  (_.progn (list @text//index
+                 @text//clip)))
 
 (runtime: (io//exit code)
-  ($_ _.progn
-      (_.conditional+ (list "sbcl")
-                      (_.call/* (_.var "sb-ext:quit") (list code)))
-      (_.conditional+ (list "clisp")
-                      (_.call/* (_.var "ext:exit") (list code)))
-      (_.conditional+ (list "ccl")
-                      (_.call/* (_.var "ccl:quit") (list code)))
-      (_.conditional+ (list "allegro")
-                      (_.call/* (_.var "excl:exit") (list code)))
-      (_.call/* (_.var "cl-user::quit") (list code))))
+  (_.progn (list (_.conditional+ (list "sbcl")
+                                 (_.call/* (_.var "sb-ext:quit") (list code)))
+                 (_.conditional+ (list "clisp")
+                                 (_.call/* (_.var "ext:exit") (list code)))
+                 (_.conditional+ (list "ccl")
+                                 (_.call/* (_.var "ccl:quit") (list code)))
+                 (_.conditional+ (list "allegro")
+                                 (_.call/* (_.var "excl:exit") (list code)))
+                 (_.call/* (_.var "cl-user::quit") (list code)))))
 
 (runtime: (io//current_time _)
   (_.*/2 [(_.int +1,000)
           (_.get-universal-time/0 [])]))
 
 (def: runtime//io
-  ($_ _.progn
-      @io//exit
-      @io//current_time
-      ))
+  (_.progn (list @io//exit
+                 @io//current_time)))
 
 (def: runtime
-  ($_ _.progn
-      runtime//adt
-      runtime//lux
-      runtime//i64
-      runtime//text
-      runtime//io
-      ))
+  (_.progn (list runtime//adt
+                 runtime//lux
+                 runtime//i64
+                 runtime//text
+                 runtime//io)))
 
 (def: #export generate
   (Operation [Registry Output])
