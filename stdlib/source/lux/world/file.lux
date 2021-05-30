@@ -54,13 +54,8 @@
   (can_delete [] (! (Try Any))))
 
 (`` (signature: #export (File !)
-      (~~ (template [<name> <output>]
-            [(: (Can_See <output>)
-                <name>)]
-
-            [name Text]
-            [path Path]
-            ))
+      (: (Can_See Path)
+         path)
 
       (~~ (template [<name> <output>]
             [(: (Can_Query ! <output>)
@@ -116,25 +111,27 @@
          separator)
       ))
 
+(def: #export (name system path)
+  (All [!] (-> (System !) Path Text))
+  (|> path
+      (text.split_all_with (\ system separator))
+      list.reverse
+      list.head
+      (maybe.default path)))
+
 (def: (async_file file)
   (-> (File IO) (File Promise))
   (`` (structure
-       (~~ (template [<forge> <name>+]
-             [(with_expansions [<rows> (template.splice <name>+)]
-                (template [<name>]
-                  [(def: <name> (<forge> (|>> (!.use (\ file <name>)))))]
-
-                  <rows>))]
-
-             [..can_see
-              [[name] [path]]]
-             
-             ))
+       (def: path
+         (..can_see
+          (|>> (!.use (\ file path)))))
 
        (~~ (template [<forge> <name>+]
              [(with_expansions [<rows> (template.splice <name>+)]
                 (template [<name>]
-                  [(def: <name> (<forge> (|>> (!.use (\ file <name>)) promise.future)))]
+                  [(def: <name>
+                     (<forge>
+                      (|>> (!.use (\ file <name>)) promise.future)))]
 
                   <rows>))]
 
@@ -244,7 +241,6 @@
                                                 [isFile] [isDirectory]
                                                 [canRead] [canWrite] [canExecute]))
 
-                                          (getName [] java/lang/String)
                                           (length [] #io #try long)
                                           (listFiles [] #io #try #? [java/io/File])
                                           (getAbsolutePath [] #io #try java/lang/String)
@@ -314,13 +310,6 @@
                                                 (if (i.= size bytes_read)
                                                   (wrap data)
                                                   (\ io.monad wrap (exception.throw ..cannot_read_all_data path)))))))
-
-                                         (def: name
-                                           (..can_see
-                                            (function (name _)
-                                              (|> path
-                                                  java/io/File::new
-                                                  java/io/File::getName))))
 
                                          (def: path
                                            (..can_see
@@ -476,8 +465,7 @@
                  (rmdirSync [ffi.String] #io #try Any))
 
                (ffi.import: JsPath
-                 (sep ffi.String)
-                 (basename [ffi.String] ffi.String))
+                 (sep ffi.String))
                
                (template [<name> <path>]
                  [(def: (<name> _)
@@ -526,11 +514,6 @@
                        (..can_query
                         (function (_ _)
                           (Fs::readFileSync [path] (..node_fs [])))))
-
-                     (def: name
-                       (..can_see
-                        (function (_ _)
-                          (JsPath::basename path (..node_path [])))))
 
                      (def: path
                        (..can_see
@@ -711,7 +694,6 @@
                  (#static isfile [ffi.String] #io #try ffi.Boolean)
                  (#static isdir [ffi.String] #io #try ffi.Boolean)
                  (#static sep ffi.String)
-                 (#static basename [ffi.String] ffi.String)
                  (#static getsize [ffi.String] #io #try ffi.Integer)
                  (#static getmtime [ffi.String] #io #try ffi.Float))
 
@@ -740,11 +722,6 @@
                              data (PyFile::read [] file)
                              _ (PyFile::close [] file)]
                             (wrap data)))))
-
-                     (def: name
-                       (..can_see
-                        (function (_ _)
-                          (os/path::basename [path]))))
 
                      (def: path
                        (..can_see
@@ -973,15 +950,6 @@
                               #.None
                               (wrap (exception.throw ..cannot_read_all_data [path])))))))
 
-                     (def: name
-                       (..can_see
-                        (function (_ _)
-                          (|> path
-                              (text.split_all_with ..default_separator)
-                              list.reverse
-                              list.head
-                              (maybe.default path)))))
-
                      (def: path
                        (..can_see
                         (function (_ _)
@@ -1209,15 +1177,6 @@
                              _ (RubyFile::close [] file)]
                             (wrap data)))))
 
-                     (def: name
-                       (..can_see
-                        (function (_ _)
-                          (|> path
-                              (text.split_all_with ..default_separator)
-                              list.reverse
-                              list.head
-                              (maybe.default path)))))
-
                      (def: path
                        (..can_see
                         (function (_ _)
@@ -1418,15 +1377,6 @@
                             (if (bit\= false (:coerce Bit data))
                               (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
                               (wrap (..unpack [..byte_array_format data])))))))
-
-                     (def: name
-                       (..can_see
-                        (function (_ _)
-                          (|> path
-                              (text.split_all_with ..default_separator)
-                              list.reverse
-                              list.head
-                              (maybe.default path)))))
 
                      (def: path
                        (..can_see
@@ -1752,13 +1702,9 @@
       (#try.Failure error)
       (wrap (#try.Failure error)))))
 
-(def: (mock_file separator name path store)
-  (-> Text Text Path (Var Mock) (File Promise))
+(def: (mock_file separator path store)
+  (-> Text Path (Var Mock) (File Promise))
   (structure
-   (def: name
-     (..can_see
-      (function.constant name)))
-
    (def: path
      (..can_see
       (function.constant path)))
@@ -1854,7 +1800,7 @@
                     |store| (..delete_mock_file! separator path |store|)
                     [name |store|] (..create_mock_file! separator path (get@ #mock_last_modified file) |store|)
                     |store| (..update_mock_file! separator path (get@ #mock_last_modified file) (get@ #mock_content file) |store|)]
-                   (wrap [|store| (mock_file separator name path store)]))
+                   (wrap [|store| (mock_file separator path store)]))
              (#try.Success [|store| moved])
              (do !
                [_ (stm.write |store| store)]
@@ -1966,7 +1912,6 @@
                                          (case node
                                            (#.Left file)
                                            (#.Some (..mock_file separator
-                                                                node_name
                                                                 (format path separator node_name)
                                                                 store))
                                            
@@ -2023,7 +1968,7 @@
              [|store| (stm.read store)]
              (wrap (do try.monad
                      [[name file] (..retrieve_mock_file! separator path |store|)]
-                     (wrap (..mock_file separator name path store)))))))))
+                     (wrap (..mock_file separator path store)))))))))
 
      (def: create_file
        (..can_open
@@ -2037,7 +1982,7 @@
                  (#try.Success [name |store|])
                  (do !
                    [_ (stm.write |store| store)]
-                   (wrap (#try.Success (..mock_file separator name path store))))
+                   (wrap (#try.Success (..mock_file separator path store))))
                  
                  (#try.Failure error)
                  (wrap (#try.Failure error)))))))))
