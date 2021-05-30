@@ -26,5 +26,7 @@ cd ~/lux/stdlib/ \
 && time java -jar ~/lux/lux-scheme/target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
 
 clear && time kawa ~/lux/stdlib/target/program.scm
+
+clear && time kawa ~/lux/stdlib/target/program/1.scm
 ```
 

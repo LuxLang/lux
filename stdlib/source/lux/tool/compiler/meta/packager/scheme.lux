@@ -1,0 +1,133 @@
+(.module:
+  [lux (#- Module)
+   [type (#+ :share)]
+   [abstract
+    ["." monad (#+ Monad do)]]
+   [control
+    ["." try (#+ Try)]
+    [security
+     ["!" capability]]]
+   [data
+    [binary (#+ Binary)]
+    ["." product]
+    ["." text
+     ["%" format (#+ format)]
+     ["." encoding]]
+    [collection
+     ["." row]
+     ["." list ("#\." functor fold)]
+     ["." dictionary (#+ Dictionary)]
+     ["." set]]
+    [format
+     ["." tar]
+     ["." binary]]]
+   [target
+    ["_" scheme]]
+   [time
+    ["." instant (#+ Instant)]]
+   [world
+    ["." file (#+ Path File Directory)]]]
+  [program
+   [compositor
+    ["." static (#+ Static)]]]
+  ["." // (#+ Packager)
+   [//
+    ["." archive (#+ Output)
+     ["." descriptor (#+ Module Descriptor)]
+     ["." artifact]
+     ["." document (#+ Document)]]
+    [cache
+     ["." dependency]]
+    ["." io #_
+     ["#" archive]]
+    [//
+     [language
+      ["$" lux
+       [generation (#+ Context)]]]]]])
+
+## TODO: Delete ASAP
+(type: (Action ! a)
+  (! (Try a)))
+
+(def: (then pre post)
+  (-> _.Expression _.Expression _.Expression)
+  (_.manual (format (_.code pre)
+                    text.new_line
+                    (_.code post))))
+
+(def: bundle_module
+  (-> Output (Try _.Expression))
+  (|>> row.to_list
+       (list\map product.right)
+       (monad.fold try.monad
+                   (function (_ content so_far)
+                     (|> content
+                         (\ encoding.utf8 decode)
+                         (\ try.monad map
+                            (|>> :assume
+                                 (:share [directive]
+                                         directive
+                                         so_far
+                                         
+                                         directive)
+                                 (..then so_far)))))
+                   (: _.Expression (_.manual "")))))
+
+(def: module_file
+  (-> archive.ID Path)
+  (|>> %.nat (text.suffix ".scm")))
+
+(def: mode
+  tar.Mode
+  ($_ tar.and
+      tar.read_by_group
+      tar.read_by_owner
+      
+      tar.write_by_other
+      tar.write_by_group
+      tar.write_by_owner))
+
+(def: owner
+  tar.Owner
+  {#tar.name tar.anonymous
+   #tar.id tar.no_id})
+
+(def: ownership
+  {#tar.user ..owner
+   #tar.group ..owner})
+
+(def: (write_module now mapping [module [module_id [descriptor document output]]])
+  (-> Instant (Dictionary Module archive.ID)
+      [Module [archive.ID [Descriptor (Document .Module) Output]]]
+      (Try tar.Entry))
+  (do {! try.monad}
+    [bundle (: (Try _.Expression)
+               (..bundle_module output))
+     entry_content (: (Try tar.Content)
+                      (|> descriptor
+                          (get@ #descriptor.references)
+                          set.to_list
+                          (list.all (function (_ module) (dictionary.get module mapping)))
+                          (list\map (|>> ..module_file _.string _.load-relative/1))
+                          (list\fold ..then bundle)
+                          (: _.Expression)
+                          _.code
+                          (\ encoding.utf8 encode)
+                          tar.content))
+     module_file (tar.path (..module_file module_id))]
+    (wrap (#tar.Normal [module_file now ..mode ..ownership entry_content]))))
+
+(def: #export (package now)
+  (-> Instant Packager)
+  (function (package archive program)
+    (do {! try.monad}
+      [order (dependency.load_order $.key archive)
+       #let [mapping (|> order
+                         (list\map (function (_ [module [module_id [descriptor document output]]])
+                                     [module module_id]))
+                         (dictionary.from_list text.hash)
+                         (: (Dictionary Module archive.ID)))]
+       entries (monad.map ! (..write_module now mapping) order)]
+      (wrap (|> entries
+                row.from_list
+                (binary.run tar.writer))))))
