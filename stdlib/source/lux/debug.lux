@@ -4,7 +4,7 @@
    ["." type]
    ["." ffi (#+ import:)]
    [abstract
-    [monad (#+ do)]]
+    ["." monad (#+ do)]]
    [control
     [pipe (#+ case> new>)]
     ["." function]
@@ -21,7 +21,8 @@
      ["." json]]
     [collection
      ["." array]
-     ["." list ("#\." functor)]]]
+     ["." list ("#\." functor)]
+     ["." dictionary]]]
    ["." meta
     ["." location]]
    [macro
@@ -508,3 +509,59 @@
     [location meta.location
      expectedT meta.expected_type]
     (meta.fail (exception.construct ..type_hole [location expectedT]))))
+
+(type: Target
+  [Text (Maybe Code)])
+
+(def: target
+  (<code>.Parser Target)
+  (<>.either (<>.and <code>.local_identifier
+                     (\ <>.monad wrap #.None))
+             (<code>.record (<>.and <code>.local_identifier
+                                    (\ <>.monad map (|>> #.Some) <code>.any)))))
+
+(exception: #export (unknown_local_binding {name Text})
+  (exception.report
+   ["Name" (%.text name)]))
+
+(syntax: #export (here {targets (: (<code>.Parser (List Target))
+                                   (|> ..target
+                                       <>.some
+                                       (<>.default (list))))})
+  (do {! meta.monad}
+    [location meta.location
+     locals meta.locals
+     #let [environment (|> locals
+                           list.concat
+                           ## The list is reversed to make sure that, when building the dictionary,
+                           ## later bindings overshadow earlier ones if they have the same name.
+                           list.reverse
+                           (dictionary.from_list text.hash))]
+     targets (: (Meta (List Target))
+                (case targets
+                  #.Nil
+                  (|> environment
+                      dictionary.keys
+                      (list\map (function (_ local) [local #.None]))
+                      wrap)
+
+                  _
+                  (monad.map ! (function (_ [name format])
+                                 (if (dictionary.key? environment name)
+                                   (wrap [name format])
+                                   (meta.fail (exception.construct ..unknown_local_binding [name]))))
+                             targets)))]
+    (wrap (list (` (..log! ("lux text concat"
+                            (~ (code.text (%.format (%.location location) text.new_line)))
+                            ((~! exception.report)
+                             (~+ (|> targets
+                                     list.reverse
+                                     (list\map (function (_ [name format])
+                                                 (let [format (case format
+                                                                #.None
+                                                                (` (~! ..inspect))
+                                                                
+                                                                (#.Some format)
+                                                                format)]
+                                                   (` [(~ (code.text name))
+                                                       ((~ format) (~ (code.local_identifier name)))]))))))))))))))
