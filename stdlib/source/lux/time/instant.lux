@@ -1,5 +1,6 @@
 (.module:
   [lux #*
+   ["@" target]
    [abstract
     [equivalence (#+ Equivalence)]
     [order (#+ Order)]
@@ -19,7 +20,8 @@
      ["." row]]]
    [math
     [number
-     ["i" int]]]
+     ["i" int]
+     ["f" frac]]]
    [type
     abstract]]
   ["." // (#+ Time)
@@ -151,7 +153,43 @@
 
 (def: #export now
   (IO Instant)
-  (io (..from_millis ("lux io current-time"))))
+  (io (..from_millis (for {@.old ("jvm invokestatic:java.lang.System:currentTimeMillis:")
+                           @.jvm (|> ("jvm member invoke static" [] "java.lang.System" "currentTimeMillis" [])
+                                     (: (primitive "java.lang.Long"))
+                                     (:coerce Int))
+                           @.js (let [date ("js object new" ("js constant" "Date") [])]
+                                  (|> ("js object do" "getTime" date [])
+                                      (:coerce Frac)
+                                      "lux f64 i64"))
+                           @.python (let [time ("python import" "time")]
+                                      (|> ("python object do" "time" time [])
+                                          (:coerce Frac)
+                                          (f.* +1,000.0)
+                                          "lux f64 i64"))
+                           @.lua (|> ("lua constant" "os.time")
+                                     "lua apply"
+                                     (:coerce Int)
+                                     (i.* +1,000))
+                           @.ruby (let [% ("ruby constant" "Time")
+                                        % ("ruby object do" % "now")]
+                                    (|> ("ruby object do" % "to_f")
+                                        (:coerce Frac)
+                                        (f.* +1,000.0)
+                                        "lux f64 i64"))
+                           @.php (|> ("php constant" "time")
+                                     "php apply"
+                                     (:coerce Int)
+                                     (i.* +1,000))
+                           @.scheme (|> ("scheme constant" "current-second")
+                                        (:coerce Int)
+                                        (i.* +1,000)
+                                        ("scheme apply" ("scheme constant" "exact"))
+                                        ("scheme apply" ("scheme constant" "truncate")))
+                           @.common_lisp (|> ("common_lisp constant" "get-universal-time")
+                                             "common_lisp apply"
+                                             (:coerce Int)
+                                             (i.* +1,000))
+                           }))))
 
 (template [<field> <type> <post_processing>]
   [(def: #export (<field> instant)
@@ -189,6 +227,7 @@
 
 (def: #export (from_date_time date time)
   (-> Date Time Instant)
-  (..from_millis
-   (i.+ (i.* (date.to_days date) (duration.to_millis duration.day))
-        (.int (//.to_millis time)))))
+  (|> (date.to_days date)
+      (i.* (duration.to_millis duration.day))
+      (i.+ (.int (//.to_millis time)))
+      ..from_millis))
