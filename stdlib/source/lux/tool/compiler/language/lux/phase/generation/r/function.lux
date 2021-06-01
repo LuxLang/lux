@@ -1,0 +1,116 @@
+(.module:
+  [lux (#- function)
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    pipe]
+   [data
+    ["." product]
+    ["." text
+     ["%" format (#+ format)]]
+    [collection
+     ["." list ("#\." functor fold)]]]
+   [target
+    ["_" r (#+ Expression SVar)]]]
+  ["." // #_
+   ["#." runtime (#+ Operation Phase Generator)]
+   ["#." reference]
+   ["#." case]
+   ["/#" // #_
+    ["#." reference]
+    ["//#" /// #_
+     [analysis (#+ Variant Tuple Abstraction Application Analysis)]
+     [synthesis (#+ Synthesis)]
+     ["#." generation (#+ Context)]
+     ["//#" /// #_
+      [arity (#+ Arity)]
+      ["#." phase ("#\." monad)]
+      [reference
+       [variable (#+ Register Variable)]]
+      [meta
+       [archive
+        ["." artifact]]]]]]])
+
+(def: #export (apply expression archive [functionS argsS+])
+  (Generator (Application Synthesis))
+  (do {! ///////phase.monad}
+    [functionO (expression archive functionS)
+     argsO+ (monad.map ! (expression archive) argsS+)]
+    (wrap (_.apply argsO+ functionO))))
+
+(def: (with_closure function_id $function inits function_definition)
+  (-> artifact.ID SVar (List Expression) Expression (Operation Expression))
+  (case inits
+    #.Nil
+    (do ///////phase.monad
+      [_ (/////generation.execute! function_definition)
+       _ (/////generation.save! (%.nat function_id)
+                                function_definition)]
+      (wrap $function))
+
+    _
+    (do ///////phase.monad
+      [#let [closure_definition (_.set! $function
+                                        (_.function (|> inits
+                                                        list.size
+                                                        list.indices
+                                                        (list\map //case.capture))
+                                          ($_ _.then
+                                              function_definition
+                                              $function)))]
+       _ (/////generation.execute! closure_definition)
+       _ (/////generation.save! (%.nat function_id) closure_definition)]
+      (wrap (_.apply inits $function)))))
+
+(def: $curried (_.var "curried"))
+(def: $missing (_.var "missing"))
+
+(def: (input_declaration register)
+  (-> Register Expression)
+  (_.set! (|> register inc //case.register)
+          (|> $curried (_.nth (|> register inc .int _.int)))))
+
+(def: #export (function expression archive [environment arity bodyS])
+  (Generator (Abstraction Synthesis))
+  (do {! ///////phase.monad}
+    [[[function_module function_artifact] bodyO] (/////generation.with_new_context archive
+                                                   (do !
+                                                     [$self (\ ! map (|>> ///reference.artifact _.var)
+                                                               (/////generation.context archive))]
+                                                     (/////generation.with_anchor $self
+                                                       (expression archive bodyS))))
+     closureO+ (monad.map ! (expression archive) environment)
+     #let [arityO (|> arity .int _.int)
+           $num_args (_.var "num_args")
+           $self (_.var (///reference.artifact [function_module function_artifact]))
+           apply_poly (.function (_ args func)
+                        (_.apply (list func args) (_.var "do.call")))]]
+    (with_closure function_artifact $self closureO+
+      (_.set! $self (_.function (list _.var_args)
+                      ($_ _.then
+                          (_.set! $curried (_.list (list _.var_args)))
+                          (_.set! $num_args (_.length $curried))
+                          (_.cond (list [(|> $num_args (_.= arityO))
+                                         ($_ _.then
+                                             (_.set! (//case.register 0) $self)
+                                             (|> arity
+                                                 list.indices
+                                                 (list\map input_declaration)
+                                                 (list\fold _.then bodyO)))]
+                                        [(|> $num_args (_.> arityO))
+                                         (let [arity_args (_.slice (_.int +1) arityO $curried)
+                                               output_func_args (_.slice (|> arityO (_.+ (_.int +1)))
+                                                                         $num_args
+                                                                         $curried)]
+                                           (|> $self
+                                               (apply_poly arity_args)
+                                               (apply_poly output_func_args)))])
+                                  ## (|> $num_args (_.< arityO))
+                                  (let [$missing (_.var "missing")]
+                                    (_.function (list _.var_args)
+                                      ($_ _.then
+                                          (_.set! $missing (_.list (list _.var_args)))
+                                          (|> $self
+                                              (apply_poly (_.apply (list $curried $missing)
+                                                                   (_.var "append"))))))))))))
+    ))

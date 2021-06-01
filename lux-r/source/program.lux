@@ -1,180 +1,367 @@
 (.module:
-  [lux (#- Definition)
-   ["@" target]
-   ["." host (#+ import:)]
+  [lux #*
+   [program (#+ program:)]
+   ["." ffi]
+   ["." debug]
    [abstract
-    [monad (#+ do)]]
+    ["." monad (#+ do)]]
    [control
-    ["." io (#+ IO)]
+    [pipe (#+ exec> case> new>)]
     ["." try (#+ Try)]
-    [parser
-     [cli (#+ program:)]]
+    ["." exception (#+ exception:)]
+    ["." io (#+ IO io)]
     [concurrency
      ["." promise (#+ Promise)]]]
    [data
-    ["." product]
-    [text
-     ["%" format (#+ format)]]
+    ["." maybe]
+    ["." text ("#\." hash)
+     ["%" format (#+ format)]
+     [encoding
+      ["." utf8]]]
     [collection
-     [array (#+ Array)]
-     ["." dictionary]]]
-   [world
-    ["." file]]
-   [target
-    [jvm
-     [bytecode (#+ Bytecode)]]]
+     ["." array (#+ Array)]]]
+   [macro
+    ["." template]]
+   [math
+    [number (#+ hex)
+     ["n" nat]
+     ["." i64]]]
+   ["." world #_
+    ["." file]
+    ["#/." program]]
+   ["@" target
+    ["_" r]]
    [tool
     [compiler
-     [default
-      ["." platform (#+ Platform)]]
+     [phase (#+ Operation Phase)]
+     [reference
+      [variable (#+ Register)]]
      [language
       [lux
+       [program (#+ Program)]
+       [generation (#+ Context Host)]
+       ["." synthesis]
        [analysis
-        ["." macro (#+ Expander)]]
+        [macro (#+ Expander)]]
        [phase
-        [extension (#+ Phase Bundle Operation Handler Extender)
+        ["." extension (#+ Extender Handler)
+         ["#/." bundle]
          ["." analysis #_
-          ["#" jvm]]
+          ["#" r]]
          ["." generation #_
-          ["#" jvm]]
-         ## ["." directive #_
-         ##  ["#" jvm]]
-         ]
+          ["#" r]]]
         [generation
-         ["." jvm #_
-          ## ["." runtime (#+ Anchor Definition)]
-          ["." packager]
-          ## ["#/." host]
-          ]]]]]]]]
+         ["." reference]
+         ["." r
+          ["." runtime]]]]]]
+     [default
+      ["." platform (#+ Platform)]]
+     [meta
+      ["." packager #_
+       ["#" script]]]]]]
   [program
    ["/" compositor
-    ["/." cli]
-    ["/." static]]]
-  [luxc
-   [lang
-    [host
-     ["_" jvm]]
-    ["." directive #_
-     ["#" jvm]]
-    [translation
-     ["." jvm
-      ["." runtime]
-      ["." expression]
-      ["#/." program]
-      ["translation" extension]]]]])
+    ["#." cli]
+    ["#." static]]])
 
-(import: #long java/lang/reflect/Method
-  (invoke [java/lang/Object [java/lang/Object]] #try java/lang/Object))
+(ffi.import: java/lang/String)
 
-(import: #long (java/lang/Class c)
-  (getMethod [java/lang/String [(java/lang/Class java/lang/Object)]] #try java/lang/reflect/Method))
+(ffi.import: (java/lang/Class a)
+  ["#::."
+   (#static forName [java/lang/String] #try (java/lang/Class java/lang/Object))])
 
-(import: #long java/lang/Object
-  (getClass [] (java/lang/Class java/lang/Object)))
+(ffi.import: java/lang/Object
+  ["#::."
+   (toString [] java/lang/String)
+   (getClass [] (java/lang/Class java/lang/Object))])
 
-(def: _object-class
-  (java/lang/Class java/lang/Object)
-  (host.class-for java/lang/Object))
+(ffi.import: java/lang/Long
+  ["#::."
+   (intValue [] java/lang/Integer)])
 
-(def: _apply2-args
-  (Array (java/lang/Class java/lang/Object))
-  (|> (host.array (java/lang/Class java/lang/Object) 2)
-      (host.array-write 0 _object-class)
-      (host.array-write 1 _object-class)))
+(ffi.import: java/lang/Integer
+  ["#::."
+   (longValue [] long)])
 
-(def: _apply4-args
-  (Array (java/lang/Class java/lang/Object))
-  (|> (host.array (java/lang/Class java/lang/Object) 4)
-      (host.array-write 0 _object-class)
-      (host.array-write 1 _object-class)
-      (host.array-write 2 _object-class)
-      (host.array-write 3 _object-class)))
+(ffi.import: java/lang/Number
+  ["#::."
+   (intValue [] java/lang/Integer)
+   (longValue [] long)
+   (doubleValue [] double)])
 
-(def: #export (expander macro inputs lux)
+(ffi.import: javax/script/ScriptEngine
+  ["#::."
+   (eval [java/lang/String] #try java/lang/Object)])
+
+(ffi.import: org/renjin/script/RenjinScriptEngine)
+
+(ffi.import: org/renjin/script/RenjinScriptEngineFactory
+  ["#::."
+   (new [])
+   (getScriptEngine [] org/renjin/script/RenjinScriptEngine)])
+
+(template [<name>]
+  [(exception: (<name> {object java/lang/Object})
+     (exception.report
+      ["Class" (java/lang/Object::toString (java/lang/Object::getClass object))]
+      ["Object" (java/lang/Object::toString object)]))]
+
+  [unknown_kind_of_object]
+  [cannot_apply_a_non_function]
+  )
+
+## (def: host_bit
+##   (-> Bit org/armedbear/lisp/LispObject)
+##   (|>> (case> #0 (org/armedbear/lisp/Nil::NIL)
+##               #1 (org/armedbear/lisp/Symbol::T))))
+
+## (def: (host_value value)
+##   (-> Any org/armedbear/lisp/LispObject)
+##   (let [to_sub (: (-> Any org/armedbear/lisp/LispObject)
+##                   (function (_ sub_value)
+##                     (let [sub_value (:coerce java/lang/Object sub_value)]
+##                       (`` (<| (~~ (template [<type> <then>]
+##                                     [(case (ffi.check <type> sub_value)
+##                                        (#.Some sub_value)
+##                                        (`` (|> sub_value (~~ (template.splice <then>))))
+##                                        #.None)]
+
+##                                     [[java/lang/Object] [host_value]]
+##                                     [java/lang/Boolean [..host_bit]]
+##                                     [java/lang/Integer [java/lang/Integer::longValue org/armedbear/lisp/Fixnum::getInstance]]
+##                                     [java/lang/Long [org/armedbear/lisp/Bignum::getInstance]]
+##                                     [java/lang/Double [org/armedbear/lisp/DoubleFloat::new]]
+##                                     [java/lang/String [org/armedbear/lisp/SimpleString::new]]
+##                                     ))
+##                               ## else
+##                               (:coerce org/armedbear/lisp/LispObject sub_value))))))]
+##     (`` (ffi.object [] org/armedbear/lisp/LispObject [program/LuxADT]
+##           []
+##           ## Methods
+##           (program/LuxADT
+##            [] (getValue self) java/lang/Object
+##            (:coerce java/lang/Object value))
+
+##           (org/armedbear/lisp/LispObject
+##            [] (length self)
+##            int
+##            (|> value
+##                (:coerce (Array java/lang/Object))
+##                array.size
+##                (:coerce java/lang/Long)
+##                java/lang/Number::intValue))
+
+##           (~~ (template [<name>]
+##                 [(org/armedbear/lisp/LispObject
+##                   [] (<name> self {idx int})
+##                   org/armedbear/lisp/LispObject
+##                   (case (array.read (|> idx java/lang/Integer::longValue (:coerce Nat))
+##                                     (:coerce (Array java/lang/Object) value))
+##                     (#.Some sub)
+##                     (to_sub sub)
+
+##                     #.None
+##                     (org/armedbear/lisp/Nil::NIL)))]
+
+##                 [NTH] [SVREF] [elt]
+##                 ))
+##           ))))
+
+(type: (Reader a)
+  (-> a (Try Any)))
+
+## (def: (read_variant read host_object)
+##   (-> (Reader org/armedbear/lisp/LispObject) (Reader org/armedbear/lisp/Cons))
+##   (do try.monad
+##     [tag (read (org/armedbear/lisp/LispObject::NTH +0 host_object))
+##      value (read (org/armedbear/lisp/LispObject::NTH +2 host_object))]
+##     (wrap [(java/lang/Long::intValue (:coerce java/lang/Long tag))
+##            (case (ffi.check org/armedbear/lisp/Nil (org/armedbear/lisp/LispObject::NTH +1 host_object))
+##              (#.Some _)
+##              (: Any (ffi.null))
+
+##              _
+##              (: Any synthesis.unit))
+##            value])))
+
+## (def: (read_tuple read host_object)
+##   (-> (Reader org/armedbear/lisp/LispObject) (Reader org/armedbear/lisp/SimpleVector))
+##   (let [size (.nat (org/armedbear/lisp/LispObject::length host_object))]
+##     (loop [idx 0
+##            output (:coerce (Array Any) (array.new size))]
+##       (if (n.< size idx)
+##         ## TODO: Start using "SVREF" instead of "elt" ASAP
+##         (case (read (org/armedbear/lisp/LispObject::elt (.int idx) host_object))
+##           (#try.Failure error)
+##           (#try.Failure error)
+
+##           (#try.Success member)
+##           (recur (inc idx) (array.write! idx (:coerce Any member) output)))
+##         (#try.Success output)))))
+
+(def: (read host_object)
+  (Reader java/lang/Object)
+  (`` (<| ## (~~ (template [<class> <post_processing>]
+       ##       [(case (ffi.check <class> host_object)
+       ##          (#.Some host_object)
+       ##          (`` (|> host_object (~~ (template.splice <post_processing>))))
+
+       ##          #.None)]
+
+       ##       [org/armedbear/lisp/Bignum [org/armedbear/lisp/Bignum::longValue #try.Success]]
+       ##       [org/armedbear/lisp/Fixnum [org/armedbear/lisp/Fixnum::longValue #try.Success]]
+       ##       [org/armedbear/lisp/DoubleFloat [org/armedbear/lisp/DoubleFloat::doubleValue #try.Success]]
+       ##       [org/armedbear/lisp/SimpleString [org/armedbear/lisp/SimpleString::getStringValue #try.Success]]
+       ##       [org/armedbear/lisp/Cons [(read_variant read)]]
+       ##       [org/armedbear/lisp/SimpleVector [(read_tuple read)]]
+       ##       [org/armedbear/lisp/Nil [(new> (#try.Success false) [])]]
+       ##       [org/armedbear/lisp/Closure [#try.Success]]
+       ##       [program/LuxADT [program/LuxADT::getValue #try.Success]]))
+       ## (case (ffi.check org/armedbear/lisp/Symbol host_object)
+       ##   (#.Some host_object)
+       ##   (if (is? (org/armedbear/lisp/Symbol::T) host_object)
+       ##     (#try.Success true)
+       ##     (exception.throw ..unknown_kind_of_object [host_object]))
+
+       ##   #.None)
+       ## else
+       (exception.throw ..unknown_kind_of_object [host_object])
+       )))
+
+## (def: ensure_macro
+##   (-> Macro (Maybe org/armedbear/lisp/Closure))
+##   (|>> (:coerce java/lang/Object) (ffi.check org/armedbear/lisp/Closure)))
+
+## (def: (call_macro inputs lux macro)
+##   (-> (List Code) Lux org/armedbear/lisp/Closure (Try (Try [Lux (List Code)])))
+##   (do try.monad
+##     [raw_output (org/armedbear/lisp/LispObject::execute (..host_value inputs) (..host_value lux) macro)]
+##     (:coerce (Try (Try [Lux (List Code)]))
+##              (..read raw_output))))
+
+(def: (expander macro inputs lux)
   Expander
-  (do try.monad
-    [apply-method (|> macro
-                      (:coerce java/lang/Object)
-                      (java/lang/Object::getClass)
-                      (java/lang/Class::getMethod "apply" _apply2-args))]
-    (:coerce (Try (Try [Lux (List Code)]))
-             (java/lang/reflect/Method::invoke
-              (:coerce java/lang/Object macro)
-              (|> (host.array java/lang/Object 2)
-                  (host.array-write 0 (:coerce java/lang/Object inputs))
-                  (host.array-write 1 (:coerce java/lang/Object lux)))
-              apply-method))))
+  ## (case (ensure_macro macro)
+  ##   (#.Some macro)
+  ##   (call_macro inputs lux macro)
 
-(def: #export platform
-  ## (IO (Platform Anchor (Bytecode Any) Definition))
-  (IO (Platform _.Anchor _.Inst _.Definition))
+  ##   #.None
+  ##   (exception.throw ..cannot_apply_a_non_function (:coerce java/lang/Object macro)))
+  (exception.throw ..cannot_apply_a_non_function (:coerce java/lang/Object macro)))
+
+(def: host
+  (IO (Host _.Expression _.Expression))
+  (io (let [interpreter (|> (org/renjin/script/RenjinScriptEngineFactory::new)
+                            org/renjin/script/RenjinScriptEngineFactory::getScriptEngine)
+            run! (: (-> (_.Code Any) (Try Any))
+                    (function (_ code)
+                      (do try.monad
+                        [host_value (javax/script/ScriptEngine::eval (_.code code) interpreter)]
+                        (read host_value))))]
+        (: (Host _.Expression _.Expression)
+           (structure
+            (def: (evaluate! context code)
+              (run! code))
+            
+            (def: (execute! input)
+              (javax/script/ScriptEngine::eval (_.code input) interpreter))
+            
+            (def: (define! context input)
+              (let [global (reference.artifact context)
+                    $global (_.var global)]
+                (do try.monad
+                  [#let [definition (_.set! $global input)]
+                   _ (javax/script/ScriptEngine::eval (_.code definition) interpreter)
+                   value (run! $global)]
+                  (wrap [global value definition]))))
+
+            (def: (ingest context content)
+              (|> content (\ utf8.codec decode) try.assume (:coerce _.Expression)))
+
+            (def: (re_learn context content)
+              (run! content))
+            
+            (def: (re_load context content)
+              (do try.monad
+                [_ (run! content)]
+                (run! (_.var (reference.artifact context)))))
+            )))))
+
+(def: platform
+  (IO (Platform _.SVar _.Expression _.Expression))
   (do io.monad
-    [## host jvm/host.host
-     host jvm.host]
-    (wrap {#platform.&file-system (file.async file.system)
+    [host ..host]
+    (wrap {#platform.&file_system (file.async file.default)
            #platform.host host
-           ## #platform.phase jvm.generate
-           #platform.phase expression.translate
-           ## #platform.runtime runtime.generate
-           #platform.runtime runtime.translate
-           #platform.write product.right})))
+           #platform.phase r.generate
+           #platform.runtime runtime.generate
+           #platform.write (|>> _.code (\ utf8.codec encode))})))
 
-(def: extender
-  Extender
-  ## TODO: Stop relying on coercions ASAP.
-  (<| (:coerce Extender)
-      (function (@self handler))
-      (:coerce Handler)
-      (function (@self name phase))
-      (:coerce Phase)
-      (function (@self parameters))
-      (:coerce Operation)
-      (function (@self state))
-      (:coerce Try)
-      try.assume
-      (:coerce Try)
-      (do try.monad
-        [method (|> handler
-                    (:coerce java/lang/Object)
-                    (java/lang/Object::getClass)
-                    (java/lang/Class::getMethod "apply" _apply4-args))]
-        (java/lang/reflect/Method::invoke
-         (:coerce java/lang/Object handler)
-         (|> (host.array java/lang/Object 4)
-             (host.array-write 0 (:coerce java/lang/Object name))
-             (host.array-write 1 (:coerce java/lang/Object phase))
-             (host.array-write 2 (:coerce java/lang/Object parameters))
-             (host.array-write 3 (:coerce java/lang/Object state)))
-         method))))
+(def: (program context program)
+  (Program _.Expression _.Expression)
+  (_.apply/2 program [(runtime.lux::program_args (_.commandArgs/0 [])) _.null]))
 
-(def: (target service)
-  (-> /cli.Service /cli.Target)
-  (case service
-    (^or (#/cli.Compilation [sources libraries target module])
-         (#/cli.Interpretation [sources libraries target module])
-         (#/cli.Export [sources target]))
-    target))
+(for {@.old
+      (def: extender
+        Extender
+        ## TODO: Stop relying on coercions ASAP.
+        (<| (:coerce Extender)
+            (function (@self handler))
+            (:coerce Handler)
+            (function (@self name phase))
+            (:coerce Phase)
+            (function (@self archive parameters))
+            (:coerce Operation)
+            (function (@self state))
+            (:coerce Try)
+            try.assume
+            (:coerce Try)
+            (exec
+              ("lux io log" "TODO: Extender")
+              (#try.Failure "TODO: Extender"))))
 
-(def: (declare-success! _)
+      @.r
+      (def: (extender handler)
+        Extender
+        (:assume handler))})
+
+(def: (declare_success! _)
   (-> Any (Promise Any))
-  (promise.future (io.exit +0)))
+  (promise.future (\ world/program.default exit +0)))
 
-(program: [{service /cli.service}]
-  (let [jar-path (format (..target service) (:: file.system separator) "program.jar")]
-    (exec (do promise.monad
-            [_ (/.compiler {#/static.host @.jvm
-                            #/static.host-module-extension ".jvm"
-                            #/static.target (..target service)
-                            #/static.artifact-extension ".class"}
-                           ..expander
-                           analysis.bundle
-                           ..platform
-                           ## generation.bundle
-                           translation.bundle
-                           (directive.bundle ..extender)
-                           jvm/program.program
-                           ..extender
-                           service
-                           [(packager.package jvm/program.class) jar-path])]
-            (..declare-success! []))
-      (io.io []))))
+(def: (scope body)
+  (-> _.Expression _.Expression)
+  (let [$program (_.var "lux_program")]
+    ($_ _.then
+        (_.set! $program (_.function (list) body))
+        (_.apply/0 $program [])
+        )))
+
+(`` (program: [{service /cli.service}]
+      (let [extension ".r"]
+        (do io.monad
+          [platform ..platform]
+          (exec (do promise.monad
+                  [_ (/.compiler {#/static.host @.r
+                                  #/static.host_module_extension extension
+                                  #/static.target (/cli.target service)
+                                  #/static.artifact_extension extension}
+                                 ..expander
+                                 analysis.bundle
+                                 (io.io platform)
+                                 generation.bundle
+                                 extension/bundle.empty
+                                 ..program
+                                 [_.SVar _.Expression _.Expression]
+                                 ..extender
+                                 service
+                                 [(packager.package (_.manual "")
+                                                    _.code
+                                                    _.then
+                                                    ..scope)
+                                  (format (/cli.target service)
+                                          (\ file.default separator)
+                                          "program"
+                                          extension)])]
+                  (..declare_success! []))
+            (io.io []))))))

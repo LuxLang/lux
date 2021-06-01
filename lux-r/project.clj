@@ -24,8 +24,7 @@
 
   :dependencies [[com.github.luxlang/luxc-jvm ~version]
                  [com.github.luxlang/stdlib ~version]
-                 ;; JVM Bytecode
-                 [org.ow2.asm/asm-all "5.0.3"]]
+                 [org.renjin/renjin-script-engine "3.5-beta43"]]
   
   :manifest {"lux" ~version}
   :source-paths ["source"]

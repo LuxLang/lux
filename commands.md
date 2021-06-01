@@ -44,7 +44,7 @@ cd ~/lux/lux-bootstrapper/ && lein clean && lein install
 ## Run JBE
 
 ```
-cd ~/lux/jbe/ && ./jbe.sh
+cd ~/lux/jbe/bin/ && java ee.ioc.cs.jbe.browser.BrowserApplication
 ```
 
 ---
