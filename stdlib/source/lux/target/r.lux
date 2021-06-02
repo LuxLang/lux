@@ -71,11 +71,13 @@
     (:abstraction
      (format "(" code ")")))
 
+  (def: nested_new_line
+    (format text.new_line text.tab))
+
   (def: nest
     (-> Text Text)
-    (let [nested_new_line (format text.new_line text.tab)]
-      (|>> (format text.new_line)
-           (text.replace_all text.new_line nested_new_line))))
+    (|>> (text.replace_all text.new_line ..nested_new_line)
+         (format ..nested_new_line)))
 
   (def: (_block expression)
     (-> Text Text)
@@ -84,12 +86,14 @@
   (def: #export (block expression)
     (-> Expression Expression)
     (:abstraction
-     (format "{" (:representation expression) "}")))
+     (format "{"
+             (..nest (:representation expression))
+             text.new_line "}")))
 
   (template [<name> <r>]
     [(def: #export <name>
        Expression
-       (..self_contained <r>))]
+       (:abstraction <r>))]
 
     [null "NULL"]
     [n/a "NA"]
@@ -107,11 +111,11 @@
     (-> Bit Expression)
     (|>> (case> #0 "FALSE"
                 #1 "TRUE")
-         ..self_contained))
+         :abstraction))
 
   (def: #export (int value)
     (-> Int Expression)
-    (..self_contained (format "as.integer(" (%.int value) ")")))
+    (:abstraction (format "as.integer(" (%.int value) ")")))
 
   (def: #export float
     (-> Frac Expression)
@@ -146,31 +150,8 @@
 
   (def: #export string
     (-> Text Expression)
-    (|>> %.text ..sanitize ..self_contained))
+    (|>> ..sanitize %.text :abstraction))
 
-  (def: (composite_literal left_delimiter right_delimiter entry_serializer)
-    (All [a] (-> Text Text (-> a Text)
-                 (-> (List a) Expression)))
-    (.function (_ entries)
-      (..self_contained
-       (format left_delimiter
-               (|> entries (list\map entry_serializer) (text.join_with ","))
-               right_delimiter))))
-
-  (def: #export named_list
-    (-> (List [Text Expression]) Expression)
-    (composite_literal "list(" ")" (.function (_ [key value])
-                                     (format key "=" (:representation value)))))
-  
-  (template [<name> <function>]
-    [(def: #export <name>
-       (-> (List Expression) Expression)
-       (composite_literal (format <function> "(") ")" ..code))]
-
-    [vector "c"]
-    [list   "list"]
-    )
-  
   (def: #export (slice from to list)
     (-> Expression Expression Expression Expression)
     (..self_contained
@@ -185,8 +166,30 @@
 
   (def: #export (apply args func)
     (-> (List Expression) Expression Expression)
-    (..self_contained
-     (format (:representation func) "(" (text.join_with "," (list\map ..code args)) ")")))
+    (let [func (:representation func)
+          spacing (|> " " (list.repeat (text.size func)) (text.join_with ""))]
+      (:abstraction
+       (format func "("
+               (|> args
+                   (list\map ..code)
+                   (text.join_with (format "," text.new_line))
+                   ..nest)
+               ")"))))
+
+  (template [<name> <function>]
+    [(def: #export (<name> members)
+       (-> (List Expression) Expression)
+       (..apply members (..var <function>)))]
+
+    [vector "c"]
+    [list   "list"]
+    )
+
+  (def: #export named_list
+    (-> (List [Text Expression]) Expression)
+    (|>> (list\map (.function (_ [key value])
+                     (:abstraction (format key "=" (:representation value)))))
+         ..list))
 
   (def: #export (apply_kw args kw_args func)
     (-> (List Expression) (List [Text Expression]) Expression Expression)
@@ -228,9 +231,9 @@
     [0
      [["commandArgs"]]]
     [1
-     []]
+     [["intToUtf8"]]]
     [2
-     []]
+     [["paste"]]]
     )
 
   (def: #export (nth idx list)

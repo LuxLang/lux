@@ -79,6 +79,7 @@
 1. https://www.3dgep.com/understanding-quaternions/
 1. https://probablydance.com/2017/08/05/intuitive-quaternions/
 1. [Quaternion algebras](https://math.dartmouth.edu/~jvoight/quat.html)
+1. [Rotations with quaternions](https://imadr.github.io/rotations-with-quaternions/)
 
 # _Compendium of resources_
 
@@ -150,6 +151,7 @@
 1. https://www.math3ma.com/blog/matrices-as-tensor-network-diagrams
 1. [Convolution is outer product](https://arxiv.org/abs/1905.01289)
 1. [Graphical Calculus for products and convolutions](https://arxiv.org/abs/1903.01366)
+1. [3 Point Parameterization of Affine Transform](https://www.catid.io/affine3)
 
 # Domain Theory
 

@@ -25,11 +25,9 @@ cd ~/lux/lux-r/ && java -jar target/program.jar repl --source ~/lux/stdlib/sourc
 ## Try
 
 ```
-cd ~/lux/lux-r/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
-cd ~/lux/stdlib/ && lein clean && cd ~/lux/lux-r/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
-cd ~/lux/stdlib/ && lein clean && cd ~/lux/lux-r/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --library ~/lux/stdlib/target/library.tar --target ~/lux/stdlib/target --module test/lux
-cd ~/lux/lux-r/ && java -jar target/program.jar export --source ~/lux/stdlib/source --target ~/lux/stdlib/target
-
-cd ~/lux/stdlib/target/ && java -jar program.jar
+## Compile Lux's Standard Library's tests using a JVM-based compiler.
+cd ~/lux/stdlib/ \
+&& lein clean \
+&& time java -jar ~/lux/lux-r/target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
 ```
 

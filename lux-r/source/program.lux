@@ -89,6 +89,38 @@
    (longValue [] long)
    (doubleValue [] double)])
 
+(ffi.import: org/renjin/sexp/SEXP
+  ["#::."
+   (asInt [] int)])
+
+(ffi.import: org/renjin/sexp/IntArrayVector)
+
+(ffi.import: org/renjin/sexp/Logical
+  ["#::."
+   (toBooleanStrict [] boolean)])
+
+(ffi.import: org/renjin/sexp/LogicalVector
+  ["#::."
+   (asLogical [] org/renjin/sexp/Logical)])
+
+(ffi.import: org/renjin/sexp/LogicalArrayVector)
+
+(ffi.import: org/renjin/sexp/StringVector
+  ["#::."
+   (asString [] java/lang/String)])
+
+(ffi.import: org/renjin/sexp/StringArrayVector)
+
+(ffi.import: org/renjin/sexp/Null)
+
+(ffi.import: org/renjin/sexp/ListVector
+  ["#::."
+   (get #as get_index [int] org/renjin/sexp/SEXP)
+   (get #as get_field [java/lang/String] org/renjin/sexp/SEXP)
+   (length [] int)])
+
+(ffi.import: org/renjin/sexp/Closure)
+
 (ffi.import: javax/script/ScriptEngine
   ["#::."
    (eval [java/lang/String] #try java/lang/Object)])
@@ -170,63 +202,103 @@
 (type: (Reader a)
   (-> a (Try Any)))
 
-## (def: (read_variant read host_object)
-##   (-> (Reader org/armedbear/lisp/LispObject) (Reader org/armedbear/lisp/Cons))
-##   (do try.monad
-##     [tag (read (org/armedbear/lisp/LispObject::NTH +0 host_object))
-##      value (read (org/armedbear/lisp/LispObject::NTH +2 host_object))]
-##     (wrap [(java/lang/Long::intValue (:coerce java/lang/Long tag))
-##            (case (ffi.check org/armedbear/lisp/Nil (org/armedbear/lisp/LispObject::NTH +1 host_object))
-##              (#.Some _)
-##              (: Any (ffi.null))
+(def: (read_variant read host_object)
+  (-> (Reader java/lang/Object) (Reader org/renjin/sexp/ListVector))
+  (do try.monad
+    [tag (|> host_object
+             (org/renjin/sexp/ListVector::get_field runtime.variant_tag_field)
+             (:coerce java/lang/Object)
+             read)
+     value (|> host_object
+               (org/renjin/sexp/ListVector::get_field runtime.variant_value_field)
+               (:coerce java/lang/Object)
+               read)]
+    (wrap [(|> tag (:coerce java/lang/Long) java/lang/Long::intValue)
+           (case (|> host_object
+                     (org/renjin/sexp/ListVector::get_field runtime.variant_flag_field)
+                     (ffi.check org/renjin/sexp/Null))
+             (#.Some _)
+             (: Any (ffi.null))
 
-##              _
-##              (: Any synthesis.unit))
-##            value])))
+             _
+             (: Any synthesis.unit))
+           value])))
 
-## (def: (read_tuple read host_object)
-##   (-> (Reader org/armedbear/lisp/LispObject) (Reader org/armedbear/lisp/SimpleVector))
-##   (let [size (.nat (org/armedbear/lisp/LispObject::length host_object))]
-##     (loop [idx 0
-##            output (:coerce (Array Any) (array.new size))]
-##       (if (n.< size idx)
-##         ## TODO: Start using "SVREF" instead of "elt" ASAP
-##         (case (read (org/armedbear/lisp/LispObject::elt (.int idx) host_object))
-##           (#try.Failure error)
-##           (#try.Failure error)
+(def: (read_i64 host_object)
+  (Reader org/renjin/sexp/ListVector)
+  (case [(|> host_object
+             (org/renjin/sexp/ListVector::get_field runtime.i64_high_field)
+             (ffi.check org/renjin/sexp/IntArrayVector))
+         (|> host_object
+             (org/renjin/sexp/ListVector::get_field runtime.i64_low_field)
+             (ffi.check org/renjin/sexp/IntArrayVector))]
+    [(#.Some high) (#.Some low)]
+    (#try.Success (runtime.lux_i64 (org/renjin/sexp/SEXP::asInt high)
+                                   (org/renjin/sexp/SEXP::asInt low)))
 
-##           (#try.Success member)
-##           (recur (inc idx) (array.write! idx (:coerce Any member) output)))
-##         (#try.Success output)))))
+    _
+    (#try.Failure "")))
+
+(def: (read_tuple read host_object)
+  (-> (Reader java/lang/Object) (Reader org/renjin/sexp/ListVector))
+  (let [size (.nat (org/renjin/sexp/ListVector::length host_object))]
+    (loop [idx 0
+           output (:coerce (Array Any) (array.new size))]
+      (if (n.< size idx)
+        (case (|> host_object (org/renjin/sexp/ListVector::get_index (.int idx)) (:coerce java/lang/Object) read)
+          (#try.Failure error)
+          (#try.Failure error)
+
+          (#try.Success member)
+          (recur (inc idx) (array.write! idx (:coerce Any member) output)))
+        (#try.Success output)))))
+
+(def: (field_class field host_object)
+  (-> Text org/renjin/sexp/ListVector Text)
+  (|> host_object
+      (org/renjin/sexp/ListVector::get_field field)
+      java/lang/Object::getClass
+      java/lang/Object::toString
+      (:coerce Text)))
 
 (def: (read host_object)
   (Reader java/lang/Object)
-  (`` (<| ## (~~ (template [<class> <post_processing>]
-       ##       [(case (ffi.check <class> host_object)
-       ##          (#.Some host_object)
-       ##          (`` (|> host_object (~~ (template.splice <post_processing>))))
+  (exec
+    ## ("lux io log" (exception.construct ..unknown_kind_of_object [host_object]))
+    (`` (<| (case (ffi.check org/renjin/sexp/ListVector host_object)
+              (#.Some host_object)
+              (<| (case (..read_variant read host_object)
+                    (#try.Success output)
+                    (#try.Success output)
 
-       ##          #.None)]
+                    (#try.Failure _))
+                  (case (..read_i64 host_object)
+                    (#try.Success output)
+                    (#try.Success output)
 
-       ##       [org/armedbear/lisp/Bignum [org/armedbear/lisp/Bignum::longValue #try.Success]]
-       ##       [org/armedbear/lisp/Fixnum [org/armedbear/lisp/Fixnum::longValue #try.Success]]
-       ##       [org/armedbear/lisp/DoubleFloat [org/armedbear/lisp/DoubleFloat::doubleValue #try.Success]]
-       ##       [org/armedbear/lisp/SimpleString [org/armedbear/lisp/SimpleString::getStringValue #try.Success]]
-       ##       [org/armedbear/lisp/Cons [(read_variant read)]]
-       ##       [org/armedbear/lisp/SimpleVector [(read_tuple read)]]
-       ##       [org/armedbear/lisp/Nil [(new> (#try.Success false) [])]]
-       ##       [org/armedbear/lisp/Closure [#try.Success]]
-       ##       [program/LuxADT [program/LuxADT::getValue #try.Success]]))
-       ## (case (ffi.check org/armedbear/lisp/Symbol host_object)
-       ##   (#.Some host_object)
-       ##   (if (is? (org/armedbear/lisp/Symbol::T) host_object)
-       ##     (#try.Success true)
-       ##     (exception.throw ..unknown_kind_of_object [host_object]))
+                    (#try.Failure _))
+                  (..read_tuple read host_object))
 
-       ##   #.None)
-       ## else
-       (exception.throw ..unknown_kind_of_object [host_object])
-       )))
+              #.None)
+            (~~ (template [<class> <post_processing>]
+                  [(case (ffi.check <class> host_object)
+                     (#.Some host_object)
+                     (`` (|> host_object (~~ (template.splice <post_processing>))))
+
+                     #.None)]
+
+                  [org/renjin/sexp/StringArrayVector [org/renjin/sexp/StringVector::asString #try.Success]]
+                  [org/renjin/sexp/IntArrayVector [org/renjin/sexp/SEXP::asInt #try.Success]]
+                  [org/renjin/sexp/LogicalArrayVector [org/renjin/sexp/LogicalVector::asLogical
+                                                       org/renjin/sexp/Logical::toBooleanStrict
+                                                       #try.Success]]
+                  [org/renjin/sexp/Closure [#try.Success]]
+                  ## [org/armedbear/lisp/DoubleFloat [org/armedbear/lisp/DoubleFloat::doubleValue #try.Success]]
+                  ## [program/LuxADT [program/LuxADT::getValue #try.Success]]
+                  ))
+            ## else
+            (exception.throw ..unknown_kind_of_object [host_object])
+            ))))
 
 ## (def: ensure_macro
 ##   (-> Macro (Maybe org/armedbear/lisp/Closure))
@@ -261,18 +333,27 @@
         (: (Host _.Expression _.Expression)
            (structure
             (def: (evaluate! context code)
-              (run! code))
+              (exec ("lux io log" "@evaluate!")
+                (run! code)))
             
             (def: (execute! input)
-              (javax/script/ScriptEngine::eval (_.code input) interpreter))
+              (exec
+                ("lux io log" "@execute!")
+                ("lux io log" (_.code input))
+                (javax/script/ScriptEngine::eval (_.code input) interpreter)))
             
             (def: (define! context input)
               (let [global (reference.artifact context)
                     $global (_.var global)]
                 (do try.monad
                   [#let [definition (_.set! $global input)]
+                   #let [_ ("lux io log" "@define! 0")
+                         _ ("lux io log" (_.code definition))
+                         ]
                    _ (javax/script/ScriptEngine::eval (_.code definition) interpreter)
-                   value (run! $global)]
+                   #let [_ ("lux io log" "@define! 1")]
+                   value (run! $global)
+                   #let [_ ("lux io log" "@define! 2")]]
                   (wrap [global value definition]))))
 
             (def: (ingest context content)
