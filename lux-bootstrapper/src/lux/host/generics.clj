@@ -144,6 +144,13 @@
     (&/$GenericClass name params)
     (->bytecode-class-name name)
 
+    (&/$GenericArray (&/$GenericClass name params))
+    (case name
+      ("void" "boolean" "byte" "short" "int" "long" "float" "double" "char")
+      (str "[" (->type-signature name))
+      ;; else
+      (str "[L" (->bytecode-class-name name) ";"))
+
     (&/$GenericArray param)
     (str "[" (gclass->class-name param))
 

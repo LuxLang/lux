@@ -75,31 +75,6 @@
         ## else
         (.int input)))
 
-(def: high_32
-  (-> Nat Nat)
-  (i64.right_shift 32))
-
-(def: low_32
-  (-> Nat Nat)
-  (|>> (i64.and (hex "FFFFFFFF"))))
-
-(def: #export i64_high_field "luxIH")
-(def: #export i64_low_field "luxIL")
-
-(def: #export (i64 value)
-  (-> Int Expression)
-  (let [value (.nat value)
-        high (|> value ..high_32 ..cap_32)
-        low (|> value ..low_32 ..cap_32)]
-    (_.named_list (list [..i64_high_field (_.int high)]
-                        [..i64_low_field (_.int low)]))))
-
-(def: #export (lux_i64 high low)
-  (-> Int Int Int)
-  (|> high
-      (i64.left_shift 32)
-      (i64.or low)))
-
 (syntax: #export (with_vars {vars (<code>.tuple (<>.some <code>.local_identifier))}
                    body)
   (do {! meta.monad}
@@ -158,14 +133,10 @@
     (_.string "")
     _.null))
 
-(def: (variant' tag last? value)
-  (-> Expression Expression Expression Expression)
-  (_.named_list (list [..variant_tag_field tag]
+(runtime: (adt::variant tag last? value)
+  (_.named_list (list [..variant_tag_field (_.as::integer tag)]
                       [..variant_flag_field last?]
                       [..variant_value_field value])))
-
-(runtime: (adt::variant tag last? value)
-  (..variant' tag last? value))
 
 (def: #export (variant tag last? value)
   (-> Nat Bit Expression Expression)
@@ -191,16 +162,19 @@
 
 (def: high_shift (_.bit_shl (_.int +32)))
 
-(runtime: f2^32 (|> (_.int +2) (_.** (_.int +32))))
-(runtime: f2^63 (|> (_.int +2) (_.** (_.int +63))))
+(template [<name> <power>]
+  [(runtime: <name> (|> (_.as::integer (_.int +2)) (_.** (_.as::integer (_.int <power>)))))]
+
+  [f2^32 +32]
+  [f2^63 +63]
+  )
 
 (def: (as_double value)
   (-> Expression Expression)
   (_.apply (list value) (_.var "as.double")))
 
-(def: (as_integer value)
-  (-> Expression Expression)
-  (_.apply (list value) (_.var "as.integer")))
+(def: #export i64_high_field "luxIH")
+(def: #export i64_low_field "luxIL")
 
 (runtime: (i64::unsigned_low input)
   (with_vars [low]
@@ -219,8 +193,28 @@
     (|> high (_.+ low) as_double)))
 
 (runtime: (i64::new high low)
-  (_.named_list (list [..i64_high_field (as_integer high)]
-                      [..i64_low_field (as_integer low)])))
+  (_.named_list (list [..i64_high_field (_.as::integer high)]
+                      [..i64_low_field (_.as::integer low)])))
+
+(def: high_32
+  (-> Nat Nat)
+  (i64.right_shift 32))
+
+(def: low_32
+  (-> Nat Nat)
+  (|>> (i64.and (hex "FFFFFFFF"))))
+
+(def: #export (i64 value)
+  (-> Int Expression)
+  (let [value (.nat value)]
+    (i64::new (|> value ..high_32 ..cap_32 _.int)
+              (|> value ..low_32 ..cap_32 _.int))))
+
+(def: #export (lux_i64 high low)
+  (-> Int Int Int)
+  (|> high
+      (i64.left_shift 32)
+      (i64.or low)))
 
 (template [<name> <value>]
   [(runtime: <name>
@@ -299,13 +293,13 @@
 (runtime: (i64::< reference sample)
   (with_vars [r_? s_?]
     ($_ _.then
-        (_.set! s_? (|> sample i64_high (_.< (_.int +0))))
-        (_.set! r_? (|> reference i64_high (_.< (_.int +0))))
+        (_.set! s_? (|> sample ..i64_high (_.< (_.int +0))))
+        (_.set! r_? (|> reference ..i64_high (_.< (_.int +0))))
         (|> (|> s_? (_.and (_.not r_?)))
             (_.or (|> (_.not s_?) (_.and r_?) _.not))
             (_.or (|> sample
                       (i64::- reference)
-                      i64_high
+                      ..i64_high
                       (_.< (_.int +0))))))))
 
 (runtime: (i64::from_float input)
@@ -385,7 +379,7 @@
 
 (def: (limit_shift! shift)
   (-> SVar Expression)
-  (_.set! shift (|> shift (_.bit_and (_.int +63)))))
+  (_.set! shift (|> shift (_.bit_and (_.as::integer (_.int +63))))))
 
 (def: (no_shift_clause shift input)
   (-> SVar SVar [Expression Expression])
@@ -409,7 +403,7 @@
                 (i64::new high (_.int +0))))))
 
 (runtime: (i64::arithmetic_right_shift_32 shift input)
-  (let [top_bit (|> input (_.bit_and (_.int (hex "+80000000"))))]
+  (let [top_bit (|> input (_.bit_and (_.as::integer (_.int (hex "+80000000")))))]
     (|> input
         (_.bit_ushr shift)
         (_.bit_or top_bit))))
@@ -627,7 +621,7 @@
 
                   [(|> (|> wants_last? (_.= (_.string "")))
                        (_.and (|> wanted_tag (_.< sum_tag))))
-                   (variant' (|> sum_tag (_.- wanted_tag)) sum_flag sum_value)])
+                   (adt::variant (|> sum_tag (_.- wanted_tag)) sum_flag sum_value)])
 
             no_match)))
 
@@ -663,7 +657,7 @@
                              low (|> (i64_low input)
                                      (_.bit_ushr shift)
                                      (_.bit_or (_.if (_.apply (list $mid) (_.var "is.na"))
-                                                 (_.int +0)
+                                                 (_.as::integer (_.int +0))
                                                  $mid)))]
                          ($_ _.then
                              (_.set! $mid mid)
