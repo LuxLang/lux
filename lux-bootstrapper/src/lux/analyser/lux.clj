@@ -562,8 +562,11 @@
         =meta (&&/analyse-1 analyse &type/Code ?meta)
         ==meta (eval! (optimize =meta))
         def-value (compile-def ?name (optimize =value) ==meta exported?)
-        _ &type/reset-mappings]
-    (return (&/T [module-name (&&/expr-type* =value) def-value]))))
+        _ &type/reset-mappings
+        :let [def-type (&&/expr-type* =value)
+              _ (println 'DEF (str module-name &/+name-separator+ ?name
+                                   " : " (&type/show-type def-type)))]]
+    (return (&/T [module-name def-type def-value]))))
 
 (defn analyse-def [analyse optimize eval! compile-def ?name ?value ?meta exported?]
   (|do [_ (analyse-def* analyse optimize eval! compile-def ?name ?value ?meta exported?)]

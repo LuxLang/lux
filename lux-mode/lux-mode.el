@@ -538,12 +538,12 @@ This function also returns nil meaning don't specify the indentation."
   (Rec 'defun)
   (synchronized 'defun)
   (object 'defun)
-  (do-to 'defun)
+  (do_to 'defun)
   (comment 'defun)
   (^template 'defun)
   (remember 'defun)
-  (to-do 'defun)
-  (fix-me 'defun)
+  (to_do 'defun)
+  (fix_me 'defun)
   )
 
 ;;;###autoload

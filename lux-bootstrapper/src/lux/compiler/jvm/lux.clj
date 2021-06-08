@@ -295,8 +295,7 @@
                       (return nil)))
                 :let [_ (.visitEnd =class)]
                 _ (&&/save-class! def-name (.toByteArray =class))
-                def-value (install-def! class-loader current-class module-name ?name ?body ?meta exported?)
-                :let [_ (println 'DEF (str module-name &/+name-separator+ ?name))]]
+                def-value (install-def! class-loader current-class module-name ?name ?body ?meta exported?)]
             (return def-value)))
 
         _
@@ -322,8 +321,7 @@
                     (return nil)))
               :let [_ (.visitEnd =class)]
               _ (&&/save-class! def-name (.toByteArray =class))
-              def-value (install-def! class-loader current-class module-name ?name ?body ?meta exported?)
-              :let [_ (println 'DEF (str module-name &/+name-separator+ ?name))]]
+              def-value (install-def! class-loader current-class module-name ?name ?body ?meta exported?)]
           (return def-value))))))
 
 (defn compile-program [compile ?program]
