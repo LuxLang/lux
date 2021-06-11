@@ -1,0 +1,194 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   ["." debug]
+   ["." meta]
+   [abstract
+    [monad (#+ do)]
+    [equivalence (#+ Equivalence)]
+    {[0 #spec]
+     [/
+      ["$." equivalence]
+      ["$." order]
+      ["$." enum]]}]
+   [macro
+    [syntax (#+ syntax:)]
+    ["." code]]
+   [math
+    ["." random (#+ Random)]
+    [number
+     ["i" int]
+     ["." ratio ("#\." equivalence)]]]]
+  {1
+   ["." /]})
+
+(template [<name> <type> <unit>]
+  [(def: (<name> range)
+     (-> Nat (Random (/.Qty <type>)))
+     (|> random.int
+         (\ random.monad map (i.% (.int range)))
+         (random.filter (|>> (i.= +0) not))
+         (\ random.monad map (\ <unit> in))))]
+
+  [meter /.Meter /.meter]
+  [second /.Second /.second]
+  )
+
+(def: polymorphism
+  Test
+  ($_ _.and
+      (_.for [/.equivalence]
+             ($equivalence.spec /.equivalence (..meter 1,000)))
+      (_.for [/.order]
+             ($order.spec /.order (..meter 1,000)))
+      (_.for [/.enum]
+             ($enum.spec /.enum (..meter 1,000)))
+      ))
+
+(/.unit: What what)
+
+(def: unit
+  Test
+  (do random.monad
+    [expected random.int]
+    (_.for [/.Unit]
+           (`` ($_ _.and
+                   (~~ (template [<type> <unit>]
+                         [(_.cover [<type> <unit>]
+                                   (|> expected
+                                       (\ <unit> in)
+                                       (\ <unit> out)
+                                       (i.= expected)))]
+
+                         [/.Gram /.gram]
+                         [/.Meter /.meter]
+                         [/.Litre /.litre]
+                         [/.Second /.second]
+                         ))
+                   (_.cover [/.Pure /.pure /.number]
+                            (|> expected
+                                /.pure
+                                /.number
+                                (i.= expected)))
+                   (_.cover [/.unit:]
+                            (|> expected
+                                (\ ..what in)
+                                (\ ..what out)
+                                (i.= expected)))
+                   )))))
+
+(syntax: (natural)
+  (\ meta.monad map
+     (|>> code.nat list)
+     meta.count))
+
+(with_expansions [<from> (..natural)
+                  <to> (..natural)]
+  (/.scale: How how
+    [<from> <to>])
+
+  (def: how::from <from>)
+  (def: how::to <to>)
+  )
+
+(def: scale
+  Test
+  (do {! random.monad}
+    [small (|> random.int
+               (\ ! map (i.% +1,000))
+               (\ ! map (\ /.meter in)))
+     large (|> random.int
+               (\ ! map (i.% +1,000))
+               (\ ! map (i.* +1,000,000,000))
+               (\ ! map (\ /.meter in)))
+     #let [(^open "meter\.") (: (Equivalence (/.Qty /.Meter))
+                                /.equivalence)]
+     unscaled (|> random.int
+                  (\ ! map (i.% +1,000))
+                  (\ ! map (i.* (.int how::to)))
+                  (\ ! map (\ /.meter in)))]
+    (_.for [/.Scale]
+           (`` ($_ _.and
+                   (~~ (template [<type> <scale>]
+                         [(_.cover [<type> <scale>]
+                                   (|> large
+                                       (\ <scale> scale)
+                                       (: (/.Qty (<type> /.Meter)))
+                                       (\ <scale> de_scale)
+                                       (: (/.Qty /.Meter))
+                                       (meter\= large)))]
+
+                         [/.Kilo /.kilo]
+                         [/.Mega /.mega]
+                         [/.Giga /.giga]
+                         ))
+                   (~~ (template [<type> <scale>]
+                         [(_.cover [<type> <scale>]
+                                   (|> small
+                                       (\ <scale> scale)
+                                       (: (/.Qty (<type> /.Meter)))
+                                       (\ <scale> de_scale)
+                                       (: (/.Qty /.Meter))
+                                       (meter\= small)))]
+
+                         [/.Milli /.milli]
+                         [/.Micro /.micro]
+                         [/.Nano /.nano]
+                         ))
+                   (_.cover [/.re_scale]
+                            (|> large (: (/.Qty /.Meter))
+                                (\ /.kilo scale) (: (/.Qty (/.Kilo /.Meter)))
+                                (/.re_scale /.kilo /.milli) (: (/.Qty (/.Milli /.Meter)))
+                                (/.re_scale /.milli /.kilo) (: (/.Qty (/.Kilo /.Meter)))
+                                (\ /.kilo de_scale) (: (/.Qty /.Meter))
+                                (meter\= large)))
+                   (_.cover [/.scale:]
+                            (and (|> unscaled
+                                     (\ ..how scale)
+                                     (\ ..how de_scale)
+                                     (meter\= unscaled))
+                                 (ratio\= [..how::from
+                                           ..how::to]
+                                          (\ ..how ratio))))
+                   )))))
+
+(def: arithmetic
+  Test
+  (do random.monad
+    [#let [zero (\ /.meter in +0)
+           (^open "meter\.") (: (Equivalence (/.Qty /.Meter))
+                                /.equivalence)]
+     left (random.filter (|>> (meter\= zero) not) (..meter 1,000))
+     right (..meter 1,000)
+     extra (..second 1,000)]
+    (`` ($_ _.and
+            (~~ (template [<q> <i>]
+                  [(_.cover [<q>]
+                            (i.= (<i> (\ /.meter out left) (\ /.meter out right))
+                                 (\ /.meter out (<q> left right))))]
+
+                  [/.+ i.+]
+                  [/.- i.-]
+                  ))
+            (_.cover [/.*]
+                     (let [expected (i.* (\ /.meter out left) (\ /.meter out right))
+                           actual ((debug.private /.out) (: (/.Qty [/.Meter /.Meter])
+                                                            (/.* left right)))]
+                       (i.= expected actual)))
+            (_.cover [/./]
+                     (|> right
+                         (/.* left)
+                         (/./ left)
+                         (meter\= right)))
+            ))))
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      (_.for [/.Qty])
+      ($_ _.and
+          ..polymorphism
+          ..unit
+          ..scale
+          ..arithmetic
+          )))

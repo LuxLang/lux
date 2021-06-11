@@ -6,12 +6,12 @@
    [control
     ["." io]
     ["<>" parser
-     ["<c>" code (#+ Parser)]]]
+     ["<.>" code (#+ Parser)]]]
    [data
     ["." product]
     ["." maybe]
     ["." text
-     ["%" format (#+ format)]]
+     ["%" format]]
     [collection
      ["." list ("#\." functor fold)]]]
    [type
@@ -53,31 +53,31 @@
 (def: nullable
   (Parser Nullable)
   (let [token (' #?)]
-    (<| (<>.and (<>.parses? (<c>.this! token)))
-        (<>.after (<>.not (<c>.this! token)))
-        <c>.any)))
+    (<| (<>.and (<>.parses? (<code>.this! token)))
+        (<>.after (<>.not (<code>.this! token)))
+        <code>.any)))
 
 (type: Constructor
   (List Nullable))
 
 (def: constructor
   (Parser Constructor)
-  (<c>.form (<>.after (<c>.this! (' new))
-                      (<c>.tuple (<>.some ..nullable)))))
+  (<code>.form (<>.after (<code>.this! (' new))
+                         (<code>.tuple (<>.some ..nullable)))))
 
 (type: Field
   [Bit Text Nullable])
 
 (def: static!
   (Parser Any)
-  (<c>.this! (' #static)))
+  (<code>.this! (' #static)))
 
 (def: field
   (Parser Field)
-  (<c>.form ($_ <>.and
-                (<>.parses? ..static!)
-                <c>.local_identifier
-                ..nullable)))
+  (<code>.form ($_ <>.and
+                   (<>.parses? ..static!)
+                   <code>.local_identifier
+                   ..nullable)))
 
 (type: Common_Method
   {#name Text
@@ -97,11 +97,11 @@
 (def: common_method
   (Parser Common_Method)
   ($_ <>.and
-      <c>.local_identifier
-      (<>.maybe (<>.after (<c>.this! (' #as)) <c>.local_identifier))
-      (<c>.tuple (<>.some ..nullable))
-      (<>.parses? (<c>.this! (' #io)))
-      (<>.parses? (<c>.this! (' #try)))
+      <code>.local_identifier
+      (<>.maybe (<>.after (<code>.this! (' #as)) <code>.local_identifier))
+      (<code>.tuple (<>.some ..nullable))
+      (<>.parses? (<code>.this! (' #io)))
+      (<>.parses? (<code>.this! (' #try)))
       ..nullable))
 
 (def: static_method
@@ -109,8 +109,8 @@
 
 (def: method
   (Parser Method)
-  (<c>.form (<>.or ..static_method
-                   ..common_method)))
+  (<code>.form (<>.or ..static_method
+                      ..common_method)))
 
 (type: Member
   (#Constructor Constructor)
@@ -161,16 +161,16 @@
            (.error! "Null is an invalid value."))))))
 
 (type: Import
-  (#Class [Text (List Member)])
+  (#Class [Text Text (List Member)])
   (#Function Static_Method))
 
 (def: import
-  ($_ <>.or
-      ($_ <>.and
-          <c>.local_identifier
-          (<>.some member))
-      (<c>.form ..common_method)
-      ))
+  (Parser Import)
+  (<>.or (<>.and <code>.local_identifier
+                 (<>.default ["" (list)]
+                             (<code>.tuple (<>.and <code>.text
+                                                   (<>.some member)))))
+         (<code>.form ..common_method)))
 
 (syntax: #export (try expression)
   {#.doc (doc (case (try (risky_computation input))
@@ -225,10 +225,14 @@
 (syntax: #export (import: {import ..import})
   (with_gensyms [g!temp]
     (case import
-      (#Class [class members])
+      (#Class [class format members])
       (with_gensyms [g!object]
         (let [qualify (: (-> Text Code)
-                         (|>> (format class "::") code.local_identifier))
+                         (function (_ member_name)
+                           (|> format
+                               (text.replace_all "#" class)
+                               (text.replace_all "." member_name)
+                               code.local_identifier)))
               g!type (code.local_identifier class)
               real_class (text.replace_all "/" "." class)]
           (wrap (list& (` (type: (~ g!type)
@@ -251,7 +255,7 @@
                                        (` ((~! syntax:) ((~ (qualify field)))
                                            (\ (~! meta.monad) (~' wrap)
                                               (list (` (.:coerce (~ (nullable_type fieldT))
-                                                                 ("js constant" (~ (code.text (format real_class "." field))))))))))
+                                                                 ("js constant" (~ (code.text (%.format real_class "." field))))))))))
                                        (` (def: ((~ (qualify field))
                                                  (~ g!object))
                                             (-> (~ g!type)
@@ -264,7 +268,7 @@
                                        (#Static [method alias inputsT io? try? outputT])
                                        (..make_function (qualify (maybe.default method alias))
                                                         g!temp
-                                                        (format real_class "." method)
+                                                        (%.format real_class "." method)
                                                         inputsT
                                                         io?
                                                         try?
@@ -304,7 +308,7 @@
   ("js type-of" object))
 
 (syntax: #export (constant type
-                           {[head tail] (<c>.tuple (<>.and <c>.local_identifier (<>.some <c>.local_identifier)))})
+                           {[head tail] (<code>.tuple (<>.and <code>.local_identifier (<>.some <code>.local_identifier)))})
   (with_gensyms [g!_]
     (let [constant (` ("js constant" (~ (code.text head))))]
       (case tail
@@ -325,7 +329,7 @@
                               #.None
 
                               (~ g!_)
-                              (..constant (~ type) [(~ (code.local_identifier (format head "." next)))
+                              (..constant (~ type) [(~ (code.local_identifier (%.format head "." next)))
                                                     (~+ (list\map code.local_identifier tail))])))))))))))
 
 (template: (!defined? <constant>)

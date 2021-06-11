@@ -11,7 +11,6 @@ cd ~/lux/lux-php/ && lein clean && lein lux auto test
 
 ```
 ## Develop
-## NOTE: Must set lux/control/concurrency/thread.parallelism = 1 before compiling to make sure JPHP doesn't cause trouble.
 cd ~/lux/lux-php/ \
 && lein clean \
 && lein lux auto build
@@ -30,7 +29,7 @@ cd ~/lux/lux-php/ \
 ## Compile Lux's Standard Library's tests using a JVM-based compiler.
 cd ~/lux/stdlib/ \
 && lein clean \
-&& time java -jar ~/lux/lux-php/target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
+&& time java -jar ~/lux/lux-php/jvm_based_compiler.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
 
 php -f ~/lux/stdlib/target/program.php
 ```
