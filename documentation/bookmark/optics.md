@@ -19,6 +19,6 @@
 1. http://evincarofautumn.blogspot.com/2016/01/thoughts-on-using-fractional-types-to.html
 1. https://www.slideshare.net/davidoverton/comonad
 1. http://codingismycraft.com/index.php/2017/10/04/adding-descriptors-to-your-python-arsenal/
-1. https://blog.jle.im/entry/lenses-products-prisms-sums.html
+1. [Lenses embody Products, Prisms embody Sums](https://blog.jle.im/entry/lenses-products-prisms-sums.html)
 1. http://www.philipzucker.com/lens-as-a-divisibility-relation-goofin-off-with-the-algebra-of-types/
 

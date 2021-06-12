@@ -15,8 +15,8 @@
     ["." text
      ["%" format (#+ format)]]
     [collection
-     ["." row (#+ Row)]
-     ["." list ("#\." functor)]]]
+     ["." row (#+ Row) ("#\." fold)]
+     ["." list ("#\." functor fold)]]]
    [math
     [number
      ["n" nat]]]
@@ -31,9 +31,11 @@
     ["." static (#+ Static)]]]
   ["." // (#+ Packager)
    [//
-    ["." archive
+    ["." archive (#+ Output)
      ["." descriptor (#+ Module)]
      ["." artifact]]
+    [cache
+     ["." dependency]]
     ["." io #_
      ["#" archive]]
     [//
@@ -106,64 +108,41 @@
   (-> Context java/util/jar/Manifest)
   (let [manifest (java/util/jar/Manifest::new)]
     (exec (do_to (java/util/jar/Manifest::getMainAttributes manifest)
-                 (java/util/jar/Attributes::put (java/util/jar/Attributes$Name::MAIN_CLASS) (|> program runtime.class_name name.internal name.external))
-                 (java/util/jar/Attributes::put (java/util/jar/Attributes$Name::MANIFEST_VERSION) ..manifest_version))
+            (java/util/jar/Attributes::put (java/util/jar/Attributes$Name::MAIN_CLASS) (|> program runtime.class_name name.internal name.external))
+            (java/util/jar/Attributes::put (java/util/jar/Attributes$Name::MANIFEST_VERSION) ..manifest_version))
       manifest)))
 
-## TODO: Delete ASAP
-(type: (Action ! a)
-  (! (Try a)))
+(def: (write_class static module artifact content sink)
+  (-> Static archive.ID artifact.ID Binary java/util/jar/JarOutputStream
+      java/util/jar/JarOutputStream)
+  (let [class_path (format (runtime.class_name [module artifact])
+                           (get@ #static.artifact_extension static))]
+    (do_to sink
+      (java/util/jar/JarOutputStream::putNextEntry (java/util/jar/JarEntry::new class_path))
+      (java/util/zip/ZipOutputStream::write content +0 (.int (binary.size content)))
+      (java/io/Flushable::flush)
+      (java/util/zip/ZipOutputStream::closeEntry))))
 
-(def: (write_class monad file_system static context sink)
-  (All [!]
-    (-> (Monad !) (file.System !) Static Context java/util/jar/JarOutputStream
-        (Action ! java/util/jar/JarOutputStream)))
-  (do (try.with monad)
-    [artifact (let [[module artifact] context]
-                (!.use (\ file_system file) [(io.artifact file_system static module (%.nat artifact))]))
-     content (!.use (\ artifact content) [])
-     #let [class_path (format (runtime.class_name context) (get@ #static.artifact_extension static))]]
-    (wrap (do_to sink
-                 (java/util/jar/JarOutputStream::putNextEntry (java/util/jar/JarEntry::new class_path))
-                 (java/util/zip/ZipOutputStream::write content +0 (.int (binary.size content)))
+(def: (write_module static [module output] sink)
+  (-> Static [archive.ID Output] java/util/jar/JarOutputStream
+      java/util/jar/JarOutputStream)
+  (row\fold (function (_ [artifact content] sink)
+              (..write_class static module artifact content sink))
+            sink
+            output))
+
+(def: #export (package static)
+  (-> Static Packager)
+  (function (_ archive program)
+    (do {! try.monad}
+      [order (dependency.load_order $.key archive)
+       #let [buffer (java/io/ByteArrayOutputStream::new (.int ..mebi_byte))
+             sink (|> order
+                      (list\map (function (_ [module [module_id [descriptor document output]]])
+                                  [module_id output]))
+                      (list\fold (..write_module static)
+                                 (java/util/jar/JarOutputStream::new buffer (..manifest program))))
+             _ (do_to sink
                  (java/io/Flushable::flush)
-                 (java/util/zip/ZipOutputStream::closeEntry)))))
-
-(def: (write_module monad file_system static [module artifacts] sink)
-  (All [!]
-    (-> (Monad !) (file.System !) Static [archive.ID (List artifact.ID)] java/util/jar/JarOutputStream
-        (Action ! java/util/jar/JarOutputStream)))
-  (monad.fold (:assume (try.with monad))
-              (function (_ artifact sink)
-                (..write_class monad file_system static [module artifact] sink))
-              sink
-              artifacts))
-
-(def: #export (package monad file_system static archive program)
-  (All [!] (Packager !))
-  (do {! (try.with monad)}
-    [cache (:share [!]
-                   {(Monad !)
-                    monad}
-                   {(! (Try (Directory !)))
-                    (:assume (!.use (\ file_system directory) [(get@ #static.target static)]))})
-     order (|> archive
-               archive.archived
-               (monad.map try.monad (function (_ module)
-                                      (do try.monad
-                                        [[descriptor document] (archive.find module archive)
-                                         module_id (archive.id module archive)]
-                                        (wrap (|> descriptor
-                                                  (get@ #descriptor.registry)
-                                                  artifact.artifacts
-                                                  row.to_list
-                                                  (list\map (|>> (get@ #artifact.id)))
-                                                  [module_id])))))
-               (\ monad wrap))
-     #let [buffer (java/io/ByteArrayOutputStream::new (.int ..mebi_byte))
-           sink (java/util/jar/JarOutputStream::new buffer (..manifest program))]
-     sink (monad.fold ! (..write_module monad file_system static) sink order)
-     #let [_ (do_to sink
-                    (java/io/Flushable::flush)
-                    (java/io/Closeable::close))]]
-    (wrap (java/io/ByteArrayOutputStream::toByteArray buffer))))
+                 (java/io/Closeable::close))]]
+      (wrap (java/io/ByteArrayOutputStream::toByteArray buffer)))))

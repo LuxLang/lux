@@ -1,8 +1,11 @@
 (.module:
   [lux #*
    [abstract
-    [monad (#+ do)]]
+    [monad (#+ do)]
+    [equivalence (#+ Equivalence)]]
    [control
+    ["." try (#+ Try)]
+    ["." exception (#+ exception:)]
     ["<>" parser
      ["<.>" text (#+ Parser)]]]
    [data
@@ -10,11 +13,14 @@
      ["%" format]]]
    [math
     [number
-     ["n" nat]]]
+     ["n" nat]
+     ["i" int]]]
    [time
-    ["." date (#+ Date)]
+    ["." date ("#\." equivalence)]
     ["." year]
-    ["." month]]])
+    ["." month]]
+   [type
+    abstract]])
 
 (def: #export (pad value)
   (-> Nat Text)
@@ -22,18 +28,54 @@
     (%.format "0" (%.nat value))
     (%.nat value)))
 
-(def: #export (format value)
-  (%.Format Date)
-  (%.format (|> value date.year year.value .nat %.nat)
-            (|> value date.month month.number ..pad)
-            (|> value date.day_of_month ..pad)))
+(def: min_year +1,000)
+(def: max_year +9,999)
 
-(def: #export parser
-  (Parser Date)
-  (do <>.monad
-    [year (<>.codec n.decimal (<text>.exactly 4 <text>.decimal))
-     year (<>.lift (year.year (.int year)))
-     month (<>.codec n.decimal (<text>.exactly 2 <text>.decimal))
-     month (<>.lift (month.by_number month))
-     day_of_month (<>.codec n.decimal (<text>.exactly 2 <text>.decimal))]
-    (<>.lift (date.date year month day_of_month))))
+(exception: #export (year_is_out_of_range {year year.Year})
+  (exception.report
+   ["Minimum" (%.int ..min_year)]
+   ["Maximum" (%.int ..max_year)]
+   ["Year" (%.int (year.value year))]))
+
+(abstract: #export Date
+  date.Date
+
+  (def: #export epoch
+    Date
+    (:abstraction date.epoch))
+
+  (def: #export (date raw)
+    (-> date.Date (Try Date))
+    (let [year (|> raw date.year year.value)]
+      (if (and (i.>= ..min_year year)
+               (i.<= ..max_year year))
+        (#try.Success (:abstraction raw))
+        (exception.throw ..year_is_out_of_range [(date.year raw)]))))
+
+  (def: #export value
+    (-> Date date.Date)
+    (|>> :representation))
+
+  (structure: #export equivalence
+    (Equivalence Date)
+
+    (def: (= reference subject)
+      (date\= (:representation reference)
+              (:representation subject))))
+
+  (def: #export (format value)
+    (%.Format Date)
+    (%.format (|> value :representation date.year year.value .nat %.nat)
+              (|> value :representation date.month month.number ..pad)
+              (|> value :representation date.day_of_month ..pad)))
+
+  (def: #export parser
+    (Parser Date)
+    (do <>.monad
+      [year (<>.codec n.decimal (<text>.exactly 4 <text>.decimal))
+       year (<>.lift (year.year (.int year)))
+       month (<>.codec n.decimal (<text>.exactly 2 <text>.decimal))
+       month (<>.lift (month.by_number month))
+       day_of_month (<>.codec n.decimal (<text>.exactly 2 <text>.decimal))
+       date (<>.lift (date.date year month day_of_month))]
+      (wrap (:abstraction date)))))

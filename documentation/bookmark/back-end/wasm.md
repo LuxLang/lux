@@ -1,3 +1,7 @@
+# Platform
+
+1. [WAVM: WAVM is a WebAssembly virtual machine, designed for use in non-web applications.](https://wavm.github.io/)
+
 # Exemplar
 
 1. [Announcing GraalWasm — a WebAssembly engine in GraalVM](https://medium.com/graalvm/announcing-graalwasm-a-webassembly-engine-in-graalvm-25cd0400a7f2)
