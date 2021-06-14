@@ -1,0 +1,242 @@
+(.module:
+  [lux (#- Definition let def:)
+   ["." meta]
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    ["." try (#+ Try)]
+    ["." exception (#+ exception:)]
+    ["<>" parser ("#\." monad)
+     ["<.>" code (#+ Parser)]]]
+   [data
+    ["." product]
+    [text
+     ["%" format (#+ format)]]
+    [collection
+     ["." list ("#\." functor)]
+     [dictionary
+      ["." plist (#+ PList)]]]]
+   ["." macro
+    ["." code]
+    [syntax (#+ syntax:)
+     ["." export]
+     ["." declaration (#+ Declaration)]]]]
+  ["." //])
+
+(type: Mutual
+  {#declaration Declaration
+   #type Code
+   #body Code})
+
+(.def: mutual
+  (Parser [Declaration Code Code])
+  ($_ <>.and
+      declaration.parser
+      <code>.any
+      <code>.any
+      ))
+
+(.def: (mutual_definition context g!context [g!name mutual])
+  (-> (List Code) Code [Code Mutual] Code)
+  (` (function ((~ g!name) (~ g!context))
+       (.let [[(~+ context)] (~ g!context)]
+         (function (~ (declaration.format (get@ #declaration mutual)))
+           (~ (get@ #body mutual)))))))
+
+(exception: #export (unknown_module {module Text})
+  (exception.report
+   ["Module" (%.text module)]))
+
+(template [<name>]
+  [(exception: #export (<name> {module Text} {definition Text})
+     (exception.report
+      ["Module" (%.text module)]
+      ["Definition" (%.text definition)]))]
+
+  [cannot_shadow_definition]
+  [unknown_definition]
+  )
+
+(.def: (with_module name body)
+  (All [a] (-> Text (-> Module (Try [Module a])) (Meta a)))
+  (function (_ compiler)
+    (case (|> compiler (get@ #.modules) (plist.get name))
+      (#.Some module)
+      (case (body module)
+        (#try.Success [module' output])
+        (#try.Success [(update@ #.modules (plist.put name module') compiler)
+                       output])
+        
+        (#try.Failure error)
+        (#try.Failure error))
+
+      #.None
+      (exception.throw ..unknown_module [name]))))
+
+(.def: (push_one [name macro])
+  (-> [Name Macro] (Meta Any))
+  (do meta.monad
+    [[module_name definition_name] (meta.normalize name)
+     #let [definition (: Global (#.Definition [false .Macro (' {}) macro]))
+           add_macro! (: (-> (PList Global) (PList Global))
+                         (plist.put definition_name definition))]]
+    (..with_module module_name
+      (function (_ module)
+        (case (|> module (get@ #.definitions) (plist.get definition_name))
+          #.None
+          (#try.Success [(update@ #.definitions add_macro! module)
+                         []])
+          
+          (#.Some _)
+          (exception.throw ..cannot_shadow_definition [module_name definition_name]))))))
+
+(.def: (pop_one name)
+  (-> Name (Meta Any))
+  (do meta.monad
+    [[module_name definition_name] (meta.normalize name)
+     #let [remove_macro! (: (-> (PList Global) (PList Global))
+                            (plist.remove definition_name))]]
+    (..with_module module_name
+      (function (_ module)
+        (case (|> module (get@ #.definitions) (plist.get definition_name))
+          (#.Some _)
+          (#try.Success [(update@ #.definitions remove_macro! module)
+                         []])
+
+          #.None
+          (exception.throw ..unknown_definition [module_name definition_name]))))))
+
+(.def: (pop_all macros self)
+  (-> (List Name) Name Macro)
+  (<| (:coerce Macro)
+      (: Macro')
+      (function (_ _)
+        (do {! meta.monad}
+          [_ (monad.map ! ..pop_one macros)
+           _ (..pop_one self)
+           compiler meta.get_compiler]
+          (wrap (case (get@ #.expected compiler)
+                  (#.Some _) (list (' []))
+                  #.None (list)))))))
+
+(.def: (push_all macros)
+  (-> (List [Name Macro]) (Meta Code))
+  (do meta.monad
+    [_ (monad.map meta.monad ..push_one macros)
+     seed meta.count
+     g!pop (macro.gensym "pop")
+     _ (.let [g!pop (: Name ["" (%.code g!pop)])]
+         (..push_one [g!pop (..pop_all (list\map product.left macros) g!pop)]))]
+    (wrap (` ((~ g!pop))))))
+
+(.def: (macro g!context g!self)
+  (-> Code Code Macro)
+  (<| (:coerce Macro)
+      (: Macro')
+      (function (_ parameters)
+        (\ meta.monad wrap (list (` (((~ g!self) (~ g!context)) (~+ parameters))))))))
+
+(syntax: #export (let {functions (<code>.tuple (<>.some ..mutual))}
+                   body)
+  (case functions
+    #.Nil
+    (wrap (list body))
+    
+    (#.Cons mutual #.Nil)
+    (.let [g!name (|> mutual (get@ [#declaration #declaration.name]) code.local_identifier)]
+      (wrap (list (` (.let [(~ g!name) (: (~ (get@ #type mutual))
+                                          (function (~ (declaration.format (get@ #declaration mutual)))
+                                            (~ (get@ #body mutual))))]
+                       (~ body))))))
+    
+    _
+    (macro.with_gensyms [g!context g!output]
+      (do {! meta.monad}
+        [here_name meta.current_module_name
+         hidden_names (monad.map ! (//.constant (macro.gensym "mutual_function#"))
+                                 functions)
+         #let [definitions (list\map (..mutual_definition hidden_names g!context)
+                                     (list.zip/2 hidden_names
+                                                 functions))
+               context_types (list\map (function (_ mutual)
+                                         (` (-> (~ g!context) (~ (get@ #type mutual)))))
+                                       functions)
+               user_names (list\map (|>> (get@ [#declaration #declaration.name]) code.local_identifier)
+                                    functions)]
+         g!pop (..push_all (list\map (function (_ [g!name mutual])
+                                       [[here_name (get@ [#declaration #declaration.name] mutual)]
+                                        (..macro g!context g!name)])
+                                     (list.zip/2 hidden_names
+                                                 functions)))]
+        (wrap (list (` (.let [(~ g!context) (: (Rec (~ g!context)
+                                                 [(~+ context_types)])
+                                               [(~+ definitions)])
+                              [(~+ user_names)] (.let [[(~+ user_names)] (~ g!context)]
+                                                  [(~+ (list\map (function (_ g!name)
+                                                                   (` ((~ g!name) (~ g!context))))
+                                                                 user_names))])
+                              (~ g!output) (~ body)]
+                         (exec (~ g!pop)
+                           (~ g!output))))))))))
+
+(type: Definition
+  {#exported? Bit
+   #mutual Mutual})
+
+(.def: definition
+  (Parser Definition)
+  (<code>.tuple (<>.and export.parser
+                        ..mutual)))
+
+(syntax: #export (def: {functions (<>.many ..definition)})
+  (case functions
+    #.Nil
+    (wrap (list))
+    
+    (#.Cons definition #.Nil)
+    (.let [(^slots [#exported? #mutual]) definition
+           (^slots [#declaration #type #body]) mutual]
+      (wrap (list (` (.def:
+                       (~+ (export.format exported?))
+                       (~ (declaration.format declaration))
+                       (~ type)
+                       (~ body))))))
+    
+    _
+    (macro.with_gensyms [g!context g!output]
+      (do {! meta.monad}
+        [here_name meta.current_module_name
+         hidden_names (monad.map ! (//.constant (macro.gensym "mutual_function#"))
+                                 functions)
+         #let [definitions (list\map (..mutual_definition hidden_names g!context)
+                                     (list.zip/2 hidden_names
+                                                 (list\map (get@ #mutual) functions)))
+               context_types (list\map (function (_ mutual)
+                                         (` (-> (~ g!context) (~ (get@ [#mutual #type] mutual)))))
+                                       functions)
+               user_names (list\map (|>> (get@ [#mutual #declaration #declaration.name]) code.local_identifier)
+                                    functions)]
+         g!pop (..push_all (list\map (function (_ [g!name mutual])
+                                       [[here_name (get@ [#mutual #declaration #declaration.name] mutual)]
+                                        (..macro g!context g!name)])
+                                     (list.zip/2 hidden_names
+                                                 functions)))]
+        (wrap (list& (` (.def: (~ g!context)
+                          [(~+ (list\map (get@ [#mutual #type]) functions))]
+                          (.let [(~ g!context) (: (Rec (~ g!context)
+                                                    [(~+ context_types)])
+                                                  [(~+ definitions)])
+                                 [(~+ user_names)] (~ g!context)]
+                            [(~+ (list\map (function (_ g!name)
+                                             (` ((~ g!name) (~ g!context))))
+                                           user_names))])))
+                     g!pop
+                     (list\map (function (_ mutual)
+                                 (.let [g!name (|> mutual (get@ [#mutual #declaration #declaration.name]) code.local_identifier)]
+                                   (` (.def:
+                                        (~+ (export.format (get@ #exported? mutual)))
+                                        (~ g!name)
+                                        (~ (get@ [#mutual #type] mutual))
+                                        (.let [[(~+ user_names)] (~ g!context)]
+                                          (~ g!name))))))
+                               functions)))))))

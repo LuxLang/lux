@@ -30,9 +30,5 @@
                              :test "test/aedifex"}}
              :scriptum {:description "A documentation generator for Lux code."
                         :dependencies []
-                        :lux {:program "program/scriptum"}}
-             :licentia {:description "A program for producing free/open-source/reciprocal licenses."
-                        :dependencies []
-                        :lux {:program "program/licentia"
-                              :test "test/licentia"}}}
+                        :lux {:program "program/scriptum"}}}
   )

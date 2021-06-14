@@ -106,25 +106,3 @@ cd ~/lux/stdlib/ && lein clean && lein with-profile aedifex lux auto test
 cd ~/lux/lux-lein/ && lein install
 ```
 
----
-
-# Licentia: License maker
-
-## Build
-
-```
-cd ~/lux/stdlib/ && lein clean && lein with-profile licentia lux auto build
-```
-
-## Test
-
-```
-cd ~/lux/stdlib/ && lein clean && lein with-profile licentia lux auto test
-```
-
-## Run
-
-```
-cd ~/lux/stdlib/ && java -jar target/program.jar --input ../license.json --output ../license.txt
-```
-
