@@ -7,6 +7,7 @@
    [control
     ["." function]
     ["." try (#+ Try)]
+    ["." exception (#+ exception:)]
     ["." io (#+ IO)]
     [security
      ["!" capability (#+ capability:)]
@@ -108,6 +109,7 @@
            [process (!.use (\ shell execute) input)]
            (wrap (..async_process process)))))))))
 
+## https://en.wikipedia.org/wiki/Code_injection#Shell_injection
 (signature: (Policy ?)
   (: (-> Command (Safe Command ?))
      command)
@@ -220,7 +222,7 @@
                                (import: java/io/BufferedReader
                                  ["#::."
                                   (new [java/io/Reader])
-                                  (readLine [] #io #try java/lang/String)])
+                                  (readLine [] #io #try #? java/lang/String)])
 
                                (import: java/io/InputStream)
                                
@@ -240,9 +242,11 @@
                                   (destroy [] #io #try void)
                                   (waitFor [] #io #try int)])
 
+                               (exception: #export no_more_output)
+
                                (def: (default_process process)
                                  (-> java/lang/Process (IO (Try (Process IO))))
-                                 (do (try.with io.monad)
+                                 (do {! (try.with io.monad)}
                                    [jvm_input (java/lang/Process::getInputStream process)
                                     jvm_error (java/lang/Process::getErrorStream process)
                                     jvm_output (java/lang/Process::getOutputStream process)
@@ -258,7 +262,14 @@
                                                        [(def: <name>
                                                           (..can_read
                                                            (function (_ _)
-                                                             (java/io/BufferedReader::readLine <stream>))))]
+                                                             (do !
+                                                               [output (java/io/BufferedReader::readLine <stream>)]
+                                                               (case output
+                                                                 (#.Some output)
+                                                                 (wrap output)
+
+                                                                 #.None
+                                                                 (\ io.monad wrap (exception.throw ..no_more_output [])))))))]
 
                                                        [read jvm_input]
                                                        [error jvm_error]
@@ -300,39 +311,23 @@
                                     (|>> java/lang/String::toLowerCase (text.starts_with? "windows"))
                                     (java/lang/System::getProperty "os.name")))
 
-                               (def: (jvm::process_builder policy command arguments)
-                                 (All [?]
-                                   (-> (Policy ?) (Safe Command ?) (List (Safe Argument ?))
-                                       java/lang/ProcessBuilder))
-                                 (|> (list\map (\ policy value) arguments)
-                                     (list& (\ policy value command))
-                                     ..jvm::arguments_array
-                                     java/lang/ProcessBuilder::new))
-
                                (structure: #export default
                                  (Shell IO)
 
                                  (def: execute
                                    (..can_execute
                                     (function (_ [environment working_directory command arguments])
-                                      (with_expansions [<jvm> (as_is (do {! (try.with io.monad)}
-                                                                       [windows? ..windows?
-                                                                        #let [builder (if windows?
-                                                                                        (..jvm::process_builder ..windows_policy
-                                                                                                                (\ ..windows_policy command command)
-                                                                                                                (list\map (\ ..windows_policy argument) arguments))
-                                                                                        (..jvm::process_builder ..unix_policy
-                                                                                                                (\ ..unix_policy command command)
-                                                                                                                (list\map (\ ..unix_policy argument) arguments)))]
-                                                                        _ (|> builder
-                                                                              (java/lang/ProcessBuilder::directory (java/io/File::new working_directory))
-                                                                              java/lang/ProcessBuilder::environment
-                                                                              (\ try.functor map (..jvm::load_environment environment))
-                                                                              (\ io.monad wrap))
-                                                                        process (java/lang/ProcessBuilder::start builder)]
-                                                                       (..default_process process)))]
-                                        (for {@.old (as_is <jvm>)
-                                              @.jvm (as_is <jvm>)}))))))
+                                      (do {! (try.with io.monad)}
+                                        [#let [builder (|> (list& command arguments)
+                                                           ..jvm::arguments_array
+                                                           java/lang/ProcessBuilder::new
+                                                           (java/lang/ProcessBuilder::directory (java/io/File::new working_directory)))]
+                                         _ (|> builder
+                                               java/lang/ProcessBuilder::environment
+                                               (\ try.functor map (..jvm::load_environment environment))
+                                               (\ io.monad wrap))
+                                         process (java/lang/ProcessBuilder::start builder)]
+                                        (..default_process process))))))
                                )]
   (for {@.old (as_is <jvm>)
         @.jvm (as_is <jvm>)}

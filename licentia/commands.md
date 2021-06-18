@@ -5,6 +5,10 @@
 cd ~/lux/licentia/ \
 && lein clean \
 && lein lux auto build
+
+cd ~/lux/licentia/ \
+&& lux clean \
+&& time lux build
 ```
 
 ## Test

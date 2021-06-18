@@ -17,7 +17,7 @@
   
   :plugins [[com.github.luxlang/lein-luxc ~version]]
   
-  :dependencies [[com.github.luxlang/luxc-jvm ~version]
+  :dependencies [[com.github.luxlang/lux-jvm ~version]
                  [com.github.luxlang/stdlib ~version]]
   
   :pom-addition [:developers [:developer

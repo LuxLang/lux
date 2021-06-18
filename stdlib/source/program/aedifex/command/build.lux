@@ -25,7 +25,7 @@
    [world
     [program (#+ Program)]
     ["." file (#+ Path)]
-    ["." shell (#+ Shell)]
+    ["." shell (#+ Process Shell)]
     ["." console (#+ Console)]
     [net
      ["." uri]]]]
@@ -79,8 +79,8 @@
 (exception: #export no_specified_target)
 
 (type: #export Compiler
-  (#JVM Artifact)
-  (#JS Artifact))
+  (#JVM Dependency)
+  (#JS Dependency))
 
 (def: (remove_dependency dependency)
   (-> Dependency (-> Resolution Resolution))
@@ -94,28 +94,30 @@
          (..js_compiler resolution)]
     [(#.Some dependency) _]
     (#try.Success [(..remove_dependency dependency resolution)
-                   (#JVM (get@ #///dependency.artifact dependency))])
+                   (#JVM dependency)])
     
     [_ (#.Some dependency)]
     (#try.Success [(..remove_dependency dependency resolution)
-                   (#JS (get@ #///dependency.artifact dependency))])
+                   (#JS dependency)])
 
     _
     (exception.throw ..no_available_compiler [])))
 
-(def: (path fs home artifact)
-  (All [!] (-> (file.System !) Path Artifact Path))
-  (let [/ (\ fs separator)]
+(def: (path fs home dependency)
+  (All [!] (-> (file.System !) Path Dependency Path))
+  (let [/ (\ fs separator)
+        artifact (get@ #///dependency.artifact dependency)]
     (|> artifact
         (///local.uri (get@ #///artifact.version artifact))
         (text.replace_all uri.separator /)
-        (format home /))))
+        (format home /)
+        (text.suffix (format "." (get@ #///dependency.type dependency))))))
 
 (def: (libraries fs home)
   (All [!] (-> (file.System !) Path Resolution (List Path)))
   (|>> dictionary.keys
        (list.filter (|>> (get@ #///dependency.type) (text\= ///artifact/type.lux_library)))
-       (list\map (|>> (get@ #///dependency.artifact) (..path fs home)))))
+       (list\map (..path fs home))))
 
 (def: (singular name)
   (-> Text Text (List Text))
@@ -128,6 +130,26 @@
 (def: #export start "[BUILD STARTED]")
 (def: #export success "[BUILD ENDED]")
 (def: #export failure "[BUILD FAILED]")
+
+(template [<name> <capability>]
+  [(def: (<name> console process)
+     (-> (Console Promise) (Process Promise) (Promise (Try Any)))
+     (do {! promise.monad}
+       [?line (!.use (\ process <capability>) [])]
+       (case ?line
+         (#try.Failure error)
+         (if (exception.match? shell.no_more_output error)
+           (wrap (#try.Success []))
+           (console.write_line error console))
+         
+         (#try.Success line)
+         (do (try.with !)
+           [_ (console.write_line line console)]
+           (log_output! console process)))))]
+
+  [log_output! read]
+  [log_error! error]
+  )
 
 (def: #export (do! console program fs shell resolution profile)
   (-> (Console Promise) (Program Promise) (file.System Promise) (Shell Promise) Resolution (Command [Compiler Path]))
@@ -146,12 +168,11 @@
        working_directory (\ program directory [])]
       (do ///action.monad
         [[resolution compiler] (promise\wrap (..compiler resolution))
-         #let [[command output] (let [[compiler output] (case compiler
-                                                          (#JVM artifact) [(///runtime.java (..path fs home artifact))
-                                                                           "program.jar"]
-                                                          (#JS artifact) [(///runtime.node (..path fs home artifact))
-                                                                          "program.js"])]
-                                  [(format compiler " build") output])
+         #let [[[command compiler_params] output] (case compiler
+                                                    (#JVM dependency) [(///runtime.java (..path fs home dependency))
+                                                                       "program.jar"]
+                                                    (#JS dependency) [(///runtime.node (..path fs home dependency))
+                                                                      "program.js"])
                / (\ fs separator)
                cache_directory (format working_directory / target)]
          _ (console.write_line ..start console)
@@ -159,10 +180,14 @@
                         [environment
                          working_directory
                          command
-                         (list.concat (list (..plural "--library" (..libraries fs home resolution))
+                         (list.concat (list compiler_params
+                                            (list "build")
+                                            (..plural "--library" (..libraries fs home resolution))
                                             (..plural "--source" (set.to_list (get@ #///.sources profile)))
                                             (..singular "--target" cache_directory)
                                             (..singular "--module" program_module)))])
+         _ (..log_output! console process)
+         _ (..log_error! console process)
          exit (!.use (\ process await) [])
          _ (console.write_line (if (i.= shell.normal exit)
                                  ..success

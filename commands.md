@@ -103,6 +103,7 @@ cd ~/lux/stdlib/ && lein clean && lein with-profile aedifex lux auto test
 ## Install
 
 ```
-cd ~/lux/lux-lein/ && lein install
+cd ~/lux/lux-lein/ \
+&& lein install
 ```
 

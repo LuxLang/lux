@@ -1,0 +1,105 @@
+(.module:
+  [lux #*
+   ["." meta]
+   [abstract
+    ["." monad (#+ do)]]
+   [control
+    ["." try (#+ Try)]
+    ["." exception (#+ exception:)]]
+   [data
+    ["." product]
+    ["." text]
+    [collection
+     ["." list ("#\." functor)]
+     [dictionary
+      ["." plist (#+ PList)]]]]]
+  ["." //
+   ["#." code]])
+
+(exception: #export (unknown_module {module Text})
+  (exception.report
+   ["Module" (text.format module)]))
+
+(template [<name>]
+  [(exception: #export (<name> {module Text} {definition Text})
+     (exception.report
+      ["Module" (text.format module)]
+      ["Definition" (text.format definition)]))]
+
+  [cannot_shadow_definition]
+  [unknown_definition]
+  )
+
+(def: (with_module name body)
+  (All [a] (-> Text (-> Module (Try [Module a])) (Meta a)))
+  (function (_ compiler)
+    (case (|> compiler (get@ #.modules) (plist.get name))
+      (#.Some module)
+      (case (body module)
+        (#try.Success [module' output])
+        (#try.Success [(update@ #.modules (plist.put name module') compiler)
+                       output])
+        
+        (#try.Failure error)
+        (#try.Failure error))
+
+      #.None
+      (exception.throw ..unknown_module [name]))))
+
+(def: (push_one [name macro])
+  (-> [Name Macro] (Meta Any))
+  (do meta.monad
+    [[module_name definition_name] (meta.normalize name)
+     #let [definition (: Global (#.Definition [false .Macro (' {}) macro]))
+           add_macro! (: (-> (PList Global) (PList Global))
+                         (plist.put definition_name definition))]]
+    (..with_module module_name
+      (function (_ module)
+        (case (|> module (get@ #.definitions) (plist.get definition_name))
+          #.None
+          (#try.Success [(update@ #.definitions add_macro! module)
+                         []])
+          
+          (#.Some _)
+          (exception.throw ..cannot_shadow_definition [module_name definition_name]))))))
+
+(def: (pop_one name)
+  (-> Name (Meta Any))
+  (do meta.monad
+    [[module_name definition_name] (meta.normalize name)
+     #let [remove_macro! (: (-> (PList Global) (PList Global))
+                            (plist.remove definition_name))]]
+    (..with_module module_name
+      (function (_ module)
+        (case (|> module (get@ #.definitions) (plist.get definition_name))
+          (#.Some _)
+          (#try.Success [(update@ #.definitions remove_macro! module)
+                         []])
+
+          #.None
+          (exception.throw ..unknown_definition [module_name definition_name]))))))
+
+(def: (pop_all macros self)
+  (-> (List Name) Name Macro)
+  ("lux macro"
+   (function (_ _)
+     (do {! meta.monad}
+       [_ (monad.map ! ..pop_one macros)
+        _ (..pop_one self)
+        compiler meta.get_compiler]
+       (wrap (case (get@ #.expected compiler)
+               (#.Some _)
+               (list (' []))
+               
+               #.None
+               (list)))))))
+
+(def: #export (push macros)
+  (-> (List [Name Macro]) (Meta Code))
+  (do meta.monad
+    [_ (monad.map meta.monad ..push_one macros)
+     seed meta.count
+     g!pop (//.gensym "pop")
+     _ (let [g!pop (: Name ["" (//code.format g!pop)])]
+         (..push_one [g!pop (..pop_all (list\map product.left macros) g!pop)]))]
+    (wrap (` ((~ g!pop))))))

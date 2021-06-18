@@ -12,9 +12,8 @@
     ["." bit ("#\." codec)]
     ["." text]
     [collection
-     ["." list ("#\." monad fold)]
-     ["." dictionary (#+ Dictionary)
-      ["." plist]]]]
+     ["." list ("#\." monad)]
+     ["." dictionary (#+ Dictionary)]]]
    [math
     [number
      ["." nat ("#\." decimal)]
@@ -23,7 +22,8 @@
      ["." frac ("#\." decimal)]]]]
   ["." //
    [syntax (#+ syntax:)]
-   ["." code]])
+   ["." code]
+   ["." local]])
 
 (syntax: #export (splice {parts (<code>.tuple (<>.some <code>.any))})
   (wrap parts))
@@ -106,7 +106,7 @@
     (case (dictionary.get name env)
       (#.Some substitute)
       substitute
-      
+
       #.None
       template)
 
@@ -137,16 +137,17 @@
    ["Actual" (\ nat.decimal encode actual)]))
 
 (def: (macro (^slots [#parameters #template]))
-  (-> Local Macro')
-  (function (_ inputs compiler)
-    (let [parameters_count (list.size parameters)
-          inputs_count (list.size inputs)]
-      (if (nat.= parameters_count inputs_count)
-        (let [environment (: Environment
-                             (|> (list.zip/2 parameters inputs)
-                                 (dictionary.from_list text.hash)))]
-          (#.Right [compiler (list\map (..apply environment) template)]))
-        (exception.throw ..irregular_arguments [parameters_count inputs_count])))))
+  (-> Local Macro)
+  ("lux macro"
+   (function (_ inputs compiler)
+     (let [parameters_count (list.size parameters)
+           inputs_count (list.size inputs)]
+       (if (nat.= parameters_count inputs_count)
+         (let [environment (: Environment
+                              (|> (list.zip/2 parameters inputs)
+                                  (dictionary.from_list text.hash)))]
+           (#.Right [compiler (list\map (..apply environment) template)]))
+         (exception.throw ..irregular_arguments [parameters_count inputs_count]))))))
 
 (def: local
   (Parser Local)
@@ -158,61 +159,26 @@
            #parameters parameters
            #template template})))
 
-(exception: #export (cannot_shadow_definition {module Text} {definition Text})
-  (exception.report
-   ["Module" (text.format module)]
-   ["Definition" (text.format definition)]))
-
-(def: (push module_name local module)
-  (-> Text Local Module (Try Module))
-  (let [definition (get@ #name local)]
-    (case (plist.get definition (get@ #.definitions module))
-      #.None
-      (#try.Success (update@ #.definitions
-                             (plist.put definition
-                                        (#.Definition [false .Macro (' {}) (..macro local)]))
-                             module))
-      
-      (#.Some _)
-      (exception.throw ..cannot_shadow_definition [module_name definition]))))
-
-(syntax: (pop {locals (<>.some <code>.text)})
-  (do meta.monad
-    [here_name meta.current_module_name
-     here meta.current_module]
-    (function (_ compiler)
-      (#.Right [(let [definitions (list\fold plist.remove
-                                             (get@ #.definitions here)
-                                             locals)]
-                  (update@ #.modules
-                           (plist.put here_name (set@ #.definitions definitions here))
-                           compiler))
-                (case (get@ #.expected compiler)
-                  #.None
-                  (list)
-
-                  (#.Some _)
-                  (list (' [])))]))))
-
 (syntax: #export (with {locals (<code>.tuple (<>.some ..local))}
                    body)
   (do meta.monad
     [here_name meta.current_module_name
-     here meta.current_module]
-    (//.with_gensyms [g!body]
-      (function (_ compiler)
-        (do try.monad
-          [here (monad.fold try.monad (..push here_name) here locals)
-           #let [compiler (update@ #.modules (plist.put here_name here) compiler)
-                 pop! (` ((~! ..pop) (~+ (list\map (|>> (get@ #name) code.text)
-                                                   locals))))]]
-          (wrap [compiler
-                 (case (get@ #.expected compiler)
-                   #.None
-                   (list body
-                         pop!)
+     expression? (: (Meta Bit)
+                    (function (_ lux)
+                      (#try.Success [lux (case (get@ #.expected lux)
+                                           #.None
+                                           false
 
-                   (#.Some _)
-                   (list (` (let [(~ g!body) (~ body)]
-                              (exec (~ pop!)
-                                (~ g!body))))))]))))))
+                                           (#.Some _)
+                                           true)])))
+     g!pop (local.push (list\map (function (_ local)
+                                   [[here_name (get@ #name local)]
+                                    (..macro local)])
+                                 locals))]
+    (if expression?
+      (//.with_gensyms [g!body]
+        (wrap (list (` (let [(~ g!body) (~ body)]
+                         (exec (~ g!pop)
+                           (~ g!body)))))))
+      (wrap (list body
+                  g!pop)))))

@@ -1,0 +1,90 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   ["." meta]
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["." try]
+    ["." exception]
+    ["<>" parser
+     ["<.>" code]]]
+   [data
+    [text
+     ["%" format]]
+    [collection
+     ["." list]
+     [dictionary
+      ["." plist]]]]
+   ["." macro
+    [syntax (#+ syntax:)]
+    ["." code]]
+   [math
+    ["." random (#+ Random)]
+    [number
+     ["n" nat]]]]
+  {1
+   ["." /]})
+
+(syntax: (macro_error macro)
+  (function (_ compiler)
+    (case ((macro.expand macro) compiler)
+      (#try.Failure error)
+      (#try.Success [compiler (list (code.text error))])
+      
+      (#try.Success _)
+      (#try.Failure "OOPS!"))))
+
+(def: (constant output)
+  (-> Code Macro)
+  ("lux macro"
+   (function (_ inputs lux)
+     (#try.Success [lux (list output)]))))
+
+(syntax: (with {name (<code>.tuple (<>.and <code>.text <code>.text))}
+           constant
+           {pre_remove <code>.bit}
+           body)
+  (macro.with_gensyms [g!output]
+    (do meta.monad
+      [pop! (/.push (list [name (..constant constant)]))
+       [module short] (meta.normalize name)
+       _ (if pre_remove
+           (let [remove_macro! (: (-> .Module .Module)
+                                  (update@ #.definitions (plist.remove short)))]
+             (function (_ lux)
+               (#try.Success [(update@ #.modules (plist.update module remove_macro!) lux)
+                              []])))
+           (wrap []))]
+      (let [pre_expansion (` (let [(~ g!output) (~ body)]
+                               (exec (~ pop!)
+                                 (~ g!output))))]
+        (if pre_remove
+          (macro.expand_all pre_expansion)
+          (wrap (list pre_expansion)))))))
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      (do {! random.monad}
+        [expected random.nat]
+        ($_ _.and
+            (_.cover [/.push]
+                     (..with ["" "actual"] expected #0
+                       (n.= expected (..actual))))
+            (_.cover [/.unknown_module]
+                     (exception.match? /.unknown_module
+                                       (..macro_error
+                                        (..with ["123yolo456" "actual"] expected #0
+                                          (n.= expected (..actual))))))
+            (_.cover [/.cannot_shadow_definition]
+                     (exception.match? /.cannot_shadow_definition
+                                       (..macro_error
+                                        (..with ["" "with"] expected #0
+                                          (n.= expected (..actual))))))
+            (_.cover [/.unknown_definition]
+                     (exception.match? /.unknown_definition
+                                       (<| ..macro_error
+                                           (..with ["" "actual"] expected #1)
+                                           (n.= expected (..actual)))))
+            ))))

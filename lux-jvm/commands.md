@@ -3,15 +3,12 @@
 ## Test
 
 ```
-cd ~/lux/lux-jvm/ && lein lux auto test
 cd ~/lux/lux-jvm/ && lein clean && lein lux auto test
 ```
 
 ## Build
 
 ```
-cd ~/lux/lux-jvm/ && lein lux auto build
-
 ## Use bootstrapping compiler to build new JVM compiler
 cd ~/lux/lux-jvm/ \
 && lein clean \
@@ -47,7 +44,8 @@ cd ~/lux/stdlib/target/ \
 ## Deploy
 
 ```
-cd ~/lux/lux-jvm/ && mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-jvm -Dversion=0.6.0-SNAPSHOT -Dpackaging=jar
+cd ~/lux/lux-jvm/ \
+&& mvn install:install-file -Dfile=target/program.jar -DgroupId=com.github.luxlang -DartifactId=lux-jvm -Dversion=0.6.0-SNAPSHOT -Dpackaging=jar
 
 cd ~/lux/lux-jvm/ && mvn deploy:deploy-file \
 -Durl=https://<username>:<password>@oss.sonatype.org/content/repositories/snapshots/ \
