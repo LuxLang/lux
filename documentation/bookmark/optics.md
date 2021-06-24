@@ -1,5 +1,6 @@
 # Reference
 
+1. [Optics By Example](https://leanpub.com/optics-by-example)
 1. [Profunctor optics, a categorical update](https://arxiv.org/abs/2001.07488)
 1. [On Lawful Lenses](https://blog.statebox.org/on-lawful-lenses-6e18a1e17bdf)
 1. https://medium.com/urbint-engineering/haskell-lens-operator-onboarding-a235481e8fac

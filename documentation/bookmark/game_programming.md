@@ -24,6 +24,7 @@
 
 # Procedural generation
 
+1. [Dungeon Map Generation with Locks and Keys](https://beta.aceparent.me/#/raids)
 1. [Aaron Santos - Optimizing procgen parameters using mini-batch gradient descent](https://www.youtube.com/watch?v=TsDIUuEneo4)
 1. [Brian Bucklew - Dungeon Generation via Wave Function Collapse](https://www.youtube.com/watch?v=fnFj3dOKcIQ)
 1. [So you want to build a generator…](https://galaxykate0.tumblr.com/post/139774965871/so-you-want-to-build-a-generator)

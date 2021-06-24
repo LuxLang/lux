@@ -1,9 +1,14 @@
 # Rendering
 
+1. [Text Rendering Hates You](https://gankra.github.io/blah/text-hates-you/)
 1. [Graphics for JVM](https://tonsky.me/blog/skija/)
 1. https://github.com/JetBrains/skija/
 1. https://github.com/JetBrains/skiko/
 1. https://github.com/JetBrains/compose-jb
+
+# Font
+
+1. [Google Noto Fonts: Beautiful and free fonts for all languages](https://www.google.com/get/noto/)
 
 # Residential programming
 
@@ -50,6 +55,7 @@
 
 # Reference
 
+1. [Text Editing Hates You Too](https://lord.io/text-editing-hates-you-too/)
 1. [Build Your Own Text Editor](https://viewsourcecode.org/snaptoken/kilo/index.html)
 1. [On the design of text editors](https://arxiv.org/abs/2008.06030)
 1. [The Piece Table - the Unsung Hero of Your Text Editor](https://darrenburns.net/posts/piece-table/)
@@ -154,6 +160,7 @@
 
 ## General
 
+1. [Trix: A rich text editor for everyday writing.](https://trix-editor.org/)
 1. [Left](https://100r.co/site/left.html)
 1. https://howl.io/
 1. [The Whole Code Catalog](https://futureofcoding.org/catalog/)
@@ -214,6 +221,7 @@
 
 ## Structured editing
 
+1. [Inspiring a future Clojure editor with forgotten Lisp UX - Shaun Lebron](https://www.youtube.com/watch?v=K0Tsa3smr1w)
 1. [Dion Systems - The How And Why Of Reinventing The Wheel](https://vimeo.com/485177664)
 1. [Towards Tactic Metaprogramming in Haskell](https://reasonablypolymorphic.com/blog/towards-tactics/index.html)
 1. https://github.com/Raathigesh/waypoint

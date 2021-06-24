@@ -13,33 +13,31 @@
     [concurrency
      ["." promise]]]
    [data
+    [binary (#+ Binary)]
     ["." product]
-    ["." binary]
     ["." text
+     ["%" format (#+ format)]
      [encoding
       ["." utf8]]]
     [format
      ["." xml]]
     [collection
      ["." dictionary]
-     ["." set]]]
+     ["." set]
+     ["." list]]]
    [math
     ["." random (#+ Random)]]]
   ["$." /// #_
    ["#." package]
    ["#." repository]
-   ["#." artifact]
-   [//
-    [lux
-     [data
-      ["$." binary]]]]]
+   ["#." artifact]]
   {#program
    ["." /
     ["//#" /// #_
      ["#" profile]
      ["#." package (#+ Package)]
      ["#." hash]
-     ["#." dependency
+     ["#." dependency (#+ Dependency) ("#\." equivalence)
       ["#/." status]]
      ["#." pom]
      ["#." artifact (#+ Artifact)
@@ -94,6 +92,136 @@
      (def: (on_upload uri binary state)
        (#try.Failure "NOPE")))))
 
+(def: lux_sha1
+  Text
+  (format ///artifact/extension.lux_library ///artifact/extension.sha-1))
+
+(def: lux_md5
+  Text
+  (format ///artifact/extension.lux_library ///artifact/extension.md5))
+
+(def: pom_sha1
+  Text
+  (format ///artifact/extension.pom ///artifact/extension.sha-1))
+
+(def: pom_md5
+  Text
+  (format ///artifact/extension.pom ///artifact/extension.md5))
+
+(def: sha1
+  (-> Binary Binary)
+  (|>> ///hash.sha-1
+       (\ ///hash.sha-1_codec encode)
+       (\ utf8.codec encode)))
+
+(def: md5
+  (-> Binary Binary)
+  (|>> ///hash.md5
+       (\ ///hash.md5_codec encode)
+       (\ utf8.codec encode)))
+
+(def: (bad_sha-1 expected_artifact expected_package dummy_package)
+  (-> Artifact Package Package (Simulation Any))
+  (structure
+   (def: (on_download uri state)
+     (if (text.contains? (///artifact.uri (get@ #///artifact.version expected_artifact) expected_artifact) uri)
+       (cond (text.ends_with? ///artifact/extension.lux_library uri)
+             (#try.Success [state (|> expected_package
+                                      (get@ #///package.library)
+                                      product.left)])
+
+             (text.ends_with? lux_sha1 uri)
+             (#try.Success [state (|> expected_package
+                                      (get@ #///package.library)
+                                      product.left
+                                      sha1)])
+
+             (text.ends_with? lux_md5 uri)
+             (#try.Success [state (|> expected_package
+                                      (get@ #///package.library)
+                                      product.left
+                                      md5)])
+             
+             (text.ends_with? ///artifact/extension.pom uri)
+             (#try.Success [state (|> expected_package
+                                      (get@ #///package.pom)
+                                      product.left
+                                      (\ xml.codec encode)
+                                      (\ utf8.codec encode))])
+
+             (text.ends_with? pom_sha1 uri)
+             (#try.Success [state (|> dummy_package
+                                      (get@ #///package.pom)
+                                      product.left
+                                      (\ xml.codec encode)
+                                      (\ utf8.codec encode)
+                                      sha1)])
+
+             (text.ends_with? pom_md5 uri)
+             (#try.Success [state (|> expected_package
+                                      (get@ #///package.pom)
+                                      product.left
+                                      (\ xml.codec encode)
+                                      (\ utf8.codec encode)
+                                      md5)])
+
+             ## else
+             (#try.Failure "NOPE"))
+       (#try.Failure "NOPE")))
+   (def: (on_upload uri binary state)
+     (#try.Failure "NOPE"))))
+
+(def: (bad_md5 expected_artifact expected_package dummy_package)
+  (-> Artifact Package Package (Simulation Any))
+  (structure
+   (def: (on_download uri state)
+     (if (text.contains? (///artifact.uri (get@ #///artifact.version expected_artifact) expected_artifact) uri)
+       (cond (text.ends_with? ///artifact/extension.lux_library uri)
+             (#try.Success [state (|> expected_package
+                                      (get@ #///package.library)
+                                      product.left)])
+
+             (text.ends_with? lux_sha1 uri)
+             (#try.Success [state (|> expected_package
+                                      (get@ #///package.library)
+                                      product.left
+                                      sha1)])
+
+             (text.ends_with? lux_md5 uri)
+             (#try.Success [state (|> dummy_package
+                                      (get@ #///package.library)
+                                      product.left
+                                      md5)])
+             
+             (text.ends_with? ///artifact/extension.pom uri)
+             (#try.Success [state (|> expected_package
+                                      (get@ #///package.pom)
+                                      product.left
+                                      (\ xml.codec encode)
+                                      (\ utf8.codec encode))])
+
+             (text.ends_with? pom_sha1 uri)
+             (#try.Success [state (|> expected_package
+                                      (get@ #///package.pom)
+                                      product.left
+                                      (\ xml.codec encode)
+                                      (\ utf8.codec encode)
+                                      sha1)])
+
+             (text.ends_with? pom_md5 uri)
+             (#try.Success [state (|> dummy_package
+                                      (get@ #///package.pom)
+                                      product.left
+                                      (\ xml.codec encode)
+                                      (\ utf8.codec encode)
+                                      md5)])
+
+             ## else
+             (#try.Failure "NOPE"))
+       (#try.Failure "NOPE")))
+   (def: (on_upload uri binary state)
+     (#try.Failure "NOPE"))))
+
 (def: one
   Test
   (do {! random.monad}
@@ -105,72 +233,8 @@
                                            not)
                                       $///package.random)
      #let [good (..single expected_artifact expected_package)
-           bad_sha-1 (: (Simulation Any)
-                        (structure
-                         (def: (on_download uri state)
-                           (if (text.contains? (///artifact.uri (get@ #///artifact.version expected_artifact) expected_artifact) uri)
-                             (cond (text.ends_with? ///artifact/extension.lux_library uri)
-                                   (#try.Success [state (|> expected_package
-                                                            (get@ #///package.library)
-                                                            product.left)])
-                                   
-                                   (text.ends_with? ///artifact/extension.pom uri)
-                                   (#try.Success [state (|> expected_package
-                                                            (get@ #///package.pom)
-                                                            product.left
-                                                            (\ xml.codec encode)
-                                                            (\ utf8.codec encode))])
-                                   
-                                   ## (text\= extension ///artifact/extension.sha-1)
-                                   ## (#try.Success [state (|> dummy_package
-                                   ##                          (get@ #///package.sha-1)
-                                   ##                          (\ ///hash.sha-1_codec encode)
-                                   ##                          (\ utf8.codec encode))])
-                                   
-                                   ## (text\= extension ///artifact/extension.md5)
-                                   ## (#try.Success [state (|> expected_package
-                                   ##                          (get@ #///package.md5)
-                                   ##                          (\ ///hash.md5_codec encode)
-                                   ##                          (\ utf8.codec encode))])
-
-                                   ## else
-                                   (#try.Failure "NOPE"))
-                             (#try.Failure "NOPE")))
-                         (def: (on_upload uri binary state)
-                           (#try.Failure "NOPE"))))
-           bad_md5 (: (Simulation Any)
-                      (structure
-                       (def: (on_download uri state)
-                         (if (text.contains? (///artifact.uri (get@ #///artifact.version expected_artifact) expected_artifact) uri)
-                           (cond (text.ends_with? ///artifact/extension.lux_library uri)
-                                 (#try.Success [state (|> expected_package
-                                                          (get@ #///package.library)
-                                                          product.left)])
-                                 
-                                 (text.ends_with? ///artifact/extension.pom uri)
-                                 (#try.Success [state (|> expected_package
-                                                          (get@ #///package.pom)
-                                                          product.left
-                                                          (\ xml.codec encode)
-                                                          (\ utf8.codec encode))])
-                                 
-                                 ## (text\= extension ///artifact/extension.sha-1)
-                                 ## (#try.Success [state (|> expected_package
-                                 ##                          (get@ #///package.sha-1)
-                                 ##                          (\ ///hash.sha-1_codec encode)
-                                 ##                          (\ utf8.codec encode))])
-                                 
-                                 ## (text\= extension ///artifact/extension.md5)
-                                 ## (#try.Success [state (|> dummy_package
-                                 ##                          (get@ #///package.md5)
-                                 ##                          (\ ///hash.md5_codec encode)
-                                 ##                          (\ utf8.codec encode))])
-
-                                 ## else
-                                 (#try.Failure "NOPE"))
-                           (#try.Failure "NOPE")))
-                       (def: (on_upload uri binary state)
-                         (#try.Failure "NOPE"))))]]
+           bad_sha-1 (..bad_sha-1 expected_artifact expected_package dummy_package)
+           bad_md5 (..bad_md5 expected_artifact expected_package dummy_package)]]
     (`` ($_ _.and
             (wrap
              (do promise.monad
@@ -216,72 +280,8 @@
                                            not)
                                       $///package.random)
      #let [good (..single expected_artifact expected_package)
-           bad_sha-1 (: (Simulation Any)
-                        (structure
-                         (def: (on_download uri state)
-                           (if (text.contains? (///artifact.uri (get@ #///artifact.version expected_artifact) expected_artifact) uri)
-                             (cond (text.ends_with? ///artifact/extension.lux_library uri)
-                                   (#try.Success [state (|> expected_package
-                                                            (get@ #///package.library)
-                                                            product.left)])
-                                   
-                                   (text.ends_with? ///artifact/extension.pom uri)
-                                   (#try.Success [state (|> expected_package
-                                                            (get@ #///package.pom)
-                                                            product.left
-                                                            (\ xml.codec encode)
-                                                            (\ utf8.codec encode))])
-                                   
-                                   ## (text\= extension ///artifact/extension.sha-1)
-                                   ## (#try.Success [state (|> dummy_package
-                                   ##                          (get@ #///package.sha-1)
-                                   ##                          (\ ///hash.sha-1_codec encode)
-                                   ##                          (\ utf8.codec encode))])
-                                   
-                                   ## (text\= extension ///artifact/extension.md5)
-                                   ## (#try.Success [state (|> expected_package
-                                   ##                          (get@ #///package.md5)
-                                   ##                          (\ ///hash.md5_codec encode)
-                                   ##                          (\ utf8.codec encode))])
-
-                                   ## else
-                                   (#try.Failure "NOPE"))
-                             (#try.Failure "NOPE")))
-                         (def: (on_upload uri binary state)
-                           (#try.Failure "NOPE"))))
-           bad_md5 (: (Simulation Any)
-                      (structure
-                       (def: (on_download uri state)
-                         (if (text.contains? (///artifact.uri (get@ #///artifact.version expected_artifact) expected_artifact) uri)
-                           (cond (text.ends_with? ///artifact/extension.lux_library uri)
-                                 (#try.Success [state (|> expected_package
-                                                          (get@ #///package.library)
-                                                          product.left)])
-                                 
-                                 (text.ends_with? ///artifact/extension.pom uri)
-                                 (#try.Success [state (|> expected_package
-                                                          (get@ #///package.pom)
-                                                          product.left
-                                                          (\ xml.codec encode)
-                                                          (\ utf8.codec encode))])
-                                 
-                                 ## (text\= extension ///artifact/extension.sha-1)
-                                 ## (#try.Success [state (|> expected_package
-                                 ##                          (get@ #///package.sha-1)
-                                 ##                          (\ ///hash.sha-1_codec encode)
-                                 ##                          (\ utf8.codec encode))])
-                                 
-                                 ## (text\= extension ///artifact/extension.md5)
-                                 ## (#try.Success [state (|> dummy_package
-                                 ##                          (get@ #///package.md5)
-                                 ##                          (\ ///hash.md5_codec encode)
-                                 ##                          (\ utf8.codec encode))])
-
-                                 ## else
-                                 (#try.Failure "NOPE"))
-                           (#try.Failure "NOPE")))
-                       (def: (on_upload uri binary state)
-                         (#try.Failure "NOPE"))))]]
+           bad_sha-1 (..bad_sha-1 expected_artifact expected_package dummy_package)
+           bad_md5 (..bad_md5 expected_artifact expected_package dummy_package)]]
     ($_ _.and
         (wrap
          (do promise.monad
@@ -314,77 +314,106 @@
                        false))))
         )))
 
-## (def: all
-##   Test
-##   (do {! random.monad}
-##     [dependee_artifact $///artifact.random
-##      depender_artifact (random.filter (predicate.complement
-##                                        (\ ///artifact.equivalence = dependee_artifact))
-##                                       $///artifact.random)
-##      ignored_artifact (random.filter (predicate.complement
-##                                       (predicate.unite (\ ///artifact.equivalence = dependee_artifact)
-##                                                        (\ ///artifact.equivalence = depender_artifact)))
-##                                      $///artifact.random)
+(def: artifacts
+  (Random [Artifact Artifact Artifact])
+  (do random.monad
+    [dependee_artifact $///artifact.random
+     depender_artifact (random.filter (predicate.complement
+                                       (\ ///artifact.equivalence = dependee_artifact))
+                                      $///artifact.random)
+     ignored_artifact (random.filter (predicate.complement
+                                      (predicate.unite (\ ///artifact.equivalence = dependee_artifact)
+                                                       (\ ///artifact.equivalence = depender_artifact)))
+                                     $///artifact.random)]
+    (wrap [dependee_artifact depender_artifact ignored_artifact])))
 
-##      [_ dependee_package] $///package.random
-##      [_ depender_package] $///package.random
-##      [_ ignored_package] $///package.random
+(def: (packages [dependee_artifact depender_artifact ignored_artifact])
+  (-> [Artifact Artifact Artifact]
+      (Random [[Dependency Dependency Dependency]
+               [Package Package Package]]))
+  (do random.monad
+    [[_ dependee_package] $///package.random
+     [_ depender_package] $///package.random
+     [_ ignored_package] $///package.random
 
-##      #let [dependee {#///dependency.artifact dependee_artifact
-##                      #///dependency.type ///artifact/type.lux_library}
-##            depender {#///dependency.artifact depender_artifact
-##                      #///dependency.type ///artifact/type.lux_library}
-##            ignored {#///dependency.artifact ignored_artifact
-##                     #///dependency.type ///artifact/type.lux_library}
+     #let [dependee {#///dependency.artifact dependee_artifact
+                     #///dependency.type ///artifact/type.lux_library}
+           depender {#///dependency.artifact depender_artifact
+                     #///dependency.type ///artifact/type.lux_library}
+           ignored {#///dependency.artifact ignored_artifact
+                    #///dependency.type ///artifact/type.lux_library}
 
-##            dependee_pom (|> (\ ///.monoid identity)
-##                             (set@ #///.identity (#.Some dependee_artifact))
-##                             ///pom.write
-##                             try.assume)
-##            depender_pom (|> (\ ///.monoid identity)
-##                             (set@ #///.identity (#.Some depender_artifact))
-##                             (set@ #///.dependencies (set.from_list ///dependency.hash (list dependee)))
-##                             ///pom.write
-##                             try.assume)
-##            ignored_pom (|> (\ ///.monoid identity)
-##                            (set@ #///.identity (#.Some ignored_artifact))
-##                            ///pom.write
-##                            try.assume)
+           dependee_pom (|> (\ ///.monoid identity)
+                            (set@ #///.identity (#.Some dependee_artifact))
+                            ///pom.write
+                            try.assume)
+           depender_pom (|> (\ ///.monoid identity)
+                            (set@ #///.identity (#.Some depender_artifact))
+                            (set@ #///.dependencies (set.from_list ///dependency.hash (list dependee)))
+                            ///pom.write
+                            try.assume)
+           ignored_pom (|> (\ ///.monoid identity)
+                           (set@ #///.identity (#.Some ignored_artifact))
+                           ///pom.write
+                           try.assume)
 
-##            dependee_package (set@ #///package.pom [dependee_pom #///dependency/status.Unverified] dependee_package)
-##            depender_package (set@ #///package.pom [depender_pom #///dependency/status.Unverified] depender_package)
-##            ignored_package (set@ #///package.pom [ignored_pom #///dependency/status.Unverified] ignored_package)]]
-##     ($_ _.and
-##         (wrap
-##          (do promise.monad
-##            [resolution (/.all (list (///repository.mock (..single dependee_artifact dependee_package) [])
-##                                     (///repository.mock (..single depender_artifact depender_package) [])
-##                                     (///repository.mock (..single ignored_artifact ignored_package) []))
-##                               (list depender)
-##                               /.empty)]
-##            (_.cover' [/.all]
-##                      (case resolution
-##                        (#try.Success resolution)
-##                        (and (dictionary.key? resolution depender)
-##                             (dictionary.key? resolution dependee)
-##                             (not (dictionary.key? resolution ignored)))
+           dependee_package (set@ #///package.pom
+                                  [dependee_pom
+                                   (|> dependee_pom (\ xml.codec encode) (\ utf8.codec encode))
+                                   #///dependency/status.Unverified]
+                                  dependee_package)
+           depender_package (set@ #///package.pom
+                                  [depender_pom
+                                   (|> depender_pom (\ xml.codec encode) (\ utf8.codec encode))
+                                   #///dependency/status.Unverified]
+                                  depender_package)
+           ignored_package (set@ #///package.pom
+                                 [ignored_pom
+                                  (|> ignored_pom (\ xml.codec encode) (\ utf8.codec encode))
+                                  #///dependency/status.Unverified]
+                                 ignored_package)]]
+    (wrap [[dependee depender ignored]
+           [dependee_package depender_package ignored_package]])))
 
-##                        (#try.Failure error)
-##                        false))))
-##         )))
+(def: all
+  Test
+  (do {! random.monad}
+    [[dependee_artifact depender_artifact ignored_artifact] ..artifacts
 
-## (def: #export test
-##   Test
-##   (<| (_.covering /._)
-##       (_.for [/.Resolution])
-##       ($_ _.and
-##           (_.for [/.equivalence]
-##                  ($equivalence.spec /.equivalence ..random))
+     [[dependee depender ignored]
+      [dependee_package depender_package ignored_package]]
+     (..packages [dependee_artifact depender_artifact ignored_artifact])]
+    ($_ _.and
+        (wrap
+         (do promise.monad
+           [[successes failures resolution] (/.all (list (///repository.mock (..single dependee_artifact dependee_package) [])
+                                                         (///repository.mock (..single depender_artifact depender_package) [])
+                                                         (///repository.mock (..single ignored_artifact ignored_package) []))
+                                                   (list depender)
+                                                   /.empty)]
+           (_.cover' [/.all]
+                     (and (dictionary.key? resolution depender)
+                          (list.any? (///dependency\= depender) successes)
+                          
+                          (dictionary.key? resolution dependee)
+                          (list.any? (///dependency\= dependee) successes)
 
-##           (_.cover [/.empty]
-##                    (dictionary.empty? /.empty))
+                          (list.empty? failures)
+                          (not (dictionary.key? resolution ignored))))))
+        )))
 
-##           ..one
-##           ..any
-##           ..all
-##           )))
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      (_.for [/.Resolution])
+      ($_ _.and
+          (_.for [/.equivalence]
+                 ($equivalence.spec /.equivalence ..random))
+
+          (_.cover [/.empty]
+                   (dictionary.empty? /.empty))
+
+          ..one
+          ..any
+          ..all
+          )))

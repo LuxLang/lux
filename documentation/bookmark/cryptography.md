@@ -18,6 +18,7 @@
 
 # Library
 
+1. [aykxt/crypto](https://github.com/aykxt/crypto)
 1. [zinc: Introduce minimal cryptography library](https://git.kernel.org/pub/scm/linux/kernel/git/zx2c4/linux.git/commit/?h=zinc)
 1. https://joshlf.com/post/2018/11/06/introducing-mundane/
 1. https://github.com/akhawaja/ecc-crypto-helper

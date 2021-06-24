@@ -1,3 +1,11 @@
+# Secrets
+
+1. [How to Handle Secrets on the Command Line](https://smallstep.com/blog/command-line-secrets/)
+
+# Capability
+
+1. [A Comparison of the Capability Systems of Encore, Pony and Rust](https://uu.diva-portal.org/smash/get/diva2:1363822/FULLTEXT01.pdf)
+
 # Homomorphic encryption
 
 1. https://github.com/Microsoft/SEAL
@@ -60,6 +68,7 @@
 
 # Reference
 
+1. [Intro to Just-In-Time Access](https://compliance.dev/2021/04/29/introduction-to-just-in-time-access/)
 1. https://www.nomoreransom.org/en/index.html
 1. [Open Source Security Foundation (OpenSSF)](https://openssf.org/)
 1. [Don't get pwned: practicing the principle of least privilege](https://cloud.google.com/blog/products/identity-security/dont-get-pwned-practicing-the-principle-of-least-privilege)

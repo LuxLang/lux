@@ -203,6 +203,10 @@
 
 1. https://blog.acolyer.org/2018/09/26/the-design-and-implementation-of-modern-column-oriented-database-systems/
 
+## Datalog
+
+1. [Open Source Clojure-Datalog Databases](https://clojurelog.github.io/)
+
 ## Log
 
 1. https://code.fb.com/core-data/logdevice-a-distributed-data-store-for-logs/

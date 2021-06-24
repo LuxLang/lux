@@ -1,7 +1,7 @@
 # Possibility
 
 1. ["What next?"](https://graydon.livejournal.com/256533.html) && ["What next?"](https://graydon2.dreamwidth.org/253769.html)
-1. []()
+1. [A Case for a Native Runtime Compilation Language](https://jott.live/markdown/dynamic_compilation)
 
 # Falsehood
 

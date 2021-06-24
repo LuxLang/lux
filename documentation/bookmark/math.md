@@ -363,6 +363,7 @@
 
 # Hyperbolic geometry
 
+1. [Intuitive Guide to Hyperbolic Functions](https://betterexplained.com/articles/hyperbolic-functions/)
 1. [Hyperbolic Functions and Non-Hyperbolic Claims](https://elliptigon.com/hyperbolic-functions-explained/)
 
 # Dual numbers
@@ -371,6 +372,7 @@
 
 # **Temp Cache**
 
+1. https://mathlets.org/mathlets/
 1. [Quadratic splines are useful too](https://wordsandbuttons.online/quadric_splines_are_useful_too.html)
 1. [Derivations of Applied Mathematics](http://www.derivations.org/)
 1. https://www.juliahomotopycontinuation.org/

@@ -1,15 +1,16 @@
 (.module:
   [lux #*
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
    [abstract
     [monad (#+ do)]]
+   [macro
+    ["." template]]
    [math
     ["." random (#+ Random)]
     [number
      ["n" nat]
-     ["f" frac]
-     ["." int]]]]
+     ["i" int]
+     ["f" frac]]]]
   {1
    ["." /]}
   ["." / #_
@@ -21,71 +22,136 @@
     ["#/." continuous]
     ["#/." fuzzy]]])
 
-(def: margin
+(def: margin_of_error
   +0.0000001)
 
 (def: (trigonometric_symmetry forward backward angle)
   (-> (-> Frac Frac) (-> Frac Frac) Frac Bit)
   (let [normal (|> angle forward backward)]
-    (|> normal forward backward (f.approximately? margin normal))))
+    (|> normal forward backward (f.approximately? ..margin_of_error normal))))
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name_of /._)))
+  (<| (_.covering /._)
       ($_ _.and
-          (<| (_.context "Trigonometry")
-              (do {! random.monad}
-                [angle (|> random.safe_frac (\ ! map (f.* /.tau)))]
-                ($_ _.and
-                    (_.test "Sine and arc-sine are inverse functions."
-                            (trigonometric_symmetry /.sin /.asin angle))
-                    (_.test "Cosine and arc-cosine are inverse functions."
-                            (trigonometric_symmetry /.cos /.acos angle))
-                    (_.test "Tangent and arc-tangent are inverse functions."
-                            (trigonometric_symmetry /.tan /.atan angle))
-                    )))
-          (<| (_.context "Rounding")
-              (do {! random.monad}
-                [sample (|> random.safe_frac (\ ! map (f.* +1000.0)))]
-                ($_ _.and
-                    (_.test "The ceiling will be an integer value, and will be >= the original."
-                            (let [ceil'd (/.ceil sample)]
-                              (and (|> ceil'd f.int int.frac (f.= ceil'd))
-                                   (f.>= sample ceil'd)
-                                   (f.<= +1.0 (f.- sample ceil'd)))))
-                    (_.test "The floor will be an integer value, and will be <= the original."
-                            (let [floor'd (/.floor sample)]
-                              (and (|> floor'd f.int int.frac (f.= floor'd))
-                                   (f.<= sample floor'd)
-                                   (f.<= +1.0 (f.- floor'd sample)))))
-                    (_.test "The round will be an integer value, and will be < or > or = the original."
-                            (let [round'd (/.round sample)]
-                              (and (|> round'd f.int int.frac (f.= round'd))
-                                   (f.<= +1.0 (f.abs (f.- sample round'd))))))
-                    )))
-          (<| (_.context "Exponentials and logarithms")
-              (do {! random.monad}
-                [sample (|> random.safe_frac (\ ! map (f.* +10.0)))]
-                (_.test "Logarithm is the inverse of exponential."
-                        (|> sample /.exp /.log (f.approximately? +0.000000000000001 sample)))))
-          (<| (_.context "Greatest-Common-Divisor and Least-Common-Multiple")
-              (do {! random.monad}
-                [#let [gen_nat (|> random.nat (\ ! map (|>> (n.% 1000) (n.max 1))))]
-                 x gen_nat
-                 y gen_nat]
-                ($_ _.and
-                    (_.test "GCD"
-                            (let [gcd (n.gcd x y)]
-                              (and (n.= 0 (n.% gcd x))
-                                   (n.= 0 (n.% gcd y))
-                                   (n.>= 1 gcd))))
+          (do {! random.monad}
+            [#let [~= (f.approximately? ..margin_of_error)]
+             angle (|> random.safe_frac (\ ! map (f.* /.tau)))]
+            ($_ _.and
+                (_.cover [/.sin /.asin]
+                         (trigonometric_symmetry /.sin /.asin angle))
+                (_.cover [/.cos /.acos]
+                         (trigonometric_symmetry /.cos /.acos angle))
+                (_.cover [/.tan /.atan]
+                         (trigonometric_symmetry /.tan /.atan angle))
+                (_.cover [/.tau]
+                         (and (and (~= +0.0 (/.sin /.tau))
+                                   (~= +1.0 (/.cos /.tau)))
+                              (and (~= +0.0 (/.sin (f./ +2.0 /.tau)))
+                                   (~= -1.0 (/.cos (f./ +2.0 /.tau))))
+                              (and (~= +1.0 (/.sin (f./ +4.0 /.tau)))
+                                   (~= +0.0 (/.cos (f./ +4.0 /.tau))))
+                              (and (~= -1.0 (/.sin (f.* +3.0 (f./ +4.0 /.tau))))
+                                   (~= +0.0 (/.cos (f.* +3.0 (f./ +4.0 /.tau)))))
+                              (let [x2+y2 (f.+ (/.pow +2.0 (/.sin angle))
+                                               (/.pow +2.0 (/.cos angle)))]
+                                (~= +1.0 x2+y2))))
+                (_.cover [/.pi]
+                         (~= (f./ +2.0 /.tau) /.pi))
+                ))
+          (do {! random.monad}
+            [sample (|> random.safe_frac (\ ! map (f.* +1000.0)))]
+            ($_ _.and
+                (_.cover [/.ceil]
+                         (let [ceil'd (/.ceil sample)]
+                           (and (|> ceil'd f.int i.frac (f.= ceil'd))
+                                (f.>= sample ceil'd)
+                                (f.<= +1.0 (f.- sample ceil'd)))))
+                (_.cover [/.floor]
+                         (let [floor'd (/.floor sample)]
+                           (and (|> floor'd f.int i.frac (f.= floor'd))
+                                (f.<= sample floor'd)
+                                (f.<= +1.0 (f.- floor'd sample)))))
+                (_.cover [/.round]
+                         (let [round'd (/.round sample)]
+                           (and (|> round'd f.int i.frac (f.= round'd))
+                                (f.<= +1.0 (f.abs (f.- sample round'd))))))
+                ))
+          (do {! random.monad}
+            [#let [~= (f.approximately? ..margin_of_error)]
+             sample (\ ! map (f.* +10.0) random.safe_frac)
+             power (\ ! map (|>> (n.% 10) inc n.frac) random.nat)]
+            ($_ _.and
+                (_.cover [/.exp /.log]
+                         (|> sample /.exp /.log (f.approximately? +0.000000000000001 sample)))
+                (_.cover [/.e]
+                         (~= +1.0 (/.log /.e)))
+                (_.cover [/.pow /.log']
+                         (let [sample (f.abs sample)]
+                           (|> sample
+                               (/.pow power)
+                               (/.log' sample)
+                               (~= power))))
+                ))
+          (do {! random.monad}
+            [#let [~= (f.approximately? ..margin_of_error)]
+             angle (\ ! map (f.* /.tau) random.safe_frac)
+             sample (\ ! map f.abs random.safe_frac)
+             big (\ ! map (f.* +1,000,000,000.00) random.safe_frac)]
+            (template.with [(odd! <function>)
+                            [(_.cover [<function>]
+                                      (~= (f.negate (<function> angle))
+                                          (<function> (f.negate angle))))]
 
-                    (_.test "LCM"
-                            (let [lcm (n.lcm x y)]
-                              (and (n.= 0 (n.% x lcm))
-                                   (n.= 0 (n.% y lcm))
-                                   (n.<= (n.* x y) lcm))))
-                    )))
+                            (even! <function>)
+                            [(_.cover [<function>]
+                                      (~= (<function> angle)
+                                          (<function> (f.negate angle))))]
+
+                            (inverse! <left> <right> <input>)
+                            [(_.cover [<left> <right>]
+                                      (~= (<right> <input>)
+                                          (<left> (f./ <input> +1.0))))]]
+              ($_ _.and
+                  (odd! /.sinh)
+                  (even! /.cosh)
+                  (odd! /.tanh)
+                  (odd! /.coth)
+                  (even! /.sech)
+                  (odd! /.csch)
+
+                  (inverse! /.acosh /.asech sample)
+                  (inverse! /.asinh /.acsch sample)
+                  (inverse! /.atanh /.acoth big)
+                  )))
+          (do {! random.monad}
+            [x (\ ! map (|>> (f.* +10.0) f.abs) random.safe_frac)
+             y (\ ! map (|>> (f.* +10.0) f.abs) random.safe_frac)]
+            (_.cover [/.hypotenuse]
+                     (let [h (/.hypotenuse x y)]
+                       (and (f.>= x h)
+                            (f.>= y h)))))
+          (do {! random.monad}
+            [#let [~= (f.approximately? ..margin_of_error)
+                   tau/4 (f./ +4.0 /.tau)]
+             x (\ ! map (f.* tau/4) random.safe_frac)
+             y (\ ! map (f.* tau/4) random.safe_frac)]
+            (_.cover [/.atan/2]
+                     (let [expected (/.atan/2 x y)
+                           actual (if (f.> +0.0 x)
+                                    (/.atan (f./ x y))
+                                    (if (f.< +0.0 y)
+                                      (f.- /.pi (/.atan (f./ x y)))
+                                      (f.+ /.pi (/.atan (f./ x y)))))]
+                       (and (~= expected actual)
+                            (~= tau/4 (/.atan/2 +0.0 (f.abs y)))
+                            (~= (f.negate tau/4) (/.atan/2 +0.0 (f.negate (f.abs y))))
+                            (f.not_a_number? (/.atan/2 +0.0 +0.0))))))
+          (do {! random.monad}
+            [of (\ ! map (|>> (n.% 10) inc) random.nat)]
+            (_.cover [/.factorial]
+                     (and (n.= 1 (/.factorial 0))
+                          (|> (/.factorial of) (n.% of) (n.= 0)))))
 
           /infix.test
           /modulus.test

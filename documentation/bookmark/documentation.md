@@ -1,3 +1,7 @@
+# Architecture
+
+1. [ARCHITECTURE.md](https://matklad.github.io/2021/02/06/ARCHITECTURE.md.html)
+
 # Programming
 
 1. [Skribilo: The Ultimate Document Programming Framework](https://www.nongnu.org/skribilo/)

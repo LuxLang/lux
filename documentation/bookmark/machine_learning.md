@@ -28,6 +28,10 @@
 1. https://heartbeat.fritz.ai/capsule-networks-a-new-and-attractive-ai-architecture-bd1198cc8ad4
 1. http://super-ms.mit.edu/rum.html
 
+# Inductive logic programming
+
+1. [Inductive logic programming at 30: a new introduction](https://arxiv.org/abs/2008.07912)
+
 # Deep learning
 
 1. [GAME2020 4. Dr. Vincent Nozick Geometric Neurons](https://www.youtube.com/watch?v=KC3c_Mdj1dk)

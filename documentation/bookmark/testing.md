@@ -14,3 +14,7 @@
 
 1. [Testing Without Mocks: A Pattern Language](https://www.jamesshore.com/Blog/Testing-Without-Mocks.html)
 
+# Visual Testing
+
+1. [Visual Testing Handbook](https://storybook.js.org/tutorials/visual-testing-handbook/)
+

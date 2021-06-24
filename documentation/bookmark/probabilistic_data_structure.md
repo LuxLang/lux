@@ -5,6 +5,7 @@
 
 # Reference
 
+1. [Teaching Bloom Filters new tricks](https://toao.com/blog/teaching-bloom-filters-new-tricks)
 1. [Xor Filters: Faster and Smaller Than Bloom Filters](https://lemire.me/blog/2019/12/19/xor-filters-faster-and-smaller-than-bloom-filters/)
 1. [Morton Filters: Faster, Space-Efficient Cuckoo Filters via Biasing, Compression, and Decoupled Logical Sparsity](http://www.vldb.org/pvldb/vol11/p1041-breslow.pdf)
 1. https://github.com/efficient/SuRF

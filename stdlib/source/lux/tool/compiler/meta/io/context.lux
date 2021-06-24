@@ -30,14 +30,14 @@
      [descriptor (#+ Module)]]
     ["/#" // (#+ Input)]]])
 
-(template [<name>]
-  [(exception: #export (<name> {module Module})
-     (exception.report
-      ["Module" (%.text module)]))]
+(exception: #export (cannot_find_module {importer Module} {module Module})
+  (exception.report
+   ["Module" (%.text module)]
+   ["Importer" (%.text importer)]))
 
-  [cannot_find_module]
-  [cannot_read_module]
-  )
+(exception: #export (cannot_read_module {module Module})
+  (exception.report
+   ["Module" (%.text module)]))
 
 (type: #export Extension
   Text)
@@ -52,12 +52,12 @@
       (//.sanitize system)
       (format context (\ system separator))))
 
-(def: (find_source_file system contexts module extension)
-  (-> (file.System Promise) (List Context) Module Extension
+(def: (find_source_file system importer contexts module extension)
+  (-> (file.System Promise) Module (List Context) Module Extension
       (Promise (Try [Path (File Promise)])))
   (case contexts
     #.Nil
-    (promise\wrap (exception.throw ..cannot_find_module [module]))
+    (promise\wrap (exception.throw ..cannot_find_module [importer module]))
 
     (#.Cons context contexts')
     (do promise.monad
@@ -68,19 +68,19 @@
         (wrap (#try.Success [path file]))
 
         (#try.Failure _)
-        (find_source_file system contexts' module extension)))))
+        (find_source_file system importer contexts' module extension)))))
 
 (def: (full_host_extension partial_host_extension)
   (-> Extension Extension)
   (format partial_host_extension ..lux_extension))
 
-(def: (find_local_source_file system import contexts partial_host_extension module)
-  (-> (file.System Promise) Import (List Context) Extension Module
+(def: (find_local_source_file system importer import contexts partial_host_extension module)
+  (-> (file.System Promise) Module Import (List Context) Extension Module
       (Promise (Try [Path Binary])))
   ## Preference is explicitly being given to Lux files that have a host extension.
   ## Normal Lux files (i.e. without a host extension) are then picked as fallback files.
   (do {! promise.monad}
-    [outcome (..find_source_file system contexts module (..full_host_extension partial_host_extension))]
+    [outcome (..find_source_file system importer contexts module (..full_host_extension partial_host_extension))]
     (case outcome
       (#try.Success [path file])
       (do (try.with !)
@@ -89,12 +89,12 @@
 
       (#try.Failure _)
       (do (try.with !)
-        [[path file] (..find_source_file system contexts module ..lux_extension)
+        [[path file] (..find_source_file system importer contexts module ..lux_extension)
          data (!.use (\ file content) [])]
         (wrap [path data])))))
 
-(def: (find_library_source_file import partial_host_extension module)
-  (-> Import Extension Module (Try [Path Binary]))
+(def: (find_library_source_file importer import partial_host_extension module)
+  (-> Module Import Extension Module (Try [Path Binary]))
   (let [path (format module (..full_host_extension partial_host_extension))]
     (case (dictionary.get path import)
       (#.Some data)
@@ -107,27 +107,27 @@
           (#try.Success [path data])
 
           #.None
-          (exception.throw ..cannot_find_module [module]))))))
+          (exception.throw ..cannot_find_module [importer module]))))))
 
-(def: (find_any_source_file system import contexts partial_host_extension module)
-  (-> (file.System Promise) Import (List Context) Extension Module
+(def: (find_any_source_file system importer import contexts partial_host_extension module)
+  (-> (file.System Promise) Module Import (List Context) Extension Module
       (Promise (Try [Path Binary])))
   ## Preference is explicitly being given to Lux files that have a host extension.
   ## Normal Lux files (i.e. without a host extension) are then picked as fallback files.
   (do {! promise.monad}
-    [outcome (find_local_source_file system import contexts partial_host_extension module)]
+    [outcome (find_local_source_file system importer import contexts partial_host_extension module)]
     (case outcome
       (#try.Success [path data])
       (wrap outcome)
 
       (#try.Failure _)
-      (wrap (..find_library_source_file import partial_host_extension module)))))
+      (wrap (..find_library_source_file importer import partial_host_extension module)))))
 
-(def: #export (read system import contexts partial_host_extension module)
-  (-> (file.System Promise) Import (List Context) Extension Module
+(def: #export (read system importer import contexts partial_host_extension module)
+  (-> (file.System Promise) Module Import (List Context) Extension Module
       (Promise (Try Input)))
   (do (try.with promise.monad)
-    [[path binary] (..find_any_source_file system import contexts partial_host_extension module)]
+    [[path binary] (..find_any_source_file system importer import contexts partial_host_extension module)]
     (case (\ utf8.codec decode binary)
       (#try.Success code)
       (wrap {#////.module module

@@ -1,5 +1,6 @@
 # Virtual DOM
 
+1. [million: <1kb virtual DOM - it's fast!](https://million.js.org/)
 1. [Optimal Virtual DOM](https://blog.kabir.sh/posts/optimal-virtual-dom.html)
 
 # Input
