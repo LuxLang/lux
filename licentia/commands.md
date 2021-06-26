@@ -9,6 +9,9 @@ cd ~/lux/licentia/ \
 cd ~/lux/licentia/ \
 && lux clean \
 && time lux build
+
+cd ~/lux/licentia/ \
+&& time lux test
 ```
 
 ## Test

@@ -143,7 +143,7 @@
             target (get project :target-path default-target-dir)]
         (str (java-command project)
              " -jar " compiler " build"
-             " --library " "~/lux/stdlib/target/library.tar"
+             ;; " --library " "~/lux/stdlib/target/library.tar"
              sources
              " --target " target
              " --module " module)))))

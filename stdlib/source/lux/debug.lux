@@ -6,7 +6,7 @@
    [abstract
     ["." monad (#+ do)]]
    [control
-    [pipe (#+ case> new>)]
+    [pipe (#+ new>)]
     ["." function]
     ["." try (#+ Try)]
     ["." exception (#+ exception:)]
@@ -15,7 +15,7 @@
      ["<.>" code]]]
    [data
     ["." text
-     ["%" format]]
+     ["%" format (#+ Format)]]
     [format
      [xml (#+ XML)]
      ["." json]]
@@ -23,19 +23,21 @@
      ["." array]
      ["." list ("#\." functor)]
      ["." dictionary]]]
-   ["." meta
-    ["." location]]
+   ["." meta]
    [macro
     ["." template]
     ["." syntax (#+ syntax:)]
     ["." code]]
    [math
     [number
+     [ratio (#+ Ratio)]
      ["i" int]]]
-   [time
+   [time (#+ Time)
     [instant (#+ Instant)]
     [duration (#+ Duration)]
-    [date (#+ Date)]]])
+    [date (#+ Date)]
+    [month (#+ Month)]
+    [day (#+ Day)]]])
 
 (with_expansions [<jvm> (as_is (import: java/lang/String)
 
@@ -111,7 +113,8 @@
                (import: (format [Text .Any] Text)))
         }))
 
-(def: Inspector (-> Any Text))
+(def: Inspector
+  (.type (Format Any)))
 
 (def: (inspect_tuple inspect)
   (-> Inspector Inspector)
@@ -131,9 +134,9 @@
                                              #.None)]
 
                                           [java/lang/Boolean [(:coerce .Bit) %.bit]]
-                                          [java/lang/String [(:coerce .Text) %.text]]
                                           [java/lang/Long [(:coerce .Int) %.int]]
                                           [java/lang/Number [java/lang/Number::doubleValue %.frac]]
+                                          [java/lang/String [(:coerce .Text) %.text]]
                                           ))
                                     (case (ffi.check [java/lang/Object] object)
                                       (#.Some value)
@@ -167,8 +170,8 @@
               [<type_of>
                (`` (|> value (~~ (template.splice <then>))))])
             (["boolean" [(:coerce .Bit) %.bit]]
-             ["string" [(:coerce .Text) %.text]]
              ["number" [(:coerce .Frac) %.frac]]
+             ["string" [(:coerce .Text) %.text]]
              ["undefined" [JSON::stringify]])
             
             "object"
@@ -379,7 +382,8 @@
                 [Int %.int]
                 [Rev %.rev]
                 [Frac %.frac]
-                [Text %.text])))))
+                [Text %.text]))
+          )))
 
 (def: (special_representation representation)
   (-> (Parser Representation) (Parser Representation))
@@ -389,11 +393,19 @@
                    [_ (<type>.sub <type>)]
                    (wrap (|>> (:coerce <type>) <formatter>)))]
 
+                [Ratio %.ratio]
+                [Name %.name]
+                [Location %.location]
                 [Type %.type]
                 [Code %.code]
+                
                 [Instant %.instant]
                 [Duration %.duration]
                 [Date %.date]
+                [Time %.time]
+                [Month %.month]
+                [Day %.day]
+                
                 [json.JSON %.json]
                 [XML %.xml]))
 
@@ -406,11 +418,7 @@
             [[_ elemT] (<type>.apply (<>.and (<type>.exactly Maybe) <type>.any))
              elemR (<type>.local (list elemT) representation)]
             (wrap (|>> (:coerce (Maybe Any))
-                       (case> #.None
-                              "#.None"
-
-                              (#.Some elemV)
-                              (%.format "(#.Some " (elemR elemV) ")"))))))))
+                       (%.maybe elemR)))))))
 
 (def: (variant_representation representation)
   (-> (Parser Representation) (Parser Representation))
@@ -431,7 +439,7 @@
                                                   #.Nil
                                                   [lefts #1 (rightR right)]
 
-                                                  extraR+
+                                                  _
                                                   (recur (inc lefts) (#.Cons rightR extraR+) right)))
 
                                               _
@@ -462,10 +470,10 @@
   (<>.rec
    (function (_ representation)
      ($_ <>.either
-         primitive_representation
-         (special_representation representation)
-         (variant_representation representation)
-         (tuple_representation representation)
+         ..primitive_representation
+         (..special_representation representation)
+         (..variant_representation representation)
+         (..tuple_representation representation)
 
          (do <>.monad
            [[funcT inputsT+] (<type>.apply (<>.and <type>.any (<>.many <type>.any)))]
@@ -505,14 +513,14 @@
 
 (exception: #export (type_hole {location Location} {type Type})
   (exception.report
-   ["Location" (location.format location)]
+   ["Location" (%.location location)]
    ["Type" (%.type type)]))
 
 (syntax: #export (:hole)
   (do meta.monad
     [location meta.location
      expectedT meta.expected_type]
-    (meta.fail (exception.construct ..type_hole [location expectedT]))))
+    (function.constant (exception.throw ..type_hole [location expectedT]))))
 
 (type: Target
   [Text (Maybe Code)])
@@ -553,19 +561,18 @@
                   (monad.map ! (function (_ [name format])
                                  (if (dictionary.key? environment name)
                                    (wrap [name format])
-                                   (meta.fail (exception.construct ..unknown_local_binding [name]))))
+                                   (function.constant (exception.throw ..unknown_local_binding [name]))))
                              targets)))]
     (wrap (list (` (..log! ("lux text concat"
                             (~ (code.text (%.format (%.location location) text.new_line)))
                             ((~! exception.report)
-                             (~+ (|> targets
-                                     list.reverse
-                                     (list\map (function (_ [name format])
-                                                 (let [format (case format
-                                                                #.None
-                                                                (` (~! ..inspect))
-                                                                
-                                                                (#.Some format)
-                                                                format)]
-                                                   (` [(~ (code.text name))
-                                                       ((~ format) (~ (code.local_identifier name)))]))))))))))))))
+                             (~+ (list\map (function (_ [name format])
+                                             (let [format (case format
+                                                            #.None
+                                                            (` (~! ..inspect))
+                                                            
+                                                            (#.Some format)
+                                                            format)]
+                                               (` [(~ (code.text name))
+                                                   ((~ format) (~ (code.local_identifier name)))])))
+                                           targets))))))))))

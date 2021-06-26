@@ -10,6 +10,7 @@
     ["." exception (#+ exception:)]
     ["." io]
     [concurrency
+     ["." atom (#+ Atom)]
      ["." promise (#+ Promise) ("#\." monad)]]
     ["<>" parser
      ["<c>" code]]]
@@ -21,7 +22,9 @@
      ["%" format (#+ format)]]
     [collection
      ["." list ("#\." functor fold)]
-     ["." set (#+ Set)]]]
+     ["." set (#+ Set)]
+     ["." dictionary #_
+      ["#" ordered (#+ Dictionary)]]]]
    [time
     ["." instant]
     ["." duration (#+ Duration)]]
@@ -59,7 +62,9 @@
    #actual_coverage (set.new name.hash)})
 
 (template [<name> <category>]
-  [(def: <name> Tally (update@ <category> .inc start))]
+  [(def: <name>
+     Tally
+     (update@ <category> .inc ..start))]
 
   [success #successes]
   [failure #failures]
@@ -71,24 +76,30 @@
 (type: #export Test
   (Random Assertion))
 
-(def: separator text.new_line)
+(def: separator
+  text.new_line)
 
 (def: #export (and' left right)
   {#.doc "Sequencing combinator."}
   (-> Assertion Assertion Assertion)
-  (do promise.monad
-    [[l_tally l_documentation] left
-     [r_tally r_documentation] right]
-    (wrap [(add_tally l_tally r_tally)
-           (format l_documentation ..separator r_documentation)])))
+  (let [[read! write!] (: [(Promise [Tally Text])
+                           (promise.Resolver [Tally Text])]
+                          (promise.promise []))
+        _ (|> left
+              (promise.await (function (_ [l_tally l_documentation])
+                               (promise.await (function (_ [r_tally r_documentation])
+                                                (write! [(add_tally l_tally r_tally)
+                                                         (format l_documentation ..separator r_documentation)]))
+                                              right)))
+              io.run)]
+    read!))
 
 (def: #export (and left right)
   {#.doc "Sequencing combinator."}
   (-> Test Test Test)
-  (do random.monad
-    [left left
-     right right]
-    (wrap (..and' left right))))
+  (do {! random.monad}
+    [left left]
+    (\ ! map (..and' left) right)))
 
 (def: context_prefix text.tab)
 
@@ -116,17 +127,17 @@
   (-> Text Bit Assertion)
   (<| promise\wrap
       (if condition
-        [success (format ..success_prefix message)]
-        [failure (format ..failure_prefix message)])))
+        [..success (format ..success_prefix message)]
+        [..failure (format ..failure_prefix message)])))
 
 (def: #export (test message condition)
   {#.doc "Check that a condition is #1, and fail with the given message otherwise."}
   (-> Text Bit Test)
-  (\ random.monad wrap (assert message condition)))
+  (random\wrap (assert message condition)))
 
 (def: #export (lift message random)
   (-> Text (Random Bit) Test)
-  (\ random.monad map (..assert message) random))
+  (random\map (..assert message) random))
 
 (def: pcg32_magic_inc
   Nat
@@ -169,9 +180,7 @@
                                 (promise.time_out millis_time_out instance)
 
                                 #.None
-                                (do !
-                                  [output instance]
-                                  (wrap (#.Some output))))]
+                                (\ ! map (|>> #.Some) instance))]
                      (case outcome
                        (#.Some [tally documentation])
                        (if (failed? tally)
@@ -185,7 +194,7 @@
 
                        #.None
                        (exec
-                         ("lux io log" "Time-out reached! Retrying tests...")
+                         (debug.log! "Time-out reached! Retrying tests...")
                          (product.right (recur prng)))))])))))
 
 ## TODO: Figure out why tests sometimes freeze and fix it. Delete "seed'" afterwards.
@@ -249,7 +258,7 @@
      ["Pending definitions to cover" (report missing)]
      ["Unexpected definitions covered" (report unexpected)])))
 
-(def: failure_exit_code -1)
+(def: failure_exit_code +1)
 (def: success_exit_code +0)
 
 (def: #export (run! test)
@@ -283,7 +292,7 @@
 (def: (|cover| coverage condition)
   (-> (List Name) Bit Test)
   (|> (..|cover'| coverage condition)
-      (\ random.monad wrap)))
+      random\wrap))
 
 (def: (|for| coverage test)
   (-> (List Name) Test Test)
@@ -385,27 +394,48 @@
 
 (def: #export (in_parallel tests)
   (-> (List Test) Test)
-  (do random.monad
-    [seed random.nat
-     #let [prng (random.pcg32 [..pcg32_magic_inc seed])
-           run! (: (-> Test Assertion)
-                   (|>> (random.run prng)
-                        product.right
-                        io.io
-                        "lux try"
-                        (case> (#try.Success output)
-                               output
-                               
-                               (#try.Failure error)
-                               (..assert (exception.construct ..error_during_execution [error]) false))
-                        io.io
-                        promise.future
-                        promise\join))]]
-    (wrap (do {! promise.monad}
-            [assertions (monad.seq ! (list\map run! tests))]
-            (wrap [(|> assertions
-                       (list\map product.left)
-                       (list\fold ..add_tally ..start))
-                   (|> assertions
-                       (list\map product.right)
-                       (text.join_with ..separator))])))))
+  (case (list.size tests)
+    0
+    (random\wrap (promise\wrap [..start ""]))
+    
+    expected_tests
+    (do random.monad
+      [seed random.nat
+       #let [prng (random.pcg32 [..pcg32_magic_inc seed])
+             run! (: (-> Test Assertion)
+                     (|>> (random.run prng)
+                          product.right
+                          io.io
+                          "lux try"
+                          (case> (#try.Success output)
+                                 output
+                                 
+                                 (#try.Failure error)
+                                 (..assert (exception.construct ..error_during_execution [error]) false))
+                          io.io
+                          promise.future
+                          promise\join))
+             state (: (Atom (Dictionary Nat [Tally Text]))
+                      (atom.atom (dictionary.new n.order)))
+             [read! write!] (: [Assertion
+                                (promise.Resolver [Tally Text])]
+                               (promise.promise []))
+             _ (io.run (monad.map io.monad
+                                  (function (_ [index test])
+                                    (promise.await (function (_ assertion)
+                                                     (do io.monad
+                                                       [[_ results] (atom.update (dictionary.put index assertion) state)]
+                                                       (if (n.= expected_tests (dictionary.size results))
+                                                         (let [assertions (|> results
+                                                                              dictionary.entries
+                                                                              (list\map product.right))]
+                                                           (write! [(|> assertions
+                                                                        (list\map product.left)
+                                                                        (list\fold ..add_tally ..start))
+                                                                    (|> assertions
+                                                                        (list\map product.right)
+                                                                        (text.join_with ..separator))]))
+                                                         (wrap []))))
+                                                   (run! test)))
+                                  (list.enumeration tests)))]]
+      (wrap read!))))
