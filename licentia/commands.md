@@ -3,15 +3,8 @@
 ```
 ## Develop
 cd ~/lux/licentia/ \
-&& lein clean \
-&& lein lux auto build
-
-cd ~/lux/licentia/ \
 && lux clean \
-&& time lux build
-
-cd ~/lux/licentia/ \
-&& time lux test
+&& lux auto build
 ```
 
 ## Test
@@ -19,8 +12,8 @@ cd ~/lux/licentia/ \
 ```
 ## Develop
 cd ~/lux/licentia/ \
-&& lein clean \
-&& lein lux auto test
+&& lux clean \
+&& lux auto test
 ```
 
 ## Run

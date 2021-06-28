@@ -23,7 +23,7 @@
     [number
      ["i" int]]]
    [world
-    [program (#+ Program)]
+    ["." program (#+ Program)]
     ["." file (#+ Path)]
     ["." shell (#+ Process Shell)]
     ["." console (#+ Console)]
@@ -76,7 +76,6 @@
 
 (exception: #export no_available_compiler)
 (exception: #export no_specified_program)
-(exception: #export no_specified_target)
 
 (type: #export Compiler
   (#JVM Dependency)
@@ -169,45 +168,42 @@
 (def: #export (do! console program fs shell resolution)
   (-> (Console Promise) (Program Promise) (file.System Promise) (Shell Promise) Resolution (Command [Compiler Path]))
   (function (_ profile)
-    (case [(get@ #///.program profile)
-           (get@ #///.target profile)]
-      [#.None _]
-      (promise\wrap (exception.throw ..no_specified_program []))
+    (let [target (get@ #///.target profile)]
+      (case (get@ #///.program profile)
+        #.None
+        (promise\wrap (exception.throw ..no_specified_program []))
 
-      [_ #.None]
-      (promise\wrap (exception.throw ..no_specified_target []))
-      
-      [(#.Some program_module) (#.Some target)]
-      (do promise.monad
-        [environment (\ program environment [])
-         home (\ program home [])
-         working_directory (\ program directory [])]
-        (do ///action.monad
-          [[resolution compiler] (promise\wrap (..compiler resolution))
-           #let [[[command compiler_params] output] (case compiler
-                                                      (#JVM dependency) [(///runtime.java (..path fs home dependency))
-                                                                         "program.jar"]
-                                                      (#JS dependency) [(///runtime.node (..path fs home dependency))
-                                                                        "program.js"])
-                 / (\ fs separator)
-                 cache_directory (format working_directory / target)]
-           _ (console.write_line ..start console)
-           process (!.use (\ shell execute)
-                          [environment
-                           working_directory
-                           command
-                           (list.concat (list compiler_params
-                                              (list "build")
-                                              (..plural "--library" (..libraries fs home resolution))
-                                              (..plural "--source" (set.to_list (get@ #///.sources profile)))
-                                              (..singular "--target" cache_directory)
-                                              (..singular "--module" program_module)))])
-           _ (..log_output! console process)
-           _ (..log_error! console process)
-           exit (!.use (\ process await) [])
-           _ (console.write_line (if (i.= shell.normal exit)
-                                   ..success
-                                   ..failure)
-                                 console)]
-          (wrap [compiler
-                 (format cache_directory / output)]))))))
+        (#.Some program_module)
+        (do promise.monad
+          [environment (program.environment promise.monad program)
+           home (\ program home [])
+           working_directory (\ program directory [])]
+          (do ///action.monad
+            [[resolution compiler] (promise\wrap (..compiler resolution))
+             #let [[[command compiler_params] output] (case compiler
+                                                        (#JVM dependency) [(///runtime.java (..path fs home dependency))
+                                                                           "program.jar"]
+                                                        (#JS dependency) [(///runtime.node (..path fs home dependency))
+                                                                          "program.js"])
+                   / (\ fs separator)
+                   cache_directory (format working_directory / target)]
+             _ (console.write_line ..start console)
+             process (!.use (\ shell execute)
+                            [environment
+                             working_directory
+                             command
+                             (list.concat (list compiler_params
+                                                (list "build")
+                                                (..plural "--library" (..libraries fs home resolution))
+                                                (..plural "--source" (set.to_list (get@ #///.sources profile)))
+                                                (..singular "--target" cache_directory)
+                                                (..singular "--module" program_module)))])
+             _ (..log_output! console process)
+             _ (..log_error! console process)
+             exit (!.use (\ process await) [])
+             _ (console.write_line (if (i.= shell.normal exit)
+                                     ..success
+                                     ..failure)
+                                   console)]
+            (wrap [compiler
+                   (format cache_directory / output)])))))))

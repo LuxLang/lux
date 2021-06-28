@@ -2,13 +2,21 @@
   [lux #*
    ["_" test (#+ Test)]
    [abstract
-    [monad (#+ do)]]
+    [monad (#+ do)]
+    {[0 #spec]
+     [/
+      ["$." equivalence]]}]
    [control
     ["." try]
     [concurrency
      [promise (#+ Promise)]]]
    [data
-    ["." text]
+    ["." product]
+    ["." text
+     [encoding
+      ["." utf8]]]
+    [format
+     ["." xml (#+ XML)]]
     [collection
      ["." set (#+ Set)]]]
    [math
@@ -27,9 +35,11 @@
    ["." /
     ["/#" // #_
      ["#" profile]
-     ["#." dependency (#+ Dependency)]
      ["#." pom]
-     ["#." hash]]]})
+     [dependency
+      ["#." status]]
+     [repository
+      ["#." origin]]]]})
 
 (def: #export random
   (Random [//.Profile /.Package])
@@ -51,18 +61,48 @@
       (do {! random.monad}
         [[profile package] ..random]
         ($_ _.and
+            (_.for [/.equivalence]
+                   ($equivalence.spec /.equivalence (\ ! map product.right ..random)))
+            
+            (_.cover [/.local?]
+                     (/.local? (set@ #/.origin (#//origin.Local "~/yolo") package)))
+            (_.cover [/.remote?]
+                     (/.remote? (set@ #/.origin (#//origin.Remote "https://example.com") package)))
             (_.cover [/.local]
-                     false
-                     ## (and (\ //hash.equivalence =
-                     ##         (//hash.sha-1 (get@ #/.library package))
-                     ##         (get@ #/.sha-1 package))
-                     ##      (\ //hash.equivalence =
-                     ##         (//hash.md5 (get@ #/.library package))
-                     ##         (get@ #/.md5 package)))
-                     )
+                     (let [expected_pom (|> package (get@ #/.pom) product.left)
+                           expected_library (|> package (get@ #/.library) product.left)
+
+                           local (/.local expected_pom expected_library)
+
+                           [actual_pom binary_pom pom_status] (get@ #/.pom local)
+                           [actual_library library_status] (get@ #/.library local)]
+                       (and (case (get@ #/.origin local)
+                              (#//origin.Local "") true
+                              _ false)
+                            (and (is? expected_library actual_library)
+                                 (case library_status
+                                   #//status.Unverified true
+                                   _ false))
+                            (and (is? expected_pom actual_pom)
+                                 (|> (do try.monad
+                                       [xml_pom (\ utf8.codec decode binary_pom)
+                                        decoded_pom (\ xml.codec decode xml_pom)]
+                                       (wrap (\ xml.equivalence = actual_pom decoded_pom)))
+                                     (try.default false))
+                                 (case pom_status
+                                   #//status.Unverified true
+                                   _ false)))))
             (_.cover [/.dependencies]
                      (let [expected (get@ #//.dependencies profile)]
                        (case (/.dependencies package)
+                         (#try.Success actual)
+                         (\ set.equivalence = expected actual)
+                         
+                         (#try.Failure error)
+                         false)))
+            (_.cover [/.repositories]
+                     (let [expected (get@ #//.repositories profile)]
+                       (case (/.repositories package)
                          (#try.Success actual)
                          (\ set.equivalence = expected actual)
                          

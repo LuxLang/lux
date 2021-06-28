@@ -30,6 +30,9 @@
 
 (def: project_tag "project")
 (def: dependencies_tag "dependencies")
+(def: repositories_tag "repositories")
+(def: repository_tag "repository")
+(def: url_tag "url")
 (def: group_tag "groupId")
 (def: artifact_tag "artifactId")
 (def: version_tag "version")
@@ -63,15 +66,15 @@
 (def: (license [name url distribution])
   (-> /.License XML)
   (|> (list (..property "name" name)
-            (..property "url" url)
+            (..property ..url_tag url)
             (..distribution distribution))
       (#_.Node ["" "license"] _.attributes)))
 
 (def: repository
   (-> Address XML)
-  (|>> (..property "url")
+  (|>> (..property ..url_tag)
        list
-       (#_.Node ["" "repository"] _.attributes)))
+       (#_.Node ["" ..repository_tag] _.attributes)))
 
 (def: (dependency value)
   (-> Dependency XML)
@@ -87,14 +90,14 @@
 (comment
   (def: scm
     (-> /.SCM XML)
-    (|>> (..property "url")
+    (|>> (..property ..url_tag)
          list
          (#_.Node ["" "scm"] _.attributes)))
 
   (def: (organization [name url])
     (-> /.Organization XML)
     (|> (list (..property "name" name)
-              (..property "url" url))
+              (..property ..url_tag url))
         (#_.Node ["" "organization"] _.attributes)))
 
   (def: (developer_organization [name url])
@@ -120,7 +123,7 @@
   (def: (info value)
     (-> /.Info (List XML))
     ($_ list\compose
-        (|> value (get@ #/.url) (maybe\map (..property "url")) maybe.to_list)
+        (|> value (get@ #/.url) (maybe\map (..property ..url_tag)) maybe.to_list)
         (|> value (get@ #/.description) (maybe\map (..property "description")) maybe.to_list)
         (|> value (get@ #/.licenses) (list\map ..license) (..group "licenses") list)
         (|> value (get@ #/.scm) (maybe\map ..scm) maybe.to_list)
@@ -178,6 +181,21 @@
     [_ (<xml>.node ["" ..dependencies_tag])]
     (<xml>.children (<>.some (..parse_dependency own_version parent_version)))))
 
+(def: parse_repository
+  (Parser Address)
+  (do {! <>.monad}
+    [_ (<xml>.node ["" ..repository_tag])]
+    (<xml>.children
+     (do !
+       [_ (<xml>.node ["" ..url_tag])]
+       (<xml>.children <xml>.text)))))
+
+(def: parse_repositories
+  (Parser (List Address))
+  (do {! <>.monad}
+    [_ (<xml>.node ["" ..repositories_tag])]
+    (<xml>.children (<>.some ..parse_repository))))
+
 (def: own_version
   (Parser Text)
   (do <>.monad
@@ -201,7 +219,12 @@
        [dependencies (|> (..parse_dependencies own_version parent_version)
                          <xml>.somewhere
                          (<>.default (list)))
+        repositories (|> ..parse_repositories
+                         <xml>.somewhere
+                         (<>.default (list)))
         _ (<>.some <xml>.ignore)]
        (wrap (|> (\ /.monoid identity)
                  (update@ #/.dependencies (function (_ empty)
-                                            (list\fold set.add empty dependencies)))))))))
+                                            (list\fold set.add empty dependencies)))
+                 (update@ #/.repositories (function (_ empty)
+                                            (list\fold set.add empty repositories)))))))))

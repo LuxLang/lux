@@ -1,20 +1,29 @@
 (.module:
   [lux (#- type)
-   ["%" data/text/format (#+ format)]
    ["_" test (#+ Test)]
    [abstract
-    ["." monad (#+ do)]]
+    ["." monad (#+ do)]
+    {[0 #spec]
+     [/
+      ["$." functor (#+ Injection Comparison)]
+      ["$." apply]
+      ["$." monad]]}]
    [control
-    [pipe (#+ case>)]]
+    [pipe (#+ case>)]
+    ["." function]
+    ["." try]
+    ["." exception (#+ exception:)]]
    [data
+    ["." bit ("#\." equivalence)]
     ["." product]
     ["." maybe]
-    ["." text ("#\." equivalence)]
+    ["." text ("#\." equivalence)
+     ["%" format (#+ format)]]
     [collection
-     ["." list ("#\." functor)]
+     ["." list ("#\." functor monoid)]
      ["." set]]]
    [math
-    ["." random (#+ Random)]
+    ["." random (#+ Random) ("#\." monad)]
     [number
      ["n" nat]]]
    ["." type ("#\." equivalence)]]
@@ -34,27 +43,26 @@
   (-> Nat (Random Type))
   (random.rec
    (function (_ recur)
-     (let [(^open "R\.") random.monad
-           pairG (random.and recur recur)
-           quantifiedG (random.and (R\wrap (list)) (type' (inc num_vars)))
-           random_pair (random.either (random.either (R\map (|>> #.Sum) pairG)
-                                                     (R\map (|>> #.Product) pairG))
-                                      (random.either (R\map (|>> #.Function) pairG)
-                                                     (R\map (|>> #.Apply) pairG)))
-           random_id (let [random_id (random.either (R\map (|>> #.Var) random.nat)
-                                                    (R\map (|>> #.Ex) random.nat))]
+     (let [pairG (random.and recur recur)
+           quantifiedG (random.and (random\wrap (list)) (type' (inc num_vars)))
+           random_pair (random.either (random.either (random\map (|>> #.Sum) pairG)
+                                                     (random\map (|>> #.Product) pairG))
+                                      (random.either (random\map (|>> #.Function) pairG)
+                                                     (random\map (|>> #.Apply) pairG)))
+           random_id (let [random_id (random.either (random\map (|>> #.Var) random.nat)
+                                                    (random\map (|>> #.Ex) random.nat))]
                        (case num_vars
                          0 random_id
-                         _ (random.either (R\map (|>> (n.% num_vars) (n.* 2) inc #.Parameter) random.nat)
+                         _ (random.either (random\map (|>> (n.% num_vars) (n.* 2) inc #.Parameter) random.nat)
                                           random_id)))
-           random_quantified (random.either (R\map (|>> #.UnivQ) quantifiedG)
-                                            (R\map (|>> #.ExQ) quantifiedG))]
+           random_quantified (random.either (random\map (|>> #.UnivQ) quantifiedG)
+                                            (random\map (|>> #.ExQ) quantifiedG))]
        ($_ random.either
-           (R\map (|>> #.Primitive) (random.and ..short (R\wrap (list))))
+           (random\map (|>> #.Primitive) (random.and ..short (random\wrap (list))))
            random_pair
            random_id
            random_quantified
-           (R\map (|>> #.Named) (random.and ..name (type' 0)))
+           (random\map (|>> #.Named) (random.and ..name (type' 0)))
            )))))
 
 (def: type
@@ -81,178 +89,633 @@
     _
     #0))
 
-(def: (type_checks? input)
-  (-> (/.Check []) Bit)
-  (case (/.run /.fresh_context input)
-    (#.Right [])
-    #1
+(def: injection
+  (Injection (All [a] (/.Check a)))
+  (\ /.monad wrap))
 
-    (#.Left error)
-    #0))
+(def: comparison
+  (Comparison (All [a] (/.Check a)))
+  (function (_ == left right)
+    (case [(/.run /.fresh_context left) (/.run /.fresh_context right)]
+      [(#try.Success left) (#try.Success right)]
+      (== left right)
 
-(def: (build_ring num_connections)
-  (-> Nat (/.Check [[Nat Type] (List [Nat Type]) [Nat Type]]))
+      _
+      false)))
+
+(def: polymorphism
+  Test
+  ($_ _.and
+      (_.for [/.functor]
+             ($functor.spec ..injection ..comparison /.functor))
+      (_.for [/.apply]
+             ($apply.spec ..injection ..comparison /.apply))
+      (_.for [/.monad]
+             ($monad.spec ..injection ..comparison /.monad))
+      ))
+
+(exception: yolo)
+
+(def: error_handling
+  Test
+  ($_ _.and
+      (do random.monad
+        [expected (random.ascii/upper 10)]
+        (_.cover [/.fail]
+                 (case (/.run /.fresh_context
+                              (: (/.Check Any)
+                                 (/.fail expected)))
+                   (#try.Success _) false
+                   (#try.Failure actual) (is? expected actual))))
+      (do random.monad
+        [expected (random.ascii/upper 10)]
+        (_.cover [/.assert]
+                 (and (case (/.run /.fresh_context
+                                   (: (/.Check Any)
+                                      (/.assert expected true)))
+                        (#try.Success _) true
+                        (#try.Failure actual) false)
+                      (case (/.run /.fresh_context (/.assert expected false))
+                        (#try.Success _) false
+                        (#try.Failure actual) (is? expected actual)))))
+      (_.cover [/.throw]
+               (case (/.run /.fresh_context
+                            (: (/.Check Any)
+                               (/.throw ..yolo [])))
+                 (#try.Success _) false
+                 (#try.Failure error) (exception.match? ..yolo error)))
+      ))
+
+(def: var
+  Test
+  (<| (_.for [/.Var])
+      ($_ _.and
+          (_.cover [/.var]
+                   (case (/.run /.fresh_context
+                                (do /.monad
+                                  [[var_id var_type] /.var]
+                                  (wrap (type\= var_type (#.Var var_id)))))
+                     (#try.Success verdict) verdict
+                     (#try.Failure error) false))
+          (do random.monad
+            [nominal (random.ascii/upper 10)]
+            (_.cover [/.bind]
+                     (case (/.run /.fresh_context
+                                  (do /.monad
+                                    [[var_id var_type] /.var
+                                     _ (/.bind (#.Primitive nominal (list))
+                                               var_id)]
+                                    (wrap true)))
+                       (#try.Success _) true
+                       (#try.Failure error) false)))
+          (do random.monad
+            [nominal (random.ascii/upper 10)]
+            (_.cover [/.bound?]
+                     (and (|> (do /.monad
+                                [[var_id var_type] /.var
+                                 pre (/.bound? var_id)
+                                 _ (/.bind (#.Primitive nominal (list))
+                                           var_id)
+                                 post (/.bound? var_id)]
+                                (wrap (and (not pre)
+                                           post)))
+                              (/.run /.fresh_context)
+                              (try.default false))
+                          (|> (do /.monad
+                                [[var_id var/0] /.var
+                                 pre (/.bound? var_id)
+                                 [_ var/1] /.var
+                                 _ (/.check var/0 var/1)
+                                 post (/.bound? var_id)]
+                                (wrap (and (not pre)
+                                           (not post))))
+                              (/.run /.fresh_context)
+                              (try.default false)))))
+          (do random.monad
+            [nominal (random.ascii/upper 10)]
+            (_.cover [/.cannot_rebind_var]
+                     (case (/.run /.fresh_context
+                                  (do /.monad
+                                    [[var_id var_type] /.var
+                                     _ (/.bind (#.Primitive nominal (list))
+                                               var_id)]
+                                    (/.bind (#.Primitive nominal (list))
+                                            var_id)))
+                       (#try.Success _)
+                       false
+                       
+                       (#try.Failure error)
+                       (exception.match? /.cannot_rebind_var error))))
+          (do random.monad
+            [nominal (random.ascii/upper 10)
+             var_id random.nat]
+            (_.cover [/.unknown_type_var]
+                     (case (/.run /.fresh_context
+                                  (/.bind (#.Primitive nominal (list))
+                                          var_id))
+                       (#try.Success _)
+                       false
+                       
+                       (#try.Failure error)
+                       (exception.match? /.unknown_type_var error))))
+          (do random.monad
+            [nominal (random.ascii/upper 10)
+             #let [expected (#.Primitive nominal (list))]]
+            (_.cover [/.read]
+                     (and (|> (do /.monad
+                                [[var_id var_type] /.var]
+                                (/.read var_id))
+                              (/.run /.fresh_context)
+                              (case> (#try.Success #.None) true
+                                     _ false))
+                          (|> (do /.monad
+                                [[var_id var/0] /.var
+                                 [_ var/1] /.var
+                                 _ (/.check var/0 var/1)]
+                                (/.read var_id))
+                              (/.run /.fresh_context)
+                              (case> (#try.Success #.None) true
+                                     _ false))
+                          (|> (do /.monad
+                                [[var_id var_type] /.var
+                                 _ (/.bind expected var_id)]
+                                (/.read var_id))
+                              (/.run /.fresh_context)
+                              (case> (#try.Success (#.Some actual))
+                                     (is? expected actual)
+                                     
+                                     _
+                                     false)))))
+          (do random.monad
+            [nominal (random.ascii/upper 10)
+             #let [expected (#.Primitive nominal (list))]]
+            (_.cover [/.read!]
+                     (case (/.run /.fresh_context
+                                  (do /.monad
+                                    [[var_id var_type] /.var
+                                     _ (/.bind expected var_id)]
+                                    (/.read! var_id)))
+                       (#try.Success actual)
+                       (is? expected actual)
+                       
+                       _
+                       false)))
+          (do random.monad
+            [nominal (random.ascii/upper 10)
+             #let [expected (#.Primitive nominal (list))]]
+            (_.cover [/.unbound_type_var]
+                     (case (/.run /.fresh_context
+                                  (do /.monad
+                                    [[var_id var_type] /.var]
+                                    (/.read! var_id)))
+                       (#try.Failure error)
+                       (exception.match? /.unbound_type_var error)
+
+                       _
+                       false)))
+          )))
+
+(def: context
+  Test
+  ($_ _.and
+      (_.cover [/.fresh_context]
+               (and (n.= 0 (get@ #.var_counter /.fresh_context))
+                    (n.= 0 (get@ #.ex_counter /.fresh_context))
+                    (list.empty? (get@ #.var_bindings /.fresh_context))))
+      (_.cover [/.context]
+               (and (case (/.run /.fresh_context /.context)
+                      (#try.Success actual)
+                      (is? /.fresh_context actual)
+                      
+                      (#try.Failure error)
+                      false)
+                    (case (/.run /.fresh_context
+                                 (do /.monad
+                                   [_ /.var]
+                                   /.context))
+                      (#try.Success actual)
+                      (and (n.= 1 (get@ #.var_counter actual))
+                           (n.= 0 (get@ #.ex_counter actual))
+                           (n.= 1 (list.size (get@ #.var_bindings actual))))
+                      
+                      (#try.Failure error)
+                      false)))
+      (_.cover [/.existential]
+               (case (/.run /.fresh_context
+                            (do /.monad
+                              [_ /.existential]
+                              /.context))
+                 (#try.Success actual)
+                 (and (n.= 0 (get@ #.var_counter actual))
+                      (n.= 1 (get@ #.ex_counter actual))
+                      (n.= 0 (list.size (get@ #.var_bindings actual))))
+                 
+                 (#try.Failure error)
+                 false))
+      ))
+
+(def: succeeds?
+  (All [a] (-> (/.Check a) Bit))
+  (|>> (/.run /.fresh_context)
+       (case> (#try.Success _)
+              true
+
+              (#try.Failure error)
+              false)))
+
+(def: fails?
+  (All [a] (-> (/.Check a) Bit))
+  (|>> ..succeeds?
+       not))
+
+(def: nominal
+  (Random Type)
+  (do random.monad
+    [name (random.ascii/upper 10)]
+    (wrap (#.Primitive name (list)))))
+
+(def: (non_twins = random)
+  (All [a] (-> (-> a a Bit) (Random a) (Random [a a])))
+  (do random.monad
+    [left random
+     right (random.filter (|>> (= left) not) random)]
+    (wrap [left right])))
+
+(type: Super
+  (Ex [sub] [Text sub]))
+
+(type: Sub
+  (Super Bit))
+
+(def: (handles_nominal_types! name/0 name/1 parameter/0 parameter/1)
+  (-> Text Text Type Type Bit)
+  (let [names_matter!
+        (and (..succeeds? (/.check (#.Primitive name/0 (list))
+                                   (#.Primitive name/0 (list))))
+             (..fails? (/.check (#.Primitive name/0 (list))
+                                (#.Primitive name/1 (list)))))
+
+        parameters_matter!
+        (and (..succeeds? (/.check (#.Primitive name/0 (list parameter/0))
+                                   (#.Primitive name/0 (list parameter/0))))
+             (..fails? (/.check (#.Primitive name/0 (list parameter/0))
+                                (#.Primitive name/0 (list parameter/1)))))
+
+        covariant_parameters!
+        (and (..succeeds? (/.check (#.Primitive name/0 (list Super))
+                                   (#.Primitive name/0 (list Sub))))
+             (..fails? (/.check (#.Primitive name/0 (list Sub))
+                                (#.Primitive name/0 (list Super)))))]
+    (and names_matter!
+         parameters_matter!
+         covariant_parameters!)))
+
+(template [<assertion> <combinator>]
+  [(def: (<assertion> name/0 name/1)
+     (-> Text Text Bit)
+     (let [pair/0 (<combinator> (#.Primitive name/0 (list)) (#.Primitive name/0 (list)))
+           pair/1 (<combinator> (#.Primitive name/1 (list)) (#.Primitive name/1 (list)))
+           
+           invariant!
+           (and (..succeeds? (/.check pair/0 pair/0))
+                (..fails? (/.check pair/0 pair/1)))
+
+           super_pair (<combinator> Super Super)
+           sub_pair (<combinator> Sub Sub)
+           
+           covariant!
+           (and (..succeeds? (/.check super_pair sub_pair))
+                (..fails? (/.check sub_pair super_pair)))]
+       (and invariant!
+            covariant!)))]
+
+  [handles_products! #.Product]
+  [handles_sums! #.Sum]
+  )
+
+(def: (handles_function_variance! nominal)
+  (-> Type Bit)
+  (let [functions_have_contravariant_inputs!
+        (..succeeds? (/.check (#.Function Sub nominal) (#.Function Super nominal)))
+        
+        functions_have_covariant_outputs!
+        (..succeeds? (/.check (#.Function nominal Super) (#.Function nominal Sub)))]
+    (and functions_have_contravariant_inputs!
+         functions_have_covariant_outputs!)))
+
+(def: (verdict check)
+  (All [_] (-> (/.Check _) (/.Check Bit)))
+  (function (_ context)
+    (#try.Success [context (case (check context)
+                             (#try.Success _)
+                             true
+
+                             (#try.Failure _)
+                             false)])))
+
+(def: (build_ring tail_size)
+  (-> Nat (/.Check [Type (List Type) Type]))
   (do {! /.monad}
-    [[head_id head_type] /.var
-     ids+types (monad.seq ! (list.repeat num_connections /.var))
-     [tail_id tail_type] (monad.fold ! (function (_ [tail_id tail_type] [_head_id _head_type])
-                                         (do !
-                                           [_ (/.check head_type tail_type)]
-                                           (wrap [tail_id tail_type])))
-                                     [head_id head_type]
-                                     ids+types)]
-    (wrap [[head_id head_type] ids+types [tail_id tail_type]])))
+    [[id/head var/head] /.var
+     var/tail+ (monad.map ! (function (_ _)
+                              (do !
+                                [[id/T var/tail] /.var]
+                                (wrap var/tail)))
+                          (list.repeat tail_size /.var))
+     var/last (monad.fold ! (function (_ var/next var/prev)
+                              (do !
+                                [_ (/.check var/prev var/next)]
+                                (wrap var/next)))
+                          var/head
+                          var/tail+)
+     _ (/.check var/last var/head)]
+    (wrap [var/head var/tail+ var/last])))
+
+(def: (handles_var_rings! tail_size nominal/0 nominal/1)
+  (-> Nat Type Type Bit)
+  (let [can_create_rings_of_variables!
+        (succeeds? (..build_ring tail_size))
+
+        can_bind_rings_of_variables!
+        (succeeds? (do {! /.monad}
+                     [[var/head var/tail+ var/last] (..build_ring tail_size)
+                      _ (/.check var/head nominal/0)
+                      failures (monad.map ! (|>> (/.check nominal/1) ..verdict) (list& var/head var/tail+))
+                      successes (monad.map ! (|>> (/.check nominal/0) ..verdict) (list& var/head var/tail+))]
+                     (/.assert "" (and (list.every? (bit\= false) failures)
+                                       (list.every? (bit\= true) successes)))))
+
+        can_merge_multiple_rings_of_variables!
+        (succeeds? (do {! /.monad}
+                     [[var/head/0 var/tail+/0 var/last/0] (..build_ring tail_size)
+                      [var/head/1 var/tail+/1 var/last/1] (..build_ring tail_size)
+                      _ (/.check var/head/0 var/head/1)
+                      _ (/.check var/head/0 nominal/0)
+                      #let [all_variables (list\compose (list& var/head/0 var/tail+/0)
+                                                        (list& var/head/1 var/tail+/1))]
+                      failures (monad.map ! (|>> (/.check nominal/1) ..verdict) all_variables)
+                      successes (monad.map ! (|>> (/.check nominal/0) ..verdict) all_variables)]
+                     (/.assert "" (and (list.every? (bit\= false) failures)
+                                       (list.every? (bit\= true) successes)))))]
+    (and can_create_rings_of_variables!
+         can_bind_rings_of_variables!
+         can_merge_multiple_rings_of_variables!)))
+
+(def: (handles_vars! nominal)
+  (-> Type Bit)
+  (let [vars_check_against_themselves!
+        (succeeds? (do /.monad
+                     [[id var] /.var]
+                     (/.check var var)))
+
+        can_bind_vars_by_checking_against_them!
+        (and (succeeds? (do /.monad
+                          [[id var] /.var]
+                          (/.check var nominal)))
+             (succeeds? (do /.monad
+                          [[id var] /.var]
+                          (/.check nominal var))))
+
+        cannot_rebind!
+        (fails? (do /.monad
+                  [[id var] /.var
+                   _ (/.check var nominal)]
+                  (/.check var ..Sub)))
+
+        bound_vars_check_against_their_bound_types!
+        (and (succeeds? (do /.monad
+                          [[id var] /.var
+                           _ (/.check var nominal)]
+                          (/.check nominal var)))
+             (succeeds? (do /.monad
+                          [[id var] /.var
+                           _ (/.check var ..Super)]
+                          (/.check var ..Sub)))
+             (succeeds? (do /.monad
+                          [[id var] /.var
+                           _ (/.check var ..Sub)]
+                          (/.check ..Super var)))
+
+             (fails? (do /.monad
+                       [[id var] /.var
+                        _ (/.check var ..Super)]
+                       (/.check ..Sub var)))
+             (fails? (do /.monad
+                       [[id var] /.var
+                        _ (/.check var ..Sub)]
+                       (/.check var ..Super))))]
+    (and vars_check_against_themselves!
+         can_bind_vars_by_checking_against_them!
+         cannot_rebind!
+         bound_vars_check_against_their_bound_types!)))
+
+(def: handles_existentials!
+  Bit
+  (let [existentials_always_match_themselves!
+        (..succeeds? (do /.monad
+                       [[_ single] /.existential]
+                       (/.check single single)))
+
+        existentials_never_match_each_other!
+        (..fails? (do /.monad
+                    [[_ left] /.existential
+                     [_ right] /.existential]
+                    (/.check left right)))]
+    (and existentials_always_match_themselves!
+         existentials_never_match_each_other!)))
+
+(def: (handles_quantification! nominal)
+  (-> Type Bit)
+  (let [universals_satisfy_themselves!
+        (..succeeds? (/.check (.type (All [a] (Maybe a)))
+                              (.type (All [a] (Maybe a)))))
+
+        existentials_satisfy_themselves!
+        (..succeeds? (/.check (.type (Ex [a] (Maybe a)))
+                              (.type (Ex [a] (Maybe a)))))
+
+        universals_satisfy_particulars!
+        (..succeeds? (/.check (.type (Maybe nominal))
+                              (.type (All [a] (Maybe a)))))
+
+        particulars_do_not_satisfy_universals!
+        (..fails? (/.check (.type (All [a] (Maybe a)))
+                           (.type (Maybe nominal))))
+
+        particulars_satisfy_existentials!
+        (..succeeds? (/.check (.type (Ex [a] (Maybe a)))
+                              (.type (Maybe nominal))))
+
+        existentials_do_not_satisfy_particulars!
+        (..fails? (/.check (.type (Maybe nominal))
+                           (.type (Ex [a] (Maybe a)))))]
+    (and universals_satisfy_themselves!
+         existentials_satisfy_themselves!
+
+         universals_satisfy_particulars!
+         particulars_do_not_satisfy_universals!
+         
+         particulars_satisfy_existentials!
+         existentials_do_not_satisfy_particulars!
+         )))
+
+(def: (handles_ultimates! nominal)
+  (-> Type Bit)
+  (let [any_is_the_ultimate_super_type!
+        (and (..succeeds? (/.check Any nominal))
+             (..fails? (/.check nominal Any)))
+
+        nothing_is_the_ultimate_sub_type!
+        (and (..succeeds? (/.check nominal Nothing))
+             (..fails? (/.check Nothing nominal)))
+
+        ultimates_check_themselves!
+        (and (..succeeds? (/.check Any Any))
+             (..succeeds? (/.check Nothing Nothing)))]
+    (and any_is_the_ultimate_super_type!
+         nothing_is_the_ultimate_sub_type!
+         ultimates_check_themselves!)))
+
+(def: (names_do_not_affect_types! left_name right_name nominal)
+  (-> Name Name Type Bit)
+  (and (..succeeds? (/.check (#.Named left_name Any) nominal))
+       (..succeeds? (/.check Any (#.Named right_name nominal)))
+       (..succeeds? (/.check (#.Named left_name Any) (#.Named right_name nominal)))))
+
+## TODO: Test all the crazy corner cases from /.check_apply
+(def: (handles_application! nominal/0 nominal/1)
+  (-> Type Type Bit)
+  (let [types_flow_through!
+        (and (..succeeds? (/.check (.type ((All [a] a) nominal/0))
+                                   nominal/0))
+             (..succeeds? (/.check nominal/0
+                                   (.type ((All [a] a) nominal/0))))
+
+             (..succeeds? (/.check (.type ((Ex [a] a) nominal/0))
+                                   nominal/0))
+             (..succeeds? (/.check nominal/0
+                                   (.type ((Ex [a] a) nominal/0)))))
+
+        multiple_parameters!
+        (and (..succeeds? (/.check (.type ((All [a b] [a b]) nominal/0 nominal/1))
+                                   (.type [nominal/0 nominal/1])))
+             (..succeeds? (/.check (.type [nominal/0 nominal/1])
+                                   (.type ((All [a b] [a b]) nominal/0 nominal/1))))
+             
+             (..succeeds? (/.check (.type ((Ex [a b] [a b]) nominal/0 nominal/1))
+                                   (.type [nominal/0 nominal/1])))
+             (..succeeds? (/.check (.type [nominal/0 nominal/1])
+                                   (.type ((Ex [a b] [a b]) nominal/0 nominal/1)))))]
+    (and types_flow_through!
+         multiple_parameters!)))
+
+(def: check
+  Test
+  (do {! random.monad}
+    [nominal ..nominal
+     [name/0 name/1] (..non_twins text\= (random.ascii/upper 10))
+     [parameter/0 parameter/1] (..non_twins type\= ..nominal)
+     left_name ..name
+     right_name ..name
+     ring_tail_size (\ ! map (n.% 10) random.nat)]
+    (_.cover [/.check]
+             (and (..handles_nominal_types! name/0 name/1 parameter/0 parameter/1)
+                  (..handles_products! name/0 name/1)
+                  (..handles_sums! name/0 name/1)
+                  (..handles_function_variance! nominal)
+                  (..handles_vars! nominal)
+                  (..handles_var_rings! ring_tail_size parameter/0 parameter/1)
+                  ..handles_existentials!
+                  (..handles_quantification! nominal)
+                  (..handles_ultimates! nominal)
+                  (..handles_application! parameter/0 parameter/1)
+                  (..names_do_not_affect_types! left_name right_name nominal)
+                  ))))
+
+(def: dirty_type
+  (Random (-> Type Type))
+  (random.rec
+   (function (_ dirty_type)
+     (`` ($_ random.either
+             (random\map (function (_ id)
+                           (function.constant (#.Ex id)))
+                         random.nat)
+             (do random.monad
+               [module (random.ascii/upper 10)
+                short (random.ascii/upper 10)
+                anonymousT dirty_type]
+               (wrap (function (_ holeT)
+                       (#.Named [module short] (anonymousT holeT)))))
+             (~~ (template [<tag>]
+                   [(do random.monad
+                      [leftT dirty_type
+                       rightT dirty_type]
+                      (wrap (function (_ holeT)
+                              (<tag> (leftT holeT) (rightT holeT)))))]
+
+                   [#.Sum]
+                   [#.Product]
+                   [#.Function]
+                   [#.Apply]
+                   ))
+             (do {! random.monad}
+               [name (random.ascii/upper 10)
+                parameterT dirty_type]
+               (wrap (function (_ holeT)
+                       (#.Primitive name (list (parameterT holeT))))))
+             (~~ (template [<tag>]
+                   [(do {! random.monad}
+                      [funcT dirty_type
+                       argT dirty_type
+                       body random.nat]
+                      (wrap (function (_ holeT)
+                              (<tag> (list (funcT holeT) (argT holeT))
+                                     (#.Parameter body)))))]
+
+                   [#.UnivQ]
+                   [#.ExQ]
+                   ))
+             )))))
+
+(def: clean
+  Test
+  (do random.monad
+    [type_shape ..dirty_type]
+    (_.cover [/.clean]
+             (and (|> (do /.monad
+                        [[var_id varT] /.var
+                         cleanedT (/.clean (type_shape varT))]
+                        (wrap (type\= (type_shape varT)
+                                      cleanedT)))
+                      (/.run /.fresh_context)
+                      (try.default false))
+                  (|> (do /.monad
+                        [[var_id varT] /.var
+                         [_ replacementT] /.existential
+                         _ (/.check varT replacementT)
+                         cleanedT (/.clean (type_shape varT))]
+                        (wrap (type\= (type_shape replacementT)
+                                      cleanedT)))
+                      (/.run /.fresh_context)
+                      (try.default false))
+                  ))))
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name_of /._)))
+  (<| (_.covering /._)
+      (_.for [/.Check])
       ($_ _.and
+          ..polymorphism
           (do random.monad
-            [sample (random.filter ..valid_type? ..type)]
-            ($_ _.and
-                (_.test "Any is the super-type of everything."
-                        (/.checks? Any sample))
-                (_.test "Nothing is the sub-type of everything."
-                        (/.checks? sample Nothing))
-                ))
-          ($_ _.and
-              (_.test "Any and Nothing match themselves."
-                      (and (/.checks? Nothing Nothing)
-                           (/.checks? Any Any)))
-              (_.test "Existential types only match with themselves."
-                      (and (type_checks? (do /.monad
-                                           [[_ exT] /.existential]
-                                           (/.check exT exT)))
-                           (not (type_checks? (do /.monad
-                                                [[_ exTL] /.existential
-                                                 [_ exTR] /.existential]
-                                                (/.check exTL exTR))))))
-              (_.test "Names do not affect type-checking."
-                      (and (type_checks? (do /.monad
-                                           [[_ exT] /.existential]
-                                           (/.check (#.Named ["module" "name"] exT)
-                                                    exT)))
-                           (type_checks? (do /.monad
-                                           [[_ exT] /.existential]
-                                           (/.check exT
-                                                    (#.Named ["module" "name"] exT))))
-                           (type_checks? (do /.monad
-                                           [[_ exT] /.existential]
-                                           (/.check (#.Named ["module" "name"] exT)
-                                                    (#.Named ["module" "name"] exT))))))
-              (_.test "Functions are covariant on inputs and contravariant on outputs."
-                      (and (/.checks? (#.Function Nothing Any)
-                                      (#.Function Any Nothing))
-                           (not (/.checks? (#.Function Any Nothing)
-                                           (#.Function Nothing Any)))))
-              )
-          (do random.monad
-            [meta ..type
-             data ..type]
-            (_.test "Can type-check type application."
-                    (and (/.checks? (|> Ann (#.Apply meta) (#.Apply data))
-                                    (type.tuple (list meta data)))
-                         (/.checks? (type.tuple (list meta data))
-                                    (|> Ann (#.Apply meta) (#.Apply data))))))
-          (do random.monad
-            [#let [gen_short (random.ascii 10)]
-             nameL gen_short
-             nameR (|> gen_short (random.filter (|>> (text\= nameL) not)))
-             paramL ..type
-             paramR (random.filter (|>> (/.checks? paramL) not) ..type)]
-            ($_ _.and
-                (_.test "Primitive types match when they have the same name and the same parameters."
-                        (/.checks? (#.Primitive nameL (list paramL))
-                                   (#.Primitive nameL (list paramL))))
-                (_.test "Names matter to primitive types."
-                        (not (/.checks? (#.Primitive nameL (list paramL))
-                                        (#.Primitive nameR (list paramL)))))
-                (_.test "Parameters matter to primitive types."
-                        (not (/.checks? (#.Primitive nameL (list paramL))
-                                        (#.Primitive nameL (list paramR)))))
-                ))
-          ($_ _.and
-              (_.test "Type-vars check against themselves."
-                      (type_checks? (do /.monad
-                                      [[id var] /.var]
-                                      (/.check var var))))
-              (_.test "Can bind unbound type-vars by type-checking against them."
-                      (and (type_checks? (do /.monad
-                                           [[id var] /.var]
-                                           (/.check var .Any)))
-                           (type_checks? (do /.monad
-                                           [[id var] /.var]
-                                           (/.check .Any var)))))
-              (_.test "Cannot rebind already bound type-vars."
-                      (not (type_checks? (do /.monad
-                                           [[id var] /.var
-                                            _ (/.check var .Bit)]
-                                           (/.check var .Nat)))))
-              (_.test "If the type bound to a var is a super-type to another, then the var is also a super-type."
-                      (type_checks? (do /.monad
-                                      [[id var] /.var
-                                       _ (/.check var Any)]
-                                      (/.check var .Bit))))
-              (_.test "If the type bound to a var is a sub-type of another, then the var is also a sub-type."
-                      (type_checks? (do /.monad
-                                      [[id var] /.var
-                                       _ (/.check var Nothing)]
-                                      (/.check .Bit var))))
-              )
-          (do {! random.monad}
-            [num_connections (|> random.nat (\ ! map (n.% 100)))
-             boundT (|> ..type (random.filter (|>> (case> (#.Var _) #0 _ #1))))
-             pick_pcg (random.and random.nat random.nat)]
-            ($_ _.and
-                (_.test "Can create rings of variables."
-                        (type_checks? (do /.monad
-                                        [[[head_id head_type] ids+types [tail_id tail_type]] (build_ring num_connections)
-                                         #let [ids (list\map product.left ids+types)]
-                                         headR (/.ring head_id)
-                                         tailR (/.ring tail_id)]
-                                        (/.assert ""
-                                                  (let [same_rings? (\ set.equivalence = headR tailR)
-                                                        expected_size? (n.= (inc num_connections) (set.size headR))
-                                                        same_vars? (|> (set.to_list headR)
-                                                                       (list.sort n.<)
-                                                                       (\ (list.equivalence n.equivalence) = (list.sort n.< (#.Cons head_id ids))))]
-                                                    (and same_rings?
-                                                         expected_size?
-                                                         same_vars?))))))
-                (_.test "When a var in a ring is bound, all the ring is bound."
-                        (type_checks? (do {! /.monad}
-                                        [[[head_id headT] ids+types tailT] (build_ring num_connections)
-                                         #let [ids (list\map product.left ids+types)]
-                                         _ (/.check headT boundT)
-                                         head_bound (/.read head_id)
-                                         tail_bound (monad.map ! /.read ids)
-                                         headR (/.ring head_id)
-                                         tailR+ (monad.map ! /.ring ids)]
-                                        (let [rings_were_erased? (and (set.empty? headR)
-                                                                      (list.every? set.empty? tailR+))
-                                              same_types? (list.every? (type\= boundT) (list& (maybe.default headT head_bound)
-                                                                                              (list\map (function (_ [tail_id ?tailT])
-                                                                                                          (maybe.default (#.Var tail_id) ?tailT))
-                                                                                                        (list.zip/2 ids tail_bound))))]
-                                          (/.assert ""
-                                                    (and rings_were_erased?
-                                                         same_types?))))))
-                (_.test "Can merge multiple rings of variables."
-                        (type_checks? (do /.monad
-                                        [[[head_idL headTL] ids+typesL [tail_idL tailTL]] (build_ring num_connections)
-                                         [[head_idR headTR] ids+typesR [tail_idR tailTR]] (build_ring num_connections)
-                                         headRL_pre (/.ring head_idL)
-                                         headRR_pre (/.ring head_idR)
-                                         _ (/.check headTL headTR)
-                                         headRL_post (/.ring head_idL)
-                                         headRR_post (/.ring head_idR)]
-                                        (/.assert ""
-                                                  (let [same_rings? (\ set.equivalence = headRL_post headRR_post)
-                                                        expected_size? (n.= (n.* 2 (inc num_connections))
-                                                                            (set.size headRL_post))
-                                                        union? (\ set.equivalence = headRL_post (set.union headRL_pre headRR_pre))]
-                                                    (and same_rings?
-                                                         expected_size?
-                                                         union?))))))
-                ))
+            [expected random.nat]
+            (_.cover [/.run]
+                     (case (/.run /.fresh_context
+                                  (\ /.monad wrap expected))
+                       (#try.Success actual) (is? expected actual)
+                       (#try.Failure error) false)))
+          ..error_handling
+          ..var
+          ..context
+          ..check
+          ..clean
           )))

@@ -23,7 +23,7 @@
     [format
      ["." xml]]]
    [time
-    ["." instant]]
+    ["." instant (#+ Instant)]]
    [world
     [program (#+ Program)]
     ["." file (#+ Path File Directory)]]]
@@ -32,6 +32,7 @@
    ["#." hash (#+ Hash SHA-1 MD5)]
    ["#." package (#+ Package)]
    ["#." artifact (#+ Artifact)
+    ["#/." time]
     ["#/." type]
     ["#/." extension (#+ Extension)]
     ["#/." versioning]
@@ -40,7 +41,7 @@
       ["#/." value]]]]
    ["#." metadata
     ["#/." artifact]
-    ["#/." snapshot]]
+    ["#/." snapshot (#+ Metadata)]]
    ["#." dependency (#+ Dependency)
     [resolution (#+ Resolution)]
     ["#/." status (#+ Status)]]
@@ -93,6 +94,35 @@
              (#///dependency/status.Verified _)
              (list <sha-1> <md5>)))))
 
+(def: (update_snapshot [artifact type] now snapshot)
+  (-> Dependency Instant Metadata (Try Metadata))
+  (do try.monad
+    [now (: (Try ///artifact/time.Time)
+            (///artifact/time.from_instant now))
+     #let [version_template (get@ #///artifact.version artifact)
+           snapshot (|> snapshot
+                        (update@ [#///metadata/snapshot.versioning #///artifact/versioning.snapshot]
+                                 (function (_ snapshot)
+                                   (case snapshot
+                                     #///artifact/snapshot.Local
+                                     #///artifact/snapshot.Local
+                                     
+                                     (#///artifact/snapshot.Remote [_ build])
+                                     (#///artifact/snapshot.Remote [now (inc build)]))))
+                        (set@ [#///metadata/snapshot.versioning #///artifact/versioning.last_updated] now))
+           versioning_snapshot (get@ [#///metadata/snapshot.versioning #///artifact/versioning.snapshot] snapshot)]]
+    (wrap (|> snapshot
+              (set@ [#///metadata/snapshot.versioning #///artifact/versioning.versions]
+                    (list {#///artifact/snapshot/version.extension type
+                           #///artifact/snapshot/version.value (///artifact/snapshot/version/value.format
+                                                                {#///artifact/snapshot/version/value.version version_template
+                                                                 #///artifact/snapshot/version/value.snapshot versioning_snapshot})
+                           #///artifact/snapshot/version.updated now}))
+              ## (set@ [#///metadata/snapshot.versioning #///artifact/versioning.snapshot]
+              ##       (list\compose (..artifacts type (product.right (get@ #///package.library package)))
+              ##                     (..artifacts ///artifact/type.pom (product.right (get@ #///package.pom package)))))
+              ))))
+
 (def: #export (one repository [artifact type] package)
   (-> (Repository Promise) Dependency Package (Promise (Try Artifact)))
   (do {! promise.monad}
@@ -109,28 +139,8 @@
               status]))
 
        snapshot (///metadata/snapshot.read repository artifact)
-       #let [snapshot (|> snapshot
-                          (update@ [#///metadata/snapshot.versioning #///artifact/versioning.snapshot]
-                                   (function (_ snapshot)
-                                     (case snapshot
-                                       #///artifact/snapshot.Local
-                                       #///artifact/snapshot.Local
-                                       
-                                       (#///artifact/snapshot.Remote [_ build])
-                                       (#///artifact/snapshot.Remote [now (inc build)]))))
-                          (set@ [#///metadata/snapshot.versioning #///artifact/versioning.last_updated] now))
-             versioning_snapshot (get@ [#///metadata/snapshot.versioning #///artifact/versioning.snapshot] snapshot)]
-       _ (|> snapshot
-             (set@ [#///metadata/snapshot.versioning #///artifact/versioning.versions]
-                   (list {#///artifact/snapshot/version.extension type
-                          #///artifact/snapshot/version.value (///artifact/snapshot/version/value.format
-                                                               {#///artifact/snapshot/version/value.version version_template
-                                                                #///artifact/snapshot/version/value.snapshot versioning_snapshot})
-                          #///artifact/snapshot/version.updated now}))
-             ## (set@ [#///metadata/snapshot.versioning #///artifact/versioning.snapshot]
-             ##       (list\compose (..artifacts type (product.right (get@ #///package.library package)))
-             ##                     (..artifacts ///artifact/type.pom (product.right (get@ #///package.pom package)))))
-             (///metadata/snapshot.write repository artifact))
+       snapshot (\ ! wrap (..update_snapshot [artifact type] now snapshot))
+       _ (///metadata/snapshot.write repository artifact snapshot)
        project (///metadata/artifact.read repository artifact)
        _ (|> project
              (set@ #///metadata/artifact.versions (list version_template))

@@ -14,7 +14,9 @@
      ["!" capability]]]
    [data
     ["." text
-     ["%" format (#+ format)]]
+     ["%" format (#+ format)]
+     [encoding
+      ["." utf8]]]
     [collection
      ["." dictionary]
      ["." set]
@@ -27,7 +29,7 @@
     [console (#+ Console)]
     ["." shell (#+ Shell)]
     ["." program (#+ Program)]
-    ["." file (#+ Path)
+    ["." file (#+ Path File)
      ["." watch]]]]
   ["." // #_
    ["@." version]
@@ -47,28 +49,22 @@
       ["#." dependency
        ["#/." resolution (#+ Resolution)]]]]]})
 
-(def: (command end_signal dummy_files)
-  (-> Text (List Path)
-      [(Atom [Nat (List Path)])
+(def: (command expected_runs end_signal dummy_file)
+  (-> Nat Text (File Promise)
+      [(Atom Nat)
        (-> (Console Promise) (Program Promise) (file.System Promise) (Shell Promise) Resolution (Command Any))])
-  (let [@runs (: (Atom [Nat (List Path)])
-                 (atom.atom [0 dummy_files]))]
+  (let [@runs (: (Atom Nat)
+                 (atom.atom 0))]
     [@runs
      (function (_ console program fs shell resolution profile)
        (do {! promise.monad}
-         [[_ [runs remaining_files]] (promise.future
-                                      (atom.update (function (_ [runs remaining_files])
-                                                     [(inc runs) remaining_files])
-                                                   @runs))]
-         (case remaining_files
-           #.Nil
+         [[_ actual_runs] (promise.future (atom.update inc @runs))]
+         (if (n.= expected_runs actual_runs)
            (wrap (#try.Failure end_signal))
-           
-           (#.Cons head tail)
            (do (try.with !)
-             [_ (!.use (\ fs create_file) [head])]
+             [_ (!.use (\ dummy_file over_write) (\ utf8.codec encode (%.nat actual_runs)))]
              (do !
-               [_ (promise.future (atom.write [runs tail] @runs))]
+               [_ (promise.future (atom.write actual_runs @runs))]
                (wrap (#try.Success [])))))))]))
 
 (def: #export test
@@ -85,7 +81,7 @@
          #let [empty_profile (: Profile
                                 (\ ///.monoid identity))
                with_target (: (-> Profile Profile)
-                              (set@ #///.target (#.Some target)))
+                              (set@ #///.target target))
                with_program (: (-> Profile Profile)
                                (set@ #///.program (#.Some program)))
                
@@ -98,15 +94,14 @@
          working_directory (random.ascii/alpha 5)
          
          expected_runs (\ ! map (|>> (n.% 10) (n.max 2)) random.nat)
-         dummy_files (|> (random.ascii/alpha 5)
-                         (random.set text.hash (dec expected_runs))
-                         (\ ! map (|>> set.to_list (list\map (|>> (format source /))))))
+         dummy_path (\ ! map (|>> (format source /)) (random.ascii/alpha 5))
          resolution @build.resolution]
         ($_ _.and
             (wrap (do promise.monad
                     [verdict (do ///action.monad
-                               [#let [[@runs command] (..command end_signal dummy_files)]
-                                _ (!.use (\ fs create_directory) [source])
+                               [_ (!.use (\ fs create_directory) [source])
+                                dummy_file (!.use (\ fs create_file) [dummy_path])
+                                #let [[@runs command] (..command expected_runs end_signal dummy_file)]
                                 _ (\ watcher poll [])]
                                (do promise.monad
                                  [outcome ((/.do! 1 watcher command)
@@ -116,7 +111,7 @@
                                            (shell.async (@build.good_shell []))
                                            resolution
                                            profile)
-                                  [actual_runs _] (promise.future (atom.read @runs))]
+                                  actual_runs (promise.future (atom.read @runs))]
                                  (wrap (#try.Success (and (n.= expected_runs actual_runs)
                                                           (case outcome
                                                             (#try.Failure error)
