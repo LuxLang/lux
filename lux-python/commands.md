@@ -28,8 +28,7 @@ cd ~/lux/lux-python/ \
 ## Compile Lux's Standard Library's tests using a JVM-based compiler.
 cd ~/lux/stdlib/ \
 && lein clean \
-&& time java -jar ~/lux/lux-python/jvm_based_compiler.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
-
-python3 ~/lux/stdlib/target/program.py
+&& java -jar ~/lux/lux-python/jvm_based_compiler.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux \
+&& python3 ~/lux/stdlib/target/program.py
 ```
 
