@@ -334,7 +334,7 @@ Called by `imenu--generic-function'."
 							(type//capability (altRE "capability:"))
 							;; Data
 							(data//record (altRE "get@" "set@" "update@"))
-							(data//signature (altRE "open:" "structure" "\\\\"))
+							(data//interface (altRE "open:" "implementation" "\\\\"))
 							(data//implicit (altRE "implicit:" "\\\\\\\\"))
 							(data//collection (altRE "list" "list&" "row" "tree"))
 							;; Code
@@ -351,7 +351,7 @@ Called by `imenu--generic-function'."
 							(remember (altRE "remember" "to_do" "fix_me"))
 							(definition (altRE "\\.module:"
 											   "def:" "type:" "program:"
-											   "signature:" "structure:"
+											   "interface:" "implementation:"
 											   "macro:" "syntax:"
 											   "exception:"
 											   "word:"
@@ -368,7 +368,7 @@ Called by `imenu--generic-function'."
 										   type//dynamic
 										   type//capability))
 							  (data (altRE data//record
-										   data//signature
+										   data//interface
 										   data//implicit
 										   data//collection))
 							  (code (altRE code//quotation

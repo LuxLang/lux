@@ -1,5 +1,6 @@
 # Possibility
 
+1. [Lambda World 2018 - What FP can learn from Smalltalk by Aditya Siram](https://www.youtube.com/watch?v=baxtyeFVn3w)
 1. ["What next?"](https://graydon.livejournal.com/256533.html) && ["What next?"](https://graydon2.dreamwidth.org/253769.html)
 1. [A Case for a Native Runtime Compilation Language](https://jott.live/markdown/dynamic_compilation)
 

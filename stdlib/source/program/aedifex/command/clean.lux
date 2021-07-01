@@ -4,6 +4,7 @@
     ["." monad (#+ do)]]
    [control
     ["." try (#+ Try)]
+    ["." exception]
     [security
      ["!" capability]]
     [concurrency
@@ -35,15 +36,23 @@
 
 (def: #export (do! console fs profile)
   (-> (Console Promise) (file.System Promise) (Command Any))
-  (do {! ///action.monad}
+  (do promise.monad
     [#let [target (get@ #///.target profile)]
      root (: (Promise (Try (Directory Promise)))
-             (!.use (\ fs directory) target))
-     _ (loop [root root]
-         (do !
-           [_ (..clean_files! root)
-            subs (: (Promise (Try (List (Directory Promise))))
-                    (!.use (\ root directories) []))
-            _ (monad.map ! recur subs)]
-           (!.use (\ root discard) [])))]
-    (console.write_line (..success target) console)))
+             (!.use (\ fs directory) target))]
+    (case root
+      (#try.Success root)
+      (do {! ///action.monad}
+        [_ (loop [root root]
+             (do !
+               [_ (..clean_files! root)
+                subs (: (Promise (Try (List (Directory Promise))))
+                        (!.use (\ root directories) []))
+                _ (monad.map ! recur subs)]
+               (!.use (\ root discard) [])))]
+        (console.write_line (..success target) console))
+      
+      (#try.Failure error)
+      (if (exception.match? file.cannot_find_directory error)
+        (console.write_line (..success target) console)
+        (\ promise.monad wrap (#try.Failure error))))))

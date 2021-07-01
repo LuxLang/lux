@@ -1,5 +1,6 @@
 # Virtual DOM
 
+1. [Virtual DOM is pure overhead](https://svelte.dev/blog/virtual-dom-is-pure-overhead)
 1. [million: <1kb virtual DOM - it's fast!](https://million.js.org/)
 1. [Optimal Virtual DOM](https://blog.kabir.sh/posts/optimal-virtual-dom.html)
 
@@ -9,6 +10,7 @@
 
 # Reference
 
+1. [You can't capture the nuance of my form fields](https://drewdevault.com/2021/06/27/You-cant-capture-the-nuance.html)
 1. [Line-tracking using plain CSS](https://bubblin.io/blog/line-tracking)
 1. [Redux is half of a pattern (1/2)](https://dev.to/davidkpiano/redux-is-half-of-a-pattern-1-2-1hd7)
 1. [Introducing Concurrent Mode (Experimental)](https://reactjs.org/docs/concurrent-mode-intro.html)

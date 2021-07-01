@@ -30,6 +30,7 @@
    ["$." /]}
   {#program
    ["." /
+    ["#." remote]
     ["/#" // #_
      ["#." artifact (#+ Version Artifact)
       ["#/." extension (#+ Extension)]]]]})
@@ -42,6 +43,10 @@
   (exception.report
    ["URI" (%.text uri)]))
 
+(exception: (cannot_upload {uri URI})
+  (exception.report
+   ["URI" (%.text uri)]))
+
 (type: Store
   (Dictionary URI Binary))
 
@@ -49,27 +54,46 @@
   Store
   (dictionary.new text.hash))
 
-(structure: #export simulation
+(def: valid_version
+  Version
+  "1.2.3-YES")
+
+(def: invalid_version
+  Version
+  "4.5.6-NO")
+
+(implementation: #export simulation
   (/.Simulation Store)
 
   (def: (on_download uri state)
     (case (dictionary.get uri state)
       (#.Some content)
-      (exception.return [state content])
+      (case (binary.size content)
+        0 (exception.throw ..not_found [uri])
+        _ (exception.return [state content]))
       
       #.None
       (exception.throw ..not_found [uri])))
   (def: (on_upload uri content state)
-    (exception.return (dictionary.put uri content state))))
+    (if (dictionary.key? state uri)
+      (exception.throw ..cannot_upload [uri])
+      (exception.return (dictionary.put uri content state)))))
 
 (def: #export test
   Test
   (<| (_.covering /._)
       ($_ _.and
           (_.for [/.mock /.Simulation]
-                 ($/.spec (..artifact "1.2.3-YES")
-                          (..artifact "4.5.6-NO")
-                          (/.mock ..simulation ..empty)))
+                 (do random.monad
+                   [_ (wrap [])]
+                   ($/.spec (..artifact ..valid_version)
+                            (..artifact ..invalid_version)
+                            (/.mock ..simulation
+                                    (|> ..empty
+                                        (dictionary.put (/remote.uri ..invalid_version
+                                                                     (..artifact ..invalid_version)
+                                                                     //artifact/extension.lux_library)
+                                                        (binary.create 0)))))))
 
           /identity.test
           /origin.test

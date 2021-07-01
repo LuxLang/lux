@@ -18,3 +18,7 @@
 
 1. [Visual Testing Handbook](https://storybook.js.org/tutorials/visual-testing-handbook/)
 
+# Cross-Branch Testing
+
+1. [Cross-Branch Testing](https://www.hillelwayne.com/post/cross-branch-testing/)
+

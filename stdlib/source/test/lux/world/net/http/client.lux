@@ -1,0 +1,84 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   [abstract
+    [monad (#+ do)]]
+   [control
+    [pipe (#+ do>)]
+    ["." io (#+ IO)]
+    ["." try]
+    ["." function]]
+   [data
+    ["." binary]
+    ["." product]
+    [text
+     ["%" format (#+ format)]
+     [encoding
+      ["." utf8]]]]
+   [math
+    ["." random (#+ Random)]
+    [number
+     ["." nat]]]]
+  {1
+   ["." /
+    ["/#" //
+     ["#." status]]]})
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      (_.for [/.Client])
+      (do random.monad
+        [on_post random.nat
+         on_get random.nat
+         on_put random.nat
+         on_patch random.nat
+         on_delete random.nat
+         on_head random.nat
+         on_connect random.nat
+         on_options random.nat
+         on_trace random.nat
+         #let [mock (: (/.Client IO)
+                       (implementation
+                        (def: (request method url headers data)
+                          (io.io (let [value (case method
+                                               #//.Post on_post
+                                               #//.Get on_get
+                                               #//.Put on_put
+                                               #//.Patch on_patch
+                                               #//.Delete on_delete
+                                               #//.Head on_head
+                                               #//.Connect on_connect
+                                               #//.Options on_options
+                                               #//.Trace on_trace)
+                                       data (|> value
+                                                (\ nat.decimal encode)
+                                                (\ utf8.codec encode))]
+                                   (#try.Success [//status.ok
+                                                  {#//.headers headers
+                                                   #//.body (function (_ ?wanted_bytes)
+                                                              (io.io (#try.Success [(binary.size data)
+                                                                                    data])))}]))))))]]
+        (`` ($_ _.and
+                (~~ (template [<definition> <expected>]
+                      [(_.cover [<definition>]
+                                (|> (<definition> "" //.empty #.None mock)
+                                    (do> try.monad
+                                         [io.run]
+                                         [product.right (get@ #//.body) (function.apply #.None) io.run]
+                                         [product.right (\ utf8.codec decode)]
+                                         [(\ nat.decimal decode)]
+                                         [(nat.= <expected>) wrap])
+                                    (try.default false)))]
+
+                      [/.post on_post]
+                      [/.get on_get]
+                      [/.put on_put]
+                      [/.patch on_patch]
+                      [/.delete on_delete]
+                      [/.head on_head]
+                      [/.connect on_connect]
+                      [/.options on_options]
+                      [/.trace on_trace]
+                      ))
+                )))))
