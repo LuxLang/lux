@@ -1,0 +1,130 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["." io (#+ IO)]
+    ["." try ("#\." monad)]
+    ["." exception]
+    ["." function]]
+   [data
+    ["." binary ("#\." equivalence)]
+    ["." maybe ("#\." functor)]
+    ["." text ("#\." equivalence)
+     ["%" format (#+ format)]
+     [encoding
+      ["." utf8]]]
+    [collection
+     ["." dictionary]]]
+   [math
+    ["." random (#+ Random)]]
+   [world
+    [net (#+ URL)
+     ["." http #_
+      ["#" client]
+      ["#/." status]
+      ["@#" /]]]]]
+  {#program
+   ["." /
+    ["/#" // #_
+     ["#." identity]]]})
+
+(def: (url_body url)
+  (-> URL (@http.Body IO))
+  (let [url (\ utf8.codec encode url)]
+    (function (_ _)
+      (io.io (#try.Success [(binary.size url) url])))))
+
+(def: (good_http user password)
+  (-> //identity.User //identity.Password (http.Client IO))
+  (implementation
+   (def: (request method url headers input)
+     (with_expansions [<failure> [http/status.bad_request
+                                  {#@http.headers (http.headers (list))
+                                   #@http.body (..url_body "")}]]
+       (<| io.io
+           #try.Success
+           (if (|> headers
+                   (dictionary.get "User-Agent")
+                   (maybe\map (is? /.user_agent))
+                   (maybe.default false))
+             (case [method input]
+               [#@http.Get #.None]
+               [http/status.ok
+                {#@http.headers (http.headers (list))
+                 #@http.body (..url_body url)}]
+               
+               [#@http.Put (#.Some input)]
+               (if (|> headers
+                       (dictionary.get "Authorization")
+                       (maybe\map (text\= (//identity.basic_auth user password)))
+                       (maybe.default false))
+                 [http/status.created
+                  {#@http.headers (http.headers (list))
+                   #@http.body (..url_body url)}]
+                 <failure>)
+               
+               _
+               <failure>)
+             <failure>))))))
+
+(def: bad_http
+  (http.Client IO)
+  (implementation
+   (def: (request method url headers input)
+     (<| io.io
+         #try.Success
+         [http/status.bad_request
+          {#@http.headers (http.headers (list))
+           #@http.body (..url_body "")}]))))
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      (do {! random.monad}
+        [address (random.ascii/upper 10)
+         uri (random.ascii/lower 10)
+
+         user (random.ascii/lower 10)
+         password (random.ascii/lower 10)
+
+         content (\ ! map (\ utf8.codec encode)
+                    (random.ascii/lower 10))]
+        ($_ _.and
+            (_.cover [/.repository /.user_agent /.Address]
+                     (let [repo (/.repository (..good_http user password)
+                                              (#.Some {#//identity.user user
+                                                       #//identity.password password})
+                                              address)]
+                       (and (|> (\ repo download uri)
+                                io.run
+                                (try\map (\ utf8.codec decode))
+                                try\join
+                                (try\map (text\= (format address uri)))
+                                (try.default false))
+                            (|> (\ repo upload uri content)
+                                io.run
+                                (try\map (function.constant true))
+                                (try.default false)))))
+            (_.cover [/.upload_failure]
+                     (let [repo (/.repository (..good_http user password)
+                                              #.None
+                                              address)]
+                       (case (io.run (\ repo upload uri content))
+                         (#try.Failure error)
+                         (exception.match? /.upload_failure error)
+                         
+                         (#try.Success _)
+                         false)))
+            (_.cover [/.download_failure]
+                     (let [repo (/.repository ..bad_http
+                                              #.None
+                                              address)]
+                       (case (io.run (\ repo download uri))
+                         (#try.Failure error)
+                         (exception.match? /.download_failure error)
+                         
+                         (#try.Success _)
+                         false)))
+            ))))

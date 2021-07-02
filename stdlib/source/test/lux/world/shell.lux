@@ -1,7 +1,6 @@
 (.module:
   [lux #*
    ["_" test (#+ Test)]
-   ["." debug]
    [abstract
     [monad (#+ do)]]
    [control
@@ -10,8 +9,6 @@
     ["." io (#+ IO)]
     [concurrency
      ["." promise (#+ Promise)]]
-    [security
-     ["!" capability]]
     [parser
      ["." environment (#+ Environment)]]]
    [data
@@ -32,9 +29,9 @@
 
 (exception: dead)
 
-(def: (simulation [environment working_directory command arguments])
+(def: (mock [environment working_directory command arguments])
   (-> [Environment Path /.Command (List /.Argument)]
-      (/.Simulation Bit))
+      (/.Mock Bit))
   (implementation
    (def: (on_read dead?)
      (if dead?
@@ -66,40 +63,28 @@
 (def: (io_shell command oops input destruction exit)
   (-> /.Command Text Text Text /.Exit (/.Shell IO))
   (implementation
-   (def: execute
-     ((debug.private /.can_execute)
-      (function (_ [environment working_directory command arguments])
-        (io.io
-         (#try.Success
-          (: (/.Process IO)
-             (implementation
-              (def: read
-                ((debug.private /.can_read)
-                 (function (_ _)
-                   (io.io (#try.Success command)))))
-              (def: error
-                ((debug.private /.can_read)
-                 (function (_ _)
-                   (io.io (#try.Success oops)))))
-              (def: write
-                ((debug.private /.can_write)
-                 (function (_ message)
-                   (io.io (#try.Failure message)))))
-              (def: destroy
-                ((debug.private /.can_destroy)
-                 (function (_ _)
-                   (io.io (#try.Failure destruction)))))
-              (def: await
-                ((debug.private /.can_wait)
-                 (function (_ _)
-                   (io.io (#try.Success exit))))))))))))))
+   (def: (execute [environment working_directory command arguments])
+     (<| io.io
+         #try.Success
+         (: (/.Process IO))
+         (implementation
+          (def: (read _)
+            (io.io (#try.Success command)))
+          (def: (error _)
+            (io.io (#try.Success oops)))
+          (def: (write message)
+            (io.io (#try.Failure message)))
+          (def: (destroy _)
+            (io.io (#try.Failure destruction)))
+          (def: (await _)
+            (io.io (#try.Success exit))))))))
 
 (def: #export test
   Test
   (<| (_.covering /._)
       ($_ _.and
-          (_.for [/.async /.mock /.Simulation]
-                 ($/.spec (/.async (/.mock (|>> ..simulation #try.Success)
+          (_.for [/.async /.mock /.Mock]
+                 ($/.spec (/.async (/.mock (|>> ..mock #try.Success)
                                            false))))
           (_.cover [/.error]
                    (not (i.= /.normal /.error)))
@@ -112,11 +97,11 @@
              #let [shell (/.async (..io_shell command oops input destruction exit))]]
             (wrap (do {! promise.monad}
                     [verdict (do (try.with !)
-                               [process (!.use (\ shell execute) [environment.empty "~" command (list)])
-                                read (!.use (\ process read) [])
-                                error (!.use (\ process error) [])
+                               [process (\ shell execute [environment.empty "~" command (list)])
+                                read (\ process read [])
+                                error (\ process error [])
                                 wrote! (do !
-                                         [write (!.use (\ process write) [input])]
+                                         [write (\ process write input)]
                                          (wrap (#try.Success (case write
                                                                (#try.Success _)
                                                                false
@@ -124,19 +109,19 @@
                                                                (#try.Failure write)
                                                                (text\= input write)))))
                                 destroyed! (do !
-                                             [destroy (!.use (\ process destroy) [])]
+                                             [destroy (\ process destroy [])]
                                              (wrap (#try.Success (case destroy
                                                                    (#try.Success _)
                                                                    false
                                                                    
                                                                    (#try.Failure destroy)
                                                                    (text\= destruction destroy)))))
-                                await (!.use (\ process await) [])]
+                                await (\ process await [])]
                                (wrap (and (text\= command read)
                                           (text\= oops error)
                                           wrote!
                                           destroyed!
                                           (i.= exit await))))]
-                    (_.cover' [/.Can_Write]
+                    (_.cover' [/.Shell]
                               (try.default false verdict)))))
           )))

@@ -4,11 +4,9 @@
    [abstract
     [monad (#+ do)]]
    [control
-    ["." try]
-    [security
-     ["!" capability]]
+    ["." try ("#\." functor)]
     [concurrency
-     ["." promise (#+ Promise)]]
+     ["." promise (#+ Promise) ("#\." monad)]]
     [parser
      ["." environment (#+ Environment)]]]
    [data
@@ -34,64 +32,59 @@
   [sleep! "sleep" Nat %.nat]
   )
 
-(def: (read_test expected process)
-  (-> Text (/.Process Promise) _.Assertion)
-  (do promise.monad
-    [?read (!.use (\ process read) [])
-     ?await (!.use (\ process await) [])]
-    ($_ _.and'
-        (_.cover' [/.Can_Read]
-                  (case ?read
-                    (#try.Success actual)
-                    (text\= expected actual)
-                    
-                    (#try.Failure error)
-                    false))
-        (_.cover' [/.Can_Wait /.Exit /.normal]
-                  (case ?await
-                    (#try.Success exit)
-                    (i.= /.normal exit)
-                    
-                    (#try.Failure error)
-                    false))
-        )))
-
-(def: (destroy_test process)
+(def: (can_wait! process)
   (-> (/.Process Promise) _.Assertion)
-  (do promise.monad
-    [?destroy (!.use (\ process destroy) [])
-     ?await (!.use (\ process await) [])]
-    (_.cover' [/.Can_Destroy]
-              (and (case ?destroy
-                     (#try.Success _)
-                     true
-                     
-                     (#try.Failure error)
-                     false)
-                   (case ?await
-                     (#try.Success _)
-                     false
-                     
-                     (#try.Failure error)
-                     true)))))
+  (|> (\ process await [])
+      (promise\map (|>> (try\map (i.= /.normal))
+                        (try.default false)
+                        (_.cover' [/.Exit /.normal])))
+      promise\join))
 
-(with_expansions [<shell_coverage> (as_is [/.Can_Execute /.Command /.Argument])]
+(def: (can_read! expected process)
+  (-> Text (/.Process Promise) (Promise Bit))
+  (|> (\ process read [])
+      (promise\map (|>> (try\map (text\= expected))
+                        (try.default false)))))
+
+(def: (can_destroy! process)
+  (-> (/.Process Promise) (Promise Bit))
+  (do promise.monad
+    [?destroy (\ process destroy [])
+     ?await (\ process await [])]
+    (wrap (and (case ?destroy
+                 (#try.Success _)
+                 true
+                 
+                 (#try.Failure error)
+                 false)
+               (case ?await
+                 (#try.Success _)
+                 false
+                 
+                 (#try.Failure error)
+                 true)))))
+
+(with_expansions [<shell_coverage> (as_is [/.Command /.Argument])]
   (def: #export (spec shell)
     (-> (/.Shell Promise) Test)
     (<| (_.for [/.Shell /.Process])
         (do {! random.monad}
           [message (random.ascii/alpha 10)
            seconds (\ ! map (|>> (n.% 5) (n.+ 5)) random.nat)]
-          (wrap (do promise.monad
-                  [?echo (!.use (\ shell execute) (..echo! message))
-                   ?sleep (!.use (\ shell execute) (..sleep! seconds))]
+          (wrap (do {! promise.monad}
+                  [?echo (\ shell execute (..echo! message))
+                   ?sleep (\ shell execute (..sleep! seconds))]
                   (case [?echo ?sleep]
                     [(#try.Success echo) (#try.Success sleep)]
-                    ($_ _.and'
-                        (_.cover' <shell_coverage>
-                                  true)
-                        (..read_test message echo)
-                        (..destroy_test sleep))
+                    (do !
+                      [can_read! (..can_read! message echo)
+                       can_destroy! (..can_destroy! sleep)]
+                      ($_ _.and'
+                          (_.cover' <shell_coverage>
+                                    (and can_read!
+                                         can_destroy!))
+                          (..can_wait! echo)
+                          ))
                     
                     _
                     (_.cover' <shell_coverage>

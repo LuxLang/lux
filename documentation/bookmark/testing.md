@@ -16,6 +16,7 @@
 
 # Visual Testing
 
+1. [Stories are tests](https://storybook.js.org/blog/stories-are-tests/)
 1. [Visual Testing Handbook](https://storybook.js.org/tutorials/visual-testing-handbook/)
 
 # Cross-Branch Testing

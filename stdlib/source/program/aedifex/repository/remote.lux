@@ -1,19 +1,15 @@
 (.module:
   [lux #*
-   [ffi (#+ import:)]
    [abstract
     [monad (#+ do)]]
    [control
     ["." io (#+ IO)]
-    ["." try]
+    ["." try (#+ Try)]
     ["." exception (#+ exception:)]]
    [data
-    ["." binary]
-    ["." text
+    ["." product]
+    [text
      ["%" format (#+ format)]]]
-   [math
-    [number
-     ["n" nat]]]
    [tool
     [compiler
      ["." version]
@@ -22,7 +18,11 @@
        ["#" version]]]]]
    [world
     [net (#+ URL)
-     [uri (#+ URI)]]]]
+     [uri (#+ URI)]
+     ["." http #_
+      ["#" client]
+      ["#/." status]
+      ["@#" /]]]]]
   ["." //
    ["#." identity (#+ Identity)]
    ["/#" // #_
@@ -32,108 +32,64 @@
 (type: #export Address
   URL)
 
-(import: java/lang/String)
+(template [<name>]
+  [(exception: #export (<name> {url URL} {status Nat})
+     (exception.report
+      ["URL" (%.text url)]
+      ["Status Code" (%.nat status)]))]
 
-(import: java/lang/AutoCloseable
-  ["#::."
-   (close [] #io #try void)])
-
-(import: java/io/InputStream)
-
-(import: java/io/OutputStream
-  ["#::."
-   (flush [] #io #try void)
-   (write [[byte]] #io #try void)])
-
-(import: java/net/URLConnection
-  ["#::."
-   (setDoOutput [boolean] #io #try void)
-   (setRequestProperty [java/lang/String java/lang/String] #io #try void)
-   (getInputStream [] #io #try java/io/InputStream)
-   (getOutputStream [] #io #try java/io/OutputStream)])
-
-(import: java/net/HttpURLConnection
-  ["#::."
-   (setRequestMethod [java/lang/String] #io #try void)
-   (getResponseCode [] #io #try int)])
-
-(import: java/net/URL
-  ["#::."
-   (new [java/lang/String])
-   (openConnection [] #io #try java/net/URLConnection)])
-
-(import: java/io/BufferedInputStream
-  ["#::."
-   (new [java/io/InputStream])
-   (read [[byte] int int] #io #try int)])
-
-(exception: #export (no_credentials {address Address})
-  (exception.report
-   ["Address" (%.text address)]))
-
-(exception: #export (deployment_failure {code Int})
-  (exception.report
-   ["Code" (%.int code)]))
+  [download_failure]
+  [upload_failure]
+  )
 
 (def: #export (uri version_template artifact extension)
   (-> Version Artifact Extension URI)
   (format (///artifact.uri version_template artifact) extension))
 
-(def: buffer_size
-  (n.* 1,024 1,024))
-
-(def: user_agent
+(def: #export user_agent
   (format "LuxAedifex/" (version.format language/lux.version)))
 
-(implementation: #export (repository identity address)
-  (All [s] (-> (Maybe Identity) Address (//.Repository IO)))
+(def: base_headers
+  (List [Text Text])
+  (list ["User-Agent" ..user_agent]))
+
+(implementation: #export (repository http identity address)
+  (All [s] (-> (http.Client IO) (Maybe Identity) Address (//.Repository IO)))
 
   (def: (download uri)
     (do {! (try.with io.monad)}
-      [connection (|> (format address uri)
-                      java/net/URL::new
-                      java/net/URL::openConnection)
-       #let [connection (:coerce java/net/HttpURLConnection connection)]
-       _ (java/net/HttpURLConnection::setRequestMethod "GET" connection)
-       _ (java/net/URLConnection::setRequestProperty "User-Agent" ..user_agent connection)
-       input (|> connection
-                 java/net/URLConnection::getInputStream
-                 (\ ! map (|>> java/io/BufferedInputStream::new)))
-       #let [buffer (binary.create ..buffer_size)]]
-      (loop [output (\ binary.monoid identity)]
+      [[status message] (: (IO (Try (@http.Response IO)))
+                           (http.get (format address uri)
+                                     (http.headers ..base_headers)
+                                     #.None
+                                     http))]
+      (case status
+        (^ (static http/status.ok))
+        (\ ! map product.right ((get@ #@http.body message) #.None))
+        
+        _
         (do !
-          [bytes_read (java/io/BufferedInputStream::read buffer +0 (.int ..buffer_size) input)]
-          (case bytes_read
-            -1 (do !
-                 [_ (java/lang/AutoCloseable::close input)]
-                 (wrap output))
-            +0 (recur output)
-            _ (if (n.= ..buffer_size bytes_read)
-                (recur (\ binary.monoid compose output buffer))
-                (do !
-                  [chunk (\ io.monad wrap (binary.slice 0 (.nat bytes_read) buffer))]
-                  (recur (\ binary.monoid compose output chunk)))))))))
+          [_ ((get@ #@http.body message) (#.Some 0))]
+          (\ io.monad wrap (exception.throw ..download_failure [(format address uri) status]))))))
 
   (def: (upload uri content)
-    (case identity
-      #.None
-      (\ io.monad wrap (exception.throw ..no_credentials [address]))
-      
-      (#.Some [user password])
-      (do (try.with io.monad)
-        [connection (|> (format address uri)
-                        java/net/URL::new
-                        java/net/URL::openConnection)
-         #let [connection (:coerce java/net/HttpURLConnection connection)]
-         _ (java/net/HttpURLConnection::setRequestMethod "PUT" connection)
-         _ (java/net/URLConnection::setDoOutput true connection)
-         _ (java/net/URLConnection::setRequestProperty "Authorization" (//identity.basic_auth user password) connection)
-         stream (java/net/URLConnection::getOutputStream connection)
-         _ (java/io/OutputStream::write content stream)
-         _ (java/io/OutputStream::flush stream)
-         _ (java/lang/AutoCloseable::close stream)
-         code (java/net/HttpURLConnection::getResponseCode connection)]
-        (case code
-          +201 (wrap [])
-          _ (\ io.monad wrap (exception.throw ..deployment_failure [code]))))))
+    (do (try.with io.monad)
+      [[status message] (: (IO (Try (@http.Response IO)))
+                           (http.put (format address uri)
+                                     (http.headers (case identity
+                                                     #.None
+                                                     ..base_headers
+                                                     
+                                                     (#.Some [user password])
+                                                     (list& ["Authorization" (//identity.basic_auth user password)]
+                                                            ..base_headers)))
+                                     (#.Some content)
+                                     http))
+       _ ((get@ #@http.body message) (#.Some 0))]
+      (case status
+        (^ (static http/status.created))
+        (wrap [])
+        
+        _
+        (\ io.monad wrap (exception.throw ..upload_failure [(format address uri) status])))))
   )

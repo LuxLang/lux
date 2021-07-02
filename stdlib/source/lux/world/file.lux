@@ -11,9 +11,7 @@
     ["." function]
     [concurrency
      ["." promise (#+ Promise)]
-     ["." stm (#+ Var STM)]]
-    [security
-     ["!" capability (#+ capability:)]]]
+     ["." stm (#+ Var STM)]]]
    [data
     ["." bit ("#\." equivalence)]
     ["." product]
@@ -38,27 +36,12 @@
 (type: #export Path
   Text)
 
-(capability: #export (Can_Open ! capability)
-  (can_open Path (! (Try (capability !)))))
-
-(capability: #export (Can_See o)
-  (can_see [] o))
-
-(capability: #export (Can_Query ! o)
-  (can_query [] (! (Try o))))
-
-(capability: #export (Can_Modify ! i)
-  (can_modify [i] (! (Try Any))))
-
-(capability: #export (Can_Delete !)
-  (can_delete [] (! (Try Any))))
-
 (`` (interface: #export (File !)
-      (: (Can_See Path)
+      (: Path
          path)
 
       (~~ (template [<name> <output>]
-            [(: (Can_Query ! <output>)
+            [(: (-> [] (! (Try <output>)))
                 <name>)]
 
             [size          Nat]
@@ -67,11 +50,11 @@
             [content       Binary]
             ))
 
-      (: (Can_Open ! File)
+      (: (-> Path (! (Try (File !))))
          move)
 
       (~~ (template [<name> <input>]
-            [(: (Can_Modify ! <input>)
+            [(: (-> [<input>] (! (Try Any)))
                 <name>)]
 
             [modify     Instant]
@@ -79,26 +62,26 @@
             [append     Binary]
             ))
 
-      (: (Can_Delete !)
+      (: (-> [] (! (Try Any)))
          delete)
       ))
 
 (interface: #export (Directory !)
-  (: (Can_See Path)
+  (: Path
      scope)
 
-  (: (Can_Query ! (List (File !)))
+  (: (-> [] (! (Try (List (File !)))))
      files)
 
-  (: (Can_Query ! (List (Directory !)))
+  (: (-> [] (! (Try (List (Directory !)))))
      directories)
 
-  (: (Can_Delete !)
+  (: (-> [] (! (Try Any)))
      discard))
 
 (`` (interface: #export (System !)
       (~~ (template [<name> <capability>]
-            [(: (Can_Open ! <capability>)
+            [(: (-> Path (! (Try (<capability> !))))
                 <name>)]
 
             [file             File]
@@ -123,30 +106,25 @@
   (-> (File IO) (File Promise))
   (`` (implementation
        (def: path
-         (..can_see
-          (|>> (!.use (\ file path)))))
+         (\ file path))
 
-       (~~ (template [<forge> <name>+]
-             [(with_expansions [<rows> (template.splice <name>+)]
-                (template [<name>]
-                  [(def: <name>
-                     (<forge>
-                      (|>> (!.use (\ file <name>)) promise.future)))]
+       (~~ (template [<name>]
+             [(def: <name>
+                (|>> (\ file <name>) promise.future))]
 
-                  <rows>))]
-
-             [..can_query
-              [[size] [last_modified] [can_execute?] [content]]]
-             
-             [..can_modify
-              [[modify] [over_write] [append]]]
-             
-             [..can_delete
-              [[delete]]]))
+             [size]
+             [last_modified]
+             [can_execute?]
+             [content]
+             [modify]
+             [over_write]
+             [append]
+             [delete]))
 
        (def: move
-         (..can_open
-          (|>> (!.use (\ file move)) (io\map (try\map async_file)) promise.future))))))
+         (|>> (\ file move)
+              (io\map (try\map async_file))
+              promise.future)))))
 
 (def: (async_directory directory)
   (-> (Directory IO) (Directory Promise))
@@ -156,24 +134,24 @@
 
        (~~ (template [<name> <async>]
              [(def: <name>
-                (..can_query
-                 (|>> (!.use (\ directory <name>))
-                      (io\map (try\map (list\map <async>)))
-                      promise.future)))]
+                (|>> (\ directory <name>)
+                     (io\map (try\map (list\map <async>)))
+                     promise.future))]
 
              [files       ..async_file]
              [directories async_directory]))
 
        (def: discard
-         (..can_delete
-          (|>> (!.use (\ directory discard)) promise.future))))))
+         (|>> (\ directory discard) promise.future)))))
 
 (def: #export (async system)
   (-> (System IO) (System Promise))
   (`` (implementation
        (~~ (template [<name> <async>]
-             [(def: <name> (..can_open
-                            (|>> (!.use (\ system <name>)) (io\map (try\map <async>)) promise.future)))]
+             [(def: <name>
+                (|>> (\ system <name>)
+                     (io\map (try\map <async>))
+                     promise.future))]
 
              [file             ..async_file]
              [create_file      ..async_file]
@@ -285,142 +263,116 @@
                                          (-> Path (File IO))
 
                                          (~~ (template [<name> <flag>]
-                                               [(def: <name>
-                                                  (..can_modify
-                                                   (function (<name> data)
-                                                     (do (try.with io.monad)
-                                                       [stream (java/io/FileOutputStream::new (java/io/File::new path) <flag>)
-                                                        _ (java/io/OutputStream::write data stream)
-                                                        _ (java/io/OutputStream::flush stream)]
-                                                       (java/lang/AutoCloseable::close stream)))))]
+                                               [(def: (<name> data)
+                                                  (do (try.with io.monad)
+                                                    [stream (java/io/FileOutputStream::new (java/io/File::new path) <flag>)
+                                                     _ (java/io/OutputStream::write data stream)
+                                                     _ (java/io/OutputStream::flush stream)]
+                                                    (java/lang/AutoCloseable::close stream)))]
 
                                                [over_write  #0]
                                                [append      #1]
                                                ))
 
-                                         (def: content
-                                           (..can_query
-                                            (function (content _)
-                                              (do (try.with io.monad)
-                                                [#let [file (java/io/File::new path)]
-                                                 size (java/io/File::length file)
-                                                 #let [data (binary.create (.nat size))]
-                                                 stream (java/io/FileInputStream::new file)
-                                                 bytes_read (java/io/InputStream::read data stream)
-                                                 _ (java/lang/AutoCloseable::close stream)]
-                                                (if (i.= size bytes_read)
-                                                  (wrap data)
-                                                  (\ io.monad wrap (exception.throw ..cannot_read_all_data path)))))))
+                                         (def: (content _)
+                                           (do (try.with io.monad)
+                                             [#let [file (java/io/File::new path)]
+                                              size (java/io/File::length file)
+                                              #let [data (binary.create (.nat size))]
+                                              stream (java/io/FileInputStream::new file)
+                                              bytes_read (java/io/InputStream::read data stream)
+                                              _ (java/lang/AutoCloseable::close stream)]
+                                             (if (i.= size bytes_read)
+                                               (wrap data)
+                                               (\ io.monad wrap (exception.throw ..cannot_read_all_data path)))))
 
                                          (def: path
-                                           (..can_see
-                                            (function (_ _)
-                                              path)))
+                                           path)
 
-                                         (def: size
-                                           (..can_query
-                                            (function (size _)
-                                              (|> path
-                                                  java/io/File::new
-                                                  java/io/File::length
-                                                  (\ (try.with io.monad) map .nat)))))
+                                         (def: (size _)
+                                           (|> path
+                                               java/io/File::new
+                                               java/io/File::length
+                                               (\ (try.with io.monad) map .nat)))
 
-                                         (def: last_modified
-                                           (..can_query
-                                            (function (last_modified _)
-                                              (|> path
-                                                  java/io/File::new
-                                                  (java/io/File::lastModified)
-                                                  (\ (try.with io.monad) map (|>> duration.from_millis instant.absolute))))))
+                                         (def: (last_modified _)
+                                           (|> path
+                                               java/io/File::new
+                                               (java/io/File::lastModified)
+                                               (\ (try.with io.monad) map (|>> duration.from_millis instant.absolute))))
 
-                                         (def: can_execute?
-                                           (..can_query
-                                            (function (can_execute? _)
-                                              (|> path
-                                                  java/io/File::new
-                                                  java/io/File::canExecute))))
+                                         (def: (can_execute? _)
+                                           (|> path
+                                               java/io/File::new
+                                               java/io/File::canExecute))
 
-                                         (def: move
-                                           (..can_open
-                                            (function (move destination)
-                                              (do io.monad
-                                                [outcome (java/io/File::renameTo (java/io/File::new destination)
-                                                                                 (java/io/File::new path))]
-                                                (case outcome
-                                                  (#try.Success #1)
-                                                  (wrap (#try.Success (file destination)))
+                                         (def: (move destination)
+                                           (do io.monad
+                                             [outcome (java/io/File::renameTo (java/io/File::new destination)
+                                                                              (java/io/File::new path))]
+                                             (case outcome
+                                               (#try.Success #1)
+                                               (wrap (#try.Success (file destination)))
 
-                                                  _
-                                                  (wrap (exception.throw ..cannot_move [destination path])))))))
+                                               _
+                                               (wrap (exception.throw ..cannot_move [destination path])))))
 
-                                         (def: modify
-                                           (..can_modify
-                                            (function (modify time_stamp)
-                                              (do io.monad
-                                                [outcome (java/io/File::setLastModified (|> time_stamp instant.relative duration.to_millis)
-                                                                                        (java/io/File::new path))]
-                                                (case outcome
-                                                  (#try.Success #1)
-                                                  (wrap (#try.Success []))
+                                         (def: (modify time_stamp)
+                                           (do io.monad
+                                             [outcome (java/io/File::setLastModified (|> time_stamp instant.relative duration.to_millis)
+                                                                                     (java/io/File::new path))]
+                                             (case outcome
+                                               (#try.Success #1)
+                                               (wrap (#try.Success []))
 
-                                                  _
-                                                  (wrap (exception.throw ..cannot_modify [time_stamp path])))))))
+                                               _
+                                               (wrap (exception.throw ..cannot_modify [time_stamp path])))))
 
-                                         (def: delete
-                                           (..can_delete
-                                            (function (delete _)
-                                              (!delete path cannot_delete_file))))))
+                                         (def: (delete _)
+                                           (!delete path cannot_delete_file))))
 
                                    (`` (implementation: (directory path)
                                          (-> Path (Directory IO))
 
                                          (def: scope
-                                           (..can_see
-                                            (function (_ _)
-                                              path)))
+                                           path)
                                          
                                          (~~ (template [<name> <method> <capability>]
-                                               [(def: <name>
-                                                  (..can_query
-                                                   (function (<name> _)
-                                                     (do {! (try.with io.monad)}
-                                                       [?children (java/io/File::listFiles (java/io/File::new path))]
-                                                       (case ?children
-                                                         (#.Some children)
-                                                         (|> children
-                                                             array.to_list
-                                                             (monad.filter ! (|>> <method>))
-                                                             (\ ! map (monad.map ! (|>> java/io/File::getAbsolutePath (\ ! map <capability>))))
-                                                             (\ ! join))
+                                               [(def: (<name> _)
+                                                  (do {! (try.with io.monad)}
+                                                    [?children (java/io/File::listFiles (java/io/File::new path))]
+                                                    (case ?children
+                                                      (#.Some children)
+                                                      (|> children
+                                                          array.to_list
+                                                          (monad.filter ! (|>> <method>))
+                                                          (\ ! map (monad.map ! (|>> java/io/File::getAbsolutePath (\ ! map <capability>))))
+                                                          (\ ! join))
 
-                                                         #.None
-                                                         (\ io.monad wrap (exception.throw ..not_a_directory [path])))))))]
+                                                      #.None
+                                                      (\ io.monad wrap (exception.throw ..not_a_directory [path])))))]
 
                                                [files       java/io/File::isFile      file]
                                                [directories java/io/File::isDirectory directory]
                                                ))
 
-                                         (def: discard
-                                           (..can_delete
-                                            (function (discard _)
-                                              (!delete path cannot_discard_directory))))))
+                                         (def: (discard _)
+                                           (!delete path cannot_discard_directory))))
 
                                    (`` (implementation: #export default
                                          (System IO)
                                          
                                          (~~ (template [<name> <method> <capability> <exception>]
-                                               [(def: <name>
-                                                  (..can_open
-                                                   (function (<name> path)
-                                                     (do io.monad
-                                                       [#let [file (java/io/File::new path)]
-                                                        outcome (<method> file)]
-                                                       (case outcome
-                                                         (#try.Success #1)
-                                                         (wrap (#try.Success (<capability> path)))
+                                               [(def: (<name> path)
+                                                  (do io.monad
+                                                    [#let [file (java/io/File::new path)]
+                                                     outcome (<method> file)]
+                                                    (case outcome
+                                                      (#try.Success #1)
+                                                      (wrap (#try.Success (<capability> path)))
 
-                                                         _
-                                                         (wrap (exception.throw <exception> [path])))))))]
+                                                      _
+                                                      (wrap (exception.throw <exception> [path])))))]
 
                                                [file             java/io/File::isFile        ..file      cannot_find_file]
                                                [create_file      java/io/File::createNewFile ..file      cannot_create_file]
@@ -507,157 +459,129 @@
                      (-> Path (File IO))
 
                      (~~ (template [<name> <method>]
-                           [(def: <name>
-                              (..can_modify
-                               (function (<name> data)
-                                 (<method> [path (Buffer::from data)] (..node_fs [])))))]
+                           [(def: (<name> data)
+                              (<method> [path (Buffer::from data)] (..node_fs [])))]
 
                            [over_write  Fs::writeFileSync]
                            [append      Fs::appendFileSync]
                            ))
 
-                     (def: content
-                       (..can_query
-                        (function (_ _)
-                          (Fs::readFileSync [path] (..node_fs [])))))
+                     (def: (content _)
+                       (Fs::readFileSync [path] (..node_fs [])))
 
                      (def: path
-                       (..can_see
-                        (function (_ _)
-                          path)))
+                       path)
 
-                     (def: size
-                       (..can_query
-                        (function (_ _)
-                          (do (try.with io.monad)
-                            [stat (Fs::statSync [path] (..node_fs []))]
-                            (wrap (|> stat
-                                      Stats::size
-                                      f.nat))))))
+                     (def: (size _)
+                       (do (try.with io.monad)
+                         [stat (Fs::statSync [path] (..node_fs []))]
+                         (wrap (|> stat
+                                   Stats::size
+                                   f.nat))))
 
-                     (def: last_modified
-                       (..can_query
-                        (function (_ _)
-                          (do (try.with io.monad)
-                            [stat (Fs::statSync [path] (..node_fs []))]
-                            (wrap (|> stat
-                                      Stats::mtimeMs
-                                      f.int
-                                      duration.from_millis
-                                      instant.absolute))))))
+                     (def: (last_modified _)
+                       (do (try.with io.monad)
+                         [stat (Fs::statSync [path] (..node_fs []))]
+                         (wrap (|> stat
+                                   Stats::mtimeMs
+                                   f.int
+                                   duration.from_millis
+                                   instant.absolute))))
 
-                     (def: can_execute?
-                       (..can_query
-                        (function (can_execute? _)
-                          (do (try.with io.monad)
-                            [#let [node_fs (..node_fs [])]
-                             _ (Fs::accessSync [path (|> node_fs Fs::constants FsConstants::F_OK)] node_fs)]
-                            (do io.monad
-                              [outcome (Fs::accessSync [path (|> node_fs Fs::constants FsConstants::X_OK)] node_fs)]
-                              (wrap (#try.Success (case outcome
-                                                    (#try.Success _)
-                                                    true
+                     (def: (can_execute? _)
+                       (do (try.with io.monad)
+                         [#let [node_fs (..node_fs [])]
+                          _ (Fs::accessSync [path (|> node_fs Fs::constants FsConstants::F_OK)] node_fs)]
+                         (do io.monad
+                           [outcome (Fs::accessSync [path (|> node_fs Fs::constants FsConstants::X_OK)] node_fs)]
+                           (wrap (#try.Success (case outcome
+                                                 (#try.Success _)
+                                                 true
 
-                                                    (#try.Failure _)
-                                                    false))))))))
+                                                 (#try.Failure _)
+                                                 false))))))
 
-                     (def: move
-                       (..can_open
-                        (function (move destination)
-                          (do (try.with io.monad)
-                            [_ (Fs::renameSync [path destination] (..node_fs []))]
-                            (wrap (file destination))))))
+                     (def: (move destination)
+                       (do (try.with io.monad)
+                         [_ (Fs::renameSync [path destination] (..node_fs []))]
+                         (wrap (file destination))))
 
-                     (def: modify
-                       (..can_modify
-                        (function (modify time_stamp)
-                          (let [when (|> time_stamp instant.relative duration.to_millis i.frac)]
-                            (Fs::utimesSync [path when when] (..node_fs []))))))
+                     (def: (modify time_stamp)
+                       (let [when (|> time_stamp instant.relative duration.to_millis i.frac)]
+                         (Fs::utimesSync [path when when] (..node_fs []))))
 
-                     (def: delete
-                       (..can_delete
-                        (function (delete _)
-                          (Fs::unlink [path] (..node_fs [])))))))
+                     (def: (delete _)
+                       (Fs::unlink [path] (..node_fs [])))))
 
                (`` (implementation: (directory path)
                      (-> Path (Directory IO))
 
                      (def: scope
-                       (..can_see
-                        (function (_ _)
-                          path)))
+                       path)
                      
                      (~~ (template [<name> <method> <capability>]
-                           [(def: <name>
-                              (..can_query
-                               (function (<name> _)
-                                 (do {! (try.with io.monad)}
-                                   [#let [node_fs (..node_fs [])]
-                                    subs (Fs::readdirSync [path] node_fs)
-                                    subs (monad.map ! (function (_ sub)
-                                                        (do !
-                                                          [stats (Fs::statSync [sub] node_fs)
-                                                           verdict (<method> [] stats)]
-                                                          (wrap [verdict sub])))
-                                                    (array.to_list subs))]
-                                   (wrap (|> subs
-                                             (list.filter product.left)
-                                             (list\map (|>> product.right <capability>))))))))]
+                           [(def: (<name> _)
+                              (do {! (try.with io.monad)}
+                                [#let [node_fs (..node_fs [])]
+                                 subs (Fs::readdirSync [path] node_fs)
+                                 subs (monad.map ! (function (_ sub)
+                                                     (do !
+                                                       [stats (Fs::statSync [sub] node_fs)
+                                                        verdict (<method> [] stats)]
+                                                       (wrap [verdict sub])))
+                                                 (array.to_list subs))]
+                                (wrap (|> subs
+                                          (list.filter product.left)
+                                          (list\map (|>> product.right <capability>))))))]
 
                            [files       Stats::isFile      ..file]
                            [directories Stats::isDirectory directory]
                            ))
 
-                     (def: discard
-                       (..can_delete
-                        (function (discard _)
-                          (Fs::rmdirSync [path] (..node_fs [])))))))
+                     (def: (discard _)
+                       (Fs::rmdirSync [path] (..node_fs [])))))
 
                (`` (implementation: #export default
                      (System IO)
                      
                      (~~ (template [<name> <method> <capability> <exception>]
                            [(with_expansions [<failure> (exception.throw <exception> [path])]
-                              (def: <name>
-                                (..can_open
-                                 (function (<name> path)
-                                   (do {! io.monad}
-                                     [?stats (Fs::statSync [path] (..node_fs []))]
-                                     (case ?stats
-                                       (#try.Success stats)
-                                       (do !
-                                         [?verdict (<method> [] stats)]
-                                         (wrap (case ?verdict
-                                                 (#try.Success verdict)
-                                                 (if verdict
-                                                   (#try.Success (<capability> path))
-                                                   <failure>)
-                                                 
-                                                 (#try.Failure _)
-                                                 <failure>)))
-                                       
-                                       (#try.Failure _)
-                                       (wrap <failure>)))))))]
+                              (def: (<name> path)
+                                (do {! io.monad}
+                                  [?stats (Fs::statSync [path] (..node_fs []))]
+                                  (case ?stats
+                                    (#try.Success stats)
+                                    (do !
+                                      [?verdict (<method> [] stats)]
+                                      (wrap (case ?verdict
+                                              (#try.Success verdict)
+                                              (if verdict
+                                                (#try.Success (<capability> path))
+                                                <failure>)
+                                              
+                                              (#try.Failure _)
+                                              <failure>)))
+                                    
+                                    (#try.Failure _)
+                                    (wrap <failure>)))))]
 
                            [file             Stats::isFile        ..file      ..cannot_find_file]
                            [directory        Stats::isDirectory   ..directory ..cannot_find_directory]
                            ))
 
                      (~~ (template [<name> <capability> <exception> <prep>]
-                           [(def: <name>
-                              (..can_open
-                               (function (<name> path)
-                                 (let [node_fs (..node_fs [])]
-                                   (do io.monad
-                                     [outcome (Fs::accessSync [path (|> node_fs Fs::constants FsConstants::F_OK)] node_fs)]
-                                     (case outcome
-                                       (#try.Success _)
-                                       (wrap (exception.throw <exception> [path]))
-                                       
-                                       (#try.Failure _)
-                                       (do (try.with io.monad)
-                                         [_ (|> node_fs <prep>)]
-                                         (wrap (<capability> path)))))))))]
+                           [(def: (<name> path)
+                              (let [node_fs (..node_fs [])]
+                                (do io.monad
+                                  [outcome (Fs::accessSync [path (|> node_fs Fs::constants FsConstants::F_OK)] node_fs)]
+                                  (case outcome
+                                    (#try.Success _)
+                                    (wrap (exception.throw <exception> [path]))
+                                    
+                                    (#try.Failure _)
+                                    (do (try.with io.monad)
+                                      [_ (|> node_fs <prep>)]
+                                      (wrap (<capability> path)))))))]
 
                            [create_file ..file ..cannot_create_file (Fs::appendFileSync [path (Buffer::from (binary.create 0))])]
                            [create_directory ..directory ..cannot_create_directory (Fs::mkdirSync [path])]
@@ -710,106 +634,82 @@
                      (-> Path (File IO))
 
                      (~~ (template [<name> <mode>]
-                           [(def: <name>
-                              (..can_modify
-                               (function (<name> data)
-                                 (do (try.with io.monad)
-                                   [file (..open [path <mode>])
-                                    _ (PyFile::write [data] file)
-                                    _ (PyFile::close [] file)]
-                                   (wrap [])))))]
+                           [(def: (<name> data)
+                              (do (try.with io.monad)
+                                [file (..open [path <mode>])
+                                 _ (PyFile::write [data] file)
+                                 _ (PyFile::close [] file)]
+                                (wrap [])))]
                            
                            [over_write  "w+b"]
                            [append      "ab"]
                            ))
 
-                     (def: content
-                       (..can_query
-                        (function (_ _)
-                          (do (try.with io.monad)
-                            [file (..open [path "rb"])
-                             data (PyFile::read [] file)
-                             _ (PyFile::close [] file)]
-                            (wrap data)))))
+                     (def: (content _)
+                       (do (try.with io.monad)
+                         [file (..open [path "rb"])
+                          data (PyFile::read [] file)
+                          _ (PyFile::close [] file)]
+                         (wrap data)))
 
                      (def: path
-                       (..can_see
-                        (function (_ _)
-                          path)))
+                       path)
 
-                     (def: size
-                       (..can_query
-                        (function (_ _)
-                          (do (try.with io.monad)
-                            [size (os/path::getsize [path])]
-                            (wrap (.nat size))))))
+                     (def: (size _)
+                       (do (try.with io.monad)
+                         [size (os/path::getsize [path])]
+                         (wrap (.nat size))))
 
-                     (def: last_modified
-                       (..can_query
-                        (function (_ _)
-                          (do (try.with io.monad)
-                            [seconds_since_epoch (os/path::getmtime [path])]
-                            (wrap (|> seconds_since_epoch
-                                      f.int
-                                      (i.* +1,000)
-                                      duration.from_millis
-                                      instant.absolute))))))
+                     (def: (last_modified _)
+                       (do (try.with io.monad)
+                         [seconds_since_epoch (os/path::getmtime [path])]
+                         (wrap (|> seconds_since_epoch
+                                   f.int
+                                   (i.* +1,000)
+                                   duration.from_millis
+                                   instant.absolute))))
 
-                     (def: can_execute?
-                       (..can_query
-                        (function (can_execute? _)
-                          (os::access [path (os::X_OK)]))))
+                     (def: (can_execute? _)
+                       (os::access [path (os::X_OK)]))
 
-                     (def: move
-                       (..can_open
-                        (function (move destination)
-                          (do (try.with io.monad)
-                            [_ (os::rename [path destination])]
-                            (wrap (file destination))))))
+                     (def: (move destination)
+                       (do (try.with io.monad)
+                         [_ (os::rename [path destination])]
+                         (wrap (file destination))))
 
-                     (def: modify
-                       (..can_modify
-                        (function (modify time_stamp)
-                          (let [when (|> time_stamp instant.relative duration.to_millis (i./ +1,000))]
-                            (os::utime [path (..tuple [when when])])))))
+                     (def: (modify time_stamp)
+                       (let [when (|> time_stamp instant.relative duration.to_millis (i./ +1,000))]
+                         (os::utime [path (..tuple [when when])])))
 
-                     (def: delete
-                       (..can_delete
-                        (function (delete _)
-                          (os::remove [path]))))
+                     (def: (delete _)
+                       (os::remove [path]))
                      ))
 
                (`` (implementation: (directory path)
                      (-> Path (Directory IO))
 
                      (def: scope
-                       (..can_see
-                        (function (_ _)
-                          path)))
+                       path)
                      
                      (~~ (template [<name> <method> <capability>]
-                           [(def: <name>
-                              (..can_query
-                               (function (<name> _)
-                                 (do {! (try.with io.monad)}
-                                   [subs (os::listdir [path])
-                                    subs (monad.map ! (function (_ sub)
-                                                        (do !
-                                                          [verdict (<method> [sub])]
-                                                          (wrap [verdict sub])))
-                                                    (array.to_list subs))]
-                                   (wrap (|> subs
-                                             (list.filter product.left)
-                                             (list\map (|>> product.right <capability>))))))))]
+                           [(def: (<name> _)
+                              (do {! (try.with io.monad)}
+                                [subs (os::listdir [path])
+                                 subs (monad.map ! (function (_ sub)
+                                                     (do !
+                                                       [verdict (<method> [sub])]
+                                                       (wrap [verdict sub])))
+                                                 (array.to_list subs))]
+                                (wrap (|> subs
+                                          (list.filter product.left)
+                                          (list\map (|>> product.right <capability>))))))]
 
                            [files       os/path::isfile ..file]
                            [directories os/path::isdir  directory]
                            ))
 
-                     (def: discard
-                       (..can_delete
-                        (function (discard _)
-                          (os::rmdir [path]))))
+                     (def: (discard _)
+                       (os::rmdir [path]))
                      ))
 
                (`` (implementation: #export default
@@ -817,49 +717,43 @@
                      
                      (~~ (template [<name> <method> <capability> <exception>]
                            [(with_expansions [<failure> (exception.throw <exception> [path])]
-                              (def: <name>
-                                (..can_open
-                                 (function (<name> path)
-                                   (do io.monad
-                                     [?verdict (<method> [path])]
-                                     (wrap (case ?verdict
-                                             (#try.Success verdict)
-                                             (if verdict
-                                               (#try.Success (<capability> path))
-                                               <failure>)
-                                             
-                                             (#try.Failure _)
-                                             <failure>)))))))]
+                              (def: (<name> path)
+                                (do io.monad
+                                  [?verdict (<method> [path])]
+                                  (wrap (case ?verdict
+                                          (#try.Success verdict)
+                                          (if verdict
+                                            (#try.Success (<capability> path))
+                                            <failure>)
+                                          
+                                          (#try.Failure _)
+                                          <failure>)))))]
 
                            [file      os/path::isfile  ..file      ..cannot_find_file]
                            [directory os/path::isdir   ..directory ..cannot_find_directory]
                            ))
 
-                     (def: create_file
-                       (..can_open
-                        (function (create_file path)
-                          (do {! io.monad}
-                            [file (..open [path "w"])]
-                            (case file
-                              (#try.Success file)
-                              (do (try.with !)
-                                [_ (PyFile::close [] file)]
-                                (wrap (..file path)))
-                              
-                              (#try.Failure error)
-                              (wrap (exception.throw ..cannot_create_file [path])))))))
+                     (def: (create_file path)
+                       (do {! io.monad}
+                         [file (..open [path "w"])]
+                         (case file
+                           (#try.Success file)
+                           (do (try.with !)
+                             [_ (PyFile::close [] file)]
+                             (wrap (..file path)))
+                           
+                           (#try.Failure error)
+                           (wrap (exception.throw ..cannot_create_file [path])))))
 
-                     (def: create_directory
-                       (..can_open
-                        (function (create_directory path)
-                          (do io.monad
-                            [outcome (os::mkdir [path])]
-                            (wrap (case outcome
-                                    (#try.Success _)
-                                    (#try.Success (..directory path))
-                                    
-                                    (#try.Failure error)
-                                    (exception.throw ..cannot_create_directory [path])))))))
+                     (def: (create_directory path)
+                       (do io.monad
+                         [outcome (os::mkdir [path])]
+                         (wrap (case outcome
+                                 (#try.Success _)
+                                 (#try.Success (..directory path))
+                                 
+                                 (#try.Failure error)
+                                 (exception.throw ..cannot_create_directory [path])))))
 
                      (def: separator
                        (os/path::sep))
@@ -910,136 +804,118 @@
                      (-> Path (File IO))
 
                      (~~ (template [<name> <mode>]
-                           [(def: <name>
-                              (..can_modify
-                               (function (<name> data)
-                                 (do {! io.monad}
-                                   [?file (io/open [path <mode>])]
-                                   (case ?file
-                                     (#.Some file)
-                                     (do !
-                                       [?wrote (LuaFile::write [("lua utf8 decode" data)] file)]
-                                       (case ?wrote
-                                         (#.Some _)
-                                         (do !
-                                           [flushed? (LuaFile::flush [] file)
-                                            closed? (LuaFile::close [] file)]
-                                           (wrap (cond (not flushed?)
-                                                       (exception.throw ..cannot_write_to_file [path])
+                           [(def: (<name> data)
+                              (do {! io.monad}
+                                [?file (io/open [path <mode>])]
+                                (case ?file
+                                  (#.Some file)
+                                  (do !
+                                    [?wrote (LuaFile::write [("lua utf8 decode" data)] file)]
+                                    (case ?wrote
+                                      (#.Some _)
+                                      (do !
+                                        [flushed? (LuaFile::flush [] file)
+                                         closed? (LuaFile::close [] file)]
+                                        (wrap (cond (not flushed?)
+                                                    (exception.throw ..cannot_write_to_file [path])
 
-                                                       (not closed?)
-                                                       (exception.throw ..cannot_close_file [path])
+                                                    (not closed?)
+                                                    (exception.throw ..cannot_close_file [path])
 
-                                                       ## else
-                                                       (#try.Success []))))
-                                         
-                                         #.None
-                                         (wrap (exception.throw ..cannot_write_to_file [path]))))
-                                     
-                                     #.None
-                                     (wrap (exception.throw ..cannot_open_file [path])))))))]
+                                                    ## else
+                                                    (#try.Success []))))
+                                      
+                                      #.None
+                                      (wrap (exception.throw ..cannot_write_to_file [path]))))
+                                  
+                                  #.None
+                                  (wrap (exception.throw ..cannot_open_file [path])))))]
                            
                            [over_write  "w+b"]
                            [append      "ab"]
                            ))
 
-                     (def: content
-                       (..can_query
-                        (function (_ _)
-                          (do {! io.monad}
-                            [?file (io/open [path "rb"])]
-                            (case ?file
-                              (#.Some file)
-                              (do !
-                                [data (LuaFile::read ["a"] file)
-                                 closed? (LuaFile::close [] file)]
-                                (wrap (if closed?
-                                        (#try.Success ("lua utf8 encode" data))
-                                        (exception.throw ..cannot_close_file [path]))))
-                              
-                              #.None
-                              (wrap (exception.throw ..cannot_read_all_data [path])))))))
+                     (def: (content _)
+                       (do {! io.monad}
+                         [?file (io/open [path "rb"])]
+                         (case ?file
+                           (#.Some file)
+                           (do !
+                             [data (LuaFile::read ["a"] file)
+                              closed? (LuaFile::close [] file)]
+                             (wrap (if closed?
+                                     (#try.Success ("lua utf8 encode" data))
+                                     (exception.throw ..cannot_close_file [path]))))
+                           
+                           #.None
+                           (wrap (exception.throw ..cannot_read_all_data [path])))))
 
                      (def: path
-                       (..can_see
-                        (function (_ _)
-                          path)))
+                       path)
 
-                     (~~ (template [<capability> <name>]
-                           [(def: <name>
-                              (<capability>
-                               (function (_ _)
-                                 (let [[_ short] (name_of <name>)]
-                                   (\ io.monad wrap (exception.throw ..invalid_operation [(name_of ..File) short]))))))]
+                     (~~ (template [<name>]
+                           [(def: (<name> _)
+                              (let [[_ short] (name_of <name>)]
+                                (\ io.monad wrap (exception.throw ..invalid_operation [(name_of ..File) short]))))]
 
-                           [..can_query size]
-                           [..can_query last_modified]
-                           [..can_query can_execute?]
+                           [size]
+                           [last_modified]
+                           [can_execute?]
 
-                           [..can_modify modify]
+                           [modify]
                            ))
 
-                     (def: move
-                       (..can_open
-                        (function (move destination)
-                          (do io.monad
-                            [?verdict (os/rename [path destination])]
-                            (wrap (if (case ?verdict
-                                        (#.Some verdict)
-                                        verdict
-                                        
-                                        #.None
-                                        false)
-                                    (#try.Success (file destination))
-                                    (exception.throw ..cannot_move [destination path])))))))
+                     (def: (move destination)
+                       (do io.monad
+                         [?verdict (os/rename [path destination])]
+                         (wrap (if (case ?verdict
+                                     (#.Some verdict)
+                                     verdict
+                                     
+                                     #.None
+                                     false)
+                                 (#try.Success (file destination))
+                                 (exception.throw ..cannot_move [destination path])))))
 
-                     (def: delete
-                       (..can_delete
-                        (function (delete _)
-                          (do io.monad
-                            [?verdict (os/remove [path])]
-                            (wrap (if (case ?verdict
-                                        (#.Some verdict)
-                                        verdict
-                                        
-                                        #.None
-                                        false)
-                                    (#try.Success [])
-                                    (exception.throw ..cannot_delete_file path)))))))
+                     (def: (delete _)
+                       (do io.monad
+                         [?verdict (os/remove [path])]
+                         (wrap (if (case ?verdict
+                                     (#.Some verdict)
+                                     verdict
+                                     
+                                     #.None
+                                     false)
+                                 (#try.Success [])
+                                 (exception.throw ..cannot_delete_file path)))))
                      ))
 
                (`` (implementation: (directory path)
                      (-> Path (Directory IO))
 
                      (def: scope
-                       (..can_see
-                        (function (_ _)
-                          path)))
+                       path)
 
                      (~~ (template [<name>]
-                           [(def: <name>
-                              (..can_query
-                               (function (_ _)
-                                 (let [[_ short] (name_of <name>)]
-                                   (\ io.monad wrap (exception.throw ..invalid_operation [(name_of ..File) short]))))))]
+                           [(def: (<name> _)
+                              (let [[_ short] (name_of <name>)]
+                                (\ io.monad wrap (exception.throw ..invalid_operation [(name_of ..File) short]))))]
 
                            [files]
                            [directories]
                            ))
 
-                     (def: discard
-                       (..can_delete
-                        (function (discard _)
-                          (do io.monad
-                            [?verdict (os/remove [path])]
-                            (wrap (if (case ?verdict
-                                        (#.Some verdict)
-                                        verdict
-                                        
-                                        #.None
-                                        false)
-                                    (#try.Success [])
-                                    (exception.throw ..cannot_discard_directory path)))))))
+                     (def: (discard _)
+                       (do io.monad
+                         [?verdict (os/remove [path])]
+                         (wrap (if (case ?verdict
+                                     (#.Some verdict)
+                                     verdict
+                                     
+                                     #.None
+                                     false)
+                                 (#try.Success [])
+                                 (exception.throw ..cannot_discard_directory path)))))
                      ))
 
                (def: (default_file path)
@@ -1082,37 +958,33 @@
                (`` (implementation: #export default
                      (System IO)
 
-                     (def: file (..can_open ..default_file))
-                     (def: create_file (..can_open ..default_create_file))
+                     (def: file ..default_file)
+                     (def: create_file ..default_create_file)
 
-                     (def: directory
-                       (let [dummy "lux_lua_dummy_file"]
-                         (..can_open
-                          (function (directory path)
-                            (do {! io.monad}
-                              [?file (..default_create_file (format path ..default_separator dummy))]
-                              (case ?file
-                                (#try.Success file)
-                                (do (try.with !)
-                                  [_ (!.use (\ file delete) [])]
-                                  (wrap (..directory path)))
-                                
-                                (#try.Failure error)
-                                (wrap (if (exception.match? ..file_already_exists error)
-                                        (#try.Success (..directory path))
-                                        (exception.throw ..cannot_find_directory [path])))))))))
+                     (def: (directory path)
+                       (do {! io.monad}
+                         [#let [dummy "lux_lua_dummy_file"]
+                          ?file (..default_create_file (format path ..default_separator dummy))]
+                         (case ?file
+                           (#try.Success file)
+                           (do (try.with !)
+                             [_ (\ file delete [])]
+                             (wrap (..directory path)))
+                           
+                           (#try.Failure error)
+                           (wrap (if (exception.match? ..file_already_exists error)
+                                   (#try.Success (..directory path))
+                                   (exception.throw ..cannot_find_directory [path]))))))
 
-                     (def: create_directory
-                       (..can_open
-                        (function (create_directory path)
-                          (do io.monad
-                            [?verdict (os/execute [(format "mkdir " path)])]
-                            (wrap (case ?verdict
-                                    (#.Some verdict)
-                                    (#try.Success (..directory path))
-                                    
-                                    #.None
-                                    (exception.throw ..cannot_create_directory [path])))))))
+                     (def: (create_directory path)
+                       (do io.monad
+                         [?verdict (os/execute [(format "mkdir " path)])]
+                         (wrap (case ?verdict
+                                 (#.Some verdict)
+                                 (#try.Success (..directory path))
+                                 
+                                 #.None
+                                 (exception.throw ..cannot_create_directory [path])))))
 
                      (def: separator
                        ..default_separator)
@@ -1168,157 +1040,131 @@
                      (-> Path (File IO))
 
                      (~~ (template [<name> <mode>]
-                           [(def: <name>
-                              (..can_modify
-                               (function (<name> data)
-                                 (do {! (try.with io.monad)}
-                                   [file (RubyFile::open [path <mode>])
-                                    data (RubyFile::write [data] file)
-                                    _ (RubyFile::flush [] file)
-                                    _ (RubyFile::close [] file)]
-                                   (wrap [])))))]
+                           [(def: (<name> data)
+                              (do {! (try.with io.monad)}
+                                [file (RubyFile::open [path <mode>])
+                                 data (RubyFile::write [data] file)
+                                 _ (RubyFile::flush [] file)
+                                 _ (RubyFile::close [] file)]
+                                (wrap [])))]
                            
                            [over_write  "wb"]
                            [append      "ab"]
                            ))
 
-                     (def: content
-                       (..can_query
-                        (function (_ _)
-                          (do {! (try.with io.monad)}
-                            [file (RubyFile::open [path "rb"])
-                             data (RubyFile::read [] file)
-                             _ (RubyFile::close [] file)]
-                            (wrap data)))))
+                     (def: (content _)
+                       (do {! (try.with io.monad)}
+                         [file (RubyFile::open [path "rb"])
+                          data (RubyFile::read [] file)
+                          _ (RubyFile::close [] file)]
+                         (wrap data)))
 
                      (def: path
-                       (..can_see
-                        (function (_ _)
-                          path)))
+                       path)
 
-                     (~~ (template [<capability> <name> <pipeline>]
-                           [(def: <name>
-                              (<capability>
-                               (function (_ _)
-                                 (do {! (try.with io.monad)}
-                                   [stat (: (IO (Try RubyStat))
-                                            (RubyFile::stat [path]))]
-                                   (wrap (`` (|> stat (: RubyStat) (~~ (template.splice <pipeline>)))))))))]
+                     (~~ (template [<name> <pipeline>]
+                           [(def: (<name> _)
+                              (do {! (try.with io.monad)}
+                                [stat (: (IO (Try RubyStat))
+                                         (RubyFile::stat [path]))]
+                                (wrap (`` (|> stat (: RubyStat) (~~ (template.splice <pipeline>)))))))]
 
-                           [..can_query size [RubyStat::size .nat]]
-                           [..can_query last_modified [(RubyStat::mtime [])
-                                                       (RubyTime::to_f [])
-                                                       (f.* +1,000.0)
-                                                       f.int
-                                                       duration.from_millis
-                                                       instant.absolute]]
-                           [..can_query can_execute? [(RubyStat::executable? [])]]
+                           [size [RubyStat::size .nat]]
+                           [last_modified [(RubyStat::mtime [])
+                                           (RubyTime::to_f [])
+                                           (f.* +1,000.0)
+                                           f.int
+                                           duration.from_millis
+                                           instant.absolute]]
+                           [can_execute? [(RubyStat::executable? [])]]
                            ))
 
-                     (def: modify
-                       (..can_modify
-                        (function (_ moment)
-                          (let [moment (|> moment
-                                           instant.relative
-                                           duration.to_millis
-                                           i.frac
-                                           (f./ +1,000.0)
-                                           RubyTime::at)]
-                            (do {! (try.with io.monad)}
-                              [_ (RubyFile::utime [moment moment path])]
-                              (wrap []))))))
+                     (def: (modify moment)
+                       (let [moment (|> moment
+                                        instant.relative
+                                        duration.to_millis
+                                        i.frac
+                                        (f./ +1,000.0)
+                                        RubyTime::at)]
+                         (do (try.with io.monad)
+                           [_ (RubyFile::utime [moment moment path])]
+                           (wrap []))))
 
-                     (def: move
-                       (..can_open
-                        (function (_ destination)
-                          (do {! (try.with io.monad)}
-                            [_ (RubyFileUtils::move [path destination])]
-                            (wrap (file destination))))))
+                     (def: (move destination)
+                       (do (try.with io.monad)
+                         [_ (RubyFileUtils::move [path destination])]
+                         (wrap (file destination))))
 
-                     (def: delete
-                       (..can_delete
-                        (function (_ _)
-                          (do {! (try.with io.monad)}
-                            [_ (RubyFile::delete [path])]
-                            (wrap [])))))
+                     (def: (delete _)
+                       (do (try.with io.monad)
+                         [_ (RubyFile::delete [path])]
+                         (wrap [])))
                      ))
 
                (`` (implementation: (directory path)
                      (-> Path (Directory IO))
 
                      (def: scope
-                       (..can_see
-                        (function (_ _)
-                          path)))
+                       path)
 
                      (~~ (template [<name> <test> <constructor> <capability>]
-                           [(def: <name>
-                              (..can_query
-                               (function (_ _)
-                                 (do {! (try.with io.monad)}
-                                   [self (RubyDir::open [path])
-                                    children (RubyDir::children [] self)
-                                    output (loop [input (|> children
-                                                            array.to_list
-                                                            (list\map (|>> (format path ..default_separator))))
-                                                  output (: (List (<capability> IO))
-                                                            (list))]
-                                             (case input
-                                               #.Nil
-                                               (wrap output)
+                           [(def: (<name> _)
+                              (do {! (try.with io.monad)}
+                                [self (RubyDir::open [path])
+                                 children (RubyDir::children [] self)
+                                 output (loop [input (|> children
+                                                         array.to_list
+                                                         (list\map (|>> (format path ..default_separator))))
+                                               output (: (List (<capability> IO))
+                                                         (list))]
+                                          (case input
+                                            #.Nil
+                                            (wrap output)
 
-                                               (#.Cons head tail)
-                                               (do !
-                                                 [verdict (<test> head)]
-                                                 (if verdict
-                                                   (recur tail (#.Cons (<constructor> head) output))
-                                                   (recur tail output)))))
-                                    _ (RubyDir::close [] self)]
-                                   (wrap output)))))]
+                                            (#.Cons head tail)
+                                            (do !
+                                              [verdict (<test> head)]
+                                              (if verdict
+                                                (recur tail (#.Cons (<constructor> head) output))
+                                                (recur tail output)))))
+                                 _ (RubyDir::close [] self)]
+                                (wrap output)))]
 
                            [files RubyFile::file? ..file File]
                            [directories RubyFile::directory? directory Directory]
                            ))
 
-                     (def: discard
-                       (..can_delete
-                        (function (discard _)
-                          (do {! (try.with io.monad)}
-                            [_ (RubyFileUtils::rmdir [path])]
-                            (wrap [])))))
+                     (def: (discard _)
+                       (do (try.with io.monad)
+                         [_ (RubyFileUtils::rmdir [path])]
+                         (wrap [])))
                      ))
 
                (`` (implementation: #export default
                      (System IO)
 
                      (~~ (template [<name> <test> <constructor> <exception>]
-                           [(def: <name>
-                              (..can_open
-                               (function (_ path)
-                                 (do {! (try.with io.monad)}
-                                   [verdict (<test> path)]
-                                   (\ io.monad wrap
-                                      (if verdict
-                                        (#try.Success (<constructor> path))
-                                        (exception.throw <exception> [path])))))))]
+                           [(def: (<name> path)
+                              (do {! (try.with io.monad)}
+                                [verdict (<test> path)]
+                                (\ io.monad wrap
+                                   (if verdict
+                                     (#try.Success (<constructor> path))
+                                     (exception.throw <exception> [path])))))]
 
                            [file RubyFile::file? ..file ..cannot_find_file]
                            [directory RubyFile::directory? ..directory ..cannot_find_directory]
                            ))
                      
-                     (def: create_file
-                       (..can_open
-                        (function (_ path)
-                          (do {! (try.with io.monad)}
-                            [_ (RubyFileUtils::touch [path])]
-                            (wrap (..file path))))))
+                     (def: (create_file path)
+                       (do {! (try.with io.monad)}
+                         [_ (RubyFileUtils::touch [path])]
+                         (wrap (..file path))))
 
-                     (def: create_directory
-                       (..can_open
-                        (function (create_directory path)
-                          (do {! (try.with io.monad)}
-                            [_ (RubyFileUtils::mkdir path)]
-                            (wrap (..directory path))))))
+                     (def: (create_directory path)
+                       (do {! (try.with io.monad)}
+                         [_ (RubyFileUtils::mkdir path)]
+                         (wrap (..directory path))))
 
                      (def: separator
                        ..default_separator)
@@ -1370,163 +1216,135 @@
                      (-> Path (File IO))
 
                      (~~ (template [<name> <mode>]
-                           [(def: <name>
-                              (..can_modify
-                               (function (<name> data)
-                                 (do {! (try.with io.monad)}
-                                   [outcome (..file_put_contents [path ("php pack" ..byte_array_format data) <mode>])]
-                                   (if (bit\= false (:coerce Bit outcome))
-                                     (\ io.monad wrap (exception.throw ..cannot_write_to_file [path]))
-                                     (wrap []))))))]
+                           [(def: (<name> data)
+                              (do {! (try.with io.monad)}
+                                [outcome (..file_put_contents [path ("php pack" ..byte_array_format data) <mode>])]
+                                (if (bit\= false (:coerce Bit outcome))
+                                  (\ io.monad wrap (exception.throw ..cannot_write_to_file [path]))
+                                  (wrap []))))]
                            
                            [over_write  +0]
                            [append      (..FILE_APPEND)]
                            ))
 
-                     (def: content
-                       (..can_query
-                        (function (_ _)
-                          (do {! (try.with io.monad)}
-                            [data (..file_get_contents [path])]
-                            (if (bit\= false (:coerce Bit data))
-                              (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
-                              (wrap (..unpack [..byte_array_format data])))))))
+                     (def: (content _)
+                       (do {! (try.with io.monad)}
+                         [data (..file_get_contents [path])]
+                         (if (bit\= false (:coerce Bit data))
+                           (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
+                           (wrap (..unpack [..byte_array_format data])))))
 
                      (def: path
-                       (..can_see
-                        (function (_ _)
-                          path)))
+                       path)
 
-                     (~~ (template [<capability> <name> <ffi> <pipeline>]
-                           [(def: <name>
-                              (<capability>
-                               (function (_ _)
-                                 (do {! (try.with io.monad)}
-                                   [value (<ffi> [path])]
-                                   (if (bit\= false (:coerce Bit value))
-                                     (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
-                                     (wrap (`` (|> value (~~ (template.splice <pipeline>))))))))))]
+                     (~~ (template [<name> <ffi> <pipeline>]
+                           [(def: (<name> _)
+                              (do {! (try.with io.monad)}
+                                [value (<ffi> [path])]
+                                (if (bit\= false (:coerce Bit value))
+                                  (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
+                                  (wrap (`` (|> value (~~ (template.splice <pipeline>))))))))]
 
-                           [..can_query size ..filesize [.nat]]
-                           [..can_query last_modified ..filemtime [(i.* +1,000) duration.from_millis instant.absolute]]
+                           [size ..filesize [.nat]]
+                           [last_modified ..filemtime [(i.* +1,000) duration.from_millis instant.absolute]]
                            ))
 
-                     (def: can_execute?
-                       (..can_query
-                        (function (_ _)
-                          (..is_executable [path]))))
+                     (def: (can_execute? _)
+                       (..is_executable [path]))
 
-                     (def: modify
-                       (..can_modify
-                        (function (_ moment)
-                          (do {! (try.with io.monad)}
-                            [verdict (..touch [path (|> moment instant.relative duration.to_millis (i./ +1,000))])]
-                            (if (bit\= false (:coerce Bit verdict))
-                              (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
-                              (wrap []))))))
+                     (def: (modify moment)
+                       (do {! (try.with io.monad)}
+                         [verdict (..touch [path (|> moment instant.relative duration.to_millis (i./ +1,000))])]
+                         (if (bit\= false (:coerce Bit verdict))
+                           (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
+                           (wrap []))))
 
-                     (def: move
-                       (..can_open
-                        (function (_ destination)
-                          (do {! (try.with io.monad)}
-                            [verdict (..rename [path destination])]
-                            (if (bit\= false (:coerce Bit verdict))
-                              (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
-                              (wrap (file destination)))))))
+                     (def: (move destination)
+                       (do {! (try.with io.monad)}
+                         [verdict (..rename [path destination])]
+                         (if (bit\= false (:coerce Bit verdict))
+                           (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
+                           (wrap (file destination)))))
 
-                     (def: delete
-                       (..can_delete
-                        (function (_ _)
-                          (do {! (try.with io.monad)}
-                            [verdict (..unlink [path])]
-                            (if (bit\= false (:coerce Bit verdict))
-                              (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
-                              (wrap []))))))
+                     (def: (delete _)
+                       (do (try.with io.monad)
+                         [verdict (..unlink [path])]
+                         (if (bit\= false (:coerce Bit verdict))
+                           (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
+                           (wrap []))))
                      ))
 
                (`` (implementation: (directory path)
                      (-> Path (Directory IO))
 
                      (def: scope
-                       (..can_see
-                        (function (_ _)
-                          path)))
+                       path)
 
                      (~~ (template [<name> <test> <constructor> <capability>]
-                           [(def: <name>
-                              (..can_query
-                               (function (_ _)
-                                 (do {! (try.with io.monad)}
-                                   [children (..scandir [path])]
-                                   (loop [input (|> children
-                                                    array.to_list
-                                                    (list.filter (function (_ child)
-                                                                   (not (or (text\= "." child)
-                                                                            (text\= ".." child))))))
-                                          output (: (List (<capability> IO))
-                                                    (list))]
-                                     (case input
-                                       #.Nil
-                                       (wrap output)
+                           [(def: (<name> _)
+                              (do {! (try.with io.monad)}
+                                [children (..scandir [path])]
+                                (loop [input (|> children
+                                                 array.to_list
+                                                 (list.filter (function (_ child)
+                                                                (not (or (text\= "." child)
+                                                                         (text\= ".." child))))))
+                                       output (: (List (<capability> IO))
+                                                 (list))]
+                                  (case input
+                                    #.Nil
+                                    (wrap output)
 
-                                       (#.Cons head tail)
-                                       (do !
-                                         [verdict (<test> head)]
-                                         (if verdict
-                                           (recur tail (#.Cons (<constructor> head) output))
-                                           (recur tail output)))))))))]
+                                    (#.Cons head tail)
+                                    (do !
+                                      [verdict (<test> head)]
+                                      (if verdict
+                                        (recur tail (#.Cons (<constructor> head) output))
+                                        (recur tail output)))))))]
 
                            [files ..is_file ..file File]
                            [directories ..is_dir directory Directory]
                            ))
 
-                     (def: discard
-                       (..can_delete
-                        (function (_ _)
-                          (do {! (try.with io.monad)}
-                            [verdict (..rmdir [path])]
-                            (if (bit\= false (:coerce Bit verdict))
-                              (\ io.monad wrap (exception.throw ..cannot_find_directory [path]))
-                              (wrap []))))))
+                     (def: (discard _)
+                       (do (try.with io.monad)
+                         [verdict (..rmdir [path])]
+                         (if (bit\= false (:coerce Bit verdict))
+                           (\ io.monad wrap (exception.throw ..cannot_find_directory [path]))
+                           (wrap []))))
                      ))
 
                (`` (implementation: #export default
                      (System IO)
 
                      (~~ (template [<name> <test> <constructor> <exception>]
-                           [(def: <name>
-                              (..can_open
-                               (function (_ path)
-                                 (do {! (try.with io.monad)}
-                                   [verdict (<test> path)]
-                                   (\ io.monad wrap
-                                      (if verdict
-                                        (#try.Success (<constructor> path))
-                                        (exception.throw <exception> [path])))))))]
+                           [(def: (<name> path)
+                              (do {! (try.with io.monad)}
+                                [verdict (<test> path)]
+                                (\ io.monad wrap
+                                   (if verdict
+                                     (#try.Success (<constructor> path))
+                                     (exception.throw <exception> [path])))))]
 
                            [file ..is_file ..file ..cannot_find_file]
                            [directory ..is_dir ..directory ..cannot_find_directory]
                            ))
 
-                     (def: create_file
-                       (..can_open
-                        (function (_ path)
-                          (do {! (try.with io.monad)}
-                            [verdict (..touch [path (|> instant.now io.run instant.relative duration.to_millis (i./ +1,000))])]
-                            (\ io.monad wrap
-                               (if verdict
-                                 (#try.Success (..file path))
-                                 (exception.throw ..cannot_create_file [path])))))))
+                     (def: (create_file path)
+                       (do {! (try.with io.monad)}
+                         [verdict (..touch [path (|> instant.now io.run instant.relative duration.to_millis (i./ +1,000))])]
+                         (\ io.monad wrap
+                            (if verdict
+                              (#try.Success (..file path))
+                              (exception.throw ..cannot_create_file [path])))))
                      
-                     (def: create_directory
-                       (..can_open
-                        (function (_ path)
-                          (do {! (try.with io.monad)}
-                            [verdict (..mkdir path)]
-                            (\ io.monad wrap
-                               (if verdict
-                                 (#try.Success (..directory path))
-                                 (exception.throw ..cannot_create_directory [path])))))))
+                     (def: (create_directory path)
+                       (do {! (try.with io.monad)}
+                         [verdict (..mkdir path)]
+                         (\ io.monad wrap
+                            (if verdict
+                              (#try.Success (..directory path))
+                              (exception.throw ..cannot_create_directory [path])))))
 
                      (def: separator
                        ..default_separator)
@@ -1541,14 +1359,14 @@
   [(def: #export (<get> monad system path)
      (All [!] (-> (Monad !) (System !) Path (! (Try (<signature> !)))))
      (do monad
-       [outcome (!.use (\ system <find>) path)]
+       [outcome (\ system <find> path)]
        (case outcome
          (#try.Success file)
          (wrap (#try.Success file))
          
          (#try.Failure error)
          (if (exception.match? <exception> error)
-           (!.use (\ system <create>) path)
+           (\ system <create> path)
            (wrap (#try.Failure error))))))]
 
   [get_file      File      create_file      file      ..cannot_find_file]
@@ -1559,7 +1377,7 @@
   [(def: #export (<predicate> monad system path)
      (All [!] (-> (Monad !) (System !) Path (! Bit)))
      (do monad
-       [?file (!.use (\ system <capability>) path)]
+       [?file (\ system <capability> path)]
        (case ?file
          (#try.Success file)
          (wrap true)
@@ -1720,108 +1538,89 @@
   (-> Text Path (Var Mock) (File Promise))
   (implementation
    (def: path
-     (..can_see
-      (function.constant path)))
+     path)
    
-   (def: size
-     (..can_query
-      (function (_ _)
-        (stm.commit
-         (do stm.monad
-           [|store| (stm.read store)]
-           (wrap (do try.monad
-                   [[name file] (..retrieve_mock_file! separator path |store|)]
-                   (wrap (binary.size (get@ #mock_content file))))))))))
+   (def: (size _)
+     (stm.commit
+      (do stm.monad
+        [|store| (stm.read store)]
+        (wrap (do try.monad
+                [[name file] (..retrieve_mock_file! separator path |store|)]
+                (wrap (binary.size (get@ #mock_content file))))))))
 
-   (def: content
-     (..can_query
-      (function (_ _)
-        (stm.commit
-         (do stm.monad
-           [|store| (stm.read store)]
-           (wrap (do try.monad
-                   [[name file] (..retrieve_mock_file! separator path |store|)]
-                   (wrap (get@ #mock_content file)))))))))
+   (def: (content _)
+     (stm.commit
+      (do stm.monad
+        [|store| (stm.read store)]
+        (wrap (do try.monad
+                [[name file] (..retrieve_mock_file! separator path |store|)]
+                (wrap (get@ #mock_content file)))))))
 
-   (def: last_modified
-     (..can_query
-      (function (_ _)
-        (stm.commit
-         (do stm.monad
-           [|store| (stm.read store)]
-           (wrap (do try.monad
-                   [[name file] (..retrieve_mock_file! separator path |store|)]
-                   (wrap (get@ #mock_last_modified file)))))))))
+   (def: (last_modified _)
+     (stm.commit
+      (do stm.monad
+        [|store| (stm.read store)]
+        (wrap (do try.monad
+                [[name file] (..retrieve_mock_file! separator path |store|)]
+                (wrap (get@ #mock_last_modified file)))))))
 
-   (def: can_execute?
-     (..can_query
-      (function (_ _)
-        (stm.commit
-         (do stm.monad
-           [|store| (stm.read store)]
-           (wrap (do try.monad
-                   [[name file] (..retrieve_mock_file! separator path |store|)]
-                   (wrap (get@ #mock_can_execute file)))))))))
+   (def: (can_execute? _)
+     (stm.commit
+      (do stm.monad
+        [|store| (stm.read store)]
+        (wrap (do try.monad
+                [[name file] (..retrieve_mock_file! separator path |store|)]
+                (wrap (get@ #mock_can_execute file)))))))
 
-   (def: over_write
-     (..can_modify
-      (function (_ content)
-        (do promise.monad
-          [now (promise.future instant.now)]
-          (stm.commit
-           (..try_update! (..update_mock_file! separator path now content) store))))))
+   (def: (over_write content)
+     (do promise.monad
+       [now (promise.future instant.now)]
+       (stm.commit
+        (..try_update! (..update_mock_file! separator path now content) store))))
 
-   (def: append
-     (..can_modify
-      (function (_ content)
-        (do promise.monad
-          [now (promise.future instant.now)]
-          (stm.commit
-           (..try_update! (function (_ |store|)
-                            (do try.monad
-                              [[name file] (..retrieve_mock_file! separator path |store|)]
-                              (..update_mock_file! separator path now
-                                                   (\ binary.monoid compose
-                                                      (get@ #mock_content file)
-                                                      content)
-                                                   |store|)))
-                          store))))))
+   (def: (append content)
+     (do promise.monad
+       [now (promise.future instant.now)]
+       (stm.commit
+        (..try_update! (function (_ |store|)
+                         (do try.monad
+                           [[name file] (..retrieve_mock_file! separator path |store|)]
+                           (..update_mock_file! separator path now
+                                                (\ binary.monoid compose
+                                                   (get@ #mock_content file)
+                                                   content)
+                                                |store|)))
+                       store))))
 
-   (def: modify
-     (..can_modify
-      (function (_ now)
-        (stm.commit
-         (..try_update! (function (_ |store|)
-                          (do try.monad
-                            [[name file] (..retrieve_mock_file! separator path |store|)]
-                            (..update_mock_file! separator path now (get@ #mock_content file) |store|)))
-                        store)))))
+   (def: (modify now)
+     (stm.commit
+      (..try_update! (function (_ |store|)
+                       (do try.monad
+                         [[name file] (..retrieve_mock_file! separator path |store|)]
+                         (..update_mock_file! separator path now (get@ #mock_content file) |store|)))
+                     store)))
 
-   (def: delete
-     (..can_delete
-      (function (_ _)
-        (stm.commit
-         (..try_update! (..delete_mock_file! separator path) store)))))
+   (def: (delete _)
+     (stm.commit
+      (..try_update! (..delete_mock_file! separator path) store)))
 
-   (def: move
-     (..can_open
-      (function (_ path)
-        (stm.commit
-         (do {! stm.monad}
-           [|store| (stm.read store)]
-           (case (do try.monad
-                   [[name file] (..retrieve_mock_file! separator path |store|)
-                    |store| (..delete_mock_file! separator path |store|)
-                    [name |store|] (..create_mock_file! separator path (get@ #mock_last_modified file) |store|)
-                    |store| (..update_mock_file! separator path (get@ #mock_last_modified file) (get@ #mock_content file) |store|)]
-                   (wrap [|store| (mock_file separator path store)]))
-             (#try.Success [|store| moved])
-             (do !
-               [_ (stm.write |store| store)]
-               (wrap (#try.Success moved)))
-             
-             (#try.Failure error)
-             (wrap (#try.Failure error))))))))
+   (def: (move path)
+     (stm.commit
+      (do {! stm.monad}
+        [|store| (stm.read store)]
+        (case (do try.monad
+                [[name file] (..retrieve_mock_file! separator path |store|)
+                 |store| (..delete_mock_file! separator path |store|)
+                 [name |store|] (..create_mock_file! separator path (get@ #mock_last_modified file) |store|)
+                 |store| (..update_mock_file! separator path (get@ #mock_last_modified file) (get@ #mock_content file) |store|)]
+                (wrap [|store| (mock_file separator path store)]))
+          (#try.Success [|store| moved])
+          (do !
+            [_ (stm.write |store| store)]
+            (wrap (#try.Success moved)))
+          
+          (#try.Failure error)
+          (wrap (#try.Failure error))))))
    ))
 
 (def: (create_mock_directory! separator path mock)
@@ -1908,64 +1707,56 @@
   (-> Text Path (Var Mock) (Directory Promise))
   (implementation
    (def: scope
-     (..can_see
-      (function (_ _)
-        path)))
+     path)
    
-   (def: files
-     (..can_query
-      (function (_ _)
-        (stm.commit
-         (do stm.monad
-           [|store| (stm.read store)]
-           (wrap (do try.monad
-                   [directory (..retrieve_mock_directory! separator path |store|)]
-                   (wrap (|> directory
-                             dictionary.entries
-                             (list.all (function (_ [node_name node])
-                                         (case node
-                                           (#.Left file)
-                                           (#.Some (..mock_file separator
+   (def: (files _)
+     (stm.commit
+      (do stm.monad
+        [|store| (stm.read store)]
+        (wrap (do try.monad
+                [directory (..retrieve_mock_directory! separator path |store|)]
+                (wrap (|> directory
+                          dictionary.entries
+                          (list.all (function (_ [node_name node])
+                                      (case node
+                                        (#.Left file)
+                                        (#.Some (..mock_file separator
+                                                             (format path separator node_name)
+                                                             store))
+                                        
+                                        (#.Right directory)
+                                        #.None))))))))))
+
+   (def: (directories _)
+     (stm.commit
+      (do stm.monad
+        [|store| (stm.read store)]
+        (wrap (do try.monad
+                [directory (..retrieve_mock_directory! separator path |store|)]
+                (wrap (|> directory
+                          dictionary.entries
+                          (list.all (function (_ [node_name node])
+                                      (case node
+                                        (#.Left file)
+                                        #.None
+                                        
+                                        (#.Right directory)
+                                        (#.Some (mock_directory separator
                                                                 (format path separator node_name)
-                                                                store))
-                                           
-                                           (#.Right directory)
-                                           #.None))))))))))))
+                                                                store))))))))))))
 
-   (def: directories
-     (..can_query
-      (function (_ _)
-        (stm.commit
-         (do stm.monad
-           [|store| (stm.read store)]
-           (wrap (do try.monad
-                   [directory (..retrieve_mock_directory! separator path |store|)]
-                   (wrap (|> directory
-                             dictionary.entries
-                             (list.all (function (_ [node_name node])
-                                         (case node
-                                           (#.Left file)
-                                           #.None
-                                           
-                                           (#.Right directory)
-                                           (#.Some (mock_directory separator
-                                                                   (format path separator node_name)
-                                                                   store))))))))))))))
-
-   (def: discard
-     (..can_delete
-      (function (_ _)
-        (stm.commit
-         (do {! stm.monad}
-           [|store| (stm.read store)]
-           (case (..delete_mock_directory! separator path |store|)
-             (#try.Success |store|)
-             (do !
-               [_ (stm.write |store| store)]
-               (wrap (#try.Success [])))
-             
-             (#try.Failure error)
-             (wrap (#try.Failure error))))))))
+   (def: (discard _)
+     (stm.commit
+      (do {! stm.monad}
+        [|store| (stm.read store)]
+        (case (..delete_mock_directory! separator path |store|)
+          (#try.Success |store|)
+          (do !
+            [_ (stm.write |store| store)]
+            (wrap (#try.Success [])))
+          
+          (#try.Failure error)
+          (wrap (#try.Failure error))))))
    ))
 
 (def: #export (mock separator)
@@ -1974,57 +1765,49 @@
     (implementation
      (def: separator separator)
 
-     (def: file
-       (..can_open
-        (function (_ path)
-          (stm.commit
-           (do stm.monad
-             [|store| (stm.read store)]
-             (wrap (do try.monad
-                     [[name file] (..retrieve_mock_file! separator path |store|)]
-                     (wrap (..mock_file separator path store)))))))))
+     (def: (file path)
+       (stm.commit
+        (do stm.monad
+          [|store| (stm.read store)]
+          (wrap (do try.monad
+                  [[name file] (..retrieve_mock_file! separator path |store|)]
+                  (wrap (..mock_file separator path store)))))))
 
-     (def: create_file
-       (..can_open
-        (function (_ path)
-          (do promise.monad
-            [now (promise.future instant.now)]
-            (stm.commit
-             (do {! stm.monad}
-               [|store| (stm.read store)]
-               (case (..create_mock_file! separator path now |store|)
-                 (#try.Success [name |store|])
-                 (do !
-                   [_ (stm.write |store| store)]
-                   (wrap (#try.Success (..mock_file separator path store))))
-                 
-                 (#try.Failure error)
-                 (wrap (#try.Failure error)))))))))
+     (def: (create_file path)
+       (do promise.monad
+         [now (promise.future instant.now)]
+         (stm.commit
+          (do {! stm.monad}
+            [|store| (stm.read store)]
+            (case (..create_mock_file! separator path now |store|)
+              (#try.Success [name |store|])
+              (do !
+                [_ (stm.write |store| store)]
+                (wrap (#try.Success (..mock_file separator path store))))
+              
+              (#try.Failure error)
+              (wrap (#try.Failure error)))))))
 
-     (def: directory
-       (..can_open
-        (function (_ path)
-          (stm.commit
-           (do stm.monad
-             [|store| (stm.read store)]
-             (wrap (do try.monad
-                     [directory (..retrieve_mock_directory! separator path |store|)]
-                     (wrap (..mock_directory separator path store)))))))))
+     (def: (directory path)
+       (stm.commit
+        (do stm.monad
+          [|store| (stm.read store)]
+          (wrap (do try.monad
+                  [directory (..retrieve_mock_directory! separator path |store|)]
+                  (wrap (..mock_directory separator path store)))))))
 
-     (def: create_directory
-       (..can_open
-        (function (_ path)
-          (stm.commit
-           (do {! stm.monad}
-             [|store| (stm.read store)]
-             (case (..create_mock_directory! separator path |store|)
-               (#try.Success |store|)
-               (do !
-                 [_ (stm.write |store| store)]
-                 (wrap (#try.Success (..mock_directory separator path store))))
-               
-               (#try.Failure error)
-               (wrap (#try.Failure error))))))))
+     (def: (create_directory path)
+       (stm.commit
+        (do {! stm.monad}
+          [|store| (stm.read store)]
+          (case (..create_mock_directory! separator path |store|)
+            (#try.Success |store|)
+            (do !
+              [_ (stm.write |store| store)]
+              (wrap (#try.Success (..mock_directory separator path store))))
+            
+            (#try.Failure error)
+            (wrap (#try.Failure error))))))
      )))
 
 (def: #export (make_directories monad system path)

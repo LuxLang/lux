@@ -10,7 +10,6 @@
     ["." exception (#+ exception:)]
     ["." io (#+ IO)]
     [security
-     ["!" capability (#+ capability:)]
      ["?" policy (#+ Context Safety Safe)]]
     [concurrency
      ["." atom (#+ Atom)]
@@ -33,15 +32,6 @@
   [//
    [file (#+ Path)]])
 
-(capability: #export (Can_Read !)
-  (can_read [] (! (Try Text))))
-
-(capability: #export (Can_Write !)
-  (can_write Text (! (Try Any))))
-
-(capability: #export (Can_Destroy !)
-  (can_destroy [] (! (Try Any))))
-
 (type: #export Exit
   Int)
 
@@ -54,35 +44,31 @@
   [+1 error]
   )
 
-(capability: #export (Can_Wait !)
-  (can_wait [] (! (Try Exit))))
-
 (interface: #export (Process !)
-  (: (Can_Read !)
+  (: (-> [] (! (Try Text)))
      read)
-  (: (Can_Read !)
+  (: (-> [] (! (Try Text)))
      error)
-  (: (Can_Write !)
+  (: (-> Text (! (Try Any)))
      write)
-  (: (Can_Destroy !)
+  (: (-> [] (! (Try Any)))
      destroy)
-  (: (Can_Wait !)
+  (: (-> [] (! (Try Exit)))
      await))
 
 (def: (async_process process)
   (-> (Process IO) (Process Promise))
   (`` (implementation
-       (~~ (template [<method> <capability>]
+       (~~ (template [<method>]
              [(def: <method>
-                (<capability>
-                 (|>> (!.use (\ process <method>))
-                      promise.future)))]
+                (|>> (\ process <method>)
+                     promise.future))]
 
-             [read ..can_read]
-             [error ..can_read]
-             [write ..can_write]
-             [destroy ..can_destroy]
-             [await ..can_wait]
+             [read]
+             [error]
+             [write]
+             [destroy]
+             [await]
              )))))
 
 (type: #export Command
@@ -91,23 +77,18 @@
 (type: #export Argument
   Text)
 
-(capability: #export (Can_Execute !)
-  (can_execute [Environment Path Command (List Argument)] (! (Try (Process !)))))
-
 (interface: #export (Shell !)
-  (: (Can_Execute !)
+  (: (-> [Environment Path Command (List Argument)] (! (Try (Process !))))
      execute))
 
 (def: #export (async shell)
   (-> (Shell IO) (Shell Promise))
   (implementation
-   (def: execute
-     (..can_execute
-      (function (_ input)
-        (promise.future
-         (do (try.with io.monad)
-           [process (!.use (\ shell execute) input)]
-           (wrap (..async_process process)))))))))
+   (def: (execute input)
+     (promise.future
+      (do (try.with io.monad)
+        [process (\ shell execute input)]
+        (wrap (..async_process process)))))))
 
 ## https://en.wikipedia.org/wiki/Code_injection#Shell_injection
 (interface: (Policy ?)
@@ -157,9 +138,9 @@
     (: (Context Safety Policy)
        (function (_ (^open "?\."))
          (implementation
-          (def: command (|>> sanitize_command (!.use ?\can_upgrade)))
-          (def: argument (|>> sanitize_argument (!.use ?\can_upgrade)))
-          (def: value (!.use ?\can_downgrade)))))))
+          (def: command (|>> sanitize_command ?\can_upgrade))
+          (def: argument (|>> sanitize_argument ?\can_upgrade))
+          (def: value ?\can_downgrade))))))
 
 (def: unix_policy
   (let [replacer (: Replacer
@@ -259,33 +240,27 @@
                                    (wrap (: (Process IO)
                                             (`` (implementation
                                                  (~~ (template [<name> <stream>]
-                                                       [(def: <name>
-                                                          (..can_read
-                                                           (function (_ _)
-                                                             (do !
-                                                               [output (java/io/BufferedReader::readLine <stream>)]
-                                                               (case output
-                                                                 (#.Some output)
-                                                                 (wrap output)
+                                                       [(def: (<name> _)
+                                                          (do !
+                                                            [output (java/io/BufferedReader::readLine <stream>)]
+                                                            (case output
+                                                              (#.Some output)
+                                                              (wrap output)
 
-                                                                 #.None
-                                                                 (\ io.monad wrap (exception.throw ..no_more_output [])))))))]
+                                                              #.None
+                                                              (\ io.monad wrap (exception.throw ..no_more_output [])))))]
 
                                                        [read jvm_input]
                                                        [error jvm_error]
                                                        ))
-                                                 (def: write
-                                                   (..can_write
-                                                    (function (_ message)
-                                                      (java/io/OutputStream::write (\ utf8.codec encode message) jvm_output))))
-                                                 (~~ (template [<name> <capability> <method>]
-                                                       [(def: <name>
-                                                          (<capability>
-                                                           (function (_ _)
-                                                             (<method> process))))]
+                                                 (def: (write message)
+                                                   (java/io/OutputStream::write (\ utf8.codec encode message) jvm_output))
+                                                 (~~ (template [<name> <method>]
+                                                       [(def: (<name> _)
+                                                          (<method> process))]
 
-                                                       [destroy ..can_destroy java/lang/Process::destroy]
-                                                       [await ..can_wait java/lang/Process::waitFor]
+                                                       [destroy java/lang/Process::destroy]
+                                                       [await java/lang/Process::waitFor]
                                                        ))))))))
 
                                (import: java/io/File
@@ -313,26 +288,24 @@
                                (implementation: #export default
                                  (Shell IO)
 
-                                 (def: execute
-                                   (..can_execute
-                                    (function (_ [environment working_directory command arguments])
-                                      (do {! (try.with io.monad)}
-                                        [#let [builder (|> (list& command arguments)
-                                                           ..jvm::arguments_array
-                                                           java/lang/ProcessBuilder::new
-                                                           (java/lang/ProcessBuilder::directory (java/io/File::new working_directory)))]
-                                         _ (|> builder
-                                               java/lang/ProcessBuilder::environment
-                                               (\ try.functor map (..jvm::load_environment environment))
-                                               (\ io.monad wrap))
-                                         process (java/lang/ProcessBuilder::start builder)]
-                                        (..default_process process))))))
+                                 (def: (execute [environment working_directory command arguments])
+                                   (do {! (try.with io.monad)}
+                                     [#let [builder (|> (list& command arguments)
+                                                        ..jvm::arguments_array
+                                                        java/lang/ProcessBuilder::new
+                                                        (java/lang/ProcessBuilder::directory (java/io/File::new working_directory)))]
+                                      _ (|> builder
+                                            java/lang/ProcessBuilder::environment
+                                            (\ try.functor map (..jvm::load_environment environment))
+                                            (\ io.monad wrap))
+                                      process (java/lang/ProcessBuilder::start builder)]
+                                     (..default_process process))))
                                )]
   (for {@.old (as_is <jvm>)
         @.jvm (as_is <jvm>)}
        (as_is)))
 
-(interface: #export (Simulation s)
+(interface: #export (Mock s)
   (: (-> s (Try [s Text]))
      on_read)
   (: (-> s (Try [s Text]))
@@ -344,65 +317,57 @@
   (: (-> s (Try [s Exit]))
      on_await))
 
-(`` (implementation: (mock_process simulation state)
-      (All [s] (-> (Simulation s) (Atom s) (Process IO)))
+(`` (implementation: (mock_process mock state)
+      (All [s] (-> (Mock s) (Atom s) (Process IO)))
 
-      (~~ (template [<name> <capability> <simulation>]
-            [(def: <name>
-               (<capability>
-                (function (_ _)
-                  (do {! io.monad}
-                    [|state| (atom.read state)]
-                    (case (\ simulation <simulation> |state|)
-                      (#try.Success [|state| output])
-                      (do !
-                        [_ (atom.write |state| state)]
-                        (wrap (#try.Success output)))
-                      
-                      (#try.Failure error)
-                      (wrap (#try.Failure error)))))))]
+      (~~ (template [<name> <mock>]
+            [(def: (<name> _)
+               (do {! io.monad}
+                 [|state| (atom.read state)]
+                 (case (\ mock <mock> |state|)
+                   (#try.Success [|state| output])
+                   (do !
+                     [_ (atom.write |state| state)]
+                     (wrap (#try.Success output)))
+                   
+                   (#try.Failure error)
+                   (wrap (#try.Failure error)))))]
 
-            [read ..can_read on_read]
-            [error ..can_read on_error]
-            [await ..can_wait on_await]
+            [read on_read]
+            [error on_error]
+            [await on_await]
             ))
-      (def: write
-        (..can_write
-         (function (_ message)
-           (do {! io.monad}
-             [|state| (atom.read state)]
-             (case (\ simulation on_write message |state|)
-               (#try.Success |state|)
-               (do !
-                 [_ (atom.write |state| state)]
-                 (wrap (#try.Success [])))
-               
-               (#try.Failure error)
-               (wrap (#try.Failure error)))))))
-      (def: destroy
-        (..can_destroy
-         (function (_ _)
-           (do {! io.monad}
-             [|state| (atom.read state)]
-             (case (\ simulation on_destroy |state|)
-               (#try.Success |state|)
-               (do !
-                 [_ (atom.write |state| state)]
-                 (wrap (#try.Success [])))
-               
-               (#try.Failure error)
-               (wrap (#try.Failure error)))))))))
+      (def: (write message)
+        (do {! io.monad}
+          [|state| (atom.read state)]
+          (case (\ mock on_write message |state|)
+            (#try.Success |state|)
+            (do !
+              [_ (atom.write |state| state)]
+              (wrap (#try.Success [])))
+            
+            (#try.Failure error)
+            (wrap (#try.Failure error)))))
+      (def: (destroy _)
+        (do {! io.monad}
+          [|state| (atom.read state)]
+          (case (\ mock on_destroy |state|)
+            (#try.Success |state|)
+            (do !
+              [_ (atom.write |state| state)]
+              (wrap (#try.Success [])))
+            
+            (#try.Failure error)
+            (wrap (#try.Failure error)))))))
 
-(implementation: #export (mock simulation init)
+(implementation: #export (mock mock init)
   (All [s]
     (-> (-> [Environment Path Command (List Argument)]
-            (Try (Simulation s)))
+            (Try (Mock s)))
         s
         (Shell IO)))
 
-  (def: execute
-    (..can_execute
-     (function (_ input)
-       (io.io (do try.monad
-                [simulation (simulation input)]
-                (wrap (..mock_process simulation (atom.atom init)))))))))
+  (def: (execute input)
+    (io.io (do try.monad
+             [mock (mock input)]
+             (wrap (..mock_process mock (atom.atom init)))))))

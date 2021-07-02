@@ -43,7 +43,7 @@
      ["#." artifact (#+ Artifact)
       ["#/." type]
       ["#/." extension]]
-     ["#." repository (#+ Simulation)
+     ["#." repository (#+ Mock)
       ["#/." origin]]]]})
 
 (def: random
@@ -56,43 +56,7 @@
                           package
                           /.empty))))
 
-(def: #export (single artifact package)
-  (-> Artifact Package (Simulation Any))
-  (let [expected (///artifact.uri (get@ #///artifact.version artifact) artifact)]
-    (implementation
-     (def: (on_download uri state)
-       (if (text.contains? expected uri)
-         (cond (text.ends_with? ///artifact/extension.lux_library uri)
-               (#try.Success [state (|> package
-                                        (get@ #///package.library)
-                                        product.left)])
-               
-               (text.ends_with? ///artifact/extension.pom uri)
-               (#try.Success [state (|> package
-                                        (get@ #///package.pom)
-                                        product.left
-                                        (\ xml.codec encode)
-                                        (\ utf8.codec encode))])
-
-               ## (text.ends_with? ///artifact/extension.sha-1 uri)
-               ## (#try.Success [state (|> package
-               ##                          (get@ #///package.sha-1)
-               ##                          (\ ///hash.sha-1_codec encode)
-               ##                          (\ utf8.codec encode))])
-               
-               ## (text.ends_with? ///artifact/extension.md5 uri)
-               ## (#try.Success [state (|> package
-               ##                          (get@ #///package.md5)
-               ##                          (\ ///hash.md5_codec encode)
-               ##                          (\ utf8.codec encode))])
-
-               ## else
-               (#try.Failure "NOPE"))
-         (#try.Failure "NOPE")))
-     (def: (on_upload uri binary state)
-       (#try.Failure "NOPE")))))
-
-(def: lux_sha1
+(def: lux_sha-1
   Text
   (format ///artifact/extension.lux_library ///artifact/extension.sha-1))
 
@@ -100,7 +64,7 @@
   Text
   (format ///artifact/extension.lux_library ///artifact/extension.md5))
 
-(def: pom_sha1
+(def: pom_sha-1
   Text
   (format ///artifact/extension.pom ///artifact/extension.sha-1))
 
@@ -108,7 +72,7 @@
   Text
   (format ///artifact/extension.pom ///artifact/extension.md5))
 
-(def: sha1
+(def: sha-1
   (-> Binary Binary)
   (|>> ///hash.sha-1
        (\ ///hash.sha-1_codec encode)
@@ -120,8 +84,48 @@
        (\ ///hash.md5_codec encode)
        (\ utf8.codec encode)))
 
+(def: #export (single artifact package)
+  (-> Artifact Package (Mock Any))
+  (let [expected (///artifact.uri (get@ #///artifact.version artifact) artifact)]
+    (implementation
+     (def: (on_download uri state)
+       (if (text.contains? expected uri)
+         (let [library (: Binary
+                          (|> package
+                              (get@ #///package.library)
+                              product.left))
+               pom (: Binary
+                      (|> package
+                          (get@ #///package.pom)
+                          product.left
+                          (\ xml.codec encode)
+                          (\ utf8.codec encode)))]
+           (cond (text.ends_with? ///artifact/extension.lux_library uri)
+                 (#try.Success [state library])
+
+                 (text.ends_with? ..lux_sha-1 uri)
+                 (#try.Success [state (..sha-1 library)])
+
+                 (text.ends_with? ..lux_md5 uri)
+                 (#try.Success [state (..md5 library)])
+                 
+                 (text.ends_with? ///artifact/extension.pom uri)
+                 (#try.Success [state pom])
+
+                 (text.ends_with? ..pom_sha-1 uri)
+                 (#try.Success [state (..sha-1 pom)])
+
+                 (text.ends_with? ..pom_md5 uri)
+                 (#try.Success [state (..md5 pom)])
+
+                 ## else
+                 (#try.Failure "NOPE")))
+         (#try.Failure "NOPE")))
+     (def: (on_upload uri binary state)
+       (#try.Failure "NOPE")))))
+
 (def: (bad_sha-1 expected_artifact expected_package dummy_package)
-  (-> Artifact Package Package (Simulation Any))
+  (-> Artifact Package Package (Mock Any))
   (implementation
    (def: (on_download uri state)
      (if (text.contains? (///artifact.uri (get@ #///artifact.version expected_artifact) expected_artifact) uri)
@@ -130,17 +134,17 @@
                                       (get@ #///package.library)
                                       product.left)])
 
-             (text.ends_with? lux_sha1 uri)
+             (text.ends_with? ..lux_sha-1 uri)
              (#try.Success [state (|> expected_package
                                       (get@ #///package.library)
                                       product.left
-                                      sha1)])
+                                      ..sha-1)])
 
-             (text.ends_with? lux_md5 uri)
+             (text.ends_with? ..lux_md5 uri)
              (#try.Success [state (|> expected_package
                                       (get@ #///package.library)
                                       product.left
-                                      md5)])
+                                      ..md5)])
              
              (text.ends_with? ///artifact/extension.pom uri)
              (#try.Success [state (|> expected_package
@@ -149,21 +153,21 @@
                                       (\ xml.codec encode)
                                       (\ utf8.codec encode))])
 
-             (text.ends_with? pom_sha1 uri)
+             (text.ends_with? ..pom_sha-1 uri)
              (#try.Success [state (|> dummy_package
                                       (get@ #///package.pom)
                                       product.left
                                       (\ xml.codec encode)
                                       (\ utf8.codec encode)
-                                      sha1)])
+                                      ..sha-1)])
 
-             (text.ends_with? pom_md5 uri)
+             (text.ends_with? ..pom_md5 uri)
              (#try.Success [state (|> expected_package
                                       (get@ #///package.pom)
                                       product.left
                                       (\ xml.codec encode)
                                       (\ utf8.codec encode)
-                                      md5)])
+                                      ..md5)])
 
              ## else
              (#try.Failure "NOPE"))
@@ -172,7 +176,7 @@
      (#try.Failure "NOPE"))))
 
 (def: (bad_md5 expected_artifact expected_package dummy_package)
-  (-> Artifact Package Package (Simulation Any))
+  (-> Artifact Package Package (Mock Any))
   (implementation
    (def: (on_download uri state)
      (if (text.contains? (///artifact.uri (get@ #///artifact.version expected_artifact) expected_artifact) uri)
@@ -181,17 +185,17 @@
                                       (get@ #///package.library)
                                       product.left)])
 
-             (text.ends_with? lux_sha1 uri)
+             (text.ends_with? ..lux_sha-1 uri)
              (#try.Success [state (|> expected_package
                                       (get@ #///package.library)
                                       product.left
-                                      sha1)])
+                                      ..sha-1)])
 
-             (text.ends_with? lux_md5 uri)
+             (text.ends_with? ..lux_md5 uri)
              (#try.Success [state (|> dummy_package
                                       (get@ #///package.library)
                                       product.left
-                                      md5)])
+                                      ..md5)])
              
              (text.ends_with? ///artifact/extension.pom uri)
              (#try.Success [state (|> expected_package
@@ -200,21 +204,21 @@
                                       (\ xml.codec encode)
                                       (\ utf8.codec encode))])
 
-             (text.ends_with? pom_sha1 uri)
+             (text.ends_with? ..pom_sha-1 uri)
              (#try.Success [state (|> expected_package
                                       (get@ #///package.pom)
                                       product.left
                                       (\ xml.codec encode)
                                       (\ utf8.codec encode)
-                                      sha1)])
+                                      ..sha-1)])
 
-             (text.ends_with? pom_md5 uri)
+             (text.ends_with? ..pom_md5 uri)
              (#try.Success [state (|> dummy_package
                                       (get@ #///package.pom)
                                       product.left
                                       (\ xml.codec encode)
                                       (\ utf8.codec encode)
-                                      md5)])
+                                      ..md5)])
 
              ## else
              (#try.Failure "NOPE"))

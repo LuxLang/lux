@@ -1,0 +1,203 @@
+(.module:
+  [lux #*
+   ["_" test (#+ Test)]
+   [abstract
+    [monad (#+ do)]
+    ["." hash (#+ Hash)]]
+   [control
+    ["." io (#+ IO)]
+    ["." try ("#\." functor)]
+    [concurrency
+     ["." atom (#+ Atom)]
+     ["." promise]]]
+   [data
+    ["." product]
+    ["." maybe ("#\." functor)]
+    ["." binary (#+ Binary) ("#\." equivalence)]
+    ["." text
+     ["%" format (#+ format)]]
+    [collection
+     ["." dictionary (#+ Dictionary)]
+     ["." set]
+     ["." list ("#\." fold)]]]
+   [math
+    ["." random (#+ Random)]
+    [number
+     ["n" nat]]]
+   [world
+    [net (#+ URL)
+     ["." uri (#+ URI)]
+     ["." http #_
+      ["#" client]
+      ["#/." status]
+      ["@#" /]]]]]
+  ["$." //
+   ["#/" // #_
+    ["#." package]]]
+  {#program
+   ["." /
+    [// (#+ Dependency)
+     ["." resolution]
+     [//
+      ["." profile]
+      ["." metadata]
+      ["." package (#+ Package)]
+      ["." artifact (#+ Artifact) ("#\." equivalence)
+       ["#/." type]
+       ["#/." extension]]
+      ["." repository
+       ["." remote]]]]]})
+
+(def: good_upload
+  (@http.Response IO)
+  [http/status.created
+   {#@http.headers (http.headers (list))
+    #@http.body (function (_ _)
+                  (|> [0 (binary.create 0)]
+                      #try.Success
+                      io.io))}])
+
+(type: Cache
+  (Atom (Dictionary URL Binary)))
+
+(def: (http cache)
+  (-> Cache (http.Client IO))
+  (implementation
+   (def: (request method url headers input)
+     (do io.monad
+       [_ (: (IO Any)
+             (case [method input]
+               [#@http.Put (#.Some input)]
+               (atom.update (dictionary.put url input) cache)
+               
+               _
+               (wrap [])))]
+       (wrap (#try.Success ..good_upload))))))
+
+(def: (verify_one expected_deployments address package cache expected_artifact actual_artifact)
+  (-> Nat URL Package (Dictionary URL Binary) Artifact Artifact Bit)
+  (let [url (: (-> URI URL)
+               (|>> (format address)))
+        library_url (url (format (artifact.uri (get@ #artifact.version expected_artifact)
+                                               expected_artifact)
+                                 artifact/extension.lux_library))
+        pom_url (url (format (artifact.uri (get@ #artifact.version expected_artifact)
+                                           expected_artifact)
+                             artifact/extension.pom))
+        artifact_metadata_url (url (metadata.remote_artifact_uri expected_artifact))
+        project_metadata_url (url (metadata.remote_project_uri expected_artifact))
+
+        expected_library (|> package
+                             (get@ #package.library)
+                             product.left)
+        expected_pom (|> package
+                         (get@ #package.pom)
+                         product.right
+                         product.left)
+
+        correct_artifact!
+        (artifact\= expected_artifact actual_artifact)
+
+        expected_number_of_uploads!
+        (n.= (n.* expected_deployments 8)
+             (dictionary.size cache))
+
+        correct_library_upload!
+        (and (|> cache
+                 (dictionary.get library_url)
+                 (maybe\map (binary\= expected_library))
+                 (maybe.default false))
+             (dictionary.key? cache (format library_url artifact/extension.sha-1))
+             (dictionary.key? cache (format library_url artifact/extension.md5)))
+
+        correct_pom_upload!
+        (and (|> cache
+                 (dictionary.get pom_url)
+                 (maybe\map (binary\= expected_pom))
+                 (maybe.default false))
+             (dictionary.key? cache (format pom_url artifact/extension.sha-1))
+             (dictionary.key? cache (format pom_url artifact/extension.md5)))
+
+        artifact_metadata_upload!
+        (dictionary.key? cache artifact_metadata_url)
+
+        project_metadata_upload!
+        (dictionary.key? cache project_metadata_url)]
+    (and correct_artifact!
+         expected_number_of_uploads!
+         correct_library_upload!
+         correct_pom_upload!
+         artifact_metadata_upload!
+         project_metadata_upload!)))
+
+(def: bundle
+  (Random [Dependency Artifact Package])
+  (do random.monad
+    [[profile package] $///package.random
+     #let [artifact (|> profile
+                        (get@ #profile.identity)
+                        maybe.assume)
+           dependency (: Dependency
+                         [artifact
+                          artifact/type.lux_library])]]
+    (wrap [dependency artifact package])))
+
+(def: #export test
+  Test
+  (<| (_.covering /._)
+      (do {! random.monad}
+        [address (\ ! map (text.suffix uri.separator)
+                    (random.ascii/upper 10))]
+        ($_ _.and
+            (do {! random.monad}
+              [[dependency expected_artifact package] ..bundle
+               #let [cache (: Cache
+                              (atom.atom (dictionary.new text.hash)))
+                     http (..http cache)
+                     repository (repository.async (remote.repository http #.None address))]]
+              (wrap (do promise.monad
+                      [?outcome (/.one repository dependency package)
+                       cache (promise.future (atom.read cache))]
+                      (_.cover' [/.one]
+                                (|> ?outcome
+                                    (try\map (verify_one 1 address package cache expected_artifact))
+                                    (try.default false))))))
+            (do {! random.monad}
+              [#let [hash (: (Hash [Dependency Artifact Package])
+                             (\ hash.functor map (|>> product.right product.left product.left)
+                                text.hash))]
+               num_bundles (\ ! map (n.% 10) random.nat)
+               bundles (|> ..bundle
+                           (random.set hash num_bundles)
+                           (\ ! map set.to_list))
+               #let [resolution (list\fold (function (_ [dependency expected_artifact package] resolution)
+                                             (dictionary.put dependency package resolution))
+                                           resolution.empty
+                                           bundles)
+                     cache (: Cache
+                              (atom.atom (dictionary.new text.hash)))
+                     http (..http cache)
+                     repository (repository.async (remote.repository http #.None address))]]
+              (wrap (do promise.monad
+                      [?outcome (/.all repository resolution)
+                       cache (promise.future (atom.read cache))]
+                      (_.cover' [/.all]
+                                (|> ?outcome
+                                    (try\map (function (_ actual_artifacts)
+                                               (let [expected_deployments!
+                                                     (n.= num_bundles (set.size actual_artifacts))
+
+                                                     every_deployment_was_correct!
+                                                     (list.every? (function (_ [dependency expected_artifact package])
+                                                                    (let [deployed!
+                                                                          (set.member? actual_artifacts expected_artifact)
+
+                                                                          deployed_correctly!
+                                                                          (verify_one num_bundles address package cache expected_artifact expected_artifact)]
+                                                                      (and deployed!
+                                                                           deployed_correctly!)))
+                                                                  bundles)]
+                                                 (and expected_deployments!
+                                                      every_deployment_was_correct!))))
+                                    (try.default false))))))
+            ))))

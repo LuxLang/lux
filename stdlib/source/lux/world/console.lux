@@ -10,9 +10,7 @@
     ["." io (#+ IO io)]
     [concurrency
      ["." promise (#+ Promise)]
-     ["." atom]]
-    [security
-     ["!" capability (#+ capability:)]]]
+     ["." atom]]]
    [data
     ["." text (#+ Char)
      ["%" format (#+ format)]]]])
@@ -25,37 +23,27 @@
   [cannot_close]
   )
 
-(capability: #export (Can_Read ! o)
-  (can_read [] (! (Try o))))
-
-(capability: #export (Can_Write ! i)
-  (can_write i (! (Try Any))))
-
-(capability: #export (Can_Close !)
-  (can_close [] (! (Try Any))))
-
 (interface: #export (Console !)
-  (: (Can_Read ! Char)
+  (: (-> [] (! (Try Char)))
      read)
-  (: (Can_Read ! Text)
+  (: (-> [] (! (Try Text)))
      read_line)
-  (: (Can_Write ! Text)
+  (: (-> Text (! (Try Any)))
      write)
-  (: (Can_Close !)
+  (: (-> [] (! (Try Any)))
      close))
 
 (def: #export (async console)
   (-> (Console IO) (Console Promise))
   (`` (implementation
-       (~~ (template [<capability> <forge>]
+       (~~ (template [<capability>]
              [(def: <capability>
-                (<forge>
-                 (|>> (!.use (\ console <capability>)) promise.future)))]
+                (|>> (\ console <capability>) promise.future))]
 
-             [read ..can_read]
-             [read_line ..can_read]
-             [write ..can_write]
-             [close ..can_close])))))
+             [read]
+             [read_line]
+             [write]
+             [close])))))
 
 (with_expansions [<jvm> (as_is (import: java/lang/String)
 
@@ -92,35 +80,28 @@
                                            exception.return
                                            (: (Console IO)) ## TODO: Remove ASAP
                                            (implementation
-                                            (def: read
-                                              (..can_read
-                                               (function (_ _)
-                                                 (|> jvm_input
-                                                     java/io/InputStream::read
-                                                     (\ (try.with io.monad) map .nat)))))
+                                            (def: (read _)
+                                              (|> jvm_input
+                                                  java/io/InputStream::read
+                                                  (\ (try.with io.monad) map .nat)))
                                             
-                                            (def: read_line
-                                              (..can_read
-                                               (function (_ _)
-                                                 (java/io/Console::readLine jvm_console))))
+                                            (def: (read_line _)
+                                              (java/io/Console::readLine jvm_console))
                                             
-                                            (def: write
-                                              (..can_write
-                                               (function (_ message)
-                                                 (java/io/PrintStream::print message jvm_output))))
+                                            (def: (write message)
+                                              (java/io/PrintStream::print message jvm_output))
                                             
                                             (def: close
-                                              (..can_close
-                                               (|>> (exception.throw ..cannot_close) wrap))))))))))]
+                                              (|>> (exception.throw ..cannot_close) wrap)))))))))]
   (for {@.old (as_is <jvm>)
         @.jvm (as_is <jvm>)}
        (as_is)))
 
 (def: #export (write_line message console)
   (All [!] (-> Text (Console !) (! (Try Any))))
-  (!.use (\ console write) [(format message text.new_line)]))
+  (\ console write (format message text.new_line)))
 
-(interface: #export (Simulation s)
+(interface: #export (Mock s)
   (: (-> s (Try [s Char]))
      on_read)
   (: (-> s (Try [s Text]))
@@ -130,54 +111,48 @@
   (: (-> s (Try s))
      on_close))
 
-(def: #export (mock simulation init)
-  (All [s] (-> (Simulation s) s (Console IO)))
+(def: #export (mock mock init)
+  (All [s] (-> (Mock s) s (Console IO)))
   (let [state (atom.atom init)]
     (`` (implementation
-         (~~ (template [<method> <simulation>]
-               [(def: <method>
-                  (..can_read
-                   (function (_ _)
-                     (do {! io.monad}
-                       [|state| (atom.read state)]
-                       (case (\ simulation <simulation> |state|)
-                         (#try.Success [|state| output])
-                         (do !
-                           [_ (atom.write |state| state)]
-                           (wrap (#try.Success output)))
-                         
-                         (#try.Failure error)
-                         (wrap (#try.Failure error)))))))]
+         (~~ (template [<method> <mock>]
+               [(def: (<method> _)
+                  (do {! io.monad}
+                    [|state| (atom.read state)]
+                    (case (\ mock <mock> |state|)
+                      (#try.Success [|state| output])
+                      (do !
+                        [_ (atom.write |state| state)]
+                        (wrap (#try.Success output)))
+                      
+                      (#try.Failure error)
+                      (wrap (#try.Failure error)))))]
 
                [read on_read]
                [read_line on_read_line]
                ))
 
-         (def: write
-           (..can_write
-            (function (_ input)
-              (do {! io.monad}
-                [|state| (atom.read state)]
-                (case (\ simulation on_write input |state|)
-                  (#try.Success |state|)
-                  (do !
-                    [_ (atom.write |state| state)]
-                    (wrap (#try.Success [])))
-                  
-                  (#try.Failure error)
-                  (wrap (#try.Failure error)))))))
+         (def: (write input)
+           (do {! io.monad}
+             [|state| (atom.read state)]
+             (case (\ mock on_write input |state|)
+               (#try.Success |state|)
+               (do !
+                 [_ (atom.write |state| state)]
+                 (wrap (#try.Success [])))
+               
+               (#try.Failure error)
+               (wrap (#try.Failure error)))))
 
-         (def: close
-           (..can_close
-            (function (_ _)
-              (do {! io.monad}
-                [|state| (atom.read state)]
-                (case (\ simulation on_close |state|)
-                  (#try.Success |state|)
-                  (do !
-                    [_ (atom.write |state| state)]
-                    (wrap (#try.Success [])))
-                  
-                  (#try.Failure error)
-                  (wrap (#try.Failure error)))))))
+         (def: (close _)
+           (do {! io.monad}
+             [|state| (atom.read state)]
+             (case (\ mock on_close |state|)
+               (#try.Success |state|)
+               (do !
+                 [_ (atom.write |state| state)]
+                 (wrap (#try.Success [])))
+               
+               (#try.Failure error)
+               (wrap (#try.Failure error)))))
          ))))
