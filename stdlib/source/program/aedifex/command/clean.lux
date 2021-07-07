@@ -3,54 +3,46 @@
    [abstract
     ["." monad (#+ do)]]
    [control
-    ["." try (#+ Try)]
-    ["." exception]
+    [try (#+ Try)]
     [concurrency
      ["." promise (#+ Promise)]]]
    [data
     [text
      ["%" format (#+ format)]]]
    [world
-    ["." file (#+ Path File Directory)]
+    ["." file (#+ Path)]
     ["." console (#+ Console)]]]
   ["." /// #_
    [command (#+ Command)]
    ["#" profile]
    ["#." action (#+ Action)]])
 
-(def: (clean_files! root)
-  (-> (Directory Promise) (Promise (Try Any)))
-  (do {! ///action.monad}
-    [nodes (: (Promise (Try (List (File Promise))))
-              (\ root files []))
-     _ (monad.map ! (function (_ node)
-                      (\ node delete []))
-                  nodes)]
-    (wrap [])))
+(def: (clean_files! fs root)
+  (-> (file.System Promise) Path (Promise (Try Any)))
+  (let [! ///action.monad]
+    (|> root
+        (\ fs directory_files)
+        (\ ! map (monad.map ! (\ fs delete)))
+        (\ ! join))))
 
-(def: #export (success path)
+(def: #export success
   (-> ///.Target Text)
-  (format "Successfully cleaned target directory: " path))
+  (|>> (format "Successfully cleaned target directory: ")))
 
 (def: #export (do! console fs profile)
   (-> (Console Promise) (file.System Promise) (Command Any))
-  (do promise.monad
+  (do {! promise.monad}
     [#let [target (get@ #///.target profile)]
-     root (: (Promise (Try (Directory Promise)))
-             (\ fs directory target))]
-    (case root
-      (#try.Success root)
-      (do {! ///action.monad}
-        [_ (loop [root root]
+     ? (\ fs directory? target)
+     _ (let [! ///action.monad]
+         (if ?
+           (loop [root target]
              (do !
-               [_ (..clean_files! root)
-                subs (: (Promise (Try (List (Directory Promise))))
-                        (\ root directories []))
-                _ (monad.map ! recur subs)]
-               (\ root discard [])))]
-        (console.write_line (..success target) console))
-      
-      (#try.Failure error)
-      (if (exception.match? file.cannot_find_directory error)
-        (console.write_line (..success target) console)
-        (\ promise.monad wrap (#try.Failure error))))))
+               [_ (..clean_files! fs root)
+                _ (|> root
+                      (\ fs sub_directories)
+                      (\ ! map (monad.map ! recur))
+                      (\ ! join))]
+               (\ fs delete root)))
+           (\ ! wrap [])))]
+    (console.write_line (..success target) console)))

@@ -32,6 +32,7 @@
      ["n" nat]
      ["." i64]]]
    [world
+    [console (#+ Console)]
     [net (#+ URL)
      ["." uri]
      ["." http #_
@@ -157,8 +158,23 @@
    ["Artifact" (%.text (///artifact.format (get@ #//.artifact dependency)))]
    ["Type" (%.text (get@ #//.type dependency))]))
 
-(def: #export (any repositories dependency)
-  (-> (List (Repository Promise)) Dependency (Promise (Try Package)))
+(template [<sigil> <name> <doing> <at>]
+  [(def: (<name> console repository artifact)
+     (-> (Console Promise) (Repository Promise) Artifact (Promise (Try Any)))
+     (\ console write (format "[" <sigil> "]"
+                              " " <doing>
+                              " " (///artifact.format artifact)
+                              " " <at>
+                              " " (%.text (\ repository description))
+                              text.new_line)))]
+
+  ["?" announce_fetching "Fetching" "from"]
+  ["Y" announce_success "Found" "at"]
+  ["N" announce_failure "Missed" "from"]
+  )
+
+(def: #export (any console repositories dependency)
+  (-> (Console Promise) (List (Repository Promise)) Dependency (Promise (Try Package)))
   (case repositories
     #.Nil
     (|> dependency
@@ -166,17 +182,22 @@
         (\ promise.monad wrap))
 
     (#.Cons repository alternatives)
-    (do promise.monad
-      [outcome (..one repository dependency)]
+    (do {! promise.monad}
+      [_ (..announce_fetching console repository (get@ #//.artifact dependency))
+       outcome (..one repository dependency)]
       (case outcome
         (#try.Success package)
-        (wrap outcome)
+        (do !
+          [_ (..announce_success console repository (get@ #//.artifact dependency))]
+          (wrap outcome))
 
         (#try.Failure error)
-        (any alternatives dependency)))))
+        (do !
+          [_ (..announce_failure console repository (get@ #//.artifact dependency))]
+          (any console alternatives dependency))))))
 
-(def: #export (all repositories dependencies resolution)
-  (-> (List (Repository Promise)) (List Dependency) Resolution
+(def: #export (all console repositories dependencies resolution)
+  (-> (Console Promise) (List (Repository Promise)) (List Dependency) Resolution
       (Promise [(List Dependency)
                 (List Dependency)
                 Resolution]))
@@ -204,7 +225,7 @@
                         (wrap (#try.Success package))
 
                         #.None
-                        (..any repositories head))]
+                        (..any console repositories head))]
             (case ?package
               (#try.Success package)
               (do !

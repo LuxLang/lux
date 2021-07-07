@@ -9,63 +9,52 @@
     [concurrency
      ["." promise (#+ Promise)]]
     [parser
-     ["." environment (#+ Environment)]]]
+     ["." environment]]]
    [data
-    ["." maybe]
     ["." binary]
     ["." text ("#\." equivalence)
      ["%" format (#+ format)]]
-    [format
-     ["." xml]]
     [collection
      ["." set (#+ Set)]]]
    [math
-    ["." random (#+ Random)]]
+    ["." random]]
    [world
-    ["." file (#+ Path File)]
-    ["." program (#+ Program)]
-    [net
-     ["." uri]]]]
+    ["." file]
+    ["." program (#+ Program)]]]
   [//
-   ["@." version]
+   ["$." version]
    [//
-    ["@." profile]
-    ["@." artifact]]]
+    ["$." profile]
+    ["$." artifact]]]
   {#program
    ["." /
     ["/#" // #_
-     ["#." clean]
      ["/#" // #_
       ["#" profile]
-      ["#." action]
-      ["#." pom]
+      ["#." action (#+ Action)]
       ["#." local]
       ["#." artifact
        ["#/." extension]]
       ["#." repository #_
        ["#/." local]]]]]})
 
-(def: (make_sources! fs sources)
-  (-> (file.System Promise) (Set Path) (Promise (Try Any)))
-  (loop [sources (set.to_list sources)]
-    (case sources
-      #.Nil
-      (|> []
-          (\ try.monad wrap)
-          (\ promise.monad wrap))
-      
-      (#.Cons head tail)
-      (do (try.with promise.monad)
-        [_ (: (Promise (Try Path))
-              (file.make_directories promise.monad fs head))
-         _ (: (Promise (Try (File Promise)))
-              (file.get_file promise.monad fs (format head (\ fs separator) head ".lux")))]
-        (recur tail)))))
+(def: #export (make_sources! fs sources)
+  (-> (file.System Promise) (Set file.Path) (Action (List Any)))
+  (let [/ (\ fs separator)
+        ! ///action.monad]
+    (|> sources
+        set.to_list
+        (monad.map ! (function (_ head)
+                       (do !
+                         [_ (: (Promise (Try Any))
+                               (file.make_directories promise.monad fs head))]
+                         (: (Promise (Try Any))
+                            (file.make_file promise.monad fs (binary.create 0) (format head / head ".lux")))))))))
 
 (def: (execute! program fs sample)
   (-> (Program Promise) (file.System Promise) ///.Profile (Promise (Try Text)))
   (do ///action.monad
-    [#let [console (@version.echo "")]
+    [#let [console ($version.echo "")]
      _ (..make_sources! fs (get@ #///.sources sample))
      _ (/.do! console fs (///repository/local.repository program fs) sample)]
     (\ console read_line [])))
@@ -74,29 +63,28 @@
   Test
   (<| (_.covering /._)
       (do {! random.monad}
-        [identity @artifact.random
+        [identity $artifact.random
          sample (\ ! map (set@ #///.identity (#.Some identity))
-                   @profile.random)
+                   $profile.random)
          home (random.ascii/alpha 5)
          working_directory (random.ascii/alpha 5)]
         ($_ _.and
             (wrap (do {! promise.monad}
                     [#let [fs (file.mock (\ file.default separator))
-                           program (program.async (program.mock environment.empty home working_directory))]
-                     verdict (do ///action.monad
-                               [logging (..execute! program fs sample)
-                                #let [/ uri.separator
-                                      artifact_path (///local.uri (get@ #///artifact.version identity) identity)
-                                      library_path (format artifact_path ///artifact/extension.lux_library)
-                                      pom_path (format artifact_path ///artifact/extension.pom)]
+                           program (program.async (program.mock environment.empty home working_directory))
 
-                                #let [succeeded! (text\= /.success logging)]
-                                library_exists! (\ promise.monad map
-                                                   exception.return
-                                                   (file.file_exists? promise.monad fs library_path))
-                                pom_exists! (\ promise.monad map
-                                               exception.return
-                                               (file.file_exists? promise.monad fs pom_path))]
+                           artifact_path (///local.uri (get@ #///artifact.version identity) identity)
+                           library_path (format artifact_path ///artifact/extension.lux_library)
+                           pom_path (format artifact_path ///artifact/extension.pom)]
+                     verdict (do {! ///action.monad}
+                               [succeeded! (\ ! map (text\= /.success)
+                                              (..execute! program fs sample))
+                                library_exists! (|> library_path
+                                                    (\ fs file?)
+                                                    (\ promise.monad map exception.return))
+                                pom_exists! (|> pom_path
+                                                (\ fs file?)
+                                                (\ promise.monad map exception.return))]
                                (wrap (and succeeded!
                                           library_exists!
                                           pom_exists!)))]

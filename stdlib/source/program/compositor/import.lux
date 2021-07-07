@@ -8,7 +8,7 @@
     [concurrency
      ["." promise (#+ Promise) ("#\." monad)]]
     ["<>" parser
-     ["<b>" binary]]]
+     ["<.>" binary]]]
    [data
     [binary (#+ Binary)]
     ["." text
@@ -24,7 +24,7 @@
       [archive
        [descriptor (#+ Module)]]]]]
    [world
-    ["." file (#+ Path File)]]]
+    ["." file]]]
   [//
    [cli (#+ Library)]])
 
@@ -39,32 +39,32 @@
    ["Library" (%.text library)]))
 
 (type: #export Import
-  (Dictionary Path Binary))
+  (Dictionary file.Path Binary))
 
 (def: (import_library system library import)
   (-> (file.System Promise) Library Import (Action Import))
-  (do (try.with promise.monad)
-    [file (: (Action (File Promise))
-             (\ system file library))
-     binary (\ file content [])]
-    (promise\wrap
-     (do {! try.monad}
-       [tar (<b>.run tar.parser binary)]
-       (monad.fold ! (function (_ entry import)
-                       (case entry
-                         (#tar.Normal [path instant mode ownership content])
-                         (let [path (tar.from_path path)]
-                           (case (dictionary.try_put path (tar.data content) import)
-                             (#try.Success import)
-                             (wrap import)
-                             
-                             (#try.Failure error)
-                             (exception.throw ..duplicate [library path])))
-                         
-                         _
-                         (exception.throw ..useless_tar_entry [])))
-                   import
-                   (row.to_list tar))))))
+  (let [! promise.monad]
+    (|> library
+        (\ system read)
+        (\ ! map (let [! try.monad]
+                   (|>> (\ ! map (<binary>.run tar.parser))
+                        (\ ! join)
+                        (\ ! map (|>> row.to_list
+                                      (monad.fold ! (function (_ entry import)
+                                                      (case entry
+                                                        (#tar.Normal [path instant mode ownership content])
+                                                        (let [path (tar.from_path path)]
+                                                          (case (dictionary.try_put path (tar.data content) import)
+                                                            (#try.Failure error)
+                                                            (exception.throw ..duplicate [library path])
+
+                                                            import'
+                                                            import'))
+                                                        
+                                                        _
+                                                        (exception.throw ..useless_tar_entry [])))
+                                                  import)))
+                        (\ ! join)))))))
 
 (def: #export (import system libraries)
   (-> (file.System Promise) (List Library) (Action Import))

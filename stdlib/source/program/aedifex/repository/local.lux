@@ -1,10 +1,9 @@
 (.module:
   [lux #*
-   [ffi (#+ import:)]
    [abstract
     [monad (#+ do)]]
    [control
-    ["." try (#+ Try)]
+    ["." try]
     [concurrency
      ["." promise (#+ Promise)]]]
    [data
@@ -12,7 +11,7 @@
      ["%" format (#+ format)]]]
    [world
     [program (#+ Program)]
-    ["." file (#+ Path File)]
+    ["." file]
     [net
      ["." uri (#+ URI)]]]]
   ["." //
@@ -21,40 +20,39 @@
     ["#." metadata]]])
 
 (def: (root /)
-  (-> Text Path)
+  (-> Text file.Path)
   (text.replace_all uri.separator / ///local.repository))
 
-(def: path
-  (-> Text URI Path)
-  (text.replace_all uri.separator))
+(def: (path /)
+  (-> Text (-> URI file.Path))
+  (text.replace_all uri.separator /))
 
-(def: (file program system create? uri)
-  (-> (Program Promise)
-      (file.System Promise)
-      Bit
-      URI
-      (Promise (Try (File Promise))))
-  (let [uri (text.replace_once ///metadata.remote_file ///metadata.local_file uri)
-        / (\ system separator)
-        absolute_path (format (..root /) / (..path / uri))]
-    (if create?
-      (do {! (try.with promise.monad)}
-        [_ (: (Promise (Try Path))
-              (file.make_directories promise.monad system (file.parent system absolute_path)))]
-        (: (Promise (Try (File Promise)))
-           (file.get_file promise.monad system absolute_path)))
-      (: (Promise (Try (File Promise)))
-         (\ system file absolute_path)))))
+(def: (absolute_path /)
+  (-> Text (-> URI file.Path))
+  (|>> ///metadata.local_uri
+       (..path /)
+       (format (..root /) /)))
 
-(implementation: #export (repository program system)
+(implementation: #export (repository program fs)
   (-> (Program Promise) (file.System Promise) (//.Repository Promise))
 
-  (def: (download uri)
-    (do {! (try.with promise.monad)}
-      [file (..file program system false uri)]
-      (\ file content [])))
+  (def: description
+    (..root (\ fs separator)))
+  (def: download
+    (|>> (..absolute_path (\ fs separator))
+         (\ fs read)))
 
   (def: (upload uri content)
-    (do {! (try.with promise.monad)}
-      [file (..file program system true uri)]
-      (\ file over_write content))))
+    (do {! promise.monad}
+      [#let [absolute_path (..absolute_path (\ fs separator) uri)]
+       ? (\ fs file? absolute_path)
+       _ (if ?
+           (wrap [])
+           (case (file.parent fs absolute_path)
+             (#.Some parent)
+             (file.make_directories promise.monad fs parent)
+
+             _
+             (let [! (try.with promise.monad)]
+               (\ ! wrap []))))]
+      (\ fs write content absolute_path))))

@@ -5,9 +5,12 @@
    [abstract
     ["." monad (#+ do)]]
    [control
+    ["." try]
     ["." exception (#+ exception:)]
     ["." io (#+ IO io)]]
    [data
+    ["." text
+     ["%" format (#+ format)]]
     [collection
      ["." list]]]
    [math
@@ -84,50 +87,51 @@
          (Atom (List Thread))
          (atom.atom (list)))))
 
+(def: (execute! action)
+  (-> (IO Any) Any)
+  (case ("lux try" action)
+    (#try.Failure error)
+    (exec
+      ("lux io log" (format "ERROR DURING THREAD EXECUTION:" text.new_line
+                            error))
+      [])
+    
+    (#try.Success _)
+    []))
+
 (def: #export (schedule milli_seconds action)
   (-> Nat (IO Any) (IO Any))
-  (for {@.old
-        (let [runnable (ffi.object [] [java/lang/Runnable]
-                         []
-                         (java/lang/Runnable [] (run self) void
-                                             (io.run action)))]
-          (case milli_seconds
-            0 (java/util/concurrent/Executor::execute runnable runner)
-            _ (java/util/concurrent/ScheduledThreadPoolExecutor::schedule runnable (.int milli_seconds) java/util/concurrent/TimeUnit::MILLISECONDS
-                                                                          runner)))
+  (with_expansions [<jvm> (as_is (let [runnable (ffi.object [] [java/lang/Runnable]
+                                                  []
+                                                  (java/lang/Runnable [] (run self) void
+                                                                      (..execute! action)))]
+                                   (case milli_seconds
+                                     0 (java/util/concurrent/Executor::execute runnable runner)
+                                     _ (java/util/concurrent/ScheduledThreadPoolExecutor::schedule runnable (.int milli_seconds) java/util/concurrent/TimeUnit::MILLISECONDS
+                                                                                                   runner))))]
+    (for {@.old <jvm>
+          @.jvm <jvm>
 
-        @.jvm
-        (let [runnable (ffi.object [] [java/lang/Runnable]
-                         []
-                         (java/lang/Runnable [] (run self) void
-                                             (io.run action)))]
-          (case milli_seconds
-            0 (java/util/concurrent/Executor::execute runnable runner)
-            _ (java/util/concurrent/ScheduledThreadPoolExecutor::schedule runnable (.int milli_seconds) java/util/concurrent/TimeUnit::MILLISECONDS
-                                                                          runner)))
+          @.js
+          (..setTimeout [(ffi.closure [] (..execute! action))
+                         (n.frac milli_seconds)])
 
-        @.js
-        (..setTimeout [(ffi.closure [] (io.run action))
-                       (n.frac milli_seconds)])
-
-        @.python
-        (do io.monad
-          [_ (|> (ffi.lambda [] (io.run action))
-                 [(|> milli_seconds n.frac (f./ +1,000.0))]
-                 threading/Timer::new
-                 (threading/Timer::start []))]
-          (wrap []))}
-       
-       ## Default
-       (do io.monad
-         [_ (atom.update (|>> (#.Cons {#creation (|> instant.now
-                                                     io.run
-                                                     instant.to_millis
-                                                     .nat)
-                                       #delay milli_seconds
-                                       #action action}))
-                         ..runner)]
-         (wrap []))))
+          @.python
+          (do io.monad
+            [_ (|> (ffi.lambda [] (..execute! action))
+                   [(|> milli_seconds n.frac (f./ +1,000.0))]
+                   threading/Timer::new
+                   (threading/Timer::start []))]
+            (wrap []))}
+         
+         ## Default
+         (do {! io.monad}
+           [now (\ ! map (|>> instant.to_millis .nat) instant.now)
+            _ (atom.update (|>> (#.Cons {#creation now
+                                         #delay milli_seconds
+                                         #action action}))
+                           ..runner)]
+           (wrap [])))))
 
 (for {@.old (as_is)
       @.jvm (as_is)
@@ -149,11 +153,8 @@
 
                     _
                     (do !
-                      [#let [now (|> instant.now
-                                     io.run
-                                     instant.to_millis
-                                     .nat)
-                             [ready pending] (list.partition (function (_ thread)
+                      [now (\ ! map (|>> instant.to_millis .nat) instant.now)
+                       #let [[ready pending] (list.partition (function (_ thread)
                                                                (|> (get@ #creation thread)
                                                                    (n.+ (get@ #delay thread))
                                                                    (n.<= now)))
@@ -161,7 +162,7 @@
                        swapped? (atom.compare_and_swap threads pending ..runner)]
                       (if swapped?
                         (do !
-                          [_ (monad.map ! (get@ #action) ready)]
+                          [_ (monad.map ! (|>> (get@ #action) ..execute! io.io) ready)]
                           (recur []))
                         (error! (exception.construct ..cannot_continue_running_threads []))))
                     ))))

@@ -34,11 +34,8 @@ cd ~/lux/stdlib/ \
 ## Use new JVM compiler to compile tests for the Standard Library
 cd ~/lux/stdlib/ \
 && lein clean \
-&& time java -jar ~/lux/lux-jvm/target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
-
-## Run tests for the Standard Library
-cd ~/lux/stdlib/target/ \
-&& java -jar program.jar
+&& java -jar ~/lux/lux-jvm/target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux \
+&& java -jar ~/lux/stdlib/target/program.jar
 ```
 
 ## Deploy

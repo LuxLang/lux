@@ -5,8 +5,9 @@
    [abstract
     ["." monad (#+ Monad do)]]
    [control
+    [pipe (#+ case>)]
     ["." try (#+ Try) ("#\." functor)]
-    ["." exception (#+ Exception exception:)]
+    ["." exception (#+ exception:)]
     ["." io (#+ IO) ("#\." functor)]
     ["." function]
     [concurrency
@@ -15,7 +16,7 @@
    [data
     ["." bit ("#\." equivalence)]
     ["." product]
-    ["." maybe]
+    ["." maybe ("#\." functor)]
     ["." binary (#+ Binary)]
     ["." text ("#\." equivalence)
      ["%" format (#+ format)]]
@@ -36,161 +37,119 @@
 (type: #export Path
   Text)
 
-(`` (interface: #export (File !)
-      (: Path
-         path)
-
-      (~~ (template [<name> <output>]
-            [(: (-> [] (! (Try <output>)))
-                <name>)]
-
-            [size          Nat]
-            [last_modified Instant]
-            [can_execute?  Bit]
-            [content       Binary]
-            ))
-
-      (: (-> Path (! (Try (File !))))
-         move)
-
-      (~~ (template [<name> <input>]
-            [(: (-> [<input>] (! (Try Any)))
-                <name>)]
-
-            [modify     Instant]
-            [over_write Binary]
-            [append     Binary]
-            ))
-
-      (: (-> [] (! (Try Any)))
-         delete)
-      ))
-
-(interface: #export (Directory !)
-  (: Path
-     scope)
-
-  (: (-> [] (! (Try (List (File !)))))
-     files)
-
-  (: (-> [] (! (Try (List (Directory !)))))
-     directories)
-
-  (: (-> [] (! (Try Any)))
-     discard))
-
 (`` (interface: #export (System !)
-      (~~ (template [<name> <capability>]
-            [(: (-> Path (! (Try (<capability> !))))
-                <name>)]
-
-            [file             File]
-            [create_file      File]
-            [directory        Directory]
-            [create_directory Directory]
-            ))
-
       (: Text
          separator)
+
+      (~~ (template [<name> <output>]
+            [(: (-> Path (! <output>))
+                <name>)]
+
+            [file? Bit]
+            [directory? Bit]
+            ))
+
+      (~~ (template [<name> <output>]
+            [(: (-> Path (! (Try <output>)))
+                <name>)]
+
+            [make_directory  Any]
+            [directory_files (List Path)]
+            [sub_directories (List Path)]
+            
+            [file_size     Nat]
+            [last_modified Instant]
+            [can_execute?  Bit]
+            [read          Binary]
+            [delete        Any]
+            ))
+
+      (~~ (template [<name> <input>]
+            [(: (-> <input> Path (! (Try Any)))
+                <name>)]
+
+            [modify Instant]
+            [write  Binary]
+            [append Binary]
+            [move   Path]
+            ))
       ))
 
-(def: #export (name system path)
+(def: #export (un_nest fs path)
+  (All [!] (-> (System !) Path (Maybe [Path Text])))
+  (let [/ (\ fs separator)]
+    (case (text.last_index_of / path)
+      #.None
+      #.None
+      
+      (#.Some last_separator)
+      (do maybe.monad
+        [[parent temp] (text.split last_separator path)
+         [_ child] (text.split (text.size /) temp)]
+        (wrap [parent child])))))
+
+(def: #export (parent fs path)
+  (All [!] (-> (System !) Path (Maybe Path)))
+  (|> (..un_nest fs path)
+      (maybe\map product.left)))
+
+(def: #export (name fs path)
   (All [!] (-> (System !) Path Text))
-  (|> path
-      (text.split_all_with (\ system separator))
-      list.reverse
-      list.head
+  (|> (..un_nest fs path)
+      (maybe\map product.right)
       (maybe.default path)))
 
-(def: (async_file file)
-  (-> (File IO) (File Promise))
+(def: #export (async fs)
+  (-> (System IO) (System Promise))
   (`` (implementation
-       (def: path
-         (\ file path))
+       (def: separator
+         (\ fs separator))
 
        (~~ (template [<name>]
              [(def: <name>
-                (|>> (\ file <name>) promise.future))]
+                (|>> (\ fs <name>)
+                     promise.future))]
 
-             [size]
+             [file?]
+             [directory?]
+             
+             [make_directory]
+             [directory_files]
+             [sub_directories]
+             
+             [file_size]
              [last_modified]
              [can_execute?]
-             [content]
-             [modify]
-             [over_write]
-             [append]
+             [read]
              [delete]))
 
-       (def: move
-         (|>> (\ file move)
-              (io\map (try\map async_file))
-              promise.future)))))
+       (~~ (template [<name>]
+             [(def: (<name> input path)
+                (promise.future (\ fs <name> input path)))]
 
-(def: (async_directory directory)
-  (-> (Directory IO) (Directory Promise))
-  (`` (implementation
-       (def: scope
-         (\ directory scope))
+             [modify]
+             [write]
+             [append]
+             [move]))
+       )))
 
-       (~~ (template [<name> <async>]
-             [(def: <name>
-                (|>> (\ directory <name>)
-                     (io\map (try\map (list\map <async>)))
-                     promise.future))]
-
-             [files       ..async_file]
-             [directories async_directory]))
-
-       (def: discard
-         (|>> (\ directory discard) promise.future)))))
-
-(def: #export (async system)
-  (-> (System IO) (System Promise))
-  (`` (implementation
-       (~~ (template [<name> <async>]
-             [(def: <name>
-                (|>> (\ system <name>)
-                     (io\map (try\map <async>))
-                     promise.future))]
-
-             [file             ..async_file]
-             [create_file      ..async_file]
-             [directory        ..async_directory]
-             [create_directory ..async_directory]))
-
-       (def: separator (\ system separator)))))
-
-(def: #export (un_nest system file)
-  (All [!] (-> (System !) Path (Maybe [Path Text])))
-  (case (text.last_index_of (\ system separator) file)
-    #.None
-    #.None
-    
-    (#.Some last_separator)
-    (let [[parent temp] (maybe.assume (text.split last_separator file))
-          [_ child] (maybe.assume (text.split (text.size (\ system separator)) temp))]
-      (#.Some [parent child]))))
-
-(def: #export (nest system [parent child])
-  (All [!] (-> (System !) [Path Text] Path))
-  (format parent (\ system separator) child))
+(def: #export (nest fs parent child)
+  (All [!] (-> (System !) Path Text Path))
+  (format parent (\ fs separator) child))
 
 (template [<name>]
   [(exception: #export (<name> {file Path})
      (exception.report
       ["Path" file]))]
 
-  [cannot_create_file]
+  [cannot_make_file]
   [cannot_find_file]
-  [cannot_delete_file]
-  [not_a_file]
+  [cannot_delete]
 
-  [cannot_create_directory]
+  [cannot_make_directory]
   [cannot_find_directory]
-  [cannot_discard_directory]
   
   [cannot_read_all_data]
-  [not_a_directory]
   )
 
 (with_expansions [<extra> (as_is (exception: #export (cannot_move {target Path} {source Path})
@@ -202,7 +161,7 @@
         @.lua (as_is <extra>)}
        (as_is)))
 
-(with_expansions [<for_jvm> (as_is (exception: #export (cannot_modify {instant Instant} {file Path})
+(with_expansions [<for_jvm> (as_is (exception: #export (cannot_modify_file {instant Instant} {file Path})
                                      (exception.report
                                       ["Instant" (%.instant instant)]
                                       ["Path" file]))
@@ -216,7 +175,7 @@
                                                 [(<name> [] #io #try boolean)]
 
                                                 [createNewFile] [mkdir]
-                                                [exists] [delete]
+                                                [delete]
                                                 [isFile] [isDirectory]
                                                 [canRead] [canWrite] [canExecute]))
 
@@ -227,16 +186,6 @@
                                           (lastModified [] #io #try long)
                                           (setLastModified [long] #io #try boolean)
                                           (#static separator java/lang/String)]))
-
-                                   (template: (!delete path exception)
-                                     (do io.monad
-                                       [outcome (java/io/File::delete (java/io/File::new path))]
-                                       (case outcome
-                                         (#try.Success #1)
-                                         (wrap (#try.Success []))
-
-                                         _
-                                         (wrap (exception.throw exception [path])))))
 
                                    (ffi.import: java/lang/AutoCloseable
                                      ["#::."
@@ -259,22 +208,61 @@
                                      ["#::."
                                       (new [java/io/File] #io #try)])
 
-                                   (`` (implementation: (file path)
-                                         (-> Path (File IO))
+                                   (`` (implementation: #export default
+                                         (System IO)
 
-                                         (~~ (template [<name> <flag>]
-                                               [(def: (<name> data)
-                                                  (do (try.with io.monad)
-                                                    [stream (java/io/FileOutputStream::new (java/io/File::new path) <flag>)
-                                                     _ (java/io/OutputStream::write data stream)
-                                                     _ (java/io/OutputStream::flush stream)]
-                                                    (java/lang/AutoCloseable::close stream)))]
+                                         (def: separator
+                                           (java/io/File::separator))
 
-                                               [over_write  #0]
-                                               [append      #1]
+                                         (~~ (template [<name> <method>]
+                                               [(def: <name>
+                                                  (|>> java/io/File::new
+                                                       <method>
+                                                       (io\map (|>> (try.default false)))))]
+
+                                               [file? java/io/File::isFile]
+                                               [directory? java/io/File::isDirectory]
                                                ))
 
-                                         (def: (content _)
+                                         (def: (make_directory path)
+                                           (|> path
+                                               java/io/File::new
+                                               java/io/File::mkdir))
+
+                                         (~~ (template [<name> <method>]
+                                               [(def: (<name> path)
+                                                  (do {! (try.with io.monad)}
+                                                    [?children (java/io/File::listFiles (java/io/File::new path))]
+                                                    (case ?children
+                                                      (#.Some children)
+                                                      (|> children
+                                                          array.to_list
+                                                          (monad.filter ! (|>> <method>))
+                                                          (\ ! map (monad.map ! (|>> java/io/File::getAbsolutePath)))
+                                                          (\ ! join))
+
+                                                      #.None
+                                                      (\ io.monad wrap (exception.throw ..cannot_find_directory [path])))))]
+
+                                               [directory_files java/io/File::isFile]
+                                               [sub_directories java/io/File::isDirectory]
+                                               ))
+
+                                         (def: file_size
+                                           (|>> java/io/File::new
+                                                java/io/File::length
+                                                (\ (try.with io.monad) map .nat)))
+
+                                         (def: last_modified
+                                           (|>> java/io/File::new
+                                                (java/io/File::lastModified)
+                                                (\ (try.with io.monad) map (|>> duration.from_millis instant.absolute))))
+
+                                         (def: can_execute?
+                                           (|>> java/io/File::new
+                                                java/io/File::canExecute))
+
+                                         (def: (read path)
                                            (do (try.with io.monad)
                                              [#let [file (java/io/File::new path)]
                                               size (java/io/File::length file)
@@ -286,101 +274,32 @@
                                                (wrap data)
                                                (\ io.monad wrap (exception.throw ..cannot_read_all_data path)))))
 
-                                         (def: path
-                                           path)
-
-                                         (def: (size _)
+                                         (def: (delete path)
                                            (|> path
                                                java/io/File::new
-                                               java/io/File::length
-                                               (\ (try.with io.monad) map .nat)))
+                                               java/io/File::delete))
 
-                                         (def: (last_modified _)
+                                         (def: (modify time_stamp path)
                                            (|> path
                                                java/io/File::new
-                                               (java/io/File::lastModified)
-                                               (\ (try.with io.monad) map (|>> duration.from_millis instant.absolute))))
-
-                                         (def: (can_execute? _)
-                                           (|> path
-                                               java/io/File::new
-                                               java/io/File::canExecute))
-
-                                         (def: (move destination)
-                                           (do io.monad
-                                             [outcome (java/io/File::renameTo (java/io/File::new destination)
-                                                                              (java/io/File::new path))]
-                                             (case outcome
-                                               (#try.Success #1)
-                                               (wrap (#try.Success (file destination)))
-
-                                               _
-                                               (wrap (exception.throw ..cannot_move [destination path])))))
-
-                                         (def: (modify time_stamp)
-                                           (do io.monad
-                                             [outcome (java/io/File::setLastModified (|> time_stamp instant.relative duration.to_millis)
-                                                                                     (java/io/File::new path))]
-                                             (case outcome
-                                               (#try.Success #1)
-                                               (wrap (#try.Success []))
-
-                                               _
-                                               (wrap (exception.throw ..cannot_modify [time_stamp path])))))
-
-                                         (def: (delete _)
-                                           (!delete path cannot_delete_file))))
-
-                                   (`` (implementation: (directory path)
-                                         (-> Path (Directory IO))
-
-                                         (def: scope
-                                           path)
+                                               (java/io/File::setLastModified (|> time_stamp instant.relative duration.to_millis))))
                                          
-                                         (~~ (template [<name> <method> <capability>]
-                                               [(def: (<name> _)
-                                                  (do {! (try.with io.monad)}
-                                                    [?children (java/io/File::listFiles (java/io/File::new path))]
-                                                    (case ?children
-                                                      (#.Some children)
-                                                      (|> children
-                                                          array.to_list
-                                                          (monad.filter ! (|>> <method>))
-                                                          (\ ! map (monad.map ! (|>> java/io/File::getAbsolutePath (\ ! map <capability>))))
-                                                          (\ ! join))
+                                         (~~ (template [<name> <flag>]
+                                               [(def: (<name> data path)
+                                                  (do (try.with io.monad)
+                                                    [stream (java/io/FileOutputStream::new (java/io/File::new path) <flag>)
+                                                     _ (java/io/OutputStream::write data stream)
+                                                     _ (java/io/OutputStream::flush stream)]
+                                                    (java/lang/AutoCloseable::close stream)))]
 
-                                                      #.None
-                                                      (\ io.monad wrap (exception.throw ..not_a_directory [path])))))]
-
-                                               [files       java/io/File::isFile      file]
-                                               [directories java/io/File::isDirectory directory]
+                                               [write #0]
+                                               [append #1]
                                                ))
 
-                                         (def: (discard _)
-                                           (!delete path cannot_discard_directory))))
-
-                                   (`` (implementation: #export default
-                                         (System IO)
-                                         
-                                         (~~ (template [<name> <method> <capability> <exception>]
-                                               [(def: (<name> path)
-                                                  (do io.monad
-                                                    [#let [file (java/io/File::new path)]
-                                                     outcome (<method> file)]
-                                                    (case outcome
-                                                      (#try.Success #1)
-                                                      (wrap (#try.Success (<capability> path)))
-
-                                                      _
-                                                      (wrap (exception.throw <exception> [path])))))]
-
-                                               [file             java/io/File::isFile        ..file      cannot_find_file]
-                                               [create_file      java/io/File::createNewFile ..file      cannot_create_file]
-                                               [directory        java/io/File::isDirectory   ..directory cannot_find_directory]
-                                               [create_directory java/io/File::mkdir         ..directory cannot_create_directory]
-                                               ))
-
-                                         (def: separator (java/io/File::separator))
+                                         (def: (move destination origin)
+                                           (|> origin
+                                               java/io/File::new
+                                               (java/io/File::renameTo (java/io/File::new destination))))
                                          )))]
   (for {@.old (as_is <for_jvm>)
         @.jvm (as_is <for_jvm>)
@@ -451,148 +370,118 @@
                     (-> [] <type>)
                     (:coerce <type> (..require [] <module>)))]
 
-                 [node_fs "fs" ..Fs]
+                 [node_fs   "fs"   ..Fs]
                  [node_path "path" ..JsPath]
                  )
-
-               (`` (implementation: (file path)
-                     (-> Path (File IO))
-
-                     (~~ (template [<name> <method>]
-                           [(def: (<name> data)
-                              (<method> [path (Buffer::from data)] (..node_fs [])))]
-
-                           [over_write  Fs::writeFileSync]
-                           [append      Fs::appendFileSync]
-                           ))
-
-                     (def: (content _)
-                       (Fs::readFileSync [path] (..node_fs [])))
-
-                     (def: path
-                       path)
-
-                     (def: (size _)
-                       (do (try.with io.monad)
-                         [stat (Fs::statSync [path] (..node_fs []))]
-                         (wrap (|> stat
-                                   Stats::size
-                                   f.nat))))
-
-                     (def: (last_modified _)
-                       (do (try.with io.monad)
-                         [stat (Fs::statSync [path] (..node_fs []))]
-                         (wrap (|> stat
-                                   Stats::mtimeMs
-                                   f.int
-                                   duration.from_millis
-                                   instant.absolute))))
-
-                     (def: (can_execute? _)
-                       (do (try.with io.monad)
-                         [#let [node_fs (..node_fs [])]
-                          _ (Fs::accessSync [path (|> node_fs Fs::constants FsConstants::F_OK)] node_fs)]
-                         (do io.monad
-                           [outcome (Fs::accessSync [path (|> node_fs Fs::constants FsConstants::X_OK)] node_fs)]
-                           (wrap (#try.Success (case outcome
-                                                 (#try.Success _)
-                                                 true
-
-                                                 (#try.Failure _)
-                                                 false))))))
-
-                     (def: (move destination)
-                       (do (try.with io.monad)
-                         [_ (Fs::renameSync [path destination] (..node_fs []))]
-                         (wrap (file destination))))
-
-                     (def: (modify time_stamp)
-                       (let [when (|> time_stamp instant.relative duration.to_millis i.frac)]
-                         (Fs::utimesSync [path when when] (..node_fs []))))
-
-                     (def: (delete _)
-                       (Fs::unlink [path] (..node_fs [])))))
-
-               (`` (implementation: (directory path)
-                     (-> Path (Directory IO))
-
-                     (def: scope
-                       path)
-                     
-                     (~~ (template [<name> <method> <capability>]
-                           [(def: (<name> _)
-                              (do {! (try.with io.monad)}
-                                [#let [node_fs (..node_fs [])]
-                                 subs (Fs::readdirSync [path] node_fs)
-                                 subs (monad.map ! (function (_ sub)
-                                                     (do !
-                                                       [stats (Fs::statSync [sub] node_fs)
-                                                        verdict (<method> [] stats)]
-                                                       (wrap [verdict sub])))
-                                                 (array.to_list subs))]
-                                (wrap (|> subs
-                                          (list.filter product.left)
-                                          (list\map (|>> product.right <capability>))))))]
-
-                           [files       Stats::isFile      ..file]
-                           [directories Stats::isDirectory directory]
-                           ))
-
-                     (def: (discard _)
-                       (Fs::rmdirSync [path] (..node_fs [])))))
 
                (`` (implementation: #export default
                      (System IO)
                      
-                     (~~ (template [<name> <method> <capability> <exception>]
-                           [(with_expansions [<failure> (exception.throw <exception> [path])]
-                              (def: (<name> path)
-                                (do {! io.monad}
-                                  [?stats (Fs::statSync [path] (..node_fs []))]
-                                  (case ?stats
-                                    (#try.Success stats)
-                                    (do !
-                                      [?verdict (<method> [] stats)]
-                                      (wrap (case ?verdict
-                                              (#try.Success verdict)
-                                              (if verdict
-                                                (#try.Success (<capability> path))
-                                                <failure>)
-                                              
-                                              (#try.Failure _)
-                                              <failure>)))
-                                    
-                                    (#try.Failure _)
-                                    (wrap <failure>)))))]
-
-                           [file             Stats::isFile        ..file      ..cannot_find_file]
-                           [directory        Stats::isDirectory   ..directory ..cannot_find_directory]
-                           ))
-
-                     (~~ (template [<name> <capability> <exception> <prep>]
-                           [(def: (<name> path)
-                              (let [node_fs (..node_fs [])]
-                                (do io.monad
-                                  [outcome (Fs::accessSync [path (|> node_fs Fs::constants FsConstants::F_OK)] node_fs)]
-                                  (case outcome
-                                    (#try.Success _)
-                                    (wrap (exception.throw <exception> [path]))
-                                    
-                                    (#try.Failure _)
-                                    (do (try.with io.monad)
-                                      [_ (|> node_fs <prep>)]
-                                      (wrap (<capability> path)))))))]
-
-                           [create_file ..file ..cannot_create_file (Fs::appendFileSync [path (Buffer::from (binary.create 0))])]
-                           [create_directory ..directory ..cannot_create_directory (Fs::mkdirSync [path])]
-                           ))
-
                      (def: separator
                        (if ffi.on_node_js?
                          (JsPath::sep (..node_path []))
                          "/"))
-                     ))
-               )
+
+                     (~~ (template [<name> <method>]
+                           [(def: (<name> path)
+                              (do {! io.monad}
+                                [?stats (Fs::statSync [path] (..node_fs []))]
+                                (case ?stats
+                                  (#try.Success stats)
+                                  (|> stats
+                                      (<method> [])
+                                      (\ ! map (|>> (try.default false))))
+                                  
+                                  (#try.Failure _)
+                                  (wrap false))))]
+
+                           [file?      Stats::isFile]
+                           [directory? Stats::isDirectory]
+                           ))
+
+                     (def: (make_directory path)
+                       (let [node_fs (..node_fs [])]
+                         (do io.monad
+                           [outcome (Fs::accessSync [path (|> node_fs Fs::constants FsConstants::F_OK)] node_fs)]
+                           (case outcome
+                             (#try.Success _)
+                             (wrap (exception.throw ..cannot_make_directory [path]))
+                             
+                             (#try.Failure _)
+                             (Fs::mkdirSync [path] node_fs)))))
+
+                     (~~ (template [<name> <method>]
+                           [(def: (<name> path)
+                              (do {! (try.with io.monad)}
+                                [#let [node_fs (..node_fs [])]
+                                 subs (Fs::readdirSync [path] node_fs)]
+                                (|> subs
+                                    array.to_list
+                                    (monad.map ! (function (_ sub)
+                                                   (do !
+                                                     [stats (Fs::statSync [sub] node_fs)]
+                                                     (\ ! map (|>> [sub]) (<method> [] stats)))))
+                                    (\ ! map (|>> (list.filter product.right)
+                                                  (list\map product.left))))))]
+
+                           [directory_files Stats::isFile]
+                           [sub_directories Stats::isDirectory]
+                           ))
+
+                     (def: (file_size path)
+                       (let [! (try.with io.monad)]
+                         (|> (..node_fs [])
+                             (Fs::statSync [path])
+                             (\ ! map (|>> Stats::size
+                                           f.nat)))))
+
+                     (def: (last_modified path)
+                       (let [! (try.with io.monad)]
+                         (|> (..node_fs [])
+                             (Fs::statSync [path])
+                             (\ ! map (|>> Stats::mtimeMs
+                                           f.int
+                                           duration.from_millis
+                                           instant.absolute)))))
+
+                     (def: (can_execute? path)
+                       (let [node_fs (..node_fs [])]
+                         (|> node_fs
+                             (Fs::accessSync [path (|> node_fs Fs::constants FsConstants::X_OK)])
+                             (io\map (|>> (case> (#try.Success _)
+                                                 true
+
+                                                 (#try.Failure _)
+                                                 false)
+                                          #try.Success)))))
+
+                     (def: (read path)
+                       (Fs::readFileSync [path] (..node_fs [])))
+
+                     (def: (delete path)
+                       (do {! (try.with io.monad)}
+                         [#let [node_fs (..node_fs [])]
+                          stats (Fs::statSync [path] node_fs)
+                          verdict (Stats::isFile [] stats)]
+                         (if verdict
+                           (Fs::unlink [path] node_fs)
+                           (Fs::rmdirSync [path] node_fs))))
+
+                     (def: (modify time_stamp path)
+                       (let [when (|> time_stamp instant.relative duration.to_millis i.frac)]
+                         (Fs::utimesSync [path when when] (..node_fs []))))
+
+                     (~~ (template [<name> <method>]
+                           [(def: (<name> data path)
+                              (<method> [path (Buffer::from data)] (..node_fs [])))]
+
+                           [write  Fs::writeFileSync]
+                           [append Fs::appendFileSync]
+                           ))
+
+                     (def: (move destination origin)
+                       (Fs::renameSync [origin destination] (..node_fs [])))
+                     )))
 
         @.python
         (as_is (type: (Tuple/2 left right)
@@ -630,366 +519,85 @@
                   (#static getsize [ffi.String] #io #try ffi.Integer)
                   (#static getmtime [ffi.String] #io #try ffi.Float)])
 
-               (`` (implementation: (file path)
-                     (-> Path (File IO))
+               (`` (implementation: #export default
+                     (System IO)
+                     
+                     (def: separator
+                       (os/path::sep))
 
-                     (~~ (template [<name> <mode>]
-                           [(def: (<name> data)
-                              (do (try.with io.monad)
-                                [file (..open [path <mode>])
-                                 _ (PyFile::write [data] file)
-                                 _ (PyFile::close [] file)]
-                                (wrap [])))]
-                           
-                           [over_write  "w+b"]
-                           [append      "ab"]
+                     (~~ (template [<name> <method>]
+                           [(def: <name>
+                              (|>> <method>
+                                   (io\map (|>> (try.default false)))))]
+
+                           [file?      os/path::isfile]
+                           [directory? os/path::isdir]
                            ))
 
-                     (def: (content _)
+                     (def: make_directory
+                       os::mkdir)
+
+                     (~~ (template [<name> <method>]
+                           [(def: <name>
+                              (let [! (try.with io.monad)]
+                                (|>> os::listdir
+                                     (\ ! map (|>> array.to_list
+                                                   (monad.map ! (function (_ sub)
+                                                                  (\ ! map (|>> [sub]) (<method> [sub]))))
+                                                   (\ ! map (|>> (list.filter product.right)
+                                                                 (list\map product.left)))))
+                                     (\ ! join))))]
+
+                           [directory_files os/path::isfile]
+                           [sub_directories os/path::isdir]
+                           ))
+
+                     (def: file_size
+                       (|>> os/path::getsize
+                            (\ (try.with io.monad) map .nat)))
+
+                     (def: last_modified
+                       (|>> os/path::getmtime
+                            (\ (try.with io.monad) map (|>> f.int
+                                                            (i.* +1,000)
+                                                            duration.from_millis
+                                                            instant.absolute))))
+
+                     (def: (can_execute? path)
+                       (os::access [path (os::X_OK)]))
+
+                     (def: (read path)
                        (do (try.with io.monad)
                          [file (..open [path "rb"])
                           data (PyFile::read [] file)
                           _ (PyFile::close [] file)]
                          (wrap data)))
 
-                     (def: path
-                       path)
-
-                     (def: (size _)
+                     (def: (delete path)
                        (do (try.with io.monad)
-                         [size (os/path::getsize [path])]
-                         (wrap (.nat size))))
+                         [? (os/path::isfile [path])]
+                         (if ?
+                           (os::remove [path])
+                           (os::rmdir [path]))))
 
-                     (def: (last_modified _)
-                       (do (try.with io.monad)
-                         [seconds_since_epoch (os/path::getmtime [path])]
-                         (wrap (|> seconds_since_epoch
-                                   f.int
-                                   (i.* +1,000)
-                                   duration.from_millis
-                                   instant.absolute))))
-
-                     (def: (can_execute? _)
-                       (os::access [path (os::X_OK)]))
-
-                     (def: (move destination)
-                       (do (try.with io.monad)
-                         [_ (os::rename [path destination])]
-                         (wrap (file destination))))
-
-                     (def: (modify time_stamp)
+                     (def: (modify time_stamp path)
                        (let [when (|> time_stamp instant.relative duration.to_millis (i./ +1,000))]
                          (os::utime [path (..tuple [when when])])))
 
-                     (def: (delete _)
-                       (os::remove [path]))
-                     ))
-
-               (`` (implementation: (directory path)
-                     (-> Path (Directory IO))
-
-                     (def: scope
-                       path)
-                     
-                     (~~ (template [<name> <method> <capability>]
-                           [(def: (<name> _)
-                              (do {! (try.with io.monad)}
-                                [subs (os::listdir [path])
-                                 subs (monad.map ! (function (_ sub)
-                                                     (do !
-                                                       [verdict (<method> [sub])]
-                                                       (wrap [verdict sub])))
-                                                 (array.to_list subs))]
-                                (wrap (|> subs
-                                          (list.filter product.left)
-                                          (list\map (|>> product.right <capability>))))))]
-
-                           [files       os/path::isfile ..file]
-                           [directories os/path::isdir  directory]
-                           ))
-
-                     (def: (discard _)
-                       (os::rmdir [path]))
-                     ))
-
-               (`` (implementation: #export default
-                     (System IO)
-                     
-                     (~~ (template [<name> <method> <capability> <exception>]
-                           [(with_expansions [<failure> (exception.throw <exception> [path])]
-                              (def: (<name> path)
-                                (do io.monad
-                                  [?verdict (<method> [path])]
-                                  (wrap (case ?verdict
-                                          (#try.Success verdict)
-                                          (if verdict
-                                            (#try.Success (<capability> path))
-                                            <failure>)
-                                          
-                                          (#try.Failure _)
-                                          <failure>)))))]
-
-                           [file      os/path::isfile  ..file      ..cannot_find_file]
-                           [directory os/path::isdir   ..directory ..cannot_find_directory]
-                           ))
-
-                     (def: (create_file path)
-                       (do {! io.monad}
-                         [file (..open [path "w"])]
-                         (case file
-                           (#try.Success file)
-                           (do (try.with !)
-                             [_ (PyFile::close [] file)]
-                             (wrap (..file path)))
-                           
-                           (#try.Failure error)
-                           (wrap (exception.throw ..cannot_create_file [path])))))
-
-                     (def: (create_directory path)
-                       (do io.monad
-                         [outcome (os::mkdir [path])]
-                         (wrap (case outcome
-                                 (#try.Success _)
-                                 (#try.Success (..directory path))
-                                 
-                                 (#try.Failure error)
-                                 (exception.throw ..cannot_create_directory [path])))))
-
-                     (def: separator
-                       (os/path::sep))
-                     ))
-               )
-
-        @.lua
-        (as_is (ffi.import: LuaFile
-                 ["#::."
-                  (read [ffi.String] #io ffi.String)
-                  (write [ffi.String] #io #? LuaFile)
-                  (flush [] #io ffi.Boolean)
-                  (close [] #io ffi.Boolean)])
-
-               (ffi.import: (io/open [ffi.String ffi.String] #io #? LuaFile))
-
-               (ffi.import: (package/config ffi.String))
-
-               (ffi.import: (os/rename [ffi.String ffi.String] #io #? ffi.Boolean))
-               (ffi.import: (os/remove [ffi.String] #io #? ffi.Boolean))
-               (ffi.import: (os/execute [ffi.String] #io #? ffi.Boolean))
-
-               (def: default_separator
-                 Text
-                 (|> (package/config)
-                     (text.split_all_with text.new_line)
-                     list.head
-                     (maybe.default "/")))
-
-               (template [<name>]
-                 [(exception: #export (<name> {file Path})
-                    (exception.report
-                     ["Path" file]))]
-
-                 [cannot_open_file]
-                 [cannot_close_file]
-                 [cannot_write_to_file]
-                 [file_already_exists]
-                 )
-
-               (exception: #export (invalid_operation {signature Name} {operation Text})
-                 (exception.report
-                  ["Platform" @.lua]
-                  ["Signature" (%.name signature)]
-                  ["Operation" (%.text operation)]))
-
-               (`` (implementation: (file path)
-                     (-> Path (File IO))
-
                      (~~ (template [<name> <mode>]
-                           [(def: (<name> data)
-                              (do {! io.monad}
-                                [?file (io/open [path <mode>])]
-                                (case ?file
-                                  (#.Some file)
-                                  (do !
-                                    [?wrote (LuaFile::write [("lua utf8 decode" data)] file)]
-                                    (case ?wrote
-                                      (#.Some _)
-                                      (do !
-                                        [flushed? (LuaFile::flush [] file)
-                                         closed? (LuaFile::close [] file)]
-                                        (wrap (cond (not flushed?)
-                                                    (exception.throw ..cannot_write_to_file [path])
-
-                                                    (not closed?)
-                                                    (exception.throw ..cannot_close_file [path])
-
-                                                    ## else
-                                                    (#try.Success []))))
-                                      
-                                      #.None
-                                      (wrap (exception.throw ..cannot_write_to_file [path]))))
-                                  
-                                  #.None
-                                  (wrap (exception.throw ..cannot_open_file [path])))))]
+                           [(def: (<name> data path)
+                              (do (try.with io.monad)
+                                [file (..open [path <mode>])
+                                 _ (PyFile::write [data] file)]
+                                (PyFile::close [] file)))]
                            
-                           [over_write  "w+b"]
-                           [append      "ab"]
+                           [write  "w+b"]
+                           [append "ab"]
                            ))
 
-                     (def: (content _)
-                       (do {! io.monad}
-                         [?file (io/open [path "rb"])]
-                         (case ?file
-                           (#.Some file)
-                           (do !
-                             [data (LuaFile::read ["a"] file)
-                              closed? (LuaFile::close [] file)]
-                             (wrap (if closed?
-                                     (#try.Success ("lua utf8 encode" data))
-                                     (exception.throw ..cannot_close_file [path]))))
-                           
-                           #.None
-                           (wrap (exception.throw ..cannot_read_all_data [path])))))
-
-                     (def: path
-                       path)
-
-                     (~~ (template [<name>]
-                           [(def: (<name> _)
-                              (let [[_ short] (name_of <name>)]
-                                (\ io.monad wrap (exception.throw ..invalid_operation [(name_of ..File) short]))))]
-
-                           [size]
-                           [last_modified]
-                           [can_execute?]
-
-                           [modify]
-                           ))
-
-                     (def: (move destination)
-                       (do io.monad
-                         [?verdict (os/rename [path destination])]
-                         (wrap (if (case ?verdict
-                                     (#.Some verdict)
-                                     verdict
-                                     
-                                     #.None
-                                     false)
-                                 (#try.Success (file destination))
-                                 (exception.throw ..cannot_move [destination path])))))
-
-                     (def: (delete _)
-                       (do io.monad
-                         [?verdict (os/remove [path])]
-                         (wrap (if (case ?verdict
-                                     (#.Some verdict)
-                                     verdict
-                                     
-                                     #.None
-                                     false)
-                                 (#try.Success [])
-                                 (exception.throw ..cannot_delete_file path)))))
-                     ))
-
-               (`` (implementation: (directory path)
-                     (-> Path (Directory IO))
-
-                     (def: scope
-                       path)
-
-                     (~~ (template [<name>]
-                           [(def: (<name> _)
-                              (let [[_ short] (name_of <name>)]
-                                (\ io.monad wrap (exception.throw ..invalid_operation [(name_of ..File) short]))))]
-
-                           [files]
-                           [directories]
-                           ))
-
-                     (def: (discard _)
-                       (do io.monad
-                         [?verdict (os/remove [path])]
-                         (wrap (if (case ?verdict
-                                     (#.Some verdict)
-                                     verdict
-                                     
-                                     #.None
-                                     false)
-                                 (#try.Success [])
-                                 (exception.throw ..cannot_discard_directory path)))))
-                     ))
-
-               (def: (default_file path)
-                 (-> Path (IO (Try (File IO))))
-                 (do {! io.monad}
-                   [?file (io/open [path "r"])]
-                   (case ?file
-                     (#try.Success file)
-                     (do !
-                       [closed? (LuaFile::close [] file)]
-                       (wrap (if closed?
-                               (#try.Success (..file path))
-                               (exception.throw ..cannot_close_file [path]))))
-                     
-                     (#try.Failure _)
-                     (wrap (exception.throw ..cannot_find_file [path])))))
-
-               (def: (default_create_file path)
-                 (-> Path (IO (Try (File IO))))
-                 (do {! io.monad}
-                   [?file (..default_file path)]
-                   (case ?file
-                     (#try.Failure _)
-                     (do {! io.monad}
-                       [?file (io/open [path "w+b"])]
-                       (case ?file
-                         (#.Some file)
-                         (do !
-                           [closed? (LuaFile::close [] file)]
-                           (wrap (if closed?
-                                   (#try.Success (..file path))
-                                   (exception.throw ..cannot_close_file [path]))))
-                         
-                         #.None
-                         (wrap (exception.throw ..cannot_create_file [path]))))
-
-                     (#try.Success file)
-                     (wrap (exception.throw ..file_already_exists [path])))))
-
-               (`` (implementation: #export default
-                     (System IO)
-
-                     (def: file ..default_file)
-                     (def: create_file ..default_create_file)
-
-                     (def: (directory path)
-                       (do {! io.monad}
-                         [#let [dummy "lux_lua_dummy_file"]
-                          ?file (..default_create_file (format path ..default_separator dummy))]
-                         (case ?file
-                           (#try.Success file)
-                           (do (try.with !)
-                             [_ (\ file delete [])]
-                             (wrap (..directory path)))
-                           
-                           (#try.Failure error)
-                           (wrap (if (exception.match? ..file_already_exists error)
-                                   (#try.Success (..directory path))
-                                   (exception.throw ..cannot_find_directory [path]))))))
-
-                     (def: (create_directory path)
-                       (do io.monad
-                         [?verdict (os/execute [(format "mkdir " path)])]
-                         (wrap (case ?verdict
-                                 (#.Some verdict)
-                                 (#try.Success (..directory path))
-                                 
-                                 #.None
-                                 (exception.throw ..cannot_create_directory [path])))))
-
-                     (def: separator
-                       ..default_separator)
-                     ))
-               )
+                     (def: (move destination origin)
+                       (os::rename [origin destination]))
+                     )))
 
         @.ruby
         (as_is (ffi.import: Time #as RubyTime
@@ -1027,49 +635,66 @@
 
                (ffi.import: "fileutils" FileUtils #as RubyFileUtils
                  ["#::."
-                  (#static touch [Path] #io #try #? Any)
                   (#static move [Path Path] #io #try #? Any)
                   (#static rmdir [Path] #io #try #? Any)
                   (#static mkdir [Path] #io #try #? Any)])
 
-               (def: default_separator
+               (def: ruby_separator
                  Text
                  (..RubyFile::SEPARATOR))
 
-               (`` (implementation: (file path)
-                     (-> Path (File IO))
+               (`` (implementation: #export default
+                     (System IO)
 
-                     (~~ (template [<name> <mode>]
-                           [(def: (<name> data)
+                     (def: separator
+                       ..ruby_separator)
+
+                     (~~ (template [<name> <test>]
+                           [(def: <name>
+                              (|>> <test>
+                                   (io\map (|>> (try.default false)))))]
+
+                           [file? RubyFile::file?]
+                           [directory? RubyFile::directory?]
+                           ))
+                     
+                     (def: make_directory
+                       RubyFileUtils::mkdir)
+
+                     (~~ (template [<name> <test>]
+                           [(def: (<name> path)
                               (do {! (try.with io.monad)}
-                                [file (RubyFile::open [path <mode>])
-                                 data (RubyFile::write [data] file)
-                                 _ (RubyFile::flush [] file)
-                                 _ (RubyFile::close [] file)]
-                                (wrap [])))]
-                           
-                           [over_write  "wb"]
-                           [append      "ab"]
+                                [self (RubyDir::open [path])
+                                 children (RubyDir::children [] self)
+                                 output (loop [input (|> children
+                                                         array.to_list
+                                                         (list\map (|>> (format path ..ruby_separator))))
+                                               output (: (List ..Path)
+                                                         (list))]
+                                          (case input
+                                            #.Nil
+                                            (wrap output)
+
+                                            (#.Cons head tail)
+                                            (do !
+                                              [verdict (<test> head)]
+                                              (recur tail (if verdict
+                                                            (#.Cons head output)
+                                                            output)))))
+                                 _ (RubyDir::close [] self)]
+                                (wrap output)))]
+
+                           [directory_files RubyFile::file?]
+                           [sub_directories RubyFile::directory?]
                            ))
 
-                     (def: (content _)
-                       (do {! (try.with io.monad)}
-                         [file (RubyFile::open [path "rb"])
-                          data (RubyFile::read [] file)
-                          _ (RubyFile::close [] file)]
-                         (wrap data)))
-
-                     (def: path
-                       path)
-
                      (~~ (template [<name> <pipeline>]
-                           [(def: (<name> _)
-                              (do {! (try.with io.monad)}
-                                [stat (: (IO (Try RubyStat))
-                                         (RubyFile::stat [path]))]
-                                (wrap (`` (|> stat (: RubyStat) (~~ (template.splice <pipeline>)))))))]
+                           [(def: <name>
+                              (let [! (try.with io.monad)]
+                                (|>> RubyFile::stat
+                                     (\ ! map (`` (|>> (~~ (template.splice <pipeline>))))))))]
 
-                           [size [RubyStat::size .nat]]
+                           [file_size [RubyStat::size .nat]]
                            [last_modified [(RubyStat::mtime [])
                                            (RubyTime::to_f [])
                                            (f.* +1,000.0)
@@ -1079,323 +704,239 @@
                            [can_execute? [(RubyStat::executable? [])]]
                            ))
 
-                     (def: (modify moment)
+                     (def: (read path)
+                       (do (try.with io.monad)
+                         [file (RubyFile::open [path "rb"])
+                          data (RubyFile::read [] file)
+                          _ (RubyFile::close [] file)]
+                         (wrap data)))
+
+                     (def: (delete path)
+                       (do (try.with io.monad)
+                         [? (RubyFile::file? path)]
+                         (if ?
+                           (RubyFile::delete [path])
+                           (RubyFileUtils::rmdir [path]))))
+
+                     (def: (modify moment path)
                        (let [moment (|> moment
                                         instant.relative
                                         duration.to_millis
                                         i.frac
                                         (f./ +1,000.0)
                                         RubyTime::at)]
-                         (do (try.with io.monad)
-                           [_ (RubyFile::utime [moment moment path])]
-                           (wrap []))))
+                         (RubyFile::utime [moment moment path])))
 
-                     (def: (move destination)
-                       (do (try.with io.monad)
-                         [_ (RubyFileUtils::move [path destination])]
-                         (wrap (file destination))))
-
-                     (def: (delete _)
-                       (do (try.with io.monad)
-                         [_ (RubyFile::delete [path])]
-                         (wrap [])))
-                     ))
-
-               (`` (implementation: (directory path)
-                     (-> Path (Directory IO))
-
-                     (def: scope
-                       path)
-
-                     (~~ (template [<name> <test> <constructor> <capability>]
-                           [(def: (<name> _)
+                     (~~ (template [<mode> <name>]
+                           [(def: (<name> data path)
                               (do {! (try.with io.monad)}
-                                [self (RubyDir::open [path])
-                                 children (RubyDir::children [] self)
-                                 output (loop [input (|> children
-                                                         array.to_list
-                                                         (list\map (|>> (format path ..default_separator))))
-                                               output (: (List (<capability> IO))
-                                                         (list))]
-                                          (case input
-                                            #.Nil
-                                            (wrap output)
-
-                                            (#.Cons head tail)
-                                            (do !
-                                              [verdict (<test> head)]
-                                              (if verdict
-                                                (recur tail (#.Cons (<constructor> head) output))
-                                                (recur tail output)))))
-                                 _ (RubyDir::close [] self)]
-                                (wrap output)))]
-
-                           [files RubyFile::file? ..file File]
-                           [directories RubyFile::directory? directory Directory]
-                           ))
-
-                     (def: (discard _)
-                       (do (try.with io.monad)
-                         [_ (RubyFileUtils::rmdir [path])]
-                         (wrap [])))
-                     ))
-
-               (`` (implementation: #export default
-                     (System IO)
-
-                     (~~ (template [<name> <test> <constructor> <exception>]
-                           [(def: (<name> path)
-                              (do {! (try.with io.monad)}
-                                [verdict (<test> path)]
-                                (\ io.monad wrap
-                                   (if verdict
-                                     (#try.Success (<constructor> path))
-                                     (exception.throw <exception> [path])))))]
-
-                           [file RubyFile::file? ..file ..cannot_find_file]
-                           [directory RubyFile::directory? ..directory ..cannot_find_directory]
-                           ))
-                     
-                     (def: (create_file path)
-                       (do {! (try.with io.monad)}
-                         [_ (RubyFileUtils::touch [path])]
-                         (wrap (..file path))))
-
-                     (def: (create_directory path)
-                       (do {! (try.with io.monad)}
-                         [_ (RubyFileUtils::mkdir path)]
-                         (wrap (..directory path))))
-
-                     (def: separator
-                       ..default_separator)
-                     ))
-               )
-
-        @.php
-        (as_is (ffi.import: (FILE_APPEND Int))
-               ## https://www.php.net/manual/en/dir.constants.php
-               (ffi.import: (DIRECTORY_SEPARATOR ffi.String))
-               ## https://www.php.net/manual/en/function.pack.php
-               ## https://www.php.net/manual/en/function.unpack.php
-               (ffi.import: (unpack [ffi.String ffi.String] Binary))
-               ## https://www.php.net/manual/en/ref.filesystem.php
-               ## https://www.php.net/manual/en/function.file-get-contents.php
-               (ffi.import: (file_get_contents [Path] #io #try ffi.String))
-               ## https://www.php.net/manual/en/function.file-put-contents.php
-               (ffi.import: (file_put_contents [Path ffi.String Int] #io #try ffi.Integer))
-               (ffi.import: (filemtime [Path] #io #try ffi.Integer))
-               (ffi.import: (filesize [Path] #io #try ffi.Integer))
-               (ffi.import: (is_executable [Path] #io #try ffi.Boolean))
-               (ffi.import: (touch [Path ffi.Integer] #io #try ffi.Boolean))
-               (ffi.import: (rename [Path Path] #io #try ffi.Boolean))
-               (ffi.import: (unlink [Path] #io #try ffi.Boolean))
-
-               ## https://www.php.net/manual/en/function.rmdir.php
-               (ffi.import: (rmdir [Path] #io #try ffi.Boolean))
-               ## https://www.php.net/manual/en/function.scandir.php
-               (ffi.import: (scandir [Path] #io #try (Array Path)))
-               ## https://www.php.net/manual/en/function.is-file.php
-               (ffi.import: (is_file [Path] #io #try ffi.Boolean))
-               ## https://www.php.net/manual/en/function.is-dir.php
-               (ffi.import: (is_dir [Path] #io #try ffi.Boolean))
-               ## https://www.php.net/manual/en/function.mkdir.php
-               (ffi.import: (mkdir [Path] #io #try ffi.Boolean))
-
-               (def: byte_array_format "C*")
-               (def: default_separator (..DIRECTORY_SEPARATOR))
-
-               (template [<name>]
-                 [(exception: #export (<name> {file Path})
-                    (exception.report
-                     ["Path" file]))]
-
-                 [cannot_write_to_file]
-                 )
-
-               (`` (implementation: (file path)
-                     (-> Path (File IO))
-
-                     (~~ (template [<name> <mode>]
-                           [(def: (<name> data)
-                              (do {! (try.with io.monad)}
-                                [outcome (..file_put_contents [path ("php pack" ..byte_array_format data) <mode>])]
-                                (if (bit\= false (:coerce Bit outcome))
-                                  (\ io.monad wrap (exception.throw ..cannot_write_to_file [path]))
-                                  (wrap []))))]
+                                [file (RubyFile::open [path <mode>])
+                                 data (RubyFile::write [data] file)
+                                 _ (RubyFile::flush [] file)
+                                 _ (RubyFile::close [] file)]
+                                (wrap [])))]
                            
-                           [over_write  +0]
-                           [append      (..FILE_APPEND)]
+                           ["wb" write]
+                           ["ab" append]
                            ))
 
-                     (def: (content _)
-                       (do {! (try.with io.monad)}
-                         [data (..file_get_contents [path])]
-                         (if (bit\= false (:coerce Bit data))
-                           (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
-                           (wrap (..unpack [..byte_array_format data])))))
-
-                     (def: path
-                       path)
-
-                     (~~ (template [<name> <ffi> <pipeline>]
-                           [(def: (<name> _)
-                              (do {! (try.with io.monad)}
-                                [value (<ffi> [path])]
-                                (if (bit\= false (:coerce Bit value))
-                                  (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
-                                  (wrap (`` (|> value (~~ (template.splice <pipeline>))))))))]
-
-                           [size ..filesize [.nat]]
-                           [last_modified ..filemtime [(i.* +1,000) duration.from_millis instant.absolute]]
-                           ))
-
-                     (def: (can_execute? _)
-                       (..is_executable [path]))
-
-                     (def: (modify moment)
-                       (do {! (try.with io.monad)}
-                         [verdict (..touch [path (|> moment instant.relative duration.to_millis (i./ +1,000))])]
-                         (if (bit\= false (:coerce Bit verdict))
-                           (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
-                           (wrap []))))
-
-                     (def: (move destination)
-                       (do {! (try.with io.monad)}
-                         [verdict (..rename [path destination])]
-                         (if (bit\= false (:coerce Bit verdict))
-                           (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
-                           (wrap (file destination)))))
-
-                     (def: (delete _)
+                     (def: (move destination origin)
                        (do (try.with io.monad)
-                         [verdict (..unlink [path])]
-                         (if (bit\= false (:coerce Bit verdict))
-                           (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
-                           (wrap []))))
-                     ))
+                         [_ (RubyFileUtils::move [origin destination])]
+                         (wrap [])))
+                     )))
 
-               (`` (implementation: (directory path)
-                     (-> Path (Directory IO))
+        ## @.php
+        ## (as_is (ffi.import: (FILE_APPEND Int))
+        ##        ## https://www.php.net/manual/en/dir.constants.php
+        ##        (ffi.import: (DIRECTORY_SEPARATOR ffi.String))
+        ##        ## https://www.php.net/manual/en/function.pack.php
+        ##        ## https://www.php.net/manual/en/function.unpack.php
+        ##        (ffi.import: (unpack [ffi.String ffi.String] Binary))
+        ##        ## https://www.php.net/manual/en/ref.filesystem.php
+        ##        ## https://www.php.net/manual/en/function.file-get-contents.php
+        ##        (ffi.import: (file_get_contents [Path] #io #try ffi.String))
+        ##        ## https://www.php.net/manual/en/function.file-put-contents.php
+        ##        (ffi.import: (file_put_contents [Path ffi.String Int] #io #try ffi.Integer))
+        ##        (ffi.import: (filemtime [Path] #io #try ffi.Integer))
+        ##        (ffi.import: (filesize [Path] #io #try ffi.Integer))
+        ##        (ffi.import: (is_executable [Path] #io #try ffi.Boolean))
+        ##        (ffi.import: (touch [Path ffi.Integer] #io #try ffi.Boolean))
+        ##        (ffi.import: (rename [Path Path] #io #try ffi.Boolean))
+        ##        (ffi.import: (unlink [Path] #io #try ffi.Boolean))
 
-                     (def: scope
-                       path)
+        ##        ## https://www.php.net/manual/en/function.rmdir.php
+        ##        (ffi.import: (rmdir [Path] #io #try ffi.Boolean))
+        ##        ## https://www.php.net/manual/en/function.scandir.php
+        ##        (ffi.import: (scandir [Path] #io #try (Array Path)))
+        ##        ## https://www.php.net/manual/en/function.is-file.php
+        ##        (ffi.import: (is_file [Path] #io #try ffi.Boolean))
+        ##        ## https://www.php.net/manual/en/function.is-dir.php
+        ##        (ffi.import: (is_dir [Path] #io #try ffi.Boolean))
+        ##        ## https://www.php.net/manual/en/function.mkdir.php
+        ##        (ffi.import: (mkdir [Path] #io #try ffi.Boolean))
 
-                     (~~ (template [<name> <test> <constructor> <capability>]
-                           [(def: (<name> _)
-                              (do {! (try.with io.monad)}
-                                [children (..scandir [path])]
-                                (loop [input (|> children
-                                                 array.to_list
-                                                 (list.filter (function (_ child)
-                                                                (not (or (text\= "." child)
-                                                                         (text\= ".." child))))))
-                                       output (: (List (<capability> IO))
-                                                 (list))]
-                                  (case input
-                                    #.Nil
-                                    (wrap output)
+        ##        (def: byte_array_format "C*")
+        ##        (def: default_separator (..DIRECTORY_SEPARATOR))
 
-                                    (#.Cons head tail)
-                                    (do !
-                                      [verdict (<test> head)]
-                                      (if verdict
-                                        (recur tail (#.Cons (<constructor> head) output))
-                                        (recur tail output)))))))]
+        ##        (template [<name>]
+        ##          [(exception: #export (<name> {file Path})
+        ##             (exception.report
+        ##              ["Path" file]))]
 
-                           [files ..is_file ..file File]
-                           [directories ..is_dir directory Directory]
-                           ))
+        ##          [cannot_write_to_file]
+        ##          )
 
-                     (def: (discard _)
-                       (do (try.with io.monad)
-                         [verdict (..rmdir [path])]
-                         (if (bit\= false (:coerce Bit verdict))
-                           (\ io.monad wrap (exception.throw ..cannot_find_directory [path]))
-                           (wrap []))))
-                     ))
+        ##        (`` (implementation: (file path)
+        ##              (-> Path (File IO))
 
-               (`` (implementation: #export default
-                     (System IO)
+        ##              (~~ (template [<name> <mode>]
+        ##                    [(def: (<name> data)
+        ##                       (do {! (try.with io.monad)}
+        ##                         [outcome (..file_put_contents [path ("php pack" ..byte_array_format data) <mode>])]
+        ##                         (if (bit\= false (:coerce Bit outcome))
+        ##                           (\ io.monad wrap (exception.throw ..cannot_write_to_file [path]))
+        ##                           (wrap []))))]
+        
+        ##                    [over_write  +0]
+        ##                    [append      (..FILE_APPEND)]
+        ##                    ))
 
-                     (~~ (template [<name> <test> <constructor> <exception>]
-                           [(def: (<name> path)
-                              (do {! (try.with io.monad)}
-                                [verdict (<test> path)]
-                                (\ io.monad wrap
-                                   (if verdict
-                                     (#try.Success (<constructor> path))
-                                     (exception.throw <exception> [path])))))]
+        ##              (def: (content _)
+        ##                (do {! (try.with io.monad)}
+        ##                  [data (..file_get_contents [path])]
+        ##                  (if (bit\= false (:coerce Bit data))
+        ##                    (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
+        ##                    (wrap (..unpack [..byte_array_format data])))))
 
-                           [file ..is_file ..file ..cannot_find_file]
-                           [directory ..is_dir ..directory ..cannot_find_directory]
-                           ))
+        ##              (def: path
+        ##                path)
 
-                     (def: (create_file path)
-                       (do {! (try.with io.monad)}
-                         [verdict (..touch [path (|> instant.now io.run instant.relative duration.to_millis (i./ +1,000))])]
-                         (\ io.monad wrap
-                            (if verdict
-                              (#try.Success (..file path))
-                              (exception.throw ..cannot_create_file [path])))))
-                     
-                     (def: (create_directory path)
-                       (do {! (try.with io.monad)}
-                         [verdict (..mkdir path)]
-                         (\ io.monad wrap
-                            (if verdict
-                              (#try.Success (..directory path))
-                              (exception.throw ..cannot_create_directory [path])))))
+        ##              (~~ (template [<name> <ffi> <pipeline>]
+        ##                    [(def: (<name> _)
+        ##                       (do {! (try.with io.monad)}
+        ##                         [value (<ffi> [path])]
+        ##                         (if (bit\= false (:coerce Bit value))
+        ##                           (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
+        ##                           (wrap (`` (|> value (~~ (template.splice <pipeline>))))))))]
 
-                     (def: separator
-                       ..default_separator)
-                     ))
-               )
+        ##                    [size ..filesize [.nat]]
+        ##                    [last_modified ..filemtime [(i.* +1,000) duration.from_millis instant.absolute]]
+        ##                    ))
+
+        ##              (def: (can_execute? _)
+        ##                (..is_executable [path]))
+
+        ##              (def: (modify moment)
+        ##                (do {! (try.with io.monad)}
+        ##                  [verdict (..touch [path (|> moment instant.relative duration.to_millis (i./ +1,000))])]
+        ##                  (if (bit\= false (:coerce Bit verdict))
+        ##                    (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
+        ##                    (wrap []))))
+
+        ##              (def: (move destination)
+        ##                (do {! (try.with io.monad)}
+        ##                  [verdict (..rename [path destination])]
+        ##                  (if (bit\= false (:coerce Bit verdict))
+        ##                    (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
+        ##                    (wrap (file destination)))))
+
+        ##              (def: (delete _)
+        ##                (do (try.with io.monad)
+        ##                  [verdict (..unlink [path])]
+        ##                  (if (bit\= false (:coerce Bit verdict))
+        ##                    (\ io.monad wrap (exception.throw ..cannot_find_file [path]))
+        ##                    (wrap []))))
+        ##              ))
+
+        ##        (`` (implementation: (directory path)
+        ##              (-> Path (Directory IO))
+
+        ##              (def: scope
+        ##                path)
+
+        ##              (~~ (template [<name> <test> <constructor> <capability>]
+        ##                    [(def: (<name> _)
+        ##                       (do {! (try.with io.monad)}
+        ##                         [children (..scandir [path])]
+        ##                         (loop [input (|> children
+        ##                                          array.to_list
+        ##                                          (list.filter (function (_ child)
+        ##                                                         (not (or (text\= "." child)
+        ##                                                                  (text\= ".." child))))))
+        ##                                output (: (List (<capability> IO))
+        ##                                          (list))]
+        ##                           (case input
+        ##                             #.Nil
+        ##                             (wrap output)
+
+        ##                             (#.Cons head tail)
+        ##                             (do !
+        ##                               [verdict (<test> head)]
+        ##                               (if verdict
+        ##                                 (recur tail (#.Cons (<constructor> head) output))
+        ##                                 (recur tail output)))))))]
+
+        ##                    [files ..is_file ..file File]
+        ##                    [directories ..is_dir directory Directory]
+        ##                    ))
+
+        ##              (def: (discard _)
+        ##                (do (try.with io.monad)
+        ##                  [verdict (..rmdir [path])]
+        ##                  (if (bit\= false (:coerce Bit verdict))
+        ##                    (\ io.monad wrap (exception.throw ..cannot_find_directory [path]))
+        ##                    (wrap []))))
+        ##              ))
+
+        ##        (`` (implementation: #export default
+        ##              (System IO)
+
+        ##              (~~ (template [<name> <test> <constructor> <exception>]
+        ##                    [(def: (<name> path)
+        ##                       (do {! (try.with io.monad)}
+        ##                         [verdict (<test> path)]
+        ##                         (\ io.monad wrap
+        ##                            (if verdict
+        ##                              (#try.Success (<constructor> path))
+        ##                              (exception.throw <exception> [path])))))]
+
+        ##                    [file ..is_file ..file ..cannot_find_file]
+        ##                    [directory ..is_dir ..directory ..cannot_find_directory]
+        ##                    ))
+
+        ##              (def: (make_file path)
+        ##                (do {! (try.with io.monad)}
+        ##                  [verdict (..touch [path (|> instant.now io.run instant.relative duration.to_millis (i./ +1,000))])]
+        ##                  (\ io.monad wrap
+        ##                     (if verdict
+        ##                       (#try.Success (..file path))
+        ##                       (exception.throw ..cannot_make_file [path])))))
+        
+        ##              (def: (make_directory path)
+        ##                (do {! (try.with io.monad)}
+        ##                  [verdict (..mkdir path)]
+        ##                  (\ io.monad wrap
+        ##                     (if verdict
+        ##                       (#try.Success (..directory path))
+        ##                       (exception.throw ..cannot_make_directory [path])))))
+
+        ##              (def: separator
+        ##                ..default_separator)
+        ##              ))
+        ##        )
 
         @.scheme
         (as_is)
         }))
 
-(template [<get> <signature> <create> <find> <exception>]
-  [(def: #export (<get> monad system path)
-     (All [!] (-> (Monad !) (System !) Path (! (Try (<signature> !)))))
-     (do monad
-       [outcome (\ system <find> path)]
-       (case outcome
-         (#try.Success file)
-         (wrap (#try.Success file))
-         
-         (#try.Failure error)
-         (if (exception.match? <exception> error)
-           (\ system <create> path)
-           (wrap (#try.Failure error))))))]
-
-  [get_file      File      create_file      file      ..cannot_find_file]
-  [get_directory Directory create_directory directory ..cannot_find_directory]
-  )
-
-(template [<predicate> <capability>]
-  [(def: #export (<predicate> monad system path)
-     (All [!] (-> (Monad !) (System !) Path (! Bit)))
-     (do monad
-       [?file (\ system <capability> path)]
-       (case ?file
-         (#try.Success file)
-         (wrap true)
-
-         (#try.Failure _)
-         (wrap false))))]
-
-  [file_exists? file]
-  [directory_exists? directory]
-  )
-
-(def: #export (exists? monad system path)
+(def: #export (exists? monad fs path)
   (All [!] (-> (Monad !) (System !) Path (! Bit)))
   (do monad
-    [verdict (..file_exists? monad system path)]
+    [verdict (\ fs file? path)]
     (if verdict
       (wrap verdict)
-      (..directory_exists? monad system path))))
+      (\ fs directory? path))))
 
 (type: Mock_File
   {#mock_last_modified Instant
@@ -1408,38 +949,6 @@
 (def: empty_mock
   Mock
   (dictionary.new text.hash))
-
-(def: (create_mock_file! separator path now mock)
-  (-> Text Path Instant Mock (Try [Text Mock]))
-  (loop [directory mock
-         trail (text.split_all_with separator path)]
-    (case trail
-      (#.Cons head tail)
-      (case (dictionary.get head directory)
-        #.None
-        (case tail
-          #.Nil
-          (#try.Success [head (dictionary.put head
-                                              (#.Left {#mock_last_modified now
-                                                       #mock_can_execute false
-                                                       #mock_content (binary.create 0)})
-                                              directory)])
-
-          (#.Cons _)
-          (exception.throw ..cannot_create_file [path]))
-        
-        (#.Some node)
-        (case [node tail]
-          [(#.Right sub_directory) (#.Cons _)]
-          (do try.monad
-            [[file_name sub_directory] (recur sub_directory tail)]
-            (wrap [file_name (dictionary.put head (#.Right sub_directory) directory)]))
-
-          _
-          (exception.throw ..cannot_create_file [path])))
-
-      #.Nil
-      (exception.throw ..cannot_create_file [path]))))
 
 (def: (retrieve_mock_file! separator path mock)
   (-> Text Path Mock (Try [Text Mock_File]))
@@ -1463,17 +972,26 @@
           (exception.throw ..cannot_find_file [path])))
 
       #.Nil
-      (exception.throw ..not_a_file [path]))))
+      (exception.throw ..cannot_find_file [path]))))
 
-(def: (update_mock_file! separator path now content mock)
+(def: (update_mock_file! / path now content mock)
   (-> Text Path Instant Binary Mock (Try Mock))
   (loop [directory mock
-         trail (text.split_all_with separator path)]
+         trail (text.split_all_with / path)]
     (case trail
       (#.Cons head tail)
       (case (dictionary.get head directory)
         #.None
-        (exception.throw ..cannot_find_file [path])
+        (case tail
+          #.Nil
+          (#try.Success (dictionary.put head
+                                        (#.Left {#mock_last_modified now
+                                                 #mock_can_execute false
+                                                 #mock_content content})
+                                        directory))
+          
+          (#.Cons _)
+          (exception.throw ..cannot_find_file [path]))
         
         (#.Some node)
         (case [node tail]
@@ -1495,31 +1013,40 @@
       #.Nil
       (exception.throw ..cannot_find_file [path]))))
 
-(def: (delete_mock_file! separator path mock)
+(def: (mock_delete! / path mock)
   (-> Text Path Mock (Try Mock))
   (loop [directory mock
-         trail (text.split_all_with separator path)]
+         trail (text.split_all_with / path)]
     (case trail
       (#.Cons head tail)
       (case (dictionary.get head directory)
         #.None
-        (exception.throw ..cannot_delete_file [path])
+        (exception.throw ..cannot_delete [path])
         
         (#.Some node)
-        (case [node tail]
-          [(#.Left file) #.Nil]
-          (#try.Success (dictionary.remove head directory))
+        (case tail
+          #.Nil
+          (case node
+            (#.Left file)
+            (#try.Success (dictionary.remove head directory))
 
-          [(#.Right sub_directory) (#.Cons _)]
-          (do try.monad
-            [sub_directory (recur sub_directory tail)]
-            (wrap (dictionary.put head (#.Right sub_directory) directory)))
+            (#.Right sub_directory)
+            (if (dictionary.empty? sub_directory)
+              (#try.Success (dictionary.remove head directory))
+              (exception.throw ..cannot_delete [path])))
+          
+          (#.Cons _)
+          (case node
+            (#.Left file)
+            (exception.throw ..cannot_delete [path])
 
-          _
-          (exception.throw ..cannot_delete_file [path])))
+            (#.Right sub_directory)
+            (do try.monad
+              [sub_directory' (recur sub_directory tail)]
+              (wrap (dictionary.put head (#.Right sub_directory') directory))))))
 
       #.Nil
-      (exception.throw ..cannot_delete_file [path]))))
+      (exception.throw ..cannot_delete [path]))))
 
 (def: (try_update! transform var)
   (All [a] (-> (-> a (Try a)) (Var a) (STM (Try Any))))
@@ -1534,99 +1061,10 @@
       (#try.Failure error)
       (wrap (#try.Failure error)))))
 
-(def: (mock_file separator path store)
-  (-> Text Path (Var Mock) (File Promise))
-  (implementation
-   (def: path
-     path)
-   
-   (def: (size _)
-     (stm.commit
-      (do stm.monad
-        [|store| (stm.read store)]
-        (wrap (do try.monad
-                [[name file] (..retrieve_mock_file! separator path |store|)]
-                (wrap (binary.size (get@ #mock_content file))))))))
-
-   (def: (content _)
-     (stm.commit
-      (do stm.monad
-        [|store| (stm.read store)]
-        (wrap (do try.monad
-                [[name file] (..retrieve_mock_file! separator path |store|)]
-                (wrap (get@ #mock_content file)))))))
-
-   (def: (last_modified _)
-     (stm.commit
-      (do stm.monad
-        [|store| (stm.read store)]
-        (wrap (do try.monad
-                [[name file] (..retrieve_mock_file! separator path |store|)]
-                (wrap (get@ #mock_last_modified file)))))))
-
-   (def: (can_execute? _)
-     (stm.commit
-      (do stm.monad
-        [|store| (stm.read store)]
-        (wrap (do try.monad
-                [[name file] (..retrieve_mock_file! separator path |store|)]
-                (wrap (get@ #mock_can_execute file)))))))
-
-   (def: (over_write content)
-     (do promise.monad
-       [now (promise.future instant.now)]
-       (stm.commit
-        (..try_update! (..update_mock_file! separator path now content) store))))
-
-   (def: (append content)
-     (do promise.monad
-       [now (promise.future instant.now)]
-       (stm.commit
-        (..try_update! (function (_ |store|)
-                         (do try.monad
-                           [[name file] (..retrieve_mock_file! separator path |store|)]
-                           (..update_mock_file! separator path now
-                                                (\ binary.monoid compose
-                                                   (get@ #mock_content file)
-                                                   content)
-                                                |store|)))
-                       store))))
-
-   (def: (modify now)
-     (stm.commit
-      (..try_update! (function (_ |store|)
-                       (do try.monad
-                         [[name file] (..retrieve_mock_file! separator path |store|)]
-                         (..update_mock_file! separator path now (get@ #mock_content file) |store|)))
-                     store)))
-
-   (def: (delete _)
-     (stm.commit
-      (..try_update! (..delete_mock_file! separator path) store)))
-
-   (def: (move path)
-     (stm.commit
-      (do {! stm.monad}
-        [|store| (stm.read store)]
-        (case (do try.monad
-                [[name file] (..retrieve_mock_file! separator path |store|)
-                 |store| (..delete_mock_file! separator path |store|)
-                 [name |store|] (..create_mock_file! separator path (get@ #mock_last_modified file) |store|)
-                 |store| (..update_mock_file! separator path (get@ #mock_last_modified file) (get@ #mock_content file) |store|)]
-                (wrap [|store| (mock_file separator path store)]))
-          (#try.Success [|store| moved])
-          (do !
-            [_ (stm.write |store| store)]
-            (wrap (#try.Success moved)))
-          
-          (#try.Failure error)
-          (wrap (#try.Failure error))))))
-   ))
-
-(def: (create_mock_directory! separator path mock)
+(def: (make_mock_directory! / path mock)
   (-> Text Path Mock (Try Mock))
   (loop [directory mock
-         trail (text.split_all_with separator path)]
+         trail (text.split_all_with / path)]
     (case trail
       (#.Cons head tail)
       (case (dictionary.get head directory)
@@ -1636,7 +1074,7 @@
           (#try.Success (dictionary.put head (#.Right ..empty_mock) directory))
 
           (#.Cons _)
-          (exception.throw ..cannot_create_directory [path]))
+          (exception.throw ..cannot_make_directory [path]))
         
         (#.Some node)
         (case [node tail]
@@ -1646,205 +1084,221 @@
             (wrap (dictionary.put head (#.Right sub_directory) directory)))
 
           _
-          (exception.throw ..cannot_create_directory [path])))
+          (exception.throw ..cannot_make_directory [path])))
 
       #.Nil
-      (exception.throw ..cannot_create_directory [path]))))
+      (exception.throw ..cannot_make_directory [path]))))
 
-(def: (retrieve_mock_directory! separator path mock)
+(def: (retrieve_mock_directory! / path mock)
   (-> Text Path Mock (Try Mock))
   (loop [directory mock
-         trail (text.split_all_with separator path)]
+         trail (text.split_all_with / path)]
     (case trail
+      #.Nil
+      (#try.Success directory)
+
       (#.Cons head tail)
       (case (dictionary.get head directory)
         #.None
         (exception.throw ..cannot_find_directory [path])
         
         (#.Some node)
-        (case [node tail]
-          [(#.Right sub_directory) #.Nil]
-          (#try.Success sub_directory)
+        (case node
+          (#.Left _)
+          (exception.throw ..cannot_find_directory [path])
 
-          [(#.Right sub_directory) (#.Cons _)]
-          (recur sub_directory tail)
+          (#.Right sub_directory)
+          (case tail
+            #.Nil
+            (#try.Success sub_directory)
 
-          _
-          (exception.throw ..cannot_find_directory [path])))
-
-      #.Nil
-      (#try.Success directory))))
-
-(def: (delete_mock_directory! separator path mock)
-  (-> Text Path Mock (Try Mock))
-  (loop [directory mock
-         trail (text.split_all_with separator path)]
-    (case trail
-      (#.Cons head tail)
-      (case (dictionary.get head directory)
-        #.None
-        (exception.throw ..cannot_discard_directory [path])
-        
-        (#.Some node)
-        (case [node tail]
-          [(#.Right directory) #.Nil]
-          (if (dictionary.empty? directory)
-            (#try.Success (dictionary.remove head directory))
-            (exception.throw ..cannot_discard_directory [path]))
-
-          [(#.Right sub_directory) (#.Cons _)]
-          (do try.monad
-            [sub_directory (recur sub_directory tail)]
-            (wrap (dictionary.put head (#.Right sub_directory) directory)))
-
-          _
-          (exception.throw ..cannot_discard_directory [path])))
-
-      #.Nil
-      (exception.throw ..cannot_discard_directory [path]))))
-
-(def: (mock_directory separator path store)
-  (-> Text Path (Var Mock) (Directory Promise))
-  (implementation
-   (def: scope
-     path)
-   
-   (def: (files _)
-     (stm.commit
-      (do stm.monad
-        [|store| (stm.read store)]
-        (wrap (do try.monad
-                [directory (..retrieve_mock_directory! separator path |store|)]
-                (wrap (|> directory
-                          dictionary.entries
-                          (list.all (function (_ [node_name node])
-                                      (case node
-                                        (#.Left file)
-                                        (#.Some (..mock_file separator
-                                                             (format path separator node_name)
-                                                             store))
-                                        
-                                        (#.Right directory)
-                                        #.None))))))))))
-
-   (def: (directories _)
-     (stm.commit
-      (do stm.monad
-        [|store| (stm.read store)]
-        (wrap (do try.monad
-                [directory (..retrieve_mock_directory! separator path |store|)]
-                (wrap (|> directory
-                          dictionary.entries
-                          (list.all (function (_ [node_name node])
-                                      (case node
-                                        (#.Left file)
-                                        #.None
-                                        
-                                        (#.Right directory)
-                                        (#.Some (mock_directory separator
-                                                                (format path separator node_name)
-                                                                store))))))))))))
-
-   (def: (discard _)
-     (stm.commit
-      (do {! stm.monad}
-        [|store| (stm.read store)]
-        (case (..delete_mock_directory! separator path |store|)
-          (#try.Success |store|)
-          (do !
-            [_ (stm.write |store| store)]
-            (wrap (#try.Success [])))
-          
-          (#try.Failure error)
-          (wrap (#try.Failure error))))))
-   ))
+            (#.Cons _)
+            (recur sub_directory tail)))))))
 
 (def: #export (mock separator)
   (-> Text (System Promise))
   (let [store (stm.var ..empty_mock)]
-    (implementation
-     (def: separator separator)
+    (`` (implementation
+         (def: separator
+           separator)
 
-     (def: (file path)
-       (stm.commit
-        (do stm.monad
-          [|store| (stm.read store)]
-          (wrap (do try.monad
-                  [[name file] (..retrieve_mock_file! separator path |store|)]
-                  (wrap (..mock_file separator path store)))))))
+         (~~ (template [<method> <retrieve>]
+               [(def: (<method> path)
+                  (|> store
+                      stm.read
+                      (\ stm.monad map
+                         (|>> (<retrieve> separator path)
+                              (try\map (function.constant true))
+                              (try.default false)))
+                      stm.commit))]
+               
+               [file? ..retrieve_mock_file!]
+               [directory? ..retrieve_mock_directory!]))
 
-     (def: (create_file path)
-       (do promise.monad
-         [now (promise.future instant.now)]
-         (stm.commit
-          (do {! stm.monad}
-            [|store| (stm.read store)]
-            (case (..create_mock_file! separator path now |store|)
-              (#try.Success [name |store|])
-              (do !
-                [_ (stm.write |store| store)]
-                (wrap (#try.Success (..mock_file separator path store))))
-              
-              (#try.Failure error)
-              (wrap (#try.Failure error)))))))
+         (def: (make_directory path)
+           (stm.commit
+            (do {! stm.monad}
+              [|store| (stm.read store)]
+              (case (..make_mock_directory! separator path |store|)
+                (#try.Success |store|)
+                (do !
+                  [_ (stm.write |store| store)]
+                  (wrap (#try.Success [])))
+                
+                (#try.Failure error)
+                (wrap (#try.Failure error))))))
 
-     (def: (directory path)
-       (stm.commit
-        (do stm.monad
-          [|store| (stm.read store)]
-          (wrap (do try.monad
-                  [directory (..retrieve_mock_directory! separator path |store|)]
-                  (wrap (..mock_directory separator path store)))))))
+         (~~ (template [<method> <tag>]
+               [(def: (<method> path)
+                  (stm.commit
+                   (do stm.monad
+                     [|store| (stm.read store)]
+                     (wrap (do try.monad
+                             [directory (..retrieve_mock_directory! separator path |store|)]
+                             (wrap (|> directory
+                                       dictionary.entries
+                                       (list.all (function (_ [node_name node])
+                                                   (case node
+                                                     (<tag> _)
+                                                     (#.Some (format path separator node_name))
+                                                     
+                                                     _
+                                                     #.None))))))))))]
 
-     (def: (create_directory path)
-       (stm.commit
-        (do {! stm.monad}
-          [|store| (stm.read store)]
-          (case (..create_mock_directory! separator path |store|)
-            (#try.Success |store|)
-            (do !
-              [_ (stm.write |store| store)]
-              (wrap (#try.Success (..mock_directory separator path store))))
-            
-            (#try.Failure error)
-            (wrap (#try.Failure error))))))
-     )))
+               [directory_files #.Left]
+               [sub_directories #.Right]
+               ))
 
-(def: #export (make_directories monad system path)
-  (All [!] (-> (Monad !) (System !) Path (! (Try Path))))
-  (let [rooted? (text.starts_with? (\ system separator) path)
-        segments (text.split_all_with (\ system separator) path)]
+         (def: (file_size path)
+           (stm.commit
+            (do stm.monad
+              [|store| (stm.read store)]
+              (wrap (|> |store|
+                        (..retrieve_mock_file! separator path)
+                        (try\map (|>> product.right
+                                      (get@ #mock_content)
+                                      binary.size)))))))
+
+         (def: (last_modified path)
+           (stm.commit
+            (do stm.monad
+              [|store| (stm.read store)]
+              (wrap (|> |store|
+                        (..retrieve_mock_file! separator path)
+                        (try\map (|>> product.right
+                                      (get@ #mock_last_modified))))))))
+
+         (def: (can_execute? path)
+           (stm.commit
+            (do stm.monad
+              [|store| (stm.read store)]
+              (wrap (|> |store|
+                        (..retrieve_mock_file! separator path)
+                        (try\map (|>> product.right
+                                      (get@ #mock_can_execute))))))))
+
+         (def: (read path)
+           (stm.commit
+            (do stm.monad
+              [|store| (stm.read store)]
+              (wrap (|> |store|
+                        (..retrieve_mock_file! separator path)
+                        (try\map (|>> product.right
+                                      (get@ #mock_content))))))))
+
+         (def: (delete path)
+           (stm.commit
+            (..try_update! (..mock_delete! separator path) store)))
+
+         (def: (modify now path)
+           (stm.commit
+            (..try_update! (function (_ |store|)
+                             (do try.monad
+                               [[name file] (..retrieve_mock_file! separator path |store|)]
+                               (..update_mock_file! separator path now (get@ #mock_content file) |store|)))
+                           store)))
+
+         (def: (write content path)
+           (do promise.monad
+             [now (promise.future instant.now)]
+             (stm.commit
+              (..try_update! (..update_mock_file! separator path now content) store))))
+
+         (def: (append content path)
+           (do promise.monad
+             [now (promise.future instant.now)]
+             (stm.commit
+              (..try_update! (function (_ |store|)
+                               (do try.monad
+                                 [[name file] (..retrieve_mock_file! separator path |store|)]
+                                 (..update_mock_file! separator path now
+                                                      (\ binary.monoid compose
+                                                         (get@ #mock_content file)
+                                                         content)
+                                                      |store|)))
+                             store))))
+
+         (def: (move destination origin)
+           (stm.commit
+            (do {! stm.monad}
+              [|store| (stm.read store)]
+              (case (do try.monad
+                      [[name file] (..retrieve_mock_file! separator origin |store|)
+                       |store| (..mock_delete! separator origin |store|)]
+                      (..update_mock_file! separator destination (get@ #mock_last_modified file) (get@ #mock_content file) |store|))
+                (#try.Success |store|)
+                (do !
+                  [_ (stm.write |store| store)]
+                  (wrap (#try.Success [])))
+                
+                (#try.Failure error)
+                (wrap (#try.Failure error))))))
+         ))))
+
+(def: (check_or_make_directory monad fs path)
+  (All [!] (-> (Monad !) (System !) Path (! (Try Any))))
+  (do monad
+    [? (\ fs directory? path)]
+    (if ?
+      (wrap (#try.Success []))
+      (\ fs make_directory path))))
+
+(def: #export (make_directories monad fs path)
+  (All [!] (-> (Monad !) (System !) Path (! (Try Any))))
+  (let [rooted? (text.starts_with? (\ fs separator) path)
+        segments (text.split_all_with (\ fs separator) path)]
     (case (if rooted?
             (list.drop 1 segments)
             segments)
       #.Nil
-      (\ monad wrap (exception.throw ..cannot_create_directory [path]))
+      (\ monad wrap (exception.throw ..cannot_make_directory [path]))
 
       (#.Cons head tail)
-      (loop [current (if rooted?
-                       (format (\ system separator) head)
-                       head)
-             next tail]
-        (do monad
-          [? (..get_directory monad system current)]
-          (case ?
-            (#try.Success _)
-            (case next
-              #.Nil
-              (wrap (#try.Success current))
-              
-              (#.Cons head tail)
-              (recur (format current (\ system separator) head)
-                     tail))
-            
-            (#try.Failure error)
-            (wrap (#try.Failure error))))))))
+      (case head
+        "" (\ monad wrap (exception.throw ..cannot_make_directory [path]))
+        _ (loop [current (if rooted?
+                           (format (\ fs separator) head)
+                           head)
+                 next tail]
+            (do monad
+              [? (..check_or_make_directory monad fs current)]
+              (case ?
+                (#try.Success _)
+                (case next
+                  #.Nil
+                  (wrap (#try.Success []))
+                  
+                  (#.Cons head tail)
+                  (recur (format current (\ fs separator) head)
+                         tail))
+                
+                (#try.Failure error)
+                (wrap (#try.Failure error)))))))))
 
-(def: #export (parent system path)
-  (All [!] (-> (System !) Path Path))
-  (let [/ (\ system separator)]
-    (|> path
-        (text.split_all_with /)
-        list.inits
-        (maybe.default (list))
-        (text.join_with /))))
+(def: #export (make_file monad fs content path)
+  (All [!] (-> (Monad !) (System !) Binary Path (! (Try Any))))
+  (do monad
+    [? (\ fs file? path)]
+    (if ?
+      (wrap (exception.throw ..cannot_make_file [path]))
+      (\ fs write content path))))
