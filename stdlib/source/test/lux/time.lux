@@ -1,21 +1,155 @@
 (.module:
   [lux #*
-   ["_" test (#+ Test)]]
+   ["_" test (#+ Test)]
+   [abstract
+    [monad (#+ do)]
+    {[0 #spec]
+     [/
+      ["$." equivalence]
+      ["$." order]
+      ["$." enum]
+      ["$." codec]]}]
+   [control
+    [pipe (#+ case>)]
+    ["." try ("#\." functor)]
+    ["." exception]
+    [parser
+     ["<.>" text]]]
+   [data
+    ["." text
+     ["%" format (#+ format)]]]
+   [math
+    ["." random]
+    [number
+     ["n" nat]]]]
   ["." / #_
    ["#." date]
    ["#." day]
    ["#." duration]
    ["#." instant]
    ["#." month]
-   ["#." year]])
+   ["#." year]]
+  {1
+   ["." /
+    ["." duration]]})
+
+(def: for_implementation
+  Test
+  ($_ _.and
+      (_.for [/.equivalence]
+             ($equivalence.spec /.equivalence random.time))
+      (_.for [/.order]
+             ($order.spec /.order random.time))
+      (_.for [/.enum]
+             ($enum.spec /.enum random.time))
+      (_.for [/.codec]
+             ($codec.spec /.equivalence /.codec random.time))))
+
+(def: for_clock
+  Test
+  (do {! random.monad}
+    [expected random.time]
+    (_.cover [/.clock /.time]
+             (|> expected
+                 /.clock
+                 /.time
+                 (try\map (\ /.equivalence = expected))
+                 (try.default false)))))
+
+(def: for_ranges
+  Test
+  (do {! random.monad}
+    [valid_hour (\ ! map (|>> (n.% /.hours) (n.max 10)) random.nat)
+     valid_minute (\ ! map (|>> (n.% /.minutes) (n.max 10)) random.nat)
+     valid_second (\ ! map (|>> (n.% /.seconds) (n.max 10)) random.nat)
+     valid_milli_second (\ ! map (n.% /.milli_seconds) random.nat)
+
+     #let [invalid_hour (|> valid_hour (n.+ /.hours))
+           invalid_minute (|> valid_minute (n.+ /.minutes) (n.min 99))
+           invalid_second (|> valid_second (n.+ /.seconds) (n.min 99))]]
+    (`` ($_ _.and
+            (~~ (template [<cap> <exception> <prefix> <suffix> <valid> <invalid>]
+                  [(_.cover [<cap> <exception>]
+                            (let [valid!
+                                  (|> <valid>
+                                      %.nat
+                                      (text.prefix <prefix>)
+                                      (text.suffix <suffix>)
+                                      (\ /.codec decode)
+                                      (case> (#try.Success _) true
+                                             (#try.Failure error) false))
+                                  
+                                  invalid!
+                                  (|> <invalid>
+                                      %.nat
+                                      (text.prefix <prefix>)
+                                      (text.suffix <suffix>)
+                                      (\ /.codec decode)
+                                      (case> (#try.Success _)
+                                             false
+                                             
+                                             (#try.Failure error)
+                                             (exception.match? <exception> error)))]
+                              (and valid!
+                                   invalid!)))]
+
+                  [/.hours /.invalid_hour "" ":00:00.000" valid_hour invalid_hour]
+                  [/.minutes /.invalid_minute "00:" ":00.000" valid_minute invalid_minute]
+                  [/.seconds /.invalid_second "00:00:" ".000" valid_second invalid_second]
+                  ))
+            (_.cover [/.milli_seconds]
+                     (|> valid_milli_second
+                         %.nat
+                         (format "00:00:00.")
+                         (\ /.codec decode)
+                         (case> (#try.Success _) true
+                                (#try.Failure error) false)))
+            ))))
 
 (def: #export test
   Test
-  ($_ _.and
-      /date.test
-      /day.test
-      /duration.test
-      /instant.test
-      /month.test
-      /year.test
-      ))
+  (<| (_.covering /._)
+      (_.for [/.Time])
+      (do {! random.monad}
+        [#let [day (.nat (duration.to_millis duration.day))]
+         expected random.time
+
+         out_of_bounds (\ ! map (|>> /.to_millis (n.+ day))
+                          random.time)]
+        (`` ($_ _.and
+                ..for_implementation
+
+                (_.cover [/.to_millis /.from_millis]
+                         (|> expected
+                             /.to_millis
+                             /.from_millis
+                             (try\map (\ /.equivalence = expected))
+                             (try.default false)))
+                (_.cover [/.time_exceeds_a_day]
+                         (case (/.from_millis out_of_bounds)
+                           (#try.Success _)
+                           false
+                           
+                           (#try.Failure error)
+                           (exception.match? /.time_exceeds_a_day error)))
+                (_.cover [/.midnight]
+                         (|> /.midnight
+                             /.to_millis
+                             (n.= 0)))
+                (_.cover [/.parser]
+                         (|> expected
+                             (\ /.codec encode)
+                             (<text>.run /.parser)
+                             (try\map (\ /.equivalence = expected))
+                             (try.default false)))
+                ..for_ranges
+                (_.for [/.Clock]
+                       ..for_clock)
+
+                /date.test
+                /day.test
+                /duration.test
+                /instant.test
+                /month.test
+                /year.test
+                )))))

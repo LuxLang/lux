@@ -9,6 +9,7 @@
     ["." try (#+ Try)]
     ["." exception (#+ exception:)]
     ["." io (#+ IO io)]
+    ["." function]
     [concurrency
      ["." promise (#+ Promise)]]]
    [data
@@ -18,7 +19,8 @@
      [encoding
       ["." utf8]]]
     [collection
-     ["." array (#+ Array)]]]
+     ["." array (#+ Array)]
+     ["." list]]]
    [macro
     ["." template]]
    [math
@@ -32,7 +34,7 @@
     ["_" python]]
    [tool
     [compiler
-     [phase (#+ Operation Phase)]
+     ["." phase (#+ Operation Phase)]
      [reference
       [variable (#+ Register)]]
      [language
@@ -43,7 +45,7 @@
        [analysis
         [macro (#+ Expander)]]
        [phase
-        ["." extension (#+ Bundle Extender Handler)
+        ["." extension (#+ Extender Handler)
          ["#/." bundle]
          ["." analysis #_
           ["#" python]]
@@ -56,6 +58,7 @@
      [default
       ["." platform (#+ Platform)]]
      [meta
+      [archive (#+ Archive)]
       ["." packager #_
        ["#" script]]]]]]
   [program
@@ -334,6 +337,121 @@
                              [_ (execute! content)]
                              (evaluate! context (_.var (reference.artifact context)))))))))))})
 
+(for {@.old
+      (as_is (exception: #export (invaid_phase_application {partial_application (List Any)}
+                                                           {arity Nat})
+               (exception.report
+                ["Partial Application" (%.nat (list.size partial_application))]
+                ["Arity" (%.nat arity)]))
+
+             (def: (host_phase partial_application phase)
+               (All [s i o]
+                 (-> (List Any) (Phase [extension.Bundle s] i o)
+                     org/python/core/PyObject))
+               (ffi.object [] org/python/core/PyObject []
+                 []
+                 ## Methods
+                 (org/python/core/PyObject
+                  [] (__call__ self
+                               {inputs [org/python/core/PyObject]}
+                               {keywords [java/lang/String]})
+                  org/python/core/PyObject
+                  (try.assume
+                   (case (array.to_list inputs)
+                     (^ (list))
+                     (\ try.monad wrap (host_phase (list) phase))
+                     
+                     (^ (list input/0))
+                     (do try.monad
+                       [input/0 (..read input/0)]
+                       (case partial_application
+                         (^ (list partial/0 partial/1))
+                         (wrap (..to_host ((:coerce (-> Any Any Any Any) phase)
+                                           partial/0
+                                           partial/1
+                                           input/0)))
+
+                         (^ (list partial/0))
+                         (wrap (host_phase (list partial/0 input/0) phase))
+                         
+                         (^ (list))
+                         (wrap (host_phase (list input/0) phase))
+
+                         _
+                         (exception.throw ..invaid_phase_application [partial_application (array.size inputs)])))
+                     
+                     (^ (list input/0 input/1))
+                     (do try.monad
+                       [input/0 (..read input/0)
+                        input/1 (..read input/1)]
+                       (case partial_application
+                         (^ (list partial/0))
+                         (wrap (..to_host ((:coerce (-> Any Any Any Any) phase)
+                                           partial/0
+                                           input/0
+                                           input/1)))
+                         
+                         (^ (list))
+                         (wrap (host_phase (list input/0 input/1) phase))
+
+                         _
+                         (exception.throw ..invaid_phase_application [partial_application (array.size inputs)])))
+                     
+                     (^ (list input/0 input/1 input/2))
+                     (do try.monad
+                       [input/0 (..read input/0)
+                        input/1 (..read input/1)
+                        input/2 (..read input/2)]
+                       (case partial_application
+                         (^ (list))
+                         (wrap (..to_host ((:coerce (-> Any Any Any Any) phase)
+                                           input/0
+                                           input/1
+                                           input/2)))
+                         
+                         _
+                         (exception.throw ..invaid_phase_application [partial_application (array.size inputs)])))
+
+                     _
+                     (exception.throw ..invaid_phase_application [partial_application (array.size inputs)]))))))
+             
+             (def: (extender phase_wrapper)
+               (-> platform.Phase_Wrapper Extender)
+               ## TODO: Stop relying on coercions ASAP.
+               (<| (:coerce Extender)
+                   (function (_ handler))
+                   (:coerce Handler)
+                   (function (_ name phase))
+                   (:coerce Phase)
+                   (function (_ archive parameters))
+                   (:coerce Operation)
+                   (function (_ state))
+                   (:coerce Try)
+                   try.assume
+                   (:coerce Try)
+                   (do try.monad
+                     [handler (try.from_maybe (..ensure_function handler))
+                      output (org/python/core/PyFunction::__call__ (|> (ffi.array org/python/core/PyObject 5)
+                                                                       (ffi.array_write 0 (org/python/core/PyString::new name))
+                                                                       (ffi.array_write 1 (:coerce org/python/core/PyObject (phase_wrapper phase)))
+                                                                       (ffi.array_write 2 (..to_host archive))
+                                                                       (ffi.array_write 3 (..to_host parameters))
+                                                                       (ffi.array_write 4 (..to_host state)))
+                                                                   handler)]
+                     (..read output)))))
+
+      @.python
+      (def: (extender phase_wrapper handler)
+        (-> platform.Phase_Wrapper Extender)
+        (:assume handler))})
+
+(def: (phase_wrapper archive)
+  (-> Archive (runtime.Operation platform.Phase_Wrapper))
+  (do phase.monad
+    []
+    (wrap (:coerce platform.Phase_Wrapper
+                   (..host_phase (list))))))
+
 (def: platform
   (IO (Platform Register (_.Expression Any) (_.Statement Any)))
   (do io.monad
@@ -342,6 +460,7 @@
            #platform.host host
            #platform.phase python.generate
            #platform.runtime runtime.generate
+           #platform.phase_wrapper ..phase_wrapper
            #platform.write (|>> _.code (\ utf8.codec encode))})))
 
 (def: (program context program)
@@ -356,93 +475,6 @@
                                           (_.slice_from (_.int +1))
                                           runtime.lux::program_args)
                                       _.none)))))
-
-(for {@.old
-      (as_is (exception: #export (cannot_parse_phase_inputs {arity Nat})
-               (exception.report
-                ["Arity" (%.nat arity)]))
-
-             (def: (host_phase phase)
-               (All [s i o]
-                 (-> (Phase [Bundle s] i o)
-                     org/python/core/PyObject))
-               (ffi.object [] org/python/core/PyObject []
-                 []
-                 ## Methods
-                 (org/python/core/PyObject
-                  [] (__call__ self
-                               {_ org/python/core/ThreadState}
-                               {input/0 org/python/core/PyObject})
-                  org/python/core/PyObject
-                  (case [(..read input/0)]
-                    [(#try.Success input/0)]
-                    (host_phase (:assume ((:coerce (-> Nat Nat Nat []) phase)
-                                          (:coerce Nat input/0))))
-                    
-                    _
-                    (error! (exception.construct ..cannot_parse_phase_inputs [1]))))
-
-                 (org/python/core/PyObject
-                  [] (__call__ self
-                               {_ org/python/core/ThreadState}
-                               {input/0 org/python/core/PyObject}
-                               {input/1 org/python/core/PyObject})
-                  org/python/core/PyObject
-                  (case [(..read input/0) (..read input/1)]
-                    [(#try.Success input/0) (#try.Success input/1)]
-                    (host_phase (:assume ((:coerce (-> Nat Nat Nat []) phase)
-                                          (:coerce Nat input/0)
-                                          (:coerce Nat input/1))))
-                    
-                    _
-                    (error! (exception.construct ..cannot_parse_phase_inputs [2]))))
-
-                 (org/python/core/PyObject
-                  [] (__call__ self
-                               {_ org/python/core/ThreadState}
-                               {input/0 org/python/core/PyObject}
-                               {input/1 org/python/core/PyObject}
-                               {input/2 org/python/core/PyObject})
-                  org/python/core/PyObject
-                  (case [(..read input/0) (..read input/1) (..read input/2)]
-                    [(#try.Success input/0) (#try.Success input/1) (#try.Success input/2)]
-                    (..to_host ((:coerce (-> Nat Nat Nat []) phase)
-                                (:coerce Nat input/0)
-                                (:coerce Nat input/1)
-                                (:coerce Nat input/2)))
-                    
-                    _
-                    (error! (exception.construct ..cannot_parse_phase_inputs [3]))))))
-             
-             (def: extender
-               Extender
-               ## TODO: Stop relying on coercions ASAP.
-               (<| (:coerce Extender)
-                   (function (@self handler))
-                   (:coerce Handler)
-                   (function (@self name phase))
-                   (:coerce Phase)
-                   (function (@self archive parameters))
-                   (:coerce Operation)
-                   (function (@self state))
-                   (:coerce Try)
-                   try.assume
-                   (:coerce Try)
-                   (do try.monad
-                     [handler (try.from_maybe (..ensure_function handler))
-                      output (org/python/core/PyFunction::__call__ (|> (ffi.array org/python/core/PyObject 5)
-                                                                       (ffi.array_write 0 (org/python/core/PyString::new name))
-                                                                       (ffi.array_write 1 (..host_phase phase))
-                                                                       (ffi.array_write 2 (..to_host archive))
-                                                                       (ffi.array_write 3 (..to_host parameters))
-                                                                       (ffi.array_write 4 (..to_host state)))
-                                                                   handler)]
-                     (..read output)))))
-
-      @.python
-      (def: (extender handler)
-        Extender
-        (:assume handler))})
 
 (def: (declare_success! _)
   (-> Any (Promise Any))
@@ -472,7 +504,7 @@
                            analysis.bundle
                            ..platform
                            generation.bundle
-                           extension/bundle.empty
+                           (function.constant extension/bundle.empty)
                            ..program
                            [Register
                             (type (_.Expression Any))

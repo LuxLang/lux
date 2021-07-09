@@ -369,7 +369,7 @@
     (#/.Return instruction) (..return instruction)))
 
 (def: (instruction instruction)
-  (-> (/.Instruction org/objectweb/asm/Label) Inst)
+  (-> (/.Instruction Inst org/objectweb/asm/Label) Inst)
   (case instruction
     #/.NOP _.NOP
     (#/.Constant instruction) (..constant instruction)
@@ -381,7 +381,8 @@
     (#/.Local instruction) (..local instruction)
     (#/.Stack instruction) (..stack instruction)
     (#/.Comparison instruction) (..comparison instruction)
-    (#/.Control instruction) (..control instruction)))
+    (#/.Control instruction) (..control instruction)
+    (#/.Embedded embedded) embedded))
 
 (type: Mapping
   (Dictionary /.Label org/objectweb/asm/Label))
@@ -460,9 +461,13 @@
     ))
 
 (def: (relabel_instruction [mapping instruction])
-  (Re_labeler /.Instruction)
+  (Re_labeler (/.Instruction Inst))
   (case instruction
-    #/.NOP [mapping #/.NOP]
+    (#/.Embedded embedded)
+    [mapping (#/.Embedded embedded)]
+
+    #/.NOP
+    [mapping #/.NOP]
 
     (^template [<tag>]
       [(<tag> instruction)
@@ -482,10 +487,10 @@
       [mapping (#/.Control instruction)])))
 
 (def: (relabel_bytecode [mapping bytecode])
-  (Re_labeler /.Bytecode)
+  (Re_labeler (/.Bytecode Inst))
   (row@fold (function (_ input [mapping output])
-              (let [[mapping input] (..relabel_instruction [mapping input])]
-                [mapping (row.add input output)]))
+              (let [[mapping input'] (..relabel_instruction [mapping input])]
+                [mapping (row.add input' output)]))
             [mapping (row.row)]
             bytecode))
 
@@ -494,7 +499,7 @@
   (dictionary.new nat.hash))
 
 (def: bytecode
-  (-> (/.Bytecode /.Label) jvm.Inst)
+  (-> (/.Bytecode Inst /.Label) jvm.Inst)
   (|>> [..fresh]
        ..relabel_bytecode
        product.right
@@ -502,15 +507,28 @@
        row.to_list
        _.fuse))
 
-(type: Handler
-  (generation.Handler jvm.Anchor (/.Bytecode /.Label) jvm.Definition))
+(with_expansions [<anchor> (as_is jvm.Anchor)
+                  <expression> (as_is Inst)
+                  <directive> (as_is jvm.Definition)
+                  <type_vars> (as_is <anchor> <expression> <directive>)]
+  (type: Handler
+    ## (generation.Handler jvm.Anchor (/.Bytecode Inst /.Label) jvm.Definition)
+    (-> extension.Name
+        (phase.Phase [(extension.Bundle <type_vars>)
+                      (generation.State <type_vars>)]
+                     Synthesis
+                     <expression>)
+        (phase.Phase [(extension.Bundle <type_vars>)
+                      (generation.State <type_vars>)]
+                     (List Synthesis)
+                     (/.Bytecode Inst /.Label)))))
 
 (def: (true_handler extender pseudo)
   (-> jvm.Extender Any jvm.Handler)
   (function (_ extension_name phase archive inputs)
     (do phase.monad
       [bytecode ((extender pseudo) extension_name phase archive inputs)]
-      (wrap (..bytecode (:coerce (/.Bytecode /.Label) bytecode))))))
+      (wrap (..bytecode (:coerce (/.Bytecode Inst /.Label) bytecode))))))
 
 (def: (def::generation extender)
   (-> jvm.Extender

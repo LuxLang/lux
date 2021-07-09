@@ -98,11 +98,14 @@
 (def: tag^ namespaced_symbol^)
 (def: attr_name^ namespaced_symbol^)
 
+(def: white_space^
+  (Parser Text)
+  (<text>.some <text>.space))
+
 (def: spaced^
   (All [a] (-> (Parser a) (Parser a)))
-  (let [white_space^ (<>.some <text>.space)]
-    (|>> (<>.before white_space^)
-         (<>.after white_space^))))
+  (|>> (<>.before ..white_space^)
+       (<>.after ..white_space^)))
 
 (def: attr_value^
   (Parser Text)
@@ -114,15 +117,15 @@
   (Parser Attrs)
   (<| (\ <>.monad map (dictionary.from_list name.hash))
       <>.some
-      (<>.and (spaced^ attr_name^))
+      (<>.and (..spaced^ attr_name^))
       (<>.after (<text>.this "="))
-      (spaced^ attr_value^)))
+      (..spaced^ attr_value^)))
 
 (def: (close_tag^ expected)
   (-> Tag (Parser []))
   (do <>.monad
     [actual (|> tag^
-                spaced^
+                ..spaced^
                 (<>.after (<text>.this "/"))
                 (<text>.enclosed ["<" ">"]))]
     (<>.assert ($_ text\compose "Close tag does not match open tag." text.new_line
@@ -135,14 +138,14 @@
   (|> (<text>.not (<text>.this "--"))
       <text>.some
       (<text>.enclosed ["<!--" "-->"])
-      spaced^))
+      ..spaced^))
 
 (def: xml_header^
   (Parser Attrs)
-  (|> (spaced^ attrs^)
+  (|> (..spaced^ attrs^)
       (<>.before (<text>.this "?>"))
       (<>.after (<text>.this "<?xml"))
-      spaced^))
+      ..spaced^))
 
 (def: cdata^
   (Parser Text)
@@ -150,7 +153,7 @@
     (|> (<text>.some (<text>.not end))
         (<>.after end)
         (<>.after (<text>.this "<![CDATA["))
-        spaced^)))
+        ..spaced^)))
 
 (def: text^
   (Parser XML)
@@ -166,34 +169,36 @@
   (Parser XML)
   (|> (<>.rec
        (function (_ node^)
-         (|> (spaced^
-              (do <>.monad
-                [_ (<text>.this "<")
-                 tag (spaced^ tag^)
-                 attrs (spaced^ attrs^)
-                 #let [no_children^ (do <>.monad
-                                      [_ (<text>.this "/>")]
-                                      (wrap (#Node tag attrs (list))))
-                       ## TODO: Find a way to make do without this hack. Without it, some POM files fail when parsing them in Aedifex. Something like this fails: <configuration> </configuration>
-                       alternative_no_children^ (do <>.monad
-                                                  [_ (<text>.this ">")
-                                                   _ (<>.some <text>.space)
-                                                   _ (..close_tag^ tag)]
-                                                  (wrap (#Node tag attrs (list))))
-                       with_children^ (do <>.monad
-                                        [_ (<text>.this ">")
-                                         children (<>.some node^)
-                                         _ (..close_tag^ tag)]
-                                        (wrap (#Node tag attrs children)))]]
-                ($_ <>.either
-                    no_children^
-                    alternative_no_children^
-                    with_children^)))
+         (|> (do <>.monad
+               [_ (<text>.this "<")
+                tag (..spaced^ tag^)
+                attrs (..spaced^ attrs^)
+                #let [no_children^ (do <>.monad
+                                     [_ (<text>.this "/>")]
+                                     (wrap (#Node tag attrs (list))))
+                      ## TODO: Find a way to make do without this hack. Without it, some POM files fail when parsing them in Aedifex. Something like this fails: <configuration> </configuration>
+                      alternative_no_children^ (do <>.monad
+                                                 [_ (<text>.this ">")
+                                                  _ (<>.some <text>.space)
+                                                  _ (..close_tag^ tag)]
+                                                 (wrap (#Node tag attrs (list))))
+                      with_children^ (do <>.monad
+                                       [_ (<text>.this ">")
+                                        children (<>.either (<>.many node^)
+                                                            (<>.after (<>.some ..comment^)
+                                                                      (wrap (: (List XML) (list)))))
+                                        _ (..close_tag^ tag)]
+                                       (wrap (#Node tag attrs children)))]]
+               ($_ <>.either
+                   no_children^
+                   alternative_no_children^
+                   with_children^))
+             ..spaced^
              (<>.before (<>.some ..comment^))
              (<>.after (<>.some ..comment^))
-             (<>.either text^))))
+             (<>.either ..text^))))
       (<>.before (<>.some ..null^))
-      (<>.after (<>.maybe xml_header^))))
+      (<>.after (<>.maybe ..xml_header^))))
 
 (def: read
   (-> Text (Try XML))

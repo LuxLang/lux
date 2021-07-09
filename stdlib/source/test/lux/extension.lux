@@ -10,18 +10,24 @@
     ["." php]
     ["." scheme]]
    [abstract
-    [monad (#+ do)]]
+    ["." monad (#+ do)]]
    [control
     ["." try]
     ["<>" parser
-     ["<c>" code]
-     ["<a>" analysis]
-     ["<s>" synthesis]]]
+     ["<.>" code]
+     ["<.>" analysis]
+     ["<.>" synthesis]]]
    [data
+    ["." product]
     ["." text ("#\." equivalence)
      ["%" format (#+ format)]]
     [collection
-     ["." row]]]
+     ["." row]
+     ["." list ("#\." functor)]]]
+   [math
+    ["." random]
+    [number
+     ["n" nat]]]
    [tool
     [compiler
      ["." phase]
@@ -40,81 +46,96 @@
 (def: my_analysis "my analysis")
 (def: my_synthesis "my synthesis")
 (def: my_generation "my generation")
+(def: dummy_generation "dummy generation")
 (def: my_directive "my directive")
 
 ## Generation
 (for {@.old
       (as_is)}
      
-     (as_is (analysis: (..my_generation self phase archive {parameters (<>.some <c>.any)})
-              (do phase.monad
-                [_ (type.infer .Text)]
-                (wrap (#analysis.Extension self (list)))))
+     (as_is
+      ## Analysis
+      (analysis: (..my_analysis self phase archive {pass_through <code>.any})
+        (phase archive pass_through))
 
-            (synthesis: (..my_generation self phase archive {parameters (<>.some <a>.any)})
-              (do phase.monad
-                []
-                (wrap (#synthesis.Extension self (list)))))
-            ))
+      ## Synthesis
+      (analysis: (..my_synthesis self phase archive {parameters (<>.some <code>.any)})
+        (let [! phase.monad]
+          (|> parameters
+              (monad.map ! (phase archive))
+              (\ ! map (|>> (#analysis.Extension self))))))
 
-(for {@.old
-      (as_is)}
-     
-     (generation: (..my_generation self phase archive {parameters (<>.some <s>.any)})
-       (do phase.monad
-         []
-         (wrap (for {@.jvm
-                     (row.row (#jvm.Constant (#jvm.LDC (#jvm.String self))))
+      (synthesis: (..my_synthesis self phase archive {pass_through <analysis>.any})
+        (phase archive pass_through))
 
-                     @.js (js.string self)
-                     @.python (python.unicode self)
-                     @.lua (lua.string self)
-                     @.ruby (ruby.string self)
-                     @.php (php.string self)
-                     @.scheme (scheme.string self)})))))
+      ## Generation
+      (analysis: (..my_generation self phase archive {parameters (<>.some <code>.any)})
+        (let [! phase.monad]
+          (|> parameters
+              (monad.map ! (phase archive))
+              (\ ! map (|>> (#analysis.Extension self))))))
 
-(for {@.old
-      (as_is)}
-     
-     (as_is (analysis: (..my_analysis self phase archive {parameters (<>.some <c>.any)})
-              (do phase.monad
-                [_ (type.infer .Text)]
-                (wrap (#analysis.Primitive (#analysis.Text self)))))
+      (synthesis: (..my_generation self phase archive {parameters (<>.some <analysis>.any)})
+        (let [! phase.monad]
+          (|> parameters
+              (monad.map ! (phase archive))
+              (\ ! map (|>> (#synthesis.Extension self))))))
 
-            ## Synthesis
-            (analysis: (..my_synthesis self phase archive {parameters (<>.some <c>.any)})
-              (do phase.monad
-                [_ (type.infer .Text)]
-                (wrap (#analysis.Extension self (list)))))
+      (generation: (..my_generation self phase archive {pass_through <synthesis>.any})
+        (for {@.jvm
+              (\ phase.monad map (|>> #jvm.Embedded row.row)
+                 (phase archive pass_through))}
+             (phase archive pass_through)))
 
-            (synthesis: (..my_synthesis self phase archive {parameters (<>.some <a>.any)})
-              (do phase.monad
-                []
-                (wrap (synthesis.text self))))
-            
-            ## Directive
-            (directive: (..my_directive self phase archive {parameters (<>.some <c>.any)})
-              (do phase.monad
-                [#let [_ (debug.log! (format "Successfully installed directive " (%.text self) "!"))]]
-                (wrap directive.no_requirements)))
+      (analysis: (..dummy_generation self phase archive)
+        (\ phase.monad wrap (#analysis.Extension self (list))))
 
-            (`` ((~~ (static ..my_directive))))
-            ))
+      (synthesis: (..dummy_generation self phase archive)
+        (\ phase.monad wrap (#synthesis.Extension self (list))))
+
+      (generation: (..dummy_generation self phase archive)
+        (\ phase.monad wrap
+           (for {@.jvm
+                 (row.row (#jvm.Constant (#jvm.LDC (#jvm.String self))))
+
+                 @.js (js.string self)
+                 @.python (python.unicode self)
+                 @.lua (lua.string self)
+                 @.ruby (ruby.string self)
+                 @.php (php.string self)
+                 @.scheme (scheme.string self)})))
+
+      ## Directive
+      (directive: (..my_directive self phase archive {parameters (<>.some <code>.any)})
+        (do phase.monad
+          [#let [_ (debug.log! (format "Successfully installed directive " (%.text self) "!"))]]
+          (wrap directive.no_requirements)))
+
+      (`` ((~~ (static ..my_directive))))
+      ))
 
 (def: #export test
   Test
   (<| (_.covering /._)
-      (`` ($_ _.and
-              (~~ (template [<macro> <extension>]
-                    [(_.cover [<macro>]
-                              (for {@.old
-                                    false}
-                                   (text\= (`` ((~~ (static <extension>))))
-                                           <extension>)))]
+      (do random.monad
+        [expected random.nat]
+        (`` ($_ _.and
+                (~~ (template [<macro> <extension>]
+                      [(_.cover [<macro>]
+                                (for {@.old
+                                      false}
+                                     (n.= expected
+                                          (`` ((~~ (static <extension>)) expected)))))]
 
-                    [/.analysis: ..my_analysis]
-                    [/.synthesis: ..my_synthesis]
-                    [/.generation: ..my_generation]))
-              (_.cover [/.directive:]
-                       true)
-              ))))
+                      [/.analysis: ..my_analysis]
+                      [/.synthesis: ..my_synthesis]))
+                (_.cover [/.generation:]
+                         (for {@.old
+                               false}
+                              (and (n.= expected
+                                        (`` ((~~ (static ..my_generation)) expected)))
+                                   (text\= ..dummy_generation
+                                           (`` ((~~ (static ..dummy_generation))))))))
+                (_.cover [/.directive:]
+                         true)
+                )))))

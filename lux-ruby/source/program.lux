@@ -11,6 +11,7 @@
     ["." try (#+ Try)]
     ["." exception (#+ exception:)]
     ["." io (#+ IO io)]
+    ["." function]
     [concurrency
      ["." promise (#+ Promise)]]
     ["<>" parser
@@ -22,13 +23,14 @@
      [encoding
       ["." utf8]]]
     [collection
-     ["." array (#+ Array)]]]
+     ["." array (#+ Array)]
+     ["." list]]]
    ["." macro
     [syntax (#+ syntax:)]
     ["." template]
     ["." code]]
    [math
-    [number
+    [number (#+ hex)
      ["n" nat]
      ["i" int]
      ["." i64]]]
@@ -39,7 +41,7 @@
     ["_" ruby]]
    [tool
     [compiler
-     [phase (#+ Operation Phase)]
+     ["." phase (#+ Operation Phase)]
      [reference
       [variable (#+ Register)]]
      [language
@@ -50,7 +52,7 @@
        [analysis
         [macro (#+ Expander)]]
        [phase
-        ["." extension (#+ Bundle Extender Handler)
+        ["." extension (#+ Extender Handler)
          ["#/." bundle]
          ["." analysis #_
           ["#" ruby]]
@@ -63,6 +65,7 @@
      [default
       ["." platform (#+ Platform)]]
      [meta
+      [archive (#+ Archive)]
       ["." packager #_
        ["#" script]]]]]]
   [program
@@ -173,7 +176,8 @@
 
 (import: org/jruby/java/proxies/JavaProxy
   ["#::."
-   (new [org/jruby/Ruby org/jruby/RubyClass java/lang/Object])])
+   (new [org/jruby/Ruby org/jruby/RubyClass java/lang/Object])
+   (getObject [] java/lang/Object)])
 
 (import: org/jruby/internal/runtime/methods/DynamicMethod)
 
@@ -198,8 +202,32 @@
   ["#::."
    (new [org/jruby/Ruby])])
 
+(import: org/jruby/runtime/Block$Type
+  ["#::."
+   (#enum PROC)])
+
+(import: org/jruby/runtime/Signature
+  ["#::."
+   (#static THREE_ARGUMENTS org/jruby/runtime/Signature)])
+
+(import: org/jruby/parser/StaticScope)
+
+(import: org/jruby/parser/StaticScopeFactory
+  ["#::."
+   (new [org/jruby/Ruby])
+   (getDummyScope [] org/jruby/parser/StaticScope)])
+
+(import: org/jruby/runtime/BlockBody)
+
+(import: org/jruby/runtime/Block
+  ["#::."
+   (#static NULL_BLOCK org/jruby/runtime/Block)
+   (type org/jruby/runtime/Block$Type)
+   (getBody [] org/jruby/runtime/BlockBody)])
+
 (import: org/jruby/RubyProc
   ["#::."
+   (#static newProc [org/jruby/Ruby org/jruby/runtime/Block org/jruby/runtime/Block$Type] org/jruby/RubyProc)
    (call [org/jruby/runtime/ThreadContext [org/jruby/runtime/builtin/IRubyObject]]
          #try org/jruby/runtime/builtin/IRubyObject)])
 
@@ -248,7 +276,7 @@
                    value])
 
     _
-    (exception.throw ..unknown_kind_of_object host_object)))
+    (exception.throw ..unknown_kind_of_object [host_object])))
 
 (exception: #export nil_has_no_lux_representation)
 
@@ -259,21 +287,22 @@
           (~~ (template [<class> <post_processing>]
                 [(case (ffi.check <class> host_object)
                    (#.Some typed_object)
-                   (|> typed_object <post_processing>)
+                   (`` (|> typed_object (~~ (template.splice <post_processing>))))
 
                    _)]
 
-                [java/lang/Boolean #try.Success]
-                [java/lang/Long #try.Success]
-                [java/lang/Double #try.Success]
-                [java/lang/String #try.Success]
-                [[java/lang/Object] #try.Success]
-                [org/jruby/RubyArray (read_tuple read)]
-                [org/jruby/RubyHash (read_variant read)]
-                [org/jruby/RubySymbol #try.Success]
-                [org/jruby/RubyProc #try.Success]
+                [java/lang/Boolean [#try.Success]]
+                [java/lang/Long [#try.Success]]
+                [java/lang/Double [#try.Success]]
+                [java/lang/String [#try.Success]]
+                [[java/lang/Object] [#try.Success]]
+                [org/jruby/RubyArray [(read_tuple read)]]
+                [org/jruby/RubyHash [(read_variant read)]]
+                [org/jruby/RubySymbol [#try.Success]]
+                [org/jruby/RubyProc [#try.Success]]
+                [org/jruby/java/proxies/JavaProxy [org/jruby/java/proxies/JavaProxy::getObject #try.Success]]
                 ))
-          (exception.throw ..unknown_kind_of_object host_object)
+          (exception.throw ..unknown_kind_of_object [host_object])
           )))
 
 (def: ruby_nil
@@ -576,9 +605,7 @@
       (#try.Failure error))
 
     #.None
-    (exception.throw ..cannot_apply_a_non_function (:coerce java/lang/Object macro))))
-
-(def: separator "___")
+    (exception.throw ..cannot_apply_a_non_function [(:coerce java/lang/Object macro)])))
 
 (def: host
   (IO (Host _.Expression _.Statement))
@@ -617,6 +644,158 @@
                 [_ (run! content)]
                 (run! (_.global (reference.artifact context))))))))))
 
+(for {@.old
+      (as_is (exception: #export (invaid_phase_application {partial_application (List Any)}
+                                                           {arity Nat})
+               (exception.report
+                ["Partial Application" (%.nat (list.size partial_application))]
+                ["Arity" (%.nat arity)]))
+
+             (def: proc_type
+               org/jruby/runtime/Block$Type
+               (|> (org/jruby/runtime/Block::NULL_BLOCK)
+                   (org/jruby/runtime/Block::type)))
+
+             (def: phase_block_signature
+               org/jruby/runtime/Signature
+               (org/jruby/runtime/Signature::THREE_ARGUMENTS))
+
+             (def: dummy_static_scope
+               org/jruby/parser/StaticScope
+               (|> (org/jruby/parser/StaticScopeFactory::new (!ruby_runtime))
+                   (org/jruby/parser/StaticScopeFactory::getDummyScope)))
+
+             (def: phase_block_body
+               org/jruby/runtime/BlockBody
+               (ffi.object [] org/jruby/runtime/BlockBody []
+                 [{org/jruby/runtime/Signature ..phase_block_signature}]
+                 ## Methods
+                 (org/jruby/runtime/BlockBody
+                  [] (getFile self)
+                  java/lang/String
+                  "YOLO")
+                 (org/jruby/runtime/BlockBody
+                  [] (getLine self)
+                  int
+                  (ffi.long_to_int (hex "+ABC,123")))
+                 (org/jruby/runtime/BlockBody
+                  [] (getStaticScope self)
+                  org/jruby/parser/StaticScope
+                  ..dummy_static_scope)))
+
+             (def: (host_phase partial_application phase)
+               (All [s i o]
+                 (-> (List Any) (Phase [extension.Bundle s] i o)
+                     org/jruby/RubyProc))
+               (let [block (ffi.object [] org/jruby/runtime/Block []
+                             [{org/jruby/runtime/BlockBody ..phase_block_body}]
+                             ## Methods
+                             (org/jruby/runtime/Block
+                              [] (call self
+                                       {_ org/jruby/runtime/ThreadContext}
+                                       {inputs [org/jruby/runtime/builtin/IRubyObject]}
+                                       {_ org/jruby/runtime/Block})
+                              org/jruby/runtime/builtin/IRubyObject
+                              (<| try.assume
+                                  (let [inputs (array.to_list inputs)])
+                                  (case inputs
+                                    (^ (list))
+                                    (#try.Success (host_phase partial_application phase))
+                                    
+                                    (^ (list input/0))
+                                    (do try.monad
+                                      [input/0 (..read (:coerce java/lang/Object input/0))]
+                                      (case partial_application
+                                        (^ (list))
+                                        (wrap (host_phase (list input/0) phase))
+                                        
+                                        (^ (list partial/0))
+                                        (wrap (host_phase (list partial/0 input/0) phase))
+                                        
+                                        (^ (list partial/0 partial/1))
+                                        (wrap (..to_host ((:coerce (-> Any Any Any Any) phase)
+                                                          partial/0
+                                                          partial/1
+                                                          input/0)))
+
+                                        _
+                                        (exception.throw ..invaid_phase_application [partial_application (list.size inputs)])))
+                                    
+                                    (^ (list input/0 input/1))
+                                    (do try.monad
+                                      [input/0 (..read (:coerce java/lang/Object input/0))
+                                       input/1 (..read (:coerce java/lang/Object input/1))]
+                                      (case partial_application
+                                        (^ (list))
+                                        (wrap (host_phase (list input/0 input/1) phase))
+                                        
+                                        (^ (list partial/0))
+                                        (wrap (..to_host ((:coerce (-> Any Any Any Any) phase)
+                                                          partial/0
+                                                          input/0
+                                                          input/1)))
+                                        
+                                        _
+                                        (exception.throw ..invaid_phase_application [partial_application (list.size inputs)])))
+                                    
+                                    (^ (list input/0 input/1 input/2))
+                                    (do try.monad
+                                      [input/0 (..read (:coerce java/lang/Object input/0))
+                                       input/1 (..read (:coerce java/lang/Object input/1))
+                                       input/2 (..read (:coerce java/lang/Object input/2))]
+                                      (case partial_application
+                                        (^ (list))
+                                        (wrap (..to_host ((:coerce (-> Any Any Any Any) phase)
+                                                          input/0
+                                                          input/1
+                                                          input/2)))
+                                        
+                                        _
+                                        (exception.throw ..invaid_phase_application [partial_application (list.size inputs)])))
+                                    
+                                    _
+                                    (exception.throw ..invaid_phase_application [partial_application (list.size inputs)])))))]
+                 (org/jruby/RubyProc::newProc (!ruby_runtime) block ..proc_type)))
+
+             (def: (extender phase_wrapper)
+               (-> platform.Phase_Wrapper Extender)
+               ## TODO: Stop relying on coercions ASAP.
+               (<| (:coerce Extender)
+                   (function (@self handler))
+                   (:coerce Handler)
+                   (function (@self name phase))
+                   (:coerce Phase)
+                   (function (@self archive parameters))
+                   (:coerce Operation)
+                   (function (@self state))
+                   (:coerce Try)
+                   try.assume
+                   (:coerce Try)
+                   (do try.monad
+                     [handler (try.from_maybe (..ensure_macro handler))
+                      output (org/jruby/RubyProc::call (!ruby_thread_context)
+                                                       (|> (ffi.array org/jruby/runtime/builtin/IRubyObject 5)
+                                                           (ffi.array_write 0 (org/jruby/RubyString::newInternalFromJavaExternal (!ruby_runtime) name))
+                                                           (ffi.array_write 1 (:coerce org/jruby/runtime/builtin/IRubyObject (phase_wrapper phase)))
+                                                           (ffi.array_write 2 (..to_host archive))
+                                                           (ffi.array_write 3 (..to_host parameters))
+                                                           (ffi.array_write 4 (..to_host state)))
+                                                       handler)]
+                     (..read (:coerce java/lang/Object output))))))
+
+      @.ruby
+      (def: (extender phase_wrapper handler)
+        (-> platform.Phase_Wrapper Extender)
+        (:assume handler))})
+
+(def: (phase_wrapper archive)
+  (-> Archive (runtime.Operation platform.Phase_Wrapper))
+  (do phase.monad
+    []
+    (wrap (:coerce platform.Phase_Wrapper
+                   (for {@.old (..host_phase (list))
+                         @.ruby (|>>)})))))
+
 (def: platform
   (IO (Platform Register _.Expression _.Statement))
   (do io.monad
@@ -625,6 +804,7 @@
            #platform.host host
            #platform.phase ruby.generate
            #platform.runtime runtime.generate
+           #platform.phase_wrapper ..phase_wrapper
            #platform.write (|>> _.code (\ utf8.codec encode))})))
 
 (def: (program context program)
@@ -632,32 +812,6 @@
   (_.statement (_.apply_lambda/* (list (runtime.lux//program_args _.command_line_arguments)
                                        _.nil)
                                  program)))
-
-(def: extender
-  Extender
-  ## TODO: Stop relying on coercions ASAP.
-  (<| (:coerce Extender)
-      (function (@self handler))
-      (:coerce Handler)
-      (function (@self name phase))
-      (:coerce Phase)
-      (function (@self archive parameters))
-      (:coerce Operation)
-      (function (@self state))
-      (:coerce Try)
-      try.assume
-      (:coerce Try)
-      (do try.monad
-        [handler (try.from_maybe (..ensure_macro handler))
-         output (org/jruby/RubyProc::call (!ruby_thread_context)
-                                          (|> (ffi.array org/jruby/runtime/builtin/IRubyObject 5)
-                                              (ffi.array_write 0 (org/jruby/RubyString::newInternalFromJavaExternal (!ruby_runtime) name))
-                                              (ffi.array_write 1 (..to_host phase))
-                                              (ffi.array_write 2 (..to_host archive))
-                                              (ffi.array_write 3 (..to_host parameters))
-                                              (ffi.array_write 4 (..to_host state)))
-                                          handler)]
-        (..read (:coerce java/lang/Object output)))))
 
 (def: (declare_success! _)
   (-> Any (Promise Any))
@@ -674,7 +828,7 @@
                            analysis.bundle
                            ..platform
                            generation.bundle
-                           extension/bundle.empty
+                           (function.constant extension/bundle.empty)
                            ..program
                            [Register _.Expression _.Statement]
                            ..extender

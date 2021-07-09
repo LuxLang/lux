@@ -854,7 +854,8 @@
           =fields (&/map% (partial analyse-field analyse class-env) ?fields)
           _ (&host/use-dummy-class class-decl super-class interfaces &/$None =fields methods)
           =methods (&/map% (partial analyse-method analyse class-decl* class-env all-supers) methods)
-          _ (check-method-completion all-supers =methods)
+          ;; TODO: Uncomment
+          ;; _ (check-method-completion all-supers =methods)
           _ (compile-class class-decl super-class interfaces =inheritance-modifier =anns =fields =methods &/$Nil &/$None)
           _ &/pop-dummy-name
           :let [_ (println 'CLASS full-name)]
@@ -869,7 +870,8 @@
 
 (defn- analyse-methods [analyse class-decl all-supers methods]
   (|do [=methods (&/map% (partial analyse-method analyse class-decl &/$Nil all-supers) methods)
-        _ (check-method-completion all-supers =methods)
+        ;; TODO: Uncomment
+        ;; _ (check-method-completion all-supers =methods)
         =captured &&env/captured-vars]
     (return (&/T [=methods =captured]))))
 
@@ -878,14 +880,16 @@
         scope &/get-scope-name]
     (return (&/T [module scope]))))
 
-(let [default-<init> (&/$ConstructorMethodSyntax (&/T [&/$PublicPM
-                                                       false
-                                                       &/$Nil
-                                                       &/$Nil
-                                                       &/$Nil
-                                                       &/$Nil
-                                                       &/$Nil
-                                                       (&/$Tuple &/$Nil)]))
+(let [default-<init> (fn [ctor-args]
+                       (&/$ConstructorMethodSyntax (&/T [&/$PublicPM ;; privacy-modifier
+                                                         false ;; strict
+                                                         &/$Nil ;; anns
+                                                         &/$Nil ;; gvars
+                                                         &/$Nil ;; exceptions
+                                                         &/$Nil ;; inputs
+                                                         ctor-args ;; ctor-args
+                                                         (&/$Tuple &/$Nil) ;; body
+                                                         ])))
       captured-slot-class "java.lang.Object"
       captured-slot-type (&/$GenericClass captured-slot-class &/$Nil)]
   (defn- analyse-jvm-anon-class [analyse compile-class exo-type super-class interfaces ctor-args methods]
@@ -902,7 +906,7 @@
                                      (return (&/T [arg-type =arg-term])))))
                                ctor-args)
             _ (->> methods
-                   (&/$Cons default-<init>)
+                   (&/$Cons (default-<init> =ctor-args))
                    (&host/use-dummy-class class-decl super-class interfaces (&/$Some =ctor-args) &/$Nil))
             [=methods =captured] (let [all-supers (&/$Cons super-class interfaces)]
                                    (analyse-methods analyse class-type-decl all-supers methods))

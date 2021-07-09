@@ -21,17 +21,24 @@
     ["." file]
     ["#/." program]]
    [target
-    [jvm
-     [bytecode (#+ Bytecode)]]]
+    ["." jvm #_
+     [bytecode (#+ Bytecode)]
+     ["#/." type
+      ["#/." box]]]]
    [tool
     [compiler
+     [reference (#+)]
+     ["." phase]
      [default
       ["." platform (#+ Platform)]]
      [meta
+      [archive (#+ Archive)]
       ["." packager #_
        ["#" jvm]]]
      [language
       [lux
+       ["$" synthesis (#+ Synthesis)]
+       ["." generation]
        [analysis
         [macro (#+ Expander)]]
        [phase
@@ -62,6 +69,7 @@
      ["." jvm
       ["." runtime]
       ["." expression]
+      ["." function]
       ["#/." program]
       ["translation" extension]]]]])
 
@@ -80,6 +88,11 @@
 (def: _object_class
   (java/lang/Class java/lang/Object)
   (ffi.class_for java/lang/Object))
+
+(def: _apply1_args
+  (Array (java/lang/Class java/lang/Object))
+  (|> (ffi.array (java/lang/Class java/lang/Object) 1)
+      (ffi.array_write 0 _object_class)))
 
 (def: _apply2_args
   (Array (java/lang/Class java/lang/Object))
@@ -111,6 +124,105 @@
                   (ffi.array_write 1 (:coerce java/lang/Object lux)))
               apply_method))))
 
+(def: how_to_wrap_a_phase
+  Synthesis
+  (let [java/lang/String (jvm/type.class "java.lang.String" (list))
+        <java/lang/Class> (jvm/type.array (jvm/type.class "java.lang.Class" (list)))
+        java/lang/Object (jvm/type.class "java.lang.Object" (list))
+        <java/lang/Object> (jvm/type.array java/lang/Object)
+
+        jvm_type (: (All [c] (-> (jvm/type.Type c) Synthesis))
+                    (|>> jvm/type.format
+                         $.text))
+        class_type (: (-> Text Synthesis)
+                      (function (_ name)
+                        (|> (jvm/type.class name (list))
+                            jvm_type)))
+        unwrap_long (: (-> Synthesis Synthesis)
+                       (|>> (list ($.text jvm/type/box.long)
+                                  ($.text "long"))
+                            (#$.Extension "jvm object cast")))
+        long_to_int (: (-> Synthesis Synthesis)
+                       (|>> (list)
+                            (#$.Extension "jvm conversion long-to-int")))
+        literal_nat (: (-> Nat Synthesis)
+                       (|>> .i64 $.i64 unwrap_long long_to_int))
+        array_write (: (-> Text Nat Synthesis Synthesis Synthesis)
+                       (function (_ element_class index value array)
+                         ((#$.Extension "jvm array write object"
+                                        (list (jvm_type (jvm/type.array (jvm/type.class element_class (list))))
+                                              (literal_nat index)
+                                              value
+                                              array)))))
+        object_array (: (-> Text Nat Synthesis)
+                        (function (_ class_name size)
+                          (#$.Extension "jvm array new object"
+                                        (list (class_type class_name)
+                                              (literal_nat size)))))
+        class_of (: (-> Synthesis Synthesis)
+                    (function (_ object)
+                      (#$.Extension "jvm member invoke virtual"
+                                    (list& (class_type "java.lang.Object")
+                                           ($.text "getClass")
+                                           (class_type "java.lang.Class")
+                                           object
+                                           (list)))))
+        input (: (All [c] (-> (jvm/type.Type c) Synthesis Synthesis))
+                 (function (_ value_type value)
+                   ($.tuple (list (jvm_type value_type) value))))
+        
+        example_object (#$.Extension "jvm member invoke constructor"
+                                     (list& (class_type "java.lang.Object")
+                                            (list)))
+        phase_arity 3
+        $phase ($.variable/local 1)
+        $archive ($.variable/local 2)
+        $input ($.variable/local 3)
+        $state ($.variable/local 4)
+        apply_method (#$.Extension "jvm member invoke virtual"
+                                   (list& (class_type "java.lang.Class")
+                                          ($.text "getMethod")
+                                          (class_type "java.lang.reflect.Method")
+                                          (class_of $phase)
+                                          (list (input java/lang/String
+                                                       ($.text runtime.apply_method))
+                                                (input <java/lang/Class>
+                                                       (|> (object_array "java.lang.Class" phase_arity)
+                                                           (array_write "java.lang.Class" 0 (class_of example_object))
+                                                           (array_write "java.lang.Class" 1 (class_of example_object))
+                                                           (array_write "java.lang.Class" 2 (class_of example_object)))))))]
+    (#$.Extension "jvm member invoke virtual"
+                  (list& (class_type "java.lang.reflect.Method")
+                         ($.text "invoke")
+                         (class_type "java.lang.Object")
+                         apply_method
+                         (list (input java/lang/Object
+                                      $phase)
+                               (input <java/lang/Object>
+                                      (|> (object_array "java.lang.Object" phase_arity)
+                                          (array_write "java.lang.Object" 0 $archive)
+                                          (array_write "java.lang.Object" 1 $input)
+                                          (array_write "java.lang.Object" 2 $state))))))))
+
+(def: (phase_wrapper archive)
+  (-> Archive (generation.Operation _.Anchor _.Inst _.Definition platform.Phase_Wrapper))
+  (do phase.monad
+    [instanceG (function.function' (#.Some [0 (.nat -1)]) expression.translate archive [(list) 4 ..how_to_wrap_a_phase])
+     phase_wrapper (generation.evaluate! [0 (.nat -2)] instanceG)]
+    (wrap (function (_ phase)
+            (<| try.assume
+                (: (Try java/lang/Object))
+                (do try.monad
+                  [apply_method (|> phase_wrapper
+                                    (:coerce java/lang/Object)
+                                    (java/lang/Object::getClass)
+                                    (java/lang/Class::getMethod runtime.apply_method _apply1_args))]
+                  (java/lang/reflect/Method::invoke
+                   (:coerce java/lang/Object phase_wrapper)
+                   (|> (ffi.array java/lang/Object 1)
+                       (ffi.array_write 0 (:coerce java/lang/Object phase)))
+                   apply_method)))))))
+
 (def: #export platform
   ## (IO (Platform Anchor (Bytecode Any) Definition))
   (IO (Platform _.Anchor _.Inst _.Definition))
@@ -123,10 +235,11 @@
            #platform.phase expression.translate
            ## #platform.runtime runtime.generate
            #platform.runtime runtime.translate
+           #platform.phase_wrapper ..phase_wrapper
            #platform.write product.right})))
 
-(def: extender
-  Extender
+(def: (extender phase_wrapper)
+  (-> platform.Phase_Wrapper Extender)
   ## TODO: Stop relying on coercions ASAP.
   (<| (:coerce Extender)
       (function (@self handler))
@@ -148,7 +261,7 @@
          (:coerce java/lang/Object handler)
          (|> (ffi.array java/lang/Object 5)
              (ffi.array_write 0 (:coerce java/lang/Object name))
-             (ffi.array_write 1 (:coerce java/lang/Object phase))
+             (ffi.array_write 1 (:coerce java/lang/Object (phase_wrapper phase)))
              (ffi.array_write 2 (:coerce java/lang/Object archive))
              (ffi.array_write 3 (:coerce java/lang/Object parameters))
              (ffi.array_write 4 (:coerce java/lang/Object state)))
@@ -173,7 +286,7 @@
                            ..platform
                            ## generation.bundle
                            translation.bundle
-                           (directive.bundle ..extender)
+                           (|>> ..extender directive.bundle)
                            (jvm/program.program jvm/runtime.class_name)
                            [_.Anchor _.Inst _.Definition]
                            ..extender

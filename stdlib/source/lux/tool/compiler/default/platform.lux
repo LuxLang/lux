@@ -7,7 +7,7 @@
     ["." monad (#+ Monad do)]]
    [control
     ["." function]
-    ["." try (#+ Try)]
+    ["." try (#+ Try) ("#\." functor)]
     ["." exception (#+ exception:)]
     [concurrency
      ["." promise (#+ Promise Resolver) ("#\." monad)]
@@ -31,7 +31,7 @@
   ["." // #_
    ["#." init]
    ["/#" //
-    ["#." phase]
+    ["#." phase (#+ Phase)]
     [language
      [lux
       [program (#+ Program)]
@@ -61,499 +61,541 @@
     ["." static (#+ Static)]
     ["." import (#+ Import)]]])
 
-(type: #export (Platform anchor expression directive)
-  {#&file_system (file.System Promise)
-   #host (///generation.Host expression directive)
-   #phase (///generation.Phase anchor expression directive)
-   #runtime (///generation.Operation anchor expression directive [Registry Output])
-   #write (-> directive Binary)})
-
-## TODO: Get rid of this
-(type: (Action a)
-  (Promise (Try a)))
-
-## TODO: Get rid of this
-(def: monad
-  (:coerce (Monad Action)
-           (try.with promise.monad)))
-
 (with_expansions [<type_vars> (as_is anchor expression directive)
-                  <Platform> (as_is (Platform <type_vars>))
-                  <State+> (as_is (///directive.State+ <type_vars>))
-                  <Bundle> (as_is (///generation.Bundle <type_vars>))]
-
-  (def: writer
-    (Writer [Descriptor (Document .Module)])
-    (_.and descriptor.writer
-           (document.writer $.writer)))
-
-  (def: (cache_module static platform module_id [descriptor document output])
-    (All [<type_vars>]
-      (-> Static <Platform> archive.ID [Descriptor (Document Any) Output]
-          (Promise (Try Any))))
-    (let [system (get@ #&file_system platform)
-          write_artifact! (: (-> [artifact.ID Binary] (Action Any))
-                             (function (_ [artifact_id content])
-                               (ioW.write system static module_id artifact_id content)))]
-      (do {! ..monad}
-        [_ (ioW.prepare system static module_id)
-         _ (for {@.python (|> output
-                              row.to_list
-                              (list.chunk 128)
-                              (monad.map ! (monad.map ! write_artifact!))
-                              (: (Action (List (List Any)))))}
-                (|> output
-                    row.to_list
-                    (monad.map ..monad write_artifact!)
-                    (: (Action (List Any)))))
-         document (\ promise.monad wrap
-                     (document.check $.key document))]
-        (ioW.cache system static module_id
-                   (_.run ..writer [descriptor document])))))
-
-  ## TODO: Inline ASAP
-  (def: initialize_buffer!
-    (All [<type_vars>]
-      (///generation.Operation <type_vars> Any))
-    (///generation.set_buffer ///generation.empty_buffer))
-
-  ## TODO: Inline ASAP
-  (def: (compile_runtime! platform)
-    (All [<type_vars>]
-      (-> <Platform> (///generation.Operation <type_vars> [Registry Output])))
-    (do ///phase.monad
-      [_ ..initialize_buffer!]
-      (get@ #runtime platform)))
-
-  (def: (runtime_descriptor registry)
-    (-> Registry Descriptor)
-    {#descriptor.hash 0
-     #descriptor.name archive.runtime_module
-     #descriptor.file ""
-     #descriptor.references (set.new text.hash)
-     #descriptor.state #.Compiled
-     #descriptor.registry registry})
+                  <Operation> (as_is ///generation.Operation <type_vars>)]
+  (type: #export Phase_Wrapper
+    (All [s i o] (-> (Phase s i o) Any)))
   
-  (def: runtime_document
-    (Document .Module)
-    (document.write $.key (module.new 0)))
+  (type: #export (Platform <type_vars>)
+    {#&file_system (file.System Promise)
+     #host (///generation.Host expression directive)
+     #phase (///generation.Phase <type_vars>)
+     #runtime (<Operation> [Registry Output])
+     #phase_wrapper (-> Archive (<Operation> Phase_Wrapper))
+     #write (-> directive Binary)})
 
-  (def: (process_runtime archive platform)
-    (All [<type_vars>]
-      (-> Archive <Platform>
-          (///directive.Operation <type_vars>
-                                  [Archive [Descriptor (Document .Module) Output]])))
-    (do ///phase.monad
-      [[registry payload] (///directive.lift_generation
-                           (..compile_runtime! platform))
-       #let [[descriptor document] [(..runtime_descriptor registry) ..runtime_document]]
-       archive (///phase.lift (if (archive.reserved? archive archive.runtime_module)
-                                (archive.add archive.runtime_module [descriptor document payload] archive)
-                                (do try.monad
-                                  [[_ archive] (archive.reserve archive.runtime_module archive)]
-                                  (archive.add archive.runtime_module [descriptor document payload] archive))))]
-      (wrap [archive [descriptor document payload]])))
+  ## TODO: Get rid of this
+  (type: (Action a)
+    (Promise (Try a)))
 
-  (def: (initialize_state extender
-                          [analysers
-                           synthesizers
-                           generators
-                           directives]
-                          analysis_state
-                          state)
-    (All [<type_vars>]
-      (-> Extender
-          [(Dictionary Text ///analysis.Handler)
-           (Dictionary Text ///synthesis.Handler)
-           (Dictionary Text ///generation.Handler)
-           (Dictionary Text ///directive.Handler)]
-          .Lux
-          <State+>
-          (Try <State+>)))
-    (|> (:share [<type_vars>]
-                <State+>
-                state
-                
-                (///directive.Operation <type_vars> Any)
-                (do ///phase.monad
-                  [_ (///directive.lift_analysis
-                      (///analysis.install analysis_state))
-                   _ (///directive.lift_analysis
-                      (extension.with extender analysers))
-                   _ (///directive.lift_synthesis
-                      (extension.with extender synthesizers))
-                   _ (///directive.lift_generation
-                      (extension.with extender (:assume generators)))
-                   _ (extension.with extender (:assume directives))]
-                  (wrap [])))
-        (///phase.run' state)
-        (\ try.monad map product.left)))
+  ## TODO: Get rid of this
+  (def: monad
+    (:coerce (Monad Action)
+             (try.with promise.monad)))
 
-  (def: #export (initialize static module expander host_analysis platform generation_bundle host_directive_bundle program anchorT,expressionT,directiveT extender
-                            import compilation_sources)
-    (All [<type_vars>]
-      (-> Static
-          Module
-          Expander
-          ///analysis.Bundle
-          <Platform>
-          <Bundle>
-          (///directive.Bundle <type_vars>)
-          (Program expression directive)
-          [Type Type Type] Extender
-          Import (List Context)
-          (Promise (Try [<State+> Archive]))))
-    (do (try.with promise.monad)
-      [#let [state (//init.state (get@ #static.host static)
-                                 module
-                                 expander
-                                 host_analysis
-                                 (get@ #host platform)
-                                 (get@ #phase platform)
-                                 generation_bundle
-                                 host_directive_bundle
-                                 program
-                                 anchorT,expressionT,directiveT
-                                 extender)]
-       _ (ioW.enable (get@ #&file_system platform) static)
-       [archive analysis_state bundles] (ioW.thaw (get@ #host platform) (get@ #&file_system platform) static import compilation_sources)
-       state (promise\wrap (initialize_state extender bundles analysis_state state))]
-      (if (archive.archived? archive archive.runtime_module)
-        (wrap [state archive])
-        (do (try.with promise.monad)
-          [[state [archive payload]] (|> (..process_runtime archive platform)
-                                         (///phase.run' state)
-                                         promise\wrap)
-           _ (..cache_module static platform 0 payload)]
-          (wrap [state archive])))))
+  (with_expansions [<Platform> (as_is (Platform <type_vars>))
+                    <State+> (as_is (///directive.State+ <type_vars>))
+                    <Bundle> (as_is (///generation.Bundle <type_vars>))]
 
-  (def: compilation_log_separator
-    (format text.new_line text.tab))
+    (def: writer
+      (Writer [Descriptor (Document .Module)])
+      (_.and descriptor.writer
+             (document.writer $.writer)))
 
-  (def: (module_compilation_log module)
-    (All [<type_vars>]
-      (-> Module <State+> Text))
-    (|>> (get@ [#extension.state
-                #///directive.generation
-                #///directive.state
-                #extension.state
-                #///generation.log])
-         (row\fold (function (_ right left)
-                     (format left ..compilation_log_separator right))
-                   module)))
-
-  (def: with_reset_log
-    (All [<type_vars>]
-      (-> <State+> <State+>))
-    (set@ [#extension.state
-           #///directive.generation
-           #///directive.state
-           #extension.state
-           #///generation.log]
-          row.empty))
-
-  (def: empty
-    (Set Module)
-    (set.new text.hash))
-
-  (type: Mapping
-    (Dictionary Module (Set Module)))
-
-  (type: Dependence
-    {#depends_on Mapping
-     #depended_by Mapping})
-
-  (def: independence
-    Dependence
-    (let [empty (dictionary.new text.hash)]
-      {#depends_on empty
-       #depended_by empty}))
-
-  (def: (depend module import dependence)
-    (-> Module Module Dependence Dependence)
-    (let [transitive_dependency (: (-> (-> Dependence Mapping) Module (Set Module))
-                                   (function (_ lens module)
-                                     (|> dependence
-                                         lens
-                                         (dictionary.get module)
-                                         (maybe.default ..empty))))
-          transitive_depends_on (transitive_dependency (get@ #depends_on) import)
-          transitive_depended_by (transitive_dependency (get@ #depended_by) module)
-          update_dependence (: (-> [Module (Set Module)] [Module (Set Module)]
-                                   (-> Mapping Mapping))
-                               (function (_ [source forward] [target backward])
-                                 (function (_ mapping)
-                                   (let [with_dependence+transitives
-                                         (|> mapping
-                                             (dictionary.upsert source ..empty (set.add target))
-                                             (dictionary.update source (set.union forward)))]
-                                     (list\fold (function (_ previous)
-                                                  (dictionary.upsert previous ..empty (set.add target)))
-                                                with_dependence+transitives
-                                                (set.to_list backward))))))]
-      (|> dependence
-          (update@ #depends_on
-                   (update_dependence
-                    [module transitive_depends_on]
-                    [import transitive_depended_by]))
-          (update@ #depended_by
-                   ((function.flip update_dependence)
-                    [module transitive_depends_on]
-                    [import transitive_depended_by])))))
-
-  (def: (circular_dependency? module import dependence)
-    (-> Module Module Dependence Bit)
-    (let [dependence? (: (-> Module (-> Dependence Mapping) Module Bit)
-                         (function (_ from relationship to)
-                           (let [targets (|> dependence
-                                             relationship
-                                             (dictionary.get from)
-                                             (maybe.default ..empty))]
-                             (set.member? targets to))))]
-      (or (dependence? import (get@ #depends_on) module)
-          (dependence? module (get@ #depended_by) import))))
-
-  (exception: #export (module_cannot_import_itself {module Module})
-    (exception.report
-     ["Module" (%.text module)]))
-
-  (exception: #export (cannot_import_circular_dependency {importer Module}
-                                                         {importee Module})
-    (exception.report
-     ["Importer" (%.text importer)]
-     ["importee" (%.text importee)]))
-
-  (def: (verify_dependencies importer importee dependence)
-    (-> Module Module Dependence (Try Any))
-    (cond (text\= importer importee)
-          (exception.throw ..module_cannot_import_itself [importer])
-
-          (..circular_dependency? importer importee dependence)
-          (exception.throw ..cannot_import_circular_dependency [importer importee])
-
-          ## else
-          (#try.Success [])))
-
-  (with_expansions [<Context> (as_is [Archive <State+>])
-                    <Result> (as_is (Try <Context>))
-                    <Return> (as_is (Promise <Result>))
-                    <Signal> (as_is (Resolver <Result>))
-                    <Pending> (as_is [<Return> <Signal>])
-                    <Importer> (as_is (-> Module Module <Return>))
-                    <Compiler> (as_is (-> Module <Importer> archive.ID <Context> Module <Return>))]
-    (def: (parallel initial)
+    (def: (cache_module static platform module_id [descriptor document output])
       (All [<type_vars>]
-        (-> <Context>
-            (-> <Compiler> <Importer>)))
-      (let [current (stm.var initial)
-            pending (:share [<type_vars>]
-                            <Context>
-                            initial
-                            
-                            (Var (Dictionary Module <Pending>))
-                            (:assume (stm.var (dictionary.new text.hash))))
-            dependence (: (Var Dependence)
-                          (stm.var ..independence))]
-        (function (_ compile)
-          (function (import! importer module)
-            (do {! promise.monad}
-              [[return signal] (:share [<type_vars>]
-                                       <Context>
-                                       initial
-                                       
-                                       (Promise [<Return> (Maybe [<Context>
-                                                                  archive.ID
-                                                                  <Signal>])])
-                                       (:assume
-                                        (stm.commit
-                                         (do {! stm.monad}
-                                           [dependence (if (text\= archive.runtime_module importer)
-                                                         (stm.read dependence)
-                                                         (do !
-                                                           [[_ dependence] (stm.update (..depend importer module) dependence)]
-                                                           (wrap dependence)))]
-                                           (case (..verify_dependencies importer module dependence)
-                                             (#try.Failure error)
-                                             (wrap [(promise.resolved (#try.Failure error))
-                                                    #.None])
+        (-> Static <Platform> archive.ID [Descriptor (Document Any) Output]
+            (Promise (Try Any))))
+      (let [system (get@ #&file_system platform)
+            write_artifact! (: (-> [artifact.ID Binary] (Action Any))
+                               (function (_ [artifact_id content])
+                                 (ioW.write system static module_id artifact_id content)))]
+        (do {! ..monad}
+          [_ (ioW.prepare system static module_id)
+           _ (for {@.python (|> output
+                                row.to_list
+                                (list.chunk 128)
+                                (monad.map ! (monad.map ! write_artifact!))
+                                (: (Action (List (List Any)))))}
+                  (|> output
+                      row.to_list
+                      (monad.map ..monad write_artifact!)
+                      (: (Action (List Any)))))
+           document (\ promise.monad wrap
+                       (document.check $.key document))]
+          (ioW.cache system static module_id
+                     (_.run ..writer [descriptor document])))))
 
-                                             (#try.Success _)
-                                             (do !
-                                               [[archive state] (stm.read current)]
-                                               (if (archive.archived? archive module)
-                                                 (wrap [(promise\wrap (#try.Success [archive state]))
-                                                        #.None])
-                                                 (do !
-                                                   [@pending (stm.read pending)]
-                                                   (case (dictionary.get module @pending)
-                                                     (#.Some [return signal])
-                                                     (wrap [return
-                                                            #.None])
-                                                     
-                                                     #.None
-                                                     (case (if (archive.reserved? archive module)
-                                                             (do try.monad
-                                                               [module_id (archive.id module archive)]
-                                                               (wrap [module_id archive]))
-                                                             (archive.reserve module archive))
-                                                       (#try.Success [module_id archive])
-                                                       (do !
-                                                         [_ (stm.write [archive state] current)
-                                                          #let [[return signal] (:share [<type_vars>]
-                                                                                        <Context>
-                                                                                        initial
-                                                                                        
-                                                                                        <Pending>
-                                                                                        (promise.promise []))]
-                                                          _ (stm.update (dictionary.put module [return signal]) pending)]
-                                                         (wrap [return
-                                                                (#.Some [[archive state]
-                                                                         module_id
-                                                                         signal])]))
-                                                       
-                                                       (#try.Failure error)
-                                                       (wrap [(promise\wrap (#try.Failure error))
-                                                              #.None])))))))))))
-               _ (case signal
-                   #.None
-                   (wrap [])
-                   
-                   (#.Some [context module_id resolver])
-                   (do !
-                     [result (compile importer import! module_id context module)
-                      result (case result
-                               (#try.Failure error)
-                               (wrap result)
-
-                               (#try.Success [resulting_archive resulting_state])
-                               (stm.commit (do stm.monad
-                                             [[_ [merged_archive _]] (stm.update (function (_ [archive state])
-                                                                                   [(archive.merge resulting_archive archive)
-                                                                                    state])
-                                                                                 current)]
-                                             (wrap (#try.Success [merged_archive resulting_state])))))
-                      _ (promise.future (resolver result))]
-                     (wrap [])))]
-              return)))))
-
-    ## TODO: Find a better way, as this only works for the Lux compiler.
-    (def: (updated_state archive state)
+    ## TODO: Inline ASAP
+    (def: initialize_buffer!
       (All [<type_vars>]
-        (-> Archive <State+> (Try <State+>)))
-      (do {! try.monad}
-        [modules (monad.map ! (function (_ module)
-                                (do !
-                                  [[descriptor document output] (archive.find module archive)
-                                   lux_module (document.read $.key document)]
-                                  (wrap [module lux_module])))
-                            (archive.archived archive))
-         #let [additions (|> modules
-                             (list\map product.left)
-                             (set.from_list text.hash))]]
-        (wrap (update@ [#extension.state
-                        #///directive.analysis
-                        #///directive.state
-                        #extension.state]
-                       (function (_ analysis_state)
-                         (|> analysis_state
-                             (:coerce .Lux)
-                             (update@ #.modules (function (_ current)
-                                                  (list\compose (list.filter (|>> product.left
-                                                                                  (set.member? additions)
-                                                                                  not)
-                                                                             current)
-                                                                modules)))
-                             :assume))
-                       state))))
+        (///generation.Operation <type_vars> Any))
+      (///generation.set_buffer ///generation.empty_buffer))
 
-    (def: (set_current_module module state)
+    ## TODO: Inline ASAP
+    (def: (compile_runtime! platform)
       (All [<type_vars>]
-        (-> Module <State+> <State+>))
-      (|> (///directive.set_current_module module)
+        (-> <Platform> (///generation.Operation <type_vars> [Registry Output])))
+      (do ///phase.monad
+        [_ ..initialize_buffer!]
+        (get@ #runtime platform)))
+
+    (def: (runtime_descriptor registry)
+      (-> Registry Descriptor)
+      {#descriptor.hash 0
+       #descriptor.name archive.runtime_module
+       #descriptor.file ""
+       #descriptor.references (set.new text.hash)
+       #descriptor.state #.Compiled
+       #descriptor.registry registry})
+    
+    (def: runtime_document
+      (Document .Module)
+      (document.write $.key (module.new 0)))
+
+    (def: (process_runtime archive platform)
+      (All [<type_vars>]
+        (-> Archive <Platform>
+            (///directive.Operation <type_vars>
+                                    [Archive [Descriptor (Document .Module) Output]])))
+      (do ///phase.monad
+        [[registry payload] (///directive.lift_generation
+                             (..compile_runtime! platform))
+         #let [[descriptor document] [(..runtime_descriptor registry) ..runtime_document]]
+         archive (///phase.lift (if (archive.reserved? archive archive.runtime_module)
+                                  (archive.add archive.runtime_module [descriptor document payload] archive)
+                                  (do try.monad
+                                    [[_ archive] (archive.reserve archive.runtime_module archive)]
+                                    (archive.add archive.runtime_module [descriptor document payload] archive))))]
+        (wrap [archive [descriptor document payload]])))
+
+    (def: (initialize_state extender
+                            [analysers
+                             synthesizers
+                             generators
+                             directives]
+                            analysis_state
+                            state)
+      (All [<type_vars>]
+        (-> Extender
+            [(Dictionary Text ///analysis.Handler)
+             (Dictionary Text ///synthesis.Handler)
+             (Dictionary Text (///generation.Handler <type_vars>))
+             (Dictionary Text (///directive.Handler <type_vars>))]
+            .Lux
+            <State+>
+            (Try <State+>)))
+      (|> (:share [<type_vars>]
+                  <State+>
+                  state
+                  
+                  (///directive.Operation <type_vars> Any)
+                  (do ///phase.monad
+                    [_ (///directive.lift_analysis
+                        (///analysis.install analysis_state))
+                     _ (///directive.lift_analysis
+                        (extension.with extender analysers))
+                     _ (///directive.lift_synthesis
+                        (extension.with extender synthesizers))
+                     _ (///directive.lift_generation
+                        (extension.with extender (:assume generators)))
+                     _ (extension.with extender (:assume directives))]
+                    (wrap [])))
           (///phase.run' state)
-          try.assume
-          product.left))
+          (\ try.monad map product.left)))
 
-    (def: #export (compile import static expander platform compilation context)
+    (def: (phase_wrapper archive platform state)
       (All [<type_vars>]
-        (-> Import Static Expander <Platform> Compilation <Context> <Return>))
-      (let [[compilation_sources compilation_libraries compilation_target compilation_module] compilation
-            base_compiler (:share [<type_vars>]
-                                  <Context>
-                                  context
-                                  
-                                  (///.Compiler <State+> .Module Any)
-                                  (:assume
-                                   ((//init.compiler expander syntax.prelude (get@ #write platform)) $.key (list))))
-            compiler (..parallel
-                      context
-                      (function (_ importer import! module_id [archive state] module)
-                        (do {! (try.with promise.monad)}
-                          [#let [state (..set_current_module module state)]
-                           input (context.read (get@ #&file_system platform)
-                                               importer
-                                               import
-                                               compilation_sources
-                                               (get@ #static.host_module_extension static)
-                                               module)]
-                          (loop [[archive state] [archive state]
-                                 compilation (base_compiler (:coerce ///.Input input))
-                                 all_dependencies (: (List Module)
-                                                     (list))]
-                            (let [new_dependencies (get@ #///.dependencies compilation)
-                                  all_dependencies (list\compose new_dependencies all_dependencies)
-                                  continue! (:share [<type_vars>]
-                                                    <Platform>
-                                                    platform
-                                                    
-                                                    (-> <Context> (///.Compilation <State+> .Module Any) (List Module)
-                                                        (Action [Archive <State+>]))
-                                                    (:assume
-                                                     recur))]
-                              (do !
-                                [[archive state] (case new_dependencies
-                                                   #.Nil
-                                                   (wrap [archive state])
+        (-> Archive <Platform> <State+> (Try [<State+> Phase_Wrapper])))
+      (let [phase_wrapper (get@ #phase_wrapper platform)]
+        (|> archive
+            phase_wrapper
+            ///directive.lift_generation
+            (///phase.run' state))))
 
-                                                   (#.Cons _)
-                                                   (do !
-                                                     [archive,document+ (|> new_dependencies
-                                                                            (list\map (import! module))
-                                                                            (monad.seq ..monad))
-                                                      #let [archive (|> archive,document+
-                                                                        (list\map product.left)
-                                                                        (list\fold archive.merge archive))]]
-                                                     (wrap [archive (try.assume
-                                                                     (..updated_state archive state))])))]
-                                (case ((get@ #///.process compilation)
-                                       ## TODO: The "///directive.set_current_module" below shouldn't be necessary. Remove it ASAP.
-                                       ## TODO: The context shouldn't need to be re-set either.
-                                       (|> (///directive.set_current_module module)
+    (def: (complete_extensions host_directive_bundle phase_wrapper [analysers synthesizers generators directives])
+      (All [<type_vars>]
+        (-> (-> Phase_Wrapper (///directive.Bundle <type_vars>))
+            Phase_Wrapper
+            [(Dictionary Text ///analysis.Handler)
+             (Dictionary Text ///synthesis.Handler)
+             (Dictionary Text (///generation.Handler <type_vars>))
+             (Dictionary Text (///directive.Handler <type_vars>))]
+            [(Dictionary Text ///analysis.Handler)
+             (Dictionary Text ///synthesis.Handler)
+             (Dictionary Text (///generation.Handler <type_vars>))
+             (Dictionary Text (///directive.Handler <type_vars>))]))
+      [analysers
+       synthesizers
+       generators
+       (dictionary.merge directives (host_directive_bundle phase_wrapper))])
+
+    (def: #export (initialize static module expander host_analysis platform generation_bundle host_directive_bundle program anchorT,expressionT,directiveT extender
+                              import compilation_sources)
+      (All [<type_vars>]
+        (-> Static
+            Module
+            Expander
+            ///analysis.Bundle
+            <Platform>
+            <Bundle>
+            (-> Phase_Wrapper (///directive.Bundle <type_vars>))
+            (Program expression directive)
+            [Type Type Type] (-> Phase_Wrapper Extender)
+            Import (List Context)
+            (Promise (Try [<State+> Archive]))))
+      (do {! (try.with promise.monad)}
+        [#let [state (//init.state (get@ #static.host static)
+                                   module
+                                   expander
+                                   host_analysis
+                                   (get@ #host platform)
+                                   (get@ #phase platform)
+                                   generation_bundle)]
+         _ (ioW.enable (get@ #&file_system platform) static)
+         [archive analysis_state bundles] (ioW.thaw (get@ #host platform) (get@ #&file_system platform) static import compilation_sources)
+         #let [with_missing_extensions
+               (: (All [<type_vars>]
+                    (-> <Platform> (Program expression directive) <State+> (Promise (Try <State+>))))
+                  (function (_ platform program state)
+                    (promise\wrap
+                     (do try.monad
+                       [[state phase_wrapper] (..phase_wrapper archive platform state)]
+                       (|> state
+                           (initialize_state (extender phase_wrapper)
+                                             (:assume (..complete_extensions host_directive_bundle phase_wrapper (:assume bundles)))
+                                             analysis_state)
+                           (try\map (//init.with_default_directives expander host_analysis program anchorT,expressionT,directiveT (extender phase_wrapper))))))))]]
+        (if (archive.archived? archive archive.runtime_module)
+          (do !
+            [state (with_missing_extensions platform program state)]
+            (wrap [state archive]))
+          (do !
+            [[state [archive payload]] (|> (..process_runtime archive platform)
                                            (///phase.run' state)
-                                           try.assume
-                                           product.left)
-                                       archive)
-                                  (#try.Success [state more|done])
-                                  (case more|done
-                                    (#.Left more)
-                                    (continue! [archive state] more all_dependencies)
+                                           promise\wrap)
+             _ (..cache_module static platform 0 payload)
+             
+             state (with_missing_extensions platform program state)]
+            (wrap [state archive])))))
 
-                                    (#.Right [descriptor document output])
-                                    (do !
-                                      [#let [_ (debug.log! (..module_compilation_log module state))
-                                             descriptor (set@ #descriptor.references (set.from_list text.hash all_dependencies) descriptor)]
-                                       _ (..cache_module static platform module_id [descriptor document output])]
-                                      (case (archive.add module [descriptor document output] archive)
-                                        (#try.Success archive)
-                                        (wrap [archive
-                                               (..with_reset_log state)])
-                                        
-                                        (#try.Failure error)
-                                        (promise\wrap (#try.Failure error)))))
+    (def: compilation_log_separator
+      (format text.new_line text.tab))
 
-                                  (#try.Failure error)
+    (def: (module_compilation_log module)
+      (All [<type_vars>]
+        (-> Module <State+> Text))
+      (|>> (get@ [#extension.state
+                  #///directive.generation
+                  #///directive.state
+                  #extension.state
+                  #///generation.log])
+           (row\fold (function (_ right left)
+                       (format left ..compilation_log_separator right))
+                     module)))
+
+    (def: with_reset_log
+      (All [<type_vars>]
+        (-> <State+> <State+>))
+      (set@ [#extension.state
+             #///directive.generation
+             #///directive.state
+             #extension.state
+             #///generation.log]
+            row.empty))
+
+    (def: empty
+      (Set Module)
+      (set.new text.hash))
+
+    (type: Mapping
+      (Dictionary Module (Set Module)))
+
+    (type: Dependence
+      {#depends_on Mapping
+       #depended_by Mapping})
+
+    (def: independence
+      Dependence
+      (let [empty (dictionary.new text.hash)]
+        {#depends_on empty
+         #depended_by empty}))
+
+    (def: (depend module import dependence)
+      (-> Module Module Dependence Dependence)
+      (let [transitive_dependency (: (-> (-> Dependence Mapping) Module (Set Module))
+                                     (function (_ lens module)
+                                       (|> dependence
+                                           lens
+                                           (dictionary.get module)
+                                           (maybe.default ..empty))))
+            transitive_depends_on (transitive_dependency (get@ #depends_on) import)
+            transitive_depended_by (transitive_dependency (get@ #depended_by) module)
+            update_dependence (: (-> [Module (Set Module)] [Module (Set Module)]
+                                     (-> Mapping Mapping))
+                                 (function (_ [source forward] [target backward])
+                                   (function (_ mapping)
+                                     (let [with_dependence+transitives
+                                           (|> mapping
+                                               (dictionary.upsert source ..empty (set.add target))
+                                               (dictionary.update source (set.union forward)))]
+                                       (list\fold (function (_ previous)
+                                                    (dictionary.upsert previous ..empty (set.add target)))
+                                                  with_dependence+transitives
+                                                  (set.to_list backward))))))]
+        (|> dependence
+            (update@ #depends_on
+                     (update_dependence
+                      [module transitive_depends_on]
+                      [import transitive_depended_by]))
+            (update@ #depended_by
+                     ((function.flip update_dependence)
+                      [module transitive_depends_on]
+                      [import transitive_depended_by])))))
+
+    (def: (circular_dependency? module import dependence)
+      (-> Module Module Dependence Bit)
+      (let [dependence? (: (-> Module (-> Dependence Mapping) Module Bit)
+                           (function (_ from relationship to)
+                             (let [targets (|> dependence
+                                               relationship
+                                               (dictionary.get from)
+                                               (maybe.default ..empty))]
+                               (set.member? targets to))))]
+        (or (dependence? import (get@ #depends_on) module)
+            (dependence? module (get@ #depended_by) import))))
+
+    (exception: #export (module_cannot_import_itself {module Module})
+      (exception.report
+       ["Module" (%.text module)]))
+
+    (exception: #export (cannot_import_circular_dependency {importer Module}
+                                                           {importee Module})
+      (exception.report
+       ["Importer" (%.text importer)]
+       ["importee" (%.text importee)]))
+
+    (def: (verify_dependencies importer importee dependence)
+      (-> Module Module Dependence (Try Any))
+      (cond (text\= importer importee)
+            (exception.throw ..module_cannot_import_itself [importer])
+
+            (..circular_dependency? importer importee dependence)
+            (exception.throw ..cannot_import_circular_dependency [importer importee])
+
+            ## else
+            (#try.Success [])))
+
+    (with_expansions [<Context> (as_is [Archive <State+>])
+                      <Result> (as_is (Try <Context>))
+                      <Return> (as_is (Promise <Result>))
+                      <Signal> (as_is (Resolver <Result>))
+                      <Pending> (as_is [<Return> <Signal>])
+                      <Importer> (as_is (-> Module Module <Return>))
+                      <Compiler> (as_is (-> Module <Importer> archive.ID <Context> Module <Return>))]
+      (def: (parallel initial)
+        (All [<type_vars>]
+          (-> <Context>
+              (-> <Compiler> <Importer>)))
+        (let [current (stm.var initial)
+              pending (:share [<type_vars>]
+                              <Context>
+                              initial
+                              
+                              (Var (Dictionary Module <Pending>))
+                              (:assume (stm.var (dictionary.new text.hash))))
+              dependence (: (Var Dependence)
+                            (stm.var ..independence))]
+          (function (_ compile)
+            (function (import! importer module)
+              (do {! promise.monad}
+                [[return signal] (:share [<type_vars>]
+                                         <Context>
+                                         initial
+                                         
+                                         (Promise [<Return> (Maybe [<Context>
+                                                                    archive.ID
+                                                                    <Signal>])])
+                                         (:assume
+                                          (stm.commit
+                                           (do {! stm.monad}
+                                             [dependence (if (text\= archive.runtime_module importer)
+                                                           (stm.read dependence)
+                                                           (do !
+                                                             [[_ dependence] (stm.update (..depend importer module) dependence)]
+                                                             (wrap dependence)))]
+                                             (case (..verify_dependencies importer module dependence)
+                                               (#try.Failure error)
+                                               (wrap [(promise.resolved (#try.Failure error))
+                                                      #.None])
+
+                                               (#try.Success _)
+                                               (do !
+                                                 [[archive state] (stm.read current)]
+                                                 (if (archive.archived? archive module)
+                                                   (wrap [(promise\wrap (#try.Success [archive state]))
+                                                          #.None])
+                                                   (do !
+                                                     [@pending (stm.read pending)]
+                                                     (case (dictionary.get module @pending)
+                                                       (#.Some [return signal])
+                                                       (wrap [return
+                                                              #.None])
+                                                       
+                                                       #.None
+                                                       (case (if (archive.reserved? archive module)
+                                                               (do try.monad
+                                                                 [module_id (archive.id module archive)]
+                                                                 (wrap [module_id archive]))
+                                                               (archive.reserve module archive))
+                                                         (#try.Success [module_id archive])
+                                                         (do !
+                                                           [_ (stm.write [archive state] current)
+                                                            #let [[return signal] (:share [<type_vars>]
+                                                                                          <Context>
+                                                                                          initial
+                                                                                          
+                                                                                          <Pending>
+                                                                                          (promise.promise []))]
+                                                            _ (stm.update (dictionary.put module [return signal]) pending)]
+                                                           (wrap [return
+                                                                  (#.Some [[archive state]
+                                                                           module_id
+                                                                           signal])]))
+                                                         
+                                                         (#try.Failure error)
+                                                         (wrap [(promise\wrap (#try.Failure error))
+                                                                #.None])))))))))))
+                 _ (case signal
+                     #.None
+                     (wrap [])
+                     
+                     (#.Some [context module_id resolver])
+                     (do !
+                       [result (compile importer import! module_id context module)
+                        result (case result
+                                 (#try.Failure error)
+                                 (wrap result)
+
+                                 (#try.Success [resulting_archive resulting_state])
+                                 (stm.commit (do stm.monad
+                                               [[_ [merged_archive _]] (stm.update (function (_ [archive state])
+                                                                                     [(archive.merge resulting_archive archive)
+                                                                                      state])
+                                                                                   current)]
+                                               (wrap (#try.Success [merged_archive resulting_state])))))
+                        _ (promise.future (resolver result))]
+                       (wrap [])))]
+                return)))))
+
+      ## TODO: Find a better way, as this only works for the Lux compiler.
+      (def: (updated_state archive state)
+        (All [<type_vars>]
+          (-> Archive <State+> (Try <State+>)))
+        (do {! try.monad}
+          [modules (monad.map ! (function (_ module)
                                   (do !
-                                    [_ (ioW.freeze (get@ #&file_system platform) static archive)]
-                                    (promise\wrap (#try.Failure error))))))))))]
-        (compiler archive.runtime_module compilation_module)))
-    ))
+                                    [[descriptor document output] (archive.find module archive)
+                                     lux_module (document.read $.key document)]
+                                    (wrap [module lux_module])))
+                              (archive.archived archive))
+           #let [additions (|> modules
+                               (list\map product.left)
+                               (set.from_list text.hash))]]
+          (wrap (update@ [#extension.state
+                          #///directive.analysis
+                          #///directive.state
+                          #extension.state]
+                         (function (_ analysis_state)
+                           (|> analysis_state
+                               (:coerce .Lux)
+                               (update@ #.modules (function (_ current)
+                                                    (list\compose (list.filter (|>> product.left
+                                                                                    (set.member? additions)
+                                                                                    not)
+                                                                               current)
+                                                                  modules)))
+                               :assume))
+                         state))))
+
+      (def: (set_current_module module state)
+        (All [<type_vars>]
+          (-> Module <State+> <State+>))
+        (|> (///directive.set_current_module module)
+            (///phase.run' state)
+            try.assume
+            product.left))
+
+      (def: #export (compile import static expander platform compilation context)
+        (All [<type_vars>]
+          (-> Import Static Expander <Platform> Compilation <Context> <Return>))
+        (let [[compilation_sources compilation_libraries compilation_target compilation_module] compilation
+              base_compiler (:share [<type_vars>]
+                                    <Context>
+                                    context
+                                    
+                                    (///.Compiler <State+> .Module Any)
+                                    (:assume
+                                     ((//init.compiler expander syntax.prelude (get@ #write platform)) $.key (list))))
+              compiler (..parallel
+                        context
+                        (function (_ importer import! module_id [archive state] module)
+                          (do {! (try.with promise.monad)}
+                            [#let [state (..set_current_module module state)]
+                             input (context.read (get@ #&file_system platform)
+                                                 importer
+                                                 import
+                                                 compilation_sources
+                                                 (get@ #static.host_module_extension static)
+                                                 module)]
+                            (loop [[archive state] [archive state]
+                                   compilation (base_compiler (:coerce ///.Input input))
+                                   all_dependencies (: (List Module)
+                                                       (list))]
+                              (let [new_dependencies (get@ #///.dependencies compilation)
+                                    all_dependencies (list\compose new_dependencies all_dependencies)
+                                    continue! (:share [<type_vars>]
+                                                      <Platform>
+                                                      platform
+                                                      
+                                                      (-> <Context> (///.Compilation <State+> .Module Any) (List Module)
+                                                          (Action [Archive <State+>]))
+                                                      (:assume
+                                                       recur))]
+                                (do !
+                                  [[archive state] (case new_dependencies
+                                                     #.Nil
+                                                     (wrap [archive state])
+
+                                                     (#.Cons _)
+                                                     (do !
+                                                       [archive,document+ (|> new_dependencies
+                                                                              (list\map (import! module))
+                                                                              (monad.seq ..monad))
+                                                        #let [archive (|> archive,document+
+                                                                          (list\map product.left)
+                                                                          (list\fold archive.merge archive))]]
+                                                       (wrap [archive (try.assume
+                                                                       (..updated_state archive state))])))]
+                                  (case ((get@ #///.process compilation)
+                                         ## TODO: The "///directive.set_current_module" below shouldn't be necessary. Remove it ASAP.
+                                         ## TODO: The context shouldn't need to be re-set either.
+                                         (|> (///directive.set_current_module module)
+                                             (///phase.run' state)
+                                             try.assume
+                                             product.left)
+                                         archive)
+                                    (#try.Success [state more|done])
+                                    (case more|done
+                                      (#.Left more)
+                                      (continue! [archive state] more all_dependencies)
+
+                                      (#.Right [descriptor document output])
+                                      (do !
+                                        [#let [_ (debug.log! (..module_compilation_log module state))
+                                               descriptor (set@ #descriptor.references (set.from_list text.hash all_dependencies) descriptor)]
+                                         _ (..cache_module static platform module_id [descriptor document output])]
+                                        (case (archive.add module [descriptor document output] archive)
+                                          (#try.Success archive)
+                                          (wrap [archive
+                                                 (..with_reset_log state)])
+                                          
+                                          (#try.Failure error)
+                                          (promise\wrap (#try.Failure error)))))
+
+                                    (#try.Failure error)
+                                    (do !
+                                      [_ (ioW.freeze (get@ #&file_system platform) static archive)]
+                                      (promise\wrap (#try.Failure error))))))))))]
+          (compiler archive.runtime_module compilation_module)))
+      )))

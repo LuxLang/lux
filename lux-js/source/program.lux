@@ -35,7 +35,7 @@
     ["_" js]]
    [tool
     [compiler
-     [phase (#+ Operation Phase)]
+     ["." phase (#+ Operation Phase)]
      [reference
       [variable (#+ Register)]]
      [language
@@ -58,6 +58,7 @@
      [default
       ["." platform (#+ Platform)]]
      [meta
+      [archive (#+ Archive)]
       ["." packager #_
        ["#" script]]]]]]
   [program
@@ -553,6 +554,19 @@
                            (..evaluate! context (_.var (reference.artifact context)))))))))
              )})
 
+(def: (phase_wrapper archive)
+  (-> Archive (runtime.Operation platform.Phase_Wrapper))
+  (do phase.monad
+    []
+    (wrap (:coerce platform.Phase_Wrapper
+                   (for {## The implementation for @.old is technically incorrect.
+                         ## However, the JS compiler runs fast enough on Node to be fully hosted there.
+                         ## And running the JS compiler on the JVM (on top of Nashorn) is impractically slow.
+                         ## This means that in practice, only the @.js implementation matters.
+                         ## And since no cross-language boundary needs to be handled, it's a correct implementation.
+                         @.old (|>>)
+                         @.js (|>>)})))))
+
 (def: platform
   (IO (Platform [Register Text] _.Expression _.Statement))
   (do io.monad
@@ -561,6 +575,7 @@
            #platform.host host
            #platform.phase js.generate
            #platform.runtime runtime.generate
+           #platform.phase_wrapper ..phase_wrapper
            #platform.write (|>> _.code (\ utf8.codec encode))})))
 
 (def: (program context program)
@@ -576,8 +591,8 @@
                             (_.string "")))))
 
 (for {@.old
-      (def: extender
-        Extender
+      (def: (extender phase_wrapper)
+        (-> platform.Phase_Wrapper Extender)
         ## TODO: Stop relying on coercions ASAP.
         (<| (:coerce Extender)
             (function (@self handler))
@@ -598,7 +613,7 @@
                                                                         (|> (array.new 5)
                                                                             (: (Array java/lang/Object))
                                                                             (array.write! 0 name)
-                                                                            (array.write! 1 (to_js phase))
+                                                                            (array.write! 1 (:coerce java/lang/Object (extender phase)))
                                                                             (array.write! 2 (to_js archive))
                                                                             (array.write! 3 (to_js parameters))
                                                                             (array.write! 4 (to_js state)))
@@ -606,8 +621,8 @@
               (lux_object (:coerce java/lang/Object output)))))
 
       @.js
-      (def: (extender handler)
-        Extender
+      (def: (extender phase_wrapper handler)
+        (-> platform.Phase_Wrapper Extender)
         (:assume handler))})
 
 (def: (declare_success! _)
@@ -630,7 +645,7 @@
                            analysis.bundle
                            ..platform
                            generation.bundle
-                           extension/bundle.empty
+                           (function.constant extension/bundle.empty)
                            ..program
                            [(& Register Text) _.Expression _.Statement]
                            ..extender

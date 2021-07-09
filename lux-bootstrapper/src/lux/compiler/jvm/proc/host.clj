@@ -407,7 +407,7 @@
 (let [clo-field-sig (&host-generics/->type-signature "java.lang.Object")
       <init>-return "V"]
   (defn ^:private anon-class-<init>-signature [env]
-    (str "(" (&/fold str "" (&/|repeat (&/|length env) clo-field-sig)) ")"
+    (str "(" (->> clo-field-sig (&/|repeat (&/|length env)) (&/fold str "")) ")"
          <init>-return))
 
   (defn ^:private add-anon-class-<init> [^ClassWriter class-writer compile class-name super-class env ctor-args]

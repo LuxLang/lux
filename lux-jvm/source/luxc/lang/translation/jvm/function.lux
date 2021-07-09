@@ -30,7 +30,7 @@
       [lux
        [analysis (#+ Environment)]
        [synthesis (#+ Synthesis Abstraction Apply)]
-       ["." generation]]]
+       ["." generation (#+ Context)]]]
      [meta
       [archive (#+ Archive)]]]]]
   [luxc
@@ -301,13 +301,22 @@
       [instanceI (..instance generate archive classD arity env)]
       (wrap [functionD instanceI]))))
 
-(def: #export (function generate archive [env arity bodyS])
-  (Generator Abstraction)
-  (do phase.monad
+(def: #export (function' forced_context generate archive [env arity bodyS])
+  (-> (Maybe Context) (Generator Abstraction))
+  (do {! phase.monad}
     [@begin _.make_label
-     [function_context bodyI] (generation.with_new_context archive
-                                (generation.with_anchor [@begin 1]
-                                  (generate archive bodyS)))
+     [function_context bodyI] (case forced_context
+                                (#.Some function_context)
+                                (do !
+                                  [without_context (generation.with_anchor [@begin 1]
+                                                     (generate archive bodyS))]
+                                  (wrap [function_context
+                                         without_context]))
+                                
+                                #.None
+                                (generation.with_new_context archive
+                                  (generation.with_anchor [@begin 1]
+                                    (generate archive bodyS))))
      #let [function_class (//.class_name function_context)]
      [functionD instanceI] (..with_function generate archive @begin function_class env arity bodyI)
      #let [directive [function_class
@@ -316,8 +325,17 @@
                                  //.$Function (list)
                                  functionD)]]
      _ (generation.execute! directive)
-     _ (generation.save! (product.right function_context) directive)]
+     _ (case forced_context
+         #.None
+         (generation.save! (product.right function_context) directive)
+
+         (#.Some function_context)
+         (wrap []))]
     (wrap instanceI)))
+
+(def: #export function
+  (Generator Abstraction)
+  (..function' #.None))
 
 (def: #export (call generate archive [functionS argsS])
   (Generator Apply)
