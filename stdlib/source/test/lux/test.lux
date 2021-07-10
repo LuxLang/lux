@@ -1,0 +1,249 @@
+(.module:
+  [lux #*
+   [abstract
+    [monad (#+ do)]]
+   [control
+    ["." io]
+    ["." exception]
+    [concurrency
+     ["." promise]
+     ["." atom (#+ Atom)]]]
+   [data
+    ["." text ("#\." equivalence)]
+    [collection
+     ["." list]]]
+   [math
+    ["." random]
+    [number
+     ["n" nat]]]]
+  {1
+   ["." /]})
+
+(def: (verify expected_message/0 expected_message/1 successes failures [tally message])
+  (-> Text Text Nat Nat [/.Tally Text] Bit)
+  (and (text.contains? expected_message/0 message)
+       (text.contains? expected_message/1 message)
+       (n.= successes (get@ #/.successes tally))
+       (n.= failures (get@ #/.failures tally))))
+
+(def: assertion
+  /.Test
+  (do {! random.monad}
+    [expected_message/0 (random.ascii/lower 5)
+     expected_message/1 (random.filter (|>> (text\= expected_message/0) not)
+                                       (random.ascii/lower 5))]
+    ($_ /.and
+        (wrap (do promise.monad
+                [[success_tally success_message] (/.assert expected_message/0 true)
+                 [failure_tally failure_message] (/.assert expected_message/0 false)]
+                (/.cover' [/.assert /.Tally]
+                          (and (text.ends_with? expected_message/0 success_message)
+                               (text.ends_with? expected_message/0 failure_message)
+                               (and (n.= 1 (get@ #/.successes success_tally))
+                                    (n.= 0 (get@ #/.failures success_tally)))
+                               (and (n.= 0 (get@ #/.successes failure_tally))
+                                    (n.= 1 (get@ #/.failures failure_tally)))))))
+        (wrap (do promise.monad
+                [tt (/.and' (/.assert expected_message/0 true)
+                            (/.assert expected_message/1 true))
+                 ff (/.and' (/.assert expected_message/0 false)
+                            (/.assert expected_message/1 false))
+                 tf (/.and' (/.assert expected_message/0 true)
+                            (/.assert expected_message/1 false))
+                 ft (/.and' (/.assert expected_message/0 false)
+                            (/.assert expected_message/1 true))]
+                (/.cover' [/.and']
+                          (and (..verify expected_message/0 expected_message/1 2 0 tt)
+                               (..verify expected_message/0 expected_message/1 0 2 ff)
+                               (..verify expected_message/0 expected_message/1 1 1 tf)
+                               (..verify expected_message/0 expected_message/1 1 1 ft)))))
+        )))
+
+(def: seed
+  /.Test
+  (do {! random.monad}
+    [seed random.nat
+     #let [[read write] (: [(promise.Promise Nat) (promise.Resolver Nat)]
+                           (promise.promise []))]
+     pre (<| (/.seed seed)
+             (do !
+               [sample random.nat
+                #let [wrote? (io.run (write sample))]]
+               (/.test "" wrote?)))
+     post (<| (/.seed seed)
+              (do !
+                [actual random.nat]
+                (wrap (do promise.monad
+                        [expected read]
+                        (/.assert "" (n.= expected actual))))))]
+    (wrap (do promise.monad
+            [[pre_tally pre_message] pre
+             [post_tally post_message] post]
+            (/.cover' [/.seed]
+                      (and (and (n.= 1 (get@ #/.successes pre_tally))
+                                (n.= 0 (get@ #/.failures pre_tally)))
+                           (and (n.= 1 (get@ #/.successes post_tally))
+                                (n.= 0 (get@ #/.failures post_tally)))))))))
+
+(def: times
+  /.Test
+  ($_ /.and
+      (do {! random.monad}
+        [times_assertion (/.times 0 (/.test "" true))]
+        (wrap (do promise.monad
+                [[tally error] times_assertion]
+                (/.cover' [/.must_try_test_at_least_once]
+                          (and (text.contains? (get@ #exception.label /.must_try_test_at_least_once) error)
+                               (n.= 0 (get@ #/.successes tally))
+                               (n.= 1 (get@ #/.failures tally)))))))
+      (do {! random.monad}
+        [expected (\ ! map (|>> (n.% 10) inc) random.nat)
+         #let [counter (: (Atom Nat)
+                          (atom.atom 0))]
+         times_assertion (<| (/.times expected)
+                             (do !
+                               [_ (wrap [])
+                                #let [_ (io.run (atom.update inc counter))]]
+                               (/.test "" true)))]
+        (wrap (do promise.monad
+                [[tally error] times_assertion
+                 actual (promise.future (atom.read counter))]
+                (/.cover' [/.times]
+                          (and (n.= expected actual)
+                               (n.= 1 (get@ #/.successes tally))
+                               (n.= 0 (get@ #/.failures tally)))))))
+      ))
+
+(def: in_parallel
+  /.Test
+  ($_ /.and
+      (do {! random.monad}
+        [expected (\ ! map (|>> (n.% 10) inc) random.nat)
+         #let [counter (: (Atom Nat)
+                          (atom.atom 0))]
+         assertion (<| /.in_parallel
+                       (list.repeat expected)
+                       (: /.Test)
+                       (do !
+                         [_ (wrap [])
+                          #let [_ (io.run (atom.update inc counter))]]
+                         (/.test "" true)))]
+        (wrap (do promise.monad
+                [[tally error] assertion
+                 actual (promise.future (atom.read counter))]
+                (/.cover' [/.in_parallel]
+                          (and (n.= expected actual)
+                               (n.= expected (get@ #/.successes tally))
+                               (n.= 0 (get@ #/.failures tally)))))))
+      (do {! random.monad}
+        [expected (\ ! map (|>> (n.% 10) inc) random.nat)
+         #let [counter (: (Atom Nat)
+                          (atom.atom 0))]
+         assertion (<| /.in_parallel
+                       (list.repeat expected)
+                       (: /.Test)
+                       (do !
+                         [_ (wrap [])
+                          #let [_ (undefined)
+                                _ (io.run (atom.update inc counter))]]
+                         (/.test "" true)))]
+        (wrap (do promise.monad
+                [[tally error] assertion
+                 actual (promise.future (atom.read counter))]
+                (/.cover' [/.error_during_execution]
+                          (let [correct_error! (text.contains? (get@ #exception.label /.error_during_execution) error)
+                                no_complete_run! (n.= 0 actual)
+                                no_successes! (n.= 0 (get@ #/.successes tally))
+                                ran_all_tests! (n.= expected (get@ #/.failures tally))]
+                            (and correct_error!
+                                 no_complete_run!
+                                 no_successes!
+                                 ran_all_tests!))))))
+      ))
+
+(def: #export test
+  /.Test
+  (<| (/.covering /._)
+      (/.for [/.Test])
+      (do {! random.monad}
+        [expected_context (random.ascii/lower 5)
+         expected_message/0 (random.filter (|>> (text\= expected_context) not)
+                                           (random.ascii/lower 5))
+         expected_message/1 (random.filter (|>> (text\= expected_message/0) not)
+                                           (random.ascii/lower 5))]
+        ($_ /.and
+            (/.for [/.Assertion]
+                   ..assertion)
+            (/.for [/.Seed]
+                   seed)
+            (do !
+              [success_assertion (/.test expected_message/0 true)
+               failure_assertion (/.test expected_message/0 false)]
+              (wrap (do promise.monad
+                      [[success_tally success_message] success_assertion
+                       [failure_tally failure_message] failure_assertion]
+                      (/.cover' [/.test]
+                                (and (text.ends_with? expected_message/0 success_message)
+                                     (text.ends_with? expected_message/0 failure_message)
+                                     (and (n.= 1 (get@ #/.successes success_tally))
+                                          (n.= 0 (get@ #/.failures success_tally)))
+                                     (and (n.= 0 (get@ #/.successes failure_tally))
+                                          (n.= 1 (get@ #/.failures failure_tally))))))))
+            (do !
+              [tt (/.and (/.test expected_message/0 true)
+                         (/.test expected_message/1 true))
+               ff (/.and (/.test expected_message/0 false)
+                         (/.test expected_message/1 false))
+               tf (/.and (/.test expected_message/0 true)
+                         (/.test expected_message/1 false))
+               ft (/.and (/.test expected_message/0 false)
+                         (/.test expected_message/1 true))]
+              (wrap (do promise.monad
+                      [tt tt
+                       ff ff
+                       tf tf
+                       ft ft]
+                      (/.cover' [/.and]
+                                (and (..verify expected_message/0 expected_message/1 2 0 tt)
+                                     (..verify expected_message/0 expected_message/1 0 2 ff)
+                                     (..verify expected_message/0 expected_message/1 1 1 tf)
+                                     (..verify expected_message/0 expected_message/1 1 1 ft))))))
+            (do !
+              [success_assertion (/.context expected_context (/.test expected_message/0 true))
+               failure_assertion (/.context expected_context (/.test expected_message/0 false))]
+              (wrap (do promise.monad
+                      [[success_tally success_message] success_assertion
+                       [failure_tally failure_message] failure_assertion]
+                      (/.cover' [/.context]
+                                (and (and (text.contains? expected_context success_message)
+                                          (text.contains? expected_message/0 success_message))
+                                     (and (text.contains? expected_context failure_message)
+                                          (text.contains? expected_message/0 failure_message))
+                                     (and (n.= 1 (get@ #/.successes success_tally))
+                                          (n.= 0 (get@ #/.failures success_tally)))
+                                     (and (n.= 0 (get@ #/.successes failure_tally))
+                                          (n.= 1 (get@ #/.failures failure_tally))))))))
+            (do !
+              [failure_assertion (/.fail expected_message/0)]
+              (wrap (do promise.monad
+                      [[failure_tally failure_message] failure_assertion]
+                      (/.cover' [/.fail]
+                                (and (text.contains? expected_message/0 failure_message)
+                                     (and (n.= 0 (get@ #/.successes failure_tally))
+                                          (n.= 1 (get@ #/.failures failure_tally))))))))
+            (do !
+              [success_assertion (/.lift expected_message/0 (wrap true))
+               failure_assertion (/.lift expected_message/0 (wrap false))]
+              (wrap (do promise.monad
+                      [[success_tally success_message] success_assertion
+                       [failure_tally failure_message] failure_assertion]
+                      (/.cover' [/.lift]
+                                (and (text.contains? expected_message/0 success_message)
+                                     (text.contains? expected_message/0 failure_message)
+                                     (and (n.= 1 (get@ #/.successes success_tally))
+                                          (n.= 0 (get@ #/.failures success_tally)))
+                                     (and (n.= 0 (get@ #/.successes failure_tally))
+                                          (n.= 1 (get@ #/.failures failure_tally))))))))
+            ..times
+            ..in_parallel
+            ))))

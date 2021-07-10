@@ -22,7 +22,7 @@
   (&type/with-var
     (fn [$var]
       (|do [:let [(&/$Cons op (&/$Nil)) ?values]
-            =op (&&/analyse-1 analyse (&/$Apply $var &type/IO) op)
+            =op (&&/analyse-1 analyse (&/$Function &type/Any $var) op)
             _ (&type/check exo-type (&/$Sum &type/Text ;; lux.Left
                                             $var ;; lux.Right
                                             ))

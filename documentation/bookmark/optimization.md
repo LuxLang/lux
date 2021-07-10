@@ -1,3 +1,11 @@
+# Arithmetic
+
+1. [Labor of Division (Episode I)](https://ridiculousfish.com/blog/posts/labor-of-division-episode-i.html)
+
+# Compilation
+
+1. [Future Directions for Optimizing Compilers](https://arxiv.org/abs/1809.02161)
+
 # Pre-fetching
 
 1. [Prefetching in Functional Languages](https://www.cl.cam.ac.uk/~tmj32/papers/docs/ainsworth20-ismm.pdf)
@@ -39,4 +47,8 @@
 1. https://grin-tech.github.io/
 1. [Loop Optimizations in LLVM - Michael Kruse](https://www.youtube.com/watch?v=oAPgGYr8T3Y)
 1. [Don’t think, just defunctionalize](https://www.joachim-breitner.de/blog/778-Don%E2%80%99t_think%2C_just_defunctionalize)
+
+# JavaScript
+
+1. [Javascript Array.push is 945x faster than Array.concat](https://dev.to/uilicious/javascript-array-push-is-945x-faster-than-array-concat-1oki)
 

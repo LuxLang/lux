@@ -1,3 +1,16 @@
+# Tool
+
+1. [Toward the next generation of programming tools: Programmers have built great tools for others. It’s time they built some for themselves.](https://www.oreilly.com/radar/toward-the-next-generation-of-programming-tools/)
+
+# Software engineering
+
+1. [8LU - Are we *really* engineers? by Hillel Wayne](https://www.youtube.com/watch?v=3018ABlET1Y)
+
+# Human-machine interaction
+
+1. [How a computer should talk to people](https://moscow.sci-hub.se/3290/2c0a7f4bb78d9f9521ad2d2e92463d5f/dean1982.pdf)
+1. [The Tyranny of the Minimum Viable User](https://old.reddit.com/r/dredmorbius/comments/69wk8y/the_tyranny_of_the_minimum_viable_user/)
+
 # Possibility
 
 1. [Lambda World 2018 - What FP can learn from Smalltalk by Aditya Siram](https://www.youtube.com/watch?v=baxtyeFVn3w)
@@ -27,4 +40,8 @@
 1. [Local State is Poison](https://awelonblue.wordpress.com/2012/10/21/local-state-is-poison/)
 1. [The dark side of ergonomics](https://vorner.github.io/2018/04/08/Dark-side-of-ergonomics.html)
 1. []()
+
+# Robustness
+
+1. [Volatile Software](https://stevelosh.com/blog/2012/04/volatile-software/)
 

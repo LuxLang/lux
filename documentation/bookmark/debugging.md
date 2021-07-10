@@ -31,6 +31,7 @@
 
 # Reference
 
+1. [Debugging in Clojure](https://blog.davemartin.me/posts/debugging-in-clojure/)
 1. [The Debugging Book: Tools and Techniques for Automated Software Debugging](https://www.debuggingbook.org/)
 1. [The Power Of Collaborative Debugging](https://robert.ocallahan.org/2019/11/the-power-of-collaborative-debugging.html)
 1. [Multiverse Debugging: Non-Deterministic Debugging for Non-Deterministic Programs](https://stefan-marr.de/2019/07/what-if-we-could-see-all-concurrency-bugs-in-the-debugger/)

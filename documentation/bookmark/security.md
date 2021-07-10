@@ -1,5 +1,14 @@
-# Secrets
+# Memory
 
+1. [Provably Safe Pointers for a Parallel World](https://www.youtube.com/watch?v=ugf58HNd7Rg)
+
+# User/human-level
+
+1. [Security Checklist: Tools and resources designed to improve your online privacy, safety, and security.](https://brianlovin.com/security)
+
+# Secrets | Confidentiality
+
+1. [ConfLLVM: A Compiler for Enforcing Data Confidentiality in Low-level Code](https://www.microsoft.com/en-us/research/publication/an-instrumenting-compiler-for-enforcing-confidentiality-in-low-level-code/)
 1. [How to Handle Secrets on the Command Line](https://smallstep.com/blog/command-line-secrets/)
 
 # Capability

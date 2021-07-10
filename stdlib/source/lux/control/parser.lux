@@ -76,22 +76,59 @@
       (#try.Success [input []])
       (#try.Failure message))))
 
-(def: #export (maybe p)
+(def: #export (maybe parser)
   {#.doc "Optionality combinator."}
   (All [s a]
     (-> (Parser s a) (Parser s (Maybe a))))
   (function (_ input)
-    (case (p input)
+    (case (parser input)
       (#try.Failure _)
       (#try.Success [input #.None])
       
       (#try.Success [input' x])
       (#try.Success [input' (#.Some x)]))))
 
-(def: #export (run p input)
+(def: #export (run parser input)
   (All [s a]
     (-> (Parser s a) s (Try [s a])))
-  (p input))
+  (parser input))
+
+(def: #export (and first second)
+  {#.doc "Sequencing combinator."}
+  (All [s a b]
+    (-> (Parser s a) (Parser s b) (Parser s [a b])))
+  (do {! ..monad}
+    [head first]
+    (\ ! map (|>> [head]) second)))
+
+(def: #export (or left right)
+  {#.doc "Heterogeneous alternative combinator."}
+  (All [s a b]
+    (-> (Parser s a) (Parser s b) (Parser s (| a b))))
+  (function (_ tokens)
+    (case (left tokens)
+      (#try.Success [tokens' output])
+      (#try.Success [tokens' (0 #0 output)])
+      
+      (#try.Failure _)
+      (case (right tokens)
+        (#try.Success [tokens' output])
+        (#try.Success [tokens' (0 #1 output)])
+        
+        (#try.Failure error)
+        (#try.Failure error)))))
+
+(def: #export (either this that)
+  {#.doc "Homogeneous alternative combinator."}
+  (All [s a]
+    (-> (Parser s a) (Parser s a) (Parser s a)))
+  (function (_ tokens)
+    (case (this tokens)
+      (#try.Failure _)
+      (that tokens)
+      
+      output
+      output)))
 
 (def: #export (some parser)
   {#.doc "0-or-more combinator."}
@@ -103,119 +140,80 @@
       (#try.Success [input (list)])
 
       (#try.Success [input' head])
-      (run (\ ..monad map (|>> (list& head))
-              (some parser))
-           input'))))
+      (..run (\ ..monad map (|>> (list& head))
+                (some parser))
+             input'))))
 
 (def: #export (many parser)
   {#.doc "1-or-more combinator."}
   (All [s a]
     (-> (Parser s a) (Parser s (List a))))
-  (do {! ..monad}
-    [head parser]
-    (\ ! map (|>> (list& head))
-       (some parser))))
+  (|> (..some parser)
+      (..and parser)
+      (\ ..monad map (|>> #.Cons))))
 
-(def: #export (and p1 p2)
-  {#.doc "Sequencing combinator."}
-  (All [s a b]
-    (-> (Parser s a) (Parser s b) (Parser s [a b])))
-  (do ..monad
-    [x1 p1
-     x2 p2]
-    (wrap [x1 x2])))
-
-(def: #export (or p1 p2)
-  {#.doc "Heterogeneous alternative combinator."}
-  (All [s a b]
-    (-> (Parser s a) (Parser s b) (Parser s (| a b))))
-  (function (_ tokens)
-    (case (p1 tokens)
-      (#try.Success [tokens' x1])
-      (#try.Success [tokens' (0 #0 x1)])
-      
-      (#try.Failure _)
-      (run (do ..monad
-             [x2 p2]
-             (wrap (0 #1 x2)))
-           tokens)
-      )))
-
-(def: #export (either pl pr)
-  {#.doc "Homogeneous alternative combinator."}
-  (All [s a]
-    (-> (Parser s a) (Parser s a) (Parser s a)))
-  (function (_ tokens)
-    (case (pl tokens)
-      (#try.Failure _)
-      (pr tokens)
-      
-      output
-      output
-      )))
-
-(def: #export (exactly n p)
+(def: #export (exactly amount parser)
   {#.doc "Parse exactly N times."}
   (All [s a] (-> Nat (Parser s a) (Parser s (List a))))
-  (if (n.> 0 n)
-    (do ..monad
-      [x p
-       xs (exactly (dec n) p)]
-      (wrap (#.Cons x xs)))
-    (\ ..monad wrap (list))))
+  (case amount
+    0 (\ ..monad wrap (list))
+    _ (do {! ..monad}
+        [x parser]
+        (|> parser
+            (exactly (dec amount))
+            (\ ! map (|>> (#.Cons x)))))))
 
-(def: #export (at_least n p)
+(def: #export (at_least amount parser)
   {#.doc "Parse at least N times."}
   (All [s a] (-> Nat (Parser s a) (Parser s (List a))))
-  (do ..monad
-    [min (exactly n p)
-     extra (some p)]
-    (wrap (list\compose min extra))))
+  (do {! ..monad}
+    [minimum (..exactly amount parser)]
+    (\ ! map (list\compose minimum) (..some parser))))
 
-(def: #export (at_most n p)
+(def: #export (at_most amount parser)
   {#.doc "Parse at most N times."}
   (All [s a] (-> Nat (Parser s a) (Parser s (List a))))
-  (if (n.> 0 n)
-    (function (_ input)
-      (case (p input)
-        (#try.Failure msg)
-        (#try.Success [input (list)])
+  (case amount
+    0 (\ ..monad wrap (list))
+    _ (function (_ input)
+        (case (parser input)
+          (#try.Failure msg)
+          (#try.Success [input (list)])
 
-        (#try.Success [input' x])
-        (run (do ..monad
-               [xs (at_most (dec n) p)]
-               (wrap (#.Cons x xs)))
-             input')
-        ))
-    (\ ..monad wrap (list))))
+          (#try.Success [input' x])
+          (..run (\ ..monad map (|>> (#.Cons x))
+                    (at_most (dec amount) parser))
+                 input')))))
 
-(def: #export (between from to p)
+(def: #export (between from to parser)
   {#.doc "Parse between N and M times."}
   (All [s a] (-> Nat Nat (Parser s a) (Parser s (List a))))
-  (do ..monad
-    [min_xs (exactly from p)
-     max_xs (at_most (n.- from to) p)]
-    (wrap (\ list.monad join (list min_xs max_xs)))))
+  (do {! ..monad}
+    [minimum (..exactly from parser)]
+    (if (n.< to from)
+      (\ ! map (list\compose minimum)
+         (..at_most (n.- from to) parser))
+      (wrap minimum))))
 
-(def: #export (sep_by sep p)
-  {#.doc "Parsers instances of 'p' that are separated by instances of 'sep'."}
+(def: #export (separated_by separator parser)
+  {#.doc "Parsers instances of 'parser' that are separated by instances of 'separator'."}
   (All [s a b] (-> (Parser s b) (Parser s a) (Parser s (List a))))
   (do {! ..monad}
-    [?x (maybe p)]
+    [?x (..maybe parser)]
     (case ?x
       #.None
       (wrap #.Nil)
       
       (#.Some x)
-      (do !
-        [xs' (some (..and sep p))]
-        (wrap (#.Cons x (list\map product.right xs'))))
-      )))
+      (|> parser
+          (..and separator)
+          ..some
+          (\ ! map (|>> (list\map product.right) (#.Cons x)))))))
 
-(def: #export (not p)
+(def: #export (not parser)
   (All [s a] (-> (Parser s a) (Parser s Any)))
   (function (_ input)
-    (case (p input)
+    (case (parser input)
       (#try.Failure msg)
       (#try.Success [input []])
       
@@ -257,7 +255,7 @@
   {#.doc "Combinator for recursive parser."}
   (All [s a] (-> (-> (Parser s a) (Parser s a)) (Parser s a)))
   (function (_ inputs)
-    (run (parser (rec parser)) inputs)))
+    (..run (parser (rec parser)) inputs)))
 
 (def: #export (after param subject)
   (All [s _ a] (-> (Parser s _) (Parser s a) (Parser s a)))
