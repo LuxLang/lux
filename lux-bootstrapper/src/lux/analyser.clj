@@ -109,23 +109,23 @@
       (|case command
         (&/$Text ?procedure)
         (case ?procedure
-          "lux check"
+          "lux type check"
           (|let [(&/$Cons ?type
                           (&/$Cons ?value
                                    (&/$Nil))) parameters]
             (&/with-analysis-meta location exo-type
-              (&&lux/analyse-ann analyse eval! exo-type ?type ?value)))
+              (&&lux/analyse-type-check analyse eval! exo-type ?type ?value)))
 
-          "lux check type"
+          "lux type check type"
           (|let [(&/$Cons ?value (&/$Nil)) parameters]
             (analyse-ast optimize eval! compile-module compilers &type/Type ?value))
 
-          "lux coerce"
+          "lux type as"
           (|let [(&/$Cons ?type
                           (&/$Cons ?value
                                    (&/$Nil))) parameters]
             (&/with-analysis-meta location exo-type
-              (&&lux/analyse-coerce analyse eval! exo-type ?type ?value)))
+              (&&lux/analyse-type-as analyse eval! exo-type ?type ?value)))
 
           "lux def"
           (|let [(&/$Cons [_ (&/$Identifier "" ?name)]

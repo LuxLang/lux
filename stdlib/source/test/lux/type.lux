@@ -1,17 +1,21 @@
 (.module:
-  [lux (#- type)
-   ["%" data/text/format (#+ format)]
+  [lux #*
    ["_" test (#+ Test)]
    [abstract
-    ["." monad (#+ do)]]
+    ["." monad (#+ do)]
+    {[0 #spec]
+     [/
+      ["$." equivalence]]}]
    [control
-    pipe]
+    [pipe (#+ case>)]]
    [data
     ["." maybe]
+    ["." text ("#\." equivalence)]
     [collection
-     ["." list]]]
+     ["." list]
+     ["." array]]]
    [math
-    ["." random (#+ Random)]
+    ["." random (#+ Random) ("#\." monad)]
     [number
      ["n" nat]]]]
   {1
@@ -39,57 +43,45 @@
 
 (def: #export random
   (Random Type)
-  (let [(^open "random\.") random.monad]
-    (random.rec (function (_ recur)
-                  (let [pairG (random.and recur recur)
-                        idG random.nat
-                        quantifiedG (random.and (random\wrap (list)) recur)]
-                    ($_ random.or
-                        (random.and ..short (random\wrap (list)))
-                        pairG
-                        pairG
-                        pairG
-                        idG
-                        idG
-                        idG
-                        quantifiedG
-                        quantifiedG
-                        pairG
-                        (random.and ..name recur)
-                        ))))))
+  (random.rec
+   (function (_ recur)
+     (let [pairG (random.and recur recur)
+           idG random.nat
+           quantifiedG (random.and (random\wrap (list)) recur)]
+       ($_ random.or
+           (random.and ..short (random\wrap (list)))
+           pairG
+           pairG
+           pairG
+           idG
+           idG
+           idG
+           quantifiedG
+           quantifiedG
+           pairG
+           (random.and ..name recur)
+           )))))
 
 (def: #export test
   Test
-  (<| (_.context (%.name (name_of /._)))
+  (<| (_.covering /._)
       ($_ _.and
-          (do random.monad
-            [sample ..random]
-            (_.test "Every type is equal to itself."
-                    (\ /.equivalence = sample sample)))
-          (_.test "Can apply quantified types (universal and existential quantification)."
-                  (and (maybe.default #0
-                                      (do maybe.monad
-                                        [partial (/.apply (list Bit) Ann)
-                                         full (/.apply (list Int) partial)]
-                                        (wrap (\ /.equivalence = full (#.Product Bit Int)))))
-                       (|> (/.apply (list Bit) Text)
-                           (case> #.None #1 _ #0))))
-          (let [base (#.Named ["" "a"] (#.Product Bit Int))
-                aliased (#.Named ["" "c"]
-                                 (#.Named ["" "b"]
-                                          base))]
+          (_.for [/.equivalence]
+                 ($equivalence.spec /.equivalence ..random))
+          
+          (do {! random.monad}
+            [anonymousT (random.filter (|>> (case> (#.Named _ _) false
+                                                   _ true))
+                                       ..random)
+             name/0 ..name
+             name/1 ..name
+             #let [namedT (#.Named name/0 anonymousT)
+                   aliasedT (#.Named name/1 namedT)]]
             ($_ _.and
-                (_.test "Can remove aliases from an already-named type."
-                        (\ /.equivalence =
-                           base
-                           (/.un_alias aliased)))
-                (_.test "Can remove all names from a type."
-                        (and (not (\ /.equivalence =
-                                     base
-                                     (/.un_name aliased)))
-                             (\ /.equivalence =
-                                (/.un_name base)
-                                (/.un_name aliased))))))
+                (_.cover [/.un_alias]
+                         (\ /.equivalence = namedT (/.un_alias aliasedT)))
+                (_.cover [/.un_name]
+                         (\ /.equivalence = anonymousT (/.un_name aliasedT)))))
           (do {! random.monad}
             [size (|> random.nat (\ ! map (n.% 3)))
              members (|> ..random
@@ -105,17 +97,25 @@
              #let [(^open "/\.") /.equivalence
                    (^open "list\.") (list.equivalence /.equivalence)]]
             (`` ($_ _.and
-                    (~~ (template [<desc> <ctor> <dtor> <unit>]
-                          [(_.test (format "Can build and tear-down " <desc> " types.")
-                                   (let [flat (|> members <ctor> <dtor>)]
-                                     (or (list\= members flat)
-                                         (and (list\= (list) members)
-                                              (list\= (list <unit>) flat)))))]
+                    (~~ (template [<ctor> <dtor> <unit>]
+                          [(_.cover [<ctor> <dtor>]
+                                    (let [flat (|> members <ctor> <dtor>)]
+                                      (or (list\= members flat)
+                                          (and (list\= (list) members)
+                                               (list\= (list <unit>) flat)))))]
 
-                          ["variant" /.variant /.flatten_variant Nothing]
-                          ["tuple"   /.tuple   /.flatten_tuple   Any]
+                          [/.variant /.flatten_variant Nothing]
+                          [/.tuple   /.flatten_tuple   Any]
                           ))
                     )))
+          (_.cover [/.apply]
+                   (and (<| (maybe.default #0)
+                            (do maybe.monad
+                              [partial (/.apply (list Bit) Ann)
+                               full (/.apply (list Int) partial)]
+                              (wrap (\ /.equivalence = full (#.Product Bit Int)))))
+                        (|> (/.apply (list Bit) Text)
+                            (case> #.None #1 _ #0))))
           (do {! random.monad}
             [size (|> random.nat (\ ! map (n.% 3)))
              members (monad.seq ! (list.repeat size ..random))
@@ -130,46 +130,75 @@
              #let [(^open "/\.") /.equivalence
                    (^open "list\.") (list.equivalence /.equivalence)]]
             ($_ _.and
-                (_.test "Can build and tear-down function types."
-                        (let [[inputs output] (|> (/.function members extra) /.flatten_function)]
-                          (and (list\= members inputs)
-                               (/\= extra output))))
-
-                (_.test "Can build and tear-down application types."
-                        (let [[tfunc tparams] (|> extra (/.application members) /.flatten_application)]
-                          (n.= (list.size members) (list.size tparams))))
+                (_.cover [/.function /.flatten_function]
+                         (let [[inputs output] (|> (/.function members extra) /.flatten_function)]
+                           (and (list\= members inputs)
+                                (/\= extra output))))
+                (_.cover [/.application /.flatten_application]
+                         (let [[tfunc tparams] (|> extra (/.application members) /.flatten_application)]
+                           (n.= (list.size members) (list.size tparams))))
                 ))
           (do {! random.monad}
-            [size (|> random.nat (\ ! map (n.% 3)))
-             extra (|> ..random
-                       (random.filter (function (_ type)
-                                        (case type
-                                          (^or (#.UnivQ _) (#.ExQ _))
-                                          #0
+            [size (|> random.nat (\ ! map (|>> (n.% 3) inc)))
+             body_type (|> ..random
+                           (random.filter (function (_ type)
+                                            (case type
+                                              (^or (#.UnivQ _) (#.ExQ _))
+                                              #0
 
-                                          _
-                                          #1))))
+                                              _
+                                              #1))))
              #let [(^open "/\.") /.equivalence]]
             (`` ($_ _.and
-                    (~~ (template [<desc> <ctor> <dtor>]
-                          [(_.test (format "Can build and tear-down " <desc> " types.")
-                                   (let [[flat_size flat_body] (|> extra (<ctor> size) <dtor>)]
-                                     (and (n.= size flat_size)
-                                          (/\= extra flat_body))))]
+                    (~~ (template [<ctor> <dtor>]
+                          [(_.cover [<ctor> <dtor>]
+                                    (let [[flat_size flat_body] (|> body_type (<ctor> size) <dtor>)]
+                                      (and (n.= size flat_size)
+                                           (/\= body_type flat_body))))]
 
-                          ["universally-quantified"   /.univ_q /.flatten_univ_q]
-                          ["existentially-quantified" /.ex_q   /.flatten_ex_q]
+                          [/.univ_q /.flatten_univ_q]
+                          [/.ex_q   /.flatten_ex_q]
                           ))
+                    (_.cover [/.quantified?]
+                             (and (not (/.quantified? body_type))
+                                  (|> body_type (/.univ_q size) /.quantified?)
+                                  (|> body_type (/.ex_q size) /.quantified?)))
                     )))
-          (_.test (%.name (name_of /.:by_example))
-                  (let [example (: (Maybe Nat)
-                                   #.None)]
-                    (/\= (.type (List Nat))
-                         (/.:by_example [a]
-                                        (Maybe a)
-                                        example
-                                        
-                                        (List a)))))
+          (do {! random.monad}
+            [depth (|> random.nat (\ ! map (|>> (n.% 3) inc)))
+             element_type (|> ..random
+                              (random.filter (function (_ type)
+                                               (case type
+                                                 (^ (#.Primitive name (list element_type)))
+                                                 (not (text\= array.type_name name))
+
+                                                 _
+                                                 #1))))
+             #let [(^open "/\.") /.equivalence]]
+            ($_ _.and
+                (_.cover [/.array /.flatten_array]
+                         (let [[flat_depth flat_element] (|> element_type (/.array depth) /.flatten_array)]
+                           (and (n.= depth flat_depth)
+                                (/\= element_type flat_element))))
+                (_.cover [/.array?]
+                         (and (not (/.array? element_type))
+                              (/.array? (/.array depth element_type))))
+                ))
+          (_.cover [/.:by_example]
+                   (let [example (: (Maybe Nat)
+                                    #.None)]
+                     (/\= (.type (List Nat))
+                          (/.:by_example [a]
+                                         (Maybe a)
+                                         example
+                                         
+                                         (List a)))))
+          (do {! random.monad}
+            [sample random.nat]
+            (_.cover [/.:log!]
+                     (exec
+                       (/.:log! sample)
+                       true)))
 
           /abstract.test
           /check.test

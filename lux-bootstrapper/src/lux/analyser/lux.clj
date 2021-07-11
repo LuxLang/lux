@@ -703,7 +703,7 @@
     (&&/|meta new-type _location
               _analysis)))
 
-(defn analyse-ann [analyse eval! exo-type ?type ?value]
+(defn analyse-type-check [analyse eval! exo-type ?type ?value]
   (|do [=type (&&/analyse-1 analyse &type/Type ?type)
         ==type (eval! =type)
         _ (&type/check exo-type ==type)
@@ -713,7 +713,7 @@
                                (&&/$ann =value =type)
                                )))))
 
-(defn analyse-coerce [analyse eval! exo-type ?type ?value]
+(defn analyse-type-as [analyse eval! exo-type ?type ?value]
   (|do [=type (&&/analyse-1 analyse &type/Type ?type)
         ==type (eval! =type)
         _ (&type/check exo-type ==type)
