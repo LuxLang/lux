@@ -1,13 +1,11 @@
-# JavaScript compiler
-
-## Test
+# Test
 
 ```
 cd ~/lux/lux-js/ && lein lux auto test
 cd ~/lux/lux-js/ && lein clean && lein lux auto test
 ```
 
-## Build
+# Build
 
 ```
 cd ~/lux/lux-js/ && lein lux auto build
@@ -32,7 +30,7 @@ cd ~/lux/lux-js/ \
 && mv target/program.js lux.js
 ```
 
-## Try
+# Try
 
 ```
 ## Compile Lux's Standard Library's tests using a JS/Node-based compiler.
@@ -40,5 +38,12 @@ cd ~/lux/stdlib/ \
 && lein clean \
 && node --stack_size=8192 ~/lux/lux-js/lux.js build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux \
 && node ~/lux/stdlib/target/program.js
+```
+
+# Deploy
+
+```
+cd ~/lux/lux-js/ \
+&& mvn install:install-file -Dfile=lux.js -DgroupId=com.github.luxlang -DartifactId=lux-js -Dversion=0.6.0-SNAPSHOT -Dpackaging=js
 ```
 

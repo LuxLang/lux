@@ -55,21 +55,16 @@
   Group
   "com.github.luxlang")
 
-(def: #export jvm_compiler_name
-  Name
-  "lux-jvm")
+(template [<dependency> <definition>]
+  [(def: #export <definition>
+     Name
+     <dependency>)]
 
-(def: #export js_compiler_name
-  Name
-  "lux-js")
-
-(template [<finder> <name>]
-  [(def: <finder>
-     Finder
-     (..dependency_finder ..lux_group <name>))]
-
-  [jvm_compiler ..jvm_compiler_name]
-  [js_compiler ..js_compiler_name]
+  ["lux-jvm" jvm_compiler_name]
+  ["lux-js" js_compiler_name]
+  ["lux-python" python_compiler_name]
+  ["lux-lua" lua_compiler_name]
+  ["lux-ruby" ruby_compiler_name]
   )
 
 (exception: #export no_available_compiler)
@@ -77,7 +72,10 @@
 
 (type: #export Compiler
   (#JVM Dependency)
-  (#JS Dependency))
+  (#JS Dependency)
+  (#Python Dependency)
+  (#Lua Dependency)
+  (#Ruby Dependency))
 
 (def: (remove_dependency dependency)
   (-> Dependency (-> Resolution Resolution))
@@ -85,20 +83,27 @@
        (list.filter (|>> product.left (is? dependency) not))
        (dictionary.from_list ///dependency.hash)))
 
-(def: (compiler resolution)
-  (-> Resolution (Try [Resolution Compiler]))
-  (case [(..jvm_compiler resolution)
-         (..js_compiler resolution)]
-    [(#.Some dependency) _]
-    (#try.Success [(..remove_dependency dependency resolution)
-                   (#JVM dependency)])
-    
-    [_ (#.Some dependency)]
-    (#try.Success [(..remove_dependency dependency resolution)
-                   (#JS dependency)])
-
-    _
-    (exception.throw ..no_available_compiler [])))
+(def: (compiler resolution compiler_dependency)
+  (-> Resolution Dependency (Try [Resolution Compiler]))
+  (let [[[compiler_group compiler_name compiler_version] compiler_type] compiler_dependency]
+    (case (..dependency_finder compiler_group compiler_name resolution)
+      (#.Some dependency)
+      (case compiler_name
+        (^template [<tag> <name>]
+          [(^ (static <name>))
+           (#try.Success [(..remove_dependency dependency resolution)
+                          (<tag> dependency)])])
+        ([#JVM ..jvm_compiler_name]
+         [#JS ..js_compiler_name]
+         [#Python ..python_compiler_name]
+         [#Lua ..lua_compiler_name]
+         [#Ruby ..ruby_compiler_name])
+        
+        _
+        (exception.throw ..no_available_compiler []))
+      
+      _
+      (exception.throw ..no_available_compiler []))))
 
 (def: (path fs home dependency)
   (All [!] (-> (file.System !) Path Dependency Path))
@@ -177,12 +182,17 @@
            #let [home (\ program home)
                  working_directory (\ program directory)]]
           (do ///action.monad
-            [[resolution compiler] (promise\wrap (..compiler resolution))
+            [[resolution compiler] (promise\wrap (..compiler resolution (get@ #///.compiler profile)))
              #let [[[command compiler_params] output] (case compiler
-                                                        (#JVM dependency) [(///runtime.java (..path fs home dependency))
-                                                                           "program.jar"]
-                                                        (#JS dependency) [(///runtime.node (..path fs home dependency))
-                                                                          "program.js"])
+                                                        (^template [<tag> <runtime> <program>]
+                                                          [(<tag> dependency)
+                                                           [(<runtime> (..path fs home dependency))
+                                                            <program>]])
+                                                        ([#JVM ///runtime.java "program.jar"]
+                                                         [#JS ///runtime.node "program.js"]
+                                                         [#Python ///runtime.java "program.py"]
+                                                         [#Lua ///runtime.java "program.lua"]
+                                                         [#Ruby ///runtime.java "program.rb"]))
                    / (\ fs separator)
                    cache_directory (format working_directory / target)]
              _ (console.write_line ..start console)

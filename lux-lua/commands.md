@@ -1,13 +1,11 @@
-# Lua compiler
-
-## Test
+# Test
 
 ```
 cd ~/lux/lux-lua/ && lein lux auto test
 cd ~/lux/lux-lua/ && lein clean && lein lux auto test
 ```
 
-## Build
+# Build
 
 ```
 ## Develop
@@ -23,7 +21,7 @@ cd ~/lux/lux-lua/ \
 && mv target/program.jar jvm_based_compiler.jar
 ```
 
-## Try
+# Try
 
 ```
 ## Compile Lux's Standard Library's tests using a JVM-based compiler.
@@ -31,5 +29,12 @@ cd ~/lux/stdlib/ \
 && lein clean \
 && java -jar ~/lux/lux-lua/jvm_based_compiler.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux \
 && ~/lua-5.4.2/install/bin/lua ~/lux/stdlib/target/program.lua
+```
+
+# Deploy
+
+```
+cd ~/lux/lux-lua/ \
+&& mvn install:install-file -Dfile=jvm_based_compiler.jar -DgroupId=com.github.luxlang -DartifactId=lux-lua -Dversion=0.6.0-SNAPSHOT -Dpackaging=jar
 ```
 

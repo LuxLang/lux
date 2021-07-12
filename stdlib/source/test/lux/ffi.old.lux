@@ -1,20 +1,25 @@
 (.module:
   [lux #*
-   [abstract/monad (#+ Monad do)]
+   ["_" test (#+ Test)]
+   [abstract
+    [equivalence (#+ Equivalence)]
+    [monad (#+ do)]]
    [control
-    pipe]
+    [pipe (#+ case>)]]
    [data
-    ["." text ("#\." equivalence)]]
+    ["." text ("#\." equivalence)
+     ["%" format (#+ format)]]]
+   [macro
+    ["." template]]
    [math
-    ["r" random]
+    ["." random]
     [number
      ["n" nat]
-     ["i" int]]]
-   ["_" test (#+ Test)]]
-  {1
-   ["." /]})
-
-(/.import: (java/util/concurrent/Callable a))
+     ["i" int]
+     ["f" frac]]]
+   ["." type ("#\." equivalence)]]
+  [\\
+   ["." /]])
 
 (/.import: java/lang/Object)
 (/.import: java/lang/String)
@@ -23,123 +28,207 @@
   ["#::."
    (new [java/lang/String])])
 
-(/.import: java/lang/Runnable)
-
 (/.import: (java/lang/Class a)
   ["#::."
    (getName [] java/lang/String)])
 
-(/.import: java/lang/System
-  ["#::."
-   (#static out java/io/PrintStream)
-   (#static currentTimeMillis [] #io long)
-   (#static getenv [java/lang/String] #io #? java/lang/String)])
-
-(/.class: #final (TestClass A) [java/lang/Runnable]
+(/.class: #final (TestClass A) []
   ## Fields
-  (#private foo boolean)
-  (#private bar A)
-  (#private baz java/lang/Object)
+  (#private increase java/lang/Long)
+  (#private counter java/lang/Long)
   ## Methods
-  (#public [] (new {value A}) []
-           (exec (:= ::foo #1)
-             (:= ::bar value)
-             (:= ::baz "")
+  (#public [] (new {increase java/lang/Long} {counter java/lang/Long}) []
+           (exec
+             (:= ::increase increase)
+             (:= ::counter counter)
              []))
-  (#public (virtual self) java/lang/Object
-           "")
-  (#public #static (static) java/lang/Object
-           "")
-  (java/lang/Runnable [] (run self) void
-                      []))
+  (#public (currentC self) java/lang/Long
+           ::counter)
+  (#public (upC self) void
+           (:= ::counter (i.+ ::increase ::counter)))
+  (#public (downC self) void
+           (:= ::counter (i.- ::increase ::counter))))
 
-(def: test_runnable
-  (/.object [] [java/lang/Runnable]
-    []
-    (java/lang/Runnable [] (run self) void
-                        [])))
-
-(def: test_callable
-  (/.object [a] [(java/util/concurrent/Callable a)]
-    []
-    (java/util/concurrent/Callable [] (call self) a
-                                   (undefined))))
+(/.import: (test/lux/ffi/TestClass a)
+  ["#::."
+   (new [java/lang/Long java/lang/Long])
+   (currentC [] java/lang/Long)
+   (upC [] void)
+   (downC [] void)])
 
 (/.interface: TestInterface
-  ([] foo [boolean java/lang/String] void #throws [java/lang/Exception]))
+  ([] current [] java/lang/Long #throws [java/lang/Exception])
+  ([] up [] test/lux/ffi/TestInterface #throws [java/lang/Exception])
+  ([] down [] test/lux/ffi/TestInterface #throws [java/lang/Exception]))
+
+(/.import: test/lux/ffi/TestInterface
+  ["#::."
+   (current [] java/lang/Long)
+   (up [] java/lang/Long)
+   (down [] java/lang/Long)])
+
+(def: (test_object increase counter)
+  (-> Int Int test/lux/ffi/TestInterface)
+  (/.object [] [test/lux/ffi/TestInterface]
+    []
+    (test/lux/ffi/TestInterface
+     [] (current self)
+     java/lang/Long
+     counter)
+    (test/lux/ffi/TestInterface
+     [] (up self)
+     test/lux/ffi/TestInterface
+     (test_object increase (i.+ increase counter)))
+    (test/lux/ffi/TestInterface
+     [] (down self)
+     test/lux/ffi/TestInterface
+     (test_object increase (i.- increase counter)))))
 
 (def: conversions
   Test
-  (do r.monad
-    [sample r.int]
+  (do {! random.monad}
+    [long random.int
+     int (\ ! map (|>> /.long_to_int) random.int)
+     char (\ ! map (|>> /.long_to_int /.int_to_char) random.int)
+     double random.frac
+     float (\ ! map (|>> /.double_to_float) random.frac)]
     (`` ($_ _.and
-            (~~ (template [<to> <from> <message>]
-                  [(_.test <message>
-                           (or (|> sample <to> <from> (i.= sample))
-                               (let [capped_sample (|> sample <to> <from>)]
-                                 (|> capped_sample <to> <from> (i.= capped_sample)))))]
+            (~~ (template [<=> <sample> <to> <from>]
+                  [(_.cover [<to> <from>]
+                            (or (|> <sample> <to> <from> (<=> <sample>))
+                                (let [capped (|> <sample> <to> <from>)]
+                                  (|> capped <to> <from> (<=> capped)))))]
 
-                  [/.long_to_byte /.byte_to_long "Can succesfully convert to/from byte."]
-                  [/.long_to_short /.short_to_long "Can succesfully convert to/from short."]
-                  [/.long_to_int /.int_to_long "Can succesfully convert to/from int."]
-                  [/.long_to_float /.float_to_long "Can succesfully convert to/from float."]
-                  [/.long_to_double /.double_to_long "Can succesfully convert to/from double."]
-                  [(<| /.int_to_char /.long_to_int) (<| /.int_to_long /.char_to_int) "Can succesfully convert to/from char."]
+                  [i.= long /.long_to_byte /.byte_to_long]
+                  [i.= long /.long_to_short /.short_to_long]
+                  [i.= long /.long_to_int /.int_to_long]
+                  [i.= long /.long_to_float /.float_to_long]
+                  [i.= long /.long_to_double /.double_to_long]
+
+                  [f.= double /.double_to_float /.float_to_double]
+                  [f.= double /.double_to_int /.int_to_double]
                   ))
+            (~~ (template [<to> <from>]
+                  [(_.cover [<to>]
+                            (or (|> int <to> <from> (i.= (/.int_to_long int)))
+                                (let [capped (|> int <to> <from>)]
+                                  (|> capped /.long_to_int <to> <from> (i.= capped)))))]
+
+                  [/.int_to_byte /.byte_to_long]
+                  [/.int_to_short /.short_to_long]
+                  [/.int_to_char /.char_to_long]
+                  ))
+            (~~ (template [<sample> <to> <from>]
+                  [(_.cover [<to> <from>]
+                            (or (|> <sample> <to> <from> /.float_to_double (f.= (/.float_to_double <sample>)))
+                                (let [capped (|> <sample> <to> <from>)]
+                                  (|> capped <to> <from> /.float_to_double (f.= (/.float_to_double capped))))))]
+
+                  [float /.float_to_int /.int_to_float]
+                  ))
+            (~~ (template [<to> <from>]
+                  [(_.cover [<to>]
+                            (or (|> char <to> <from> (i.= (|> char /.char_to_int /.int_to_long)))
+                                (let [capped (|> char <to> <from>)]
+                                  (|> capped /.long_to_int /.int_to_char <to> <from> (i.= capped)))))]
+
+                  [/.char_to_byte /.byte_to_long]
+                  [/.char_to_short /.short_to_long]
+                  ))
+            (_.cover [/.char_to_long]
+                     (with_expansions [<to> /.int_to_char
+                                       <from> /.char_to_long]
+                       (`` (or (|> int <to> <from> (i.= (/.int_to_long int)))
+                               (let [capped (|> int <to> <from>)]
+                                 (|> capped /.long_to_int <to> <from> (i.= capped)))))))
+            (_.cover [/.char_to_int]
+                     (with_expansions [<to> /.int_to_char
+                                       <from> /.char_to_int]
+                       (`` (or (|> int <to> <from> /.int_to_long (i.= (/.int_to_long int)))
+                               (let [capped (|> int <to> <from>)]
+                                 (|> capped <to> <from> /.int_to_long (i.= (/.int_to_long capped))))))))
             ))))
-
-(def: miscellaneous
-  Test
-  (do r.monad
-    [sample (r.ascii 1)]
-    ($_ _.and
-        (_.test "Can check if an object is of a certain class."
-                (and (case (/.check java/lang/String sample) (#.Some _) true #.None false)
-                     (case (/.check java/lang/Long sample) (#.Some _) false #.None true)
-                     (case (/.check java/lang/Object sample) (#.Some _) true #.None false)
-                     (case (/.check java/lang/Object (/.null)) (#.Some _) false #.None true)))
-
-        (_.test "Can run code in a 'synchronized' block."
-                (/.synchronized sample #1))
-
-        (_.test "Can access Class instances."
-                (text\= "java.lang.Class" (java/lang/Class::getName (/.class_for java/lang/Class))))
-
-        (_.test "Can check if a value is null."
-                (and (/.null? (/.null))
-                     (not (/.null? sample))))
-
-        (_.test "Can safely convert nullable references into Maybe values."
-                (and (|> (: (Maybe java/lang/Object) (/.??? (/.null)))
-                         (case> #.None #1
-                                _ #0))
-                     (|> (: (Maybe java/lang/Object) (/.??? sample))
-                         (case> (#.Some _) #1
-                                _ #0))))
-        )))
 
 (def: arrays
   Test
-  (do {! r.monad}
-    [size (|> r.nat (\ ! map (|>> (n.% 100) (n.max 1))))
-     idx (|> r.nat (\ ! map (n.% size)))
-     value r.int]
+  (do {! random.monad}
+    [size (|> random.nat (\ ! map (|>> (n.% 100) (n.max 1))))
+     idx (|> random.nat (\ ! map (n.% size)))
+     value random.int]
     ($_ _.and
-        (_.test "Can create arrays of some length."
-                (n.= size (/.array_length (/.array java/lang/Long size))))
+        (_.cover [/.array /.array_length]
+                 (n.= size (/.array_length (/.array java/lang/Long size))))
+        (_.cover [/.array_write /.array_read]
+                 (|> (/.array java/lang/Long size)
+                     (/.array_write idx value)
+                     (/.array_read idx)
+                     (i.= value)))
+        )))
 
-        (_.test "Can set and get array values."
-                (let [arr (/.array java/lang/Long size)]
-                  (exec (/.array_write idx value arr)
-                    (i.= value (/.array_read idx arr)))))
+(def: null
+  Test
+  (do random.monad
+    [sample (random.ascii 1)]
+    ($_ _.and
+        (_.cover [/.null /.null?]
+                 (and (/.null? (/.null))
+                      (not (/.null? sample))))
+        (_.cover [/.???]
+                 (and (|> (: (Maybe java/lang/Object) (/.??? (/.null)))
+                          (case> #.None #1
+                                 _ #0))
+                      (|> (: (Maybe java/lang/Object) (/.??? sample))
+                          (case> (#.Some _) #1
+                                 _ #0))))
+        (_.cover [/.!!!]
+                 (and (/.null? (/.!!! (/.??? (/.null))))
+                      (not (/.null? (/.!!! (/.??? sample))))))
+        )))
+
+(def: miscellaneous
+  Test
+  (do random.monad
+    [sample (random.ascii 1)
+     counter random.int
+     increase random.int]
+    ($_ _.and
+        (_.cover [/.check]
+                 (and (case (/.check java/lang/String sample) (#.Some _) true #.None false)
+                      (case (/.check java/lang/Long sample) (#.Some _) false #.None true)
+                      (case (/.check java/lang/Object sample) (#.Some _) true #.None false)
+                      (case (/.check java/lang/Object (/.null)) (#.Some _) false #.None true)))
+        (_.cover [/.synchronized]
+                 (/.synchronized sample #1))
+        (_.cover [/.class_for /.import:]
+                 (|> (/.class_for java/lang/Class)
+                     java/lang/Class::getName
+                     (text\= "java.lang.Class")))
+        (_.cover [/.class: /.do_to]
+                 (|> (/.do_to (test/lux/ffi/TestClass::new increase counter)
+                       (test/lux/ffi/TestClass::upC)
+                       (test/lux/ffi/TestClass::upC)
+                       (test/lux/ffi/TestClass::downC))
+                     test/lux/ffi/TestClass::currentC
+                     (i.= (i.+ increase counter))))
+        (_.cover [/.interface: /.object]
+                 (|> (..test_object increase counter)
+                     test/lux/ffi/TestInterface::up
+                     test/lux/ffi/TestInterface::up
+                     test/lux/ffi/TestInterface::down
+                     test/lux/ffi/TestInterface::current
+                     (i.= (i.+ increase counter))))
+        (_.cover [/.type]
+                 (and (type\= (primitive "java.lang.Char")
+                              (/.type java/lang/Char))
+                      (type\= (primitive "java.util.List" [(primitive "java.lang.Byte")])
+                              (/.type (java/util/List java/lang/Byte)))))
         )))
 
 (def: #export test
-  ($_ _.and
-      (<| (_.context "Conversions.")
-          ..conversions)
-      (<| (_.context "Miscellaneous.")
-          ..miscellaneous)
-      (<| (_.context "Arrays.")
-          ..arrays)
-      ))
+  (<| (_.covering /._)
+      ($_ _.and
+          ..conversions
+          ..arrays
+          ..null
+          ..miscellaneous
+          )))

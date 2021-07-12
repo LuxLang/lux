@@ -1,12 +1,10 @@
-# JVM compiler
-
-## Test
+# Test
 
 ```
 cd ~/lux/lux-jvm/ && lein clean && lein lux auto test
 ```
 
-## Build
+# Build
 
 ```
 ## Use bootstrapping compiler to build new JVM compiler
@@ -15,13 +13,13 @@ cd ~/lux/lux-jvm/ \
 && lein lux auto build
 ```
 
-## REPL
+# REPL
 
 ```
 cd ~/lux/lux-jvm/ && java -jar target/program.jar repl --source ~/lux/stdlib/source --target ~/lux/stdlib/target
 ```
 
-## Try
+# Try
 
 ```
 cd ~/lux/lux-jvm/ && time java -jar target/program.jar build --source ~/lux/stdlib/source --target ~/lux/stdlib/target --module test/lux
@@ -38,7 +36,7 @@ cd ~/lux/stdlib/ \
 && java -jar ~/lux/stdlib/target/program.jar
 ```
 
-## Deploy
+# Deploy
 
 ```
 cd ~/lux/lux-jvm/ \

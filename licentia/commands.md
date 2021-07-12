@@ -1,4 +1,4 @@
-## Build
+# Build
 
 ```
 ## Develop
@@ -7,7 +7,7 @@ cd ~/lux/licentia/ \
 && lux auto build
 ```
 
-## Test
+# Test
 
 ```
 ## Develop
@@ -16,7 +16,7 @@ cd ~/lux/licentia/ \
 && lux auto test
 ```
 
-## Run
+# Run
 
 ```
 ## Re-generate Lux's license.

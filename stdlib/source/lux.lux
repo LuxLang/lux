@@ -3764,24 +3764,24 @@
     _
     (return [#.Nil parts])))
 
-(def: (split! at x)
+(def: (text\split! at x)
   (-> Nat Text [Text Text])
   [("lux text clip" 0 at x)
    ("lux text clip" at (|> x "lux text size" ("lux i64 -" at)) x)])
 
-(def: (split_with token sample)
+(def: (text\split_with token sample)
   (-> Text Text (Maybe [Text Text]))
   (do ..maybe_monad
     [index (..index_of token sample)
-     #let [[pre post'] (split! index sample)
-           [_ post] (split! ("lux text size" token) post')]]
+     #let [[pre post'] (text\split! index sample)
+           [_ post] (text\split! ("lux text size" token) post')]]
     (wrap [pre post])))
 
 (def: (replace_all pattern replacement template)
   (-> Text Text Text Text)
   ((: (-> Text Text Text)
       (function (recur left right)
-        (case (..split_with pattern right)
+        (case (..text\split_with pattern right)
           (#.Some [pre post])
           (recur ($_ "lux text concat" left pre replacement) post)
 
@@ -3798,7 +3798,33 @@
       (replace_all ..self_reference self)
       (replace_all ..contextual_reference context)))
 
-(def: #export module_separator "/")
+(def: #export module_separator
+  "/")
+
+(def: parallel_hierarchy_sigil
+  "\")
+
+(def: (normalize_parallel_path' hierarchy root)
+  (-> Text Text Text)
+  (case [(text\split_with ..module_separator hierarchy)
+         (text\split_with ..parallel_hierarchy_sigil root)]
+    [(#.Some [_ hierarchy'])
+     (#.Some ["" root'])]
+    (normalize_parallel_path' hierarchy' root')
+
+    _
+    (case root
+      "" hierarchy
+      _ ($_ text\compose root ..module_separator hierarchy))))
+
+(def: (normalize_parallel_path hierarchy root)
+  (-> Text Text (Maybe Text))
+  (case (text\split_with ..parallel_hierarchy_sigil root)
+    (#.Some ["" root'])
+    (#.Some (normalize_parallel_path' hierarchy root'))
+
+    _
+    #.None))
 
 (def: (count_relatives relatives input)
   (-> Nat Text Nat)
@@ -3891,23 +3917,36 @@
                                 ## Nested
                                 (^ [_ (#Tuple (list& [_ (#Identifier ["" m_name])] extra))])
                                 (do meta_monad
-                                  [import_name (clean_module nested? relative_root m_name)
+                                  [import_name (case (normalize_parallel_path relative_root m_name)
+                                                 (#.Some parallel_path)
+                                                 (wrap parallel_path)
+
+                                                 #.None
+                                                 (clean_module nested? relative_root m_name))
                                    referral+extra (parse_referrals extra)
                                    #let [[referral extra] referral+extra]
                                    openings+extra (parse_openings extra)
                                    #let [[openings extra] openings+extra]
                                    sub_imports (parse_imports #1 import_name context_alias extra)]
                                   (wrap (case [referral openings]
-                                          [#Nothing #Nil] sub_imports
-                                          _               (list& {#import_name import_name
-                                                                  #import_alias #None
-                                                                  #import_refer {#refer_defs referral
-                                                                                 #refer_open openings}}
-                                                                 sub_imports))))
+                                          [#Nothing #Nil]
+                                          sub_imports
+                                          
+                                          _
+                                          (list& {#import_name import_name
+                                                  #import_alias #None
+                                                  #import_refer {#refer_defs referral
+                                                                 #refer_open openings}}
+                                                 sub_imports))))
 
                                 (^ [_ (#Tuple (list& [_ (#Text alias)] [_ (#Identifier ["" m_name])] extra))])
                                 (do meta_monad
-                                  [import_name (clean_module nested? relative_root m_name)
+                                  [import_name (case (normalize_parallel_path relative_root m_name)
+                                                 (#.Some parallel_path)
+                                                 (wrap parallel_path)
+
+                                                 #.None
+                                                 (clean_module nested? relative_root m_name))
                                    referral+extra (parse_referrals extra)
                                    #let [[referral extra] referral+extra]
                                    openings+extra (parse_openings extra)
@@ -3915,34 +3954,17 @@
                                          de_aliased (de_alias context_alias m_name alias)]
                                    sub_imports (parse_imports #1 import_name de_aliased extra)]
                                   (wrap (case [referral openings]
-                                          [#Ignore #Nil] sub_imports
-                                          _              (list& {#import_name import_name
-                                                                 #import_alias (#Some de_aliased)
-                                                                 #import_refer {#refer_defs referral
-                                                                                #refer_open openings}}
-                                                                sub_imports))))
+                                          [#Ignore #Nil]
+                                          sub_imports
+                                          
+                                          _
+                                          (list& {#import_name import_name
+                                                  #import_alias (#Some de_aliased)
+                                                  #import_refer {#refer_defs referral
+                                                                 #refer_open openings}}
+                                                 sub_imports))))
 
-                                ## Parallel
-                                (^ [_ (#Record (list [[_ (#Tuple (list [_ (#Nat alteration)]
-                                                                       [_ (#Tag ["" domain])]))]
-                                                      parallel_tree]))])
-                                (do meta_monad
-                                  [parallel_imports (parse_imports nested? relative_root context_alias (list parallel_tree))]
-                                  (wrap (list\map (alter_domain alteration domain) parallel_imports)))
-
-                                (^ [_ (#Record (list [[_ (#Nat alteration)]
-                                                      parallel_tree]))])
-                                (do meta_monad
-                                  [parallel_imports (parse_imports nested? relative_root context_alias (list parallel_tree))]
-                                  (wrap (list\map (alter_domain alteration "") parallel_imports)))
-
-                                (^ [_ (#Record (list [[_ (#Tag ["" domain])]
-                                                      parallel_tree]))])
-                                (do meta_monad
-                                  [parallel_imports (parse_imports nested? relative_root context_alias (list parallel_tree))
-                                   #let [alteration (list\size (text\split_all_with ..module_separator domain))]]
-                                  (wrap (list\map (alter_domain alteration domain) parallel_imports)))
-
+                                ## Unrecognized syntax.
                                 _
                                 (do meta_monad
                                   [current_module current_module_name]

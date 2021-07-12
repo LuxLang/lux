@@ -16,7 +16,7 @@
     [collection
      ["." dictionary]]]
    [math
-    ["." random]]
+    ["." random (#+ Random)]]
    [world
     ["." file]
     ["." shell (#+ Shell)]
@@ -25,15 +25,15 @@
    ["@." version]
    ["$/#" // #_
     ["#." package]]]
-  {#program
+  [\\program
    ["." /
     ["//#" /// #_
      ["#" profile (#+ Profile)]
      ["#." action]
      ["#." artifact
       ["#/." type]]
-     ["#." dependency
-      ["#/." resolution]]]]})
+     ["#." dependency (#+ Dependency)
+      ["#/." resolution (#+ Resolution)]]]]])
 
 (def: #export good_shell
   (-> Any (Shell IO))
@@ -72,25 +72,35 @@
             (#try.Success [state shell.error]))))))))
 
 (def: compiler
+  (Random Dependency)
   (do random.monad
     [lux_version (random.ascii/alpha 5)
-     #let [jvm_compiler {#///dependency.artifact {#///artifact.group /.lux_group
-                                                  #///artifact.name /.jvm_compiler_name
-                                                  #///artifact.version lux_version}
-                         #///dependency.type ///artifact/type.lux_library}
-           js_compiler {#///dependency.artifact {#///artifact.group /.lux_group
+     #let [js_compiler {#///dependency.artifact {#///artifact.group /.lux_group
                                                  #///artifact.name /.js_compiler_name
                                                  #///artifact.version lux_version}
-                        #///dependency.type ///artifact/type.lux_library}]]
-    (random.either (wrap jvm_compiler)
-                   (wrap js_compiler))))
+                        #///dependency.type ///artifact/type.js_library}]]
+    (`` ($_ random.either
+            (wrap js_compiler)
+            (~~ (template [<compiler>]
+                  [(wrap {#///dependency.artifact {#///artifact.group /.lux_group
+                                                   #///artifact.name <compiler>
+                                                   #///artifact.version lux_version}
+                          #///dependency.type ///artifact/type.lux_library})]
+
+                  [/.jvm_compiler_name]
+                  [/.python_compiler_name]
+                  [/.lua_compiler_name]
+                  [/.ruby_compiler_name]
+                  ))))))
 
 (def: #export resolution
+  (Random [Dependency Resolution])
   (do random.monad
     [dependency ..compiler
      [_ package] $///package.random]
-    (wrap (|> ///dependency/resolution.empty
-              (dictionary.put dependency package)))))
+    (wrap [dependency
+           (|> ///dependency/resolution.empty
+               (dictionary.put dependency package))])))
 
 (def: #export test
   Test
@@ -136,10 +146,12 @@
                                 (exception.match? /.no_available_compiler error)))))
             (do !
               [#let [console (@version.echo "")]
-               resolution ..resolution]
+               [compiler resolution] ..resolution]
               (wrap (do promise.monad
                       [verdict (do ///action.monad
-                                 [_ (/.do! console (program.async (program.mock environment.empty home working_directory)) fs shell resolution profile)
+                                 [_ (/.do! console (program.async (program.mock environment.empty home working_directory))
+                                           fs shell resolution
+                                           (set@ #///.compiler compiler profile))
                                   start (\ console read_line [])
                                   end (\ console read_line [])]
                                  (wrap (and (text\= /.start start)
@@ -150,10 +162,12 @@
                                 (try.default false verdict)))))
             (do !
               [#let [console (@version.echo "")]
-               resolution ..resolution]
+               [compiler resolution] ..resolution]
               (wrap (do promise.monad
                       [verdict (do ///action.monad
-                                 [_ (/.do! console (program.async (program.mock environment.empty home working_directory)) fs (shell.async (..bad_shell [])) resolution profile)
+                                 [_ (/.do! console (program.async (program.mock environment.empty home working_directory))
+                                           fs (shell.async (..bad_shell [])) resolution
+                                           (set@ #///.compiler compiler profile))
                                   start (\ console read_line [])
                                   end (\ console read_line [])]
                                  (wrap (and (text\= /.start start)
