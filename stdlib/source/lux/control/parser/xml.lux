@@ -3,7 +3,7 @@
    [abstract
     [monad (#+ do)]]
    [control
-    ["." try (#+ Try)]
+    ["." try (#+ Try) ("#\." functor)]
     ["." exception (#+ exception:)]]
    [data
     ["." name ("#\." equivalence codec)]
@@ -13,11 +13,11 @@
      ["." list]
      ["." dictionary]]
     [format
-     ["/" xml (#+ Attribute Tag XML)]]]]
+     ["/" xml (#+ Attribute Attrs Tag XML)]]]]
   ["." //])
 
 (type: #export (Parser a)
-  (//.Parser (List XML) a))
+  (//.Parser [Attrs (List XML)] a))
 
 (exception: #export empty_input)
 (exception: #export unexpected_input)
@@ -36,77 +36,10 @@
   (exception.report
    ["Inputs" (exception.enumerate (\ /.codec encode) inputs)]))
 
-(def: #export text
-  (Parser Text)
-  (function (_ documents)
-    (case documents
-      #.Nil
-      (exception.throw ..empty_input [])
-      
-      (#.Cons head tail)
-      (case head
-        (#/.Text value)
-        (#try.Success [tail value])
-        
-        (#/.Node _)
-        (exception.throw ..unexpected_input [])))))
-
-(def: #export (node expected)
-  (-> Tag (Parser Any))
-  (function (_ documents)
-    (case documents
-      #.Nil
-      (exception.throw ..empty_input [])
-      
-      (#.Cons head _)
-      (case head
-        (#/.Text _)
-        (exception.throw ..unexpected_input [])
-        
-        (#/.Node actual _attributes _children)
-        (if (name\= expected actual)
-          (#try.Success [documents []])
-          (exception.throw ..wrong_tag [expected actual]))))))
-
-(def: #export tag
-  (Parser Tag)
-  (function (_ documents)
-    (case documents
-      #.Nil
-      (exception.throw ..empty_input [])
-      
-      (#.Cons head _)
-      (case head
-        (#/.Text _)
-        (exception.throw ..unexpected_input [])
-        
-        (#/.Node tag _attributes _children)
-        (#try.Success [documents tag])))))
-
-(def: #export (attribute name)
-  (-> Attribute (Parser Text))
-  (function (_ documents)
-    (case documents
-      #.Nil
-      (exception.throw ..empty_input [])
-      
-      (#.Cons head _)
-      (case head
-        (#/.Text _)
-        (exception.throw ..unexpected_input [])
-        
-        (#/.Node tag attributes children)
-        (case (dictionary.get name attributes)
-          #.None
-          (exception.throw ..unknown_attribute [name (dictionary.keys attributes)])
-          
-          (#.Some value)
-          (#try.Success [documents value]))))))
-
-(def: #export (run parser documents)
-  (All [a] (-> (Parser a) (List XML) (Try a)))
-  (case (//.run parser documents)
-    (#try.Success [remaining output])
+(def: (run' parser attrs documents)
+  (All [a] (-> (Parser a) Attrs (List XML) (Try a)))
+  (case (//.run parser [attrs documents])
+    (#try.Success [[attrs' remaining] output])
     (if (list.empty? remaining)
       (#try.Success output)
       (exception.throw ..unconsumed_inputs remaining))
@@ -114,9 +47,53 @@
     (#try.Failure error)
     (#try.Failure error)))
 
-(def: #export (children parser)
-  (All [a] (-> (Parser a) (Parser a)))
-  (function (_ documents)
+(def: #export (run parser documents)
+  (All [a] (-> (Parser a) (List XML) (Try a)))
+  (..run' parser /.attributes documents))
+
+(def: #export text
+  (Parser Text)
+  (function (_ [attrs documents])
+    (case documents
+      #.Nil
+      (exception.throw ..empty_input [])
+      
+      (#.Cons head tail)
+      (case head
+        (#/.Text value)
+        (#try.Success [[attrs tail] value])
+        
+        (#/.Node _)
+        (exception.throw ..unexpected_input [])))))
+
+(def: #export tag
+  (Parser Tag)
+  (function (_ [attrs documents])
+    (case documents
+      #.Nil
+      (exception.throw ..empty_input [])
+      
+      (#.Cons head _)
+      (case head
+        (#/.Text _)
+        (exception.throw ..unexpected_input [])
+        
+        (#/.Node tag _ _)
+        (#try.Success [[attrs documents] tag])))))
+
+(def: #export (attribute name)
+  (-> Attribute (Parser Text))
+  (function (_ [attrs documents])
+    (case (dictionary.get name attrs)
+      #.None
+      (exception.throw ..unknown_attribute [name (dictionary.keys attrs)])
+      
+      (#.Some value)
+      (#try.Success [[attrs documents] value]))))
+
+(def: #export (node expected parser)
+  (All [a] (-> Tag (Parser a) (Parser a)))
+  (function (_ [attrs documents])
     (case documents
       #.Nil
       (exception.throw ..empty_input [])
@@ -126,29 +103,31 @@
         (#/.Text _)
         (exception.throw ..unexpected_input [])
         
-        (#/.Node _tag _attributes children)
-        (do try.monad
-          [output (..run parser children)]
-          (wrap [tail output]))))))
+        (#/.Node actual attrs' children)
+        (if (name\= expected actual)
+          (|> children
+              (..run' parser attrs')
+              (try\map (|>> [[attrs tail]])))
+          (exception.throw ..wrong_tag [expected actual]))))))
 
 (def: #export ignore
   (Parser Any)
-  (function (_ documents)
+  (function (_ [attrs documents])
     (case documents
       #.Nil
       (exception.throw ..empty_input [])
       
       (#.Cons head tail)
-      (#try.Success [tail []]))))
+      (#try.Success [[attrs tail] []]))))
 
 (exception: #export nowhere)
 
 (def: #export (somewhere parser)
   (All [a] (-> (Parser a) (Parser a)))
-  (function (recur input)
-    (case (//.run parser input)
-      (#try.Success [remaining output])
-      (#try.Success [remaining output])
+  (function (recur [attrs input])
+    (case (//.run parser [attrs input])
+      (#try.Success [[attrs remaining] output])
+      (#try.Success [[attrs remaining] output])
       
       (#try.Failure error)
       (case input
@@ -157,6 +136,6 @@
         
         (#.Cons head tail)
         (do try.monad
-          [[tail' output] (recur tail)]
-          (wrap [(#.Cons head tail')
+          [[[attrs tail'] output] (recur [attrs tail])]
+          (wrap [[attrs (#.Cons head tail')]
                  output]))))))

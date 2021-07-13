@@ -29,6 +29,7 @@
 ## https://maven.apache.org/pom.html
 
 (def: project_tag "project")
+(def: dependency_tag "dependency")
 (def: dependencies_tag "dependencies")
 (def: repositories_tag "repositories")
 (def: repository_tag "repository")
@@ -78,7 +79,7 @@
 
 (def: (dependency value)
   (-> Dependency XML)
-  (#_.Node ["" "dependency"]
+  (#_.Node ["" ..dependency_tag]
            _.attributes
            (list\compose (..artifact (get@ #//dependency.artifact value))
                          (list (..property "type" (get@ #//dependency.type value))))))
@@ -151,14 +152,18 @@
 
 (def: parse_property
   (Parser [Tag Text])
-  (<>.and <xml>.tag
-          (<xml>.children <xml>.text)))
+  (do {! <>.monad}
+    [tag <xml>.tag]
+    (<| (<xml>.node tag)
+        (\ ! map (|>> [tag]))
+        <xml>.text)))
 
 (def: (parse_dependency own_version parent_version)
   (-> Text Text (Parser Dependency))
   (do {! <>.monad}
     [properties (\ ! map (dictionary.from_list name.hash)
-                   (<xml>.children (<>.some ..parse_property)))]
+                   (<| (<xml>.node ["" ..dependency_tag])
+                       (<>.some ..parse_property)))]
     (<| <>.lift
         try.from_maybe
         (do maybe.monad
@@ -177,54 +182,46 @@
 
 (def: (parse_dependencies own_version parent_version)
   (-> Text Text (Parser (List Dependency)))
-  (do {! <>.monad}
-    [_ (<xml>.node ["" ..dependencies_tag])]
-    (<xml>.children (<>.some (..parse_dependency own_version parent_version)))))
+  (<| (<xml>.node ["" ..dependencies_tag])
+      (<>.some (..parse_dependency own_version parent_version))))
 
 (def: parse_repository
   (Parser Address)
-  (do {! <>.monad}
-    [_ (<xml>.node ["" ..repository_tag])]
-    (<xml>.children
-     (do !
-       [_ (<xml>.node ["" ..url_tag])]
-       (<xml>.children <xml>.text)))))
+  (<| (<xml>.node ["" ..repository_tag])
+      (<xml>.node ["" ..url_tag])
+      <xml>.text))
 
 (def: parse_repositories
   (Parser (List Address))
-  (do {! <>.monad}
-    [_ (<xml>.node ["" ..repositories_tag])]
-    (<xml>.children (<>.some ..parse_repository))))
+  (<| (<xml>.node ["" ..repositories_tag])
+      (<>.some ..parse_repository)))
 
 (def: own_version
   (Parser Text)
-  (do <>.monad
-    [_ (<xml>.node ["" ..version_tag])]
-    (<xml>.children <xml>.text)))
+  (<| (<xml>.node ["" ..version_tag])
+      <xml>.text))
 
 (def: parent_version
   (Parser Text)
-  (do <>.monad
-    [_ (<xml>.node ["" "parent"])]
-    ..own_version))
+  (<| (<xml>.node ["" "parent"])
+      ..own_version))
 
 (def: #export parser
   (Parser /.Profile)
   (do {! <>.monad}
     [own_version (<>.default "" (<xml>.somewhere ..own_version))
-     parent_version (<>.default "" (<xml>.somewhere ..parent_version))
-     _ (<xml>.node ["" ..project_tag])]
-    (<xml>.children
-     (do !
-       [dependencies (|> (..parse_dependencies own_version parent_version)
-                         <xml>.somewhere
-                         (<>.default (list)))
-        repositories (|> ..parse_repositories
-                         <xml>.somewhere
-                         (<>.default (list)))
-        _ (<>.some <xml>.ignore)]
-       (wrap (|> (\ /.monoid identity)
-                 (update@ #/.dependencies (function (_ empty)
-                                            (list\fold set.add empty dependencies)))
-                 (update@ #/.repositories (function (_ empty)
-                                            (list\fold set.add empty repositories)))))))))
+     parent_version (<>.default "" (<xml>.somewhere ..parent_version))]
+    (<| (<xml>.node ["" ..project_tag])
+        (do !
+          [dependencies (|> (..parse_dependencies own_version parent_version)
+                            <xml>.somewhere
+                            (<>.default (list)))
+           repositories (|> ..parse_repositories
+                            <xml>.somewhere
+                            (<>.default (list)))
+           _ (<>.some <xml>.ignore)]
+          (wrap (|> (\ /.monoid identity)
+                    (update@ #/.dependencies (function (_ empty)
+                                               (list\fold set.add empty dependencies)))
+                    (update@ #/.repositories (function (_ empty)
+                                               (list\fold set.add empty repositories)))))))))
