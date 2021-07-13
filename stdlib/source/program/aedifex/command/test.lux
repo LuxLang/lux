@@ -14,7 +14,7 @@
    [world
     ["." program (#+ Program)]
     ["." file]
-    ["." shell (#+ Shell)]
+    ["." shell (#+ Exit Shell)]
     ["." console (#+ Console)]]]
   ["." // #_
    ["#." build]
@@ -31,32 +31,35 @@
 (def: #export failure "[TEST FAILED]")
 
 (def: #export (do! console program fs shell resolution profile)
-  (-> (Console Promise) (Program Promise) (file.System Promise) (Shell Promise) Resolution (Command Any))
+  (-> (Console Promise) (Program Promise) (file.System Promise) (Shell Promise) Resolution (Command [Exit Any]))
   (do promise.monad
     [environment (program.environment promise.monad program)
      #let [working_directory (\ program directory)]]
-    (do ///action.monad
-      [[compiler program] (//build.do! console program fs shell resolution
-                                       (set@ #///.program (get@ #///.test profile) profile))
-       _ (console.write_line ..start console)
-       #let [[compiler_command compiler_parameters] (case compiler
-                                                      (^template [<tag> <runtime>]
-                                                        [(<tag> artifact)
-                                                         (<runtime> program)])
-                                                      ([#//build.JVM ///runtime.java]
-                                                       [#//build.JS ///runtime.node]
-                                                       [#//build.Python ///runtime.python]
-                                                       [#//build.Lua ///runtime.lua]
-                                                       [#//build.Ruby ///runtime.ruby]))]
-       process (\ shell execute [environment
-                                 working_directory
-                                 compiler_command
-                                 compiler_parameters])
-       _ (//build.log_output! console process)
-       _ (//build.log_error! console process)
-       exit (\ process await [])
-       _ (console.write_line (if (i.= shell.normal exit)
-                               ..success
-                               ..failure)
-                             console)]
-      (wrap []))))
+    (do {! ///action.monad}
+      [[build_exit compiler program] (//build.do! console program fs shell resolution
+                                                  (set@ #///.program (get@ #///.test profile) profile))]
+      (if (i.= shell.normal build_exit)
+        (do !
+          [_ (console.write_line ..start console)
+           #let [[compiler_command compiler_parameters] (case compiler
+                                                          (^template [<tag> <runtime>]
+                                                            [(<tag> artifact)
+                                                             (///runtime.for (get@ <runtime> profile) program)])
+                                                          ([#//build.JVM #///.java]
+                                                           [#//build.JS #///.js]
+                                                           [#//build.Python #///.python]
+                                                           [#//build.Lua #///.lua]
+                                                           [#//build.Ruby #///.ruby]))]
+           process (\ shell execute [environment
+                                     working_directory
+                                     compiler_command
+                                     compiler_parameters])
+           _ (//build.log_output! console process)
+           _ (//build.log_error! console process)
+           exit (\ process await [])
+           _ (console.write_line (if (i.= shell.normal exit)
+                                   ..success
+                                   ..failure)
+                                 console)]
+          (wrap [exit []]))
+        (wrap [build_exit []])))))

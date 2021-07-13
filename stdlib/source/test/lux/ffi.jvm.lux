@@ -1,16 +1,28 @@
 (.module:
   [lux #*
-   [abstract/monad (#+ Monad do)]
+   ["_" test (#+ Test)]
+   ["." type ("#\." equivalence)]
+   ["." meta]
+   [abstract
+    [monad (#+ do)]]
    [control
-    pipe]
+    [pipe (#+ case>)]
+    ["." try]
+    ["." exception]]
    [data
-    ["." text ("#\." equivalence)]]
+    ["." bit ("#\." equivalence)]
+    ["." text ("#\." equivalence)]
+    [collection
+     ["." array (#+ Array)]]]
+   ["." macro
+    [syntax (#+ syntax:)]
+    ["." code]]
    [math
-    ["r" random]
+    ["." random]
     [number
      ["n" nat]
-     ["i" int]]]
-   ["_" test (#+ Test)]]
+     ["i" int ("#\." equivalence)]
+     ["f" frac ("#\." equivalence)]]]]
   [\\
    ["." /]])
 
@@ -74,78 +86,184 @@
 ## (/.interface: TestInterface
 ##   ([] foo [boolean java/lang/String] void #throws [java/lang/Exception]))
 
+(template [<name> <type> <conversion> <lux> <=>]
+  [(def: (<name> left right)
+     (-> <type> <type> Bit)
+     (<=> (:as <lux> (<conversion> left))
+          (:as <lux> (<conversion> right))))]
+
+  [boolean\= /.Boolean <| Bit bit\=]
+  [byte\= /.Byte /.byte_to_long Int i\=]
+  [short\= /.Short /.short_to_long Int i\=]
+  [integer\= /.Integer /.int_to_long Int i\=]
+  [long\= /.Long <| Int i\=]
+  [float\= /.Float /.float_to_double Frac f\=]
+  [double\= /.Double <| Frac f\=]
+  [character\= /.Character /.char_to_long Int i\=]
+  )
+
+(syntax: (macro_error expression)
+  (function (_ lux)
+    (|> (macro.expand_once expression)
+        (meta.run lux)
+        (case> (#try.Success expansion)
+               (#try.Failure "OOPS!")
+               
+               (#try.Failure error)
+               (#try.Success [lux (list (code.text error))])))))
+
 (def: conversions
   Test
-  (do r.monad
-    [sample r.int]
+  (do {! random.monad}
+    [long (\ ! map (|>> (:as /.Long)) random.int)
+     integer (\ ! map (|>> (:as /.Long) /.long_to_int) random.int)
+     byte (\ ! map (|>> (:as /.Long) /.long_to_byte) random.int)
+     short (\ ! map (|>> (:as /.Long) /.long_to_short) random.int)
+     float (\ ! map (|>> (:as /.Double) /.double_to_float) random.frac)]
     (`` ($_ _.and
-            (~~ (template [<to> <from> <message>]
-                  [(_.test <message>
-                           (or (|> sample (:as java/lang/Long) <to> <from> (:as Int) (i.= sample))
-                               (let [capped_sample (|> sample (:as java/lang/Long) <to> <from>)]
-                                 (|> capped_sample <to> <from> (:as Int) (i.= (:as Int capped_sample))))))]
+            (~~ (template [<sample> <=> <to> <from>]
+                  [(_.cover [<to> <from>]
+                            (or (|> <sample> <to> <from> (<=> <sample>))
+                                (let [capped (|> <sample> <to> <from>)]
+                                  (|> capped <to> <from> (<=> capped)))))]
 
-                  [/.long_to_byte /.byte_to_long "Can succesfully convert to/from byte."]
-                  [/.long_to_short /.short_to_long "Can succesfully convert to/from short."]
-                  [/.long_to_int /.int_to_long "Can succesfully convert to/from int."]
-                  [/.long_to_float /.float_to_long "Can succesfully convert to/from float."]
-                  [/.long_to_double /.double_to_long "Can succesfully convert to/from double."]
-                  [(<| /.int_to_char /.long_to_int) (<| /.int_to_long /.char_to_int) "Can succesfully convert to/from char."]
-                  ))
-            ))))
+                  [long long\= /.long_to_byte /.byte_to_long]
+                  [long long\= /.long_to_short /.short_to_long]
+                  [long long\= /.long_to_int /.int_to_long]
+                  [long long\= /.long_to_float /.float_to_long]
+                  [long long\= /.long_to_double /.double_to_long]
+                  [long long\= /.long_to_char /.char_to_long]
 
-(def: miscellaneous
-  Test
-  (do {! r.monad}
-    [sample (\ ! map (|>> (:as java/lang/Object))
-               (r.ascii 1))]
-    ($_ _.and
-        (_.test "Can check if an object is of a certain class."
-                (and (case (/.check java/lang/String sample) (#.Some _) true #.None false)
-                     (case (/.check java/lang/Long sample) (#.Some _) false #.None true)
-                     (case (/.check java/lang/Object sample) (#.Some _) true #.None false)
-                     (case (/.check java/lang/Object (/.null)) (#.Some _) false #.None true)))
+                  [integer integer\= /.int_to_double /.double_to_int]
+                  [integer integer\= /.int_to_float /.float_to_int]
+                  [integer integer\= /.int_to_char /.char_to_int]
 
-        (_.test "Can run code in a 'synchronized' block."
-                (/.synchronized sample #1))
-
-        (_.test "Can access Class instances."
-                (text\= "java.lang.Class" (java/lang/Class::getName (/.class_for java/lang/Class))))
-
-        (_.test "Can check if a value is null."
-                (and (/.null? (/.null))
-                     (not (/.null? sample))))
-
-        (_.test "Can safely convert nullable references into Maybe values."
-                (and (|> (: (Maybe java/lang/Object) (/.??? (/.null)))
-                         (case> #.None #1
-                                _ #0))
-                     (|> (: (Maybe java/lang/Object) (/.??? sample))
-                         (case> (#.Some _) #1
-                                _ #0))))
-        )))
+                  [byte byte\= /.byte_to_int /.int_to_byte]
+                  [short short\= /.short_to_int /.int_to_short]
+                  [byte byte\= /.byte_to_char /.char_to_byte]
+                  [short short\= /.short_to_char /.char_to_short]
+                  [float float\= /.float_to_double /.double_to_float]
+                  ))))))
 
 (def: arrays
   Test
-  (do {! r.monad}
-    [size (|> r.nat (\ ! map (|>> (n.% 100) (n.max 1))))
-     idx (|> r.nat (\ ! map (n.% size)))
-     value (\ ! map (|>> (:as java/lang/Long)) r.int)]
+  (do {! random.monad}
+    [size (|> random.nat (\ ! map (|>> (n.% 100) (n.max 1))))
+     idx (|> random.nat (\ ! map (n.% size)))
+     value (\ ! map (|>> (:as java/lang/Long)) random.int)]
     ($_ _.and
-        (_.test "Can create arrays of some length."
-                (n.= size (/.array_length (/.array java/lang/Long size))))
+        (_.cover [/.array /.array_length]
+                 (|> size
+                     (/.array java/lang/Long)
+                     /.array_length
+                     (n.= size)))
+        (_.cover [/.array_write /.array_read]
+                 (|> (/.array java/lang/Long size)
+                     (/.array_write idx value)
+                     (/.array_read idx)
+                     (:as Int)
+                     (i.= (:as Int value))))
+        (_.cover [/.cannot_convert_to_jvm_type]
+                 (let [array (:as (Array Nothing)
+                                  (array.new 1))]
+                   (|> array
+                       /.array_length
+                       ..macro_error
+                       (text.contains? (get@ #exception.label /.cannot_convert_to_jvm_type))))))))
 
-        (_.test "Can set and get array values."
-                (let [arr (/.array java/lang/Long size)]
-                  (exec (/.array_write idx value arr)
-                    (i.= (:as Int value)
-                         (:as Int (/.array_read idx arr)))))))))
+(def: miscellaneous
+  Test
+  (`` (do {! random.monad}
+        [sample (\ ! map (|>> (:as java/lang/Object))
+                   (random.ascii 1))
+         boolean (\ ! map (|>> (:as /.Boolean)) random.bit)
+         byte (\ ! map (|>> (:as /.Long) /.long_to_byte) random.int)
+         short (\ ! map (|>> (:as /.Long) /.long_to_short) random.int)
+         integer (\ ! map (|>> (:as /.Long) /.long_to_int) random.int)
+         long (\ ! map (|>> (:as /.Long)) random.int)
+         float (\ ! map (|>> (:as /.Double) /.double_to_float) random.frac)
+         double (\ ! map (|>> (:as /.Double)) random.frac)
+         character (\ ! map (|>> (:as /.Long) /.long_to_int /.int_to_char) random.int)
+         string (\ ! map (|>> (:as java/lang/String))
+                   (random.ascii 1))]
+        ($_ _.and
+            (_.cover [/.check]
+                     (and (case (/.check java/lang/String sample) (#.Some _) true #.None false)
+                          (case (/.check java/lang/Long sample) (#.Some _) false #.None true)
+                          (case (/.check java/lang/Object sample) (#.Some _) true #.None false)
+                          (case (/.check java/lang/Object (/.null)) (#.Some _) false #.None true)))
+            (_.cover [/.synchronized]
+                     (/.synchronized sample #1))
+            (_.cover [/.class_for]
+                     (text\= "java.lang.Class" (java/lang/Class::getName (/.class_for java/lang/Class))))
+            (_.cover [/.null /.null?]
+                     (and (/.null? (/.null))
+                          (not (/.null? sample))))
+            (_.cover [/.???]
+                     (and (|> (/.??? (/.null))
+                              (: (Maybe java/lang/Object))
+                              (case> #.None #1
+                                     (#.Some _) #0))
+                          (|> (/.??? sample)
+                              (: (Maybe java/lang/Object))
+                              (case> (#.Some _) #1
+                                     #.None #0))))
+            (_.cover [/.!!!]
+                     (and (|> (/.??? (/.null))
+                              /.!!!
+                              /.null?)
+                          (|> (/.??? sample)
+                              /.!!!
+                              /.null?
+                              not)))
+            (~~ (template [<object> <primitive> <value> <=>]
+                  [(|> <value>
+                       (: <object>)
+                       "jvm object cast"
+                       (: <primitive>)
+                       "jvm object cast"
+                       (: <object>)
+                       (<=> <value>)
+                       (_.cover [<object> <primitive>]))]
+
+                  [/.Boolean /.boolean boolean boolean\=]
+                  [/.Byte /.byte byte byte\=]
+                  [/.Short /.short short short\=]
+                  [/.Integer /.int integer integer\=]
+                  [/.Long /.long long long\=]
+                  [/.Float /.float float float\=]
+                  [/.Double /.double double double\=]
+                  [/.Character /.char character character\=]
+                  ))
+            (_.cover [/.cannot_cast_to_non_object]
+                     (text.contains? (get@ #exception.label /.cannot_cast_to_non_object)
+                                     (macro_error (/.:cast boolean (: /.Boolean boolean)))))
+            (_.cover [/.:cast]
+                     (|> string
+                         (/.:cast java/lang/Object)
+                         (is? (:as java/lang/Object string))))
+            (_.cover [/.type]
+                     (and (and (type\= /.Boolean (/.type java/lang/Boolean))
+                               (type\= /.Boolean (/.type boolean)))
+                          (and (type\= /.Byte (/.type java/lang/Byte))
+                               (type\= /.Byte (/.type byte)))
+                          (and (type\= /.Short (/.type java/lang/Short))
+                               (type\= /.Short (/.type short)))
+                          (and (type\= /.Integer (/.type java/lang/Integer))
+                               (type\= /.Integer (/.type int)))
+                          (and (type\= /.Long (/.type java/lang/Long))
+                               (type\= /.Long (/.type long)))
+                          (and (type\= /.Float (/.type java/lang/Float))
+                               (type\= /.Float (/.type float)))
+                          (and (type\= /.Double (/.type java/lang/Double))
+                               (type\= /.Double (/.type double)))
+                          (and (type\= /.Character (/.type java/lang/Character))
+                               (type\= /.Character (/.type char)))))
+            ))))
 
 (def: #export test
-  ($_ _.and
-      (<| (_.context "Conversions.")
-          ..conversions)
-      (<| (_.context "Miscellaneous.")
-          ..miscellaneous)
-      (<| (_.context "Arrays.")
-          ..arrays)))
+  (<| (_.covering /._)
+      ($_ _.and
+          ..conversions
+          ..arrays
+          ..miscellaneous)))
