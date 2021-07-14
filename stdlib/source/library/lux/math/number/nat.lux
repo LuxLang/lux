@@ -1,0 +1,380 @@
+(.module:
+  [library
+   [lux #*
+    [abstract
+     [hash (#+ Hash)]
+     [enum (#+ Enum)]
+     [interval (#+ Interval)]
+     [monoid (#+ Monoid)]
+     [equivalence (#+ Equivalence)]
+     [codec (#+ Codec)]
+     ["." order (#+ Order)]]
+    [control
+     ["." function]
+     ["." try (#+ Try)]]
+    [data
+     ["." maybe]]]])
+
+(template [<extension> <output> <name> <documentation>]
+  [(def: #export (<name> parameter subject)
+     {#.doc <documentation>}
+     (-> Nat Nat <output>)
+     (<extension> parameter subject))]
+
+  ["lux i64 =" Bit = "Nat(ural) equivalence."]
+  ["lux i64 +" Nat + "Nat(ural) addition."]
+  ["lux i64 -" Nat - "Nat(ural) substraction."]
+  )
+
+(def: high
+  (-> (I64 Any) I64)
+  (|>> ("lux i64 right-shift" 32)))
+
+(def: low
+  (-> (I64 Any) I64)
+  (let [mask (|> 1 ("lux i64 left-shift" 32) ("lux i64 -" 1))]
+    (|>> ("lux i64 and" mask))))
+
+(def: #export (< reference sample)
+  {#.doc "Nat(ural) less-than."}
+  (-> Nat Nat Bit)
+  (let [referenceH (..high reference)
+        sampleH (..high sample)]
+    (if ("lux i64 <" referenceH sampleH)
+      #1
+      (if ("lux i64 =" referenceH sampleH)
+        ("lux i64 <"
+         (..low reference)
+         (..low sample))
+        #0))))
+
+(def: #export (<= reference sample)
+  {#.doc "Nat(ural) less-than or equal."}
+  (-> Nat Nat Bit)
+  (if (..< reference sample)
+    #1
+    ("lux i64 =" reference sample)))
+
+(def: #export (> reference sample)
+  {#.doc "Nat(ural) greater-than."}
+  (-> Nat Nat Bit)
+  (..< sample reference))
+
+(def: #export (>= reference sample)
+  {#.doc "Nat(ural) greater-than or equal."}
+  (-> Nat Nat Bit)
+  (if (..< sample reference)
+    #1
+    ("lux i64 =" reference sample)))
+
+(template [<name> <test> <doc>]
+  [(def: #export (<name> left right)
+     {#.doc <doc>}
+     (-> Nat Nat Nat)
+     (if (<test> right left)
+       left
+       right))]
+
+  [min ..< "Nat(ural) minimum."]
+  [max ..> "Nat(ural) maximum."]
+  )
+
+(def: #export (* parameter subject)
+  {#.doc "Nat(ural) multiplication."}
+  (-> Nat Nat Nat)
+  (:as Nat
+       ("lux i64 *"
+        (:as Int parameter)
+        (:as Int subject))))
+
+(def: #export (/ parameter subject)
+  {#.doc "Nat(ural) division."}
+  (-> Nat Nat Nat)
+  (if ("lux i64 <" +0 (:as Int parameter))
+    (if (..< parameter subject)
+      0
+      1)
+    (let [quotient (|> subject
+                       ("lux i64 right-shift" 1)
+                       ("lux i64 /" (:as Int parameter))
+                       ("lux i64 left-shift" 1))
+          flat ("lux i64 *"
+                (:as Int parameter)
+                (:as Int quotient))
+          remainder ("lux i64 -" flat subject)]
+      (if (..< parameter remainder)
+        quotient
+        ("lux i64 +" 1 quotient)))))
+
+(def: #export (/% parameter subject)
+  {#.doc "Nat(ural) [division remainder]."}
+  (-> Nat Nat [Nat Nat])
+  (let [quotient (../ parameter subject)
+        flat ("lux i64 *"
+              (:as Int parameter)
+              (:as Int quotient))]
+    [quotient ("lux i64 -" flat subject)]))
+
+(def: #export (% parameter subject)
+  {#.doc "Nat(ural) remainder."}
+  (-> Nat Nat Nat)
+  (let [flat ("lux i64 *"
+              (:as Int parameter)
+              (:as Int (../ parameter subject)))]
+    ("lux i64 -" flat subject)))
+
+(def: #export (gcd a b)
+  {#.doc "Greatest Common Divisor."}
+  (-> Nat Nat Nat)
+  (case b
+    0 a
+    _ (gcd b (..% b a))))
+
+(def: #export (co-prime? a b)
+  (-> Nat Nat Bit)
+  (..= 1 (..gcd a b)))
+
+(def: #export (lcm a b)
+  {#.doc "Least Common Multiple."}
+  (-> Nat Nat Nat)
+  (case [a b]
+    (^or [_ 0] [0 _])
+    0
+
+    _
+    (|> a (../ (..gcd a b)) (..* b))))
+
+(def: #export even?
+  (-> Nat Bit)
+  (|>> (..% 2) ("lux i64 =" 0)))
+
+(def: #export odd?
+  (-> Nat Bit)
+  (|>> ..even? not))
+
+(def: #export frac
+  (-> Nat Frac)
+  (|>> .int "lux i64 f64"))
+
+(implementation: #export equivalence
+  (Equivalence Nat)
+  
+  (def: = ..=))
+
+(implementation: #export order
+  (Order Nat)
+  
+  (def: &equivalence ..equivalence)
+  (def: < ..<))
+
+(implementation: #export enum
+  (Enum Nat)
+  
+  (def: &order ..order)
+  (def: succ inc)
+  (def: pred dec))
+
+(implementation: #export interval
+  (Interval Nat)
+
+  (def: &enum ..enum)
+  (def: top (dec 0))
+  (def: bottom 0))
+
+(template [<name> <compose> <identity>]
+  [(implementation: #export <name>
+     (Monoid Nat)
+     
+     (def: identity <identity>)
+     (def: compose <compose>))]
+
+  [addition       ..+   0]
+  [multiplication ..*   1]
+  [minimum        ..min (\ ..interval top)]
+  [maximum        ..max (\ ..interval bottom)]
+  )
+
+(def: (binary-character value)
+  (-> Nat Text)
+  (case value
+    0 "0"
+    1 "1"
+    _ (undefined)))
+
+(def: (binary-value digit)
+  (-> Nat (Maybe Nat))
+  (case digit
+    (^ (char "0")) (#.Some 0)
+    (^ (char "1")) (#.Some 1)
+    _ #.None))
+
+(def: (octal-character value)
+  (-> Nat Text)
+  (case value
+    0 "0"
+    1 "1"
+    2 "2"
+    3 "3"
+    4 "4"
+    5 "5"
+    6 "6"
+    7 "7"
+    _ (undefined)))
+
+(def: (octal-value digit)
+  (-> Nat (Maybe Nat))
+  (case digit
+    (^ (char "0")) (#.Some 0)
+    (^ (char "1")) (#.Some 1)
+    (^ (char "2")) (#.Some 2)
+    (^ (char "3")) (#.Some 3)
+    (^ (char "4")) (#.Some 4)
+    (^ (char "5")) (#.Some 5)
+    (^ (char "6")) (#.Some 6)
+    (^ (char "7")) (#.Some 7)
+    _ #.None))
+
+(def: (decimal-character value)
+  (-> Nat Text)
+  (case value
+    0 "0"
+    1 "1"
+    2 "2"
+    3 "3"
+    4 "4"
+    5 "5"
+    6 "6"
+    7 "7"
+    8 "8"
+    9 "9"
+    _ (undefined)))
+
+(def: (decimal-value digit)
+  (-> Nat (Maybe Nat))
+  (case digit
+    (^ (char "0")) (#.Some 0)
+    (^ (char "1")) (#.Some 1)
+    (^ (char "2")) (#.Some 2)
+    (^ (char "3")) (#.Some 3)
+    (^ (char "4")) (#.Some 4)
+    (^ (char "5")) (#.Some 5)
+    (^ (char "6")) (#.Some 6)
+    (^ (char "7")) (#.Some 7)
+    (^ (char "8")) (#.Some 8)
+    (^ (char "9")) (#.Some 9)
+    _ #.None))
+
+(def: (hexadecimal-character value)
+  (-> Nat Text)
+  (case value
+    0 "0"
+    1 "1"
+    2 "2"
+    3 "3"
+    4 "4"
+    5 "5"
+    6 "6"
+    7 "7"
+    8 "8"
+    9 "9"
+    10 "A"
+    11 "B"
+    12 "C"
+    13 "D"
+    14 "E"
+    15 "F"
+    _ (undefined)))
+
+(def: (hexadecimal-value digit)
+  (-> Nat (Maybe Nat))
+  (case digit
+    (^template [<character> <number>]
+      [(^ (char <character>)) (#.Some <number>)])
+    (["0" 0] ["1" 1] ["2" 2] ["3" 3] ["4" 4]
+     ["5" 5] ["6" 6] ["7" 7] ["8" 8] ["9" 9])
+
+    (^template [<lower> <upper> <number>]
+      [(^or (^ (char <lower>)) (^ (char <upper>))) (#.Some <number>)])
+    (["a" "A" 10] ["b" "B" 11] ["c" "C" 12]
+     ["d" "D" 13] ["e" "E" 14] ["f" "F" 15])
+    _ #.None))
+
+(template [<shift> <struct> <to-character> <to-value> <error>]
+  [(implementation: #export <struct>
+     (Codec Text Nat)
+     
+     (def: encode
+       (let [mask (|> 1 ("lux i64 left-shift" <shift>) dec)]
+         (function (_ value)
+           (loop [input value
+                  output ""]
+             (let [output' ("lux text concat"
+                            (<to-character> ("lux i64 and" mask input))
+                            output)]
+               (case (: Nat ("lux i64 right-shift" <shift> input))
+                 0
+                 output'
+
+                 input'
+                 (recur input' output')))))))
+
+     (def: (decode repr)
+       (let [input-size ("lux text size" repr)]
+         (if (..> 0 input-size)
+           (loop [idx 0
+                  output 0]
+             (if (..< input-size idx)
+               (case (<to-value> ("lux text char" idx repr))
+                 (#.Some digit-value)
+                 (recur (inc idx)
+                        (|> output
+                            ("lux i64 left-shift" <shift>)
+                            ("lux i64 or" digit-value)))
+
+                 _
+                 (#try.Failure ("lux text concat" <error> repr)))
+               (#try.Success output)))
+           (#try.Failure ("lux text concat" <error> repr))))))]
+
+  [1 binary binary-character      binary-value      "Invalid binary syntax for Nat: "]
+  [3 octal  octal-character       octal-value       "Invalid octal syntax for Nat: "]
+  [4 hex    hexadecimal-character hexadecimal-value "Invalid hexadecimal syntax for Nat: "]
+  )
+
+(implementation: #export decimal
+  (Codec Text Nat)
+  
+  (def: (encode value)
+    (loop [input value
+           output ""]
+      (let [digit (decimal-character (..% 10 input))
+            output' ("lux text concat" digit output)]
+        (case (../ 10 input)
+          0
+          output'
+
+          input'
+          (recur input' output')))))
+
+  (def: (decode repr)
+    (let [input-size ("lux text size" repr)]
+      (with_expansions [<failure> (#try.Failure ("lux text concat" "Invalid decimal syntax for Nat: " repr))]
+        (if (..> 0 input-size)
+          (loop [idx 0
+                 output 0]
+            (if (..< input-size idx)
+              (case (decimal-value ("lux text char" idx repr))
+                #.None
+                <failure>
+
+                (#.Some digit-value)
+                (recur (inc idx)
+                       (|> output (..* 10) (..+ digit-value))))
+              (#try.Success output)))
+          <failure>)))))
+
+(implementation: #export hash
+  (Hash Nat)
+  
+  (def: &equivalence ..equivalence)
+  (def: hash function.identity))

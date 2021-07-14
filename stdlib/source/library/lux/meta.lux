@@ -1,0 +1,568 @@
+(.module: {#.doc "Functions for extracting information from the state of the compiler."}
+  [library
+   [lux #*
+    [abstract
+     [functor (#+ Functor)]
+     [apply (#+ Apply)]
+     ["." monad (#+ Monad do)]]
+    [control
+     ["." try (#+ Try)]]
+    [data
+     ["." product]
+     ["." maybe]
+     ["." text ("#\." monoid equivalence)]
+     ["." name ("#\." codec equivalence)]
+     [collection
+      ["." list ("#\." monoid monad)]
+      [dictionary
+       ["." plist]]]]
+    [macro
+     ["." code]]
+    [math
+     [number
+      ["n" nat]
+      ["i" int]]]]]
+  [/
+   ["." location]])
+
+## (type: (Meta a)
+##   (-> Lux (Try [Lux a])))
+
+(implementation: #export functor
+  (Functor Meta)
+  
+  (def: (map f fa)
+    (function (_ compiler)
+      (case (fa compiler)
+        (#try.Failure msg)
+        (#try.Failure msg)
+
+        (#try.Success [compiler' a])
+        (#try.Success [compiler' (f a)])))))
+
+(implementation: #export apply
+  (Apply Meta)
+  
+  (def: &functor ..functor)
+
+  (def: (apply ff fa)
+    (function (_ compiler)
+      (case (ff compiler)
+        (#try.Success [compiler' f])
+        (case (fa compiler')
+          (#try.Success [compiler'' a])
+          (#try.Success [compiler'' (f a)])
+
+          (#try.Failure msg)
+          (#try.Failure msg))
+
+        (#try.Failure msg)
+        (#try.Failure msg)))))
+
+(implementation: #export monad
+  (Monad Meta)
+  
+  (def: &functor ..functor)
+
+  (def: (wrap x)
+    (function (_ compiler)
+      (#try.Success [compiler x])))
+  
+  (def: (join mma)
+    (function (_ compiler)
+      (case (mma compiler)
+        (#try.Failure msg)
+        (#try.Failure msg)
+
+        (#try.Success [compiler' ma])
+        (ma compiler')))))
+
+(def: #export (run' compiler action)
+  (All [a] (-> Lux (Meta a) (Try [Lux a])))
+  (action compiler))
+
+(def: #export (run compiler action)
+  (All [a] (-> Lux (Meta a) (Try a)))
+  (case (action compiler)
+    (#try.Failure error)
+    (#try.Failure error)
+
+    (#try.Success [_ output])
+    (#try.Success output)))
+
+(def: #export (either left right)
+  {#.doc "Pick whichever computation succeeds."}
+  (All [a] (-> (Meta a) (Meta a) (Meta a)))
+  (function (_ compiler)
+    (case (left compiler)
+      (#try.Failure error)
+      (right compiler)
+
+      (#try.Success [compiler' output])
+      (#try.Success [compiler' output]))))
+
+(def: #export (assert message test)
+  {#.doc "Fails with the given message if the test is #0."}
+  (-> Text Bit (Meta Any))
+  (function (_ compiler)
+    (if test
+      (#try.Success [compiler []])
+      (#try.Failure message))))
+
+(def: #export (fail error)
+  {#.doc "Fails with the given error message."}
+  (All [a]
+    (-> Text (Meta a)))
+  (function (_ state)
+    (#try.Failure (location.with (get@ #.location state) error))))
+
+(def: #export (find_module name)
+  (-> Text (Meta Module))
+  (function (_ compiler)
+    (case (plist.get name (get@ #.modules compiler))
+      (#.Some module)
+      (#try.Success [compiler module])
+
+      _
+      (#try.Failure ($_ text\compose "Unknown module: " name)))))
+
+(def: #export current_module_name
+  (Meta Text)
+  (function (_ compiler)
+    (case (get@ #.current_module compiler)
+      (#.Some current_module)
+      (#try.Success [compiler current_module])
+
+      _
+      (#try.Failure "No current module."))))
+
+(def: #export current_module
+  (Meta Module)
+  (let [(^open "\.") ..monad]
+    (|> ..current_module_name
+        (\map ..find_module)
+        \join)))
+
+(def: (macro_type? type)
+  (-> Type Bit)
+  (`` (case type
+        (#.Named [(~~ (static .prelude_module)) "Macro"] (#.Primitive "#Macro" #.Nil))
+        true
+
+        _
+        false)))
+
+(def: #export (normalize name)
+  {#.doc (doc "If given a name without a module prefix, gives it the current module's name as prefix."
+              "Otherwise, returns the name as-is.")}
+  (-> Name (Meta Name))
+  (case name
+    ["" name]
+    (do ..monad
+      [module_name ..current_module_name]
+      (wrap [module_name name]))
+
+    _
+    (\ ..monad wrap name)))
+
+(def: (find_macro' modules this_module module name)
+  (-> (List [Text Module]) Text Text Text
+      (Maybe Macro))
+  (do maybe.monad
+    [$module (plist.get module modules)
+     definition (: (Maybe Global)
+                   (|> (: Module $module)
+                       (get@ #.definitions)
+                       (plist.get name)))]
+    (case definition
+      (#.Alias [r_module r_name])
+      (find_macro' modules this_module r_module r_name)
+      
+      (#.Definition [exported? def_type def_anns def_value])
+      (if (macro_type? def_type)
+        (#.Some (:as Macro def_value))
+        #.None))))
+
+(def: #export (find_macro full_name)
+  (-> Name (Meta (Maybe Macro)))
+  (do ..monad
+    [[module name] (normalize full_name)]
+    (: (Meta (Maybe Macro))
+       (function (_ compiler)
+         (let [macro (case (..current_module_name compiler)
+                       (#try.Failure error)
+                       #.None
+
+                       (#try.Success [_ this_module])
+                       (find_macro' (get@ #.modules compiler) this_module module name))]
+           (#try.Success [compiler macro]))))))
+
+(def: #export count
+  (Meta Nat)
+  (function (_ compiler)
+    (#try.Success [(update@ #.seed inc compiler)
+                   (get@ #.seed compiler)])))
+
+(def: #export (module_exists? module)
+  (-> Text (Meta Bit))
+  (function (_ compiler)
+    (#try.Success [compiler (case (plist.get module (get@ #.modules compiler))
+                              (#.Some _)
+                              #1
+                              
+                              #.None
+                              #0)])))
+
+(def: (try_both f x1 x2)
+  (All [a b]
+    (-> (-> a (Maybe b)) a a (Maybe b)))
+  (case (f x1)
+    #.None     (f x2)
+    (#.Some y) (#.Some y)))
+
+(def: (find_type_var idx bindings)
+  (-> Nat (List [Nat (Maybe Type)]) (Maybe Type))
+  (case bindings
+    #.Nil
+    #.None
+    
+    (#.Cons [var bound] bindings')
+    (if (n.= idx var)
+      bound
+      (find_type_var idx bindings'))))
+
+(def: (clean_type type)
+  (-> Type (Meta Type))
+  (case type
+    (#.Var var)
+    (function (_ compiler)
+      (case (|> compiler
+                (get@ [#.type_context #.var_bindings])
+                (find_type_var var))
+        (^or #.None (#.Some (#.Var _)))
+        (#try.Success [compiler type])
+
+        (#.Some type')
+        (#try.Success [compiler type'])))
+
+    _
+    (\ ..monad wrap type)))
+
+(def: #export (find_var_type name)
+  {#.doc "Looks-up the type of a local variable somewhere in the environment."}
+  (-> Text (Meta Type))
+  (function (_ compiler)
+    (let [test (: (-> [Text [Type Any]] Bit)
+                  (|>> product.left (text\= name)))]
+      (case (do maybe.monad
+              [scope (list.find (function (_ env)
+                                  (or (list.any? test (: (List [Text [Type Any]])
+                                                         (get@ [#.locals #.mappings] env)))
+                                      (list.any? test (: (List [Text [Type Any]])
+                                                         (get@ [#.captured #.mappings] env)))))
+                                (get@ #.scopes compiler))
+               [_ [type _]] (try_both (list.find test)
+                                      (: (List [Text [Type Any]])
+                                         (get@ [#.locals #.mappings] scope))
+                                      (: (List [Text [Type Any]])
+                                         (get@ [#.captured #.mappings] scope)))]
+              (wrap type))
+        (#.Some var_type)
+        ((clean_type var_type) compiler)
+
+        #.None
+        (#try.Failure ($_ text\compose "Unknown variable: " name))))))
+
+(def: #export (find_def name)
+  {#.doc "Looks-up a definition's whole data in the available modules (including the current one)."}
+  (-> Name (Meta Global))
+  (do ..monad
+    [name (normalize name)
+     #let [[normal_module normal_short] name]]
+    (function (_ compiler)
+      (case (: (Maybe Global)
+               (do maybe.monad
+                 [(^slots [#.definitions]) (|> compiler
+                                               (get@ #.modules)
+                                               (plist.get normal_module))]
+                 (plist.get normal_short definitions)))
+        (#.Some definition)
+        (#try.Success [compiler definition])
+
+        _
+        (let [current_module (|> compiler (get@ #.current_module) (maybe.default "???"))
+              separator ($_ text\compose text.new_line "                    ")]
+          (#try.Failure ($_ text\compose
+                            "Unknown definition: " (name\encode name) text.new_line
+                            "    Current module: " current_module text.new_line
+                            (case (plist.get current_module (get@ #.modules compiler))
+                              (#.Some this_module)
+                              (let [candidates (|> compiler
+                                                   (get@ #.modules)
+                                                   (list\map (function (_ [module_name module])
+                                                               (|> module
+                                                                   (get@ #.definitions)
+                                                                   (list.all (function (_ [def_name global])
+                                                                               (case global
+                                                                                 (#.Definition [exported? _ _ _])
+                                                                                 (if (and exported?
+                                                                                          (text\= normal_short def_name))
+                                                                                   (#.Some (name\encode [module_name def_name]))
+                                                                                   #.None)
+
+                                                                                 (#.Alias _)
+                                                                                 #.None))))))
+                                                   list.concat
+                                                   (text.join_with separator))
+                                    imports (|> this_module
+                                                (get@ #.imports)
+                                                (text.join_with separator))
+                                    aliases (|> this_module
+                                                (get@ #.module_aliases)
+                                                (list\map (function (_ [alias real]) ($_ text\compose alias " => " real)))
+                                                (text.join_with separator))]
+                                ($_ text\compose
+                                    "        Candidates: " candidates text.new_line
+                                    "           Imports: " imports text.new_line
+                                    "           Aliases: " aliases text.new_line))
+
+                              _
+                              "")
+                            " All known modules: " (|> compiler (get@ #.modules) (list\map product.left) (text.join_with separator)) text.new_line)))))))
+
+(def: #export (find_export name)
+  {#.doc "Looks-up a definition's type in the available modules (including the current one)."}
+  (-> Name (Meta Definition))
+  (do ..monad
+    [definition (..find_def name)]
+    (case definition
+      (#.Left de_aliased)
+      (fail ($_ text\compose
+                "Aliases are not considered exports: "
+                (name\encode name)))
+      
+      (#.Right definition)
+      (let [[exported? def_type def_data def_value] definition]
+        (if exported?
+          (wrap definition)
+          (fail ($_ text\compose "Definition is not an export: " (name\encode name))))))))
+
+(def: #export (find_def_type name)
+  {#.doc "Looks-up a definition's type in the available modules (including the current one)."}
+  (-> Name (Meta Type))
+  (do ..monad
+    [definition (find_def name)]
+    (case definition
+      (#.Left de_aliased)
+      (find_def_type de_aliased)
+      
+      (#.Right [exported? def_type def_data def_value])
+      (clean_type def_type))))
+
+(def: #export (find_type name)
+  {#.doc "Looks-up the type of either a local variable or a definition."}
+  (-> Name (Meta Type))
+  (do ..monad
+    [#let [[_ _name] name]]
+    (case name
+      ["" _name]
+      (either (find_var_type _name)
+              (find_def_type name))
+
+      _
+      (find_def_type name))))
+
+(def: #export (find_type_def name)
+  {#.doc "Finds the value of a type definition (such as Int, Any or Lux)."}
+  (-> Name (Meta Type))
+  (do ..monad
+    [definition (find_def name)]
+    (case definition
+      (#.Left de_aliased)
+      (find_type_def de_aliased)
+      
+      (#.Right [exported? def_type def_data def_value])
+      (let [type_to_code (`` ("lux in-module" (~~ (static .prelude_module)) .type_to_code))]
+        (if (or (is? .Type def_type)
+                (\ code.equivalence =
+                   (type_to_code .Type)
+                   (type_to_code def_type)))
+          (wrap (:as Type def_value))
+          (..fail ($_ text\compose "Definition is not a type: " (name\encode name))))))))
+
+(def: #export (globals module)
+  {#.doc "The entire list of globals in a module (including the non-exported/private ones)."}
+  (-> Text (Meta (List [Text Global])))
+  (function (_ compiler)
+    (case (plist.get module (get@ #.modules compiler))
+      #.None
+      (#try.Failure ($_ text\compose "Unknown module: " module))
+      
+      (#.Some module)
+      (#try.Success [compiler (get@ #.definitions module)]))))
+
+(def: #export (definitions module)
+  {#.doc "The entire list of definitions in a module (including the non-exported/private ones)."}
+  (-> Text (Meta (List [Text Definition])))
+  (\ ..monad map
+     (list.all (function (_ [name global])
+                 (case global
+                   (#.Left de_aliased)
+                   #.None
+                   
+                   (#.Right definition)
+                   (#.Some [name definition]))))
+     (..globals module)))
+
+(def: #export (exports module_name)
+  {#.doc "All the exported definitions in a module."}
+  (-> Text (Meta (List [Text Definition])))
+  (do ..monad
+    [constants (..definitions module_name)]
+    (wrap (do list.monad
+            [[name [exported? def_type def_data def_value]] constants]
+            (if exported?
+              (wrap [name [exported? def_type def_data def_value]])
+              (list))))))
+
+(def: #export modules
+  {#.doc "All the available modules (including the current one)."}
+  (Meta (List [Text Module]))
+  (function (_ compiler)
+    (|> compiler
+        (get@ #.modules)
+        [compiler]
+        #try.Success)))
+
+(def: #export (tags_of type_name)
+  {#.doc "All the tags associated with a type definition."}
+  (-> Name (Meta (Maybe (List Name))))
+  (do ..monad
+    [#let [[module name] type_name]
+     module (find_module module)]
+    (case (plist.get name (get@ #.types module))
+      (#.Some [tags _])
+      (wrap (#.Some tags))
+
+      _
+      (wrap #.None))))
+
+(def: #export location
+  {#.doc "The location of the current expression being analyzed."}
+  (Meta Location)
+  (function (_ compiler)
+    (#try.Success [compiler (get@ #.location compiler)])))
+
+(def: #export expected_type
+  {#.doc "The expected type of the current expression being analyzed."}
+  (Meta Type)
+  (function (_ compiler)
+    (case (get@ #.expected compiler)
+      (#.Some type)
+      (#try.Success [compiler type])
+
+      #.None
+      (#try.Failure "Not expecting any type."))))
+
+(def: #export (imported_modules module_name)
+  {#.doc "All the modules imported by a specified module."}
+  (-> Text (Meta (List Text)))
+  (do ..monad
+    [(^slots [#.imports]) (..find_module module_name)]
+    (wrap imports)))
+
+(def: #export (imported_by? import module)
+  (-> Text Text (Meta Bit))
+  (do ..monad
+    [(^slots [#.imports]) (..find_module module)]
+    (wrap (list.any? (text\= import) imports))))
+
+(def: #export (imported? import)
+  (-> Text (Meta Bit))
+  (\ ..functor map
+     (|>> (get@ #.imports) (list.any? (text\= import)))
+     ..current_module))
+
+(def: #export (resolve_tag tag)
+  {#.doc "Given a tag, finds out what is its index, its related tag-list and its associated type."}
+  (-> Name (Meta [Nat (List Name) Type]))
+  (do ..monad
+    [#let [[module name] tag]
+     =module (..find_module module)
+     this_module_name ..current_module_name
+     imported! (..imported? module)]
+    (case (plist.get name (get@ #.tags =module))
+      (#.Some [idx tag_list exported? type])
+      (if (or (text\= this_module_name module)
+              (and imported! exported?))
+        (wrap [idx tag_list type])
+        (..fail ($_ text\compose "Cannot access tag: " (name\encode tag) " from module " this_module_name)))
+
+      _
+      (..fail ($_ text\compose
+                  "Unknown tag: " (name\encode tag) text.new_line
+                  " Known tags: " (|> =module
+                                      (get@ #.tags)
+                                      (list\map (|>> product.left [module] name\encode (text.prefix text.new_line)))
+                                      (text.join_with ""))
+                  )))))
+
+(def: #export (tag_lists module)
+  {#.doc "All the tag-lists defined in a module, with their associated types."}
+  (-> Text (Meta (List [(List Name) Type])))
+  (do ..monad
+    [=module (..find_module module)
+     this_module_name ..current_module_name]
+    (wrap (|> (get@ #.types =module)
+              (list.filter (function (_ [type_name [tag_list exported? type]])
+                             (or exported?
+                                 (text\= this_module_name module))))
+              (list\map (function (_ [type_name [tag_list exported? type]])
+                          [tag_list type]))))))
+
+(def: #export locals
+  {#.doc "All the local variables currently in scope, separated in different scopes."}
+  (Meta (List (List [Text Type])))
+  (function (_ compiler)
+    (case (list.inits (get@ #.scopes compiler))
+      #.None
+      (#try.Failure "No local environment")
+
+      (#.Some scopes)
+      (#try.Success [compiler
+                     (list\map (|>> (get@ [#.locals #.mappings])
+                                    (list\map (function (_ [name [type _]])
+                                                [name type])))
+                               scopes)]))))
+
+(def: #export (un_alias def_name)
+  {#.doc "Given an aliased definition's name, returns the original definition being referenced."}
+  (-> Name (Meta Name))
+  (do ..monad
+    [constant (..find_def def_name)]
+    (wrap (case constant
+            (#.Left real_def_name)
+            real_def_name
+
+            (#.Right _)
+            def_name))))
+
+(def: #export get_compiler
+  {#.doc "Obtains the current state of the compiler."}
+  (Meta Lux)
+  (function (_ compiler)
+    (#try.Success [compiler compiler])))
+
+(def: #export type_context
+  (Meta Type_Context)
+  (function (_ compiler)
+    (#try.Success [compiler (get@ #.type_context compiler)])))
+
+(def: #export (lift result)
+  (All [a] (-> (Try a) (Meta a)))
+  (case result
+    (#try.Success output)
+    (\ ..monad wrap output)
+
+    (#try.Failure error)
+    (..fail error)))

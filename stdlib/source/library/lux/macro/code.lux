@@ -1,0 +1,161 @@
+(.module:
+  [library
+   [lux (#- nat int rev)
+    [abstract
+     [equivalence (#+ Equivalence)]]
+    [data
+     ["." product]
+     ["." bit]
+     ["." name]
+     ["." text ("#\." monoid equivalence)]
+     [collection
+      ["." list ("#\." functor fold)]]]
+    [math
+     [number
+      ["." nat]
+      ["." int]
+      ["." rev]
+      ["." frac]]]
+    [meta
+     ["." location]]]])
+
+## (type: (Code' w)
+##   (#.Bit Bit)
+##   (#.Nat Nat)
+##   (#.Int Int)
+##   (#.Rev Rev)
+##   (#.Frac Frac)
+##   (#.Text Text)
+##   (#.Identifier Name)
+##   (#.Tag Name)
+##   (#.Form (List (w (Code' w))))
+##   (#.Tuple (List (w (Code' w))))
+##   (#.Record (List [(w (Code' w)) (w (Code' w))])))
+
+## (type: Code
+##   (Ann Location (Code' (Ann Location))))
+
+(template [<name> <type> <tag>]
+  [(def: #export (<name> x)
+     (-> <type> Code)
+     [location.dummy (<tag> x)])]
+  
+  [bit        Bit                #.Bit]
+  [nat        Nat                #.Nat]
+  [int        Int                #.Int]
+  [rev        Rev                #.Rev]
+  [frac       Frac               #.Frac]
+  [text       Text               #.Text]
+  [identifier Name               #.Identifier]
+  [tag        Name               #.Tag]
+  [form       (List Code)        #.Form]
+  [tuple      (List Code)        #.Tuple]
+  [record     (List [Code Code]) #.Record]
+  )
+
+(template [<name> <tag> <doc>]
+  [(def: #export (<name> name)
+     {#.doc <doc>}
+     (-> Text Code)
+     [location.dummy (<tag> ["" name])])]
+
+  [local_identifier #.Identifier "Produces a local identifier (an identifier with no module prefix)."]
+  [local_tag        #.Tag        "Produces a local tag (a tag with no module prefix)."])
+
+(implementation: #export equivalence
+  (Equivalence Code)
+  
+  (def: (= x y)
+    (case [x y]
+      (^template [<tag> <eq>]
+        [[[_ (<tag> x')] [_ (<tag> y')]]
+         (\ <eq> = x' y')])
+      ([#.Bit        bit.equivalence]
+       [#.Nat        nat.equivalence]
+       [#.Int        int.equivalence]
+       [#.Rev        rev.equivalence]
+       [#.Frac       frac.equivalence]
+       [#.Text       text.equivalence]
+       [#.Identifier name.equivalence]
+       [#.Tag        name.equivalence])
+
+      (^template [<tag>]
+        [[[_ (<tag> xs')] [_ (<tag> ys')]]
+         (\ (list.equivalence =) = xs' ys')])
+      ([#.Form]
+       [#.Tuple])
+
+      [[_ (#.Record xs')] [_ (#.Record ys')]]
+      (\ (list.equivalence (product.equivalence = =))
+         = xs' ys')
+      
+      _
+      false)))
+
+(def: #export (format ast)
+  (-> Code Text)
+  (case ast
+    (^template [<tag> <struct>]
+      [[_ (<tag> value)]
+       (\ <struct> encode value)])
+    ([#.Bit        bit.codec]
+     [#.Nat        nat.decimal]
+     [#.Int        int.decimal]
+     [#.Rev        rev.decimal]
+     [#.Frac       frac.decimal]
+     [#.Identifier name.codec])
+
+    [_ (#.Text value)]
+    (text.format value)
+
+    [_ (#.Tag name)]
+    (text\compose  "#" (\ name.codec encode name))
+
+    (^template [<tag> <open> <close>]
+      [[_ (<tag> members)]
+       ($_ text\compose
+           <open>
+           (list\fold (function (_ next prev)
+                        (let [next (format next)]
+                          (if (text\= "" prev)
+                            next
+                            ($_ text\compose prev " " next))))
+                      ""
+                      members)
+           <close>)])
+    ([#.Form  "(" ")"]
+     [#.Tuple "[" "]"])
+
+    [_ (#.Record pairs)]
+    ($_ text\compose
+        "{"
+        (list\fold (function (_ [left right] prev)
+                     (let [next ($_ text\compose (format left) " " (format right))]
+                       (if (text\= "" prev)
+                         next
+                         ($_ text\compose prev " " next))))
+                   ""
+                   pairs)
+        "}")
+    ))
+
+(def: #export (replace original substitute ast)
+  {#.doc "Replaces all code that looks like the 'original' with the 'substitute'."}
+  (-> Code Code Code Code)
+  (if (\ ..equivalence = original ast)
+    substitute
+    (case ast
+      (^template [<tag>]
+        [[location (<tag> parts)]
+         [location (<tag> (list\map (replace original substitute) parts))]])
+      ([#.Form]
+       [#.Tuple])
+
+      [location (#.Record parts)]
+      [location (#.Record (list\map (function (_ [left right])
+                                      [(replace original substitute left)
+                                       (replace original substitute right)])
+                                    parts))]
+
+      _
+      ast)))

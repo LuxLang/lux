@@ -1,0 +1,170 @@
+(.module:
+  [library
+   [lux #*
+    ["@" target]
+    ["." ffi]
+    [abstract
+     ["." monad (#+ do)]]
+    [control
+     ["." try]
+     ["." exception (#+ exception:)]
+     ["." io (#+ IO io)]]
+    [data
+     ["." text]
+     [collection
+      ["." list]]]
+    [math
+     [number
+      ["n" nat]
+      ["f" frac]]]
+    [time
+     ["." instant]]]]
+  [//
+   ["." atom (#+ Atom)]])
+
+(with_expansions [<jvm> (as_is (ffi.import: java/lang/Object)
+
+                               (ffi.import: java/lang/Runtime
+                                 ["#::."
+                                  (#static getRuntime [] java/lang/Runtime)
+                                  (availableProcessors [] int)])
+
+                               (ffi.import: java/lang/Runnable)
+
+                               (ffi.import: java/util/concurrent/TimeUnit
+                                 ["#::."
+                                  (#enum MILLISECONDS)])
+                               
+                               (ffi.import: java/util/concurrent/Executor
+                                 ["#::."
+                                  (execute [java/lang/Runnable] #io void)])
+
+                               (ffi.import: (java/util/concurrent/ScheduledFuture a))
+
+                               (ffi.import: java/util/concurrent/ScheduledThreadPoolExecutor
+                                 ["#::."
+                                  (new [int])
+                                  (schedule [java/lang/Runnable long java/util/concurrent/TimeUnit] #io (java/util/concurrent/ScheduledFuture java/lang/Object))]))]
+  (for {@.old (as_is <jvm>)
+        @.jvm (as_is <jvm>)
+
+        @.js
+        (as_is (ffi.import: (setTimeout [ffi.Function ffi.Number] #io Any)))
+
+        @.python
+        (ffi.import: threading/Timer
+          ["#::."
+           (new [ffi.Float ffi.Function])
+           (start [] #io #? Any)])}
+       
+       ## Default
+       (type: Thread
+         {#creation Nat
+          #delay Nat
+          #action (IO Any)})
+       ))
+
+(def: #export parallelism
+  Nat
+  (with_expansions [<jvm> (|> (java/lang/Runtime::getRuntime)
+                              (java/lang/Runtime::availableProcessors)
+                              .nat)]
+    (for {@.old <jvm>
+          @.jvm <jvm>}
+         ## Default
+         1)))
+
+(with_expansions [<jvm> (as_is (def: runner
+                                 java/util/concurrent/ScheduledThreadPoolExecutor
+                                 (java/util/concurrent/ScheduledThreadPoolExecutor::new (.int ..parallelism))))]
+  (for {@.old <jvm>
+        @.jvm <jvm>
+        @.js (as_is)
+        @.python (as_is)}
+       
+       ## Default
+       (def: runner
+         (Atom (List Thread))
+         (atom.atom (list)))))
+
+(def: (execute! action)
+  (-> (IO Any) Any)
+  (case (try (io.run action))
+    (#try.Failure error)
+    (exec
+      ("lux io log" ($_ "lux text concat"
+                        "ERROR DURING THREAD EXECUTION:" text.new_line
+                        error))
+      [])
+    
+    (#try.Success _)
+    []))
+
+(def: #export (schedule milli_seconds action)
+  (-> Nat (IO Any) (IO Any))
+  (with_expansions [<jvm> (as_is (let [runnable (ffi.object [] [java/lang/Runnable]
+                                                  []
+                                                  (java/lang/Runnable [] (run self) void
+                                                                      (..execute! action)))]
+                                   (case milli_seconds
+                                     0 (java/util/concurrent/Executor::execute runnable runner)
+                                     _ (java/util/concurrent/ScheduledThreadPoolExecutor::schedule runnable (.int milli_seconds) java/util/concurrent/TimeUnit::MILLISECONDS
+                                                                                                   runner))))]
+    (for {@.old <jvm>
+          @.jvm <jvm>
+
+          @.js
+          (..setTimeout [(ffi.closure [] (..execute! action))
+                         (n.frac milli_seconds)])
+
+          @.python
+          (do io.monad
+            [_ (|> (ffi.lambda [] (..execute! action))
+                   [(|> milli_seconds n.frac (f./ +1,000.0))]
+                   threading/Timer::new
+                   (threading/Timer::start []))]
+            (wrap []))}
+         
+         ## Default
+         (do {! io.monad}
+           [now (\ ! map (|>> instant.to_millis .nat) instant.now)
+            _ (atom.update (|>> (#.Cons {#creation now
+                                         #delay milli_seconds
+                                         #action action}))
+                           ..runner)]
+           (wrap [])))))
+
+(for {@.old (as_is)
+      @.jvm (as_is)
+      @.js (as_is)
+      @.python (as_is)}
+     
+     ## Default
+     (as_is (exception: #export cannot_continue_running_threads)
+            
+            (def: #export run!
+              (IO Any)
+              (loop [_ []]
+                (do {! io.monad}
+                  [threads (atom.read ..runner)]
+                  (case threads
+                    ## And... we're done!
+                    #.Nil
+                    (wrap [])
+
+                    _
+                    (do !
+                      [now (\ ! map (|>> instant.to_millis .nat) instant.now)
+                       #let [[ready pending] (list.partition (function (_ thread)
+                                                               (|> (get@ #creation thread)
+                                                                   (n.+ (get@ #delay thread))
+                                                                   (n.<= now)))
+                                                             threads)]
+                       swapped? (atom.compare_and_swap threads pending ..runner)]
+                      (if swapped?
+                        (do !
+                          [_ (monad.map ! (|>> (get@ #action) ..execute! io.io) ready)]
+                          (recur []))
+                        (error! (exception.construct ..cannot_continue_running_threads []))))
+                    ))))
+            ))

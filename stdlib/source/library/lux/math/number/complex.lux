@@ -1,0 +1,316 @@
+(.module: {#.doc "Complex arithmetic."}
+  [library
+   [lux #*
+    ["." math]
+    [abstract
+     [equivalence (#+ Equivalence)]
+     [codec (#+ Codec)]
+     ["M" monad (#+ Monad do)]]
+    [control
+     ["<>" parser
+      ["<.>" code (#+ Parser)]]]
+    [data
+     ["." maybe]
+     [collection
+      ["." list ("#\." functor)]]]
+    [macro
+     [syntax (#+ syntax:)]
+     ["." code]]
+    [math
+     [number
+      ["n" nat]
+      ["f" frac]
+      ["." int]]]]])
+
+(type: #export Complex
+  {#real Frac
+   #imaginary Frac})
+
+(syntax: #export (complex real {?imaginary (<>.maybe <code>.any)})
+  {#.doc (doc "Complex literals."
+              (complex real imaginary)
+              "The imaginary part can be omitted if it's 0."
+              (complex real))}
+  (wrap (list (` {#..real (~ real)
+                  #..imaginary (~ (maybe.default (' +0.0)
+                                                 ?imaginary))}))))
+
+(def: #export i
+  (..complex +0.0 +1.0))
+
+(def: #export +one
+  (..complex +1.0 +0.0))
+
+(def: #export -one
+  (..complex -1.0 +0.0))
+
+(def: #export zero
+  (..complex +0.0 +0.0))
+
+(def: #export (not_a_number? complex)
+  (or (f.not_a_number? (get@ #real complex))
+      (f.not_a_number? (get@ #imaginary complex))))
+
+(def: #export (= param input)
+  (-> Complex Complex Bit)
+  (and (f.= (get@ #real param)
+            (get@ #real input))
+       (f.= (get@ #imaginary param)
+            (get@ #imaginary input))))
+
+(template [<name> <op>]
+  [(def: #export (<name> param input)
+     (-> Complex Complex Complex)
+     {#real (<op> (get@ #real param)
+                  (get@ #real input))
+      #imaginary (<op> (get@ #imaginary param)
+                       (get@ #imaginary input))})]
+
+  [+ f.+]
+  [- f.-]
+  )
+
+(implementation: #export equivalence
+  (Equivalence Complex)
+  
+  (def: = ..=))
+
+(template [<name> <transform>]
+  [(def: #export <name>
+     (-> Complex Complex)
+     (|>> (update@ #real <transform>)
+          (update@ #imaginary <transform>)))]
+
+  [negate f.negate]
+  [signum f.signum]
+  )
+
+(def: #export conjugate
+  (-> Complex Complex)
+  (update@ #imaginary f.negate))
+
+(def: #export (*' param input)
+  (-> Frac Complex Complex)
+  {#real (f.* param
+              (get@ #real input))
+   #imaginary (f.* param
+                   (get@ #imaginary input))})
+
+(def: #export (* param input)
+  (-> Complex Complex Complex)
+  {#real (f.- (f.* (get@ #imaginary param)
+                   (get@ #imaginary input))
+              (f.* (get@ #real param)
+                   (get@ #real input)))
+   #imaginary (f.+ (f.* (get@ #real param)
+                        (get@ #imaginary input))
+                   (f.* (get@ #imaginary param)
+                        (get@ #real input)))})
+
+(def: #export (/ param input)
+  (-> Complex Complex Complex)
+  (let [(^slots [#real #imaginary]) param]
+    (if (f.< (f.abs imaginary)
+             (f.abs real))
+      (let [quot (f./ imaginary real)
+            denom (|> real (f.* quot) (f.+ imaginary))]
+        {#real (|> (get@ #real input) (f.* quot) (f.+ (get@ #imaginary input)) (f./ denom))
+         #imaginary (|> (get@ #imaginary input) (f.* quot) (f.- (get@ #real input)) (f./ denom))})
+      (let [quot (f./ real imaginary)
+            denom (|> imaginary (f.* quot) (f.+ real))]
+        {#real (|> (get@ #imaginary input) (f.* quot) (f.+ (get@ #real input)) (f./ denom))
+         #imaginary (|> (get@ #imaginary input) (f.- (f.* quot (get@ #real input))) (f./ denom))}))))
+
+(def: #export (/' param subject)
+  (-> Frac Complex Complex)
+  (let [(^slots [#real #imaginary]) subject]
+    {#real (f./ param real)
+     #imaginary (f./ param imaginary)}))
+
+(def: #export (% param input)
+  (-> Complex Complex Complex)
+  (let [scaled (/ param input)
+        quotient (|> scaled
+                     (update@ #real math.floor)
+                     (update@ #imaginary math.floor))]
+    (- (* quotient param)
+       input)))
+
+(def: #export (cos subject)
+  (-> Complex Complex)
+  (let [(^slots [#real #imaginary]) subject]
+    {#real (f.* (math.cosh imaginary)
+                (math.cos real))
+     #imaginary (f.negate (f.* (math.sinh imaginary)
+                               (math.sin real)))}))
+
+(def: #export (cosh subject)
+  (-> Complex Complex)
+  (let [(^slots [#real #imaginary]) subject]
+    {#real (f.* (math.cos imaginary)
+                (math.cosh real))
+     #imaginary (f.* (math.sin imaginary)
+                     (math.sinh real))}))
+
+(def: #export (sin subject)
+  (-> Complex Complex)
+  (let [(^slots [#real #imaginary]) subject]
+    {#real (f.* (math.cosh imaginary)
+                (math.sin real))
+     #imaginary (f.* (math.sinh imaginary)
+                     (math.cos real))}))
+
+(def: #export (sinh subject)
+  (-> Complex Complex)
+  (let [(^slots [#real #imaginary]) subject]
+    {#real (f.* (math.cos imaginary)
+                (math.sinh real))
+     #imaginary (f.* (math.sin imaginary)
+                     (math.cosh real))}))
+
+(def: #export (tan subject)
+  (-> Complex Complex)
+  (let [(^slots [#real #imaginary]) subject
+        r2 (f.* +2.0 real)
+        i2 (f.* +2.0 imaginary)
+        d (f.+ (math.cos r2) (math.cosh i2))]
+    {#real (f./ d (math.sin r2))
+     #imaginary (f./ d (math.sinh i2))}))
+
+(def: #export (tanh subject)
+  (-> Complex Complex)
+  (let [(^slots [#real #imaginary]) subject
+        r2 (f.* +2.0 real)
+        i2 (f.* +2.0 imaginary)
+        d (f.+ (math.cosh r2) (math.cos i2))]
+    {#real (f./ d (math.sinh r2))
+     #imaginary (f./ d (math.sin i2))}))
+
+(def: #export (abs subject)
+  (-> Complex Frac)
+  (let [(^slots [#real #imaginary]) subject]
+    (if (f.< (f.abs imaginary)
+             (f.abs real))
+      (if (f.= +0.0 imaginary)
+        (f.abs real)
+        (let [q (f./ imaginary real)]
+          (f.* (math.pow +0.5 (f.+ +1.0 (f.* q q)))
+               (f.abs imaginary))))
+      (if (f.= +0.0 real)
+        (f.abs imaginary)
+        (let [q (f./ real imaginary)]
+          (f.* (math.pow +0.5 (f.+ +1.0 (f.* q q)))
+               (f.abs real)))))))
+
+(def: #export (exp subject)
+  (-> Complex Complex)
+  (let [(^slots [#real #imaginary]) subject
+        r_exp (math.exp real)]
+    {#real (f.* r_exp (math.cos imaginary))
+     #imaginary (f.* r_exp (math.sin imaginary))}))
+
+(def: #export (log subject)
+  (-> Complex Complex)
+  (let [(^slots [#real #imaginary]) subject]
+    {#real (|> subject ..abs math.log)
+     #imaginary (math.atan/2 real imaginary)}))
+
+(template [<name> <type> <op>]
+  [(def: #export (<name> param input)
+     (-> <type> Complex Complex)
+     (|> input log (<op> param) exp))]
+
+  [pow  Complex ..*]
+  [pow' Frac    ..*']
+  )
+
+(def: (copy_sign sign magnitude)
+  (-> Frac Frac Frac)
+  (f.* (f.signum sign) magnitude))
+
+(def: #export (root/2 input)
+  (-> Complex Complex)
+  (let [(^slots [#real #imaginary]) input
+        t (|> input ..abs (f.+ (f.abs real)) (f./ +2.0) (math.pow +0.5))]
+    (if (f.>= +0.0 real)
+      {#real t
+       #imaginary (f./ (f.* +2.0 t)
+                       imaginary)}
+      {#real (f./ (f.* +2.0 t)
+                  (f.abs imaginary))
+       #imaginary (f.* t (..copy_sign imaginary +1.0))})))
+
+(def: (root/2-1z input)
+  (-> Complex Complex)
+  (|> (complex +1.0) (- (* input input)) ..root/2))
+
+(def: #export (reciprocal (^slots [#real #imaginary]))
+  (-> Complex Complex)
+  (if (f.< (f.abs imaginary)
+           (f.abs real))
+    (let [q (f./ imaginary real)
+          scale (f./ (|> real (f.* q) (f.+ imaginary))
+                     +1.0)]
+      {#real (f.* q scale)
+       #imaginary (f.negate scale)})
+    (let [q (f./ real imaginary)
+          scale (f./ (|> imaginary (f.* q) (f.+ real))
+                     +1.0)]
+      {#real scale
+       #imaginary (|> scale f.negate (f.* q))})))
+
+(def: #export (acos input)
+  (-> Complex Complex)
+  (|> input
+      (..+ (|> input ..root/2-1z (..* ..i)))
+      ..log
+      (..* (..negate ..i))))
+
+(def: #export (asin input)
+  (-> Complex Complex)
+  (|> input
+      ..root/2-1z
+      (..+ (..* ..i input))
+      ..log
+      (..* (..negate ..i))))
+
+(def: #export (atan input)
+  (-> Complex Complex)
+  (|> input
+      (..+ ..i)
+      (../ (..- input ..i))
+      ..log
+      (..* (../ (..complex +2.0) ..i))))
+
+(def: #export (argument (^slots [#real #imaginary]))
+  (-> Complex Frac)
+  (math.atan/2 real imaginary))
+
+(def: #export (roots nth input)
+  (-> Nat Complex (List Complex))
+  (if (n.= 0 nth)
+    (list)
+    (let [r_nth (|> nth .int int.frac)
+          nth_root_of_abs (|> input ..abs (math.pow (f./ r_nth +1.0)))
+          nth_phi (|> input ..argument (f./ r_nth))
+          slice (|> math.pi (f.* +2.0) (f./ r_nth))]
+      (|> (list.indices nth)
+          (list\map (function (_ nth')
+                      (let [inner (|> nth' .int int.frac
+                                      (f.* slice)
+                                      (f.+ nth_phi))
+                            real (f.* nth_root_of_abs
+                                      (math.cos inner))
+                            imaginary (f.* nth_root_of_abs
+                                           (math.sin inner))]
+                        {#real real
+                         #imaginary imaginary})))))))
+
+(def: #export (approximately? margin_of_error standard value)
+  (-> Frac Complex Complex Bit)
+  (and (f.approximately? margin_of_error
+                         (get@ #..real standard)
+                         (get@ #..real value))
+       (f.approximately? margin_of_error
+                         (get@ #..imaginary standard)
+                         (get@ #..imaginary value))))

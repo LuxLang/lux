@@ -21,8 +21,12 @@
            (java.lang.reflect Field)))
 
 ;; [Constants]
-(def ^:const ^String function-class "lux/Function")
-(def ^:const ^String lux-utils-class "lux/LuxRT")
+(def ^:const ^String function-class
+  (&host/internal &host/function-class))
+
+(def ^:const ^String lux-utils-class
+  (&host/internal &host/lux-utils-class))
+
 (def ^:const ^String unit-tag-field "unit_tag")
 
 ;; Formats

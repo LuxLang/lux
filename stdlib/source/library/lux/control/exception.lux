@@ -1,0 +1,184 @@
+(.module: {#.doc "Exception-handling functionality."}
+  [library
+   [lux #*
+    ["." macro]
+    ["." meta]
+    [abstract
+     [monad (#+ do)]]
+    [control
+     ["p" parser
+      ["s" code (#+ Parser)]]]
+    [data
+     ["." maybe]
+     ["." product]
+     ["." text ("#\." monoid)]
+     [collection
+      ["." list ("#\." functor fold)]]]
+    [macro
+     ["." code]
+     [syntax (#+ syntax:)
+      ["|.|" export]
+      ["|.|" input]
+      ["." type #_
+       ["|#_.|" variable]]]]
+    [math
+     [number
+      ["n" nat ("#\." decimal)]]]]]
+  [//
+   ["//" try (#+ Try)]])
+
+(type: #export (Exception a)
+  {#.doc "An exception provides a way to decorate error messages."}
+  {#label Text
+   #constructor (-> a Text)})
+
+(def: #export (match? exception error)
+  (All [e] (-> (Exception e) Text Bit))
+  (text.starts_with? (get@ #label exception) error))
+
+(def: #export (catch exception then try)
+  {#.doc (doc "If a particular exception is detected on a possibly-erroneous value, handle it."
+              "If no exception was detected, or a different one from the one being checked, then pass along the original value.")}
+  (All [e a]
+    (-> (Exception e) (-> Text a) (Try a)
+        (Try a)))
+  (case try
+    (#//.Success output)
+    (#//.Success output)
+
+    (#//.Failure error)
+    (let [reference (get@ #label exception)]
+      (if (text.starts_with? reference error)
+        (#//.Success (|> error
+                         (text.clip' (text.size reference))
+                         maybe.assume
+                         then))
+        (#//.Failure error)))))
+
+(def: #export (otherwise to_do try)
+  {#.doc "If no handler could be found to catch the exception, then run a function as a last-resort measure."}
+  (All [a]
+    (-> (-> Text a) (Try a) a))
+  (case try
+    (#//.Success output)
+    output
+
+    (#//.Failure error)
+    (to_do error)))
+
+(def: #export (return value)
+  {#.doc "A way to lift normal values into the error-handling context."}
+  (All [a] (-> a (Try a)))
+  (#//.Success value))
+
+(def: #export (construct exception message)
+  {#.doc "Constructs an exception."}
+  (All [e] (-> (Exception e) e Text))
+  ((get@ #..constructor exception) message))
+
+(def: #export (throw exception message)
+  {#.doc "Decorate an error message with an Exception and lift it into the error-handling context."}
+  (All [e a] (-> (Exception e) e (Try a)))
+  (#//.Failure (..construct exception message)))
+
+(def: #export (assert exception message test)
+  (All [e] (-> (Exception e) e Bit (Try Any)))
+  (if test
+    (#//.Success [])
+    (..throw exception message)))
+
+(syntax: #export (exception: {export |export|.parser}
+                   {t_vars (p.default (list) (s.tuple (p.some |type_variable|.parser)))}
+                   {[name inputs] (p.either (p.and s.local_identifier (wrap (list)))
+                                            (s.form (p.and s.local_identifier (p.some |input|.parser))))}
+                   {body (p.maybe s.any)})
+  {#.doc (doc "Define a new exception type."
+              "It mostly just serves as a way to tag error messages for later catching."
+              ""
+              "Simple case:"
+              (exception: #export some_exception)
+              ""
+              "Complex case:"
+              (exception: #export [optional type variables] (some_exception {optional Text} {arguments Int})
+                optional_body))}
+  (macro.with_gensyms [g!descriptor]
+    (do meta.monad
+      [current_module meta.current_module_name
+       #let [descriptor ($_ text\compose "{" current_module "." name "}" text.new_line)
+             g!self (code.local_identifier name)]]
+      (wrap (list (` (def: (~+ (|export|.format export))
+                       (~ g!self)
+                       (All [(~+ (list\map |type_variable|.format t_vars))]
+                         (..Exception [(~+ (list\map (get@ #|input|.type) inputs))]))
+                       (let [(~ g!descriptor) (~ (code.text descriptor))]
+                         {#..label (~ g!descriptor)
+                          #..constructor (function ((~ g!self) [(~+ (list\map (get@ #|input|.binding) inputs))])
+                                           ((~! text\compose) (~ g!descriptor)
+                                            (~ (maybe.default (' "") body))))})))))
+      )))
+
+(def: (report' entries)
+  (-> (List [Text Text]) Text)
+  (let [header_separator ": "
+        largest_header_size (list\fold (function (_ [header _] max)
+                                         (n.max (text.size header) max))
+                                       0
+                                       entries)
+        on_new_line (|> " "
+                        (list.repeat (n.+ (text.size header_separator)
+                                          largest_header_size))
+                        (text.join_with "")
+                        (text\compose text.new_line))]
+    (|> entries
+        (list\map (function (_ [header message])
+                    (let [padding (|> " "
+                                      (list.repeat (n.- (text.size header)
+                                                        largest_header_size))
+                                      (text.join_with ""))]
+                      (|> message
+                          (text.replace_all text.new_line on_new_line)
+                          ($_ text\compose padding header header_separator)))))
+        (text.join_with text.new_line))))
+
+(syntax: #export (report {entries (p.many (s.tuple (p.and s.any s.any)))})
+  (wrap (list (` ((~! report') (list (~+ (|> entries
+                                             (list\map (function (_ [header message])
+                                                         (` [(~ header) (~ message)])))))))))))
+
+(def: #export (enumerate format entries)
+  (All [a]
+    (-> (-> a Text) (List a) Text))
+  (|> entries
+      list.enumeration
+      (list\map (function (_ [index entry])
+                  [(n\encode index) (format entry)]))
+      report'))
+
+(def: separator
+  (let [gap ($_ "lux text concat" text.new_line text.new_line)
+        horizontal_line (|> "-" (list.repeat 64) (text.join_with ""))]
+    ($_ "lux text concat"
+        gap
+        horizontal_line
+        gap)))
+
+(def: (decorate prelude error)
+  (-> Text Text Text)
+  ($_ "lux text concat"
+      prelude
+      ..separator
+      error))
+
+(def: #export (with exception message computation)
+  (All [e a] (-> (Exception e) e (Try a) (Try a)))
+  (case computation
+    (#//.Failure error)
+    (#//.Failure (case error
+                   ""
+                   (..construct exception message)
+
+                   _
+                   (..decorate (..construct exception message) error)))
+
+    success
+    success))

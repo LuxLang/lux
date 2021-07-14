@@ -1,0 +1,112 @@
+(.module:
+  [library
+   [lux (#- function)
+    [abstract
+     ["." monad (#+ do)]]
+    [data
+     ["." product]
+     [text
+      ["%" format (#+ format)]]
+     [collection
+      ["." list ("#\." functor fold)]]]
+    [target
+     ["_" python (#+ SVar Expression Statement)]]]]
+  ["." // #_
+   [runtime (#+ Operation Phase Generator Phase! Generator!)]
+   ["#." reference]
+   ["#." case]
+   ["#." loop]
+   ["/#" // #_
+    ["#." reference]
+    ["//#" /// #_
+     [analysis (#+ Variant Tuple Environment Abstraction Application Analysis)]
+     [synthesis (#+ Synthesis)]
+     ["#." generation (#+ Context)]
+     ["//#" /// #_
+      [arity (#+ Arity)]
+      ["#." phase]
+      [reference
+       [variable (#+ Register Variable)]]
+      [meta
+       [archive (#+ Archive)
+        ["." artifact]]]]]]])
+
+(def: #export (apply expression archive [functionS argsS+])
+  (Generator (Application Synthesis))
+  (do {! ///////phase.monad}
+    [functionO (expression archive functionS)
+     argsO+ (monad.map ! (expression archive) argsS+)]
+    (wrap (_.apply/* functionO argsO+))))
+
+(def: #export capture
+  (-> Register SVar)
+  (|>> (///reference.foreign //reference.system) :assume))
+
+(def: (with_closure function_id @function inits function_definition)
+  (-> artifact.ID SVar (List (Expression Any)) (Statement Any) (Operation (Expression Any)))
+  (case inits
+    #.Nil
+    (do ///////phase.monad
+      [_ (/////generation.execute! function_definition)
+       _ (/////generation.save! function_id function_definition)]
+      (wrap @function))
+
+    _
+    (do {! ///////phase.monad}
+      [#let [directive (_.def @function
+                              (|> (list.enumeration inits)
+                                  (list\map (|>> product.left ..capture)))
+                              ($_ _.then
+                                  function_definition
+                                  (_.return @function)))]
+       _ (/////generation.execute! directive)
+       _ (/////generation.save! function_id directive)]
+      (wrap (_.apply/* @function inits)))))
+
+(def: input
+  (|>> inc //case.register))
+
+(def: #export (function statement expression archive [environment arity bodyS])
+  (-> Phase! (Generator (Abstraction Synthesis)))
+  (do {! ///////phase.monad}
+    [[[function_module function_artifact] body!] (/////generation.with_new_context archive
+                                                   (/////generation.with_anchor 1
+                                                     (statement expression archive bodyS)))
+     environment (monad.map ! (expression archive) environment)
+     #let [@curried (_.var "curried")
+           arityO (|> arity .int _.int)
+           @num_args (_.var "num_args")
+           @self (_.var (///reference.artifact [function_module function_artifact]))
+           apply_poly (.function (_ args func)
+                        (_.apply_poly (list) args func))
+           initialize_self! (_.set (list (//case.register 0)) @self)
+           initialize! (list\fold (.function (_ post pre!)
+                                    ($_ _.then
+                                        pre!
+                                        (_.set (list (..input post)) (_.nth (|> post .int _.int) @curried))))
+                                  initialize_self!
+                                  (list.indices arity))]]
+    (with_closure function_artifact @self environment
+      (_.def @self (list (_.poly @curried))
+             ($_ _.then
+                 (_.set (list @num_args) (_.len/1 @curried))
+                 (_.cond (list [(|> @num_args (_.= arityO))
+                                (<| (_.then initialize!)
+                                    //loop.set_scope
+                                    body!)]
+                               [(|> @num_args (_.> arityO))
+                                (let [arity_inputs (_.slice (_.int +0) arityO @curried)
+                                      extra_inputs (_.slice arityO @num_args @curried)]
+                                  (_.return (|> @self
+                                                (apply_poly arity_inputs)
+                                                (apply_poly extra_inputs))))])
+                         ## (|> @num_args (_.< arityO))
+                         (let [@next (_.var "next")
+                               @missing (_.var "missing")]
+                           ($_ _.then
+                               (_.def @next (list (_.poly @missing))
+                                      (_.return (|> @self (apply_poly (|> @curried (_.+ @missing))))))
+                               (_.return @next)
+                               )))
+                 )))
+    ))

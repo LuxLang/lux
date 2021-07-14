@@ -1,0 +1,584 @@
+## This is LuxC's parser.
+## It takes the source code of a Lux file in raw text form and
+## extracts the syntactic structure of the code from it.
+## It only produces Lux Code nodes, and thus removes any white-space
+## and comments while processing its inputs.
+
+## Another important aspect of the parser is that it keeps track of
+## its position within the input data.
+## That is, the parser takes into account the line and column
+## information in the input text (it doesn't really touch the
+## file-name aspect of the location, leaving it intact in whatever
+## base-line location it is given).
+
+## This particular piece of functionality is not located in one
+## function, but it is instead scattered throughout several parsers,
+## since the logic for how to update the location varies, depending on
+## what is being parsed, and the rules involved.
+
+## You will notice that several parsers have a "where" parameter, that
+## tells them the location position prior to the parser being run.
+## They are supposed to produce some parsed output, alongside an
+## updated location pointing to the end position, after the parser was run.
+
+## Lux Code nodes/tokens are annotated with location meta-data
+## [file-name, line, column] to keep track of their provenance and
+## location, which is helpful for documentation and debugging.
+(.module:
+  [library
+   [lux #*
+    ["@" target]
+    [abstract
+     monad]
+    [control
+     ["." exception (#+ exception:)]
+     [parser
+      [text (#+ Offset)]]]
+    [data
+     ["." maybe]
+     ["." text
+      ["%" format (#+ format)]]
+     [collection
+      ["." list]
+      ["." dictionary (#+ Dictionary)]]]
+    [macro
+     ["." template]]
+    [math
+     [number
+      ["n" nat]
+      ["." int]
+      ["." rev]
+      ["." frac]]]]])
+
+(template: (inline: <declaration> <type> <body>)
+  (for {@.python (def: <declaration> <type> <body>)}
+       (template: <declaration> <body>)))
+
+## TODO: Implement "lux syntax char case!" as a custom extension.
+## That way, it should be possible to obtain the char without wrapping
+## it into a java.lang.Long, thereby improving performance.
+
+## TODO: Make an extension to take advantage of java/lang/String::indexOf<int,int>
+## to get better performance than the current "lux text index" extension.
+
+## TODO: Instead of always keeping a "where" location variable, keep the
+## individual components (i.e. file, line and column) separate, so
+## that updated the "where" only involved updating the components, and
+## producing the locations only involved building them, without any need
+## for pattern-matching and de-structuring.
+
+(type: Char
+  Nat)
+
+(template [<name> <extension> <diff>]
+  [(template: (<name> value)
+     (<extension> <diff> value))]
+
+  [!inc   "lux i64 +" 1]
+  [!inc/2 "lux i64 +" 2]
+  [!dec   "lux i64 -" 1]
+  )
+
+(template: (!clip from to text)
+  ("lux text clip" from (n.- from to) text))
+
+(template [<name> <extension>]
+  [(template: (<name> reference subject)
+     (<extension> reference subject))]
+
+  [!n/= "lux i64 ="]
+  [!i/< "lux i64 <"]
+  )
+
+(template [<name> <extension>]
+  [(template: (<name> param subject)
+     (<extension> param subject))]
+
+  [!n/+ "lux i64 +"]
+  [!n/- "lux i64 -"]
+  )
+
+(type: #export Aliases
+  (Dictionary Text Text))
+
+(def: #export no_aliases
+  Aliases
+  (dictionary.new text.hash))
+
+(def: #export prelude
+  .prelude_module)
+
+(def: #export text_delimiter text.double_quote)
+
+(template [<char> <definition>]
+  [(def: #export <definition> <char>)]
+
+  ## Form delimiters
+  ["(" open_form]
+  [")" close_form]
+
+  ## Tuple delimiters
+  ["[" open_tuple]
+  ["]" close_tuple]
+
+  ## Record delimiters
+  ["{" open_record]
+  ["}" close_record]
+
+  ["#" sigil]
+
+  ["," digit_separator]
+
+  ["+" positive_sign]
+  ["-" negative_sign]
+
+  ["." frac_separator]
+
+  ## The parts of a name are separated by a single mark.
+  ## E.g. module.short.
+  ## Only one such mark may be used in an name, since there
+  ## can only be 2 parts to a name (the module [before the
+  ## mark], and the short [after the mark]).
+  ## There are also some extra rules regarding name syntax,
+  ## encoded in the parser.
+  ["." name_separator]
+  )
+
+(exception: #export (end_of_file {module Text})
+  (exception.report
+   ["Module" (%.text module)]))
+
+(def: amount_of_input_shown 64)
+
+(inline: (input_at start input)
+  (-> Offset Text Text)
+  (let [end (|> start (!n/+ amount_of_input_shown) (n.min ("lux text size" input)))]
+    (!clip start end input)))
+
+(exception: #export (unrecognized_input {[file line column] Location} {context Text} {input Text} {offset Offset})
+  (exception.report
+   ["File" file]
+   ["Line" (%.nat line)]
+   ["Column" (%.nat column)]
+   ["Context" (%.text context)]
+   ["Input" (input_at offset input)]))
+
+(exception: #export (text_cannot_contain_new_lines {text Text})
+  (exception.report
+   ["Text" (%.text text)]))
+
+(template: (!failure parser where offset source_code)
+  (#.Left [[where offset source_code]
+           (exception.construct ..unrecognized_input [where (%.name (name_of parser)) source_code offset])]))
+
+(template: (!end_of_file where offset source_code current_module)
+  (#.Left [[where offset source_code]
+           (exception.construct ..end_of_file current_module)]))
+
+(type: (Parser a)
+  (-> Source (Either [Source Text] [Source a])))
+
+(template: (!with_char+ @source_code_size @source_code @offset @char @else @body)
+  (if (!i/< (:as Int @source_code_size)
+            (:as Int @offset))
+    (let [@char ("lux text char" @offset @source_code)]
+      @body)
+    @else))
+
+(template: (!with_char @source_code @offset @char @else @body)
+  (!with_char+ ("lux text size" @source_code) @source_code @offset @char @else @body))
+
+(template: (!letE <binding> <computation> <body>)
+  (case <computation>
+    (#.Right <binding>)
+    <body>
+
+    ## (#.Left error)
+    <<otherwise>>
+    (:assume <<otherwise>>)))
+
+(template: (!horizontal where offset source_code)
+  [(update@ #.column inc where)
+   (!inc offset)
+   source_code])
+
+(inline: (!new_line where)
+  (-> Location Location)
+  (let [[where::file where::line where::column] where]
+    [where::file (!inc where::line) 0]))
+
+(inline: (!forward length where)
+  (-> Nat Location Location)
+  (let [[where::file where::line where::column] where]
+    [where::file where::line (!n/+ length where::column)]))
+
+(template: (!vertical where offset source_code)
+  [(!new_line where)
+   (!inc offset)
+   source_code])
+
+(template [<name> <close> <tag>]
+  [(inline: (<name> parse where offset source_code)
+     (-> (Parser Code) Location Offset Text
+         (Either [Source Text] [Source Code]))
+     (loop [source (: Source [(!forward 1 where) offset source_code])
+            stack (: (List Code) #.Nil)]
+       (case (parse source)
+         (#.Right [source' top])
+         (recur source' (#.Cons top stack))
+         
+         (#.Left [source' error])
+         (if (is? <close> error)
+           (#.Right [source'
+                     [where (<tag> (list.reverse stack))]])
+           (#.Left [source' error])))))]
+
+  ## Form and tuple syntax is mostly the same, differing only in the
+  ## delimiters involved.
+  ## They may have an arbitrary number of arbitrary Code nodes as elements.
+  [parse_form  ..close_form  #.Form]
+  [parse_tuple ..close_tuple #.Tuple]
+  )
+
+(inline: (parse_record parse where offset source_code)
+  (-> (Parser Code) Location Offset Text
+      (Either [Source Text] [Source Code]))
+  (loop [source (: Source [(!forward 1 where) offset source_code])
+         stack (: (List [Code Code]) #.Nil)]
+    (case (parse source)
+      (#.Right [sourceF field])
+      (!letE [sourceFV value] (parse sourceF)
+             (recur sourceFV (#.Cons [field value] stack)))
+
+      (#.Left [source' error])
+      (if (is? ..close_record error)
+        (#.Right [source'
+                  [where (#.Record (list.reverse stack))]])
+        (#.Left [source' error])))))
+
+(template: (!guarantee_no_new_lines where offset source_code content body)
+  (case ("lux text index" 0 (static text.new_line) content)
+    #.None
+    body
+
+    g!_
+    (#.Left [[where offset source_code]
+             (exception.construct ..text_cannot_contain_new_lines content)])))
+
+(def: (parse_text where offset source_code)
+  (-> Location Offset Text (Either [Source Text] [Source Code]))
+  (case ("lux text index" offset (static ..text_delimiter) source_code)
+    (#.Some g!end)
+    (<| (let [g!content (!clip offset g!end source_code)])
+        (!guarantee_no_new_lines where offset source_code g!content)
+        (#.Right [[(let [size (!n/- offset g!end)]
+                     (update@ #.column (|>> (!n/+ size) (!n/+ 2)) where))
+                   (!inc g!end)
+                   source_code]
+                  [where
+                   (#.Text g!content)]]))
+    
+    _
+    (!failure ..parse_text where offset source_code)))
+
+(with_expansions [<digits> (as_is "0" "1" "2" "3" "4" "5" "6" "7" "8" "9")
+                  <non_name_chars> (template [<char>]
+                                     [(~~ (static <char>))]
+
+                                     [text.space]
+                                     [text.new_line] [text.carriage_return]
+                                     [..name_separator]
+                                     [..open_form] [..close_form]
+                                     [..open_tuple] [..close_tuple]
+                                     [..open_record] [..close_record]
+                                     [..text_delimiter]
+                                     [..sigil])
+                  <digit_separator> (static ..digit_separator)]
+  (template: (!if_digit? @char @then @else)
+    ("lux syntax char case!" @char
+     [[<digits>]
+      @then]
+
+     ## else
+     @else))
+
+  (template: (!if_digit?+ @char @then @else_options @else)
+    (`` ("lux syntax char case!" @char
+         [[<digits> <digit_separator>]
+          @then
+
+          (~~ (template.splice @else_options))]
+
+         ## else
+         @else)))
+
+  (`` (template: (!if_name_char?|tail @char @then @else)
+        ("lux syntax char case!" @char
+         [[<non_name_chars>]
+          @else]
+
+         ## else
+         @then)))
+
+  (`` (template: (!if_name_char?|head @char @then @else)
+        ("lux syntax char case!" @char
+         [[<non_name_chars> <digits>]
+          @else]
+
+         ## else
+         @then)))
+  )
+
+(template: (!number_output <source_code> <start> <end> <codec> <tag>)
+  (case (|> <source_code>
+            (!clip <start> <end>)
+            (text.replace_all ..digit_separator "")
+            (\ <codec> decode))
+    (#.Right output)
+    (#.Right [[(let [[where::file where::line where::column] where]
+                 [where::file where::line (!n/+ (!n/- <start> <end>) where::column)])
+               <end>
+               <source_code>]
+              [where (<tag> output)]])
+    
+    (#.Left error)
+    (#.Left [[where <start> <source_code>]
+             error])))
+
+(def: no_exponent Offset 0)
+
+(with_expansions [<int_output> (as_is (!number_output source_code start end int.decimal #.Int))
+                  <frac_output> (as_is (!number_output source_code start end frac.decimal #.Frac))
+                  <failure> (!failure ..parse_frac where offset source_code)
+                  <frac_separator> (static ..frac_separator)
+                  <signs> (template [<sign>]
+                            [(~~ (static <sign>))]
+
+                            [..positive_sign]
+                            [..negative_sign])]
+  (inline: (parse_frac source_code//size start where offset source_code)
+    (-> Nat Nat Location Offset Text
+        (Either [Source Text] [Source Code]))
+    (loop [end offset
+           exponent (static ..no_exponent)]
+      (<| (!with_char+ source_code//size source_code end char/0 <frac_output>)
+          (!if_digit?+ char/0
+                       (recur (!inc end) exponent)
+
+                       [["e" "E"]
+                        (if (is? (static ..no_exponent) exponent)
+                          (<| (!with_char+ source_code//size source_code (!inc end) char/1 <failure>)
+                              (`` ("lux syntax char case!" char/1
+                                   [[<signs>]
+                                    (<| (!with_char+ source_code//size source_code (!n/+ 2 end) char/2 <failure>)
+                                        (!if_digit?+ char/2
+                                                     (recur (!n/+ 3 end) char/0)
+                                                     []
+                                                     <failure>))]
+                                   ## else
+                                   <failure>)))
+                          <frac_output>)]
+
+                       <frac_output>))))
+
+  (inline: (parse_signed source_code//size start where offset source_code)
+    (-> Nat Nat Location Offset Text
+        (Either [Source Text] [Source Code]))
+    (loop [end offset]
+      (<| (!with_char+ source_code//size source_code end char <int_output>)
+          (!if_digit?+ char
+                       (recur (!inc end))
+
+                       [[<frac_separator>]
+                        (parse_frac source_code//size start where (!inc end) source_code)]
+
+                       <int_output>))))
+  )
+
+(template [<parser> <codec> <tag>]
+  [(inline: (<parser> source_code//size start where offset source_code)
+     (-> Nat Nat Location Offset Text
+         (Either [Source Text] [Source Code]))
+     (loop [g!end offset]
+       (<| (!with_char+ source_code//size source_code g!end g!char (!number_output source_code start g!end <codec> <tag>))
+           (!if_digit?+ g!char
+                        (recur (!inc g!end))
+                        []
+                        (!number_output source_code start g!end <codec> <tag>)))))]
+
+  [parse_nat n.decimal #.Nat]
+  [parse_rev rev.decimal #.Rev]
+  )
+
+(template: (!parse_signed source_code//size offset where source_code @aliases @end)
+  (<| (let [g!offset/1 (!inc offset)])
+      (!with_char+ source_code//size source_code g!offset/1 g!char/1 @end)
+      (!if_digit? g!char/1
+                  (parse_signed source_code//size offset where (!inc/2 offset) source_code)
+                  (!parse_full_name offset [where (!inc offset) source_code] where @aliases #.Identifier))))
+
+(with_expansions [<output> (#.Right [[(update@ #.column (|>> (!n/+ (!n/- start end))) where)
+                                      end
+                                      source_code]
+                                     (!clip start end source_code)])]
+  (inline: (parse_name_part start where offset source_code)
+    (-> Nat Location Offset Text
+        (Either [Source Text] [Source Text]))
+    (let [source_code//size ("lux text size" source_code)]
+      (loop [end offset]
+        (<| (!with_char+ source_code//size source_code end char <output>)
+            (!if_name_char?|tail char
+                                 (recur (!inc end))
+                                 <output>))))))
+
+(template: (!parse_half_name @offset @char @module)
+  (!if_name_char?|head @char
+                       (!letE [source' name] (..parse_name_part @offset where (!inc @offset) source_code)
+                              (#.Right [source' [@module name]]))
+                       (!failure ..!parse_half_name where @offset source_code)))
+
+(`` (def: (parse_short_name source_code//size current_module [where offset/0 source_code])
+      (-> Nat Text (Parser Name))
+      (<| (!with_char+ source_code//size source_code offset/0 char/0
+                       (!end_of_file where offset/0 source_code current_module))
+          (if (!n/= (char (~~ (static ..name_separator))) char/0)
+            (<| (let [offset/1 (!inc offset/0)])
+                (!with_char+ source_code//size source_code offset/1 char/1
+                             (!end_of_file where offset/1 source_code current_module))
+                (!parse_half_name offset/1 char/1 current_module))
+            (!parse_half_name offset/0 char/0 (static ..prelude))))))
+
+(template: (!parse_short_name source_code//size @current_module @source @where @tag)
+  (!letE [source' name] (..parse_short_name source_code//size @current_module @source)
+         (#.Right [source' [@where (@tag name)]])))
+
+(with_expansions [<simple> (as_is (#.Right [source' ["" simple]]))]
+  (`` (def: (parse_full_name aliases start source)
+        (-> Aliases Offset (Parser Name))
+        (<| (!letE [source' simple] (let [[where offset source_code] source]
+                                      (..parse_name_part start where offset source_code)))
+            (let [[where' offset' source_code'] source'])
+            (!with_char source_code' offset' char/separator <simple>)
+            (if (!n/= (char (~~ (static ..name_separator))) char/separator)
+              (<| (let [offset'' (!inc offset')])
+                  (!letE [source'' complex] (..parse_name_part offset'' (!forward 1 where') offset'' source_code'))
+                  (if ("lux text =" "" complex)
+                    (let [[where offset source_code] source]
+                      (!failure ..parse_full_name where offset source_code))
+                    (#.Right [source'' [(|> aliases
+                                            (dictionary.get simple)
+                                            (maybe.default simple))
+                                        complex]])))
+              <simple>)))))
+
+(template: (!parse_full_name @offset @source @where @aliases @tag)
+  (!letE [source' full_name] (..parse_full_name @aliases @offset @source)
+         (#.Right [source' [@where (@tag full_name)]])))
+
+## TODO: Grammar macro for specifying syntax.
+## (grammar: lux_grammar
+##   [expression ...]
+##   [form "(" [#* expression] ")"])
+
+(with_expansions [<consume_1> (as_is where (!inc offset/0) source_code)
+                  <move_1> (as_is [(!forward 1 where) (!inc offset/0) source_code])
+                  <move_2> (as_is [(!forward 1 where) (!inc/2 offset/0) source_code])
+                  <recur> (as_is (parse current_module aliases source_code//size))
+                  <horizontal_move> (as_is (recur (!horizontal where offset/0 source_code)))]
+
+  (template: (!close closer)
+    (#.Left [<move_1> closer]))
+  
+  (def: #export (parse current_module aliases source_code//size)
+    (-> Text Aliases Nat (Parser Code))
+    ## The "exec []" is only there to avoid function fusion.
+    ## This is to preserve the loop as much as possible and keep it tight.
+    (exec []
+      (function (recur [where offset/0 source_code])
+        (<| (!with_char+ source_code//size source_code offset/0 char/0
+                         (!end_of_file where offset/0 source_code current_module))
+            (with_expansions [<composites> (template [<open> <close> <parser>]
+                                             [[(~~ (static <open>))]
+                                              (<parser> <recur> <consume_1>)
+
+                                              [(~~ (static <close>))]
+                                              (!close <close>)]
+
+                                             [..open_form ..close_form parse_form]
+                                             [..open_tuple ..close_tuple parse_tuple]
+                                             [..open_record ..close_record parse_record]
+                                             )]
+              (`` ("lux syntax char case!" char/0
+                   [[(~~ (static text.space))
+                     (~~ (static text.carriage_return))]
+                    <horizontal_move>
+                    
+                    ## New line
+                    [(~~ (static text.new_line))]
+                    (recur (!vertical where offset/0 source_code))
+
+                    <composites>
+
+                    ## Text
+                    [(~~ (static ..text_delimiter))]
+                    (parse_text where (!inc offset/0) source_code)
+
+                    ## Special code
+                    [(~~ (static ..sigil))]
+                    (<| (let [offset/1 (!inc offset/0)])
+                        (!with_char+ source_code//size source_code offset/1 char/1
+                                     (!end_of_file where offset/1 source_code current_module))
+                        ("lux syntax char case!" char/1
+                         [[(~~ (static ..name_separator))]
+                          (!parse_short_name source_code//size current_module <move_2> where #.Tag)
+
+                          ## Single_line comment
+                          [(~~ (static ..sigil))]
+                          (case ("lux text index" (!inc offset/1) (static text.new_line) source_code)
+                            (#.Some end)
+                            (recur (!vertical where end source_code))
+                            
+                            _
+                            (!end_of_file where offset/1 source_code current_module))
+
+                          (~~ (template [<char> <bit>]
+                                [[<char>]
+                                 (#.Right [[(update@ #.column (|>> !inc/2) where)
+                                            (!inc offset/1)
+                                            source_code]
+                                           [where (#.Bit <bit>)]])]
+
+                                ["0" #0]
+                                ["1" #1]))]
+
+                         ## else
+                         (!if_name_char?|head char/1
+                                              ## Tag
+                                              (!parse_full_name offset/1 <move_2> where aliases #.Tag)
+                                              (!failure ..parse where offset/0 source_code))))
+
+                    ## Coincidentally (= ..name_separator ..frac_separator)
+                    [(~~ (static ..name_separator))
+                     ## (~~ (static ..frac_separator))
+                     ]
+                    (<| (let [offset/1 (!inc offset/0)])
+                        (!with_char+ source_code//size source_code offset/1 char/1
+                                     (!end_of_file where offset/1 source_code current_module))
+                        (!if_digit? char/1
+                                    (parse_rev source_code//size offset/0 where (!inc offset/1) source_code)
+                                    (!parse_short_name source_code//size current_module [where offset/1 source_code] where #.Identifier)))
+
+                    [(~~ (static ..positive_sign))
+                     (~~ (static ..negative_sign))]
+                    (!parse_signed source_code//size offset/0 where source_code aliases
+                                   (!end_of_file where offset/0 source_code current_module))]
+
+                   ## else
+                   (!if_digit? char/0
+                               ## Natural number
+                               (parse_nat source_code//size offset/0 where (!inc offset/0) source_code)
+                               ## Identifier
+                               (!parse_full_name offset/0 [<consume_1>] where aliases #.Identifier))
+                   )))
+            )))
+    ))

@@ -5,7 +5,7 @@
             clojure.core.match.array))
 
 (def prelude
-  "lux")
+  "library/lux")
 
 (def !log! (atom false))
 (defn flag-prn! [& args]
@@ -13,7 +13,8 @@
     (apply prn args)))
 
 ;; [Tags]
-(def unit-tag (.intern ""))
+(def unit-tag
+  (.intern ""))
 
 (defn T [elems]
   (case (count elems)

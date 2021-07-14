@@ -1,0 +1,157 @@
+(.module:
+  [library
+   [lux #*
+    [abstract
+     [equivalence (#+ Equivalence)]
+     [order (#+ Order)]
+     [monoid (#+ Monoid)]
+     [codec (#+ Codec)]
+     [monad (#+ do)]]
+    [control
+     ["." try (#+ Try)]
+     ["." exception (#+ exception:)]
+     ["<>" parser
+      ["<.>" text (#+ Parser)]
+      ["<.>" code]]]
+    [data
+     ["." product]
+     ["." text ("#\." monoid)]]
+    [macro
+     [syntax (#+ syntax:)]
+     ["." code]]
+    [math
+     [number
+      ["i" int ("#\." decimal)]]]
+    [type
+     abstract]]]
+  ["." // #_
+   ["#" modulus (#+ Modulus)]])
+
+(abstract: #export (Mod m)
+  {#modulus (Modulus m)
+   #value Int}
+
+  {#.doc "A number under a modulus."}
+
+  (def: #export (modular modulus value)
+    (All [%] (-> (Modulus %) Int (Mod %)))
+    (:abstraction {#modulus modulus
+                   #value (i.mod (//.divisor modulus) value)}))
+
+  (template [<name> <type> <side>]
+    [(def: #export <name>
+       (All [%] (-> (Mod %) <type>))
+       (|>> :representation <side>))]
+
+    [modulus (Modulus %) product.left]
+    [value Int product.right]
+    )
+  
+  (exception: #export [%] (incorrect_modulus {modulus (Modulus %)}
+                                             {parsed Int})
+    (exception.report
+     ["Expected" (i\encode (//.divisor modulus))]
+     ["Actual" (i\encode parsed)]))
+
+  (def: separator
+    " mod ")
+
+  (def: intL
+    (Parser Int)
+    (<>.codec i.decimal
+              (<text>.and (<text>.one_of "-+") (<text>.many <text>.decimal))))
+
+  (implementation: #export (codec expected)
+    (All [%] (-> (Modulus %) (Codec Text (Mod %))))
+
+    (def: (encode modular)
+      (let [[_ value] (:representation modular)]
+        ($_ text\compose
+            (i\encode value)
+            ..separator
+            (i\encode (//.divisor expected)))))
+
+    (def: decode
+      (<text>.run
+       (do <>.monad
+         [[value _ actual] ($_ <>.and intL (<text>.this ..separator) intL)
+          _ (<>.assert (exception.construct ..incorrect_modulus [expected actual])
+                       (i.= (//.divisor expected) actual))]
+         (wrap (..modular expected value))))))
+
+  (template [<name> <op>]
+    [(def: #export (<name> reference subject)
+       (All [%] (-> (Mod %) (Mod %) Bit))
+       (let [[_ reference] (:representation reference)
+             [_ subject] (:representation subject)]
+         (<op> reference subject)))]
+
+    [= i.=]
+    [< i.<]
+    [<= i.<=]
+    [> i.>]
+    [>= i.>=]
+    )
+
+  (implementation: #export equivalence
+    (All [%] (Equivalence (Mod %)))
+
+    (def: = ..=))
+
+  (implementation: #export order
+    (All [%] (Order (Mod %)))
+
+    (def: &equivalence ..equivalence)
+    (def: < ..<))
+
+  (template [<name> <op>]
+    [(def: #export (<name> param subject)
+       (All [%] (-> (Mod %) (Mod %) (Mod %)))
+       (let [[modulus param] (:representation param)
+             [_ subject] (:representation subject)]
+         (:abstraction {#modulus modulus
+                        #value (|> subject
+                                   (<op> param)
+                                   (i.mod (//.divisor modulus)))})))]
+
+    [+ i.+]
+    [- i.-]
+    [* i.*]
+    )
+
+  (template [<composition> <identity> <monoid>]
+    [(implementation: #export (<monoid> modulus)
+       (All [%] (-> (Modulus %) (Monoid (Mod %))))
+
+       (def: identity
+         (..modular modulus <identity>))
+       (def: compose
+         <composition>))]
+    
+    [..+ +0 addition]
+    [..* +1 multiplication]
+    )
+  
+  (def: #export (inverse modular)
+    (All [%] (-> (Mod %) (Maybe (Mod %))))
+    (let [[modulus value] (:representation modular)
+          [[vk mk] gcd] (i.extended_gcd value (//.divisor modulus))]
+      (case gcd
+        +1 (#.Some (..modular modulus vk))
+        _ #.None)))
+  )
+
+(exception: #export [r% s%] (moduli_are_not_equal {reference (Modulus r%)}
+                                                  {subject (Modulus s%)})
+  (exception.report
+   ["Reference" (i\encode (//.divisor reference))]
+   ["Subject" (i\encode (//.divisor subject))]))
+
+(def: #export (adapter reference subject)
+  (All [r% s%]
+    (-> (Modulus r%) (Modulus s%)
+        (Try (-> (Mod s%) (Mod r%)))))
+  (if (//.= reference subject)
+    (#try.Success (|>> ..value
+                       (..modular reference)))
+    (exception.throw ..moduli_are_not_equal [reference subject])))

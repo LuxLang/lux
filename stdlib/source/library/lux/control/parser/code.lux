@@ -1,0 +1,199 @@
+(.module:
+  [library
+   [lux (#- nat int rev)
+    [abstract
+     ["." monad (#+ do)]]
+    [control
+     ["." try (#+ Try)]]
+    [data
+     ["." bit]
+     ["." text ("#\." monoid)]
+     ["." name]
+     [collection
+      ["." list ("#\." functor)]]]
+    [macro
+     ["." code ("#\." equivalence)]]
+    [math
+     [number
+      ["." nat]
+      ["." int]
+      ["." rev]
+      ["." frac]]]]]
+  ["." //])
+
+(def: (join_pairs pairs)
+  (All [a] (-> (List [a a]) (List a)))
+  (case pairs
+    #.Nil                   #.Nil
+    (#.Cons [[x y] pairs']) (list& x y (join_pairs pairs'))))
+
+(type: #export Parser
+  {#.doc "A Lux syntax parser."}
+  (//.Parser (List Code)))
+
+(def: (remaining_inputs asts)
+  (-> (List Code) Text)
+  ($_ text\compose text.new_line "Remaining input: "
+      (|> asts (list\map code.format) (list.interpose " ") (text.join_with ""))))
+
+(def: #export any
+  {#.doc "Just returns the next input without applying any logic."}
+  (Parser Code)
+  (function (_ tokens)
+    (case tokens
+      #.Nil
+      (#try.Failure "There are no tokens to parse!")
+      
+      (#.Cons [t tokens'])
+      (#try.Success [tokens' t]))))
+
+(template [<query> <check> <type> <tag> <eq> <desc>]
+  [(with_expansions [<failure> (as_is (#try.Failure ($_ text\compose "Cannot parse " <desc> (remaining_inputs tokens))))]
+     (def: #export <query>
+       {#.doc (code.text ($_ text\compose "Parses the next " <desc> " input."))}
+       (Parser <type>)
+       (function (_ tokens)
+         (case tokens
+           (#.Cons [[_ (<tag> x)] tokens'])
+           (#try.Success [tokens' x])
+
+           _
+           <failure>)))
+
+     (def: #export (<check> expected)
+       (-> <type> (Parser Any))
+       (function (_ tokens)
+         (case tokens
+           (#.Cons [[_ (<tag> actual)] tokens'])
+           (if (\ <eq> = expected actual)
+             (#try.Success [tokens' []])
+             <failure>)
+
+           _
+           <failure>))))]
+
+  [bit        bit!        Bit  #.Bit        bit.equivalence  "bit"]
+  [nat        nat!        Nat  #.Nat        nat.equivalence  "nat"]
+  [int        int!        Int  #.Int        int.equivalence  "int"]
+  [rev        rev!        Rev  #.Rev        rev.equivalence  "rev"]
+  [frac       frac!       Frac #.Frac       frac.equivalence "frac"]
+  [text       text!       Text #.Text       text.equivalence "text"]
+  [identifier identifier! Name #.Identifier name.equivalence "identifier"]
+  [tag        tag!        Name #.Tag        name.equivalence "tag"]
+  )
+
+(def: #export (this! ast)
+  {#.doc "Ensures the given Code is the next input."}
+  (-> Code (Parser Any))
+  (function (_ tokens)
+    (case tokens
+      (#.Cons [token tokens'])
+      (if (code\= ast token)
+        (#try.Success [tokens' []])
+        (#try.Failure ($_ text\compose "Expected a " (code.format ast) " but instead got " (code.format token)
+                          (remaining_inputs tokens))))
+
+      _
+      (#try.Failure "There are no tokens to parse!"))))
+
+(template [<query> <check> <tag> <eq> <desc>]
+  [(with_expansions [<failure> (as_is (#try.Failure ($_ text\compose "Cannot parse " <desc> (remaining_inputs tokens))))]
+     (def: #export <query>
+       {#.doc (code.text ($_ text\compose "Parse a local " <desc> " (a " <desc> " that has no module prefix)."))}
+       (Parser Text)
+       (function (_ tokens)
+         (case tokens
+           (#.Cons [[_ (<tag> ["" x])] tokens'])
+           (#try.Success [tokens' x])
+
+           _
+           <failure>)))
+
+     (def: #export (<check> expected)
+       (-> Text (Parser Any))
+       (function (_ tokens)
+         (case tokens
+           (#.Cons [[_ (<tag> ["" actual])] tokens'])
+           (if (\ <eq> = expected actual)
+             (#try.Success [tokens' []])
+             <failure>)
+
+           _
+           <failure>))))]
+
+  [local_identifier local_identifier! #.Identifier text.equivalence "local identifier"]
+  [       local_tag        local_tag! #.Tag        text.equivalence "local tag"]
+  )
+
+(template [<name> <tag> <desc>]
+  [(def: #export (<name> p)
+     {#.doc (code.text ($_ text\compose "Parse inside the contents of a " <desc> " as if they were the input Codes."))}
+     (All [a]
+       (-> (Parser a) (Parser a)))
+     (function (_ tokens)
+       (case tokens
+         (#.Cons [[_ (<tag> members)] tokens'])
+         (case (p members)
+           (#try.Success [#.Nil x]) (#try.Success [tokens' x])
+           _                          (#try.Failure ($_ text\compose "Parser was expected to fully consume " <desc> (remaining_inputs tokens))))
+
+         _
+         (#try.Failure ($_ text\compose "Cannot parse " <desc> (remaining_inputs tokens))))))]
+
+  [ form  #.Form "form"]
+  [tuple #.Tuple "tuple"]
+  )
+
+(def: #export (record p)
+  {#.doc (code.text ($_ text\compose "Parse inside the contents of a record as if they were the input Codes."))}
+  (All [a]
+    (-> (Parser a) (Parser a)))
+  (function (_ tokens)
+    (case tokens
+      (#.Cons [[_ (#.Record pairs)] tokens'])
+      (case (p (join_pairs pairs))
+        (#try.Success [#.Nil x]) (#try.Success [tokens' x])
+        _                          (#try.Failure ($_ text\compose "Parser was expected to fully consume record" (remaining_inputs tokens))))
+
+      _
+      (#try.Failure ($_ text\compose "Cannot parse record" (remaining_inputs tokens))))))
+
+(def: #export end!
+  {#.doc "Ensures there are no more inputs."}
+  (Parser Any)
+  (function (_ tokens)
+    (case tokens
+      #.Nil (#try.Success [tokens []])
+      _     (#try.Failure ($_ text\compose "Expected list of tokens to be empty!" (remaining_inputs tokens))))))
+
+(def: #export end?
+  {#.doc "Checks whether there are no more inputs."}
+  (Parser Bit)
+  (function (_ tokens)
+    (#try.Success [tokens (case tokens
+                            #.Nil true
+                            _     false)])))
+
+(def: #export (run syntax inputs)
+  (All [a] (-> (Parser a) (List Code) (Try a)))
+  (case (syntax inputs)
+    (#try.Failure error)
+    (#try.Failure error)
+
+    (#try.Success [unconsumed value])
+    (case unconsumed
+      #.Nil
+      (#try.Success value)
+
+      _
+      (#try.Failure (text\compose "Unconsumed inputs: "
+                                  (|> (list\map code.format unconsumed)
+                                      (text.join_with ", ")))))))
+
+(def: #export (local inputs syntax)
+  {#.doc "Run a syntax parser with the given list of inputs, instead of the real ones."}
+  (All [a] (-> (List Code) (Parser a) (Parser a)))
+  (function (_ real)
+    (do try.monad
+      [value (..run syntax inputs)]
+      (wrap [real value]))))

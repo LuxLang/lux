@@ -1,0 +1,714 @@
+(.module:
+  [library
+   [lux #*
+    [abstract
+     [monad (#+ do)]
+     [monoid (#+ Monoid)]]
+    [control
+     ["." function]
+     ["." try]]
+    [data
+     ["." product]
+     ["." binary]
+     ["." format #_
+      ["#" binary (#+ Mutation Specification)]]
+     [collection
+      ["." list]]]
+    [macro
+     ["." template]]
+    [math
+     [number (#+ hex)
+      ["n" nat]]]
+    [type
+     abstract]]]
+  ["." // #_
+   ["#." address (#+ Address)]
+   ["#." jump (#+ Jump Big_Jump)]
+   [environment
+    [limit
+     [registry (#+ Register)]]]
+   ["/#" // #_
+    ["#." index (#+ Index)]
+    ["#." constant (#+ Class Reference)]
+    [encoding
+     ["#." unsigned (#+ U1 U2 U4)]
+     ["#." signed (#+ S1 S2 S4)]]
+    [type
+     [category (#+ Value Method)]]]])
+
+(type: #export Size U2)
+
+(type: #export Estimator
+  (-> Address Size))
+
+(def: fixed
+  (-> Size Estimator)
+  function.constant)
+
+(type: #export Instruction
+  (-> Specification Specification))
+
+(def: #export empty
+  Instruction
+  function.identity)
+
+(def: #export run
+  (-> Instruction Specification)
+  (function.apply format.no_op))
+
+(type: Opcode Nat)
+
+(template [<name> <size>]
+  [(def: <name> Size (|> <size> ///unsigned.u2 try.assume))]
+
+  [opcode_size 1]
+  [register_size 1]
+  [byte_size 1]
+  [index_size 2]
+  [big_jump_size 4]
+  [integer_size 4]
+  )
+
+(def: (nullary' opcode)
+  (-> Opcode Mutation)
+  (function (_ [offset binary])
+    [(n.+ (///unsigned.value ..opcode_size)
+          offset)
+     (try.assume
+      (binary.write/8 offset opcode binary))]))
+
+(def: nullary
+  [Estimator (-> Opcode Instruction)]
+  [(..fixed ..opcode_size)
+   (function (_ opcode [size mutation])
+     [(n.+ (///unsigned.value ..opcode_size)
+           size)
+      (|>> mutation ((nullary' opcode)))])])
+
+(template [<name> <size>]
+  [(def: <name>
+     Size
+     (|> ..opcode_size
+         (///unsigned.+/2 <size>) try.assume))]
+
+  [size/1 ..register_size]
+  [size/2 ..index_size]
+  [size/4 ..big_jump_size]
+  )
+
+(template [<shift> <name> <inputT> <writer> <unwrap>]
+  [(with_expansions [<private> (template.identifier ["'" <name>])]
+     (def: (<private> opcode input0)
+       (-> Opcode <inputT> Mutation)
+       (function (_ [offset binary])
+         [(n.+ (///unsigned.value <shift>) offset)
+          (try.assume
+           (do try.monad
+             [_ (binary.write/8 offset opcode binary)]
+             (<writer> (n.+ (///unsigned.value ..opcode_size) offset)
+                       (<unwrap> input0)
+                       binary)))]))
+
+     (def: <name>
+       [Estimator (-> Opcode <inputT> Instruction)]
+       [(..fixed <shift>)
+        (function (_ opcode input0 [size mutation])
+          [(n.+ (///unsigned.value <shift>) size)
+           (|>> mutation ((<private> opcode input0)))])]))]
+
+  [..size/1 unary/1 U1 binary.write/8 ///unsigned.value]
+  [..size/2 unary/2 U2 binary.write/16 ///unsigned.value]
+  [..size/2 jump/2 Jump binary.write/16 ///signed.value]
+  [..size/4 jump/4 Big_Jump binary.write/32 ///signed.value]
+  )
+
+(template [<shift> <name> <inputT> <writer>]
+  [(with_expansions [<private> (template.identifier ["'" <name>])]
+     (def: (<private> opcode input0)
+       (-> Opcode <inputT> Mutation)
+       (function (_ [offset binary])
+         [(n.+ (///unsigned.value <shift>) offset)
+          (try.assume
+           (do try.monad
+             [_ (binary.write/8 offset opcode binary)]
+             (<writer> (n.+ (///unsigned.value ..opcode_size) offset)
+                       (///signed.value input0)
+                       binary)))]))
+
+     (def: <name>
+       [Estimator (-> Opcode <inputT> Instruction)]
+       [(..fixed <shift>)
+        (function (_ opcode input0 [size mutation])
+          [(n.+ (///unsigned.value <shift>) size)
+           (|>> mutation ((<private> opcode input0)))])]))]
+
+  [..size/1 unary/1' S1 binary.write/8]
+  [..size/2 unary/2' S2 binary.write/16]
+  )
+
+(def: size/11
+  Size
+  (|> ..opcode_size
+      (///unsigned.+/2 ..register_size) try.assume
+      (///unsigned.+/2 ..byte_size) try.assume))
+
+(def: (binary/11' opcode input0 input1)
+  (-> Opcode U1 U1 Mutation)
+  (function (_ [offset binary])
+    [(n.+ (///unsigned.value ..size/11) offset)
+     (try.assume
+      (do try.monad
+        [_ (binary.write/8 offset opcode binary)
+         _ (binary.write/8 (n.+ (///unsigned.value ..opcode_size) offset)
+                           (///unsigned.value input0)
+                           binary)]
+        (binary.write/8 (n.+ (///unsigned.value ..size/1) offset)
+                        (///unsigned.value input1)
+                        binary)))]))
+
+(def: binary/11
+  [Estimator (-> Opcode U1 U1 Instruction)]
+  [(..fixed ..size/11)
+   (function (_ opcode input0 input1 [size mutation])
+     [(n.+ (///unsigned.value ..size/11) size)
+      (|>> mutation ((binary/11' opcode input0 input1)))])])
+
+(def: size/21
+  Size
+  (|> ..opcode_size
+      (///unsigned.+/2 ..index_size) try.assume
+      (///unsigned.+/2 ..byte_size) try.assume))
+
+(def: (binary/21' opcode input0 input1)
+  (-> Opcode U2 U1 Mutation)
+  (function (_ [offset binary])
+    [(n.+ (///unsigned.value ..size/21) offset)
+     (try.assume
+      (do try.monad
+        [_ (binary.write/8 offset opcode binary)
+         _ (binary.write/16 (n.+ (///unsigned.value ..opcode_size) offset)
+                            (///unsigned.value input0)
+                            binary)]
+        (binary.write/8 (n.+ (///unsigned.value ..size/2) offset)
+                        (///unsigned.value input1)
+                        binary)))]))
+
+(def: binary/21
+  [Estimator (-> Opcode U2 U1 Instruction)]
+  [(..fixed ..size/21)
+   (function (_ opcode input0 input1 [size mutation])
+     [(n.+ (///unsigned.value ..size/21) size)
+      (|>> mutation ((binary/21' opcode input0 input1)))])])
+
+(def: size/211
+  Size
+  (|> ..opcode_size
+      (///unsigned.+/2 ..index_size) try.assume
+      (///unsigned.+/2 ..byte_size) try.assume
+      (///unsigned.+/2 ..byte_size) try.assume))
+
+(def: (trinary/211' opcode input0 input1 input2)
+  (-> Opcode U2 U1 U1 Mutation)
+  (function (_ [offset binary])
+    [(n.+ (///unsigned.value ..size/211) offset)
+     (try.assume
+      (do try.monad
+        [_ (binary.write/8 offset opcode binary)
+         _ (binary.write/16 (n.+ (///unsigned.value ..opcode_size) offset)
+                            (///unsigned.value input0)
+                            binary)
+         _ (binary.write/8 (n.+ (///unsigned.value ..size/2) offset)
+                           (///unsigned.value input1)
+                           binary)]
+        (binary.write/8 (n.+ (///unsigned.value ..size/21) offset)
+                        (///unsigned.value input2)
+                        binary)))]))
+
+(def: trinary/211
+  [Estimator (-> Opcode U2 U1 U1 Instruction)]
+  [(..fixed ..size/211)
+   (function (_ opcode input0 input1 input2 [size mutation])
+     [(n.+ (///unsigned.value ..size/211) size)
+      (|>> mutation ((trinary/211' opcode input0 input1 input2)))])])
+
+(abstract: #export Primitive_Array_Type
+  U1
+
+  (def: code
+    (-> Primitive_Array_Type U1)
+    (|>> :representation))
+
+  (template [<code> <name>]
+    [(def: #export <name> (|> <code> ///unsigned.u1 try.assume :abstraction))]
+    
+    [04 t_boolean]
+    [05 t_char]
+    [06 t_float]
+    [07 t_double]
+    [08 t_byte]
+    [09 t_short]
+    [10 t_int]
+    [11 t_long]
+    ))
+
+## https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-6.html#jvms-6.5
+(with_expansions [<constants> (template [<code> <name>]
+                                [[<code> <name> [] []]]
+
+                                ["01" aconst_null]
+
+                                ["02" iconst_m1]
+                                ["03" iconst_0]
+                                ["04" iconst_1]
+                                ["05" iconst_2]
+                                ["06" iconst_3]
+                                ["07" iconst_4]
+                                ["08" iconst_5]
+
+                                ["09" lconst_0]
+                                ["0A" lconst_1]
+
+                                ["0B" fconst_0]
+                                ["0C" fconst_1]
+                                ["0D" fconst_2]
+                                
+                                ["0E" dconst_0]
+                                ["0F" dconst_1])
+                  <register_loads> (template [<code> <name>]
+                                     [[<code> <name> [[register Register]] [register]]]
+
+                                     ["15" iload]
+                                     ["16" lload]
+                                     ["17" fload]
+                                     ["18" dload]
+                                     ["19" aload])
+                  <simple_register_loads> (template [<code> <name>]
+                                            [[<code> <name> [] []]]
+
+                                            ["1A" iload_0]
+                                            ["1B" iload_1]
+                                            ["1C" iload_2]
+                                            ["1D" iload_3]
+
+                                            ["1E" lload_0]
+                                            ["1F" lload_1]
+                                            ["20" lload_2]
+                                            ["21" lload_3]
+                                            
+                                            ["22" fload_0]
+                                            ["23" fload_1]
+                                            ["24" fload_2]
+                                            ["25" fload_3]
+                                            
+                                            ["26" dload_0]
+                                            ["27" dload_1]
+                                            ["28" dload_2]
+                                            ["29" dload_3]
+                                            
+                                            ["2A" aload_0]
+                                            ["2B" aload_1]
+                                            ["2C" aload_2]
+                                            ["2D" aload_3])
+                  <register_stores> (template [<code> <name>]
+                                      [[<code> <name> [[register Register]] [register]]]
+
+                                      ["36" istore]
+                                      ["37" lstore]
+                                      ["38" fstore]
+                                      ["39" dstore]
+                                      ["3A" astore])
+                  <simple_register_stores> (template [<code> <name>]
+                                             [[<code> <name> [] []]]
+
+                                             ["3B" istore_0]
+                                             ["3C" istore_1]
+                                             ["3D" istore_2]
+                                             ["3E" istore_3]
+
+                                             ["3F" lstore_0]
+                                             ["40" lstore_1]
+                                             ["41" lstore_2]
+                                             ["42" lstore_3]
+
+                                             ["43" fstore_0]
+                                             ["44" fstore_1]
+                                             ["45" fstore_2]
+                                             ["46" fstore_3]
+
+                                             ["47" dstore_0]
+                                             ["48" dstore_1]
+                                             ["49" dstore_2]
+                                             ["4A" dstore_3]
+                                             
+                                             ["4B" astore_0]
+                                             ["4C" astore_1]
+                                             ["4D" astore_2]
+                                             ["4E" astore_3])
+                  <array_loads> (template [<code> <name>]
+                                  [[<code> <name> [] []]]
+
+                                  ["2E" iaload]
+                                  ["2F" laload]
+                                  ["30" faload]
+                                  ["31" daload]
+                                  ["32" aaload]
+                                  ["33" baload]
+                                  ["34" caload]
+                                  ["35" saload])
+                  <array_stores> (template [<code> <name>]
+                                   [[<code> <name> [] []]]
+
+                                   ["4f" iastore]
+                                   ["50" lastore]
+                                   ["51" fastore]
+                                   ["52" dastore]
+                                   ["53" aastore]
+                                   ["54" bastore]
+                                   ["55" castore]
+                                   ["56" sastore])
+                  <arithmetic> (template [<code> <name>]
+                                 [[<code> <name> [] []]]
+
+                                 ["60" iadd]
+                                 ["64" isub]
+                                 ["68" imul]
+                                 ["6c" idiv]
+                                 ["70" irem]
+                                 ["74" ineg]
+                                 ["78" ishl]
+                                 ["7a" ishr]
+                                 ["7c" iushr]
+                                 ["7e" iand]
+                                 ["80" ior]
+                                 ["82" ixor]
+
+                                 ["61" ladd]
+                                 ["65" lsub]
+                                 ["69" lmul]
+                                 ["6D" ldiv]
+                                 ["71" lrem]
+                                 ["75" lneg]
+                                 ["7F" land]
+                                 ["81" lor]
+                                 ["83" lxor]
+                                 
+                                 ["62" fadd]
+                                 ["66" fsub]
+                                 ["6A" fmul]
+                                 ["6E" fdiv]
+                                 ["72" frem]
+                                 ["76" fneg]
+                                 
+                                 ["63" dadd]
+                                 ["67" dsub]
+                                 ["6B" dmul]
+                                 ["6F" ddiv]
+                                 ["73" drem]
+                                 ["77" dneg])
+                  <conversions> (template [<code> <name>]
+                                  [[<code> <name> [] []]]
+
+                                  ["88" l2i]
+                                  ["89" l2f]
+                                  ["8A" l2d]
+                                  
+                                  ["8B" f2i]
+                                  ["8C" f2l]
+                                  ["8D" f2d]
+                                  
+                                  ["8E" d2i]
+                                  ["8F" d2l]
+                                  ["90" d2f]
+
+                                  ["85" i2l]
+                                  ["86" i2f]
+                                  ["87" i2d]
+                                  ["91" i2b]
+                                  ["92" i2c]
+                                  ["93" i2s])
+                  <comparisons> (template [<code> <name>]
+                                  [[<code> <name> [] []]]
+
+                                  ["94" lcmp]
+                                  
+                                  ["95" fcmpl]
+                                  ["96" fcmpg]
+
+                                  ["97" dcmpl]
+                                  ["98" dcmpg])
+                  <returns> (template [<code> <name>]
+                              [[<code> <name> [] []]]
+
+                              ["AC" ireturn]
+                              ["AD" lreturn]
+                              ["AE" freturn]
+                              ["AF" dreturn]
+                              ["B0" areturn]
+                              ["B1" return]
+                              )
+                  <jumps> (template [<code> <name>]
+                            [[<code> <name> [[jump Jump]] [jump]]]
+
+                            ["99" ifeq]
+                            ["9A" ifne]
+                            ["9B" iflt]
+                            ["9C" ifge]
+                            ["9D" ifgt]
+                            ["9E" ifle]
+                            
+                            ["9F" if_icmpeq]
+                            ["A0" if_icmpne]
+                            ["A1" if_icmplt]
+                            ["A2" if_icmpge]
+                            ["A3" if_icmpgt]
+                            ["A4" if_icmple]
+                            
+                            ["A5" if_acmpeq]
+                            ["A6" if_acmpne]
+                            
+                            ["A7" goto]
+                            ["A8" jsr]
+
+                            ["C6" ifnull]
+                            ["C7" ifnonnull])
+                  <fields> (template [<code> <name>]
+                             [[<code> <name> [[index (Index (Reference Value))]] [(///index.value index)]]]
+
+                             ["B2" getstatic/1] ["B2" getstatic/2]
+                             ["B3" putstatic/1] ["B3" putstatic/2]
+                             ["B4" getfield/1] ["B4" getfield/2]
+                             ["B5" putfield/1] ["B5" putfield/2])]
+  (template [<arity> <definitions>]
+    [(with_expansions [<definitions>' (template.splice <definitions>)]
+       (template [<code> <name> <instruction_inputs> <arity_inputs>]
+         [(with_expansions [<inputs>' (template.splice <instruction_inputs>)
+                            <input_types> (template [<input_name> <input_type>]
+                                            [<input_type>]
+
+                                            <inputs>')
+                            <input_names> (template [<input_name> <input_type>]
+                                            [<input_name>]
+
+                                            <inputs>')]
+            (def: #export <name>
+              [Estimator (-> [<input_types>] Instruction)]
+              (let [[estimator <arity>'] <arity>]
+                [estimator
+                 (function (_ [<input_names>])
+                   (`` (<arity>' (hex <code>) (~~ (template.splice <arity_inputs>)))))])))]
+
+         <definitions>'
+         ))]
+
+    [..nullary
+     [["00" nop [] []]
+      <constants>
+      ["57" pop [] []]
+      ["58" pop2 [] []]
+      ["59" dup [] []]
+      ["5A" dup_x1 [] []]
+      ["5B" dup_x2 [] []]
+      ["5C" dup2 [] []]
+      ["5D" dup2_x1 [] []]
+      ["5E" dup2_x2 [] []]
+      ["5F" swap [] []]
+      <simple_register_loads>
+      <array_loads>
+      <simple_register_stores>
+      <array_stores>
+      <arithmetic>
+      ["79" lshl [] []]
+      ["7B" lshr [] []]
+      ["7D" lushr [] []]
+      <conversions>
+      <comparisons>
+      <returns>
+      ["BE" arraylength [] []]
+      ["BF" athrow [] []]
+      ["C2" monitorenter [] []]
+      ["C3" monitorexit [] []]]]
+
+    [..unary/1
+     [["12" ldc [[index U1]] [index]]
+      <register_loads>
+      <register_stores>
+      ["A9" ret [[register Register]] [register]]
+      ["BC" newarray [[type Primitive_Array_Type]] [(..code type)]]]]
+
+    [..unary/1'
+     [["10" bipush  [[byte S1]] [byte]]]]
+
+    [..unary/2
+     [["13" ldc_w/integer [[index (Index ///constant.Integer)]] [(///index.value index)]]
+      ["13" ldc_w/float [[index (Index ///constant.Float)]] [(///index.value index)]]
+      ["13" ldc_w/string [[index (Index ///constant.String)]] [(///index.value index)]]
+      ["14" ldc2_w/long [[index (Index ///constant.Long)]] [(///index.value index)]]
+      ["14" ldc2_w/double [[index (Index ///constant.Double)]] [(///index.value index)]]
+      <fields>
+      ["BB" new [[index (Index Class)]] [(///index.value index)]]
+      ["BD" anewarray [[index (Index Class)]] [(///index.value index)]]
+      ["C0" checkcast [[index (Index Class)]] [(///index.value index)]]
+      ["C1" instanceof [[index (Index Class)]] [(///index.value index)]]
+      ["B6" invokevirtual [[index (Index (Reference Method))] [count U1] [output_count U1]] [(///index.value index)]]
+      ["B7" invokespecial [[index (Index (Reference Method))] [count U1] [output_count U1]] [(///index.value index)]]
+      ["B8" invokestatic [[index (Index (Reference Method))] [count U1] [output_count U1]] [(///index.value index)]]]]
+
+    [..unary/2'
+     [["11" sipush  [[short S2]] [short]]]]
+
+    [..jump/2
+     [<jumps>]]
+
+    [..jump/4
+     [["C8" goto_w [[jump Big_Jump]] [jump]]
+      ["C9" jsr_w [[jump Big_Jump]] [jump]]]]
+
+    [..binary/11
+     [["84" iinc [[register Register] [byte U1]] [register byte]]]]
+
+    [..binary/21
+     [["C5" multianewarray [[index (Index Class)] [count U1]] [(///index.value index) count]]]]
+
+    [..trinary/211
+     [["B9" invokeinterface [[index (Index (Reference Method))] [count U1] [output_count U1]] [(///index.value index) count (try.assume (///unsigned.u1 0))]]]]
+    ))
+
+(def: (switch_padding offset)
+  (-> Nat Nat)
+  (let [parameter_start (n.+ (///unsigned.value ..opcode_size)
+                             offset)]
+    (n.% 4
+         (n.- (n.% 4 parameter_start)
+              4))))
+
+(def: #export tableswitch
+  [(-> Nat Estimator)
+   (-> S4 Big_Jump [Big_Jump (List Big_Jump)] Instruction)]
+  (let [estimator (: (-> Nat Estimator)
+                     (function (_ amount_of_afterwards offset)
+                       (|> ($_ n.+
+                               (///unsigned.value ..opcode_size)
+                               (switch_padding (///unsigned.value (//address.value offset)))
+                               (///unsigned.value ..big_jump_size)
+                               (///unsigned.value ..integer_size)
+                               (///unsigned.value ..integer_size)
+                               (n.* (///unsigned.value ..big_jump_size)
+                                    (inc amount_of_afterwards)))
+                           ///unsigned.u2
+                           try.assume)))]
+    [estimator
+     (function (_ minimum default [at_minimum afterwards])
+       (let [amount_of_afterwards (list.size afterwards)
+             estimator (estimator amount_of_afterwards)]
+         (function (_ [size mutation])
+           (let [padding (switch_padding size)
+                 tableswitch_size (try.assume
+                                   (do {! try.monad}
+                                     [size (///unsigned.u2 size)]
+                                     (\ ! map (|>> estimator ///unsigned.value)
+                                        (//address.move size //address.start))))
+                 tableswitch_mutation (: Mutation
+                                         (function (_ [offset binary])
+                                           [(n.+ tableswitch_size offset)
+                                            (try.assume
+                                             (do {! try.monad}
+                                               [amount_of_afterwards (|> amount_of_afterwards .int ///signed.s4)
+                                                maximum (///signed.+/4 minimum amount_of_afterwards)
+                                                _ (binary.write/8 offset (hex "AA") binary)
+                                                #let [offset (n.+ (///unsigned.value ..opcode_size) offset)]
+                                                _ (case padding
+                                                    3 (do !
+                                                        [_ (binary.write/8 offset 0 binary)]
+                                                        (binary.write/16 (inc offset) 0 binary))
+                                                    2 (binary.write/16 offset 0 binary)
+                                                    1 (binary.write/8 offset 0 binary)
+                                                    _ (wrap binary))
+                                                #let [offset (n.+ padding offset)]
+                                                _ (binary.write/32 offset (///signed.value default) binary)
+                                                #let [offset (n.+ (///unsigned.value ..big_jump_size) offset)]
+                                                _ (binary.write/32 offset (///signed.value minimum) binary)
+                                                #let [offset (n.+ (///unsigned.value ..integer_size) offset)]
+                                                _ (binary.write/32 offset (///signed.value maximum) binary)]
+                                               (loop [offset (n.+ (///unsigned.value ..integer_size) offset)
+                                                      afterwards (: (List Big_Jump)
+                                                                    (#.Cons at_minimum afterwards))]
+                                                 (case afterwards
+                                                   #.Nil
+                                                   (wrap binary)
+                                                   
+                                                   (#.Cons head tail)
+                                                   (do !
+                                                     [_ (binary.write/32 offset (///signed.value head) binary)]
+                                                     (recur (n.+ (///unsigned.value ..big_jump_size) offset)
+                                                            tail))))))]))]
+             [(n.+ tableswitch_size
+                   size)
+              (|>> mutation tableswitch_mutation)]))))]))
+
+(def: #export lookupswitch
+  [(-> Nat Estimator)
+   (-> Big_Jump (List [S4 Big_Jump]) Instruction)]
+  (let [case_size (n.+ (///unsigned.value ..integer_size)
+                       (///unsigned.value ..big_jump_size))
+        estimator (: (-> Nat Estimator)
+                     (function (_ amount_of_cases offset)
+                       (|> ($_ n.+
+                               (///unsigned.value ..opcode_size)
+                               (switch_padding (///unsigned.value (//address.value offset)))
+                               (///unsigned.value ..big_jump_size)
+                               (///unsigned.value ..integer_size)
+                               (n.* amount_of_cases case_size))
+                           ///unsigned.u2
+                           try.assume)))]
+    [estimator
+     (function (_ default cases)
+       (let [amount_of_cases (list.size cases)
+             estimator (estimator amount_of_cases)]
+         (function (_ [size mutation])
+           (let [padding (switch_padding size)
+                 lookupswitch_size (try.assume
+                                    (do {! try.monad}
+                                      [size (///unsigned.u2 size)]
+                                      (\ ! map (|>> estimator ///unsigned.value)
+                                         (//address.move size //address.start))))
+                 lookupswitch_mutation (: Mutation
+                                          (function (_ [offset binary])
+                                            [(n.+ lookupswitch_size offset)
+                                             (try.assume
+                                              (do {! try.monad}
+                                                [_ (binary.write/8 offset (hex "AB") binary)
+                                                 #let [offset (n.+ (///unsigned.value ..opcode_size) offset)]
+                                                 _ (case padding
+                                                     3 (do !
+                                                         [_ (binary.write/8 offset 0 binary)]
+                                                         (binary.write/16 (inc offset) 0 binary))
+                                                     2 (binary.write/16 offset 0 binary)
+                                                     1 (binary.write/8 offset 0 binary)
+                                                     _ (wrap binary))
+                                                 #let [offset (n.+ padding offset)]
+                                                 _ (binary.write/32 offset (///signed.value default) binary)
+                                                 #let [offset (n.+ (///unsigned.value ..big_jump_size) offset)]
+                                                 _ (binary.write/32 offset amount_of_cases binary)]
+                                                (loop [offset (n.+ (///unsigned.value ..integer_size) offset)
+                                                       cases cases]
+                                                  (case cases
+                                                    #.Nil
+                                                    (wrap binary)
+                                                    
+                                                    (#.Cons [value jump] tail)
+                                                    (do !
+                                                      [_ (binary.write/32 offset (///signed.value value) binary)
+                                                       _ (binary.write/32 (n.+ (///unsigned.value ..integer_size) offset) (///signed.value jump) binary)]
+                                                      (recur (n.+ case_size offset)
+                                                             tail))))))]))]
+             [(n.+ lookupswitch_size
+                   size)
+              (|>> mutation lookupswitch_mutation)]))))]))
+
+(implementation: #export monoid
+  (Monoid Instruction)
+
+  (def: identity ..empty)
+
+  (def: (compose left right)
+    (|>> left right)))

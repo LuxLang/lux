@@ -1,0 +1,451 @@
+(.module:
+  [library
+   [lux #*
+    ["." meta]
+    [abstract
+     ["." monad (#+ do)]]
+    [control
+     [io (#+ IO)]
+     ["." try]
+     ["." exception (#+ exception:)]
+     ["p" parser
+      ["s" code (#+ Parser)]]]
+    [data
+     ["." product]
+     ["." maybe]
+     ["." text
+      ["%" format (#+ format)]]
+     [collection
+      ["." dictionary]]]
+    [macro
+     ["." code]]
+    [math
+     [number
+      ["n" nat]]]
+    ["." type (#+ :share)
+     ["." check]]]]
+  ["." /// (#+ Extender)
+   ["#." bundle]
+   ["#." analysis]
+   ["/#" // #_
+    [analysis
+     ["." module]
+     [".A" type]]
+    ["/#" // #_
+     ["#." analysis
+      [macro (#+ Expander)]
+      ["#/." evaluation]]
+     ["#." synthesis (#+ Synthesis)]
+     ["#." generation (#+ Context)]
+     ["#." directive (#+ Import Requirements Phase Operation Handler Bundle)]
+     ["#." program (#+ Program)]
+     [///
+      ["." phase]
+      [meta
+       ["." archive (#+ Archive)]]]]]])
+
+(def: #export (custom [syntax handler])
+  (All [anchor expression directive s]
+    (-> [(Parser s)
+         (-> Text
+             (Phase anchor expression directive)
+             Archive
+             s
+             (Operation anchor expression directive Requirements))]
+        (Handler anchor expression directive)))
+  (function (_ extension_name phase archive inputs)
+    (case (s.run syntax inputs)
+      (#try.Success inputs)
+      (handler extension_name phase archive inputs)
+
+      (#try.Failure error)
+      (phase.throw ///.invalid_syntax [extension_name %.code inputs]))))
+
+(def: (context [module_id artifact_id])
+  (-> Context Context)
+  ## TODO: Find a better way that doesn't rely on clever tricks.
+  [module_id (n.- (inc artifact_id) 0)])
+
+## TODO: Inline "evaluate!'" into "evaluate!" ASAP
+(def: (evaluate!' archive generate code//type codeS)
+  (All [anchor expression directive]
+    (-> Archive
+        (/////generation.Phase anchor expression directive)
+        Type
+        Synthesis
+        (Operation anchor expression directive [Type expression Any])))
+  (/////directive.lift_generation
+   (do phase.monad
+     [module /////generation.module
+      id /////generation.next
+      codeG (generate archive codeS)
+      module_id (/////generation.module_id module archive)
+      codeV (/////generation.evaluate! (..context [module_id id]) codeG)]
+     (wrap [code//type codeG codeV]))))
+
+(def: #export (evaluate! archive type codeC)
+  (All [anchor expression directive]
+    (-> Archive Type Code (Operation anchor expression directive [Type expression Any])))
+  (do phase.monad
+    [state (///.lift phase.get_state)
+     #let [analyse (get@ [#/////directive.analysis #/////directive.phase] state)
+           synthesize (get@ [#/////directive.synthesis #/////directive.phase] state)
+           generate (get@ [#/////directive.generation #/////directive.phase] state)]
+     [_ codeA] (/////directive.lift_analysis
+                (/////analysis.with_scope
+                  (typeA.with_fresh_env
+                    (typeA.with_type type
+                      (analyse archive codeC)))))
+     codeS (/////directive.lift_synthesis
+            (synthesize archive codeA))]
+    (evaluate!' archive generate type codeS)))
+
+## TODO: Inline "definition'" into "definition" ASAP
+(def: (definition' archive generate [module name] code//type codeS)
+  (All [anchor expression directive]
+    (-> Archive
+        (/////generation.Phase anchor expression directive)
+        Name
+        Type
+        Synthesis
+        (Operation anchor expression directive [Type expression Any])))
+  (/////directive.lift_generation
+   (do phase.monad
+     [codeG (generate archive codeS)
+      id (/////generation.learn name)
+      module_id (phase.lift (archive.id module archive))
+      [target_name value directive] (/////generation.define! [module_id id] codeG)
+      _ (/////generation.save! id directive)]
+     (wrap [code//type codeG value]))))
+
+(def: (definition archive name expected codeC)
+  (All [anchor expression directive]
+    (-> Archive Name (Maybe Type) Code
+        (Operation anchor expression directive [Type expression Any])))
+  (do {! phase.monad}
+    [state (///.lift phase.get_state)
+     #let [analyse (get@ [#/////directive.analysis #/////directive.phase] state)
+           synthesize (get@ [#/////directive.synthesis #/////directive.phase] state)
+           generate (get@ [#/////directive.generation #/////directive.phase] state)]
+     [_ code//type codeA] (/////directive.lift_analysis
+                           (/////analysis.with_scope
+                             (typeA.with_fresh_env
+                               (case expected
+                                 #.None
+                                 (do !
+                                   [[code//type codeA] (typeA.with_inference
+                                                         (analyse archive codeC))
+                                    code//type (typeA.with_env
+                                                 (check.clean code//type))]
+                                   (wrap [code//type codeA]))
+
+                                 (#.Some expected)
+                                 (do !
+                                   [codeA (typeA.with_type expected
+                                            (analyse archive codeC))]
+                                   (wrap [expected codeA]))))))
+     codeS (/////directive.lift_synthesis
+            (synthesize archive codeA))]
+    (definition' archive generate name code//type codeS)))
+
+(template [<full> <partial> <learn>]
+  [## TODO: Inline "<partial>" into "<full>" ASAP
+   (def: (<partial> archive generate extension codeT codeS)
+     (All [anchor expression directive]
+       (-> Archive
+           (/////generation.Phase anchor expression directive)
+           Text
+           Type
+           Synthesis
+           (Operation anchor expression directive [expression Any])))
+     (do phase.monad
+       [current_module (/////directive.lift_analysis
+                        (///.lift meta.current_module_name))]
+       (/////directive.lift_generation
+        (do phase.monad
+          [codeG (generate archive codeS)
+           module_id (phase.lift (archive.id current_module archive))
+           id (<learn> extension)
+           [target_name value directive] (/////generation.define! [module_id id] codeG)
+           _ (/////generation.save! id directive)]
+          (wrap [codeG value])))))
+
+   (def: #export (<full> archive extension codeT codeC)
+     (All [anchor expression directive]
+       (-> Archive Text Type Code
+           (Operation anchor expression directive [expression Any])))
+     (do phase.monad
+       [state (///.lift phase.get_state)
+        #let [analyse (get@ [#/////directive.analysis #/////directive.phase] state)
+              synthesize (get@ [#/////directive.synthesis #/////directive.phase] state)
+              generate (get@ [#/////directive.generation #/////directive.phase] state)]
+        [_ codeA] (/////directive.lift_analysis
+                   (/////analysis.with_scope
+                     (typeA.with_fresh_env
+                       (typeA.with_type codeT
+                         (analyse archive codeC)))))
+        codeS (/////directive.lift_synthesis
+               (synthesize archive codeA))]
+       (<partial> archive generate extension codeT codeS)))]
+
+  [analyser analyser' /////generation.learn_analyser]
+  [synthesizer synthesizer' /////generation.learn_synthesizer]
+  [generator generator' /////generation.learn_generator]
+  [directive directive' /////generation.learn_directive]
+  )
+
+(def: (refresh expander host_analysis)
+  (All [anchor expression directive]
+    (-> Expander /////analysis.Bundle (Operation anchor expression directive Any)))
+  (do phase.monad
+    [[bundle state] phase.get_state
+     #let [eval (/////analysis/evaluation.evaluator expander
+                                                    (get@ [#/////directive.synthesis #/////directive.state] state)
+                                                    (get@ [#/////directive.generation #/////directive.state] state)
+                                                    (get@ [#/////directive.generation #/////directive.phase] state))]]
+    (phase.set_state [bundle
+                      (update@ [#/////directive.analysis #/////directive.state]
+                               (: (-> /////analysis.State+ /////analysis.State+)
+                                  (|>> product.right
+                                       [(///analysis.bundle eval host_analysis)]))
+                               state)])))
+
+(def: (announce_definition! short type)
+  (All [anchor expression directive]
+    (-> Text Type (Operation anchor expression directive Any)))
+  (/////directive.lift_generation
+   (/////generation.log! (format short " : " (%.type type)))))
+
+(def: (lux::def expander host_analysis)
+  (-> Expander /////analysis.Bundle Handler)
+  (function (_ extension_name phase archive inputsC+)
+    (case inputsC+
+      (^ (list [_ (#.Identifier ["" short_name])] valueC annotationsC [_ (#.Bit exported?)]))
+      (do phase.monad
+        [current_module (/////directive.lift_analysis
+                         (///.lift meta.current_module_name))
+         #let [full_name [current_module short_name]]
+         [type valueT value] (..definition archive full_name #.None valueC)
+         [_ annotationsT annotations] (evaluate! archive Code annotationsC)
+         _ (/////directive.lift_analysis
+            (module.define short_name (#.Right [exported? type (:as Code annotations) value])))
+         _ (..refresh expander host_analysis)
+         _ (..announce_definition! short_name type)]
+        (wrap /////directive.no_requirements))
+
+      _
+      (phase.throw ///.invalid_syntax [extension_name %.code inputsC+]))))
+
+(def: (def::type_tagged expander host_analysis)
+  (-> Expander /////analysis.Bundle Handler)
+  (..custom
+   [($_ p.and s.local_identifier s.any s.any (s.tuple (p.some s.text)) s.bit)
+    (function (_ extension_name phase archive [short_name valueC annotationsC tags exported?])
+      (do phase.monad
+        [current_module (/////directive.lift_analysis
+                         (///.lift meta.current_module_name))
+         #let [full_name [current_module short_name]]
+         [_ annotationsT annotations] (evaluate! archive Code annotationsC)
+         #let [annotations (:as Code annotations)]
+         [type valueT value] (..definition archive full_name (#.Some .Type) valueC)
+         _ (/////directive.lift_analysis
+            (do phase.monad
+              [_ (module.define short_name (#.Right [exported? type annotations value]))]
+              (module.declare_tags tags exported? (:as Type value))))
+         _ (..refresh expander host_analysis)
+         _ (..announce_definition! short_name type)]
+        (wrap /////directive.no_requirements)))]))
+
+(def: imports
+  (Parser (List Import))
+  (|> (s.tuple (p.and s.text s.text))
+      p.some
+      s.tuple))
+
+(def: def::module
+  Handler
+  (..custom
+   [($_ p.and s.any ..imports)
+    (function (_ extension_name phase archive [annotationsC imports])
+      (do {! phase.monad}
+        [[_ annotationsT annotationsV] (evaluate! archive Code annotationsC)
+         #let [annotationsV (:as Code annotationsV)]
+         _ (/////directive.lift_analysis
+            (do !
+              [_ (monad.map ! (function (_ [module alias])
+                                (do !
+                                  [_ (module.import module)]
+                                  (case alias
+                                    "" (wrap [])
+                                    _ (module.alias alias module))))
+                            imports)]
+              (module.set_annotations annotationsV)))]
+        (wrap {#/////directive.imports imports
+               #/////directive.referrals (list)})))]))
+
+(exception: #export (cannot_alias_an_alias {local Alias} {foreign Alias} {target Name})
+  (exception.report
+   ["Local alias" (%.name local)]
+   ["Foreign alias" (%.name foreign)]
+   ["Target definition" (%.name target)]))
+
+(def: (define_alias alias original)
+  (-> Text Name (/////analysis.Operation Any))
+  (do phase.monad
+    [current_module (///.lift meta.current_module_name)
+     constant (///.lift (meta.find_def original))]
+    (case constant
+      (#.Left de_aliased)
+      (phase.throw ..cannot_alias_an_alias [[current_module alias] original de_aliased])
+      
+      (#.Right [exported? original_type original_annotations original_value])
+      (module.define alias (#.Left original)))))
+
+(def: def::alias
+  Handler
+  (..custom
+   [($_ p.and s.local_identifier s.identifier)
+    (function (_ extension_name phase archive [alias def_name])
+      (do phase.monad
+        [_ (///.lift
+            (phase.sub [(get@ [#/////directive.analysis #/////directive.state])
+                        (set@ [#/////directive.analysis #/////directive.state])]
+                       (define_alias alias def_name)))]
+        (wrap /////directive.no_requirements)))]))
+
+(template [<description> <mame> <def_type> <type> <scope> <definer>]
+  [(def: (<mame> [anchorT expressionT directiveT] extender)
+     (All [anchor expression directive]
+       (-> [Type Type Type] Extender
+           (Handler anchor expression directive)))
+     (function (handler extension_name phase archive inputsC+)
+       (case inputsC+
+         (^ (list nameC valueC))
+         (do phase.monad
+           [[_ _ name] (evaluate! archive Text nameC)
+            [_ handlerV] (<definer> archive (:as Text name)
+                                    (type <def_type>)
+                                    valueC)
+            _ (<| <scope>
+                  (///.install extender (:as Text name))
+                  (:share [anchor expression directive]
+                          (Handler anchor expression directive)
+                          handler
+                          
+                          <type>
+                          (:assume handlerV)))
+            _ (/////directive.lift_generation
+               (/////generation.log! (format <description> " " (%.text (:as Text name)))))]
+           (wrap /////directive.no_requirements))
+
+         _
+         (phase.throw ///.invalid_syntax [extension_name %.code inputsC+]))))]
+
+  ["Analysis"
+   def::analysis
+   /////analysis.Handler /////analysis.Handler
+   /////directive.lift_analysis
+   ..analyser]
+  ["Synthesis"
+   def::synthesis
+   /////synthesis.Handler /////synthesis.Handler
+   /////directive.lift_synthesis
+   ..synthesizer]
+  ["Generation"
+   def::generation
+   (/////generation.Handler anchorT expressionT directiveT) (/////generation.Handler anchor expression directive)
+   /////directive.lift_generation
+   ..generator]
+  ["Directive"
+   def::directive
+   (/////directive.Handler anchorT expressionT directiveT) (/////directive.Handler anchor expression directive)
+   (<|)
+   ..directive]
+  )
+
+## TODO; Both "prepare-program" and "define-program" exist only
+## because the old compiler couldn't handle a fully-inlined definition
+## for "def::program". Inline them ASAP.
+(def: (prepare_program archive analyse synthesize programC)
+  (All [anchor expression directive output]
+    (-> Archive
+        /////analysis.Phase
+        /////synthesis.Phase
+        Code
+        (Operation anchor expression directive Synthesis)))
+  (do phase.monad
+    [[_ programA] (/////directive.lift_analysis
+                   (/////analysis.with_scope
+                     (typeA.with_fresh_env
+                       (typeA.with_type (type (-> (List Text) (IO Any)))
+                         (analyse archive programC)))))]
+    (/////directive.lift_synthesis
+     (synthesize archive programA))))
+
+(def: (define_program archive module_id generate program programS)
+  (All [anchor expression directive output]
+    (-> Archive
+        archive.ID
+        (/////generation.Phase anchor expression directive)
+        (Program expression directive)
+        Synthesis
+        (/////generation.Operation anchor expression directive Any)))
+  (do phase.monad
+    [programG (generate archive programS)
+     artifact_id (/////generation.learn /////program.name)]
+    (/////generation.save! artifact_id (program [module_id artifact_id] programG))))
+
+(def: (def::program program)
+  (All [anchor expression directive]
+    (-> (Program expression directive) (Handler anchor expression directive)))
+  (function (handler extension_name phase archive inputsC+)
+    (case inputsC+
+      (^ (list programC))
+      (do phase.monad
+        [state (///.lift phase.get_state)
+         #let [analyse (get@ [#/////directive.analysis #/////directive.phase] state)
+               synthesize (get@ [#/////directive.synthesis #/////directive.phase] state)
+               generate (get@ [#/////directive.generation #/////directive.phase] state)]
+         programS (prepare_program archive analyse synthesize programC)
+         current_module (/////directive.lift_analysis
+                         (///.lift meta.current_module_name))
+         module_id (phase.lift (archive.id current_module archive))
+         _ (/////directive.lift_generation
+            (define_program archive module_id generate program programS))]
+        (wrap /////directive.no_requirements))
+
+      _
+      (phase.throw ///.invalid_syntax [extension_name %.code inputsC+]))))
+
+(def: (bundle::def expander host_analysis program anchorT,expressionT,directiveT extender)
+  (All [anchor expression directive]
+    (-> Expander
+        /////analysis.Bundle
+        (Program expression directive)
+        [Type Type Type]
+        Extender
+        (Bundle anchor expression directive)))
+  (<| (///bundle.prefix "def")
+      (|> ///bundle.empty
+          (dictionary.put "module" def::module)
+          (dictionary.put "alias" def::alias)
+          (dictionary.put "type tagged" (def::type_tagged expander host_analysis))
+          (dictionary.put "analysis" (def::analysis anchorT,expressionT,directiveT extender))
+          (dictionary.put "synthesis" (def::synthesis anchorT,expressionT,directiveT extender))
+          (dictionary.put "generation" (def::generation anchorT,expressionT,directiveT extender))
+          (dictionary.put "directive" (def::directive anchorT,expressionT,directiveT extender))
+          (dictionary.put "program" (def::program program))
+          )))
+
+(def: #export (bundle expander host_analysis program anchorT,expressionT,directiveT extender)
+  (All [anchor expression directive]
+    (-> Expander
+        /////analysis.Bundle
+        (Program expression directive)
+        [Type Type Type]
+        Extender
+        (Bundle anchor expression directive)))
+  (<| (///bundle.prefix "lux")
+      (|> ///bundle.empty
+          (dictionary.put "def" (lux::def expander host_analysis))
+          (dictionary.merge (..bundle::def expander host_analysis program anchorT,expressionT,directiveT extender)))))

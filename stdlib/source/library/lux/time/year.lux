@@ -1,0 +1,142 @@
+(.module:
+  [library
+   [lux #*
+    [abstract
+     [monad (#+ do)]
+     [codec (#+ Codec)]
+     [equivalence (#+ Equivalence)]
+     [order (#+ Order)]]
+    [control
+     ["." try (#+ Try)]
+     ["." exception (#+ exception:)]
+     ["<>" parser
+      ["<t>" text (#+ Parser)]]]
+    [data
+     ["." text ("#\." monoid)]]
+    [math
+     [number
+      ["n" nat ("#\." decimal)]
+      ["i" int ("#\." decimal)]]]
+    [type
+     abstract]]])
+
+(def: (internal year)
+  (-> Int Int)
+  (if (i.< +0 year)
+    (inc year)
+    year))
+
+(def: (external year)
+  (-> Int Int)
+  (if (i.> +0 year)
+    year
+    (dec year)))
+
+(exception: #export there-is-no-year-0)
+
+(abstract: #export Year
+  Int
+
+  (def: #export (year value)
+    (-> Int (Try Year))
+    (case value
+      +0 (exception.throw ..there-is-no-year-0 [])
+      _ (#try.Success (:abstraction (..internal value)))))
+
+  (def: #export value
+    (-> Year Int)
+    (|>> :representation ..external))
+
+  (def: #export epoch
+    Year
+    (:abstraction +1970))
+  )
+
+(def: #export days
+  365)
+
+(type: #export Period
+  Nat)
+
+(template [<period> <name>]
+  [(def: #export <name>
+     Period
+     <period>)]
+
+  [004 leap]
+  [100 century]
+  [400 era]
+  )
+
+(def: (divisible? factor input)
+  (-> Int Int Bit)
+  (|> input (i.% factor) (i.= +0)))
+
+## https://en.wikipedia.org/wiki/Leap_year#Algorithm
+(def: #export (leap? year)
+  (-> Year Bit)
+  (let [year (|> year ..value ..internal)]
+    (and (..divisible? (.int ..leap) year)
+         (or (not (..divisible? (.int ..century) year))
+             (..divisible? (.int ..era) year)))))
+
+(def: (with-year-0-leap year days)
+  (let [after-year-0? (i.> +0 year)]
+    (if after-year-0?
+      (i.+ +1 days)
+      days)))
+
+(def: #export (leaps year)
+  (-> Year Int)
+  (let [year (|> year ..value ..internal)
+        limit (if (i.> +0 year)
+                (dec year)
+                (inc year))]
+    (`` (|> +0
+            (~~ (template [<polarity> <years>]
+                  [(<polarity> (i./ (.int <years>) limit))]
+
+                  [i.+ ..leap]
+                  [i.- ..century]
+                  [i.+ ..era]
+                  ))
+            (..with-year-0-leap year)))))
+
+(def: (encode year)
+  (-> Year Text)
+  (let [year (..value year)]
+    (if (i.< +0 year)
+      (i\encode year)
+      (n\encode (.nat year)))))
+
+(def: #export parser
+  (Parser Year)
+  (do {! <>.monad}
+    [sign (<>.or (<t>.this "-") (wrap []))
+     digits (<t>.many <t>.decimal)
+     raw-year (<>.codec i.decimal (wrap (text\compose "+" digits)))]
+    (<>.lift (..year (case sign
+                       (#.Left _)  (i.* -1 raw-year)
+                       (#.Right _) raw-year)))))
+
+(implementation: #export codec
+  {#.doc (doc "Based on ISO 8601."
+              "For example: 2017")}
+  (Codec Text Year)
+  
+  (def: encode ..encode)
+  (def: decode (<t>.run ..parser)))
+
+(implementation: #export equivalence
+  (Equivalence Year)
+
+  (def: (= reference subject)
+    (i.= (..value reference) (..value subject))))
+
+(implementation: #export order
+  (Order Year)
+
+  (def: &equivalence ..equivalence)
+
+  (def: (< reference subject)
+    (i.< (..value reference) (..value subject))))

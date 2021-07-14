@@ -1,0 +1,144 @@
+(.module:
+  [library
+   [lux #*
+    [abstract
+     [monad (#+ do)]]
+    [control
+     ["." exception (#+ exception:)]]
+    [data
+     [text
+      ["%" format (#+ format)]]]
+    ["." meta
+     ["." location]]]]
+  ["." / #_
+   ["#." type]
+   ["#." primitive]
+   ["#." structure]
+   ["#." reference]
+   ["#." case]
+   ["#." function]
+   ["/#" // #_
+    ["#." extension]
+    ["/#" // #_
+     ["/" analysis (#+ Analysis Operation Phase)
+      ["#." macro (#+ Expander)]]
+     [///
+      ["//" phase]
+      ["." reference]
+      [meta
+       [archive (#+ Archive)]]]]]])
+
+(exception: #export (unrecognized_syntax {code Code})
+  (exception.report ["Code" (%.code code)]))
+
+## TODO: Had to split the 'compile' function due to compilation issues
+## with old-luxc. Must re-combine all the code ASAP
+
+(type: (Fix a)
+  (-> a a))
+
+(def: (compile|primitive else code')
+  (Fix (-> (Code' (Ann Location)) (Operation Analysis)))
+  (case code'
+    (^template [<tag> <analyser>]
+      [(<tag> value)
+       (<analyser> value)])
+    ([#.Bit  /primitive.bit]
+     [#.Nat  /primitive.nat]
+     [#.Int  /primitive.int]
+     [#.Rev  /primitive.rev]
+     [#.Frac /primitive.frac]
+     [#.Text /primitive.text])
+
+    _
+    (else code')))
+
+(def: (compile|structure archive compile else code')
+  (-> Archive Phase (Fix (-> (Code' (Ann Location)) (Operation Analysis))))
+  (case code'
+    (^ (#.Form (list& [_ (#.Tag tag)]
+                      values)))
+    (case values
+      (#.Cons value #.Nil)
+      (/structure.tagged_sum compile tag archive value)
+
+      _
+      (/structure.tagged_sum compile tag archive (` [(~+ values)])))
+
+    (^ (#.Form (list& [_ (#.Nat lefts)] [_ (#.Bit right?)]
+                      values)))
+    (case values
+      (#.Cons value #.Nil)
+      (/structure.sum compile lefts right? archive value)
+
+      _
+      (/structure.sum compile lefts right? archive (` [(~+ values)])))
+
+    (#.Tag tag)
+    (/structure.tagged_sum compile tag archive (' []))
+
+    (^ (#.Tuple (list)))
+    /primitive.unit
+
+    (^ (#.Tuple (list singleton)))
+    (compile archive singleton)
+
+    (^ (#.Tuple elems))
+    (/structure.product archive compile elems)
+
+    (^ (#.Record pairs))
+    (/structure.record archive compile pairs)
+
+    _
+    (else code')))
+
+(def: (compile|others expander archive compile code')
+  (-> Expander Archive Phase (-> (Code' (Ann Location)) (Operation Analysis)))
+  (case code'
+    (#.Identifier reference)
+    (/reference.reference reference)
+
+    (^ (#.Form (list [_ (#.Record branches)] input)))
+    (/case.case compile branches archive input)
+
+    (^ (#.Form (list& [_ (#.Text extension_name)] extension_args)))
+    (//extension.apply archive compile [extension_name extension_args])
+
+    (^ (#.Form (list [_ (#.Tuple (list [_ (#.Identifier ["" function_name])]
+                                       [_ (#.Identifier ["" arg_name])]))]
+                     body)))
+    (/function.function compile function_name arg_name archive body)
+
+    (^ (#.Form (list& functionC argsC+)))
+    (do {! //.monad}
+      [[functionT functionA] (/type.with_inference
+                               (compile archive functionC))]
+      (case functionA
+        (#/.Reference (#reference.Constant def_name))
+        (do !
+          [?macro (//extension.lift (meta.find_macro def_name))]
+          (case ?macro
+            (#.Some macro)
+            (do !
+              [expansion (//extension.lift (/macro.expand_one expander def_name macro argsC+))]
+              (compile archive expansion))
+
+            _
+            (/function.apply compile argsC+ functionT functionA archive functionC)))
+
+        _
+        (/function.apply compile argsC+ functionT functionA archive functionC)))
+
+    _
+    (//.throw ..unrecognized_syntax [location.dummy code'])))
+
+(def: #export (phase expander)
+  (-> Expander Phase)
+  (function (compile archive code)
+    (let [[location code'] code]
+      ## The location must be set in the state for the sake
+      ## of having useful error messages.
+      (/.with_location location
+        (compile|primitive (compile|structure archive compile
+                                              (compile|others expander archive compile))
+                           code')))))

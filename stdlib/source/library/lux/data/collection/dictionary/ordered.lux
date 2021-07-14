@@ -1,0 +1,584 @@
+(.module:
+  [library
+   [lux #*
+    [abstract
+     equivalence
+     [monad (#+ Monad do)]
+     ["." order (#+ Order)]]
+    [data
+     ["p" product]
+     ["." maybe]
+     [collection
+      ["." list ("#\." monoid fold)]]]
+    [macro
+     ["." code]]
+    [math
+     [number
+      ["n" nat]]]]])
+
+(def: error_message
+  "Invariant violation")
+
+(type: Color
+  #Red
+  #Black)
+
+(type: (Node k v)
+  {#color Color
+   #key k
+   #value v
+   #left (Maybe (Node k v))
+   #right (Maybe (Node k v))})
+
+(template [<create> <color>]
+  [(def: (<create> key value left right)
+     (All [k v] (-> k v (Maybe (Node k v)) (Maybe (Node k v)) (Node k v)))
+     {#color <color>
+      #key key
+      #value value
+      #left left
+      #right right})]
+
+  [red   #Red]
+  [black #Black]
+  )
+
+(type: #export (Dictionary k v)
+  {#&order (Order k)
+   #root (Maybe (Node k v))})
+
+(def: #export (new order)
+  (All [k v] (-> (Order k) (Dictionary k v)))
+  {#&order order
+   #root #.None})
+
+## TODO: Doing inneficient access of Order functions due to compiler bug.
+## TODO: Must improve it as soon as bug is fixed.
+(def: #export (get key dict)
+  (All [k v] (-> k (Dictionary k v) (Maybe v)))
+  (let [## (^open "_\.") (get@ #&order dict)
+        ]
+    (loop [node (get@ #root dict)]
+      (case node
+        #.None
+        #.None
+
+        (#.Some node)
+        (let [node_key (get@ #key node)]
+          (cond (\ dict = node_key key)
+                ## (_\= node_key key)
+                (#.Some (get@ #value node))
+
+                (\ dict < node_key key)
+                ## (_\< node_key key)
+                (recur (get@ #left node))
+
+                ## (_\> (get@ #key node) key)
+                (recur (get@ #right node))))
+        ))))
+
+## TODO: Doing inneficient access of Order functions due to compiler bug.
+## TODO: Must improve it as soon as bug is fixed.
+(def: #export (key? dict key)
+  (All [k v] (-> (Dictionary k v) k Bit))
+  (let [## (^open "_\.") (get@ #&order dict)
+        ]
+    (loop [node (get@ #root dict)]
+      (case node
+        #.None
+        #0
+
+        (#.Some node)
+        (let [node_key (get@ #key node)]
+          (or (\ dict = node_key key)
+              ## (_\= node_key key)
+              (if (\ dict < node_key key)
+                ## (_\< node_key key)
+                (recur (get@ #left node))
+                (recur (get@ #right node)))))))))
+
+(template [<name> <side>]
+  [(def: #export (<name> dict)
+     (All [k v] (-> (Dictionary k v) (Maybe v)))
+     (case (get@ #root dict)
+       #.None
+       #.None
+
+       (#.Some node)
+       (loop [node node]
+         (case (get@ <side> node)
+           #.None
+           (#.Some (get@ #value node))
+
+           (#.Some side)
+           (recur side)))))]
+
+  [min #left]
+  [max #right]
+  )
+
+(def: #export (size dict)
+  (All [k v] (-> (Dictionary k v) Nat))
+  (loop [node (get@ #root dict)]
+    (case node
+      #.None
+      0
+
+      (#.Some node)
+      (inc (n.+ (recur (get@ #left node))
+                (recur (get@ #right node)))))))
+
+(def: #export empty?
+  (All [k v] (-> (Dictionary k v) Bit))
+  (|>> ..size (n.= 0)))
+
+(template [<name> <other_color> <self_color> <no_change>]
+  [(def: (<name> self)
+     (All [k v] (-> (Node k v) (Node k v)))
+     (case (get@ #color self)
+       <other_color>
+       (set@ #color <self_color> self)
+
+       <self_color>
+       <no_change>
+       ))]
+
+  [blacken #Red   #Black self]
+  [redden  #Black #Red   (error! error_message)]
+  )
+
+(def: (balance_left_add parent self)
+  (All [k v] (-> (Node k v) (Node k v) (Node k v)))
+  (with_expansions
+    [<default_behavior> (as_is (black (get@ #key parent)
+                                      (get@ #value parent)
+                                      (#.Some self)
+                                      (get@ #right parent)))]
+    (case (get@ #color self)
+      #Red
+      (case (get@ #left self)
+        (^multi (#.Some left)
+                [(get@ #color left) #Red])
+        (red (get@ #key self)
+             (get@ #value self)
+             (#.Some (blacken left))
+             (#.Some (black (get@ #key parent)
+                            (get@ #value parent)
+                            (get@ #right self)
+                            (get@ #right parent))))
+
+        _
+        (case (get@ #right self)
+          (^multi (#.Some right)
+                  [(get@ #color right) #Red])
+          (red (get@ #key right)
+               (get@ #value right)
+               (#.Some (black (get@ #key self)
+                              (get@ #value self)
+                              (get@ #left self)
+                              (get@ #left right)))
+               (#.Some (black (get@ #key parent)
+                              (get@ #value parent)
+                              (get@ #right right)
+                              (get@ #right parent))))
+
+          _
+          <default_behavior>))
+      
+      #Black
+      <default_behavior>
+      )))
+
+(def: (balance_right_add parent self)
+  (All [k v] (-> (Node k v) (Node k v) (Node k v)))
+  (with_expansions
+    [<default_behavior> (as_is (black (get@ #key parent)
+                                      (get@ #value parent)
+                                      (get@ #left parent)
+                                      (#.Some self)))]
+    (case (get@ #color self)
+      #Red
+      (case (get@ #right self)
+        (^multi (#.Some right)
+                [(get@ #color right) #Red])
+        (red (get@ #key self)
+             (get@ #value self)
+             (#.Some (black (get@ #key parent)
+                            (get@ #value parent)
+                            (get@ #left parent)
+                            (get@ #left self)))
+             (#.Some (blacken right)))
+
+        _
+        (case (get@ #left self)
+          (^multi (#.Some left)
+                  [(get@ #color left) #Red])
+          (red (get@ #key left)
+               (get@ #value left)
+               (#.Some (black (get@ #key parent)
+                              (get@ #value parent)
+                              (get@ #left parent)
+                              (get@ #left left)))
+               (#.Some (black (get@ #key self)
+                              (get@ #value self)
+                              (get@ #right left)
+                              (get@ #right self))))
+
+          _
+          <default_behavior>))
+      
+      #Black
+      <default_behavior>
+      )))
+
+(def: (add_left addition center)
+  (All [k v] (-> (Node k v) (Node k v) (Node k v)))
+  (case (get@ #color center)
+    #Red
+    (red (get@ #key center) (get@ #value center) (#.Some addition) (get@ #right center))
+    
+    #Black
+    (balance_left_add center addition)
+    ))
+
+(def: (add_right addition center)
+  (All [k v] (-> (Node k v) (Node k v) (Node k v)))
+  (case (get@ #color center)
+    #Red
+    (red (get@ #key center) (get@ #value center) (get@ #left center) (#.Some addition))
+    
+    #Black
+    (balance_right_add center addition)
+    ))
+
+(def: #export (put key value dict)
+  (All [k v] (-> k v (Dictionary k v) (Dictionary k v)))
+  (let [(^open "_\.") (get@ #&order dict)
+        root' (loop [?root (get@ #root dict)]
+                (case ?root
+                  #.None
+                  (#.Some (red key value #.None #.None))
+
+                  (#.Some root)
+                  (let [reference (get@ #key root)]
+                    (`` (cond (~~ (template [<comp> <tag> <add>]
+                                    [(<comp> reference key)
+                                     (let [side_root (get@ <tag> root)
+                                           outcome (recur side_root)]
+                                       (if (is? side_root outcome)
+                                         ?root
+                                         (#.Some (<add> (maybe.assume outcome)
+                                                        root))))]
+
+                                    [_\<                           #left  add_left]
+                                    [(order.> (get@ #&order dict)) #right add_right]
+                                    ))
+
+                              ## (_\= reference key)
+                              (#.Some (set@ #value value root))
+                              )))
+                  ))]
+    (set@ #root root' dict)))
+
+(def: (left_balance key value ?left ?right)
+  (All [k v] (-> k v (Maybe (Node k v)) (Maybe (Node k v)) (Node k v)))
+  (case ?left
+    (^multi (#.Some left)
+            [(get@ #color left) #Red]
+            [(get@ #left left) (#.Some left>>left)]
+            [(get@ #color left>>left) #Red])
+    (red (get@ #key left)
+         (get@ #value left)
+         (#.Some (blacken left>>left))
+         (#.Some (black key value (get@ #right left) ?right)))
+
+    (^multi (#.Some left)
+            [(get@ #color left) #Red]
+            [(get@ #right left) (#.Some left>>right)]
+            [(get@ #color left>>right) #Red])
+    (red (get@ #key left>>right)
+         (get@ #value left>>right)
+         (#.Some (black (get@ #key left)
+                        (get@ #value left)
+                        (get@ #left left)
+                        (get@ #left left>>right)))
+         (#.Some (black key value
+                        (get@ #right left>>right)
+                        ?right)))
+
+    _
+    (black key value ?left ?right)))
+
+(def: (right_balance key value ?left ?right)
+  (All [k v] (-> k v (Maybe (Node k v)) (Maybe (Node k v)) (Node k v)))
+  (case ?right
+    (^multi (#.Some right)
+            [(get@ #color right) #Red]
+            [(get@ #right right) (#.Some right>>right)]
+            [(get@ #color right>>right) #Red])
+    (red (get@ #key right)
+         (get@ #value right)
+         (#.Some (black key value ?left (get@ #left right)))
+         (#.Some (blacken right>>right)))
+
+    (^multi (#.Some right)
+            [(get@ #color right) #Red]
+            [(get@ #left right) (#.Some right>>left)]
+            [(get@ #color right>>left) #Red])
+    (red (get@ #key right>>left)
+         (get@ #value right>>left)
+         (#.Some (black key value ?left (get@ #left right>>left)))
+         (#.Some (black (get@ #key right)
+                        (get@ #value right)
+                        (get@ #right right>>left)
+                        (get@ #right right))))
+
+    _
+    (black key value ?left ?right)))
+
+(def: (balance_left_remove key value ?left ?right)
+  (All [k v] (-> k v (Maybe (Node k v)) (Maybe (Node k v)) (Node k v)))
+  (case ?left
+    (^multi (#.Some left)
+            [(get@ #color left) #Red])
+    (red key value (#.Some (blacken left)) ?right)
+
+    _
+    (case ?right
+      (^multi (#.Some right)
+              [(get@ #color right) #Black])
+      (right_balance key value ?left (#.Some (redden right)))
+
+      (^multi (#.Some right)
+              [(get@ #color right) #Red]
+              [(get@ #left right) (#.Some right>>left)]
+              [(get@ #color right>>left) #Black])
+      (red (get@ #key right>>left)
+           (get@ #value right>>left)
+           (#.Some (black key value ?left (get@ #left right>>left)))
+           (#.Some (right_balance (get@ #key right)
+                                  (get@ #value right)
+                                  (get@ #right right>>left)
+                                  (\ maybe.functor map redden (get@ #right right)))))
+
+      _
+      (error! error_message))
+    ))
+
+(def: (balance_right_remove key value ?left ?right)
+  (All [k v] (-> k v (Maybe (Node k v)) (Maybe (Node k v)) (Node k v)))
+  (case ?right
+    (^multi (#.Some right)
+            [(get@ #color right) #Red])
+    (red key value ?left (#.Some (blacken right)))
+
+    _
+    (case ?left
+      (^multi (#.Some left)
+              [(get@ #color left) #Black])
+      (left_balance key value (#.Some (redden left)) ?right)
+
+      (^multi (#.Some left)
+              [(get@ #color left) #Red]
+              [(get@ #right left) (#.Some left>>right)]
+              [(get@ #color left>>right) #Black])
+      (red (get@ #key left>>right)
+           (get@ #value left>>right)
+           (#.Some (left_balance (get@ #key left)
+                                 (get@ #value left)
+                                 (\ maybe.functor map redden (get@ #left left))
+                                 (get@ #left left>>right)))
+           (#.Some (black key value (get@ #right left>>right) ?right)))
+
+      _
+      (error! error_message)
+      )))
+
+(def: (prepend ?left ?right)
+  (All [k v] (-> (Maybe (Node k v)) (Maybe (Node k v)) (Maybe (Node k v))))
+  (case [?left ?right]
+    [#.None _]
+    ?right
+
+    [_ #.None]
+    ?left
+
+    [(#.Some left) (#.Some right)]
+    (case [(get@ #color left) (get@ #color right)]
+      [#Red #Red]
+      (do maybe.monad
+        [fused (prepend (get@ #right left) (get@ #right right))]
+        (case (get@ #color fused)
+          #Red
+          (wrap (red (get@ #key fused)
+                     (get@ #value fused)
+                     (#.Some (red (get@ #key left)
+                                  (get@ #value left)
+                                  (get@ #left left)
+                                  (get@ #left fused)))
+                     (#.Some (red (get@ #key right)
+                                  (get@ #value right)
+                                  (get@ #right fused)
+                                  (get@ #right right)))))
+
+          #Black
+          (wrap (red (get@ #key left)
+                     (get@ #value left)
+                     (get@ #left left)
+                     (#.Some (red (get@ #key right)
+                                  (get@ #value right)
+                                  (#.Some fused)
+                                  (get@ #right right)))))))
+
+      [#Red #Black]
+      (#.Some (red (get@ #key left)
+                   (get@ #value left)
+                   (get@ #left left)
+                   (prepend (get@ #right left)
+                            ?right)))
+      
+      [#Black #Red]
+      (#.Some (red (get@ #key right)
+                   (get@ #value right)
+                   (prepend ?left
+                            (get@ #left right))
+                   (get@ #right right)))
+
+      [#Black #Black]
+      (do maybe.monad
+        [fused (prepend (get@ #right left) (get@ #left right))]
+        (case (get@ #color fused)
+          #Red
+          (wrap (red (get@ #key fused)
+                     (get@ #value fused)
+                     (#.Some (black (get@ #key left)
+                                    (get@ #value left)
+                                    (get@ #left left)
+                                    (get@ #left fused)))
+                     (#.Some (black (get@ #key right)
+                                    (get@ #value right)
+                                    (get@ #right fused)
+                                    (get@ #right right)))))
+          
+          #Black
+          (wrap (balance_left_remove (get@ #key left)
+                                     (get@ #value left)
+                                     (get@ #left left)
+                                     (#.Some (black (get@ #key right)
+                                                    (get@ #value right)
+                                                    (#.Some fused)
+                                                    (get@ #right right)))))
+          ))
+      )
+
+    _
+    (undefined)))
+
+(def: #export (remove key dict)
+  (All [k v] (-> k (Dictionary k v) (Dictionary k v)))
+  (let [(^open "_\.") (get@ #&order dict)
+        [?root found?] (loop [?root (get@ #root dict)]
+                         (case ?root
+                           #.None
+                           [#.None #0]
+
+                           (#.Some root)
+                           (let [root_key (get@ #key root)
+                                 root_val (get@ #value root)]
+                             (if (_\= root_key key)
+                               [(prepend (get@ #left root)
+                                         (get@ #right root))
+                                #1]
+                               (let [go_left? (_\< root_key key)]
+                                 (case (recur (if go_left?
+                                                (get@ #left root)
+                                                (get@ #right root)))
+                                   [#.None #0]
+                                   [#.None #0]
+
+                                   [side_outcome _]
+                                   (if go_left?
+                                     (case (get@ #left root)
+                                       (^multi (#.Some left)
+                                               [(get@ #color left) #Black])
+                                       [(#.Some (balance_left_remove root_key root_val side_outcome (get@ #right root)))
+                                        #0]
+
+                                       _
+                                       [(#.Some (red root_key root_val side_outcome (get@ #right root)))
+                                        #0])
+                                     (case (get@ #right root)
+                                       (^multi (#.Some right)
+                                               [(get@ #color right) #Black])
+                                       [(#.Some (balance_right_remove root_key root_val (get@ #left root) side_outcome))
+                                        #0]
+
+                                       _
+                                       [(#.Some (red root_key root_val (get@ #left root) side_outcome))
+                                        #0])
+                                     )))
+                               ))
+                           ))]
+    (case ?root
+      #.None
+      (if found?
+        (set@ #root ?root dict)
+        dict)
+
+      (#.Some root)
+      (set@ #root (#.Some (blacken root)) dict)
+      )))
+
+(def: #export (update key transform dict)
+  (All [k v] (-> k (-> v v) (Dictionary k v) (Dictionary k v)))
+  (case (..get key dict)
+    (#.Some old)
+    (..put key (transform old) dict)
+
+    #.None
+    dict))
+
+(def: #export (from_list Order<l> list)
+  (All [k v] (-> (Order k) (List [k v]) (Dictionary k v)))
+  (list\fold (function (_ [key value] dict)
+               (put key value dict))
+             (new Order<l>)
+             list))
+
+(template [<name> <type> <output>]
+  [(def: #export (<name> dict)
+     (All [k v] (-> (Dictionary k v) (List <type>)))
+     (loop [node (get@ #root dict)]
+       (case node
+         #.None
+         (list)
+
+         (#.Some node')
+         ($_ list\compose
+             (recur (get@ #left node'))
+             (list <output>)
+             (recur (get@ #right node'))))))]
+
+  [entries [k v] [(get@ #key node') (get@ #value node')]]
+  [keys    k     (get@ #key node')]
+  [values  v     (get@ #value node')]
+  )
+
+(implementation: #export (equivalence (^open ",\."))
+  (All [k v] (-> (Equivalence v) (Equivalence (Dictionary k v))))
+  
+  (def: (= reference sample)
+    (let [(^open "/\.") (get@ #&order reference)]
+      (loop [entriesR (entries reference)
+             entriesS (entries sample)]
+        (case [entriesR entriesS]
+          [#.Nil #.Nil]
+          #1
+
+          [(#.Cons [keyR valueR] entriesR') (#.Cons [keyS valueS] entriesS')]
+          (and (/\= keyR keyS)
+               (,\= valueR valueS)
+               (recur entriesR' entriesS'))
+
+          _
+          #0)))))

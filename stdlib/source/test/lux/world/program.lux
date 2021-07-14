@@ -1,25 +1,36 @@
 (.module:
-  [lux #*
-   ["_" test (#+ Test)]
-   [abstract
-    [monad (#+ do)]]
-   [control
-    [parser
-     [environment (#+ Environment)]]]
-   [data
-    ["." text]]
-   [math
-    ["." random (#+ Random)]]]
-  [\\
+  [library
+   [lux #*
+    ["_" test (#+ Test)]
+    [abstract
+     [monad (#+ do)]]
+    [control
+     [pipe (#+ case>)]
+     ["." io]
+     ["." try]
+     ["." exception]
+     [parser
+      [environment (#+ Environment)]]]
+    [data
+     ["." maybe ("#\." functor)]
+     ["." text ("#\." equivalence)]
+     [collection
+      ["." dictionary]
+      ["." list]]]
+    [math
+     ["." random (#+ Random)]
+     [number
+      ["n" nat]]]]]
+  [\\library
    ["." /
     [//
      [file (#+ Path)]]]]
   [\\spec
    ["$." /]])
 
-(def: environment
-  (Random Environment)
-  (random.dictionary text.hash 5
+(def: (environment env_size)
+  (-> Nat (Random Environment))
+  (random.dictionary text.hash env_size
                      (random.ascii/alpha 5)
                      (random.ascii/alpha 5)))
 
@@ -30,11 +41,38 @@
 (def: #export test
   Test
   (<| (_.covering /._)
-      (do random.monad
-        [environment ..environment
+      (do {! random.monad}
+        [env_size (\ ! map (|>> (n.% 10) inc) random.nat)
+         environment (..environment env_size)
          home ..path
-         directory ..path]
+         directory ..path
+
+         unknown (random.ascii/alpha 1)]
         ($_ _.and
             (_.for [/.mock /.async]
                    ($/.spec (/.async (/.mock environment home directory))))
+            (_.cover [/.environment]
+                     (let [program (/.mock environment home directory)]
+                       (io.run
+                        (do io.monad
+                          [actual (/.environment io.monad program)]
+                          (wrap (and (n.= (dictionary.size environment)
+                                          (dictionary.size actual))
+                                     (|> actual
+                                         dictionary.entries
+                                         (list.every? (function (_ [key value])
+                                                        (|> environment
+                                                            (dictionary.get key)
+                                                            (maybe\map (text\= value))
+                                                            (maybe.default false)))))))))))
+            (_.cover [/.unknown_environment_variable]
+                     (let [program (/.mock environment home directory)]
+                       (|> unknown
+                           (\ program variable)
+                           io.run
+                           (case> (#try.Success _)
+                                  false
+                                  
+                                  (#try.Failure error)
+                                  (exception.match? /.unknown_environment_variable error)))))
             ))))

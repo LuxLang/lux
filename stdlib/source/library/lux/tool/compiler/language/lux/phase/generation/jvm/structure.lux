@@ -1,0 +1,95 @@
+(.module:
+  [library
+   [lux #*
+    [abstract
+     ["." monad (#+ do)]]
+    [data
+     [number
+      ["." i32]]
+     [collection
+      ["." list]]]
+    [target
+     [jvm
+      ["_" bytecode (#+ Bytecode)]
+      ["." type]
+      [encoding
+       ["." signed]]]]]]
+  ["." // #_
+   ["#." runtime (#+ Operation Phase Generator)]
+   ["#." primitive]
+   ["///#" //// #_
+    [analysis (#+ Variant Tuple)]
+    ["#." synthesis (#+ Synthesis)]
+    [///
+     ["." phase]]]])
+
+(def: $Object
+  (type.class "java.lang.Object" (list)))
+
+(def: #export (tuple generate archive membersS)
+  (Generator (Tuple Synthesis))
+  (case membersS
+    #.Nil
+    (\ phase.monad wrap //runtime.unit)
+
+    (#.Cons singletonS #.Nil)
+    (generate archive singletonS)
+
+    _
+    (do {! phase.monad}
+      [membersI (|> membersS
+                    list.enumeration
+                    (monad.map ! (function (_ [idx member])
+                                   (do !
+                                     [memberI (generate archive member)]
+                                     (wrap (do _.monad
+                                             [_ _.dup
+                                              _ (_.int (.i64 idx))
+                                              _ memberI]
+                                             _.aastore))))))]
+      (wrap (do {! _.monad}
+              [_ (_.int (.i64 (list.size membersS)))
+               _ (_.anewarray $Object)]
+              (monad.seq ! membersI))))))
+
+(def: #export (tag lefts right?)
+  (-> Nat Bit (Bytecode Any))
+  (case (if right?
+          (.inc lefts)
+          lefts)
+    0 _.iconst-0
+    1 _.iconst-1
+    2 _.iconst-2
+    3 _.iconst-3
+    4 _.iconst-4
+    5 _.iconst-5
+    tag (case (signed.s1 (.int tag))
+          (#try.Success value)
+          (_.bipush value)
+
+          (#try.Failure _)
+          (case (signed.s2 (.int tag))
+            (#try.Success value)
+            (_.sipush value)
+
+            (#try.Failure _)
+            (_.int (.i64 tag))))))
+
+(def: #export (flag right?)
+  (-> Bit (Bytecode Any))
+  (if right?
+    //runtime.right-flag
+    //runtime.left-flag))
+
+(def: #export (variant generate archive [lefts right? valueS])
+  (Generator (Variant Synthesis))
+  (do phase.monad
+    [valueI (generate archive valueS)]
+    (wrap (do _.monad
+            [_ (..tag lefts right?)
+             _ (..flag right?)
+             _ valueI]
+            (_.invokestatic //runtime.class "variant"
+                            (type.method [(list type.int $Object $Object)
+                                          (type.array $Object)
+                                          (list)]))))))

@@ -1,0 +1,185 @@
+(.module:
+  [library
+   [lux (#- let)
+    ["." meta]
+    [abstract
+     ["." monad (#+ do)]]
+    [control
+     ["." try (#+ Try)]
+     ["." exception (#+ exception:)]
+     ["<>" parser ("#\." functor)
+      ["<.>" code (#+ Parser)]]]
+    [data
+     ["." bit ("#\." codec)]
+     ["." text]
+     [collection
+      ["." list ("#\." monad)]
+      ["." dictionary (#+ Dictionary)]]]
+    [math
+     [number
+      ["." nat ("#\." decimal)]
+      ["." int ("#\." decimal)]
+      ["." rev ("#\." decimal)]
+      ["." frac ("#\." decimal)]]]]]
+  ["." //
+   [syntax (#+ syntax:)]
+   ["." code]
+   ["." local]])
+
+(syntax: #export (splice {parts (<code>.tuple (<>.some <code>.any))})
+  (wrap parts))
+
+(syntax: #export (count {parts (<code>.tuple (<>.some <code>.any))})
+  (wrap (list (code.nat (list.size parts)))))
+
+(syntax: #export (with_locals {locals (<code>.tuple (<>.some <code>.local_identifier))}
+                   body)
+  (do {! meta.monad}
+    [g!locals (|> locals
+                  (list\map //.gensym)
+                  (monad.seq !))]
+    (wrap (list (` (.with_expansions [(~+ (|> (list.zip/2 locals g!locals)
+                                              (list\map (function (_ [name identifier])
+                                                          (list (code.local_identifier name) (as_is identifier))))
+                                              list\join))]
+                     (~ body)))))))
+
+(def: (name_side module_side? parser)
+  (-> Bit (Parser Name) (Parser Text))
+  (do <>.monad
+    [[module short] parser]
+    (wrap (if module_side?
+            (case module
+              "" short
+              _ module)
+            short))))
+
+(def: (snippet module_side?)
+  (-> Bit (Parser Text))
+  (.let [full_identifier (..name_side module_side? <code>.identifier)
+         full_tag (..name_side module_side? <code>.tag)]
+    ($_ <>.either
+        <code>.text
+        (if module_side?
+          full_identifier
+          (<>.either <code>.local_identifier
+                     full_identifier))
+        (if module_side?
+          full_tag
+          (<>.either <code>.local_tag
+                     full_tag))
+        (<>\map bit\encode <code>.bit)
+        (<>\map nat\encode <code>.nat)
+        (<>\map int\encode <code>.int)
+        (<>\map rev\encode <code>.rev)
+        (<>\map frac\encode <code>.frac)
+        )))
+
+(def: (part module_side?)
+  (-> Bit (Parser (List Text)))
+  (<code>.tuple (<>.many (..snippet module_side?))))
+
+(syntax: #export (text {simple (..part false)})
+  (wrap (list (|> simple (text.join_with "") code.text))))
+
+(template [<name> <simple> <complex>]
+  [(syntax: #export (<name> {name (<>.or (<>.and (..part true) (..part false))
+                                         (..part false))})
+     (case name
+       (#.Left [simple complex])
+       (wrap (list (<complex> [(text.join_with "" simple)
+                               (text.join_with "" complex)])))
+       
+       (#.Right simple)
+       (wrap (list (|> simple (text.join_with "") <simple>)))))]
+
+  [identifier code.local_identifier code.identifier]
+  [tag code.local_tag code.tag]
+  )
+
+(type: Environment
+  (Dictionary Text Code))
+
+(def: (apply env template)
+  (-> Environment Code Code)
+  (case template
+    [_ (#.Identifier "" name)]
+    (case (dictionary.get name env)
+      (#.Some substitute)
+      substitute
+
+      #.None
+      template)
+
+    (^template [<tag>]
+      [[meta (<tag> elems)]
+       [meta (<tag> (list\map (apply env) elems))]])
+    ([#.Tuple]
+     [#.Form])
+
+    [meta (#.Record members)]
+    [meta (#.Record (list\map (: (-> [Code Code] [Code Code])
+                                 (function (_ [key value])
+                                   [(apply env key)
+                                    (apply env value)]))
+                              members))]
+
+    _
+    template))
+
+(type: Local
+  {#name Text
+   #parameters (List Text)
+   #template (List Code)})
+
+(exception: #export (irregular_arguments {expected Nat} {actual Nat})
+  (exception.report
+   ["Expected" (\ nat.decimal encode expected)]
+   ["Actual" (\ nat.decimal encode actual)]))
+
+(def: (macro (^slots [#parameters #template]))
+  (-> Local Macro)
+  ("lux macro"
+   (function (_ inputs compiler)
+     (.let [parameters_count (list.size parameters)
+            inputs_count (list.size inputs)]
+       (if (nat.= parameters_count inputs_count)
+         (.let [environment (: Environment
+                               (|> (list.zip/2 parameters inputs)
+                                   (dictionary.from_list text.hash)))]
+           (#.Right [compiler (list\map (..apply environment) template)]))
+         (exception.throw ..irregular_arguments [parameters_count inputs_count]))))))
+
+(def: local
+  (Parser Local)
+  (do <>.monad
+    [[name parameters] (<code>.form (<>.and <code>.local_identifier
+                                            (<>.many <code>.local_identifier)))
+     template (<code>.tuple (<>.some <code>.any))]
+    (wrap {#name name
+           #parameters parameters
+           #template template})))
+
+(syntax: #export (let {locals (<code>.tuple (<>.some ..local))}
+                   body)
+  (do meta.monad
+    [here_name meta.current_module_name
+     expression? (: (Meta Bit)
+                    (function (_ lux)
+                      (#try.Success [lux (case (get@ #.expected lux)
+                                           #.None
+                                           false
+
+                                           (#.Some _)
+                                           true)])))
+     g!pop (local.push (list\map (function (_ local)
+                                   [[here_name (get@ #name local)]
+                                    (..macro local)])
+                                 locals))]
+    (if expression?
+      (//.with_gensyms [g!body]
+        (wrap (list (` (.let [(~ g!body) (~ body)]
+                         (exec (~ g!pop)
+                           (~ g!body)))))))
+      (wrap (list body
+                  g!pop)))))

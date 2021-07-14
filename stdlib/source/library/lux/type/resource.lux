@@ -1,0 +1,218 @@
+(.module:
+  [library
+   [lux #*
+    ["." meta]
+    [abstract
+     ["." monad (#+ Monad do)
+      [indexed (#+ IxMonad)]]]
+    [control
+     ["." exception (#+ exception:)]
+     ["." io (#+ IO)]
+     [concurrency
+      ["." promise (#+ Promise)]]
+     ["<>" parser
+      ["<.>" code (#+ Parser)]]]
+    [data
+     ["." identity (#+ Identity)]
+     ["." maybe]
+     ["." product]
+     [text
+      ["%" format (#+ format)]]
+     [collection
+      ["." set]
+      ["." row (#+ Row)]
+      ["." list ("#\." functor fold)]]]
+    ["." macro
+     [syntax (#+ syntax:)]]
+    [math
+     [number
+      ["n" nat]]]
+    [type
+     abstract]]])
+
+(type: #export (Procedure monad input output value)
+  (-> input (monad [output value])))
+
+(type: #export (Linear monad value)
+  (All [keys]
+    (Procedure monad keys keys value)))
+
+(type: #export (Affine monad permissions value)
+  (All [keys]
+    (Procedure monad keys [permissions keys] value)))
+
+(type: #export (Relevant monad permissions value)
+  (All [keys]
+    (Procedure monad [permissions keys] keys value)))
+
+(implementation: (indexed Monad<m>)
+  (All [m] (-> (Monad m) (IxMonad (Procedure m))))
+  
+  (def: (wrap value)
+    (function (_ keys)
+      (\ Monad<m> wrap [keys value])))
+
+  (def: (bind f input)
+    (function (_ keysI)
+      (do Monad<m>
+        [[keysT value] (input keysI)]
+        ((f value) keysT)))))
+
+(template [<name> <m> <monad> <execute> <lift>]
+  [(def: #export <name>
+     (IxMonad (Procedure <m>))
+     (..indexed <monad>))
+
+   (def: #export (<execute> procedure)
+     (All [v] (-> (Linear <m> v) (<m> v)))
+     (do <monad>
+       [[_ output] (procedure [])]
+       (wrap output)))
+
+   (def: #export (<lift> procedure)
+     (All [v] (-> (<m> v) (Linear <m> v)))
+     (function (_ keys)
+       (do <monad>
+         [output procedure]
+         (wrap [keys output]))))]
+
+  [pure  Identity identity.monad run_pure  lift_pure]
+  [sync  IO       io.monad       run_sync  lift_sync]
+  [async Promise  promise.monad  run_async lift_async]
+  )
+
+(abstract: #export Ordered Any)
+
+(abstract: #export Commutative Any)
+
+(abstract: #export (Key mode key)
+  Any
+
+  (template [<name> <mode>]
+    [(def: <name>
+       (Ex [k] (-> Any (Key <mode> k)))
+       (|>> :abstraction))]
+
+    [ordered_key     Ordered]
+    [commutative_key Commutative]
+    ))
+
+(abstract: #export (Res key value)
+  value
+
+  {#.doc "A value locked by a key."}
+
+  (template [<name> <m> <monad> <mode> <key>]
+    [(def: #export (<name> value)
+       (All [v] (Ex [k] (-> v (Affine <m> (Key <mode> k) (Res k v)))))
+       (function (_ keys)
+         (\ <monad> wrap [[(<key> []) keys] (:abstraction value)])))]
+
+    [ordered_pure      Identity identity.monad Ordered     ordered_key]
+    [ordered_sync      IO       io.monad       Ordered     ordered_key]
+    [ordered_async     Promise  promise.monad  Ordered     ordered_key]
+    [commutative_sync  IO       io.monad       Commutative commutative_key]
+    [commutative_pure  Identity identity.monad Commutative commutative_key]
+    [commutative_async Promise  promise.monad  Commutative commutative_key]
+    )
+
+  (template [<name> <m> <monad>]
+    [(def: #export (<name> resource)
+       (All [v k m]
+         (-> (Res k v) (Relevant <m> (Key m k) v)))
+       (function (_ [key keys])
+         (\ <monad> wrap [keys (:representation resource)])))]
+
+    [read_pure  Identity identity.monad]
+    [read_sync  IO       io.monad]
+    [read_async Promise  promise.monad]
+    ))
+
+(exception: #export (index_cannot_be_repeated {index Nat})
+  (exception.report
+   ["Index" (%.nat index)]))
+
+(exception: #export amount_cannot_be_zero)
+
+(def: indices
+  (Parser (List Nat))
+  (<code>.tuple (loop [seen (set.new n.hash)]
+                  (do {! <>.monad}
+                    [done? <code>.end?]
+                    (if done?
+                      (wrap (list))
+                      (do !
+                        [head <code>.nat
+                         _ (<>.assert (exception.construct ..index_cannot_be_repeated head)
+                                      (not (set.member? seen head)))
+                         tail (recur (set.add head seen))]
+                        (wrap (list& head tail))))))))
+
+(def: (no_op Monad<m>)
+  (All [m] (-> (Monad m) (Linear m Any)))
+  (function (_ context)
+    (\ Monad<m> wrap [context []])))
+
+(template [<name> <m> <monad>]
+  [(syntax: #export (<name> {swaps ..indices})
+     (macro.with_gensyms [g!_ g!context]
+       (case swaps
+         #.Nil
+         (wrap (list (` ((~! no_op) <monad>))))
+
+         (#.Cons head tail)
+         (do {! meta.monad}
+           [#let [max_idx (list\fold n.max head tail)]
+            g!inputs (<| (monad.seq !) (list.repeat (inc max_idx)) (macro.gensym "input"))
+            #let [g!outputs (|> (monad.fold maybe.monad
+                                            (function (_ from to)
+                                              (do maybe.monad
+                                                [input (list.nth from g!inputs)]
+                                                (wrap (row.add input to))))
+                                            (: (Row Code) row.empty)
+                                            swaps)
+                                maybe.assume
+                                row.to_list)
+                  g!inputsT+ (list\map (|>> (~) (..Key ..Commutative) (`)) g!inputs)
+                  g!outputsT+ (list\map (|>> (~) (..Key ..Commutative) (`)) g!outputs)]]
+           (wrap (list (` (: (All [(~+ g!inputs) (~ g!context)]
+                               (Procedure (~! <m>)
+                                          [(~+ g!inputsT+) (~ g!context)]
+                                          [(~+ g!outputsT+) (~ g!context)]
+                                          .Any))
+                             (function ((~ g!_) [(~+ g!inputs) (~ g!context)])
+                               (\ (~! <monad>) (~' wrap) [[(~+ g!outputs) (~ g!context)] []]))))))))))]
+
+  [exchange_pure  Identity identity.monad]
+  [exchange_sync  IO       io.monad]
+  [exchange_async Promise  promise.monad]
+  )
+
+(def: amount
+  (Parser Nat)
+  (do <>.monad
+    [raw <code>.nat
+     _ (<>.assert (exception.construct ..amount_cannot_be_zero [])
+                  (n.> 0 raw))]
+    (wrap raw)))
+
+(template [<name> <m> <monad> <from> <to>]
+  [(syntax: #export (<name> {amount ..amount})
+     (macro.with_gensyms [g!_ g!context]
+       (do {! meta.monad}
+         [g!keys (<| (monad.seq !) (list.repeat amount) (macro.gensym "keys"))]
+         (wrap (list (` (: (All [(~+ g!keys) (~ g!context)]
+                             (Procedure (~! <m>)
+                                        [<from> (~ g!context)]
+                                        [<to> (~ g!context)]
+                                        .Any))
+                           (function ((~ g!_) [<from> (~ g!context)])
+                             (\ (~! <monad>) (~' wrap) [[<to> (~ g!context)] []])))))))))]
+
+  [group_pure     Identity identity.monad (~+ g!keys)   [(~+ g!keys)]]
+  [group_sync     IO       io.monad       (~+ g!keys)   [(~+ g!keys)]]
+  [group_async    Promise  promise.monad  (~+ g!keys)   [(~+ g!keys)]]
+  [un_group_pure  Identity identity.monad [(~+ g!keys)] (~+ g!keys)]
+  [un_group_sync  IO       io.monad       [(~+ g!keys)] (~+ g!keys)]
+  [un_group_async Promise  promise.monad  [(~+ g!keys)] (~+ g!keys)]
+  )

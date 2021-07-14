@@ -1,0 +1,119 @@
+(.module:
+  [library
+   [lux #*
+    ["." debug]
+    [abstract
+     [monad (#+ Monad do)]]
+    [control
+     ["." state]
+     ["." try (#+ Try) ("#\." functor)]
+     ["ex" exception (#+ Exception exception:)]
+     ["." io]
+     [parser
+      ["s" code]]]
+    [data
+     ["." product]
+     ["." text
+      ["%" format (#+ format)]]]
+    [time
+     ["." instant]
+     ["." duration]]
+    [macro
+     [syntax (#+ syntax:)]]]]
+  [//
+   [meta
+    [archive (#+ Archive)]]])
+
+(type: #export (Operation s o)
+  (state.State' Try s o))
+
+(def: #export monad
+  (All [s] (Monad (Operation s)))
+  (state.with try.monad))
+
+(type: #export (Phase s i o)
+  (-> Archive i (Operation s o)))
+
+(def: #export (run' state operation)
+  (All [s o]
+    (-> s (Operation s o) (Try [s o])))
+  (operation state))
+
+(def: #export (run state operation)
+  (All [s o]
+    (-> s (Operation s o) (Try o)))
+  (|> state
+      operation
+      (\ try.monad map product.right)))
+
+(def: #export get_state
+  (All [s o]
+    (Operation s s))
+  (function (_ state)
+    (#try.Success [state state])))
+
+(def: #export (set_state state)
+  (All [s o]
+    (-> s (Operation s Any)))
+  (function (_ _)
+    (#try.Success [state []])))
+
+(def: #export (sub [get set] operation)
+  (All [s s' o]
+    (-> [(-> s s') (-> s' s s)]
+        (Operation s' o)
+        (Operation s o)))
+  (function (_ state)
+    (do try.monad
+      [[state' output] (operation (get state))]
+      (wrap [(set state' state) output]))))
+
+(def: #export fail
+  (-> Text Operation)
+  (|>> try.fail (state.lift try.monad)))
+
+(def: #export (throw exception parameters)
+  (All [e] (-> (Exception e) e Operation))
+  (..fail (ex.construct exception parameters)))
+
+(def: #export (lift error)
+  (All [s a] (-> (Try a) (Operation s a)))
+  (function (_ state)
+    (try\map (|>> [state]) error)))
+
+(syntax: #export (assert exception message test)
+  (wrap (list (` (if (~ test)
+                   (\ ..monad (~' wrap) [])
+                   (..throw (~ exception) (~ message)))))))
+
+(def: #export identity
+  (All [s a] (Phase s a a))
+  (function (_ archive input state)
+    (#try.Success [state input])))
+
+(def: #export (compose pre post)
+  (All [s0 s1 i t o]
+    (-> (Phase s0 i t)
+        (Phase s1 t o)
+        (Phase [s0 s1] i o)))
+  (function (_ archive input [pre/state post/state])
+    (do try.monad
+      [[pre/state' temp] (pre archive input pre/state)
+       [post/state' output] (post archive temp post/state)]
+      (wrap [[pre/state' post/state'] output]))))
+
+(def: #export (timed definition description operation)
+  (All [s a]
+    (-> Name Text (Operation s a) (Operation s a)))
+  (do ..monad
+    [_ (wrap [])
+     #let [pre (io.run instant.now)]
+     output operation
+     #let [_ (|> instant.now
+                 io.run
+                 instant.relative
+                 (duration.difference (instant.relative pre))
+                 %.duration
+                 (format (%.name definition) " [" description "]: ")
+                 debug.log!)]]
+    (wrap output)))

@@ -1,0 +1,469 @@
+(.module:
+  [library
+   [lux (#- Code int if cond or and comment let)
+    [control
+     [pipe (#+ case> cond> new>)]]
+    [data
+     ["." text
+      ["%" format (#+ format)]]
+     [collection
+      ["." list ("#\." monad fold monoid)]]]
+    [macro
+     ["." template]]
+    [math
+     [number
+      ["f" frac]]]
+    [type
+     abstract]]])
+
+(def: as_form
+  (-> Text Text)
+  (text.enclose ["(" ")"]))
+
+(abstract: #export (Code brand)
+  Text
+
+  (def: #export manual
+    (-> Text Code)
+    (|>> :abstraction))
+
+  (def: #export code
+    (-> (Code Any) Text)
+    (|>> :representation))
+
+  (template [<type> <super>]
+    [(with_expansions [<brand> (template.identifier [<type> "'"])]
+       (`` (abstract: #export (<brand> brand) Any))
+       (`` (type: #export (<type> brand)
+             (<super> (<brand> brand)))))]
+
+    [Expression Code]
+    [Computation Expression]
+    [Access Computation]
+    [Var Access]
+
+    [Input Code]
+    )
+
+  (template [<type> <super>]
+    [(with_expansions [<brand> (template.identifier [<type> "'"])]
+       (`` (abstract: #export <brand> Any))
+       (`` (type: #export <type> (<super> <brand>))))]
+
+    [Label Code]
+    [Tag Expression]
+    [Literal Expression]
+    [Var/1 Var]
+    [Var/* Input]
+    )
+
+  (type: #export Lambda
+    {#input Var/*
+     #output (Expression Any)})
+
+  (def: #export nil
+    Literal
+    (:abstraction "()"))
+
+  (template [<prefix> <name>]
+    [(def: #export <name>
+       (-> Text Literal)
+       (|>> (format <prefix>) :abstraction))]
+    
+    ["'" symbol]
+    [":" keyword])
+
+  (def: #export bool
+    (-> Bit Literal)
+    (|>> (case> #0 ..nil
+                #1 (..symbol "t"))))
+
+  (def: #export int
+    (-> Int Literal)
+    (|>> %.int :abstraction))
+
+  (def: #export float
+    (-> Frac Literal)
+    (|>> (cond> [(f.= f.positive_infinity)]
+                [(new> "(/ 1.0 0.0)" [])]
+                
+                [(f.= f.negative_infinity)]
+                [(new> "(/ -1.0 0.0)" [])]
+                
+                [f.not_a_number?]
+                [(new> "(/ 0.0 0.0)" [])]
+                
+                ## else
+                [%.frac])
+         :abstraction))
+
+  (def: #export (double value)
+    (-> Frac Literal)
+    (:abstraction
+     (.cond (f.= f.positive_infinity value)
+            "(/ 1.0d0 0.0d0)"
+            
+            (f.= f.negative_infinity value)
+            "(/ -1.0d0 0.0d0)"
+            
+            (f.not_a_number? value)
+            "(/ 0.0d0 0.0d0)"
+            
+            ## else
+            (.let [raw (%.frac value)]
+              (.if (text.contains? "E" raw)
+                (text.replace_once "E" "d" raw)
+                (format raw "d0"))))))
+
+  (def: sanitize
+    (-> Text Text)
+    (`` (|>> (~~ (template [<find> <replace>]
+                   [(text.replace_all <find> <replace>)]
+
+                   ["\" "\\"]
+                   [text.tab "\t"]
+                   [text.vertical_tab "\v"]
+                   [text.null "\0"]
+                   [text.back_space "\b"]
+                   [text.form_feed "\f"]
+                   [text.new_line "\n"]
+                   [text.carriage_return "\r"]
+                   [text.double_quote (format "\" text.double_quote)]
+                   ))
+             )))
+
+  (def: #export string
+    (-> Text Literal)
+    (|>> ..sanitize
+         (text.enclose' text.double_quote)
+         :abstraction))
+
+  (def: #export var
+    (-> Text Var/1)
+    (|>> :abstraction))
+
+  (def: #export args
+    (-> (List Var/1) Var/*)
+    (|>> (list\map ..code)
+         (text.join_with " ")
+         ..as_form
+         :abstraction))
+
+  (def: #export (args& singles rest)
+    (-> (List Var/1) Var/1 Var/*)
+    (|> (case singles
+          #.Nil
+          ""
+          
+          (#.Cons _)
+          (|> singles
+              (list\map ..code)
+              (text.join_with " ")
+              (text.suffix " ")))
+        (format "&rest " (:representation rest))
+        ..as_form
+        :abstraction))
+
+  (def: form
+    (-> (List (Expression Any)) Expression)
+    (|>> (list\map ..code)
+         (text.join_with " ")
+         ..as_form
+         :abstraction))
+
+  (def: #export (call/* func)
+    (-> (Expression Any) (-> (List (Expression Any)) (Computation Any)))
+    (|>> (#.Cons func) ..form))
+  
+  (template [<name> <function>]
+    [(def: #export <name>
+       (-> (List (Expression Any)) (Computation Any))
+       (..call/* (..var <function>)))]
+
+    [vector/* "vector"]
+    [list/*   "list"]
+    )
+
+  (def: #export (labels definitions body)
+    (-> (List [Var/1 Lambda]) (Expression Any) (Computation Any))
+    (..form (list (..var "labels")
+                  (..form (list\map (function (_ [def_name [def_args def_body]])
+                                      (..form (list def_name (:transmutation def_args) def_body)))
+                                    definitions))
+                  body)))
+
+  (def: #export (destructuring-bind [bindings expression] body)
+    (-> [Var/* (Expression Any)] (List (Expression Any)) (Computation Any))
+    (..form (list& (..var "destructuring-bind")
+                   (:transmutation bindings) expression
+                   body)))
+
+  (template [<call> <input_var>+ <input_type>+ <function>+]
+    [(`` (def: #export (<call> [(~~ (template.splice <input_var>+))] function)
+           (-> [(~~ (template.splice <input_type>+))] (Expression Any) (Computation Any))
+           (..call/* function (list (~~ (template.splice <input_var>+))))))
+
+     (`` (template [<lux_name> <host_name>]
+           [(def: #export (<lux_name> args)
+              (-> [(~~ (template.splice <input_type>+))] (Computation Any))
+              (<call> args (..var <host_name>)))]
+           
+           (~~ (template.splice <function>+))))]
+
+    [call/0 [] []
+     [[get-universal-time/0 "get-universal-time"]
+      [make-hash-table/0 "make-hash-table"]]]
+    [call/1 [in0] [(Expression Any)]
+     [[length/1 "length"]
+      [function/1 "function"]
+      [copy-seq/1 "copy-seq"]
+      [null/1 "null"]
+      [error/1 "error"]
+      [not/1 "not"]
+      [floor/1 "floor"]
+      [type-of/1 "type-of"]
+      [write-to-string/1 "write-to-string"]
+      [read-from-string/1 "read-from-string"]
+      [print/1 "print"]
+      [reverse/1 "reverse"]
+      [sxhash/1 "sxhash"]
+      [string-upcase/1 "string-upcase"]
+      [string-downcase/1 "string-downcase"]
+      [char-int/1 "char-int"]
+      [text/1 "text"]
+      [hash-table-size/1 "hash-table-size"]
+      [hash-table-rehash-size/1 "hash-table-rehash-size"]
+      [code-char/1 "code-char"]
+      [char-code/1 "char-code"]
+      [string/1 "string"]
+      [write-line/1 "write-line"]
+      [pprint/1 "pprint"]
+      [identity/1 "identity"]]]
+    [call/2 [in0 in1] [(Expression Any) (Expression Any)]
+     [[apply/2 "apply"]
+      [append/2 "append"]
+      [cons/2 "cons"]
+      [char/2 "char"]
+      [nth/2 "nth"]
+      [nthcdr/2 "nthcdr"]
+      [coerce/2 "coerce"]
+      [eq/2 "eq"]
+      [equal/2 "equal"]
+      [string=/2 "string="]
+      [=/2   "="]
+      [+/2   "+"]
+      [*/2   "*"]]]
+    [call/3 [in0 in1 in2] [(Expression Any) (Expression Any) (Expression Any)]
+     [[subseq/3 "subseq"]
+      [map/3 "map"]
+      [concatenate/3 "concatenate"]
+      [format/3 "format"]]]
+    )
+
+  (template [<call> <input_type>+ <function>+]
+    [(`` (template [<lux_name> <host_name>]
+           [(def: #export (<lux_name> args)
+              (-> [(~~ (template.splice <input_type>+))] (Access Any))
+              (:transmutation (<call> args (..var <host_name>))))]
+           
+           (~~ (template.splice <function>+))))]
+
+    [call/1 [(Expression Any)]
+     [[car/1 "car"]
+      [cdr/1 "cdr"]
+      [cadr/1 "cadr"]
+      [cddr/1 "cddr"]]]
+    [call/2 [(Expression Any) (Expression Any)]
+     [[svref/2 "svref"]
+      [elt/2 "elt"]
+      [gethash/2 "gethash"]]]
+    )
+
+  (def: #export (make-hash-table/with_size size)
+    (-> (Expression Any) (Computation Any))
+    (..call/* (..var "make-hash-table")
+              (list (..keyword "size")
+                    size)))
+
+  (def: #export (funcall/+ [func args])
+    (-> [(Expression Any) (List (Expression Any))] (Computation Any))
+    (..call/* (..var "funcall") (list& func args)))
+
+  (def: #export (search/3 [reference space start])
+    (-> [(Expression Any) (Expression Any) (Expression Any)] (Computation Any))
+    (..call/* (..var "search")
+              (list reference
+                    space
+                    (..keyword "start2") start)))
+
+  (def: #export (concatenate/2|string [left right])
+    (-> [(Expression Any) (Expression Any)] (Computation Any))
+    (concatenate/3 [(..symbol "string") left right]))
+
+  (template [<lux_name> <host_name>]
+    [(def: #export (<lux_name> left right)
+       (-> (Expression Any) (Expression Any) (Computation Any))
+       (..form (list (..var <host_name>) left right)))]
+
+    [or "or"]
+    [and "and"]
+    )
+
+  (template [<lux_name> <host_name>]
+    [(def: #export (<lux_name> [param subject])
+       (-> [(Expression Any) (Expression Any)] (Computation Any))
+       (..form (list (..var <host_name>) subject param)))]
+
+    [</2   "<"]
+    [<=/2  "<="]
+    [>/2   ">"]
+    [>=/2  ">="]
+    [string</2 "string<"]
+    [-/2   "-"]
+    [//2   "/"]
+    [rem/2 "rem"]
+    [floor/2 "floor"]
+    [mod/2 "mod"]
+    [ash/2 "ash"]
+    [logand/2 "logand"]
+    [logior/2 "logior"]
+    [logxor/2 "logxor"]
+    )
+
+  (def: #export (if test then else)
+    (-> (Expression Any) (Expression Any) (Expression Any) (Computation Any))
+    (..form (list (..var "if") test then else)))
+
+  (def: #export (when test then)
+    (-> (Expression Any) (Expression Any) (Computation Any))
+    (..form (list (..var "when") test then)))
+
+  (def: #export (lambda input body)
+    (-> Var/* (Expression Any) Literal)
+    (..form (list (..var "lambda") (:transmutation input) body)))
+
+  (template [<lux_name> <host_name>]
+    [(def: #export (<lux_name> bindings body)
+       (-> (List [Var/1 (Expression Any)]) (List (Expression Any)) (Computation Any))
+       (..form (list& (..var <host_name>)
+                      (|> bindings
+                          (list\map (function (_ [name value])
+                                      (..form (list name value))))
+                          ..form)
+                      body)))]
+
+    [let  "let"]
+    [let* "let*"]
+    )
+
+  (def: #export (defparameter name body)
+    (-> Var/1 (Expression Any) (Expression Any))
+    (..form (list (..var "defparameter") name body)))
+
+  (def: #export (defun name inputs body)
+    (-> Var/1 Var/* (Expression Any) (Expression Any))
+    (..form (list (..var "defun") name (:transmutation inputs) body)))
+
+  (template [<name> <symbol>]
+    [(def: #export <name>
+       (-> (List (Expression Any)) (Computation Any))
+       (|>> (list& (..var <symbol>)) ..form))]
+
+    [progn "progn"]
+    [tagbody "tagbody"]
+    [values/* "values"]
+    )
+
+  (def: #export (setq name value)
+    (-> Var/1 (Expression Any) (Expression Any))
+    (..form (list (..var "setq") name value)))
+
+  (def: #export (setf access value)
+    (-> (Access Any) (Expression Any) (Expression Any))
+    (..form (list (..var "setf") access value)))
+
+  (type: #export Handler
+    {#condition_type (Expression Any)
+     #condition Var/1
+     #body (Expression Any)})
+  
+  (def: #export (handler-case handlers body)
+    (-> (List Handler) (Expression Any) (Computation Any))
+    (..form (list& (..var "handler-case")
+                   body
+                   (list\map (function (_ [type condition handler])
+                               (..form (list type
+                                             (:transmutation (..args (list condition)))
+                                             handler)))
+                             handlers))))
+
+  (template [<name> <prefix>]
+    [(def: #export (<name> conditions expression)
+       (-> (List Text) (Expression Any) (Expression Any))
+       (case conditions
+         #.Nil
+         expression
+         
+         (#.Cons single #.Nil)
+         (:abstraction
+          (format <prefix> single " " (:representation expression)))
+         
+         _
+         (:abstraction
+          (format <prefix> (|> conditions (list\map ..symbol)
+                               (list& (..symbol "or")) ..form
+                               :representation)
+                  " " (:representation expression)))))]
+
+    [conditional+ "#+"]
+    [conditional- "#-"])
+
+  (def: #export label
+    (-> Text Label)
+    (|>> :abstraction))
+
+  (def: #export (block name body)
+    (-> Label (List (Expression Any)) (Computation Any))
+    (..form (list& (..var "block") (:transmutation name) body)))
+
+  (def: #export (return-from target value)
+    (-> Label (Expression Any) (Computation Any))
+    (..form (list (..var "return-from") (:transmutation target) value)))
+
+  (def: #export (return value)
+    (-> (Expression Any) (Computation Any))
+    (..form (list (..var "return") value)))
+
+  (def: #export (cond clauses else)
+    (-> (List [(Expression Any) (Expression Any)]) (Expression Any) (Computation Any))
+    (..form (list& (..var "cond")
+                   (list\compose (list\map (function (_ [test then])
+                                             (..form (list test then)))
+                                           clauses)
+                                 (list (..form (list (..bool true) else)))))))
+
+  (def: #export tag
+    (-> Text Tag)
+    (|>> :abstraction))
+
+  (def: #export go
+    (-> Tag (Expression Any))
+    (|>> (list (..var "go"))
+         ..form))
+
+  (def: #export values-list/1
+    (-> (Expression Any) (Expression Any))
+    (|>> (list (..var "values-list"))
+         ..form))
+
+  (def: #export (multiple-value-setq bindings values)
+    (-> Var/* (Expression Any) (Expression Any))
+    (..form (list (..var "multiple-value-setq")
+                  (:transmutation bindings)
+                  values)))
+  )
+
+(def: #export (while condition body)
+  (-> (Expression Any) (Expression Any) (Computation Any))
+  (..form (list (..var "loop") (..var "while") condition
+                (..var "do") body)))

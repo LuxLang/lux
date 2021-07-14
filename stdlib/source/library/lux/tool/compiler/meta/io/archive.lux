@@ -1,0 +1,450 @@
+(.module:
+  [library
+   [lux (#- Module)
+    [target (#+ Target)]
+    [abstract
+     [predicate (#+ Predicate)]
+     ["." monad (#+ do)]]
+    [control
+     [pipe (#+ case>)]
+     ["." try (#+ Try)]
+     ["." exception (#+ exception:)]
+     [concurrency
+      ["." promise (#+ Promise) ("#\." monad)]]
+     ["<>" parser
+      ["<.>" binary (#+ Parser)]]]
+    [data
+     [binary (#+ Binary)]
+     ["." product]
+     ["." text ("#\." equivalence)
+      ["%" format (#+ format)]]
+     [collection
+      ["." list ("#\." functor fold)]
+      ["." dictionary (#+ Dictionary)]
+      ["." row (#+ Row)]
+      ["." set]]]
+    [math
+     [number
+      ["n" nat]]]
+    [world
+     ["." file]]]]
+  [program
+   [compositor
+    [import (#+ Import)]
+    ["." static (#+ Static)]]]
+  ["." // (#+ Context)
+   ["#." context]
+   ["/#" //
+    ["." archive (#+ Output Archive)
+     ["." artifact (#+ Artifact)]
+     ["." descriptor (#+ Module Descriptor)]
+     ["." document (#+ Document)]]
+    [cache
+     ["." dependency]]
+    ["/#" // (#+ Input)
+     [language
+      ["$" lux
+       ["." version]
+       ["." analysis]
+       ["." synthesis]
+       ["." generation]
+       ["." directive]
+       ["#/." program]]]]]])
+
+(exception: #export (cannot_prepare {archive file.Path}
+                                    {module_id archive.ID}
+                                    {error Text})
+  (exception.report
+   ["Archive" archive]
+   ["Module ID" (%.nat module_id)]
+   ["Error" error]))
+
+(def: (archive fs static)
+  (All [!] (-> (file.System !) Static file.Path))
+  (format (get@ #static.target static)
+          (\ fs separator)
+          (get@ #static.host static)))
+
+(def: (unversioned_lux_archive fs static)
+  (All [!] (-> (file.System !) Static file.Path))
+  (format (..archive fs static)
+          (\ fs separator)
+          //.lux_context))
+
+(def: (versioned_lux_archive fs static)
+  (All [!] (-> (file.System !) Static file.Path))
+  (format (..unversioned_lux_archive fs static)
+          (\ fs separator)
+          (%.nat version.version)))
+
+(def: (module fs static module_id)
+  (All [!] (-> (file.System !) Static archive.ID file.Path))
+  (format (..versioned_lux_archive fs static)
+          (\ fs separator)
+          (%.nat module_id)))
+
+(def: #export (artifact fs static module_id artifact_id)
+  (All [!] (-> (file.System !) Static archive.ID artifact.ID file.Path))
+  (format (..module fs static module_id)
+          (\ fs separator)
+          (%.nat artifact_id)
+          (get@ #static.artifact_extension static)))
+
+(def: (ensure_directory fs path)
+  (-> (file.System Promise) file.Path (Promise (Try Any)))
+  (do promise.monad
+    [? (\ fs directory? path)]
+    (if ?
+      (wrap (#try.Success []))
+      (\ fs make_directory path))))
+
+(def: #export (prepare fs static module_id)
+  (-> (file.System Promise) Static archive.ID (Promise (Try Any)))
+  (do {! promise.monad}
+    [#let [module (..module fs static module_id)]
+     module_exists? (\ fs directory? module)]
+    (if module_exists?
+      (wrap (#try.Success []))
+      (do (try.with !)
+        [_ (ensure_directory fs (..unversioned_lux_archive fs static))
+         _ (ensure_directory fs (..versioned_lux_archive fs static))]
+        (|> module
+            (\ fs make_directory)
+            (\ ! map (|>> (case> (#try.Success output)
+                                 (#try.Success [])
+
+                                 (#try.Failure error)
+                                 (exception.throw ..cannot_prepare [(..archive fs static)
+                                                                    module_id
+                                                                    error])))))))))
+
+(def: #export (write fs static module_id artifact_id content)
+  (-> (file.System Promise) Static archive.ID artifact.ID Binary (Promise (Try Any)))
+  (\ fs write content (..artifact fs static module_id artifact_id)))
+
+(def: #export (enable fs static)
+  (-> (file.System Promise) Static (Promise (Try Any)))
+  (do (try.with promise.monad)
+    [_ (..ensure_directory fs (get@ #static.target static))]
+    (..ensure_directory fs (..archive fs static))))
+
+(def: (general_descriptor fs static)
+  (-> (file.System Promise) Static file.Path)
+  (format (..archive fs static)
+          (\ fs separator)
+          "general_descriptor"))
+
+(def: #export (freeze fs static archive)
+  (-> (file.System Promise) Static Archive (Promise (Try Any)))
+  (\ fs write (archive.export ///.version archive) (..general_descriptor fs static)))
+
+(def: module_descriptor_file
+  "module_descriptor")
+
+(def: (module_descriptor fs static module_id)
+  (-> (file.System Promise) Static archive.ID file.Path)
+  (format (..module fs static module_id)
+          (\ fs separator)
+          ..module_descriptor_file))
+
+(def: #export (cache fs static module_id content)
+  (-> (file.System Promise) Static archive.ID Binary (Promise (Try Any)))
+  (\ fs write content (..module_descriptor fs static module_id)))
+
+(def: (read_module_descriptor fs static module_id)
+  (-> (file.System Promise) Static archive.ID (Promise (Try Binary)))
+  (\ fs read (..module_descriptor fs static module_id)))
+
+(def: parser
+  (Parser [Descriptor (Document .Module)])
+  (<>.and descriptor.parser
+          (document.parser $.parser)))
+
+(def: (fresh_analysis_state host)
+  (-> Target .Lux)
+  (analysis.state (analysis.info version.version host)))
+
+(def: (analysis_state host archive)
+  (-> Target Archive (Try .Lux))
+  (do {! try.monad}
+    [modules (: (Try (List [Module .Module]))
+                (monad.map ! (function (_ module)
+                               (do !
+                                 [[descriptor document output] (archive.find module archive)
+                                  content (document.read $.key document)]
+                                 (wrap [module content])))
+                           (archive.archived archive)))]
+    (wrap (set@ #.modules modules (fresh_analysis_state host)))))
+
+(def: (cached_artifacts fs static module_id)
+  (-> (file.System Promise) Static archive.ID (Promise (Try (Dictionary Text Binary))))
+  (let [! (try.with promise.monad)]
+    (|> (..module fs static module_id)
+        (\ fs directory_files)
+        (\ ! map (|>> (list\map (function (_ file)
+                                  [(file.name fs file) file]))
+                      (list.filter (|>> product.left (text\= ..module_descriptor_file) not))
+                      (monad.map ! (function (_ [name path])
+                                     (|> path
+                                         (\ fs read)
+                                         (\ ! map (|>> [name])))))
+                      (\ ! map (dictionary.from_list text.hash))))
+        (\ ! join))))
+
+(type: Definitions (Dictionary Text Any))
+(type: Analysers (Dictionary Text analysis.Handler))
+(type: Synthesizers (Dictionary Text synthesis.Handler))
+(type: Generators (Dictionary Text generation.Handler))
+(type: Directives (Dictionary Text directive.Handler))
+
+(type: Bundles
+  [Analysers
+   Synthesizers
+   Generators
+   Directives])
+
+(def: empty_bundles
+  Bundles
+  [(dictionary.new text.hash)
+   (dictionary.new text.hash)
+   (dictionary.new text.hash)
+   (dictionary.new text.hash)])
+
+(def: (loaded_document extension host module_id expected actual document)
+  (All [expression directive]
+    (-> Text (generation.Host expression directive) archive.ID (Row Artifact) (Dictionary Text Binary) (Document .Module)
+        (Try [(Document .Module) Bundles])))
+  (do {! try.monad}
+    [[definitions bundles] (: (Try [Definitions Bundles])
+                              (loop [input (row.to_list expected)
+                                     definitions (: Definitions
+                                                    (dictionary.new text.hash))
+                                     bundles ..empty_bundles]
+                                (let [[analysers synthesizers generators directives] bundles]
+                                  (case input
+                                    (#.Cons [[artifact_id artifact_category] input'])
+                                    (case (do !
+                                            [data (try.from_maybe (dictionary.get (format (%.nat artifact_id) extension) actual))
+                                             #let [context [module_id artifact_id]
+                                                   directive (\ host ingest context data)]]
+                                            (case artifact_category
+                                              #artifact.Anonymous
+                                              (do !
+                                                [_ (\ host re_learn context directive)]
+                                                (wrap [definitions
+                                                       [analysers
+                                                        synthesizers
+                                                        generators
+                                                        directives]]))
+                                              
+                                              (#artifact.Definition name)
+                                              (if (text\= $/program.name name)
+                                                (wrap [definitions
+                                                       [analysers
+                                                        synthesizers
+                                                        generators
+                                                        directives]])
+                                                (do !
+                                                  [value (\ host re_load context directive)]
+                                                  (wrap [(dictionary.put name value definitions)
+                                                         [analysers
+                                                          synthesizers
+                                                          generators
+                                                          directives]])))
+
+                                              (#artifact.Analyser extension)
+                                              (do !
+                                                [value (\ host re_load context directive)]
+                                                (wrap [definitions
+                                                       [(dictionary.put extension (:as analysis.Handler value) analysers)
+                                                        synthesizers
+                                                        generators
+                                                        directives]]))
+
+                                              (#artifact.Synthesizer extension)
+                                              (do !
+                                                [value (\ host re_load context directive)]
+                                                (wrap [definitions
+                                                       [analysers
+                                                        (dictionary.put extension (:as synthesis.Handler value) synthesizers)
+                                                        generators
+                                                        directives]]))
+
+                                              (#artifact.Generator extension)
+                                              (do !
+                                                [value (\ host re_load context directive)]
+                                                (wrap [definitions
+                                                       [analysers
+                                                        synthesizers
+                                                        (dictionary.put extension (:as generation.Handler value) generators)
+                                                        directives]]))
+
+                                              (#artifact.Directive extension)
+                                              (do !
+                                                [value (\ host re_load context directive)]
+                                                (wrap [definitions
+                                                       [analysers
+                                                        synthesizers
+                                                        generators
+                                                        (dictionary.put extension (:as directive.Handler value) directives)]]))))
+                                      (#try.Success [definitions' bundles'])
+                                      (recur input' definitions' bundles')
+
+                                      failure
+                                      failure)
+                                    
+                                    #.None
+                                    (#try.Success [definitions bundles])))))
+     content (document.read $.key document)
+     definitions (monad.map ! (function (_ [def_name def_global])
+                                (case def_global
+                                  (#.Alias alias)
+                                  (wrap [def_name (#.Alias alias)])
+                                  
+                                  (#.Definition [exported? type annotations _])
+                                  (do !
+                                    [value (try.from_maybe (dictionary.get def_name definitions))]
+                                    (wrap [def_name (#.Definition [exported? type annotations value])]))))
+                            (get@ #.definitions content))]
+    (wrap [(document.write $.key (set@ #.definitions definitions content))
+           bundles])))
+
+(def: (load_definitions fs static module_id host_environment [descriptor document output])
+  (All [expression directive]
+    (-> (file.System Promise) Static archive.ID (generation.Host expression directive)
+        [Descriptor (Document .Module) Output]
+        (Promise (Try [[Descriptor (Document .Module) Output]
+                       Bundles]))))
+  (do (try.with promise.monad)
+    [actual (cached_artifacts fs static module_id)
+     #let [expected (|> descriptor (get@ #descriptor.registry) artifact.artifacts)]
+     [document bundles] (promise\wrap (loaded_document (get@ #static.artifact_extension static) host_environment module_id expected actual document))]
+    (wrap [[descriptor document output] bundles])))
+
+(def: (purge! fs static [module_name module_id])
+  (-> (file.System Promise) Static [Module archive.ID] (Promise (Try Any)))
+  (do {! (try.with promise.monad)}
+    [#let [cache (..module fs static module_id)]
+     _ (|> cache
+           (\ fs directory_files)
+           (\ ! map (monad.map ! (\ fs delete)))
+           (\ ! join))]
+    (\ fs delete cache)))
+
+(def: (valid_cache? expected actual)
+  (-> Descriptor Input Bit)
+  (and (text\= (get@ #descriptor.name expected)
+               (get@ #////.module actual))
+       (text\= (get@ #descriptor.file expected)
+               (get@ #////.file actual))
+       (n.= (get@ #descriptor.hash expected)
+            (get@ #////.hash actual))))
+
+(type: Purge
+  (Dictionary Module archive.ID))
+
+(def: initial_purge
+  (-> (List [Bit [Module [archive.ID [Descriptor (Document .Module) Output]]]])
+      Purge)
+  (|>> (list.all (function (_ [valid_cache? [module_name [module_id _]]])
+                   (if valid_cache?
+                     #.None
+                     (#.Some [module_name module_id]))))
+       (dictionary.from_list text.hash)))
+
+(def: (full_purge caches load_order)
+  (-> (List [Bit [Module [archive.ID [Descriptor (Document .Module) Output]]]])
+      dependency.Order
+      Purge)
+  (list\fold (function (_ [module_name [module_id [descriptor document output]]] purge)
+               (let [purged? (: (Predicate Module)
+                                (dictionary.key? purge))]
+                 (if (purged? module_name)
+                   purge
+                   (if (|> descriptor
+                           (get@ #descriptor.references)
+                           set.to_list
+                           (list.any? purged?))
+                     (dictionary.put module_name module_id purge)
+                     purge))))
+             (..initial_purge caches)
+             load_order))
+
+(def: pseudo_module
+  Text
+  "(Lux Caching System)")
+
+(def: (load_every_reserved_module host_environment fs static import contexts archive)
+  (All [expression directive]
+    (-> (generation.Host expression directive) (file.System Promise) Static Import (List Context) Archive
+        (Promise (Try [Archive .Lux Bundles]))))
+  (do {! (try.with promise.monad)}
+    [pre_loaded_caches (|> archive
+                           archive.reservations
+                           (monad.map ! (function (_ [module_name module_id])
+                                          (do !
+                                            [data (..read_module_descriptor fs static module_id)
+                                             [descriptor document] (promise\wrap (<binary>.run ..parser data))]
+                                            (if (text\= archive.runtime_module module_name)
+                                              (wrap [true
+                                                     [module_name [module_id [descriptor document (: Output row.empty)]]]])
+                                              (do !
+                                                [input (//context.read fs ..pseudo_module import contexts (get@ #static.host_module_extension static) module_name)]
+                                                (wrap [(..valid_cache? descriptor input)
+                                                       [module_name [module_id [descriptor document (: Output row.empty)]]]])))))))
+     load_order (|> pre_loaded_caches
+                    (list\map product.right)
+                    (monad.fold try.monad
+                                (function (_ [module [module_id descriptor,document,output]] archive)
+                                  (archive.add module descriptor,document,output archive))
+                                archive)
+                    (\ try.monad map (dependency.load_order $.key))
+                    (\ try.monad join)
+                    promise\wrap)
+     #let [purge (..full_purge pre_loaded_caches load_order)]
+     _ (|> purge
+           dictionary.entries
+           (monad.map ! (..purge! fs static)))
+     loaded_caches (|> load_order
+                       (list.filter (function (_ [module_name [module_id [descriptor document output]]])
+                                      (not (dictionary.key? purge module_name))))
+                       (monad.map ! (function (_ [module_name [module_id descriptor,document,output]])
+                                      (do !
+                                        [[descriptor,document,output bundles] (..load_definitions fs static module_id host_environment descriptor,document,output)]
+                                        (wrap [[module_name descriptor,document,output]
+                                               bundles])))))]
+    (promise\wrap
+     (do {! try.monad}
+       [archive (monad.fold !
+                            (function (_ [[module descriptor,document] _bundle] archive)
+                              (archive.add module descriptor,document archive))
+                            archive
+                            loaded_caches)
+        analysis_state (..analysis_state (get@ #static.host static) archive)]
+       (wrap [archive
+              analysis_state
+              (list\fold (function (_ [_ [+analysers +synthesizers +generators +directives]]
+                                      [analysers synthesizers generators directives])
+                           [(dictionary.merge +analysers analysers)
+                            (dictionary.merge +synthesizers synthesizers)
+                            (dictionary.merge +generators generators)
+                            (dictionary.merge +directives directives)])
+                         ..empty_bundles
+                         loaded_caches)])))))
+
+(def: #export (thaw host_environment fs static import contexts)
+  (All [expression directive]
+    (-> (generation.Host expression directive) (file.System Promise) Static Import (List Context)
+        (Promise (Try [Archive .Lux Bundles]))))
+  (do promise.monad
+    [binary (\ fs read (..general_descriptor fs static))]
+    (case binary
+      (#try.Success binary)
+      (do (try.with promise.monad)
+        [archive (promise\wrap (archive.import ///.version binary))]
+        (..load_every_reserved_module host_environment fs static import contexts archive))
+      
+      (#try.Failure error)
+      (wrap (#try.Success [archive.empty
+                           (fresh_analysis_state (get@ #static.host static))
+                           ..empty_bundles])))))

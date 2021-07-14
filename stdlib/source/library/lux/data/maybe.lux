@@ -1,0 +1,151 @@
+(.module:
+  [library
+   [lux #*
+    [abstract
+     [monoid (#+ Monoid)]
+     [equivalence (#+ Equivalence)]
+     [hash (#+ Hash)]
+     [apply (#+ Apply)]
+     ["." functor (#+ Functor)]
+     ["." monad (#+ Monad do)]]
+    [meta
+     ["." location]]]])
+
+## (type: (Maybe a)
+##   #.None
+##   (#.Some a))
+
+(implementation: #export monoid
+  (All [a] (Monoid (Maybe a)))
+  
+  (def: identity #.None)
+  
+  (def: (compose mx my)
+    (case mx
+      #.None
+      my
+      
+      (#.Some x)
+      (#.Some x))))
+
+(implementation: #export functor
+  (Functor Maybe)
+  
+  (def: (map f ma)
+    (case ma
+      #.None     #.None
+      (#.Some a) (#.Some (f a)))))
+
+(implementation: #export apply
+  (Apply Maybe)
+  
+  (def: &functor ..functor)
+
+  (def: (apply ff fa)
+    (case [ff fa]
+      [(#.Some f) (#.Some a)]
+      (#.Some (f a))
+
+      _
+      #.None)))
+
+(implementation: #export monad
+  (Monad Maybe)
+  
+  (def: &functor ..functor)
+
+  (def: (wrap x)
+    (#.Some x))
+
+  (def: (join mma)
+    (case mma
+      #.None
+      #.None
+      
+      (#.Some mx)
+      mx)))
+
+(implementation: #export (equivalence super)
+  (All [a] (-> (Equivalence a) (Equivalence (Maybe a))))
+  
+  (def: (= mx my)
+    (case [mx my]
+      [#.None #.None]
+      #1
+
+      [(#.Some x) (#.Some y)]
+      (\ super = x y)
+      
+      _
+      #0)))
+
+(implementation: #export (hash super)
+  (All [a] (-> (Hash a) (Hash (Maybe a))))
+
+  (def: &equivalence
+    (..equivalence (\ super &equivalence)))
+  
+  (def: (hash value)
+    (case value
+      #.None
+      0
+
+      (#.Some value)
+      (\ super hash value))))
+
+(implementation: #export (with monad)
+  (All [M] (-> (Monad M) (Monad (All [a] (M (Maybe a))))))
+
+  (def: &functor (functor.compose (get@ #monad.&functor monad) ..functor))
+
+  (def: wrap (|>> (\ ..monad wrap) (\ monad wrap)))
+  
+  (def: (join MmMma)
+    (do monad
+      [mMma MmMma]
+      (case mMma
+        #.None
+        (wrap #.None)
+
+        (#.Some Mma)
+        Mma))))
+
+(def: #export (lift monad)
+  (All [M a] (-> (Monad M) (-> (M a) (M (Maybe a)))))
+  (\ monad map (\ ..monad wrap)))
+
+(macro: #export (default tokens state)
+  {#.doc (doc "Allows you to provide a default value that will be used"
+              "if a (Maybe x) value turns out to be #.None."
+              "Note: the expression for the default value will not be computed if the base computation succeeds."
+              (default +20 (#.Some +10))
+              "=>"
+              +10
+              (default +20 #.None)
+              "=>"
+              +20)}
+  (case tokens
+    (^ (list else maybe))
+    (let [g!temp (: Code [location.dummy (#.Identifier ["" ""])])]
+      (#.Right [state (list (` (case (~ maybe)
+                                 (#.Some (~ g!temp))
+                                 (~ g!temp)
+
+                                 #.None
+                                 (~ else))))]))
+
+    _
+    (#.Left "Wrong syntax for default")))
+
+(def: #export assume
+  (All [a] (-> (Maybe a) a))
+  (|>> (..default (undefined))))
+
+(def: #export (to-list value)
+  (All [a] (-> (Maybe a) (List a)))
+  (case value
+    #.None
+    #.Nil
+
+    (#.Some value)
+    (#.Cons value #.Nil)))

@@ -1,0 +1,416 @@
+(.module:
+  [library
+   [lux (#- Location Code int if cond function or and not let ^)
+    ["@" target]
+    [abstract
+     [equivalence (#+ Equivalence)]
+     [hash (#+ Hash)]
+     ["." enum]]
+    [control
+     [pipe (#+ case> cond> new>)]
+     [parser
+      ["<.>" code]]]
+    [data
+     ["." text
+      ["%" format (#+ format)]]
+     [collection
+      ["." list ("#\." functor fold)]]]
+    [macro
+     [syntax (#+ syntax:)]
+     ["." template]
+     ["." code]]
+    [math
+     [number
+      ["n" nat]
+      ["i" int]
+      ["f" frac]]]
+    [type
+     abstract]]])
+
+(def: nest
+  (-> Text Text)
+  (.let [nested_new_line (format text.new_line text.tab)]
+    (|>> (format text.new_line)
+         (text.replace_all text.new_line nested_new_line))))
+
+(def: input_separator ", ")
+
+(abstract: #export (Code brand)
+  Text
+
+  (implementation: #export equivalence
+    (All [brand] (Equivalence (Code brand)))
+
+    (def: (= reference subject)
+      (\ text.equivalence = (:representation reference) (:representation subject))))
+
+  (implementation: #export hash
+    (All [brand] (Hash (Code brand)))
+
+    (def: &equivalence ..equivalence)
+    (def: hash (|>> :representation (\ text.hash hash))))
+
+  (def: #export manual
+    (-> Text Code)
+    (|>> :abstraction))
+
+  (def: #export code
+    (-> (Code Any) Text)
+    (|>> :representation))
+
+  (template [<type> <super>+]
+    [(with_expansions [<brand> (template.identifier [<type> "'"])]
+       (abstract: (<brand> brand) Any)
+       (`` (type: #export <type> (|> Any <brand> (~~ (template.splice <super>+))))))]
+    
+    [Expression [Code]]
+    [Computation [Expression' Code]]
+    [Location [Computation' Expression' Code]]
+    [Statement [Code]]
+    )
+
+  (template [<type> <super>+]
+    [(with_expansions [<brand> (template.identifier [<type> "'"])]
+       (abstract: #export <brand> Any)
+       (`` (type: #export <type> (|> <brand> (~~ (template.splice <super>+))))))]
+
+    [Literal [Computation' Expression' Code]]
+    [Var [Location' Computation' Expression' Code]]
+    [Access [Location' Computation' Expression' Code]]
+    [Label [Code]]
+    )
+
+  (def: #export nil
+    Literal
+    (:abstraction "nil"))
+
+  (def: #export bool
+    (-> Bit Literal)
+    (|>> (case> #0 "false"
+                #1 "true")
+         :abstraction))
+
+  (def: #export int
+    (-> Int Literal)
+    ## Integers must be turned into hexadecimal to avoid quirks in how Lua parses integers.
+    ## In particular, the number -9223372036854775808 will be incorrectly parsed as a float by Lua.
+    (.let [to_hex (\ n.hex encode)]
+      (|>> .nat
+           to_hex
+           (format "0x")
+           :abstraction)))
+
+  (def: #export float
+    (-> Frac Literal)
+    (|>> (cond> [(f.= f.positive_infinity)]
+                [(new> "(1.0/0.0)" [])]
+                
+                [(f.= f.negative_infinity)]
+                [(new> "(-1.0/0.0)" [])]
+                
+                [(f.= f.not_a_number)]
+                [(new> "(0.0/0.0)" [])]
+
+                ## else
+                [%.frac (text.replace_all "+" "")])
+         :abstraction))
+
+  (def: sanitize
+    (-> Text Text)
+    (`` (|>> (~~ (template [<find> <replace>]
+                   [(text.replace_all <find> <replace>)]
+
+                   ["\" "\\"]
+                   [text.tab "\t"]
+                   [text.vertical_tab "\v"]
+                   [text.null "\0"]
+                   [text.back_space "\b"]
+                   [text.form_feed "\f"]
+                   [text.new_line "\n"]
+                   [text.carriage_return "\r"]
+                   [text.double_quote (format "\" text.double_quote)]
+                   ))
+             )))
+
+  (def: #export string
+    (-> Text Literal)
+    (|>> ..sanitize (text.enclose' text.double_quote) :abstraction))
+
+  (def: #export multi
+    (-> (List Expression) Literal)
+    (|>> (list\map ..code)
+         (text.join_with ..input_separator)
+         :abstraction))
+
+  (def: #export array
+    (-> (List Expression) Literal)
+    (|>> (list\map ..code)
+         (text.join_with ..input_separator)
+         (text.enclose ["{" "}"])
+         :abstraction))
+
+  (def: #export table
+    (-> (List [Text Expression]) Literal)
+    (|>> (list\map (.function (_ [key value])
+                     (format key " = " (:representation value))))
+         (text.join_with ..input_separator)
+         (text.enclose ["{" "}"])
+         :abstraction))
+
+  (def: #export (nth idx array)
+    (-> Expression Expression Access)
+    (:abstraction (format (:representation array) "[" (:representation idx) "]")))
+
+  (def: #export (the field table)
+    (-> Text Expression Computation)
+    (:abstraction (format (:representation table) "." field)))
+
+  (def: #export length
+    (-> Expression Computation)
+    (|>> :representation
+         (text.enclose ["#(" ")"])
+         :abstraction))
+
+  (def: #export (apply/* args func)
+    (-> (List Expression) Expression Computation)
+    (|> args
+        (list\map ..code)
+        (text.join_with ..input_separator)
+        (text.enclose ["(" ")"])
+        (format (:representation func))
+        :abstraction))
+
+  (def: #export (do method args table)
+    (-> Text (List Expression) Expression Computation)
+    (|> args
+        (list\map ..code)
+        (text.join_with ..input_separator)
+        (text.enclose ["(" ")"])
+        (format (:representation table) ":" method)
+        :abstraction))
+
+  (template [<op> <name>]
+    [(def: #export (<name> parameter subject)
+       (-> Expression Expression Expression)
+       (:abstraction (format "("
+                             (:representation subject)
+                             " " <op> " "
+                             (:representation parameter)
+                             ")")))]
+
+    ["==" =]
+    ["<"  <]
+    ["<=" <=]
+    [">"  >]
+    [">=" >=]
+    ["+"  +]
+    ["-"  -]
+    ["*"  *]
+    ["^"  ^]
+    ["/"  /]
+    ["//" //]
+    ["%"  %]
+    [".." concat]
+
+    ["or"  or]
+    ["and" and]
+    ["|"   bit_or]
+    ["&"   bit_and]
+    ["~"   bit_xor]
+
+    ["<<" bit_shl]
+    [">>" bit_shr]
+    )
+
+  (template [<name> <unary>]
+    [(def: #export (<name> subject)
+       (-> Expression Expression)
+       (:abstraction (format "(" <unary> " " (:representation subject) ")")))]
+
+    [not "not"]
+    [negate "-"]
+    )
+
+  (template [<name> <type>]
+    [(def: #export <name>
+       (-> Text <type>)
+       (|>> :abstraction))]
+
+    [var Var]
+    [label Label]
+    )
+
+  (def: #export statement
+    (-> Expression Statement)
+    (|>> :representation :abstraction))
+
+  (def: #export (then pre! post!)
+    (-> Statement Statement Statement)
+    (:abstraction
+     (format (:representation pre!)
+             text.new_line
+             (:representation post!))))
+
+  (def: locations
+    (-> (List Location) Text)
+    (|>> (list\map ..code)
+         (text.join_with ..input_separator)))
+
+  (def: #export (local vars)
+    (-> (List Var) Statement)
+    (:abstraction (format "local " (..locations vars))))
+
+  (def: #export (set vars value)
+    (-> (List Location) Expression Statement)
+    (:abstraction (format (..locations vars) " = " (:representation value))))
+
+  (def: #export (let vars value)
+    (-> (List Var) Expression Statement)
+    (:abstraction (format "local " (..locations vars) " = " (:representation value))))
+
+  (def: #export (local/1 var value)
+    (-> Var Expression Statement)
+    (:abstraction (format "local " (:representation var) " = " (:representation value))))
+
+  (def: #export (if test then! else!)
+    (-> Expression Statement Statement Statement)
+    (:abstraction (format "if " (:representation test)
+                          text.new_line "then" (..nest (:representation then!))
+                          text.new_line "else" (..nest (:representation else!))
+                          text.new_line "end")))
+
+  (def: #export (when test then!)
+    (-> Expression Statement Statement)
+    (:abstraction (format "if " (:representation test)
+                          text.new_line "then" (..nest (:representation then!))
+                          text.new_line "end")))
+
+  (def: #export (while test body!)
+    (-> Expression Statement Statement)
+    (:abstraction
+     (format "while " (:representation test) " do"
+             (..nest (:representation body!))
+             text.new_line "end")))
+
+  (def: #export (repeat until body!)
+    (-> Expression Statement Statement)
+    (:abstraction
+     (format "repeat"
+             (..nest (:representation body!))
+             text.new_line "until " (:representation until))))
+
+  (def: #export (for_in vars source body!)
+    (-> (List Var) Expression Statement Statement)
+    (:abstraction
+     (format "for " (|> vars
+                        (list\map ..code)
+                        (text.join_with ..input_separator))
+             " in " (:representation source) " do"
+             (..nest (:representation body!))
+             text.new_line "end")))
+
+  (def: #export (for_step var from to step body!)
+    (-> Var Expression Expression Expression Statement
+        Statement)
+    (:abstraction
+     (format "for " (:representation var)
+             " = " (:representation from)
+             ..input_separator (:representation to)
+             ..input_separator (:representation step) " do"
+             (..nest (:representation body!))
+             text.new_line "end")))
+
+  (def: #export (return value)
+    (-> Expression Statement)
+    (:abstraction (format "return " (:representation value))))
+
+  (def: #export (closure args body!)
+    (-> (List Var) Statement Expression)
+    (|> (format "function " (|> args
+                                ..locations
+                                (text.enclose ["(" ")"]))
+                (..nest (:representation body!))
+                text.new_line "end")
+        (text.enclose ["(" ")"])
+        :abstraction))
+
+  (template [<name> <code>]
+    [(def: #export (<name> name args body!)
+       (-> Var (List Var) Statement Statement)
+       (:abstraction
+        (format <code> " " (:representation name)
+                (|> args
+                    ..locations
+                    (text.enclose ["(" ")"]))
+                (..nest (:representation body!))
+                text.new_line "end")))]
+
+    [function "function"]
+    [local_function "local function"]
+    )
+
+  (def: #export break
+    Statement
+    (:abstraction "break"))
+
+  (def: #export (set_label label)
+    (-> Label Statement)
+    (:abstraction (format "::" (:representation label) "::")))
+
+  (def: #export (go_to label)
+    (-> Label Statement)
+    (:abstraction (format "goto " (:representation label))))
+  )
+
+(def: #export (cond clauses else!)
+  (-> (List [Expression Statement]) Statement Statement)
+  (list\fold (.function (_ [test then!] next!)
+               (..if test then! next!))
+             else!
+             (list.reverse clauses)))
+
+(syntax: (arity_inputs {arity <code>.nat})
+  (wrap (case arity
+          0 (.list)
+          _ (|> (dec arity)
+                (enum.range n.enum 0)
+                (list\map (|>> %.nat code.local_identifier))))))
+
+(syntax: (arity_types {arity <code>.nat})
+  (wrap (list.repeat arity (` ..Expression))))
+
+(template [<arity> <function>+]
+  [(with_expansions [<apply> (template.identifier ["apply/" <arity>])
+                     <inputs> (arity_inputs <arity>)
+                     <types> (arity_types <arity>)
+                     <definitions> (template.splice <function>+)]
+     (def: #export (<apply> function <inputs>)
+       (-> Expression <types> Computation)
+       (..apply/* (.list <inputs>) function))
+
+     (template [<function>]
+       [(`` (def: #export (~~ (template.identifier [<function> "/" <arity>]))
+              (<apply> (..var <function>))))]
+
+       <definitions>))]
+
+  [1
+   [["error"]
+    ["print"]
+    ["require"]
+    ["type"]
+    ["ipairs"]]]
+
+  [2
+   [["print"]
+    ["error"]]]
+
+  [3
+   [["print"]]]
+
+  [4
+   []]
+
+  [5
+   []]
+  )

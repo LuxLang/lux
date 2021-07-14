@@ -77,7 +77,7 @@
 
 (let [tag-names #{"Primitive" "Sum" "Product" "Function" "Parameter" "Var" "Ex" "UnivQ" "ExQ" "Apply" "Named"}]
   (defn type-tag? [module name]
-    (and (= "lux" module)
+    (and (= &/prelude module)
          (contains? tag-names name))))
 
 (defn |meta [type location analysis]

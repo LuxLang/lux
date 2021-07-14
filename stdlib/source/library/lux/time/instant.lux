@@ -1,0 +1,235 @@
+(.module:
+  [library
+   [lux #*
+    ["@" target]
+    [abstract
+     [equivalence (#+ Equivalence)]
+     [order (#+ Order)]
+     [enum (#+ Enum)]
+     [codec (#+ Codec)]
+     [monad (#+ Monad do)]]
+    [control
+     [io (#+ IO io)]
+     ["." try]
+     ["." exception (#+ exception:)]
+     ["<>" parser
+      ["<.>" text (#+ Parser)]]]
+    [data
+     ["." maybe]
+     ["." text ("#\." monoid)]
+     [collection
+      ["." row]]]
+    [math
+     [number
+      ["i" int]
+      ["f" frac]]]
+    [type
+     abstract]]]
+  ["." // (#+ Time)
+   ["." duration (#+ Duration)]
+   ["." year (#+ Year)]
+   ["." month (#+ Month)]
+   ["." day (#+ Day)]
+   ["." date (#+ Date)]])
+
+(abstract: #export Instant
+  Int
+
+  {#.doc "Instant is defined as milliseconds since the epoch."}
+
+  (def: #export from_millis
+    (-> Int Instant)
+    (|>> :abstraction))
+
+  (def: #export to_millis
+    (-> Instant Int)
+    (|>> :representation))
+
+  (def: #export (span from to)
+    (-> Instant Instant Duration)
+    (duration.from_millis (i.- (:representation from) (:representation to))))
+
+  (def: #export (shift duration instant)
+    (-> Duration Instant Instant)
+    (:abstraction (i.+ (duration.to_millis duration) (:representation instant))))
+
+  (def: #export (relative instant)
+    (-> Instant Duration)
+    (|> instant :representation duration.from_millis))
+
+  (def: #export (absolute offset)
+    (-> Duration Instant)
+    (|> offset duration.to_millis :abstraction))
+
+  (implementation: #export equivalence
+    (Equivalence Instant)
+    
+    (def: (= param subject)
+      (\ i.equivalence = (:representation param) (:representation subject))))
+
+  (implementation: #export order
+    (Order Instant)
+    
+    (def: &equivalence ..equivalence)
+    (def: (< param subject)
+      (\ i.order < (:representation param) (:representation subject))))
+
+  (`` (implementation: #export enum
+        (Enum Instant)
+        
+        (def: &order ..order)
+        (~~ (template [<name>]
+              [(def: <name>
+                 (|>> :representation (\ i.enum <name>) :abstraction))]
+
+              [succ] [pred]
+              ))))
+  )
+
+(def: #export epoch
+  {#.doc "The instant corresponding to 1970-01-01T00:00:00Z"}
+  Instant
+  (..from_millis +0))
+
+(def: millis_per_day
+  (duration.query duration.milli_second duration.day))
+
+(def: (split_date_time instant)
+  (-> Instant [Date Duration])
+  (let [offset (..to_millis instant)
+        bce? (i.< +0 offset)
+        [days day_time] (if bce?
+                          (let [[days millis] (i./% ..millis_per_day offset)]
+                            (case millis
+                              +0 [days millis]
+                              _ [(dec days) (i.+ ..millis_per_day millis)]))
+                          (i./% ..millis_per_day offset))]
+    [(date.from_days days)
+     (duration.from_millis day_time)]))
+
+(template [<value> <definition>]
+  [(def: <definition> Text <value>)]
+
+  ["T" date_suffix]
+  ["Z" time_suffix]
+  )
+
+(def: (clock_time duration)
+  (-> Duration Time)
+  (let [time (if (\ duration.order < duration.empty duration)
+               (duration.merge duration.day duration)
+               duration)]
+    (|> time duration.to_millis .nat //.from_millis try.assume)))
+
+(def: (encode instant)
+  (-> Instant Text)
+  (let [[date time] (..split_date_time instant)
+        time (..clock_time time)]
+    ($_ text\compose
+        (\ date.codec encode date) ..date_suffix
+        (\ //.codec encode time) ..time_suffix)))
+
+(def: parser
+  (Parser Instant)
+  (do {! <>.monad}
+    [days (\ ! map date.to_days date.parser)
+     _ (<text>.this ..date_suffix)
+     time (\ ! map //.to_millis //.parser)
+     _ (<text>.this ..time_suffix)]
+    (wrap (|> (if (i.< +0 days)
+                (|> duration.day
+                    (duration.up (.nat (i.* -1 days)))
+                    duration.inverse)
+                (duration.up (.nat days) duration.day))
+              (duration.merge (duration.up time duration.milli_second))
+              ..absolute))))
+
+(implementation: #export codec
+  {#.doc (doc "Based on ISO 8601."
+              "For example: 2017-01-15T21:14:51.827Z")}
+  (Codec Text Instant)
+  
+  (def: encode ..encode)
+  (def: decode (<text>.run ..parser)))
+
+(def: #export now
+  (IO Instant)
+  (io (..from_millis (for {@.old ("jvm invokestatic:java.lang.System:currentTimeMillis:")
+                           @.jvm (|> ("jvm member invoke static" [] "java.lang.System" "currentTimeMillis" [])
+                                     ("jvm object cast")
+                                     (: (primitive "java.lang.Long"))
+                                     (:as Int))
+                           @.js (let [date ("js object new" ("js constant" "Date") [])]
+                                  (|> ("js object do" "getTime" date [])
+                                      (:as Frac)
+                                      "lux f64 i64"))
+                           @.python (let [time ("python import" "time")]
+                                      (|> ("python object do" "time" time)
+                                          (:as Frac)
+                                          (f.* +1,000.0)
+                                          "lux f64 i64"))
+                           @.lua (|> ("lua constant" "os.time")
+                                     "lua apply"
+                                     (:as Int)
+                                     (i.* +1,000))
+                           @.ruby (let [% ("ruby constant" "Time")
+                                        % ("ruby object do" "now" %)]
+                                    (|> ("ruby object do" "to_f" %)
+                                        (:as Frac)
+                                        (f.* +1,000.0)
+                                        "lux f64 i64"))
+                           @.php (|> ("php constant" "time")
+                                     "php apply"
+                                     (:as Int)
+                                     (i.* +1,000))
+                           @.scheme (|> ("scheme constant" "current-second")
+                                        (:as Int)
+                                        (i.* +1,000)
+                                        ("scheme apply" ("scheme constant" "exact"))
+                                        ("scheme apply" ("scheme constant" "truncate")))
+                           @.common_lisp (|> ("common_lisp constant" "get-universal-time")
+                                             "common_lisp apply"
+                                             (:as Int)
+                                             (i.* +1,000))
+                           }))))
+
+(template [<field> <type> <post_processing>]
+  [(def: #export (<field> instant)
+     (-> Instant <type>)
+     (let [[date time] (..split_date_time instant)]
+       (|> <field> <post_processing>)))]
+
+  [date Date (|>)]
+  [time Time ..clock_time]
+  )
+
+(def: #export (day_of_week instant)
+  (-> Instant Day)
+  (let [offset (..relative instant)
+        days (duration.query duration.day offset)
+        day_time (duration.frame duration.day offset)
+        days (if (and (duration.negative? offset)
+                      (not (duration.neutral? day_time)))
+               (dec days)
+               days)
+        ## 1970/01/01 was a Thursday
+        y1970m0d0 +4]
+    (case (|> y1970m0d0
+              (i.+ days) (i.% +7)
+              ## This is done to turn negative days into positive days.
+              (i.+ +7) (i.% +7))
+      +0 #day.Sunday
+      +1 #day.Monday
+      +2 #day.Tuesday
+      +3 #day.Wednesday
+      +4 #day.Thursday
+      +5 #day.Friday
+      +6 #day.Saturday
+      _ (undefined))))
+
+(def: #export (from_date_time date time)
+  (-> Date Time Instant)
+  (|> (date.to_days date)
+      (i.* (duration.to_millis duration.day))
+      (i.+ (.int (//.to_millis time)))
+      ..from_millis))

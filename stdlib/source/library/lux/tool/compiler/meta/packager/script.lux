@@ -1,0 +1,76 @@
+(.module:
+  [library
+   [lux #*
+    [type (#+ :share)]
+    [abstract
+     ["." monad (#+ Monad do)]]
+    [control
+     ["." try (#+ Try)]]
+    [data
+     [binary (#+ Binary)]
+     ["." product]
+     [text
+      ["%" format (#+ format)]
+      [encoding 
+       ["." utf8]]]
+     [collection
+      ["." row]
+      ["." list ("#\." functor)]]]]]
+  [program
+   [compositor
+    ["." static (#+ Static)]]]
+  ["." // (#+ Packager)
+   [//
+    ["." archive (#+ Output)
+     ["." descriptor]
+     ["." artifact]]
+    [cache
+     ["." dependency]]
+    ["." io #_
+     ["#" archive]]
+    [//
+     [language
+      ["$" lux
+       [generation (#+ Context)]]]]]])
+
+## TODO: Delete ASAP
+(type: (Action ! a)
+  (! (Try a)))
+
+(def: (write_module sequence [module output] so_far)
+  (All [directive]
+    (-> (-> directive directive directive) [archive.ID Output] directive
+        (Try directive)))
+  (|> output
+      row.to_list
+      (list\map product.right)
+      (monad.fold try.monad
+                  (function (_ content so_far)
+                    (|> content
+                        (\ utf8.codec decode)
+                        (\ try.monad map
+                           (function (_ content)
+                             (sequence so_far
+                                       (:share [directive]
+                                               directive
+                                               so_far
+                                               
+                                               directive
+                                               (:assume content)))))))
+                  so_far)))
+
+(def: #export (package header to_code sequence scope)
+  (All [directive]
+    (-> directive
+        (-> directive Text)
+        (-> directive directive directive)
+        (-> directive directive)
+        Packager))
+  (function (package archive program)
+    (do {! try.monad}
+      [order (dependency.load_order $.key archive)]
+      (|> order
+          (list\map (function (_ [module [module_id [descriptor document output]]])
+                      [module_id output]))
+          (monad.fold ! (..write_module sequence) header)
+          (\ ! map (|>> scope to_code (\ utf8.codec encode)))))))

@@ -25,41 +25,43 @@
 
 (def empty-env &/$Nil)
 
-(def I64 (&/$Named (&/T ["lux" "I64"])
+(def I64 (&/$Named (&/T [&/prelude "I64"])
                    (&/$UnivQ empty-env
                              (&/$Primitive "#I64" (&/|list (&/$Parameter 1))))))
 (def Nat* (&/$Primitive &&host/nat-data-tag &/$Nil))
 (def Rev* (&/$Primitive &&host/rev-data-tag &/$Nil))
 (def Int* (&/$Primitive &&host/int-data-tag &/$Nil))
 
-(def Bit (&/$Named (&/T ["lux" "Bit"]) (&/$Primitive "#Bit" &/$Nil)))
-(def Nat (&/$Named (&/T ["lux" "Nat"]) (&/$Apply Nat* I64)))
-(def Rev (&/$Named (&/T ["lux" "Rev"]) (&/$Apply Rev* I64)))
-(def Int (&/$Named (&/T ["lux" "Int"]) (&/$Apply Int* I64)))
-(def Frac (&/$Named (&/T ["lux" "Frac"]) (&/$Primitive "#Frac" &/$Nil)))
-(def Text (&/$Named (&/T ["lux" "Text"]) (&/$Primitive "#Text" &/$Nil)))
-(def Ident (&/$Named (&/T ["lux" "Ident"]) (&/$Product Text Text)))
+(def Bit (&/$Named (&/T [&/prelude "Bit"]) (&/$Primitive "#Bit" &/$Nil)))
+(def Nat (&/$Named (&/T [&/prelude "Nat"]) (&/$Apply Nat* I64)))
+(def Rev (&/$Named (&/T [&/prelude "Rev"]) (&/$Apply Rev* I64)))
+(def Int (&/$Named (&/T [&/prelude "Int"]) (&/$Apply Int* I64)))
+(def Frac (&/$Named (&/T [&/prelude "Frac"]) (&/$Primitive "#Frac" &/$Nil)))
+(def Text (&/$Named (&/T [&/prelude "Text"]) (&/$Primitive "#Text" &/$Nil)))
+(def Ident (&/$Named (&/T [&/prelude "Ident"]) (&/$Product Text Text)))
 
 (defn Array [elemT]
   (&/$Primitive "#Array" (&/|list elemT)))
 
 (def Nothing
-  (&/$Named (&/T ["lux" "Nothing"])
+  (&/$Named (&/T [&/prelude "Nothing"])
             (&/$UnivQ empty-env
                       (&/$Parameter 1))))
 
 (def Any
-  (&/$Named (&/T ["lux" "Any"])
+  (&/$Named (&/T [&/prelude "Any"])
             (&/$ExQ empty-env
                     (&/$Parameter 1))))
 
 (def IO
-  (&/$Named (&/T ["lux/control/io" "IO"])
+  (&/$Named (&/T [(str &/prelude "/control/io") "IO"])
             (&/$UnivQ empty-env
-                      (&/$Primitive "lux/type/abstract.Abstraction lux/control/io.IO" (&/|list (&/$Parameter 1))))))
+                      (&/$Primitive (str &/prelude "/type/abstract.Abstraction "
+                                         &/prelude "/control/io.IO")
+                                    (&/|list (&/$Parameter 1))))))
 
 (def List
-  (&/$Named (&/T ["lux" "List"])
+  (&/$Named (&/T [&/prelude "List"])
             (&/$UnivQ empty-env
                       (&/$Sum
                        ;; lux;Nil
@@ -70,7 +72,7 @@
                                              (&/$Parameter 0)))))))
 
 (def Maybe
-  (&/$Named (&/T ["lux" "Maybe"])
+  (&/$Named (&/T [&/prelude "Maybe"])
             (&/$UnivQ empty-env
                       (&/$Sum
                        ;; lux;None
@@ -80,7 +82,7 @@
                       )))
 
 (def Type
-  (&/$Named (&/T ["lux" "Type"])
+  (&/$Named (&/T [&/prelude "Type"])
             (let [Type (&/$Apply (&/$Parameter 1) (&/$Parameter 0))
                   TypeList (&/$Apply Type List)
                   TypePair (&/$Product Type Type)]
@@ -121,18 +123,18 @@
                                   )))))
 
 (def Location
-  (&/$Named (&/T ["lux" "Location"])
+  (&/$Named (&/T [&/prelude "Location"])
             (&/$Product Text (&/$Product Nat Nat))))
 
 (def Meta
-  (&/$Named (&/T ["lux" "Meta"])
+  (&/$Named (&/T [&/prelude "Meta"])
             (&/$UnivQ empty-env
                       (&/$UnivQ empty-env
                                 (&/$Product (&/$Parameter 3)
                                             (&/$Parameter 1))))))
 
 (def Code*
-  (&/$Named (&/T ["lux" "Code'"])
+  (&/$Named (&/T [&/prelude "Code'"])
             (let [Code (&/$Apply (&/$Apply (&/$Parameter 1)
                                            (&/$Parameter 0))
                                  (&/$Parameter 1))
@@ -164,12 +166,12 @@
                         ))))
 
 (def Code
-  (&/$Named (&/T ["lux" "Code"])
+  (&/$Named (&/T [&/prelude "Code"])
             (let [w (&/$Apply Location Meta)]
               (&/$Apply (&/$Apply w Code*) w))))
 
 (def Macro
-  (&/$Named (&/T ["lux" "Macro"])
+  (&/$Named (&/T [&/prelude "Macro"])
             (&/$Primitive "#Macro" &/$Nil)))
 
 (defn bound? [id]

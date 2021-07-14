@@ -1,0 +1,87 @@
+(.module:
+  [library
+   [lux #*
+    [abstract
+     [codec (#+ Codec)]]
+    [control
+     ["." try (#+ Try)]]
+    [data
+     ["." text]]]]
+  ["." / #_
+   ["#." nat]
+   ["#." int]
+   ["#." rev]
+   ["#." frac]])
+
+(macro: (encoding_doc tokens state)
+  (case tokens
+    (^ (list [location (#.Text encoding)] example_1 example_2))
+    (let [encoding ($_ "lux text concat"
+                       "Given syntax for a "
+                       encoding
+                       " number, generates a Nat, an Int, a Rev or a Frac.")
+          separators "Allows for the presence of commas among the digits."
+          description [location (#.Text ($_ "lux text concat" encoding " " separators))]]
+      (#try.Success [state (list (` (doc (~ description)
+                                         (~ example_1)
+                                         (~ example_2))))]))
+
+    _
+    (#try.Failure "Wrong syntax for 'encoding_doc'.")))
+
+(def: separator
+  ",")
+
+(def: (separator_prefixed? number)
+  (-> Text Bit)
+  (case ("lux text index" 0 ..separator number)
+    (#.Some 0)
+    #1
+
+    _
+    #0))
+
+(def: clean_separators
+  (-> Text Text)
+  (text.replace_all ..separator ""))
+
+(template [<macro> <nat> <int> <rev> <frac> <error> <doc>]
+  [(macro: #export (<macro> tokens state)
+     {#.doc <doc>}
+     (case tokens
+       (#.Cons [meta (#.Text repr')] #.Nil)
+       (if (..separator_prefixed? repr')
+         (#try.Failure <error>)
+         (let [repr (..clean_separators repr')]
+           (case (\ <nat> decode repr)
+             (#try.Success value)
+             (#try.Success [state (list [meta (#.Nat value)])])
+
+             (^multi (#try.Failure _)
+                     [(\ <int> decode repr) (#try.Success value)])
+             (#try.Success [state (list [meta (#.Int value)])])
+
+             (^multi (#try.Failure _)
+                     [(\ <rev> decode repr) (#try.Success value)])
+             (#try.Success [state (list [meta (#.Rev value)])])
+
+             (^multi (#try.Failure _)
+                     [(\ <frac> decode repr) (#try.Success value)])
+             (#try.Success [state (list [meta (#.Frac value)])])
+
+             _
+             (#try.Failure <error>))))
+
+       _
+       (#try.Failure <error>)))]
+
+  [bin /nat.binary /int.binary /rev.binary /frac.binary
+   "Invalid binary syntax."
+   (encoding_doc "binary" (bin "11001001") (bin "11,00,10,01"))]
+  [oct /nat.octal  /int.octal  /rev.octal  /frac.octal
+   "Invalid octal syntax."
+   (encoding_doc "octal" (oct "615243") (oct "615,243"))]
+  [hex /nat.hex    /int.hex    /rev.hex    /frac.hex
+   "Invalid hexadecimal syntax."
+   (encoding_doc "hexadecimal" (hex "deadBEEF") (hex "dead,BEEF"))]
+  )

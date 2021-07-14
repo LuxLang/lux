@@ -188,7 +188,7 @@
                                            (.visit &host/bytecode-version (+ Opcodes/ACC_PUBLIC Opcodes/ACC_SUPER)
                                                    module-class-name nil "java/lang/Object" nil)
                                            (.visitSource file-name nil))]
-                            _ (if (= "lux" name)
+                            _ (if (= &/prelude name)
                                 (|do [_ &&rt/compile-Function-class
                                       _ &&rt/compile-LuxRT-class]
                                   (return nil))
@@ -242,7 +242,7 @@
                                                     &&jvm-cache/load-def-value
                                                     &&jvm-cache/install-all-defs-in-module
                                                     &&jvm-cache/uninstall-all-defs-in-module)
-                         _ (compile-module source-dirs "lux")]
+                         _ (compile-module source-dirs &/prelude)]
                      (compile-module source-dirs program-module))]
       (|case (m-action (&/init-state "{old}" mode (jvm-host)))
         (&/$Right ?state _)

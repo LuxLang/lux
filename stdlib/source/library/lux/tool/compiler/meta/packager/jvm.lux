@@ -1,0 +1,145 @@
+(.module:
+  [library
+   [lux (#- Module Definition)
+    [type (#+ :share)]
+    ["." ffi (#+ import: do_to)]
+    [abstract
+     ["." monad (#+ Monad do)]]
+    [control
+     ["." try (#+ Try)]
+     [concurrency
+      ["." promise (#+ Promise)]]]
+    [data
+     ["." binary (#+ Binary)]
+     ["." text
+      ["%" format (#+ format)]]
+     [collection
+      ["." row (#+ Row) ("#\." fold)]
+      ["." list ("#\." functor fold)]]]
+    [math
+     [number
+      ["n" nat]]]
+    [target
+     [jvm
+      [encoding
+       ["." name]]]]]]
+  [program
+   [compositor
+    ["." static (#+ Static)]]]
+  ["." // (#+ Packager)
+   [//
+    ["." archive (#+ Output)
+     ["." descriptor (#+ Module)]
+     ["." artifact]]
+    [cache
+     ["." dependency]]
+    ["." io #_
+     ["#" archive]]
+    [//
+     [language
+      ["$" lux
+       [generation (#+ Context)]
+       [phase
+        [generation
+         [jvm
+          ["." runtime (#+ Definition)]]]]]]]]])
+
+(import: java/lang/Object)
+
+(import: java/lang/String)
+
+(import: java/util/jar/Attributes
+  ["#::."
+   (put [java/lang/Object java/lang/Object] #? java/lang/Object)])
+
+(import: java/util/jar/Attributes$Name
+  ["#::."
+   (#static MAIN_CLASS java/util/jar/Attributes$Name)
+   (#static MANIFEST_VERSION java/util/jar/Attributes$Name)])
+
+(import: java/util/jar/Manifest
+  ["#::."
+   (new [])
+   (getMainAttributes [] java/util/jar/Attributes)])
+
+(import: java/io/Flushable
+  ["#::."
+   (flush [] void)])
+
+(import: java/io/Closeable
+  ["#::."
+   (close [] void)])
+
+(import: java/io/OutputStream)
+
+(import: java/io/ByteArrayOutputStream
+  ["#::."
+   (new [int])
+   (toByteArray [] [byte])])
+
+(import: java/util/zip/ZipEntry)
+
+(import: java/util/zip/ZipOutputStream
+  ["#::."
+   (write [[byte] int int] void)
+   (closeEntry [] void)])
+
+(import: java/util/jar/JarEntry
+  ["#::."
+   (new [java/lang/String])])
+
+(import: java/util/jar/JarOutputStream
+  ["#::."
+   (new [java/io/OutputStream java/util/jar/Manifest])
+   (putNextEntry [java/util/zip/ZipEntry] void)])
+
+(def: byte 1)
+## https://en.wikipedia.org/wiki/Kibibyte
+(def: kibi_byte (n.* 1,024 byte))
+## https://en.wikipedia.org/wiki/Mebibyte
+(def: mebi_byte (n.* 1,024 kibi_byte))
+
+(def: manifest_version "1.0")
+
+(def: (manifest program)
+  (-> Context java/util/jar/Manifest)
+  (let [manifest (java/util/jar/Manifest::new)]
+    (exec (do_to (java/util/jar/Manifest::getMainAttributes manifest)
+            (java/util/jar/Attributes::put (java/util/jar/Attributes$Name::MAIN_CLASS) (|> program runtime.class_name name.internal name.external))
+            (java/util/jar/Attributes::put (java/util/jar/Attributes$Name::MANIFEST_VERSION) ..manifest_version))
+      manifest)))
+
+(def: (write_class static module artifact content sink)
+  (-> Static archive.ID artifact.ID Binary java/util/jar/JarOutputStream
+      java/util/jar/JarOutputStream)
+  (let [class_path (format (runtime.class_name [module artifact])
+                           (get@ #static.artifact_extension static))]
+    (do_to sink
+      (java/util/jar/JarOutputStream::putNextEntry (java/util/jar/JarEntry::new class_path))
+      (java/util/zip/ZipOutputStream::write content +0 (.int (binary.size content)))
+      (java/io/Flushable::flush)
+      (java/util/zip/ZipOutputStream::closeEntry))))
+
+(def: (write_module static [module output] sink)
+  (-> Static [archive.ID Output] java/util/jar/JarOutputStream
+      java/util/jar/JarOutputStream)
+  (row\fold (function (_ [artifact content] sink)
+              (..write_class static module artifact content sink))
+            sink
+            output))
+
+(def: #export (package static)
+  (-> Static Packager)
+  (function (_ archive program)
+    (do {! try.monad}
+      [order (dependency.load_order $.key archive)
+       #let [buffer (java/io/ByteArrayOutputStream::new (.int ..mebi_byte))
+             sink (|> order
+                      (list\map (function (_ [module [module_id [descriptor document output]]])
+                                  [module_id output]))
+                      (list\fold (..write_module static)
+                                 (java/util/jar/JarOutputStream::new buffer (..manifest program))))
+             _ (do_to sink
+                 (java/io/Flushable::flush)
+                 (java/io/Closeable::close))]]
+      (wrap (java/io/ByteArrayOutputStream::toByteArray buffer)))))

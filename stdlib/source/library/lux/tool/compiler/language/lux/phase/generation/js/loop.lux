@@ -1,0 +1,91 @@
+(.module:
+  [library
+   [lux (#- Scope)
+    [abstract
+     ["." monad (#+ do)]]
+    [data
+     ["." product]
+     ["." text
+      ["%" format (#+ format)]]
+     [collection
+      ["." list ("#\." functor fold)]]]
+    [math
+     [number
+      ["n" nat]]]
+    [target
+     ["_" js (#+ Computation Var Expression Statement)]]]]
+  ["." // #_
+   [runtime (#+ Operation Phase Phase! Generator Generator!)]
+   ["#." case]
+   ["///#" //// #_
+    [synthesis (#+ Scope Synthesis)]
+    ["#." generation]
+    ["//#" /// #_
+     ["#." phase]
+     [reference
+      [variable (#+ Register)]]]]])
+
+(def: @scope
+  (-> Nat Text)
+  (|>> %.nat (format "scope")))
+
+(def: (setup initial? offset bindings body)
+  (-> Bit Register (List Expression) Statement Statement)
+  (|> bindings
+      list.enumeration
+      (list\map (function (_ [register value])
+                  (let [variable (//case.register (n.+ offset register))]
+                    (if initial?
+                      (_.define variable value)
+                      (_.set variable value)))))
+      list.reverse
+      (list\fold _.then body)))
+
+(def: #export (scope! statement expression archive [start initsS+ bodyS])
+  (Generator! (Scope Synthesis))
+  (case initsS+
+    ## function/false/non-independent loop
+    #.Nil
+    (statement expression archive bodyS)
+
+    ## true loop
+    _
+    (do {! ///////phase.monad}
+      [@scope (\ ! map ..@scope /////generation.next)
+       initsO+ (monad.map ! (expression archive) initsS+)
+       body! (/////generation.with_anchor [start @scope]
+               (statement expression archive bodyS))]
+      (wrap (..setup true start initsO+
+                     (_.with_label (_.label @scope)
+                       (_.do_while (_.boolean true)
+                                   body!)))))))
+
+(def: #export (scope statement expression archive [start initsS+ bodyS])
+  (-> Phase! (Generator (Scope Synthesis)))
+  (case initsS+
+    ## function/false/non-independent loop
+    #.Nil
+    (expression archive bodyS)
+
+    ## true loop
+    _
+    (do {! ///////phase.monad}
+      [loop! (scope! statement expression archive [start initsS+ bodyS])]
+      (wrap (_.apply/* (_.closure (list) loop!) (list))))))
+
+(def: @temp
+  (_.var "lux_recur_values"))
+
+(def: #export (recur! statement expression archive argsS+)
+  (Generator! (List Synthesis))
+  (do {! ///////phase.monad}
+    [[offset @scope] /////generation.anchor
+     argsO+ (monad.map ! (expression archive) argsS+)]
+    (wrap ($_ _.then
+              (_.define @temp (_.array argsO+))
+              (..setup false offset
+                       (|> argsO+
+                           list.enumeration
+                           (list\map (function (_ [idx _])
+                                       (_.at (_.i32 (.int idx)) @temp))))
+                       (_.continue_at (_.label @scope)))))))

@@ -1,0 +1,200 @@
+(.module:
+  [library
+   [lux (#- and or)
+    [abstract
+     [functor (#+ Functor)]
+     [apply (#+ Apply)]
+     ["." monad (#+ Monad do)]]
+    [control
+     [pipe (#+ case>)]
+     ["." function]
+     ["." io (#+ IO io)]]
+    [data
+     ["." product]]
+    [type (#+ :share)
+     abstract]]]
+  [//
+   ["." thread]
+   ["." atom (#+ Atom atom)]])
+
+(abstract: #export (Promise a)
+  (Atom [(Maybe a) (List (-> a (IO Any)))])
+
+  {#.doc "Represents values produced by asynchronous computations (unlike IO, which is synchronous)."}
+
+  (type: #export (Resolver a)
+    (-> a (IO Bit)))
+
+  (def: (resolver promise)
+    {#.doc "Sets an promise's value if it has not been done yet."}
+    (All [a] (-> (Promise a) (Resolver a)))
+    (function (resolve value)
+      (let [promise (:representation promise)]
+        (do {! io.monad}
+          [(^@ old [_value _observers]) (atom.read promise)]
+          (case _value
+            (#.Some _)
+            (wrap #0)
+
+            #.None
+            (do !
+              [#let [new [(#.Some value) #.None]]
+               succeeded? (atom.compare_and_swap old new promise)]
+              (if succeeded?
+                (do !
+                  [_ (monad.map ! (function (_ f) (f value))
+                                _observers)]
+                  (wrap #1))
+                (resolve value))))))))
+
+  (def: #export (resolved value)
+    (All [a] (-> a (Promise a)))
+    (:abstraction (atom [(#.Some value) (list)])))
+
+  (def: #export (promise _)
+    (All [a] (-> Any [(Promise a) (Resolver a)]))
+    (let [promise (:abstraction (atom [#.None (list)]))]
+      [promise (..resolver promise)]))
+
+  (def: #export poll
+    {#.doc "Polls a promise's value."}
+    (All [a] (-> (Promise a) (IO (Maybe a))))
+    (|>> :representation
+         atom.read
+         (\ io.functor map product.left)))
+
+  (def: #export (await f promise)
+    (All [a] (-> (-> a (IO Any)) (Promise a) (IO Any)))
+    (do {! io.monad}
+      [#let [promise (:representation promise)]
+       (^@ old [_value _observers]) (atom.read promise)]
+      (case _value
+        (#.Some value)
+        (f value)
+
+        #.None
+        (let [new [_value (#.Cons f _observers)]]
+          (do !
+            [swapped? (atom.compare_and_swap old new promise)]
+            (if swapped?
+              (wrap [])
+              (await f (:abstraction promise))))))))
+  )
+
+(def: #export resolved?
+  {#.doc "Checks whether a promise's value has already been resolved."}
+  (All [a] (-> (Promise a) (IO Bit)))
+  (|>> ..poll
+       (\ io.functor map
+          (|>> (case> #.None
+                      #0
+
+                      (#.Some _)
+                      #1)))))
+
+(implementation: #export functor
+  (Functor Promise)
+  
+  (def: (map f fa)
+    (let [[fb resolve] (..promise [])]
+      (exec (io.run (..await (|>> f resolve) fa))
+        fb))))
+
+(implementation: #export apply
+  (Apply Promise)
+  
+  (def: &functor ..functor)
+
+  (def: (apply ff fa)
+    (let [[fb resolve] (..promise [])]
+      (exec (io.run (..await (function (_ f)
+                               (..await (|>> f resolve) fa))
+                             ff))
+        fb))))
+
+(implementation: #export monad
+  (Monad Promise)
+  
+  (def: &functor ..functor)
+
+  (def: wrap ..resolved)
+
+  (def: (join mma)
+    (let [[ma resolve] (promise [])]
+      (exec (io.run (..await (..await resolve) mma))
+        ma))))
+
+(def: #export (and left right)
+  {#.doc "Sequencing combinator."}
+  (All [a b] (-> (Promise a) (Promise b) (Promise [a b])))
+  (let [[read! write!] (:share [a b]
+                               [(Promise a) (Promise b)]
+                               [left right]
+
+                               [(Promise [a b])
+                                (Resolver [a b])]
+                               (..promise []))
+        _ (io.run (..await (function (_ left)
+                             (..await (function (_ right)
+                                        (write! [left right]))
+                                      right))
+                           left))]
+    read!))
+
+(def: #export (or left right)
+  {#.doc "Heterogeneous alternative combinator."}
+  (All [a b] (-> (Promise a) (Promise b) (Promise (| a b))))
+  (let [[a|b resolve] (..promise [])]
+    (with_expansions
+      [<sides> (template [<promise> <tag>]
+                 [(io.run (await (|>> <tag> resolve) <promise>))]
+
+                 [left  #.Left]
+                 [right #.Right]
+                 )]
+      (exec <sides>
+        a|b))))
+
+(def: #export (either left right)
+  {#.doc "Homogeneous alternative combinator."}
+  (All [a] (-> (Promise a) (Promise a) (Promise a)))
+  (let [[left||right resolve] (..promise [])]
+    (`` (exec (~~ (template [<promise>]
+                    [(io.run (await resolve <promise>))]
+
+                    [left]
+                    [right]))
+          left||right))))
+
+(def: #export (schedule millis_delay computation)
+  {#.doc (doc "Runs an I/O computation on its own thread (after a specified delay)."
+              "Returns a Promise that will eventually host its result.")}
+  (All [a] (-> Nat (IO a) (Promise a)))
+  (let [[!out resolve] (..promise [])]
+    (exec (|> (do io.monad
+                [value computation]
+                (resolve value))
+              (thread.schedule millis_delay)
+              io.run)
+      !out)))
+
+(def: #export future
+  {#.doc (doc "Runs an I/O computation on its own thread."
+              "Returns a Promise that will eventually host its result.")}
+  (All [a] (-> (IO a) (Promise a)))
+  (..schedule 0))
+
+(def: #export (delay time_millis value)
+  {#.doc "Delivers a value after a certain period has passed."}
+  (All [a] (-> Nat a (Promise a)))
+  (..schedule time_millis (io value)))
+
+(def: #export (wait time_millis)
+  {#.doc "Returns a promise that will be resolved after the specified amount of milliseconds."}
+  (-> Nat (Promise Any))
+  (..delay time_millis []))
+
+(def: #export (time_out time_millis promise)
+  {#.doc "Wait for a promise to be resolved within the specified amount of milliseconds."}
+  (All [a] (-> Nat (Promise a) (Promise (Maybe a))))
+  (..or (wait time_millis) promise))

@@ -21,6 +21,12 @@
                               MethodVisitor
                               AnnotationVisitor)))
 
+(def ^:const ^String rt-class
+  &&/lux-utils-class)
+
+(def ^:const ^String function-class
+  &&/function-class)
+
 ;; [Utils]
 (def init-method "<init>")
 
@@ -63,7 +69,7 @@
                         (.visitInsn Opcodes/ARETURN)
                         (.visitMaxs 0 0)
                         (.visitEnd)))))]]
-    (&&/save-class! (second (string/split &&/function-class #"/"))
+    (&&/save-class! (-> &&/function-class (string/split #"/") (nth 2))
                     (.toByteArray (doto =class .visitEnd)))))
 
 (defmacro <bytecode> [& instructions]
@@ -170,7 +176,7 @@
                  super-nested (<bytecode> super-nested-tag ;; super-tag
                                           !variant <>last? ;; super-tag, super-last
                                           !variant <>value ;; super-tag, super-last, super-value
-                                          (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;"))
+                                          (.visitMethodInsn Opcodes/INVOKESTATIC rt-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;"))
 
                  update-!variant (<bytecode> !variant <>value
                                              (.visitTypeInsn Opcodes/CHECKCAST "[Ljava/lang/Object;")
@@ -249,11 +255,11 @@
             (.visitVarInsn Opcodes/ALOAD 0)
             (.visitMethodInsn Opcodes/INVOKESTATIC <class> <parse-method> <signature>)
             <wrapper>
-            (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)[Ljava/lang/Object;")
+            (.visitMethodInsn Opcodes/INVOKESTATIC rt-class "make_some" "(Ljava/lang/Object;)[Ljava/lang/Object;")
             (.visitInsn Opcodes/ARETURN)
             (.visitLabel $to)
             (.visitLabel $handler)
-            (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()[Ljava/lang/Object;")
+            (.visitMethodInsn Opcodes/INVOKESTATIC rt-class "make_none" "()[Ljava/lang/Object;")
             (.visitInsn Opcodes/ARETURN)
             (.visitMaxs 0 0)
             (.visitEnd)))
@@ -335,7 +341,7 @@
                   (.visitLdcInsn (->> #'&/$None meta ::&/idx int)) ;; I
                   (.visitInsn Opcodes/ACONST_NULL) ;; I?
                   (.visitLdcInsn &/unit-tag) ;; I?U
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
+                  (.visitMethodInsn Opcodes/INVOKESTATIC rt-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
                   (.visitInsn Opcodes/ARETURN)
                   (.visitMaxs 0 0)
                   (.visitEnd))
@@ -344,7 +350,7 @@
                   (.visitLdcInsn (->> #'&/$Some meta ::&/idx int)) ;; I
                   (.visitLdcInsn "") ;; I?
                   (.visitVarInsn Opcodes/ALOAD 0) ;; I?O
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
+                  (.visitMethodInsn Opcodes/INVOKESTATIC rt-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
                   (.visitInsn Opcodes/ARETURN)
                   (.visitMaxs 0 0)
                   (.visitEnd))
@@ -377,14 +383,14 @@
                                              (.visitMethodInsn Opcodes/INVOKESPECIAL "java/io/PrintWriter" "<init>" "(Ljava/io/Writer;Z)V")
                                              ;; P
                                              ))]
-                  (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "runTry" "(Llux/Function;)[Ljava/lang/Object;" nil nil)
+                  (doto (.visitMethod =class (+ Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) "runTry" (str "(L" function-class ";)[Ljava/lang/Object;") nil nil)
                     (.visitCode)
                     (.visitTryCatchBlock $from $to $handler "java/lang/Throwable")
                     (.visitLabel $from)
                     (.visitVarInsn Opcodes/ALOAD 0)
                     (.visitInsn Opcodes/ACONST_NULL)
-                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL "lux/Function" &&/apply-method (&&/apply-signature 1))
-                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)[Ljava/lang/Object;")
+                    (.visitMethodInsn Opcodes/INVOKEVIRTUAL function-class &&/apply-method (&&/apply-signature 1))
+                    (.visitMethodInsn Opcodes/INVOKESTATIC rt-class "make_some" "(Ljava/lang/Object;)[Ljava/lang/Object;")
                     (.visitInsn Opcodes/ARETURN)
                     (.visitLabel $to)
                     (.visitLabel $handler) ;; T
@@ -397,7 +403,7 @@
                     (.visitLdcInsn (->> #'&/$Left meta ::&/idx int)) ;; SI
                     (.visitInsn Opcodes/ACONST_NULL) ;; SI?
                     swap2x1 ;; I?S
-                    (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
+                    (.visitMethodInsn Opcodes/INVOKESTATIC rt-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")
                     (.visitInsn Opcodes/ARETURN)
                     (.visitMaxs 0 0)
                     (.visitEnd)))
@@ -406,5 +412,5 @@
                   (compile-LuxRT-adt-methods)
                   (compile-LuxRT-int-methods)
                   (compile-LuxRT-frac-methods))]]
-    (&&/save-class! (second (string/split &&/lux-utils-class #"/"))
+    (&&/save-class! (-> &&/lux-utils-class (string/split #"/") (nth 2))
                     (.toByteArray (doto =class .visitEnd)))))

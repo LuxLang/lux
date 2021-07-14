@@ -1,0 +1,495 @@
+(.module:
+  [library
+   [lux #*
+    ["." meta]
+    [abstract
+     monad]
+    [control
+     ["." try]
+     ["<>" parser ("#\." monad)
+      ["<t>" text (#+ Parser)]
+      ["<c>" code]]]
+    [data
+     ["." product]
+     ["." maybe]
+     [collection
+      ["." list ("#\." fold monad)]]]
+    [macro (#+ with_gensyms)
+     [syntax (#+ syntax:)]
+     ["." code]]
+    [math
+     [number (#+ hex)
+      ["n" nat ("#\." decimal)]]]]]
+  ["." //
+   ["%" format (#+ format)]])
+
+(def: regex_char^
+  (Parser Text)
+  (<t>.none_of "\.|&()[]{}"))
+
+(def: escaped_char^
+  (Parser Text)
+  (do <>.monad
+    [? (<>.parses? (<t>.this "\"))]
+    (if ?
+      <t>.any
+      regex_char^)))
+
+(def: (refine^ refinement^ base^)
+  (All [a] (-> (Parser a) (Parser Text) (Parser Text)))
+  (do <>.monad
+    [output base^
+     _ (<t>.local output refinement^)]
+    (wrap output)))
+
+(def: word^
+  (Parser Text)
+  (<>.either <t>.alpha_num
+             (<t>.one_of "_")))
+
+(def: (copy reference)
+  (-> Text (Parser Text))
+  (<>.after (<t>.this reference) (<>\wrap reference)))
+
+(def: (join_text^ part^)
+  (-> (Parser (List Text)) (Parser Text))
+  (do <>.monad
+    [parts part^]
+    (wrap (//.join_with "" parts))))
+
+(def: name_char^
+  (Parser Text)
+  (<t>.none_of (format "[]{}()s#.<>" //.double_quote)))
+
+(def: name_part^
+  (Parser Text)
+  (do <>.monad
+    [head (refine^ (<t>.not <t>.decimal)
+                   name_char^)
+     tail (<t>.some name_char^)]
+    (wrap (format head tail))))
+
+(def: (name^ current_module)
+  (-> Text (Parser Name))
+  ($_ <>.either
+      (<>.and (<>\wrap current_module) (<>.after (<t>.this "..") name_part^))
+      (<>.and name_part^ (<>.after (<t>.this ".") name_part^))
+      (<>.and (<>\wrap .prelude_module) (<>.after (<t>.this ".") name_part^))
+      (<>.and (<>\wrap "") name_part^)))
+
+(def: (re_var^ current_module)
+  (-> Text (Parser Code))
+  (do <>.monad
+    [name (<t>.enclosed ["\@<" ">"] (name^ current_module))]
+    (wrap (` (: (Parser Text) (~ (code.identifier name)))))))
+
+(def: re_range^
+  (Parser Code)
+  (do {! <>.monad}
+    [from (|> regex_char^ (\ ! map (|>> (//.nth 0) maybe.assume)))
+     _ (<t>.this "-")
+     to (|> regex_char^ (\ ! map (|>> (//.nth 0) maybe.assume)))]
+    (wrap (` (<t>.range (~ (code.nat from)) (~ (code.nat to)))))))
+
+(def: re_char^
+  (Parser Code)
+  (do <>.monad
+    [char escaped_char^]
+    (wrap (` ((~! ..copy) (~ (code.text char)))))))
+
+(def: re_options^
+  (Parser Code)
+  (do <>.monad
+    [options (<t>.many escaped_char^)]
+    (wrap (` (<t>.one_of (~ (code.text options)))))))
+
+(def: re_user_class^'
+  (Parser Code)
+  (do <>.monad
+    [negate? (<>.maybe (<t>.this "^"))
+     parts (<>.many ($_ <>.either
+                        re_range^
+                        re_options^))]
+    (wrap (case negate?
+            (#.Some _) (` (<t>.not ($_ <>.either (~+ parts))))
+            #.None     (` ($_ <>.either (~+ parts)))))))
+
+(def: re_user_class^
+  (Parser Code)
+  (do <>.monad
+    [_ (wrap [])
+     init re_user_class^'
+     rest (<>.some (<>.after (<t>.this "&&") (<t>.enclosed ["[" "]"] re_user_class^')))]
+    (wrap (list\fold (function (_ refinement base)
+                       (` ((~! refine^) (~ refinement) (~ base))))
+                     init
+                     rest))))
+
+(def: blank^
+  (Parser Text)
+  (<t>.one_of (format " " //.tab)))
+
+(def: ascii^
+  (Parser Text)
+  (<t>.range (hex "0") (hex "7F")))
+
+(def: control^
+  (Parser Text)
+  (<>.either (<t>.range (hex "0") (hex "1F"))
+             (<t>.one_of (//.from_code (hex "7F")))))
+
+(def: punct^
+  (Parser Text)
+  (<t>.one_of (format "!#$%&'()*+,-./:;<=>?@[\]^_`{|}~"
+                      //.double_quote)))
+
+(def: graph^
+  (Parser Text)
+  (<>.either punct^ <t>.alpha_num))
+
+(def: print^
+  (Parser Text)
+  (<>.either graph^
+             (<t>.one_of (//.from_code (hex "20")))))
+
+(def: re_system_class^
+  (Parser Code)
+  (do <>.monad
+    []
+    ($_ <>.either
+        (<>.after (<t>.this ".") (wrap (` <t>.any)))
+        (<>.after (<t>.this "\d") (wrap (` <t>.decimal)))
+        (<>.after (<t>.this "\D") (wrap (` (<t>.not <t>.decimal))))
+        (<>.after (<t>.this "\s") (wrap (` <t>.space)))
+        (<>.after (<t>.this "\S") (wrap (` (<t>.not <t>.space))))
+        (<>.after (<t>.this "\w") (wrap (` (~! word^))))
+        (<>.after (<t>.this "\W") (wrap (` (<t>.not (~! word^)))))
+
+        (<>.after (<t>.this "\p{Lower}") (wrap (` <t>.lower)))
+        (<>.after (<t>.this "\p{Upper}") (wrap (` <t>.upper)))
+        (<>.after (<t>.this "\p{Alpha}") (wrap (` <t>.alpha)))
+        (<>.after (<t>.this "\p{Digit}") (wrap (` <t>.decimal)))
+        (<>.after (<t>.this "\p{Alnum}") (wrap (` <t>.alpha_num)))
+        (<>.after (<t>.this "\p{Space}") (wrap (` <t>.space)))
+        (<>.after (<t>.this "\p{HexDigit}") (wrap (` <t>.hexadecimal)))
+        (<>.after (<t>.this "\p{OctDigit}") (wrap (` <t>.octal)))
+        (<>.after (<t>.this "\p{Blank}") (wrap (` (~! blank^))))
+        (<>.after (<t>.this "\p{ASCII}") (wrap (` (~! ascii^))))
+        (<>.after (<t>.this "\p{Contrl}") (wrap (` (~! control^))))
+        (<>.after (<t>.this "\p{Punct}") (wrap (` (~! punct^))))
+        (<>.after (<t>.this "\p{Graph}") (wrap (` (~! graph^))))
+        (<>.after (<t>.this "\p{Print}") (wrap (` (~! print^))))
+        )))
+
+(def: re_class^
+  (Parser Code)
+  (<>.either re_system_class^
+             (<t>.enclosed ["[" "]"] re_user_class^)))
+
+(def: number^
+  (Parser Nat)
+  (|> (<t>.many <t>.decimal)
+      (<>.codec n.decimal)))
+
+(def: re_back_reference^
+  (Parser Code)
+  (<>.either (do <>.monad
+               [_ (<t>.this "\")
+                id number^]
+               (wrap (` ((~! ..copy) (~ (code.identifier ["" (n\encode id)]))))))
+             (do <>.monad
+               [_ (<t>.this "\k<")
+                captured_name name_part^
+                _ (<t>.this ">")]
+               (wrap (` ((~! ..copy) (~ (code.identifier ["" captured_name]))))))))
+
+(def: (re_simple^ current_module)
+  (-> Text (Parser Code))
+  ($_ <>.either
+      re_class^
+      (re_var^ current_module)
+      re_back_reference^
+      re_char^
+      ))
+
+(def: (re_simple_quantified^ current_module)
+  (-> Text (Parser Code))
+  (do <>.monad
+    [base (re_simple^ current_module)
+     quantifier (<t>.one_of "?*+")]
+    (case quantifier
+      "?"
+      (wrap (` (<>.default "" (~ base))))
+      
+      "*"
+      (wrap (` ((~! join_text^) (<>.some (~ base)))))
+      
+      ## "+"
+      _
+      (wrap (` ((~! join_text^) (<>.many (~ base)))))
+      )))
+
+(def: (re_counted_quantified^ current_module)
+  (-> Text (Parser Code))
+  (do {! <>.monad}
+    [base (re_simple^ current_module)]
+    (<t>.enclosed ["{" "}"]
+                  ($_ <>.either
+                      (do !
+                        [[from to] (<>.and number^ (<>.after (<t>.this ",") number^))]
+                        (wrap (` ((~! join_text^) (<>.between (~ (code.nat from))
+                                                              (~ (code.nat to))
+                                                              (~ base))))))
+                      (do !
+                        [limit (<>.after (<t>.this ",") number^)]
+                        (wrap (` ((~! join_text^) (<>.at_most (~ (code.nat limit)) (~ base))))))
+                      (do !
+                        [limit (<>.before (<t>.this ",") number^)]
+                        (wrap (` ((~! join_text^) (<>.at_least (~ (code.nat limit)) (~ base))))))
+                      (do !
+                        [limit number^]
+                        (wrap (` ((~! join_text^) (<>.exactly (~ (code.nat limit)) (~ base))))))))))
+
+(def: (re_quantified^ current_module)
+  (-> Text (Parser Code))
+  (<>.either (re_simple_quantified^ current_module)
+             (re_counted_quantified^ current_module)))
+
+(def: (re_complex^ current_module)
+  (-> Text (Parser Code))
+  ($_ <>.either
+      (re_quantified^ current_module)
+      (re_simple^ current_module)))
+
+(type: Re_Group
+  #Non_Capturing
+  (#Capturing [(Maybe Text) Nat]))
+
+(def: (re_sequential^ capturing? re_scoped^ current_module)
+  (-> Bit
+      (-> Text (Parser [Re_Group Code]))
+      Text
+      (Parser [Nat Code]))
+  (do <>.monad
+    [parts (<>.many (<>.or (re_complex^ current_module)
+                           (re_scoped^ current_module)))
+     #let [g!total (code.identifier ["" "0total"])
+           g!temp (code.identifier ["" "0temp"])
+           [_ names steps] (list\fold (: (-> (Either Code [Re_Group Code])
+                                             [Nat (List Code) (List (List Code))]
+                                             [Nat (List Code) (List (List Code))])
+                                         (function (_ part [idx names steps])
+                                           (case part
+                                             (^or (#.Left complex) (#.Right [#Non_Capturing complex]))
+                                             [idx
+                                              names
+                                              (list& (list g!temp complex
+                                                           (' #let) (` [(~ g!total) (\ (~! //.monoid) (~' compose) (~ g!total) (~ g!temp))]))
+                                                     steps)]
+                                             
+                                             (#.Right [(#Capturing [?name num_captures]) scoped])
+                                             (let [[idx! name!] (case ?name
+                                                                  (#.Some _name)
+                                                                  [idx (code.identifier ["" _name])]
+
+                                                                  #.None
+                                                                  [(inc idx) (code.identifier ["" (n\encode idx)])])
+                                                   access (if (n.> 0 num_captures)
+                                                            (` ((~! product.left) (~ name!)))
+                                                            name!)]
+                                               [idx!
+                                                (list& name! names)
+                                                (list& (list name! scoped
+                                                             (' #let) (` [(~ g!total) (\ (~! //.monoid) (~' compose) (~ g!total) (~ access))]))
+                                                       steps)])
+                                             )))
+                                      [0
+                                       (: (List Code) (list))
+                                       (: (List (List Code)) (list))]
+                                      parts)]]
+    (wrap [(if capturing?
+             (list.size names)
+             0)
+           (` (do <>.monad
+                [(~ (' #let)) [(~ g!total) ""]
+                 (~+ (|> steps list.reverse list\join))]
+                ((~ (' wrap)) [(~ g!total) (~+ (list.reverse names))])))])
+    ))
+
+(def: (unflatten^ lexer)
+  (-> (Parser Text) (Parser [Text Any]))
+  (<>.and lexer (\ <>.monad wrap [])))
+
+(def: (|||^ left right)
+  (All [l r] (-> (Parser [Text l]) (Parser [Text r]) (Parser [Text (| l r)])))
+  (function (_ input)
+    (case (left input)
+      (#try.Success [input' [lt lv]])
+      (#try.Success [input' [lt (0 #0 lv)]])
+
+      (#try.Failure _)
+      (case (right input)
+        (#try.Success [input' [rt rv]])
+        (#try.Success [input' [rt (0 #1 rv)]])
+
+        (#try.Failure error)
+        (#try.Failure error)))))
+
+(def: (|||_^ left right)
+  (All [l r] (-> (Parser [Text l]) (Parser [Text r]) (Parser Text)))
+  (function (_ input)
+    (case (left input)
+      (#try.Success [input' [lt lv]])
+      (#try.Success [input' lt])
+
+      (#try.Failure _)
+      (case (right input)
+        (#try.Success [input' [rt rv]])
+        (#try.Success [input' rt])
+
+        (#try.Failure error)
+        (#try.Failure error)))))
+
+(def: (prep_alternative [num_captures alt])
+  (-> [Nat Code] Code)
+  (if (n.> 0 num_captures)
+    alt
+    (` ((~! unflatten^) (~ alt)))))
+
+(def: (re_alternative^ capturing? re_scoped^ current_module)
+  (-> Bit
+      (-> Text (Parser [Re_Group Code]))
+      Text
+      (Parser [Nat Code]))
+  (do <>.monad
+    [#let [sub^ (re_sequential^ capturing? re_scoped^ current_module)]
+     head sub^
+     tail (<>.some (<>.after (<t>.this "|") sub^))]
+    (if (list.empty? tail)
+      (wrap head)
+      (wrap [(list\fold n.max (product.left head) (list\map product.left tail))
+             (` ($_ ((~ (if capturing?
+                          (` (~! |||^))
+                          (` (~! |||_^)))))
+                    (~ (prep_alternative head))
+                    (~+ (list\map prep_alternative tail))))]))))
+
+(def: (re_scoped^ current_module)
+  (-> Text (Parser [Re_Group Code]))
+  ($_ <>.either
+      (do <>.monad
+        [_ (<t>.this "(?:")
+         [_ scoped] (re_alternative^ #0 re_scoped^ current_module)
+         _ (<t>.this ")")]
+        (wrap [#Non_Capturing scoped]))
+      (do <>.monad
+        [complex (re_complex^ current_module)]
+        (wrap [#Non_Capturing complex]))
+      (do <>.monad
+        [_ (<t>.this "(?<")
+         captured_name name_part^
+         _ (<t>.this ">")
+         [num_captures pattern] (re_alternative^ #1 re_scoped^ current_module)
+         _ (<t>.this ")")]
+        (wrap [(#Capturing [(#.Some captured_name) num_captures]) pattern]))
+      (do <>.monad
+        [_ (<t>.this "(")
+         [num_captures pattern] (re_alternative^ #1 re_scoped^ current_module)
+         _ (<t>.this ")")]
+        (wrap [(#Capturing [#.None num_captures]) pattern]))))
+
+(def: (regex^ current_module)
+  (-> Text (Parser Code))
+  (\ <>.monad map product.right (re_alternative^ #1 re_scoped^ current_module)))
+
+(syntax: #export (regex {pattern <c>.text})
+  {#.doc (doc "Create lexers using regular-expression syntax."
+              "For example:"
+              
+              "Literals"
+              (regex "a")
+              
+              "Wildcards"
+              (regex ".")
+              
+              "Escaping"
+              (regex "\.")
+              
+              "Character classes"
+              (regex "\d")
+              (regex "\p{Lower}")
+              (regex "[abc]")
+              (regex "[a-z]")
+              (regex "[a-zA-Z]")
+              (regex "[a-z&&[def]]")
+              
+              "Negation"
+              (regex "[^abc]")
+              (regex "[^a-z]")
+              (regex "[^a-zA-Z]")
+              (regex "[a-z&&[^bc]]")
+              (regex "[a-z&&[^m-p]]")
+              
+              "Combinations"
+              (regex "aa")
+              (regex "a?")
+              (regex "a*")
+              (regex "a+")
+              
+              "Specific amounts"
+              (regex "a{2}")
+              
+              "At least"
+              (regex "a{1,}")
+              
+              "At most"
+              (regex "a{,1}")
+              
+              "Between"
+              (regex "a{1,2}")
+              
+              "Groups"
+              (regex "a(.)c")
+              (regex "a(b+)c")
+              (regex "(\d{3})-(\d{3})-(\d{4})")
+              (regex "(\d{3})-(?:\d{3})-(\d{4})")
+              (regex "(?<code>\d{3})-\k<code>-(\d{4})")
+              (regex "(?<code>\d{3})-\k<code>-(\d{4})-\0")
+              (regex "(\d{3})-((\d{3})-(\d{4}))")
+              
+              "Alternation"
+              (regex "a|b")
+              (regex "a(.)(.)|b(.)(.)")
+              )}
+  (do meta.monad
+    [current_module meta.current_module_name]
+    (case (<t>.run (regex^ current_module)
+                   pattern)
+      (#try.Failure error)
+      (meta.fail (format "Error while parsing regular-expression:" //.new_line
+                         error))
+
+      (#try.Success regex)
+      (wrap (list regex))
+      )))
+
+(syntax: #export (^regex {[pattern bindings] (<c>.form (<>.and <c>.text (<>.maybe <c>.any)))}
+                         body
+                         {branches (<>.many <c>.any)})
+  {#.doc (doc "Allows you to test text against regular expressions."
+              (case some_text
+                (^regex "(\d{3})-(\d{3})-(\d{4})"
+                        [_ country_code area_code place_code])
+                do_some_thing_when_number
+
+                (^regex "\w+")
+                do_some_thing_when_word
+
+                _
+                do_something_else))}
+  (with_gensyms [g!temp]
+    (wrap (list& (` (^multi (~ g!temp)
+                            [((~! <t>.run) (..regex (~ (code.text pattern))) (~ g!temp))
+                             (#try.Success (~ (maybe.default g!temp bindings)))]))
+                 body
+                 branches))))

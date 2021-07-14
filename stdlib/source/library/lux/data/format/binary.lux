@@ -1,0 +1,292 @@
+(.module:
+  [library
+   [lux (#- and or nat int rev list type)
+    [type (#+ :share)]
+    [abstract
+     [monoid (#+ Monoid)]
+     [monad (#+ Monad do)]
+     [equivalence (#+ Equivalence)]]
+    [control
+     [pipe (#+ case>)]
+     ["." function]
+     ["." try (#+ Try)]
+     ["<>" parser ("#\." monad)
+      ["/" binary (#+ Offset Size Parser)]]]
+    [data
+     ["." product]
+     ["." binary (#+ Binary)]
+     [text
+      ["%" format (#+ format)]
+      [encoding
+       ["." utf8]]]
+     [collection
+      ["." list]
+      ["." row (#+ Row) ("#\." functor)]
+      ["." set (#+ Set)]]]
+    [math
+     [number
+      ["." i64]
+      ["n" nat]
+      ["." frac]]]]])
+
+(def: mask
+  (-> Size (I64 Any))
+  (|>> (n.* i64.bits_per_byte) i64.mask))
+
+(type: #export Mutation
+  (-> [Offset Binary] [Offset Binary]))
+
+(type: #export Specification
+  [Size Mutation])
+
+(def: #export no_op
+  Specification
+  [0 function.identity])
+
+(def: #export (instance [size mutation])
+  (-> Specification Binary)
+  (|> size binary.create [0] mutation product.right))
+
+(implementation: #export monoid
+  (Monoid Specification)
+  
+  (def: identity
+    ..no_op)
+  
+  (def: (compose [sizeL mutL] [sizeR mutR])
+    [(n.+ sizeL sizeR)
+     (|>> mutL mutR)]))
+
+(type: #export (Writer a)
+  (-> a Specification))
+
+(def: #export (run writer value)
+  (All [a] (-> (Writer a) a Binary))
+  (..instance (writer value)))
+
+(template [<name> <size> <write>]
+  [(def: #export <name>
+     (Writer (I64 Any))
+     (function (_ value)
+       [<size>
+        (function (_ [offset binary])
+          [(n.+ <size> offset)
+           (|> binary
+               (<write> offset value)
+               try.assume)])]))]
+
+  [bits/8  /.size/8  binary.write/8]
+  [bits/16 /.size/16 binary.write/16]
+  [bits/32 /.size/32 binary.write/32]
+  [bits/64 /.size/64 binary.write/64]
+  )
+
+(def: #export (or left right)
+  (All [l r] (-> (Writer l) (Writer r) (Writer (| l r))))
+  (function (_ altV)
+    (case altV
+      (^template [<number> <tag> <writer>]
+        [(<tag> caseV)
+         (let [[caseS caseT] (<writer> caseV)]
+           [(.inc caseS)
+            (function (_ [offset binary])
+              (|> binary
+                  (binary.write/8 offset <number>)
+                  try.assume
+                  [(.inc offset)]
+                  caseT))])])
+      ([0 #.Left left]
+       [1 #.Right right])
+      )))
+
+(def: #export (and pre post)
+  (All [a b] (-> (Writer a) (Writer b) (Writer [a b])))
+  (function (_ [preV postV])
+    (\ ..monoid compose (pre preV) (post postV))))
+
+(def: #export (rec body)
+  (All [a] (-> (-> (Writer a) (Writer a)) (Writer a)))
+  (function (recur value)
+    (body recur value)))
+
+(def: #export any
+  (Writer Any)
+  (function.constant ..no_op))
+
+(def: #export bit
+  (Writer Bit)
+  (|>> (case> #0 0 #1 1) ..bits/8))
+
+(template [<name> <type>]
+  [(def: #export <name> (Writer <type>) ..bits/64)]
+
+  [nat Nat]
+  [int Int]
+  [rev Rev]
+  )
+
+(def: #export frac
+  (Writer Frac)
+  (|>> frac.to_bits ..bits/64))
+
+(def: #export (segment size)
+  (-> Nat (Writer Binary))
+  (function (_ value)
+    [size
+     (function (_ [offset binary])
+       [(n.+ size offset)
+        (try.assume
+         (binary.copy (n.min size (binary.size value))
+                      0
+                      value
+                      offset
+                      binary))])]))
+
+(template [<name> <bits> <size> <write>]
+  [(def: #export <name>
+     (Writer Binary)
+     (let [mask (..mask <size>)]
+       (function (_ value)
+         (let [size (|> value binary.size (i64.and mask))
+               size' (n.+ <size> size)]
+           [size'
+            (function (_ [offset binary])
+              [(n.+ size' offset)
+               (try.assume
+                (do try.monad
+                  [_ (<write> offset size binary)]
+                  (binary.copy size 0 value (n.+ <size> offset) binary)))])]))))]
+
+  [binary/8  ..bits/8  /.size/8  binary.write/8]
+  [binary/16 ..bits/16 /.size/16 binary.write/16]
+  [binary/32 ..bits/32 /.size/32 binary.write/32]
+  [binary/64 ..bits/64 /.size/64 binary.write/64]
+  )
+
+(template [<name> <binary>]
+  [(def: #export <name>
+     (Writer Text)
+     (|>> (\ utf8.codec encode) <binary>))]
+
+  [utf8/8  ..binary/8]
+  [utf8/16 ..binary/16]
+  [utf8/32 ..binary/32]
+  [utf8/64 ..binary/64]
+  )
+
+(def: #export text ..utf8/64)
+
+(template [<name> <size> <write>]
+  [(def: #export (<name> valueW)
+     (All [v] (-> (Writer v) (Writer (Row v))))
+     (function (_ value)
+       (let [original_count (row.size value)
+             capped_count (i64.and (..mask <size>)
+                                   original_count)
+             value (if (n.= original_count capped_count)
+                     value
+                     (|> value row.to_list (list.take capped_count) row.from_list))
+             (^open "specification\.") ..monoid
+             [size mutation] (|> value
+                                 (row\map valueW)
+                                 (\ row.fold fold
+                                    (function (_ post pre)
+                                      (specification\compose pre post))
+                                    specification\identity))]
+         [(n.+ <size> size)
+          (function (_ [offset binary])
+            (try.assume
+             (do try.monad
+               [_ (<write> offset capped_count binary)]
+               (wrap (mutation [(n.+ <size> offset) binary])))))])))]
+
+  [row/8  /.size/8  binary.write/8]
+  [row/16 /.size/16 binary.write/16]
+  [row/32 /.size/32 binary.write/32]
+  [row/64 /.size/64 binary.write/64]
+  )
+
+(def: #export maybe
+  (All [a] (-> (Writer a) (Writer (Maybe a))))
+  (..or ..any))
+
+(def: #export (list value)
+  (All [a] (-> (Writer a) (Writer (List a))))
+  (..rec
+   (|>> (..and value)
+        (..or ..any))))
+
+(def: #export (set value)
+  (All [a] (-> (Writer a) (Writer (Set a))))
+  (|>> set.to_list (..list value)))
+
+(def: #export name
+  (Writer Name)
+  (..and ..text ..text))
+
+(def: #export type
+  (Writer Type)
+  (..rec
+   (function (_ recur)
+     (let [pair (..and recur recur)
+           indexed ..nat
+           quantified (..and (..list recur) recur)]
+       (function (_ altV)
+         (case altV
+           (^template [<number> <tag> <writer>]
+             [(<tag> caseV)
+              (let [[caseS caseT] (<writer> caseV)]
+                [(.inc caseS)
+                 (function (_ [offset binary])
+                   (|> binary
+                       (binary.write/8 offset <number>)
+                       try.assume
+                       [(.inc offset)]
+                       caseT))])])
+           ([0 #.Primitive (..and ..text (..list recur))]
+            [1 #.Sum pair]
+            [2 #.Product pair]
+            [3 #.Function pair]
+            [4 #.Parameter indexed]
+            [5 #.Var indexed]
+            [6 #.Ex indexed]
+            [7 #.UnivQ quantified]
+            [8 #.ExQ quantified]
+            [9 #.Apply pair]
+            [10 #.Named (..and ..name recur)])
+           ))))))
+
+(def: #export location
+  (Writer Location)
+  ($_ ..and ..text ..nat ..nat))
+
+(def: #export code
+  (Writer Code)
+  (..rec
+   (function (_ recur)
+     (let [sequence (..list recur)]
+       (..and ..location
+              (function (_ altV)
+                (case altV
+                  (^template [<number> <tag> <writer>]
+                    [(<tag> caseV)
+                     (let [[caseS caseT] (<writer> caseV)]
+                       [(.inc caseS)
+                        (function (_ [offset binary])
+                          (|> binary
+                              (binary.write/8 offset <number>)
+                              try.assume
+                              [(.inc offset)]
+                              caseT))])])
+                  ([0 #.Bit ..bit]
+                   [1 #.Nat ..nat]
+                   [2 #.Int ..int]
+                   [3 #.Rev ..rev]
+                   [4 #.Frac ..frac]
+                   [5 #.Text ..text]
+                   [6 #.Identifier ..name]
+                   [7 #.Tag ..name]
+                   [8 #.Form sequence]
+                   [9 #.Tuple sequence]
+                   [10 #.Record (..list (..and recur recur))])
+                  )))))))

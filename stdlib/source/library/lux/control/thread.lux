@@ -1,0 +1,106 @@
+(.module:
+  [library
+   [lux #*
+    ["@" target]
+    [abstract
+     [functor (#+ Functor)]
+     [apply (#+ Apply)]
+     [monad (#+ Monad do)]]
+    [control
+     ["." io (#+ IO)]]
+    [data
+     [collection
+      ["." array (#+ Array)]]]
+    [type
+     abstract]]])
+
+(type: #export (Thread ! a)
+  (-> ! a))
+
+(abstract: #export (Box t v)
+  (Array v)
+
+  {#.doc "A mutable box holding a value."}
+
+  (def: #export (box init)
+    (All [a] (-> a (All [!] (Thread ! (Box ! a)))))
+    (function (_ !)
+      (|> (array.new 1)
+          (array.write! 0 init)
+          :abstraction)))
+
+  (def: #export (read box)
+    (All [! a] (-> (Box ! a) (Thread ! a)))
+    (function (_ !)
+      (for {@.old
+            ("jvm aaload" (:representation box) 0)
+
+            @.jvm
+            ("jvm array read object"
+             (|> 0
+                 (:as (primitive "java.lang.Long"))
+                 "jvm object cast"
+                 "jvm conversion long-to-int")
+             (:representation box))
+
+            @.js ("js array read" 0 (:representation box))
+            @.python ("python array read" 0 (:representation box))
+            @.lua ("lua array read" 0 (:representation box))
+            @.ruby ("ruby array read" 0 (:representation box))
+            @.php ("php array read" 0 (:representation box))
+            @.scheme ("scheme array read" 0 (:representation box))})))
+
+  (def: #export (write value box)
+    (All [a] (-> a (All [!] (-> (Box ! a) (Thread ! Any)))))
+    (function (_ !)
+      (|> box :representation (array.write! 0 value) :abstraction)))
+  )
+
+(def: #export (run thread)
+  (All [a]
+    (-> (All [!] (Thread ! a))
+        a))
+  (thread []))
+
+(def: #export io
+  (All [a]
+    (-> (All [!] (Thread ! a))
+        (IO a)))
+  (|>> ..run io.io))
+
+(implementation: #export functor
+  (All [!] (Functor (Thread !)))
+
+  (def: (map f)
+    (function (_ fa)
+      (function (_ !)
+        (f (fa !))))))
+
+(implementation: #export apply
+  (All [!] (Apply (Thread !)))
+
+  (def: &functor ..functor)
+
+  (def: (apply ff fa)
+    (function (_ !)
+      ((ff !) (fa !)))))
+
+(implementation: #export monad
+  (All [!] (Monad (Thread !)))
+
+  (def: &functor ..functor)
+
+  (def: (wrap value)
+    (function (_ !)
+      value))
+
+  (def: (join ffa)
+    (function (_ !)
+      ((ffa !) !))))
+
+(def: #export (update f box)
+  (All [a] (-> (-> a a) (All [!] (-> (Box ! a) (Thread ! a)))))
+  (do ..monad
+    [old (read box)
+     _ (write (f old) box)]
+    (wrap old)))

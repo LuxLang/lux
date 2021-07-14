@@ -1,0 +1,443 @@
+(.module:
+  [library
+   [lux #*
+    [abstract
+     ["." monad (#+ do)]]
+    [control
+     ["." try (#+ Try)]
+     ["." exception (#+ exception:)]]
+    [data
+     ["." product]
+     ["." maybe ("#\." functor)]
+     ["." text
+      ["%" format]]
+     [collection
+      ["." dictionary (#+ Dictionary)]
+      ["." list ("#\." functor fold)]
+      ["." set]]]
+    [math
+     [number
+      ["n" nat]]]]]
+  [////
+   ["/" synthesis (#+ Path Synthesis)]
+   ["." analysis]
+   [///
+    [arity (#+ Arity)]
+    ["." reference
+     ["." variable (#+ Register Variable)]]]])
+
+(def: (prune redundant register)
+  (-> Register Register Register)
+  (if (n.> redundant register)
+    (dec register)
+    register))
+
+(type: (Remover a)
+  (-> Register (-> a a)))
+
+(def: (remove_local_from_path remove_local redundant)
+  (-> (Remover Synthesis) (Remover Path))
+  (function (recur path)
+    (case path
+      (#/.Seq (#/.Bind register)
+              post)
+      (if (n.= redundant register)
+        (recur post)
+        (#/.Seq (#/.Bind (if (n.> redundant register)
+                           (dec register)
+                           register))
+                (recur post)))
+
+      (^or (#/.Seq (#/.Access (#/.Member member))
+                   (#/.Seq (#/.Bind register)
+                           post))
+           ## This alternative form should never occur in practice.
+           ## Yet, it is "technically" possible to construct it.
+           (#/.Seq (#/.Seq (#/.Access (#/.Member member))
+                           (#/.Bind register))
+                   post))
+      (if (n.= redundant register)
+        (recur post)
+        (#/.Seq (#/.Access (#/.Member member))
+                (#/.Seq (#/.Bind (if (n.> redundant register)
+                                   (dec register)
+                                   register))
+                        (recur post))))
+
+      (^template [<tag>]
+        [(<tag> left right)
+         (<tag> (recur left) (recur right))])
+      ([#/.Seq]
+       [#/.Alt])
+
+      (#/.Bit_Fork when then else)
+      (#/.Bit_Fork when (recur then) (maybe\map recur else))
+
+      (^template [<tag>]
+        [(<tag> [[test then] tail])
+         (<tag> [[test (recur then)]
+                 (list\map (function (_ [test' then'])
+                             [test' (recur then')])
+                           tail)])])
+      ([#/.I64_Fork]
+       [#/.F64_Fork]
+       [#/.Text_Fork])
+      
+      (^or #/.Pop
+           (#/.Access _))
+      path
+
+      (#/.Bind register)
+      (undefined)
+      
+      (#/.Then then)
+      (#/.Then (remove_local redundant then))
+      )))
+
+(def: (remove_local_from_variable redundant variable)
+  (Remover Variable)
+  (case variable
+    (#variable.Local register)
+    (#variable.Local (..prune redundant register))
+    
+    (#variable.Foreign register)
+    variable))
+
+(def: (remove_local redundant)
+  (Remover Synthesis)
+  (function (recur synthesis)
+    (case synthesis
+      (#/.Primitive _)
+      synthesis
+      
+      (#/.Structure structure)
+      (#/.Structure (case structure
+                      (#analysis.Variant [lefts right value])
+                      (#analysis.Variant [lefts right (recur value)])
+                      
+                      (#analysis.Tuple tuple)
+                      (#analysis.Tuple (list\map recur tuple))))
+      
+      (#/.Reference reference)
+      (case reference
+        (#reference.Variable variable)
+        (/.variable (..remove_local_from_variable redundant variable))
+
+        (#reference.Constant constant)
+        synthesis)
+      
+      (#/.Control control)
+      (#/.Control (case control
+                    (#/.Branch branch)
+                    (#/.Branch (case branch
+                                 (#/.Let input register output)
+                                 (#/.Let (recur input)
+                                         (..prune redundant register)
+                                         (recur output))
+                                 
+                                 (#/.If test then else)
+                                 (#/.If (recur test) (recur then) (recur else))
+                                 
+                                 (#/.Get path record)
+                                 (#/.Get path (recur record))
+                                 
+                                 (#/.Case input path)
+                                 (#/.Case (recur input) (remove_local_from_path remove_local redundant path))))
+                    
+                    (#/.Loop loop)
+                    (#/.Loop (case loop
+                               (#/.Scope [start inits iteration])
+                               (#/.Scope [(..prune redundant start)
+                                          (list\map recur inits)
+                                          (recur iteration)])
+                               
+                               (#/.Recur resets)
+                               (#/.Recur (list\map recur resets))))
+
+                    (#/.Function function)
+                    (#/.Function (case function
+                                   (#/.Abstraction [environment arity body])
+                                   (#/.Abstraction [(list\map recur environment)
+                                                    arity
+                                                    body])
+
+                                   (#/.Apply abstraction inputs)
+                                   (#/.Apply (recur abstraction) (list\map recur inputs))))))
+      
+      (#/.Extension name inputs)
+      (#/.Extension name (list\map recur inputs)))))
+
+(type: Redundancy
+  (Dictionary Register Bit))
+
+(def: initial
+  Redundancy
+  (dictionary.new n.hash))
+
+(def: redundant! true)
+(def: necessary! false)
+
+(def: (extended offset amount redundancy)
+  (-> Register Nat Redundancy [(List Register) Redundancy])
+  (let [extension (|> amount list.indices (list\map (n.+ offset)))]
+    [extension
+     (list\fold (function (_ register redundancy)
+                  (dictionary.put register ..necessary! redundancy))
+                redundancy
+                extension)]))
+
+(def: (default arity)
+  (-> Arity Redundancy)
+  (product.right (..extended 0 (inc arity) ..initial)))
+
+(type: (Optimization a)
+  (-> [Redundancy a] (Try [Redundancy a])))
+
+(def: (list_optimization optimization)
+  (All [a] (-> (Optimization a) (Optimization (List a))))
+  (function (recur [redundancy values])
+    (case values
+      #.Nil
+      (#try.Success [redundancy
+                     values])
+
+      (#.Cons head tail)
+      (do try.monad
+        [[redundancy head] (optimization [redundancy head])
+         [redundancy tail] (recur [redundancy tail])]
+        (wrap [redundancy
+               (#.Cons head tail)])))))
+
+(template [<name>]
+  [(exception: #export (<name> {register Register})
+     (exception.report
+      ["Register" (%.nat register)]))]
+
+  [redundant_declaration]
+  [unknown_register]
+  )
+
+(def: (declare register redundancy)
+  (-> Register Redundancy (Try Redundancy))
+  (case (dictionary.get register redundancy)
+    #.None
+    (#try.Success (dictionary.put register ..redundant! redundancy))
+    
+    (#.Some _)
+    (exception.throw ..redundant_declaration [register])))
+
+(def: (observe register redundancy)
+  (-> Register Redundancy (Try Redundancy))
+  (case (dictionary.get register redundancy)
+    #.None
+    (exception.throw ..unknown_register [register])
+    
+    (#.Some _)
+    (#try.Success (dictionary.put register ..necessary! redundancy))))
+
+(def: (format redundancy)
+  (%.Format Redundancy)
+  (|> redundancy
+      dictionary.entries
+      (list\map (function (_ [register redundant?])
+                  (%.format (%.nat register) ": " (%.bit redundant?))))
+      (text.join_with ", ")))
+
+(def: (path_optimization optimization)
+  (-> (Optimization Synthesis) (Optimization Path))
+  (function (recur [redundancy path])
+    (case path
+      (^or #/.Pop
+           (#/.Access _))
+      (#try.Success [redundancy
+                     path])
+
+      (#/.Bit_Fork when then else)
+      (do {! try.monad}
+        [[redundancy then] (recur [redundancy then])
+         [redundancy else] (case else
+                             (#.Some else)
+                             (\ ! map
+                                (function (_ [redundancy else])
+                                  [redundancy (#.Some else)])
+                                (recur [redundancy else]))
+
+                             #.None
+                             (wrap [redundancy #.None]))]
+        (wrap [redundancy (#/.Bit_Fork when then else)]))
+      
+      (^template [<tag> <type>]
+        [(<tag> [[test then] elses])
+         (do {! try.monad}
+           [[redundancy then] (recur [redundancy then])
+            [redundancy elses] (..list_optimization (: (Optimization [<type> Path])
+                                                       (function (_ [redundancy [else_test else_then]])
+                                                         (do !
+                                                           [[redundancy else_then] (recur [redundancy else_then])]
+                                                           (wrap [redundancy [else_test else_then]]))))
+                                                    [redundancy elses])]
+           (wrap [redundancy (<tag> [[test then] elses])]))])
+      ([#/.I64_Fork (I64 Any)]
+       [#/.F64_Fork Frac]
+       [#/.Text_Fork Text])
+      
+      (#/.Bind register)
+      (do try.monad
+        [redundancy (..declare register redundancy)]
+        (wrap [redundancy
+               path]))
+      
+      (#/.Alt left right)
+      (do try.monad
+        [[redundancy left] (recur [redundancy left])
+         [redundancy right] (recur [redundancy right])]
+        (wrap [redundancy (#/.Alt left right)]))
+      
+      (#/.Seq pre post)
+      (do try.monad
+        [#let [baseline (|> redundancy
+                            dictionary.keys
+                            (set.from_list n.hash))]
+         [redundancy pre] (recur [redundancy pre])
+         #let [bindings (|> redundancy
+                            dictionary.keys
+                            (set.from_list n.hash)
+                            (set.difference baseline))]
+         [redundancy post] (recur [redundancy post])
+         #let [redundants (|> redundancy
+                              dictionary.entries
+                              (list.filter (function (_ [register redundant?])
+                                             (and (set.member? bindings register)
+                                                  redundant?)))
+                              (list\map product.left))]]
+        (wrap [(list\fold dictionary.remove redundancy (set.to_list bindings))
+               (|> redundants
+                   (list.sort n.>)
+                   (list\fold (..remove_local_from_path ..remove_local) (#/.Seq pre post)))]))
+
+      (#/.Then then)
+      (do try.monad
+        [[redundancy then] (optimization [redundancy then])]
+        (wrap [redundancy (#/.Then then)]))
+      )))
+
+(def: (optimization' [redundancy synthesis])
+  (Optimization Synthesis)
+  (with_expansions [<no_op> (as_is (#try.Success [redundancy
+                                                  synthesis]))]
+    (case synthesis
+      (#/.Primitive _)
+      <no_op>
+      
+      (#/.Structure structure)
+      (case structure
+        (#analysis.Variant [lefts right value])
+        (do try.monad
+          [[redundancy value] (optimization' [redundancy value])]
+          (wrap [redundancy
+                 (#/.Structure (#analysis.Variant [lefts right value]))]))
+        
+        (#analysis.Tuple tuple)
+        (do try.monad
+          [[redundancy tuple] (..list_optimization optimization' [redundancy tuple])]
+          (wrap [redundancy
+                 (#/.Structure (#analysis.Tuple tuple))])))
+      
+      (#/.Reference reference)
+      (case reference
+        (#reference.Variable variable)
+        (case variable
+          (#variable.Local register)
+          (do try.monad
+            [redundancy (..observe register redundancy)]
+            <no_op>)
+          
+          (#variable.Foreign register)
+          <no_op>)
+
+        (#reference.Constant constant)
+        <no_op>)
+      
+      (#/.Control control)
+      (case control
+        (#/.Branch branch)
+        (case branch
+          (#/.Let input register output)
+          (do try.monad
+            [[redundancy input] (optimization' [redundancy input])
+             redundancy (..declare register redundancy)
+             [redundancy output] (optimization' [redundancy output])
+             #let [redundant? (|> redundancy
+                                  (dictionary.get register)
+                                  (maybe.default ..necessary!))]]
+            (wrap [(dictionary.remove register redundancy)
+                   (#/.Control (if redundant?
+                                 (#/.Branch (#/.Case input
+                                                     (#/.Seq #/.Pop
+                                                             (#/.Then (..remove_local register output)))))
+                                 (#/.Branch (#/.Let input register output))))]))
+          
+          (#/.If test then else)
+          (do try.monad
+            [[redundancy test] (optimization' [redundancy test])
+             [redundancy then] (optimization' [redundancy then])
+             [redundancy else] (optimization' [redundancy else])]
+            (wrap [redundancy
+                   (#/.Control (#/.Branch (#/.If test then else)))]))
+          
+          (#/.Get path record)
+          (do try.monad
+            [[redundancy record] (optimization' [redundancy record])]
+            (wrap [redundancy
+                   (#/.Control (#/.Branch (#/.Get path record)))]))
+          
+          (#/.Case input path)
+          (do try.monad
+            [[redundancy input] (optimization' [redundancy input])
+             [redundancy path] (..path_optimization optimization' [redundancy path])]
+            (wrap [redundancy
+                   (#/.Control (#/.Branch (#/.Case input path)))])))
+        
+        (#/.Loop loop)
+        (case loop
+          (#/.Scope [start inits iteration])
+          (do try.monad
+            [[redundancy inits] (..list_optimization optimization' [redundancy inits])
+             #let [[extension redundancy] (..extended start (list.size inits) redundancy)]
+             [redundancy iteration] (optimization' [redundancy iteration])]
+            (wrap [(list\fold dictionary.remove redundancy extension)
+                   (#/.Control (#/.Loop (#/.Scope [start inits iteration])))]))
+          
+          (#/.Recur resets)
+          (do try.monad
+            [[redundancy resets] (..list_optimization optimization' [redundancy resets])]
+            (wrap [redundancy
+                   (#/.Control (#/.Loop (#/.Recur resets)))])))
+
+        (#/.Function function)
+        (case function
+          (#/.Abstraction [environment arity body])
+          (do {! try.monad}
+            [[redundancy environment] (..list_optimization optimization' [redundancy environment])
+             [_ body] (optimization' [(..default arity) body])]
+            (wrap [redundancy
+                   (#/.Control (#/.Function (#/.Abstraction [environment arity body])))]))
+          
+          (#/.Apply abstraction inputs)
+          (do try.monad
+            [[redundancy abstraction] (optimization' [redundancy abstraction])
+             [redundancy inputs] (..list_optimization optimization' [redundancy inputs])]
+            (wrap [redundancy
+                   (#/.Control (#/.Function (#/.Apply abstraction inputs)))]))))
+      
+      (#/.Extension name inputs)
+      (do try.monad
+        [[redundancy inputs] (..list_optimization optimization' [redundancy inputs])]
+        (wrap [redundancy
+               (#/.Extension name inputs)])))))
+
+(def: #export optimization
+  (-> Synthesis (Try Synthesis))
+  (|>> [..initial]
+       optimization'
+       (\ try.monad map product.right)))

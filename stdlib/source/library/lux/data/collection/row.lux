@@ -1,0 +1,490 @@
+## https://hypirion.com/musings/understanding-persistent-vector-pt-1
+## https://hypirion.com/musings/understanding-persistent-vector-pt-2
+## https://hypirion.com/musings/understanding-persistent-vector-pt-3
+(.module:
+  [library
+   [lux #*
+    ["@" target]
+    [abstract
+     [functor (#+ Functor)]
+     [apply (#+ Apply)]
+     [monad (#+ Monad do)]
+     [equivalence (#+ Equivalence)]
+     [monoid (#+ Monoid)]
+     [fold (#+ Fold)]
+     [predicate (#+ Predicate)]]
+    [control
+     ["." try (#+ Try)]
+     ["." exception (#+ exception:)]
+     ["p" parser
+      ["s" code (#+ Parser)]]]
+    [data
+     ["." maybe]
+     ["." product]
+     [collection
+      ["." list ("#\." fold functor monoid)]
+      ["." array (#+ Array) ("#\." functor fold)]]]
+    [macro (#+ with_gensyms)
+     [syntax (#+ syntax:)]
+     ["." code]]
+    [math
+     [number
+      ["." i64]
+      ["n" nat]]]]])
+
+(type: (Node a)
+  (#Base (Array a))
+  (#Hierarchy (Array (Node a))))
+
+(type: (Base a) (Array a))
+(type: (Hierarchy a) (Array (Node a)))
+
+(type: Level Nat)
+
+(type: Index Nat)
+
+(def: branching_exponent
+  Nat
+  5)
+
+(def: root_level
+  Level
+  0)
+
+(template [<name> <op>]
+  [(def: <name>
+     (-> Level Level)
+     (<op> branching_exponent))]
+
+  [level_up   n.+]
+  [level_down n.-]
+  )
+
+(def: full_node_size
+  Nat
+  (i64.left_shift branching_exponent 1))
+
+(def: branch_idx_mask
+  Nat
+  (dec full_node_size))
+
+(def: branch_idx
+  (-> Index Index)
+  (i64.and branch_idx_mask))
+
+(def: (new_hierarchy _)
+  (All [a] (-> Any (Hierarchy a)))
+  (array.new full_node_size))
+
+(def: (tail_off row_size)
+  (-> Nat Nat)
+  (if (n.< full_node_size row_size)
+    0
+    (|> (dec row_size)
+        (i64.right_shift branching_exponent)
+        (i64.left_shift branching_exponent))))
+
+(def: (new_path level tail)
+  (All [a] (-> Level (Base a) (Node a)))
+  (if (n.= 0 level)
+    (#Base tail)
+    (|> (new_hierarchy [])
+        (array.write! 0 (new_path (level_down level) tail))
+        #Hierarchy)))
+
+(def: (new_tail singleton)
+  (All [a] (-> a (Base a)))
+  (|> (array.new 1)
+      (array.write! 0 singleton)))
+
+(def: (push_tail size level tail parent)
+  (All [a] (-> Nat Level (Base a) (Hierarchy a) (Hierarchy a)))
+  (let [sub_idx (branch_idx (i64.right_shift level (dec size)))
+        ## If we're currently on a bottom node
+        sub_node (if (n.= branching_exponent level)
+                   ## Just add the tail to it
+                   (#Base tail)
+                   ## Otherwise, check whether there's a vacant spot
+                   (case (array.read sub_idx parent)
+                     ## If so, set the path to the tail
+                     #.None
+                     (new_path (level_down level) tail)
+                     ## If not, push the tail onto the sub_node.
+                     (#.Some (#Hierarchy sub_node))
+                     (#Hierarchy (push_tail size (level_down level) tail sub_node))
+
+                     _
+                     (undefined))
+                   )]
+    (|> (array.clone parent)
+        (array.write! sub_idx sub_node))))
+
+(def: (expand_tail val tail)
+  (All [a] (-> a (Base a) (Base a)))
+  (let [tail_size (array.size tail)]
+    (|> (array.new (inc tail_size))
+        (array.copy! tail_size 0 tail 0)
+        (array.write! tail_size val))))
+
+(def: (put' level idx val hierarchy)
+  (All [a] (-> Level Index a (Hierarchy a) (Hierarchy a)))
+  (let [sub_idx (branch_idx (i64.right_shift level idx))]
+    (case (array.read sub_idx hierarchy)
+      (#.Some (#Hierarchy sub_node))
+      (|> (array.clone hierarchy)
+          (array.write! sub_idx (#Hierarchy (put' (level_down level) idx val sub_node))))
+
+      (^multi (#.Some (#Base base))
+              (n.= 0 (level_down level)))
+      (|> (array.clone hierarchy)
+          (array.write! sub_idx (|> (array.clone base)
+                                    (array.write! (branch_idx idx) val)
+                                    #Base)))
+
+      _
+      (undefined))))
+
+(def: (pop_tail size level hierarchy)
+  (All [a] (-> Nat Level (Hierarchy a) (Maybe (Hierarchy a))))
+  (let [sub_idx (branch_idx (i64.right_shift level (n.- 2 size)))]
+    (cond (n.= 0 sub_idx)
+          #.None
+
+          (n.> branching_exponent level)
+          (do maybe.monad
+            [base|hierarchy (array.read sub_idx hierarchy)
+             sub (case base|hierarchy
+                   (#Hierarchy sub)
+                   (pop_tail size (level_down level) sub)
+
+                   (#Base _)
+                   (undefined))]
+            (|> (array.clone hierarchy)
+                (array.write! sub_idx (#Hierarchy sub))
+                #.Some))
+
+          ## Else...
+          (|> (array.clone hierarchy)
+              (array.delete! sub_idx)
+              #.Some)
+          )))
+
+(def: (to_list' node)
+  (All [a] (-> (Node a) (List a)))
+  (case node
+    (#Base base)
+    (array.to_list base)
+    
+    (#Hierarchy hierarchy)
+    (|> hierarchy
+        array.to_list
+        list.reverse
+        (list\fold (function (_ sub acc) (list\compose (to_list' sub) acc))
+                   #.Nil))))
+
+(type: #export (Row a)
+  {#level Level
+   #size Nat
+   #root (Hierarchy a)
+   #tail (Base a)})
+
+(def: #export empty
+  Row
+  {#level (level_up root_level)
+   #size 0
+   #root (array.new full_node_size)
+   #tail (array.new 0)})
+
+(def: #export (size row)
+  (All [a] (-> (Row a) Nat))
+  (get@ #size row))
+
+(def: #export (add val row)
+  (All [a] (-> a (Row a) (Row a)))
+  ## Check if there is room in the tail.
+  (let [row_size (get@ #size row)]
+    (if (|> row_size (n.- (tail_off row_size)) (n.< full_node_size))
+      ## If so, append to it.
+      (|> row
+          (update@ #size inc)
+          (update@ #tail (expand_tail val)))
+      ## Otherwise, push tail into the tree
+      ## --------------------------------------------------------
+      ## Will the root experience an overflow with this addition?
+      (|> (if (n.> (i64.left_shift (get@ #level row) 1)
+                   (i64.right_shift branching_exponent row_size))
+            ## If so, a brand-new root must be established, that is
+            ## 1-level taller.
+            (|> row
+                (set@ #root (|> (for {@.old
+                                      (: (Hierarchy ($ 0))
+                                         (new_hierarchy []))}
+                                     (new_hierarchy []))
+                                (array.write! 0 (#Hierarchy (get@ #root row)))
+                                (array.write! 1 (new_path (get@ #level row) (get@ #tail row)))))
+                (update@ #level level_up))
+            ## Otherwise, just push the current tail onto the root.
+            (|> row
+                (update@ #root (push_tail row_size (get@ #level row) (get@ #tail row)))))
+          ## Finally, update the size of the row and grow a new
+          ## tail with the new element as it's sole member.
+          (update@ #size inc)
+          (set@ #tail (new_tail val)))
+      )))
+
+(exception: incorrect_row_structure)
+
+(exception: #export [a] (index_out_of_bounds {row (Row a)} {index Nat})
+  (exception.report ["Size" (\ n.decimal encode (get@ #size row))]
+                    ["Index" (\ n.decimal encode index)]))
+
+(exception: base_was_not_found)
+
+(def: #export (within_bounds? row idx)
+  (All [a] (-> (Row a) Nat Bit))
+  (n.< (get@ #size row) idx))
+
+(def: (base_for idx row)
+  (All [a] (-> Index (Row a) (Try (Base a))))
+  (if (within_bounds? row idx)
+    (if (n.>= (tail_off (get@ #size row)) idx)
+      (#try.Success (get@ #tail row))
+      (loop [level (get@ #level row)
+             hierarchy (get@ #root row)]
+        (case [(n.> branching_exponent level)
+               (array.read (branch_idx (i64.right_shift level idx)) hierarchy)]
+          [#1 (#.Some (#Hierarchy sub))]
+          (recur (level_down level) sub)
+
+          [#0 (#.Some (#Base base))]
+          (#try.Success base)
+
+          [_ #.None]
+          (exception.throw ..base_was_not_found [])
+
+          _
+          (exception.throw ..incorrect_row_structure []))))
+    (exception.throw ..index_out_of_bounds [row idx])))
+
+(def: #export (nth idx row)
+  (All [a] (-> Nat (Row a) (Try a)))
+  (do try.monad
+    [base (base_for idx row)]
+    (case (array.read (branch_idx idx) base)
+      (#.Some value)
+      (#try.Success value)
+      
+      #.None
+      (exception.throw ..incorrect_row_structure []))))
+
+(def: #export (put idx val row)
+  (All [a] (-> Nat a (Row a) (Try (Row a))))
+  (let [row_size (get@ #size row)]
+    (if (within_bounds? row idx)
+      (#try.Success (if (n.>= (tail_off row_size) idx)
+                      (update@ #tail (for {@.old
+                                           (: (-> (Base ($ 0)) (Base ($ 0)))
+                                              (|>> array.clone (array.write! (branch_idx idx) val)))}
+                                          (|>> array.clone (array.write! (branch_idx idx) val)))
+                               row)
+                      (update@ #root (put' (get@ #level row) idx val)
+                               row)))
+      (exception.throw ..index_out_of_bounds [row idx]))))
+
+(def: #export (update idx f row)
+  (All [a] (-> Nat (-> a a) (Row a) (Try (Row a))))
+  (do try.monad
+    [val (..nth idx row)]
+    (..put idx (f val) row)))
+
+(def: #export (pop row)
+  (All [a] (-> (Row a) (Row a)))
+  (case (get@ #size row)
+    0
+    empty
+
+    1
+    empty
+
+    row_size
+    (if (|> row_size (n.- (tail_off row_size)) (n.> 1))
+      (let [old_tail (get@ #tail row)
+            new_tail_size (dec (array.size old_tail))]
+        (|> row
+            (update@ #size dec)
+            (set@ #tail (|> (array.new new_tail_size)
+                            (array.copy! new_tail_size 0 old_tail 0)))))
+      (maybe.assume
+       (do maybe.monad
+         [new_tail (base_for (n.- 2 row_size) row)
+          #let [[level' root'] (let [init_level (get@ #level row)]
+                                 (loop [level init_level
+                                        root (maybe.default (new_hierarchy [])
+                                                            (pop_tail row_size init_level (get@ #root row)))]
+                                   (if (n.> branching_exponent level)
+                                     (case [(array.read 1 root) (array.read 0 root)]
+                                       [#.None (#.Some (#Hierarchy sub_node))]
+                                       (recur (level_down level) sub_node)
+
+                                       ## [#.None (#.Some (#Base _))]
+                                       ## (undefined)
+
+                                       _
+                                       [level root])
+                                     [level root])))]]
+         (wrap (|> row
+                   (update@ #size dec)
+                   (set@ #level level')
+                   (set@ #root root')
+                   (set@ #tail new_tail))))))
+    ))
+
+(def: #export (to_list row)
+  (All [a] (-> (Row a) (List a)))
+  (list\compose (to_list' (#Hierarchy (get@ #root row)))
+                (to_list' (#Base (get@ #tail row)))))
+
+(def: #export from_list
+  (All [a] (-> (List a) (Row a)))
+  (list\fold ..add ..empty))
+
+(def: #export (member? a/Equivalence row val)
+  (All [a] (-> (Equivalence a) (Row a) a Bit))
+  (list.member? a/Equivalence (to_list row) val))
+
+(def: #export empty?
+  (All [a] (-> (Row a) Bit))
+  (|>> (get@ #size) (n.= 0)))
+
+(syntax: #export (row {elems (p.some s.any)})
+  {#.doc (doc "Row literals."
+              (row +10 +20 +30 +40))}
+  (wrap (list (` (..from_list (list (~+ elems)))))))
+
+(implementation: (node_equivalence Equivalence<a>)
+  (All [a] (-> (Equivalence a) (Equivalence (Node a))))
+  
+  (def: (= v1 v2)
+    (case [v1 v2]
+      [(#Base b1) (#Base b2)]
+      (\ (array.equivalence Equivalence<a>) = b1 b2)
+      
+      [(#Hierarchy h1) (#Hierarchy h2)]
+      (\ (array.equivalence (node_equivalence Equivalence<a>)) = h1 h2)
+
+      _
+      #0)))
+
+(implementation: #export (equivalence Equivalence<a>)
+  (All [a] (-> (Equivalence a) (Equivalence (Row a))))
+  
+  (def: (= v1 v2)
+    (and (n.= (get@ #size v1) (get@ #size v2))
+         (let [(^open "node\.") (node_equivalence Equivalence<a>)]
+           (and (node\= (#Base (get@ #tail v1))
+                        (#Base (get@ #tail v2)))
+                (node\= (#Hierarchy (get@ #root v1))
+                        (#Hierarchy (get@ #root v2))))))))
+
+(implementation: node_fold
+  (Fold Node)
+  
+  (def: (fold f init xs)
+    (case xs
+      (#Base base)
+      (array\fold f init base)
+      
+      (#Hierarchy hierarchy)
+      (array\fold (function (_ node init') (fold f init' node))
+                  init
+                  hierarchy))))
+
+(implementation: #export fold
+  (Fold Row)
+  
+  (def: (fold f init xs)
+    (let [(^open ".") node_fold]
+      (fold f
+            (fold f
+                  init
+                  (#Hierarchy (get@ #root xs)))
+            (#Base (get@ #tail xs))))))
+
+(implementation: #export monoid
+  (All [a] (Monoid (Row a)))
+  
+  (def: identity ..empty)
+  
+  (def: (compose xs ys)
+    (list\fold add xs (..to_list ys))))
+
+(implementation: node_functor
+  (Functor Node)
+  
+  (def: (map f xs)
+    (case xs
+      (#Base base)
+      (#Base (array\map f base))
+      
+      (#Hierarchy hierarchy)
+      (#Hierarchy (array\map (map f) hierarchy)))))
+
+(implementation: #export functor
+  (Functor Row)
+  
+  (def: (map f xs)
+    {#level (get@ #level xs)
+     #size (get@ #size xs)
+     #root (|> xs (get@ #root) (array\map (\ node_functor map f)))
+     #tail (|> xs (get@ #tail) (array\map f))}))
+
+(implementation: #export apply
+  (Apply Row)
+  
+  (def: &functor ..functor)
+
+  (def: (apply ff fa)
+    (let [(^open ".") ..functor
+          (^open ".") ..fold
+          (^open ".") ..monoid
+          results (map (function (_ f) (map f fa))
+                       ff)]
+      (fold compose identity results))))
+
+(implementation: #export monad
+  (Monad Row)
+  
+  (def: &functor ..functor)
+
+  (def: wrap (|>> row))
+
+  (def: join
+    (let [(^open ".") ..fold
+          (^open ".") ..monoid]
+      (fold (function (_ post pre) (compose pre post)) identity))))
+
+(def: #export reverse
+  (All [a] (-> (Row a) (Row a)))
+  (|>> ..to_list list.reverse (list\fold add ..empty)))
+
+(template [<name> <array> <init> <op>]
+  [(def: #export <name>
+     (All [a]
+       (-> (Predicate a) (Row a) Bit))
+     (let [help (: (All [a]
+                     (-> (Predicate a) (Node a) Bit))
+                   (function (help predicate node)
+                     (case node
+                       (#Base base)
+                       (<array> predicate base)
+
+                       (#Hierarchy hierarchy)
+                       (<array> (help predicate) hierarchy))))]
+       (function (<name> predicate row)
+         (let [(^slots [#root #tail]) row]
+           (<op> (help predicate (#Hierarchy root))
+                 (help predicate (#Base tail)))))))]
+
+  [every? array.every? #1 and]
+  [any?   array.any?   #0 or]
+  )

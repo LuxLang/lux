@@ -59,7 +59,7 @@
         output)))
 
 (def ^:private Any
-  (&/$Named (&/T ["lux" "Any"])
+  (&/$Named (&/T [&/prelude "Any"])
             (&/$ExQ (&/|list)
                     (&/$Parameter 1))))
 

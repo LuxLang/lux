@@ -1,0 +1,128 @@
+(.module:
+  [library
+   [lux #*
+    [control
+     pipe
+     ["." monad (#+ do)]
+     ["." try (#+ Try)]
+     [concurrency
+      ["." promise (#+ Promise)]
+      ["." frp]]
+     [parser
+      ["<.>" json]]]
+    [data
+     ["." maybe]
+     ["." number
+      ["n" nat]]
+     ["." text
+      ["." encoding]]
+     [format
+      ["." json (#+ JSON)]
+      ["." context (#+ Context Property)]]
+     [collection
+      ["." list ("#\." functor fold)]
+      ["." dictionary]]]
+    [world
+     ["." binary (#+ Binary)]]]]
+  ["." // (#+ Body Response Server)
+   ["#." response]
+   ["#." query]
+   ["#." cookie]])
+
+(def: (merge inputs)
+  (-> (List Binary) Binary)
+  (let [[_ output] (try.assume
+                    (monad.fold try.monad
+                                (function (_ input [offset output])
+                                  (let [amount (binary.size input)]
+                                    (\ try.functor map (|>> [(n.+ amount offset)])
+                                       (binary.copy amount 0 input offset output))))
+                                [0 (|> inputs
+                                       (list\map binary.size)
+                                       (list\fold n.+ 0)
+                                       binary.create)]
+                                inputs))]
+    output))
+
+(def: (read-text-body body)
+  (-> Body (Promise (Try Text)))
+  (do promise.monad
+    [blobs (frp.consume body)]
+    (wrap (\ encoding.utf8 decode (merge blobs)))))
+
+(def: failure (//response.bad-request ""))
+
+(def: #export (json reader server)
+  (All [a] (-> (<json>.Reader a) (-> a Server) Server))
+  (function (_ (^@ request [identification protocol resource message]))
+    (do promise.monad
+      [?raw (read-text-body (get@ #//.body message))]
+      (case (do try.monad
+              [raw ?raw
+               content (\ json.codec decode raw)]
+              (json.run content reader))
+        (#try.Success input)
+        (server input request)
+        
+        (#try.Failure error)
+        (promise.resolved ..failure)))))
+
+(def: #export (text server)
+  (-> (-> Text Server) Server)
+  (function (_ (^@ request [identification protocol resource message]))
+    (do promise.monad
+      [?raw (read-text-body (get@ #//.body message))]
+      (case ?raw
+        (#try.Success content)
+        (server content request)
+        
+        (#try.Failure error)
+        (promise.resolved ..failure)))))
+
+(def: #export (query property server)
+  (All [a] (-> (Property a) (-> a Server) Server))
+  (function (_ [identification protocol resource message])
+    (let [full (get@ #//.uri resource)
+          [uri query] (|> full
+                          (text.split-with "?")
+                          (maybe.default [full ""]))]
+      (case (do try.monad
+              [query (//query.parameters query)
+               input (context.run query property)]
+              (wrap [[identification protocol (set@ #//.uri uri resource) message]
+                     input]))
+        (#try.Success [request input])
+        (server input request)
+        
+        (#try.Failure error)
+        (promise.resolved ..failure)))))
+
+(def: #export (form property server)
+  (All [a] (-> (Property a) (-> a Server) Server))
+  (function (_ (^@ request [identification protocol resource message]))
+    (do promise.monad
+      [?body (read-text-body (get@ #//.body message))]
+      (case (do try.monad
+              [body ?body
+               form (//query.parameters body)]
+              (context.run form property))
+        (#try.Success input)
+        (server input request)
+        
+        (#try.Failure error)
+        (promise.resolved ..failure)))))
+
+(def: #export (cookies property server)
+  (All [a] (-> (Property a) (-> a Server) Server))
+  (function (_ (^@ request [identification protocol resource message]))
+    (case (do try.monad
+            [cookies (|> (get@ #//.headers message)
+                         (dictionary.get "Cookie")
+                         (maybe.default "")
+                         //cookie.get)]
+            (context.run cookies property))
+      (#try.Success input)
+      (server input request)
+      
+      (#try.Failure error)
+      (promise.resolved ..failure))))

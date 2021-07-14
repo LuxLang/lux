@@ -1,0 +1,386 @@
+(.module:
+  [library
+   [lux (#- Code or and list if function cond not int)
+    [control
+     [pipe (#+ case> cond> new>)]
+     ["." function]
+     [parser
+      ["<.>" code]]]
+    [data
+     ["." maybe ("#\." functor)]
+     ["." text
+      ["%" format (#+ format)]]
+     [collection
+      ["." list ("#\." functor fold)]]]
+    [macro
+     [syntax (#+ syntax:)]
+     ["." template]
+     ["." code]]
+    [math
+     [number
+      ["f" frac]]]
+    [type
+     abstract]]])
+
+(abstract: #export (Code kind)
+  Text
+
+  {}
+
+  (template [<type> <super>+]
+    [(with_expansions [<kind> (template.identifier [<type> "'"])]
+       (abstract: #export (<kind> kind) Any)
+       (`` (type: #export <type> (|> Any <kind> (~~ (template.splice <super>+))))))]
+    
+    [Expression [Code]]
+    )
+
+  (template [<type> <super>+]
+    [(with_expansions [<kind> (template.identifier [<type> "'"])]
+       (abstract: #export (<kind> kind) Any)
+       (`` (type: #export (<type> <brand>) (|> <brand> <kind> (~~ (template.splice <super>+))))))]
+    
+    [Var [Expression' Code]]
+    )
+
+  (template [<var> <kind>]
+    [(abstract: #export <kind> Any)
+     (type: #export <var> (Var <kind>))]
+
+    [SVar Single]
+    [PVar Poly]
+    )
+
+  (def: #export var
+    (-> Text SVar)
+    (|>> :abstraction))
+  
+  (def: #export var_args
+    PVar
+    (:abstraction "..."))
+
+  (def: #export manual
+    (-> Text Code)
+    (|>> :abstraction))
+  
+  (def: #export code
+    (-> (Code Any) Text)
+    (|>> :representation))
+
+  (def: (self_contained code)
+    (-> Text Expression)
+    (:abstraction
+     (format "(" code ")")))
+
+  (def: nested_new_line
+    (format text.new_line text.tab))
+
+  (def: nest
+    (-> Text Text)
+    (|>> (text.replace_all text.new_line ..nested_new_line)
+         (format ..nested_new_line)))
+
+  (def: (_block expression)
+    (-> Text Text)
+    (format "{" (nest expression) text.new_line "}"))
+
+  (def: #export (block expression)
+    (-> Expression Expression)
+    (:abstraction
+     (format "{"
+             (..nest (:representation expression))
+             text.new_line "}")))
+
+  (template [<name> <r>]
+    [(def: #export <name>
+       Expression
+       (:abstraction <r>))]
+
+    [null "NULL"]
+    [n/a "NA"]
+    )
+
+  (template [<name>]
+    [(def: #export <name> Expression n/a)]
+
+    [not_available]
+    [not_applicable]
+    [no_answer]
+    )
+
+  (def: #export bool
+    (-> Bit Expression)
+    (|>> (case> #0 "FALSE"
+                #1 "TRUE")
+         :abstraction))
+
+  (def: #export int
+    (-> Int Expression)
+    (|>> %.int :abstraction))
+
+  (def: #export float
+    (-> Frac Expression)
+    (|>> (cond> [(f.= f.positive_infinity)]
+                [(new> "1.0/0.0" [])]
+                
+                [(f.= f.negative_infinity)]
+                [(new> "-1.0/0.0" [])]
+                
+                [(f.= f.not_a_number)]
+                [(new> "0.0/0.0" [])]
+                
+                ## else
+                [%.frac])
+         ..self_contained))
+
+  (def: sanitize
+    (-> Text Text)
+    (`` (|>> (~~ (template [<find> <replace>]
+                   [(text.replace_all <find> <replace>)]
+
+                   ["\" "\\"]
+                   ["|" "\|"]
+                   [text.alarm "\a"]
+                   [text.back_space "\b"]
+                   [text.tab "\t"]
+                   [text.new_line "\n"]
+                   [text.carriage_return "\r"]
+                   [text.double_quote (format "\" text.double_quote)]
+                   ))
+             )))
+
+  (def: #export string
+    (-> Text Expression)
+    (|>> ..sanitize %.text :abstraction))
+
+  (def: #export (slice from to list)
+    (-> Expression Expression Expression Expression)
+    (..self_contained
+     (format (:representation list)
+             "[" (:representation from) ":" (:representation to) "]")))
+
+  (def: #export (slice_from from list)
+    (-> Expression Expression Expression)
+    (..self_contained
+     (format (:representation list)
+             "[-1"  ":-" (:representation from) "]")))
+
+  (def: #export (apply args func)
+    (-> (List Expression) Expression Expression)
+    (let [func (:representation func)
+          spacing (|> " " (list.repeat (text.size func)) (text.join_with ""))]
+      (:abstraction
+       (format func "("
+               (|> args
+                   (list\map ..code)
+                   (text.join_with (format "," text.new_line))
+                   ..nest)
+               ")"))))
+
+  (template [<name> <function>]
+    [(def: #export (<name> members)
+       (-> (List Expression) Expression)
+       (..apply members (..var <function>)))]
+
+    [vector "c"]
+    [list   "list"]
+    )
+
+  (def: #export named_list
+    (-> (List [Text Expression]) Expression)
+    (|>> (list\map (.function (_ [key value])
+                     (:abstraction (format key "=" (:representation value)))))
+         ..list))
+
+  (def: #export (apply_kw args kw_args func)
+    (-> (List Expression) (List [Text Expression]) Expression Expression)
+    (..self_contained
+     (format (:representation func)
+             (format "("
+                     (text.join_with "," (list\map ..code args)) ","
+                     (text.join_with "," (list\map (.function (_ [key val])
+                                                     (format key "=" (:representation val)))
+                                                   kw_args))
+                     ")"))))
+
+  (syntax: (arity_inputs {arity <code>.nat})
+    (wrap (case arity
+            0 (.list)
+            _ (|> arity
+                  list.indices
+                  (list\map (|>> %.nat code.local_identifier))))))
+
+  (syntax: (arity_types {arity <code>.nat})
+    (wrap (list.repeat arity (` ..Expression))))
+
+  (template [<arity> <function>+]
+    [(with_expansions [<apply> (template.identifier ["apply/" <arity>])
+                       <inputs> (arity_inputs <arity>)
+                       <types> (arity_types <arity>)
+                       <definitions> (template.splice <function>+)]
+       (def: #export (<apply> function [<inputs>])
+         (-> Expression [<types>] Expression)
+         (..apply (.list <inputs>) function))
+
+       (template [<function>]
+         [(`` (def: #export (~~ (template.identifier [<function> "/" <arity>]))
+                (-> [<types>] Expression)
+                (<apply> (..var <function>))))]
+
+         <definitions>))]
+
+    [0
+     [["commandArgs"]]]
+    [1
+     [["intToUtf8"]]]
+    [2
+     [["paste"]]]
+    )
+
+  (def: #export as::integer
+    (-> Expression Expression)
+    (..apply/1 (..var "as.integer")))
+
+  (def: #export (nth idx list)
+    (-> Expression Expression Expression)
+    (..self_contained
+     (format (:representation list) "[[" (:representation idx) "]]")))
+
+  (def: #export (if test then else)
+    (-> Expression Expression Expression Expression)
+    (:abstraction
+     (format "if(" (:representation test) ")"
+             " " (.._block (:representation then))
+             " else " (.._block (:representation else)))))
+
+  (def: #export (when test then)
+    (-> Expression Expression Expression)
+    (:abstraction
+     (format "if(" (:representation test) ") {"
+             (.._block (:representation then))
+             text.new_line "}")))
+
+  (def: #export (cond clauses else)
+    (-> (List [Expression Expression]) Expression Expression)
+    (list\fold (.function (_ [test then] next)
+                 (if test then next))
+               else
+               (list.reverse clauses)))
+
+  (template [<name> <op>]
+    [(def: #export (<name> param subject)
+       (-> Expression Expression Expression)
+       (..self_contained
+        (format (:representation subject)
+                " " <op> " "
+                (:representation param))))]
+
+    [=       "=="]
+    [<       "<"]
+    [<=      "<="]
+    [>       ">"]
+    [>=      ">="]
+    [+       "+"]
+    [-       "-"]
+    [*       "*"]
+    [/       "/"]
+    [%%      "%%"]
+    [**      "**"]
+    [or      "||"]
+    [and     "&&"]
+    )
+
+  (template [<name> <func>]
+    [(def: #export (<name> param subject)
+       (-> Expression Expression Expression)
+       (..apply (.list subject param) (..var <func>)))]
+
+    [bit_or   "bitwOr"]
+    [bit_and  "bitwAnd"]
+    [bit_xor  "bitwXor"]
+    [bit_shl  "bitwShiftL"]
+    [bit_ushr "bitwShiftR"]
+    )
+
+  (def: #export (bit_not subject)
+    (-> Expression Expression)
+    (..apply (.list subject) (..var "bitwNot")))
+
+  (template [<name> <op>]
+    [(def: #export <name>
+       (-> Expression Expression)
+       (|>> :representation (format <op>) ..self_contained))]
+
+    [not    "!"]
+    [negate "-"]
+    )
+  
+  (def: #export (length list)
+    (-> Expression Expression)
+    (..apply (.list list) (..var "length")))
+
+  (def: #export (range from to)
+    (-> Expression Expression Expression)
+    (..self_contained
+     (format (:representation from) ":" (:representation to))))
+
+  (def: #export (function inputs body)
+    (-> (List (Ex [k] (Var k))) Expression Expression)
+    (let [args (|> inputs (list\map ..code) (text.join_with ", "))]
+      (..self_contained
+       (format "function(" args ") "
+               (.._block (:representation body))))))
+
+  (def: #export (try body warning error finally)
+    (-> Expression (Maybe Expression) (Maybe Expression) (Maybe Expression) Expression)
+    (let [optional (: (-> Text (Maybe Expression) (-> Text Text) Text)
+                      (.function (_ parameter value preparation)
+                        (|> value
+                            (maybe\map (|>> :representation preparation (format ", " parameter " = ")))
+                            (maybe.default ""))))]
+      (..self_contained
+       (format "tryCatch("
+               (.._block (:representation body))
+               (optional "warning" warning function.identity)
+               (optional "error" error function.identity)
+               (optional "finally" finally .._block)
+               ")"))))
+
+  (def: #export (while test body)
+    (-> Expression Expression Expression)
+    (..self_contained
+     (format "while (" (:representation test) ") "
+             (.._block (:representation body)))))
+
+  (def: #export (for_in var inputs body)
+    (-> SVar Expression Expression Expression)
+    (..self_contained
+     (format "for (" (:representation var) " in " (:representation inputs) ")"
+             (.._block (:representation body)))))
+
+  (template [<name> <keyword>]
+    [(def: #export (<name> message)
+       (-> Expression Expression)
+       (..apply (.list message) (..var <keyword>)))]
+
+    [stop  "stop"]
+    [print "print"]
+    )
+
+  (def: #export (set! var value)
+    (-> SVar Expression Expression)
+    (..self_contained
+     (format (:representation var) " <- " (:representation value))))
+
+  (def: #export (set_nth! idx value list)
+    (-> Expression Expression SVar Expression)
+    (..self_contained
+     (format (:representation list) "[[" (:representation idx) "]] <- " (:representation value))))
+
+  (def: #export (then pre post)
+    (-> Expression Expression Expression)
+    (:abstraction
+     (format (:representation pre)
+             text.new_line
+             (:representation post))))
+  )

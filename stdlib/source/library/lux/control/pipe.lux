@@ -1,0 +1,161 @@
+(.module: {#.doc "Composable extensions to the piping macros (|> and <|) that enhance them with various abilities."}
+  [library
+   [lux #*
+    [abstract
+     [monad (#+ do)]]
+    [control
+     ["e" try]
+     ["p" parser
+      ["s" code (#+ Parser)]]]
+    [data
+     ["." identity]
+     [collection
+      ["." list ("#\." fold monad)]]]
+    [macro (#+ with_gensyms)
+     [syntax (#+ syntax:)]
+     ["." code]]
+    [math
+     [number
+      ["n" nat]
+      ["i" int]]]]])
+
+(def: body^
+  (Parser (List Code))
+  (s.tuple (p.some s.any)))
+
+(syntax: #export (new> start
+                       {body body^}
+                       prev)
+  {#.doc (doc "Ignores the piped argument, and begins a new pipe."
+              (n.= 1
+                   (|> 20
+                       (n.* 3)
+                       (n.+ 4)
+                       (new> 0 [inc]))))}
+  (wrap (list (` (|> (~ start) (~+ body))))))
+
+(syntax: #export (let> binding body prev)
+  {#.doc (doc "Gives a name to the piped-argument, within the given expression."
+              (n.= 10
+                   (|> 5
+                       (let> x (n.+ x x)))))}
+  (wrap (list (` (let [(~ binding) (~ prev)]
+                   (~ body))))))
+
+(def: _reverse_
+  (Parser Any)
+  (function (_ tokens)
+    (#e.Success [(list.reverse tokens) []])))
+
+(syntax: #export (cond> {_ _reverse_}
+                        prev
+                        {else body^}
+                        {_ _reverse_}
+                        {branches (p.some (p.and body^ body^))})
+  {#.doc (doc "Branching for pipes."
+              "Both the tests and the bodies are piped-code, and must be given inside a tuple."
+              (|> +5
+                  (cond> [i.even?] [(i.* +2)]
+                         [i.odd?] [(i.* +3)]
+                         [(new> -1 [])])))}
+  (with_gensyms [g!temp]
+    (wrap (list (` (let [(~ g!temp) (~ prev)]
+                     (cond (~+ (do list.monad
+                                 [[test then] branches]
+                                 (list (` (|> (~ g!temp) (~+ test)))
+                                       (` (|> (~ g!temp) (~+ then))))))
+                           (|> (~ g!temp) (~+ else)))))))))
+
+(syntax: #export (if> {test body^} {then body^} {else body^} prev)
+  (wrap (list (` (cond> [(~+ test)] [(~+ then)]
+                        [(~+ else)]
+                        (~ prev))))))
+
+(syntax: #export (when> {test body^} {then body^} prev)
+  (wrap (list (` (cond> [(~+ test)] [(~+ then)]
+                        []
+                        (~ prev))))))
+
+(syntax: #export (loop> {test body^}
+                        {then body^}
+                        prev)
+  {#.doc (doc "Loops for pipes."
+              "Both the testing and calculating steps are pipes and must be given inside tuples."
+              (|> +1
+                  (loop> [(i.< +10)]
+                         [inc])))}
+  (with_gensyms [g!temp]
+    (wrap (list (` (loop [(~ g!temp) (~ prev)]
+                     (if (|> (~ g!temp) (~+ test))
+                       ((~' recur) (|> (~ g!temp) (~+ then)))
+                       (~ g!temp))))))))
+
+(syntax: #export (do> monad
+                      {steps (p.some body^)}
+                      prev)
+  {#.doc (doc "Monadic pipes."
+              "Each steps in the monadic computation is a pipe and must be given inside a tuple."
+              (|> +5
+                  (do> identity.monad
+                       [(i.* +3)]
+                       [(i.+ +4)]
+                       [inc])))}
+  (with_gensyms [g!temp]
+    (case (list.reverse steps)
+      (^ (list& last_step prev_steps))
+      (let [step_bindings (do list.monad
+                            [step (list.reverse prev_steps)]
+                            (list g!temp (` (|> (~ g!temp) (~+ step)))))]
+        (wrap (list (` ((~! do) (~ monad)
+                        [(~' #let) [(~ g!temp) (~ prev)]
+                         (~+ step_bindings)]
+                        (|> (~ g!temp) (~+ last_step)))))))
+
+      _
+      (wrap (list prev)))))
+
+(syntax: #export (exec> {body body^}
+                        prev)
+  {#.doc (doc "Non-updating pipes."
+              "Will generate piped computations, but their results will not be used in the larger scope."
+              (|> +5
+                  (exec> [.nat %n log!])
+                  (i.* +10)))}
+  (with_gensyms [g!temp]
+    (wrap (list (` (let [(~ g!temp) (~ prev)]
+                     (exec (|> (~ g!temp) (~+ body))
+                       (~ g!temp))))))))
+
+(syntax: #export (tuple> {paths (p.many body^)}
+                         prev)
+  {#.doc (doc "Parallel branching for pipes."
+              "Allows to run multiple pipelines for a value and gives you a tuple of the outputs."
+              (|> +5
+                  (tuple> [(i.* +10)]
+                          [dec (i./ +2)]
+                          [Int/encode]))
+              "Will become: [+50 +2 '+5']")}
+  (with_gensyms [g!temp]
+    (wrap (list (` (let [(~ g!temp) (~ prev)]
+                     [(~+ (list\map (function (_ body) (` (|> (~ g!temp) (~+ body))))
+                                    paths))]))))))
+
+(syntax: #export (case> {branches (p.many (p.and s.any s.any))}
+                        prev)
+  {#.doc (doc "Pattern-matching for pipes."
+              "The bodies of each branch are NOT pipes; just regular values."
+              (|> +5
+                  (case> +0 "zero"
+                         +1 "one"
+                         +2 "two"
+                         +3 "three"
+                         +4 "four"
+                         +5 "five"
+                         +6 "six"
+                         +7 "seven"
+                         +8 "eight"
+                         +9 "nine"
+                         _ "???")))}
+  (wrap (list (` (case (~ prev)
+                   (~+ (list\join (list\map (function (_ [pattern body]) (list pattern body))
+                                            branches))))))))

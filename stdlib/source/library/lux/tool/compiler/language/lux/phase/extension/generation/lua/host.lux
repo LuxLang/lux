@@ -1,0 +1,200 @@
+(.module:
+  [library
+   [lux #*
+    [abstract
+     ["." monad (#+ do)]]
+    [control
+     ["." function]
+     ["<>" parser
+      ["<s>" synthesis (#+ Parser)]]]
+    [data
+     [collection
+      ["." dictionary]
+      ["." list]]
+     [text
+      ["%" format (#+ format)]]]
+    [target
+     ["_" lua (#+ Var Expression)]]]]
+  ["." // #_
+   ["#." common (#+ custom)]
+   ["//#" /// #_
+    ["/" bundle]
+    ["/#" // #_
+     ["." extension]
+     [generation
+      [extension (#+ Nullary Unary Binary Trinary
+                     nullary unary binary trinary)]
+      ["." reference]
+      ["//" lua #_
+       ["#." runtime (#+ Operation Phase Handler Bundle
+                         with_vars)]]]
+     ["/#" // #_
+      ["." generation]
+      ["//#" /// #_
+       ["#." phase]]]]]])
+
+(def: array::new
+  (Unary Expression)
+  (|>> ["n"] list _.table))
+
+(def: array::length
+  (Unary Expression)
+  (_.the "n"))
+
+(def: (array::read [indexG arrayG])
+  (Binary Expression)
+  (_.nth (_.+ (_.int +1) indexG) arrayG))
+
+(def: (array::write [indexG valueG arrayG])
+  (Trinary Expression)
+  (//runtime.array//write indexG valueG arrayG))
+
+(def: (array::delete [indexG arrayG])
+  (Binary Expression)
+  (//runtime.array//write indexG _.nil arrayG))
+
+(def: array
+  Bundle
+  (<| (/.prefix "array")
+      (|> /.empty
+          (/.install "new" (unary array::new))
+          (/.install "length" (unary array::length))
+          (/.install "read" (binary array::read))
+          (/.install "write" (trinary array::write))
+          (/.install "delete" (binary array::delete))
+          )))
+
+(def: object::get
+  Handler
+  (custom
+   [($_ <>.and <s>.text <s>.any)
+    (function (_ extension phase archive [fieldS objectS])
+      (do ////////phase.monad
+        [objectG (phase archive objectS)]
+        (wrap (_.the fieldS objectG))))]))
+
+(def: object::do
+  Handler
+  (custom
+   [($_ <>.and <s>.text <s>.any (<>.some <s>.any))
+    (function (_ extension phase archive [methodS objectS inputsS])
+      (do {! ////////phase.monad}
+        [objectG (phase archive objectS)
+         inputsG (monad.map ! (phase archive) inputsS)]
+        (wrap (_.do methodS inputsG objectG))))]))
+
+(template [<!> <?> <unit>]
+  [(def: <!> (Nullary Expression) (function.constant <unit>))
+   (def: <?> (Unary Expression) (_.= <unit>))]
+
+  [object::nil object::nil? _.nil]
+  )
+
+(def: object
+  Bundle
+  (<| (/.prefix "object")
+      (|> /.empty
+          (/.install "get" object::get)
+          (/.install "do" object::do)
+          (/.install "nil" (nullary object::nil))
+          (/.install "nil?" (unary object::nil?))
+          )))
+
+(def: $input
+  (_.var "input"))
+
+(def: utf8::encode
+  (custom
+   [<s>.any
+    (function (_ extension phase archive inputS)
+      (do {! ////////phase.monad}
+        [inputG (phase archive inputS)]
+        (wrap (_.apply/1 (<| (_.closure (list $input))
+                             (_.return (|> (_.var "string.byte")
+                                           (_.apply/* (list $input (_.int +1) (_.length $input)))
+                                           (_.apply/1 (_.var "table.pack")))))
+                         inputG))))]))
+
+(def: utf8::decode
+  (custom
+   [<s>.any
+    (function (_ extension phase archive inputS)
+      (do {! ////////phase.monad}
+        [inputG (phase archive inputS)]
+        (wrap (|> inputG
+                  (_.apply/1 (_.var "table.unpack"))
+                  (_.apply/1 (_.var "string.char"))))))]))
+
+(def: utf8
+  Bundle
+  (<| (/.prefix "utf8")
+      (|> /.empty
+          (/.install "encode" utf8::encode)
+          (/.install "decode" utf8::decode)
+          )))
+
+(def: lua::constant
+  (custom
+   [<s>.text
+    (function (_ extension phase archive name)
+      (\ ////////phase.monad wrap (_.var name)))]))
+
+(def: lua::apply
+  (custom
+   [($_ <>.and <s>.any (<>.some <s>.any))
+    (function (_ extension phase archive [abstractionS inputsS])
+      (do {! ////////phase.monad}
+        [abstractionG (phase archive abstractionS)
+         inputsG (monad.map ! (phase archive) inputsS)]
+        (wrap (_.apply/* inputsG abstractionG))))]))
+
+(def: lua::power
+  (custom
+   [($_ <>.and <s>.any <s>.any)
+    (function (_ extension phase archive [powerS baseS])
+      (do {! ////////phase.monad}
+        [powerG (phase archive powerS)
+         baseG (phase archive baseS)]
+        (wrap (_.^ powerG baseG))))]))
+
+(def: lua::import
+  (custom
+   [<s>.text
+    (function (_ extension phase archive module)
+      (\ ////////phase.monad wrap
+         (_.require/1 (_.string module))))]))
+
+(def: lua::function
+  (custom
+   [($_ <>.and <s>.i64 <s>.any)
+    (function (_ extension phase archive [arity abstractionS])
+      (do {! ////////phase.monad}
+        [abstractionG (phase archive abstractionS)
+         #let [variable (: (-> Text (Operation Var))
+                           (|>> generation.gensym
+                                (\ ! map _.var)))]
+         g!inputs (monad.map ! (function (_ _)
+                                 (variable "input"))
+                             (list.repeat (.nat arity) []))]
+        (wrap (<| (_.closure g!inputs)
+                  _.statement
+                  (case (.nat arity)
+                    0 (_.apply/1 abstractionG //runtime.unit)
+                    1 (_.apply/* g!inputs abstractionG)
+                    _ (_.apply/1 abstractionG (_.array g!inputs)))))))]))
+
+(def: #export bundle
+  Bundle
+  (<| (/.prefix "lua")
+      (|> /.empty
+          (dictionary.merge ..array)
+          (dictionary.merge ..object)
+          (dictionary.merge ..utf8)
+
+          (/.install "constant" lua::constant)
+          (/.install "apply" lua::apply)
+          (/.install "power" lua::power)
+          (/.install "import" lua::import)
+          (/.install "function" lua::function)
+          (/.install "script universe" (nullary (function.constant (_.bool reference.universe))))
+          )))

@@ -15,11 +15,22 @@
                               MethodVisitor)))
 
 ;; [Constants]
-(def function-class "lux.Function")
 (def module-separator "/")
 (def class-name-separator ".")
 (def class-separator "/")
 (def bytecode-version Opcodes/V1_6)
+
+(defn ^String external [^String internal]
+  (.replace internal class-separator class-name-separator))
+
+(defn ^String internal [^String external]
+  (.replace external class-name-separator class-separator))
+
+(def ^:const ^String function-class
+  (str (external &/prelude) class-name-separator "Function"))
+
+(def ^:const ^String lux-utils-class
+  (str (external &/prelude) class-name-separator "LuxRT"))
 
 ;; [Resources]
 (defn ^String ->module-class [old]

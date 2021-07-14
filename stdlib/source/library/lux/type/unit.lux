@@ -1,0 +1,188 @@
+(.module:
+  [library
+   [lux #*
+    ["." meta]
+    [abstract
+     [monad (#+ Monad do)]
+     [equivalence (#+ Equivalence)]
+     [order (#+ Order)]
+     [enum (#+ Enum)]]
+    [control
+     ["<>" parser
+      ["<.>" code (#+ Parser)]]]
+    [data
+     [text
+      ["%" format (#+ format)]]]
+    [macro
+     ["." code]
+     [syntax (#+ syntax:)
+      ["|.|" export]
+      ["|.|" annotations]]]
+    [math
+     [number
+      ["n" nat]
+      ["i" int]
+      ["." ratio (#+ Ratio)]]]
+    [type
+     abstract]]])
+
+(abstract: #export (Qty unit)
+  Int
+  
+  (def: in
+    (All [unit] (-> Int (Qty unit)))
+    (|>> :abstraction))
+
+  (def: out
+    (All [unit] (-> (Qty unit) Int))
+    (|>> :representation))
+
+  (template [<name> <op>]
+    [(def: #export (<name> param subject)
+       (All [unit] (-> (Qty unit) (Qty unit) (Qty unit)))
+       (:abstraction (<op> (:representation param)
+                           (:representation subject))))]
+
+    [+ i.+]
+    [- i.-]
+    )
+
+  (template [<name> <op> <p> <s> <p*s>]
+    [(def: #export (<name> param subject)
+       (All [p s] (-> (Qty <p>) (Qty <s>) (Qty <p*s>)))
+       (:abstraction (<op> (:representation param)
+                           (:representation subject))))]
+
+    [* i.* p s [p s]]
+    [/ i./ p [p s] s]
+    )
+  )
+
+(interface: #export (Unit a)
+  (: (-> Int (Qty a))
+     in)
+  (: (-> (Qty a) Int)
+     out))
+
+(interface: #export (Scale s)
+  (: (All [u] (-> (Qty u) (Qty (s u))))
+     scale)
+  (: (All [u] (-> (Qty (s u)) (Qty u)))
+     de_scale)
+  (: Ratio
+     ratio))
+
+(type: #export Pure
+  (Qty Any))
+
+(def: #export pure
+  (-> Int Pure)
+  ..in)
+
+(def: #export number
+  (-> Pure Int)
+  ..out)
+
+(syntax: #export (unit:
+                   {export |export|.parser}
+                   {type_name <code>.local_identifier}
+                   {unit_name <code>.local_identifier}
+                   {annotations (<>.default |annotations|.empty |annotations|.parser)})
+  (do meta.monad
+    [@ meta.current_module_name
+     #let [g!type (code.local_identifier type_name)]]
+    (wrap (list (` (type: (~+ (|export|.format export)) (~ g!type)
+                     (~ (|annotations|.format annotations))
+                     (primitive (~ (code.text (%.name [@ type_name]))))))
+
+                (` (implementation: (~+ (|export|.format export)) (~ (code.local_identifier unit_name))
+                     (..Unit (~ g!type))
+
+                     (def: (~' in) (~! ..in))
+                     (def: (~' out) (~! ..out))))
+                ))))
+
+(def: scale
+  (Parser Ratio)
+  (<code>.tuple (do <>.monad
+                  [numerator <code>.nat
+                   _ (<>.assert (format "Numerator must be positive: " (%.nat numerator))
+                                (n.> 0 numerator))
+                   denominator <code>.nat
+                   _ (<>.assert (format "Denominator must be positive: " (%.nat denominator))
+                                (n.> 0 denominator))]
+                  (wrap [numerator denominator]))))
+
+(syntax: #export (scale:
+                   {export |export|.parser}
+                   {type_name <code>.local_identifier}
+                   {scale_name <code>.local_identifier}
+                   {(^slots [#ratio.numerator #ratio.denominator]) ..scale}
+                   {annotations (<>.default |annotations|.empty |annotations|.parser)})
+  (do meta.monad
+    [@ meta.current_module_name
+     #let [g!scale (code.local_identifier type_name)]]
+    (wrap (list (` (type: (~+ (|export|.format export)) ((~ g!scale) (~' u))
+                     (~ (|annotations|.format annotations))
+                     (primitive (~ (code.text (%.name [@ type_name]))) [(~' u)])))
+                
+                (` (implementation: (~+ (|export|.format export)) (~ (code.local_identifier scale_name))
+                     (..Scale (~ g!scale))
+                     
+                     (def: (~' scale)
+                       (|>> ((~! ..out))
+                            (i.* (~ (code.int (.int numerator))))
+                            (i./ (~ (code.int (.int denominator))))
+                            ((~! ..in))))
+                     (def: (~' de_scale)
+                       (|>> ((~! ..out))
+                            (i.* (~ (code.int (.int denominator))))
+                            (i./ (~ (code.int (.int numerator))))
+                            ((~! ..in))))
+                     (def: (~' ratio)
+                       [(~ (code.nat numerator)) (~ (code.nat denominator))])))
+                ))))
+
+(def: #export (re_scale from to quantity)
+  (All [si so u] (-> (Scale si) (Scale so) (Qty (si u)) (Qty (so u))))
+  (let [[numerator denominator] (ratio./ (\ from ratio)
+                                         (\ to ratio))]
+    (|> quantity
+        out
+        (i.* (.int numerator))
+        (i./ (.int denominator))
+        in)))
+
+(scale: #export Kilo kilo [1         1,000])
+(scale: #export Mega mega [1     1,000,000])
+(scale: #export Giga giga [1 1,000,000,000])
+
+(scale: #export Milli milli [        1,000 1])
+(scale: #export Micro micro [    1,000,000 1])
+(scale: #export Nano  nano  [1,000,000,000 1])
+
+(unit: #export Gram gram)
+(unit: #export Meter meter)
+(unit: #export Litre litre)
+(unit: #export Second second)
+
+(implementation: #export equivalence
+  (All [unit] (Equivalence (Qty unit)))
+  
+  (def: (= reference sample)
+    (i.= (..out reference) (..out sample))))
+
+(implementation: #export order
+  (All [unit] (Order (Qty unit)))
+  
+  (def: &equivalence ..equivalence)
+  
+  (def: (< reference sample)
+    (i.< (..out reference) (..out sample))))
+
+(implementation: #export enum
+  (All [unit] (Enum (Qty unit)))
+  
+  (def: &order ..order)
+  (def: succ (|>> ..out inc ..in))
+  (def: pred (|>> ..out dec ..in)))
