@@ -1,0 +1,2048 @@
+(.module:
+  [library
+   ["." lux (#- Type type int char interface:)
+    ["#_." type ("#\." equivalence)]
+    [abstract
+     ["." monad (#+ Monad do)]
+     ["." enum]]
+    [control
+     ["." function]
+     ["." io]
+     ["." try (#+ Try)]
+     ["." exception (#+ Exception exception:)]
+     ["<>" parser ("#\." monad)
+      ["<.>" code (#+ Parser)]]]
+    [data
+     ["." maybe]
+     ["." product]
+     ["." text ("#\." equivalence)
+      ["%" format (#+ format)]]
+     [collection
+      ["." array]
+      ["." list ("#\." monad fold monoid)]
+      ["." dictionary (#+ Dictionary)]]]
+    [macro (#+ with_gensyms)
+     [syntax (#+ syntax:)]
+     ["." code]
+     ["." template]]
+    ["." meta
+     ["." annotation]]
+    [target
+     [jvm
+      [encoding
+       ["." name (#+ External)]]
+      ["." type (#+ Type Argument Typed)
+       ["." category (#+ Void Value' Value Return' Return Method Primitive Object Class Array Var Parameter Declaration)]
+       ["." box]
+       ["." descriptor]
+       ["." signature]
+       ["." reflection]
+       ["." parser]]]]]])
+
+(def: internal
+  (-> External Text)
+  (|>> name.internal
+       name.read))
+
+(def: signature
+  (All [category]
+    (-> (Type category) Text))
+  (|>> type.signature signature.signature))
+
+(def: reflection
+  (All [category]
+    (-> (Type (<| Return' Value' category)) Text))
+  (|>> type.reflection reflection.reflection))
+
+(template [<name> <class>]
+  [(def: #export <name>
+     .Type
+     (#.Primitive <class> #.Nil))]
+
+  [Boolean   box.boolean]
+  [Byte      box.byte]
+  [Short     box.short]
+  [Integer   box.int]
+  [Long      box.long]
+  [Float     box.float]
+  [Double    box.double]
+  [Character box.char]
+  )
+
+(template [<name> <class>]
+  [(def: #export <name>
+     .Type
+     (#.Primitive (reflection.reflection <class>) #.Nil))]
+
+  ## Primitives
+  [boolean   reflection.boolean]
+  [byte      reflection.byte]
+  [short     reflection.short]
+  [int       reflection.int]
+  [long      reflection.long]
+  [float     reflection.float]
+  [double    reflection.double]
+  [char      reflection.char]
+  )
+
+(def: (get_static_field class field)
+  (-> Text Text Code)
+  (` ("jvm member get static"
+      (~ (code.text class))
+      (~ (code.text field)))))
+
+(def: (get_virtual_field class field object)
+  (-> Text Text Code Code)
+  (` ("jvm member get virtual"
+      (~ (code.text class))
+      (~ (code.text field))
+      (~ object))))
+
+(def: boxes
+  (Dictionary (Type Value) Text)
+  (|> (list [type.boolean box.boolean]
+            [type.byte    box.byte]
+            [type.short   box.short]
+            [type.int     box.int]
+            [type.long    box.long]
+            [type.float   box.float]
+            [type.double  box.double]
+            [type.char    box.char])
+      (dictionary.from_list type.hash)))
+
+(template [<name> <pre> <post>]
+  [(def: (<name> unboxed boxed raw)
+     (-> (Type Value) Text Code Code)
+     (let [unboxed (..reflection unboxed)]
+       (` (|> (~ raw)
+              (: (primitive (~ (code.text <pre>))))
+              "jvm object cast"
+              (: (primitive (~ (code.text <post>))))))))]
+
+  [unbox boxed unboxed]
+  [box unboxed boxed]
+  )
+
+(template [<name> <op> <from> <to>]
+  [(template: #export (<name> value)
+     {#.doc (doc "Type converter."
+                 (: <to>
+                    (<name> (: <from> foo))))}
+     (|> value
+         (: <from>)
+         "jvm object cast"
+         <op>
+         "jvm object cast"
+         (: <to>)))]
+
+  [byte_to_long    "jvm conversion byte-to-long"    ..Byte      ..Long]
+
+  [short_to_long   "jvm conversion short-to-long"   ..Short     ..Long]
+  
+  [double_to_int   "jvm conversion double-to-int"   ..Double    ..Integer]
+  [double_to_long  "jvm conversion double-to-long"  ..Double    ..Long]
+  [double_to_float "jvm conversion double-to-float" ..Double    ..Float]
+
+  [float_to_int    "jvm conversion float-to-int"    ..Float     ..Integer]
+  [float_to_long   "jvm conversion float-to-long"   ..Float     ..Long]
+  [float_to_double "jvm conversion float-to-double" ..Float     ..Double]
+  
+  [int_to_byte     "jvm conversion int-to-byte"     ..Integer   ..Byte]
+  [int_to_short    "jvm conversion int-to-short"    ..Integer   ..Short]
+  [int_to_long     "jvm conversion int-to-long"     ..Integer   ..Long]
+  [int_to_float    "jvm conversion int-to-float"    ..Integer   ..Float]
+  [int_to_double   "jvm conversion int-to-double"   ..Integer   ..Double]
+  [int_to_char     "jvm conversion int-to-char"     ..Integer   ..Character]
+
+  [long_to_byte    "jvm conversion long-to-byte"    ..Long      ..Byte]
+  [long_to_short   "jvm conversion long-to-short"   ..Long      ..Short]
+  [long_to_int     "jvm conversion long-to-int"     ..Long      ..Integer]
+  [long_to_float   "jvm conversion long-to-float"   ..Long      ..Float]
+  [long_to_double  "jvm conversion long-to-double"  ..Long      ..Double]
+
+  [char_to_byte    "jvm conversion char-to-byte"    ..Character ..Byte]
+  [char_to_short   "jvm conversion char-to-short"   ..Character ..Short]
+  [char_to_int     "jvm conversion char-to-int"     ..Character ..Integer]
+  [char_to_long    "jvm conversion char-to-long"    ..Character ..Long]
+  )
+
+(template [<name> <from> <to> <0> <1>]
+  [(template: #export (<name> value)
+     {#.doc (doc "Type converter."
+                 (: <to>
+                    (<name> (: <from> foo))))}
+     (|> value <0> <1>))]
+
+  [long_to_char ..Long ..Character ..long_to_int ..int_to_char]
+  [byte_to_int ..Byte ..Integer ..byte_to_long ..long_to_int]
+  [short_to_int ..Short ..Integer ..short_to_long ..long_to_int]
+  [byte_to_char ..Byte ..Character ..byte_to_int ..int_to_char]
+  [short_to_char ..Short ..Character ..short_to_int ..int_to_char]
+  )
+
+(def: constructor_method_name
+  "<init>")
+
+(type: Primitive_Mode
+  #ManualPrM
+  #AutoPrM)
+
+(type: Privacy
+  #PublicP
+  #PrivateP
+  #ProtectedP
+  #DefaultP)
+
+(type: StateModifier
+  #VolatileSM
+  #FinalSM
+  #DefaultSM)
+
+(type: InheritanceModifier
+  #FinalIM
+  #AbstractIM
+  #DefaultIM)
+
+(type: Class_Kind
+  #Class
+  #Interface)
+
+(type: StackFrame (primitive "java/lang/StackTraceElement"))
+(type: StackTrace (array.Array StackFrame))
+
+(type: Annotation_Parameter
+  [Text Code])
+
+(type: Annotation
+  {#ann_name   Text
+   #ann_params (List Annotation_Parameter)})
+
+(type: Member_Declaration
+  {#member_name Text
+   #member_privacy Privacy
+   #member_anns (List Annotation)})
+
+(type: FieldDecl
+  (#ConstantField (Type Value) Code)
+  (#VariableField StateModifier (Type Value)))
+
+(type: MethodDecl
+  {#method_tvars  (List (Type Var))
+   #method_inputs (List (Type Value))
+   #method_output (Type Return)
+   #method_exs    (List (Type Class))})
+
+(type: Method_Definition
+  (#ConstructorMethod [Bit
+                       (List (Type Var))
+                       Text
+                       (List Argument)
+                       (List (Typed Code))
+                       Code
+                       (List (Type Class))])
+  (#VirtualMethod [Bit
+                   Bit
+                   (List (Type Var))
+                   Text
+                   (List Argument)
+                   (Type Return)
+                   Code
+                   (List (Type Class))])
+  (#OverridenMethod [Bit
+                     (Type Declaration)
+                     (List (Type Var))
+                     Text
+                     (List Argument)
+                     (Type Return)
+                     Code
+                     (List (Type Class))])
+  (#StaticMethod [Bit
+                  (List (Type Var))
+                  (List Argument)
+                  (Type Return)
+                  Code
+                  (List (Type Class))])
+  (#AbstractMethod [(List (Type Var))
+                    (List Argument)
+                    (Type Return)
+                    (List (Type Class))])
+  (#NativeMethod [(List (Type Var))
+                  (List Argument)
+                  (Type Return)
+                  (List (Type Class))]))
+
+(type: Partial_Call
+  {#pc_method Name
+   #pc_args   (List Code)})
+
+(type: ImportMethodKind
+  #StaticIMK
+  #VirtualIMK)
+
+(type: ImportMethodCommons
+  {#import_member_mode   Primitive_Mode
+   #import_member_alias  Text
+   #import_member_kind   ImportMethodKind
+   #import_member_tvars  (List (Type Var))
+   #import_member_args   (List [Bit (Type Value)])
+   #import_member_maybe? Bit
+   #import_member_try?   Bit
+   #import_member_io?    Bit})
+
+(type: ImportConstructorDecl
+  {})
+
+(type: ImportMethodDecl
+  {#import_method_name    Text
+   #import_method_return  (Type Return)})
+
+(type: ImportFieldDecl
+  {#import_field_mode    Primitive_Mode
+   #import_field_name    Text
+   #import_field_static? Bit
+   #import_field_maybe?  Bit
+   #import_field_setter? Bit
+   #import_field_type    (Type Value)})
+
+(type: Import_Member_Declaration
+  (#EnumDecl        (List Text))
+  (#ConstructorDecl [ImportMethodCommons ImportConstructorDecl])
+  (#MethodDecl      [ImportMethodCommons ImportMethodDecl])
+  (#FieldAccessDecl ImportFieldDecl))
+
+(def: (primitive_type mode type)
+  (-> Primitive_Mode (Type Primitive) Code)
+  (case mode
+    #ManualPrM
+    (cond (\ type.equivalence = type.boolean type) (` ..Boolean)
+          (\ type.equivalence = type.byte type) (` ..Byte)
+          (\ type.equivalence = type.short type) (` ..Short)
+          (\ type.equivalence = type.int type) (` ..Integer)
+          (\ type.equivalence = type.long type) (` ..Long)
+          (\ type.equivalence = type.float type) (` ..Float)
+          (\ type.equivalence = type.double type) (` ..Double)
+          (\ type.equivalence = type.char type) (` ..Character)
+          ## else
+          (undefined))
+    
+    #AutoPrM
+    (cond (\ type.equivalence = type.boolean type)
+          (` .Bit)
+          
+          (or (\ type.equivalence = type.short type)
+              (\ type.equivalence = type.byte type)
+              (\ type.equivalence = type.int type)
+              (\ type.equivalence = type.long type))
+          (` .Int)
+          
+          (or (\ type.equivalence = type.float type)
+              (\ type.equivalence = type.double type))
+          (` .Frac)
+
+          (\ type.equivalence = type.char type)
+          (` .Nat)
+
+          ## else
+          (undefined))))
+
+(def: (parameter_type type)
+  (-> (Type Parameter) Code)
+  (`` (<| (~~ (template [<when> <binding> <then>]
+                [(case (<when> type)
+                   (#.Some <binding>)
+                   <then>
+
+                   #.None)]
+
+                [parser.var? name (code.identifier ["" name])]
+                [parser.wildcard? _ (` .Any)]
+                [parser.lower? _ (` .Any)]
+                [parser.upper? limit (parameter_type limit)]
+                [parser.class? [name parameters]
+                 (` (.primitive (~ (code.text name))
+                                [(~+ (list\map parameter_type parameters))]))]))
+          ## else
+          (undefined)
+          )))
+
+(def: (value_type mode type)
+  (-> Primitive_Mode (Type Value) Code)
+  (`` (<| (~~ (template [<when> <binding> <then>]
+                [(case (<when> type)
+                   (#.Some <binding>)
+                   <then>
+
+                   #.None)]
+
+                [parser.parameter? type (parameter_type type)]
+                [parser.primitive? type (primitive_type mode type)]
+                [parser.array? elementT (case (parser.primitive? elementT)
+                                          (#.Some elementT)
+                                          (` (#.Primitive (~ (code.text (..reflection (type.array elementT)))) #.Nil))
+                                          
+                                          #.None
+                                          (` (#.Primitive (~ (code.text array.type_name))
+                                                          (#.Cons (~ (value_type mode elementT)) #.Nil))))]))
+          (undefined)
+          )))
+
+(def: declaration_type$
+  (-> (Type Declaration) Code)
+  (|>> ..signature code.text))
+
+(def: (make_get_const_parser class_name field_name)
+  (-> Text Text (Parser Code))
+  (do <>.monad
+    [#let [dotted_name (format "::" field_name)]
+     _ (<code>.this! (code.identifier ["" dotted_name]))]
+    (wrap (get_static_field class_name field_name))))
+
+(def: (make_get_var_parser class_name field_name)
+  (-> Text Text (Parser Code))
+  (do <>.monad
+    [#let [dotted_name (format "::" field_name)]
+     _ (<code>.this! (code.identifier ["" dotted_name]))]
+    (wrap (get_virtual_field class_name field_name (' _jvm_this)))))
+
+(def: (make_put_var_parser class_name field_name)
+  (-> Text Text (Parser Code))
+  (do <>.monad
+    [#let [dotted_name (format "::" field_name)]
+     [_ _ value] (: (Parser [Any Any Code])
+                    (<code>.form ($_ <>.and (<code>.this! (' :=)) (<code>.this! (code.identifier ["" dotted_name])) <code>.any)))]
+    (wrap (`' ((~ (code.text (format "jvm putfield" ":" class_name ":" field_name))) _jvm_this (~ value))))))
+
+(def: (pre_walk_replace f input)
+  (-> (-> Code Code) Code Code)
+  (case (f input)
+    (^template [<tag>]
+      [[meta (<tag> parts)]
+       [meta (<tag> (list\map (pre_walk_replace f) parts))]])
+    ([#.Form]
+     [#.Tuple])
+    
+    [meta (#.Record pairs)]
+    [meta (#.Record (list\map (: (-> [Code Code] [Code Code])
+                                 (function (_ [key val])
+                                   [(pre_walk_replace f key) (pre_walk_replace f val)]))
+                              pairs))]
+    
+    ast'
+    ast'))
+
+(def: (parser->replacer p ast)
+  (-> (Parser Code) (-> Code Code))
+  (case (<>.run p (list ast))
+    (#.Right [#.Nil ast'])
+    ast'
+
+    _
+    ast
+    ))
+
+(def: (field->parser class_name [[field_name _ _] field])
+  (-> Text [Member_Declaration FieldDecl] (Parser Code))
+  (case field
+    (#ConstantField _)
+    (make_get_const_parser class_name field_name)
+    
+    (#VariableField _)
+    (<>.either (make_get_var_parser class_name field_name)
+               (make_put_var_parser class_name field_name))))
+
+(def: (decorate_input [class value])
+  (-> [(Type Value) Code] Code)
+  (` [(~ (code.text (..signature class))) (~ value)]))
+
+(def: (make_constructor_parser class_name arguments)
+  (-> Text (List Argument) (Parser Code))
+  (do <>.monad
+    [args (: (Parser (List Code))
+             (<code>.form (<>.after (<code>.this! (' ::new!))
+                                    (<code>.tuple (<>.exactly (list.size arguments) <code>.any)))))]
+    (wrap (` ("jvm member invoke constructor" (~ (code.text class_name))
+              (~+ (|> args
+                      (list.zip/2 (list\map product.right arguments))
+                      (list\map ..decorate_input))))))))
+
+(def: (make_static_method_parser class_name method_name arguments)
+  (-> Text Text (List Argument) (Parser Code))
+  (do <>.monad
+    [#let [dotted_name (format "::" method_name "!")]
+     args (: (Parser (List Code))
+             (<code>.form (<>.after (<code>.this! (code.identifier ["" dotted_name]))
+                                    (<code>.tuple (<>.exactly (list.size arguments) <code>.any)))))]
+    (wrap (` ("jvm member invoke static" (~ (code.text class_name)) (~ (code.text method_name))
+              (~+ (|> args
+                      (list.zip/2 (list\map product.right arguments))
+                      (list\map ..decorate_input))))))))
+
+(template [<name> <jvm_op>]
+  [(def: (<name> class_name method_name arguments)
+     (-> Text Text (List Argument) (Parser Code))
+     (do <>.monad
+       [#let [dotted_name (format "::" method_name "!")]
+        args (: (Parser (List Code))
+                (<code>.form (<>.after (<code>.this! (code.identifier ["" dotted_name]))
+                                       (<code>.tuple (<>.exactly (list.size arguments) <code>.any)))))]
+       (wrap (` (<jvm_op> (~ (code.text class_name)) (~ (code.text method_name))
+                          (~' _jvm_this)
+                          (~+ (|> args
+                                  (list.zip/2 (list\map product.right arguments))
+                                  (list\map ..decorate_input))))))))]
+
+  [make_special_method_parser "jvm member invoke special"]
+  [make_virtual_method_parser "jvm member invoke virtual"]
+  )
+
+(def: (method->parser class_name [[method_name _ _] meth_def])
+  (-> Text [Member_Declaration Method_Definition] (Parser Code))
+  (case meth_def
+    (#ConstructorMethod strict? type_vars self_name args constructor_args return_expr exs)
+    (make_constructor_parser class_name args)
+    
+    (#StaticMethod strict? type_vars args return_type return_expr exs)
+    (make_static_method_parser class_name method_name args)
+    
+    (^or (#VirtualMethod final? strict? type_vars self_name args return_type return_expr exs)
+         (#OverridenMethod strict? owner_class type_vars self_name args return_type return_expr exs))
+    (make_special_method_parser class_name method_name args)
+
+    (#AbstractMethod type_vars args return_type exs)
+    (make_virtual_method_parser class_name method_name args)
+
+    (#NativeMethod type_vars args return_type exs)
+    (make_virtual_method_parser class_name method_name args)))
+
+(def: privacy_modifier^
+  (Parser Privacy)
+  (let [(^open ".") <>.monad]
+    ($_ <>.or
+        (<code>.this! (' #public))
+        (<code>.this! (' #private))
+        (<code>.this! (' #protected))
+        (wrap []))))
+
+(def: inheritance_modifier^
+  (Parser InheritanceModifier)
+  (let [(^open ".") <>.monad]
+    ($_ <>.or
+        (<code>.this! (' #final))
+        (<code>.this! (' #abstract))
+        (wrap []))))
+
+(exception: #export (class_names_cannot_contain_periods {name Text})
+  (exception.report
+   ["Name" (%.text name)]))
+
+(exception: #export (class_name_cannot_be_a_type_variable {name Text}
+                                                          {type_vars (List (Type Var))})
+  (exception.report
+   ["Name" (%.text name)]
+   ["Type Variables" (exception.enumerate parser.name type_vars)]))
+
+(def: (assert exception payload test)
+  (All [e] (-> (Exception e) e Bit (Parser Any)))
+  (<>.assert (exception.construct exception payload)
+             test))
+
+(def: (valid_class_name type_vars)
+  (-> (List (Type Var)) (Parser External))
+  (do <>.monad
+    [name <code>.local_identifier
+     _ (..assert ..class_names_cannot_contain_periods [name]
+                 (not (text.contains? name.external_separator name)))
+     _ (..assert ..class_name_cannot_be_a_type_variable [name type_vars]
+                 (not (list.member? text.equivalence
+                                    (list\map parser.name type_vars)
+                                    name)))]
+    (wrap name)))
+
+(def: (class^' parameter^ type_vars)
+  (-> (-> (List (Type Var)) (Parser (Type Parameter)))
+      (-> (List (Type Var)) (Parser (Type Class))))
+  (do <>.monad
+    [[name parameters] (: (Parser [External (List (Type Parameter))])
+                          ($_ <>.either
+                              (<>.and (valid_class_name type_vars)
+                                      (<>\wrap (list)))
+                              (<code>.form (<>.and <code>.local_identifier
+                                                   (<>.some (parameter^ type_vars))))))]
+    (wrap (type.class (name.sanitize name) parameters))))
+
+(exception: #export (unexpected_type_variable {name Text}
+                                              {type_vars (List (Type Var))})
+  (exception.report
+   ["Unexpected Type Variable" (%.text name)]
+   ["Expected Type Variables" (exception.enumerate parser.name type_vars)]))
+
+(def: (variable^ type_vars)
+  (-> (List (Type Var)) (Parser (Type Parameter)))
+  (do <>.monad
+    [name <code>.local_identifier
+     _ (..assert ..unexpected_type_variable [name type_vars]
+                 (list.member? text.equivalence (list\map parser.name type_vars) name))]
+    (wrap (type.var name))))
+
+(def: wildcard^
+  (Parser (Type Parameter))
+  (do <>.monad
+    [_ (<code>.this! (' ?))]
+    (wrap type.wildcard)))
+
+(template [<name> <comparison> <constructor>]
+  [(def: <name>
+     (-> (Parser (Type Class)) (Parser (Type Parameter)))
+     (|>> (<>.after (<code>.this! (' <comparison>)))
+          (<>.after ..wildcard^)
+          <code>.tuple
+          (\ <>.monad map <constructor>)))]
+
+  [upper^ < type.upper]
+  [lower^ > type.lower]
+  )
+
+(def: (parameter^ type_vars)
+  (-> (List (Type Var)) (Parser (Type Parameter)))
+  (<>.rec
+   (function (_ recur^)
+     (let [class^ (..class^' parameter^ type_vars)]
+       ($_ <>.either
+           (..variable^ type_vars)
+           ..wildcard^
+           (upper^ class^)
+           (lower^ class^)
+           class^
+           )))))
+
+(def: (itself^ type)
+  (All [category]
+    (-> (Type (<| Return' Value' category))
+        (Parser (Type (<| Return' Value' category)))))
+  (do <>.monad
+    [_ (<code>.identifier! ["" (..reflection type)])]
+    (wrap type)))
+
+(def: primitive^
+  (Parser (Type Primitive))
+  ($_ <>.either
+      (itself^ type.boolean)
+      (itself^ type.byte)
+      (itself^ type.short)
+      (itself^ type.int)
+      (itself^ type.long)
+      (itself^ type.float)
+      (itself^ type.double)
+      (itself^ type.char)
+      ))
+
+(def: array^
+  (-> (Parser (Type Value)) (Parser (Type Array)))
+  (|>> <code>.tuple
+       (\ <>.monad map type.array)))
+
+(def: (type^ type_vars)
+  (-> (List (Type Var)) (Parser (Type Value)))
+  (<>.rec
+   (function (_ type^)
+     ($_ <>.either
+         ..primitive^
+         (..parameter^ type_vars)
+         (..array^ type^)
+         ))))
+
+(def: void^
+  (Parser (Type Void))
+  (do <>.monad
+    [_ (<code>.identifier! ["" (reflection.reflection reflection.void)])]
+    (wrap type.void)))
+
+(def: (return^ type_vars)
+  (-> (List (Type Var)) (Parser (Type Return)))
+  (<>.either ..void^
+             (..type^ type_vars)))
+
+(def: var^
+  (Parser (Type Var))
+  (\ <>.monad map type.var <code>.local_identifier))
+
+(def: vars^
+  (Parser (List (Type Var)))
+  (<code>.tuple (<>.some var^)))
+
+(def: declaration^
+  (Parser (Type Declaration))
+  (do <>.monad
+    [[name variables] (: (Parser [External (List (Type Var))])
+                         (<>.either (<>.and (..valid_class_name (list))
+                                            (<>\wrap (list)))
+                                    (<code>.form (<>.and (..valid_class_name (list))
+                                                         (<>.some var^)))
+                                    ))]
+    (wrap (type.declaration name variables))))
+
+(def: (class^ type_vars)
+  (-> (List (Type Var)) (Parser (Type Class)))
+  (class^' parameter^ type_vars))
+
+(def: annotation_parameters^
+  (Parser (List Annotation_Parameter))
+  (<code>.record (<>.some (<>.and <code>.local_tag <code>.any))))
+
+(def: annotation^
+  (Parser Annotation)
+  (<>.either (do <>.monad
+               [ann_name <code>.local_identifier]
+               (wrap [ann_name (list)]))
+             (<code>.form (<>.and <code>.local_identifier
+                                  annotation_parameters^))))
+
+(def: annotations^'
+  (Parser (List Annotation))
+  (do <>.monad
+    [_ (<code>.this! (' #ann))]
+    (<code>.tuple (<>.some ..annotation^))))
+
+(def: annotations^
+  (Parser (List Annotation))
+  (do <>.monad
+    [anns?? (<>.maybe ..annotations^')]
+    (wrap (maybe.default (list) anns??))))
+
+(def: (throws_decl^ type_vars)
+  (-> (List (Type Var)) (Parser (List (Type Class))))
+  (<| (<>.default (list))
+      (do <>.monad
+        [_ (<code>.this! (' #throws))]
+        (<code>.tuple (<>.some (..class^ type_vars))))))
+
+(def: (method_decl^ type_vars)
+  (-> (List (Type Var)) (Parser [Member_Declaration MethodDecl]))
+  (<code>.form (do <>.monad
+                 [tvars (<>.default (list) ..vars^)
+                  name <code>.local_identifier
+                  anns ..annotations^
+                  inputs (<code>.tuple (<>.some (..type^ type_vars)))
+                  output (..return^ type_vars)
+                  exs (throws_decl^ type_vars)]
+                 (wrap [[name #PublicP anns] {#method_tvars tvars
+                                              #method_inputs inputs
+                                              #method_output output
+                                              #method_exs    exs}]))))
+
+(def: state_modifier^
+  (Parser StateModifier)
+  ($_ <>.or
+      (<code>.this! (' #volatile))
+      (<code>.this! (' #final))
+      (\ <>.monad wrap [])))
+
+(def: (field_decl^ type_vars)
+  (-> (List (Type Var)) (Parser [Member_Declaration FieldDecl]))
+  (<>.either (<code>.form (do <>.monad
+                            [_ (<code>.this! (' #const))
+                             name <code>.local_identifier
+                             anns ..annotations^
+                             type (..type^ type_vars)
+                             body <code>.any]
+                            (wrap [[name #PublicP anns] (#ConstantField [type body])])))
+             (<code>.form (do <>.monad
+                            [pm privacy_modifier^
+                             sm state_modifier^
+                             name <code>.local_identifier
+                             anns ..annotations^
+                             type (..type^ type_vars)]
+                            (wrap [[name pm anns] (#VariableField [sm type])])))))
+
+(def: (argument^ type_vars)
+  (-> (List (Type Var)) (Parser Argument))
+  (<code>.record (<>.and <code>.local_identifier
+                         (..type^ type_vars))))
+
+(def: (arguments^ type_vars)
+  (-> (List (Type Var)) (Parser (List Argument)))
+  (<>.some (..argument^ type_vars)))
+
+(def: (constructor_arg^ type_vars)
+  (-> (List (Type Var)) (Parser (Typed Code)))
+  (<code>.record (<>.and (..type^ type_vars) <code>.any)))
+
+(def: (constructor_args^ type_vars)
+  (-> (List (Type Var)) (Parser (List (Typed Code))))
+  (<code>.tuple (<>.some (..constructor_arg^ type_vars))))
+
+(def: (constructor_method^ class_vars)
+  (-> (List (Type Var)) (Parser [Member_Declaration Method_Definition]))
+  (<code>.form (do <>.monad
+                 [pm privacy_modifier^
+                  strict_fp? (<>.parses? (<code>.this! (' #strict)))
+                  method_vars (<>.default (list) ..vars^)
+                  #let [total_vars (list\compose class_vars method_vars)]
+                  [_ self_name arguments] (<code>.form ($_ <>.and
+                                                           (<code>.this! (' new))
+                                                           <code>.local_identifier
+                                                           (..arguments^ total_vars)))
+                  constructor_args (..constructor_args^ total_vars)
+                  exs (throws_decl^ total_vars)
+                  annotations ..annotations^
+                  body <code>.any]
+                 (wrap [{#member_name constructor_method_name
+                         #member_privacy pm
+                         #member_anns annotations}
+                        (#ConstructorMethod strict_fp? method_vars self_name arguments constructor_args body exs)]))))
+
+(def: (virtual_method_def^ class_vars)
+  (-> (List (Type Var)) (Parser [Member_Declaration Method_Definition]))
+  (<code>.form (do <>.monad
+                 [pm privacy_modifier^
+                  strict_fp? (<>.parses? (<code>.this! (' #strict)))
+                  final? (<>.parses? (<code>.this! (' #final)))
+                  method_vars (<>.default (list) ..vars^)
+                  #let [total_vars (list\compose class_vars method_vars)]
+                  [name self_name arguments] (<code>.form ($_ <>.and
+                                                              <code>.local_identifier
+                                                              <code>.local_identifier
+                                                              (..arguments^ total_vars)))
+                  return_type (..return^ total_vars)
+                  exs (throws_decl^ total_vars)
+                  annotations ..annotations^
+                  body <code>.any]
+                 (wrap [{#member_name name
+                         #member_privacy pm
+                         #member_anns annotations}
+                        (#VirtualMethod final? strict_fp? method_vars self_name arguments return_type body exs)]))))
+
+(def: overriden_method_def^
+  (Parser [Member_Declaration Method_Definition])
+  (<code>.form (do <>.monad
+                 [strict_fp? (<>.parses? (<code>.this! (' #strict)))
+                  owner_class ..declaration^
+                  method_vars (<>.default (list) ..vars^)
+                  #let [total_vars (list\compose (product.right (parser.declaration owner_class))
+                                                 method_vars)]
+                  [name self_name arguments] (<code>.form ($_ <>.and
+                                                              <code>.local_identifier
+                                                              <code>.local_identifier
+                                                              (..arguments^ total_vars)))
+                  return_type (..return^ total_vars)
+                  exs (throws_decl^ total_vars)
+                  annotations ..annotations^
+                  body <code>.any]
+                 (wrap [{#member_name name
+                         #member_privacy #PublicP
+                         #member_anns annotations}
+                        (#OverridenMethod strict_fp? owner_class method_vars self_name arguments return_type body exs)]))))
+
+(def: static_method_def^
+  (Parser [Member_Declaration Method_Definition])
+  (<code>.form (do <>.monad
+                 [pm privacy_modifier^
+                  strict_fp? (<>.parses? (<code>.this! (' #strict)))
+                  _ (<code>.this! (' #static))
+                  method_vars (<>.default (list) ..vars^)
+                  #let [total_vars method_vars]
+                  [name arguments] (<code>.form (<>.and <code>.local_identifier
+                                                        (..arguments^ total_vars)))
+                  return_type (..return^ total_vars)
+                  exs (throws_decl^ total_vars)
+                  annotations ..annotations^
+                  body <code>.any]
+                 (wrap [{#member_name name
+                         #member_privacy pm
+                         #member_anns annotations}
+                        (#StaticMethod strict_fp? method_vars arguments return_type body exs)]))))
+
+(def: abstract_method_def^
+  (Parser [Member_Declaration Method_Definition])
+  (<code>.form (do <>.monad
+                 [pm privacy_modifier^
+                  _ (<code>.this! (' #abstract))
+                  method_vars (<>.default (list) ..vars^)
+                  #let [total_vars method_vars]
+                  [name arguments] (<code>.form (<>.and <code>.local_identifier
+                                                        (..arguments^ total_vars)))
+                  return_type (..return^ total_vars)
+                  exs (throws_decl^ total_vars)
+                  annotations ..annotations^]
+                 (wrap [{#member_name name
+                         #member_privacy pm
+                         #member_anns annotations}
+                        (#AbstractMethod method_vars arguments return_type exs)]))))
+
+(def: native_method_def^
+  (Parser [Member_Declaration Method_Definition])
+  (<code>.form (do <>.monad
+                 [pm privacy_modifier^
+                  _ (<code>.this! (' #native))
+                  method_vars (<>.default (list) ..vars^)
+                  #let [total_vars method_vars]
+                  [name arguments] (<code>.form (<>.and <code>.local_identifier
+                                                        (..arguments^ total_vars)))
+                  return_type (..return^ total_vars)
+                  exs (throws_decl^ total_vars)
+                  annotations ..annotations^]
+                 (wrap [{#member_name name
+                         #member_privacy pm
+                         #member_anns annotations}
+                        (#NativeMethod method_vars arguments return_type exs)]))))
+
+(def: (method_def^ class_vars)
+  (-> (List (Type Var)) (Parser [Member_Declaration Method_Definition]))
+  ($_ <>.either
+      (..constructor_method^ class_vars)
+      (..virtual_method_def^ class_vars)
+      ..overriden_method_def^
+      ..static_method_def^
+      ..abstract_method_def^
+      ..native_method_def^))
+
+(def: partial_call^
+  (Parser Partial_Call)
+  (<code>.form (<>.and <code>.identifier (<>.some <code>.any))))
+
+(def: class_kind^
+  (Parser Class_Kind)
+  (<>.either (do <>.monad
+               [_ (<code>.this! (' #class))]
+               (wrap #Class))
+             (do <>.monad
+               [_ (<code>.this! (' #interface))]
+               (wrap #Interface))
+             ))
+
+(def: import_member_alias^
+  (Parser (Maybe Text))
+  (<>.maybe (do <>.monad
+              [_ (<code>.this! (' #as))]
+              <code>.local_identifier)))
+
+(def: (import_member_args^ type_vars)
+  (-> (List (Type Var)) (Parser (List [Bit (Type Value)])))
+  (<code>.tuple (<>.some (<>.and (<>.parses? (<code>.tag! ["" "?"]))
+                                 (..type^ type_vars)))))
+
+(def: import_member_return_flags^
+  (Parser [Bit Bit Bit])
+  ($_ <>.and
+      (<>.parses? (<code>.this! (' #io)))
+      (<>.parses? (<code>.this! (' #try)))
+      (<>.parses? (<code>.this! (' #?)))))
+
+(def: primitive_mode^
+  (Parser Primitive_Mode)
+  (<>.or (<code>.tag! ["" "manual"])
+         (<code>.tag! ["" "auto"])))
+
+(def: (import_member_decl^ owner_vars)
+  (-> (List (Type Var)) (Parser Import_Member_Declaration))
+  ($_ <>.either
+      (<code>.form (do <>.monad
+                     [_ (<code>.this! (' #enum))
+                      enum_members (<>.some <code>.local_identifier)]
+                     (wrap (#EnumDecl enum_members))))
+      (<code>.form (do <>.monad
+                     [tvars (<>.default (list) ..vars^)
+                      _ (<code>.identifier! ["" "new"])
+                      ?alias import_member_alias^
+                      #let [total_vars (list\compose owner_vars tvars)]
+                      ?prim_mode (<>.maybe primitive_mode^)
+                      args (..import_member_args^ total_vars)
+                      [io? try? maybe?] import_member_return_flags^]
+                     (wrap (#ConstructorDecl [{#import_member_mode    (maybe.default #AutoPrM ?prim_mode)
+                                               #import_member_alias   (maybe.default "new" ?alias)
+                                               #import_member_kind    #VirtualIMK
+                                               #import_member_tvars   tvars
+                                               #import_member_args    args
+                                               #import_member_maybe?  maybe?
+                                               #import_member_try?    try?
+                                               #import_member_io?     io?}
+                                              {}]))
+                     ))
+      (<code>.form (do <>.monad
+                     [kind (: (Parser ImportMethodKind)
+                              (<>.or (<code>.tag! ["" "static"])
+                                     (wrap [])))
+                      tvars (<>.default (list) ..vars^)
+                      name <code>.local_identifier
+                      ?alias import_member_alias^
+                      #let [total_vars (list\compose owner_vars tvars)]
+                      ?prim_mode (<>.maybe primitive_mode^)
+                      args (..import_member_args^ total_vars)
+                      [io? try? maybe?] import_member_return_flags^
+                      return (..return^ total_vars)]
+                     (wrap (#MethodDecl [{#import_member_mode    (maybe.default #AutoPrM ?prim_mode)
+                                          #import_member_alias   (maybe.default name ?alias)
+                                          #import_member_kind    kind
+                                          #import_member_tvars   tvars
+                                          #import_member_args    args
+                                          #import_member_maybe?  maybe?
+                                          #import_member_try?    try?
+                                          #import_member_io?     io?}
+                                         {#import_method_name    name
+                                          #import_method_return  return}]))))
+      (<code>.form (do <>.monad
+                     [static? (<>.parses? (<code>.this! (' #static)))
+                      name <code>.local_identifier
+                      ?prim_mode (<>.maybe primitive_mode^)
+                      gtype (..type^ owner_vars)
+                      maybe? (<>.parses? (<code>.this! (' #?)))
+                      setter? (<>.parses? (<code>.this! (' #!)))]
+                     (wrap (#FieldAccessDecl {#import_field_mode    (maybe.default #AutoPrM ?prim_mode)
+                                              #import_field_name    name
+                                              #import_field_static? static?
+                                              #import_field_maybe?  maybe?
+                                              #import_field_setter? setter?
+                                              #import_field_type    gtype}))))
+      ))
+
+(def: bundle
+  (-> (List (Type Var)) (Parser [Text (List Import_Member_Declaration)]))
+  (|>> ..import_member_decl^
+       <>.some
+       (<>.and <code>.text)
+       <code>.tuple))
+
+(def: (privacy_modifier$ pm)
+  (-> Privacy Code)
+  (case pm
+    #PublicP    (code.text "public")
+    #PrivateP   (code.text "private")
+    #ProtectedP (code.text "protected")
+    #DefaultP   (code.text "default")))
+
+(def: (inheritance_modifier$ im)
+  (-> InheritanceModifier Code)
+  (case im
+    #FinalIM    (code.text "final")
+    #AbstractIM (code.text "abstract")
+    #DefaultIM  (code.text "default")))
+
+(def: (annotation_parameter$ [name value])
+  (-> Annotation_Parameter Code)
+  (` [(~ (code.text name)) (~ value)]))
+
+(def: (annotation$ [name params])
+  (-> Annotation Code)
+  (` ((~ (code.text name)) (~+ (list\map annotation_parameter$ params)))))
+
+(template [<name> <category>]
+  [(def: <name>
+     (-> (Type <category>) Code)
+     (|>> ..signature code.text))]
+
+  [var$ Var]
+  [parameter$ Parameter]
+  [value$ Value]
+  [return$ Return]
+  [declaration$ Declaration]
+  [class$ Class]
+  )
+
+(def: var$'
+  (-> (Type Var) Code)
+  (|>> ..signature code.local_identifier))
+
+(def: (method_decl$ [[name pm anns] method_decl])
+  (-> [Member_Declaration MethodDecl] Code)
+  (let [(^slots [#method_tvars #method_inputs #method_output #method_exs]) method_decl]
+    (` ((~ (code.text name))
+        [(~+ (list\map annotation$ anns))]
+        [(~+ (list\map var$ method_tvars))]
+        [(~+ (list\map class$ method_exs))]
+        [(~+ (list\map value$ method_inputs))]
+        (~ (return$ method_output))))))
+
+(def: (state_modifier$ sm)
+  (-> StateModifier Code)
+  (case sm
+    #VolatileSM (' "volatile")
+    #FinalSM    (' "final")
+    #DefaultSM  (' "default")))
+
+(def: (field_decl$ [[name pm anns] field])
+  (-> [Member_Declaration FieldDecl] Code)
+  (case field
+    (#ConstantField class value)
+    (` ("constant" (~ (code.text name))
+        [(~+ (list\map annotation$ anns))]
+        (~ (value$ class))
+        (~ value)
+        ))
+
+    (#VariableField sm class)
+    (` ("variable" (~ (code.text name))
+        (~ (privacy_modifier$ pm))
+        (~ (state_modifier$ sm))
+        [(~+ (list\map annotation$ anns))]
+        (~ (value$ class))
+        ))
+    ))
+
+(def: (argument$ [name type])
+  (-> Argument Code)
+  (` [(~ (code.text name)) (~ (value$ type))]))
+
+(def: (constructor_arg$ [class term])
+  (-> (Typed Code) Code)
+  (` [(~ (value$ class)) (~ term)]))
+
+(def: (method_def$ replacer super_class [[name pm anns] method_def])
+  (-> (-> Code Code) (Type Class) [Member_Declaration Method_Definition] Code)
+  (case method_def
+    (#ConstructorMethod strict_fp? type_vars self_name arguments constructor_args body exs)
+    (` ("init"
+        (~ (privacy_modifier$ pm))
+        (~ (code.bit strict_fp?))
+        [(~+ (list\map annotation$ anns))]
+        [(~+ (list\map var$ type_vars))]
+        [(~+ (list\map class$ exs))]
+        (~ (code.text self_name))
+        [(~+ (list\map argument$ arguments))]
+        [(~+ (list\map constructor_arg$ constructor_args))]
+        (~ (pre_walk_replace replacer body))
+        ))
+    
+    (#VirtualMethod final? strict_fp? type_vars self_name arguments return_type body exs)
+    (` ("virtual"
+        (~ (code.text name))
+        (~ (privacy_modifier$ pm))
+        (~ (code.bit final?))
+        (~ (code.bit strict_fp?))
+        [(~+ (list\map annotation$ anns))]
+        [(~+ (list\map var$ type_vars))]
+        (~ (code.text self_name))
+        [(~+ (list\map argument$ arguments))]
+        (~ (return$ return_type))
+        [(~+ (list\map class$ exs))]
+        (~ (pre_walk_replace replacer body))))
+    
+    (#OverridenMethod strict_fp? declaration type_vars self_name arguments return_type body exs)
+    (let [super_replacer (parser->replacer (<code>.form (do <>.monad
+                                                          [_ (<code>.this! (' ::super!))
+                                                           args (<code>.tuple (<>.exactly (list.size arguments) <code>.any))]
+                                                          (wrap (` ("jvm member invoke special"
+                                                                    (~ (code.text (product.left (parser.read_class super_class))))
+                                                                    (~ (code.text name))
+                                                                    (~' _jvm_this)
+                                                                    (~+ (|> args
+                                                                            (list.zip/2 (list\map product.right arguments))
+                                                                            (list\map ..decorate_input)))))))))]
+      (` ("override"
+          (~ (declaration$ declaration))
+          (~ (code.text name))
+          (~ (code.bit strict_fp?))
+          [(~+ (list\map annotation$ anns))]
+          [(~+ (list\map var$ type_vars))]
+          (~ (code.text self_name))
+          [(~+ (list\map argument$ arguments))]
+          (~ (return$ return_type))
+          [(~+ (list\map class$ exs))]
+          (~ (|> body
+                 (pre_walk_replace replacer)
+                 (pre_walk_replace super_replacer)))
+          )))
+
+    (#StaticMethod strict_fp? type_vars arguments return_type body exs)
+    (` ("static"
+        (~ (code.text name))
+        (~ (privacy_modifier$ pm))
+        (~ (code.bit strict_fp?))
+        [(~+ (list\map annotation$ anns))]
+        [(~+ (list\map var$ type_vars))]
+        [(~+ (list\map class$ exs))]
+        [(~+ (list\map argument$ arguments))]
+        (~ (return$ return_type))
+        (~ (pre_walk_replace replacer body))))
+
+    (#AbstractMethod type_vars arguments return_type exs)
+    (` ("abstract"
+        (~ (code.text name))
+        (~ (privacy_modifier$ pm))
+        [(~+ (list\map annotation$ anns))]
+        [(~+ (list\map var$ type_vars))]
+        [(~+ (list\map class$ exs))]
+        [(~+ (list\map argument$ arguments))]
+        (~ (return$ return_type))))
+
+    (#NativeMethod type_vars arguments return_type exs)
+    (` ("native"
+        (~ (code.text name))
+        (~ (privacy_modifier$ pm))
+        [(~+ (list\map annotation$ anns))]
+        [(~+ (list\map var$ type_vars))]
+        [(~+ (list\map class$ exs))]
+        [(~+ (list\map argument$ arguments))]
+        (~ (return$ return_type))))
+    ))
+
+(def: (complete_call$ g!obj [method args])
+  (-> Code Partial_Call Code)
+  (` ((~ (code.identifier method)) (~+ args) (~ g!obj))))
+
+(def: $Object
+  (Type Class)
+  (type.class "java.lang.Object" (list)))
+
+(syntax: #export (class:
+                   {#let [! <>.monad]}
+                   {im inheritance_modifier^}
+                   {[full_class_name class_vars] (\ ! map parser.declaration ..declaration^)}
+                   {super (<>.default $Object
+                                      (class^ class_vars))}
+                   {interfaces (<>.default (list)
+                                           (<code>.tuple (<>.some (class^ class_vars))))}
+                   {annotations ..annotations^}
+                   {fields (<>.some (..field_decl^ class_vars))}
+                   {methods (<>.some (..method_def^ class_vars))})
+  {#.doc (doc "Allows defining JVM classes in Lux code."
+              "For example:"
+              (class: #final (TestClass A) [Runnable]
+                ## Fields
+                (#private foo boolean)
+                (#private bar A)
+                (#private baz java/lang/Object)
+                ## Methods
+                (#public [] (new [value A]) []
+                         (exec (:= ::foo #1)
+                           (:= ::bar value)
+                           (:= ::baz "")
+                           []))
+                (#public (virtual) java/lang/Object
+                         "")
+                (#public #static (static) java/lang/Object
+                         "")
+                (Runnable [] (run) void
+                          [])
+                )
+
+              "The tuple corresponds to parent interfaces."
+              "An optional super-class can be specified before the tuple. If not specified, java.lang.Object will be assumed."
+              "Fields and methods defined in the class can be used with special syntax."
+              "For example:"
+              "::resolved, for accessing the 'resolved' field."
+              "(:= ::resolved #1) for modifying it."
+              "(::new! []) for calling the class's constructor."
+              "(::resolve! container [value]) for calling the 'resolve' method."
+              )}
+  (do meta.monad
+    [current_module meta.current_module_name
+     #let [fully_qualified_class_name (name.qualify current_module full_class_name)
+           field_parsers (list\map (field->parser fully_qualified_class_name) fields)
+           method_parsers (list\map (method->parser fully_qualified_class_name) methods)
+           replacer (parser->replacer (list\fold <>.either
+                                                 (<>.fail "")
+                                                 (list\compose field_parsers method_parsers)))]]
+    (wrap (list (` ("jvm class"
+                    (~ (declaration$ (type.declaration (name.qualify current_module full_class_name) class_vars)))
+                    (~ (class$ super))
+                    [(~+ (list\map class$ interfaces))]
+                    (~ (inheritance_modifier$ im))
+                    [(~+ (list\map annotation$ annotations))]
+                    [(~+ (list\map field_decl$ fields))]
+                    [(~+ (list\map (method_def$ replacer super) methods))]))))))
+
+(syntax: #export (interface:
+                   {#let [! <>.monad]}
+                   {[full_class_name class_vars] (\ ! map parser.declaration ..declaration^)}
+                   {supers (<>.default (list)
+                                       (<code>.tuple (<>.some (class^ class_vars))))}
+                   {annotations ..annotations^}
+                   {members (<>.some (..method_decl^ class_vars))})
+  {#.doc (doc "Allows defining JVM interfaces."
+              (interface: TestInterface
+                ([] foo [boolean String] void #throws [Exception])))}
+  (do meta.monad
+    [current_module meta.current_module_name]
+    (wrap (list (` ("jvm class interface"
+                    (~ (declaration$ (type.declaration (name.qualify current_module full_class_name) class_vars)))
+                    [(~+ (list\map class$ supers))]
+                    [(~+ (list\map annotation$ annotations))]
+                    (~+ (list\map method_decl$ members))))))))
+
+(syntax: #export (object
+                   {class_vars ..vars^}
+                   {super (<>.default $Object
+                                      (class^ class_vars))}
+                   {interfaces (<>.default (list)
+                                           (<code>.tuple (<>.some (class^ class_vars))))}
+                   {constructor_args (..constructor_args^ class_vars)}
+                   {methods (<>.some ..overriden_method_def^)})
+  {#.doc (doc "Allows defining anonymous classes."
+              "The 1st tuple corresponds to class-level type-variables."
+              "The 2nd tuple corresponds to parent interfaces."
+              "The 3rd tuple corresponds to arguments to the super class constructor."
+              "An optional super-class can be specified before the 1st tuple. If not specified, java.lang.Object will be assumed."
+              (object [] [Runnable]
+                []
+                (Runnable [] (run self) void
+                          (exec (do_something some_value)
+                            [])))
+              )}
+  (wrap (list (` ("jvm class anonymous"
+                  [(~+ (list\map var$ class_vars))]
+                  (~ (class$ super))
+                  [(~+ (list\map class$ interfaces))]
+                  [(~+ (list\map constructor_arg$ constructor_args))]
+                  [(~+ (list\map (method_def$ function.identity super) methods))])))))
+
+(syntax: #export (null)
+  {#.doc (doc "Null object reference."
+              (null))}
+  (wrap (list (` ("jvm object null")))))
+
+(def: #export (null? obj)
+  {#.doc (doc "Test for null object reference."
+              (= (null? (null))
+                 true)
+              (= (null? "YOLO")
+                 false))}
+  (-> (primitive "java.lang.Object") Bit)
+  ("jvm object null?" obj))
+
+(syntax: #export (??? expr)
+  {#.doc (doc "Takes a (potentially null) ObjectType reference and creates a (Maybe ObjectType) for it."
+              (= (??? (: java/lang/String (null)))
+                 #.None)
+              (= (??? "YOLO")
+                 (#.Some "YOLO")))}
+  (with_gensyms [g!temp]
+    (wrap (list (` (let [(~ g!temp) (~ expr)]
+                     (if ("jvm object null?" (~ g!temp))
+                       #.None
+                       (#.Some (~ g!temp)))))))))
+
+(syntax: #export (!!! expr)
+  {#.doc (doc "Takes a (Maybe ObjectType) and returns a ObjectType."
+              "A #.None would get translated into a (null)."
+              (= (null)
+                 (!!! (??? (: java/lang/Thread (null)))))
+              (= "foo"
+                 (!!! (??? "foo"))))}
+  (with_gensyms [g!value]
+    (wrap (list (` ({(#.Some (~ g!value))
+                     (~ g!value)
+
+                     #.None
+                     ("jvm object null")}
+                    (~ expr)))))))
+
+(syntax: #export (check {class (..type^ (list))}
+                        {unchecked (<>.maybe <code>.any)})
+  {#.doc (doc "Checks whether an object is an instance of a particular class."
+              "Caveat emptor: Cannot check for polymorphism, so avoid using parameterized classes."
+              (case (check String "YOLO")
+                (#.Some value_as_string)
+                #.None))}
+  (with_gensyms [g!_ g!unchecked]
+    (let [class_name (..reflection class)
+          class_type (` (.primitive (~ (code.text class_name))))
+          check_type (` (.Maybe (~ class_type)))
+          check_code (` (if ("jvm object instance?" (~ (code.text class_name)) (~ g!unchecked))
+                          (#.Some (.:as (~ class_type)
+                                        (~ g!unchecked)))
+                          #.None))]
+      (case unchecked
+        (#.Some unchecked)
+        (wrap (list (` (: (~ check_type)
+                          (let [(~ g!unchecked) (~ unchecked)]
+                            (~ check_code))))))
+
+        #.None
+        (wrap (list (` (: (-> (primitive "java.lang.Object") (~ check_type))
+                          (function ((~ g!_) (~ g!unchecked))
+                            (~ check_code))))))
+        ))))
+
+(syntax: #export (synchronized lock body)
+  {#.doc (doc "Evaluates body, while holding a lock on a given object."
+              (synchronized object_to_be_locked
+                (exec (do_something ___)
+                  (do_something_else ___)
+                  (finish_the_computation ___))))}
+  (wrap (list (` ("jvm object synchronized" (~ lock) (~ body))))))
+
+(syntax: #export (do_to obj {methods (<>.some partial_call^)})
+  {#.doc (doc "Call a variety of methods on an object. Then, return the object."
+              (do_to object
+                (ClassName::method1 arg0 arg1 arg2)
+                (ClassName::method2 arg3 arg4 arg5)))}
+  (with_gensyms [g!obj]
+    (wrap (list (` (let [(~ g!obj) (~ obj)]
+                     (exec (~+ (list\map (complete_call$ g!obj) methods))
+                       (~ g!obj))))))))
+
+(def: (class_import$ declaration)
+  (-> (Type Declaration) Code)
+  (let [[full_name params] (parser.declaration declaration)
+        def_name (..internal full_name)
+        params' (list\map ..var$' params)]
+    (` (def: (~ (code.identifier ["" def_name]))
+         {#..jvm_class (~ (code.text (..internal full_name)))}
+         .Type
+         (All [(~+ params')]
+           (primitive (~ (code.text full_name))
+                      [(~+ params')]))))))
+
+(def: (member_type_vars class_tvars member)
+  (-> (List (Type Var)) Import_Member_Declaration (List (Type Var)))
+  (case member
+    (#ConstructorDecl [commons _])
+    (list\compose class_tvars (get@ #import_member_tvars commons))
+
+    (#MethodDecl [commons _])
+    (case (get@ #import_member_kind commons)
+      #StaticIMK
+      (get@ #import_member_tvars commons)
+
+      _
+      (list\compose class_tvars (get@ #import_member_tvars commons)))
+
+    _
+    class_tvars))
+
+(def: (member_def_arg_bindings vars member)
+  (-> (List (Type Var)) Import_Member_Declaration (Meta [(List [Bit Code]) (List (Type Value)) (List Code)]))
+  (case member
+    (^or (#ConstructorDecl [commons _]) (#MethodDecl [commons _]))
+    (let [(^slots [#import_member_tvars #import_member_args]) commons]
+      (do {! meta.monad}
+        [arg_inputs (monad.map !
+                               (: (-> [Bit (Type Value)] (Meta [Bit Code]))
+                                  (function (_ [maybe? _])
+                                    (with_gensyms [arg_name]
+                                      (wrap [maybe? arg_name]))))
+                               import_member_args)
+         #let [input_jvm_types (list\map product.right import_member_args)
+               arg_types (list\map (: (-> [Bit (Type Value)] Code)
+                                      (function (_ [maybe? arg])
+                                        (let [arg_type (value_type (get@ #import_member_mode commons) arg)]
+                                          (if maybe?
+                                            (` (Maybe (~ arg_type)))
+                                            arg_type))))
+                                   import_member_args)]]
+        (wrap [arg_inputs input_jvm_types arg_types])))
+
+    _
+    (\ meta.monad wrap [(list) (list) (list)])))
+
+(def: (decorate_return_maybe member never_null? unboxed return_term)
+  (-> Import_Member_Declaration Bit (Type Value) Code Code)
+  (case member
+    (^or (#ConstructorDecl [commons _]) (#MethodDecl [commons _]))
+    (cond (or never_null?
+              (dictionary.key? ..boxes unboxed))
+          return_term
+
+          (get@ #import_member_maybe? commons)
+          (` (??? (~ return_term)))
+
+          ## else
+          (let [g!temp (` ((~' ~') (~ (code.identifier ["" " Ω "]))))]
+            (` (let [(~ g!temp) (~ return_term)]
+                 (if (not (..null? (:as (primitive "java.lang.Object")
+                                        (~ g!temp))))
+                   (~ g!temp)
+                   (error! "Cannot produce null references from method calls."))))))
+
+    _
+    return_term))
+
+(template [<name> <tag> <term_trans>]
+  [(def: (<name> member return_term)
+     (-> Import_Member_Declaration Code Code)
+     (case member
+       (^or (#ConstructorDecl [commons _]) (#MethodDecl [commons _]))
+       (if (get@ <tag> commons)
+         <term_trans>
+         return_term)
+
+       _
+       return_term))]
+
+  [decorate_return_try #import_member_try? (` (.try (~ return_term)))]
+  [decorate_return_io  #import_member_io?  (` ((~! io.io) (~ return_term)))]
+  )
+
+(def: $String
+  (type.class "java.lang.String" (list)))
+
+(template [<input?> <name> <unbox/box> <special+>]
+  [(def: (<name> mode [unboxed raw])
+     (-> Primitive_Mode [(Type Value) Code] Code)
+     (let [[unboxed refined post] (: [(Type Value) Code (List Code)]
+                                     (case mode
+                                       #ManualPrM
+                                       [unboxed raw (list)]
+                                       
+                                       #AutoPrM
+                                       (with_expansions [<special+>' (template.splice <special+>)
+                                                         <cond_cases> (template [<old> <new> <pre> <post>]
+                                                                        [(\ type.equivalence = <old> unboxed)
+                                                                         (with_expansions [<post>' (template.splice <post>)]
+                                                                           [<new>
+                                                                            (` (.|> (~ raw) (~+ <pre>)))
+                                                                            (list <post>')])]
+
+                                                                        <special+>')]
+                                         (cond <cond_cases>
+                                               ## else
+                                               [unboxed
+                                                (if <input?>
+                                                  (` ("jvm object cast" (~ raw)))
+                                                  raw)
+                                                (list)]))))
+           unboxed/boxed (case (dictionary.get unboxed ..boxes)
+                           (#.Some boxed)
+                           (<unbox/box> unboxed boxed refined)
+                           
+                           #.None
+                           refined)]
+       (case post
+         #.Nil
+         unboxed/boxed
+
+         _
+         (` (.|> (~ unboxed/boxed) (~+ post))))))]
+
+  [#1 auto_convert_input ..unbox
+   [[type.boolean type.boolean (list (` (.: .Bit)) (` (.:as (.primitive (~ (code.text box.boolean)))))) []]
+    [type.byte type.byte (list (` (.: .Int)) (` (.:as (.primitive (~ (code.text box.long))))) (` ..long_to_byte)) []]
+    [type.short type.short (list (` (.: .Int)) (` (.:as (.primitive (~ (code.text box.long))))) (` ..long_to_short)) []]
+    [type.int type.int (list (` (.: .Int)) (` (.:as (.primitive (~ (code.text box.long))))) (` ..long_to_int)) []]
+    [type.long type.long (list (` (.: .Int)) (` (.:as (.primitive (~ (code.text box.long)))))) []]
+    [type.float type.float (list (` (.: .Frac)) (` (.:as (.primitive (~ (code.text box.double))))) (` ..double_to_float)) []]
+    [type.double type.double (list (` (.: .Frac)) (` (.:as (.primitive (~ (code.text box.double)))))) []]
+    [..$String ..$String (list (` (.: .Text)) (` (.:as (.primitive (~ (code.text (..reflection ..$String))))))) []]
+    [(type.class box.boolean (list)) (type.class box.boolean (list)) (list (` (.: .Bit)) (` (.:as (.primitive (~ (code.text box.boolean)))))) []]
+    [(type.class box.long (list)) (type.class box.long (list)) (list (` (.: .Int)) (` (.:as (.primitive (~ (code.text box.long)))))) []]
+    [(type.class box.double (list)) (type.class box.double (list)) (list (` (.: .Frac)) (` (.:as (.primitive (~ (code.text box.double)))))) []]]]
+  [#0 auto_convert_output ..box
+   [[type.boolean type.boolean (list) [(` (.: (.primitive (~ (code.text box.boolean))))) (` (.:as .Bit))]]
+    [type.byte type.long (list (` "jvm conversion byte-to-long")) [(` (.: (.primitive (~ (code.text box.long))))) (` (.:as .Int))]]
+    [type.short type.long (list (` "jvm conversion short-to-long")) [(` (.: (.primitive (~ (code.text box.long))))) (` (.:as .Int))]]
+    [type.int type.long (list (` "jvm conversion int-to-long")) [(` (.: (.primitive (~ (code.text box.long))))) (` (.:as .Int))]]
+    [type.long type.long (list) [(` (.: (.primitive (~ (code.text box.long))))) (` (.:as .Int))]]
+    [type.float type.double (list (` "jvm conversion float-to-double")) [(` (.: (.primitive (~ (code.text box.double))))) (` (.:as .Frac))]]
+    [type.double type.double (list) [(` (.: (.primitive (~ (code.text box.double))))) (` (.:as .Frac))]]
+    [..$String ..$String (list) [(` (.: (.primitive (~ (code.text (..reflection ..$String)))))) (` (.:as .Text))]]
+    [(type.class box.boolean (list)) (type.class box.boolean (list)) (list) [(` (.: (.primitive (~ (code.text box.boolean))))) (` (.:as .Bit))]]
+    [(type.class box.long (list)) (type.class box.long (list)) (list) [(` (.: (.primitive (~ (code.text box.long))))) (` (.:as .Int))]]
+    [(type.class box.double (list)) (type.class box.double (list)) (list) [(` (.: (.primitive (~ (code.text box.double))))) (` (.:as .Frac))]]]]
+  )
+
+(def: (un_quote quoted)
+  (-> Code Code)
+  (` ((~' ~) (~ quoted))))
+
+(def: (jvm_invoke_inputs mode classes inputs)
+  (-> Primitive_Mode (List (Type Value)) (List [Bit Code]) (List Code))
+  (|> inputs
+      (list.zip/2 classes)
+      (list\map (function (_ [class [maybe? input]])
+                  (|> (if maybe?
+                        (` (: (.primitive (~ (code.text (..reflection class))))
+                              ((~! !!!) (~ (un_quote input)))))
+                        (un_quote input))
+                      [class]
+                      (auto_convert_input mode))))))
+
+(def: (import_name format class member)
+  (-> Text Text Text Text)
+  (|> format
+      (text.replace_all "#" class)
+      (text.replace_all "." member)))
+
+(def: (member_def_interop vars kind class [arg_function_inputs input_jvm_types arg_types] member method_prefix import_format)
+  (-> (List (Type Var)) Class_Kind (Type Declaration) [(List [Bit Code]) (List (Type Value)) (List Code)] Import_Member_Declaration Text Text (Meta (List Code)))
+  (let [[full_name class_tvars] (parser.declaration class)]
+    (case member
+      (#EnumDecl enum_members)
+      (do meta.monad
+        [#let [enum_type (: Code
+                            (case class_tvars
+                              #.Nil
+                              (` (primitive (~ (code.text full_name))))
+
+                              _
+                              (let [=class_tvars (list\map ..var$' class_tvars)]
+                                (` (All [(~+ =class_tvars)] (primitive (~ (code.text full_name)) [(~+ =class_tvars)]))))))
+               getter_interop (: (-> Text Code)
+                                 (function (_ name)
+                                   (let [getter_name (code.identifier ["" (..import_name import_format method_prefix name)])]
+                                     (` (def: (~ getter_name)
+                                          (~ enum_type)
+                                          (~ (get_static_field full_name name)))))))]]
+        (wrap (list\map getter_interop enum_members)))
+      
+      (#ConstructorDecl [commons _])
+      (do meta.monad
+        [#let [classT (type.class full_name (list))
+               def_name (code.identifier ["" (..import_name import_format method_prefix (get@ #import_member_alias commons))])
+               jvm_interop (|> [classT
+                                (` ("jvm member invoke constructor"
+                                    [(~+ (list\map ..var$ class_tvars))]
+                                    (~ (code.text full_name))
+                                    [(~+ (list\map ..var$ (get@ #import_member_tvars commons)))]
+                                    (~+ (|> (jvm_invoke_inputs (get@ #import_member_mode commons) input_jvm_types arg_function_inputs)
+                                            (list.zip/2 input_jvm_types)
+                                            (list\map ..decorate_input)))))]
+                               (auto_convert_output (get@ #import_member_mode commons))
+                               (decorate_return_maybe member true classT)
+                               (decorate_return_try member)
+                               (decorate_return_io member))]]
+        (wrap (list (` ((~! syntax:) ((~ def_name) (~+ (list\map product.right arg_function_inputs)))
+                        ((~' wrap) (.list (.` (~ jvm_interop)))))))))
+
+      (#MethodDecl [commons method])
+      (with_gensyms [g!obj]
+        (do meta.monad
+          [#let [def_name (code.identifier ["" (..import_name import_format method_prefix (get@ #import_member_alias commons))])
+                 (^slots [#import_member_kind]) commons
+                 (^slots [#import_method_name]) method
+                 [jvm_op object_ast] (: [Text (List Code)]
+                                        (case import_member_kind
+                                          #StaticIMK
+                                          ["jvm member invoke static"
+                                           (list)]
+
+                                          #VirtualIMK
+                                          (case kind
+                                            #Class
+                                            ["jvm member invoke virtual"
+                                             (list g!obj)]
+                                            
+                                            #Interface
+                                            ["jvm member invoke interface"
+                                             (list g!obj)]
+                                            )))
+                 method_return (get@ #import_method_return method)
+                 callC (: Code
+                          (` ((~ (code.text jvm_op))
+                              [(~+ (list\map ..var$ class_tvars))]
+                              (~ (code.text full_name))
+                              (~ (code.text import_method_name))
+                              [(~+ (list\map ..var$ (get@ #import_member_tvars commons)))]
+                              (~+ (|> object_ast
+                                      (list\map ..un_quote)
+                                      (list.zip/2 (list (type.class full_name (list))))
+                                      (list\map (auto_convert_input (get@ #import_member_mode commons)))))
+                              (~+ (|> (jvm_invoke_inputs (get@ #import_member_mode commons) input_jvm_types arg_function_inputs)
+                                      (list.zip/2 input_jvm_types)
+                                      (list\map ..decorate_input))))))
+                 jvm_interop (: Code
+                                (case (type.void? method_return)
+                                  (#.Left method_return)
+                                  (|> [method_return
+                                       callC]
+                                      (auto_convert_output (get@ #import_member_mode commons))
+                                      (decorate_return_maybe member false method_return)
+                                      (decorate_return_try member)
+                                      (decorate_return_io member))
+                                  
+                                  
+                                  (#.Right method_return)
+                                  (|> callC
+                                      (decorate_return_try member)
+                                      (decorate_return_io member))))]]
+          (wrap (list (` ((~! syntax:) ((~ def_name) (~+ (list\map product.right arg_function_inputs)) (~+ object_ast))
+                          ((~' wrap) (.list (.` (~ jvm_interop))))))))))
+
+      (#FieldAccessDecl fad)
+      (do meta.monad
+        [#let [(^open ".") fad
+               getter_name (code.identifier ["" (..import_name import_format method_prefix import_field_name)])
+               setter_name (code.identifier ["" (..import_name import_format method_prefix (format import_field_name "!"))])]
+         getter_interop (with_gensyms [g!obj]
+                          (let [getter_call (if import_field_static?
+                                              (` ((~ getter_name)))
+                                              (` ((~ getter_name) (~ g!obj))))
+                                getter_body (<| (auto_convert_output import_field_mode)
+                                                [import_field_type
+                                                 (if import_field_static?
+                                                   (get_static_field full_name import_field_name)
+                                                   (get_virtual_field full_name import_field_name (un_quote g!obj)))])
+                                getter_body (if import_field_maybe?
+                                              (` ((~! ???) (~ getter_body)))
+                                              getter_body)
+                                getter_body (if import_field_setter?
+                                              (` ((~! io.io) (~ getter_body)))
+                                              getter_body)]
+                            (wrap (` ((~! syntax:) (~ getter_call)
+                                      ((~' wrap) (.list (.` (~ getter_body)))))))))
+         setter_interop (: (Meta (List Code))
+                           (if import_field_setter?
+                             (with_gensyms [g!obj g!value]
+                               (let [setter_call (if import_field_static?
+                                                   (` ((~ setter_name) (~ g!value)))
+                                                   (` ((~ setter_name) (~ g!value) (~ g!obj))))
+                                     setter_value (|> [import_field_type (un_quote g!value)]
+                                                      (auto_convert_input import_field_mode))
+                                     setter_value (if import_field_maybe?
+                                                    (` ((~! !!!) (~ setter_value)))
+                                                    setter_value)
+                                     setter_command (format (if import_field_static? "jvm putstatic" "jvm putfield")
+                                                            ":" full_name ":" import_field_name)
+                                     g!obj+ (: (List Code)
+                                               (if import_field_static?
+                                                 (list)
+                                                 (list (un_quote g!obj))))]
+                                 (wrap (list (` ((~! syntax:) (~ setter_call)
+                                                 ((~' wrap) (.list (.` ((~! io.io) ((~ (code.text setter_command)) (~+ g!obj+) (~ setter_value))))))))))))
+                             (wrap (list))))]
+        (wrap (list& getter_interop setter_interop)))
+      )))
+
+(def: (member_import$ vars kind class [import_format member])
+  (-> (List (Type Var)) Class_Kind (Type Declaration) [Text Import_Member_Declaration] (Meta (List Code)))
+  (let [[full_name _] (parser.declaration class)
+        method_prefix (..internal full_name)]
+    (do meta.monad
+      [=args (member_def_arg_bindings vars member)]
+      (member_def_interop vars kind class =args member method_prefix import_format))))
+
+(def: interface?
+  (All [a] (-> (primitive "java.lang.Class" [a]) Bit))
+  (|>> ("jvm member invoke virtual" [] "java.lang.Class" "isInterface" [])
+       "jvm object cast"
+       (: ..Boolean)
+       (:as Bit)))
+
+(def: load_class
+  (-> External (Try (primitive "java.lang.Class" [Any])))
+  (|>> (:as (primitive "java.lang.String"))
+       ["Ljava/lang/String;"]
+       ("jvm member invoke static" [] "java.lang.Class" "forName" [])
+       try))
+
+(def: (class_kind declaration)
+  (-> (Type Declaration) (Meta Class_Kind))
+  (let [[class_name _] (parser.declaration declaration)]
+    (case (load_class class_name)
+      (#.Right class)
+      (\ meta.monad wrap (if (interface? class)
+                           #Interface
+                           #Class))
+
+      (#.Left _)
+      (meta.fail (format "Unknown class: " class_name)))))
+
+(syntax: #export (import:
+                   {declaration ..declaration^}
+                   {#let [[class_name class_type_vars] (parser.declaration declaration)]}
+                   {bundles (<>.some (..bundle class_type_vars))})
+  {#.doc (doc "Allows importing JVM classes, and using them as types."
+              "Their methods, fields and enum options can also be imported."
+              (import: java/lang/Object
+                ["#::."
+                 (new [])
+                 (equals [java/lang/Object] boolean)
+                 (wait [int] #io #try void)])
+              
+              "Special options can also be given for the return values."
+              "#? means that the values will be returned inside a Maybe type. That way, null becomes #.None."
+              "#try means that the computation might throw an exception, and the return value will be wrapped by the Try type."
+              "#io means the computation has side effects, and will be wrapped by the IO type."
+              "These options must show up in the following order [#io #try #?] (although, each option can be used independently)."
+              (import: java/lang/String
+                ["#::."
+                 (new [[byte]])
+                 (#static valueOf [char] java/lang/String)
+                 (#static valueOf #as int_valueOf [int] java/lang/String)])
+
+              (import: (java/util/List e)
+                ["#::."
+                 (size [] int)
+                 (get [int] e)])
+
+              (import: (java/util/ArrayList a)
+                ["#::."
+                 ([T] toArray [[T]] [T])])
+              
+              "The class-type that is generated is of the fully-qualified name."
+              "This avoids a clash between the java.util.List type, and Lux's own List type."
+              "All enum options to be imported must be specified."
+              (import: java/lang/Character$UnicodeScript
+                ["#::."
+                 (#enum ARABIC CYRILLIC LATIN)])
+
+              "It should also be noted, the only types that may show up in method arguments or return values may be Java classes, arrays, primitives, void or type-vars."
+              "Lux types, such as Maybe cannot be named (otherwise, they'd be confused for Java classes)."
+              (import: (lux/concurrency/promise/JvmPromise A)
+                ["#::."
+                 (resolve [A] boolean)
+                 (poll [] A)
+                 (wasResolved [] boolean)
+                 (waitOn [lux/Function] void)
+                 (#static [A] make [A] (lux/concurrency/promise/JvmPromise A))])
+              
+              "Also, the names of the imported members will look like Class::member"
+              (java/lang/Object::new [])
+              (java/lang/Object::equals [other_object] my_object)
+              (java/util/List::size [] my_list)
+              java/lang/Character$UnicodeScript::LATIN
+              )}
+  (do {! meta.monad}
+    [kind (class_kind declaration)
+     =members (|> bundles
+                  (list\map (function (_ [import_format members])
+                              (list\map (|>> [import_format]) members)))
+                  list.concat
+                  (monad.map ! (member_import$ class_type_vars kind declaration)))]
+    (wrap (list& (class_import$ declaration) (list\join =members)))))
+
+(syntax: #export (array {type (..type^ (list))}
+                        size)
+  {#.doc (doc "Create an array of the given type, with the given size."
+              (array java/lang/Object 10))}
+  (let [g!size (` (|>  (~ size)
+                       (.: .Nat)
+                       (.:as (.primitive (~ (code.text box.long))))
+                       "jvm object cast"
+                       "jvm conversion long-to-int"))]
+    (`` (cond (~~ (template [<primitive> <array_op>]
+                    [(\ type.equivalence = <primitive> type)
+                     (wrap (list (` (<array_op> (~ g!size)))))]
+
+                    [type.boolean "jvm array new boolean"]
+                    [type.byte    "jvm array new byte"]
+                    [type.short   "jvm array new short"]
+                    [type.int     "jvm array new int"]
+                    [type.long    "jvm array new long"]
+                    [type.float   "jvm array new float"]
+                    [type.double  "jvm array new double"]
+                    [type.char    "jvm array new char"]))
+              ## else
+              (wrap (list (` (: (~ (value_type #ManualPrM (type.array type)))
+                                ("jvm array new object" (~ g!size))))))))))
+
+(exception: #export (cannot_convert_to_jvm_type {type .Type})
+  (exception.report
+   ["Lux Type" (%.type type)]))
+
+(with_expansions [<failure> (as_is (meta.fail (exception.construct ..cannot_convert_to_jvm_type [type])))]
+  (def: (lux_type->jvm_type type)
+    (-> .Type (Meta (Type Value)))
+    (if (lux_type\= .Any type)
+      (\ meta.monad wrap $Object)
+      (case type
+        (#.Primitive name params)
+        (`` (cond (~~ (template [<type>]
+                        [(text\= (..reflection <type>) name)
+                         (case params
+                           #.Nil
+                           (\ meta.monad wrap <type>)
+
+                           _
+                           <failure>)]
+                        
+                        [type.boolean]
+                        [type.byte]
+                        [type.short]
+                        [type.int]
+                        [type.long]
+                        [type.float]
+                        [type.double]
+                        [type.char]))
+
+                  (~~ (template [<type>]
+                        [(text\= (..reflection (type.array <type>)) name)
+                         (case params
+                           #.Nil
+                           (\ meta.monad wrap (type.array <type>))
+
+                           _
+                           <failure>)]
+                        
+                        [type.boolean]
+                        [type.byte]
+                        [type.short]
+                        [type.int]
+                        [type.long]
+                        [type.float]
+                        [type.double]
+                        [type.char]))
+
+                  (text\= array.type_name name)
+                  (case params
+                    (#.Cons elementLT #.Nil)
+                    (\ meta.monad map type.array
+                       (lux_type->jvm_type elementLT))
+
+                    _
+                    <failure>)
+
+                  (text.starts_with? descriptor.array_prefix name)
+                  (case params
+                    #.Nil
+                    (let [[_ unprefixed] (maybe.assume (text.split_with descriptor.array_prefix name))]
+                      (\ meta.monad map type.array
+                         (lux_type->jvm_type (#.Primitive unprefixed (list)))))
+
+                    _
+                    <failure>)
+
+                  ## else
+                  (\ meta.monad map (type.class name)
+                     (: (Meta (List (Type Parameter)))
+                        (monad.map meta.monad
+                                   (function (_ paramLT)
+                                     (do meta.monad
+                                       [paramJT (lux_type->jvm_type paramLT)]
+                                       (case (parser.parameter? paramJT)
+                                         (#.Some paramJT)
+                                         (wrap paramJT)
+
+                                         #.None
+                                         <failure>)))
+                                   params)))))
+
+        (#.Apply A F)
+        (case (lux_type.apply (list A) F)
+          #.None
+          <failure>
+
+          (#.Some type')
+          (lux_type->jvm_type type'))
+        
+        (#.Named _ type')
+        (lux_type->jvm_type type')
+
+        _
+        <failure>))))
+
+(syntax: #export (array_length array)
+  {#.doc (doc "Gives the length of an array."
+              (array_length my_array))}
+  (case array
+    [_ (#.Identifier array_name)]
+    (do meta.monad
+      [array_type (meta.find_type array_name)
+       array_jvm_type (lux_type->jvm_type array_type)
+       #let [g!extension (code.text (`` (cond (~~ (template [<primitive> <extension>]
+                                                    [(\ type.equivalence =
+                                                        (type.array <primitive>)
+                                                        array_jvm_type)
+                                                     <extension>]
+
+                                                    [type.boolean "jvm array length boolean"]
+                                                    [type.byte "jvm array length byte"]
+                                                    [type.short "jvm array length short"]
+                                                    [type.int "jvm array length int"]
+                                                    [type.long "jvm array length long"]
+                                                    [type.float "jvm array length float"]
+                                                    [type.double "jvm array length double"]
+                                                    [type.char "jvm array length char"]))
+                                              
+                                              ## else
+                                              "jvm array length object")))]]
+      (wrap (list (` (.|> ((~ g!extension) (~ array))
+                          "jvm conversion int-to-long"
+                          "jvm object cast"
+                          (.: (.primitive (~ (code.text box.long))))
+                          (.:as .Nat))))))
+
+    _
+    (with_gensyms [g!array]
+      (wrap (list (` (let [(~ g!array) (~ array)]
+                       (..array_length (~ g!array)))))))))
+
+(syntax: #export (array_read idx array)
+  {#.doc (doc "Loads an element from an array."
+              (array_read 10 my_array))}
+  (case array
+    [_ (#.Identifier array_name)]
+    (do meta.monad
+      [array_type (meta.find_type array_name)
+       array_jvm_type (lux_type->jvm_type array_type)
+       #let [g!idx (` (.|> (~ idx)
+                           (.: .Nat)
+                           (.:as (.primitive (~ (code.text box.long))))
+                           "jvm object cast"
+                           "jvm conversion long-to-int"))]]
+      (`` (cond (~~ (template [<primitive> <extension> <box>]
+                      [(\ type.equivalence =
+                          (type.array <primitive>)
+                          array_jvm_type)
+                       (wrap (list (` (.|> (<extension> (~ g!idx) (~ array))
+                                           "jvm object cast"
+                                           (.: (.primitive (~ (code.text <box>))))))))]
+
+                      [type.boolean "jvm array read boolean" box.boolean]
+                      [type.byte "jvm array read byte" box.byte]
+                      [type.short "jvm array read short" box.short]
+                      [type.int "jvm array read int" box.int]
+                      [type.long "jvm array read long" box.long]
+                      [type.float "jvm array read float" box.float]
+                      [type.double "jvm array read double" box.double]
+                      [type.char "jvm array read char" box.char]))
+                
+                ## else
+                (wrap (list (` ("jvm array read object" (~ g!idx) (~ array))))))))
+
+    _
+    (with_gensyms [g!array]
+      (wrap (list (` (let [(~ g!array) (~ array)]
+                       (..array_read (~ idx) (~ g!array)))))))))
+
+(syntax: #export (array_write idx value array)
+  {#.doc (doc "Stores an element into an array."
+              (array_write 10 my_object my_array))}
+  (case array
+    [_ (#.Identifier array_name)]
+    (do meta.monad
+      [array_type (meta.find_type array_name)
+       array_jvm_type (lux_type->jvm_type array_type)
+       #let [g!idx (` (.|> (~ idx)
+                           (.: .Nat)
+                           (.:as (.primitive (~ (code.text box.long))))
+                           "jvm object cast"
+                           "jvm conversion long-to-int"))]]
+      (`` (cond (~~ (template [<primitive> <extension> <box>]
+                      [(\ type.equivalence =
+                          (type.array <primitive>)
+                          array_jvm_type)
+                       (let [g!value (` (.|> (~ value)
+                                             (.:as (.primitive (~ (code.text <box>))))
+                                             "jvm object cast"))]
+                         (wrap (list (` (<extension> (~ g!idx) (~ g!value) (~ array))))))]
+
+                      [type.boolean "jvm array write boolean" box.boolean]
+                      [type.byte "jvm array write byte" box.byte]
+                      [type.short "jvm array write short" box.short]
+                      [type.int "jvm array write int" box.int]
+                      [type.long "jvm array write long" box.long]
+                      [type.float "jvm array write float" box.float]
+                      [type.double "jvm array write double" box.double]
+                      [type.char "jvm array write char" box.char]))
+                
+                ## else
+                (wrap (list (` ("jvm array write object" (~ g!idx) (~ value) (~ array))))))))
+
+    _
+    (with_gensyms [g!array]
+      (wrap (list (` (let [(~ g!array) (~ array)]
+                       (..array_write (~ idx) (~ value) (~ g!array)))))))))
+
+(syntax: #export (class_for {type (..type^ (list))})
+  {#.doc (doc "Loads the class as a java.lang.Class object."
+              (class_for java/lang/String))}
+  (wrap (list (` ("jvm object class" (~ (code.text (..reflection type))))))))
+
+(syntax: #export (type {type (..type^ (list))})
+  (wrap (list (..value_type #ManualPrM type))))
+
+(exception: #export (cannot_cast_to_non_object {type (Type Value)})
+  (exception.report
+   ["Signature" (..signature type)]
+   ["Reflection" (..reflection type)]))
+
+(syntax: #export (:cast {type (..type^ (list))}
+                        object)
+  (case [(parser.array? type)
+         (parser.class? type)]
+    (^or [(#.Some _) _] [_ (#.Some _)])
+    (wrap (list (` (.: (~ (..value_type #ManualPrM type))
+                       ("jvm object cast" (~ object))))))
+
+    _
+    (meta.fail (exception.construct ..cannot_cast_to_non_object [type]))))

@@ -1,0 +1,390 @@
+(.module: {#.doc "The actor model of concurrency."}
+  [library
+   [lux #*
+    [abstract
+     monad]
+    [control
+     [pipe (#+ case>)]
+     ["." function]
+     ["." try (#+ Try)]
+     ["." exception (#+ exception:)]
+     ["." io (#+ IO io)]
+     ["<>" parser
+      ["<.>" code (#+ Parser)]]]
+    [data
+     ["." product]
+     [text
+      ["%" format (#+ format)]]
+     [collection
+      ["." list ("#\." monoid monad fold)]]]
+    ["." macro (#+ with_gensyms)
+     ["." code]
+     [syntax (#+ syntax:)
+      ["|.|" input]
+      ["|.|" export]
+      ["|.|" annotations]]]
+    [math
+     [number
+      ["n" nat]]]
+    ["." meta (#+ monad)
+     ["." annotation]]
+    [type (#+ :share)
+     ["." abstract (#+ abstract: :representation :abstraction)]]]]
+  [//
+   ["." atom (#+ Atom atom)]
+   ["." promise (#+ Promise Resolver) ("#\." monad)]
+   ["." frp (#+ Channel)]])
+
+(exception: #export poisoned)
+(exception: #export dead)
+
+(with_expansions
+  [<Mail> (as_is (-> s (Actor s) (Promise (Try s))))
+   <Obituary> (as_is [Text s (List <Mail>)])
+   <Mailbox> (as_is (Rec Mailbox
+                      [(Promise [<Mail> Mailbox])
+                       (Resolver [<Mail> Mailbox])]))]
+
+  (def: (pending [read write])
+    (All [a]
+      (-> (Rec Mailbox
+            [(Promise [a Mailbox])
+             (Resolver [a Mailbox])])
+          (IO (List a))))
+    (do {! io.monad}
+      [current (promise.poll read)]
+      (case current
+        (#.Some [head tail])
+        (\ ! map (|>> (#.Cons head))
+           (pending tail))
+        
+        #.None
+        (wrap #.Nil))))
+  
+  (abstract: #export (Actor s)
+    {#obituary [(Promise <Obituary>)
+                (Resolver <Obituary>)]
+     #mailbox (Atom <Mailbox>)}
+
+    (type: #export (Mail s)
+      <Mail>)
+
+    (type: #export (Obituary s)
+      <Obituary>)
+
+    (type: #export (Behavior o s)
+      {#.doc "An actor's behavior when mail is received and when a fatal error occurs."}
+      {#on_init (-> o s)
+       #on_mail (-> (Mail s) s (Actor s) (Promise (Try s)))})
+
+    (def: #export (spawn! behavior init)
+      {#.doc "Given a behavior and initial state, spawns an actor and returns it."}
+      (All [o s] (-> (Behavior o s) o (IO (Actor s))))
+      (io (let [[on_init on_mail] behavior
+                self (:share [o s]
+                             (Behavior o s)
+                             behavior
+                             
+                             (Actor s)
+                             (:abstraction {#obituary (promise.promise [])
+                                            #mailbox (atom (promise.promise []))}))
+                process (loop [state (on_init init)
+                               [|mailbox| _] (io.run (atom.read (get@ #mailbox (:representation self))))]
+                          (do {! promise.monad}
+                            [[head tail] |mailbox|
+                             ?state' (on_mail head state self)]
+                            (case ?state'
+                              (#try.Failure error)
+                              (let [[_ resolve] (get@ #obituary (:representation self))]
+                                (exec (io.run
+                                       (do io.monad
+                                         [pending (..pending tail)]
+                                         (resolve [error state (#.Cons head pending)])))
+                                  (wrap [])))
+
+                              (#try.Success state')
+                              (recur state' tail))))]
+            self)))
+
+    (def: #export (alive? actor)
+      (All [s] (-> (Actor s) (IO Bit)))
+      (let [[obituary _] (get@ #obituary (:representation actor))]
+        (|> obituary
+            promise.poll
+            (\ io.functor map
+               (|>> (case> #.None
+                           yes
+
+                           _
+                           no))))))
+
+    (def: #export (obituary actor)
+      (All [s] (-> (Actor s) (IO (Maybe (Obituary s)))))
+      (let [[obituary _] (get@ #obituary (:representation actor))]
+        (promise.poll obituary)))
+
+    (def: #export await
+      (All [s] (-> (Actor s) (Promise (Obituary s))))
+      (|>> :representation
+           (get@ #obituary)
+           product.left))
+
+    (def: #export (mail! mail actor)
+      {#.doc "Send mail to an actor.."}
+      (All [s] (-> (Mail s) (Actor s) (IO (Try Any))))
+      (do {! io.monad}
+        [alive? (..alive? actor)]
+        (if alive?
+          (let [entry [mail (promise.promise [])]]
+            (do !
+              [|mailbox|&resolve (atom.read (get@ #mailbox (:representation actor)))]
+              (loop [[|mailbox| resolve] |mailbox|&resolve]
+                (do !
+                  [|mailbox| (promise.poll |mailbox|)]
+                  (case |mailbox|
+                    #.None
+                    (do !
+                      [resolved? (resolve entry)]
+                      (if resolved?
+                        (do !
+                          [_ (atom.write (product.right entry) (get@ #mailbox (:representation actor)))]
+                          (wrap (exception.return [])))
+                        (recur |mailbox|&resolve)))
+                    
+                    (#.Some [_ |mailbox|'])
+                    (recur |mailbox|'))))))
+          (wrap (exception.throw ..dead [])))))
+
+    (type: #export (Message s o)
+      (-> s (Actor s) (Promise (Try [s o]))))
+
+    (def: (mail message)
+      (All [s o] (-> (Message s o) [(Promise (Try o)) (Mail s)]))
+      (let [[promise resolve] (:share [s o]
+                                      (Message s o)
+                                      message
+                                      
+                                      [(Promise (Try o))
+                                       (Resolver (Try o))]
+                                      (promise.promise []))]
+        [promise
+         (function (_ state self)
+           (do {! promise.monad}
+             [outcome (message state self)]
+             (case outcome
+               (#try.Success [state' return])
+               (exec (io.run (resolve (#try.Success return)))
+                 (promise.resolved (#try.Success state')))
+               
+               (#try.Failure error)
+               (exec (io.run (resolve (#try.Failure error)))
+                 (promise.resolved (#try.Failure error))))))]))
+
+    (def: #export (tell! message actor)
+      {#.doc "Communicate with an actor through message passing."}
+      (All [s o] (-> (Message s o) (Actor s) (Promise (Try o))))
+      (let [[promise mail] (..mail message)]
+        (do promise.monad
+          [outcome (promise.future (..mail! mail actor))]
+          (case outcome
+            (#try.Success)
+            promise
+            
+            (#try.Failure error)
+            (wrap (#try.Failure error))))))
+    )
+  )
+
+(def: (default_on_mail mail state self)
+  (All [s] (-> (Mail s) s (Actor s) (Promise (Try s))))
+  (mail state self))
+
+(def: #export default
+  (All [s] (Behavior s s))
+  {#on_init function.identity
+   #on_mail ..default_on_mail})
+
+(def: #export (poison! actor)
+  {#.doc (doc "Kills the actor by sending mail that will kill it upon processing,"
+              "but allows the actor to handle previous mail.")}
+  (All [s] (-> (Actor s) (IO (Try Any))))
+  (..mail! (function (_ state self)
+             (promise.resolved (exception.throw ..poisoned [])))
+           actor))
+
+(def: actor_decl^
+  (Parser [Text (List Text)])
+  (<>.either (<code>.form (<>.and <code>.local_identifier (<>.some <code>.local_identifier)))
+             (<>.and <code>.local_identifier (\ <>.monad wrap (list)))))
+
+(type: On_MailC
+  [[Text Text Text] Code])
+
+(type: BehaviorC
+  [(Maybe On_MailC) (List Code)])
+
+(def: argument
+  (Parser Text)
+  <code>.local_identifier)
+
+(def: behavior^
+  (Parser BehaviorC)
+  (let [on_mail_args ($_ <>.and ..argument ..argument ..argument)]
+    ($_ <>.and
+        (<>.maybe (<code>.form (<>.and (<code>.form (<>.after (<code>.this! (' on_mail)) on_mail_args))
+                                       <code>.any)))
+        (<>.some <code>.any))))
+
+(def: (on_mail g!_ ?on_mail)
+  (-> Code (Maybe On_MailC) Code)
+  (case ?on_mail
+    #.None
+    (` (~! ..default_on_mail))
+
+    (#.Some [[mailN stateN selfN] bodyC])
+    (` (function ((~ g!_)
+                  (~ (code.local_identifier mailN))
+                  (~ (code.local_identifier stateN))
+                  (~ (code.local_identifier selfN)))
+         (~ bodyC)))))
+
+(with_expansions [<examples> (as_is (actor: #export (Stack a)
+                                      (List a)
+
+                                      ((on_mail mail state self)
+                                       (do (try.with promise.monad)
+                                         [#let [_ (log! "BEFORE")]
+                                          output (mail state self)
+                                          #let [_ (log! "AFTER")]]
+                                         (wrap output)))
+
+                                      (message: #export (push {value a} state self (List a))
+                                        (let [state' (#.Cons value state)]
+                                          (promise.resolved (#try.Success [state' state'])))))
+
+                                    (actor: #export Counter
+                                      Nat
+
+                                      (message: #export (count! {increment Nat} state self Any)
+                                        (let [state' (n.+ increment state)]
+                                          (promise.resolved (#try.Success [state' state']))))
+
+                                      (message: #export (read! state self Nat)
+                                        (promise.resolved (#try.Success [state state])))))]
+  (syntax: #export (actor:
+                     {export |export|.parser}
+                     {[name vars] actor_decl^}
+                     {annotations (<>.default |annotations|.empty |annotations|.parser)}
+                     state_type
+                     {[?on_mail messages] behavior^})
+    {#.doc (doc "Defines an actor, with its behavior and internal state."
+                "Messages for the actor must be defined after the on_mail handler."
+                <examples>)}
+    (with_gensyms [g!_]
+      (do meta.monad
+        [g!type (macro.gensym (format name "_abstract_type"))
+         #let [g!actor (code.local_identifier name)
+               g!vars (list\map code.local_identifier vars)]]
+        (wrap (list (` ((~! abstract:) (~+ (|export|.format export)) ((~ g!type) (~+ g!vars))
+                        (~ state_type)
+
+                        (def: (~+ (|export|.format export)) (~ g!actor)
+                          (All [(~+ g!vars)]
+                            (..Behavior (~ state_type) ((~ g!type) (~+ g!vars))))
+                          {#..on_init (|>> ((~! abstract.:abstraction) (~ g!type)))
+                           #..on_mail (~ (..on_mail g!_ ?on_mail))})
+
+                        (~+ messages))))))))
+
+  (syntax: #export (actor {[state_type init] (<code>.record (<>.and <code>.any <code>.any))}
+                          {[?on_mail messages] behavior^})
+    (with_gensyms [g!_]
+      (wrap (list (` (: ((~! io.IO) (..Actor (~ state_type)))
+                        (..spawn! (: (..Behavior (~ state_type) (~ state_type))
+                                     {#..on_init (|>>)
+                                      #..on_mail (~ (..on_mail g!_ ?on_mail))})
+                                  (: (~ state_type)
+                                     (~ init)))))))))
+
+  (type: Signature
+    {#vars (List Text)
+     #name Text
+     #inputs (List |input|.Input)
+     #state Text
+     #self Text
+     #output Code})
+
+  (def: signature^
+    (Parser Signature)
+    (<code>.form ($_ <>.and
+                     (<>.default (list) (<code>.tuple (<>.some <code>.local_identifier)))
+                     <code>.local_identifier
+                     (<>.some |input|.parser)
+                     <code>.local_identifier
+                     <code>.local_identifier
+                     <code>.any)))
+
+  (def: reference^
+    (Parser [Name (List Text)])
+    (<>.either (<code>.form (<>.and <code>.identifier (<>.some <code>.local_identifier)))
+               (<>.and <code>.identifier (\ <>.monad wrap (list)))))
+
+  (syntax: #export (message:
+                     {export |export|.parser}
+                     {signature signature^}
+                     {annotations (<>.default |annotations|.empty |annotations|.parser)}
+                     body)
+    {#.doc (doc "A message can access the actor's state through the state parameter."
+                "A message can also access the actor itself through the self parameter."
+                "A message's output must be a promise containing a 2-tuple with the updated state and a return value."
+                "A message may succeed or fail (in case of failure, the actor dies)."
+
+                <examples>)}
+    (with_gensyms [g!_ g!return]
+      (do meta.monad
+        [actor_scope abstract.current
+         #let [g!type (code.local_identifier (get@ #abstract.name actor_scope))
+               g!message (code.local_identifier (get@ #name signature))
+               g!actor_vars (get@ #abstract.type_vars actor_scope)
+               g!all_vars (|> signature (get@ #vars) (list\map code.local_identifier) (list\compose g!actor_vars))
+               g!inputsC (|> signature (get@ #inputs) (list\map product.left))
+               g!inputsT (|> signature (get@ #inputs) (list\map product.right))
+               g!state (|> signature (get@ #state) code.local_identifier)
+               g!self (|> signature (get@ #self) code.local_identifier)]]
+        (wrap (list (` (def: (~+ (|export|.format export)) ((~ g!message) (~+ g!inputsC))
+                         (~ (|annotations|.format annotations))
+                         (All [(~+ g!all_vars)]
+                           (-> (~+ g!inputsT)
+                               (..Message (~ (get@ #abstract.abstraction actor_scope))
+                                          (~ (get@ #output signature)))))
+                         (function ((~ g!_) (~ g!state) (~ g!self))
+                           (let [(~ g!state) (:as (~ (get@ #abstract.representation actor_scope))
+                                                  (~ g!state))]
+                             (|> (~ body)
+                                 (: ((~! promise.Promise) ((~! try.Try) [(~ (get@ #abstract.representation actor_scope))
+                                                                         (~ (get@ #output signature))])))
+                                 (:as ((~! promise.Promise) ((~! try.Try) [(~ (get@ #abstract.abstraction actor_scope))
+                                                                           (~ (get@ #output signature))]))))))))
+                    ))))))
+
+(type: #export Stop
+  (IO Any))
+
+(def: continue! true)
+(def: stop! false)
+
+(def: #export (observe action channel actor)
+  (All [e s] (-> (-> e Stop (Mail s)) (Channel e) (Actor s) (IO Any)))
+  (let [signal (: (Atom Bit)
+                  (atom.atom ..continue!))
+        stop (: Stop
+                (atom.write ..stop! signal))]
+    (frp.subscribe (function (_ event)
+                     (do {! io.monad}
+                       [continue? (atom.read signal)]
+                       (if continue?
+                         (do !
+                           [outcome (..mail! (action event stop) actor)]
+                           (wrap (try.to_maybe outcome)))
+                         (wrap #.None))))
+                   channel)))

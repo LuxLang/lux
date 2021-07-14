@@ -1,0 +1,277 @@
+(.module:
+  [library
+   [lux #*
+    [abstract
+     ["." monad (#+ do)]
+     ["." enum]]
+    [control
+     [pipe (#+ case>)]
+     ["." exception (#+ exception:)]]
+    [data
+     ["." maybe ("#\." functor)]
+     ["." text
+      ["%" format (#+ format)]]
+     [collection
+      ["." list ("#\." functor monoid fold)]]]
+    [math
+     [number
+      ["n" nat]]]]]
+  ["." // #_
+   ["#." loop (#+ Transform)]
+   ["//#" /// #_
+    ["#." analysis (#+ Environment Analysis)]
+    ["/" synthesis (#+ Path Abstraction Synthesis Operation Phase)]
+    [///
+     [arity (#+ Arity)]
+     ["#." reference
+      ["#/." variable (#+ Register Variable)]]
+     ["." phase ("#\." monad)]]]])
+
+(exception: #export (cannot_find_foreign_variable_in_environment {foreign Register} {environment (Environment Synthesis)})
+  (exception.report
+   ["Foreign" (%.nat foreign)]
+   ["Environment" (exception.enumerate /.%synthesis environment)]))
+
+(def: arity_arguments
+  (-> Arity (List Synthesis))
+  (|>> dec
+       (enum.range n.enum 1)
+       (list\map (|>> /.variable/local))))
+
+(template: #export (self_reference)
+  (/.variable/local 0))
+
+(def: (expanded_nested_self_reference arity)
+  (-> Arity Synthesis)
+  (/.function/apply [(..self_reference) (arity_arguments arity)]))
+
+(def: #export (apply phase)
+  (-> Phase Phase)
+  (function (_ archive exprA)
+    (let [[funcA argsA] (////analysis.application exprA)]
+      (do {! phase.monad}
+        [funcS (phase archive funcA)
+         argsS (monad.map ! (phase archive) argsA)]
+        (with_expansions [<apply> (as_is (/.function/apply [funcS argsS]))]
+          (case funcS
+            (^ (/.function/abstraction functionS))
+            (if (n.= (get@ #/.arity functionS)
+                     (list.size argsS))
+              (do !
+                [locals /.locals]
+                (wrap (|> functionS
+                          (//loop.optimization true locals argsS)
+                          (maybe\map (: (-> [Nat (List Synthesis) Synthesis] Synthesis)
+                                        (function (_ [start inits iteration])
+                                          (case iteration
+                                            (^ (/.loop/scope [start' inits' output]))
+                                            (if (and (n.= start start')
+                                                     (list.empty? inits'))
+                                              (/.loop/scope [start inits output])
+                                              (/.loop/scope [start inits iteration]))
+
+                                            _
+                                            (/.loop/scope [start inits iteration])))))
+                          (maybe.default <apply>))))
+              (wrap <apply>))
+
+            (^ (/.function/apply [funcS' argsS']))
+            (wrap (/.function/apply [funcS' (list\compose argsS' argsS)]))
+
+            _
+            (wrap <apply>)))))))
+
+(def: (find_foreign environment register)
+  (-> (Environment Synthesis) Register (Operation Synthesis))
+  (case (list.nth register environment)
+    (#.Some aliased)
+    (phase\wrap aliased)
+
+    #.None
+    (phase.throw ..cannot_find_foreign_variable_in_environment [register environment])))
+
+(def: (grow_path grow path)
+  (-> (-> Synthesis (Operation Synthesis)) Path (Operation Path))
+  (case path
+    (#/.Bind register)
+    (phase\wrap (#/.Bind (inc register)))
+
+    (^template [<tag>]
+      [(<tag> left right)
+       (do phase.monad
+         [left' (grow_path grow left)
+          right' (grow_path grow right)]
+         (wrap (<tag> left' right')))])
+    ([#/.Alt] [#/.Seq])
+
+    (#/.Bit_Fork when then else)
+    (do {! phase.monad}
+      [then (grow_path grow then)
+       else (case else
+              (#.Some else)
+              (\ ! map (|>> #.Some) (grow_path grow else))
+
+              #.None
+              (wrap #.None))]
+      (wrap (#/.Bit_Fork when then else)))
+    
+    (^template [<tag>]
+      [(<tag> [[test then] elses])
+       (do {! phase.monad}
+         [then (grow_path grow then)
+          elses (monad.map ! (function (_ [else_test else_then])
+                               (do !
+                                 [else_then (grow_path grow else_then)]
+                                 (wrap [else_test else_then])))
+                           elses)]
+         (wrap (<tag> [[test then] elses])))])
+    ([#/.I64_Fork]
+     [#/.F64_Fork]
+     [#/.Text_Fork])
+    
+    (#/.Then thenS)
+    (|> thenS
+        grow
+        (phase\map (|>> #/.Then)))
+
+    _
+    (phase\wrap path)))
+
+(def: (grow environment expression)
+  (-> (Environment Synthesis) Synthesis (Operation Synthesis))
+  (case expression
+    (#/.Structure structure)
+    (case structure
+      (#////analysis.Variant [lefts right? subS])
+      (|> subS
+          (grow environment)
+          (phase\map (|>> [lefts right?] /.variant)))
+      
+      (#////analysis.Tuple membersS+)
+      (|> membersS+
+          (monad.map phase.monad (grow environment))
+          (phase\map (|>> /.tuple))))
+
+    (^ (..self_reference))
+    (phase\wrap (/.function/apply [expression (list (/.variable/local 1))]))
+    
+    (#/.Reference reference)
+    (case reference
+      (#////reference.Variable variable)
+      (case variable
+        (#////reference/variable.Local register)
+        (phase\wrap (/.variable/local (inc register)))
+        
+        (#////reference/variable.Foreign register)
+        (..find_foreign environment register))
+      
+      (#////reference.Constant constant)
+      (phase\wrap expression))
+    
+    (#/.Control control)
+    (case control
+      (#/.Branch branch)
+      (case branch
+        (#/.Let [inputS register bodyS])
+        (do phase.monad
+          [inputS' (grow environment inputS)
+           bodyS' (grow environment bodyS)]
+          (wrap (/.branch/let [inputS' (inc register) bodyS'])))
+        
+        (#/.If [testS thenS elseS])
+        (do phase.monad
+          [testS' (grow environment testS)
+           thenS' (grow environment thenS)
+           elseS' (grow environment elseS)]
+          (wrap (/.branch/if [testS' thenS' elseS'])))
+
+        (#/.Get members inputS)
+        (do phase.monad
+          [inputS' (grow environment inputS)]
+          (wrap (/.branch/get [members inputS'])))
+        
+        (#/.Case [inputS pathS])
+        (do phase.monad
+          [inputS' (grow environment inputS)
+           pathS' (grow_path (grow environment) pathS)]
+          (wrap (/.branch/case [inputS' pathS']))))
+      
+      (#/.Loop loop)
+      (case loop
+        (#/.Scope [start initsS+ iterationS])
+        (do {! phase.monad}
+          [initsS+' (monad.map ! (grow environment) initsS+)
+           iterationS' (grow environment iterationS)]
+          (wrap (/.loop/scope [(inc start) initsS+' iterationS'])))
+        
+        (#/.Recur argumentsS+)
+        (|> argumentsS+
+            (monad.map phase.monad (grow environment))
+            (phase\map (|>> /.loop/recur))))
+      
+      (#/.Function function)
+      (case function
+        (#/.Abstraction [_env _arity _body])
+        (do {! phase.monad}
+          [_env' (monad.map !
+                            (|>> (case> (#/.Reference (#////reference.Variable (#////reference/variable.Foreign register)))
+                                        (..find_foreign environment register)
+
+                                        captured
+                                        (grow environment captured)))
+                            _env)]
+          (wrap (/.function/abstraction [_env' _arity _body])))
+        
+        (#/.Apply funcS argsS+)
+        (do {! phase.monad}
+          [funcS (grow environment funcS)
+           argsS+ (monad.map ! (grow environment) argsS+)]
+          (wrap (/.function/apply (case funcS
+                                    (^ (/.function/apply [(..self_reference) pre_argsS+]))
+                                    [(..self_reference)
+                                     (list\compose pre_argsS+ argsS+)]
+
+                                    _
+                                    [funcS
+                                     argsS+]))))))
+    
+    (#/.Extension name argumentsS+)
+    (|> argumentsS+
+        (monad.map phase.monad (grow environment))
+        (phase\map (|>> (#/.Extension name))))
+
+    (#/.Primitive _)
+    (phase\wrap expression)))
+
+(def: #export (abstraction phase environment archive bodyA)
+  (-> Phase (Environment Analysis) Phase)
+  (do {! phase.monad}
+    [currying? /.currying?
+     environment (monad.map ! (phase archive) environment)
+     bodyS (/.with_currying? true
+             (/.with_locals 2
+               (phase archive bodyA)))
+     abstraction (: (Operation Abstraction)
+                    (case bodyS
+                      (^ (/.function/abstraction [env' down_arity' bodyS']))
+                      (|> bodyS'
+                          (grow env')
+                          (\ ! map (function (_ body)
+                                     {#/.environment environment
+                                      #/.arity (inc down_arity')
+                                      #/.body body})))
+                      
+                      _
+                      (wrap {#/.environment environment
+                             #/.arity 1
+                             #/.body bodyS})))]
+    (wrap (if currying?
+            (/.function/abstraction abstraction)
+            (case (//loop.optimization false 1 (list) abstraction)
+              (#.Some [startL initsL bodyL])
+              (/.function/abstraction {#/.environment environment
+                                       #/.arity (get@ #/.arity abstraction)
+                                       #/.body (/.loop/scope [startL initsL bodyL])})
+              
+              #.None
+              (/.function/abstraction abstraction))))))

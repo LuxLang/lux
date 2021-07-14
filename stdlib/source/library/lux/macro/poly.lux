@@ -1,0 +1,128 @@
+(.module:
+  [library
+   [lux #*
+    ["." meta]
+    ["." type]
+    [abstract
+     ["." monad (#+ do)]]
+    [control
+     ["p" parser
+      ["<.>" type (#+ Env)]
+      ["s" code]]]
+    [data
+     ["." product]
+     ["." maybe]
+     ["." text]
+     [collection
+      ["." list ("#\." fold functor)]
+      ["." dictionary]]]
+    [macro (#+ with_gensyms)
+     ["." code]
+     [syntax (#+ syntax:)
+      ["|.|" export]]]
+    [math
+     [number
+      ["n" nat]]]]])
+
+(syntax: #export (poly: {export |export|.parser}
+                   {name s.local_identifier}
+                   body)
+  (with_gensyms [g!_ g!type g!output]
+    (let [g!name (code.identifier ["" name])]
+      (wrap (.list (` ((~! syntax:) (~+ (|export|.format export)) ((~ g!name) {(~ g!type) (~! s.identifier)})
+                       ((~! do) (~! meta.monad)
+                        [(~ g!type) ((~! meta.find_type_def) (~ g!type))]
+                        (case (: (.Either .Text .Code)
+                                 ((~! <type>.run) ((~! p.rec)
+                                                   (function ((~ g!_) (~ g!name))
+                                                     (~ body)))
+                                  (~ g!type)))
+                          (#.Left (~ g!output))
+                          ((~! meta.fail) (~ g!output))
+
+                          (#.Right (~ g!output))
+                          ((~' wrap) (.list (~ g!output))))))))))))
+
+(def: (common_poly_name? poly_func)
+  (-> Text Bit)
+  (text.contains? "?" poly_func))
+
+(def: (derivation_name poly args)
+  (-> Text (List Text) (Maybe Text))
+  (if (common_poly_name? poly)
+    (#.Some (list\fold (text.replace_once "?") poly args))
+    #.None))
+
+(syntax: #export (derived: {export |export|.parser}
+                   {?name (p.maybe s.local_identifier)}
+                   {[poly_func poly_args] (s.form (p.and s.identifier (p.many s.identifier)))}
+                   {?custom_impl (p.maybe s.any)})
+  (do {! meta.monad}
+    [poly_args (monad.map ! meta.normalize poly_args)
+     name (case ?name
+            (#.Some name)
+            (wrap name)
+
+            (^multi #.None
+                    [(derivation_name (product.right poly_func) (list\map product.right poly_args))
+                     (#.Some derived_name)])
+            (wrap derived_name)
+
+            _
+            (p.fail "derived: was given no explicit name, and cannot generate one from given information."))
+     #let [impl (case ?custom_impl
+                  (#.Some custom_impl)
+                  custom_impl
+
+                  #.None
+                  (` ((~ (code.identifier poly_func)) (~+ (list\map code.identifier poly_args)))))]]
+    (wrap (.list (` (def: (~+ (|export|.format export))
+                      (~ (code.identifier ["" name]))
+                      {#.implementation? #1}
+                      (~ impl)))))))
+
+(def: #export (to_code env type)
+  (-> Env Type Code)
+  (`` (case type
+        (#.Primitive name params)
+        (` (#.Primitive (~ (code.text name))
+                        (list (~+ (list\map (to_code env) params)))))
+
+        (^template [<tag>]
+          [(<tag> idx)
+           (` (<tag> (~ (code.nat idx))))])
+        ([#.Var] [#.Ex])
+
+        (#.Parameter idx)
+        (let [idx (<type>.adjusted_idx env idx)]
+          (if (n.= 0 idx)
+            (|> (dictionary.get idx env) maybe.assume product.left (to_code env))
+            (` (.$ (~ (code.nat (dec idx)))))))
+
+        (#.Apply (#.Named [(~~ (static .prelude_module)) "Nothing"] _) (#.Parameter idx))
+        (let [idx (<type>.adjusted_idx env idx)]
+          (if (n.= 0 idx)
+            (|> (dictionary.get idx env) maybe.assume product.left (to_code env))
+            (undefined)))
+        
+        (^template [<tag>]
+          [(<tag> left right)
+           (` (<tag> (~ (to_code env left))
+                     (~ (to_code env right))))])
+        ([#.Function] [#.Apply])
+
+        (^template [<macro> <tag> <flattener>]
+          [(<tag> left right)
+           (` (<macro> (~+ (list\map (to_code env) (<flattener> type)))))])
+        ([| #.Sum type.flatten_variant]
+         [& #.Product type.flatten_tuple])
+
+        (#.Named name sub_type)
+        (code.identifier name)
+
+        (^template [<tag>]
+          [(<tag> scope body)
+           (` (<tag> (list (~+ (list\map (to_code env) scope)))
+                     (~ (to_code env body))))])
+        ([#.UnivQ] [#.ExQ])
+        )))

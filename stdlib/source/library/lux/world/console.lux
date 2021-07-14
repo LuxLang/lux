@@ -1,0 +1,159 @@
+(.module:
+  [library
+   [lux #*
+    [ffi (#+ import:)]
+    ["@" target]
+    [abstract
+     [monad (#+ do)]]
+    [control
+     ["." try (#+ Try)]
+     ["." exception (#+ exception:)]
+     ["." io (#+ IO io)]
+     [concurrency
+      ["." promise (#+ Promise)]
+      ["." atom]]]
+    [data
+     ["." text (#+ Char)
+      ["%" format (#+ format)]]]]])
+
+(template [<name>]
+  [(exception: #export (<name>)
+     "")]
+
+  [cannot_open]
+  [cannot_close]
+  )
+
+(interface: #export (Console !)
+  (: (-> [] (! (Try Char)))
+     read)
+  (: (-> [] (! (Try Text)))
+     read_line)
+  (: (-> Text (! (Try Any)))
+     write)
+  (: (-> [] (! (Try Any)))
+     close))
+
+(def: #export (async console)
+  (-> (Console IO) (Console Promise))
+  (`` (implementation
+       (~~ (template [<capability>]
+             [(def: <capability>
+                (|>> (\ console <capability>) promise.future))]
+
+             [read]
+             [read_line]
+             [write]
+             [close])))))
+
+(with_expansions [<jvm> (as_is (import: java/lang/String)
+
+                               (import: java/io/Console
+                                 ["#::."
+                                  (readLine [] #io #try java/lang/String)])
+
+                               (import: java/io/InputStream
+                                 ["#::."
+                                  (read [] #io #try int)])
+
+                               (import: java/io/PrintStream
+                                 ["#::."
+                                  (print [java/lang/String] #io #try void)])
+
+                               (import: java/lang/System
+                                 ["#::."
+                                  (#static console [] #io #? java/io/Console)
+                                  (#static in java/io/InputStream)
+                                  (#static out java/io/PrintStream)])
+
+                               (def: #export default
+                                 (IO (Try (Console IO)))
+                                 (do io.monad
+                                   [?jvm_console (java/lang/System::console)]
+                                   (case ?jvm_console
+                                     #.None
+                                     (wrap (exception.throw ..cannot_open []))
+
+                                     (#.Some jvm_console)
+                                     (let [jvm_input (java/lang/System::in)
+                                           jvm_output (java/lang/System::out)]
+                                       (<| wrap
+                                           exception.return
+                                           (: (Console IO)) ## TODO: Remove ASAP
+                                           (implementation
+                                            (def: (read _)
+                                              (|> jvm_input
+                                                  java/io/InputStream::read
+                                                  (\ (try.with io.monad) map .nat)))
+                                            
+                                            (def: (read_line _)
+                                              (java/io/Console::readLine jvm_console))
+                                            
+                                            (def: (write message)
+                                              (java/io/PrintStream::print message jvm_output))
+                                            
+                                            (def: close
+                                              (|>> (exception.throw ..cannot_close) wrap)))))))))]
+  (for {@.old (as_is <jvm>)
+        @.jvm (as_is <jvm>)}
+       (as_is)))
+
+(def: #export (write_line message console)
+  (All [!] (-> Text (Console !) (! (Try Any))))
+  (\ console write (format message text.new_line)))
+
+(interface: #export (Mock s)
+  (: (-> s (Try [s Char]))
+     on_read)
+  (: (-> s (Try [s Text]))
+     on_read_line)
+  (: (-> Text s (Try s))
+     on_write)
+  (: (-> s (Try s))
+     on_close))
+
+(def: #export (mock mock init)
+  (All [s] (-> (Mock s) s (Console IO)))
+  (let [state (atom.atom init)]
+    (`` (implementation
+         (~~ (template [<method> <mock>]
+               [(def: (<method> _)
+                  (do {! io.monad}
+                    [|state| (atom.read state)]
+                    (case (\ mock <mock> |state|)
+                      (#try.Success [|state| output])
+                      (do !
+                        [_ (atom.write |state| state)]
+                        (wrap (#try.Success output)))
+                      
+                      (#try.Failure error)
+                      (wrap (#try.Failure error)))))]
+
+               [read on_read]
+               [read_line on_read_line]
+               ))
+
+         (def: (write input)
+           (do {! io.monad}
+             [|state| (atom.read state)]
+             (case (\ mock on_write input |state|)
+               (#try.Success |state|)
+               (do !
+                 [_ (atom.write |state| state)]
+                 (wrap (#try.Success [])))
+               
+               (#try.Failure error)
+               (wrap (#try.Failure error)))))
+
+         (def: (close _)
+           (do {! io.monad}
+             [|state| (atom.read state)]
+             (case (\ mock on_close |state|)
+               (#try.Success |state|)
+               (do !
+                 [_ (atom.write |state| state)]
+                 (wrap (#try.Success [])))
+               
+               (#try.Failure error)
+               (wrap (#try.Failure error)))))
+         ))))

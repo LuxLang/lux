@@ -1,0 +1,214 @@
+(.module:
+  [library
+   [lux (#- and or not false true)
+    [abstract
+     [equivalence (#+ Equivalence)]
+     [hash (#+ Hash)]
+     [monoid (#+ Monoid)]]
+    [control
+     ["." try]]]]
+  [//
+   ["n" nat]])
+
+(def: #export bits_per_byte
+  8)
+
+(def: #export bytes_per_i64
+  8)
+
+(def: #export width
+  Nat
+  (n.* ..bits_per_byte
+       ..bytes_per_i64))
+
+(template [<parameter_type> <name> <op> <doc>]
+  [(def: #export (<name> parameter subject)
+     {#.doc <doc>}
+     (All [s] (-> <parameter_type> (I64 s) (I64 s)))
+     (<op> parameter subject))]
+
+  [(I64 Any) or          "lux i64 or"          "Bitwise or."]
+  [(I64 Any) xor         "lux i64 xor"         "Bitwise xor."]
+  [(I64 Any) and         "lux i64 and"         "Bitwise and."]
+  
+  [Nat       left_shift  "lux i64 left-shift"  "Bitwise left-shift."]
+  [Nat       right_shift "lux i64 right-shift" "Unsigned/logic bitwise right-shift."]
+  )
+
+(type: #export Mask
+  I64)
+
+(def: #export (bit position)
+  (-> Nat Mask)
+  (|> 1 .i64 (..left_shift (n.% ..width position))))
+
+(def: #export sign
+  Mask
+  (..bit (dec ..width)))
+
+(def: #export not
+  {#.doc "Bitwise negation."}
+  (All [s] (-> (I64 s) (I64 s)))
+  (..xor (.i64 (dec 0))))
+
+(def: #export false
+  Mask
+  (.i64 0))
+
+(def: #export true
+  Mask
+  (..not ..false))
+
+(def: #export (mask amount_of_bits)
+  (-> Nat Mask)
+  (case amount_of_bits
+    0 ..false
+    bits (case (n.% ..width bits)
+           0 ..true
+           bits (|> 1 .i64 (..left_shift (n.% ..width bits)) .dec))))
+
+(def: (add_shift shift value)
+  (-> Nat Nat Nat)
+  (|> value (right_shift shift) (n.+ value)))
+
+(def: #export (count subject)
+  {#.doc "Count the number of 1s in a bit-map."}
+  (-> (I64 Any) Nat)
+  (let [count' (n.- (|> subject (right_shift 1) (..and 6148914691236517205) i64)
+                    (i64 subject))]
+    (|> count'
+        (right_shift 2) (..and 3689348814741910323) (n.+ (..and 3689348814741910323 count'))
+        (add_shift 4) (..and 1085102592571150095)
+        (add_shift 8)
+        (add_shift 16)
+        (add_shift 32)
+        (..and 127))))
+
+(def: #export (clear idx input)
+  {#.doc "Clear bit at given index."}
+  (All [s] (-> Nat (I64 s) (I64 s)))
+  (|> idx ..bit ..not (..and input)))
+
+(template [<name> <op> <doc>]
+  [(def: #export (<name> idx input)
+     {#.doc <doc>}
+     (All [s] (-> Nat (I64 s) (I64 s)))
+     (|> idx ..bit (<op> input)))]
+
+  [set  ..or  "Set bit at given index."]
+  [flip ..xor "Flip bit at given index."]
+  )
+
+(def: #export (set? idx input)
+  (-> Nat (I64 Any) Bit)
+  (|> input (:as I64) (..and (..bit idx)) (n.= 0) .not))
+
+(def: #export (clear? idx input)
+  (-> Nat (I64 Any) Bit)
+  (.not (..set? idx input)))
+
+(template [<name> <forward> <backward>]
+  [(def: #export (<name> distance input)
+     (All [s] (-> Nat (I64 s) (I64 s)))
+     (..or (<forward> distance input)
+           (<backward> (n.- (n.% ..width distance) ..width) input)))]
+
+  [rotate_left  ..left_shift        ..right_shift]
+  [rotate_right ..right_shift ..left_shift]
+  )
+
+(def: #export (region size offset)
+  (-> Nat Nat Mask)
+  (..left_shift offset (..mask size)))
+
+(implementation: #export equivalence
+  (All [a] (Equivalence (I64 a)))
+
+  (def: (= reference sample)
+    ("lux i64 =" reference sample)))
+
+(implementation: #export hash
+  (All [a] (Hash (I64 a)))
+
+  (def: &equivalence ..equivalence)
+
+  (def: hash .nat))
+
+(template [<monoid> <identity> <compose>]
+  [(implementation: #export <monoid>
+     (All [a] (Monoid (I64 a)))
+
+     (def: identity <identity>)
+     (def: compose <compose>))]
+
+  [disjunction ..false ..or]
+  [conjunction ..true ..and]
+  )
+
+(def: #export reverse
+  (All [a] (-> (I64 a) (I64 a)))
+  (let [swapper (: (-> Nat (All [a] (-> (I64 a) (I64 a))))
+                   (function (_ power)
+                     (let [size (..left_shift power 1)
+                           repetitions (: (-> Nat Text Text)
+                                          (function (_ times char)
+                                            (loop [iterations 1
+                                                   output char]
+                                              (if (n.< times iterations)
+                                                (recur (inc iterations)
+                                                       ("lux text concat" char output))
+                                                output))))
+                           pattern (repetitions (n./ (n.+ size size) ..width)
+                                                ("lux text concat"
+                                                 (repetitions size "1")
+                                                 (repetitions size "0")))
+
+                           high (try.assume (\ n.binary decode pattern))
+                           low (..rotate_right size high)]
+                       (function (_ value)
+                         (..or (..right_shift size (..and high value))
+                               (..left_shift size (..and low value)))))))
+        
+        swap/01 (swapper 0)
+        swap/02 (swapper 1)
+        swap/04 (swapper 2)
+        swap/08 (swapper 3)
+        swap/16 (swapper 4)
+        swap/32 (swapper 5)]
+    (|>> swap/32
+         swap/16
+         swap/08
+         swap/04
+         swap/02
+         swap/01)))
+
+(interface: #export (Sub size)
+  (: (Equivalence (I64 size))
+     &equivalence)
+  (: Nat
+     width)
+  (: (-> I64 (I64 size))
+     narrow)
+  (: (-> (I64 size) I64)
+     widen))
+
+(def: #export (sub width)
+  (Ex [size] (-> Nat (Maybe (Sub size))))
+  (if (.and (n.> 0 width)
+            (n.< ..width width))
+    (let [sign_shift (n.- width ..width)
+          sign (..bit (dec width))
+          mantissa (..mask (dec width))
+          co_mantissa (..xor (.i64 -1) mantissa)]
+      (#.Some (: Sub
+                 (implementation
+                  (def: &equivalence ..equivalence)
+                  (def: width width)
+                  (def: (narrow value)
+                    (..or (|> value (..and ..sign) (..right_shift sign_shift))
+                          (|> value (..and mantissa))))
+                  (def: (widen value)
+                    (.i64 (case (.nat (..and sign value))
+                            0 value
+                            _ (..or co_mantissa value))))))))
+    #.None))

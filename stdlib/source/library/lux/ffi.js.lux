@@ -1,0 +1,364 @@
+(.module:
+  [library
+   [lux #*
+    ["." meta]
+    [abstract
+     [monad (#+ do)]]
+    [control
+     ["." io]
+     ["<>" parser
+      ["<.>" code (#+ Parser)]]]
+    [data
+     ["." product]
+     ["." maybe]
+     ["." text
+      ["%" format]]
+     [collection
+      ["." list ("#\." functor fold)]]]
+    [type
+     abstract]
+    [macro (#+ with_gensyms)
+     [syntax (#+ syntax:)]
+     ["." code]
+     ["." template]]]])
+
+(abstract: #export (Object brand)
+  Any)
+
+(template [<name>]
+  [(with_expansions [<brand> (template.identifier [<name> "'"])]
+     (abstract: <brand>
+       Any
+       
+       (type: #export <name>
+         (Object <brand>))))]
+
+  [Function]
+  [Symbol]
+  [Null]
+  [Undefined]
+  )
+
+(template [<name> <type>]
+  [(type: #export <name>
+     <type>)]
+
+  [Boolean Bit]
+  [Number  Frac]
+  [String  Text]
+  )
+
+(type: Nullable
+  [Bit Code])
+
+(def: nullable
+  (Parser Nullable)
+  (let [token (' #?)]
+    (<| (<>.and (<>.parses? (<code>.this! token)))
+        (<>.after (<>.not (<code>.this! token)))
+        <code>.any)))
+
+(type: Constructor
+  (List Nullable))
+
+(def: constructor
+  (Parser Constructor)
+  (<code>.form (<>.after (<code>.this! (' new))
+                         (<code>.tuple (<>.some ..nullable)))))
+
+(type: Field
+  [Bit Text Nullable])
+
+(def: static!
+  (Parser Any)
+  (<code>.this! (' #static)))
+
+(def: field
+  (Parser Field)
+  (<code>.form ($_ <>.and
+                   (<>.parses? ..static!)
+                   <code>.local_identifier
+                   ..nullable)))
+
+(type: Common_Method
+  {#name Text
+   #alias (Maybe Text)
+   #inputs (List Nullable)
+   #io? Bit
+   #try? Bit
+   #output Nullable})
+
+(type: Static_Method Common_Method)
+(type: Virtual_Method Common_Method)
+
+(type: Method
+  (#Static Static_Method)
+  (#Virtual Virtual_Method))
+
+(def: common_method
+  (Parser Common_Method)
+  ($_ <>.and
+      <code>.local_identifier
+      (<>.maybe (<>.after (<code>.this! (' #as)) <code>.local_identifier))
+      (<code>.tuple (<>.some ..nullable))
+      (<>.parses? (<code>.this! (' #io)))
+      (<>.parses? (<code>.this! (' #try)))
+      ..nullable))
+
+(def: static_method
+  (<>.after ..static! ..common_method))
+
+(def: method
+  (Parser Method)
+  (<code>.form (<>.or ..static_method
+                      ..common_method)))
+
+(type: Member
+  (#Constructor Constructor)
+  (#Field Field)
+  (#Method Method))
+
+(def: member
+  (Parser Member)
+  ($_ <>.or
+      ..constructor
+      ..field
+      ..method
+      ))
+
+(def: input_variables
+  (-> (List Nullable) (List [Bit Code]))
+  (|>> list.enumeration
+       (list\map (function (_ [idx [nullable? type]])
+                   [nullable? (|> idx %.nat code.local_identifier)]))))
+
+(def: (nullable_type [nullable? type])
+  (-> Nullable Code)
+  (if nullable?
+    (` (.Maybe (~ type)))
+    type))
+
+(def: (with_null g!temp [nullable? input])
+  (-> Code [Bit Code] Code)
+  (if nullable?
+    (` (case (~ input)
+         (#.Some (~ g!temp))
+         (~ g!temp)
+
+         #.None
+         ("js object null")))
+    input))
+
+(def: (without_null g!temp [nullable? outputT] output)
+  (-> Code Nullable Code Code)
+  (if nullable?
+    (` (let [(~ g!temp) (~ output)]
+         (if ("js object null?" (~ g!temp))
+           #.None
+           (#.Some (~ g!temp)))))
+    (` (let [(~ g!temp) (~ output)]
+         (if (not ("js object null?" (~ g!temp)))
+           (~ g!temp)
+           (.error! "Null is an invalid value."))))))
+
+(type: Import
+  (#Class [Text Text (List Member)])
+  (#Function Static_Method))
+
+(def: import
+  (Parser Import)
+  (<>.or (<>.and <code>.local_identifier
+                 (<>.default ["" (list)]
+                             (<code>.tuple (<>.and <code>.text
+                                                   (<>.some member)))))
+         (<code>.form ..common_method)))
+
+(def: (with_io with? without)
+  (-> Bit Code Code)
+  (if with?
+    (` (io.io (~ without)))
+    without))
+
+(def: (io_type io? rawT)
+  (-> Bit Code Code)
+  (if io?
+    (` (io.IO (~ rawT)))
+    rawT))
+
+(def: (with_try with? without_try)
+  (-> Bit Code Code)
+  (if with?
+    (` (.try (~ without_try)))
+    without_try))
+
+(def: (try_type try? rawT)
+  (-> Bit Code Code)
+  (if try?
+    (` (.Either .Text (~ rawT)))
+    rawT))
+
+(def: (make_function g!method g!temp source inputsT io? try? outputT)
+  (-> Code Code Text (List Nullable) Bit Bit Nullable Code)
+  (let [g!inputs (input_variables inputsT)]
+    (` (def: ((~ g!method)
+              [(~+ (list\map product.right g!inputs))])
+         (-> [(~+ (list\map nullable_type inputsT))]
+             (~ (|> (nullable_type outputT)
+                    (try_type try?)
+                    (io_type io?))))
+         (:assume
+          (~ (<| (with_io io?)
+                 (with_try try?)
+                 (without_null g!temp outputT)
+                 (` ("js apply"
+                     ("js constant" (~ (code.text source)))
+                     (~+ (list\map (with_null g!temp) g!inputs)))))))))))
+
+(syntax: #export (import: {import ..import})
+  (with_gensyms [g!temp]
+    (case import
+      (#Class [class format members])
+      (with_gensyms [g!object]
+        (let [qualify (: (-> Text Code)
+                         (function (_ member_name)
+                           (|> format
+                               (text.replace_all "#" class)
+                               (text.replace_all "." member_name)
+                               code.local_identifier)))
+              g!type (code.local_identifier class)
+              real_class (text.replace_all "/" "." class)]
+          (wrap (list& (` (type: (~ g!type)
+                            (..Object (primitive (~ (code.text real_class))))))
+                       (list\map (function (_ member)
+                                   (case member
+                                     (#Constructor inputsT)
+                                     (let [g!inputs (input_variables inputsT)]
+                                       (` (def: ((~ (qualify "new"))
+                                                 [(~+ (list\map product.right g!inputs))])
+                                            (-> [(~+ (list\map nullable_type inputsT))]
+                                                (~ g!type))
+                                            (:assume
+                                             ("js object new"
+                                              ("js constant" (~ (code.text real_class)))
+                                              [(~+ (list\map (with_null g!temp) g!inputs))])))))
+                                     
+                                     (#Field [static? field fieldT])
+                                     (if static?
+                                       (` ((~! syntax:) ((~ (qualify field)))
+                                           (\ (~! meta.monad) (~' wrap)
+                                              (list (` (.:as (~ (nullable_type fieldT))
+                                                             ("js constant" (~ (code.text (%.format real_class "." field))))))))))
+                                       (` (def: ((~ (qualify field))
+                                                 (~ g!object))
+                                            (-> (~ g!type)
+                                                (~ (nullable_type fieldT)))
+                                            (:assume
+                                             (~ (without_null g!temp fieldT (` ("js object get" (~ (code.text field)) (~ g!object)))))))))
+                                     
+                                     (#Method method)
+                                     (case method
+                                       (#Static [method alias inputsT io? try? outputT])
+                                       (..make_function (qualify (maybe.default method alias))
+                                                        g!temp
+                                                        (%.format real_class "." method)
+                                                        inputsT
+                                                        io?
+                                                        try?
+                                                        outputT)
+                                       
+                                       (#Virtual [method alias inputsT io? try? outputT])
+                                       (let [g!inputs (input_variables inputsT)]
+                                         (` (def: ((~ (qualify (maybe.default method alias)))
+                                                   [(~+ (list\map product.right g!inputs))]
+                                                   (~ g!object))
+                                              (-> [(~+ (list\map nullable_type inputsT))]
+                                                  (~ g!type)
+                                                  (~ (|> (nullable_type outputT)
+                                                         (try_type try?)
+                                                         (io_type io?))))
+                                              (:assume
+                                               (~ (<| (with_io io?)
+                                                      (with_try try?)
+                                                      (without_null g!temp outputT)
+                                                      (` ("js object do"
+                                                          (~ (code.text method))
+                                                          (~ g!object)
+                                                          [(~+ (list\map (with_null g!temp) g!inputs))])))))))))))
+                                 members)))))
+      
+      (#Function [name alias inputsT io? try? outputT])
+      (wrap (list (..make_function (code.local_identifier (maybe.default name alias))
+                                   g!temp
+                                   name
+                                   inputsT
+                                   io?
+                                   try?
+                                   outputT)))
+      )))
+
+(template: #export (type_of object)
+  ("js type-of" object))
+
+(syntax: #export (constant type
+                           {[head tail] (<code>.tuple (<>.and <code>.local_identifier (<>.some <code>.local_identifier)))})
+  (with_gensyms [g!_]
+    (let [constant (` ("js constant" (~ (code.text head))))]
+      (case tail
+        #.Nil
+        (wrap (list (` (: (.Maybe (~ type))
+                          (case (..type_of (~ constant))
+                            "undefined"
+                            #.None
+
+                            (~ g!_)
+                            (#.Some (:as (~ type) (~ constant))))))))
+        
+        (#.Cons [next tail])
+        (let [separator "."]
+          (wrap (list (` (: (.Maybe (~ type))
+                            (case (..type_of (~ constant))
+                              "undefined"
+                              #.None
+
+                              (~ g!_)
+                              (..constant (~ type) [(~ (code.local_identifier (%.format head "." next)))
+                                                    (~+ (list\map code.local_identifier tail))])))))))))))
+
+(template: (!defined? <constant>)
+  (.case (..constant Any <constant>)
+    #.None
+    .false
+
+    (#.Some _)
+    .true))
+
+(template [<name> <constant>]
+  [(def: #export <name>
+     Bit
+     (!defined? <constant>))]
+
+  [on_browser? [window]]
+  [on_nashorn? [java lang Object]]
+  )
+
+(def: #export on_node_js?
+  Bit
+  (case (..constant (Object Any) [process])
+    (#.Some process)
+    (case (:as Text
+               ("js apply" ("js constant" "Object.prototype.toString.call") process))
+      "[object process]"
+      true
+
+      _
+      false)
+
+    #.None
+    false))
+
+(template: #export (closure <inputs> <output>)
+  (.:as ..Function
+        (`` ("js function"
+             (~~ (template.count <inputs>))
+             (.function (_ [<inputs>])
+               <output>)))))

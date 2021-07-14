@@ -1,0 +1,463 @@
+(.module: {#.doc "Basic functionality for working with types."}
+  [library
+   [lux (#- function)
+    ["@" target]
+    [abstract
+     [equivalence (#+ Equivalence)]
+     [monad (#+ Monad do)]]
+    [control
+     ["." function]
+     ["." exception (#+ exception:)]
+     ["<>" parser
+      ["<.>" code (#+ Parser)]]]
+    [data
+     ["." product]
+     ["." maybe]
+     ["." text ("#\." monoid equivalence)]
+     ["." name ("#\." equivalence codec)]
+     [collection
+      ["." array]
+      ["." list ("#\." functor monoid fold)]]]
+    ["." macro
+     [syntax (#+ syntax:)]
+     ["." code]]
+    [math
+     [number
+      ["n" nat ("#\." decimal)]]]
+    ["." meta
+     ["." location]]]])
+
+(template [<name> <tag>]
+  [(def: #export (<name> type)
+     (-> Type [Nat Type])
+     (loop [num_args 0
+            type type]
+       (case type
+         (<tag> env sub_type)
+         (recur (inc num_args) sub_type)
+
+         _
+         [num_args type])))]
+
+  [flatten_univ_q #.UnivQ]
+  [flatten_ex_q   #.ExQ]
+  )
+
+(def: #export (flatten_function type)
+  (-> Type [(List Type) Type])
+  (case type
+    (#.Function in out')
+    (let [[ins out] (flatten_function out')]
+      [(list& in ins) out])
+
+    _
+    [(list) type]))
+
+(def: #export (flatten_application type)
+  (-> Type [Type (List Type)])
+  (case type
+    (#.Apply arg func')
+    (let [[func args] (flatten_application func')]
+      [func (list\compose args (list arg))])
+
+    _
+    [type (list)]))
+
+(template [<name> <tag>]
+  [(def: #export (<name> type)
+     (-> Type (List Type))
+     (case type
+       (<tag> left right)
+       (list& left (<name> right))
+
+       _
+       (list type)))]
+
+  [flatten_variant #.Sum]
+  [flatten_tuple   #.Product]
+  )
+
+(def: #export (format type)
+  (-> Type Text)
+  (case type
+    (#.Primitive name params)
+    ($_ text\compose
+        "(primitive "
+        (text.enclose' text.double_quote name)
+        (|> params
+            (list\map (|>> format (text\compose " ")))
+            (list\fold (function.flip text\compose) ""))
+        ")")
+
+    (^template [<tag> <open> <close> <flatten>]
+      [(<tag> _)
+       ($_ text\compose <open>
+           (|> (<flatten> type)
+               (list\map format)
+               list.reverse
+               (list.interpose " ")
+               (list\fold text\compose ""))
+           <close>)])
+    ([#.Sum  "(| " ")" flatten_variant]
+     [#.Product "["   "]" flatten_tuple])
+
+    (#.Function input output)
+    (let [[ins out] (flatten_function type)]
+      ($_ text\compose  "(-> "
+          (|> ins
+              (list\map format)
+              list.reverse
+              (list.interpose " ")
+              (list\fold text\compose ""))
+          " " (format out) ")"))
+
+    (#.Parameter idx)
+    (n\encode idx)
+
+    (#.Var id)
+    ($_ text\compose "⌈v:" (n\encode id) "⌋")
+
+    (#.Ex id)
+    ($_ text\compose "⟨e:" (n\encode id) "⟩")
+
+    (#.Apply param fun)
+    (let [[type_func type_args] (flatten_application type)]
+      ($_ text\compose  "(" (format type_func) " " (|> type_args (list\map format) list.reverse (list.interpose " ") (list\fold text\compose "")) ")"))
+
+    (^template [<tag> <desc>]
+      [(<tag> env body)
+       ($_ text\compose "(" <desc> " {" (|> env (list\map format) (text.join_with " ")) "} " (format body) ")")])
+    ([#.UnivQ "All"]
+     [#.ExQ "Ex"])
+
+    (#.Named [module name] type)
+    ($_ text\compose module "." name)
+    ))
+
+(def: (beta_reduce env type)
+  (-> (List Type) Type Type)
+  (case type
+    (#.Primitive name params)
+    (#.Primitive name (list\map (beta_reduce env) params))
+    
+    (^template [<tag>]
+      [(<tag> left right)
+       (<tag> (beta_reduce env left) (beta_reduce env right))])
+    ([#.Sum]      [#.Product]
+     [#.Function] [#.Apply])
+    
+    (^template [<tag>]
+      [(<tag> old_env def)
+       (case old_env
+         #.Nil
+         (<tag> env def)
+
+         _
+         (<tag> (list\map (beta_reduce env) old_env) def))])
+    ([#.UnivQ]
+     [#.ExQ])
+    
+    (#.Parameter idx)
+    (maybe.default (error! ($_ text\compose
+                               "Unknown type parameter" text.new_line
+                               "      Index: " (n\encode idx) text.new_line
+                               "Environment: " (|> env
+                                                   list.enumeration
+                                                   (list\map (.function (_ [index type])
+                                                               ($_ text\compose
+                                                                   (n\encode index)
+                                                                   " " (..format type))))
+                                                   (text.join_with (text\compose text.new_line "             ")))))
+                   (list.nth idx env))
+    
+    _
+    type
+    ))
+
+(implementation: #export equivalence
+  (Equivalence Type)
+  
+  (def: (= x y)
+    (or (for {@.php false} ## TODO: Remove this once JPHP is gone.
+             (is? x y))
+        (case [x y]
+          [(#.Primitive xname xparams) (#.Primitive yname yparams)]
+          (and (text\= xname yname)
+               (n.= (list.size yparams) (list.size xparams))
+               (list\fold (.function (_ [x y] prev) (and prev (= x y)))
+                          #1
+                          (list.zip/2 xparams yparams)))
+
+          (^template [<tag>]
+            [[(<tag> xid) (<tag> yid)]
+             (n.= yid xid)])
+          ([#.Var] [#.Ex] [#.Parameter])
+
+          (^or [(#.Function xleft xright) (#.Function yleft yright)]
+               [(#.Apply xleft xright) (#.Apply yleft yright)])
+          (and (= xleft yleft)
+               (= xright yright))
+
+          [(#.Named xname xtype) (#.Named yname ytype)]
+          (and (name\= xname yname)
+               (= xtype ytype))
+
+          (^template [<tag>]
+            [[(<tag> xL xR) (<tag> yL yR)]
+             (and (= xL yL) (= xR yR))])
+          ([#.Sum] [#.Product])
+          
+          (^or [(#.UnivQ xenv xbody) (#.UnivQ yenv ybody)]
+               [(#.ExQ xenv xbody) (#.ExQ yenv ybody)])
+          (and (n.= (list.size yenv) (list.size xenv))
+               (= xbody ybody)
+               (list\fold (.function (_ [x y] prev) (and prev (= x y)))
+                          #1
+                          (list.zip/2 xenv yenv)))
+
+          _
+          #0
+          ))))
+
+(def: #export (apply params func)
+  (-> (List Type) Type (Maybe Type))
+  (case params
+    #.Nil
+    (#.Some func)
+
+    (#.Cons param params')
+    (case func
+      (^template [<tag>]
+        [(<tag> env body)
+         (|> body
+             (beta_reduce (list& func param env))
+             (apply params'))])
+      ([#.UnivQ] [#.ExQ])
+
+      (#.Apply A F)
+      (apply (list& A params) F)
+
+      (#.Named name unnamed)
+      (apply params unnamed)
+      
+      _
+      #.None)))
+
+(def: #export (to_code type)
+  (-> Type Code)
+  (case type
+    (#.Primitive name params)
+    (` (#.Primitive (~ (code.text name))
+                    (.list (~+ (list\map to_code params)))))
+
+    (^template [<tag>]
+      [(<tag> idx)
+       (` (<tag> (~ (code.nat idx))))])
+    ([#.Var] [#.Ex] [#.Parameter])
+
+    (^template [<tag>]
+      [(<tag> left right)
+       (` (<tag> (~ (to_code left))
+                 (~ (to_code right))))])
+    ([#.Sum] [#.Product] [#.Function] [#.Apply])
+
+    (#.Named name sub_type)
+    (code.identifier name)
+
+    (^template [<tag>]
+      [(<tag> env body)
+       (` (<tag> (.list (~+ (list\map to_code env)))
+                 (~ (to_code body))))])
+    ([#.UnivQ] [#.ExQ])
+    ))
+
+(def: #export (un_alias type)
+  (-> Type Type)
+  (case type
+    (#.Named _ (#.Named name type'))
+    (un_alias (#.Named name type'))
+
+    _
+    type))
+
+(def: #export (un_name type)
+  (-> Type Type)
+  (case type
+    (#.Named name type')
+    (un_name type')
+
+    _
+    type))
+
+(template [<name> <base> <ctor>]
+  [(def: #export (<name> types)
+     (-> (List Type) Type)
+     (case types
+       #.Nil
+       <base>
+
+       (#.Cons type #.Nil)
+       type
+
+       (#.Cons type types')
+       (<ctor> type (<name> types'))))]
+
+  [variant Nothing #.Sum]
+  [tuple   Any     #.Product]
+  )
+
+(def: #export (function inputs output)
+  (-> (List Type) Type Type)
+  (case inputs
+    #.Nil
+    output
+
+    (#.Cons input inputs')
+    (#.Function input (function inputs' output))))
+
+(def: #export (application params quant)
+  (-> (List Type) Type Type)
+  (case params
+    #.Nil
+    quant
+
+    (#.Cons param params')
+    (application params' (#.Apply param quant))))
+
+(template [<name> <tag>]
+  [(def: #export (<name> size body)
+     (-> Nat Type Type)
+     (case size
+       0 body
+       _  (|> body (<name> (dec size)) (<tag> (list)))))]
+
+  [univ_q #.UnivQ]
+  [ex_q   #.ExQ]
+  )
+
+(def: #export (quantified? type)
+  (-> Type Bit)
+  (case type
+    (#.Named [module name] _type)
+    (quantified? _type)
+
+    (#.Apply A F)
+    (maybe.default #0
+                   (do maybe.monad
+                     [applied (apply (list A) F)]
+                     (wrap (quantified? applied))))
+    
+    (^or (#.UnivQ _) (#.ExQ _))
+    #1
+
+    _
+    #0))
+
+(def: #export (array depth element_type)
+  (-> Nat Type Type)
+  (case depth
+    0 element_type
+    _ (|> element_type
+          (array (dec depth))
+          (list)
+          (#.Primitive array.type_name))))
+
+(def: #export (flatten_array type)
+  (-> Type [Nat Type])
+  (case type
+    (^multi (^ (#.Primitive name (list element_type)))
+            (text\= array.type_name name))
+    (let [[depth element_type] (flatten_array element_type)]
+      [(inc depth) element_type])
+
+    _
+    [0 type]))
+
+(def: #export array?
+  (-> Type Bit)
+  (|>> ..flatten_array
+       product.left
+       (n.> 0)))
+
+(syntax: (new_secret_marker)
+  (macro.with_gensyms [g!_secret_marker_]
+    (wrap (list g!_secret_marker_))))
+
+(def: secret_marker
+  (`` (name_of (~~ (new_secret_marker)))))
+
+(syntax: #export (:log! {input (<>.or (<>.and <code>.identifier
+                                              (<>.maybe (<>.after (<code>.identifier! ..secret_marker) <code>.any)))
+                                      <code>.any)})
+  (case input
+    (#.Left [valueN valueC])
+    (do meta.monad
+      [location meta.location
+       valueT (meta.find_type valueN)
+       #let [_ ("lux io log"
+                ($_ text\compose
+                    (name\encode (name_of ..:log!)) " " (location.format location) text.new_line
+                    "Expression: " (case valueC
+                                     (#.Some valueC)
+                                     (code.format valueC)
+                                     
+                                     #.None
+                                     (name\encode valueN))
+                    text.new_line
+                    "      Type: " (..format valueT)))]]
+      (wrap (list (code.identifier valueN))))
+    
+    (#.Right valueC)
+    (macro.with_gensyms [g!value]
+      (wrap (list (` (.let [(~ g!value) (~ valueC)]
+                       (..:log! (~ valueC) (~ (code.identifier ..secret_marker)) (~ g!value)))))))))
+
+(def: type_parameters
+  (Parser (List Text))
+  (<code>.tuple (<>.some <code>.local_identifier)))
+
+(syntax: #export (:cast {type_vars type_parameters}
+                        input
+                        output
+                        {value (<>.maybe <code>.any)})
+  (let [casterC (` (: (All [(~+ (list\map code.local_identifier type_vars))]
+                        (-> (~ input) (~ output)))
+                      (|>> :assume)))]
+    (case value
+      #.None
+      (wrap (list casterC))
+      
+      (#.Some value)
+      (wrap (list (` ((~ casterC) (~ value))))))))
+
+(type: Typed
+  {#type Code
+   #expression Code})
+
+(def: typed
+  (Parser Typed)
+  (<>.and <code>.any <code>.any))
+
+## TODO: Make sure the generated code always gets optimized away.
+(syntax: #export (:share {type_vars ..type_parameters}
+                         {exemplar ..typed}
+                         {computation ..typed})
+  (macro.with_gensyms [g!_]
+    (let [shareC (` (: (All [(~+ (list\map code.local_identifier type_vars))]
+                         (-> (~ (get@ #type exemplar))
+                             (~ (get@ #type computation))))
+                       (.function ((~ g!_) (~ g!_))
+                         (~ (get@ #expression computation)))))]
+      (wrap (list (` ((~ shareC) (~ (get@ #expression exemplar)))))))))
+
+(syntax: #export (:by_example {type_vars ..type_parameters}
+                              {exemplar ..typed}
+                              {extraction <code>.any})
+  (wrap (list (` (:of ((~! :share)
+                       [(~+ (list\map code.local_identifier type_vars))]
+
+                       (~ (get@ #type exemplar))
+                       (~ (get@ #expression exemplar))
+                       
+                       (~ extraction)
+                       (:assume [])))))))

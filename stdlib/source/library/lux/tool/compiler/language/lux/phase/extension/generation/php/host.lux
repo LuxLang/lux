@@ -1,0 +1,143 @@
+(.module:
+  [library
+   [lux #*
+    [abstract
+     ["." monad (#+ do)]]
+    [control
+     ["." function]
+     ["<>" parser
+      ["<s>" synthesis (#+ Parser)]]]
+    [data
+     [collection
+      ["." dictionary]
+      ["." list]]
+     [text
+      ["%" format (#+ format)]]]
+    [target
+     ["_" php (#+ Var Expression)]]]]
+  ["." // #_
+   ["#." common (#+ custom)]
+   ["//#" /// #_
+    ["/" bundle]
+    ["/#" // #_
+     ["." extension]
+     [generation
+      [extension (#+ Nullary Unary Binary Trinary
+                     nullary unary binary trinary)]
+      ["." reference]
+      ["//" php #_
+       ["#." runtime (#+ Operation Phase Handler Bundle
+                         with_vars)]]]
+     ["/#" // #_
+      ["." generation]
+      ["//#" /// #_
+       ["#." phase]]]]]])
+
+(def: (array::new size)
+  (Unary Expression)
+  (//runtime.tuple//make size (_.array_fill/3 [(_.int +0) size _.null])))
+
+(def: (array::read [indexG arrayG])
+  (Binary Expression)
+  (_.nth indexG arrayG))
+
+(def: (array::write [indexG valueG arrayG])
+  (Trinary Expression)
+  (//runtime.array//write indexG valueG arrayG))
+
+(def: (array::delete [indexG arrayG])
+  (Binary Expression)
+  (//runtime.array//write indexG _.null arrayG))
+
+(def: array
+  Bundle
+  (<| (/.prefix "array")
+      (|> /.empty
+          (/.install "new" (unary array::new))
+          (/.install "length" (unary //runtime.array//length))
+          (/.install "read" (binary array::read))
+          (/.install "write" (trinary array::write))
+          (/.install "delete" (binary array::delete))
+          )))
+
+(def: object::new
+  (custom
+   [($_ <>.and <s>.text (<>.some <s>.any))
+    (function (_ extension phase archive [constructor inputsS])
+      (do {! ////////phase.monad}
+        [inputsG (monad.map ! (phase archive) inputsS)]
+        (wrap (_.new (_.constant constructor) inputsG))))]))
+
+(def: object::get
+  Handler
+  (custom
+   [($_ <>.and <s>.text <s>.any)
+    (function (_ extension phase archive [fieldS objectS])
+      (do ////////phase.monad
+        [objectG (phase archive objectS)]
+        (wrap (_.the fieldS objectG))))]))
+
+(def: object::do
+  Handler
+  (custom
+   [($_ <>.and <s>.text <s>.any (<>.some <s>.any))
+    (function (_ extension phase archive [methodS objectS inputsS])
+      (do {! ////////phase.monad}
+        [objectG (phase archive objectS)
+         inputsG (monad.map ! (phase archive) inputsS)]
+        (wrap (_.do methodS inputsG objectG))))]))
+
+(template [<!> <?> <unit>]
+  [(def: <!> (Nullary Expression) (function.constant <unit>))
+   (def: <?> (Unary Expression) (_.=== <unit>))]
+
+  [object::null object::null? _.null]
+  )
+
+(def: object
+  Bundle
+  (<| (/.prefix "object")
+      (|> /.empty
+          (/.install "new" object::new)
+          (/.install "get" object::get)
+          (/.install "do" object::do)
+          (/.install "null" (nullary object::null))
+          (/.install "null?" (unary object::null?))
+          )))
+
+(def: php::constant
+  (custom
+   [<s>.text
+    (function (_ extension phase archive name)
+      (\ ////////phase.monad wrap (_.constant name)))]))
+
+(def: php::apply
+  (custom
+   [($_ <>.and <s>.any (<>.some <s>.any))
+    (function (_ extension phase archive [abstractionS inputsS])
+      (do {! ////////phase.monad}
+        [abstractionG (phase archive abstractionS)
+         inputsG (monad.map ! (phase archive) inputsS)]
+        (wrap (_.apply/* inputsG abstractionG))))]))
+
+(def: php::pack
+  (custom
+   [($_ <>.and <s>.any <s>.any)
+    (function (_ extension phase archive [formatS dataS])
+      (do {! ////////phase.monad}
+        [formatG (phase archive formatS)
+         dataG (phase archive dataS)]
+        (wrap (_.pack/2 [formatG (_.splat dataG)]))))]))
+
+(def: #export bundle
+  Bundle
+  (<| (/.prefix "php")
+      (|> /.empty
+          (dictionary.merge ..array)
+          (dictionary.merge ..object)
+
+          (/.install "constant" php::constant)
+          (/.install "apply" php::apply)
+          (/.install "pack" php::pack)
+          (/.install "script universe" (nullary (function.constant (_.bool reference.universe))))
+          )))

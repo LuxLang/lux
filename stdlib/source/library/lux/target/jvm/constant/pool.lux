@@ -1,0 +1,158 @@
+(.module:
+  [library
+   [lux #*
+    ["." ffi]
+    [abstract
+     [equivalence (#+ Equivalence)]
+     [monad (#+ Monad do)]]
+    [control
+     ["." state (#+ State')]
+     ["." try (#+ Try)]]
+    [data
+     ["." product]
+     ["." text]
+     ["." format #_
+      ["#" binary (#+ Writer) ("specification\." monoid)]]
+     [collection
+      ["." row (#+ Row) ("#\." fold)]]]
+    [macro
+     ["." template]]
+    [math
+     [number
+      ["." i32]
+      ["n" nat]
+      ["." int]
+      ["." frac]]]
+    [type
+     abstract]]]
+  ["." // (#+ UTF8 String Class Integer Float Long Double Constant Name_And_Type Reference)
+   [//
+    [encoding
+     ["#." name (#+ Internal External)]
+     ["#." unsigned]]
+    ["#." index (#+ Index)]
+    [type
+     [category (#+ Value Method)]
+     ["#." descriptor (#+ Descriptor)]]]])
+
+(type: #export Pool [Index (Row [Index Constant])])
+
+(def: #export equivalence
+  (Equivalence Pool)
+  (product.equivalence //index.equivalence
+                       (row.equivalence (product.equivalence //index.equivalence
+                                                             //.equivalence))))
+
+(type: #export (Resource a)
+  (State' Try Pool a))
+
+(def: #export monad
+  (Monad Resource)
+  (state.with try.monad))
+
+(template: (!add <tag> <equivalence> <value>)
+  (function (_ [current pool])
+    (let [<value>' <value>]
+      (with_expansions [<try_again> (as_is (recur (.inc idx)))]
+        (loop [idx 0]
+          (case (row.nth idx pool)
+            (#try.Success entry)
+            (case entry
+              [index (<tag> reference)]
+              (if (\ <equivalence> = reference <value>')
+                (#try.Success [[current pool]
+                               index])
+                <try_again>)
+              
+              _
+              <try_again>)
+            
+            (#try.Failure _)
+            (let [new (<tag> <value>')]
+              (do {! try.monad}
+                [@new (//unsigned.u2 (//.size new))
+                 next (: (Try Index)
+                         (|> current
+                             //index.value
+                             (//unsigned.+/2 @new)
+                             (\ ! map //index.index)))]
+                (wrap [[next
+                        (row.add [current new] pool)]
+                       current])))))))))
+
+(template: (!index <index>)
+  (|> <index> //index.value //unsigned.value))
+
+(type: (Adder of)
+  (-> of (Resource (Index of))))
+
+(template [<name> <type> <tag> <equivalence>]
+  [(def: #export (<name> value)
+     (Adder <type>)
+     (!add <tag> <equivalence> value))]
+
+  [integer Integer #//.Integer (//.value_equivalence i32.equivalence)]
+  [float Float #//.Float (//.value_equivalence //.float_equivalence)]
+  [long Long #//.Long (//.value_equivalence int.equivalence)]
+  [double Double #//.Double (//.value_equivalence frac.equivalence)]
+  [utf8 UTF8 #//.UTF8 text.equivalence]
+  )
+
+(def: #export (string value)
+  (-> Text (Resource (Index String)))
+  (do ..monad
+    [@value (utf8 value)
+     #let [value (//.string @value)]]
+    (!add #//.String (//.value_equivalence //index.equivalence) value)))
+
+(def: #export (class name)
+  (-> Internal (Resource (Index Class)))
+  (do ..monad
+    [@name (utf8 (//name.read name))
+     #let [value (//.class @name)]]
+    (!add #//.Class //.class_equivalence value)))
+
+(def: #export (descriptor value)
+  (All [kind]
+    (-> (Descriptor kind)
+        (Resource (Index (Descriptor kind)))))
+  (let [value (//descriptor.descriptor value)]
+    (!add #//.UTF8 text.equivalence value)))
+
+(type: #export (Member of)
+  {#name UTF8
+   #descriptor (Descriptor of)})
+
+(def: #export (name_and_type [name descriptor])
+  (All [of]
+    (-> (Member of) (Resource (Index (Name_And_Type of)))))
+  (do ..monad
+    [@name (utf8 name)
+     @descriptor (..descriptor descriptor)]
+    (!add #//.Name_And_Type //.name_and_type_equivalence {#//.name @name #//.descriptor @descriptor})))
+
+(template [<name> <tag> <of>]
+  [(def: #export (<name> class member)
+     (-> External (Member <of>) (Resource (Index (Reference <of>))))
+     (do ..monad
+       [@class (..class (//name.internal class))
+        @name_and_type (name_and_type member)]
+       (!add <tag> //.reference_equivalence {#//.class @class #//.name_and_type @name_and_type})))]
+
+  [field #//.Field Value]
+  [method #//.Method Method]
+  [interface_method #//.Interface_Method Method]
+  )
+
+(def: #export writer
+  (Writer Pool)
+  (function (_ [next pool])
+    (row\fold (function (_ [_index post] pre)
+                (specification\compose pre (//.writer post)))
+              (format.bits/16 (!index next))
+              pool)))
+
+(def: #export empty
+  Pool
+  [(|> 1 //unsigned.u2 try.assume //index.index)
+   row.empty])

@@ -1,0 +1,89 @@
+(.module:
+  [library
+   [lux #*
+    ["@" target]
+    [data
+     [text
+      ["%" format (#+ format)]]]]]
+  ["." //// #_
+   ["." version]
+   ["#." generation (#+ Context)]
+   ["//#" /// #_
+    ["." reference (#+ Reference)
+     ["." variable (#+ Register Variable)]]
+    ["." phase ("#\." monad)]
+    [meta
+     [archive (#+ Archive)]]]])
+
+## This universe constant is for languages where one can't just turn all compiled definitions
+## into the local variables of some scoping function.
+(def: #export universe
+  (for {## In the case of Lua, there is a limit of 200 locals in a function's scope.
+        @.lua (not ("lua script universe"))
+        ## Cannot make all definitions be local variables because of limitations with JRuby.
+        @.ruby (not ("ruby script universe"))
+        ## Cannot make all definitions be local variables because of limitations with PHP itself.
+        @.php (not ("php script universe"))
+        ## Cannot make all definitions be local variables because of limitations with Kawa.
+        @.scheme (not ("scheme script universe"))}
+       #0))
+
+(def: universe_label
+  Text
+  (with_expansions [<label> (format "u" (%.nat (if ..universe 1 0)))]
+    (for {@.lua <label>
+          @.ruby <label>
+          @.php <label>
+          @.scheme <label>}
+         "")))
+
+(def: #export (artifact [module artifact])
+  (-> Context Text)
+  (format "l" (%.nat version.version)
+          ..universe_label
+          "m" (%.nat module)
+          "a" (%.nat artifact)))
+
+(interface: #export (System expression)
+  (: (-> Text expression)
+     constant)
+  (: (-> Text expression)
+     variable))
+
+(def: #export (constant system archive name)
+  (All [anchor expression directive]
+    (-> (System expression) Archive Name
+        (////generation.Operation anchor expression directive expression)))
+  (phase\map (|>> ..artifact (\ system constant))
+             (////generation.remember archive name)))
+
+(template [<sigil> <name>]
+  [(def: #export (<name> system)
+     (All [expression]
+       (-> (System expression)
+           (-> Register expression)))
+     (|>> %.nat (format <sigil>) (\ system variable)))]
+
+  ["f" foreign]
+  ["l" local]
+  )
+
+(def: #export (variable system variable)
+  (All [expression]
+    (-> (System expression) Variable expression))
+  (case variable
+    (#variable.Local register)
+    (..local system register)
+    
+    (#variable.Foreign register)
+    (..foreign system register)))
+
+(def: #export (reference system archive reference)
+  (All [anchor expression directive]
+    (-> (System expression) Archive Reference (////generation.Operation anchor expression directive expression)))
+  (case reference
+    (#reference.Constant value)
+    (..constant system archive value)
+    
+    (#reference.Variable value)
+    (phase\wrap (..variable system value))))

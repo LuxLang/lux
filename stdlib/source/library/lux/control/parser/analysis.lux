@@ -1,0 +1,135 @@
+(.module:
+  [library
+   [lux (#- nat int rev)
+    [abstract
+     [monad (#+ do)]]
+    [control
+     ["." try (#+ Try)]
+     ["." exception (#+ exception:)]]
+    [data
+     ["." bit]
+     ["." name]
+     ["." text
+      ["%" format (#+ format)]]
+     [collection
+      ["." list ("#\." functor)]]]
+    [math
+     [number
+      ["." i64]
+      ["." nat]
+      ["." int]
+      ["." rev]
+      ["." frac]]]
+    [tool
+     [compiler
+      [arity (#+ Arity)]
+      [reference (#+)
+       [variable (#+)]]
+      [language
+       [lux
+        ["/" analysis (#+ Variant Tuple Environment Analysis)]]]]]]]
+  ["." //])
+
+(def: (remaining_inputs asts)
+  (-> (List Analysis) Text)
+  (format text.new_line "Remaining input: "
+          (|> asts
+              (list\map /.%analysis)
+              (list.interpose " ")
+              (text.join_with ""))))
+
+(exception: #export (cannot_parse {input (List Analysis)})
+  (exception.report
+   ["Input" (exception.enumerate /.%analysis input)]))
+
+(exception: #export (unconsumed_input {input (List Analysis)})
+  (exception.report
+   ["Input" (exception.enumerate /.%analysis input)]))
+
+(type: #export Parser
+  (//.Parser (List Analysis)))
+
+(def: #export (run parser input)
+  (All [a] (-> (Parser a) (List Analysis) (Try a)))
+  (case (parser input)
+    (#try.Failure error)
+    (#try.Failure error)
+
+    (#try.Success [#.Nil value])
+    (#try.Success value)
+    
+    (#try.Success [unconsumed _])
+    (exception.throw ..unconsumed_input unconsumed)))
+
+(def: #export any
+  (Parser Analysis)
+  (function (_ input)
+    (case input
+      #.Nil
+      (exception.throw ..cannot_parse input)
+      
+      (#.Cons [head tail])
+      (#try.Success [tail head]))))
+
+(def: #export end!
+  {#.doc "Ensures there are no more inputs."}
+  (Parser Any)
+  (function (_ tokens)
+    (case tokens
+      #.Nil (#try.Success [tokens []])
+      _     (#try.Failure (format "Expected list of tokens to be empty!"
+                                  (remaining_inputs tokens))))))
+
+(def: #export end?
+  {#.doc "Checks whether there are no more inputs."}
+  (Parser Bit)
+  (function (_ tokens)
+    (#try.Success [tokens (case tokens
+                            #.Nil true
+                            _     false)])))
+
+(template [<query> <assertion> <tag> <type> <eq>]
+  [(def: #export <query>
+     (Parser <type>)
+     (function (_ input)
+       (case input
+         (^ (list& (<tag> x) input'))
+         (#try.Success [input' x])
+
+         _
+         (exception.throw ..cannot_parse input))))
+
+   (def: #export (<assertion> expected)
+     (-> <type> (Parser Any))
+     (function (_ input)
+       (case input
+         (^ (list& (<tag> actual) input'))
+         (if (\ <eq> = expected actual)
+           (#try.Success [input' []])
+           (exception.throw ..cannot_parse input))
+
+         _
+         (exception.throw ..cannot_parse input))))]
+
+  [bit bit! /.bit Bit bit.equivalence]
+  [nat nat! /.nat Nat nat.equivalence]
+  [int int! /.int Int int.equivalence]
+  [rev rev! /.rev Rev rev.equivalence]
+  [frac frac! /.frac Frac frac.equivalence]
+  [text text! /.text Text text.equivalence]
+  [local local! /.variable/local Nat nat.equivalence]
+  [foreign foreign! /.variable/foreign Nat nat.equivalence]
+  [constant constant! /.constant Name name.equivalence]
+  )
+
+(def: #export (tuple parser)
+  (All [a] (-> (Parser a) (Parser a)))
+  (function (_ input)
+    (case input
+      (^ (list& (/.tuple head) tail))
+      (do try.monad
+        [output (..run parser head)]
+        (#try.Success [tail output]))
+
+      _
+      (exception.throw ..cannot_parse input))))

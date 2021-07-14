@@ -1,0 +1,194 @@
+## https://en.wikipedia.org/wiki/Interval_(mathematics)
+(.module:
+  [library
+   [lux #*]]
+  [//
+   [equivalence (#+ Equivalence)]
+   ["." order]
+   [enum (#+ Enum)]])
+
+(interface: #export (Interval a)
+  {#.doc "A representation of top and bottom boundaries for an ordered type."}
+  (: (Enum a)
+     &enum)
+
+  (: a
+     bottom)
+
+  (: a
+     top))
+
+(def: #export (between enum bottom top)
+  (All [a] (-> (Enum a) a a (Interval a)))
+  (implementation
+   (def: &enum enum)
+   (def: bottom bottom)
+   (def: top top)))
+
+(def: #export (singleton enum elem)
+  (All [a] (-> (Enum a) a (Interval a)))
+  (implementation
+   (def: &enum enum)
+   (def: bottom elem)
+   (def: top elem)))
+
+(template [<name> <comp>]
+  [(def: #export (<name> interval)
+     (All [a] (-> (Interval a) Bit))
+     (let [(^open ",\.") interval]
+       (<comp> ,\bottom ,\top)))]
+
+  [inner?     (order.> ,\&order)]
+  [outer?     ,\<]
+  [singleton? ,\=]
+  )
+
+(def: #export (within? interval elem)
+  (All [a] (-> (Interval a) a Bit))
+  (let [(^open ",\.") interval]
+    (cond (inner? interval)
+          (and (order.>= ,\&order ,\bottom elem)
+               (order.<= ,\&order ,\top elem))
+          
+          (outer? interval)
+          (or (order.>= ,\&order ,\bottom elem)
+              (order.<= ,\&order ,\top elem))
+          
+          ## singleton
+          (and (,\= ,\bottom elem)
+               (,\= ,\top elem)))))
+
+(template [<name> <limit>]
+  [(def: #export (<name> elem interval)
+     (All [a] (-> a (Interval a) Bit))
+     (let [(^open ".") interval]
+       (= <limit> elem)))]
+
+  [starts_with? bottom]
+  [ends_with?   top]
+  )
+
+(def: #export (borders? interval elem)
+  (All [a] (-> (Interval a) a Bit))
+  (or (starts_with? elem interval)
+      (ends_with? elem interval)))
+
+(def: #export (union left right)
+  (All [a] (-> (Interval a) (Interval a) (Interval a)))
+  (implementation
+   (def: &enum (get@ #&enum right))
+   (def: bottom (order.min (\ right &order) (\ left bottom) (\ right bottom)))
+   (def: top (order.max (\ right &order) (\ left top) (\ right top)))))
+
+(def: #export (intersection left right)
+  (All [a] (-> (Interval a) (Interval a) (Interval a)))
+  (implementation
+   (def: &enum (get@ #&enum right))
+   (def: bottom (order.max (\ right &order) (\ left bottom) (\ right bottom)))
+   (def: top (order.min (\ right &order) (\ left top) (\ right top)))))
+
+(def: #export (complement interval)
+  (All [a] (-> (Interval a) (Interval a)))
+  (let [(^open ".") interval]
+    (implementation
+     (def: &enum (get@ #&enum interval))
+     (def: bottom (succ top))
+     (def: top (pred bottom)))))
+
+(def: #export (precedes? reference sample)
+  (All [a] (-> (Interval a) (Interval a) Bit))
+  (let [(^open ".") reference
+        limit (\ reference bottom)]
+    (and (< limit (\ sample bottom))
+         (< limit (\ sample top)))))
+
+(def: #export (succeeds? reference sample)
+  (All [a] (-> (Interval a) (Interval a) Bit))
+  (precedes? sample reference))
+
+(template [<name> <comp>]
+  [(def: #export (<name> reference sample)
+     (All [a] (-> a (Interval a) Bit))
+     (let [(^open ",\.") sample]
+       (and (<comp> reference ,\bottom)
+            (<comp> reference ,\top))))]
+
+  [before? ,\<]
+  [after?  (order.> ,\&order)]
+  )
+
+(def: #export (meets? reference sample)
+  (All [a] (-> (Interval a) (Interval a) Bit))
+  (let [(^open ",\.") reference
+        limit (\ reference bottom)]
+    (and (,\= limit (\ sample top))
+         (order.<= ,\&order limit (\ sample bottom)))))
+
+(def: #export (touches? reference sample)
+  (All [a] (-> (Interval a) (Interval a) Bit))
+  (or (meets? reference sample)
+      (meets? sample reference)))
+
+(template [<name> <eq_side> <ineq> <ineq_side>]
+  [(def: #export (<name> reference sample)
+     (All [a] (-> (Interval a) (Interval a) Bit))
+     (let [(^open ",\.") reference]
+       (and (,\= (\ reference <eq_side>)
+                 (\ sample <eq_side>))
+            (<ineq> ,\&order
+                    (\ reference <ineq_side>)
+                    (\ sample <ineq_side>)))))]
+
+  [starts?   ,\bottom order.<= ,\top]
+  [finishes? ,\top    order.>= ,\bottom]
+  )
+
+(implementation: #export equivalence (All [a] (Equivalence (Interval a)))
+  (def: (= reference sample)
+    (let [(^open ",\.") reference]
+      (and (,\= ,\bottom (\ sample bottom))
+           (,\= ,\top (\ sample top))))))
+
+(def: #export (nested? reference sample)
+  (All [a] (-> (Interval a) (Interval a) Bit))
+  (cond (or (singleton? sample)
+            (and (inner? reference) (inner? sample))
+            (and (outer? reference) (outer? sample)))
+        (let [(^open ",\.") reference]
+          (and (order.>= ,\&order (\ reference bottom) (\ sample bottom))
+               (order.<= ,\&order (\ reference top) (\ sample top))))
+
+        (or (singleton? reference)
+            (and (inner? reference) (outer? sample)))
+        #0
+
+        ## (and (outer? reference) (inner? sample))
+        (let [(^open ",\.") reference]
+          (or (and (order.>= ,\&order (\ reference bottom) (\ sample bottom))
+                   (order.> ,\&order (\ reference bottom) (\ sample top)))
+              (and (,\< (\ reference top) (\ sample bottom))
+                   (order.<= ,\&order (\ reference top) (\ sample top)))))
+        ))
+
+(def: #export (overlaps? reference sample)
+  (All [a] (-> (Interval a) (Interval a) Bit))
+  (let [(^open ",\.") reference]
+    (and (not (\ ..equivalence = reference sample))
+         (cond (singleton? sample)
+               #0
+
+               (singleton? reference)
+               (nested? sample reference)
+
+               (or (and (inner? sample) (outer? reference))
+                   (and (outer? sample) (inner? reference)))
+               (or (order.>= ,\&order (\ reference bottom) (\ sample top))
+                   (order.<= ,\&order (\ reference top) (\ sample bottom)))
+
+               ## both inner
+               (inner? sample)
+               (inner? (intersection reference sample))
+
+               ## both outer
+               (not (nested? reference sample))
+               ))))

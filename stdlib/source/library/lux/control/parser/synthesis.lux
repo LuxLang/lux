@@ -1,0 +1,164 @@
+(.module:
+  [library
+   [lux (#- function loop i64)
+    [abstract
+     [monad (#+ do)]]
+    [control
+     ["." try (#+ Try)]
+     ["." exception (#+ exception:)]]
+    [data
+     ["." bit]
+     ["." name]
+     ["." text
+      ["%" format (#+ format)]]]
+    [math
+     [number
+      ["n" nat]
+      ["." i64]
+      ["." frac]]]
+    [tool
+     [compiler
+      [reference (#+)
+       [variable (#+ Register)]]
+      [arity (#+ Arity)]
+      [language
+       [lux
+        [analysis (#+ Variant Tuple Environment)]
+        ["/" synthesis (#+ Synthesis Abstraction)]]]]]]]
+  ["." //])
+
+## TODO: Use "type:" ASAP.
+(def: Input
+  Type
+  (type (List Synthesis)))
+
+(exception: #export (cannot_parse {input ..Input})
+  (exception.report
+   ["Input" (exception.enumerate /.%synthesis input)]))
+
+(exception: #export (unconsumed_input {input ..Input})
+  (exception.report
+   ["Input" (exception.enumerate /.%synthesis input)]))
+
+(exception: #export (expected_empty_input {input ..Input})
+  (exception.report
+   ["Input" (exception.enumerate /.%synthesis input)]))
+
+(exception: #export (wrong_arity {expected Arity} {actual Arity})
+  (exception.report
+   ["Expected" (%.nat expected)]
+   ["Actual" (%.nat actual)]))
+
+(exception: #export empty_input)
+
+(type: #export Parser
+  (//.Parser ..Input))
+
+(def: #export (run parser input)
+  (All [a] (-> (Parser a) ..Input (Try a)))
+  (case (parser input)
+    (#try.Failure error)
+    (#try.Failure error)
+
+    (#try.Success [#.Nil value])
+    (#try.Success value)
+    
+    (#try.Success [unconsumed _])
+    (exception.throw ..unconsumed_input unconsumed)))
+
+(def: #export any
+  (Parser Synthesis)
+  (.function (_ input)
+    (case input
+      #.Nil
+      (exception.throw ..empty_input [])
+      
+      (#.Cons [head tail])
+      (#try.Success [tail head]))))
+
+(def: #export end!
+  {#.doc "Ensures there are no more inputs."}
+  (Parser Any)
+  (.function (_ tokens)
+    (case tokens
+      #.Nil (#try.Success [tokens []])
+      _     (exception.throw ..expected_empty_input [tokens]))))
+
+(def: #export end?
+  {#.doc "Checks whether there are no more inputs."}
+  (Parser Bit)
+  (.function (_ tokens)
+    (#try.Success [tokens (case tokens
+                            #.Nil true
+                            _     false)])))
+
+(template [<query> <assertion> <tag> <type> <eq>]
+  [(def: #export <query>
+     (Parser <type>)
+     (.function (_ input)
+       (case input
+         (^ (list& (<tag> x) input'))
+         (#try.Success [input' x])
+
+         _
+         (exception.throw ..cannot_parse input))))
+
+   (def: #export (<assertion> expected)
+     (-> <type> (Parser Any))
+     (.function (_ input)
+       (case input
+         (^ (list& (<tag> actual) input'))
+         (if (\ <eq> = expected actual)
+           (#try.Success [input' []])
+           (exception.throw ..cannot_parse input))
+
+         _
+         (exception.throw ..cannot_parse input))))]
+
+  [bit bit! /.bit Bit bit.equivalence]
+  [i64 i64! /.i64 (I64 Any) i64.equivalence]
+  [f64 f64! /.f64 Frac frac.equivalence]
+  [text text! /.text Text text.equivalence]
+  [local local! /.variable/local Nat n.equivalence]
+  [foreign foreign! /.variable/foreign Nat n.equivalence]
+  [constant constant! /.constant Name name.equivalence]
+  )
+
+(def: #export (tuple parser)
+  (All [a] (-> (Parser a) (Parser a)))
+  (.function (_ input)
+    (case input
+      (^ (list& (/.tuple head) tail))
+      (do try.monad
+        [output (..run parser head)]
+        (#try.Success [tail output]))
+
+      _
+      (exception.throw ..cannot_parse input))))
+
+(def: #export (function expected parser)
+  (All [a] (-> Arity (Parser a) (Parser [(Environment Synthesis) a])))
+  (.function (_ input)
+    (case input
+      (^ (list& (/.function/abstraction [environment actual body]) tail))
+      (if (n.= expected actual)
+        (do try.monad
+          [output (..run parser (list body))]
+          (#try.Success [tail [environment output]]))
+        (exception.throw ..wrong_arity [expected actual]))
+
+      _
+      (exception.throw ..cannot_parse input))))
+
+(def: #export (loop init_parsers iteration_parser)
+  (All [a b] (-> (Parser a) (Parser b) (Parser [Register a b])))
+  (.function (_ input)
+    (case input
+      (^ (list& (/.loop/scope [start inits iteration]) tail))
+      (do try.monad
+        [inits (..run init_parsers inits)
+         iteration (..run iteration_parser (list iteration))]
+        (#try.Success [tail [start inits iteration]]))
+
+      _
+      (exception.throw ..cannot_parse input))))

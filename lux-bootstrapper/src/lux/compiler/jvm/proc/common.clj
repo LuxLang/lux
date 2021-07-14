@@ -14,7 +14,8 @@
             [lux.type.host :as &host-type]
             [lux.host.generics :as &host-generics]
             [lux.analyser.base :as &a]
-            [lux.compiler.jvm.base :as &&])
+            (lux.compiler.jvm [base :as &&]
+                              [rt :as &rt]))
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -81,8 +82,8 @@
         ^MethodVisitor *writer* &/get-writer
         _ (compile ?op)
         :let [_ (doto *writer*
-                  (.visitTypeInsn Opcodes/CHECKCAST "lux/Function")
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "runTry" "(Llux/Function;)[Ljava/lang/Object;"))]]
+                  (.visitTypeInsn Opcodes/CHECKCAST &rt/function-class)
+                  (.visitMethodInsn Opcodes/INVOKESTATIC &rt/rt-class "runTry" (str "(L" &rt/function-class ";)[Ljava/lang/Object;")))]]
     (return nil)))
 
 (do-template [<name> <opcode> <unwrap> <wrap>]
@@ -160,7 +161,7 @@
         _ (compile ?input)
         :let [_ (doto *writer*
                   (.visitTypeInsn Opcodes/CHECKCAST "java/lang/String")
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "decode_frac" "(Ljava/lang/String;)[Ljava/lang/Object;"))]]
+                  (.visitMethodInsn Opcodes/INVOKESTATIC &rt/rt-class "decode_frac" "(Ljava/lang/String;)[Ljava/lang/Object;"))]]
     (return nil)))
 
 (defn ^:private compile-int-char [compile ?values special-args]
@@ -276,11 +277,11 @@
                   (.visitJumpInsn Opcodes/IF_ICMPEQ $not-found)
                   (.visitInsn Opcodes/I2L)
                   &&/wrap-long
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_some" "(Ljava/lang/Object;)[Ljava/lang/Object;")
+                  (.visitMethodInsn Opcodes/INVOKESTATIC &rt/rt-class "make_some" "(Ljava/lang/Object;)[Ljava/lang/Object;")
                   (.visitJumpInsn Opcodes/GOTO $end)
                   (.visitLabel $not-found)
                   (.visitInsn Opcodes/POP)
-                  (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "make_none" "()[Ljava/lang/Object;")
+                  (.visitMethodInsn Opcodes/INVOKESTATIC &rt/rt-class "make_none" "()[Ljava/lang/Object;")
                   (.visitLabel $end))]]
     (return nil)))
 

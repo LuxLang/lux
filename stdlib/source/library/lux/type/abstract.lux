@@ -1,0 +1,269 @@
+(.module:
+  [library
+   [lux #*
+    [type (#+ :cast)]
+    ["." meta]
+    [abstract
+     [monad (#+ Monad do)]]
+    [control
+     ["." exception (#+ exception:)]
+     ["<>" parser ("#\." monad)
+      ["<.>" code (#+ Parser)]]]
+    [data
+     ["." name ("#\." codec)]
+     ["." text ("#\." equivalence monoid)]
+     [collection
+      ["." list ("#\." functor monoid)]]]
+    [macro
+     ["." code]
+     [syntax (#+ syntax:)
+      ["|.|" export]
+      ["|.|" annotations]]]]])
+
+(type: Stack List)
+
+(def: peek
+  (All [a] (-> (Stack a) (Maybe a)))
+  list.head)
+
+(def: (push value stack)
+  (All [a] (-> a (Stack a) (Stack a)))
+  (#.Cons value stack))
+
+(def: pop
+  (All [a] (-> (Stack a) (Maybe (Stack a))))
+  list.tail)
+
+(type: #export Frame
+  {#name Text
+   #type_vars (List Code)
+   #abstraction Code
+   #representation Code})
+
+(def: frames
+  (Stack Frame)
+  #.Nil)
+
+(template: (!peek <source> <reference> <then>)
+  (loop [entries <source>]
+    (case entries
+      (#.Cons [head_name head] tail)
+      (if (text\= <reference> head_name)
+        <then>
+        (recur tail))
+
+      #.Nil
+      (undefined))))
+
+(def: (peek_frames_definition reference source)
+  (-> Text (List [Text Global]) (Stack Frame))
+  (!peek source reference
+         (case head
+           (#.Left _)
+           (undefined)
+
+           (#.Right [exported? frame_type frame_anns frame_value])
+           (:as (Stack Frame) frame_value))))
+
+(def: (peek_frames reference definition_reference source)
+  (-> Text Text (List [Text Module]) (Stack Frame))
+  (!peek source reference
+         (peek_frames_definition definition_reference (get@ #.definitions head))))
+
+(exception: #export no_active_frames)
+
+(def: (peek! frame)
+  (-> (Maybe Text) (Meta Frame))
+  (function (_ compiler)
+    (let [[reference definition_reference] (name_of ..frames)
+          current_frames (peek_frames reference definition_reference (get@ #.modules compiler))]
+      (case (case frame
+              (#.Some frame)
+              (list.find (function (_ [actual _])
+                           (text\= frame actual))
+                         current_frames)
+              
+              #.None
+              (..peek current_frames))
+        (#.Some frame)
+        (#.Right [compiler frame])
+        
+        #.None
+        (exception.throw ..no_active_frames [])))))
+
+(def: #export current
+  (Meta Frame)
+  (..peek! #.None))
+
+(def: #export (specific name)
+  (-> Text (Meta Frame))
+  (..peek! (#.Some name)))
+
+(template: (!push <source> <reference> <then>)
+  (loop [entries <source>]
+    (case entries
+      (#.Cons [head_name head] tail)
+      (if (text\= <reference> head_name)
+        (#.Cons [head_name <then>]
+                tail)
+        (#.Cons [head_name head]
+                (recur tail)))
+
+      #.Nil
+      (undefined))))
+
+(def: (push_frame_definition reference frame source)
+  (-> Text Frame (List [Text Global]) (List [Text Global]))
+  (!push source reference
+         (case head
+           (#.Left _)
+           (undefined)
+
+           (#.Right [exported? frames_type frames_anns frames_value])
+           (#.Right [exported?
+                     frames_type
+                     frames_anns
+                     (..push frame (:as (Stack Frame) frames_value))]))))
+
+(def: (push_frame [module_reference definition_reference] frame source)
+  (-> Name Frame (List [Text Module]) (List [Text Module]))
+  (!push source module_reference
+         (update@ #.definitions (push_frame_definition definition_reference frame) head)))
+
+(def: (push! frame)
+  (-> Frame (Meta Any))
+  (function (_ compiler)
+    (#.Right [(update@ #.modules
+                       (..push_frame (name_of ..frames) frame)
+                       compiler)
+              []])))
+
+(def: (pop_frame_definition reference source)
+  (-> Text (List [Text Global]) (List [Text Global]))
+  (!push source reference
+         (case head
+           (#.Left _)
+           (undefined)
+
+           (#.Right [exported? frames_type frames_anns frames_value])
+           (#.Right [exported?
+                     frames_type
+                     frames_anns
+                     (let [current_frames (:as (Stack Frame) frames_value)]
+                       (case (..pop current_frames)
+                         (#.Some current_frames')
+                         current_frames'
+
+                         #.None
+                         current_frames))]))))
+
+(def: (pop_frame [module_reference definition_reference] source)
+  (-> Name (List [Text Module]) (List [Text Module]))
+  (!push source module_reference
+         (|> head (update@ #.definitions (pop_frame_definition definition_reference)))))
+
+(syntax: (pop!)
+  (function (_ compiler)
+    (#.Right [(update@ #.modules
+                       (..pop_frame (name_of ..frames))
+                       compiler)
+              (list)])))
+
+(def: cast
+  (Parser [(Maybe Text) Code])
+  (<>.either (<>.and (<>.maybe <code>.local_identifier) <code>.any)
+             (<>.and (<>\wrap #.None) <code>.any)))
+
+(template [<name> <from> <to>]
+  [(syntax: #export (<name> {[frame value] ..cast})
+     (do meta.monad
+       [[name type_vars abstraction representation] (peek! frame)]
+       (wrap (list (` ((~! :cast) [(~+ type_vars)] (~ <from>) (~ <to>)
+                       (~ value)))))))]
+
+  [:abstraction representation abstraction]
+  [:representation abstraction representation]
+  )
+
+(def: abstraction_type_name
+  (-> Name Text)
+  (|>> name\encode
+       ($_ text\compose
+           (name\encode (name_of #..Abstraction))
+           " ")))
+
+(def: representation_definition_name
+  (-> Text Text)
+  (|>> ($_ text\compose
+           (name\encode (name_of #..Representation))
+           " ")))
+
+(def: declaration
+  (Parser [Text (List Text)])
+  (<>.either (<code>.form (<>.and <code>.local_identifier (<>.some <code>.local_identifier)))
+             (<>.and <code>.local_identifier (\ <>.monad wrap (list)))))
+
+## TODO: Make sure the generated code always gets optimized away.
+## (This applies to uses of ":abstraction" and ":representation")
+(syntax: #export (abstract:
+                   {export |export|.parser}
+                   {[name type_vars] declaration}
+                   representation_type
+                   {annotations (<>.default |annotations|.empty |annotations|.parser)}
+                   {primitives (<>.some <code>.any)})
+  (do meta.monad
+    [current_module meta.current_module_name
+     #let [type_varsC (list\map code.local_identifier type_vars)
+           abstraction_declaration (` ((~ (code.local_identifier name)) (~+ type_varsC)))
+           representation_declaration (` ((~ (code.local_identifier (representation_definition_name name)))
+                                          (~+ type_varsC)))]
+     _ (..push! [name
+                 type_varsC
+                 abstraction_declaration
+                 representation_declaration])]
+    (wrap (list& (` (type: (~+ (|export|.format export)) (~ abstraction_declaration)
+                      (~ (|annotations|.format annotations))
+                      (primitive (~ (code.text (abstraction_type_name [current_module name])))
+                                 [(~+ type_varsC)])))
+                 (` (type: (~ representation_declaration)
+                      (~ representation_type)))
+                 ($_ list\compose
+                     primitives
+                     (list (` ((~! ..pop!)))))))))
+
+(type: (Selection a)
+  (#Specific Code a)
+  (#Current a))
+
+(def: (selection parser)
+  (All [a] (-> (Parser a) (Parser (Selection a))))
+  (<>.or (<>.and <code>.any parser)
+         parser))
+
+(syntax: #export (:transmutation {selection (..selection <code>.any)})
+  (case selection
+    (#Specific specific value)
+    (wrap (list (` (..:abstraction (~ specific)
+                                   (..:representation (~ specific)
+                                                      (~ value))))))
+    
+    (#Current value)
+    (wrap (list (` (..:abstraction (..:representation (~ value))))))))
+
+(syntax: #export (^:representation {selection (<code>.form (..selection <code>.local_identifier))}
+                                   body
+                                   {branches (<>.some <code>.any)})
+  (case selection
+    (#Specific specific name)
+    (let [g!var (code.local_identifier name)]
+      (wrap (list& g!var
+                   (` (.let [(~ g!var) (..:representation (~ specific) (~ g!var))]
+                        (~ body)))
+                   branches)))
+    
+    (#Current name)
+    (let [g!var (code.local_identifier name)]
+      (wrap (list& g!var
+                   (` (.let [(~ g!var) (..:representation (~ g!var))]
+                        (~ body)))
+                   branches)))))

@@ -1,0 +1,382 @@
+(.module:
+  [library
+   [lux (#- type)
+    ["." ffi (#+ import:)]
+    ["." type]
+    [abstract
+     ["." monad (#+ do)]]
+    [control
+     ["." try (#+ Try)]
+     ["." exception (#+ exception:)]
+     [parser
+      ["<t>" text]]]
+    [data
+     ["." text ("#\." equivalence)
+      ["%" format (#+ format)]]
+     [collection
+      ["." list ("#\." fold functor)]
+      ["." array]
+      ["." dictionary]]]
+    [math
+     [number
+      ["n" nat]]]]]
+  ["." // #_
+   [encoding
+    ["#." name (#+ External)]]
+   ["/" type
+    [category (#+ Void Value Return Method Primitive Object Class Array Parameter)]
+    ["#." lux (#+ Mapping)]
+    ["#." descriptor]
+    ["#." reflection]
+    ["#." parser]]])
+
+(import: java/lang/String)
+
+(import: java/lang/Object
+  ["#::."
+   (toString [] java/lang/String)
+   (getClass [] (java/lang/Class java/lang/Object))])
+
+(import: java/lang/reflect/Type
+  ["#::."
+   (getTypeName [] java/lang/String)])
+
+(import: java/lang/reflect/GenericArrayType
+  ["#::."
+   (getGenericComponentType [] java/lang/reflect/Type)])
+
+(import: java/lang/reflect/ParameterizedType
+  ["#::."
+   (getRawType [] java/lang/reflect/Type)
+   (getActualTypeArguments [] [java/lang/reflect/Type])])
+
+(import: (java/lang/reflect/TypeVariable d)
+  ["#::."
+   (getName [] java/lang/String)
+   (getBounds [] [java/lang/reflect/Type])])
+
+(import: (java/lang/reflect/WildcardType d)
+  ["#::."
+   (getLowerBounds [] [java/lang/reflect/Type])
+   (getUpperBounds [] [java/lang/reflect/Type])])
+
+(import: java/lang/reflect/Modifier
+  ["#::."
+   (#static isStatic [int] boolean)
+   (#static isFinal [int] boolean)
+   (#static isInterface [int] boolean)
+   (#static isAbstract [int] boolean)])
+
+(import: java/lang/annotation/Annotation)
+
+(import: java/lang/Deprecated)
+
+(import: java/lang/reflect/Field
+  ["#::."
+   (getDeclaringClass [] (java/lang/Class java/lang/Object))
+   (getModifiers [] int)
+   (getGenericType [] java/lang/reflect/Type)
+   (getDeclaredAnnotations [] [java/lang/annotation/Annotation])])
+
+(import: java/lang/reflect/Method
+  ["#::."
+   (getName [] java/lang/String)
+   (getModifiers [] int)
+   (getDeclaringClass [] (java/lang/Class java/lang/Object))
+   (getTypeParameters [] [(java/lang/reflect/TypeVariable java/lang/reflect/Method)])
+   (getGenericParameterTypes [] [java/lang/reflect/Type])
+   (getGenericReturnType [] java/lang/reflect/Type)
+   (getGenericExceptionTypes [] [java/lang/reflect/Type])])
+
+(import: (java/lang/reflect/Constructor c)
+  ["#::."
+   (getModifiers [] int)
+   (getDeclaringClass [] (java/lang/Class c))
+   (getTypeParameters [] [(java/lang/reflect/TypeVariable (java/lang/reflect/Constructor c))])
+   (getGenericParameterTypes [] [java/lang/reflect/Type])
+   (getGenericExceptionTypes [] [java/lang/reflect/Type])])
+
+(import: (java/lang/Class c)
+  ["#::."
+   (#static forName [java/lang/String] #try (java/lang/Class java/lang/Object))
+   (getName [] java/lang/String)
+   (getModifiers [] int)
+   (isAssignableFrom [(java/lang/Class java/lang/Object)] boolean)
+   (getTypeParameters [] [(java/lang/reflect/TypeVariable (java/lang/Class c))])
+   (getGenericInterfaces [] [java/lang/reflect/Type])
+   (getGenericSuperclass [] #? java/lang/reflect/Type)
+   (getDeclaredField [java/lang/String] #try java/lang/reflect/Field)
+   (getConstructors [] [(java/lang/reflect/Constructor java/lang/Object)])
+   (getDeclaredMethods [] [java/lang/reflect/Method])])
+
+(exception: #export (unknown_class {class External})
+  (exception.report
+   ["Class" (%.text class)]))
+
+(template [<name>]
+  [(exception: #export (<name> {jvm_type java/lang/reflect/Type})
+     (exception.report
+      ["Type" (java/lang/reflect/Type::getTypeName jvm_type)]
+      ["Class" (|> jvm_type java/lang/Object::getClass java/lang/Object::toString)]))]
+
+  [not_a_class]
+  [cannot_convert_to_a_lux_type]
+  )
+
+(def: #export (load name)
+  (-> External (Try (java/lang/Class java/lang/Object)))
+  (case (java/lang/Class::forName name)
+    (#try.Success class)
+    (#try.Success class)
+
+    (#try.Failure _)
+    (exception.throw ..unknown_class name)))
+
+(def: #export (sub? super sub)
+  (-> External External (Try Bit))
+  (do try.monad
+    [super (..load super)
+     sub (..load sub)]
+    (wrap (java/lang/Class::isAssignableFrom sub super))))
+
+(def: (class' parameter reflection)
+  (-> (-> java/lang/reflect/Type (Try (/.Type Parameter)))
+      java/lang/reflect/Type
+      (Try (/.Type Class)))
+  (<| (case (ffi.check java/lang/Class reflection)
+        (#.Some class)
+        (let [class_name (|> class
+                             (:as (java/lang/Class java/lang/Object))
+                             java/lang/Class::getName)]
+          (`` (if (or (~~ (template [<reflection>]
+                            [(text\= (/reflection.reflection <reflection>)
+                                     class_name)]
+
+                            [/reflection.boolean]
+                            [/reflection.byte]
+                            [/reflection.short]
+                            [/reflection.int]
+                            [/reflection.long]
+                            [/reflection.float]
+                            [/reflection.double]
+                            [/reflection.char]))
+                      (text.starts_with? /descriptor.array_prefix class_name))
+                (exception.throw ..not_a_class reflection)
+                (#try.Success (/.class class_name (list))))))
+        _)
+      (case (ffi.check java/lang/reflect/ParameterizedType reflection)
+        (#.Some reflection)
+        (let [raw (java/lang/reflect/ParameterizedType::getRawType reflection)]
+          (case (ffi.check java/lang/Class raw)
+            (#.Some raw)
+            (do {! try.monad}
+              [paramsT (|> reflection
+                           java/lang/reflect/ParameterizedType::getActualTypeArguments
+                           array.to_list
+                           (monad.map ! parameter))]
+              (wrap (/.class (|> raw
+                                 (:as (java/lang/Class java/lang/Object))
+                                 java/lang/Class::getName)
+                             paramsT)))
+
+            _
+            (exception.throw ..not_a_class raw)))
+        _)
+      ## else
+      (exception.throw ..cannot_convert_to_a_lux_type reflection)))
+
+(def: #export (parameter reflection)
+  (-> java/lang/reflect/Type (Try (/.Type Parameter)))
+  (<| (case (ffi.check java/lang/reflect/TypeVariable reflection)
+        (#.Some reflection)
+        (#try.Success (/.var (java/lang/reflect/TypeVariable::getName reflection)))
+        _)
+      (case (ffi.check java/lang/reflect/WildcardType reflection)
+        (#.Some reflection)
+        ## TODO: Instead of having single lower/upper bounds, should
+        ## allow for multiple ones.
+        (case [(array.read 0 (java/lang/reflect/WildcardType::getLowerBounds reflection))
+               (array.read 0 (java/lang/reflect/WildcardType::getUpperBounds reflection))]
+          (^template [<pattern> <kind>]
+            [<pattern>
+             (case (ffi.check java/lang/reflect/GenericArrayType bound)
+               (#.Some _)
+               ## TODO: Array bounds should not be "erased" as they
+               ## are right now.
+               (#try.Success /.wildcard)
+
+               _
+               (\ try.monad map <kind> (..class' parameter bound)))])
+          ([[_ (#.Some bound)] /.upper]
+           [[(#.Some bound) _] /.lower])
+          
+          _
+          (#try.Success /.wildcard))
+        _)
+      (..class' parameter reflection)))
+
+(def: #export class
+  (-> java/lang/reflect/Type
+      (Try (/.Type Class)))
+  (..class' ..parameter))
+
+(def: #export (type reflection)
+  (-> java/lang/reflect/Type (Try (/.Type Value)))
+  (<| (case (ffi.check java/lang/Class reflection)
+        (#.Some reflection)
+        (let [class_name (|> reflection
+                             (:as (java/lang/Class java/lang/Object))
+                             java/lang/Class::getName)]
+          (`` (cond (~~ (template [<reflection> <type>]
+                          [(text\= (/reflection.reflection <reflection>)
+                                   class_name)
+                           (#try.Success <type>)]
+
+                          [/reflection.boolean /.boolean]
+                          [/reflection.byte /.byte]
+                          [/reflection.short /.short]
+                          [/reflection.int /.int]
+                          [/reflection.long /.long]
+                          [/reflection.float /.float]
+                          [/reflection.double /.double]
+                          [/reflection.char /.char]))
+                    (if (text.starts_with? /descriptor.array_prefix class_name)
+                      (<t>.run /parser.value (|> class_name //name.internal //name.read))
+                      (#try.Success (/.class class_name (list)))))))
+        _)
+      (case (ffi.check java/lang/reflect/GenericArrayType reflection)
+        (#.Some reflection)
+        (|> reflection
+            java/lang/reflect/GenericArrayType::getGenericComponentType
+            type
+            (\ try.monad map /.array))
+        _)
+      ## else
+      (..parameter reflection)))
+
+(def: #export (return reflection)
+  (-> java/lang/reflect/Type (Try (/.Type Return)))
+  (with_expansions [<else> (as_is (..type reflection))]
+    (case (ffi.check java/lang/Class reflection)
+      (#.Some class)
+      (let [class_name (|> reflection
+                           (:as (java/lang/Class java/lang/Object))
+                           java/lang/Class::getName)]
+        (if (text\= (/reflection.reflection /reflection.void)
+                    class_name)
+          (#try.Success /.void)
+          <else>))
+
+      #.None
+      <else>)))
+
+(exception: #export (cannot_correspond {class (java/lang/Class java/lang/Object)}
+                                       {type Type})
+  (exception.report
+   ["Class" (java/lang/Object::toString class)]
+   ["Type" (%.type type)]))
+
+(exception: #export (type_parameter_mismatch {expected Nat}
+                                             {actual Nat}
+                                             {class (java/lang/Class java/lang/Object)}
+                                             {type Type})
+  (exception.report
+   ["Expected" (%.nat expected)]
+   ["Actual" (%.nat actual)]
+   ["Class" (java/lang/Object::toString class)]
+   ["Type" (%.type type)]))
+
+(exception: #export (non_jvm_type {type Type})
+  (exception.report
+   ["Type" (%.type type)]))
+
+(def: #export (correspond class type)
+  (-> (java/lang/Class java/lang/Object) Type (Try Mapping))
+  (case type
+    (#.Primitive name params)
+    (let [class_name (java/lang/Class::getName class)
+          class_params (array.to_list (java/lang/Class::getTypeParameters class))
+          num_class_params (list.size class_params)
+          num_type_params (list.size params)]
+      (if (text\= class_name name)
+        (if (n.= num_class_params num_type_params)
+          (|> params
+              (list.zip/2 (list\map (|>> java/lang/reflect/TypeVariable::getName)
+                                    class_params))
+              (list\fold (function (_ [name paramT] mapping)
+                           (dictionary.put name paramT mapping))
+                         /lux.fresh)
+              #try.Success)
+          (exception.throw ..type_parameter_mismatch [num_class_params num_type_params class type]))
+        (exception.throw ..cannot_correspond [class type])))
+
+    (#.Named name anonymousT)
+    (correspond class anonymousT)
+
+    (#.Apply inputT abstractionT)
+    (case (type.apply (list inputT) abstractionT)
+      (#.Some outputT)
+      (correspond class outputT)
+
+      #.None
+      (exception.throw ..non_jvm_type [type]))
+
+    _
+    (exception.throw ..non_jvm_type [type])))
+
+(exception: #export (mistaken_field_owner {field java/lang/reflect/Field}
+                                          {owner (java/lang/Class java/lang/Object)}
+                                          {target (java/lang/Class java/lang/Object)})
+  (exception.report
+   ["Field" (java/lang/Object::toString field)]
+   ["Owner" (java/lang/Object::toString owner)]
+   ["Target" (java/lang/Object::toString target)]))
+
+(template [<name>]
+  [(exception: #export (<name> {field Text}
+                               {class (java/lang/Class java/lang/Object)})
+     (exception.report
+      ["Field" (%.text field)]
+      ["Class" (java/lang/Object::toString class)]))]
+
+  [unknown_field]
+  [not_a_static_field]
+  [not_a_virtual_field]
+  )
+
+(def: #export (field field target)
+  (-> Text (java/lang/Class java/lang/Object) (Try java/lang/reflect/Field))
+  (case (java/lang/Class::getDeclaredField field target)
+    (#try.Success field)
+    (let [owner (java/lang/reflect/Field::getDeclaringClass field)]
+      (if (is? owner target)
+        (#try.Success field)
+        (exception.throw ..mistaken_field_owner [field owner target])))
+
+    (#try.Failure _)
+    (exception.throw ..unknown_field [field target])))
+
+(def: #export deprecated?
+  (-> (array.Array java/lang/annotation/Annotation) Bit)
+  (|>> array.to_list
+       (list.all (|>> (ffi.check java/lang/Deprecated)))
+       list.empty?
+       not))
+
+(template [<name> <exception> <then?> <else?>]
+  [(def: #export (<name> field class)
+     (-> Text (java/lang/Class java/lang/Object) (Try [Bit Bit (/.Type Value)]))
+     (do {! try.monad}
+       [fieldJ (..field field class)
+        #let [modifiers (java/lang/reflect/Field::getModifiers fieldJ)]]
+       (case (java/lang/reflect/Modifier::isStatic modifiers)
+         <then?> (|> fieldJ
+                     java/lang/reflect/Field::getGenericType
+                     ..type
+                     (\ ! map (|>> [(java/lang/reflect/Modifier::isFinal modifiers)
+                                    (..deprecated? (java/lang/reflect/Field::getDeclaredAnnotations fieldJ))])))
+         <else?> (exception.throw <exception> [field class]))))]
+
+  [static_field ..not_a_static_field #1 #0]
+  [virtual_field ..not_a_virtual_field #0 #1]
+  )

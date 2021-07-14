@@ -1,0 +1,361 @@
+(.module:
+  [library
+   [lux #*
+    ["." meta]
+    [abstract
+     ["." monad (#+ do)]]
+    [control
+     ["ex" exception (#+ exception:)]
+     ["." state]]
+    [data
+     ["." name]
+     ["." product]
+     ["." maybe]
+     [text
+      ["%" format (#+ format)]]
+     [collection
+      ["." list ("#\." functor)]
+      ["." dictionary (#+ Dictionary)]]]
+    [macro
+     ["." code]]
+    [math
+     [number
+      ["n" nat]]]
+    ["." type
+     ["." check]]]]
+  ["." // #_
+   ["#." type]
+   ["#." primitive]
+   ["#." inference]
+   ["/#" // #_
+    ["#." extension]
+    [//
+     ["/" analysis (#+ Tag Analysis Operation Phase)]
+     [///
+      ["#" phase]
+      [meta
+       [archive (#+ Archive)]]]]]])
+
+(exception: #export (invalid_variant_type {type Type} {tag Tag} {code Code})
+  (ex.report ["Type" (%.type type)]
+             ["Tag" (%.nat tag)]
+             ["Expression" (%.code code)]))
+
+(template [<name>]
+  [(exception: #export (<name> {type Type} {members (List Code)})
+     (ex.report ["Type" (%.type type)]
+                ["Expression" (%.code (` [(~+ members)]))]))]
+
+  [invalid_tuple_type]
+  [cannot_analyse_tuple]
+  )
+
+(exception: #export (not_a_quantified_type {type Type})
+  (%.type type))
+
+(template [<name>]
+  [(exception: #export (<name> {type Type} {tag Tag} {code Code})
+     (ex.report ["Type" (%.type type)]
+                ["Tag" (%.nat tag)]
+                ["Expression" (%.code code)]))]
+
+  [cannot_analyse_variant]
+  [cannot_infer_numeric_tag]
+  )
+
+(exception: #export (record_keys_must_be_tags {key Code} {record (List [Code Code])})
+  (ex.report ["Key" (%.code key)]
+             ["Record" (%.code (code.record record))]))
+
+(template [<name>]
+  [(exception: #export (<name> {key Name} {record (List [Name Code])})
+     (ex.report ["Tag" (%.code (code.tag key))]
+                ["Record" (%.code (code.record (list\map (function (_ [keyI valC])
+                                                           [(code.tag keyI) valC])
+                                                         record)))]))]
+
+  [cannot_repeat_tag]
+  )
+
+(exception: #export (tag_does_not_belong_to_record {key Name} {type Type})
+  (ex.report ["Tag" (%.code (code.tag key))]
+             ["Type" (%.type type)]))
+
+(exception: #export (record_size_mismatch {expected Nat} {actual Nat} {type Type} {record (List [Name Code])})
+  (ex.report ["Expected" (%.nat expected)]
+             ["Actual" (%.nat actual)]
+             ["Type" (%.type type)]
+             ["Expression" (%.code (|> record
+                                       (list\map (function (_ [keyI valueC])
+                                                   [(code.tag keyI) valueC]))
+                                       code.record))]))
+
+(def: #export (sum analyse lefts right? archive)
+  (-> Phase Nat Bit Phase)
+  (let [tag (/.tag lefts right?)]
+    (function (recur valueC)
+      (do {! ///.monad}
+        [expectedT (///extension.lift meta.expected_type)
+         expectedT' (//type.with_env
+                      (check.clean expectedT))]
+        (/.with_stack ..cannot_analyse_variant [expectedT' tag valueC]
+          (case expectedT
+            (#.Sum _)
+            (let [flat (type.flatten_variant expectedT)]
+              (case (list.nth tag flat)
+                (#.Some variant_type)
+                (do !
+                  [valueA (//type.with_type variant_type
+                            (analyse archive valueC))]
+                  (wrap (/.variant [lefts right? valueA])))
+
+                #.None
+                (/.throw //inference.variant_tag_out_of_bounds [(list.size flat) tag expectedT])))
+
+            (#.Named name unnamedT)
+            (//type.with_type unnamedT
+              (recur valueC))
+
+            (#.Var id)
+            (do !
+              [?expectedT' (//type.with_env
+                             (check.read id))]
+              (case ?expectedT'
+                (#.Some expectedT')
+                (//type.with_type expectedT'
+                  (recur valueC))
+
+                ## Cannot do inference when the tag is numeric.
+                ## This is because there is no way of knowing how many
+                ## cases the inferred sum type would have.
+                _
+                (/.throw ..cannot_infer_numeric_tag [expectedT tag valueC])))
+
+            (^template [<tag> <instancer>]
+              [(<tag> _)
+               (do !
+                 [[instance_id instanceT] (//type.with_env <instancer>)]
+                 (//type.with_type (maybe.assume (type.apply (list instanceT) expectedT))
+                   (recur valueC)))])
+            ([#.UnivQ check.existential]
+             [#.ExQ check.var])
+
+            (#.Apply inputT funT)
+            (case funT
+              (#.Var funT_id)
+              (do !
+                [?funT' (//type.with_env (check.read funT_id))]
+                (case ?funT'
+                  (#.Some funT')
+                  (//type.with_type (#.Apply inputT funT')
+                    (recur valueC))
+
+                  _
+                  (/.throw ..invalid_variant_type [expectedT tag valueC])))
+
+              _
+              (case (type.apply (list inputT) funT)
+                (#.Some outputT)
+                (//type.with_type outputT
+                  (recur valueC))
+
+                #.None
+                (/.throw ..not_a_quantified_type funT)))
+            
+            _
+            (/.throw ..invalid_variant_type [expectedT tag valueC])))))))
+
+(def: (typed_product archive analyse members)
+  (-> Archive Phase (List Code) (Operation Analysis))
+  (do {! ///.monad}
+    [expectedT (///extension.lift meta.expected_type)
+     membersA+ (: (Operation (List Analysis))
+                  (loop [membersT+ (type.flatten_tuple expectedT)
+                         membersC+ members]
+                    (case [membersT+ membersC+]
+                      [(#.Cons memberT #.Nil) _]
+                      (//type.with_type memberT
+                        (\ ! map (|>> list) (analyse archive (code.tuple membersC+))))
+                      
+                      [_ (#.Cons memberC #.Nil)]
+                      (//type.with_type (type.tuple membersT+)
+                        (\ ! map (|>> list) (analyse archive memberC)))
+                      
+                      [(#.Cons memberT membersT+') (#.Cons memberC membersC+')]
+                      (do !
+                        [memberA (//type.with_type memberT
+                                   (analyse archive memberC))
+                         memberA+ (recur membersT+' membersC+')]
+                        (wrap (#.Cons memberA memberA+)))
+
+                      _
+                      (/.throw ..cannot_analyse_tuple [expectedT members]))))]
+    (wrap (/.tuple membersA+))))
+
+(def: #export (product archive analyse membersC)
+  (-> Archive Phase (List Code) (Operation Analysis))
+  (do {! ///.monad}
+    [expectedT (///extension.lift meta.expected_type)]
+    (/.with_stack ..cannot_analyse_tuple [expectedT membersC]
+      (case expectedT
+        (#.Product _)
+        (..typed_product archive analyse membersC)
+
+        (#.Named name unnamedT)
+        (//type.with_type unnamedT
+          (product archive analyse membersC))
+
+        (#.Var id)
+        (do !
+          [?expectedT' (//type.with_env
+                         (check.read id))]
+          (case ?expectedT'
+            (#.Some expectedT')
+            (//type.with_type expectedT'
+              (product archive analyse membersC))
+
+            _
+            ## Must do inference...
+            (do !
+              [membersTA (monad.map ! (|>> (analyse archive) //type.with_inference)
+                                    membersC)
+               _ (//type.with_env
+                   (check.check expectedT
+                                (type.tuple (list\map product.left membersTA))))]
+              (wrap (/.tuple (list\map product.right membersTA))))))
+
+        (^template [<tag> <instancer>]
+          [(<tag> _)
+           (do !
+             [[instance_id instanceT] (//type.with_env <instancer>)]
+             (//type.with_type (maybe.assume (type.apply (list instanceT) expectedT))
+               (product archive analyse membersC)))])
+        ([#.UnivQ check.existential]
+         [#.ExQ check.var])
+
+        (#.Apply inputT funT)
+        (case funT
+          (#.Var funT_id)
+          (do !
+            [?funT' (//type.with_env (check.read funT_id))]
+            (case ?funT'
+              (#.Some funT')
+              (//type.with_type (#.Apply inputT funT')
+                (product archive analyse membersC))
+
+              _
+              (/.throw ..invalid_tuple_type [expectedT membersC])))
+
+          _
+          (case (type.apply (list inputT) funT)
+            (#.Some outputT)
+            (//type.with_type outputT
+              (product archive analyse membersC))
+
+            #.None
+            (/.throw ..not_a_quantified_type funT)))
+        
+        _
+        (/.throw ..invalid_tuple_type [expectedT membersC])
+        ))))
+
+(def: #export (tagged_sum analyse tag archive valueC)
+  (-> Phase Name Phase)
+  (do {! ///.monad}
+    [tag (///extension.lift (meta.normalize tag))
+     [idx group variantT] (///extension.lift (meta.resolve_tag tag))
+     #let [case_size (list.size group)
+           [lefts right?] (/.choice case_size idx)]
+     expectedT (///extension.lift meta.expected_type)]
+    (case expectedT
+      (#.Var _)
+      (do !
+        [inferenceT (//inference.variant idx case_size variantT)
+         [inferredT valueA+] (//inference.general archive analyse inferenceT (list valueC))]
+        (wrap (/.variant [lefts right? (|> valueA+ list.head maybe.assume)])))
+
+      _
+      (..sum analyse lefts right? archive valueC))))
+
+## There cannot be any ambiguity or improper syntax when analysing
+## records, so they must be normalized for further analysis.
+## Normalization just means that all the tags get resolved to their
+## canonical form (with their corresponding module identified).
+(def: #export (normalize record)
+  (-> (List [Code Code]) (Operation (List [Name Code])))
+  (monad.map ///.monad
+             (function (_ [key val])
+               (case key
+                 [_ (#.Tag key)]
+                 (do ///.monad
+                   [key (///extension.lift (meta.normalize key))]
+                   (wrap [key val]))
+
+                 _
+                 (/.throw ..record_keys_must_be_tags [key record])))
+             record))
+
+## Lux already possesses the means to analyse tuples, so
+## re-implementing the same functionality for records makes no sense.
+## Records, thus, get transformed into tuples by ordering the elements.
+(def: #export (order record)
+  (-> (List [Name Code]) (Operation [(List Code) Type]))
+  (case record
+    ## empty_record = empty_tuple = unit = []
+    #.Nil
+    (\ ///.monad wrap [(list) Any])
+
+    (#.Cons [head_k head_v] _)
+    (do {! ///.monad}
+      [head_k (///extension.lift (meta.normalize head_k))
+       [_ tag_set recordT] (///extension.lift (meta.resolve_tag head_k))
+       #let [size_record (list.size record)
+             size_ts (list.size tag_set)]
+       _ (if (n.= size_ts size_record)
+           (wrap [])
+           (/.throw ..record_size_mismatch [size_ts size_record recordT record]))
+       #let [tuple_range (list.indices size_ts)
+             tag->idx (dictionary.from_list name.hash (list.zip/2 tag_set tuple_range))]
+       idx->val (monad.fold !
+                            (function (_ [key val] idx->val)
+                              (do !
+                                [key (///extension.lift (meta.normalize key))]
+                                (case (dictionary.get key tag->idx)
+                                  (#.Some idx)
+                                  (if (dictionary.key? idx->val idx)
+                                    (/.throw ..cannot_repeat_tag [key record])
+                                    (wrap (dictionary.put idx val idx->val)))
+
+                                  #.None
+                                  (/.throw ..tag_does_not_belong_to_record [key recordT]))))
+                            (: (Dictionary Nat Code)
+                               (dictionary.new n.hash))
+                            record)
+       #let [ordered_tuple (list\map (function (_ idx) (maybe.assume (dictionary.get idx idx->val)))
+                                     tuple_range)]]
+      (wrap [ordered_tuple recordT]))
+    ))
+
+(def: #export (record archive analyse members)
+  (-> Archive Phase (List [Code Code]) (Operation Analysis))
+  (case members
+    (^ (list))
+    //primitive.unit
+
+    (^ (list [_ singletonC]))
+    (analyse archive singletonC)
+
+    _
+    (do {! ///.monad}
+      [members (normalize members)
+       [membersC recordT] (order members)
+       expectedT (///extension.lift meta.expected_type)]
+      (case expectedT
+        (#.Var _)
+        (do !
+          [inferenceT (//inference.record recordT)
+           [inferredT membersA] (//inference.general archive analyse inferenceT membersC)]
+          (wrap (/.tuple membersA)))
+
+        _
+        (..product archive analyse membersC)))))

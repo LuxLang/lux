@@ -1,0 +1,88 @@
+(.module:
+  [library
+   [lux #*
+    [control
+     [monad (#+ do)]
+     ["." try (#+ Try)]
+     ["p" parser ("#\." monad)
+      ["l" text (#+ Parser)]]]
+    [data
+     [number
+      ["i" int]]
+     [text
+      ["%" format (#+ format)]]
+     [format
+      ["." context (#+ Context)]]
+     [collection
+      ["." dictionary]]]
+    [time
+     ["." duration (#+ Duration)]]]]
+  ["." // (#+ Header)
+   ["." header]])
+
+(type: #export Directive (-> Text Text))
+
+(def: (directive extension)
+  (-> Text Directive)
+  (function (_ so-far)
+    (format so-far "; " extension)))
+
+(def: #export (set name value)
+  (-> Text Text Header)
+  (header.add "Set-Cookie" (format name "=" value)))
+
+(def: #export (max-age duration)
+  (-> Duration Directive)
+  (let [seconds (duration.query duration.second duration)]
+    (..directive (format "Max-Age=" (if (i.< +0 seconds)
+                                      (%.int seconds)
+                                      (%.nat (.nat seconds)))))))
+
+(template [<name> <prefix>]
+  [(def: #export (<name> value)
+     (-> Text Directive)
+     (..directive (format <prefix> "=" value)))]
+
+  [domain "Domain"]
+  [path "Path"]
+  )
+
+(template [<name> <tag>]
+  [(def: #export <name>
+     Directive
+     (..directive <tag>))]
+
+  [secure "Secure"]
+  [http-only "HttpOnly"]
+  )
+
+(type: #export CSRF-Policy
+  #Strict
+  #Lax)
+
+(def: #export (same-site policy)
+  (-> CSRF-Policy Directive)
+  (..directive (format "SameSite=" (case policy
+                                     #Strict "Strict"
+                                     #Lax "Lax"))))
+
+(def: (cookie context)
+  (-> Context (Parser Context))
+  (do p.monad
+    [key (l.slice (l.many! (l.none-of! "=")))
+     _ (l.this "=")
+     value (l.slice (l.many! (l.none-of! ";")))]
+    (wrap (dictionary.put key value context))))
+
+(def: (cookies context)
+  (-> Context (Parser Context))
+  ($_ p.either
+      (do p.monad
+        [context' (..cookie context)
+         _ (l.this "; ")]
+        (cookies context'))
+      (p\wrap context)))
+
+(def: #export (get header)
+  (-> Text (Try Context))
+  (l.run header (..cookies context.empty)))

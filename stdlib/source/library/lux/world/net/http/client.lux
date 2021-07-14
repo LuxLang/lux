@@ -1,0 +1,227 @@
+(.module:
+  [library
+   [lux #*
+    ["@" target]
+    ["." ffi]
+    [abstract
+     ["." monad (#+ do)]]
+    [control
+     [pipe (#+ case>)]
+     ["." io (#+ IO)]
+     ["." try (#+ Try)]
+     [concurrency
+      ["." promise (#+ Promise)]]]
+    [data
+     ["." binary (#+ Binary)]
+     ["." maybe ("#\." functor)]
+     ["." text]
+     [collection
+      ["." dictionary]]]
+    [math
+     [number
+      ["n" nat]
+      ["i" int]]]]]
+  ["." //
+   [// (#+ URL)]])
+
+(interface: #export (Client !)
+  (: (-> //.Method URL //.Headers (Maybe Binary)
+         (! (Try (//.Response !))))
+     request))
+
+(template [<name> <method>]
+  [(def: #export (<name> url headers data client)
+     (All [!]
+       (-> URL //.Headers (Maybe Binary) (Client !)
+           (! (Try (//.Response !)))))
+     (\ client request <method> url headers data))]
+
+  [post #//.Post]
+  [get #//.Get]
+  [put #//.Put]
+  [patch #//.Patch]
+  [delete #//.Delete]
+  [head #//.Head]
+  [connect #//.Connect]
+  [options #//.Options]
+  [trace #//.Trace]
+  )
+
+(def: default_buffer_size
+  (n.* 1,024 1,024))
+
+(def: empty_body
+  [Nat Binary]
+  [0 (binary.create 0)])
+
+(def: (body_of data)
+  (-> Binary [Nat Binary])
+  [(binary.size data) data])
+
+(with_expansions [<jvm> (as_is (ffi.import: java/lang/String)
+
+                               (ffi.import: java/lang/AutoCloseable
+                                 ["#::."
+                                  (close [] #io #try void)])
+
+                               (ffi.import: java/io/InputStream)
+
+                               (ffi.import: java/io/OutputStream
+                                 ["#::."
+                                  (flush [] #io #try void)
+                                  (write [[byte]] #io #try void)])
+
+                               (ffi.import: java/net/URLConnection
+                                 ["#::."
+                                  (setDoOutput [boolean] #io #try void)
+                                  (setRequestProperty [java/lang/String java/lang/String] #io #try void)
+                                  (getInputStream [] #io #try java/io/InputStream)
+                                  (getOutputStream [] #io #try java/io/OutputStream)
+                                  (getHeaderFieldKey [int] #io #try #? java/lang/String)
+                                  (getHeaderField [int] #io #try #? java/lang/String)])
+
+                               (ffi.import: java/net/HttpURLConnection
+                                 ["#::."
+                                  (setRequestMethod [java/lang/String] #io #try void)
+                                  (getResponseCode [] #io #try int)])
+
+                               (ffi.import: java/net/URL
+                                 ["#::."
+                                  (new [java/lang/String])
+                                  (openConnection [] #io #try java/net/URLConnection)])
+
+                               (ffi.import: java/io/BufferedInputStream
+                                 ["#::."
+                                  (new [java/io/InputStream])
+                                  (read [[byte] int int] #io #try int)])
+
+                               (def: jvm_method
+                                 (-> //.Method Text)
+                                 (|>> (case> #//.Post "POST"
+                                             #//.Get "GET"
+                                             #//.Put "PUT"
+                                             #//.Patch "PATCH"
+                                             #//.Delete "DELETE"
+                                             #//.Head "HEAD"
+                                             #//.Connect "CONNECT"
+                                             #//.Options "OPTIONS"
+                                             #//.Trace "TRACE")))
+
+                               (def: (default_body input)
+                                 (-> java/io/BufferedInputStream (//.Body IO))
+                                 (|>> (maybe\map (|>> [true]))
+                                      (maybe.default [false ..default_buffer_size])
+                                      (case> [_ 0]
+                                             (do (try.with io.monad)
+                                               [_ (java/lang/AutoCloseable::close input)]
+                                               (wrap ..empty_body))
+
+                                             [partial? buffer_size]
+                                             (let [buffer (binary.create buffer_size)]
+                                               (if partial?
+                                                 (loop [so_far +0]
+                                                   (do {! (try.with io.monad)}
+                                                     [#let [remaining (i.- so_far (.int buffer_size))]
+                                                      bytes_read (java/io/BufferedInputStream::read buffer so_far remaining input)]
+                                                     (case bytes_read
+                                                       -1 (do !
+                                                            [_ (java/lang/AutoCloseable::close input)]
+                                                            (wrap [(.nat so_far) buffer]))
+                                                       +0 (recur so_far)
+                                                       _ (if (i.= remaining bytes_read)
+                                                           (wrap [buffer_size buffer])
+                                                           (recur (i.+ bytes_read so_far))))))
+                                                 (loop [so_far +0
+                                                        output (\ binary.monoid identity)]
+                                                   (do {! (try.with io.monad)}
+                                                     [#let [remaining (i.- so_far (.int buffer_size))]
+                                                      bytes_read (java/io/BufferedInputStream::read buffer so_far remaining input)]
+                                                     (case bytes_read
+                                                       -1 (do !
+                                                            [_ (java/lang/AutoCloseable::close input)]
+                                                            (case so_far
+                                                              +0 (wrap (..body_of output))
+                                                              _ (|> buffer
+                                                                    (binary.slice 0 (.nat so_far))
+                                                                    (\ try.functor map
+                                                                       (|>> (\ binary.monoid compose output)
+                                                                            ..body_of))
+                                                                    (\ io.monad wrap))))
+                                                       +0 (recur so_far output)
+                                                       _ (if (i.= remaining bytes_read)
+                                                           (recur +0
+                                                                  (\ binary.monoid compose output buffer))
+                                                           (recur (i.+ bytes_read so_far)
+                                                                  output))))))))))
+
+                               (def: (default_headers connection)
+                                 (-> java/net/HttpURLConnection (IO (Try //.Headers)))
+                                 (loop [index +0
+                                        headers //.empty]
+                                   (do {! (try.with io.monad)}
+                                     [?name (java/net/URLConnection::getHeaderFieldKey index connection)]
+                                     (case ?name
+                                       (#.Some name)
+                                       (do !
+                                         [?value (java/net/URLConnection::getHeaderField index connection)]
+                                         (recur (inc index)
+                                                (dictionary.put name (maybe.default "" ?value) headers)))
+
+                                       #.None
+                                       (wrap headers)))))
+
+                               (implementation: #export default
+                                 (Client IO)
+
+                                 (def: (request method url headers data)
+                                   (: (IO (Try (//.Response IO)))
+                                      (do {! (try.with io.monad)}
+                                        [connection (|> url java/net/URL::new java/net/URL::openConnection)
+                                         #let [connection (:as java/net/HttpURLConnection connection)]
+                                         _ (java/net/HttpURLConnection::setRequestMethod (..jvm_method method) connection)
+                                         _ (monad.map ! (function (_ [name value])
+                                                          (java/net/URLConnection::setRequestProperty name value connection))
+                                                      (dictionary.entries headers))
+                                         _ (case data
+                                             (#.Some data)
+                                             (do !
+                                               [_ (java/net/URLConnection::setDoOutput true connection)
+                                                stream (java/net/URLConnection::getOutputStream connection)
+                                                _ (java/io/OutputStream::write data stream)
+                                                _ (java/io/OutputStream::flush stream)
+                                                _ (java/lang/AutoCloseable::close stream)]
+                                               (wrap []))
+                                             
+                                             #.None
+                                             (wrap []))
+                                         status (java/net/HttpURLConnection::getResponseCode connection)
+                                         headers (..default_headers connection)
+                                         input (|> connection
+                                                   java/net/URLConnection::getInputStream
+                                                   (\ ! map (|>> java/io/BufferedInputStream::new)))]
+                                        (wrap [(.nat status)
+                                               {#//.headers headers
+                                                #//.body (..default_body input)}]))))))]
+  (for {@.old (as_is <jvm>)
+        @.jvm (as_is <jvm>)}
+       (as_is)))
+
+(implementation: #export (async client)
+  (-> (Client IO) (Client Promise))
+
+  (def: (request method url headers data)
+    (|> (\ client request method url headers data)
+        promise.future
+        (\ promise.monad map
+           (|>> (case> (#try.Success [status message])
+                       (#try.Success [status (update@ #//.body (: (-> (//.Body IO) (//.Body Promise))
+                                                                  (function (_ body)
+                                                                    (|>> body promise.future)))
+                                                      message)])
+                       
+                       (#try.Failure error)
+                       (#try.Failure error)))))))
+
+(def: #export headers
+  (-> (List [Text Text]) //.Headers)
+  (dictionary.from_list text.hash))

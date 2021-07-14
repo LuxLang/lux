@@ -1,0 +1,388 @@
+(.module:
+  [library
+   [lux #*
+    ["@" target]
+    [abstract
+     [monoid (#+ Monoid)]
+     [functor (#+ Functor)]
+     [equivalence (#+ Equivalence)]
+     [fold (#+ Fold)]
+     [predicate (#+ Predicate)]]
+    [data
+     ["." product]
+     ["." maybe]
+     [collection
+      ["." list ("#\." fold)]]]
+    [math
+     [number
+      ["n" nat]]]]])
+
+(def: #export type_name
+  "#Array")
+
+(type: #export (Array a)
+  {#.doc "Mutable arrays."}
+  (#.Primitive ..type_name (#.Cons a #.Nil)))
+
+(with_expansions [<index_type> (primitive "java.lang.Long")
+                  <elem_type> (primitive "java.lang.Object")
+                  <array_type> (type (Array <elem_type>))]
+  (for {@.jvm
+        (template: (!int value)
+          (|> value
+              (:as <index_type>)
+              "jvm object cast"
+              "jvm conversion long-to-int"))}
+       (as_is))
+  
+  (def: #export (new size)
+    (All [a] (-> Nat (Array a)))
+    (for {@.old
+          (:assume ("jvm anewarray" "(java.lang.Object )" size))
+
+          @.jvm
+          (|> size
+              !int
+              "jvm array new object"
+              (: <array_type>)
+              :assume)
+
+          @.js ("js array new" size)
+          @.python ("python array new" size)
+          @.lua ("lua array new" size)
+          @.ruby ("ruby array new" size)
+          @.php ("php array new" size)
+          @.scheme ("scheme array new" size)}))
+
+  (def: #export (size array)
+    (All [a] (-> (Array a) Nat))
+    (for {@.old
+          ("jvm arraylength" array)
+
+          @.jvm
+          (|> array
+              (:as <array_type>)
+              "jvm array length object"
+              "jvm conversion int-to-long"
+              "jvm object cast"
+              (: <index_type>)
+              (:as Nat))
+
+          @.js ("js array length" array)
+          @.python ("python array length" array)
+          @.lua ("lua array length" array)
+          @.ruby ("ruby array length" array)
+          @.php ("php array length" array)
+          @.scheme ("scheme array length" array)}))
+
+  (template: (!read <read> <null?>)
+    (let [output (<read> index array)]
+      (if (<null?> output)
+        #.None
+        (#.Some output))))
+
+  (def: #export (read index array)
+    (All [a]
+      (-> Nat (Array a) (Maybe a)))
+    (if (n.< (size array) index)
+      (for {@.old
+            (let [value ("jvm aaload" array index)]
+              (if ("jvm object null?" value)
+                #.None
+                (#.Some value)))
+
+            @.jvm
+            (let [value (|> array
+                            (:as <array_type>)
+                            ("jvm array read object" (!int index)))]
+              (if ("jvm object null?" value)
+                #.None
+                (#.Some (:assume value))))
+
+            @.js (!read "js array read" "js object undefined?")
+            @.python (!read "python array read" "python object none?")
+            @.lua (!read "lua array read" "lua object nil?")
+            @.ruby (!read "ruby array read" "ruby object nil?")
+            @.php (!read "php array read" "php object null?")
+            @.scheme (!read "scheme array read" "scheme object nil?")})
+      #.None))
+
+  (def: #export (write! index value array)
+    (All [a]
+      (-> Nat a (Array a) (Array a)))
+    (for {@.old
+          ("jvm aastore" array index value)
+
+          @.jvm
+          (|> array
+              (:as <array_type>)
+              ("jvm array write object" (!int index) (:as <elem_type> value))
+              :assume)
+
+          @.js ("js array write" index value array)
+          @.python ("python array write" index value array)
+          @.lua ("lua array write" index value array)
+          @.ruby ("ruby array write" index value array)
+          @.php ("php array write" index value array)
+          @.scheme ("scheme array write" index value array)}))
+
+  (def: #export (delete! index array)
+    (All [a]
+      (-> Nat (Array a) (Array a)))
+    (if (n.< (size array) index)
+      (for {@.old
+            (write! index (:assume ("jvm object null")) array)
+
+            @.jvm
+            (write! index (:assume (: <elem_type> ("jvm object null"))) array)
+
+            @.js ("js array delete" index array)
+            @.python ("python array delete" index array)
+            @.lua ("lua array delete" index array)
+            @.ruby ("ruby array delete" index array)
+            @.php ("php array delete" index array)
+            @.scheme ("scheme array delete" index array)})
+      array))
+  )
+
+(def: #export (contains? index array)
+  (All [a]
+    (-> Nat (Array a) Bit))
+  (case (..read index array)
+    (#.Some _)
+    true
+
+    _
+    false))
+
+(def: #export (update! index transform array)
+  (All [a]
+    (-> Nat (-> a a) (Array a) (Array a)))
+  (case (read index array)
+    #.None
+    array
+
+    (#.Some value)
+    (write! index (transform value) array)))
+
+(def: #export (upsert! index default transform array)
+  (All [a]
+    (-> Nat a (-> a a) (Array a) (Array a)))
+  (write! index
+          (|> array (read index) (maybe.default default) transform)
+          array))
+
+(def: #export (copy! length src_start src_array dest_start dest_array)
+  (All [a]
+    (-> Nat Nat (Array a) Nat (Array a)
+        (Array a)))
+  (if (n.= 0 length)
+    dest_array
+    (list\fold (function (_ offset target)
+                 (case (read (n.+ offset src_start) src_array)
+                   #.None
+                   target
+                   
+                   (#.Some value)
+                   (write! (n.+ offset dest_start) value target)))
+               dest_array
+               (list.indices length))))
+
+(def: #export (occupancy array)
+  {#.doc "Finds out how many cells in an array are occupied."}
+  (All [a] (-> (Array a) Nat))
+  (list\fold (function (_ idx count)
+               (case (read idx array)
+                 #.None
+                 count
+                 
+                 (#.Some _)
+                 (inc count)))
+             0
+             (list.indices (size array))))
+
+(def: #export (vacancy array)
+  {#.doc "Finds out how many cells in an array are vacant."}
+  (All [a] (-> (Array a) Nat))
+  (n.- (..occupancy array) (..size array)))
+
+(def: #export (filter! p xs)
+  (All [a]
+    (-> (Predicate a) (Array a) (Array a)))
+  (list\fold (function (_ idx xs')
+               (case (read idx xs)
+                 #.None
+                 xs'
+
+                 (#.Some x)
+                 (if (p x)
+                   xs'
+                   (delete! idx xs'))))
+             xs
+             (list.indices (size xs))))
+
+(def: #export (find p xs)
+  (All [a]
+    (-> (Predicate a) (Array a) (Maybe a)))
+  (let [arr_size (size xs)]
+    (loop [idx 0]
+      (if (n.< arr_size idx)
+        (case (read idx xs)
+          #.None
+          (recur (inc idx))
+          
+          (#.Some x)
+          (if (p x)
+            (#.Some x)
+            (recur (inc idx))))
+        #.None))))
+
+(def: #export (find+ p xs)
+  {#.doc "Just like 'find', but with access to the index of each value."}
+  (All [a]
+    (-> (-> Nat a Bit) (Array a) (Maybe [Nat a])))
+  (let [arr_size (size xs)]
+    (loop [idx 0]
+      (if (n.< arr_size idx)
+        (case (read idx xs)
+          #.None
+          (recur (inc idx))
+          
+          (#.Some x)
+          (if (p idx x)
+            (#.Some [idx x])
+            (recur (inc idx))))
+        #.None))))
+
+(def: #export (clone xs)
+  (All [a] (-> (Array a) (Array a)))
+  (let [arr_size (size xs)]
+    (list\fold (function (_ idx ys)
+                 (case (read idx xs)
+                   #.None
+                   ys
+
+                   (#.Some x)
+                   (write! idx x ys)))
+               (new arr_size)
+               (list.indices arr_size))))
+
+(def: #export (from_list xs)
+  (All [a] (-> (List a) (Array a)))
+  (product.right (list\fold (function (_ x [idx arr])
+                              [(inc idx) (write! idx x arr)])
+                            [0 (new (list.size xs))]
+                            xs)))
+
+(def: underflow Nat (dec 0))
+
+(def: #export (to_list array)
+  (All [a] (-> (Array a) (List a)))
+  (loop [idx (dec (size array))
+         output #.Nil]
+    (if (n.= ..underflow idx)
+      output
+      (recur (dec idx)
+             (case (read idx array)
+               (#.Some head)
+               (#.Cons head output)
+
+               #.None
+               output)))))
+
+(def: #export (to_list' default array)
+  (All [a] (-> a (Array a) (List a)))
+  (loop [idx (dec (size array))
+         output #.Nil]
+    (if (n.= ..underflow idx)
+      output
+      (recur (dec idx)
+             (#.Cons (maybe.default default (read idx array))
+                     output)))))
+
+(implementation: #export (equivalence (^open ",\."))
+  (All [a] (-> (Equivalence a) (Equivalence (Array a))))
+  
+  (def: (= xs ys)
+    (let [sxs (size xs)
+          sxy (size ys)]
+      (and (n.= sxy sxs)
+           (list\fold (function (_ idx prev)
+                        (and prev
+                             (case [(read idx xs) (read idx ys)]
+                               [#.None #.None]
+                               true
+
+                               [(#.Some x) (#.Some y)]
+                               (,\= x y)
+
+                               _
+                               false)))
+                      true
+                      (list.indices sxs))))))
+
+(implementation: #export monoid
+  (All [a] (Monoid (Array a)))
+  
+  (def: identity (new 0))
+
+  (def: (compose xs ys)
+    (let [sxs (size xs)
+          sxy (size ys)]
+      (|> (new (n.+ sxy sxs))
+          (copy! sxs 0 xs 0)
+          (copy! sxy 0 ys sxs)))))
+
+(implementation: #export functor
+  (Functor Array)
+  
+  (def: (map f ma)
+    (let [arr_size (size ma)]
+      (if (n.= 0 arr_size)
+        (new arr_size)
+        (list\fold (function (_ idx mb)
+                     (case (read idx ma)
+                       #.None
+                       mb
+
+                       (#.Some x)
+                       (write! idx (f x) mb)))
+                   (new arr_size)
+                   (list.indices arr_size))
+        ))))
+
+(implementation: #export fold
+  (Fold Array)
+  
+  (def: (fold f init xs)
+    (let [arr_size (size xs)]
+      (loop [so_far init
+             idx 0]
+        (if (n.< arr_size idx)
+          (case (read idx xs)
+            #.None
+            (recur so_far (inc idx))
+
+            (#.Some value)
+            (recur (f value so_far) (inc idx)))
+          so_far)))))
+
+(template [<name> <init> <op>]
+  [(def: #export (<name> predicate array)
+     (All [a]
+       (-> (Predicate a) (Predicate (Array a))))
+     (let [size (..size array)]
+       (loop [idx 0]
+         (if (n.< size idx)
+           (case (..read idx array)
+             (#.Some value)
+             (<op> (predicate value)
+                   (recur (inc idx)))
+             
+             #.None
+             (recur (inc idx)))
+           <init>))))]
+
+  [every? true  and]
+  [any?   false or]
+  )

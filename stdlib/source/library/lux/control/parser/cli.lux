@@ -1,0 +1,99 @@
+(.module:
+  [library
+   [lux #*
+    [abstract
+     [monad (#+ do)]]
+    [control
+     ["." try (#+ Try)]]
+    [data
+     ["." text ("#\." equivalence)
+      ["%" format (#+ format)]]]]]
+  ["." //])
+
+(type: #export (Parser a)
+  {#.doc "A command-line interface parser."}
+  (//.Parser (List Text) a))
+
+(def: #export (run parser inputs)
+  (All [a] (-> (Parser a) (List Text) (Try a)))
+  (case (//.run parser inputs)
+    (#try.Success [remaining output])
+    (case remaining 
+      #.Nil
+      (#try.Success output)
+
+      _
+      (#try.Failure (format "Remaining CLI inputs: " (text.join_with " " remaining))))
+
+    (#try.Failure try)
+    (#try.Failure try)))
+
+(def: #export any
+  {#.doc "Just returns the next input without applying any logic."}
+  (Parser Text)
+  (function (_ inputs)
+    (case inputs
+      (#.Cons arg inputs')
+      (#try.Success [inputs' arg])
+      
+      _
+      (#try.Failure "Cannot parse empty arguments."))))
+
+(def: #export (parse parser)
+  {#.doc "Parses the next input with a parsing function."}
+  (All [a] (-> (-> Text (Try a)) (Parser a)))
+  (function (_ inputs)
+    (do try.monad
+      [[remaining raw] (any inputs)
+       output (parser raw)]
+      (wrap [remaining output]))))
+
+(def: #export (this reference)
+  {#.doc "Checks that a token is in the inputs."}
+  (-> Text (Parser Any))
+  (function (_ inputs)
+    (do try.monad
+      [[remaining raw] (any inputs)]
+      (if (text\= reference raw)
+        (wrap [remaining []])
+        (try.fail (format "Missing token: '" reference "'"))))))
+
+(def: #export (somewhere cli)
+  {#.doc "Given a parser, tries to parse it somewhere in the inputs (i.e. not necessarily parsing the immediate inputs)."}
+  (All [a] (-> (Parser a) (Parser a)))
+  (function (_ inputs)
+    (loop [immediate inputs]
+      (case (//.run cli immediate)
+        (#try.Success [remaining output])
+        (#try.Success [remaining output])
+
+        (#try.Failure try)
+        (case immediate
+          #.Nil
+          (#try.Failure try)
+          
+          (#.Cons to_omit immediate')
+          (do try.monad
+            [[remaining output] (recur immediate')]
+            (wrap [(#.Cons to_omit remaining)
+                   output])))))))
+
+(def: #export end
+  {#.doc "Ensures there are no more inputs."}
+  (Parser Any)
+  (function (_ inputs)
+    (case inputs
+      #.Nil (#try.Success [inputs []])
+      _     (#try.Failure (format "Unknown parameters: " (text.join_with " " inputs))))))
+
+(def: #export (named name value)
+  (All [a] (-> Text (Parser a) (Parser a)))
+  (|> value
+      (//.after (..this name))
+      ..somewhere))
+
+(def: #export (parameter [short long] value)
+  (All [a] (-> [Text Text] (Parser a) (Parser a)))
+  (|> value
+      (//.after (//.either (..this short) (..this long)))
+      ..somewhere))

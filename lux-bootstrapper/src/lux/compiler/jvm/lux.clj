@@ -15,7 +15,8 @@
             (lux.analyser [base :as &a]
                           [module :as &a-module])
             (lux.compiler.jvm [base :as &&]
-                              [function :as &&function]))
+                              [function :as &&function]
+                              [rt :as &rt]))
   (:import (org.objectweb.asm Opcodes
                               Label
                               ClassWriter
@@ -79,7 +80,7 @@
                   (.visitLdcInsn *writer* "")
                   (.visitInsn *writer* Opcodes/ACONST_NULL))]
         _ (compile value)
-        :let [_ (.visitMethodInsn *writer* Opcodes/INVOKESTATIC "lux/LuxRT" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")]]
+        :let [_ (.visitMethodInsn *writer* Opcodes/INVOKESTATIC &rt/rt-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;")]]
     (return nil)))
 
 (defn compile-local [compile ?idx]
@@ -120,7 +121,7 @@
           class-loader &/loader
           :let [func-class (class func-obj)
                 func-arity (.get ^Field (.getDeclaredField func-class &&/arity-field) nil)
-                func-partials (.get ^Field (.getDeclaredField (Class/forName "lux.Function" true class-loader) &&/partials-field) func-obj)
+                func-partials (.get ^Field (.getDeclaredField (Class/forName &host/function-class true class-loader) &&/partials-field) func-obj)
                 num-args (&/|length ?args)
                 func-class-name (->> func-class .getName &host-generics/->bytecode-class-name)]]
       (if (and (= 0 func-partials)
@@ -208,7 +209,7 @@
                               (.visitLdcInsn (int (if tail?
                                                     (dec idx)
                                                     idx)))
-                              (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT"
+                              (.visitMethodInsn Opcodes/INVOKESTATIC &rt/rt-class
                                                 (if tail? "tuple_right" "tuple_left")
                                                 "([Ljava/lang/Object;I)Ljava/lang/Object;"))))
                         _path)]]
@@ -339,7 +340,7 @@
                       (.visitLdcInsn (->> #'&/$Nil meta ::&/idx int)) ;; I
                       (.visitInsn Opcodes/ACONST_NULL) ;; I?
                       (.visitLdcInsn &/unit-tag) ;; I?U
-                      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;") ;; V
+                      (.visitMethodInsn Opcodes/INVOKESTATIC &rt/rt-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;") ;; V
                       ;; Tail: End
                       ;; Size: Begin
                       (.visitVarInsn Opcodes/ALOAD 0) ;; VA
@@ -379,7 +380,7 @@
                       (.visitLdcInsn "") ;; I2I?
                       (.visitInsn Opcodes/DUP2_X1) ;; II?2I?
                       (.visitInsn Opcodes/POP2) ;; II?2
-                      (.visitMethodInsn Opcodes/INVOKESTATIC "lux/LuxRT" "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;") ;; IV
+                      (.visitMethodInsn Opcodes/INVOKESTATIC &rt/rt-class "sum_make" "(ILjava/lang/Object;Ljava/lang/Object;)[Ljava/lang/Object;") ;; IV
                       ;; Cons: End
                       (.visitInsn Opcodes/SWAP) ;; VI
                       (.visitJumpInsn Opcodes/GOTO $loop)

@@ -1,0 +1,244 @@
+(.module:
+  [library
+   [lux #*
+    ["." meta]
+    [abstract
+     [monad (#+ do)]]
+    [control
+     ["." try (#+ Try)]
+     ["." exception (#+ exception:)]
+     ["<>" parser
+      ["<.>" code]]]
+    [data
+     ["." maybe]]
+    [math
+     [number (#+ hex)
+      ["n" nat]]]
+    [macro
+     [syntax (#+ syntax:)]
+     ["." code]]]]
+  ["." // (#+ Char)
+   ["%" format (#+ format)]])
+
+(def: sigil "\")
+
+(template [<char> <sigil>]
+  [(def: <char>
+     (|> <sigil> (//.nth 0) maybe.assume))]
+
+  [sigil_char ..sigil]
+  [\u_sigil "u"]
+  )
+
+(template [<literal> <sigil> <escaped>]
+  [(def: <sigil>
+     (|> <literal> (//.nth 0) maybe.assume))
+   
+   (def: <escaped>
+     (format ..sigil <literal>))]
+
+  ["0" \0_sigil escaped_\0]
+  ["a" \a_sigil escaped_\a]
+  ["b" \b_sigil escaped_\b]
+  ["t" \t_sigil escaped_\t]
+  ["n" \n_sigil escaped_\n]
+  ["v" \v_sigil escaped_\v]
+  ["f" \f_sigil escaped_\f]
+  ["r" \r_sigil escaped_\r]
+  [//.\'' \''_sigil escaped_\'']
+  [..sigil \\_sigil escaped_\\]
+  )
+
+(template [<char> <text>]
+  [(def: <char>
+     (|> <text> (//.nth 0) maybe.assume))]
+
+  [\0 //.\0]
+  [\a //.\a]
+  [\b //.\b]
+  [\t //.\t]
+  [\n //.\n]
+  [\v //.\v]
+  [\f //.\f]
+  [\r //.\r]
+  [\'' //.\'']
+  [\\ ..sigil]
+  )
+
+(def: ascii_bottom (hex "20"))
+(def: ascii_top (hex "7E"))
+
+(def: #export (escapable? char)
+  (-> Char Bit)
+  (case char
+    (^template [<char>]
+      [(^ (static <char>))
+       true])
+    ([..\0] [..\a] [..\b] [..\t]
+     [..\n] [..\v] [..\f] [..\r]
+     [..\''] [..\\])
+
+    _
+    (or (n.< ..ascii_bottom char)
+        (n.> ..ascii_top char))))
+
+(def: (ascii_escape replacement pre_offset pre_limit previous current)
+  (-> Text Nat Nat Text Text [Text Text Nat])
+  (let [post_offset (inc pre_offset)
+        post_limit (n.- post_offset pre_limit)]
+    [(format previous
+             ("lux text clip" 0 pre_offset current)
+             replacement)
+     ("lux text clip" post_offset post_limit current)
+     post_limit]))
+
+(def: (unicode_escape char pre_offset pre_limit previous current)
+  (-> Char Nat Nat Text Text [Text Text Nat])
+  (let [code (\ n.hex encode char)
+        replacement (format ..sigil "u"
+                            (case ("lux text size" code)
+                              1 (format "000" code)
+                              2 (format "00" code)
+                              3 (format "0" code)
+                              _ code))
+        post_offset (inc pre_offset)
+        post_limit (n.- post_offset pre_limit)]
+    [(format previous
+             ("lux text clip" 0 pre_offset current)
+             replacement)
+     ("lux text clip" post_offset post_limit current)
+     post_limit]))
+
+(def: #export (escape text)
+  (-> Text Text)
+  (loop [offset 0
+         previous ""
+         current text
+         limit ("lux text size" text)]
+    (if (n.< limit offset)
+      (case ("lux text char" offset current)
+        (^template [<char> <replacement>]
+          [(^ (static <char>))
+           (let [[previous' current' limit'] (ascii_escape <replacement> offset limit previous current)]
+             (recur 0 previous' current' limit'))])
+        ([..\0 ..escaped_\0]
+         [..\a ..escaped_\a]
+         [..\b ..escaped_\b]
+         [..\t ..escaped_\t]
+         [..\n ..escaped_\n]
+         [..\v ..escaped_\v]
+         [..\f ..escaped_\f]
+         [..\r ..escaped_\r]
+         [..\'' ..escaped_\'']
+         [..\\ ..escaped_\\])
+
+        char
+        (if (or (n.< ..ascii_bottom char)
+                (n.> ..ascii_top char))
+          (let [[previous' current' limit'] (unicode_escape char offset limit previous current)]
+            (recur 0 previous' current' limit'))
+          (recur (inc offset) previous current limit)))
+      (format previous current))))
+
+(exception: #export (dangling_escape {text Text})
+  (exception.report
+   ["In" (%.text text)]
+   ["At" (%.nat (dec (//.size text)))]))
+
+(exception: #export (invalid_escape {text Text} {offset Nat} {sigil Char})
+  (exception.report
+   ["In" (%.text text)]
+   ["At" (%.nat offset)]
+   ["Name" (%.text (//.from_code sigil))]))
+
+(exception: #export (invalid_unicode_escape {text Text} {offset Nat})
+  (exception.report
+   ["In" (%.text text)]
+   ["At" (%.nat offset)]))
+
+(def: code_size
+  4)
+
+(def: ascii_escape_offset
+  2)
+
+(def: unicode_escape_offset
+  (n.+ ..ascii_escape_offset ..code_size))
+
+(def: (ascii_un_escape replacement offset previous current limit)
+  (-> Text Nat Text Text Nat [Text Text Nat])
+  (let [limit' (|> limit (n.- offset) (n.- ..ascii_escape_offset))]
+    [(format previous
+             ("lux text clip" 0 offset current)
+             replacement)
+     ("lux text clip" (n.+ ..ascii_escape_offset offset) limit' current)
+     limit']))
+
+(def: (unicode_un_escape offset previous current limit)
+  (-> Nat Text Text Nat (Try [Text Text Nat]))
+  (case (|> current
+            ("lux text clip" (n.+ ..ascii_escape_offset offset) ..code_size)
+            (\ n.hex decode))
+    (#try.Success char)
+    (let [limit' (|> limit (n.- offset) (n.- ..unicode_escape_offset))]
+      (#try.Success [(format previous
+                             ("lux text clip" 0 offset current)
+                             (//.from_code char))
+                     ("lux text clip" (n.+ ..unicode_escape_offset offset) limit' current)
+                     limit']))
+    
+    (#try.Failure error)
+    (exception.throw ..invalid_unicode_escape [current offset])))
+
+(def: #export (un_escape text)
+  (-> Text (Try Text))
+  (loop [offset 0
+         previous ""
+         current text
+         limit ("lux text size" text)]
+    (if (n.< limit offset)
+      (case ("lux text char" offset current)
+        (^ (static ..sigil_char))
+        (let [@sigil (inc offset)]
+          (if (n.< limit @sigil)
+            (case ("lux text char" @sigil current)
+              (^template [<sigil> <un_escaped>]
+                [(^ (static <sigil>))
+                 (let [[previous' current' limit'] (..ascii_un_escape <un_escaped> offset previous current limit)]
+                   (recur 0 previous' current' limit'))])
+              ([..\0_sigil //.\0]
+               [..\a_sigil //.\a]
+               [..\b_sigil //.\b]
+               [..\t_sigil //.\t]
+               [..\n_sigil //.\n]
+               [..\v_sigil //.\v]
+               [..\f_sigil //.\f]
+               [..\r_sigil //.\r]
+               [..\''_sigil //.\'']
+               [..\\_sigil ..sigil])
+
+              (^ (static ..\u_sigil))
+              (let [@unicode (n.+ code_size @sigil)]
+                (if (n.< limit @unicode)
+                  (do try.monad
+                    [[previous' current' limit'] (..unicode_un_escape offset previous current limit)]
+                    (recur 0 previous' current' limit'))
+                  (exception.throw ..invalid_unicode_escape [text offset])))
+
+              invalid_sigil
+              (exception.throw ..invalid_escape [text offset invalid_sigil]))
+            (exception.throw ..dangling_escape [text])))
+
+        _
+        (recur (inc offset) previous current limit))
+      (#try.Success (case previous
+                      "" current
+                      _ (format previous current))))))
+
+(syntax: #export (escaped {literal <code>.text})
+  (case (..un_escape literal)
+    (#try.Success un_escaped)
+    (wrap (list (code.text un_escaped)))
+    
+    (#try.Failure error)
+    (meta.fail error)))

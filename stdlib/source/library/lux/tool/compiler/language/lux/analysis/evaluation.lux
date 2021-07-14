@@ -1,0 +1,57 @@
+(.module:
+  [library
+   [lux (#- Module)
+    ["." meta]
+    [abstract
+     [monad (#+ do)]]
+    [control
+     ["." try]]
+    [math
+     [number
+      ["n" nat]]]]]
+  [// (#+ Operation)
+   [macro (#+ Expander)]
+   [//
+    [phase
+     [".P" extension]
+     [".P" synthesis]
+     [".P" analysis
+      ["." type]]
+     [//
+      ["." synthesis]
+      ["." generation (#+ Context)]
+      [///
+       ["." phase]
+       [meta
+        [archive (#+ Archive)
+         [descriptor (#+ Module)]]]]]]]])
+
+(type: #export Eval
+  (-> Archive Nat Type Code (Operation Any)))
+
+(def: (context [module_id artifact_id])
+  (-> Context Context)
+  ## TODO: Find a better way that doesn't rely on clever tricks.
+  [(n.- module_id 0) artifact_id])
+
+(def: #export (evaluator expander synthesis_state generation_state generate)
+  (All [anchor expression artifact]
+    (-> Expander
+        synthesis.State+
+        (generation.State+ anchor expression artifact)
+        (generation.Phase anchor expression artifact)
+        Eval))
+  (let [analyze (analysisP.phase expander)]
+    (function (eval archive count type exprC)
+      (do phase.monad
+        [exprA (type.with_type type
+                 (analyze archive exprC))
+         module (extensionP.lift
+                 meta.current_module_name)]
+        (phase.lift (do try.monad
+                      [exprS (|> exprA (synthesisP.phase archive) (phase.run synthesis_state))]
+                      (phase.run generation_state
+                                 (do phase.monad
+                                   [exprO (generate archive exprS)
+                                    module_id (generation.module_id module archive)]
+                                   (generation.evaluate! (..context [module_id count]) exprO)))))))))

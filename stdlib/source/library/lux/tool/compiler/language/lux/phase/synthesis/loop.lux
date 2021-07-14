@@ -1,0 +1,187 @@
+(.module:
+  [library
+   [lux #*
+    [abstract
+     ["." monad (#+ do)]]
+    [data
+     ["." maybe ("#\." monad)]
+     [collection
+      ["." list]]]
+    [math
+     [number
+      ["n" nat]]]]]
+  [////
+   ["." analysis (#+ Environment)]
+   ["/" synthesis (#+ Path Abstraction Synthesis)]
+   [///
+    [arity (#+ Arity)]
+    ["." reference
+     ["." variable (#+ Register Variable)]]]])
+
+(type: #export (Transform a)
+  (-> a (Maybe a)))
+
+(def: #export (register_optimization offset)
+  (-> Register (-> Register Register))
+  (|>> dec (n.+ offset)))
+
+(def: (path_optimization body_optimization offset)
+  (-> (Transform Synthesis) Register (Transform Path))
+  (function (recur path)
+    (case path
+      (#/.Bind register)
+      (#.Some (#/.Bind (register_optimization offset register)))
+
+      (^template [<tag>]
+        [(<tag> left right)
+         (do maybe.monad
+           [left' (recur left)
+            right' (recur right)]
+           (wrap (<tag> left' right')))])
+      ([#/.Alt] [#/.Seq])
+
+      (#/.Bit_Fork when then else)
+      (do {! maybe.monad}
+        [then (recur then)
+         else (case else
+                (#.Some else)
+                (\ ! map (|>> #.Some) (recur else))
+
+                #.None
+                (wrap #.None))]
+        (wrap (#/.Bit_Fork when then else)))
+      
+      (^template [<tag>]
+        [(<tag> [[test then] elses])
+         (do {! maybe.monad}
+           [then (recur then)
+            elses (monad.map ! (function (_ [else_test else_then])
+                                 (do !
+                                   [else_then (recur else_then)]
+                                   (wrap [else_test else_then])))
+                             elses)]
+           (wrap (<tag> [[test then] elses])))])
+      ([#/.I64_Fork]
+       [#/.F64_Fork]
+       [#/.Text_Fork])
+      
+      (#/.Then body)
+      (|> body
+          body_optimization
+          (maybe\map (|>> #/.Then)))
+
+      _
+      (#.Some path))))
+
+(def: (body_optimization true_loop? offset scope_environment arity expr)
+  (-> Bit Register (Environment Synthesis) Arity (Transform Synthesis))
+  (loop [return? true
+         expr expr]
+    (case expr
+      (#/.Primitive _)
+      (#.Some expr)
+
+      (#/.Structure structure)
+      (case structure
+        (#analysis.Variant variant)
+        (do maybe.monad
+          [value' (|> variant (get@ #analysis.value) (recur false))]
+          (wrap (|> variant
+                    (set@ #analysis.value value')
+                    /.variant)))
+        
+        (#analysis.Tuple tuple)
+        (|> tuple
+            (monad.map maybe.monad (recur false))
+            (maybe\map (|>> /.tuple))))
+
+      (#/.Reference reference)
+      (case reference
+        (^ (#reference.Variable (variable.self)))
+        (if true_loop?
+          #.None
+          (#.Some expr))
+        
+        (^ (reference.constant constant))
+        (#.Some expr)
+
+        (^ (reference.local register))
+        (#.Some (#/.Reference (reference.local (register_optimization offset register))))
+
+        (^ (reference.foreign register))
+        (if true_loop?
+          (list.nth register scope_environment)
+          (#.Some expr)))
+
+      (^ (/.branch/case [input path]))
+      (do maybe.monad
+        [input' (recur false input)
+         path' (path_optimization (recur return?) offset path)]
+        (wrap (|> path' [input'] /.branch/case)))
+
+      (^ (/.branch/let [input register body]))
+      (do maybe.monad
+        [input' (recur false input)
+         body' (recur return? body)]
+        (wrap (/.branch/let [input' (register_optimization offset register) body'])))
+
+      (^ (/.branch/if [input then else]))
+      (do maybe.monad
+        [input' (recur false input)
+         then' (recur return? then)
+         else' (recur return? else)]
+        (wrap (/.branch/if [input' then' else'])))
+
+      (^ (/.branch/get [path record]))
+      (do maybe.monad
+        [record (recur false record)]
+        (wrap (/.branch/get [path record])))
+
+      (^ (/.loop/scope scope))
+      (do {! maybe.monad}
+        [inits' (|> scope
+                    (get@ #/.inits)
+                    (monad.map ! (recur false)))
+         iteration' (recur return? (get@ #/.iteration scope))]
+        (wrap (/.loop/scope {#/.start (|> scope (get@ #/.start) (register_optimization offset))
+                             #/.inits inits'
+                             #/.iteration iteration'})))
+
+      (^ (/.loop/recur args))
+      (|> args
+          (monad.map maybe.monad (recur false))
+          (maybe\map (|>> /.loop/recur)))
+
+      (^ (/.function/abstraction [environment arity body]))
+      (do {! maybe.monad}
+        [environment' (monad.map ! (recur false) environment)]
+        (wrap (/.function/abstraction [environment' arity body])))
+      
+      (^ (/.function/apply [abstraction arguments]))
+      (do {! maybe.monad}
+        [arguments' (monad.map maybe.monad (recur false) arguments)]
+        (with_expansions [<application> (as_is (do !
+                                                 [abstraction' (recur false abstraction)]
+                                                 (wrap (/.function/apply [abstraction' arguments']))))]
+          (case abstraction
+            (^ (#/.Reference (#reference.Variable (variable.self))))
+            (if (and return?
+                     (n.= arity (list.size arguments)))
+              (wrap (/.loop/recur arguments'))
+              (if true_loop?
+                #.None
+                <application>))
+            
+            _
+            <application>)))
+
+      (#/.Extension [name args])
+      (|> args
+          (monad.map maybe.monad (recur false))
+          (maybe\map (|>> [name] #/.Extension))))))
+
+(def: #export (optimization true_loop? offset inits functionS)
+  (-> Bit Register (List Synthesis) Abstraction (Maybe [Register (List Synthesis) Synthesis]))
+  (|> (get@ #/.body functionS)
+      (body_optimization true_loop? offset (get@ #/.environment functionS) (get@ #/.arity functionS))
+      (maybe\map (|>> [offset inits]))))

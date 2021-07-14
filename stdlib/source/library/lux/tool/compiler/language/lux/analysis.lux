@@ -1,0 +1,556 @@
+(.module:
+  [library
+   [lux (#- nat int rev)
+    [abstract
+     [equivalence (#+ Equivalence)]
+     [hash (#+ Hash)]
+     [monad (#+ do)]]
+    [control
+     ["." function]
+     ["." try]
+     ["." exception (#+ Exception)]]
+    [data
+     ["." product]
+     ["." maybe]
+     ["." bit ("#\." equivalence)]
+     ["." text ("#\." equivalence)
+      ["%" format (#+ Format format)]]
+     [collection
+      ["." list ("#\." functor fold)]]]
+    [math
+     [number
+      ["n" nat]
+      ["i" int]
+      ["r" rev]
+      ["f" frac]]]
+    [meta
+     ["." location]]]]
+  [//
+   [phase
+    ["." extension (#+ Extension)]]
+   [///
+    [arity (#+ Arity)]
+    [version (#+ Version)]
+    ["." phase]
+    ["." reference (#+ Reference)
+     ["." variable (#+ Register Variable)]]]])
+
+(type: #export #rec Primitive
+  #Unit
+  (#Bit Bit)
+  (#Nat Nat)
+  (#Int Int)
+  (#Rev Rev)
+  (#Frac Frac)
+  (#Text Text))
+
+(type: #export Tag
+  Nat)
+
+(type: #export (Variant a)
+  {#lefts Nat
+   #right? Bit
+   #value a})
+
+(def: #export (tag lefts right?)
+  (-> Nat Bit Nat)
+  (if right?
+    (inc lefts)
+    lefts))
+
+(def: (lefts tag right?)
+  (-> Nat Bit Nat)
+  (if right?
+    (dec tag)
+    tag))
+
+(def: #export (choice options pick)
+  (-> Nat Nat [Nat Bit])
+  (let [right? (n.= (dec options) pick)]
+    [(..lefts pick right?)
+     right?]))
+
+(type: #export (Tuple a)
+  (List a))
+
+(type: #export (Composite a)
+  (#Variant (Variant a))
+  (#Tuple (Tuple a)))
+
+(type: #export #rec Pattern
+  (#Simple Primitive)
+  (#Complex (Composite Pattern))
+  (#Bind Register))
+
+(type: #export (Branch' e)
+  {#when Pattern
+   #then e})
+
+(type: #export (Match' e)
+  [(Branch' e) (List (Branch' e))])
+
+(type: #export (Environment a)
+  (List a))
+
+(type: #export #rec Analysis
+  (#Primitive Primitive)
+  (#Structure (Composite Analysis))
+  (#Reference Reference)
+  (#Case Analysis (Match' Analysis))
+  (#Function (Environment Analysis) Analysis)
+  (#Apply Analysis Analysis)
+  (#Extension (Extension Analysis)))
+
+(type: #export Branch
+  (Branch' Analysis))
+
+(type: #export Match
+  (Match' Analysis))
+
+(implementation: primitive_equivalence
+  (Equivalence Primitive)
+
+  (def: (= reference sample)
+    (case [reference sample]
+      [#Unit #Unit]
+      true
+      
+      (^template [<tag> <=>]
+        [[(<tag> reference) (<tag> sample)]
+         (<=> reference sample)])
+      ([#Bit bit\=]
+       [#Nat n.=]
+       [#Int i.=]
+       [#Rev r.=]
+       [#Frac f.=]
+       [#Text text\=])
+      
+      _
+      false)))
+
+(implementation: #export (composite_equivalence (^open "/\."))
+  (All [a] (-> (Equivalence a) (Equivalence (Composite a))))
+  
+  (def: (= reference sample)
+    (case [reference sample]
+      [(#Variant [reference_lefts reference_right? reference_value])
+       (#Variant [sample_lefts sample_right? sample_value])]
+      (and (n.= reference_lefts sample_lefts)
+           (bit\= reference_right? sample_right?)
+           (/\= reference_value sample_value))
+      
+      [(#Tuple reference) (#Tuple sample)]
+      (\ (list.equivalence /\=) = reference sample)
+
+      _
+      false)))
+
+(implementation: #export (composite_hash super)
+  (All [a] (-> (Hash a) (Hash (Composite a))))
+
+  (def: &equivalence
+    (..composite_equivalence (\ super &equivalence)))
+  
+  (def: (hash value)
+    (case value
+      (#Variant [lefts right? value])
+      ($_ n.* 2
+          (\ n.hash hash lefts)
+          (\ bit.hash hash right?)
+          (\ super hash value))
+      
+      (#Tuple members)
+      ($_ n.* 3
+          (\ (list.hash super) hash members))
+      )))
+
+(implementation: pattern_equivalence
+  (Equivalence Pattern)
+
+  (def: (= reference sample)
+    (case [reference sample]
+      [(#Simple reference) (#Simple sample)]
+      (\ primitive_equivalence = reference sample)
+      
+      [(#Complex reference) (#Complex sample)]
+      (\ (composite_equivalence =) = reference sample)
+
+      [(#Bind reference) (#Bind sample)]
+      (n.= reference sample)
+
+      _
+      false)))
+
+(implementation: (branch_equivalence equivalence)
+  (-> (Equivalence Analysis) (Equivalence Branch))
+
+  (def: (= [reference_pattern reference_body] [sample_pattern sample_body])
+    (and (\ pattern_equivalence = reference_pattern sample_pattern)
+         (\ equivalence = reference_body sample_body))))
+
+(implementation: #export equivalence
+  (Equivalence Analysis)
+
+  (def: (= reference sample)
+    (case [reference sample]
+      [(#Primitive reference) (#Primitive sample)]
+      (\ primitive_equivalence = reference sample)
+
+      [(#Structure reference) (#Structure sample)]
+      (\ (composite_equivalence =) = reference sample)
+
+      [(#Reference reference) (#Reference sample)]
+      (\ reference.equivalence = reference sample)
+
+      [(#Case [reference_analysis reference_match])
+       (#Case [sample_analysis sample_match])]
+      (and (= reference_analysis sample_analysis)
+           (\ (list.equivalence (branch_equivalence =)) = (#.Cons reference_match) (#.Cons sample_match)))
+
+      [(#Function [reference_environment reference_analysis])
+       (#Function [sample_environment sample_analysis])]
+      (and (= reference_analysis sample_analysis)
+           (\ (list.equivalence =) = reference_environment sample_environment))
+
+      [(#Apply [reference_input reference_abstraction])
+       (#Apply [sample_input sample_abstraction])]
+      (and (= reference_input sample_input)
+           (= reference_abstraction sample_abstraction))
+
+      [(#Extension reference) (#Extension sample)]
+      (\ (extension.equivalence =) = reference sample)
+
+      _
+      false)))
+
+(template [<name> <tag>]
+  [(template: #export (<name> content)
+     (<tag> content))]
+
+  [control/case #..Case]
+  )
+
+(template: #export (unit)
+  (#..Primitive #..Unit))
+
+(template [<name> <tag>]
+  [(template: #export (<name> value)
+     (#..Primitive (<tag> value)))]
+
+  [bit  #..Bit]
+  [nat  #..Nat]
+  [int  #..Int]
+  [rev  #..Rev]
+  [frac #..Frac]
+  [text #..Text]
+  )
+
+(type: #export (Abstraction c)
+  [(Environment c) Arity c])
+
+(type: #export (Application c)
+  [c (List c)])
+
+(def: (last? size tag)
+  (-> Nat Tag Bit)
+  (n.= (dec size) tag))
+
+(template: #export (no_op value)
+  (|> 1 #variable.Local #reference.Variable #..Reference
+      (#..Function (list))
+      (#..Apply value)))
+
+(def: #export (apply [abstraction inputs])
+  (-> (Application Analysis) Analysis)
+  (list\fold (function (_ input abstraction')
+               (#Apply input abstraction'))
+             abstraction
+             inputs))
+
+(def: #export (application analysis)
+  (-> Analysis (Application Analysis))
+  (loop [abstraction analysis
+         inputs (list)]
+    (case abstraction
+      (#Apply input next)
+      (recur next (#.Cons input inputs))
+
+      _
+      [abstraction inputs])))
+
+(template [<name> <tag>]
+  [(template: #export (<name> content)
+     (.<| #..Reference
+          <tag>
+          content))]
+
+  [variable         #reference.Variable]
+  [constant         #reference.Constant]
+
+  [variable/local   reference.local]
+  [variable/foreign reference.foreign]
+  )
+
+(template [<name> <tag>]
+  [(template: #export (<name> content)
+     (.<| #..Complex
+          <tag>
+          content))]
+
+  [pattern/variant #..Variant]
+  [pattern/tuple   #..Tuple]
+  )
+
+(template [<name> <tag>]
+  [(template: #export (<name> content)
+     (.<| #..Structure
+          <tag>
+          content))]
+
+  [variant #..Variant]
+  [tuple   #..Tuple]
+  )
+
+(template: #export (pattern/unit)
+  (#..Simple #..Unit))
+
+(template [<name> <tag>]
+  [(template: #export (<name> content)
+     (#..Simple (<tag> content)))]
+  
+  [pattern/bit  #..Bit]
+  [pattern/nat  #..Nat]
+  [pattern/int  #..Int]
+  [pattern/rev  #..Rev]
+  [pattern/frac #..Frac]
+  [pattern/text #..Text]
+  )
+
+(template: #export (pattern/bind register)
+  (#..Bind register))
+
+(def: #export (%analysis analysis)
+  (Format Analysis)
+  (case analysis
+    (#Primitive primitive)
+    (case primitive
+      #Unit
+      "[]"
+
+      (^template [<tag> <format>]
+        [(<tag> value)
+         (<format> value)])
+      ([#Bit %.bit]
+       [#Nat %.nat]
+       [#Int %.int]
+       [#Rev %.rev]
+       [#Frac %.frac]
+       [#Text %.text]))
+    
+    (#Structure structure)
+    (case structure
+      (#Variant [lefts right? value])
+      (format "(" (%.nat lefts) " " (%.bit right?) " " (%analysis value) ")")
+      
+      (#Tuple members)
+      (|> members
+          (list\map %analysis)
+          (text.join_with " ")
+          (text.enclose ["[" "]"])))
+    
+    (#Reference reference)
+    (reference.format reference)
+    
+    (#Case analysis match)
+    "{?}"
+    
+    (#Function environment body)
+    (|> (%analysis body)
+        (format " ")
+        (format (|> environment
+                    (list\map %analysis)
+                    (text.join_with " ")
+                    (text.enclose ["[" "]"])))
+        (text.enclose ["(" ")"]))
+    
+    (#Apply _)
+    (|> analysis
+        ..application
+        #.Cons
+        (list\map %analysis)
+        (text.join_with " ")
+        (text.enclose ["(" ")"]))
+    
+    (#Extension name parameters)
+    (|> parameters
+        (list\map %analysis)
+        (text.join_with " ")
+        (format (%.text name) " ")
+        (text.enclose ["(" ")"]))))
+
+(template [<special> <general>]
+  [(type: #export <special>
+     (<general> .Lux Code Analysis))]
+
+  [State+    extension.State]
+  [Operation extension.Operation]
+  [Phase     extension.Phase]
+  [Handler   extension.Handler]
+  [Bundle    extension.Bundle]
+  )
+
+(def: #export (with_source_code source action)
+  (All [a] (-> Source (Operation a) (Operation a)))
+  (function (_ [bundle state])
+    (let [old_source (get@ #.source state)]
+      (case (action [bundle (set@ #.source source state)])
+        (#try.Success [[bundle' state'] output])
+        (#try.Success [[bundle' (set@ #.source old_source state')]
+                       output])
+
+        (#try.Failure error)
+        (#try.Failure error)))))
+
+(def: fresh_bindings
+  (All [k v] (Bindings k v))
+  {#.counter 0
+   #.mappings (list)})
+
+(def: fresh_scope
+  Scope
+  {#.name     (list)
+   #.inner    0
+   #.locals   fresh_bindings
+   #.captured fresh_bindings})
+
+(def: #export (with_scope action)
+  (All [a] (-> (Operation a) (Operation [Scope a])))
+  (function (_ [bundle state])
+    (case (action [bundle (update@ #.scopes (|>> (#.Cons fresh_scope)) state)])
+      (#try.Success [[bundle' state'] output])
+      (case (get@ #.scopes state')
+        (#.Cons head tail)
+        (#try.Success [[bundle' (set@ #.scopes tail state')]
+                       [head output]])
+
+        #.Nil
+        (#try.Failure "Impossible error: Drained scopes!"))
+
+      (#try.Failure error)
+      (#try.Failure error))))
+
+(def: #export (with_current_module name)
+  (All [a] (-> Text (Operation a) (Operation a)))
+  (extension.localized (get@ #.current_module)
+                       (set@ #.current_module)
+                       (function.constant (#.Some name))))
+
+(def: #export (with_location location action)
+  (All [a] (-> Location (Operation a) (Operation a)))
+  (if (text\= "" (product.left location))
+    action
+    (function (_ [bundle state])
+      (let [old_location (get@ #.location state)]
+        (case (action [bundle (set@ #.location location state)])
+          (#try.Success [[bundle' state'] output])
+          (#try.Success [[bundle' (set@ #.location old_location state')]
+                         output])
+
+          (#try.Failure error)
+          (#try.Failure error))))))
+
+(def: (locate_error location error)
+  (-> Location Text Text)
+  (format (%.location location) text.new_line
+          error))
+
+(def: #export (fail error)
+  (-> Text Operation)
+  (function (_ [bundle state])
+    (#try.Failure (locate_error (get@ #.location state) error))))
+
+(def: #export (throw exception parameters)
+  (All [e] (-> (Exception e) e Operation))
+  (..fail (exception.construct exception parameters)))
+
+(def: #export (assert exception parameters condition)
+  (All [e] (-> (Exception e) e Bit (Operation Any)))
+  (if condition
+    (\ phase.monad wrap [])
+    (..throw exception parameters)))
+
+(def: #export (fail' error)
+  (-> Text (phase.Operation Lux))
+  (function (_ state)
+    (#try.Failure (locate_error (get@ #.location state) error))))
+
+(def: #export (throw' exception parameters)
+  (All [e] (-> (Exception e) e (phase.Operation Lux)))
+  (..fail' (exception.construct exception parameters)))
+
+(def: #export (with_stack exception message action)
+  (All [e o] (-> (Exception e) e (Operation o) (Operation o)))
+  (function (_ bundle,state)
+    (case (exception.with exception message
+            (action bundle,state))
+      (#try.Success output)
+      (#try.Success output)
+      
+      (#try.Failure error)
+      (let [[bundle state] bundle,state]
+        (#try.Failure (locate_error (get@ #.location state) error))))))
+
+(def: #export (install state)
+  (-> .Lux (Operation Any))
+  (function (_ [bundle _])
+    (#try.Success [[bundle state]
+                   []])))
+
+(template [<name> <type> <field> <value>]
+  [(def: #export (<name> value)
+     (-> <type> (Operation Any))
+     (extension.update (set@ <field> <value>)))]
+
+  [set_source_code    Source   #.source         value]
+  [set_current_module Text     #.current_module (#.Some value)]
+  [set_location       Location #.location       value]
+  )
+
+(def: #export (location file)
+  (-> Text Location)
+  [file 1 0])
+
+(def: #export (source file code)
+  (-> Text Text Source)
+  [(location file) 0 code])
+
+(def: dummy_source
+  Source
+  [location.dummy 0 ""])
+
+(def: type_context
+  Type_Context
+  {#.ex_counter 0
+   #.var_counter 0
+   #.var_bindings (list)})
+
+(def: #export (info version host)
+  (-> Version Text Info)
+  {#.target host
+   #.version (%.nat version)
+   #.mode #.Build})
+
+(def: #export (state info)
+  (-> Info Lux)
+  {#.info            info
+   #.source          ..dummy_source
+   #.location        location.dummy
+   #.current_module  #.None
+   #.modules         (list)
+   #.scopes          (list)
+   #.type_context    ..type_context
+   #.expected        #.None
+   #.seed            0
+   #.scope_type_vars (list)
+   #.extensions      []
+   #.host            []})

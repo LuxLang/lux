@@ -1,0 +1,266 @@
+(.module:
+  [library
+   [lux (#- Type if let case int)
+    [abstract
+     ["." monad (#+ do)]]
+    [control
+     ["." function]]
+    [data
+     [number
+      ["." i32]
+      ["n" nat]]
+     [collection
+      ["." list ("#\." fold)]]]
+    [target
+     [jvm
+      ["_" bytecode (#+ Label Bytecode) ("#\." monad)]
+      ["." type (#+ Type)
+       [category (#+ Method)]]]]]]
+  ["." // #_
+   ["#." type]
+   ["#." runtime (#+ Operation Phase Generator)]
+   ["#." value]
+   ["#." structure]
+   [////
+    ["." synthesis (#+ Path Synthesis)]
+    ["." generation]
+    [///
+     ["." phase ("operation\." monad)]
+     [reference
+      [variable (#+ Register)]]]]])
+
+(def: equals-name
+  "equals")
+
+(def: equals-type
+  (type.method [(list //type.value) type.boolean (list)]))
+
+(def: (pop-alt stack-depth)
+  (-> Nat (Bytecode Any))
+  (.case stack-depth
+    0 (_\wrap [])
+    1 _.pop
+    2 _.pop2
+    _ ## (n.> 2)
+    ($_ _.compose
+        _.pop2
+        (pop-alt (n.- 2 stack-depth)))))
+
+(def: int
+  (-> (I64 Any) (Bytecode Any))
+  (|>> .i64 i32.i32 _.int))
+
+(def: long
+  (-> (I64 Any) (Bytecode Any))
+  (|>> .int _.long))
+
+(def: double
+  (-> Frac (Bytecode Any))
+  (|>> _.double))
+
+(def: peek
+  (Bytecode Any)
+  ($_ _.compose
+      _.dup
+      (//runtime.get //runtime.stack-head)))
+
+(def: pop
+  (Bytecode Any)
+  ($_ _.compose
+      (//runtime.get //runtime.stack-tail)
+      (_.checkcast //type.stack)))
+
+(def: (left-projection lefts)
+  (-> Nat (Bytecode Any))
+  ($_ _.compose
+      (_.checkcast //type.tuple)
+      (..int lefts)
+      (.case lefts
+        0
+        _.aaload
+        
+        lefts
+        //runtime.left-projection)))
+
+(def: (right-projection lefts)
+  (-> Nat (Bytecode Any))
+  ($_ _.compose
+      (_.checkcast //type.tuple)
+      (..int lefts)
+      //runtime.right-projection))
+
+(def: (path' stack-depth @else @end phase archive path)
+  (-> Nat Label Label (Generator Path))
+  (.case path
+    #synthesis.Pop
+    (operation\wrap ..pop)
+    
+    (#synthesis.Bind register)
+    (operation\wrap ($_ _.compose
+                        ..peek
+                        (_.astore register)))
+
+    (#synthesis.Then bodyS)
+    (do phase.monad
+      [bodyG (phase archive bodyS)]
+      (wrap ($_ _.compose
+                (..pop-alt stack-depth)
+                bodyG
+                (_.goto @end))))
+    
+    (^template [<pattern> <right?>]
+      [(^ (<pattern> lefts))
+       (operation\wrap
+        (do _.monad
+          [@success _.new-label
+           @fail _.new-label]
+          ($_ _.compose
+              ..peek
+              (_.checkcast //type.variant)
+              (//structure.tag lefts <right?>)
+              (//structure.flag <right?>)
+              //runtime.case
+              _.dup
+              (_.ifnull @fail)
+              (_.goto @success)
+              (_.set-label @fail)
+              _.pop
+              (_.goto @else)
+              (_.set-label @success)
+              //runtime.push)))])
+    ([synthesis.side/left  false]
+     [synthesis.side/right true])
+
+    (^template [<pattern> <projection>]
+      [(^ (<pattern> lefts))
+       (operation\wrap ($_ _.compose
+                           ..peek
+                           (<projection> lefts)
+                           //runtime.push))])
+    ([synthesis.member/left ..left-projection]
+     [synthesis.member/right ..right-projection])
+
+    ## Extra optimization
+    (^ (synthesis.path/seq
+        (synthesis.member/left 0)
+        (synthesis.!bind-top register thenP)))
+    (do phase.monad
+      [thenG (path' stack-depth @else @end phase archive thenP)]
+      (wrap ($_ _.compose
+                ..peek
+                (_.checkcast //type.tuple)
+                _.iconst-0
+                _.aaload
+                (_.astore register)
+                thenG)))
+
+    ## Extra optimization
+    (^template [<pm> <projection>]
+      [(^ (synthesis.path/seq
+           (<pm> lefts)
+           (synthesis.!bind-top register thenP)))
+       (do phase.monad
+         [then! (path' stack-depth @else @end phase archive thenP)]
+         (wrap ($_ _.compose
+                   ..peek
+                   (_.checkcast //type.tuple)
+                   (..int lefts)
+                   <projection>
+                   (_.astore register)
+                   then!)))])
+    ([synthesis.member/left //runtime.left-projection]
+     [synthesis.member/right //runtime.right-projection])
+
+    (#synthesis.Alt leftP rightP)
+    (do phase.monad
+      [@alt-else //runtime.forge-label
+       left! (path' (inc stack-depth) @alt-else @end phase archive leftP)
+       right! (path' stack-depth @else @end phase archive rightP)]
+      (wrap ($_ _.compose
+                _.dup
+                left!
+                (_.set-label @alt-else)
+                _.pop
+                right!)))
+    
+    (#synthesis.Seq leftP rightP)
+    (do phase.monad
+      [left! (path' stack-depth @else @end phase archive leftP)
+       right! (path' stack-depth @else @end phase archive rightP)]
+      (wrap ($_ _.compose
+                left!
+                right!)))
+
+    _
+    (undefined)
+    ))
+
+(def: (path @end phase archive path)
+  (-> Label (Generator Path))
+  (do phase.monad
+    [@else //runtime.forge-label
+     pathG (..path' 1 @else @end phase archive path)]
+    (wrap ($_ _.compose
+              pathG
+              (_.set-label @else)
+              _.pop
+              //runtime.pm-failure
+              _.aconst-null
+              (_.goto @end)))))
+
+(def: #export (if phase archive [conditionS thenS elseS])
+  (Generator [Synthesis Synthesis Synthesis])
+  (do phase.monad
+    [conditionG (phase archive conditionS)
+     thenG (phase archive thenS)
+     elseG (phase archive elseS)]
+    (wrap (do _.monad
+            [@else _.new-label
+             @end _.new-label]
+            ($_ _.compose
+                conditionG
+                (//value.unwrap type.boolean)
+                (_.ifeq @else)
+                thenG
+                (_.goto @end)
+                (_.set-label @else)
+                elseG
+                (_.set-label @end))))))
+
+(def: #export (let phase archive [inputS register bodyS])
+  (Generator [Synthesis Register Synthesis])
+  (do phase.monad
+    [inputG (phase archive inputS)
+     bodyG (phase archive bodyS)]
+    (wrap ($_ _.compose
+              inputG
+              (_.astore register)
+              bodyG))))
+
+(def: #export (get phase archive [path recordS])
+  (Generator [(List synthesis.Member) Synthesis])
+  (do phase.monad
+    [recordG (phase archive recordS)]
+    (wrap (list\fold (function (_ step so-far)
+                       (.let [next (.case step
+                                     (#.Left lefts)
+                                     (..left-projection lefts)
+                                     
+                                     (#.Right lefts)
+                                     (..right-projection lefts))]
+                         (_.compose so-far next)))
+                     recordG
+                     (list.reverse path)))))
+
+(def: #export (case phase archive [valueS path])
+  (Generator [Synthesis Path])
+  (do phase.monad
+    [@end //runtime.forge-label
+     valueG (phase archive valueS)
+     pathG (..path @end phase archive path)]
+    (wrap ($_ _.compose
+              _.aconst-null
+              valueG
+              //runtime.push
+              pathG
+              (_.set-label @end)))))

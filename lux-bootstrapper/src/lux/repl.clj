@@ -21,7 +21,7 @@
 
 (defn ^:private init [source-dirs]
   (do (&compiler/init!)
-    (|case ((|do [_ (&compiler/compile-module source-dirs "lux")
+    (|case ((|do [_ (&compiler/compile-module source-dirs &/prelude)
                   _ (&cache/delete repl-module)
                   _ (&module/create-module repl-module 0)
                   _ (fn [?state]

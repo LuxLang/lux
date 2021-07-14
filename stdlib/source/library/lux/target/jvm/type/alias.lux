@@ -1,0 +1,116 @@
+(.module:
+  [library
+   [lux (#- Type int char type primitive)
+    [abstract
+     ["." monad (#+ do)]]
+    [control
+     ["." try]
+     ["." exception (#+ exception:)]
+     ["<>" parser
+      ["<t>" text (#+ Parser)]]]
+    [data
+     ["." maybe]
+     ["." text
+      ["%" format (#+ format)]]
+     [collection
+      ["." dictionary (#+ Dictionary)]]]]]
+  ["." // (#+ Type)
+   [category (#+ Void Value Return Method Primitive Object Class Array Var Parameter)]
+   ["#." descriptor]
+   ["#." signature (#+ Signature)]
+   ["#." reflection]
+   ["#." parser]
+   ["/#" // #_
+    [encoding
+     ["#." name]]]])
+
+(type: #export Aliasing
+  (Dictionary Text Text))
+
+(def: #export fresh
+  Aliasing
+  (dictionary.new text.hash))
+
+(def: (var aliasing)
+  (-> Aliasing (Parser (Type Var)))
+  (do <>.monad
+    [var //parser.var']
+    (wrap (|> aliasing
+              (dictionary.get var)
+              (maybe.default var)
+              //.var))))
+
+(def: (class parameter)
+  (-> (Parser (Type Parameter)) (Parser (Type Class)))
+  (|> (do <>.monad
+        [name //parser.class_name
+         parameters (|> (<>.some parameter)
+                        (<>.after (<t>.this //signature.parameters_start))
+                        (<>.before (<t>.this //signature.parameters_end))
+                        (<>.default (list)))]
+        (wrap (//.class name parameters)))
+      (<>.after (<t>.this //descriptor.class_prefix))
+      (<>.before (<t>.this //descriptor.class_suffix))))
+
+(template [<name> <prefix> <bound> <constructor>]
+  [(def: <name>
+     (-> (Parser (Type Class)) (Parser (Type Parameter)))
+     (|>> (<>.after (<t>.this <prefix>))
+          (\ <>.monad map <bound>)))]
+
+  [lower //signature.lower_prefix //.lower ..Lower]
+  [upper //signature.upper_prefix //.upper ..Upper]
+  )
+
+(def: (parameter aliasing)
+  (-> Aliasing (Parser (Type Parameter)))
+  (<>.rec
+   (function (_ parameter)
+     (let [class (..class parameter)]
+       ($_ <>.either
+           (..var aliasing)
+           //parser.wildcard
+           (..lower class)
+           (..upper class)
+           class
+           )))))
+
+(def: (value aliasing)
+  (-> Aliasing (Parser (Type Value)))
+  (<>.rec
+   (function (_ value)
+     ($_ <>.either
+         //parser.primitive
+         (parameter aliasing)
+         (//parser.array' value)
+         ))))
+
+(def: (inputs aliasing)
+  (-> Aliasing (Parser (List (Type Value))))
+  (|> (<>.some (..value aliasing))
+      (<>.after (<t>.this //signature.arguments_start))
+      (<>.before (<t>.this //signature.arguments_end))))
+
+(def: (return aliasing)
+  (-> Aliasing (Parser (Type Return)))
+  ($_ <>.either
+      //parser.void
+      (..value aliasing)
+      ))
+
+(def: (exception aliasing)
+  (-> Aliasing (Parser (Type Class)))
+  (|> (..class (..parameter aliasing))
+      (<>.after (<t>.this //signature.exception_prefix))))
+
+(def: #export (method aliasing type)
+  (-> Aliasing (Type Method) (Type Method))
+  (|> type
+      //.signature
+      //signature.signature
+      (<t>.run (do <>.monad
+                 [inputs (..inputs aliasing)
+                  return (..return aliasing)
+                  exceptions (<>.some (..exception aliasing))]
+                 (wrap (//.method [inputs return exceptions]))))
+      try.assume))

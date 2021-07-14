@@ -1,0 +1,360 @@
+(.module:
+  [library
+   [lux (#- case let if)
+    [abstract
+     ["." monad (#+ do)]]
+    [control
+     [exception (#+ exception:)]]
+    [data
+     ["." text
+      ["%" format (#+ format)]]
+     [collection
+      ["." list ("#\." functor fold)]
+      ["." set]]]
+    [math
+     [number
+      ["n" nat]
+      ["i" int]]]
+    [target
+     ["_" ruby (#+ Expression LVar Statement)]]]]
+  ["." // #_
+   ["#." runtime (#+ Operation Phase Generator Phase! Generator!)]
+   ["#." reference]
+   ["#." primitive]
+   ["/#" // #_
+    ["#." reference]
+    ["/#" // #_
+     [synthesis
+      ["." case]]
+     ["/#" // #_
+      ["#." synthesis (#+ Member Synthesis Path)]
+      ["#." generation]
+      ["//#" /// #_
+       [reference
+        ["#." variable (#+ Register)]]
+       ["#." phase ("#\." monad)]
+       [meta
+        [archive (#+ Archive)]]]]]]])
+
+(def: #export (gensym prefix)
+  (-> Text (Operation LVar))
+  (///////phase\map (|>> %.nat (format prefix) _.local) /////generation.next))
+
+(def: #export register
+  (-> Register LVar)
+  (|>> (///reference.local //reference.system) :assume))
+
+(def: #export capture
+  (-> Register LVar)
+  (|>> (///reference.foreign //reference.system) :assume))
+
+(def: #export (let expression archive [valueS register bodyS])
+  (Generator [Synthesis Register Synthesis])
+  (do ///////phase.monad
+    [valueO (expression archive valueS)
+     bodyO (expression archive bodyS)]
+    ## TODO: Find some way to do 'let' without paying the price of the closure.
+    (wrap (|> bodyO
+              _.return
+              (_.lambda #.None (list (..register register)))
+              (_.apply_lambda/* (list valueO))))))
+
+(def: #export (let! statement expression archive [valueS register bodyS])
+  (Generator! [Synthesis Register Synthesis])
+  (do ///////phase.monad
+    [valueO (expression archive valueS)
+     bodyO (statement expression archive bodyS)]
+    (wrap ($_ _.then
+              (_.set (list (..register register)) valueO)
+              bodyO))))
+
+(def: #export (if expression archive [testS thenS elseS])
+  (Generator [Synthesis Synthesis Synthesis])
+  (do ///////phase.monad
+    [testO (expression archive testS)
+     thenO (expression archive thenS)
+     elseO (expression archive elseS)]
+    (wrap (_.? testO thenO elseO))))
+
+(def: #export (if! statement expression archive [testS thenS elseS])
+  (Generator! [Synthesis Synthesis Synthesis])
+  (do ///////phase.monad
+    [test! (expression archive testS)
+     then! (statement expression archive thenS)
+     else! (statement expression archive elseS)]
+    (wrap (_.if test!
+            then!
+            else!))))
+
+(def: #export (get expression archive [pathP valueS])
+  (Generator [(List Member) Synthesis])
+  (do ///////phase.monad
+    [valueO (expression archive valueS)]
+    (wrap (list\fold (function (_ side source)
+                       (.let [method (.case side
+                                       (^template [<side> <accessor>]
+                                         [(<side> lefts)
+                                          (<accessor> (_.int (.int lefts)))])
+                                       ([#.Left //runtime.tuple//left]
+                                        [#.Right //runtime.tuple//right]))]
+                         (method source)))
+                     valueO
+                     (list.reverse pathP)))))
+
+(def: @savepoint (_.local "lux_pm_savepoint"))
+(def: @cursor (_.local "lux_pm_cursor"))
+(def: @temp (_.local "lux_pm_temp"))
+
+(def: (push! value)
+  (-> Expression Statement)
+  (_.statement (|> @cursor (_.do "push" (list value)))))
+
+(def: peek_and_pop
+  Expression
+  (|> @cursor (_.do "pop" (list))))
+
+(def: pop!
+  Statement
+  (_.statement ..peek_and_pop))
+
+(def: peek
+  Expression
+  (_.nth (_.int -1) @cursor))
+
+(def: save!
+  Statement
+  (.let [cursor (_.array_range (_.int +0) (_.int -1) @cursor)]
+    (_.statement (|> @savepoint (_.do "push" (list cursor))))))
+
+(def: restore!
+  Statement
+  (_.set (list @cursor) (|> @savepoint (_.do "pop" (list)))))
+
+(def: fail! _.break)
+
+(def: (multi_pop! pops)
+  (-> Nat Statement)
+  (_.statement (_.do "slice!" (list (_.int (i.* -1 (.int pops)))
+                                    (_.int (.int pops)))
+                 @cursor)))
+
+(template [<name> <flag> <prep>]
+  [(def: (<name> simple? idx)
+     (-> Bit Nat Statement)
+     ($_ _.then
+         (_.set (list @temp) (|> idx <prep> .int _.int (//runtime.sum//get ..peek <flag>)))
+         (.if simple?
+           (_.when (_.= _.nil @temp)
+                   fail!)
+           (_.if (_.= _.nil @temp)
+             fail!
+             (..push! @temp)))))]
+
+  [left_choice  _.nil         (<|)]
+  [right_choice (_.string "") inc]
+  )
+
+(def: (with_looping in_closure? g!once g!continue? body!)
+  (-> Bit LVar LVar Statement Statement)
+  (.if in_closure?
+    ($_ _.then
+        (_.while (_.bool true)
+                 body!))
+    ($_ _.then
+        (_.set (list g!once) (_.bool true))
+        (_.set (list g!continue?) (_.bool false))
+        (<| (_.while (_.bool true))
+            (_.if g!once
+              ($_ _.then
+                  (_.set (list g!once) (_.bool false))
+                  body!)
+              ($_ _.then
+                  (_.set (list g!continue?) (_.bool true))
+                  _.break)))
+        (_.when g!continue?
+                _.next))))
+
+(def: (alternation in_closure? g!once g!continue? pre! post!)
+  (-> Bit LVar LVar Statement Statement Statement)
+  ($_ _.then
+      (with_looping in_closure? g!once g!continue?
+        ($_ _.then
+            ..save!
+            pre!))
+      ..restore!
+      post!))
+
+(def: (primitive_pattern_matching recur pathP)
+  (-> (-> Path (Operation Statement))
+      (-> Path (Operation (Maybe Statement))))
+  (.case pathP
+    (#/////synthesis.Bit_Fork when thenP elseP)
+    (do {! ///////phase.monad}
+      [then! (recur thenP)
+       else! (.case elseP
+               (#.Some elseP)
+               (recur elseP)
+
+               #.None
+               (wrap ..fail!))]
+      (wrap (#.Some (.if when
+                      (_.if ..peek
+                        then!
+                        else!)
+                      (_.if ..peek
+                        else!
+                        then!)))))
+
+    (^template [<tag> <format>]
+      [(<tag> cons)
+       (do {! ///////phase.monad}
+         [clauses (monad.map ! (function (_ [match then])
+                                 (\ ! map
+                                    (|>> [(_.= (|> match <format>)
+                                               ..peek)])
+                                    (recur then)))
+                             (#.Cons cons))]
+         (wrap (#.Some (_.cond clauses
+                               ..fail!))))])
+    ([#/////synthesis.I64_Fork (<| //primitive.i64 .int)]
+     [#/////synthesis.F64_Fork (<| //primitive.f64)]
+     [#/////synthesis.Text_Fork (<| //primitive.text)])
+
+    _
+    (\ ///////phase.monad wrap #.None)))
+
+(def: (pattern_matching' in_closure? statement expression archive)
+  (-> Bit (Generator! Path))
+  (function (recur pathP)
+    (do ///////phase.monad
+      [?output (primitive_pattern_matching recur pathP)]
+      (.case ?output
+        (#.Some output)
+        (wrap output)
+        
+        #.None
+        (.case pathP
+          (#/////synthesis.Then bodyS)
+          (statement expression archive bodyS)
+
+          #/////synthesis.Pop
+          (///////phase\wrap ..pop!)
+
+          (#/////synthesis.Bind register)
+          (///////phase\wrap (_.set (list (..register register)) ..peek))
+
+          (#/////synthesis.Bit_Fork when thenP elseP)
+          (do {! ///////phase.monad}
+            [then! (recur thenP)
+             else! (.case elseP
+                     (#.Some elseP)
+                     (recur elseP)
+
+                     #.None
+                     (wrap ..fail!))]
+            (wrap (.if when
+                    (_.if ..peek
+                      then!
+                      else!)
+                    (_.if ..peek
+                      else!
+                      then!))))
+
+          (^template [<tag> <format>]
+            [(<tag> cons)
+             (do {! ///////phase.monad}
+               [clauses (monad.map ! (function (_ [match then])
+                                       (\ ! map
+                                          (|>> [(_.= (|> match <format>)
+                                                     ..peek)])
+                                          (recur then)))
+                                   (#.Cons cons))]
+               (wrap (_.cond clauses
+                             ..fail!)))])
+          ([#/////synthesis.I64_Fork (<| //primitive.i64 .int)]
+           [#/////synthesis.F64_Fork (<| //primitive.f64)]
+           [#/////synthesis.Text_Fork (<| //primitive.text)])
+
+          (^template [<complex> <simple> <choice>]
+            [(^ (<complex> idx))
+             (///////phase\wrap (<choice> false idx))
+
+             (^ (<simple> idx nextP))
+             (|> nextP
+                 recur
+                 (///////phase\map (_.then (<choice> true idx))))])
+          ([/////synthesis.side/left  /////synthesis.simple_left_side  ..left_choice]
+           [/////synthesis.side/right /////synthesis.simple_right_side ..right_choice])
+
+          (^ (/////synthesis.member/left 0))
+          (///////phase\wrap (|> ..peek (_.nth (_.int +0)) ..push!))
+          
+          (^template [<pm> <getter>]
+            [(^ (<pm> lefts))
+             (///////phase\wrap (|> ..peek (<getter> (_.int (.int lefts))) ..push!))])
+          ([/////synthesis.member/left  //runtime.tuple//left]
+           [/////synthesis.member/right //runtime.tuple//right])
+
+          (^ (/////synthesis.!bind_top register thenP))
+          (do ///////phase.monad
+            [then! (recur thenP)]
+            (///////phase\wrap ($_ _.then
+                                   (_.set (list (..register register)) ..peek_and_pop)
+                                   then!)))
+
+          (^ (/////synthesis.!multi_pop nextP))
+          (.let [[extra_pops nextP'] (case.count_pops nextP)]
+            (do ///////phase.monad
+              [next! (recur nextP')]
+              (///////phase\wrap ($_ _.then
+                                     (..multi_pop! (n.+ 2 extra_pops))
+                                     next!))))
+
+          (^ (/////synthesis.path/seq preP postP))
+          (do ///////phase.monad
+            [pre! (recur preP)
+             post! (recur postP)]
+            (wrap ($_ _.then
+                      pre!
+                      post!)))
+
+          (^ (/////synthesis.path/alt preP postP))
+          (do ///////phase.monad
+            [pre! (recur preP)
+             post! (recur postP)
+             g!once (..gensym "once")
+             g!continue? (..gensym "continue")]
+            (wrap (..alternation in_closure? g!once g!continue? pre! post!)))
+
+          _
+          (undefined))))))
+
+(def: (pattern_matching in_closure? statement expression archive pathP)
+  (-> Bit (Generator! Path))
+  (do ///////phase.monad
+    [pattern_matching! (pattern_matching' in_closure? statement expression archive pathP)
+     g!once (..gensym "once")
+     g!continue? (..gensym "continue")]
+    (wrap ($_ _.then
+              (..with_looping in_closure? g!once g!continue?
+                pattern_matching!)
+              (_.statement (_.raise (_.string case.pattern_matching_error)))))))
+
+(def: #export (case! in_closure? statement expression archive [valueS pathP])
+  (-> Bit (Generator! [Synthesis Path]))
+  (do ///////phase.monad
+    [stack_init (expression archive valueS)
+     pattern_matching! (pattern_matching in_closure? statement expression archive pathP)]
+    (wrap ($_ _.then
+              (_.set (list @cursor) (_.array (list stack_init)))
+              (_.set (list @savepoint) (_.array (list)))
+              pattern_matching!
+              ))))
+
+(def: #export (case statement expression archive case)
+  (-> Phase! (Generator [Synthesis Path]))
+  (|> case
+      (case! true statement expression archive)
+      (\ ///////phase.monad map
+         (|>> (_.lambda #.None (list))
+              (_.apply_lambda/* (list))))))

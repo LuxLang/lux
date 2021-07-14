@@ -1,0 +1,325 @@
+(.module:
+  [library
+   [lux (#- case)
+    ["." meta]
+    [abstract
+     ["." monad (#+ do)]]
+    [control
+     ["." try]
+     ["." exception (#+ exception:)]]
+    [data
+     ["." product]
+     ["." maybe]
+     [text
+      ["%" format (#+ format)]]
+     [collection
+      ["." list ("#\." fold monoid functor)]]]
+    [math
+     [number
+      ["n" nat]]]
+    [macro
+     ["." code]]
+    ["." type
+     ["." check]]]]
+  ["." / #_
+   ["#." coverage (#+ Coverage)]
+   ["/#" // #_
+    ["#." scope]
+    ["#." type]
+    ["#." structure]
+    ["/#" // #_
+     ["#." extension]
+     [//
+      ["/" analysis (#+ Pattern Analysis Operation Phase)]
+      [///
+       ["#" phase]]]]]])
+
+(exception: #export (cannot_match_with_pattern {type Type} {pattern Code})
+  (exception.report
+   ["Type" (%.type type)]
+   ["Pattern" (%.code pattern)]))
+
+(exception: #export (sum_has_no_case {case Nat} {type Type})
+  (exception.report
+   ["Case" (%.nat case)]
+   ["Type" (%.type type)]))
+
+(exception: #export (not_a_pattern {code Code})
+  (exception.report ["Code" (%.code code)]))
+
+(exception: #export (cannot_simplify_for_pattern_matching {type Type})
+  (exception.report ["Type" (%.type type)]))
+
+(exception: #export (non_exhaustive_pattern_matching {input Code} {branches (List [Code Code])} {coverage Coverage})
+  (exception.report
+   ["Input" (%.code input)]
+   ["Branches" (%.code (code.record branches))]
+   ["Coverage" (/coverage.%coverage coverage)]))
+
+(exception: #export (cannot_have_empty_branches {message Text})
+  message)
+
+(def: (re_quantify envs baseT)
+  (-> (List (List Type)) Type Type)
+  (.case envs
+    #.Nil
+    baseT
+
+    (#.Cons head tail)
+    (re_quantify tail (#.UnivQ head baseT))))
+
+## Type-checking on the input value is done during the analysis of a
+## "case" expression, to ensure that the patterns being used make
+## sense for the type of the input value.
+## Sometimes, that input value is complex, by depending on
+## type-variables or quantifications.
+## This function makes it easier for "case" analysis to properly
+## type-check the input with respect to the patterns.
+(def: (simplify_case caseT)
+  (-> Type (Operation Type))
+  (loop [envs (: (List (List Type))
+                 (list))
+         caseT caseT]
+    (.case caseT
+      (#.Var id)
+      (do ///.monad
+        [?caseT' (//type.with_env
+                   (check.read id))]
+        (.case ?caseT'
+          (#.Some caseT')
+          (recur envs caseT')
+
+          _
+          (/.throw ..cannot_simplify_for_pattern_matching caseT)))
+
+      (#.Named name unnamedT)
+      (recur envs unnamedT)
+
+      (#.UnivQ env unquantifiedT)
+      (recur (#.Cons env envs) unquantifiedT)
+
+      (#.ExQ _)
+      (do ///.monad
+        [[var_id varT] (//type.with_env
+                         check.var)]
+        (recur envs (maybe.assume (type.apply (list varT) caseT))))
+
+      (#.Apply inputT funcT)
+      (.case funcT
+        (#.Var funcT_id)
+        (do ///.monad
+          [funcT' (//type.with_env
+                    (do check.monad
+                      [?funct' (check.read funcT_id)]
+                      (.case ?funct'
+                        (#.Some funct')
+                        (wrap funct')
+
+                        _
+                        (check.throw ..cannot_simplify_for_pattern_matching caseT))))]
+          (recur envs (#.Apply inputT funcT')))
+
+        _
+        (.case (type.apply (list inputT) funcT)
+          (#.Some outputT)
+          (recur envs outputT)
+
+          #.None
+          (/.throw ..cannot_simplify_for_pattern_matching caseT)))
+
+      (#.Product _)
+      (|> caseT
+          type.flatten_tuple
+          (list\map (re_quantify envs))
+          type.tuple
+          (\ ///.monad wrap))
+
+      _
+      (\ ///.monad wrap (re_quantify envs caseT)))))
+
+(def: (analyse_primitive type inputT location output next)
+  (All [a] (-> Type Type Location Pattern (Operation a) (Operation [Pattern a])))
+  (/.with_location location
+    (do ///.monad
+      [_ (//type.with_env
+           (check.check inputT type))
+       outputA next]
+      (wrap [output outputA]))))
+
+## This function handles several concerns at once, but it must be that
+## way because those concerns are interleaved when doing
+## pattern-matching and they cannot be separated.
+## The pattern is analysed in order to get a general feel for what is
+## expected of the input value. This, in turn, informs the
+## type-checking of the input.
+## A kind of "continuation" value is passed around which signifies
+## what needs to be done _after_ analysing a pattern.
+## In general, this is done to analyse the "body" expression
+## associated to a particular pattern _in the context of_ said
+## pattern.
+## The reason why *context* is important is because patterns may bind
+## values to local variables, which may in turn be referenced in the
+## body expressions.
+## That is why the body must be analysed in the context of the
+## pattern, and not separately.
+(def: (analyse_pattern num_tags inputT pattern next)
+  (All [a] (-> (Maybe Nat) Type Code (Operation a) (Operation [Pattern a])))
+  (.case pattern
+    [location (#.Identifier ["" name])]
+    (/.with_location location
+      (do ///.monad
+        [outputA (//scope.with_local [name inputT]
+                   next)
+         idx //scope.next_local]
+        (wrap [(#/.Bind idx) outputA])))
+
+    (^template [<type> <input> <output>]
+      [[location <input>]
+       (analyse_primitive <type> inputT location (#/.Simple <output>) next)])
+    ([Bit  (#.Bit pattern_value)  (#/.Bit pattern_value)]
+     [Nat  (#.Nat pattern_value)  (#/.Nat pattern_value)]
+     [Int  (#.Int pattern_value)  (#/.Int pattern_value)]
+     [Rev  (#.Rev pattern_value)  (#/.Rev pattern_value)]
+     [Frac (#.Frac pattern_value) (#/.Frac pattern_value)]
+     [Text (#.Text pattern_value) (#/.Text pattern_value)]
+     [Any  (#.Tuple #.Nil)        #/.Unit])
+    
+    (^ [location (#.Tuple (list singleton))])
+    (analyse_pattern #.None inputT singleton next)
+    
+    [location (#.Tuple sub_patterns)]
+    (/.with_location location
+      (do {! ///.monad}
+        [inputT' (simplify_case inputT)]
+        (.case inputT'
+          (#.Product _)
+          (let [subs (type.flatten_tuple inputT')
+                num_subs (maybe.default (list.size subs)
+                                        num_tags)
+                num_sub_patterns (list.size sub_patterns)
+                matches (cond (n.< num_subs num_sub_patterns)
+                              (let [[prefix suffix] (list.split (dec num_sub_patterns) subs)]
+                                (list.zip/2 (list\compose prefix (list (type.tuple suffix))) sub_patterns))
+
+                              (n.> num_subs num_sub_patterns)
+                              (let [[prefix suffix] (list.split (dec num_subs) sub_patterns)]
+                                (list.zip/2 subs (list\compose prefix (list (code.tuple suffix)))))
+                              
+                              ## (n.= num_subs num_sub_patterns)
+                              (list.zip/2 subs sub_patterns))]
+            (do !
+              [[memberP+ thenA] (list\fold (: (All [a]
+                                                (-> [Type Code] (Operation [(List Pattern) a])
+                                                    (Operation [(List Pattern) a])))
+                                              (function (_ [memberT memberC] then)
+                                                (do !
+                                                  [[memberP [memberP+ thenA]] ((:as (All [a] (-> (Maybe Nat) Type Code (Operation a) (Operation [Pattern a])))
+                                                                                    analyse_pattern)
+                                                                               #.None memberT memberC then)]
+                                                  (wrap [(list& memberP memberP+) thenA]))))
+                                           (do !
+                                             [nextA next]
+                                             (wrap [(list) nextA]))
+                                           (list.reverse matches))]
+              (wrap [(/.pattern/tuple memberP+)
+                     thenA])))
+
+          _
+          (/.throw ..cannot_match_with_pattern [inputT' pattern])
+          )))
+
+    [location (#.Record record)]
+    (do ///.monad
+      [record (//structure.normalize record)
+       [members recordT] (//structure.order record)
+       _ (.case inputT
+           (#.Var _id)
+           (//type.with_env
+             (check.check inputT recordT))
+
+           _
+           (wrap []))]
+      (analyse_pattern (#.Some (list.size members)) inputT [location (#.Tuple members)] next))
+
+    [location (#.Tag tag)]
+    (/.with_location location
+      (analyse_pattern #.None inputT (` ((~ pattern))) next))
+
+    (^ [location (#.Form (list& [_ (#.Nat lefts)] [_ (#.Bit right?)] values))])
+    (/.with_location location
+      (do ///.monad
+        [inputT' (simplify_case inputT)]
+        (.case inputT'
+          (#.Sum _)
+          (let [flat_sum (type.flatten_variant inputT')
+                size_sum (list.size flat_sum)
+                num_cases (maybe.default size_sum num_tags)
+                idx (/.tag lefts right?)]
+            (.case (list.nth idx flat_sum)
+              (^multi (#.Some caseT)
+                      (n.< num_cases idx))
+              (do ///.monad
+                [[testP nextA] (if (and (n.> num_cases size_sum)
+                                        (n.= (dec num_cases) idx))
+                                 (analyse_pattern #.None
+                                                  (type.variant (list.drop (dec num_cases) flat_sum))
+                                                  (` [(~+ values)])
+                                                  next)
+                                 (analyse_pattern #.None caseT (` [(~+ values)]) next))]
+                (wrap [(/.pattern/variant [lefts right? testP])
+                       nextA]))
+
+              _
+              (/.throw ..sum_has_no_case [idx inputT])))
+
+          (#.UnivQ _)
+          (do ///.monad
+            [[ex_id exT] (//type.with_env
+                           check.existential)]
+            (analyse_pattern num_tags
+                             (maybe.assume (type.apply (list exT) inputT'))
+                             pattern
+                             next))
+          
+          _
+          (/.throw ..cannot_match_with_pattern [inputT' pattern]))))
+
+    (^ [location (#.Form (list& [_ (#.Tag tag)] values))])
+    (/.with_location location
+      (do ///.monad
+        [tag (///extension.lift (meta.normalize tag))
+         [idx group variantT] (///extension.lift (meta.resolve_tag tag))
+         _ (//type.with_env
+             (check.check inputT variantT))
+         #let [[lefts right?] (/.choice (list.size group) idx)]]
+        (analyse_pattern (#.Some (list.size group)) inputT (` ((~ (code.nat lefts)) (~ (code.bit right?)) (~+ values))) next)))
+
+    _
+    (/.throw ..not_a_pattern pattern)
+    ))
+
+(def: #export (case analyse branches archive inputC)
+  (-> Phase (List [Code Code]) Phase)
+  (.case branches
+    (#.Cons [patternH bodyH] branchesT)
+    (do {! ///.monad}
+      [[inputT inputA] (//type.with_inference
+                         (analyse archive inputC))
+       outputH (analyse_pattern #.None inputT patternH (analyse archive bodyH))
+       outputT (monad.map !
+                          (function (_ [patternT bodyT])
+                            (analyse_pattern #.None inputT patternT (analyse archive bodyT)))
+                          branchesT)
+       outputHC (|> outputH product.left /coverage.determine)
+       outputTC (monad.map ! (|>> product.left /coverage.determine) outputT)
+       _ (.case (monad.fold try.monad /coverage.merge outputHC outputTC)
+           (#try.Success coverage)
+           (///.assert non_exhaustive_pattern_matching [inputC branches coverage]
+                       (/coverage.exhaustive? coverage))
+
+           (#try.Failure error)
+           (/.fail error))]
+      (wrap (#/.Case inputA [outputH outputT])))
+
+    #.Nil
+    (/.throw ..cannot_have_empty_branches "")))

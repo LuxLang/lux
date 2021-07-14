@@ -1,0 +1,115 @@
+(.module:
+  [library
+   [lux #*
+    [ffi (#+ import:)]
+    ["@" target]
+    [control
+     ["." function]]
+    [data
+     ["." product]
+     [text
+      ["%" format (#+ format)]]
+     [collection
+      ["." array]
+      ["." row (#+ Row) ("#\." fold)]]]
+    [math
+     [number
+      ["n" nat]]]
+    [type
+     abstract]]]
+  ["." //])
+
+(with_expansions [<jvm> (as_is (import: java/lang/CharSequence)
+
+                               (import: java/lang/Appendable
+                                 ["#::."
+                                  (append [java/lang/CharSequence] java/lang/Appendable)])
+
+                               (import: java/lang/String
+                                 ["#::."
+                                  (new [int])
+                                  (toString [] java/lang/String)])
+
+                               (import: java/lang/StringBuilder
+                                 ["#::."
+                                  (new [int])
+                                  (toString [] java/lang/String)]))]
+  (`` (for {@.old (as_is <jvm>)
+            @.jvm (as_is <jvm>)
+            @.lua (as_is (import: (table/concat [(array.Array Text) Text] Text))
+                         ##https://www.lua.org/manual/5.3/manual.html#pdf-table.concat
+                         (import: (table/insert [(array.Array Text) Text] #? Nothing))
+                         ## https://www.lua.org/manual/5.3/manual.html#pdf-table.insert
+                         )}
+           (as_is))))
+
+(`` (abstract: #export Buffer
+      (for {@.old [Nat (-> java/lang/StringBuilder java/lang/StringBuilder)]
+            @.jvm [Nat (-> java/lang/StringBuilder java/lang/StringBuilder)]
+            @.lua [Nat (-> (array.Array Text) (array.Array Text))]}
+           ## default
+           (Row Text))
+
+      {#.doc "Immutable text buffer for efficient text concatenation."}
+
+      (def: #export empty
+        Buffer
+        (:abstraction (with_expansions [<jvm> [0 function.identity]]
+                        (for {@.old <jvm>
+                              @.jvm <jvm>
+                              @.lua [0 function.identity]}
+                             ## default
+                             row.empty))))
+
+      (def: #export (append chunk buffer)
+        (-> Text Buffer Buffer)
+        (with_expansions [<jvm> (let [[capacity transform] (:representation buffer)
+                                      append! (: (-> Text java/lang/StringBuilder java/lang/StringBuilder)
+                                                 (function (_ chunk builder)
+                                                   (exec
+                                                     (java/lang/Appendable::append (:as java/lang/CharSequence chunk)
+                                                                                   builder)
+                                                     builder)))]
+                                  (:abstraction [(n.+ (//.size chunk) capacity)
+                                                 (|>> transform (append! chunk))]))]
+          (for {@.old <jvm>
+                @.jvm <jvm>
+                @.lua (let [[capacity transform] (:representation buffer)
+                            append! (: (-> Text (array.Array Text) (array.Array Text))
+                                       (function (_ chunk array)
+                                         (exec
+                                           (table/insert [array chunk])
+                                           array)))]
+                        (:abstraction [(n.+ (//.size chunk) capacity)
+                                       (|>> transform (append! chunk))]))}
+               ## default
+               (|> buffer :representation (row.add chunk) :abstraction))))
+
+      (def: #export size
+        (-> Buffer Nat)
+        (with_expansions [<jvm> (|>> :representation product.left)]
+          (for {@.old <jvm>
+                @.jvm <jvm>
+                @.lua <jvm>}
+               ## default
+               (|>> :representation
+                    (row\fold (function (_ chunk total)
+                                (n.+ (//.size chunk) total))
+                              0)))))
+
+      (def: #export (text buffer)
+        (-> Buffer Text)
+        (with_expansions [<jvm> (let [[capacity transform] (:representation buffer)]
+                                  (|> (java/lang/StringBuilder::new (.int capacity))
+                                      transform
+                                      java/lang/StringBuilder::toString))]
+          (for {@.old <jvm>
+                @.jvm <jvm>
+                @.lua (let [[capacity transform] (:representation buffer)]
+                        (table/concat [(transform (array.new 0)) ""]))}
+               ## default
+               (row\fold (function (_ chunk total)
+                           (format total chunk))
+                         ""
+                         (:representation buffer)))))
+      ))
