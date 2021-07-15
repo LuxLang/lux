@@ -5,6 +5,7 @@
 
 # Reference
 
+1. [Programming up to Congruence](http://www.cs.yale.edu/homes/vilhelm/papers/popl15congruence.pdf)
 1. [From Scheme to Dependent Types in 100 lines by Gershom Bazerman (Part 1)](https://vimeo.com/134561872)
 1. [From Scheme to Dependent Types in 100 Lines by Gershom Bazerman (Part 2)](https://vimeo.com/135746080)
 1. [Program = Proof](http://www.lix.polytechnique.fr/Labo/Samuel.Mimram/teaching/INF551/course.pdf)

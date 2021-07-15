@@ -39,7 +39,7 @@
 
 1. [Local State is Poison](https://awelonblue.wordpress.com/2012/10/21/local-state-is-poison/)
 1. [The dark side of ergonomics](https://vorner.github.io/2018/04/08/Dark-side-of-ergonomics.html)
-1. []()
+1. [A Plea for Lean Software](https://cr.yp.to/bib/1995/wirth.pdf)
 
 # Robustness
 

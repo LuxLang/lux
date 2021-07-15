@@ -4,6 +4,7 @@
 
 # Widget
 
+1. [imask.js: vanilla javascript input mask](https://imask.js.org/)
 1. [Progress bar.js](https://kimmobrunfeldt.github.io/progressbar.js/)
 
 # Design
