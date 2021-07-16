@@ -424,7 +424,7 @@
     ast'
     ast'))
 
-(def: (parser->replacer p ast)
+(def: (parser_to_replacer p ast)
   (-> (Parser Code) (-> Code Code))
   (case (<>.run p (list ast))
     (#.Right [#.Nil ast'])
@@ -434,7 +434,7 @@
     ast
     ))
 
-(def: (field->parser class_name [[field_name _ _] field])
+(def: (field_to_parser class_name [[field_name _ _] field])
   (-> Text [Member_Declaration FieldDecl] (Parser Code))
   (case field
     (#ConstantField _)
@@ -481,7 +481,7 @@
   [make_virtual_method_parser "jvm invokevirtual"]
   )
 
-(def: (method->parser params class_name [[method_name _ _] meth_def])
+(def: (method_to_parser params class_name [[method_name _ _] meth_def])
   (-> (List Type_Parameter) Text [Member_Declaration Method_Definition] (Parser Code))
   (case meth_def
     (#ConstructorMethod strict? type_vars args constructor_args return_expr exs)
@@ -1092,16 +1092,16 @@
                                                                  (~ body))))))))
     
     (#OverridenMethod strict_fp? class_decl type_vars this_name arg_decls return_type body exs)
-    (let [super_replacer (parser->replacer (<code>.form (do <>.monad
-                                                          [_ (<code>.this! (' ::super!))
-                                                           args (<code>.tuple (<>.exactly (list.size arg_decls) <code>.any))
-                                                           #let [arg_decls' (: (List Text) (list\map (|>> product.right (simple_class$ (list)))
-                                                                                                     arg_decls))]]
-                                                          (wrap (`' ((~ (code.text (format "jvm invokespecial"
-                                                                                           ":" (get@ #super_class_name super_class)
-                                                                                           ":" name
-                                                                                           ":" (text.join_with "," arg_decls'))))
-                                                                     (~' _jvm_this) (~+ args)))))))]
+    (let [super_replacer (parser_to_replacer (<code>.form (do <>.monad
+                                                            [_ (<code>.this! (' ::super!))
+                                                             args (<code>.tuple (<>.exactly (list.size arg_decls) <code>.any))
+                                                             #let [arg_decls' (: (List Text) (list\map (|>> product.right (simple_class$ (list)))
+                                                                                                       arg_decls))]]
+                                                            (wrap (`' ((~ (code.text (format "jvm invokespecial"
+                                                                                             ":" (get@ #super_class_name super_class)
+                                                                                             ":" name
+                                                                                             ":" (text.join_with "," arg_decls'))))
+                                                                       (~' _jvm_this) (~+ args)))))))]
       (with_parens
         (spaced (list "override"
                       (class_decl$ class_decl)
@@ -1210,11 +1210,11 @@
   (do meta.monad
     [current_module meta.current_module_name
      #let [fully_qualified_class_name (format (sanitize current_module) "." full_class_name)
-           field_parsers (list\map (field->parser fully_qualified_class_name) fields)
-           method_parsers (list\map (method->parser (product.right class_decl) fully_qualified_class_name) methods)
-           replacer (parser->replacer (list\fold <>.either
-                                                 (<>.fail "")
-                                                 (list\compose field_parsers method_parsers)))
+           field_parsers (list\map (field_to_parser fully_qualified_class_name) fields)
+           method_parsers (list\map (method_to_parser (product.right class_decl) fully_qualified_class_name) methods)
+           replacer (parser_to_replacer (list\fold <>.either
+                                                   (<>.fail "")
+                                                   (list\compose field_parsers method_parsers)))
            def_code (format "jvm class:"
                             (spaced (list (class_decl$ class_decl)
                                           (super_class_decl$ super)
@@ -1449,7 +1449,7 @@
     #.Nil #1
     _     #0))
 
-(def: (type_param->type_arg [name _])
+(def: (type_param_to_type_arg [name _])
   (-> Type_Parameter Code)
   (code.identifier ["" name]))
 
@@ -1498,7 +1498,7 @@
         full_name (sanitize full_name)
         all_params (|> (member_type_vars class_tvars member)
                        (list.filter free_type_param?)
-                       (list\map type_param->type_arg))]
+                       (list\map type_param_to_type_arg))]
     (case member
       (#EnumDecl enum_members)
       (do {! meta.monad}
@@ -1510,7 +1510,7 @@
                               _
                               (let [=class_tvars (|> class_tvars
                                                      (list.filter free_type_param?)
-                                                     (list\map type_param->type_arg))]
+                                                     (list\map type_param_to_type_arg))]
                                 (` (All [(~+ =class_tvars)] (primitive (~ (code.text full_name)) [(~+ =class_tvars)]))))))
                getter_interop (: (-> Text Code)
                                  (function (_ name)
@@ -1576,7 +1576,7 @@
                tvar_asts (: (List Code)
                             (|> class_tvars
                                 (list.filter free_type_param?)
-                                (list\map type_param->type_arg)))
+                                (list\map type_param_to_type_arg)))
                getter_name (code.identifier ["" (..import_name import_format method_prefix import_field_name)])
                setter_name (code.identifier ["" (..import_name import_format method_prefix (format import_field_name "!"))])]
          getter_interop (with_gensyms [g!obj]
@@ -1740,7 +1740,7 @@
               (array_length my_array))}
   (wrap (list (` ("jvm arraylength" (~ array))))))
 
-(def: (type->class_name type)
+(def: (type_to_class_name type)
   (-> Type (Meta Text))
   (if (type\= Any type)
     (\ meta.monad wrap "java.lang.Object")
@@ -1754,10 +1754,10 @@
         (meta.fail (format "Cannot apply type: " (type.format F) " to " (type.format A)))
 
         (#.Some type')
-        (type->class_name type'))
+        (type_to_class_name type'))
       
       (#.Named _ type')
-      (type->class_name type')
+      (type_to_class_name type')
 
       _
       (meta.fail (format "Cannot convert to JvmType: " (type.format type))))))
@@ -1769,7 +1769,7 @@
     [_ (#.Identifier array_name)]
     (do meta.monad
       [array_type (meta.find_type array_name)
-       array_jvm_type (type->class_name array_type)]
+       array_jvm_type (type_to_class_name array_type)]
       (case array_jvm_type
         (^template [<type> <array_op>]
           [<type>
@@ -1798,7 +1798,7 @@
     [_ (#.Identifier array_name)]
     (do meta.monad
       [array_type (meta.find_type array_name)
-       array_jvm_type (type->class_name array_type)]
+       array_jvm_type (type_to_class_name array_type)]
       (case array_jvm_type
         (^template [<type> <array_op>]
           [<type>
