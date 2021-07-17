@@ -8,6 +8,7 @@
       [program (#+ program:)]
       ["_" test (#+ Test)]
       ["@" target]
+      ["." meta]
       [abstract
        [monad (#+ do)]
        [predicate (#+ Predicate)]]
@@ -16,9 +17,11 @@
        [concurrency
         ["." atom (#+ Atom)]]]
       [data
-       ["." name]
-       [text
+       ["." bit ("#\." equivalence)]
+       ["." text ("#\." equivalence)
         ["%" format (#+ format)]]]
+      [macro
+       ["." code ("#\." equivalence)]]
       ["." math
        ["." random (#+ Random) ("#\." functor)]
        [number
@@ -72,52 +75,6 @@
                   (not (is? self other))))
         )))
 
-(def: increment_and_decrement
-  Test
-  (do random.monad
-    [value random.i64]
-    ($_ _.and
-        (_.test "'inc' and 'dec' are opposites."
-                (and (|> value inc dec (n.= value))
-                     (|> value dec inc (n.= value))))
-        (_.test "'inc' and 'dec' shift the number by 1."
-                (and (|> (inc value) (n.- value) (n.= 1))
-                     (|> value (n.- (dec value)) (n.= 1)))))))
-
-(def: (check_neighbors has_property? value)
-  (All [a] (-> (Predicate (I64 a)) (I64 a) Bit))
-  (and (|> value inc has_property?)
-       (|> value dec has_property?)))
-
-(def: (even_or_odd rand_gen even? odd?)
-  (All [a] (-> (Random (I64 a)) (Predicate (I64 a)) (Predicate (I64 a)) Test))
-  (do random.monad
-    [value rand_gen]
-    ($_ _.and
-        (_.test "Every number is either even or odd."
-                (if (even? value)
-                  (not (odd? value))
-                  (odd? value)))
-        (_.test "Every odd/even number is surrounded by two of the other kind."
-                (if (even? value)
-                  (check_neighbors odd? value)
-                  (check_neighbors even? value))))))
-
-(type: (Equivalence a)
-  (-> a a Bit))
-
-(def: (conversion rand_gen forward backward =)
-  (All [a b] (-> (Random a) (-> a b) (-> b a) (Equivalence a) Test))
-  (do random.monad
-    [value rand_gen]
-    (_.test "Can convert between types in a lossless way."
-            (|> value forward backward (= value)))))
-
-(def: frac_rev
-  (Random Rev)
-  (let [bits_to_ignore 11]
-    (\ random.functor map (i64.left_shift bits_to_ignore) random.rev)))
-
 (def: prelude_macros
   Test
   ($_ _.and
@@ -132,36 +89,6 @@
                        (if (n.< iterations counter)
                          (recur (inc counter) (n.+ factor value))
                          value)))))
-
-      (do random.monad
-        [first random.nat
-         second random.nat
-         third random.nat]
-        (_.test "Can create lists easily through macros."
-                (and (case (list first second third)
-                       (#.Cons first' (#.Cons second' (#.Cons third' #.Nil)))
-                       (and (n.= first first')
-                            (n.= second second')
-                            (n.= third third'))
-
-                       _
-                       false)
-                     (case (list& first (list second third))
-                       (#.Cons first' (#.Cons second' (#.Cons third' #.Nil)))
-                       (and (n.= first first')
-                            (n.= second second')
-                            (n.= third third'))
-
-                       _
-                       false)
-                     (case (list& first second (list third))
-                       (#.Cons first' (#.Cons second' (#.Cons third' #.Nil)))
-                       (and (n.= first first')
-                            (n.= second second')
-                            (n.= third third'))
-
-                       _
-                       false))))
       ))
 
 (template: (quadrance cat0 cat1)
@@ -198,18 +125,6 @@
                            @.php on_valid_host}
                           on_default))))))
 
-(def: conversion_tests
-  Test
-  (`` ($_ _.and
-          (~~ (template [<=> <forward> <backward> <gen>]
-                [(<| (_.context (format (%.name (name_of <forward>))
-                                        " " (%.name (name_of <backward>))))
-                     (..conversion <gen> <forward> <backward> <=>))]
-
-                [i.= .nat .int (random\map (i.% +1,000,000) random.int)]
-                [n.= .int .nat (random\map (n.%  1,000,000) random.nat)]
-                )))))
-
 (def: sub_tests
   Test
   (with_expansions [## TODO: Update & expand tests for this
@@ -240,28 +155,428 @@
                              <extension>
                              )))))
 
+(def: for_bit
+  Test
+  (do random.monad
+    [expected random.nat
+     dummy random.nat]
+    (_.for [/.Bit /.if]
+           ($_ _.and
+               (_.cover [/.false]
+                        (n.= expected
+                             (/.if /.false
+                               dummy
+                               expected)))
+               (_.cover [/.true]
+                        (n.= expected
+                             (/.if /.true
+                               expected
+                               dummy)))
+               (_.cover [/.or]
+                        (and (not (/.or /.false /.false))
+                             (/.or /.false /.true)
+                             (/.or /.true /.false)
+                             (/.or /.true /.true)))
+               (_.cover [/.and]
+                        (and (not (/.and /.false /.false))
+                             (not (/.and /.false /.true))
+                             (not (/.and /.true /.false))
+                             (/.and /.true /.true)))
+               (_.cover [/.not]
+                        (and (bit\= /.true (/.not /.false))
+                             (bit\= /.false (/.not /.true))))
+               (_.cover [/.cond]
+                        (and (n.= expected
+                                  (/.cond /.true
+                                          expected
+
+                                          ## else
+                                          dummy))
+                             (n.= expected
+                                  (/.cond /.false
+                                          dummy
+
+                                          ## else
+                                          expected))
+                             (n.= expected
+                                  (/.cond /.true
+                                          expected
+
+                                          /.false
+                                          dummy
+
+                                          ## else
+                                          dummy))
+                             (n.= expected
+                                  (/.cond /.false
+                                          dummy
+
+                                          /.true
+                                          expected
+
+                                          ## else
+                                          dummy))))
+               ))))
+
+(def: for_try
+  Test
+  (do random.monad
+    [expected_error (random.ascii/lower 5)
+     expected random.nat]
+    ($_ _.and
+        (_.cover [/.try]
+                 (case (/.try expected)
+                   (#.Left _)
+                   false
+                   
+                   (#.Right actual)
+                   (n.= expected actual)))
+        (_.cover [/.undefined]
+                 (case (/.try (/.undefined))
+                   (#.Left _)
+                   true
+                   
+                   (#.Right _)
+                   false))
+        (_.cover [/.error!]
+                 (case (/.try (/.error! expected_error))
+                   (#.Left actual_error)
+                   (text.contains? expected_error actual_error)
+                   
+                   (#.Right _)
+                   false))
+        )))
+
+(def: for_list
+  Test
+  (do random.monad
+    [e/0 random.nat
+     e/1 random.nat
+     e/2 random.nat
+     e/3 random.nat]
+    ($_ _.and
+        (_.cover [/.list]
+                 (case (/.list e/0 e/1)
+                   (^ (/.list a/0 a/1))
+                   (and (n.= e/0 a/0)
+                        (n.= e/1 a/1))
+
+                   _
+                   false))
+        (_.cover [/.list&]
+                 (case (/.list& e/0 e/1 (/.list e/2 e/3))
+                   (^ (/.list& a/0 a/1 (/.list a/2 a/3)))
+                   (and (n.= e/0 a/0)
+                        (n.= e/1 a/1)
+                        (n.= e/2 a/2)
+                        (n.= e/3 a/3))
+
+                   _
+                   false))
+        )))
+
+(interface: (Returner a)
+  (: (-> Any a)
+     return))
+
+(implementation: (global_returner value)
+  (All [a] (-> a (Returner a)))
+
+  (def: (return _)
+    value))
+
+(def: for_interface
+  Test
+  (do random.monad
+    [expected random.nat
+     #let [local_returner (: (Returner Nat)
+                             (/.implementation
+                              (def: (return _)
+                                expected)))]]
+    (_.for [/.interface:]
+           ($_ _.and
+               (_.cover [/.implementation:]
+                        (n.= expected (\ (global_returner expected) return [])))
+               (_.cover [/.implementation]
+                        (n.= expected (\ local_returner return [])))
+               ))))
+
+(def: for_module
+  Test
+  ($_ _.and
+      (let [[module short] (/.name_of .example)]
+        (_.cover [/.name_of /.prelude_module]
+                 (and (text\= /.prelude_module module)
+                      (text\= short "example"))))
+      (let [[module short] (/.name_of ..example)]
+        (_.cover [/.module_separator]
+                 (and (text.contains? /.module_separator module)
+                      (not (text.contains? /.module_separator short)))))
+      ))
+
+(def: for_pipe
+  Test
+  (do random.monad
+    [start random.nat
+     factor random.nat
+     #let [expected (n.* factor (inc start))]]
+    ($_ _.and
+        (_.cover [/.|>]
+                 (n.= expected
+                      (/.|> start inc (n.* factor))))
+        (_.cover [/.|>>]
+                 (n.= expected
+                      ((/.|>> inc (n.* factor)) start)))
+        (_.cover [/.<|]
+                 (n.= expected
+                      (/.<| (n.* factor) inc start)))
+        (_.cover [/.<<|]
+                 (n.= expected
+                      ((/.<<| (n.* factor) inc) start)))
+        )))
+
+(def: example "YOLO")
+(def: i8 8)
+
+(def: current_module
+  Text
+  (let [[module _] (name_of .._)]
+    module))
+
+(def: for_code/'
+  Test
+  (do random.monad
+    [example_nat random.nat]
+    (_.cover [/.']
+             (and (code\= (code.nat 0) (/.' 0))
+                  (code\= (code.int -1) (/.' -1))
+                  (code\= (code.rev .2) (/.' .2))
+                  (code\= (code.frac +3.4) (/.' +3.4))
+                  (code\= (code.text "5") (/.' "5"))
+                  (code\= (code.identifier ["" "example"])
+                          (/.' example))
+                  (code\= (code.identifier [/.prelude_module "example"])
+                          (/.' .example))
+                  (code\= (code.identifier [..current_module "example"])
+                          (/.' ..example))
+                  (code\= (code.tag ["" "example"])
+                          (/.' #example))
+                  (code\= (code.tag [/.prelude_module "example"])
+                          (/.' #.example))
+                  (code\= (code.tag [..current_module "example"])
+                          (/.' #..example))
+                  (code\= (code.form (list (code.nat 6) (code.int +7) (code.rev .8)))
+                          (/.' (6 +7 .8)))
+                  (code\= (code.tuple (list (code.frac +9.0)
+                                            (code.text "9")
+                                            (code.identifier ["" "i8"])))
+                          (/.' [+9.0 "9" i8]))
+                  (code\= (code.record (list [(code.identifier [/.prelude_module "i7"])
+                                              (code.identifier [..current_module "i6"])]))
+                          (/.' {.i7 ..i6}))
+                  (not (code\= (code.nat example_nat)
+                               (/.' (~ (code.nat example_nat)))))
+                  ))))
+
+(def: for_code/`
+  Test
+  (do random.monad
+    [example_nat random.nat]
+    (_.cover [/.`]
+             (and (code\= (code.nat 0) (/.` 0))
+                  (code\= (code.int -1) (/.` -1))
+                  (code\= (code.rev .2) (/.` .2))
+                  (code\= (code.frac +3.4) (/.` +3.4))
+                  (code\= (code.text "5") (/.` "5"))
+                  (code\= (code.identifier [..current_module "example"])
+                          (/.` example))
+                  (code\= (code.identifier [/.prelude_module "example"])
+                          (/.` .example))
+                  (code\= (code.identifier [..current_module "example"])
+                          (/.` ..example))
+                  (code\= (code.tag [..current_module "example"])
+                          (/.` #example))
+                  (code\= (code.tag [/.prelude_module "example"])
+                          (/.` #.example))
+                  (code\= (code.tag [..current_module "example"])
+                          (/.` #..example))
+                  (code\= (code.form (list (code.nat 6) (code.int +7) (code.rev .8)))
+                          (/.` (6 +7 .8)))
+                  (code\= (code.tuple (list (code.frac +9.0)
+                                            (code.text "9")
+                                            (code.identifier [..current_module "i8"])))
+                          (/.` [+9.0 "9" i8]))
+                  (code\= (code.record (list [(code.identifier [/.prelude_module "i7"])
+                                              (code.identifier [..current_module "i6"])]))
+                          (/.` {.i7 ..i6}))
+                  (code\= (code.nat example_nat)
+                          (/.` (~ (code.nat example_nat))))))))
+
+(def: for_code/`'
+  Test
+  (do random.monad
+    [example_nat random.nat]
+    (_.cover [/.`']
+             (and (code\= (code.nat 0) (/.`' 0))
+                  (code\= (code.int -1) (/.`' -1))
+                  (code\= (code.rev .2) (/.`' .2))
+                  (code\= (code.frac +3.4) (/.`' +3.4))
+                  (code\= (code.text "5") (/.`' "5"))
+                  (code\= (code.identifier ["" "example"])
+                          (/.`' example))
+                  (code\= (code.identifier [/.prelude_module "example"])
+                          (/.`' .example))
+                  (code\= (code.identifier [..current_module "example"])
+                          (/.`' ..example))
+                  (code\= (code.tag ["" "example"])
+                          (/.`' #example))
+                  (code\= (code.tag [/.prelude_module "example"])
+                          (/.`' #.example))
+                  (code\= (code.tag [..current_module "example"])
+                          (/.`' #..example))
+                  (code\= (code.form (list (code.nat 6) (code.int +7) (code.rev .8)))
+                          (/.`' (6 +7 .8)))
+                  (code\= (code.tuple (list (code.frac +9.0)
+                                            (code.text "9")
+                                            (code.identifier ["" "i8"])))
+                          (/.`' [+9.0 "9" i8]))
+                  (code\= (code.record (list [(code.identifier [/.prelude_module "i7"])
+                                              (code.identifier [..current_module "i6"])]))
+                          (/.`' {.i7 ..i6}))
+                  (code\= (code.nat example_nat)
+                          (/.`' (~ (code.nat example_nat))))))))
+
+(def: for_code
+  Test
+  (do random.monad
+    [example_nat random.nat]
+    (_.for [/.Code /.Code']
+           ($_ _.and
+               ..for_code/'
+               ..for_code/`
+               ..for_code/`'
+               ))))
+
+(/.macro: (identity_macro tokens)
+  (\ meta.monad wrap tokens))
+
+(def: for_macro
+  Test
+  (let [macro (: /.Macro'
+                 (function (_ tokens lux)
+                   (#.Right [lux (list)])))]
+    (do random.monad
+      [expected random.nat]
+      ($_ _.and
+          (_.cover [/.Macro']
+                   (|> macro
+                       (: /.Macro')
+                       (is? macro)))
+          (_.cover [/.Macro]
+                   (|> macro
+                       "lux macro"
+                       (: /.Macro)
+                       (: Any)
+                       (is? (: Any macro))))
+          (_.cover [/.macro:]
+                   (is? expected (..identity_macro expected)))
+          ))))
+
+(def: for_type
+  Test
+  (do random.monad
+    [expected random.nat
+
+     expected_left random.nat
+     expected_right random.nat]
+    ($_ _.and
+        (_.cover [/.:]
+                 (|> expected
+                     (/.: Any)
+                     (is? (/.: Any expected))))
+        (_.cover [/.:as]
+                 (|> expected
+                     (/.: Any)
+                     (/.:as /.Nat)
+                     (is? expected)))
+        (_.cover [/.:assume]
+                 (|> expected
+                     (/.: Any)
+                     /.:assume
+                     (/.: /.Nat)
+                     (is? expected)))
+        (_.cover [/.:let]
+                 (let [[actual_left actual_right]
+                       (: (/.:let [side /.Nat]
+                            (& side side))
+                          [expected_left expected_right])]
+                   (and (is? expected_left actual_left)
+                        (is? expected_right actual_right))))
+        (_.cover [/.:of]
+                 (is? /.Nat (/.:of expected)))
+        )))
+
+(def: for_i64
+  Test
+  (do random.monad
+    [expected random.i64]
+    ($_ _.and
+        (_.cover [/.i64]
+                 (is? (: Any expected)
+                      (: Any (/.i64 expected))))
+        (_.cover [/.nat]
+                 (is? (: Any expected)
+                      (: Any (/.nat expected))))
+        (_.cover [/.int]
+                 (is? (: Any expected)
+                      (: Any (/.int expected))))
+        (_.cover [/.rev]
+                 (is? (: Any expected)
+                      (: Any (/.rev expected))))
+        (_.cover [/.inc]
+                 (n.= 1 (n.- expected
+                             (/.inc expected))))
+        (_.cover [/.dec]
+                 (n.= 1 (n.- (/.dec expected)
+                             expected)))
+        )))
+
+(def: for_function
+  Test
+  (do random.monad
+    [expected_left random.nat
+     expected_right random.nat]
+    (_.cover [/.-> /.function]
+             (let [actual (: (/.-> Nat Nat Nat)
+                             (/.function (_ actual_left actual_right)
+                               (n.* (inc actual_left) (dec actual_right))))]
+               (n.= (n.* (inc expected_left) (dec expected_right))
+                    (actual expected_left expected_right))))))
+
 (def: test
   Test
-  (<| (_.context (name.module (name_of /._)))
+  (<| (_.covering /._)
       ($_ _.and
           (<| (_.context "Identity.")
               ..identity)
-          (<| (_.context "Increment & decrement.")
-              ..increment_and_decrement)
-          (<| (_.context "Even or odd.")
-              ($_ _.and
-                  (<| (_.context "Natural numbers.")
-                      (..even_or_odd random.nat n.even? n.odd?))
-                  (<| (_.context "Integers.")
-                      (..even_or_odd random.int i.even? i.odd?))))
-          (<| (_.context "Conversion.")
-              ..conversion_tests)
           (<| (_.context "Prelude macros.")
               ..prelude_macros)
           (<| (_.context "Templates.")
               ..templates)
           (<| (_.context "Cross-platform support.")
               ..cross_platform_support)
+
+          ..for_bit
+          ..for_try
+          ..for_list
+          ..for_interface
+          ..for_module
+          ..for_pipe
+          ..for_code
+          ..for_macro
+          ..for_type
+          ..for_i64
+          ..for_function
           
           ..sub_tests
           )))

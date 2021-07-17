@@ -213,20 +213,22 @@
 (def: (loaded_document extension host module_id expected actual document)
   (All [expression directive]
     (-> Text (generation.Host expression directive) archive.ID (Row Artifact) (Dictionary Text Binary) (Document .Module)
-        (Try [(Document .Module) Bundles])))
+        (Try [(Document .Module) Bundles Output])))
   (do {! try.monad}
-    [[definitions bundles] (: (Try [Definitions Bundles])
+    [[definitions bundles] (: (Try [Definitions Bundles Output])
                               (loop [input (row.to_list expected)
                                      definitions (: Definitions
                                                     (dictionary.new text.hash))
-                                     bundles ..empty_bundles]
+                                     bundles ..empty_bundles
+                                     output (: Output row.empty)]
                                 (let [[analysers synthesizers generators directives] bundles]
                                   (case input
                                     (#.Cons [[artifact_id artifact_category] input'])
                                     (case (do !
                                             [data (try.from_maybe (dictionary.get (format (%.nat artifact_id) extension) actual))
                                              #let [context [module_id artifact_id]
-                                                   directive (\ host ingest context data)]]
+                                                   directive (\ host ingest context data)
+                                                   output (row.add [artifact_id data] output)]]
                                             (case artifact_category
                                               #artifact.Anonymous
                                               (do !
@@ -235,7 +237,8 @@
                                                        [analysers
                                                         synthesizers
                                                         generators
-                                                        directives]]))
+                                                        directives]
+                                                       output]))
                                               
                                               (#artifact.Definition name)
                                               (if (text\= $/program.name name)
@@ -243,14 +246,16 @@
                                                        [analysers
                                                         synthesizers
                                                         generators
-                                                        directives]])
+                                                        directives]
+                                                       output])
                                                 (do !
                                                   [value (\ host re_load context directive)]
                                                   (wrap [(dictionary.put name value definitions)
                                                          [analysers
                                                           synthesizers
                                                           generators
-                                                          directives]])))
+                                                          directives]
+                                                         output])))
 
                                               (#artifact.Analyser extension)
                                               (do !
@@ -259,7 +264,8 @@
                                                        [(dictionary.put extension (:as analysis.Handler value) analysers)
                                                         synthesizers
                                                         generators
-                                                        directives]]))
+                                                        directives]
+                                                       output]))
 
                                               (#artifact.Synthesizer extension)
                                               (do !
@@ -268,7 +274,8 @@
                                                        [analysers
                                                         (dictionary.put extension (:as synthesis.Handler value) synthesizers)
                                                         generators
-                                                        directives]]))
+                                                        directives]
+                                                       output]))
 
                                               (#artifact.Generator extension)
                                               (do !
@@ -277,7 +284,8 @@
                                                        [analysers
                                                         synthesizers
                                                         (dictionary.put extension (:as generation.Handler value) generators)
-                                                        directives]]))
+                                                        directives]
+                                                       output]))
 
                                               (#artifact.Directive extension)
                                               (do !
@@ -286,15 +294,16 @@
                                                        [analysers
                                                         synthesizers
                                                         generators
-                                                        (dictionary.put extension (:as directive.Handler value) directives)]]))))
-                                      (#try.Success [definitions' bundles'])
-                                      (recur input' definitions' bundles')
+                                                        (dictionary.put extension (:as directive.Handler value) directives)]
+                                                       output]))))
+                                      (#try.Success [definitions' bundles' output'])
+                                      (recur input' definitions' bundles' output')
 
                                       failure
                                       failure)
                                     
-                                    #.None
-                                    (#try.Success [definitions bundles])))))
+                                    #.Nil
+                                    (#try.Success [definitions bundles output])))))
      content (document.read $.key document)
      definitions (monad.map ! (function (_ [def_name def_global])
                                 (case def_global
@@ -302,23 +311,26 @@
                                   (wrap [def_name (#.Alias alias)])
                                   
                                   (#.Definition [exported? type annotations _])
-                                  (do !
-                                    [value (try.from_maybe (dictionary.get def_name definitions))]
-                                    (wrap [def_name (#.Definition [exported? type annotations value])]))))
+                                  (|> definitions
+                                      (dictionary.get def_name)
+                                      try.from_maybe
+                                      (\ ! map (|>> [exported? type annotations]
+                                                    #.Definition
+                                                    [def_name])))))
                             (get@ #.definitions content))]
     (wrap [(document.write $.key (set@ #.definitions definitions content))
            bundles])))
 
-(def: (load_definitions fs static module_id host_environment [descriptor document output])
+(def: (load_definitions fs static module_id host_environment descriptor document)
   (All [expression directive]
     (-> (file.System Promise) Static archive.ID (generation.Host expression directive)
-        [Descriptor (Document .Module) Output]
+        Descriptor (Document .Module)
         (Promise (Try [[Descriptor (Document .Module) Output]
                        Bundles]))))
   (do (try.with promise.monad)
     [actual (cached_artifacts fs static module_id)
      #let [expected (|> descriptor (get@ #descriptor.registry) artifact.artifacts)]
-     [document bundles] (promise\wrap (loaded_document (get@ #static.artifact_extension static) host_environment module_id expected actual document))]
+     [document bundles output] (promise\wrap (loaded_document (get@ #static.artifact_extension static) host_environment module_id expected actual document))]
     (wrap [[descriptor document output] bundles])))
 
 (def: (purge! fs static [module_name module_id])
@@ -344,7 +356,7 @@
   (Dictionary Module archive.ID))
 
 (def: initial_purge
-  (-> (List [Bit [Module [archive.ID [Descriptor (Document .Module) Output]]]])
+  (-> (List [Bit [Module [archive.ID [Descriptor (Document .Module)]]]])
       Purge)
   (|>> (list.all (function (_ [valid_cache? [module_name [module_id _]]])
                    (if valid_cache?
@@ -353,10 +365,10 @@
        (dictionary.from_list text.hash)))
 
 (def: (full_purge caches load_order)
-  (-> (List [Bit [Module [archive.ID [Descriptor (Document .Module) Output]]]])
+  (-> (List [Bit [Module [archive.ID [Descriptor (Document .Module)]]]])
       dependency.Order
       Purge)
-  (list\fold (function (_ [module_name [module_id [descriptor document output]]] purge)
+  (list\fold (function (_ [module_name [module_id [descriptor document]]] purge)
                (let [purged? (: (Predicate Module)
                                 (dictionary.key? purge))]
                  (if (purged? module_name)
@@ -387,16 +399,16 @@
                                              [descriptor document] (promise\wrap (<binary>.run ..parser data))]
                                             (if (text\= archive.runtime_module module_name)
                                               (wrap [true
-                                                     [module_name [module_id [descriptor document (: Output row.empty)]]]])
+                                                     [module_name [module_id [descriptor document]]]])
                                               (do !
                                                 [input (//context.read fs ..pseudo_module import contexts (get@ #static.host_module_extension static) module_name)]
                                                 (wrap [(..valid_cache? descriptor input)
-                                                       [module_name [module_id [descriptor document (: Output row.empty)]]]])))))))
+                                                       [module_name [module_id [descriptor document]]]])))))))
      load_order (|> pre_loaded_caches
                     (list\map product.right)
                     (monad.fold try.monad
-                                (function (_ [module [module_id descriptor,document,output]] archive)
-                                  (archive.add module descriptor,document,output archive))
+                                (function (_ [module [module_id [descriptor document]]] archive)
+                                  (archive.add module [descriptor document (: Output row.empty)] archive))
                                 archive)
                     (\ try.monad map (dependency.load_order $.key))
                     (\ try.monad join)
@@ -406,18 +418,17 @@
            dictionary.entries
            (monad.map ! (..purge! fs static)))
      loaded_caches (|> load_order
-                       (list.filter (function (_ [module_name [module_id [descriptor document output]]])
-                                      (not (dictionary.key? purge module_name))))
-                       (monad.map ! (function (_ [module_name [module_id descriptor,document,output]])
+                       (list.filter (|>> product.left (dictionary.key? purge) not))
+                       (monad.map ! (function (_ [module_name [module_id [descriptor document _]]])
                                       (do !
-                                        [[descriptor,document,output bundles] (..load_definitions fs static module_id host_environment descriptor,document,output)]
+                                        [[descriptor,document,output bundles] (..load_definitions fs static module_id host_environment descriptor document)]
                                         (wrap [[module_name descriptor,document,output]
                                                bundles])))))]
     (promise\wrap
      (do {! try.monad}
        [archive (monad.fold !
-                            (function (_ [[module descriptor,document] _bundle] archive)
-                              (archive.add module descriptor,document archive))
+                            (function (_ [[module descriptor,document,output] _bundle] archive)
+                              (archive.add module descriptor,document,output archive))
                             archive
                             loaded_caches)
         analysis_state (..analysis_state (get@ #static.host static) archive)]

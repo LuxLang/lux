@@ -153,15 +153,6 @@
   [cannot_read_all_data]
   )
 
-(with_expansions [<extra> (as_is (exception: #export (cannot_move {target Path} {source Path})
-                                   (exception.report
-                                    ["Source" source]
-                                    ["Target" target])))]
-  (for {@.old (as_is <extra>)
-        @.jvm (as_is <extra>)
-        @.lua (as_is <extra>)}
-       (as_is)))
-
 (with_expansions [<for_jvm> (as_is (exception: #export (cannot_modify_file {instant Instant} {file Path})
                                      (exception.report
                                       ["Instant" (%.instant instant)]
@@ -336,7 +327,7 @@
                   (accessSync [ffi.String ffi.Number] #io #try Any)
                   (renameSync [ffi.String ffi.String] #io #try Any)
                   (utimesSync [ffi.String ffi.Number ffi.Number] #io #try Any)
-                  (unlink [ffi.String] #io #try Any)
+                  (unlinkSync [ffi.String] #io #try Any)
                   (readdirSync [ffi.String] #io #try (Array ffi.String))
                   (mkdirSync [ffi.String] #io #try Any)
                   (rmdirSync [ffi.String] #io #try Any)])
@@ -375,13 +366,16 @@
                  [node_path "path" ..JsPath]
                  )
 
+               (def: js_separator
+                 (if ffi.on_node_js?
+                   (JsPath::sep (..node_path []))
+                   "/"))
+
                (`` (implementation: #export default
                      (System IO)
                      
                      (def: separator
-                       (if ffi.on_node_js?
-                         (JsPath::sep (..node_path []))
-                         "/"))
+                       ..js_separator)
 
                      (~~ (template [<name> <method>]
                            [(def: (<name> path)
@@ -418,6 +412,7 @@
                                  subs (Fs::readdirSync [path] node_fs)]
                                 (|> subs
                                     array.to_list
+                                    (list\map (|>> (format path ..js_separator)))
                                     (monad.map ! (function (_ sub)
                                                    (do !
                                                      [stats (Fs::statSync [sub] node_fs)]
@@ -465,7 +460,7 @@
                           stats (Fs::statSync [path] node_fs)
                           verdict (Stats::isFile [] stats)]
                          (if verdict
-                           (Fs::unlink [path] node_fs)
+                           (Fs::unlinkSync [path] node_fs)
                            (Fs::rmdirSync [path] node_fs))))
 
                      (def: (modify time_stamp path)
@@ -520,11 +515,14 @@
                   (#static getsize [ffi.String] #io #try ffi.Integer)
                   (#static getmtime [ffi.String] #io #try ffi.Float)])
 
+               (def: python_separator
+                 (os/path::sep))
+
                (`` (implementation: #export default
                      (System IO)
                      
                      (def: separator
-                       (os/path::sep))
+                       ..python_separator)
 
                      (~~ (template [<name> <method>]
                            [(def: <name>
@@ -539,15 +537,17 @@
                        os::mkdir)
 
                      (~~ (template [<name> <method>]
-                           [(def: <name>
+                           [(def: (<name> path)
                               (let [! (try.with io.monad)]
-                                (|>> os::listdir
-                                     (\ ! map (|>> array.to_list
-                                                   (monad.map ! (function (_ sub)
-                                                                  (\ ! map (|>> [sub]) (<method> [sub]))))
-                                                   (\ ! map (|>> (list.filter product.right)
-                                                                 (list\map product.left)))))
-                                     (\ ! join))))]
+                                (|> path
+                                    os::listdir
+                                    (\ ! map (|>> array.to_list
+                                                  (list\map (|>> (format path ..python_separator)))
+                                                  (monad.map ! (function (_ sub)
+                                                                 (\ ! map (|>> [sub]) (<method> [sub]))))
+                                                  (\ ! map (|>> (list.filter product.right)
+                                                                (list\map product.left)))))
+                                    (\ ! join))))]
 
                            [directory_files os/path::isfile]
                            [sub_directories os/path::isdir]
