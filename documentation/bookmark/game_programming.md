@@ -178,6 +178,7 @@
 
 # Entity Component System (ECS)
 
+1. [Component Graph System](https://github.com/kvark/froggy/wiki/Component-Graph-System)
 1. [Why Vanilla ECS Is Not Enough](https://ajmmertens.medium.com/why-vanilla-ecs-is-not-enough-d7ed4e3bebe5)
 1. [On DOTS: Entity Component System](https://blogs.unity3d.com/2019/03/08/on-dots-entity-component-system/)
 1. http://cowboyprogramming.com/2007/01/05/evolve-your-heirachy/

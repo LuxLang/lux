@@ -1,3 +1,7 @@
+# Hashing
+
+1. [Fibonacci Hashing: The Optimization that the World Forgot (or: a Better Alternative to Integer Modulo)](https://probablydance.com/2018/06/16/fibonacci-hashing-the-optimization-that-the-world-forgot-or-a-better-alternative-to-integer-modulo/)
+
 # Arithmetic
 
 1. [Labor of Division (Episode I)](https://ridiculousfish.com/blog/posts/labor-of-division-episode-i.html)
@@ -20,6 +24,7 @@
 
 # Reference
 
+1. [Do Low-level Optimizations Matter?](https://cantrip.org/sortfast.html)
 1. [Inline caching](https://bernsteinbear.com/blog/inline-caching/)
 1. [Weird and Wonderful Division Tricks](https://saml98.github.io/jekyll/update/2020/02/21/weird-division.htmls)
 1. [Towards a Domain-Extensible Compiler: Optimizingan Image Processing Pipeline on Mobile CPUs](https://thok.eu/publications/2021/cgo.pdf)

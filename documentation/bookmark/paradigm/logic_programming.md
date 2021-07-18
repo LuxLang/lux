@@ -1,3 +1,11 @@
+# Unification
+
+1. [Functors of the World, Unite!](https://www.youtube.com/watch?v=8k7YH9st_8U)
+
+# Inspiration
+
+1. [Next-Paradigm Programming Languages: What Will They Look Like and What Changes Will They Bring?](https://arxiv.org/abs/1905.00402)
+
 # Reference
 
 1. https://book.simply-logical.space/

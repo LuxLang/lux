@@ -5,6 +5,7 @@
     [abstract
      [monad (#+ do)]]
     [control
+     [pipe (#+ case>)]
      [io (#+ IO)]
      ["." try]
      ["." exception]
@@ -65,6 +66,38 @@
             (exception.throw shell.no_more_output []))
           (def: (on_error state)
             (exception.throw shell.no_more_output []))
+          (def: (on_write input state)
+            (#try.Failure "on_write"))
+          (def: (on_destroy state)
+            (#try.Failure "on_destroy"))
+          (def: (on_await state)
+            (#try.Success [state shell.error]))))))))
+
+(def: #export (reader_shell error?)
+  (-> Bit (-> (List Text) (Shell IO)))
+  (shell.mock
+   (function (_ [actual_environment actual_working_directory actual_command actual_arguments])
+     (#try.Success
+      (: (shell.Mock (List Text))
+         (implementation
+          (def: (on_read state)
+            (if error?
+              (exception.throw shell.no_more_output [])
+              (case state
+                (#.Cons head tail)
+                (#try.Success [tail head])
+                
+                #.Nil
+                (exception.throw shell.no_more_output []))))
+          (def: (on_error state)
+            (if error?
+              (case state
+                (#.Cons head tail)
+                (#try.Success [tail head])
+                
+                #.Nil
+                (exception.throw shell.no_more_output []))
+              (exception.throw shell.no_more_output [])))
           (def: (on_write input state)
             (#try.Failure "on_write"))
           (def: (on_destroy state)
@@ -181,4 +214,39 @@
                                             (text\= /.failure end))))]
                       (_.cover' [/.failure]
                                 (try.default false verdict)))))
+            (do !
+              [expected/0 (random.ascii/alpha 5)
+               expected/1 (random.ascii/alpha 5)
+               expected/2 (random.ascii/alpha 5)]
+              (`` ($_ _.and
+                      (~~ (template [<error?> <log!>]
+                            [(let [console (@version.echo "")
+                                   shell (|> (list expected/0 expected/1 expected/2)
+                                             (..reader_shell <error?>)
+                                             shell.async)]
+                               (wrap (do {! promise.monad}
+                                       [verdict (do ///action.monad
+                                                  [process (shell [environment.empty working_directory "" (list "")])
+                                                   _ (<log!> console process)
+                                                   actual/0 (\ console read_line [])
+                                                   actual/1 (\ console read_line [])
+                                                   actual/2 (\ console read_line [])
+                                                   end! (|> (\ console read_line [])
+                                                            (\ ! map (|>> (case> (#try.Failure error)
+                                                                                 true
+                                                                                 
+                                                                                 (#try.Success _)
+                                                                                 false)
+                                                                          #try.Success)))]
+                                                  (wrap (and (text\= expected/0 actual/0)
+                                                             (text\= expected/1 actual/1)
+                                                             (text\= expected/2 actual/2)
+                                                             end!)))]
+                                       (_.cover' [<log!>]
+                                                 (try.default false verdict)))))]
+
+                            [#0 /.log_output!]
+                            [#1 /.log_error!]
+                            ))
+                      )))
             ))))

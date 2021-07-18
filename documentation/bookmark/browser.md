@@ -37,6 +37,7 @@
 # Reference
 
 1. [Public Suffix List](https://publicsuffix.org/)
+1. [Public Suffix List Problems](https://github.com/sleevi/psl-problems)
 1. https://www.opera.com/gx
 1. https://evertpot.com/tabs-are-the-wrong-abstraction/
 1. http://news.mit.edu/2018/system-patches-private-browsing-0223

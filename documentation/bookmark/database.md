@@ -24,6 +24,7 @@
 
 # Query
 
+1. [Comprehending Ringads](http://lambda-the-ultimate.org/node/5525)
 1. [Reasons why SELECT * is bad for SQL performance](https://tanelpoder.com/posts/reasons-why-select-star-is-bad-for-sql-performance/)
 1. [A Short Story About SQL’s Biggest Rival](https://www.holistics.io/blog/quel-vs-sql/)
 1. https://calcite.apache.org/
