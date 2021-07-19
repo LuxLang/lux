@@ -6,7 +6,7 @@
      [monad (#+ do)]]
     [control
      ["." io]
-     ["<>" parser
+     ["<>" parser ("#\." monad)
       ["<.>" code (#+ Parser)]]]
     [data
      ["." product]
@@ -149,6 +149,14 @@
          ("js object null")))
     input))
 
+(def: #export (null _)
+  (-> Any Nothing)
+  (:assume ("js object null")))
+
+(def: #export null?
+  (-> Any Bit)
+  (|>> "js object null?"))
+
 (def: (without_null g!temp [nullable? outputT] output)
   (-> Code Nullable Code Code)
   (if nullable?
@@ -161,13 +169,23 @@
            (~ g!temp)
            (.error! "Null is an invalid value."))))))
 
+(type: Class_Declaration
+  [Text (List Text)])
+
 (type: Import
-  (#Class [Text Text (List Member)])
+  (#Class [Class_Declaration Text (List Member)])
   (#Function Static_Method))
+
+(def: class_declaration
+  (Parser Class_Declaration)
+  (<>.either (<>.and <code>.local_identifier
+                     (<>\wrap (list)))
+             (<code>.form (<>.and <code>.local_identifier
+                                  (<>.some <code>.local_identifier)))))
 
 (def: import
   (Parser Import)
-  (<>.or (<>.and <code>.local_identifier
+  (<>.or (<>.and ..class_declaration
                  (<>.default ["" (list)]
                              (<code>.tuple (<>.and <code>.text
                                                    (<>.some member)))))
@@ -217,17 +235,19 @@
 (syntax: #export (import: {import ..import})
   (with_gensyms [g!temp]
     (case import
-      (#Class [class format members])
+      (#Class [[class_name class_parameters] format members])
       (with_gensyms [g!object]
         (let [qualify (: (-> Text Code)
                          (function (_ member_name)
                            (|> format
-                               (text.replace_all "#" class)
+                               (text.replace_all "#" class_name)
                                (text.replace_all "." member_name)
                                code.local_identifier)))
-              g!type (code.local_identifier class)
-              real_class (text.replace_all "/" "." class)]
-          (wrap (list& (` (type: (~ g!type)
+              class_parameters (list\map code.local_identifier class_parameters)
+              declaration (` ((~ (code.local_identifier class_name))
+                              (~+ class_parameters)))
+              real_class (text.replace_all "/" "." class_name)]
+          (wrap (list& (` (type: (~ declaration)
                             (..Object (primitive (~ (code.text real_class))))))
                        (list\map (function (_ member)
                                    (case member
@@ -235,8 +255,9 @@
                                      (let [g!inputs (input_variables inputsT)]
                                        (` (def: ((~ (qualify "new"))
                                                  [(~+ (list\map product.right g!inputs))])
-                                            (-> [(~+ (list\map nullable_type inputsT))]
-                                                (~ g!type))
+                                            (All [(~+ class_parameters)]
+                                              (-> [(~+ (list\map nullable_type inputsT))]
+                                                  (~ declaration)))
                                             (:assume
                                              ("js object new"
                                               ("js constant" (~ (code.text real_class)))
@@ -250,8 +271,9 @@
                                                              ("js constant" (~ (code.text (%.format real_class "." field))))))))))
                                        (` (def: ((~ (qualify field))
                                                  (~ g!object))
-                                            (-> (~ g!type)
-                                                (~ (nullable_type fieldT)))
+                                            (All [(~+ class_parameters)]
+                                              (-> (~ declaration)
+                                                  (~ (nullable_type fieldT))))
                                             (:assume
                                              (~ (without_null g!temp fieldT (` ("js object get" (~ (code.text field)) (~ g!object)))))))))
                                      
@@ -271,11 +293,12 @@
                                          (` (def: ((~ (qualify (maybe.default method alias)))
                                                    [(~+ (list\map product.right g!inputs))]
                                                    (~ g!object))
-                                              (-> [(~+ (list\map nullable_type inputsT))]
-                                                  (~ g!type)
-                                                  (~ (|> (nullable_type outputT)
-                                                         (try_type try?)
-                                                         (io_type io?))))
+                                              (All [(~+ class_parameters)]
+                                                (-> [(~+ (list\map nullable_type inputsT))]
+                                                    (~ declaration)
+                                                    (~ (|> (nullable_type outputT)
+                                                           (try_type try?)
+                                                           (io_type io?)))))
                                               (:assume
                                                (~ (<| (with_io io?)
                                                       (with_try try?)

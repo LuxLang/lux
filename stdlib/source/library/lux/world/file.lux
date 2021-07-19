@@ -307,8 +307,8 @@
                  ["#::."
                   (size ffi.Number)
                   (mtimeMs ffi.Number)
-                  (isFile [] #io #try ffi.Boolean)
-                  (isDirectory [] #io #try ffi.Boolean)])
+                  (isFile [] ffi.Boolean)
+                  (isDirectory [] ffi.Boolean)])
 
                (ffi.import: FsConstants
                  ["#::."
@@ -316,21 +316,51 @@
                   (R_OK ffi.Number)
                   (W_OK ffi.Number)
                   (X_OK ffi.Number)])
+
+               (ffi.import: Error
+                 ["#::."
+                  (toString [] ffi.String)])
+
+               (template: (with_promise <write> <type> <body>)
+                 (template.with_locals [<read>]
+                   (let [[<read> <write>] (: [(Promise <type>) (promise.Resolver <type>)]
+                                             (promise.promise []))]
+                     (exec
+                       <body>
+                       <read>))))
                
                (ffi.import: Fs
                  ["#::."
                   (constants FsConstants)
-                  (readFileSync [ffi.String] #io #try Binary)
-                  (appendFileSync [ffi.String Buffer] #io #try Any)
-                  (writeFileSync [ffi.String Buffer] #io #try Any)
-                  (statSync [ffi.String] #io #try Stats)
-                  (accessSync [ffi.String ffi.Number] #io #try Any)
-                  (renameSync [ffi.String ffi.String] #io #try Any)
-                  (utimesSync [ffi.String ffi.Number ffi.Number] #io #try Any)
-                  (unlinkSync [ffi.String] #io #try Any)
-                  (readdirSync [ffi.String] #io #try (Array ffi.String))
-                  (mkdirSync [ffi.String] #io #try Any)
-                  (rmdirSync [ffi.String] #io #try Any)])
+                  (readFile [ffi.String ffi.Function] Any)
+                  (appendFile [ffi.String Buffer ffi.Function] Any)
+                  (writeFile [ffi.String Buffer ffi.Function] Any)
+                  (stat [ffi.String ffi.Function] Any)
+                  (access [ffi.String ffi.Number ffi.Function] Any)
+                  (rename [ffi.String ffi.String ffi.Function] Any)
+                  (utimes [ffi.String ffi.Number ffi.Number ffi.Function] Any)
+                  (readdir [ffi.String ffi.Function] Any)
+                  (mkdir [ffi.String ffi.Function] Any)
+                  (unlink [ffi.String ffi.Function] Any)
+                  (rmdir [ffi.String ffi.Function] Any)])
+
+               (def: (any_callback write!)
+                 (-> (promise.Resolver (Try Any)) ffi.Function)
+                 (<| (ffi.closure [error])
+                     io.run
+                     write!
+                     (if (ffi.null? error)
+                       (#try.Success [])
+                       (#try.Failure (Error::toString [] (:as Error error))))))
+
+               (def: (value_callback write!)
+                 (All [a] (-> (promise.Resolver (Try a)) ffi.Function))
+                 (<| (ffi.closure [error datum])
+                     io.run
+                     write!
+                     (if (ffi.null? error)
+                       (#try.Success (:assume datum))
+                       (#try.Failure (Error::toString [] (:as Error error))))))
 
                (ffi.import: JsPath
                  ["#::."
@@ -372,51 +402,57 @@
                    "/"))
 
                (`` (implementation: #export default
-                     (System IO)
+                     (System Promise)
                      
                      (def: separator
                        ..js_separator)
 
                      (~~ (template [<name> <method>]
                            [(def: (<name> path)
-                              (do {! io.monad}
-                                [?stats (Fs::statSync [path] (..node_fs []))]
-                                (case ?stats
-                                  (#try.Success stats)
-                                  (|> stats
-                                      (<method> [])
-                                      (\ ! map (|>> (try.default false))))
-                                  
-                                  (#try.Failure _)
-                                  (wrap false))))]
+                              (do promise.monad
+                                [?stats (with_promise write! (Try Stats)
+                                          (Fs::stat [path (..value_callback write!)]
+                                                    (..node_fs [])))]
+                                (wrap (case ?stats
+                                        (#try.Success stats)
+                                        (<method> [] stats)
+                                        
+                                        (#try.Failure _)
+                                        false))))]
 
                            [file?      Stats::isFile]
                            [directory? Stats::isDirectory]
                            ))
 
                      (def: (make_directory path)
-                       (let [node_fs (..node_fs [])]
-                         (do io.monad
-                           [outcome (Fs::accessSync [path (|> node_fs Fs::constants FsConstants::F_OK)] node_fs)]
-                           (case outcome
-                             (#try.Success _)
-                             (wrap (exception.throw ..cannot_make_directory [path]))
-                             
-                             (#try.Failure _)
-                             (Fs::mkdirSync [path] node_fs)))))
+                       (do promise.monad
+                         [#let [node_fs (..node_fs [])]
+                          outcome (with_promise write! (Try Any)
+                                    (Fs::access [path
+                                                 (|> node_fs Fs::constants FsConstants::F_OK)
+                                                 (..any_callback write!)]
+                                                node_fs))]
+                         (case outcome
+                           (#try.Success _)
+                           (wrap (exception.throw ..cannot_make_directory [path]))
+                           
+                           (#try.Failure _)
+                           (with_promise write! (Try Any)
+                             (Fs::mkdir [path (..any_callback write!)] node_fs)))))
 
                      (~~ (template [<name> <method>]
                            [(def: (<name> path)
-                              (do {! (try.with io.monad)}
+                              (do {! (try.with promise.monad)}
                                 [#let [node_fs (..node_fs [])]
-                                 subs (Fs::readdirSync [path] node_fs)]
+                                 subs (with_promise write! (Try (Array ffi.String))
+                                        (Fs::readdir [path (..value_callback write!)] node_fs))]
                                 (|> subs
                                     array.to_list
                                     (list\map (|>> (format path ..js_separator)))
                                     (monad.map ! (function (_ sub)
-                                                   (do !
-                                                     [stats (Fs::statSync [sub] node_fs)]
-                                                     (\ ! map (|>> [sub]) (<method> [] stats)))))
+                                                   (\ ! map (|>> (<method> []) [sub])
+                                                      (with_promise write! (Try Stats)
+                                                        (Fs::stat [sub (..value_callback write!)] node_fs)))))
                                     (\ ! map (|>> (list.filter product.right)
                                                   (list\map product.left))))))]
 
@@ -425,58 +461,75 @@
                            ))
 
                      (def: (file_size path)
-                       (let [! (try.with io.monad)]
-                         (|> (..node_fs [])
-                             (Fs::statSync [path])
-                             (\ ! map (|>> Stats::size
-                                           f.nat)))))
+                       (do (try.with promise.monad)
+                         [stats (with_promise write! (Try Stats)
+                                  (Fs::stat [path (..value_callback write!)]
+                                            (..node_fs [])))]
+                         (wrap (|> stats
+                                   Stats::size
+                                   f.nat))))
 
                      (def: (last_modified path)
-                       (let [! (try.with io.monad)]
-                         (|> (..node_fs [])
-                             (Fs::statSync [path])
-                             (\ ! map (|>> Stats::mtimeMs
-                                           f.int
-                                           duration.from_millis
-                                           instant.absolute)))))
+                       (do (try.with promise.monad)
+                         [stats (with_promise write! (Try Stats)
+                                  (Fs::stat [path (..value_callback write!)]
+                                            (..node_fs [])))]
+                         (wrap (|> stats
+                                   Stats::mtimeMs
+                                   f.int
+                                   duration.from_millis
+                                   instant.absolute))))
 
                      (def: (can_execute? path)
                        (let [node_fs (..node_fs [])]
-                         (|> node_fs
-                             (Fs::accessSync [path (|> node_fs Fs::constants FsConstants::X_OK)])
-                             (io\map (|>> (case> (#try.Success _)
-                                                 true
+                         (\ promise.monad map
+                            (|>> (case> (#try.Success _)
+                                        true
 
-                                                 (#try.Failure _)
-                                                 false)
-                                          #try.Success)))))
+                                        (#try.Failure _)
+                                        false)
+                                 #try.Success)
+                            (with_promise write! (Try Any)
+                              (Fs::access [path
+                                           (|> node_fs Fs::constants FsConstants::X_OK)
+                                           (..any_callback write!)]
+                                          node_fs)))))
 
                      (def: (read path)
-                       (Fs::readFileSync [path] (..node_fs [])))
+                       (with_promise write! (Try Binary)
+                         (Fs::readFile [path (..value_callback write!)]
+                                       (..node_fs []))))
 
                      (def: (delete path)
-                       (do {! (try.with io.monad)}
+                       (do (try.with promise.monad)
                          [#let [node_fs (..node_fs [])]
-                          stats (Fs::statSync [path] node_fs)
-                          verdict (Stats::isFile [] stats)]
-                         (if verdict
-                           (Fs::unlinkSync [path] node_fs)
-                           (Fs::rmdirSync [path] node_fs))))
+                          stats (with_promise write! (Try Stats)
+                                  (Fs::stat [path (..value_callback write!)] node_fs))]
+                         (with_promise write! (Try Any)
+                           (if (Stats::isFile [] stats)
+                             (Fs::unlink [path (..any_callback write!)] node_fs)
+                             (Fs::rmdir [path (..any_callback write!)] node_fs)))))
 
                      (def: (modify time_stamp path)
-                       (let [when (|> time_stamp instant.relative duration.to_millis i.frac)]
-                         (Fs::utimesSync [path when when] (..node_fs []))))
+                       (with_promise write! (Try Any)
+                         (let [when (|> time_stamp instant.relative duration.to_millis i.frac)]
+                           (Fs::utimes [path when when (..any_callback write!)]
+                                       (..node_fs [])))))
 
                      (~~ (template [<name> <method>]
                            [(def: (<name> data path)
-                              (<method> [path (Buffer::from data)] (..node_fs [])))]
+                              (with_promise write! (Try Any)
+                                (<method> [path (Buffer::from data) (..any_callback write!)]
+                                          (..node_fs []))))]
 
-                           [write  Fs::writeFileSync]
-                           [append Fs::appendFileSync]
+                           [write  Fs::writeFile]
+                           [append Fs::appendFile]
                            ))
 
                      (def: (move destination origin)
-                       (Fs::renameSync [origin destination] (..node_fs [])))
+                       (with_promise write! (Try Any)
+                         (Fs::rename [origin destination (..any_callback write!)]
+                                     (..node_fs []))))
                      )))
 
         @.python
