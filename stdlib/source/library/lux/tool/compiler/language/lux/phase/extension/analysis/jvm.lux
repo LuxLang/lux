@@ -58,6 +58,8 @@
         [archive (#+ Archive)
          [descriptor (#+ Module)]]]]]]]])
 
+(import: java/lang/ClassLoader)
+
 (import: java/lang/Object
   ["#::."
    (equals [java/lang/Object] boolean)])
@@ -132,10 +134,10 @@
   (exception.report
    ["Class" (%.text class)]))
 
-(def: (ensure_fresh_class! name)
-  (-> External (Operation Any))
+(def: (ensure_fresh_class! class_loader name)
+  (-> java/lang/ClassLoader External (Operation Any))
   (do phase.monad
-    [class (phase.lift (reflection!.load name))]
+    [class (phase.lift (reflection!.load class_loader name))]
     (phase.assert ..deprecated_class [name]
                   (|> class
                       java/lang/Class::getDeclaredAnnotations
@@ -785,8 +787,8 @@
       _
       (/////analysis.throw ///.incorrect_arity [extension_name 2 (list.size args)]))))
 
-(def: object::throw
-  Handler
+(def: (object::throw class_loader)
+  (-> java/lang/ClassLoader Handler)
   (function (_ extension_name analyse archive args)
     (case args
       (^ (list exceptionC))
@@ -795,7 +797,7 @@
          [exceptionT exceptionA] (typeA.with_inference
                                    (analyse archive exceptionC))
          exception_class (check_object exceptionT)
-         ? (phase.lift (reflection!.sub? "java.lang.Throwable" exception_class))
+         ? (phase.lift (reflection!.sub? class_loader "java.lang.Throwable" exception_class))
          _ (: (Operation Any)
               (if ?
                 (wrap [])
@@ -805,17 +807,17 @@
       _
       (/////analysis.throw ///.incorrect_arity [extension_name 1 (list.size args)]))))
 
-(def: object::class
-  Handler
+(def: (object::class class_loader)
+  (-> java/lang/ClassLoader Handler)
   (function (_ extension_name analyse archive args)
     (case args
       (^ (list classC))
       (case classC
         [_ (#.Text class)]
         (do phase.monad
-          [_ (..ensure_fresh_class! class)
+          [_ (..ensure_fresh_class! class_loader class)
            _ (typeA.infer (#.Primitive "java.lang.Class" (list (#.Primitive class (list)))))
-           _ (phase.lift (reflection!.load class))]
+           _ (phase.lift (reflection!.load class_loader class))]
           (wrap (#/////analysis.Extension extension_name (list (/////analysis.text class)))))
 
         _
@@ -824,18 +826,18 @@
       _
       (/////analysis.throw ///.incorrect_arity [extension_name 1 (list.size args)]))))
 
-(def: object::instance?
-  Handler
+(def: (object::instance? class_loader)
+  (-> java/lang/ClassLoader Handler)
   (..custom
    [($_ <>.and <code>.text <code>.any)
     (function (_ extension_name analyse archive [sub_class objectC])
       (do phase.monad
-        [_ (..ensure_fresh_class! sub_class)
+        [_ (..ensure_fresh_class! class_loader sub_class)
          _ (typeA.infer Bit)
          [objectT objectA] (typeA.with_inference
                              (analyse archive objectC))
          object_class (check_object objectT)
-         ? (phase.lift (reflection!.sub? object_class sub_class))]
+         ? (phase.lift (reflection!.sub? class_loader object_class sub_class))]
         (if ?
           (wrap (#/////analysis.Extension extension_name (list (/////analysis.text sub_class) objectA)))
           (/////analysis.throw cannot_possibly_be_an_instance (format sub_class " !<= "  object_class)))))]))
@@ -855,17 +857,17 @@
   [reflection_return Return luxT.return]
   )
 
-(def: (class_candidate_parents from_name fromT to_name to_class)
-  (-> External .Type External (java/lang/Class java/lang/Object) (Operation (List [[Text .Type] Bit])))
+(def: (class_candidate_parents class_loader from_name fromT to_name to_class)
+  (-> java/lang/ClassLoader External .Type External (java/lang/Class java/lang/Object) (Operation (List [[Text .Type] Bit])))
   (do {! phase.monad}
-    [from_class (phase.lift (reflection!.load from_name))
+    [from_class (phase.lift (reflection!.load class_loader from_name))
      mapping (phase.lift (reflection!.correspond from_class fromT))]
     (monad.map !
                (function (_ superJT)
                  (do !
                    [superJT (phase.lift (reflection!.type superJT))
                     #let [super_name (|> superJT ..reflection)]
-                    super_class (phase.lift (reflection!.load super_name))
+                    super_class (phase.lift (reflection!.load class_loader super_name))
                     superT (reflection_type mapping superJT)]
                    (wrap [[super_name superT] (java/lang/Class::isAssignableFrom super_class to_class)])))
                (case (java/lang/Class::getGenericSuperclass from_class)
@@ -878,15 +880,15 @@
                            (array.to_list (java/lang/Class::getGenericInterfaces from_class)))
                    (array.to_list (java/lang/Class::getGenericInterfaces from_class)))))))
 
-(def: (inheritance_candidate_parents fromT to_class toT fromC)
-  (-> .Type (java/lang/Class java/lang/Object) .Type Code (Operation (List [[Text .Type] Bit])))
+(def: (inheritance_candidate_parents class_loader fromT to_class toT fromC)
+  (-> java/lang/ClassLoader .Type (java/lang/Class java/lang/Object) .Type Code (Operation (List [[Text .Type] Bit])))
   (case fromT
     (^ (#.Primitive _ (list& self_classT super_classT super_interfacesT+)))
     (monad.map phase.monad
                (function (_ superT)
                  (do {! phase.monad}
                    [super_name (\ ! map ..reflection (check_jvm superT))
-                    super_class (phase.lift (reflection!.load super_name))]
+                    super_class (phase.lift (reflection!.load class_loader super_name))]
                    (wrap [[super_name superT]
                           (java/lang/Class::isAssignableFrom super_class to_class)])))
                (list& super_classT super_interfacesT+))
@@ -894,8 +896,8 @@
     _
     (/////analysis.throw ..cannot_cast [fromT toT fromC])))
 
-(def: object::cast
-  Handler
+(def: (object::cast class_loader)
+  (-> java/lang/ClassLoader Handler)
   (function (_ extension_name analyse archive args)
     (case args
       (^ (list fromC))
@@ -930,11 +932,11 @@
                                                    (not (dictionary.key? ..boxes from_name)))
                                    _ (phase.assert ..primitives_are_not_objects [to_name]
                                                    (not (dictionary.key? ..boxes to_name)))
-                                   to_class (phase.lift (reflection!.load to_name))
+                                   to_class (phase.lift (reflection!.load class_loader to_name))
                                    _ (if (text\= ..inheritance_relationship_type_name from_name)
                                        (wrap [])
                                        (do !
-                                         [from_class (phase.lift (reflection!.load from_name))]
+                                         [from_class (phase.lift (reflection!.load class_loader from_name))]
                                          (phase.assert ..cannot_cast [fromT toT fromC]
                                                        (java/lang/Class::isAssignableFrom from_class to_class))))]
                                   (loop [[current_name currentT] [from_name fromT]]
@@ -943,8 +945,8 @@
                                       (do !
                                         [candidate_parents (: (Operation (List [[Text .Type] Bit]))
                                                               (if (text\= ..inheritance_relationship_type_name current_name)
-                                                                (inheritance_candidate_parents currentT to_class toT fromC)
-                                                                (class_candidate_parents current_name currentT to_name to_class)))]
+                                                                (inheritance_candidate_parents class_loader currentT to_class toT fromC)
+                                                                (class_candidate_parents class_loader current_name currentT to_name to_class)))]
                                         (case (|> candidate_parents
                                                   (list.filter product.right)
                                                   (list\map product.left))
@@ -962,29 +964,29 @@
       _
       (/////analysis.throw ///.invalid_syntax [extension_name %.code args]))))
 
-(def: bundle::object
-  Bundle
+(def: (bundle::object class_loader)
+  (-> java/lang/ClassLoader Bundle)
   (<| (///bundle.prefix "object")
       (|> ///bundle.empty
           (///bundle.install "null" object::null)
           (///bundle.install "null?" object::null?)
           (///bundle.install "synchronized" object::synchronized)
-          (///bundle.install "throw" object::throw)
-          (///bundle.install "class" object::class)
-          (///bundle.install "instance?" object::instance?)
-          (///bundle.install "cast" object::cast)
+          (///bundle.install "throw" (object::throw class_loader))
+          (///bundle.install "class" (object::class class_loader))
+          (///bundle.install "instance?" (object::instance? class_loader))
+          (///bundle.install "cast" (object::cast class_loader))
           )))
 
-(def: get::static
-  Handler
+(def: (get::static class_loader)
+  (-> java/lang/ClassLoader Handler)
   (..custom
    [..member
     (function (_ extension_name analyse archive [class field])
       (do phase.monad
-        [_ (..ensure_fresh_class! class)
+        [_ (..ensure_fresh_class! class_loader class)
          [final? deprecated? fieldJT] (phase.lift
                                        (do try.monad
-                                         [class (reflection!.load class)]
+                                         [class (reflection!.load class_loader class)]
                                          (reflection!.static_field field class)))
          _ (phase.assert ..deprecated_field [class field]
                          (not deprecated?))
@@ -995,17 +997,17 @@
                         (/////analysis.text field)
                         (/////analysis.text (|> fieldJT ..reflection)))))))]))
 
-(def: put::static
-  Handler
+(def: (put::static class_loader)
+  (-> java/lang/ClassLoader Handler)
   (..custom
    [($_ <>.and ..member <code>.any)
     (function (_ extension_name analyse archive [[class field] valueC])
       (do phase.monad
-        [_ (..ensure_fresh_class! class)
+        [_ (..ensure_fresh_class! class_loader class)
          _ (typeA.infer Any)
          [final? deprecated? fieldJT] (phase.lift
                                        (do try.monad
-                                         [class (reflection!.load class)]
+                                         [class (reflection!.load class_loader class)]
                                          (reflection!.static_field field class)))
          _ (phase.assert ..deprecated_field [class field]
                          (not deprecated?))
@@ -1019,18 +1021,18 @@
                         (/////analysis.text field)
                         valueA)))))]))
 
-(def: get::virtual
-  Handler
+(def: (get::virtual class_loader)
+  (-> java/lang/ClassLoader Handler)
   (..custom
    [($_ <>.and ..member <code>.any)
     (function (_ extension_name analyse archive [[class field] objectC])
       (do phase.monad
-        [_ (..ensure_fresh_class! class)
+        [_ (..ensure_fresh_class! class_loader class)
          [objectT objectA] (typeA.with_inference
                              (analyse archive objectC))
          [deprecated? mapping fieldJT] (phase.lift
                                         (do try.monad
-                                          [class (reflection!.load class)
+                                          [class (reflection!.load class_loader class)
                                            [final? deprecated? fieldJT] (reflection!.virtual_field field class)
                                            mapping (reflection!.correspond class objectT)]
                                           (wrap [deprecated? mapping fieldJT])))
@@ -1043,19 +1045,19 @@
                         (/////analysis.text field)
                         objectA)))))]))
 
-(def: put::virtual
-  Handler
+(def: (put::virtual class_loader)
+  (-> java/lang/ClassLoader Handler)
   (..custom
    [($_ <>.and ..member <code>.any <code>.any)
     (function (_ extension_name analyse archive [[class field] valueC objectC])
       (do phase.monad
-        [_ (..ensure_fresh_class! class)
+        [_ (..ensure_fresh_class! class_loader class)
          [objectT objectA] (typeA.with_inference
                              (analyse archive objectC))
          _ (typeA.infer objectT)
          [final? deprecated? mapping fieldJT] (phase.lift
                                                (do try.monad
-                                                 [class (reflection!.load class)
+                                                 [class (reflection!.load class_loader class)
                                                   [final? deprecated? fieldJT] (reflection!.virtual_field field class)
                                                   mapping (reflection!.correspond class objectT)]
                                                  (wrap [final? deprecated? mapping fieldJT])))
@@ -1276,10 +1278,10 @@
                   (list\map jvm_parser.name expected))
       (dictionary.from_list text.hash)))
 
-(def: (method_candidate actual_class_tvars class_name actual_method_tvars method_name method_style inputsJT)
-  (-> (List (Type Var)) External (List (Type Var)) Text Method_Style (List (Type Value)) (Operation Method_Signature))
+(def: (method_candidate class_loader actual_class_tvars class_name actual_method_tvars method_name method_style inputsJT)
+  (-> java/lang/ClassLoader (List (Type Var)) External (List (Type Var)) Text Method_Style (List (Type Value)) (Operation Method_Signature))
   (do {! phase.monad}
-    [class (phase.lift (reflection!.load class_name))
+    [class (phase.lift (reflection!.load class_loader class_name))
      #let [expected_class_tvars (class_type_variables class)]
      candidates (|> class
                     java/lang/Class::getDeclaredMethods
@@ -1309,10 +1311,10 @@
 (def: constructor_method
   "<init>")
 
-(def: (constructor_candidate actual_class_tvars class_name actual_method_tvars inputsJT)
-  (-> (List (Type Var)) External (List (Type Var)) (List (Type Value)) (Operation Method_Signature))
+(def: (constructor_candidate class_loader actual_class_tvars class_name actual_method_tvars inputsJT)
+  (-> java/lang/ClassLoader (List (Type Var)) External (List (Type Var)) (List (Type Value)) (Operation Method_Signature))
   (do {! phase.monad}
-    [class (phase.lift (reflection!.load class_name))
+    [class (phase.lift (reflection!.load class_loader class_name))
      #let [expected_class_tvars (class_type_variables class)]
      candidates (|> class
                     java/lang/Class::getConstructors
@@ -1361,15 +1363,15 @@
 (def: type_vars
   (<code>.tuple (<>.some ..var)))
 
-(def: invoke::static
-  Handler
+(def: (invoke::static class_loader)
+  (-> java/lang/ClassLoader Handler)
   (..custom
    [($_ <>.and ..type_vars ..member ..type_vars (<>.some ..input))
     (function (_ extension_name analyse archive [class_tvars [class method] method_tvars argsTC])
       (do phase.monad
-        [_ (..ensure_fresh_class! class)
+        [_ (..ensure_fresh_class! class_loader class)
          #let [argsT (list\map product.left argsTC)]
-         [methodT deprecated? exceptionsT] (..method_candidate class_tvars class method_tvars method #Static argsT)
+         [methodT deprecated? exceptionsT] (..method_candidate class_loader class_tvars class method_tvars method #Static argsT)
          _ (phase.assert ..deprecated_method [class method methodT]
                          (not deprecated?))
          [outputT argsA] (inferenceA.general archive analyse methodT (list\map product.right argsTC))
@@ -1379,15 +1381,15 @@
                                                               (/////analysis.text (..signature outputJT))
                                                               (decorate_inputs argsT argsA))))))]))
 
-(def: invoke::virtual
-  Handler
+(def: (invoke::virtual class_loader)
+  (-> java/lang/ClassLoader Handler)
   (..custom
    [($_ <>.and ..type_vars ..member ..type_vars <code>.any (<>.some ..input))
     (function (_ extension_name analyse archive [class_tvars [class method] method_tvars objectC argsTC])
       (do phase.monad
-        [_ (..ensure_fresh_class! class)
+        [_ (..ensure_fresh_class! class_loader class)
          #let [argsT (list\map product.left argsTC)]
-         [methodT deprecated? exceptionsT] (..method_candidate class_tvars class method_tvars method #Virtual argsT)
+         [methodT deprecated? exceptionsT] (..method_candidate class_loader class_tvars class method_tvars method #Virtual argsT)
          _ (phase.assert ..deprecated_method [class method methodT]
                          (not deprecated?))
          [outputT allA] (inferenceA.general archive analyse methodT (list& objectC (list\map product.right argsTC)))
@@ -1404,15 +1406,15 @@
                                                               objectA
                                                               (decorate_inputs argsT argsA))))))]))
 
-(def: invoke::special
-  Handler
+(def: (invoke::special class_loader)
+  (-> java/lang/ClassLoader Handler)
   (..custom
    [($_ <>.and ..type_vars ..member ..type_vars <code>.any (<>.some ..input))
     (function (_ extension_name analyse archive [class_tvars [class method] method_tvars objectC argsTC])
       (do phase.monad
-        [_ (..ensure_fresh_class! class)
+        [_ (..ensure_fresh_class! class_loader class)
          #let [argsT (list\map product.left argsTC)]
-         [methodT deprecated? exceptionsT] (..method_candidate class_tvars class method_tvars method #Special argsT)
+         [methodT deprecated? exceptionsT] (..method_candidate class_loader class_tvars class method_tvars method #Special argsT)
          _ (phase.assert ..deprecated_method [class method methodT]
                          (not deprecated?))
          [outputT argsA] (inferenceA.general archive analyse methodT (list& objectC (list\map product.right argsTC)))
@@ -1422,18 +1424,18 @@
                                                               (/////analysis.text (..signature outputJT))
                                                               (decorate_inputs argsT argsA))))))]))
 
-(def: invoke::interface
-  Handler
+(def: (invoke::interface class_loader)
+  (-> java/lang/ClassLoader Handler)
   (..custom
    [($_ <>.and ..type_vars ..member ..type_vars <code>.any (<>.some ..input))
     (function (_ extension_name analyse archive [class_tvars [class_name method] method_tvars objectC argsTC])
       (do phase.monad
-        [_ (..ensure_fresh_class! class_name)
+        [_ (..ensure_fresh_class! class_loader class_name)
          #let [argsT (list\map product.left argsTC)]
-         class (phase.lift (reflection!.load class_name))
+         class (phase.lift (reflection!.load class_loader class_name))
          _ (phase.assert non_interface class_name
                          (java/lang/reflect/Modifier::isInterface (java/lang/Class::getModifiers class)))
-         [methodT deprecated? exceptionsT] (..method_candidate class_tvars class_name method_tvars method #Interface argsT)
+         [methodT deprecated? exceptionsT] (..method_candidate class_loader class_tvars class_name method_tvars method #Interface argsT)
          _ (phase.assert ..deprecated_method [class_name method methodT]
                          (not deprecated?))
          [outputT allA] (inferenceA.general archive analyse methodT (list& objectC (list\map product.right argsTC)))
@@ -1451,39 +1453,40 @@
                                                objectA
                                                (decorate_inputs argsT argsA))))))]))
 
-(def: invoke::constructor
+(def: (invoke::constructor class_loader)
+  (-> java/lang/ClassLoader Handler)
   (..custom
    [($_ <>.and ..type_vars <code>.text ..type_vars (<>.some ..input))
     (function (_ extension_name analyse archive [class_tvars class method_tvars argsTC])
       (do phase.monad
-        [_ (..ensure_fresh_class! class)
+        [_ (..ensure_fresh_class! class_loader class)
          #let [argsT (list\map product.left argsTC)]
-         [methodT deprecated? exceptionsT] (..constructor_candidate class_tvars class method_tvars argsT)
+         [methodT deprecated? exceptionsT] (..constructor_candidate class_loader class_tvars class method_tvars argsT)
          _ (phase.assert ..deprecated_method [class ..constructor_method methodT]
                          (not deprecated?))
          [outputT argsA] (inferenceA.general archive analyse methodT (list\map product.right argsTC))]
         (wrap (#/////analysis.Extension extension_name (list& (/////analysis.text (..signature (jvm.class class (list))))
                                                               (decorate_inputs argsT argsA))))))]))
 
-(def: bundle::member
-  Bundle
+(def: (bundle::member class_loader)
+  (-> java/lang/ClassLoader Bundle)
   (<| (///bundle.prefix "member")
       (|> ///bundle.empty
           (dictionary.merge (<| (///bundle.prefix "get")
                                 (|> ///bundle.empty
-                                    (///bundle.install "static" get::static)
-                                    (///bundle.install "virtual" get::virtual))))
+                                    (///bundle.install "static" (get::static class_loader))
+                                    (///bundle.install "virtual" (get::virtual class_loader)))))
           (dictionary.merge (<| (///bundle.prefix "put")
                                 (|> ///bundle.empty
-                                    (///bundle.install "static" put::static)
-                                    (///bundle.install "virtual" put::virtual))))
+                                    (///bundle.install "static" (put::static class_loader))
+                                    (///bundle.install "virtual" (put::virtual class_loader)))))
           (dictionary.merge (<| (///bundle.prefix "invoke")
                                 (|> ///bundle.empty
-                                    (///bundle.install "static" invoke::static)
-                                    (///bundle.install "virtual" invoke::virtual)
-                                    (///bundle.install "special" invoke::special)
-                                    (///bundle.install "interface" invoke::interface)
-                                    (///bundle.install "constructor" invoke::constructor)
+                                    (///bundle.install "static" (invoke::static class_loader))
+                                    (///bundle.install "virtual" (invoke::virtual class_loader))
+                                    (///bundle.install "special" (invoke::special class_loader))
+                                    (///bundle.install "interface" (invoke::interface class_loader))
+                                    (///bundle.install "constructor" (invoke::constructor class_loader))
                                     )))
           )))
 
@@ -1545,7 +1548,11 @@
           (monad.map try.monad
                      (function (_ method)
                        (do {! try.monad}
-                         [inputs (|> (java/lang/reflect/Method::getGenericParameterTypes method)
+                         [#let [type_variables (|> (java/lang/reflect/Method::getTypeParameters method)
+                                                   array.to_list
+                                                   (list\map (|>> java/lang/reflect/TypeVariable::getName
+                                                                  jvm.var)))]
+                          inputs (|> (java/lang/reflect/Method::getGenericParameterTypes method)
                                      array.to_list
                                      (monad.map ! reflection!.type))
                           return (|> method
@@ -1555,7 +1562,7 @@
                                          array.to_list
                                          (monad.map ! reflection!.class))]
                          (wrap [(java/lang/reflect/Method::getName method)
-                                (jvm.method [inputs return exceptions])]))))))]
+                                (jvm.method [type_variables inputs return exceptions])]))))))]
 
   [abstract_methods (list.filter (|>> java/lang/reflect/Method::getModifiers java/lang/reflect/Modifier::isAbstract))]
   [methods (<|)]
@@ -1564,9 +1571,9 @@
 (def: jvm_package_separator ".")
 
 (template [<name> <methods>]
-  [(def: <name>
-     (-> (List (Type Class)) (Try (List [Text (Type Method)])))
-     (|>> (monad.map try.monad (|>> ..reflection reflection!.load))
+  [(def: (<name> class_loader)
+     (-> java/lang/ClassLoader (List (Type Class)) (Try (List [Text (Type Method)])))
+     (|>> (monad.map try.monad (|>> ..reflection (reflection!.load class_loader)))
           (try\map (monad.map try.monad <methods>))
           try\join
           (try\map list\join)))]
@@ -1954,11 +1961,11 @@
    ["Actual (amount)" (%.nat (list.size actual))]
    ["Actual (parameters)" (exception.enumerate ..signature actual)]))
 
-(def: (super_aliasing class)
-  (-> (Type Class) (Operation Aliasing))
+(def: (super_aliasing class_loader class)
+  (-> java/lang/ClassLoader (Type Class) (Operation Aliasing))
   (do phase.monad
     [#let [[name actual_parameters] (jvm_parser.read_class class)]
-     class (phase.lift (reflection!.load name))
+     class (phase.lift (reflection!.load class_loader name))
      #let [expected_parameters (|> (java/lang/Class::getTypeParameters class)
                                    array.to_list
                                    (list\map (|>> java/lang/reflect/TypeVariable::getName)))]
@@ -1981,8 +1988,8 @@
         local (format "anonymous-class" (%.nat id))]
     (format global ..jvm_package_separator local)))
 
-(def: class::anonymous
-  Handler
+(def: (class::anonymous class_loader)
+  (-> java/lang/ClassLoader Handler)
   (..custom
    [($_ <>.and
         (<code>.tuple (<>.some ..var))
@@ -1996,8 +2003,8 @@
                                                  constructor_args
                                                  methods])
       (do {! phase.monad}
-        [_ (..ensure_fresh_class! (..reflection super_class))
-         _ (monad.map ! (|>> ..reflection ..ensure_fresh_class!) super_interfaces)
+        [_ (..ensure_fresh_class! class_loader (..reflection super_class))
+         _ (monad.map ! (|>> ..reflection (..ensure_fresh_class! class_loader)) super_interfaces)
          parameters (typeA.with_env
                       (..parameter_types parameters))
          #let [mapping (list\fold (function (_ [parameterJ parameterT] mapping)
@@ -2027,15 +2034,16 @@
                                              (wrap [type termA])))
                                        constructor_args)
          methodsA (monad.map ! (analyse_overriden_method analyse archive selfT mapping) methods)
-         required_abstract_methods (phase.lift (all_abstract_methods (list& super_class super_interfaces)))
-         available_methods (phase.lift (all_methods (list& super_class super_interfaces)))
+         required_abstract_methods (phase.lift (all_abstract_methods class_loader (list& super_class super_interfaces)))
+         available_methods (phase.lift (all_methods class_loader (list& super_class super_interfaces)))
          overriden_methods (monad.map ! (function (_ [parent_type method_name
-                                                      strict_fp? annotations vars
+                                                      strict_fp? annotations type_vars
                                                       self_name arguments return exceptions
                                                       body])
                                           (do !
-                                            [aliasing (super_aliasing parent_type)]
-                                            (wrap [method_name (|> (jvm.method [(list\map product.right arguments)
+                                            [aliasing (super_aliasing class_loader parent_type)]
+                                            (wrap [method_name (|> (jvm.method [type_vars
+                                                                                (list\map product.right arguments)
                                                                                 return
                                                                                 exceptions])
                                                                    (jvm_alias.method aliasing))])))
@@ -2052,15 +2060,15 @@
                                               (/////analysis.tuple (list\map typed_analysis constructor_argsA+))
                                               (/////analysis.tuple methodsA))))))]))
 
-(def: bundle::class
-  Bundle
+(def: (bundle::class class_loader)
+  (-> java/lang/ClassLoader Bundle)
   (<| (///bundle.prefix "class")
       (|> ///bundle.empty
-          (///bundle.install "anonymous" class::anonymous)
+          (///bundle.install "anonymous" (class::anonymous class_loader))
           )))
 
-(def: #export bundle
-  Bundle
+(def: #export (bundle class_loader)
+  (-> java/lang/ClassLoader Bundle)
   (<| (///bundle.prefix "jvm")
       (|> ///bundle.empty
           (dictionary.merge bundle::conversion)
@@ -2070,7 +2078,7 @@
           (dictionary.merge bundle::double)
           (dictionary.merge bundle::char)
           (dictionary.merge bundle::array)
-          (dictionary.merge bundle::object)
-          (dictionary.merge bundle::member)
-          (dictionary.merge bundle::class)
+          (dictionary.merge (bundle::object class_loader))
+          (dictionary.merge (bundle::member class_loader))
+          (dictionary.merge (bundle::class class_loader))
           )))

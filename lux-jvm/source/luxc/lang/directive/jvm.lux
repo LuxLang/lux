@@ -1,26 +1,35 @@
 (.module:
   [library
-   [lux #*
+   [lux (#- Type)
     [ffi (#+ import:)]
     [type (#+ :share)]
     [abstract
      ["." monad (#+ do)]]
     [control
-     ["." try (#+ Try)]]
+     ["." try (#+ Try)]
+     ["<>" parser
+      ["<.>" code (#+ Parser)]
+      ["<.>" text]]]
     [data
      [identity (#+ Identity)]
      ["." product]
      [text
       ["%" format (#+ format)]]
      [collection
-      ["." list ("#@." fold)]
+      ["." list ("#\." fold functor)]
       ["." dictionary (#+ Dictionary)]
-      ["." row (#+ Row) ("#@." functor fold)]]]
+      ["." row (#+ Row) ("#\." functor fold)]]]
     [math
      [number
       ["." nat]]]
     [target
-     ["/" jvm]]
+     ["/" jvm
+      [encoding
+       ["." name (#+ External)]]
+      ["#." type (#+ Type)
+       [category (#+ Void Value Return Method Primitive Object Class Array Var Parameter Declaration)]
+       ["." parser]
+       ["#/." signature]]]]
     [tool
      [compiler
       ["." phase]
@@ -28,16 +37,19 @@
        [lux
         [synthesis (#+ Synthesis)]
         ["." generation]
-        ["." directive]
+        ["." directive (#+ Requirements)]
         [phase
          ["." extension
           ["." bundle]
           [directive
-           ["./" lux]]]]]]]]]]
+           ["./" lux]]]]]]
+      [meta
+       [archive (#+ Archive)]]]]]]
   [///
    [host
     ["." jvm (#+ Inst)
-     ["_" inst]]]])
+     ["_" inst]
+     ["." def]]]])
 
 (import: org/objectweb/asm/Label
   ["#::."
@@ -416,7 +428,7 @@
 
     (#/.TABLESWITCH min max default labels)
     (let [[mapping default] (..relabel [mapping default])
-          [mapping labels] (list@fold (function (_ input [mapping output])
+          [mapping labels] (list\fold (function (_ input [mapping output])
                                         (let [[mapping input] (..relabel [mapping input])]
                                           [mapping (list& input output)]))
                                       [mapping (list)] labels)]
@@ -424,7 +436,7 @@
     
     (#/.LOOKUPSWITCH default keys+labels)
     (let [[mapping default] (..relabel [mapping default])
-          [mapping keys+labels] (list@fold (function (_ [expected input] [mapping output])
+          [mapping keys+labels] (list\fold (function (_ [expected input] [mapping output])
                                              (let [[mapping input] (..relabel [mapping input])]
                                                [mapping (list& [expected input] output)]))
                                            [mapping (list)] keys+labels)]
@@ -489,7 +501,7 @@
 
 (def: (relabel_bytecode [mapping bytecode])
   (Re_labeler (/.Bytecode Inst))
-  (row@fold (function (_ input [mapping output])
+  (row\fold (function (_ input [mapping output])
               (let [[mapping input'] (..relabel_instruction [mapping input])]
                 [mapping (row.add input' output)]))
             [mapping (row.row)]
@@ -504,7 +516,7 @@
   (|>> [..fresh]
        ..relabel_bytecode
        product.right
-       (row@map ..instruction)
+       (row\map ..instruction)
        row.to_list
        _.fuse))
 
@@ -512,7 +524,7 @@
                   <expression> (as_is Inst)
                   <directive> (as_is jvm.Definition)
                   <type_vars> (as_is <anchor> <expression> <directive>)]
-  (type: Handler
+  (type: Handler'
     ## (generation.Handler jvm.Anchor (/.Bytecode Inst /.Label) jvm.Definition)
     (-> extension.Name
         (phase.Phase [(extension.Bundle <type_vars>)
@@ -531,15 +543,18 @@
        (|>> (:as (/.Bytecode Inst /.Label)) ..bytecode)
        ((extender pseudo) extension_name phase archive inputs))))
 
+(type: Phase (directive.Phase jvm.Anchor jvm.Inst jvm.Definition))
+(type: Operation (directive.Operation jvm.Anchor jvm.Inst jvm.Definition))
+(type: Handler (directive.Handler jvm.Anchor jvm.Inst jvm.Definition))
+
 (def: (def::generation extender)
-  (-> jvm.Extender
-      (directive.Handler jvm.Anchor jvm.Inst jvm.Definition))
+  (-> jvm.Extender ..Handler)
   (function (handler extension_name phase archive inputsC+)
     (case inputsC+
       (^ (list nameC valueC))
       (do phase.monad
         [[_ _ name] (lux/.evaluate! archive Text nameC)
-         [_ handlerV] (lux/.generator archive (:as Text name) ..Handler valueC)
+         [_ handlerV] (lux/.generator archive (:as Text name) ..Handler' valueC)
          _ (|> handlerV
                (..true_handler extender)
                (extension.install extender (:as Text name))
@@ -551,8 +566,93 @@
       _
       (phase.throw extension.invalid_syntax [extension_name %.code inputsC+]))))
 
+(def: #export (custom [parser handler])
+  (All [i]
+    (-> [(Parser i)
+         (-> Text ..Phase Archive i (..Operation Requirements))]
+        ..Handler))
+  (function (_ extension_name phase archive input)
+    (case (<code>.run parser input)
+      (#try.Success input')
+      (handler extension_name phase archive input')
+
+      (#try.Failure error)
+      (phase.throw extension.invalid_syntax [extension_name %.code input]))))
+
+(template [<name> <type> <parser>]
+  [(def: <name>
+     (Parser <type>)
+     (do {! <>.monad}
+       [raw <code>.text]
+       (<>.lift (<text>.run <parser> raw))))]
+
+  [class_declaration [External (List (Type Var))] parser.declaration']
+  [class (Type Class) parser.class]
+  [type_variable (Type Var) parser.var]
+  [value (Type Value) parser.value]
+  )
+
+(def: annotation
+  (Parser Code)
+  <code>.any)
+
+(type: Method_Declaration
+  {#name Text
+   #annotations (List Code)
+   #type_variables (List (Type Var))
+   #exceptions (List (Type Class))
+   #arguments (List (Type Value))
+   #return (Type Value)})
+
+(def: method_declaration
+  (Parser Method_Declaration)
+  (<code>.form
+   ($_ <>.and
+       <code>.text
+       (<code>.tuple (<>.some ..annotation))
+       (<code>.tuple (<>.some ..type_variable))
+       (<code>.tuple (<>.some ..class))
+       (<code>.tuple (<>.some ..value))
+       ..value
+       )))
+
+(def: java/lang/Object
+  (/type.class "java.lang.Object" (list)))
+
+(def: jvm::class::interface
+  ..Handler
+  (..custom
+   [($_ <>.and
+        ..class_declaration
+        (<code>.tuple (<>.some ..class))
+        (<code>.tuple (<>.some ..annotation))
+        (<>.some ..method_declaration))
+    (function (_ extension_name phase archive [[class_name type_variables] supers annotations method_declarations])
+      (do {! phase.monad}
+        [#let [constraints (list\map (function (_ tv)
+                                       {#/type.name (parser.name tv)
+                                        #/type.super_class java/lang/Object
+                                        #/type.super_interfaces (list)})
+                                     type_variables)
+               directive [class_name
+                          (def.interface #jvm.V1_6 #jvm.Public jvm.noneC class_name
+                                         constraints
+                                         supers
+                                         (|> method_declarations
+                                             (list\map (function (_ (^slots [#name #annotations #type_variables #exceptions #arguments #return]))
+                                                         (def.abstract_method #jvm.Public jvm.noneM name
+                                                                              (/type.method [type_variables arguments return exceptions]))))
+                                             def.fuse))]]]
+        (directive.lift_generation
+         (do !
+           [artifact_id (generation.learn_custom class_name)
+            _ (generation.execute! directive)
+            _ (generation.save! artifact_id (#.Some class_name) directive)
+            _ (generation.log! (format "JVM Interface " (%.text class_name)))]
+           (wrap directive.no_requirements)))))]))
+
 (def: #export (bundle extender)
-  (-> jvm.Extender
-      (directive.Bundle jvm.Anchor jvm.Inst jvm.Definition))
+  (-> jvm.Extender (directive.Bundle jvm.Anchor jvm.Inst jvm.Definition))
   (|> bundle.empty
-      (dictionary.put "lux def generation" (..def::generation extender))))
+      (dictionary.put "lux def generation" (..def::generation extender))
+      (dictionary.put "jvm class interface" ..jvm::class::interface)))

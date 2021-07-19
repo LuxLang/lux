@@ -78,6 +78,8 @@
   ["#::."
    (invoke [java/lang/Object [java/lang/Object]] #try java/lang/Object)])
 
+(import: java/lang/ClassLoader)
+
 (import: (java/lang/Class c)
   ["#::."
    (getMethod [java/lang/String [(java/lang/Class java/lang/Object)]] #try java/lang/reflect/Method)])
@@ -226,18 +228,20 @@
 
 (def: #export platform
   ## (IO (Platform Anchor (Bytecode Any) Definition))
-  (IO (Platform _.Anchor _.Inst _.Definition))
+  (IO [java/lang/ClassLoader
+       (Platform _.Anchor _.Inst _.Definition)])
   (do io.monad
     [## host jvm/host.host
-     host jvm.host]
-    (wrap {#platform.&file_system (file.async file.default)
-           #platform.host host
-           ## #platform.phase jvm.generate
-           #platform.phase expression.translate
-           ## #platform.runtime runtime.generate
-           #platform.runtime runtime.translate
-           #platform.phase_wrapper ..phase_wrapper
-           #platform.write product.right})))
+     [loader host] jvm.host]
+    (wrap [loader
+           {#platform.&file_system (file.async file.default)
+            #platform.host host
+            ## #platform.phase jvm.generate
+            #platform.phase expression.translate
+            ## #platform.runtime runtime.generate
+            #platform.runtime runtime.translate
+            #platform.phase_wrapper ..phase_wrapper
+            #platform.write product.right}])))
 
 (def: (extender phase_wrapper)
   (-> platform.Phase_Wrapper Extender)
@@ -278,13 +282,14 @@
                 #/static.target (/cli.target service)
                 #/static.artifact_extension ".class"}]
     (exec (do promise.monad
-            [_ (/.compiler {#/static.host @.jvm
+            [[loader platform] (promise.future ..platform)
+             _ (/.compiler {#/static.host @.jvm
                             #/static.host_module_extension ".jvm"
                             #/static.target (/cli.target service)
                             #/static.artifact_extension ".class"}
                            ..expander
-                           analysis.bundle
-                           ..platform
+                           (analysis.bundle loader)
+                           (io.io platform)
                            ## generation.bundle
                            translation.bundle
                            (|>> ..extender directive.bundle)

@@ -9,8 +9,19 @@
     [control
      ["." try ("#\." functor)]
      [parser
-      ["<.>" xml]]]
+      ["." environment]
+      ["<.>" xml]]
+     [concurrency
+      ["." promise]]]
+    [data
+     ["." maybe]
+     ["." text ("#\." equivalence)]
+     [collection
+      ["." list]]]
+    [macro
+     ["." code]]
     [math
+     ["." random (#+ Random) ("#\." monad)]
      [number
       ["n" nat]]]
     ["." time
@@ -19,10 +30,9 @@
      ["." month]
      ["." instant (#+ Instant)]
      ["." duration]]
-    [math
-     ["." random (#+ Random) ("#\." monad)]]
-    [macro
-     ["." code]]]]
+    [world
+     ["." file]
+     ["." program]]]]
   ["$." /// #_
    ["#." artifact
     ["#/." type]
@@ -31,10 +41,13 @@
      ["#/." version]]]]
   [\\program
    ["." /
-    [///
-     [artifact
-      [versioning (#+ Versioning)]
-      ["#." snapshot]]]]])
+    ["/#" //
+     ["/#" // #_
+      [artifact
+       [versioning (#+ Versioning)]
+       ["#." snapshot]]
+      ["#." repository #_
+       ["#/." local]]]]]])
 
 (def: random_instant
   (Random Instant)
@@ -60,7 +73,7 @@
 (def: random_versioning
   (Random Versioning)
   ($_ random.and
-      (random\wrap #/snapshot.Local)
+      (random\wrap #///snapshot.Local)
       $///artifact/time.random
       (random.list 5 $///artifact/snapshot/version.random)
       ))
@@ -76,16 +89,40 @@
   Test
   (<| (_.covering /._)
       (_.for [/.Metadata])
-      ($_ _.and
-          (_.for [/.equivalence]
-                 ($equivalence.spec /.equivalence ..random))
-          (do random.monad
-            [expected ..random]
+      (do random.monad
+        [expected ..random
+         #let [artifact (get@ #/.artifact expected)]]
+        ($_ _.and
+            (_.for [/.equivalence]
+                   ($equivalence.spec /.equivalence ..random))
+            
             (_.cover [/.format /.parser]
                      (|> expected
                          /.format
                          list
                          (<xml>.run /.parser)
                          (try\map (\ /.equivalence = expected))
-                         (try.default false))))
-          )))
+                         (try.default false)))
+            (_.cover [/.uri]
+                     (text\= (//.remote_artifact_uri artifact)
+                             (/.uri artifact)))
+            (do random.monad
+              [home (random.ascii/lower 5)
+               working_directory (random.ascii/lower 5)
+               #let [program (program.async (program.mock environment.empty home working_directory))
+                     fs (file.mock (\ file.default separator))
+                     repository (///repository/local.repository program fs)]]
+              (wrap (do promise.monad
+                      [wrote? (/.write repository artifact expected)
+                       actual (/.read repository artifact)]
+                      (_.cover' [/.write /.read]
+                                (and (case wrote?
+                                       (#try.Success _) true
+                                       (#try.Failure _) false)
+                                     (case actual
+                                       (#try.Success actual)
+                                       (\ /.equivalence = expected actual)
+                                       
+                                       (#try.Failure _)
+                                       false))))))
+            ))))

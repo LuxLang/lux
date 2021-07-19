@@ -6,6 +6,10 @@
 cd ~/lux/stdlib/ \
 && lein clean \
 && lein with-profile bibliotheca lux auto test
+
+cd ~/lux/stdlib/ \
+&& lux clean \
+&& lux auto test
 ```
 
 ## Deploy
@@ -42,6 +46,11 @@ cd ~/lux/stdlib/ \
 cd ~/lux/stdlib/ \
 && lein clean \
 && lein with-profile aedifex lux auto build
+
+cd ~/lux/stdlib/ \
+&& lein clean \
+&& lein with-profile aedifex lux build \
+&& mv target/program.jar aedifex.jar
 ```
 
 ## Test
