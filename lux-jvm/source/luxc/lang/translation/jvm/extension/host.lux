@@ -29,6 +29,7 @@
        ["." box]
        ["." reflection]
        ["." signature]
+       ["." descriptor]
        ["." parser]]]]
     [tool
      [compiler
@@ -76,9 +77,17 @@
   [return Return parser.return]
   )
 
+(def: signature
+  (All [a] (-> (Type a) Text))
+  (|>> type.signature signature.signature))
+
+(def: descriptor
+  (All [a] (-> (Type a) Text))
+  (|>> type.descriptor descriptor.descriptor))
+
 (exception: #export (not_an_object_array {arrayJT (Type Array)})
   (exception.report
-   ["JVM Type" (|> arrayJT type.signature signature.signature)]))
+   ["JVM Type" (..signature arrayJT)]))
 
 (def: #export object_array
   (Parser (Type Object))
@@ -558,18 +567,18 @@
     (^ (list (synthesis.text from) (synthesis.text to) valueS))
     (do phase.monad
       [valueI (generate archive valueS)]
-      (`` (cond (~~ (template [<object> <type>]
-                      [(and (text@= (reflection.reflection (type.reflection <type>))
+      (`` (cond (~~ (template [<object> <primitive>]
+                      [(and (text@= (reflection.reflection (type.reflection <primitive>))
                                     from)
                             (text@= <object>
                                     to))
-                       (wrap (|>> valueI (_.wrap <type>)))
+                       (wrap (|>> valueI (_.wrap <primitive>)))
 
                        (and (text@= <object>
                                     from)
-                            (text@= (reflection.reflection (type.reflection <type>))
+                            (text@= (reflection.reflection (type.reflection <primitive>))
                                     to))
-                       (wrap (|>> valueI (_.unwrap <type>)))]
+                       (wrap (|>> valueI (_.unwrap <primitive>)))]
                       
                       [box.boolean type.boolean]
                       [box.byte    type.byte]
@@ -960,8 +969,13 @@
     (#.Left returnT)
     (case (type.primitive? returnT)
       (#.Left returnT)
-      (|>> (_.CHECKCAST returnT)
-           _.ARETURN)
+      (case (type.class? returnT)
+        (#.Some class_name)
+        (|>> (_.CHECKCAST returnT)
+             _.ARETURN)
+
+        #.None
+        _.ARETURN)
       
       (#.Right returnT)
       (cond (or (\ type.equivalence = type.boolean returnT)
@@ -1043,7 +1057,7 @@
                                                                       ($_ $.++M $.finalM $.strictM)
                                                                       $.finalM)
                                                                     name
-                                                                    (type.method [(list)
+                                                                    (type.method [vars
                                                                                   (list@map product.right arguments)
                                                                                   returnT
                                                                                   exceptionsT])

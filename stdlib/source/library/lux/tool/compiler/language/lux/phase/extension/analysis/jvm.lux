@@ -1882,14 +1882,60 @@
           <code>.any
           )))
 
-(def: #export (analyse_overriden_method analyse archive selfT mapping method)
-  (-> Phase Archive .Type Mapping (Overriden_Method Code) (Operation Analysis))
+(exception: #export (unknown_super {name Text} {supers (List (Type Class))})
+  (exception.report
+   ["Name" (%.text name)]
+   ["Available" (exception.enumerate (|>> jvm_parser.read_class product.left) supers)]))
+
+(exception: #export (mismatched_super_parameters {name Text} {expected Nat} {actual Nat})
+  (exception.report
+   ["Name" (%.text name)]
+   ["Expected" (%.nat expected)]
+   ["Actual" (%.nat actual)]))
+
+(def: (override_mapping mapping supers parent_type)
+  (-> Mapping (List (Type Class)) (Type Class) (Operation (List [Text .Type])))
+  (let [[parent_name parent_parameters] (jvm_parser.read_class parent_type)]
+    (case (list.one (function (_ super)
+                      (let [[super_name super_parameters] (jvm_parser.read_class super)]
+                        (if (text\= parent_name super_name)
+                          (#.Some super_parameters)
+                          #.None)))
+                    supers)
+      (#.Some super_parameters)
+      (let [expected_count (list.size parent_parameters)
+            actual_count (list.size super_parameters)]
+        (if (n.= expected_count actual_count)
+          (do {! phase.monad}
+            [parent_parameters (|> parent_parameters
+                                   (monad.map maybe.monad jvm_parser.var?)
+                                   try.from_maybe
+                                   phase.lift)]
+            (|> super_parameters
+                (monad.map ! (..reflection_type mapping))
+                (\ ! map (|>> (list.zip/2 parent_parameters)))))
+          (phase.lift (exception.throw ..mismatched_super_parameters [parent_name expected_count actual_count]))))
+      
+      #.None
+      (phase.lift (exception.throw ..unknown_super [parent_name supers])))))
+
+(def: #export (analyse_overriden_method analyse archive selfT mapping supers method)
+  (-> Phase Archive .Type Mapping (List (Type Class)) (Overriden_Method Code) (Operation Analysis))
   (let [[parent_type method_name
          strict_fp? annotations vars
          self_name arguments return exceptions
          body] method]
     (do {! phase.monad}
-      [annotationsA (monad.map ! (function (_ [name parameters])
+      [override_mapping (..override_mapping mapping supers parent_type)
+       #let [mapping (list\fold (function (_ [super_var bound_type] mapping)
+                                  (dictionary.put super_var bound_type mapping))
+                                mapping
+                                override_mapping)
+             mapping (list\fold (function (_ varJ mapping)
+                                  (dictionary.put (jvm_parser.name varJ) java/lang/Object mapping))
+                                mapping
+                                vars)]
+       annotationsA (monad.map ! (function (_ [name parameters])
                                    (do !
                                      [parametersA (monad.map ! (function (_ [name value])
                                                                  (do !
@@ -2033,7 +2079,7 @@
                                                       (analyse archive term))]
                                              (wrap [type termA])))
                                        constructor_args)
-         methodsA (monad.map ! (analyse_overriden_method analyse archive selfT mapping) methods)
+         methodsA (monad.map ! (analyse_overriden_method analyse archive selfT mapping (#.Cons super_class super_interfaces)) methods)
          required_abstract_methods (phase.lift (all_abstract_methods class_loader (list& super_class super_interfaces)))
          available_methods (phase.lift (all_methods class_loader (list& super_class super_interfaces)))
          overriden_methods (monad.map ! (function (_ [parent_type method_name
