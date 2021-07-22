@@ -1,22 +1,23 @@
 (.module:
   [library
-   [lux (#- Type)
-    [ffi (#+ import:)]
-    [type (#+ :share)]
+   [lux (#- Type static)
+    ["." ffi (#+ Inheritance Privacy State import:)]
     [abstract
      ["." monad (#+ do)]]
     [control
+     [pipe (#+ case>)]
      ["." try (#+ Try)]
      ["<>" parser
       ["<.>" code (#+ Parser)]
       ["<.>" text]]]
     [data
      [identity (#+ Identity)]
+     [binary (#+ Binary)]
      ["." product]
      [text
       ["%" format (#+ format)]]
      [collection
-      ["." list ("#\." fold functor)]
+      ["." list ("#\." fold functor monoid)]
       ["." dictionary (#+ Dictionary)]
       ["." row (#+ Row) ("#\." functor fold)]]]
     [math
@@ -26,9 +27,10 @@
      ["/" jvm
       [encoding
        ["." name (#+ External)]]
-      ["#." type (#+ Type)
-       [category (#+ Void Value Return Method Primitive Object Class Array Var Parameter Declaration)]
+      ["#." type (#+ Type Constraint)
+       [category (#+ Void Value Return Primitive Object Class Array Var Parameter)]
        ["." parser]
+       [".T" lux]
        ["#/." signature]
        ["#/." descriptor]]]]
     [tool
@@ -36,12 +38,18 @@
       ["." phase]
       [language
        [lux
-        [synthesis (#+ Synthesis)]
+        ["." analysis (#+ Analysis)]
+        ["." synthesis (#+ Synthesis)]
         ["." generation]
         ["." directive (#+ Requirements)]
         [phase
+         [analysis
+          [".A" scope]
+          [".A" type]]
          ["." extension
           ["." bundle]
+          [analysis
+           ["//A" jvm]]
           [directive
            ["./" lux]]]]]]
       [meta
@@ -50,7 +58,11 @@
    [host
     ["." jvm (#+ Inst)
      ["_" inst]
-     ["." def]]]])
+     ["." def]]]
+   [translation
+    [jvm
+     [extension
+      ["//G" host]]]]])
 
 (import: org/objectweb/asm/Label
   ["#::."
@@ -580,6 +592,9 @@
       (#try.Failure error)
       (phase.throw extension.invalid_syntax [extension_name %.code input]))))
 
+(type: Declaration
+  [External (List (Type Var))])
+
 (template [<name> <type> <parser>]
   [(def: <name>
      (Parser <type>)
@@ -587,19 +602,23 @@
        [raw <code>.text]
        (<>.lift (<text>.run <parser> raw))))]
 
-  [class_declaration [External (List (Type Var))] parser.declaration']
+  [class_declaration Declaration parser.declaration']
   [class (Type Class) parser.class]
   [type_variable (Type Var) parser.var]
   [value (Type Value) parser.value]
+  [return_type (Type Return) parser.return]
   )
 
+(type: Annotation
+  Code)
+
 (def: annotation
-  (Parser Code)
+  (Parser Annotation)
   <code>.any)
 
 (type: Method_Declaration
   {#name Text
-   #annotations (List Code)
+   #annotations (List Annotation)
    #type_variables (List (Type Var))
    #exceptions (List (Type Class))
    #arguments (List (Type Value))
@@ -620,6 +639,799 @@
 (def: java/lang/Object
   (/type.class "java.lang.Object" (list)))
 
+(def: inheritance
+  (Parser Inheritance)
+  ($_ <>.or
+      (<code>.text! "final")
+      (<code>.text! "abstract")
+      (<code>.text! "default")
+      ))
+
+(def: privacy
+  (Parser Privacy)
+  ($_ <>.or
+      (<code>.text! "public")
+      (<code>.text! "private")
+      (<code>.text! "protected")
+      (<code>.text! "default")
+      ))
+
+(def: state
+  (Parser State)
+  ($_ <>.or
+      (<code>.text! "volatile")
+      (<code>.text! "final")
+      (<code>.text! "default")
+      ))
+
+(type: Field
+  [Text Privacy State (List Annotation) (Type Value)])
+
+(def: field
+  (Parser Field)
+  (<code>.form
+   (do <>.monad
+     [_ (<code>.text! "variable")
+      name <code>.text
+      privacy ..privacy
+      state ..state
+      _ (<code>.tuple (<>.some ..annotation))
+      type ..value]
+     (wrap [name privacy state (list) type]))))
+
+(type: Argument
+  [Text (Type Value)])
+
+(def: argument
+  (Parser Argument)
+  (<code>.tuple
+   (<>.and <code>.text
+           ..value)))
+
+(type: (Constructor a)
+  [Privacy Bit (List Annotation) (List (Type Var)) (List (Type Class))
+   Text (List Argument) (List [(Type Value) a])
+   a])
+
+(type: (Override a)
+  [Declaration Text Bit (List Annotation) (List (Type Var))
+   Text (List Argument) (Type Return) (List (Type Class))
+   a])
+
+(type: (Virtual a)
+  [Text Privacy Bit Bit (List Annotation) (List (Type Var))
+   Text (List Argument) (Type Return) (List (Type Class))
+   a])
+
+(type: (Static a)
+  [Text Privacy Bit (List Annotation) (List (Type Var))
+   (List Argument) (Type Return) (List (Type Class))
+   a])
+
+(type: Abstract
+  [Text Privacy (List Annotation) (List (Type Var))
+   (List Argument) (Type Return) (List (Type Class))])
+
+(type: (Method a)
+  (#Constructor (Constructor a))
+  (#Override (Override a))
+  (#Virtual (Virtual a))
+  (#Static (Static a))
+  (#Abstract Abstract))
+
+(def: constructor
+  (Parser (Constructor Code))
+  (let [constructor_argument (: (Parser [(Type Value) Code])
+                                (<code>.tuple
+                                 (<>.and ..value
+                                         <code>.any)))]
+    (<| <code>.form
+        (<>.after (<code>.text! "init"))
+        ($_ <>.and
+            ..privacy
+            <code>.bit
+            (<code>.tuple (<>.some ..annotation))
+            (<code>.tuple (<>.some ..type_variable))
+            (<code>.tuple (<>.some ..class))
+            <code>.text
+            (<code>.tuple (<>.some ..argument))
+            (<code>.tuple (<>.some constructor_argument))
+            <code>.any
+            ))))
+
+(def: override
+  (Parser (Override Code))
+  (<| <code>.form
+      (<>.after (<code>.text! "override"))
+      ($_ <>.and
+          ..class_declaration
+          <code>.text
+          <code>.bit
+          (<code>.tuple (<>.some ..annotation))
+          (<code>.tuple (<>.some ..type_variable))
+          <code>.text
+          (<code>.tuple (<>.some ..argument))
+          ..return_type
+          (<code>.tuple (<>.some ..class))
+          <code>.any
+          )))
+
+(def: virtual
+  (Parser (Virtual Code))
+  (<| <code>.form
+      (<>.after (<code>.text! "virtual"))
+      ($_ <>.and
+          <code>.text
+          ..privacy
+          <code>.bit
+          <code>.bit
+          (<code>.tuple (<>.some ..annotation))
+          (<code>.tuple (<>.some ..type_variable))
+          <code>.text
+          (<code>.tuple (<>.some ..argument))
+          ..return_type
+          (<code>.tuple (<>.some ..class))
+          <code>.any
+          )))
+
+(def: static
+  (Parser (Static Code))
+  (<| <code>.form
+      (<>.after (<code>.text! "static"))
+      ($_ <>.and
+          <code>.text
+          ..privacy
+          <code>.bit
+          (<code>.tuple (<>.some ..annotation))
+          (<code>.tuple (<>.some ..type_variable))
+          (<code>.tuple (<>.some ..argument))
+          ..return_type
+          (<code>.tuple (<>.some ..class))
+          <code>.any
+          )))
+
+(def: abstract
+  (Parser Abstract)
+  (<| <code>.form
+      (<>.after (<code>.text! "abstract"))
+      ($_ <>.and
+          <code>.text
+          ..privacy
+          (<code>.tuple (<>.some ..annotation))
+          (<code>.tuple (<>.some ..type_variable))
+          (<code>.tuple (<>.some ..argument))
+          ..return_type
+          (<code>.tuple (<>.some ..class))
+          )))
+
+(def: method
+  (Parser (Method Code))
+  ($_ <>.or
+      ..constructor
+      ..override
+      ..virtual
+      ..static
+      ..abstract
+      ))
+
+(def: (constraint tv)
+  (-> (Type Var) Constraint)
+  {#/type.name (parser.name tv)
+   #/type.super_class java/lang/Object
+   #/type.super_interfaces (list)})
+
+(def: visibility
+  (-> ffi.Privacy jvm.Visibility)
+  (|>> (case> #ffi.PublicP #jvm.Public
+              #ffi.PrivateP #jvm.Private
+              #ffi.ProtectedP #jvm.Protected
+              #ffi.DefaultP #jvm.Default)))
+
+(def: field_config
+  (-> ffi.State jvm.Field_Config)
+  (|>> (case> #ffi.VolatileS jvm.volatileF
+              #ffi.FinalS jvm.finalF
+              #ffi.DefaultS jvm.noneF)))
+
+(def: (field_header [name privacy state annotations type])
+  (-> Field jvm.Def)
+  (def.field (..visibility privacy) (..field_config state) name type))
+
+(def: (header_value valueT)
+  (-> (Type Value) Inst)
+  (case (/type.primitive? valueT)
+    (#.Left classT)
+    _.NULL
+    
+    (#.Right primitiveT)
+    (cond (or (\ /type.equivalence = /type.boolean primitiveT)
+              (\ /type.equivalence = /type.byte primitiveT)
+              (\ /type.equivalence = /type.short primitiveT)
+              (\ /type.equivalence = /type.int primitiveT)
+              (\ /type.equivalence = /type.char primitiveT))
+          _.ICONST_0
+
+          (\ /type.equivalence = /type.long primitiveT)
+          _.LCONST_0
+
+          (\ /type.equivalence = /type.float primitiveT)
+          _.FCONST_0
+
+          ## (\ /type.equivalence = /type.double primitiveT)
+          _.DCONST_0)))
+
+(def: (header_return returnT)
+  (-> (Type Return) Inst)
+  (case (/type.void? returnT)
+    (#.Right returnT)
+    _.RETURN
+
+    (#.Left valueT)
+    (case (/type.primitive? valueT)
+      (#.Left classT)
+      (|>> (header_value classT)
+           _.ARETURN)
+      
+      (#.Right primitiveT)
+      (cond (or (\ /type.equivalence = /type.boolean primitiveT)
+                (\ /type.equivalence = /type.byte primitiveT)
+                (\ /type.equivalence = /type.short primitiveT)
+                (\ /type.equivalence = /type.int primitiveT)
+                (\ /type.equivalence = /type.char primitiveT))
+            (|>> (header_value primitiveT)
+                 _.IRETURN)
+
+            (\ /type.equivalence = /type.long primitiveT)
+            (|>> (header_value primitiveT)
+                 _.LRETURN)
+
+            (\ /type.equivalence = /type.float primitiveT)
+            (|>> (header_value primitiveT)
+                 _.FRETURN)
+
+            ## (\ /type.equivalence = /type.double primitiveT)
+            (|>> (header_value primitiveT)
+                 _.DRETURN)))))
+
+(def: constructor_name
+  "<init>")
+
+(def: (abstract_method_generation method)
+  (-> Abstract jvm.Def)
+  (let [[name privacy annotations variables
+         arguments return exceptions] method]
+    (def.abstract_method (..visibility privacy)
+                         jvm.noneM
+                         name
+                         (/type.method [variables (list\map product.right arguments) return exceptions]))))
+
+(def: (method_header super_class method)
+  (-> (Type Class) (Method Code) jvm.Def)
+  (case method
+    (#Constructor [privacy strict_floating_point? annotations variables exceptions
+                   self arguments constructor_arguments
+                   body])
+    (let [[super_name super_vars] (parser.read_class super_class)
+          init_constructor_arguments (|> constructor_arguments
+                                         (list\map (|>> product.left ..header_value))
+                                         _.fuse)
+          super_constructorT (/type.method [(list)
+                                            (list\map product.left constructor_arguments)
+                                            /type.void
+                                            (list)])]
+      (def.method (..visibility privacy)
+                  (if strict_floating_point?
+                    jvm.strictM
+                    jvm.noneM)
+                  ..constructor_name
+                  (/type.method [variables (list\map product.right arguments) /type.void exceptions])
+                  (|>> (_.ALOAD 0)
+                       init_constructor_arguments
+                       (_.INVOKESPECIAL super_class ..constructor_name super_constructorT)
+                       _.RETURN)))
+    
+    (#Override [[parent_name parent_variables] name strict_floating_point? annotations variables
+                self arguments return exceptions
+                body])
+    (def.method #jvm.Public
+                (if strict_floating_point?
+                  jvm.strictM
+                  jvm.noneM)
+                name
+                (/type.method [variables (list\map product.right arguments) return exceptions])
+                (..header_return return))
+
+    (#Virtual [name privacy final? strict_floating_point? annotations variables
+               self arguments return exceptions
+               body])
+    (def.method (..visibility privacy)
+                (|> jvm.noneM
+                    (jvm.++M (if strict_floating_point?
+                               jvm.strictM
+                               jvm.noneM))
+                    (jvm.++M (if final?
+                               jvm.finalM
+                               jvm.noneM)))
+                name
+                (/type.method [variables (list\map product.right arguments) return exceptions])
+                (..header_return return))
+
+    (#Static [name privacy strict_floating_point? annotations variables
+              arguments return exceptions
+              body])
+    (def.method (..visibility privacy)
+                (|> jvm.staticM
+                    (jvm.++M (if strict_floating_point?
+                               jvm.strictM
+                               jvm.noneM)))
+                name
+                (/type.method [variables (list\map product.right arguments) return exceptions])
+                (..header_return return))
+
+    (#Abstract method)
+    (..abstract_method_generation method)
+    ))
+
+(def: (header [class_name type_variables]
+              super_class
+              super_interfaces
+              inheritance
+              fields
+              methods)
+  (-> Declaration
+      (Type Class)
+      (List (Type Class))
+      Inheritance
+      (List Field)
+      (List (Method Code))
+      [External Binary])
+  (let [constraints (list\map ..constraint type_variables)
+        field_definitions (list\map ..field_header fields)
+        method_definitions (list\map (..method_header super_class) methods)
+        definitions (def.fuse (list\compose field_definitions
+                                            method_definitions))]
+    [class_name
+     (case inheritance
+       #ffi.DefaultI
+       (def.class #jvm.V1_6 #jvm.Public jvm.noneC class_name constraints super_class super_interfaces
+                  definitions)
+
+       #ffi.FinalI
+       (def.class #jvm.V1_6 #jvm.Public jvm.finalC class_name constraints super_class super_interfaces
+                  definitions)
+
+       #ffi.AbstractI
+       (def.abstract #jvm.V1_6 #jvm.Public jvm.noneC class_name constraints super_class super_interfaces
+                     definitions))]))
+
+(def: (constructor_method_analysis archive [class_name class_tvars] method)
+  (-> Archive Declaration (Constructor Code) (Operation (Constructor Analysis)))
+  (do {! phase.monad}
+    [#let [[privacy strict_floating_point? annotations method_tvars exceptions
+            self arguments constructor_argumentsC
+            bodyC] method]
+     analyse directive.analysis]
+    (directive.lift_analysis
+     (do !
+       [mapping (//A.with_fresh_type_vars class_tvars luxT.fresh)
+        mapping (//A.with_fresh_type_vars method_tvars mapping)
+        constructor_argumentsA (monad.map ! (function (_ [typeJ termC])
+                                              (do !
+                                                [typeL (//A.reflection_type mapping typeJ)
+                                                 termA (typeA.with_type typeL
+                                                         (analyse archive termC))]
+                                                (wrap [typeJ termA])))
+                                          constructor_argumentsC)
+        selfT (//A.reflection_type mapping (/type.class class_name class_tvars))
+        arguments' (monad.map !
+                              (function (_ [name type])
+                                (\ ! map (|>> [name])
+                                   (//A.reflection_type mapping type)))
+                              arguments)
+        returnT (//A.reflection_return mapping /type.void)
+        [_scope bodyA] (|> arguments'
+                           (#.Cons [self selfT])
+                           list.reverse
+                           (list\fold scopeA.with_local (analyse archive bodyC))
+                           (typeA.with_type returnT)
+                           analysis.with_scope)]
+       (wrap [privacy strict_floating_point? annotations method_tvars exceptions
+              self arguments constructor_argumentsA
+              bodyA])))))
+
+(def: (override_method_analysis archive [class_name class_tvars] supers method)
+  (-> Archive Declaration (List (Type Class)) (Override Code) (Operation (Override Analysis)))
+  (do {! phase.monad}
+    [#let [[[super_name super_tvars] method_name strict_floating_point? annotations
+            method_tvars self arguments returnJ exceptionsJ
+            bodyC] method]
+     analyse directive.analysis]
+    (directive.lift_analysis
+     (do !
+       [mapping (//A.with_fresh_type_vars class_tvars luxT.fresh)
+        #let [parent_type (/type.class super_name super_tvars)]
+        mapping (//A.with_override_mapping supers parent_type mapping)
+        mapping (//A.with_fresh_type_vars method_tvars mapping)
+        selfT (//A.reflection_type mapping (/type.class class_name class_tvars))
+        arguments' (monad.map !
+                              (function (_ [name type])
+                                (\ ! map (|>> [name])
+                                   (//A.reflection_type mapping type)))
+                              arguments)
+        returnT (//A.reflection_return mapping returnJ)
+        [_scope bodyA] (|> arguments'
+                           (#.Cons [self selfT])
+                           list.reverse
+                           (list\fold scopeA.with_local (analyse archive bodyC))
+                           (typeA.with_type returnT)
+                           analysis.with_scope)]
+       (wrap [[super_name super_tvars] method_name strict_floating_point? annotations
+              method_tvars self arguments returnJ exceptionsJ
+              bodyA])))))
+
+(def: (virtual_method_analysis archive [class_name class_tvars] method)
+  (-> Archive Declaration (Virtual Code) (Operation (Virtual Analysis)))
+  (do {! phase.monad}
+    [#let [[name privacy final? strict_floating_point? annotations method_tvars
+            self arguments returnJ exceptionsJ
+            bodyC] method]
+     analyse directive.analysis]
+    (directive.lift_analysis
+     (do !
+       [mapping (//A.with_fresh_type_vars class_tvars luxT.fresh)
+        mapping (//A.with_fresh_type_vars method_tvars mapping)
+        selfT (//A.reflection_type mapping (/type.class class_name class_tvars))
+        arguments' (monad.map !
+                              (function (_ [name type])
+                                (\ ! map (|>> [name])
+                                   (//A.reflection_type mapping type)))
+                              arguments)
+        returnT (//A.reflection_return mapping returnJ)
+        [_scope bodyA] (|> arguments'
+                           (#.Cons [self selfT])
+                           list.reverse
+                           (list\fold scopeA.with_local (analyse archive bodyC))
+                           (typeA.with_type returnT)
+                           analysis.with_scope)]
+       (wrap [name privacy final? strict_floating_point? annotations method_tvars
+              self arguments returnJ exceptionsJ
+              bodyA])))))
+
+(def: (static_method_analysis archive method)
+  (-> Archive (Static Code) (Operation (Static Analysis)))
+  (do {! phase.monad}
+    [#let [[name privacy strict_floating_point? annotations method_tvars
+            arguments returnJ exceptionsJ
+            bodyC] method]
+     analyse directive.analysis]
+    (directive.lift_analysis
+     (do !
+       [mapping (//A.with_fresh_type_vars method_tvars luxT.fresh)
+        arguments' (monad.map !
+                              (function (_ [name type])
+                                (\ ! map (|>> [name])
+                                   (//A.reflection_type mapping type)))
+                              arguments)
+        returnT (//A.reflection_return mapping returnJ)
+        [_scope bodyA] (|> arguments'
+                           list.reverse
+                           (list\fold scopeA.with_local (analyse archive bodyC))
+                           (typeA.with_type returnT)
+                           analysis.with_scope)]
+       (wrap [name privacy strict_floating_point? annotations method_tvars
+              arguments returnJ exceptionsJ
+              bodyA])))))
+
+(def: (method_analysis archive declaration supers method)
+  (-> Archive Declaration (List (Type Class)) (Method Code) (Operation (Method Analysis)))
+  (case method
+    (#Constructor method)
+    (\ phase.monad map (|>> #Constructor)
+       (constructor_method_analysis archive declaration method))
+    
+    (#Override method)
+    (\ phase.monad map (|>> #Override)
+       (override_method_analysis archive declaration supers method))
+
+    (#Virtual method)
+    (\ phase.monad map (|>> #Virtual)
+       (virtual_method_analysis archive declaration method))
+
+    (#Static method)
+    (\ phase.monad map (|>> #Static)
+       (static_method_analysis archive method))
+
+    (#Abstract method)
+    (\ phase.monad wrap (#Abstract method))
+    ))
+
+(template: (method_body <bodyS>)
+  (<| synthesis.function/abstraction [_ _]
+      synthesis.loop/scope [_ _]
+      synthesis.tuple
+      (list _)
+      <bodyS>))
+
+(def: (constructor_method_synthesis archive method)
+  (-> Archive (Constructor Analysis) (Operation (Constructor Synthesis)))
+  (do {! phase.monad}
+    [#let [[privacy strict_floating_point? annotations method_tvars exceptions
+            self arguments constructor_argumentsA
+            bodyA] method]
+     synthesise directive.synthesis]
+    (directive.lift_synthesis
+     (do !
+       [constructor_argumentsS (monad.map ! (function (_ [typeJ termA])
+                                              (\ ! map (|>> [typeJ])
+                                                 (synthesise archive termA)))
+                                          constructor_argumentsA)
+        bodyS (synthesise archive
+                          (list\fold (function (_ _)
+                                       (|>> (#analysis.Function (list))))
+                                     (analysis.tuple (list (analysis.unit) bodyA))
+                                     (list.repeat (|> arguments list.size (nat.max 1)) [])))]
+       (wrap [privacy strict_floating_point? annotations method_tvars exceptions
+              self arguments constructor_argumentsS
+              (case bodyS
+                (^ (method_body bodyS))
+                bodyS
+
+                _
+                bodyS)])))))
+
+(def: (override_method_synthesis archive method)
+  (-> Archive (Override Analysis) (Operation (Override Synthesis)))
+  (do {! phase.monad}
+    [#let [[[super_name super_tvars] method_name strict_floating_point? annotations
+            method_tvars self arguments returnJ exceptionsJ
+            bodyA] method]
+     synthesise directive.synthesis]
+    (directive.lift_synthesis
+     (do !
+       [bodyS (synthesise archive
+                          (list\fold (function (_ _)
+                                       (|>> (#analysis.Function (list))))
+                                     (analysis.tuple (list (analysis.unit) bodyA))
+                                     (list.repeat (|> arguments list.size (nat.max 1)) [])))]
+       (wrap [[super_name super_tvars] method_name strict_floating_point? annotations
+              method_tvars self arguments returnJ exceptionsJ
+              (case bodyS
+                (^ (method_body bodyS))
+                bodyS
+
+                _
+                bodyS)])))))
+
+(def: (virtual_method_synthesis archive method)
+  (-> Archive (Virtual Analysis) (Operation (Virtual Synthesis)))
+  (do {! phase.monad}
+    [#let [[name privacy final? strict_floating_point? annotations method_tvars
+            self arguments returnJ exceptionsJ
+            bodyA] method]
+     synthesise directive.synthesis]
+    (directive.lift_synthesis
+     (do !
+       [bodyS (synthesise archive
+                          (list\fold (function (_ _)
+                                       (|>> (#analysis.Function (list))))
+                                     (analysis.tuple (list (analysis.unit) bodyA))
+                                     (list.repeat (|> arguments list.size (nat.max 1)) [])))]
+       (wrap [name privacy final? strict_floating_point? annotations method_tvars
+              self arguments returnJ exceptionsJ
+              (case bodyS
+                (^ (method_body bodyS))
+                bodyS
+
+                _
+                bodyS)])))))
+
+(def: (static_method_synthesis archive method)
+  (-> Archive (Static Analysis) (Operation (Static Synthesis)))
+  (do {! phase.monad}
+    [#let [[name privacy strict_floating_point? annotations method_tvars
+            arguments returnJ exceptionsJ
+            bodyA] method]
+     synthesise directive.synthesis]
+    (directive.lift_synthesis
+     (do !
+       [bodyS (synthesise archive
+                          (list\fold (function (_ _)
+                                       (|>> (#analysis.Function (list))))
+                                     (analysis.tuple (list (analysis.unit) bodyA))
+                                     (list.repeat (|> arguments list.size (nat.max 1)) [])))]
+       (wrap [name privacy strict_floating_point? annotations method_tvars
+              arguments returnJ exceptionsJ
+              (case bodyS
+                (^ (method_body bodyS))
+                bodyS
+
+                _
+                bodyS)])))))
+
+(def: (method_synthesis archive method)
+  (-> Archive (Method Analysis) (Operation (Method Synthesis)))
+  (case method
+    (#Constructor method)
+    (\ phase.monad map (|>> #Constructor)
+       (constructor_method_synthesis archive method))
+    
+    (#Override method)
+    (\ phase.monad map (|>> #Override)
+       (override_method_synthesis archive method))
+    
+    (#Virtual method)
+    (\ phase.monad map (|>> #Virtual)
+       (virtual_method_synthesis archive method))
+    
+    (#Static method)
+    (\ phase.monad map (|>> #Static)
+       (static_method_synthesis archive method))
+
+    (#Abstract method)
+    (\ phase.monad wrap (#Abstract method))
+    ))
+
+(def: (constructor_method_generation archive super_class method)
+  (-> Archive (Type Class) (Constructor Synthesis) (Operation jvm.Def))
+  (do {! phase.monad}
+    [#let [[privacy strict_floating_point? annotations method_tvars exceptions
+            self arguments constructor_argumentsS
+            bodyS] method]
+     generate directive.generation]
+    (directive.lift_generation
+     (do !
+       [constructor_argumentsG (monad.map ! (|>> product.right (generate archive))
+                                          constructor_argumentsS)
+        bodyG (generate archive bodyS)
+        #let [[super_name super_vars] (parser.read_class super_class)
+              super_constructor_argument_values (_.fuse constructor_argumentsG)
+              super_constructorT (/type.method [(list)
+                                                (list\map product.left constructor_argumentsS)
+                                                /type.void
+                                                (list)])]]
+       (wrap (def.method (..visibility privacy)
+                         (if strict_floating_point?
+                           jvm.strictM
+                           jvm.noneM)
+                         ..constructor_name
+                         (/type.method [method_tvars (list\map product.right arguments) /type.void exceptions])
+                         (|>> (_.ALOAD 0)
+                              super_constructor_argument_values
+                              (_.INVOKESPECIAL super_class ..constructor_name super_constructorT)
+                              bodyG
+                              _.RETURN)))))))
+
+(def: (override_method_generation archive method)
+  (-> Archive (Override Synthesis) (Operation jvm.Def))
+  (do {! phase.monad}
+    [#let [[[super_name super_tvars] method_name strict_floating_point? annotations
+            method_tvars self arguments returnJ exceptionsJ
+            bodyS] method]
+     generate directive.generation]
+    (directive.lift_generation
+     (do !
+       [bodyG (generate archive bodyS)]
+       (wrap (def.method #jvm.Public
+                         (if strict_floating_point?
+                           jvm.strictM
+                           jvm.noneM)
+                         method_name
+                         (/type.method [method_tvars (list\map product.right arguments) returnJ exceptionsJ])
+                         (|>> bodyG
+                              (//G.returnI returnJ))))))))
+
+(def: (virtual_method_generation archive method)
+  (-> Archive (Virtual Synthesis) (Operation jvm.Def))
+  (do {! phase.monad}
+    [#let [[method_name privacy final? strict_floating_point? annotations method_tvars
+            self arguments returnJ exceptionsJ
+            bodyS] method]
+     generate directive.generation]
+    (directive.lift_generation
+     (do !
+       [bodyG (generate archive bodyS)]
+       (wrap (def.method (..visibility privacy)
+                         (|> jvm.noneM
+                             (jvm.++M (if strict_floating_point?
+                                        jvm.strictM
+                                        jvm.noneM))
+                             (jvm.++M (if final?
+                                        jvm.finalM
+                                        jvm.noneM)))
+                         method_name
+                         (/type.method [method_tvars (list\map product.right arguments) returnJ exceptionsJ])
+                         (|>> bodyG
+                              (//G.returnI returnJ))))))))
+
+(def: (static_method_generation archive method)
+  (-> Archive (Static Synthesis) (Operation jvm.Def))
+  (do {! phase.monad}
+    [#let [[method_name privacy strict_floating_point? annotations method_tvars
+            arguments returnJ exceptionsJ
+            bodyS] method]
+     generate directive.generation]
+    (directive.lift_generation
+     (do !
+       [bodyG (generate archive bodyS)]
+       (wrap (def.method (..visibility privacy)
+                         (|> jvm.staticM
+                             (jvm.++M (if strict_floating_point?
+                                        jvm.strictM
+                                        jvm.noneM)))
+                         method_name
+                         (/type.method [method_tvars (list\map product.right arguments) returnJ exceptionsJ])
+                         (|>> bodyG
+                              (//G.returnI returnJ))))))))
+
+(def: (method_generation archive super_class method)
+  (-> Archive (Type Class) (Method Synthesis) (Operation jvm.Def))
+  (case method
+    (#Constructor method)
+    (..constructor_method_generation archive super_class method)
+    
+    (#Override method)
+    (..override_method_generation archive method)
+    
+    (#Virtual method)
+    (..virtual_method_generation archive method)
+    
+    (#Static method)
+    (..static_method_generation archive method)
+
+    (#Abstract method)
+    (\ phase.monad wrap (..abstract_method_generation method))
+    ))
+
+(def: jvm::class
+  ..Handler
+  (..custom
+   [($_ <>.and
+        ..class_declaration
+        ..class
+        (<code>.tuple (<>.some ..class))
+        ..inheritance
+        (<code>.tuple (<>.some ..annotation))
+        (<code>.tuple (<>.some ..field))
+        (<code>.tuple (<>.some ..method)))
+    (function (_ extension_name phase archive
+                 [declaration
+                  super_class
+                  super_interfaces
+                  inheritance
+                  annotations
+                  fields
+                  methodsC])
+      (do {! phase.monad}
+        [#let [[class_name type_variables] declaration
+               header (..header [class_name type_variables]
+                                super_class
+                                super_interfaces
+                                inheritance
+                                fields
+                                methodsC)]
+         ## Necessary for reflection to work properly during analysis.
+         _ (directive.lift_generation
+            (generation.execute! header))
+         #let [supers (: (List (Type Class))
+                         (list& super_class super_interfaces))]
+         methodsA (monad.map ! (method_analysis archive declaration supers) methodsC)
+         methodsS (monad.map ! (method_synthesis archive) methodsA)
+         methodsG (monad.map ! (method_generation archive super_class) methodsS)
+         #let [directive [class_name
+                          (def.class #jvm.V1_6 #jvm.Public jvm.noneC class_name
+                                     (list\map ..constraint type_variables)
+                                     super_class
+                                     super_interfaces
+                                     (def.fuse (list\compose (list\map ..field_header fields)
+                                                             methodsG)))]]]
+        (directive.lift_generation
+         (do !
+           [artifact_id (generation.learn_custom class_name)
+            _ (generation.execute! directive)
+            _ (generation.save! artifact_id (#.Some class_name) directive)
+            _ (generation.log! (format "JVM Class " (%.text class_name)))]
+           (wrap directive.no_requirements)))))]))
+
 (def: jvm::class::interface
   ..Handler
   (..custom
@@ -630,14 +1442,9 @@
         (<>.some ..method_declaration))
     (function (_ extension_name phase archive [[class_name type_variables] supers annotations method_declarations])
       (do {! phase.monad}
-        [#let [constraints (list\map (function (_ tv)
-                                       {#/type.name (parser.name tv)
-                                        #/type.super_class java/lang/Object
-                                        #/type.super_interfaces (list)})
-                                     type_variables)
-               directive [class_name
+        [#let [directive [class_name
                           (def.interface #jvm.V1_6 #jvm.Public jvm.noneC class_name
-                                         constraints
+                                         (list\map ..constraint type_variables)
                                          supers
                                          (|> method_declarations
                                              (list\map (function (_ (^slots [#name #annotations #type_variables #exceptions #arguments #return]))
@@ -656,4 +1463,5 @@
   (-> jvm.Extender (directive.Bundle jvm.Anchor jvm.Inst jvm.Definition))
   (|> bundle.empty
       (dictionary.put "lux def generation" (..def::generation extender))
+      (dictionary.put "jvm class" ..jvm::class)
       (dictionary.put "jvm class interface" ..jvm::class::interface)))

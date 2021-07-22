@@ -843,7 +843,7 @@
           (/////analysis.throw cannot_possibly_be_an_instance (format sub_class " !<= "  object_class)))))]))
 
 (template [<name> <category> <parser>]
-  [(def: (<name> mapping typeJ)
+  [(def: #export (<name> mapping typeJ)
      (-> Mapping (Type <category>) (Operation .Type))
      (case (|> typeJ ..signature (<text>.run (<parser> mapping)))
        (#try.Success check)
@@ -1043,6 +1043,7 @@
         (wrap (<| (#/////analysis.Extension extension_name)
                   (list (/////analysis.text class)
                         (/////analysis.text field)
+                        (/////analysis.text (..reflection fieldJT))
                         objectA)))))]))
 
 (def: (put::virtual class_loader)
@@ -1071,6 +1072,7 @@
         (wrap (<| (#/////analysis.Extension extension_name)
                   (list (/////analysis.text class)
                         (/////analysis.text field)
+                        (/////analysis.text (..reflection fieldJT))
                         valueA
                         objectA)))))]))
 
@@ -1919,6 +1921,29 @@
       #.None
       (phase.lift (exception.throw ..unknown_super [parent_name supers])))))
 
+(def: #export (with_fresh_type_vars vars mapping)
+  (-> (List (Type Var)) Mapping (Operation Mapping))
+  (do {! phase.monad}
+    [pairings (monad.map ! (function (_ var)
+                             (do !
+                               [[_ exT] (typeA.with_env
+                                          check.existential)]
+                               (wrap [var exT])))
+                         vars)]
+    (wrap (list\fold (function (_ [varJ varT] mapping)
+                       (dictionary.put (jvm_parser.name varJ) varT mapping))
+                     mapping
+                     pairings))))
+
+(def: #export (with_override_mapping supers parent_type mapping)
+  (-> (List (Type Class)) (Type Class) Mapping (Operation Mapping))
+  (do phase.monad
+    [override_mapping (..override_mapping mapping supers parent_type)]
+    (wrap (list\fold (function (_ [super_var bound_type] mapping)
+                       (dictionary.put super_var bound_type mapping))
+                     mapping
+                     override_mapping))))
+
 (def: #export (analyse_overriden_method analyse archive selfT mapping supers method)
   (-> Phase Archive .Type Mapping (List (Type Class)) (Overriden_Method Code) (Operation Analysis))
   (let [[parent_type method_name
@@ -1926,15 +1951,8 @@
          self_name arguments return exceptions
          body] method]
     (do {! phase.monad}
-      [override_mapping (..override_mapping mapping supers parent_type)
-       #let [mapping (list\fold (function (_ [super_var bound_type] mapping)
-                                  (dictionary.put super_var bound_type mapping))
-                                mapping
-                                override_mapping)
-             mapping (list\fold (function (_ varJ mapping)
-                                  (dictionary.put (jvm_parser.name varJ) java/lang/Object mapping))
-                                mapping
-                                vars)]
+      [mapping (..with_override_mapping supers parent_type mapping)
+       mapping (..with_fresh_type_vars vars mapping)
        annotationsA (monad.map ! (function (_ [name parameters])
                                    (do !
                                      [parametersA (monad.map ! (function (_ [name value])
@@ -1944,13 +1962,13 @@
                                                              parameters)]
                                      (wrap [name parametersA])))
                                annotations)
-       returnT (reflection_return mapping return)
        arguments' (monad.map !
                              (function (_ [name jvmT])
                                (do !
                                  [luxT (reflection_type mapping jvmT)]
                                  (wrap [name luxT])))
                              arguments)
+       returnT (reflection_return mapping return)
        [scope bodyA] (|> arguments'
                          (#.Cons [self_name selfT])
                          list.reverse

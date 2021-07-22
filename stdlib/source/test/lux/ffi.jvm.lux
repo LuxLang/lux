@@ -38,25 +38,6 @@
   ["#::."
    (getName [] java/lang/String)])
 
-## TODO: Handle "/.class:" ASAP.
-## (/.class: #final (TestClass A) [java/lang/Runnable]
-##   ## Fields
-##   (#private foo boolean)
-##   (#private bar A)
-##   (#private baz java/lang/Object)
-##   ## Methods
-##   (#public [] (new self {value A}) []
-##            (exec (:= ::foo #1)
-##              (:= ::bar value)
-##              (:= ::baz "")
-##              []))
-##   (#public (virtual self) java/lang/Object
-##            "")
-##   (#public #static (static) java/lang/Object
-##            "")
-##   (java/lang/Runnable [] (run self) void
-##                       []))
-
 (template [<name> <type> <conversion> <lux> <=>]
   [(def: (<name> left right)
      (-> <type> <type> Bit)
@@ -83,14 +64,16 @@
                (#try.Failure error)
                (#try.Success [lux (list (code.text error))])))))
 
-(def: conversions
+(def: for_conversions
   Test
   (do {! random.monad}
     [long (\ ! map (|>> (:as /.Long)) random.int)
      integer (\ ! map (|>> (:as /.Long) /.long_to_int) random.int)
      byte (\ ! map (|>> (:as /.Long) /.long_to_byte) random.int)
      short (\ ! map (|>> (:as /.Long) /.long_to_short) random.int)
-     float (\ ! map (|>> (:as /.Double) /.double_to_float) random.frac)]
+     float (|> random.frac
+               (random.filter (|>> f.not_a_number? not))
+               (\ ! map (|>> (:as /.Double) /.double_to_float)))]
     (`` ($_ _.and
             (~~ (template [<sample> <=> <to> <from>]
                   [(_.cover [<to> <from>]
@@ -116,7 +99,7 @@
                   [float float\= /.float_to_double /.double_to_float]
                   ))))))
 
-(def: arrays
+(def: for_arrays
   Test
   (do {! random.monad}
     [size (|> random.nat (\ ! map (|>> (n.% 100) (n.max 1))))
@@ -142,7 +125,7 @@
                        ..macro_error
                        (text.contains? (get@ #exception.label /.cannot_convert_to_jvm_type))))))))
 
-(def: miscellaneous
+(def: for_miscellaneous
   Test
   (`` (do {! random.monad}
         [sample (\ ! map (|>> (:as java/lang/Object))
@@ -152,8 +135,12 @@
          short (\ ! map (|>> (:as /.Long) /.long_to_short) random.int)
          integer (\ ! map (|>> (:as /.Long) /.long_to_int) random.int)
          long (\ ! map (|>> (:as /.Long)) random.int)
-         float (\ ! map (|>> (:as /.Double) /.double_to_float) random.frac)
-         double (\ ! map (|>> (:as /.Double)) random.frac)
+         float (|> random.frac
+                   (random.filter (|>> f.not_a_number? not))
+                   (\ ! map (|>> (:as /.Double) /.double_to_float)))
+         double (|> random.frac
+                    (random.filter (|>> f.not_a_number? not))
+                    (\ ! map (|>> (:as /.Double))))
          character (\ ! map (|>> (:as /.Long) /.long_to_int /.int_to_char) random.int)
          string (\ ! map (|>> (:as java/lang/String))
                    (random.ascii 1))]
@@ -260,7 +247,8 @@
   ["#::."
    (actual3 [] a)])
 
-(def: interface
+(def: for_interface
+  Test
   (do random.monad
     [expected random.nat
      #let [object/0 (/.object [] [test/TestInterface0]
@@ -270,6 +258,10 @@
                        java/lang/Long
                        (:as java/lang/Long
                             expected)))
+           example/0!
+           (is? (: Any expected)
+                (: Any (test/TestInterface0::actual0 object/0)))
+
            object/1 (/.object [] [test/TestInterface1]
                       []
                       (test/TestInterface1
@@ -280,24 +272,6 @@
                          (error! "YOLO")
                          (:as java/lang/Long
                               expected))))
-           object/2 (/.object [] [test/TestInterface2]
-                      []
-                      (test/TestInterface2
-                       [a] (actual2 self {input a})
-                       a
-                       input))
-           object/3 (/.object [] [(test/TestInterface3 java/lang/Long)]
-                      []
-                      ((test/TestInterface3 a)
-                       [] (actual3 self)
-                       a
-                       (:as java/lang/Long
-                            expected)))
-
-           example/0!
-           (is? (: Any expected)
-                (: Any (test/TestInterface0::actual0 object/0)))
-
            example/1!
            (and (case (test/TestInterface1::actual1 false object/1)
                   (#try.Success actual)
@@ -313,24 +287,209 @@
                   (#try.Failure error)
                   true))
 
+           object/2 (/.object [] [test/TestInterface2]
+                      []
+                      (test/TestInterface2
+                       [a] (actual2 self {input a})
+                       a
+                       input))
            example/2!
            (is? (: Any expected)
-                (: Any (test/TestInterface2::actual2 (:as /.Long expected) object/2)))
+                (: Any (test/TestInterface2::actual2 (:as java/lang/Long expected) object/2)))
 
+           object/3 (/.object [] [(test/TestInterface3 java/lang/Long)]
+                      []
+                      ((test/TestInterface3 a)
+                       [] (actual3 self)
+                       a
+                       (:as java/lang/Long
+                            expected)))
            example/3!
            (is? (: Any expected)
                 (: Any (test/TestInterface3::actual3 object/3)))]]
-    (_.cover [/.interface:]
+    (_.cover [/.interface: /.object]
              (and example/0!
                   example/1!
                   example/2!
                   example/3!))))
 
+(/.class: #final test/TestClass0 [test/TestInterface0]
+  ## Fields
+  (#private value java/lang/Long)
+  ## Constructors
+  (#public [] (new self {value java/lang/Long}) []
+           (:= ::value value))
+  ## Methods
+  (test/TestInterface0 [] (actual0 self) java/lang/Long
+                       ::value))
+
+(/.import: test/TestClass0
+  ["#::."
+   (new [java/lang/Long])])
+
+(/.class: #final test/TestClass1 [test/TestInterface1]
+  ## Fields
+  (#private value java/lang/Long)
+  ## Constructors
+  (#public [] (new self {value java/lang/Long}) []
+           (:= ::value value))
+  ## Methods
+  (test/TestInterface1 [] (actual1 self {throw? java/lang/Boolean}) java/lang/Long #throws [java/lang/Throwable]
+                       (if (:as Bit throw?)
+                         (error! "YOLO")
+                         ::value)))
+
+(/.import: test/TestClass1
+  ["#::."
+   (new [java/lang/Long])])
+
+(/.class: #final test/TestClass2 [test/TestInterface2]
+  ## Constructors
+  (#public [] (new self) []
+           [])
+  ## Methods
+  (test/TestInterface2
+   [a] (actual2 self {input a})
+   a
+   input))
+
+(/.import: test/TestClass2
+  ["#::."
+   (new [])])
+
+(/.class: #final (test/TestClass3 a) [(test/TestInterface3 a)]
+  ## Fields
+  (#private value a)
+  ## Constructors
+  (#public [] (new self {value a}) []
+           (:= ::value value))
+  ## Methods
+  ((test/TestInterface3 a)
+   [] (actual3 self)
+   a
+   ::value))
+
+(/.import: (test/TestClass3 a)
+  ["#::."
+   (new [a])])
+
+(/.class: #final test/TestClass4 []
+  ## Constructors
+  (#public [] (new self) []
+           [])
+  ## Methods
+  (#public (actual4 self {value java/lang/Long}) java/lang/Long
+           value))
+
+(/.import: test/TestClass4
+  ["#::."
+   (new [])
+   (actual4 [java/lang/Long] java/lang/Long)])
+
+(/.class: #final test/TestClass5 []
+  ## Constructors
+  (#public [] (new self) []
+           [])
+  ## Methods
+  (#public #static (actual5 {value java/lang/Long})
+           java/lang/Long
+           value))
+
+(/.import: test/TestClass5
+  ["#::."
+   (#static actual5 [java/lang/Long] java/lang/Long)])
+
+(/.class: #abstract test/TestClass6 []
+  ## Constructors
+  (#public [] (new self) []
+           [])
+  ## Methods
+  (#public #abstract (actual6 {value java/lang/Long})
+           java/lang/Long))
+
+(/.import: test/TestClass6
+  ["#::."
+   (actual6 [java/lang/Long] java/lang/Long)])
+
+(/.class: #final test/TestClass7 test/TestClass6 []
+  ## Constructors
+  (#public [] (new self) []
+           [])
+  ## Methods
+  (test/TestClass6
+   [] (actual6 self {input java/lang/Long})
+   java/lang/Long
+   input))
+
+(/.import: test/TestClass7
+  ["#::."
+   (new [])])
+
+(def: for_class
+  Test
+  (do random.monad
+    [expected random.nat
+
+     #let [object/0 (test/TestClass0::new (.int expected))
+           example/0!
+           (n.= expected
+                (:as Nat (test/TestInterface0::actual0 object/0)))
+
+           object/1 (test/TestClass1::new (.int expected))
+           example/1!
+           (and (case (test/TestInterface1::actual1 false object/1)
+                  (#try.Success actual)
+                  (n.= expected
+                       (:as Nat actual))
+                  
+                  (#try.Failure error)
+                  false)
+                (case (test/TestInterface1::actual1 true object/1)
+                  (#try.Success actual)
+                  false
+                  
+                  (#try.Failure error)
+                  true))
+
+           object/2 (test/TestClass2::new)
+           example/2!
+           (n.= expected
+                (: Nat (test/TestInterface2::actual2 (:as java/lang/Long expected) object/2)))
+
+           object/3 (: (test/TestClass3 java/lang/Long)
+                       (test/TestClass3::new (:as java/lang/Long expected)))
+           example/3!
+           (n.= expected
+                (: Nat (test/TestInterface3::actual3 object/3)))
+
+           object/4 (test/TestClass4::new)
+           example/4!
+           (n.= expected
+                (.nat (test/TestClass4::actual4 (.int expected) object/4)))
+
+           example/5!
+           (n.= expected
+                (.nat (test/TestClass5::actual5 (.int expected))))
+
+           object/7 (test/TestClass7::new)
+           example/7!
+           (n.= expected
+                (.nat (test/TestClass6::actual6 (.int expected) object/7)))]]
+    (_.cover [/.class: /.import:]
+             (and example/0!
+                  example/1!
+                  example/2!
+                  example/3!
+                  example/4!
+                  example/5!
+                  example/7!))))
+
 (def: #export test
   (<| (_.covering /._)
       ($_ _.and
-          ..conversions
-          ..arrays
-          ..miscellaneous
-          ..interface
+          ..for_conversions
+          ..for_arrays
+          ..for_miscellaneous
+          ..for_interface
+          ..for_class
           )))

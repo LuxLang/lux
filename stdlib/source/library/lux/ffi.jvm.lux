@@ -187,21 +187,21 @@
   #ManualPrM
   #AutoPrM)
 
-(type: Privacy
+(type: #export Privacy
   #PublicP
   #PrivateP
   #ProtectedP
   #DefaultP)
 
-(type: StateModifier
-  #VolatileSM
-  #FinalSM
-  #DefaultSM)
+(type: #export State
+  #VolatileS
+  #FinalS
+  #DefaultS)
 
-(type: InheritanceModifier
-  #FinalIM
-  #AbstractIM
-  #DefaultIM)
+(type: #export Inheritance
+  #FinalI
+  #AbstractI
+  #DefaultI)
 
 (type: Class_Kind
   #Class
@@ -224,7 +224,7 @@
 
 (type: FieldDecl
   (#ConstantField (Type Value) Code)
-  (#VariableField StateModifier (Type Value)))
+  (#VariableField State (Type Value)))
 
 (type: MethodDecl
   {#method_tvars  (List (Type Var))
@@ -397,20 +397,24 @@
      _ (<code>.this! (code.identifier ["" dotted_name]))]
     (wrap (get_static_field class_name field_name))))
 
-(def: (make_get_var_parser class_name field_name)
-  (-> Text Text (Parser Code))
+(def: (make_get_var_parser class_name field_name self_name)
+  (-> Text Text Text (Parser Code))
   (do <>.monad
     [#let [dotted_name (format "::" field_name)]
      _ (<code>.this! (code.identifier ["" dotted_name]))]
-    (wrap (get_virtual_field class_name field_name (' _jvm_this)))))
+    (wrap (get_virtual_field class_name field_name (code.local_identifier self_name)))))
 
-(def: (make_put_var_parser class_name field_name)
-  (-> Text Text (Parser Code))
+(def: (make_put_var_parser class_name field_name self_name)
+  (-> Text Text Text (Parser Code))
   (do <>.monad
     [#let [dotted_name (format "::" field_name)]
      [_ _ value] (: (Parser [Any Any Code])
                     (<code>.form ($_ <>.and (<code>.this! (' :=)) (<code>.this! (code.identifier ["" dotted_name])) <code>.any)))]
-    (wrap (`' ((~ (code.text (format "jvm putfield" ":" class_name ":" field_name))) _jvm_this (~ value))))))
+    (wrap (`' ("jvm member put virtual"
+               (~ (code.text class_name))
+               (~ (code.text field_name))
+               (~ value)
+               (~ (code.local_identifier self_name)))))))
 
 (def: (pre_walk_replace f input)
   (-> (-> Code Code) Code Code)
@@ -440,15 +444,15 @@
     ast
     ))
 
-(def: (field->parser class_name [[field_name _ _] field])
-  (-> Text [Member_Declaration FieldDecl] (Parser Code))
+(def: (field->parser class_name self_name [[field_name _ _] field])
+  (-> Text Text [Member_Declaration FieldDecl] (Parser Code))
   (case field
     (#ConstantField _)
     (make_get_const_parser class_name field_name)
     
     (#VariableField _)
-    (<>.either (make_get_var_parser class_name field_name)
-               (make_put_var_parser class_name field_name))))
+    (<>.either (make_get_var_parser class_name field_name self_name)
+               (make_put_var_parser class_name field_name self_name))))
 
 (def: (decorate_input [class value])
   (-> [(Type Value) Code] Code)
@@ -478,15 +482,15 @@
                       (list\map ..decorate_input))))))))
 
 (template [<name> <jvm_op>]
-  [(def: (<name> class_name method_name arguments)
-     (-> Text Text (List Argument) (Parser Code))
+  [(def: (<name> class_name method_name arguments self_name)
+     (-> Text Text (List Argument) Text (Parser Code))
      (do <>.monad
        [#let [dotted_name (format "::" method_name "!")]
         args (: (Parser (List Code))
                 (<code>.form (<>.after (<code>.this! (code.identifier ["" dotted_name]))
                                        (<code>.tuple (<>.exactly (list.size arguments) <code>.any)))))]
        (wrap (` (<jvm_op> (~ (code.text class_name)) (~ (code.text method_name))
-                          (~' _jvm_this)
+                          (~ (code.local_identifier self_name))
                           (~+ (|> args
                                   (list.zip/2 (list\map product.right arguments))
                                   (list\map ..decorate_input))))))))]
@@ -503,16 +507,18 @@
     
     (#StaticMethod strict? type_vars args return_type return_expr exs)
     (make_static_method_parser class_name method_name args)
+
+    (#VirtualMethod final? strict? type_vars self_name args return_type return_expr exs)
+    (make_virtual_method_parser class_name method_name args self_name)
     
-    (^or (#VirtualMethod final? strict? type_vars self_name args return_type return_expr exs)
-         (#OverridenMethod strict? owner_class type_vars self_name args return_type return_expr exs))
-    (make_special_method_parser class_name method_name args)
+    (#OverridenMethod strict? owner_class type_vars self_name args return_type return_expr exs)
+    (make_special_method_parser class_name method_name args self_name)
 
     (#AbstractMethod type_vars args return_type exs)
-    (make_virtual_method_parser class_name method_name args)
+    (make_virtual_method_parser class_name method_name args "")
 
     (#NativeMethod type_vars args return_type exs)
-    (make_virtual_method_parser class_name method_name args)))
+    (make_virtual_method_parser class_name method_name args "")))
 
 (def: privacy_modifier^
   (Parser Privacy)
@@ -524,7 +530,7 @@
         (wrap []))))
 
 (def: inheritance_modifier^
-  (Parser InheritanceModifier)
+  (Parser Inheritance)
   (let [(^open ".") <>.monad]
     ($_ <>.or
         (<code>.this! (' #final))
@@ -732,7 +738,7 @@
                                               #method_exs exs}]))))
 
 (def: state_modifier^
-  (Parser StateModifier)
+  (Parser State)
   ($_ <>.or
       (<code>.this! (' #volatile))
       (<code>.this! (' #final))
@@ -1012,11 +1018,11 @@
     #DefaultP   (code.text "default")))
 
 (def: (inheritance_modifier$ im)
-  (-> InheritanceModifier Code)
+  (-> Inheritance Code)
   (case im
-    #FinalIM    (code.text "final")
-    #AbstractIM (code.text "abstract")
-    #DefaultIM  (code.text "default")))
+    #FinalI    (code.text "final")
+    #AbstractI (code.text "abstract")
+    #DefaultI  (code.text "default")))
 
 (def: (annotation_parameter$ [name value])
   (-> Annotation_Parameter Code)
@@ -1054,11 +1060,11 @@
         (~ (return$ method_output))))))
 
 (def: (state_modifier$ sm)
-  (-> StateModifier Code)
+  (-> State Code)
   (case sm
-    #VolatileSM (' "volatile")
-    #FinalSM    (' "final")
-    #DefaultSM  (' "default")))
+    #VolatileS (' "volatile")
+    #FinalS    (' "final")
+    #DefaultS  (' "default")))
 
 (def: (field_decl$ [[name pm anns] field])
   (-> [Member_Declaration FieldDecl] Code)
@@ -1087,44 +1093,53 @@
   (-> (Typed Code) Code)
   (` [(~ (value$ class)) (~ term)]))
 
-(def: (method_def$ replacer super_class [[name pm anns] method_def])
-  (-> (-> Code Code) (Type Class) [Member_Declaration Method_Definition] Code)
+(def: (method_def$ fully_qualified_class_name method_parser super_class fields [[name pm anns] method_def])
+  (-> External (Parser Code) (Type Class) (List [Member_Declaration FieldDecl]) [Member_Declaration Method_Definition] Code)
   (case method_def
     (#ConstructorMethod strict_fp? type_vars self_name arguments constructor_args body exs)
-    (` ("init"
-        (~ (privacy_modifier$ pm))
-        (~ (code.bit strict_fp?))
-        [(~+ (list\map annotation$ anns))]
-        [(~+ (list\map var$ type_vars))]
-        [(~+ (list\map class$ exs))]
-        (~ (code.text self_name))
-        [(~+ (list\map argument$ arguments))]
-        [(~+ (list\map constructor_arg$ constructor_args))]
-        (~ (pre_walk_replace replacer body))
-        ))
+    (let [replacer (|> (list\map (field->parser fully_qualified_class_name self_name) fields)
+                       (list\fold <>.either method_parser)
+                       parser->replacer)]
+      (` ("init"
+          (~ (privacy_modifier$ pm))
+          (~ (code.bit strict_fp?))
+          [(~+ (list\map annotation$ anns))]
+          [(~+ (list\map var$ type_vars))]
+          [(~+ (list\map class$ exs))]
+          (~ (code.text self_name))
+          [(~+ (list\map argument$ arguments))]
+          [(~+ (list\map constructor_arg$ constructor_args))]
+          (~ (pre_walk_replace replacer body))
+          )))
     
     (#VirtualMethod final? strict_fp? type_vars self_name arguments return_type body exs)
-    (` ("virtual"
-        (~ (code.text name))
-        (~ (privacy_modifier$ pm))
-        (~ (code.bit final?))
-        (~ (code.bit strict_fp?))
-        [(~+ (list\map annotation$ anns))]
-        [(~+ (list\map var$ type_vars))]
-        (~ (code.text self_name))
-        [(~+ (list\map argument$ arguments))]
-        (~ (return$ return_type))
-        [(~+ (list\map class$ exs))]
-        (~ (pre_walk_replace replacer body))))
+    (let [replacer (|> (list\map (field->parser fully_qualified_class_name self_name) fields)
+                       (list\fold <>.either method_parser)
+                       parser->replacer)]
+      (` ("virtual"
+          (~ (code.text name))
+          (~ (privacy_modifier$ pm))
+          (~ (code.bit final?))
+          (~ (code.bit strict_fp?))
+          [(~+ (list\map annotation$ anns))]
+          [(~+ (list\map var$ type_vars))]
+          (~ (code.text self_name))
+          [(~+ (list\map argument$ arguments))]
+          (~ (return$ return_type))
+          [(~+ (list\map class$ exs))]
+          (~ (pre_walk_replace replacer body)))))
     
     (#OverridenMethod strict_fp? declaration type_vars self_name arguments return_type body exs)
-    (let [super_replacer (parser->replacer (<code>.form (do <>.monad
+    (let [replacer (|> (list\map (field->parser fully_qualified_class_name self_name) fields)
+                       (list\fold <>.either method_parser)
+                       parser->replacer)
+          super_replacer (parser->replacer (<code>.form (do <>.monad
                                                           [_ (<code>.this! (' ::super!))
                                                            args (<code>.tuple (<>.exactly (list.size arguments) <code>.any))]
                                                           (wrap (` ("jvm member invoke special"
                                                                     (~ (code.text (product.left (parser.read_class super_class))))
                                                                     (~ (code.text name))
-                                                                    (~' _jvm_this)
+                                                                    (~ (code.local_identifier self_name))
                                                                     (~+ (|> args
                                                                             (list.zip/2 (list\map product.right arguments))
                                                                             (list\map ..decorate_input)))))))))]
@@ -1144,16 +1159,17 @@
           )))
 
     (#StaticMethod strict_fp? type_vars arguments return_type body exs)
-    (` ("static"
-        (~ (code.text name))
-        (~ (privacy_modifier$ pm))
-        (~ (code.bit strict_fp?))
-        [(~+ (list\map annotation$ anns))]
-        [(~+ (list\map var$ type_vars))]
-        [(~+ (list\map class$ exs))]
-        [(~+ (list\map argument$ arguments))]
-        (~ (return$ return_type))
-        (~ (pre_walk_replace replacer body))))
+    (let [replacer (parser->replacer (<>.fail ""))]
+      (` ("static"
+          (~ (code.text name))
+          (~ (privacy_modifier$ pm))
+          (~ (code.bit strict_fp?))
+          [(~+ (list\map annotation$ anns))]
+          [(~+ (list\map var$ type_vars))]
+          [(~+ (list\map argument$ arguments))]
+          (~ (return$ return_type))
+          [(~+ (list\map class$ exs))]
+          (~ (pre_walk_replace replacer body)))))
 
     (#AbstractMethod type_vars arguments return_type exs)
     (` ("abstract"
@@ -1161,9 +1177,9 @@
         (~ (privacy_modifier$ pm))
         [(~+ (list\map annotation$ anns))]
         [(~+ (list\map var$ type_vars))]
-        [(~+ (list\map class$ exs))]
         [(~+ (list\map argument$ arguments))]
-        (~ (return$ return_type))))
+        (~ (return$ return_type))
+        [(~+ (list\map class$ exs))]))
 
     (#NativeMethod type_vars arguments return_type exs)
     (` ("native"
@@ -1228,11 +1244,10 @@
               )}
   (do meta.monad
     [#let [fully_qualified_class_name full_class_name
-           field_parsers (list\map (field->parser fully_qualified_class_name) fields)
-           method_parsers (list\map (method->parser fully_qualified_class_name) methods)
-           replacer (parser->replacer (list\fold <>.either
-                                                 (<>.fail "")
-                                                 (list\compose field_parsers method_parsers)))]]
+           method_parser (: (Parser Code)
+                            (|> methods
+                                (list\map (method->parser fully_qualified_class_name))
+                                (list\fold <>.either (<>.fail ""))))]]
     (wrap (list (` ("jvm class"
                     (~ (declaration$ (type.declaration full_class_name class_vars)))
                     (~ (class$ super))
@@ -1240,7 +1255,7 @@
                     (~ (inheritance_modifier$ im))
                     [(~+ (list\map annotation$ annotations))]
                     [(~+ (list\map field_decl$ fields))]
-                    [(~+ (list\map (method_def$ replacer super) methods))]))))))
+                    [(~+ (list\map (method_def$ fully_qualified_class_name method_parser super fields) methods))]))))))
 
 (syntax: #export (interface:
                    {#let [! <>.monad]}
@@ -1282,7 +1297,7 @@
                   (~ (class$ super))
                   [(~+ (list\map class$ interfaces))]
                   [(~+ (list\map constructor_arg$ constructor_args))]
-                  [(~+ (list\map (method_def$ function.identity super) methods))])))))
+                  [(~+ (list\map (method_def$ "" (<>.fail "") super (list)) methods))])))))
 
 (syntax: #export (null)
   {#.doc (doc "Null object reference."
