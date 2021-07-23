@@ -853,7 +853,9 @@
        (#try.Failure error)
        (phase.fail error)))]
 
+  [boxed_reflection_type Value luxT.boxed_type]
   [reflection_type Value luxT.type]
+  [boxed_reflection_return Return luxT.boxed_return]
   [reflection_return Return luxT.return]
   )
 
@@ -1679,7 +1681,7 @@
        arguments' (monad.map !
                              (function (_ [name jvmT])
                                (do !
-                                 [luxT (reflection_type mapping jvmT)]
+                                 [luxT (boxed_reflection_type mapping jvmT)]
                                  (wrap [name luxT])))
                              arguments)
        [scope bodyA] (|> arguments'
@@ -1755,7 +1757,7 @@
        arguments' (monad.map !
                              (function (_ [name jvmT])
                                (do !
-                                 [luxT (reflection_type mapping jvmT)]
+                                 [luxT (boxed_reflection_type mapping jvmT)]
                                  (wrap [name luxT])))
                              arguments)
        [scope bodyA] (|> arguments'
@@ -1829,7 +1831,7 @@
        arguments' (monad.map !
                              (function (_ [name jvmT])
                                (do !
-                                 [luxT (reflection_type mapping jvmT)]
+                                 [luxT (boxed_reflection_type mapping jvmT)]
                                  (wrap [name luxT])))
                              arguments)
        [scope bodyA] (|> arguments'
@@ -1944,6 +1946,35 @@
                      mapping
                      override_mapping))))
 
+(def: #export (hide_method_body arity bodyA)
+  (-> Nat Analysis Analysis)
+  (<| /////analysis.tuple
+      (list (/////analysis.unit))
+      (case arity
+        (^or 0 1)
+        bodyA
+        
+        2
+        (#/////analysis.Case (/////analysis.unit)
+                             [{#/////analysis.when
+                               (#/////analysis.Bind 2)
+                               
+                               #/////analysis.then
+                               bodyA}
+                              (list)])
+
+        _
+        (#/////analysis.Case (/////analysis.unit)
+                             [{#/////analysis.when
+                               (#/////analysis.Complex
+                                (#/////analysis.Tuple (|> arity
+                                                          list.indices
+                                                          (list\map (|>> (n.+ 2) #/////analysis.Bind)))))
+                               
+                               #/////analysis.then
+                               bodyA}
+                              (list)]))))
+
 (def: #export (analyse_overriden_method analyse archive selfT mapping supers method)
   (-> Phase Archive .Type Mapping (List (Type Class)) (Overriden_Method Code) (Operation Analysis))
   (let [[parent_type method_name
@@ -1965,10 +1996,10 @@
        arguments' (monad.map !
                              (function (_ [name jvmT])
                                (do !
-                                 [luxT (reflection_type mapping jvmT)]
+                                 [luxT (boxed_reflection_type mapping jvmT)]
                                  (wrap [name luxT])))
                              arguments)
-       returnT (reflection_return mapping return)
+       returnT (boxed_reflection_return mapping return)
        [scope bodyA] (|> arguments'
                          (#.Cons [self_name selfT])
                          list.reverse
@@ -1989,7 +2020,7 @@
                                        (#/////analysis.Function
                                         (list\map (|>> /////analysis.variable)
                                                   (scope.environment scope))
-                                        (/////analysis.tuple (list bodyA)))
+                                        (..hide_method_body (list.size arguments) bodyA))
                                        ))))))
 
 (type: #export (Method_Definition a)
@@ -2052,6 +2083,31 @@
         local (format "anonymous-class" (%.nat id))]
     (format global ..jvm_package_separator local)))
 
+(def: #export (require_complete_method_concretion class_loader supers methods)
+  (-> java/lang/ClassLoader (List (Type Class)) (List (Overriden_Method Code)) (Operation Any))
+  (do {! phase.monad}
+    [required_abstract_methods (phase.lift (all_abstract_methods class_loader supers))
+     available_methods (phase.lift (all_methods class_loader supers))
+     overriden_methods (monad.map ! (function (_ [parent_type method_name
+                                                  strict_fp? annotations type_vars
+                                                  self_name arguments return exceptions
+                                                  body])
+                                      (do !
+                                        [aliasing (super_aliasing class_loader parent_type)]
+                                        (wrap [method_name (|> (jvm.method [type_vars
+                                                                            (list\map product.right arguments)
+                                                                            return
+                                                                            exceptions])
+                                                               (jvm_alias.method aliasing))])))
+                                  methods)
+     #let [missing_abstract_methods (mismatched_methods overriden_methods required_abstract_methods)
+           invalid_overriden_methods (mismatched_methods available_methods overriden_methods)]
+     _ (phase.assert ..missing_abstract_methods missing_abstract_methods
+                     (list.empty? missing_abstract_methods))
+     _ (phase.assert ..invalid_overriden_methods invalid_overriden_methods
+                     (list.empty? invalid_overriden_methods))]
+    (wrap [])))
+
 (def: (class::anonymous class_loader)
   (-> java/lang/ClassLoader Handler)
   (..custom
@@ -2097,27 +2153,9 @@
                                                       (analyse archive term))]
                                              (wrap [type termA])))
                                        constructor_args)
-         methodsA (monad.map ! (analyse_overriden_method analyse archive selfT mapping (#.Cons super_class super_interfaces)) methods)
-         required_abstract_methods (phase.lift (all_abstract_methods class_loader (list& super_class super_interfaces)))
-         available_methods (phase.lift (all_methods class_loader (list& super_class super_interfaces)))
-         overriden_methods (monad.map ! (function (_ [parent_type method_name
-                                                      strict_fp? annotations type_vars
-                                                      self_name arguments return exceptions
-                                                      body])
-                                          (do !
-                                            [aliasing (super_aliasing class_loader parent_type)]
-                                            (wrap [method_name (|> (jvm.method [type_vars
-                                                                                (list\map product.right arguments)
-                                                                                return
-                                                                                exceptions])
-                                                                   (jvm_alias.method aliasing))])))
-                                      methods)
-         #let [missing_abstract_methods (mismatched_methods overriden_methods required_abstract_methods)
-               invalid_overriden_methods (mismatched_methods available_methods overriden_methods)]
-         _ (phase.assert ..missing_abstract_methods missing_abstract_methods
-                         (list.empty? missing_abstract_methods))
-         _ (phase.assert ..invalid_overriden_methods invalid_overriden_methods
-                         (list.empty? invalid_overriden_methods))]
+         #let [supers (#.Cons super_class super_interfaces)]
+         _ (..require_complete_method_concretion class_loader supers methods)
+         methodsA (monad.map ! (analyse_overriden_method analyse archive selfT mapping supers) methods)]
         (wrap (#/////analysis.Extension extension_name
                                         (list (class_analysis super_class)
                                               (/////analysis.tuple (list\map class_analysis super_interfaces))

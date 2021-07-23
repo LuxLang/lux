@@ -17,6 +17,7 @@
      [text
       ["%" format (#+ format)]]
      [collection
+      [array (#+ Array)]
       ["." list ("#\." fold functor monoid)]
       ["." dictionary (#+ Dictionary)]
       ["." row (#+ Row) ("#\." functor fold)]]]
@@ -28,7 +29,7 @@
       [encoding
        ["." name (#+ External)]]
       ["#." type (#+ Type Constraint)
-       [category (#+ Void Value Return Primitive Object Class Array Var Parameter)]
+       [category (#+ Void Value Return Primitive Object Class Var Parameter)]
        ["." parser]
        [".T" lux]
        ["#/." signature]
@@ -1026,9 +1027,9 @@
         arguments' (monad.map !
                               (function (_ [name type])
                                 (\ ! map (|>> [name])
-                                   (//A.reflection_type mapping type)))
+                                   (//A.boxed_reflection_type mapping type)))
                               arguments)
-        returnT (//A.reflection_return mapping /type.void)
+        returnT (//A.boxed_reflection_return mapping /type.void)
         [_scope bodyA] (|> arguments'
                            (#.Cons [self selfT])
                            list.reverse
@@ -1056,9 +1057,9 @@
         arguments' (monad.map !
                               (function (_ [name type])
                                 (\ ! map (|>> [name])
-                                   (//A.reflection_type mapping type)))
+                                   (//A.boxed_reflection_type mapping type)))
                               arguments)
-        returnT (//A.reflection_return mapping returnJ)
+        returnT (//A.boxed_reflection_return mapping returnJ)
         [_scope bodyA] (|> arguments'
                            (#.Cons [self selfT])
                            list.reverse
@@ -1084,9 +1085,9 @@
         arguments' (monad.map !
                               (function (_ [name type])
                                 (\ ! map (|>> [name])
-                                   (//A.reflection_type mapping type)))
+                                   (//A.boxed_reflection_type mapping type)))
                               arguments)
-        returnT (//A.reflection_return mapping returnJ)
+        returnT (//A.boxed_reflection_return mapping returnJ)
         [_scope bodyA] (|> arguments'
                            (#.Cons [self selfT])
                            list.reverse
@@ -1110,9 +1111,9 @@
         arguments' (monad.map !
                               (function (_ [name type])
                                 (\ ! map (|>> [name])
-                                   (//A.reflection_type mapping type)))
+                                   (//A.boxed_reflection_type mapping type)))
                               arguments)
-        returnT (//A.reflection_return mapping returnJ)
+        returnT (//A.boxed_reflection_return mapping returnJ)
         [_scope bodyA] (|> arguments'
                            list.reverse
                            (list\fold scopeA.with_local (analyse archive bodyC))
@@ -1165,11 +1166,7 @@
                                               (\ ! map (|>> [typeJ])
                                                  (synthesise archive termA)))
                                           constructor_argumentsA)
-        bodyS (synthesise archive
-                          (list\fold (function (_ _)
-                                       (|>> (#analysis.Function (list))))
-                                     (analysis.tuple (list (analysis.unit) bodyA))
-                                     (list.repeat (|> arguments list.size (nat.max 1)) [])))]
+        bodyS (synthesise archive (#analysis.Function (list) (//A.hide_method_body (list.size arguments) bodyA)))]
        (wrap [privacy strict_floating_point? annotations method_tvars exceptions
               self arguments constructor_argumentsS
               (case bodyS
@@ -1188,11 +1185,7 @@
      synthesise directive.synthesis]
     (directive.lift_synthesis
      (do !
-       [bodyS (synthesise archive
-                          (list\fold (function (_ _)
-                                       (|>> (#analysis.Function (list))))
-                                     (analysis.tuple (list (analysis.unit) bodyA))
-                                     (list.repeat (|> arguments list.size (nat.max 1)) [])))]
+       [bodyS (synthesise archive (#analysis.Function (list) (//A.hide_method_body (list.size arguments) bodyA)))]
        (wrap [[super_name super_tvars] method_name strict_floating_point? annotations
               method_tvars self arguments returnJ exceptionsJ
               (case bodyS
@@ -1211,11 +1204,7 @@
      synthesise directive.synthesis]
     (directive.lift_synthesis
      (do !
-       [bodyS (synthesise archive
-                          (list\fold (function (_ _)
-                                       (|>> (#analysis.Function (list))))
-                                     (analysis.tuple (list (analysis.unit) bodyA))
-                                     (list.repeat (|> arguments list.size (nat.max 1)) [])))]
+       [bodyS (synthesise archive (#analysis.Function (list) (//A.hide_method_body (list.size arguments) bodyA)))]
        (wrap [name privacy final? strict_floating_point? annotations method_tvars
               self arguments returnJ exceptionsJ
               (case bodyS
@@ -1234,11 +1223,7 @@
      synthesise directive.synthesis]
     (directive.lift_synthesis
      (do !
-       [bodyS (synthesise archive
-                          (list\fold (function (_ _)
-                                       (|>> (#analysis.Function (list))))
-                                     (analysis.tuple (list (analysis.unit) bodyA))
-                                     (list.repeat (|> arguments list.size (nat.max 1)) [])))]
+       [bodyS (synthesise archive (#analysis.Function (list) (//A.hide_method_body (list.size arguments) bodyA)))]
        (wrap [name privacy strict_floating_point? annotations method_tvars
               arguments returnJ exceptionsJ
               (case bodyS
@@ -1282,22 +1267,26 @@
      (do !
        [constructor_argumentsG (monad.map ! (|>> product.right (generate archive))
                                           constructor_argumentsS)
-        bodyG (generate archive bodyS)
+        bodyG (generate archive (//G.hidden_method_body (list.size arguments) bodyS))
         #let [[super_name super_vars] (parser.read_class super_class)
               super_constructor_argument_values (_.fuse constructor_argumentsG)
               super_constructorT (/type.method [(list)
                                                 (list\map product.left constructor_argumentsS)
                                                 /type.void
-                                                (list)])]]
+                                                (list)])
+              argumentsT (list\map product.right arguments)
+              initialize_object! (: Inst
+                                    (|>> (_.ALOAD 0)
+                                         super_constructor_argument_values
+                                         (_.INVOKESPECIAL super_class ..constructor_name super_constructorT)))]]
        (wrap (def.method (..visibility privacy)
                          (if strict_floating_point?
                            jvm.strictM
                            jvm.noneM)
                          ..constructor_name
-                         (/type.method [method_tvars (list\map product.right arguments) /type.void exceptions])
-                         (|>> (_.ALOAD 0)
-                              super_constructor_argument_values
-                              (_.INVOKESPECIAL super_class ..constructor_name super_constructorT)
+                         (/type.method [method_tvars argumentsT /type.void exceptions])
+                         (|>> initialize_object!
+                              (//G.prepare_arguments 1 argumentsT)
                               bodyG
                               _.RETURN)))))))
 
@@ -1310,14 +1299,16 @@
      generate directive.generation]
     (directive.lift_generation
      (do !
-       [bodyG (generate archive bodyS)]
+       [bodyG (generate archive (//G.hidden_method_body (list.size arguments) bodyS))
+        #let [argumentsT (list\map product.right arguments)]]
        (wrap (def.method #jvm.Public
                          (if strict_floating_point?
                            jvm.strictM
                            jvm.noneM)
                          method_name
-                         (/type.method [method_tvars (list\map product.right arguments) returnJ exceptionsJ])
-                         (|>> bodyG
+                         (/type.method [method_tvars argumentsT returnJ exceptionsJ])
+                         (|>> (//G.prepare_arguments 1 argumentsT)
+                              bodyG
                               (//G.returnI returnJ))))))))
 
 (def: (virtual_method_generation archive method)
@@ -1329,7 +1320,8 @@
      generate directive.generation]
     (directive.lift_generation
      (do !
-       [bodyG (generate archive bodyS)]
+       [bodyG (generate archive (//G.hidden_method_body (list.size arguments) bodyS))
+        #let [argumentsT (list\map product.right arguments)]]
        (wrap (def.method (..visibility privacy)
                          (|> jvm.noneM
                              (jvm.++M (if strict_floating_point?
@@ -1339,8 +1331,9 @@
                                         jvm.finalM
                                         jvm.noneM)))
                          method_name
-                         (/type.method [method_tvars (list\map product.right arguments) returnJ exceptionsJ])
-                         (|>> bodyG
+                         (/type.method [method_tvars argumentsT returnJ exceptionsJ])
+                         (|>> (//G.prepare_arguments 1 argumentsT)
+                              bodyG
                               (//G.returnI returnJ))))))))
 
 (def: (static_method_generation archive method)
@@ -1352,15 +1345,17 @@
      generate directive.generation]
     (directive.lift_generation
      (do !
-       [bodyG (generate archive bodyS)]
+       [bodyG (generate archive (//G.hidden_method_body (list.size arguments) bodyS))
+        #let [argumentsT (list\map product.right arguments)]]
        (wrap (def.method (..visibility privacy)
                          (|> jvm.staticM
                              (jvm.++M (if strict_floating_point?
                                         jvm.strictM
                                         jvm.noneM)))
                          method_name
-                         (/type.method [method_tvars (list\map product.right arguments) returnJ exceptionsJ])
-                         (|>> bodyG
+                         (/type.method [method_tvars argumentsT returnJ exceptionsJ])
+                         (|>> (//G.prepare_arguments 0 argumentsT)
+                              bodyG
                               (//G.returnI returnJ))))))))
 
 (def: (method_generation archive super_class method)
@@ -1382,8 +1377,24 @@
     (\ phase.monad wrap (..abstract_method_generation method))
     ))
 
-(def: jvm::class
-  ..Handler
+(import: java/lang/ClassLoader)
+
+(def: (convert_overriden_method method)
+  (-> (Method Code) (Maybe (//A.Overriden_Method Code)))
+  (case method
+    (#Override [[parent_name parent_variables] method_name strict_floating_point? annotations variables
+                self arguments return exceptions
+                body])
+    (#.Some [(/type.class parent_name parent_variables) method_name
+             strict_floating_point? (list) variables
+             self arguments return exceptions
+             body])
+
+    _
+    #.None))
+
+(def: (jvm::class class_loader)
+  (-> java/lang/ClassLoader ..Handler)
   (..custom
    [($_ <>.and
         ..class_declaration
@@ -1414,6 +1425,10 @@
             (generation.execute! header))
          #let [supers (: (List (Type Class))
                          (list& super_class super_interfaces))]
+         _ (|> methodsC
+               (list.all ..convert_overriden_method)
+               (//A.require_complete_method_concretion class_loader supers)
+               directive.lift_analysis)
          methodsA (monad.map ! (method_analysis archive declaration supers) methodsC)
          methodsS (monad.map ! (method_synthesis archive) methodsA)
          methodsG (monad.map ! (method_generation archive super_class) methodsS)
@@ -1459,9 +1474,9 @@
             _ (generation.log! (format "JVM Interface " (%.text class_name)))]
            (wrap directive.no_requirements)))))]))
 
-(def: #export (bundle extender)
-  (-> jvm.Extender (directive.Bundle jvm.Anchor jvm.Inst jvm.Definition))
+(def: #export (bundle class_loader extender)
+  (-> java/lang/ClassLoader jvm.Extender (directive.Bundle jvm.Anchor jvm.Inst jvm.Definition))
   (|> bundle.empty
       (dictionary.put "lux def generation" (..def::generation extender))
-      (dictionary.put "jvm class" ..jvm::class)
+      (dictionary.put "jvm class" (..jvm::class class_loader))
       (dictionary.put "jvm class interface" ..jvm::class::interface)))
