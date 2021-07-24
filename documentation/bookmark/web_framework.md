@@ -118,6 +118,7 @@
 
 # Styling
 
+1. [CSS Protips](https://github.com/AllThingsSmitty/css-protips)
 1. [Layout-isolated components](https://visly.app/blog/layout-isolated-components)
 1. [Centering in CSS: A Complete Guide](https://css-tricks.com/centering-css-complete-guide/)
 1. [Vertical Rhythm Reset](https://jhildenbiddle.github.io/vertical-rhythm-reset/)

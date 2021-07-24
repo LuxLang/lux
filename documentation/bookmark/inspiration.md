@@ -1,3 +1,7 @@
+# Business
+
+1. [Why Aren't There More Programming Languages Startups?](https://www.akitasoftware.com/blog-posts/why-arent-there-more-programming-languages-startups)
+
 # Tool
 
 1. [Toward the next generation of programming tools: Programmers have built great tools for others. It’s time they built some for themselves.](https://www.oreilly.com/radar/toward-the-next-generation-of-programming-tools/)

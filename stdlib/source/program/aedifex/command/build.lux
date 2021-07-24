@@ -1,7 +1,9 @@
 (.module:
   [library
    [lux (#- Name)
+    ["." ffi (#+ import:)]
     [abstract
+     [order (#+ Order)]
      [monad (#+ do)]]
     [control
      ["." try (#+ Try)]
@@ -12,14 +14,15 @@
     [data
      ["." product]
      ["." maybe]
-     ["." text ("#\." equivalence)
+     ["." text ("#\." order)
       ["%" format (#+ format)]]
      [collection
-      ["." list ("#\." functor)]
-      ["." dictionary]
+      ["." list ("#\." functor fold)]
+      ["." dictionary (#+ Dictionary)]
       ["." set]]]
     [math
      [number
+      ["n" nat]
       ["i" int]]]
     [world
      ["." program (#+ Program)]
@@ -37,7 +40,7 @@
    ["#." runtime]
    ["#." dependency (#+ Dependency)
     ["#/." resolution (#+ Resolution)]]
-   ["#." artifact (#+ Group Name Artifact)
+   ["#." artifact (#+ Group Name Version Artifact)
     ["#/." type]]])
 
 (type: Finder
@@ -119,8 +122,61 @@
 (def: (libraries fs home)
   (All [!] (-> (file.System !) Path Resolution (List Path)))
   (|>> dictionary.keys
-       (list.filter (|>> (get@ #///dependency.type) (text\= ///artifact/type.lux_library)))
+       (list.filter (|>> (get@ #///dependency.type)
+                         (text\= ///artifact/type.lux_library)))
        (list\map (..path fs home))))
+
+(def: version_separator
+  ".")
+
+(implementation: version_order
+  (Order Version)
+
+  (def: &equivalence
+    text.equivalence)
+
+  (def: (< left right)
+    (loop [left (text.split_all_with ..version_separator left)
+           right (text.split_all_with ..version_separator right)]
+      (case [left right]
+        [(#.Cons leftH leftT) (#.Cons rightH rightT)]
+        (if (text\= leftH rightH)
+          (recur leftT rightT)
+          (or (n.< (text.size leftH) (text.size rightH))
+              (text\< leftH rightH)))
+
+        [(#.Cons leftH leftT) #.Nil]
+        false
+
+        [#.Nil (#.Cons rightH rightT)]
+        true
+
+        [#.Nil #.Nil]
+        false))))
+
+(def: #export (host_dependencies fs home)
+  (All [!] (-> (file.System !) Path Resolution (List Path)))
+  (|>> dictionary.keys
+       (list.filter (|>> (get@ #///dependency.type)
+                         (text\= ///artifact/type.lux_library)
+                         not))
+       (list\fold (function (_ dependency uniques)
+                    (let [artifact (get@ #///dependency.artifact dependency)
+                          identity [(get@ #///artifact.group artifact)
+                                    (get@ #///artifact.name artifact)]
+                          version (get@ #///artifact.version artifact)]
+                      (case (dictionary.get identity uniques)
+                        (#.Some [current_version current_path])
+                        (if (\ version_order < version current_version)
+                          (dictionary.put identity [version dependency] uniques)
+                          uniques)
+                        
+                        #.None
+                        (dictionary.put identity [version dependency] uniques))))
+                  (: (Dictionary [Group Name] [Version Dependency])
+                     (dictionary.new (product.hash text.hash text.hash))))
+       dictionary.values
+       (list\map (|>> product.right (..path fs home)))))
 
 (def: (singular name)
   (-> Text Text (List Text))
@@ -169,6 +225,41 @@
   [log_error! error]
   )
 
+(import: java/lang/System
+  ["#::."
+   (#static getProperty [java/lang/String] #io #try java/lang/String)])
+
+(def: windows?
+  Bit
+  (|> (java/lang/System::getProperty "os.name")
+      io.run
+      (try.default "")
+      text.lower_case
+      (text.starts_with? "windows")))
+
+(def: jvm_class_path_separator
+  (if windows?
+    ";"
+    ":"))
+
+(def: (jvm_class_path host_dependencies)
+  (-> (List Path) Text)
+  (|> host_dependencies
+      (#.Cons ".")
+      (text.join_with ..jvm_class_path_separator)
+      %.text))
+
+(def: #export (with_jvm_class_path host_dependencies runtime)
+  (-> (List Path) ///runtime.Runtime ///runtime.Runtime)
+  (case host_dependencies
+    #.Nil
+    runtime
+
+    _
+    (update@ #///runtime.parameters
+             (|>> (list& "-classpath" (..jvm_class_path host_dependencies)))
+             runtime)))
+
 (def: #export (do! console program fs shell resolution)
   (-> (Console Promise) (Program Promise) (file.System Promise) (Shell Promise) Resolution (Command [Exit Compiler Path]))
   (function (_ profile)
@@ -184,29 +275,37 @@
                  working_directory (\ program directory)]]
           (do ///action.monad
             [[resolution compiler] (promise\wrap (..compiler resolution (get@ #///.compiler profile)))
-             #let [[[command compiler_params] output] (case compiler
+             #let [host_dependencies (..host_dependencies fs home resolution)
+                   [[command compiler_params] output] (case compiler
+                                                        (#JVM dependency)
+                                                        [(|> (..path fs home dependency)
+                                                             (///runtime.for (get@ #///.java profile))
+                                                             (with_jvm_class_path host_dependencies))
+                                                         "program.jar"]
+                                                        
                                                         (^template [<tag> <runtime> <program>]
                                                           [(<tag> dependency)
                                                            [(///runtime.for (get@ <runtime> profile)
                                                                             (..path fs home dependency))
                                                             <program>]])
-                                                        ([#JVM #///.java "program.jar"]
-                                                         [#JS #///.js "program.js"]
+                                                        ([#JS #///.js "program.js"]
                                                          [#Python #///.java "program.py"]
                                                          [#Lua #///.java "program.lua"]
                                                          [#Ruby #///.java "program.rb"]))
                    / (\ fs separator)
                    cache_directory (format working_directory / target)]
              _ (console.write_line ..start console)
+             #let [full_parameters (list.concat (list compiler_params
+                                                      (list "build")
+                                                      (..plural "--library" (..libraries fs home resolution))
+                                                      (..plural "--host_dependency" host_dependencies)
+                                                      (..plural "--source" (set.to_list (get@ #///.sources profile)))
+                                                      (..singular "--target" cache_directory)
+                                                      (..singular "--module" program_module)))]
              process (\ shell execute [environment
                                        working_directory
                                        command
-                                       (list.concat (list compiler_params
-                                                          (list "build")
-                                                          (..plural "--library" (..libraries fs home resolution))
-                                                          (..plural "--source" (set.to_list (get@ #///.sources profile)))
-                                                          (..singular "--target" cache_directory)
-                                                          (..singular "--module" program_module)))])
+                                       full_parameters])
              _ (..log_output! console process)
              _ (..log_error! console process)
              exit (\ process await [])

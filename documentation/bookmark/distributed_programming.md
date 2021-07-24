@@ -9,6 +9,7 @@
 
 # Reference
 
+1. [No more DSLs: Implement and deploy a distributed system with a single program](http://catern.com/integration.html)
 1. [Ambients: Peer-to-Peer Programs and Data](https://ipfs.io/ipfs/QmPhPJE55GvqSz7Pwvkc8n9dbKmqGw6tUGTE1MgfNQvzsf)
 1. [Bastion: Highly-available Distributed Fault-tolerant Runtime](https://bastion.rs/)
 1. [DDD and Messaging Architectures: An overview of my different series on patterns in distributed systems.](http://verraes.net/2019/05/ddd-msg-arch/)

@@ -15,15 +15,20 @@
      ["." text
       ["%" format (#+ format)]]
      [collection
-      ["." row (#+ Row) ("#\." fold)]
-      ["." list ("#\." functor fold)]]]
+      ["." row]
+      ["." list ("#\." functor)]
+      ["." dictionary]
+      ["." set (#+ Set)]]]
     [math
      [number
-      ["n" nat]]]
+      ["n" nat]
+      ["i" int]]]
     [target
      [jvm
       [encoding
-       ["." name]]]]]]
+       ["." name]]]]
+    [world
+     ["." file]]]]
   [program
    [compositor
     ["." static (#+ Static)]]]
@@ -71,14 +76,20 @@
   ["#::."
    (close [] void)])
 
-(import: java/io/OutputStream)
+(import: java/io/OutputStream
+  ["#::."
+   (write [[byte] int int] void)])
 
 (import: java/io/ByteArrayOutputStream
   ["#::."
    (new [int])
    (toByteArray [] [byte])])
 
-(import: java/util/zip/ZipEntry)
+(import: java/util/zip/ZipEntry
+  ["#::."
+   (getName [] java/lang/String)
+   (isDirectory [] boolean)
+   (getSize [] long)])
 
 (import: java/util/zip/ZipOutputStream
   ["#::."
@@ -92,15 +103,34 @@
 (import: java/util/jar/JarOutputStream
   ["#::."
    (new [java/io/OutputStream java/util/jar/Manifest])
-   (putNextEntry [java/util/zip/ZipEntry] void)])
+   (putNextEntry [java/util/zip/ZipEntry] #try void)])
 
-(def: byte 1)
+(import: java/io/ByteArrayInputStream
+  ["#::."
+   (new [[byte]])])
+
+(import: java/io/InputStream
+  ["#::."
+   (read [[byte] int int] int)])
+
+(import: java/util/jar/JarInputStream
+  ["#::."
+   (new [java/io/InputStream])
+   (getNextJarEntry [] #try #? java/util/jar/JarEntry)])
+
+(def: byte
+  1)
+
 ## https://en.wikipedia.org/wiki/Kibibyte
-(def: kibi_byte (n.* 1,024 byte))
-## https://en.wikipedia.org/wiki/Mebibyte
-(def: mebi_byte (n.* 1,024 kibi_byte))
+(def: kibi_byte
+  (n.* 1,024 byte))
 
-(def: manifest_version "1.0")
+## https://en.wikipedia.org/wiki/Mebibyte
+(def: mebi_byte
+  (n.* 1,024 kibi_byte))
+
+(def: manifest_version
+  "1.0")
 
 (def: (manifest program)
   (-> Context java/util/jar/Manifest)
@@ -112,37 +142,127 @@
 
 (def: (write_class static module artifact custom content sink)
   (-> Static archive.ID artifact.ID (Maybe Text) Binary java/util/jar/JarOutputStream
-      java/util/jar/JarOutputStream)
+      (Try java/util/jar/JarOutputStream))
   (let [class_path (|> custom
                        (maybe\map (|>> name.internal name.read))
                        (maybe.default (runtime.class_name [module artifact]))
                        (text.suffix (get@ #static.artifact_extension static)))]
-    (do_to sink
-      (java/util/jar/JarOutputStream::putNextEntry (java/util/jar/JarEntry::new class_path))
-      (java/util/zip/ZipOutputStream::write content +0 (.int (binary.size content)))
-      (java/io/Flushable::flush)
-      (java/util/zip/ZipOutputStream::closeEntry))))
+    (do try.monad
+      [_ (java/util/jar/JarOutputStream::putNextEntry (java/util/jar/JarEntry::new class_path) sink)]
+      (wrap (do_to sink
+              (java/util/zip/ZipOutputStream::write content +0 (.int (binary.size content)))
+              (java/io/Flushable::flush)
+              (java/util/zip/ZipOutputStream::closeEntry))))))
 
 (def: (write_module static [module output] sink)
   (-> Static [archive.ID Output] java/util/jar/JarOutputStream
-      java/util/jar/JarOutputStream)
-  (row\fold (function (_ [artifact custom content] sink)
-              (..write_class static module artifact custom content sink))
-            sink
-            output))
+      (Try java/util/jar/JarOutputStream))
+  (monad.fold try.monad
+              (function (_ [artifact custom content] sink)
+                (..write_class static module artifact custom content sink))
+              sink
+              (row.to_list output)))
+
+(def: (read_jar_entry_with_unknown_size input)
+  (-> java/util/jar/JarInputStream [Nat Binary])
+  (let [chunk (binary.create ..mebi_byte)
+        chunk_size (.int ..mebi_byte)
+        buffer (java/io/ByteArrayOutputStream::new chunk_size)]
+    (loop [so_far 0]
+      (case (java/io/InputStream::read chunk 0 chunk_size input)
+        -1
+        [so_far
+         (java/io/ByteArrayOutputStream::toByteArray buffer)]
+        
+        bytes_read
+        (exec
+          (java/io/OutputStream::write chunk +0 bytes_read buffer)
+          (recur (|> bytes_read .nat (n.+ so_far))))))))
+
+(def: (read_jar_entry_with_known_size expected_size input)
+  (-> Nat java/util/jar/JarInputStream [Nat Binary])
+  (let [buffer (binary.create expected_size)]
+    (loop [so_far 0]
+      (let [so_far' (|> input
+                        (java/io/InputStream::read buffer (.int so_far) (.int (n.- so_far expected_size)))
+                        .nat
+                        (n.+ so_far))]
+        (if (n.= expected_size so_far')
+          [expected_size buffer]
+          (recur so_far'))))))
+
+(def: (read_jar_entry entry input)
+  (-> java/util/jar/JarEntry java/util/jar/JarInputStream [Nat Binary])
+  (case (java/util/zip/ZipEntry::getSize entry)
+    -1
+    (..read_jar_entry_with_unknown_size input)
+    
+    entry_size
+    (..read_jar_entry_with_known_size (.nat entry_size) input)))
+
+(def: (write_host_dependency jar [entries duplicates sink])
+  (-> Binary
+      [(Set file.Path) (Set file.Path) java/util/jar/JarOutputStream]
+      (Try [(Set file.Path) (Set file.Path) java/util/jar/JarOutputStream]))
+  (let [input (|> jar
+                  java/io/ByteArrayInputStream::new
+                  java/util/jar/JarInputStream::new)]
+    (loop [entries entries
+           duplicates duplicates
+           sink sink]
+      (case (java/util/jar/JarInputStream::getNextJarEntry input)
+        (#try.Failure error)
+        (#try.Failure error)
+        
+        (#try.Success ?entry)
+        (case ?entry
+          #.None
+          (exec
+            (java/io/Closeable::close input)
+            (#try.Success [entries duplicates sink]))
+          
+          (#.Some entry)
+          (let [entry_path (java/util/zip/ZipEntry::getName entry)
+                entry_size (java/util/zip/ZipEntry::getSize entry)]
+            (if (not (or (java/util/zip/ZipEntry::isDirectory entry)
+                         (text.starts_with? "META-INF/maven/" entry_path)
+                         (text.starts_with? "META-INF/leiningen/" entry_path)))
+              (case (java/util/jar/JarOutputStream::putNextEntry (java/util/jar/JarEntry::new entry_path) sink)
+                (#try.Failure error)
+                (recur entries
+                       (set.add entry_path duplicates)
+                       sink)
+                
+                (#try.Success _)
+                (let [[entry_size entry_data] (read_jar_entry entry input)]
+                  (recur (set.add entry_path entries)
+                         duplicates
+                         (do_to sink
+                           (java/util/zip/ZipOutputStream::write entry_data +0 (.int entry_size))
+                           (java/io/Flushable::flush)
+                           (java/util/zip/ZipOutputStream::closeEntry)))))
+              (recur entries
+                     duplicates
+                     sink))))))))
 
 (def: #export (package static)
   (-> Static Packager)
-  (function (_ archive program)
+  (function (_ host_dependencies archive program)
     (do {! try.monad}
       [order (dependency.load_order $.key archive)
-       #let [buffer (java/io/ByteArrayOutputStream::new (.int ..mebi_byte))
-             sink (|> order
-                      (list\map (function (_ [module [module_id [descriptor document output]]])
-                                  [module_id output]))
-                      (list\fold (..write_module static)
-                                 (java/util/jar/JarOutputStream::new buffer (..manifest program))))
-             _ (do_to sink
+       #let [buffer (java/io/ByteArrayOutputStream::new (.int ..mebi_byte))]
+       sink (|> order
+                (list\map (function (_ [module [module_id [descriptor document output]]])
+                            [module_id output]))
+                (monad.fold ! (..write_module static)
+                            (java/util/jar/JarOutputStream::new buffer (..manifest program))))
+       [entries duplicates sink] (|> host_dependencies
+                                     dictionary.values
+                                     (monad.fold ! ..write_host_dependency
+                                                 [(set.new text.hash)
+                                                  (set.new text.hash)
+                                                  sink]))
+       #let [_ (do_to sink
                  (java/io/Flushable::flush)
                  (java/io/Closeable::close))]]
       (wrap (java/io/ByteArrayOutputStream::toByteArray buffer)))))

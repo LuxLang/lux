@@ -1,5 +1,6 @@
 # Reference
 
+1. [Probability Tree Diagrams. Recursion Schemes. Why Finding the Right Solution is Sometimes Hard?](https://rpeszek.github.io/posts/2021-07-18-prob-tree-scheme.html)
 1. [Unifying Structured Recursion Schemes](https://www.cs.ox.ac.uk/people/nicolas.wu/papers/URS.pdf)
 1. http://maartenfokkinga.github.io/utwente/mmf91m.pdf
 1. http://blog.sumtypeofway.com/an-introduction-to-recursion-schemes/
