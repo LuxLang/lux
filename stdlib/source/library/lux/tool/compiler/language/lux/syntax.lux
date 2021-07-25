@@ -236,11 +236,11 @@
   ## Form and tuple syntax is mostly the same, differing only in the
   ## delimiters involved.
   ## They may have an arbitrary number of arbitrary Code nodes as elements.
-  [parse_form  ..close_form  #.Form]
-  [parse_tuple ..close_tuple #.Tuple]
+  [form_parser  ..close_form  #.Form]
+  [tuple_parser ..close_tuple #.Tuple]
   )
 
-(inline: (parse_record parse where offset source_code)
+(inline: (record_parser parse where offset source_code)
   (-> (Parser Code) Location Offset Text
       (Either [Source Text] [Source Code]))
   (loop [source (: Source [(!forward 1 where) offset source_code])
@@ -265,7 +265,7 @@
     (#.Left [[where offset source_code]
              (exception.construct ..text_cannot_contain_new_lines content)])))
 
-(def: (parse_text where offset source_code)
+(def: (text_parser where offset source_code)
   (-> Location Offset Text (Either [Source Text] [Source Code]))
   (case ("lux text index" offset (static ..text_delimiter) source_code)
     (#.Some g!end)
@@ -279,7 +279,7 @@
                    (#.Text g!content)]]))
     
     _
-    (!failure ..parse_text where offset source_code)))
+    (!failure ..text_parser where offset source_code)))
 
 (with_expansions [<digits> (as_is "0" "1" "2" "3" "4" "5" "6" "7" "8" "9")
                   <non_name_chars> (template [<char>]
@@ -307,7 +307,7 @@
          [[<digits> <digit_separator>]
           @then
 
-          (~~ (template.splice @else_options))]
+          (~~ (template.spliced @else_options))]
 
          ## else
          @else)))
@@ -349,14 +349,14 @@
 
 (with_expansions [<int_output> (as_is (!number_output source_code start end int.decimal #.Int))
                   <frac_output> (as_is (!number_output source_code start end frac.decimal #.Frac))
-                  <failure> (!failure ..parse_frac where offset source_code)
+                  <failure> (!failure ..frac_parser where offset source_code)
                   <frac_separator> (static ..frac_separator)
                   <signs> (template [<sign>]
                             [(~~ (static <sign>))]
 
                             [..positive_sign]
                             [..negative_sign])]
-  (inline: (parse_frac source_code//size start where offset source_code)
+  (inline: (frac_parser source_code//size start where offset source_code)
     (-> Nat Nat Location Offset Text
         (Either [Source Text] [Source Code]))
     (loop [end offset
@@ -381,7 +381,7 @@
 
                        <frac_output>))))
 
-  (inline: (parse_signed source_code//size start where offset source_code)
+  (inline: (signed_parser source_code//size start where offset source_code)
     (-> Nat Nat Location Offset Text
         (Either [Source Text] [Source Code]))
     (loop [end offset]
@@ -390,7 +390,7 @@
                        (recur (!inc end))
 
                        [[<frac_separator>]
-                        (parse_frac source_code//size start where (!inc end) source_code)]
+                        (frac_parser source_code//size start where (!inc end) source_code)]
 
                        <int_output>))))
   )
@@ -406,22 +406,22 @@
                         []
                         (!number_output source_code start g!end <codec> <tag>)))))]
 
-  [parse_nat n.decimal #.Nat]
-  [parse_rev rev.decimal #.Rev]
+  [nat_parser n.decimal #.Nat]
+  [rev_parser rev.decimal #.Rev]
   )
 
-(template: (!parse_signed source_code//size offset where source_code @aliases @end)
+(template: (!signed_parser source_code//size offset where source_code @aliases @end)
   (<| (let [g!offset/1 (!inc offset)])
       (!with_char+ source_code//size source_code g!offset/1 g!char/1 @end)
       (!if_digit? g!char/1
-                  (parse_signed source_code//size offset where (!inc/2 offset) source_code)
-                  (!parse_full_name offset [where (!inc offset) source_code] where @aliases #.Identifier))))
+                  (signed_parser source_code//size offset where (!inc/2 offset) source_code)
+                  (!full_name_parser offset [where (!inc offset) source_code] where @aliases #.Identifier))))
 
 (with_expansions [<output> (#.Right [[(update@ #.column (|>> (!n/+ (!n/- start end))) where)
                                       end
                                       source_code]
                                      (!clip start end source_code)])]
-  (inline: (parse_name_part start where offset source_code)
+  (inline: (name_part_parser start where offset source_code)
     (-> Nat Location Offset Text
         (Either [Source Text] [Source Text]))
     (let [source_code//size ("lux text size" source_code)]
@@ -431,13 +431,13 @@
                                  (recur (!inc end))
                                  <output>))))))
 
-(template: (!parse_half_name @offset @char @module)
+(template: (!half_name_parser @offset @char @module)
   (!if_name_char?|head @char
-                       (!letE [source' name] (..parse_name_part @offset where (!inc @offset) source_code)
+                       (!letE [source' name] (..name_part_parser @offset where (!inc @offset) source_code)
                               (#.Right [source' [@module name]]))
-                       (!failure ..!parse_half_name where @offset source_code)))
+                       (!failure ..!half_name_parser where @offset source_code)))
 
-(`` (def: (parse_short_name source_code//size current_module [where offset/0 source_code])
+(`` (def: (short_name_parser source_code//size current_module [where offset/0 source_code])
       (-> Nat Text (Parser Name))
       (<| (!with_char+ source_code//size source_code offset/0 char/0
                        (!end_of_file where offset/0 source_code current_module))
@@ -445,34 +445,34 @@
             (<| (let [offset/1 (!inc offset/0)])
                 (!with_char+ source_code//size source_code offset/1 char/1
                              (!end_of_file where offset/1 source_code current_module))
-                (!parse_half_name offset/1 char/1 current_module))
-            (!parse_half_name offset/0 char/0 (static ..prelude))))))
+                (!half_name_parser offset/1 char/1 current_module))
+            (!half_name_parser offset/0 char/0 (static ..prelude))))))
 
-(template: (!parse_short_name source_code//size @current_module @source @where @tag)
-  (!letE [source' name] (..parse_short_name source_code//size @current_module @source)
+(template: (!short_name_parser source_code//size @current_module @source @where @tag)
+  (!letE [source' name] (..short_name_parser source_code//size @current_module @source)
          (#.Right [source' [@where (@tag name)]])))
 
 (with_expansions [<simple> (as_is (#.Right [source' ["" simple]]))]
-  (`` (def: (parse_full_name aliases start source)
+  (`` (def: (full_name_parser aliases start source)
         (-> Aliases Offset (Parser Name))
         (<| (!letE [source' simple] (let [[where offset source_code] source]
-                                      (..parse_name_part start where offset source_code)))
+                                      (..name_part_parser start where offset source_code)))
             (let [[where' offset' source_code'] source'])
             (!with_char source_code' offset' char/separator <simple>)
             (if (!n/= (char (~~ (static ..name_separator))) char/separator)
               (<| (let [offset'' (!inc offset')])
-                  (!letE [source'' complex] (..parse_name_part offset'' (!forward 1 where') offset'' source_code'))
+                  (!letE [source'' complex] (..name_part_parser offset'' (!forward 1 where') offset'' source_code'))
                   (if ("lux text =" "" complex)
                     (let [[where offset source_code] source]
-                      (!failure ..parse_full_name where offset source_code))
+                      (!failure ..full_name_parser where offset source_code))
                     (#.Right [source'' [(|> aliases
                                             (dictionary.get simple)
                                             (maybe.default simple))
                                         complex]])))
               <simple>)))))
 
-(template: (!parse_full_name @offset @source @where @aliases @tag)
-  (!letE [source' full_name] (..parse_full_name @aliases @offset @source)
+(template: (!full_name_parser @offset @source @where @aliases @tag)
+  (!letE [source' full_name] (..full_name_parser @aliases @offset @source)
          (#.Right [source' [@where (@tag full_name)]])))
 
 ## TODO: Grammar macro for specifying syntax.
@@ -511,9 +511,9 @@
                                               [(~~ (static <close>))]
                                               (!close <close>)]
 
-                                             [..open_form ..close_form parse_form]
-                                             [..open_tuple ..close_tuple parse_tuple]
-                                             [..open_record ..close_record parse_record]
+                                             [..open_form ..close_form form_parser]
+                                             [..open_tuple ..close_tuple tuple_parser]
+                                             [..open_record ..close_record record_parser]
                                              )]
               (`` ("lux syntax char case!" char/0
                    [[(~~ (static text.space))
@@ -528,7 +528,7 @@
 
                     ## Text
                     [(~~ (static ..text_delimiter))]
-                    (parse_text where (!inc offset/0) source_code)
+                    (text_parser where (!inc offset/0) source_code)
 
                     ## Special code
                     [(~~ (static ..sigil))]
@@ -537,7 +537,7 @@
                                      (!end_of_file where offset/1 source_code current_module))
                         ("lux syntax char case!" char/1
                          [[(~~ (static ..name_separator))]
-                          (!parse_short_name source_code//size current_module <move_2> where #.Tag)
+                          (!short_name_parser source_code//size current_module <move_2> where #.Tag)
 
                           ## Single_line comment
                           [(~~ (static ..sigil))]
@@ -558,7 +558,7 @@
                          ## else
                          (!if_name_char?|head char/1
                                               ## Tag
-                                              (!parse_full_name offset/1 <move_2> where aliases #.Tag)
+                                              (!full_name_parser offset/1 <move_2> where aliases #.Tag)
                                               (!failure ..parse where offset/0 source_code))))
 
                     ## Coincidentally (= ..name_separator ..frac_separator)
@@ -569,20 +569,20 @@
                         (!with_char+ source_code//size source_code offset/1 char/1
                                      (!end_of_file where offset/1 source_code current_module))
                         (!if_digit? char/1
-                                    (parse_rev source_code//size offset/0 where (!inc offset/1) source_code)
-                                    (!parse_short_name source_code//size current_module [where offset/1 source_code] where #.Identifier)))
+                                    (rev_parser source_code//size offset/0 where (!inc offset/1) source_code)
+                                    (!short_name_parser source_code//size current_module [where offset/1 source_code] where #.Identifier)))
 
                     [(~~ (static ..positive_sign))
                      (~~ (static ..negative_sign))]
-                    (!parse_signed source_code//size offset/0 where source_code aliases
-                                   (!end_of_file where offset/0 source_code current_module))]
+                    (!signed_parser source_code//size offset/0 where source_code aliases
+                                    (!end_of_file where offset/0 source_code current_module))]
 
                    ## else
                    (!if_digit? char/0
                                ## Natural number
-                               (parse_nat source_code//size offset/0 where (!inc offset/0) source_code)
+                               (nat_parser source_code//size offset/0 where (!inc offset/0) source_code)
                                ## Identifier
-                               (!parse_full_name offset/0 [<consume_1>] where aliases #.Identifier))
+                               (!full_name_parser offset/0 [<consume_1>] where aliases #.Identifier))
                    )))
             )))
     ))

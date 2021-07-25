@@ -63,7 +63,7 @@
 
 (def: #export object
   (-> (List [String JSON]) JSON)
-  (|>> (dictionary.from_list text.hash) #..Object))
+  (|>> (dictionary.of_list text.hash) #..Object))
 
 (syntax: #export (json token)
   {#.doc (doc "A simple way to produce JSON literals."
@@ -101,7 +101,7 @@
                                _
                                (meta.fail "Wrong syntax for JSON object.")))
                            pairs)]
-        (wrap (list (` (: JSON (#..Object ((~! dictionary.from_list)
+        (wrap (list (` (: JSON (#..Object ((~! dictionary.of_list)
                                            (~! text.hash)
                                            (list (~+ pairs')))))))))
       
@@ -290,18 +290,18 @@
 ############################################################
 ############################################################
 
-(def: parse_space
+(def: space_parser
   (Parser Text)
   (<text>.some <text>.space))
 
-(def: parse_separator
+(def: separator_parser
   (Parser [Text Any Text])
   ($_ <>.and
-      ..parse_space
+      ..space_parser
       (<text>.this ..separator)
-      ..parse_space))
+      ..space_parser))
 
-(def: parse_null
+(def: null_parser
   (Parser Null)
   (do <>.monad
     [_ (<text>.this "null")]
@@ -314,17 +314,17 @@
        [_ (<text>.this <token>)]
        (wrap <value>)))]
 
-  [parse_true  "true"  #1]
-  [parse_false "false" #0]
+  [true_parser  "true"  #1]
+  [false_parser "false" #0]
   )
 
-(def: parse_boolean
+(def: boolean_parser
   (Parser Boolean)
   ($_ <>.either
-      ..parse_true
-      ..parse_false))
+      ..true_parser
+      ..false_parser))
 
-(def: parse_number
+(def: number_parser
   (Parser Number)
   (do {! <>.monad}
     [signed? (<>.parses? (<text>.this "-"))
@@ -346,7 +346,7 @@
       (#try.Success value)
       (wrap value))))
 
-(def: parse_escaped
+(def: escaped_parser
   (Parser Text)
   ($_ <>.either
       (<>.after (<text>.this "\t")
@@ -364,7 +364,7 @@
       (<>.after (<text>.this "\\")
                 (<>\wrap "\"))))
 
-(def: parse_string
+(def: string_parser
   (Parser String)
   (<| (<text>.enclosed [text.double_quote text.double_quote])
       (loop [_ []])
@@ -373,50 +373,50 @@
          stop <text>.peek])
       (if (text\= "\" stop)
         (do !
-          [escaped parse_escaped
+          [escaped escaped_parser
            next_chars (recur [])]
           (wrap ($_ text\compose chars escaped next_chars)))
         (wrap chars))))
 
-(def: (parse_kv parse_json)
+(def: (kv_parser json_parser)
   (-> (Parser JSON) (Parser [String JSON]))
   (do <>.monad
-    [key ..parse_string
-     _ ..parse_space
+    [key ..string_parser
+     _ ..space_parser
      _ (<text>.this ..entry_separator)
-     _ ..parse_space
-     value parse_json]
+     _ ..space_parser
+     value json_parser]
     (wrap [key value])))
 
 (template [<name> <type> <open> <close> <elem_parser> <prep>]
-  [(def: (<name> parse_json)
+  [(def: (<name> json_parser)
      (-> (Parser JSON) (Parser <type>))
      (do <>.monad
        [_ (<text>.this <open>)
-        _ parse_space
-        elems (<>.separated_by ..parse_separator <elem_parser>)
-        _ parse_space
+        _ space_parser
+        elems (<>.separated_by ..separator_parser <elem_parser>)
+        _ space_parser
         _ (<text>.this <close>)]
        (wrap (<prep> elems))))]
 
-  [parse_array  Array  ..open_array ..close_array parse_json  row.from_list]
-  [parse_object Object ..open_object ..close_object (parse_kv parse_json) (dictionary.from_list text.hash)]
+  [array_parser  Array  ..open_array ..close_array json_parser row.of_list]
+  [object_parser Object ..open_object ..close_object (kv_parser json_parser) (dictionary.of_list text.hash)]
   )
 
-(def: parse_json
+(def: json_parser
   (Parser JSON)
   (<>.rec
-   (function (_ parse_json)
+   (function (_ json_parser)
      ($_ <>.or
-         parse_null
-         parse_boolean
-         parse_number
-         parse_string
-         (parse_array parse_json)
-         (parse_object parse_json)))))
+         null_parser
+         boolean_parser
+         number_parser
+         string_parser
+         (array_parser json_parser)
+         (object_parser json_parser)))))
 
 (implementation: #export codec
   (Codec Text JSON)
   
   (def: encode ..format)
-  (def: decode (<text>.run parse_json)))
+  (def: decode (<text>.run json_parser)))

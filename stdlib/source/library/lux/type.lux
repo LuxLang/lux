@@ -39,25 +39,25 @@
          _
          [num_args type])))]
 
-  [flatten_univ_q #.UnivQ]
-  [flatten_ex_q   #.ExQ]
+  [flat_univ_q #.UnivQ]
+  [flat_ex_q   #.ExQ]
   )
 
-(def: #export (flatten_function type)
+(def: #export (flat_function type)
   (-> Type [(List Type) Type])
   (case type
     (#.Function in out')
-    (let [[ins out] (flatten_function out')]
+    (let [[ins out] (flat_function out')]
       [(list& in ins) out])
 
     _
     [(list) type]))
 
-(def: #export (flatten_application type)
+(def: #export (flat_application type)
   (-> Type [Type (List Type)])
   (case type
     (#.Apply arg func')
-    (let [[func args] (flatten_application func')]
+    (let [[func args] (flat_application func')]
       [func (list\compose args (list arg))])
 
     _
@@ -73,8 +73,8 @@
        _
        (list type)))]
 
-  [flatten_variant #.Sum]
-  [flatten_tuple   #.Product]
+  [flat_variant #.Sum]
+  [flat_tuple   #.Product]
   )
 
 (def: #export (format type)
@@ -98,11 +98,11 @@
                (list.interpose " ")
                (list\fold text\compose ""))
            <close>)])
-    ([#.Sum  "(| " ")" flatten_variant]
-     [#.Product "["   "]" flatten_tuple])
+    ([#.Sum  "(| " ")" flat_variant]
+     [#.Product "["   "]" flat_tuple])
 
     (#.Function input output)
-    (let [[ins out] (flatten_function type)]
+    (let [[ins out] (flat_function type)]
       ($_ text\compose  "(-> "
           (|> ins
               (list\map format)
@@ -121,7 +121,7 @@
     ($_ text\compose "⟨e:" (n\encode id) "⟩")
 
     (#.Apply param fun)
-    (let [[type_func type_args] (flatten_application type)]
+    (let [[type_func type_args] (flat_application type)]
       ($_ text\compose  "(" (format type_func) " " (|> type_args (list\map format) list.reverse (list.interpose " ") (list\fold text\compose "")) ")"))
 
     (^template [<tag> <desc>]
@@ -134,15 +134,16 @@
     ($_ text\compose module "." name)
     ))
 
-(def: (beta_reduce env type)
+## https://en.wikipedia.org/wiki/Lambda_calculus#%CE%B2-reduction
+(def: (reduced env type)
   (-> (List Type) Type Type)
   (case type
     (#.Primitive name params)
-    (#.Primitive name (list\map (beta_reduce env) params))
+    (#.Primitive name (list\map (reduced env) params))
     
     (^template [<tag>]
       [(<tag> left right)
-       (<tag> (beta_reduce env left) (beta_reduce env right))])
+       (<tag> (reduced env left) (reduced env right))])
     ([#.Sum]      [#.Product]
      [#.Function] [#.Apply])
     
@@ -153,7 +154,7 @@
          (<tag> env def)
 
          _
-         (<tag> (list\map (beta_reduce env) old_env) def))])
+         (<tag> (list\map (reduced env) old_env) def))])
     ([#.UnivQ]
      [#.ExQ])
     
@@ -219,7 +220,7 @@
           #0
           ))))
 
-(def: #export (apply params func)
+(def: #export (applied params func)
   (-> (List Type) Type (Maybe Type))
   (case params
     #.Nil
@@ -230,15 +231,15 @@
       (^template [<tag>]
         [(<tag> env body)
          (|> body
-             (beta_reduce (list& func param env))
-             (apply params'))])
+             (reduced (list& func param env))
+             (applied params'))])
       ([#.UnivQ] [#.ExQ])
 
       (#.Apply A F)
-      (apply (list& A params) F)
+      (applied (list& A params) F)
 
       (#.Named name unnamed)
-      (apply params unnamed)
+      (applied params unnamed)
       
       _
       #.None)))
@@ -271,20 +272,20 @@
     ([#.UnivQ] [#.ExQ])
     ))
 
-(def: #export (un_alias type)
+(def: #export (de_aliased type)
   (-> Type Type)
   (case type
     (#.Named _ (#.Named name type'))
-    (un_alias (#.Named name type'))
+    (de_aliased (#.Named name type'))
 
     _
     type))
 
-(def: #export (un_name type)
+(def: #export (anonymous type)
   (-> Type Type)
   (case type
     (#.Named name type')
-    (un_name type')
+    (anonymous type')
 
     _
     type))
@@ -342,10 +343,9 @@
     (quantified? _type)
 
     (#.Apply A F)
-    (maybe.default #0
-                   (do maybe.monad
-                     [applied (apply (list A) F)]
-                     (wrap (quantified? applied))))
+    (|> (..applied (list A) F)
+        (\ maybe.monad map quantified?)
+        (maybe.default #0))
     
     (^or (#.UnivQ _) (#.ExQ _))
     #1
@@ -362,12 +362,12 @@
           (list)
           (#.Primitive array.type_name))))
 
-(def: #export (flatten_array type)
+(def: #export (flat_array type)
   (-> Type [Nat Type])
   (case type
     (^multi (^ (#.Primitive name (list element_type)))
             (text\= array.type_name name))
-    (let [[depth element_type] (flatten_array element_type)]
+    (let [[depth element_type] (flat_array element_type)]
       [(inc depth) element_type])
 
     _
@@ -375,7 +375,7 @@
 
 (def: #export array?
   (-> Type Bit)
-  (|>> ..flatten_array
+  (|>> ..flat_array
        product.left
        (n.> 0)))
 
@@ -439,9 +439,9 @@
   (<>.and <code>.any <code>.any))
 
 ## TODO: Make sure the generated code always gets optimized away.
-(syntax: #export (:share {type_vars ..type_parameters}
-                         {exemplar ..typed}
-                         {computation ..typed})
+(syntax: #export (:sharing {type_vars ..type_parameters}
+                           {exemplar ..typed}
+                           {computation ..typed})
   (macro.with_gensyms [g!_]
     (let [shareC (` (: (All [(~+ (list\map code.local_identifier type_vars))]
                          (-> (~ (get@ #type exemplar))
@@ -453,7 +453,7 @@
 (syntax: #export (:by_example {type_vars ..type_parameters}
                               {exemplar ..typed}
                               {extraction <code>.any})
-  (wrap (list (` (:of ((~! :share)
+  (wrap (list (` (:of ((~! :sharing)
                        [(~+ (list\map code.local_identifier type_vars))]
 
                        (~ (get@ #type exemplar))

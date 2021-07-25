@@ -1,6 +1,7 @@
 (.module: {#.doc "The actor model of concurrency."}
   [library
    [lux #*
+    ["." debug]
     [abstract
      monad]
     [control
@@ -29,7 +30,7 @@
       ["n" nat]]]
     ["." meta (#+ monad)
      ["." annotation]]
-    [type (#+ :share)
+    [type (#+ :sharing)
      ["." abstract (#+ abstract: :representation :abstraction)]]]]
   [//
    ["." atom (#+ Atom atom)]
@@ -67,28 +68,32 @@
                 (Resolver <Obituary>)]
      #mailbox (Atom <Mailbox>)}
 
+    {#.doc (doc "An entity that can react to messages (mail) sent to it concurrently.")}
+
     (type: #export (Mail s)
+      {#.doc (doc "A one-way message sent to an actor, without expecting a reply.")}
       <Mail>)
 
     (type: #export (Obituary s)
+      {#.doc (doc "Details on the death of an actor.")}
       <Obituary>)
 
     (type: #export (Behavior o s)
-      {#.doc "An actor's behavior when mail is received and when a fatal error occurs."}
+      {#.doc (doc "An actor's behavior when mail is received and when a fatal error occurs.")}
       {#on_init (-> o s)
        #on_mail (-> (Mail s) s (Actor s) (Promise (Try s)))})
 
     (def: #export (spawn! behavior init)
-      {#.doc "Given a behavior and initial state, spawns an actor and returns it."}
+      {#.doc (doc "Given a behavior and initial state, spawns an actor and returns it.")}
       (All [o s] (-> (Behavior o s) o (IO (Actor s))))
       (io (let [[on_init on_mail] behavior
-                self (:share [o s]
-                             (Behavior o s)
-                             behavior
-                             
-                             (Actor s)
-                             (:abstraction {#obituary (promise.promise [])
-                                            #mailbox (atom (promise.promise []))}))
+                self (:sharing [o s]
+                               (Behavior o s)
+                               behavior
+                               
+                               (Actor s)
+                               (:abstraction {#obituary (promise.promise [])
+                                              #mailbox (atom (promise.promise []))}))
                 process (loop [state (on_init init)
                                [|mailbox| _] (io.run (atom.read (get@ #mailbox (:representation self))))]
                           (do {! promise.monad}
@@ -125,13 +130,14 @@
         (promise.poll obituary)))
 
     (def: #export await
+      {#.doc (doc "Await for an actor to end working.")}
       (All [s] (-> (Actor s) (Promise (Obituary s))))
       (|>> :representation
            (get@ #obituary)
            product.left))
 
     (def: #export (mail! mail actor)
-      {#.doc "Send mail to an actor.."}
+      {#.doc (doc "Send mail to an actor.")}
       (All [s] (-> (Mail s) (Actor s) (IO (Try Any))))
       (do {! io.monad}
         [alive? (..alive? actor)]
@@ -157,17 +163,18 @@
           (wrap (exception.throw ..dead [])))))
 
     (type: #export (Message s o)
+      {#.doc (doc "A two-way message sent to an actor, expecting a reply.")}
       (-> s (Actor s) (Promise (Try [s o]))))
 
     (def: (mail message)
       (All [s o] (-> (Message s o) [(Promise (Try o)) (Mail s)]))
-      (let [[promise resolve] (:share [s o]
-                                      (Message s o)
-                                      message
-                                      
-                                      [(Promise (Try o))
-                                       (Resolver (Try o))]
-                                      (promise.promise []))]
+      (let [[promise resolve] (:sharing [s o]
+                                        (Message s o)
+                                        message
+                                        
+                                        [(Promise (Try o))
+                                         (Resolver (Try o))]
+                                        (promise.promise []))]
         [promise
          (function (_ state self)
            (do {! promise.monad}
@@ -182,7 +189,7 @@
                  (promise.resolved (#try.Failure error))))))]))
 
     (def: #export (tell! message actor)
-      {#.doc "Communicate with an actor through message passing."}
+      {#.doc (doc "Communicate with an actor through message-passing.")}
       (All [s o] (-> (Message s o) (Actor s) (Promise (Try o))))
       (let [[promise mail] (..mail message)]
         (do promise.monad
@@ -201,6 +208,7 @@
   (mail state self))
 
 (def: #export default
+  {#.doc (doc "Default actor behavior.")}
   (All [s] (Behavior s s))
   {#on_init function.identity
    #on_mail ..default_on_mail})
@@ -254,23 +262,26 @@
 
                                       ((on_mail mail state self)
                                        (do (try.with promise.monad)
-                                         [#let [_ (log! "BEFORE")]
+                                         [#let [_ (debug.log! "BEFORE")]
                                           output (mail state self)
-                                          #let [_ (log! "AFTER")]]
+                                          #let [_ (debug.log! "AFTER")]]
                                          (wrap output)))
 
-                                      (message: #export (push {value a} state self (List a))
+                                      (message: #export (push {value a} state self)
+                                        (List a)
                                         (let [state' (#.Cons value state)]
                                           (promise.resolved (#try.Success [state' state'])))))
 
                                     (actor: #export Counter
                                       Nat
 
-                                      (message: #export (count! {increment Nat} state self Any)
+                                      (message: #export (count! {increment Nat} state self)
+                                        Any
                                         (let [state' (n.+ increment state)]
                                           (promise.resolved (#try.Success [state' state']))))
 
-                                      (message: #export (read! state self Nat)
+                                      (message: #export (read! state self)
+                                        Nat
                                         (promise.resolved (#try.Success [state state])))))]
   (syntax: #export (actor:
                      {export |export|.parser}
@@ -278,7 +289,7 @@
                      {annotations (<>.default |annotations|.empty |annotations|.parser)}
                      state_type
                      {[?on_mail messages] behavior^})
-    {#.doc (doc "Defines an actor, with its behavior and internal state."
+    {#.doc (doc "Defines a named actor, with its behavior and internal state."
                 "Messages for the actor must be defined after the on_mail handler."
                 <examples>)}
     (with_gensyms [g!_]
@@ -299,6 +310,12 @@
 
   (syntax: #export (actor {[state_type init] (<code>.record (<>.and <code>.any <code>.any))}
                           {[?on_mail messages] behavior^})
+    {#.doc (doc "Defines an anonymous actor, with its behavior and internal state."
+                "Messages for the actor must be defined after the on_mail handler."
+                (actor {Nat
+                        123}
+                       ((on_mail message state self)
+                        (message (inc state) self))))}
     (with_gensyms [g!_]
       (wrap (list (` (: ((~! io.IO) (..Actor (~ state_type)))
                         (..spawn! (: (..Behavior (~ state_type) (~ state_type))
@@ -312,8 +329,7 @@
      #name Text
      #inputs (List |input|.Input)
      #state Text
-     #self Text
-     #output Code})
+     #self Text})
 
   (def: signature^
     (Parser Signature)
@@ -322,8 +338,7 @@
                      <code>.local_identifier
                      (<>.some |input|.parser)
                      <code>.local_identifier
-                     <code>.local_identifier
-                     <code>.any)))
+                     <code>.local_identifier)))
 
   (def: reference^
     (Parser [Name (List Text)])
@@ -334,6 +349,7 @@
                      {export |export|.parser}
                      {signature signature^}
                      {annotations (<>.default |annotations|.empty |annotations|.parser)}
+                     output_type
                      body)
     {#.doc (doc "A message can access the actor's state through the state parameter."
                 "A message can also access the actor itself through the self parameter."
@@ -357,24 +373,28 @@
                          (All [(~+ g!all_vars)]
                            (-> (~+ g!inputsT)
                                (..Message (~ (get@ #abstract.abstraction actor_scope))
-                                          (~ (get@ #output signature)))))
+                                          (~ output_type))))
                          (function ((~ g!_) (~ g!state) (~ g!self))
                            (let [(~ g!state) (:as (~ (get@ #abstract.representation actor_scope))
                                                   (~ g!state))]
                              (|> (~ body)
                                  (: ((~! promise.Promise) ((~! try.Try) [(~ (get@ #abstract.representation actor_scope))
-                                                                         (~ (get@ #output signature))])))
+                                                                         (~ output_type)])))
                                  (:as ((~! promise.Promise) ((~! try.Try) [(~ (get@ #abstract.abstraction actor_scope))
-                                                                           (~ (get@ #output signature))]))))))))
+                                                                           (~ output_type)]))))))))
                     ))))))
 
 (type: #export Stop
+  {#.doc (doc "A signal to stop an actor from observing a channel.")}
   (IO Any))
 
 (def: continue! true)
 (def: stop! false)
 
 (def: #export (observe action channel actor)
+  {#.doc (doc "Use an actor to observe a channel by transforming each datum"
+              "flowing through the channel into mail the actor can process."
+              "Can stop observing the channel by executing the Stop value.")}
   (All [e s] (-> (-> e Stop (Mail s)) (Channel e) (Actor s) (IO Any)))
   (let [signal (: (Atom Bit)
                   (atom.atom ..continue!))
@@ -384,8 +404,8 @@
                      (do {! io.monad}
                        [continue? (atom.read signal)]
                        (if continue?
-                         (do !
-                           [outcome (..mail! (action event stop) actor)]
-                           (wrap (try.to_maybe outcome)))
+                         (|> actor
+                             (..mail! (action event stop))
+                             (\ ! map try.maybe))
                          (wrap #.None))))
                    channel)))
