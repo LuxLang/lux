@@ -10,7 +10,7 @@
      ["." try (#+ Try)]
      ["." exception (#+ exception:)]
      [concurrency
-      ["." promise (#+ Promise) ("#\." monad)]]
+      ["." async (#+ Async) ("#\." monad)]]
      ["<>" parser
       ["<.>" binary (#+ Parser)]]]
     [data
@@ -91,16 +91,16 @@
           (get@ #static.artifact_extension static)))
 
 (def: (ensure_directory fs path)
-  (-> (file.System Promise) file.Path (Promise (Try Any)))
-  (do promise.monad
+  (-> (file.System Async) file.Path (Async (Try Any)))
+  (do async.monad
     [? (\ fs directory? path)]
     (if ?
       (wrap (#try.Success []))
       (\ fs make_directory path))))
 
 (def: #export (prepare fs static module_id)
-  (-> (file.System Promise) Static archive.ID (Promise (Try Any)))
-  (do {! promise.monad}
+  (-> (file.System Async) Static archive.ID (Async (Try Any)))
+  (do {! async.monad}
     [#let [module (..module fs static module_id)]
      module_exists? (\ fs directory? module)]
     (if module_exists?
@@ -119,40 +119,40 @@
                                                                     error])))))))))
 
 (def: #export (write fs static module_id artifact_id content)
-  (-> (file.System Promise) Static archive.ID artifact.ID Binary (Promise (Try Any)))
+  (-> (file.System Async) Static archive.ID artifact.ID Binary (Async (Try Any)))
   (\ fs write content (..artifact fs static module_id artifact_id)))
 
 (def: #export (enable fs static)
-  (-> (file.System Promise) Static (Promise (Try Any)))
-  (do (try.with promise.monad)
+  (-> (file.System Async) Static (Async (Try Any)))
+  (do (try.with async.monad)
     [_ (..ensure_directory fs (get@ #static.target static))]
     (..ensure_directory fs (..archive fs static))))
 
 (def: (general_descriptor fs static)
-  (-> (file.System Promise) Static file.Path)
+  (-> (file.System Async) Static file.Path)
   (format (..archive fs static)
           (\ fs separator)
           "general_descriptor"))
 
 (def: #export (freeze fs static archive)
-  (-> (file.System Promise) Static Archive (Promise (Try Any)))
+  (-> (file.System Async) Static Archive (Async (Try Any)))
   (\ fs write (archive.export ///.version archive) (..general_descriptor fs static)))
 
 (def: module_descriptor_file
   "module_descriptor")
 
 (def: (module_descriptor fs static module_id)
-  (-> (file.System Promise) Static archive.ID file.Path)
+  (-> (file.System Async) Static archive.ID file.Path)
   (format (..module fs static module_id)
           (\ fs separator)
           ..module_descriptor_file))
 
 (def: #export (cache fs static module_id content)
-  (-> (file.System Promise) Static archive.ID Binary (Promise (Try Any)))
+  (-> (file.System Async) Static archive.ID Binary (Async (Try Any)))
   (\ fs write content (..module_descriptor fs static module_id)))
 
 (def: (read_module_descriptor fs static module_id)
-  (-> (file.System Promise) Static archive.ID (Promise (Try Binary)))
+  (-> (file.System Async) Static archive.ID (Async (Try Binary)))
   (\ fs read (..module_descriptor fs static module_id)))
 
 (def: parser
@@ -177,8 +177,8 @@
     (wrap (set@ #.modules modules (fresh_analysis_state host)))))
 
 (def: (cached_artifacts fs static module_id)
-  (-> (file.System Promise) Static archive.ID (Promise (Try (Dictionary Text Binary))))
-  (let [! (try.with promise.monad)]
+  (-> (file.System Async) Static archive.ID (Async (Try (Dictionary Text Binary))))
+  (let [! (try.with async.monad)]
     (|> (..module fs static module_id)
         (\ fs directory_files)
         (\ ! map (|>> (list\map (function (_ file)
@@ -339,19 +339,19 @@
 
 (def: (load_definitions fs static module_id host_environment descriptor document)
   (All [expression directive]
-    (-> (file.System Promise) Static archive.ID (generation.Host expression directive)
+    (-> (file.System Async) Static archive.ID (generation.Host expression directive)
         Descriptor (Document .Module)
-        (Promise (Try [[Descriptor (Document .Module) Output]
-                       Bundles]))))
-  (do (try.with promise.monad)
+        (Async (Try [[Descriptor (Document .Module) Output]
+                     Bundles]))))
+  (do (try.with async.monad)
     [actual (cached_artifacts fs static module_id)
      #let [expected (|> descriptor (get@ #descriptor.registry) artifact.artifacts)]
-     [document bundles output] (promise\wrap (loaded_document (get@ #static.artifact_extension static) host_environment module_id expected actual document))]
+     [document bundles output] (async\wrap (loaded_document (get@ #static.artifact_extension static) host_environment module_id expected actual document))]
     (wrap [[descriptor document output] bundles])))
 
 (def: (purge! fs static [module_name module_id])
-  (-> (file.System Promise) Static [Module archive.ID] (Promise (Try Any)))
-  (do {! (try.with promise.monad)}
+  (-> (file.System Async) Static [Module archive.ID] (Async (Try Any)))
+  (do {! (try.with async.monad)}
     [#let [cache (..module fs static module_id)]
      _ (|> cache
            (\ fs directory_files)
@@ -404,15 +404,15 @@
 
 (def: (load_every_reserved_module host_environment fs static import contexts archive)
   (All [expression directive]
-    (-> (generation.Host expression directive) (file.System Promise) Static Import (List Context) Archive
-        (Promise (Try [Archive .Lux Bundles]))))
-  (do {! (try.with promise.monad)}
+    (-> (generation.Host expression directive) (file.System Async) Static Import (List Context) Archive
+        (Async (Try [Archive .Lux Bundles]))))
+  (do {! (try.with async.monad)}
     [pre_loaded_caches (|> archive
                            archive.reservations
                            (monad.map ! (function (_ [module_name module_id])
                                           (do !
                                             [data (..read_module_descriptor fs static module_id)
-                                             [descriptor document] (promise\wrap (<binary>.run ..parser data))]
+                                             [descriptor document] (async\wrap (<binary>.run ..parser data))]
                                             (if (text\= archive.runtime_module module_name)
                                               (wrap [true
                                                      [module_name [module_id [descriptor document]]]])
@@ -428,7 +428,7 @@
                                 archive)
                     (\ try.monad map (dependency.load_order $.key))
                     (\ try.monad join)
-                    promise\wrap)
+                    async\wrap)
      #let [purge (..full_purge pre_loaded_caches load_order)]
      _ (|> purge
            dictionary.entries
@@ -440,7 +440,7 @@
                                         [[descriptor,document,output bundles] (..load_definitions fs static module_id host_environment descriptor document)]
                                         (wrap [[module_name descriptor,document,output]
                                                bundles])))))]
-    (promise\wrap
+    (async\wrap
      (do {! try.monad}
        [archive (monad.fold !
                             (function (_ [[module descriptor,document,output] _bundle] archive)
@@ -461,14 +461,14 @@
 
 (def: #export (thaw host_environment fs static import contexts)
   (All [expression directive]
-    (-> (generation.Host expression directive) (file.System Promise) Static Import (List Context)
-        (Promise (Try [Archive .Lux Bundles]))))
-  (do promise.monad
+    (-> (generation.Host expression directive) (file.System Async) Static Import (List Context)
+        (Async (Try [Archive .Lux Bundles]))))
+  (do async.monad
     [binary (\ fs read (..general_descriptor fs static))]
     (case binary
       (#try.Success binary)
-      (do (try.with promise.monad)
-        [archive (promise\wrap (archive.import ///.version binary))]
+      (do (try.with async.monad)
+        [archive (async\wrap (archive.import ///.version binary))]
         (..load_every_reserved_module host_environment fs static import contexts archive))
       
       (#try.Failure error)

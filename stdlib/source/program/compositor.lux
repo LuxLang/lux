@@ -10,7 +10,7 @@
      ["." io (#+ IO io)]
      ["." try (#+ Try)]
      [concurrency
-      ["." promise (#+ Promise) ("#\." monad)]]]
+      ["." async (#+ Async) ("#\." monad)]]]
     [data
      [binary (#+ Binary)]
      ["." product]
@@ -59,8 +59,8 @@
 
 (def: (or_crash! failure_description action)
   (All [a]
-    (-> Text (Promise (Try a)) (Promise a)))
-  (do promise.monad
+    (-> Text (Async (Try a)) (Async a)))
+  (do async.monad
     [?output action]
     (case ?output
       (#try.Failure error)
@@ -74,8 +74,8 @@
 
 (def: (timed process)
   (All [a]
-    (-> (Promise (Try a)) (Promise (Try a))))
-  (do promise.monad
+    (-> (Async (Try a)) (Async (Try a))))
+  (do async.monad
     [#let [start (io.run instant.now)]
      output process
      #let [_ ("lux io log" (|> (io.run instant.now)
@@ -85,17 +85,17 @@
     (wrap output)))
 
 (def: (package! fs host_dependencies [packager package] static archive context)
-  (-> (file.System Promise) (Dictionary file.Path Binary) [Packager file.Path] Static Archive Context (Promise (Try Any)))
+  (-> (file.System Async) (Dictionary file.Path Binary) [Packager file.Path] Static Archive Context (Async (Try Any)))
   (case (packager host_dependencies archive context)
     (#try.Success content)
     (\ fs write content package)
     
     (#try.Failure error)
-    (\ promise.monad wrap (#try.Failure error))))
+    (\ async.monad wrap (#try.Failure error))))
 
 (def: (load_host_dependencies fs host_dependencies)
-  (-> (file.System Promise) (List file.Path) (Promise (Try (Dictionary file.Path Binary))))
-  (do {! (try.with promise.monad)}
+  (-> (file.System Async) (List file.Path) (Async (Try (Dictionary file.Path Binary))))
+  (do {! (try.with async.monad)}
     []
     (loop [pending host_dependencies
            output (: (Dictionary file.Path Binary)
@@ -127,32 +127,32 @@
           (-> platform.Phase_Wrapper Extender)
           Service
           [Packager file.Path]
-          (Promise Any)))
-    (do {! promise.monad}
-      [platform (promise.future platform)]
+          (Async Any)))
+    (do {! async.monad}
+      [platform (async.future platform)]
       (case service
         (#/cli.Compilation compilation)
         (<| (or_crash! "Compilation failed:")
             ..timed
-            (do (try.with promise.monad)
+            (do (try.with async.monad)
               [#let [[compilation_sources compilation_host_dependencies compilation_libraries compilation_target compilation_module] compilation]
                import (/import.import (get@ #platform.&file_system platform) compilation_libraries)
                [state archive] (:sharing [<parameters>]
                                          (Platform <parameters>)
                                          platform
                                          
-                                         (Promise (Try [(directive.State+ <parameters>)
-                                                        Archive]))
+                                         (Async (Try [(directive.State+ <parameters>)
+                                                      Archive]))
                                          (:assume (platform.initialize static compilation_module expander host_analysis platform generation_bundle host_directive_bundle program anchorT,expressionT,directiveT extender
                                                                        import compilation_sources)))
                [archive state] (:sharing [<parameters>]
                                          (Platform <parameters>)
                                          platform
                                          
-                                         (Promise (Try [Archive (directive.State+ <parameters>)]))
+                                         (Async (Try [Archive (directive.State+ <parameters>)]))
                                          (:assume (platform.compile import static expander platform compilation [archive state])))
                _ (ioW.freeze (get@ #platform.&file_system platform) static archive)
-               program_context (promise\wrap ($/program.context archive))
+               program_context (async\wrap ($/program.context archive))
                host_dependencies (..load_host_dependencies (get@ #platform.&file_system platform) compilation_host_dependencies)
                _ (..package! (for {@.old (file.async file.default)
                                    @.jvm (file.async file.default)
@@ -166,7 +166,7 @@
 
         (#/cli.Export export)
         (<| (or_crash! "Export failed:")
-            (do (try.with promise.monad)
+            (do (try.with async.monad)
               [_ (/export.export (get@ #platform.&file_system platform)
                                  export)]
               (wrap (debug.log! "Export complete!"))))
@@ -175,9 +175,9 @@
         ## TODO: Fix the interpreter...
         (undefined)
         ## (<| (or_crash! "Interpretation failed:")
-        ##     (do {! promise.monad}
+        ##     (do {! async.monad}
         ##       [console (|> console.default
-        ##                    promise.future
+        ##                    async.future
         ##                    (\ ! map (|>> try.assumed console.async)))]
-        ##       (interpreter.run (try.with promise.monad) console platform interpretation generation_bundle)))
+        ##       (interpreter.run (try.with async.monad) console platform interpretation generation_bundle)))
         ))))

@@ -40,10 +40,10 @@
       (\ meta.monad wrap type))
 
     (#.Some [_ #.None])
-    (meta.fail (format "Unbound type-var " (%.nat id)))
+    (meta.failure (format "Unbound type-var " (%.nat id)))
 
     #.None
-    (meta.fail (format "Unknown type-var " (%.nat id)))
+    (meta.failure (format "Unknown type-var " (%.nat id)))
     ))
 
 (def: (resolve_type var_name)
@@ -67,7 +67,7 @@
     (#.Apply arg func)
     (case (type.applied (list arg) func)
       #.None
-      (check.fail (format "Cannot apply type " (%.type func) " to type " (%.type arg)))
+      (check.failure (format "Cannot apply type " (%.type func) " to type " (%.type arg)))
 
       (#.Some sig_type')
       (find_member_type idx sig_type'))
@@ -80,14 +80,14 @@
     _
     (if (n.= 0 idx)
       (\ check.monad wrap sig_type)
-      (check.fail (format "Cannot find member type " (%.nat idx) " for " (%.type sig_type))))))
+      (check.failure (format "Cannot find member type " (%.nat idx) " for " (%.type sig_type))))))
 
 (def: (find_member_name member)
   (-> Name (Meta Name))
   (case member
     ["" simple_name]
     (meta.either (do meta.monad
-                   [member (meta.normalize member)
+                   [member (meta.normal member)
                     _ (meta.resolve_tag member)]
                    (wrap member))
                  (do {! meta.monad}
@@ -99,13 +99,13 @@
                                                 tag_lists)]]
                    (case candidates
                      #.Nil
-                     (meta.fail (format "Unknown tag: " (%.name member)))
+                     (meta.failure (format "Unknown tag: " (%.name member)))
                      
                      (#.Cons winner #.Nil)
                      (wrap winner)
                      
                      _
-                     (meta.fail (format "Too many candidate tags: " (%.list %.name candidates))))))
+                     (meta.failure (format "Too many candidate tags: " (%.list %.name candidates))))))
 
     _
     (\ meta.monad wrap member)))
@@ -157,7 +157,7 @@
     (wrap (list\fold (function (_ [imported_module definitions] tail)
                        (prepare_definitions imported_module this_module_name definitions tail))
                      #.Nil
-                     (list.zip/2 imported_modules accessible_definitions)))))
+                     (list.zipped/2 imported_modules accessible_definitions)))))
 
 (def: (apply_function_type func arg)
   (-> Type Type (Check Type))
@@ -177,7 +177,7 @@
       (wrap output))
 
     _
-    (check.fail (format "Invalid function type: " (%.type func)))))
+    (check.failure (format "Invalid function type: " (%.type func)))))
 
 (def: (concrete_type type)
   (-> Type (Check [(List Nat) Type]))
@@ -229,7 +229,7 @@
                             (list [alt_name =deps]))))
               list\join)
       #.Nil
-      (meta.fail (format "No candidates for provisioning: " (%.type dep)))
+      (meta.failure (format "No candidates for provisioning: " (%.type dep)))
 
       found
       (wrap found))))
@@ -242,18 +242,18 @@
                       (do meta.monad [alts ..local_structs] (..test_provision provision context dep alts))
                       (do meta.monad [alts ..imported_structs] (..test_provision provision context dep alts))))
     (#.Left error)
-    (check.fail error)
+    (check.failure error)
 
     (#.Right candidates)
     (case candidates
       #.Nil
-      (check.fail (format "No candidates for provisioning: " (%.type dep)))
+      (check.failure (format "No candidates for provisioning: " (%.type dep)))
 
       (#.Cons winner #.Nil)
       (\ check.monad wrap winner)
 
       _
-      (check.fail (format "Too many candidates for provisioning: " (%.type dep) " --- " (%.list (|>> product.left %.name) candidates))))
+      (check.failure (format "Too many candidates for provisioning: " (%.type dep) " --- " (%.list (|>> product.left %.name) candidates))))
     ))
 
 (def: (test_alternatives sig_type member_idx input_types output_type alts)
@@ -280,7 +280,7 @@
                             (list [alt_name =deps]))))
               list\join)
       #.Nil
-      (meta.fail (format "No alternatives for " (%.type (type.function input_types output_type))))
+      (meta.failure (format "No alternatives for " (%.type (type.function input_types output_type))))
 
       found
       (wrap found))))
@@ -351,7 +351,7 @@
        chosen_ones (find_alternatives sig_type member_idx input_types output_type)]
       (case chosen_ones
         #.Nil
-        (meta.fail (format "No implementation could be found for member: " (%.name member)))
+        (meta.failure (format "No implementation could be found for member: " (%.name member)))
 
         (#.Cons chosen #.Nil)
         (wrap (list (` (\ (~ (instance$ chosen))
@@ -359,16 +359,16 @@
                           (~+ (list\map code.identifier args))))))
 
         _
-        (meta.fail (format "Too many implementations available: "
-                           (|> chosen_ones
-                               (list\map (|>> product.left %.name))
-                               (text.join_with ", "))
-                           " --- for type: " (%.type sig_type)))))
+        (meta.failure (format "Too many implementations available: "
+                              (|> chosen_ones
+                                  (list\map (|>> product.left %.name))
+                                  (text.join_with ", "))
+                              " --- for type: " (%.type sig_type)))))
 
     (#.Right [args _])
     (do {! meta.monad}
       [labels (|> (macro.gensym "") (list.repeat (list.size args)) (monad.seq !))]
-      (wrap (list (` (let [(~+ (|> (list.zip/2 labels args) (list\map join_pair) list\join))]
+      (wrap (list (` (let [(~+ (|> (list.zipped/2 labels args) (list\map join_pair) list\join))]
                        (..\\ (~ (code.identifier member)) (~+ labels)))))))
     ))
 
@@ -385,7 +385,7 @@
 (syntax: #export (with {implementations ..implicits} body)
   (do meta.monad
     [g!implicit+ (implicit_bindings (list.size implementations))]
-    (wrap (list (` (let [(~+ (|> (list.zip/2 g!implicit+ implementations)
+    (wrap (list (` (let [(~+ (|> (list.zipped/2 g!implicit+ implementations)
                                  (list\map (function (_ [g!implicit implementation])
                                              (list g!implicit implementation)))
                                  list\join))]
@@ -394,7 +394,7 @@
 (syntax: #export (implicit: {implementations ..implicits})
   (do meta.monad
     [g!implicit+ (implicit_bindings (list.size implementations))]
-    (wrap (|> (list.zip/2 g!implicit+ implementations)
+    (wrap (|> (list.zipped/2 g!implicit+ implementations)
               (list\map (function (_ [g!implicit implementation])
                           (` (def: (~ g!implicit)
                                {#.implementation? #1}

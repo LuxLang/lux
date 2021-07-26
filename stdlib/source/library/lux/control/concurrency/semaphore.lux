@@ -22,7 +22,7 @@
      ["." refinement]]]]
   [//
    ["." atom (#+ Atom)]
-   ["." promise (#+ Promise Resolver)]])
+   ["." async (#+ Async Resolver)]])
 
 (type: State
   {#max_positions Nat
@@ -48,10 +48,10 @@
   (def: #export (wait semaphore)
     {#.doc (doc "Wait on a semaphore until there are open positions."
                 "After finishing your work, you must 'signal' to the semaphore that you're done.")}
-    (Ex [k] (-> Semaphore (Promise Any)))
+    (Ex [k] (-> Semaphore (Async Any)))
     (let [semaphore (:representation semaphore)
-          [signal sink] (: [(Promise Any) (Resolver Any)]
-                           (promise.promise []))]
+          [signal sink] (: [(Async Any) (Resolver Any)]
+                           (async.async []))]
       (exec (io.run
              (with_expansions [<had_open_position?> (as_is (get@ #open_positions) (i.> -1))]
                (do io.monad
@@ -73,9 +73,9 @@
 
   (def: #export (signal semaphore)
     {#.doc (doc "Signal to a semaphore that you're done with your work, and that there is a new open position.")}
-    (Ex [k] (-> Semaphore (Promise (Try Int))))
+    (Ex [k] (-> Semaphore (Async (Try Int))))
     (let [semaphore (:representation semaphore)]
-      (promise.future
+      (async.future
        (do {! io.monad}
          [[pre post] (atom.update (function (_ state)
                                     (if (i.= (.int (get@ #max_positions state))
@@ -108,17 +108,17 @@
     (:abstraction (semaphore 1)))
 
   (def: acquire
-    (-> Mutex (Promise Any))
+    (-> Mutex (Async Any))
     (|>> :representation ..wait))
 
   (def: release
-    (-> Mutex (Promise Any))
+    (-> Mutex (Async Any))
     (|>> :representation ..signal))
 
   (def: #export (synchronize mutex procedure)
     {#.doc (doc "Runs the procedure with exclusive control of the mutex.")}
-    (All [a] (-> Mutex (IO (Promise a)) (Promise a)))
-    (do promise.monad
+    (All [a] (-> Mutex (IO (Async a)) (Async a)))
+    (do async.monad
       [_ (..acquire mutex)
        output (io.run procedure)
        _ (..release mutex)]
@@ -149,18 +149,18 @@
                    #end_turnstile (..semaphore 0)}))
 
   (def: (un_block times turnstile)
-    (-> Nat Semaphore (Promise Any))
+    (-> Nat Semaphore (Async Any))
     (loop [step 0]
       (if (n.< times step)
-        (do promise.monad
+        (do async.monad
           [outcome (..signal turnstile)]
           (recur (inc step)))
-        (\ promise.monad wrap []))))
+        (\ async.monad wrap []))))
 
   (template [<phase> <update> <goal> <turnstile>]
     [(def: (<phase> (^:representation barrier))
-       (-> Barrier (Promise Any))
-       (do promise.monad
+       (-> Barrier (Async Any))
+       (do async.monad
          [#let [limit (refinement.un_refine (get@ #limit barrier))
                 goal <goal>
                 [_ count] (io.run (atom.update <update> (get@ #count barrier)))
@@ -175,8 +175,8 @@
 
   (def: #export (block barrier)
     {#.doc (doc "Wait on a barrier until all processes have arrived and met the barrier's limit.")}
-    (-> Barrier (Promise Any))
-    (do promise.monad
+    (-> Barrier (Async Any))
+    (do async.monad
       [_ (..start barrier)]
       (..end barrier)))
   )

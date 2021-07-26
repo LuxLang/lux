@@ -58,7 +58,6 @@
 # Number Theory
 
 1. https://twitter.com/johncarlosbaez/status/1184492139897507840
-1. https://en.wikipedia.org/wiki/Dual_number
 1. https://en.wikipedia.org/wiki/Division_algebra
 1. [Division algebras](https://www.youtube.com/watch?v=3BZyds_KFWM&list=PLNxhIPHaOTRZMO1VjJcs7_3dgyJ2qU1yZ)
 1. https://www.quantamagazine.org/the-octonion-math-that-could-underpin-physics-20180720
@@ -72,10 +71,8 @@
 # Quaternions
 
 1. [Maths - Quaternions](http://www.euclideanspace.com/maths/algebra/realNormedAlgebra/quaternions/index.htm)
-1. [Dual Quaternions for Mere Mortals](https://www.jeremyong.com/math/2019/08/05/dual-quaternions-for-mere-mortals/)
 1. [Stepping into a New Dimension: Using Quaternions to See the Invisible](https://medium.com/@vieyrasoftware/stepping-into-a-new-dimension-using-quaternions-to-see-the-invisible-478087c9ebbf)
 1. [How Quaternions Produce 3D Rotation](https://penguinmaths.blogspot.com/2019/06/how-quaternions-produce-3d-rotation.html)
-1. [APPLICATION OF DUAL QUATERNIONS ON SELECTED PROBLEMS](https://otik.uk.zcu.cz/bitstream/11025/28563/1/phd_Application%20of%20dual%20quaternions%20on%20selected%20problems.pdf)
 1. https://www.3dgep.com/understanding-quaternions/
 1. https://probablydance.com/2017/08/05/intuitive-quaternions/
 1. [Quaternion algebras](https://math.dartmouth.edu/~jvoight/quat.html)
@@ -182,7 +179,6 @@
 
 1. [Siggraph2019 Geometric Algebra](https://www.youtube.com/watch?v=tX4H_ctggYo)
 1. [Dr Leo Dorst' Keynote talk at CGI2020](https://www.youtube.com/watch?v=T7xVTBpHMjA)
-1. [GAME2020 0. Steven De Keninck. Dual Quaternions Demystified](https://www.youtube.com/watch?v=ichOiuBoBoQ)
 1. [GAME2020 - 1. Dr. Leo Dorst. Get Real!](https://www.youtube.com/watch?v=0fF2xToQmgs)
 1. [GAME2020 3. Professor Anthony Lasenby. A new language for physics.](https://www.youtube.com/watch?v=x7eLEtmq6PY)
 1. [HestenesJMM2019](https://www.youtube.com/watch?v=zsQQ7djCg_Y)
@@ -365,10 +361,6 @@
 
 1. [Intuitive Guide to Hyperbolic Functions](https://betterexplained.com/articles/hyperbolic-functions/)
 1. [Hyperbolic Functions and Non-Hyperbolic Claims](https://elliptigon.com/hyperbolic-functions-explained/)
-
-# Dual numbers
-
-1. [The Dual Numbers](https://www.youtube.com/watch?v=4nU-09e3iP8)
 
 # **Temp Cache**
 

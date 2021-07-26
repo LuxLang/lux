@@ -11,7 +11,7 @@
      ["." try (#+ Try) ("#\." functor)]
      ["." exception (#+ exception:)]
      [concurrency
-      ["." promise (#+ Promise Resolver) ("#\." monad)]
+      ["." async (#+ Async Resolver) ("#\." monad)]
       ["." stm (#+ Var STM)]]]
     [data
      ["." binary (#+ Binary)]
@@ -68,7 +68,7 @@
     (All [s i o] (-> (Phase s i o) Any)))
   
   (type: #export (Platform <type_vars>)
-    {#&file_system (file.System Promise)
+    {#&file_system (file.System Async)
      #host (///generation.Host expression directive)
      #phase (///generation.Phase <type_vars>)
      #runtime (<Operation> [Registry Output])
@@ -77,12 +77,12 @@
 
   ## TODO: Get rid of this
   (type: (Action a)
-    (Promise (Try a)))
+    (Async (Try a)))
 
   ## TODO: Get rid of this
   (def: monad
     (:as (Monad Action)
-         (try.with promise.monad)))
+         (try.with async.monad)))
 
   (with_expansions [<Platform> (as_is (Platform <type_vars>))
                     <State+> (as_is (///directive.State+ <type_vars>))
@@ -96,7 +96,7 @@
     (def: (cache_module static platform module_id [descriptor document output])
       (All [<type_vars>]
         (-> Static <Platform> archive.ID [Descriptor (Document Any) Output]
-            (Promise (Try Any))))
+            (Async (Try Any))))
       (let [system (get@ #&file_system platform)
             write_artifact! (: (-> [artifact.ID (Maybe Text) Binary] (Action Any))
                                (function (_ [artifact_id custom content])
@@ -112,7 +112,7 @@
                       row.to_list
                       (monad.map ..monad write_artifact!)
                       (: (Action (List Any)))))
-           document (\ promise.monad wrap
+           document (\ async.monad wrap
                        (document.check $.key document))]
           (ioW.cache system static module_id
                      (_.run ..writer [descriptor document])))))
@@ -234,8 +234,8 @@
             (Program expression directive)
             [Type Type Type] (-> Phase_Wrapper Extender)
             Import (List Context)
-            (Promise (Try [<State+> Archive]))))
-      (do {! (try.with promise.monad)}
+            (Async (Try [<State+> Archive]))))
+      (do {! (try.with async.monad)}
         [#let [state (//init.state (get@ #static.host static)
                                    module
                                    expander
@@ -247,9 +247,9 @@
          [archive analysis_state bundles] (ioW.thaw (get@ #host platform) (get@ #&file_system platform) static import compilation_sources)
          #let [with_missing_extensions
                (: (All [<type_vars>]
-                    (-> <Platform> (Program expression directive) <State+> (Promise (Try <State+>))))
+                    (-> <Platform> (Program expression directive) <State+> (Async (Try <State+>))))
                   (function (_ platform program state)
-                    (promise\wrap
+                    (async\wrap
                      (do try.monad
                        [[state phase_wrapper] (..phase_wrapper archive platform state)]
                        (|> state
@@ -264,7 +264,7 @@
           (do !
             [[state [archive payload]] (|> (..process_runtime archive platform)
                                            (///phase.run' state)
-                                           promise\wrap)
+                                           async\wrap)
              _ (..cache_module static platform 0 payload)
              
              state (with_missing_extensions platform program state)]
@@ -379,7 +379,7 @@
 
     (with_expansions [<Context> (as_is [Archive <State+>])
                       <Result> (as_is (Try <Context>))
-                      <Return> (as_is (Promise <Result>))
+                      <Return> (as_is (Async <Result>))
                       <Signal> (as_is (Resolver <Result>))
                       <Pending> (as_is [<Return> <Signal>])
                       <Importer> (as_is (-> Module Module <Return>))
@@ -399,14 +399,14 @@
                             (stm.var ..independence))]
           (function (_ compile)
             (function (import! importer module)
-              (do {! promise.monad}
+              (do {! async.monad}
                 [[return signal] (:sharing [<type_vars>]
                                            <Context>
                                            initial
                                            
-                                           (Promise [<Return> (Maybe [<Context>
-                                                                      archive.ID
-                                                                      <Signal>])])
+                                           (Async [<Return> (Maybe [<Context>
+                                                                    archive.ID
+                                                                    <Signal>])])
                                            (:assume
                                             (stm.commit
                                              (do {! stm.monad}
@@ -417,14 +417,14 @@
                                                                (wrap dependence)))]
                                                (case (..verify_dependencies importer module dependence)
                                                  (#try.Failure error)
-                                                 (wrap [(promise.resolved (#try.Failure error))
+                                                 (wrap [(async.resolved (#try.Failure error))
                                                         #.None])
 
                                                  (#try.Success _)
                                                  (do !
                                                    [[archive state] (stm.read current)]
                                                    (if (archive.archived? archive module)
-                                                     (wrap [(promise\wrap (#try.Success [archive state]))
+                                                     (wrap [(async\wrap (#try.Success [archive state]))
                                                             #.None])
                                                      (do !
                                                        [@pending (stm.read pending)]
@@ -447,7 +447,7 @@
                                                                                               initial
                                                                                               
                                                                                               <Pending>
-                                                                                              (promise.promise []))]
+                                                                                              (async.async []))]
                                                               _ (stm.update (dictionary.put module [return signal]) pending)]
                                                              (wrap [return
                                                                     (#.Some [[archive state]
@@ -455,7 +455,7 @@
                                                                              signal])]))
                                                            
                                                            (#try.Failure error)
-                                                           (wrap [(promise\wrap (#try.Failure error))
+                                                           (wrap [(async\wrap (#try.Failure error))
                                                                   #.None])))))))))))
                  _ (case signal
                      #.None
@@ -475,7 +475,7 @@
                                                                                       state])
                                                                                    current)]
                                                (wrap (#try.Success [merged_archive resulting_state])))))
-                        _ (promise.future (resolver result))]
+                        _ (async.future (resolver result))]
                        (wrap [])))]
                 return)))))
 
@@ -531,7 +531,7 @@
               compiler (..parallel
                         context
                         (function (_ importer import! module_id [archive state] module)
-                          (do {! (try.with promise.monad)}
+                          (do {! (try.with async.monad)}
                             [#let [state (..set_current_module module state)]
                              input (context.read (get@ #&file_system platform)
                                                  importer
@@ -592,11 +592,11 @@
                                                  (..with_reset_log state)])
                                           
                                           (#try.Failure error)
-                                          (promise\wrap (#try.Failure error)))))
+                                          (async\wrap (#try.Failure error)))))
 
                                     (#try.Failure error)
                                     (do !
                                       [_ (ioW.freeze (get@ #&file_system platform) static archive)]
-                                      (promise\wrap (#try.Failure error))))))))))]
+                                      (async\wrap (#try.Failure error))))))))))]
           (compiler archive.runtime_module compilation_module)))
       )))

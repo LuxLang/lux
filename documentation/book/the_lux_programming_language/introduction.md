@@ -29,3 +29,7 @@ It is my hope that within these pages the reader will find both a host of new id
 
 I wish you, my dear reader, good luck on this journey, and much fun!
 
+---
+
+Click here to [read](../chapter_1.md) the 1st chapter.
+

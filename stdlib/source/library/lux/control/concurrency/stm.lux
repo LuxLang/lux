@@ -17,7 +17,7 @@
      abstract]]]
   [//
    ["." atom (#+ Atom atom)]
-   ["." promise (#+ Promise Resolver)]
+   ["." async (#+ Async Resolver)]
    ["." frp (#+ Channel Sink)]])
 
 (type: (Observer a)
@@ -200,14 +200,14 @@
 
 (type: (Commit a)
   [(STM a)
-   (Promise a)
+   (Async a)
    (Resolver a)])
 
 (def: pending_commits
   (Atom (Rec Commits
-          [(Promise [(Ex [a] (Commit a)) Commits])
+          [(Async [(Ex [a] (Commit a)) Commits])
            (Resolver [(Ex [a] (Commit a)) Commits])]))
-  (atom (promise.promise [])))
+  (atom (async.async [])))
 
 (def: commit_processor_flag
   (Atom Bit)
@@ -215,12 +215,12 @@
 
 (def: (issue_commit commit)
   (All [a] (-> (Commit a) (IO Any)))
-  (let [entry [commit (promise.promise [])]]
+  (let [entry [commit (async.async [])]]
     (do {! io.monad}
       [|commits|&resolve (atom.read pending_commits)]
       (loop [[|commits| resolve] |commits|&resolve]
         (do !
-          [|commits| (promise.poll |commits|)]
+          [|commits| (async.poll |commits|)]
           (case |commits|
             #.None
             (do io.monad
@@ -252,12 +252,12 @@
         [was_first? (atom.compare_and_swap flag #1 commit_processor_flag)]
         (if was_first?
           (do !
-            [[promise resolve] (atom.read pending_commits)]
-            (promise.await (function (recur [head [tail _resolve]])
-                             (do !
-                               [_ (process_commit head)]
-                               (promise.await recur tail)))
-                           promise))
+            [[async resolve] (atom.read pending_commits)]
+            (async.await (function (recur [head [tail _resolve]])
+                           (do !
+                             [_ (process_commit head)]
+                             (async.await recur tail)))
+                         async))
           (wrap [])))
       )))
 
@@ -265,8 +265,8 @@
   {#.doc (doc "Commits a transaction and returns its result (asynchronously)."
               "Note that a transaction may be re-run an indeterminate number of times if other transactions involving the same variables successfully commit first."
               "For this reason, it's important to note that transactions must be free from side-effects, such as I/O.")}
-  (All [a] (-> (STM a) (Promise a)))
-  (let [[output resolver] (promise.promise [])]
+  (All [a] (-> (STM a) (Async a)))
+  (let [[output resolver] (async.async [])]
     (exec (io.run (do io.monad
                     [_ init_processor!]
                     (issue_commit [stm_proc output resolver])))

@@ -14,7 +14,7 @@
       ["?" policy (#+ Context Safety Safe)]]
      [concurrency
       ["." atom (#+ Atom)]
-      ["." promise (#+ Promise)]]
+      ["." async (#+ Async)]]
      [parser
       [environment (#+ Environment)]]]
     [data
@@ -58,12 +58,12 @@
      await))
 
 (def: (async_process process)
-  (-> (Process IO) (Process Promise))
+  (-> (Process IO) (Process Async))
   (`` (implementation
        (~~ (template [<method>]
              [(def: <method>
                 (|>> (\ process <method>)
-                     promise.future))]
+                     async.future))]
 
              [read]
              [error]
@@ -83,10 +83,10 @@
      execute))
 
 (def: #export (async shell)
-  (-> (Shell IO) (Shell Promise))
+  (-> (Shell IO) (Shell Async))
   (implementation
    (def: (execute input)
-     (promise.future
+     (async.future
       (do (try.with io.monad)
         [process (\ shell execute input)]
         (wrap (..async_process process)))))))
@@ -110,7 +110,7 @@
   (-> Text Replacer (-> Text Text))
   (text.replace_all bad (replacer bad)))
 
-(def: sanitize_common_command
+(def: safe_common_command
   (-> Replacer (Sanitizer Command))
   (let [x0A (text.of_code (hex "0A"))
         xFF (text.of_code (hex "FF"))]
@@ -133,39 +133,39 @@
            (..replace "[" replacer) (..replace "]" replacer)
            (..replace "{" replacer) (..replace "}" replacer)))))
 
-(def: (policy sanitize_command sanitize_argument)
+(def: (policy safe_command safe_argument)
   (Ex [?] (-> (Sanitizer Command) (Sanitizer Argument) (Policy ?)))
   (?.with_policy
     (: (Context Safety Policy)
        (function (_ (^open "?\."))
          (implementation
-          (def: command (|>> sanitize_command ?\can_upgrade))
-          (def: argument (|>> sanitize_argument ?\can_upgrade))
+          (def: command (|>> safe_command ?\can_upgrade))
+          (def: argument (|>> safe_argument ?\can_upgrade))
           (def: value ?\can_downgrade))))))
 
 (def: unix_policy
   (let [replacer (: Replacer
                     (|>> (format "\")))
-        sanitize_command (: (Sanitizer Command)
-                            (..sanitize_common_command replacer))
-        sanitize_argument (: (Sanitizer Argument)
-                             (|>> (..replace "'" replacer)
-                                  (text.enclose' "'")))]
-    (..policy sanitize_command sanitize_argument)))
+        safe_command (: (Sanitizer Command)
+                        (..safe_common_command replacer))
+        safe_argument (: (Sanitizer Argument)
+                         (|>> (..replace "'" replacer)
+                              (text.enclose' "'")))]
+    (..policy safe_command safe_argument)))
 
 (def: windows_policy
   (let [replacer (: Replacer
                     (function.constant " "))
-        sanitize_command (: (Sanitizer Command)
-                            (|>> (..sanitize_common_command replacer)
-                                 (..replace "%" replacer)
-                                 (..replace "!" replacer)))
-        sanitize_argument (: (Sanitizer Argument)
-                             (|>> (..replace "%" replacer)
-                                  (..replace "!" replacer)
-                                  (..replace text.double_quote replacer)
-                                  (text.enclose' text.double_quote)))]
-    (..policy sanitize_command sanitize_argument)))
+        safe_command (: (Sanitizer Command)
+                        (|>> (..safe_common_command replacer)
+                             (..replace "%" replacer)
+                             (..replace "!" replacer)))
+        safe_argument (: (Sanitizer Argument)
+                         (|>> (..replace "%" replacer)
+                              (..replace "!" replacer)
+                              (..replace text.double_quote replacer)
+                              (text.enclose' text.double_quote)))]
+    (..policy safe_command safe_argument)))
 
 (with_expansions [<jvm> (as_is (import: java/lang/String
                                  ["#::."

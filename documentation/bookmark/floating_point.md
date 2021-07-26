@@ -8,6 +8,7 @@
 
 # Correctness
 
+1. [Floating point expression inspector](https://github.com/graphitemaster/fpinspect)
 1. [Herbie: Find and fix floating-point problems.](https://herbie.uwplse.org/)
 
 # Format

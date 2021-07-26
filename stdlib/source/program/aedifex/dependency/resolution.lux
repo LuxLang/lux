@@ -13,7 +13,7 @@
      ["<>" parser
       ["<.>" xml (#+ Parser)]]
      [concurrency
-      ["." promise (#+ Promise)]]]
+      ["." async (#+ Async)]]]
     [data
      ["." binary (#+ Binary)]
      ["." name]
@@ -74,11 +74,11 @@
 
 (def: (verified_hash library repository version_template artifact extension hash codec exception)
   (All [h]
-    (-> Binary (Repository Promise) Version Artifact Extension
+    (-> Binary (Repository Async) Version Artifact Extension
         (-> Binary (Hash h)) (Codec Text (Hash h))
         (Exception [Artifact Extension Text])
-        (Promise (Try (Maybe (Hash h))))))
-  (do promise.monad
+        (Async (Try (Maybe (Hash h))))))
+  (do async.monad
     [?actual (\ repository download (///repository/remote.uri version_template artifact extension))]
     (case ?actual
       (#try.Success actual)
@@ -100,8 +100,8 @@
       (wrap (#try.Success #.None)))))
 
 (def: (hashed repository version_template artifact extension)
-  (-> (Repository Promise) Version Artifact Extension (Promise (Try [Binary Status])))
-  (do (try.with promise.monad)
+  (-> (Repository Async) Version Artifact Extension (Async (Try [Binary Status])))
+  (do (try.with async.monad)
     [data (\ repository download (///repository/remote.uri version_template artifact extension))
      ?sha-1 (..verified_hash data
                              repository version_template artifact (format extension ///artifact/extension.sha-1)
@@ -123,10 +123,10 @@
                   #//status.Unverified)])))
 
 (def: #export (one repository dependency)
-  (-> (Repository Promise) Dependency (Promise (Try Package)))
+  (-> (Repository Async) Dependency (Async (Try Package)))
   (let [[artifact type] dependency
         extension (///artifact/extension.extension type)]
-    (do (try.with promise.monad)
+    (do (try.with async.monad)
       [snapshot (///metadata/snapshot.read repository artifact)
        #let [version_template (get@ [#///metadata/snapshot.artifact #///artifact.version] snapshot)
              artifact_version (value.format {#value.version version_template
@@ -134,7 +134,7 @@
              artifact (set@ #///artifact.version artifact_version artifact)]
        [pom_data pom_status] (..hashed repository version_template artifact ///artifact/extension.pom)
        library_&_status (..hashed repository version_template artifact extension)]
-      (\ promise.monad wrap
+      (\ async.monad wrap
          (do try.monad
            [pom (\ utf8.codec decode pom_data)
             pom (\ xml.codec decode pom)
@@ -161,7 +161,7 @@
 
 (template [<sigil> <name> <doing> <at>]
   [(def: (<name> console repository artifact)
-     (-> (Console Promise) (Repository Promise) Artifact (Promise (Try Any)))
+     (-> (Console Async) (Repository Async) Artifact (Async (Try Any)))
      (\ console write (format "[" <sigil> "]"
                               " " <doing>
                               " " (///artifact.format artifact)
@@ -175,15 +175,15 @@
   )
 
 (def: #export (any console repositories dependency)
-  (-> (Console Promise) (List (Repository Promise)) Dependency (Promise (Try Package)))
+  (-> (Console Async) (List (Repository Async)) Dependency (Async (Try Package)))
   (case repositories
     #.Nil
     (|> dependency
         (exception.throw ..cannot_resolve)
-        (\ promise.monad wrap))
+        (\ async.monad wrap))
 
     (#.Cons repository alternatives)
-    (do {! promise.monad}
+    (do {! async.monad}
       [_ (..announce_fetching console repository (get@ #//.artifact dependency))
        outcome (..one repository dependency)]
       (case outcome
@@ -198,10 +198,10 @@
           (any console alternatives dependency))))))
 
 (def: #export (all console repositories new_repository dependencies resolution)
-  (-> (Console Promise) (List (Repository Promise)) (-> URL (Repository Promise)) (List Dependency) Resolution
-      (Promise [(List Dependency)
-                (List Dependency)
-                Resolution]))
+  (-> (Console Async) (List (Repository Async)) (-> URL (Repository Async)) (List Dependency) Resolution
+      (Async [(List Dependency)
+              (List Dependency)
+              Resolution]))
   (loop [repositories repositories
          successes (: (List Dependency) (list))
          failures (: (List Dependency) (list))
@@ -209,7 +209,7 @@
          resolution resolution]
     (case dependencies
       #.Nil
-      (\ promise.monad wrap
+      (\ async.monad wrap
          [successes failures resolution])
 
       (#.Cons head tail)
@@ -220,7 +220,7 @@
                   failures
                   tail
                   resolution)
-        _ (do {! promise.monad}
+        _ (do {! async.monad}
             [?package (case (dictionary.get head resolution)
                         (#.Some package)
                         (wrap (#try.Success package))

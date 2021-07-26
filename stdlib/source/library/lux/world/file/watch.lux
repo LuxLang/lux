@@ -11,7 +11,7 @@
      ["." try (#+ Try)]
      ["." exception (#+ exception:)]
      [concurrency
-      ["." promise (#+ Promise)]
+      ["." async (#+ Async)]
       ["." stm (#+ STM Var)]]]
     [data
      ["." product]
@@ -119,8 +119,8 @@
       (wrap false))))
 
 (def: (file_tracker fs directory)
-  (-> (//.System Promise) //.Path (Promise (Try File_Tracker)))
-  (do {! (try.with promise.monad)}
+  (-> (//.System Async) //.Path (Async (Try File_Tracker)))
+  (do {! (try.with async.monad)}
     [files (\ fs directory_files directory)]
     (monad.fold !
                 (function (_ file tracker)
@@ -132,8 +132,8 @@
                 files)))
 
 (def: (poll_files fs directory)
-  (-> (//.System Promise) //.Path (Promise (Try (List [//.Path Instant]))))
-  (do {! (try.with promise.monad)}
+  (-> (//.System Async) //.Path (Async (Try (List [//.Path Instant]))))
+  (do {! (try.with async.monad)}
     [files (\ fs directory_files directory)]
     (monad.map ! (function (_ file)
                    (|> file
@@ -142,12 +142,12 @@
                files)))
 
 (def: (poll_directory_changes fs [directory [concern file_tracker]])
-  (-> (//.System Promise) [//.Path [Concern File_Tracker]]
-      (Promise (Try [[//.Path [Concern File_Tracker]]
-                     [(List [//.Path Instant])
-                      (List [//.Path Instant Instant])
-                      (List //.Path)]])))
-  (do {! (try.with promise.monad)}
+  (-> (//.System Async) [//.Path [Concern File_Tracker]]
+      (Async (Try [[//.Path [Concern File_Tracker]]
+                   [(List [//.Path Instant])
+                    (List [//.Path Instant Instant])
+                    (List //.Path)]])))
+  (do {! (try.with async.monad)}
     [current_files (..poll_files fs directory)
      #let [creations (if (..creation? concern)
                        (list.only (|>> product.left (dictionary.key? file_tracker) not)
@@ -183,12 +183,12 @@
             deletions]])))
 
 (def: #export (polling fs)
-  (-> (//.System Promise) (Watcher Promise))
+  (-> (//.System Async) (Watcher Async))
   (let [tracker (: (Var Directory_Tracker)
                    (stm.var (dictionary.new text.hash)))]
     (implementation
      (def: (start new_concern path)
-       (do {! promise.monad}
+       (do {! async.monad}
          [exists? (\ fs directory? path)]
          (if exists?
            (do !
@@ -224,13 +224,13 @@
             #.None
             (wrap (exception.throw ..not_being_watched [path]))))))
      (def: (poll _)
-       (do promise.monad
+       (do async.monad
          [@tracker (stm.commit (stm.read tracker))]
-         (do {! (try.with promise.monad)}
+         (do {! (try.with async.monad)}
            [changes (|> @tracker
                         dictionary.entries
                         (monad.map ! (..poll_directory_changes fs)))
-            _ (do promise.monad
+            _ (do async.monad
                 [_ (stm.commit (stm.write (|> changes
                                               (list\map product.left)
                                               (dictionary.of_list text.hash))
@@ -255,7 +255,7 @@
      )))
 
 (def: #export (mock separator)
-  (-> Text [(//.System Promise) (Watcher Promise)])
+  (-> Text [(//.System Async) (Watcher Async)])
   (let [fs (//.mock separator)]
     [fs
      (..polling fs)]))
@@ -355,13 +355,13 @@
                                  (java/nio/file/WatchEvent$Kind java/lang/Object))
 
                                (def: (default_start watch_events watcher path)
-                                 (-> (List Watch_Event) java/nio/file/WatchService //.Path (Promise (Try java/nio/file/WatchKey)))
+                                 (-> (List Watch_Event) java/nio/file/WatchService //.Path (Async (Try java/nio/file/WatchKey)))
                                  (let [watch_events' (list\fold (function (_ [index watch_event] watch_events')
                                                                   (ffi.array_write index watch_event watch_events'))
                                                                 (ffi.array (java/nio/file/WatchEvent$Kind java/lang/Object)
                                                                            (list.size watch_events))
                                                                 (list.enumeration watch_events))]
-                                   (promise.future
+                                   (async.future
                                     (java/nio/file/Path::register watcher
                                                                   watch_events'
                                                                   (|> path java/io/File::new java/io/File::toPath)))))
@@ -406,42 +406,42 @@
                                      ))
 
                                (def: #export default
-                                 (IO (Try (Watcher Promise)))
+                                 (IO (Try (Watcher Async)))
                                  (do (try.with io.monad)
                                    [watcher (java/nio/file/FileSystem::newWatchService
                                              (java/nio/file/FileSystems::getDefault))
                                     #let [tracker (stm.var (: (Dictionary //.Path [Concern java/nio/file/WatchKey])
                                                               (dictionary.new text.hash)))
 
-                                          stop (: (-> //.Path (Promise (Try Concern)))
+                                          stop (: (-> //.Path (Async (Try Concern)))
                                                   (function (_ path)
-                                                    (do {! promise.monad}
+                                                    (do {! async.monad}
                                                       [@tracker (stm.commit (stm.read tracker))]
                                                       (case (dictionary.get path @tracker)
                                                         (#.Some [concern key])
                                                         (do !
-                                                          [_ (promise.future
+                                                          [_ (async.future
                                                               (java/nio/file/WatchKey::cancel key))
                                                            _ (stm.commit (stm.update (dictionary.remove path) tracker))]
                                                           (wrap (#try.Success concern)))
 
                                                         #.None
                                                         (wrap (exception.throw ..not_being_watched [path]))))))]]
-                                   (wrap (: (Watcher Promise)
+                                   (wrap (: (Watcher Async)
                                             (implementation
                                              (def: (start concern path)
-                                               (do promise.monad
+                                               (do async.monad
                                                  [?concern (stop path)]
-                                                 (do (try.with promise.monad)
+                                                 (do (try.with async.monad)
                                                    [key (..default_start (..watch_events (..also (try.default ..none ?concern)
                                                                                                  concern))
                                                                          watcher
                                                                          path)]
-                                                   (do promise.monad
+                                                   (do async.monad
                                                      [_ (stm.commit (stm.update (dictionary.put path [concern key]) tracker))]
                                                      (wrap (#try.Success []))))))
                                              (def: (concern path)
-                                               (do promise.monad
+                                               (do async.monad
                                                  [@tracker (stm.commit (stm.read tracker))]
                                                  (case (dictionary.get path @tracker)
                                                    (#.Some [concern key])
@@ -451,7 +451,7 @@
                                                    (wrap (exception.throw ..not_being_watched [path])))))
                                              (def: stop stop)
                                              (def: (poll _)
-                                               (promise.future (..default_poll watcher)))
+                                               (async.future (..default_poll watcher)))
                                              )))))
                                )]
   (for {@.old (as_is <jvm>)

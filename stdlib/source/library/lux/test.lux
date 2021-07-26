@@ -12,7 +12,7 @@
      ["." io]
      [concurrency
       ["." atom (#+ Atom)]
-      ["." promise (#+ Promise) ("#\." monad)]]
+      ["." async (#+ Async) ("#\." monad)]]
      ["<>" parser
       ["<.>" code]]]
     [data
@@ -67,12 +67,12 @@
      Tally
      (update@ <category> .inc ..start))]
 
-  [success #successes]
-  [failure #failures]
+  [success_tally #successes]
+  [failure_tally #failures]
   )
 
 (type: #export Assertion
-  (Promise [Tally Text]))
+  (Async [Tally Text]))
 
 (type: #export Test
   (Random Assertion))
@@ -83,15 +83,15 @@
 (def: #export (and' left right)
   {#.doc "Sequencing combinator."}
   (-> Assertion Assertion Assertion)
-  (let [[read! write!] (: [(Promise [Tally Text])
-                           (promise.Resolver [Tally Text])]
-                          (promise.promise []))
+  (let [[read! write!] (: [(Async [Tally Text])
+                           (async.Resolver [Tally Text])]
+                          (async.async []))
         _ (|> left
-              (promise.await (function (_ [l_tally l_documentation])
-                               (promise.await (function (_ [r_tally r_documentation])
-                                                (write! [(add_tally l_tally r_tally)
-                                                         (format l_documentation ..separator r_documentation)]))
-                                              right)))
+              (async.await (function (_ [l_tally l_documentation])
+                             (async.await (function (_ [r_tally r_documentation])
+                                            (write! [(add_tally l_tally r_tally)
+                                                     (format l_documentation ..separator r_documentation)]))
+                                          right)))
               io.run)]
     read!))
 
@@ -107,30 +107,30 @@
 
 (def: #export (context description)
   (-> Text Test Test)
-  (random\map (promise\map (function (_ [tally documentation])
-                             [tally (|> documentation
-                                        (text.split_all_with ..separator)
-                                        (list\map (|>> (format context_prefix)))
-                                        (text.join_with ..separator)
-                                        (format description ..separator))]))))
+  (random\map (async\map (function (_ [tally documentation])
+                           [tally (|> documentation
+                                      (text.split_all_with ..separator)
+                                      (list\map (|>> (format context_prefix)))
+                                      (text.join_with ..separator)
+                                      (format description ..separator))]))))
 
 (def: failure_prefix "[Failure] ")
 (def: success_prefix "[Success] ")
 
-(def: #export fail
+(def: #export failure
   (-> Text Test)
   (|>> (format ..failure_prefix)
-       [..failure]
-       promise\wrap
+       [..failure_tally]
+       async\wrap
        random\wrap))
 
 (def: #export (assert message condition)
   {#.doc "Check that a condition is #1, and fail with the given message otherwise."}
   (-> Text Bit Assertion)
-  (<| promise\wrap
+  (<| async\wrap
       (if condition
-        [..success (format ..success_prefix message)]
-        [..failure (format ..failure_prefix message)])))
+        [..success_tally (format ..success_prefix message)]
+        [..failure_tally (format ..failure_prefix message)])))
 
 (def: #export (test message condition)
   {#.doc "Check that a condition is #1, and fail with the given message otherwise."}
@@ -170,12 +170,12 @@
 (def: #export (times amount test)
   (-> Nat Test Test)
   (case amount
-    0 (..fail (exception.construct ..must_try_test_at_least_once []))
+    0 (..failure (exception.construct ..must_try_test_at_least_once []))
     _ (do random.monad
         [seed random.nat]
         (function (recur prng)
           (let [[prng' instance] (random.run (random.pcg32 [..pcg32_magic_inc seed]) test)]
-            [prng' (do {! promise.monad}
+            [prng' (do {! async.monad}
                      [[tally documentation] instance]
                      (if (..failed? tally)
                        (wrap [tally (times_failure seed documentation)])
@@ -240,21 +240,21 @@
 (def: success_exit_code +0)
 
 (def: #export (run! test)
-  (-> Test (Promise Nothing))
-  (do promise.monad
-    [pre (promise.future instant.now)
+  (-> Test (Async Nothing))
+  (do async.monad
+    [pre (async.future instant.now)
      #let [seed (instant.to_millis pre)
            prng (random.pcg32 [..pcg32_magic_inc seed])]
      [tally documentation] (|> test (random.run prng) product.right)
-     post (promise.future instant.now)
+     post (async.future instant.now)
      #let [duration (instant.span pre post)
            _ (debug.log! (format documentation text.new_line text.new_line
                                  (..description duration tally)
                                  text.new_line))]]
-    (promise.future (\ program.default exit
-                       (case (get@ #failures tally)
-                         0 ..success_exit_code
-                         _ ..failure_exit_code)))))
+    (async.future (\ program.default exit
+                     (case (get@ #failures tally)
+                       0 ..success_exit_code
+                       _ ..failure_exit_code)))))
 
 (def: (|cover'| coverage condition)
   (-> (List Name) Bit Assertion)
@@ -263,9 +263,9 @@
                     (text.join_with " & "))
         coverage (set.of_list name.hash coverage)]
     (|> (..assert message condition)
-        (promise\map (function (_ [tally documentation])
-                       [(update@ #actual_coverage (set.union coverage) tally)
-                        documentation])))))
+        (async\map (function (_ [tally documentation])
+                     [(update@ #actual_coverage (set.union coverage) tally)
+                      documentation])))))
 
 (def: (|cover| coverage condition)
   (-> (List Name) Bit Test)
@@ -278,9 +278,9 @@
                     (list\map %.name)
                     (text.join_with " & "))
         coverage (set.of_list name.hash coverage)]
-    (random\map (promise\map (function (_ [tally documentation])
-                               [(update@ #actual_coverage (set.union coverage) tally)
-                                documentation]))
+    (random\map (async\map (function (_ [tally documentation])
+                             [(update@ #actual_coverage (set.union coverage) tally)
+                              documentation]))
                 (..context context test))))
 
 (def: (name_code name)
@@ -345,9 +345,9 @@
   (-> Text Text Test Test)
   (let [coverage (..decode_coverage module coverage)]
     (|> (..context module test)
-        (random\map (promise\map (function (_ [tally documentation])
-                                   [(update@ #expected_coverage (set.union coverage) tally)
-                                    documentation]))))))
+        (random\map (async\map (function (_ [tally documentation])
+                                 [(update@ #expected_coverage (set.union coverage) tally)
+                                  documentation]))))))
 
 (syntax: #export (covering {module <code>.identifier}
                            test)
@@ -374,7 +374,7 @@
   (-> (List Test) Test)
   (case (list.size tests)
     0
-    (random\wrap (promise\wrap [..start ""]))
+    (random\wrap (async\wrap [..start ""]))
     
     expected_tests
     (do random.monad
@@ -391,29 +391,29 @@
                                  (#try.Failure error)
                                  (..assert (exception.construct ..error_during_execution [error]) false))
                           io.io
-                          promise.future
-                          promise\join))
+                          async.future
+                          async\join))
              state (: (Atom (Dictionary Nat [Tally Text]))
                       (atom.atom (dictionary.new n.order)))
              [read! write!] (: [Assertion
-                                (promise.Resolver [Tally Text])]
-                               (promise.promise []))
+                                (async.Resolver [Tally Text])]
+                               (async.async []))
              _ (io.run (monad.map io.monad
                                   (function (_ [index test])
-                                    (promise.await (function (_ assertion)
-                                                     (do io.monad
-                                                       [[_ results] (atom.update (dictionary.put index assertion) state)]
-                                                       (if (n.= expected_tests (dictionary.size results))
-                                                         (let [assertions (|> results
-                                                                              dictionary.entries
-                                                                              (list\map product.right))]
-                                                           (write! [(|> assertions
-                                                                        (list\map product.left)
-                                                                        (list\fold ..add_tally ..start))
-                                                                    (|> assertions
-                                                                        (list\map product.right)
-                                                                        (text.join_with ..separator))]))
-                                                         (wrap []))))
-                                                   (run! test)))
+                                    (async.await (function (_ assertion)
+                                                   (do io.monad
+                                                     [[_ results] (atom.update (dictionary.put index assertion) state)]
+                                                     (if (n.= expected_tests (dictionary.size results))
+                                                       (let [assertions (|> results
+                                                                            dictionary.entries
+                                                                            (list\map product.right))]
+                                                         (write! [(|> assertions
+                                                                      (list\map product.left)
+                                                                      (list\fold ..add_tally ..start))
+                                                                  (|> assertions
+                                                                      (list\map product.right)
+                                                                      (text.join_with ..separator))]))
+                                                       (wrap []))))
+                                                 (run! test)))
                                   (list.enumeration tests)))]]
       (wrap read!))))

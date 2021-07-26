@@ -12,7 +12,7 @@
      ["." io (#+ IO) ("#\." functor)]
      ["." function]
      [concurrency
-      ["." promise (#+ Promise)]
+      ["." async (#+ Async)]
       ["." stm (#+ Var STM)]]]
     [data
      ["." bit ("#\." equivalence)]
@@ -101,7 +101,7 @@
       (maybe.default path)))
 
 (def: #export (async fs)
-  (-> (System IO) (System Promise))
+  (-> (System IO) (System Async))
   (`` (implementation
        (def: separator
          (\ fs separator))
@@ -109,7 +109,7 @@
        (~~ (template [<name>]
              [(def: <name>
                 (|>> (\ fs <name>)
-                     promise.future))]
+                     async.future))]
 
              [file?]
              [directory?]
@@ -126,7 +126,7 @@
 
        (~~ (template [<name>]
              [(def: (<name> input path)
-                (promise.future (\ fs <name> input path)))]
+                (async.future (\ fs <name> input path)))]
 
              [modify]
              [write]
@@ -321,10 +321,10 @@
                  ["#::."
                   (toString [] ffi.String)])
 
-               (template: (with_promise <write> <type> <body>)
+               (template: (with_async <write> <type> <body>)
                  (template.with_locals [<read>]
-                   (let [[<read> <write>] (: [(Promise <type>) (promise.Resolver <type>)]
-                                             (promise.promise []))]
+                   (let [[<read> <write>] (: [(Async <type>) (async.Resolver <type>)]
+                                             (async.async []))]
                      (exec
                        <body>
                        <read>))))
@@ -345,7 +345,7 @@
                   (rmdir [ffi.String ffi.Function] Any)])
 
                (def: (any_callback write!)
-                 (-> (promise.Resolver (Try Any)) ffi.Function)
+                 (-> (async.Resolver (Try Any)) ffi.Function)
                  (<| (ffi.closure [error])
                      io.run
                      write!
@@ -354,7 +354,7 @@
                        (#try.Failure (Error::toString [] (:as Error error))))))
 
                (def: (value_callback write!)
-                 (All [a] (-> (promise.Resolver (Try a)) ffi.Function))
+                 (All [a] (-> (async.Resolver (Try a)) ffi.Function))
                  (<| (ffi.closure [error datum])
                      io.run
                      write!
@@ -402,15 +402,15 @@
                    "/"))
 
                (`` (implementation: #export default
-                     (System Promise)
+                     (System Async)
                      
                      (def: separator
                        ..js_separator)
 
                      (~~ (template [<name> <method>]
                            [(def: (<name> path)
-                              (do promise.monad
-                                [?stats (with_promise write! (Try Stats)
+                              (do async.monad
+                                [?stats (with_async write! (Try Stats)
                                           (Fs::stat [path (..value_callback write!)]
                                                     (..node_fs [])))]
                                 (wrap (case ?stats
@@ -425,9 +425,9 @@
                            ))
 
                      (def: (make_directory path)
-                       (do promise.monad
+                       (do async.monad
                          [#let [node_fs (..node_fs [])]
-                          outcome (with_promise write! (Try Any)
+                          outcome (with_async write! (Try Any)
                                     (Fs::access [path
                                                  (|> node_fs Fs::constants FsConstants::F_OK)
                                                  (..any_callback write!)]
@@ -437,21 +437,21 @@
                            (wrap (exception.throw ..cannot_make_directory [path]))
                            
                            (#try.Failure _)
-                           (with_promise write! (Try Any)
+                           (with_async write! (Try Any)
                              (Fs::mkdir [path (..any_callback write!)] node_fs)))))
 
                      (~~ (template [<name> <method>]
                            [(def: (<name> path)
-                              (do {! (try.with promise.monad)}
+                              (do {! (try.with async.monad)}
                                 [#let [node_fs (..node_fs [])]
-                                 subs (with_promise write! (Try (Array ffi.String))
+                                 subs (with_async write! (Try (Array ffi.String))
                                         (Fs::readdir [path (..value_callback write!)] node_fs))]
                                 (|> subs
                                     array.to_list
                                     (list\map (|>> (format path ..js_separator)))
                                     (monad.map ! (function (_ sub)
                                                    (\ ! map (|>> (<method> []) [sub])
-                                                      (with_promise write! (Try Stats)
+                                                      (with_async write! (Try Stats)
                                                         (Fs::stat [sub (..value_callback write!)] node_fs)))))
                                     (\ ! map (|>> (list.only product.right)
                                                   (list\map product.left))))))]
@@ -461,8 +461,8 @@
                            ))
 
                      (def: (file_size path)
-                       (do (try.with promise.monad)
-                         [stats (with_promise write! (Try Stats)
+                       (do (try.with async.monad)
+                         [stats (with_async write! (Try Stats)
                                   (Fs::stat [path (..value_callback write!)]
                                             (..node_fs [])))]
                          (wrap (|> stats
@@ -470,8 +470,8 @@
                                    f.nat))))
 
                      (def: (last_modified path)
-                       (do (try.with promise.monad)
-                         [stats (with_promise write! (Try Stats)
+                       (do (try.with async.monad)
+                         [stats (with_async write! (Try Stats)
                                   (Fs::stat [path (..value_callback write!)]
                                             (..node_fs [])))]
                          (wrap (|> stats
@@ -482,43 +482,43 @@
 
                      (def: (can_execute? path)
                        (let [node_fs (..node_fs [])]
-                         (\ promise.monad map
+                         (\ async.monad map
                             (|>> (case> (#try.Success _)
                                         true
 
                                         (#try.Failure _)
                                         false)
                                  #try.Success)
-                            (with_promise write! (Try Any)
+                            (with_async write! (Try Any)
                               (Fs::access [path
                                            (|> node_fs Fs::constants FsConstants::X_OK)
                                            (..any_callback write!)]
                                           node_fs)))))
 
                      (def: (read path)
-                       (with_promise write! (Try Binary)
+                       (with_async write! (Try Binary)
                          (Fs::readFile [path (..value_callback write!)]
                                        (..node_fs []))))
 
                      (def: (delete path)
-                       (do (try.with promise.monad)
+                       (do (try.with async.monad)
                          [#let [node_fs (..node_fs [])]
-                          stats (with_promise write! (Try Stats)
+                          stats (with_async write! (Try Stats)
                                   (Fs::stat [path (..value_callback write!)] node_fs))]
-                         (with_promise write! (Try Any)
+                         (with_async write! (Try Any)
                            (if (Stats::isFile [] stats)
                              (Fs::unlink [path (..any_callback write!)] node_fs)
                              (Fs::rmdir [path (..any_callback write!)] node_fs)))))
 
                      (def: (modify time_stamp path)
-                       (with_promise write! (Try Any)
+                       (with_async write! (Try Any)
                          (let [when (|> time_stamp instant.relative duration.to_millis i.frac)]
                            (Fs::utimes [path when when (..any_callback write!)]
                                        (..node_fs [])))))
 
                      (~~ (template [<name> <method>]
                            [(def: (<name> data path)
-                              (with_promise write! (Try Any)
+                              (with_async write! (Try Any)
                                 (<method> [path (Buffer::from data) (..any_callback write!)]
                                           (..node_fs []))))]
 
@@ -527,7 +527,7 @@
                            ))
 
                      (def: (move destination origin)
-                       (with_promise write! (Try Any)
+                       (with_async write! (Try Any)
                          (Fs::rename [origin destination (..any_callback write!)]
                                      (..node_fs []))))
                      )))
@@ -1168,7 +1168,7 @@
             (recur sub_directory tail)))))))
 
 (def: #export (mock separator)
-  (-> Text (System Promise))
+  (-> Text (System Async))
   (let [store (stm.var ..empty_mock)]
     (`` (implementation
          (def: separator
@@ -1271,14 +1271,14 @@
                            store)))
 
          (def: (write content path)
-           (do promise.monad
-             [now (promise.future instant.now)]
+           (do async.monad
+             [now (async.future instant.now)]
              (stm.commit
               (..try_update! (..update_mock_file! separator path now content) store))))
 
          (def: (append content path)
-           (do promise.monad
-             [now (promise.future instant.now)]
+           (do async.monad
+             [now (async.future instant.now)]
              (stm.commit
               (..try_update! (function (_ |store|)
                                (do try.monad

@@ -12,6 +12,7 @@
 
 # Reference counting
 
+1. [Perceus: Garbage Free Reference Counting with Reuse (Extended version)](https://www.microsoft.com/en-us/research/publication/perceus-garbage-free-reference-counting-with-reuse/)
 1. [Introducing --gc:arc](https://forum.nim-lang.org/t/5734)
 1. [Counting Immutable Beans: Reference Counting Optimized for Purely Functional Programming](https://arxiv.org/abs/1908.05647)
 

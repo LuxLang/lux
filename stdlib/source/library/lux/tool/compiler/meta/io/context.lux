@@ -9,7 +9,7 @@
      ["." try (#+ Try)]
      ["." exception (#+ exception:)]
      [concurrency
-      ["." promise (#+ Promise) ("#\." monad)]]]
+      ["." async (#+ Async) ("#\." monad)]]]
     [data
      [binary (#+ Binary)]
      ["." text ("#\." hash)
@@ -48,19 +48,19 @@
 (def: #export (path fs context module)
   (All [m] (-> (file.System m) Context Module file.Path))
   (|> module
-      (//.sanitize fs)
+      (//.safe fs)
       (format context (\ fs separator))))
 
 (def: (find_source_file fs importer contexts module extension)
-  (-> (file.System Promise) Module (List Context) Module Extension
-      (Promise (Try file.Path)))
+  (-> (file.System Async) Module (List Context) Module Extension
+      (Async (Try file.Path)))
   (case contexts
     #.Nil
-    (promise\wrap (exception.throw ..cannot_find_module [importer module]))
+    (async\wrap (exception.throw ..cannot_find_module [importer module]))
 
     (#.Cons context contexts')
     (let [path (format (..path fs context module) extension)]
-      (do promise.monad
+      (do async.monad
         [? (\ fs file? path)]
         (if ?
           (wrap (#try.Success path))
@@ -71,11 +71,11 @@
   (format partial_host_extension ..lux_extension))
 
 (def: (find_local_source_file fs importer import contexts partial_host_extension module)
-  (-> (file.System Promise) Module Import (List Context) Extension Module
-      (Promise (Try [file.Path Binary])))
+  (-> (file.System Async) Module Import (List Context) Extension Module
+      (Async (Try [file.Path Binary])))
   ## Preference is explicitly being given to Lux files that have a host extension.
   ## Normal Lux files (i.e. without a host extension) are then picked as fallback files.
-  (do {! promise.monad}
+  (do {! async.monad}
     [outcome (..find_source_file fs importer contexts module (..full_host_extension partial_host_extension))]
     (case outcome
       (#try.Success path)
@@ -107,11 +107,11 @@
           (exception.throw ..cannot_find_module [importer module]))))))
 
 (def: (find_any_source_file fs importer import contexts partial_host_extension module)
-  (-> (file.System Promise) Module Import (List Context) Extension Module
-      (Promise (Try [file.Path Binary])))
+  (-> (file.System Async) Module Import (List Context) Extension Module
+      (Async (Try [file.Path Binary])))
   ## Preference is explicitly being given to Lux files that have a host extension.
   ## Normal Lux files (i.e. without a host extension) are then picked as fallback files.
-  (do {! promise.monad}
+  (do {! async.monad}
     [outcome (find_local_source_file fs importer import contexts partial_host_extension module)]
     (case outcome
       (#try.Success [path data])
@@ -121,9 +121,9 @@
       (wrap (..find_library_source_file importer import partial_host_extension module)))))
 
 (def: #export (read fs importer import contexts partial_host_extension module)
-  (-> (file.System Promise) Module Import (List Context) Extension Module
-      (Promise (Try Input)))
-  (do (try.with promise.monad)
+  (-> (file.System Async) Module Import (List Context) Extension Module
+      (Async (Try Input)))
+  (do (try.with async.monad)
     [[path binary] (..find_any_source_file fs importer import contexts partial_host_extension module)]
     (case (\ utf8.codec decode binary)
       (#try.Success code)
@@ -133,21 +133,21 @@
              #////.code code})
       
       (#try.Failure _)
-      (promise\wrap (exception.throw ..cannot_read_module [module])))))
+      (async\wrap (exception.throw ..cannot_read_module [module])))))
 
 (type: #export Enumeration
   (Dictionary file.Path Binary))
 
 (def: (enumerate_context fs directory enumeration)
-  (-> (file.System Promise) Context Enumeration (Promise (Try Enumeration)))
-  (do {! (try.with promise.monad)}
+  (-> (file.System Async) Context Enumeration (Async (Try Enumeration)))
+  (do {! (try.with async.monad)}
     [enumeration (|> directory
                      (\ fs directory_files)
                      (\ ! map (monad.fold ! (function (_ file enumeration)
                                               (if (text.ends_with? ..lux_extension file)
                                                 (do !
                                                   [source_code (\ fs read file)]
-                                                  (promise\wrap
+                                                  (async\wrap
                                                    (dictionary.try_put (file.name fs file) source_code enumeration)))
                                                 (wrap enumeration)))
                                           enumeration))
@@ -158,12 +158,12 @@
         (\ ! join))))
 
 (def: Action
-  (type (All [a] (Promise (Try a)))))
+  (type (All [a] (Async (Try a)))))
 
 (def: #export (enumerate fs contexts)
-  (-> (file.System Promise) (List Context) (Action Enumeration))
+  (-> (file.System Async) (List Context) (Action Enumeration))
   (monad.fold (: (Monad Action)
-                 (try.with promise.monad))
+                 (try.with async.monad))
               (..enumerate_context fs)
               (: Enumeration
                  (dictionary.new text.hash))
