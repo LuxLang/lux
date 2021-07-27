@@ -99,13 +99,13 @@
   (case pattern
     (^or (#/.Simple #/.Unit)
          (#/.Bind _))
-    (////\wrap #Exhaustive)
+    (////\in #Exhaustive)
 
     ## Primitive patterns always have partial coverage because there
     ## are too many possibilities as far as values go.
     (^template [<tag>]
       [(#/.Simple (<tag> _))
-       (////\wrap #Partial)])
+       (////\in #Partial)])
     ([#/.Nat]
      [#/.Int]
      [#/.Rev]
@@ -116,14 +116,14 @@
     ## "#0", which means it is possible for bit
     ## pattern-matching to become exhaustive if complementary parts meet.
     (#/.Simple (#/.Bit value))
-    (////\wrap (#Bit value))
+    (////\in (#Bit value))
 
     ## Tuple patterns can be exhaustive if there is exhaustiveness for all of
     ## their sub-patterns.
     (#/.Complex (#/.Tuple membersP+))
     (case (list.reverse membersP+)
       (^or #.Nil (#.Cons _ #.Nil))
-      (/.throw ..invalid_tuple_pattern [])
+      (/.except ..invalid_tuple_pattern [])
       
       (#.Cons lastP prevsP+)
       (do ////.monad
@@ -134,10 +134,10 @@
                         [leftC (determine leftP)]
                         (case rightC
                           #Exhaustive
-                          (wrap leftC)
+                          (in leftC)
 
                           _
-                          (wrap (#Seq leftC rightC)))))
+                          (in (#Seq leftC rightC)))))
                     lastC prevsP+)))
 
     ## Variant patterns can be shown to be exhaustive if all the possible
@@ -148,11 +148,11 @@
        #let [idx (if right?
                    (inc lefts)
                    lefts)]]
-      (wrap (#Variant (if right?
-                        (#.Some idx)
-                        #.None)
-                      (|> (dictionary.new n.hash)
-                          (dictionary.put idx value_coverage)))))))
+      (in (#Variant (if right?
+                      (#.Some idx)
+                      #.None)
+                    (|> (dictionary.new n.hash)
+                        (dictionary.put idx value_coverage)))))))
 
 (def: (xor left right)
   (-> Bit Bit Bit)
@@ -221,12 +221,12 @@
   (-> Coverage Coverage (Try Coverage))
   (case [addition so_far]
     [#Partial #Partial]
-    (try\wrap #Partial)
+    (try\in #Partial)
 
     ## 2 bit coverages are exhaustive if they complement one another.
     (^multi [(#Bit sideA) (#Bit sideSF)]
             (xor sideA sideSF))
-    (try\wrap #Exhaustive)
+    (try\in #Exhaustive)
 
     [(#Variant allA casesA) (#Variant allSF casesSF)]
     (let [addition_cases (cases allSF)
@@ -234,10 +234,10 @@
       (cond (and (known_cases? addition_cases)
                  (known_cases? so_far_cases)
                  (not (n.= addition_cases so_far_cases)))
-            (ex.throw ..variants_do_not_match [addition_cases so_far_cases])
+            (ex.except ..variants_do_not_match [addition_cases so_far_cases])
 
             (\ (dictionary.equivalence ..equivalence) = casesSF casesA)
-            (ex.throw ..redundant_pattern [so_far addition])
+            (ex.except ..redundant_pattern [so_far addition])
 
             ## else
             (do {! try.monad}
@@ -247,24 +247,24 @@
                                       (#.Some coverageSF)
                                       (do !
                                         [coverageM (merge coverageA coverageSF)]
-                                        (wrap (dictionary.put tagA coverageM casesSF')))
+                                        (in (dictionary.put tagA coverageM casesSF')))
 
                                       #.None
-                                      (wrap (dictionary.put tagA coverageA casesSF'))))
+                                      (in (dictionary.put tagA coverageA casesSF'))))
                                   casesSF (dictionary.entries casesA))]
-              (wrap (if (and (or (known_cases? addition_cases)
-                                 (known_cases? so_far_cases))
-                             (n.= (inc (n.max addition_cases so_far_cases))
-                                  (dictionary.size casesM))
-                             (list.every? exhaustive? (dictionary.values casesM)))
-                      #Exhaustive
-                      (#Variant (case allSF
-                                  (#.Some _)
-                                  allSF
+              (in (if (and (or (known_cases? addition_cases)
+                               (known_cases? so_far_cases))
+                           (n.= (inc (n.max addition_cases so_far_cases))
+                                (dictionary.size casesM))
+                           (list.every? exhaustive? (dictionary.values casesM)))
+                    #Exhaustive
+                    (#Variant (case allSF
+                                (#.Some _)
+                                allSF
 
-                                  _
-                                  allA)
-                                casesM))))))
+                                _
+                                allA)
+                              casesM))))))
 
     [(#Seq leftA rightA) (#Seq leftSF rightSF)]
     (case [(coverage/= leftSF leftA) (coverage/= rightSF rightA)]
@@ -276,40 +276,40 @@
           ## If all that follows is exhaustive, then it can be safely dropped
           ## (since only the "left" part would influence whether the
           ## merged coverage is exhaustive or not).
-          (wrap leftSF)
-          (wrap (#Seq leftSF rightM))))
+          (in leftSF)
+          (in (#Seq leftSF rightM))))
 
       ## Same suffix
       [#0 #1]
       (do try.monad
         [leftM (merge leftA leftSF)]
-        (wrap (#Seq leftM rightA)))
+        (in (#Seq leftM rightA)))
 
       ## The 2 sequences cannot possibly be merged.
       [#0 #0]
-      (try\wrap (#Alt so_far addition))
+      (try\in (#Alt so_far addition))
 
       ## There is nothing the addition adds to the coverage.
       [#1 #1]
-      (ex.throw ..redundant_pattern [so_far addition]))
+      (ex.except ..redundant_pattern [so_far addition]))
 
     ## The addition cannot possibly improve the coverage.
     [_ #Exhaustive]
-    (ex.throw ..redundant_pattern [so_far addition])
+    (ex.except ..redundant_pattern [so_far addition])
 
     ## The addition completes the coverage.
     [#Exhaustive _]
-    (try\wrap #Exhaustive)
+    (try\in #Exhaustive)
     
     ## The left part will always match, so the addition is redundant.
     (^multi [(#Seq left right) single]
             (coverage/= left single))
-    (ex.throw ..redundant_pattern [so_far addition])
+    (ex.except ..redundant_pattern [so_far addition])
 
     ## The right part is not necessary, since it can always match the left.
     (^multi [single (#Seq left right)]
             (coverage/= left single))
-    (try\wrap single)
+    (try\in single)
 
     ## When merging a new coverage against one based on Alt, it may be
     ## that one of the many coverages in the Alt is complementary to
@@ -329,7 +329,7 @@
                             (loop [altsSF possibilitiesSF]
                               (case altsSF
                                 #.Nil
-                                (wrap [#.None (list coverageA)])
+                                (in [#.None (list coverageA)])
                                 
                                 (#.Cons altSF altsSF')
                                 (case (merge coverageA altSF)
@@ -338,13 +338,13 @@
                                     (#Alt _)
                                     (do !
                                       [[success altsSF+] (recur altsSF')]
-                                      (wrap [success (#.Cons altSF altsSF+)]))
+                                      (in [success (#.Cons altSF altsSF+)]))
 
                                     _
-                                    (wrap [(#.Some altMSF) altsSF']))
+                                    (in [(#.Some altMSF) altsSF']))
                                   
                                   (#try.Failure error)
-                                  (try.failure error))
+                                  (#try.Failure error))
                                 ))))]
        [successA possibilitiesSF] (fuse_once addition (flat_alt so_far))]
       (loop [successA successA
@@ -358,9 +358,9 @@
           #.None
           (case (list.reverse possibilitiesSF)
             (#.Cons last prevs)
-            (wrap (list\fold (function (_ left right) (#Alt left right))
-                             last
-                             prevs))
+            (in (list\fold (function (_ left right) (#Alt left right))
+                           last
+                           prevs))
 
             #.Nil
             (undefined)))))
@@ -368,6 +368,6 @@
     _
     (if (coverage/= so_far addition)
       ## The addition cannot possibly improve the coverage.
-      (ex.throw ..redundant_pattern [so_far addition])
+      (ex.except ..redundant_pattern [so_far addition])
       ## There are now 2 alternative paths.
-      (try\wrap (#Alt so_far addition)))))
+      (try\in (#Alt so_far addition)))))

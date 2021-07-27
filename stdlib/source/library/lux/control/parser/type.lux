@@ -1,4 +1,6 @@
 (.module:
+  {#.doc (.doc "Parsing of Lux types."
+               "Used mostly for polytypic programming.")}
   [library
    [lux (#- function)
     [abstract
@@ -14,7 +16,8 @@
       ["." list ("#\." functor)]
       ["." dictionary (#+ Dictionary)]]]
     [macro
-     ["." code]]
+     ["." code]
+     ["." template]]
     [math
      [number
       ["n" nat ("#\." decimal)]]]
@@ -58,12 +61,15 @@
                 (text.join_with ""))]))
 
 (type: #export Env
+  {#.doc (doc "An environment for type parsing.")}
   (Dictionary Nat [Type Code]))
 
 (type: #export (Parser a)
+  {#.doc (doc "A parser of Lux types.")}
   (//.Parser [Env (List Type)] a))
 
 (def: #export fresh
+  {#.doc (doc "An empty parsing environment.")}
   Env
   (dictionary.new n.hash))
 
@@ -79,13 +85,16 @@
       (#try.Success output)
 
       _
-      (exception.throw ..unconsumed_input remaining))))
+      (exception.except ..unconsumed_input remaining))))
 
 (def: #export (run poly type)
+  {#.doc (doc "Applies a parser against a type."
+              "Verifies that the parser fully consumes the type's information.")}
   (All [a] (-> (Parser a) Type (Try a)))
   (run' ..fresh poly (list type)))
 
 (def: #export env
+  {#.doc (doc "Yields the current parsing environment.")}
   (Parser Env)
   (.function (_ [env inputs])
     (#try.Success [[env inputs] env])))
@@ -101,26 +110,29 @@
       (#try.Success [[env remaining] output]))))
 
 (def: #export peek
+  {#.doc (doc "Inspect a type in the input stream without consuming it.")}
   (Parser Type)
   (.function (_ [env inputs])
     (case inputs
       #.Nil
-      (exception.throw ..empty_input [])
+      (exception.except ..empty_input [])
 
       (#.Cons headT tail)
       (#try.Success [[env inputs] headT]))))
 
 (def: #export any
+  {#.doc (doc "Yields a type, without examination.")}
   (Parser Type)
   (.function (_ [env inputs])
     (case inputs
       #.Nil
-      (exception.throw ..empty_input [])
+      (exception.except ..empty_input [])
 
       (#.Cons headT tail)
       (#try.Success [[env tail] headT]))))
 
 (def: #export (local types poly)
+  {#.doc (doc "Apply a parser to the given inputs.")}
   (All [a] (-> (List Type) (Parser a) (Parser a)))
   (.function (_ [env pass_through])
     (case (run' env poly types)
@@ -149,14 +161,15 @@
         (#try.Success [[env inputs'] [g!var output]])))))
 
 (template [<name> <flattener> <tag> <exception>]
-  [(def: #export (<name> poly)
-     (All [a] (-> (Parser a) (Parser a)))
-     (do //.monad
-       [headT ..any]
-       (let [members (<flattener> (type.anonymous headT))]
-         (if (n.> 1 (list.size members))
-           (local members poly)
-           (//.failure (exception.construct <exception> headT))))))]
+  [(`` (def: #export (<name> poly)
+         {#.doc (doc (~~ (template.text ["Parses the contents of a " <name> " type."])))}
+         (All [a] (-> (Parser a) (Parser a)))
+         (do //.monad
+           [headT ..any]
+           (let [members (<flattener> (type.anonymous headT))]
+             (if (n.> 1 (list.size members))
+               (local members poly)
+               (//.failure (exception.construct <exception> headT)))))))]
 
   [variant type.flat_variant #.Sum     ..not_variant]
   [tuple   type.flat_tuple   #.Product ..not_tuple]
@@ -169,7 +182,7 @@
      #let [[num_arg bodyT] (type.flat_univ_q (type.anonymous headT))]]
     (if (n.= 0 num_arg)
       (//.failure (exception.construct ..not_polymorphic headT))
-      (wrap [num_arg bodyT]))))
+      (in [num_arg bodyT]))))
 
 (def: #export (polymorphic poly)
   (All [a] (-> (Parser a) (Parser [Code (List Code) a])))
@@ -206,9 +219,10 @@
         (local (list non_poly))
         (do !
           [output poly]
-          (wrap [funcL all_varsL output])))))
+          (in [funcL all_varsL output])))))
 
 (def: #export (function in_poly out_poly)
+  {#.doc (doc "Parses a function's inputs and output.")}
   (All [i o] (-> (Parser i) (Parser o) (Parser [i o])))
   (do //.monad
     [headT any
@@ -219,6 +233,7 @@
       (//.failure (exception.construct ..not_function headT)))))
 
 (def: #export (applied poly)
+  {#.doc (doc "Parses a type application.")}
   (All [a] (-> (Parser a) (Parser a)))
   (do //.monad
     [headT any
@@ -227,18 +242,22 @@
       (//.failure (exception.construct ..not_application headT))
       (..local (#.Cons funcT paramsT) poly))))
 
-(template [<name> <test>]
+(template [<name> <test> <doc>]
   [(def: #export (<name> expected)
+     {#.doc (doc <doc>)}
      (-> Type (Parser Any))
      (do //.monad
        [actual any]
        (if (<test> expected actual)
-         (wrap [])
+         (in [])
          (//.failure (exception.construct ..types_do_not_match [expected actual])))))]
 
-  [exactly type\=]
-  [sub     check.checks?]
-  [super   (function.flip check.checks?)]
+  [exactly type\=
+   "Parses a type exactly."]
+  [sub     check.checks?
+   "Parses a sub type."]
+  [super   (function.flip check.checks?)
+   "Parses a super type."]
   )
 
 (def: #export (adjusted_idx env idx)
@@ -257,7 +276,7 @@
       (#.Parameter idx)
       (case (dictionary.get (adjusted_idx env idx) env)
         (#.Some [poly_type poly_code])
-        (wrap poly_code)
+        (in poly_code)
 
         #.None
         (//.failure (exception.construct ..unknown_parameter headT)))
@@ -273,30 +292,32 @@
     (case headT
       (#.Parameter idx)
       (if (n.= id (adjusted_idx env idx))
-        (wrap [])
+        (in [])
         (//.failure (exception.construct ..wrong_parameter [(#.Parameter id) headT])))
 
       _
       (//.failure (exception.construct ..not_parameter headT)))))
 
 (def: #export existential
+  {#.doc (doc "Yields an existential type.")}
   (Parser Nat)
   (do //.monad
     [headT any]
     (case headT
       (#.Ex ex_id)
-      (wrap ex_id)
+      (in ex_id)
 
       _
       (//.failure (exception.construct ..not_existential headT)))))
 
 (def: #export named
+  {#.doc (doc "Yields a named type.")}
   (Parser [Name Type])
   (do //.monad
     [inputT any]
     (case inputT
       (#.Named name anonymousT)
-      (wrap [name anonymousT])
+      (in [name anonymousT])
 
       _
       (//.failure (exception.construct ..not_named inputT)))))
@@ -317,7 +338,7 @@
                              (with_extension .Nothing)
                              (with_extension headT)
                              (local (list headT')))]
-        (wrap [recT output]))
+        (in [recT output]))
 
       _
       (//.failure (exception.construct ..not_recursive headT)))))
@@ -331,7 +352,7 @@
       (^multi (^ (#.Apply (|nothing|) (#.Parameter funcT_idx)))
               (n.= 0 (adjusted_idx env funcT_idx))
               {(dictionary.get 0 env) (#.Some [self_type self_call])})
-      (wrap self_call)
+      (in self_call)
 
       _
       (//.failure (exception.construct ..not_recursive headT)))))
@@ -346,4 +367,4 @@
             (|> allT
                 (monad.map ! (function.constant ..parameter))
                 (local allT)))]
-    (wrap (` ((~+ allC))))))
+    (in (` ((~+ allC))))))

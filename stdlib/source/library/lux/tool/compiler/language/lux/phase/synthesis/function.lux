@@ -59,49 +59,49 @@
                      (list.size argsS))
               (do !
                 [locals /.locals]
-                (wrap (|> functionS
-                          (//loop.optimization true locals argsS)
-                          (maybe\map (: (-> [Nat (List Synthesis) Synthesis] Synthesis)
-                                        (function (_ [start inits iteration])
-                                          (case iteration
-                                            (^ (/.loop/scope [start' inits' output]))
-                                            (if (and (n.= start start')
-                                                     (list.empty? inits'))
-                                              (/.loop/scope [start inits output])
-                                              (/.loop/scope [start inits iteration]))
+                (in (|> functionS
+                        (//loop.optimization true locals argsS)
+                        (maybe\map (: (-> [Nat (List Synthesis) Synthesis] Synthesis)
+                                      (function (_ [start inits iteration])
+                                        (case iteration
+                                          (^ (/.loop/scope [start' inits' output]))
+                                          (if (and (n.= start start')
+                                                   (list.empty? inits'))
+                                            (/.loop/scope [start inits output])
+                                            (/.loop/scope [start inits iteration]))
 
-                                            _
-                                            (/.loop/scope [start inits iteration])))))
-                          (maybe.default <apply>))))
-              (wrap <apply>))
+                                          _
+                                          (/.loop/scope [start inits iteration])))))
+                        (maybe.default <apply>))))
+              (in <apply>))
 
             (^ (/.function/apply [funcS' argsS']))
-            (wrap (/.function/apply [funcS' (list\compose argsS' argsS)]))
+            (in (/.function/apply [funcS' (list\compose argsS' argsS)]))
 
             _
-            (wrap <apply>)))))))
+            (in <apply>)))))))
 
 (def: (find_foreign environment register)
   (-> (Environment Synthesis) Register (Operation Synthesis))
   (case (list.nth register environment)
     (#.Some aliased)
-    (phase\wrap aliased)
+    (phase\in aliased)
 
     #.None
-    (phase.throw ..cannot_find_foreign_variable_in_environment [register environment])))
+    (phase.except ..cannot_find_foreign_variable_in_environment [register environment])))
 
 (def: (grow_path grow path)
   (-> (-> Synthesis (Operation Synthesis)) Path (Operation Path))
   (case path
     (#/.Bind register)
-    (phase\wrap (#/.Bind (inc register)))
+    (phase\in (#/.Bind (inc register)))
 
     (^template [<tag>]
       [(<tag> left right)
        (do phase.monad
          [left' (grow_path grow left)
           right' (grow_path grow right)]
-         (wrap (<tag> left' right')))])
+         (in (<tag> left' right')))])
     ([#/.Alt] [#/.Seq])
 
     (#/.Bit_Fork when then else)
@@ -112,8 +112,8 @@
               (\ ! map (|>> #.Some) (grow_path grow else))
 
               #.None
-              (wrap #.None))]
-      (wrap (#/.Bit_Fork when then else)))
+              (in #.None))]
+      (in (#/.Bit_Fork when then else)))
     
     (^template [<tag>]
       [(<tag> [[test then] elses])
@@ -122,9 +122,9 @@
           elses (monad.map ! (function (_ [else_test else_then])
                                (do !
                                  [else_then (grow_path grow else_then)]
-                                 (wrap [else_test else_then])))
+                                 (in [else_test else_then])))
                            elses)]
-         (wrap (<tag> [[test then] elses])))])
+         (in (<tag> [[test then] elses])))])
     ([#/.I64_Fork]
      [#/.F64_Fork]
      [#/.Text_Fork])
@@ -135,7 +135,7 @@
         (phase\map (|>> #/.Then)))
 
     _
-    (phase\wrap path)))
+    (phase\in path)))
 
 (def: (grow environment expression)
   (-> (Environment Synthesis) Synthesis (Operation Synthesis))
@@ -153,20 +153,20 @@
           (phase\map (|>> /.tuple))))
 
     (^ (..self_reference))
-    (phase\wrap (/.function/apply [expression (list (/.variable/local 1))]))
+    (phase\in (/.function/apply [expression (list (/.variable/local 1))]))
     
     (#/.Reference reference)
     (case reference
       (#////reference.Variable variable)
       (case variable
         (#////reference/variable.Local register)
-        (phase\wrap (/.variable/local (inc register)))
+        (phase\in (/.variable/local (inc register)))
         
         (#////reference/variable.Foreign register)
         (..find_foreign environment register))
       
       (#////reference.Constant constant)
-      (phase\wrap expression))
+      (phase\in expression))
     
     (#/.Control control)
     (case control
@@ -176,25 +176,25 @@
         (do phase.monad
           [inputS' (grow environment inputS)
            bodyS' (grow environment bodyS)]
-          (wrap (/.branch/let [inputS' (inc register) bodyS'])))
+          (in (/.branch/let [inputS' (inc register) bodyS'])))
         
         (#/.If [testS thenS elseS])
         (do phase.monad
           [testS' (grow environment testS)
            thenS' (grow environment thenS)
            elseS' (grow environment elseS)]
-          (wrap (/.branch/if [testS' thenS' elseS'])))
+          (in (/.branch/if [testS' thenS' elseS'])))
 
         (#/.Get members inputS)
         (do phase.monad
           [inputS' (grow environment inputS)]
-          (wrap (/.branch/get [members inputS'])))
+          (in (/.branch/get [members inputS'])))
         
         (#/.Case [inputS pathS])
         (do phase.monad
           [inputS' (grow environment inputS)
            pathS' (grow_path (grow environment) pathS)]
-          (wrap (/.branch/case [inputS' pathS']))))
+          (in (/.branch/case [inputS' pathS']))))
       
       (#/.Loop loop)
       (case loop
@@ -202,7 +202,7 @@
         (do {! phase.monad}
           [initsS+' (monad.map ! (grow environment) initsS+)
            iterationS' (grow environment iterationS)]
-          (wrap (/.loop/scope [(inc start) initsS+' iterationS'])))
+          (in (/.loop/scope [(inc start) initsS+' iterationS'])))
         
         (#/.Recur argumentsS+)
         (|> argumentsS+
@@ -220,20 +220,20 @@
                                         captured
                                         (grow environment captured)))
                             _env)]
-          (wrap (/.function/abstraction [_env' _arity _body])))
+          (in (/.function/abstraction [_env' _arity _body])))
         
         (#/.Apply funcS argsS+)
         (do {! phase.monad}
           [funcS (grow environment funcS)
            argsS+ (monad.map ! (grow environment) argsS+)]
-          (wrap (/.function/apply (case funcS
-                                    (^ (/.function/apply [(..self_reference) pre_argsS+]))
-                                    [(..self_reference)
-                                     (list\compose pre_argsS+ argsS+)]
+          (in (/.function/apply (case funcS
+                                  (^ (/.function/apply [(..self_reference) pre_argsS+]))
+                                  [(..self_reference)
+                                   (list\compose pre_argsS+ argsS+)]
 
-                                    _
-                                    [funcS
-                                     argsS+]))))))
+                                  _
+                                  [funcS
+                                   argsS+]))))))
     
     (#/.Extension name argumentsS+)
     (|> argumentsS+
@@ -241,7 +241,7 @@
         (phase\map (|>> (#/.Extension name))))
 
     (#/.Primitive _)
-    (phase\wrap expression)))
+    (phase\in expression)))
 
 (def: #export (abstraction phase environment archive bodyA)
   (-> Phase (Environment Analysis) Phase)
@@ -262,16 +262,16 @@
                                       #/.body body})))
                       
                       _
-                      (wrap {#/.environment environment
-                             #/.arity 1
-                             #/.body bodyS})))]
-    (wrap (if currying?
-            (/.function/abstraction abstraction)
-            (case (//loop.optimization false 1 (list) abstraction)
-              (#.Some [startL initsL bodyL])
-              (/.function/abstraction {#/.environment environment
-                                       #/.arity (get@ #/.arity abstraction)
-                                       #/.body (/.loop/scope [startL initsL bodyL])})
-              
-              #.None
-              (/.function/abstraction abstraction))))))
+                      (in {#/.environment environment
+                           #/.arity 1
+                           #/.body bodyS})))]
+    (in (if currying?
+          (/.function/abstraction abstraction)
+          (case (//loop.optimization false 1 (list) abstraction)
+            (#.Some [startL initsL bodyL])
+            (/.function/abstraction {#/.environment environment
+                                     #/.arity (get@ #/.arity abstraction)
+                                     #/.body (/.loop/scope [startL initsL bodyL])})
+            
+            #.None
+            (/.function/abstraction abstraction))))))

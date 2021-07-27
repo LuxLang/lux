@@ -1,6 +1,7 @@
-(.module: {#.doc "Functions for extracting information from the state of the compiler."}
+(.module:
+  {#.doc "Functions for extracting information from the state of the compiler."}
   [library
-   [lux #*
+   [lux (#- type)
     [abstract
      [functor (#+ Functor)]
      [apply (#+ Apply)]
@@ -64,7 +65,7 @@
   
   (def: &functor ..functor)
 
-  (def: (wrap x)
+  (def: (in x)
     (function (_ compiler)
       (#try.Success [compiler x])))
   
@@ -116,7 +117,7 @@
   (function (_ state)
     (#try.Failure (location.with (get@ #.location state) error))))
 
-(def: #export (find_module name)
+(def: #export (module name)
   (-> Text (Meta Module))
   (function (_ compiler)
     (case (plist.get name (get@ #.modules compiler))
@@ -140,7 +141,7 @@
   (Meta Module)
   (let [(^open "\.") ..monad]
     (|> ..current_module_name
-        (\map ..find_module)
+        (\map ..module)
         \join)))
 
 (def: (macro_type? type)
@@ -160,12 +161,12 @@
     ["" name]
     (do ..monad
       [module_name ..current_module_name]
-      (wrap [module_name name]))
+      (in [module_name name]))
 
     _
-    (\ ..monad wrap name)))
+    (\ ..monad in name)))
 
-(def: (find_macro' modules this_module module name)
+(def: (macro' modules this_module module name)
   (-> (List [Text Module]) Text Text Text
       (Maybe Macro))
   (do maybe.monad
@@ -176,14 +177,14 @@
                        (plist.get name)))]
     (case definition
       (#.Alias [r_module r_name])
-      (find_macro' modules this_module r_module r_name)
+      (macro' modules this_module r_module r_name)
       
       (#.Definition [exported? def_type def_anns def_value])
       (if (macro_type? def_type)
         (#.Some (:as Macro def_value))
         #.None))))
 
-(def: #export (find_macro full_name)
+(def: #export (macro full_name)
   (-> Name (Meta (Maybe Macro)))
   (do ..monad
     [[module name] (..normal full_name)]
@@ -194,7 +195,7 @@
                        #.None
 
                        (#try.Success [_ this_module])
-                       (find_macro' (get@ #.modules compiler) this_module module name))]
+                       (macro' (get@ #.modules compiler) this_module module name))]
            (#try.Success [compiler macro]))))))
 
 (def: #export count
@@ -220,7 +221,7 @@
     #.None     (f x2)
     (#.Some y) (#.Some y)))
 
-(def: (find_type_var idx bindings)
+(def: (type_variable idx bindings)
   (-> Nat (List [Nat (Maybe Type)]) (Maybe Type))
   (case bindings
     #.Nil
@@ -229,7 +230,7 @@
     (#.Cons [var bound] bindings')
     (if (n.= idx var)
       bound
-      (find_type_var idx bindings'))))
+      (type_variable idx bindings'))))
 
 (def: (clean_type type)
   (-> Type (Meta Type))
@@ -238,7 +239,7 @@
     (function (_ compiler)
       (case (|> compiler
                 (get@ [#.type_context #.var_bindings])
-                (find_type_var var))
+                (type_variable var))
         (^or #.None (#.Some (#.Var _)))
         (#try.Success [compiler type])
 
@@ -246,9 +247,9 @@
         (#try.Success [compiler type'])))
 
     _
-    (\ ..monad wrap type)))
+    (\ ..monad in type)))
 
-(def: #export (find_var_type name)
+(def: #export (var_type name)
   {#.doc "Looks-up the type of a local variable somewhere in the environment."}
   (-> Text (Meta Type))
   (function (_ compiler)
@@ -266,14 +267,14 @@
                                          (get@ [#.locals #.mappings] scope))
                                       (: (List [Text [Type Any]])
                                          (get@ [#.captured #.mappings] scope)))]
-              (wrap type))
+              (in type))
         (#.Some var_type)
         ((clean_type var_type) compiler)
 
         #.None
         (#try.Failure ($_ text\compose "Unknown variable: " name))))))
 
-(def: #export (find_def name)
+(def: #export (definition name)
   {#.doc "Looks-up a definition's whole data in the available modules (including the current one)."}
   (-> Name (Meta Global))
   (do ..monad
@@ -330,11 +331,11 @@
                               "")
                             " All known modules: " (|> compiler (get@ #.modules) (list\map product.left) (text.join_with separator)) text.new_line)))))))
 
-(def: #export (find_export name)
+(def: #export (export name)
   {#.doc "Looks-up a definition's type in the available modules (including the current one)."}
   (-> Name (Meta Definition))
   (do ..monad
-    [definition (..find_def name)]
+    [definition (..definition name)]
     (case definition
       (#.Left de_aliased)
       (failure ($_ text\compose
@@ -344,42 +345,42 @@
       (#.Right definition)
       (let [[exported? def_type def_data def_value] definition]
         (if exported?
-          (wrap definition)
+          (in definition)
           (failure ($_ text\compose "Definition is not an export: " (name\encode name))))))))
 
-(def: #export (find_def_type name)
+(def: #export (definition_type name)
   {#.doc "Looks-up a definition's type in the available modules (including the current one)."}
   (-> Name (Meta Type))
   (do ..monad
-    [definition (find_def name)]
+    [definition (definition name)]
     (case definition
       (#.Left de_aliased)
-      (find_def_type de_aliased)
+      (definition_type de_aliased)
       
       (#.Right [exported? def_type def_data def_value])
       (clean_type def_type))))
 
-(def: #export (find_type name)
+(def: #export (type name)
   {#.doc "Looks-up the type of either a local variable or a definition."}
   (-> Name (Meta Type))
   (do ..monad
     [#let [[_ _name] name]]
     (case name
       ["" _name]
-      (either (find_var_type _name)
-              (find_def_type name))
+      (either (var_type _name)
+              (definition_type name))
 
       _
-      (find_def_type name))))
+      (definition_type name))))
 
-(def: #export (find_type_def name)
+(def: #export (type_definition name)
   {#.doc "Finds the value of a type definition (such as Int, Any or Lux)."}
   (-> Name (Meta Type))
   (do ..monad
-    [definition (find_def name)]
+    [definition (definition name)]
     (case definition
       (#.Left de_aliased)
-      (find_type_def de_aliased)
+      (type_definition de_aliased)
       
       (#.Right [exported? def_type def_data def_value])
       (let [type_to_code (`` ("lux in-module" (~~ (static .prelude_module)) .type_to_code))]
@@ -387,7 +388,7 @@
                 (\ code.equivalence =
                    (type_to_code .Type)
                    (type_to_code def_type)))
-          (wrap (:as Type def_value))
+          (in (:as Type def_value))
           (..failure ($_ text\compose "Definition is not a type: " (name\encode name))))))))
 
 (def: #export (globals module)
@@ -419,11 +420,11 @@
   (-> Text (Meta (List [Text Definition])))
   (do ..monad
     [constants (..definitions module_name)]
-    (wrap (do list.monad
-            [[name [exported? def_type def_data def_value]] constants]
-            (if exported?
-              (wrap [name [exported? def_type def_data def_value]])
-              (list))))))
+    (in (do list.monad
+          [[name [exported? def_type def_data def_value]] constants]
+          (if exported?
+            (in [name [exported? def_type def_data def_value]])
+            (list))))))
 
 (def: #export modules
   {#.doc "All the available modules (including the current one)."}
@@ -439,13 +440,13 @@
   (-> Name (Meta (Maybe (List Name))))
   (do ..monad
     [#let [[module name] type_name]
-     module (find_module module)]
+     module (..module module)]
     (case (plist.get name (get@ #.types module))
       (#.Some [tags _])
-      (wrap (#.Some tags))
+      (in (#.Some tags))
 
       _
-      (wrap #.None))))
+      (in #.None))))
 
 (def: #export location
   {#.doc "The location of the current expression being analyzed."}
@@ -468,14 +469,14 @@
   {#.doc "All the modules imported by a specified module."}
   (-> Text (Meta (List Text)))
   (do ..monad
-    [(^slots [#.imports]) (..find_module module_name)]
-    (wrap imports)))
+    [(^slots [#.imports]) (..module module_name)]
+    (in imports)))
 
 (def: #export (imported_by? import module)
   (-> Text Text (Meta Bit))
   (do ..monad
-    [(^slots [#.imports]) (..find_module module)]
-    (wrap (list.any? (text\= import) imports))))
+    [(^slots [#.imports]) (..module module)]
+    (in (list.any? (text\= import) imports))))
 
 (def: #export (imported? import)
   (-> Text (Meta Bit))
@@ -488,14 +489,14 @@
   (-> Name (Meta [Nat (List Name) Type]))
   (do ..monad
     [#let [[module name] tag]
-     =module (..find_module module)
+     =module (..module module)
      this_module_name ..current_module_name
      imported! (..imported? module)]
     (case (plist.get name (get@ #.tags =module))
       (#.Some [idx tag_list exported? type])
       (if (or (text\= this_module_name module)
               (and imported! exported?))
-        (wrap [idx tag_list type])
+        (in [idx tag_list type])
         (..failure ($_ text\compose "Cannot access tag: " (name\encode tag) " from module " this_module_name)))
 
       _
@@ -511,14 +512,14 @@
   {#.doc "All the tag-lists defined in a module, with their associated types."}
   (-> Text (Meta (List [(List Name) Type])))
   (do ..monad
-    [=module (..find_module module)
+    [=module (..module module)
      this_module_name ..current_module_name]
-    (wrap (|> (get@ #.types =module)
-              (list.only (function (_ [type_name [tag_list exported? type]])
-                           (or exported?
-                               (text\= this_module_name module))))
-              (list\map (function (_ [type_name [tag_list exported? type]])
-                          [tag_list type]))))))
+    (in (|> (get@ #.types =module)
+            (list.only (function (_ [type_name [tag_list exported? type]])
+                         (or exported?
+                             (text\= this_module_name module))))
+            (list\map (function (_ [type_name [tag_list exported? type]])
+                        [tag_list type]))))))
 
 (def: #export locals
   {#.doc "All the local variables currently in scope, separated in different scopes."}
@@ -539,13 +540,13 @@
   {#.doc "Given an aliased definition's name, returns the original definition being referenced."}
   (-> Name (Meta Name))
   (do ..monad
-    [constant (..find_def def_name)]
-    (wrap (case constant
-            (#.Left real_def_name)
-            real_def_name
+    [constant (..definition def_name)]
+    (in (case constant
+          (#.Left real_def_name)
+          real_def_name
 
-            (#.Right _)
-            def_name))))
+          (#.Right _)
+          def_name))))
 
 (def: #export get_compiler
   {#.doc "Obtains the current state of the compiler."}
@@ -562,7 +563,7 @@
   (All [a] (-> (Try a) (Meta a)))
   (case result
     (#try.Success output)
-    (\ ..monad wrap output)
+    (\ ..monad in output)
 
     (#try.Failure error)
     (..failure error)))

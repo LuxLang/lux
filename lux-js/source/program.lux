@@ -12,7 +12,7 @@
      ["." io (#+ IO io)]
      ["." function]
      [concurrency
-      ["." promise (#+ Promise)]]]
+      ["." async (#+ Async)]]]
     [data
      ["." product]
      ["." maybe]
@@ -149,7 +149,7 @@
                                          {object java/lang/Object})
                (exception.report
                 ["Member" member]
-                ["Object" (debug.inspect object)]))
+                ["Object" (debug.inspection object)]))
 
              (def: jvm_int
                (-> (I64 Any) java/lang/Integer)
@@ -185,7 +185,7 @@
                   #1)
                  (org/openjdk/nashorn/api/scripting/AbstractJSObject
                   [] (call self {this java/lang/Object} {args [java/lang/Object]}) java/lang/Object
-                  (debug.inspect js_object))
+                  (debug.inspection js_object))
                  ))
 
              (def: (::slice js_object value)
@@ -280,12 +280,12 @@
                (case [(org/openjdk/nashorn/api/scripting/JSObject::getMember [runtime.i64_high_field] js_object)
                       (org/openjdk/nashorn/api/scripting/JSObject::getMember [runtime.i64_low_field] js_object)]
                  (^multi [(#.Some high) (#.Some low)]
-                         [[(ffi.check java/lang/Number high)
+                         {[(ffi.check java/lang/Number high)
                            (ffi.check java/lang/Number low)]
-                          [(#.Some high) (#.Some low)]]
-                         [[(java/lang/Number::longValue high)
+                          [(#.Some high) (#.Some low)]}
+                         {[(java/lang/Number::longValue high)
                            (java/lang/Number::longValue low)]
-                          [high low]])
+                          [high low]})
                  (#.Some (.int (n.+ (|> high .nat (i64.left_shift 32))
                                     (if (i.< +0 (.int low))
                                       (|> low .nat (i64.left_shift 32) (i64.right_shift 32))
@@ -302,10 +302,10 @@
                       (org/openjdk/nashorn/api/scripting/JSObject::getMember [runtime.variant_flag_field] js_object)
                       (org/openjdk/nashorn/api/scripting/JSObject::getMember [runtime.variant_value_field] js_object)]
                  (^multi [(#.Some tag) ?flag (#.Some value)]
-                         [(ffi.check java/lang/Number tag)
-                          (#.Some tag)]
-                         [(lux_object value)
-                          (#.Some value)])
+                         {(ffi.check java/lang/Number tag)
+                          (#.Some tag)}
+                         {(lux_object value)
+                          (#.Some value)})
                  (#.Some [(java/lang/Number::intValue tag)
                           (maybe.default (ffi.null) ?flag)
                           value])
@@ -487,7 +487,7 @@
                          (def: define! (..define! interpreter))
 
                          (def: (ingest context content)
-                           (|> content (\ utf8.codec decode) try.assume (:as _.Statement)))
+                           (|> content (\ utf8.codec decode) try.assumed (:as _.Statement)))
 
                          (def: (re_learn context custom content)
                            (..execute! interpreter content))
@@ -546,7 +546,7 @@
                        (def: define! ..define!)
 
                        (def: (ingest context content)
-                         (|> content (\ utf8.codec decode) try.assume (:as _.Statement)))
+                         (|> content (\ utf8.codec decode) try.assumed (:as _.Statement)))
 
                        (def: (re_learn context custom content)
                          (..execute! content))
@@ -574,7 +574,9 @@
   (IO (Platform [Register Text] _.Expression _.Statement))
   (do io.monad
     [host ..host]
-    (wrap {#platform.&file_system file.default
+    (wrap {#platform.&file_system (for {@.old (file.async file.default)
+                                        @.jvm (file.async file.default)
+                                        @.js file.default})
            #platform.host host
            #platform.phase js.generate
            #platform.runtime runtime.generate
@@ -584,9 +586,14 @@
 (def: (program context program)
   (Program _.Expression _.Statement)
   (let [@process (_.var "process")
-        on_node_js? (|> (|> @process _.type_of (_.= (_.string "undefined")) _.not)
-                        (_.and (|> @process (_.the "argv"))))
-        node_js_inputs (|> @process (_.the "argv") (_.do "slice" (list (_.int +2))))
+        on_node_js? (|> @process
+                        _.type_of
+                        (_.= (_.string "undefined"))
+                        _.not
+                        (_.and (_.the "argv" @process)))
+        node_js_inputs (|> @process
+                           (_.the "argv")
+                           (_.do "slice" (list (_.int +2))))
         no_inputs (_.array (list))]
     (_.statement (_.apply/1 (_.apply/1 program (runtime.lux//program_args (_.? on_node_js?
                                                                                node_js_inputs
@@ -606,10 +613,10 @@
             (:as Operation)
             (function (@self state))
             (:as Try)
-            try.assume
+            try.assumed
             (:as Try)
             (do try.monad
-              [handler (try.from_maybe (..ensure_function handler))
+              [handler (try.of_maybe (..ensure_function handler))
                #let [to_js (: (-> Any java/lang/Object)
                               (|>> (:as (Array java/lang/Object)) js_structure (:as java/lang/Object)))]
                output (org/openjdk/nashorn/api/scripting/JSObject::call #.None
@@ -629,8 +636,8 @@
         (:assume handler))})
 
 (def: (declare_success! _)
-  (-> Any (Promise Any))
-  (promise.future (\ world/program.default exit +0)))
+  (-> Any (Async Any))
+  (async.future (\ world/program.default exit +0)))
 
 (def: (scope body)
   (-> _.Statement _.Statement)
@@ -639,7 +646,7 @@
 
 (program: [{service /cli.service}]
   (let [extension ".js"]
-    (exec (do promise.monad
+    (exec (do async.monad
             [_ (/.compiler {#/static.host @.js
                             #/static.host_module_extension extension
                             #/static.target (/cli.target service)

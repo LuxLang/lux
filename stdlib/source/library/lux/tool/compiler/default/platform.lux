@@ -2,8 +2,8 @@
   [library
    [lux (#- Module)
     [type (#+ :sharing)]
-    ["." debug]
     ["@" target]
+    ["." debug]
     [abstract
      ["." monad (#+ Monad do)]]
     [control
@@ -58,9 +58,9 @@
       ["ioW" archive]]]]]
   [program
    [compositor
-    ["." cli (#+ Compilation Library)]
-    ["." static (#+ Static)]
-    ["." import (#+ Import)]]])
+    [cli (#+ Compilation Library)]
+    [import (#+ Import)]
+    ["." static (#+ Static)]]])
 
 (with_expansions [<type_vars> (as_is anchor expression directive)
                   <Operation> (as_is ///generation.Operation <type_vars>)]
@@ -112,7 +112,7 @@
                       row.to_list
                       (monad.map ..monad write_artifact!)
                       (: (Action (List Any)))))
-           document (\ async.monad wrap
+           document (\ async.monad in
                        (document.check $.key document))]
           (ioW.cache system static module_id
                      (_.run ..writer [descriptor document])))))
@@ -158,7 +158,7 @@
                                   (do try.monad
                                     [[_ archive] (archive.reserve archive.runtime_module archive)]
                                     (archive.add archive.runtime_module [descriptor document payload] archive))))]
-        (wrap [archive [descriptor document payload]])))
+        (in [archive [descriptor document payload]])))
 
     (def: (initialize_state extender
                             [analysers
@@ -191,7 +191,7 @@
                        _ (///directive.lift_generation
                           (extension.with extender (:assume generators)))
                        _ (extension.with extender (:assume directives))]
-                      (wrap [])))
+                      (in [])))
           (///phase.run' state)
           (\ try.monad map product.left)))
 
@@ -249,7 +249,7 @@
                (: (All [<type_vars>]
                     (-> <Platform> (Program expression directive) <State+> (Async (Try <State+>))))
                   (function (_ platform program state)
-                    (async\wrap
+                    (async\in
                      (do try.monad
                        [[state phase_wrapper] (..phase_wrapper archive platform state)]
                        (|> state
@@ -260,15 +260,15 @@
         (if (archive.archived? archive archive.runtime_module)
           (do !
             [state (with_missing_extensions platform program state)]
-            (wrap [state archive]))
+            (in [state archive]))
           (do !
             [[state [archive payload]] (|> (..process_runtime archive platform)
                                            (///phase.run' state)
-                                           async\wrap)
+                                           async\in)
              _ (..cache_module static platform 0 payload)
              
              state (with_missing_extensions platform program state)]
-            (wrap [state archive])))))
+            (in [state archive])))))
 
     (def: compilation_log_separator
       (format text.new_line text.tab))
@@ -369,10 +369,10 @@
     (def: (verify_dependencies importer importee dependence)
       (-> Module Module Dependence (Try Any))
       (cond (text\= importer importee)
-            (exception.throw ..module_cannot_import_itself [importer])
+            (exception.except ..module_cannot_import_itself [importer])
 
             (..circular_dependency? importer importee dependence)
-            (exception.throw ..cannot_import_circular_dependency [importer importee])
+            (exception.except ..cannot_import_circular_dependency [importer importee])
 
             ## else
             (#try.Success [])))
@@ -414,30 +414,30 @@
                                                              (stm.read dependence)
                                                              (do !
                                                                [[_ dependence] (stm.update (..depend importer module) dependence)]
-                                                               (wrap dependence)))]
+                                                               (in dependence)))]
                                                (case (..verify_dependencies importer module dependence)
                                                  (#try.Failure error)
-                                                 (wrap [(async.resolved (#try.Failure error))
-                                                        #.None])
+                                                 (in [(async.resolved (#try.Failure error))
+                                                      #.None])
 
                                                  (#try.Success _)
                                                  (do !
                                                    [[archive state] (stm.read current)]
                                                    (if (archive.archived? archive module)
-                                                     (wrap [(async\wrap (#try.Success [archive state]))
-                                                            #.None])
+                                                     (in [(async\in (#try.Success [archive state]))
+                                                          #.None])
                                                      (do !
                                                        [@pending (stm.read pending)]
                                                        (case (dictionary.get module @pending)
                                                          (#.Some [return signal])
-                                                         (wrap [return
-                                                                #.None])
+                                                         (in [return
+                                                              #.None])
                                                          
                                                          #.None
                                                          (case (if (archive.reserved? archive module)
                                                                  (do try.monad
                                                                    [module_id (archive.id module archive)]
-                                                                   (wrap [module_id archive]))
+                                                                   (in [module_id archive]))
                                                                  (archive.reserve module archive))
                                                            (#try.Success [module_id archive])
                                                            (do !
@@ -449,24 +449,24 @@
                                                                                               <Pending>
                                                                                               (async.async []))]
                                                               _ (stm.update (dictionary.put module [return signal]) pending)]
-                                                             (wrap [return
-                                                                    (#.Some [[archive state]
-                                                                             module_id
-                                                                             signal])]))
+                                                             (in [return
+                                                                  (#.Some [[archive state]
+                                                                           module_id
+                                                                           signal])]))
                                                            
                                                            (#try.Failure error)
-                                                           (wrap [(async\wrap (#try.Failure error))
-                                                                  #.None])))))))))))
+                                                           (in [(async\in (#try.Failure error))
+                                                                #.None])))))))))))
                  _ (case signal
                      #.None
-                     (wrap [])
+                     (in [])
                      
                      (#.Some [context module_id resolver])
                      (do !
                        [result (compile importer import! module_id context module)
                         result (case result
                                  (#try.Failure error)
-                                 (wrap result)
+                                 (in result)
 
                                  (#try.Success [resulting_archive resulting_state])
                                  (stm.commit (do stm.monad
@@ -474,9 +474,9 @@
                                                                                      [(archive.merge resulting_archive archive)
                                                                                       state])
                                                                                    current)]
-                                               (wrap (#try.Success [merged_archive resulting_state])))))
+                                               (in (#try.Success [merged_archive resulting_state])))))
                         _ (async.future (resolver result))]
-                       (wrap [])))]
+                       (in [])))]
                 return)))))
 
       ## TODO: Find a better way, as this only works for the Lux compiler.
@@ -488,26 +488,26 @@
                                   (do !
                                     [[descriptor document output] (archive.find module archive)
                                      lux_module (document.read $.key document)]
-                                    (wrap [module lux_module])))
+                                    (in [module lux_module])))
                               (archive.archived archive))
            #let [additions (|> modules
                                (list\map product.left)
                                (set.of_list text.hash))]]
-          (wrap (update@ [#extension.state
-                          #///directive.analysis
-                          #///directive.state
-                          #extension.state]
-                         (function (_ analysis_state)
-                           (|> analysis_state
-                               (:as .Lux)
-                               (update@ #.modules (function (_ current)
-                                                    (list\compose (list.only (|>> product.left
-                                                                                  (set.member? additions)
-                                                                                  not)
-                                                                             current)
-                                                                  modules)))
-                               :assume))
-                         state))))
+          (in (update@ [#extension.state
+                        #///directive.analysis
+                        #///directive.state
+                        #extension.state]
+                       (function (_ analysis_state)
+                         (|> analysis_state
+                             (:as .Lux)
+                             (update@ #.modules (function (_ current)
+                                                  (list\compose (list.only (|>> product.left
+                                                                                (set.member? additions)
+                                                                                not)
+                                                                           current)
+                                                                modules)))
+                             :assume))
+                       state))))
 
       (def: (set_current_module module state)
         (All [<type_vars>]
@@ -556,7 +556,7 @@
                                 (do !
                                   [[archive state] (case new_dependencies
                                                      #.Nil
-                                                     (wrap [archive state])
+                                                     (in [archive state])
 
                                                      (#.Cons _)
                                                      (do !
@@ -566,8 +566,8 @@
                                                         #let [archive (|> archive,document+
                                                                           (list\map product.left)
                                                                           (list\fold archive.merge archive))]]
-                                                       (wrap [archive (try.assumed
-                                                                       (..updated_state archive state))])))]
+                                                       (in [archive (try.assumed
+                                                                     (..updated_state archive state))])))]
                                   (case ((get@ #///.process compilation)
                                          ## TODO: The "///directive.set_current_module" below shouldn't be necessary. Remove it ASAP.
                                          ## TODO: The context shouldn't need to be re-set either.
@@ -588,15 +588,15 @@
                                          _ (..cache_module static platform module_id [descriptor document output])]
                                         (case (archive.add module [descriptor document output] archive)
                                           (#try.Success archive)
-                                          (wrap [archive
-                                                 (..with_reset_log state)])
+                                          (in [archive
+                                               (..with_reset_log state)])
                                           
                                           (#try.Failure error)
-                                          (async\wrap (#try.Failure error)))))
+                                          (async\in (#try.Failure error)))))
 
                                     (#try.Failure error)
                                     (do !
                                       [_ (ioW.freeze (get@ #&file_system platform) static archive)]
-                                      (async\wrap (#try.Failure error))))))))))]
+                                      (async\in (#try.Failure error))))))))))]
           (compiler archive.runtime_module compilation_module)))
       )))

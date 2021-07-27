@@ -25,16 +25,16 @@
   (case syntax
     [_ (#.Form (#.Cons [[_ (#.Identifier name)] args]))]
     (do //.monad
-      [?macro (//.find_macro name)]
+      [?macro (//.macro name)]
       (case ?macro
         (#.Some macro)
         ((:as Macro' macro) args)
         
         #.None
-        (\ //.monad wrap (list syntax))))
+        (\ //.monad in (list syntax))))
 
     _
-    (\ //.monad wrap (list syntax))))
+    (\ //.monad in (list syntax))))
 
 (def: #export (expand syntax)
   {#.doc (doc "Given code that requires applying a macro, expands repeatedly until no more direct macro-calls are left."
@@ -43,19 +43,19 @@
   (case syntax
     [_ (#.Form (#.Cons [[_ (#.Identifier name)] args]))]
     (do //.monad
-      [?macro (//.find_macro name)]
+      [?macro (//.macro name)]
       (case ?macro
         (#.Some macro)
         (do //.monad
           [expansion ((:as Macro' macro) args)
            expansion' (monad.map //.monad expand expansion)]
-          (wrap (list\join expansion')))
+          (in (list\join expansion')))
         
         #.None
-        (\ //.monad wrap (list syntax))))
+        (\ //.monad in (list syntax))))
 
     _
-    (\ //.monad wrap (list syntax))))
+    (\ //.monad in (list syntax))))
 
 (def: #export (expand_all syntax)
   {#.doc "Expands all macro-calls everywhere recursively, until only primitive/base code remains."}
@@ -63,29 +63,29 @@
   (case syntax
     [_ (#.Form (#.Cons [[_ (#.Identifier name)] args]))]
     (do //.monad
-      [?macro (//.find_macro name)]
+      [?macro (//.macro name)]
       (case ?macro
         (#.Some macro)
         (do //.monad
           [expansion ((:as Macro' macro) args)
            expansion' (monad.map //.monad expand_all expansion)]
-          (wrap (list\join expansion')))
+          (in (list\join expansion')))
         
         #.None
         (do //.monad
           [parts' (monad.map //.monad expand_all (list& (code.identifier name) args))]
-          (wrap (list (code.form (list\join parts')))))))
+          (in (list (code.form (list\join parts')))))))
 
     [_ (#.Form (#.Cons [harg targs]))]
     (do //.monad
       [harg+ (expand_all harg)
        targs+ (monad.map //.monad expand_all targs)]
-      (wrap (list (code.form (list\compose harg+ (list\join (: (List (List Code)) targs+)))))))
+      (in (list (code.form (list\compose harg+ (list\join (: (List (List Code)) targs+)))))))
 
     [_ (#.Tuple members)]
     (do //.monad
       [members' (monad.map //.monad expand_all members)]
-      (wrap (list (code.tuple (list\join members')))))
+      (in (list (code.tuple (list\join members')))))
 
     [_ (#.Record members)]
     (|> members
@@ -96,14 +96,14 @@
                         right (expand_all right)]
                        (case [left right]
                          [(#.Cons left #.Nil) (#.Cons right #.Nil)]
-                         (wrap [left right])
+                         (in [left right])
 
                          _
                          (//.failure "Record members must expand into singletons.")))))
         (\ //.monad map (|>> code.record list)))
 
     _
-    (\ //.monad wrap (list syntax))))
+    (\ //.monad in (list syntax))))
 
 (def: #export (gensym prefix)
   {#.doc (doc "Generates a unique name as an Code node (ready to be used in code templates)."
@@ -111,16 +111,16 @@
   (-> Text (Meta Code))
   (do //.monad
     [id //.count]
-    (wrap (|> id
-              (\ nat.decimal encode)
-              ($_ text\compose "__gensym__" prefix)
-              [""] code.identifier))))
+    (in (|> id
+            (\ nat.decimal encode)
+            ($_ text\compose "__gensym__" prefix)
+            [""] code.identifier))))
 
 (def: (get_local_identifier ast)
   (-> Code (Meta Text))
   (case ast
     [_ (#.Identifier [_ name])]
-    (\ //.monad wrap name)
+    (\ //.monad in name)
 
     _
     (//.failure (text\compose "Code is not a local identifier: " (code.format ast)))))
@@ -134,11 +134,11 @@
   {#.doc (doc "Creates new identifiers and offers them to the body expression."
               (syntax: #export (synchronized lock body)
                 (with_gensyms [g!lock g!body g!_]
-                  (wrap (list (` (let [(~ g!lock) (~ lock)
-                                       (~ g!_) ("jvm monitorenter" (~ g!lock))
-                                       (~ g!body) (~ body)
-                                       (~ g!_) ("jvm monitorexit" (~ g!lock))]
-                                   (~ g!body)))))
+                  (in (list (` (let [(~ g!lock) (~ lock)
+                                     (~ g!_) ("jvm monitorenter" (~ g!lock))
+                                     (~ g!body) (~ body)
+                                     (~ g!_) ("jvm monitorexit" (~ g!lock))]
+                                 (~ g!body)))))
                   )))}
   (case tokens
     (^ (list [_ (#.Tuple identifiers)] body))
@@ -147,9 +147,9 @@
        #let [identifier_defs (list\join (list\map (: (-> Text (List Code))
                                                      (function (_ name) (list (code.identifier ["" name]) (` (gensym (~ (code.text name)))))))
                                                   identifier_names))]]
-      (wrap (list (` ((~! do) (~! //.monad)
-                      [(~+ identifier_defs)]
-                      (~ body))))))
+      (in (list (` ((~! do) (~! //.monad)
+                    [(~+ identifier_defs)]
+                    (~ body))))))
 
     _
     (//.failure (..wrong_syntax_error (name_of ..with_gensyms)))))
@@ -161,7 +161,7 @@
     [token+ (..expand token)]
     (case token+
       (^ (list token'))
-      (wrap token')
+      (in token')
 
       _
       (//.failure "Macro expanded to more than 1 element."))))
@@ -197,9 +197,9 @@
                   _ (list\map (|>> code.format "lux io log")
                               output)
                   _ ("lux io log" "")]]
-           (wrap (if omit?
-                   (list)
-                   output)))
+           (in (if omit?
+                 (list)
+                 output)))
 
          #.None
          (//.failure (..wrong_syntax_error macro_name)))))]

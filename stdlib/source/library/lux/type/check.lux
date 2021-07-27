@@ -1,4 +1,5 @@
-(.module: {#.doc "Type-checking functionality."}
+(.module:
+  {#.doc "Type-checking functionality."}
   [library
    [lux #*
     ["@" target]
@@ -104,7 +105,7 @@
   
   (def: &functor ..functor)
 
-  (def: (wrap x)
+  (def: (in x)
     (function (_ context)
       (#try.Success [context x])))
 
@@ -177,7 +178,7 @@
       (#try.Success [context []])
       (#try.Failure message))))
 
-(def: #export (throw exception message)
+(def: #export (except exception message)
   (All [e a] (-> (Exception e) e (Check a)))
   (..failure (exception.construct exception message)))
 
@@ -202,7 +203,7 @@
          (#try.Success [context <succeed>])
 
          #.None
-         (exception.throw ..unknown_type_var id))))]
+         (exception.except ..unknown_type_var id))))]
 
   [bound? Bit          false  true]
   [read   (Maybe Type) #.None (#.Some bound)]
@@ -214,10 +215,10 @@
     [?type (read id)]
     (case ?type
       (#.Some type)
-      (wrap type)
+      (in type)
 
       #.None
-      (..throw ..unbound_type_var id))))
+      (..except ..unbound_type_var id))))
 
 (def: (peek id)
   (-> Var (Check Type))
@@ -227,10 +228,10 @@
       (#try.Success [context bound])
 
       (#.Some _)
-      (exception.throw ..unbound_type_var id)
+      (exception.except ..unbound_type_var id)
 
       _
-      (exception.throw ..unknown_type_var id))))
+      (exception.except ..unknown_type_var id))))
 
 (def: #export (bind type id)
   (-> Type Var (Check Any))
@@ -241,10 +242,10 @@
                      []])
 
       (#.Some (#.Some bound))
-      (exception.throw ..cannot_rebind_var [id type bound])
+      (exception.except ..cannot_rebind_var [id type bound])
       
       _
-      (exception.throw ..unknown_type_var id))))
+      (exception.except ..unknown_type_var id))))
 
 (def: (update type id)
   (-> Type Var (Check Any))
@@ -255,7 +256,7 @@
                      []])
       
       _
-      (exception.throw ..unknown_type_var id))))
+      (exception.except ..unknown_type_var id))))
 
 (def: #export var
   (Check [Var Type])
@@ -277,7 +278,7 @@
         (apply_type! funcT' argT)
 
         _
-        (throw ..invalid_type_application [funcT argT])))
+        (except ..invalid_type_application [funcT argT])))
 
     (#.Apply argT' funcT')
     (do ..monad
@@ -287,10 +288,10 @@
     _
     (case (//.applied (list argT) funcT)
       (#.Some output)
-      (check\wrap output)
+      (check\in output)
 
       _
-      (throw ..invalid_type_application [funcT argT]))))
+      (except ..invalid_type_application [funcT argT]))))
 
 (type: Ring
   (Set Var))
@@ -320,7 +321,7 @@
         (#try.Success [context output])
         
         #.None
-        (exception.throw ..unknown_type_var current)))))
+        (exception.except ..unknown_type_var current)))))
 
 (def: #export fresh_context
   Type_Context
@@ -395,7 +396,7 @@
 (def: (check_vars check' assumptions idE idA)
   (-> (Checker Type) (Checker Var))
   (if (!n\= idE idA)
-    (check\wrap assumptions)
+    (check\in assumptions)
     (do {! ..monad}
       [ebound (attempt (peek idE))
        abound (attempt (peek idA))]
@@ -404,7 +405,7 @@
         [#.None #.None]
         (do !
           [_ (link_2 idE idA)]
-          (wrap assumptions))
+          (in assumptions))
 
         ## Interpose new variable between 2 existing links
         [(#.Some etype) #.None]
@@ -412,7 +413,7 @@
           (#.Var targetE)
           (do !
             [_ (link_3 idA targetE idE)]
-            (wrap assumptions))
+            (in assumptions))
 
           _
           (check' assumptions etype (#.Var idA)))
@@ -423,7 +424,7 @@
           (#.Var targetA)
           (do !
             [_ (link_3 idE targetA idA)]
-            (wrap assumptions))
+            (in assumptions))
 
           _
           (check' assumptions (#.Var idE) atype))
@@ -435,23 +436,23 @@
             [ringE (..ring idE)
              ringA (..ring idA)]
             (if (\ set.equivalence = ringE ringA)
-              (wrap assumptions)
+              (in assumptions)
               ## Fuse 2 rings
               (do !
                 [_ (monad.fold ! (function (_ interpose to)
                                    (do !
                                      [_ (link_3 interpose to idE)]
-                                     (wrap interpose)))
+                                     (in interpose)))
                                targetE
                                (set.to_list ringA))]
-                (wrap assumptions))))
+                (in assumptions))))
 
           (^template [<pattern> <id> <type>]
             [<pattern>
              (do !
                [ring (..ring <id>)
                 _ (monad.map ! (update <type>) (set.to_list ring))]
-               (wrap assumptions))])
+               (in assumptions))])
           ([[(#.Var _) _] idE atype]
            [[_ (#.Var _)] idA etype])
           
@@ -559,7 +560,7 @@
   (Checker Type)
   (if (for {@.php false} ## TODO: Remove this once JPHP is gone.
            (is? expected actual))
-    (check\wrap assumptions)
+    (check\in assumptions)
     (with ..type_check_failed [expected actual]
       (case [expected actual]
         [(#.Var idE) (#.Var idA)]
@@ -567,13 +568,13 @@
         
         [(#.Var id) _]
         (if_bind id actual
-                 (check\wrap assumptions)
+                 (check\in assumptions)
                  (function (_ bound)
                    (check' assumptions bound actual)))
         
         [_ (#.Var id)]
         (if_bind id expected
-                 (check\wrap assumptions)
+                 (check\in assumptions)
                  (function (_ bound)
                    (check' assumptions expected bound)))
 
@@ -588,7 +589,7 @@
         [(#.Apply A F) _]
         (let [new_assumption [expected actual]]
           (if (assumed? new_assumption assumptions)
-            (check\wrap assumptions)
+            (check\in assumptions)
             (do ..monad
               [expected' (apply_type! F A)]
               (check' (assume! new_assumption assumptions) expected' actual))))
@@ -625,7 +626,7 @@
                  a_params a_params]
             (case [e_params a_params]
               [#.Nil #.Nil]
-              (check\wrap assumptions)
+              (check\in assumptions)
               
               [(#.Cons e_head e_tail) (#.Cons a_head a_tail)]
               (do ..monad
@@ -651,7 +652,7 @@
 
         [(#.Ex e!id) (#.Ex a!id)]
         (if (!n\= e!id a!id)
-          (check\wrap assumptions)
+          (check\in assumptions)
           ..silent_failure!)
 
         [(#.Named _ ?etype) _]
@@ -692,7 +693,7 @@
         (check\map (|>> (#.Primitive name))))
 
     (^or (#.Parameter _) (#.Ex _) (#.Named _))
-    (check\wrap inputT)
+    (check\in inputT)
 
     (^template [<tag>]
       [(<tag> leftT rightT)
@@ -710,12 +711,12 @@
         (clean actualT)
 
         _
-        (wrap inputT)))
+        (in inputT)))
 
     (^template [<tag>]
       [(<tag> envT+ unquantifiedT)
        (do {! ..monad}
          [envT+' (monad.map ! clean envT+)]
-         (wrap (<tag> envT+' unquantifiedT)))])
+         (in (<tag> envT+' unquantifiedT)))])
     ([#.UnivQ] [#.ExQ])
     ))

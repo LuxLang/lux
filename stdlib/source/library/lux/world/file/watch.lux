@@ -113,10 +113,10 @@
       (#.Some [old_concern last_modified])
       (do !
         [_ (stm.update (dictionary.put path [new_concern last_modified]) tracker)]
-        (wrap true))
+        (in true))
       
       #.None
-      (wrap false))))
+      (in false))))
 
 (def: (file_tracker fs directory)
   (-> (//.System Async) //.Path (Async (Try File_Tracker)))
@@ -126,7 +126,7 @@
                 (function (_ file tracker)
                   (do !
                     [last_modified (\ fs last_modified file)]
-                    (wrap (dictionary.put file last_modified tracker))))
+                    (in (dictionary.put file last_modified tracker))))
                 (: File_Tracker
                    (dictionary.new text.hash))
                 files)))
@@ -164,23 +164,23 @@
            modifications (list.all (function (_ [path current_modification])
                                      (do maybe.monad
                                        [previous_modification (dictionary.get path file_tracker)]
-                                       (wrap [path previous_modification current_modification])))
+                                       (in [path previous_modification current_modification])))
                                    current_files)]]
-    (wrap [[directory
-            [concern
-             (let [with_deletions (list\fold dictionary.remove file_tracker deletions)
-                   with_creations (list\fold (function (_ [path last_modified] tracker)
-                                               (dictionary.put path last_modified tracker))
-                                             with_deletions
-                                             creations)
-                   with_modifications (list\fold (function (_ [path previous_modification current_modification] tracker)
-                                                   (dictionary.put path current_modification tracker))
-                                                 with_creations
-                                                 modifications)]
-               with_modifications)]]
-           [creations
-            modifications
-            deletions]])))
+    (in [[directory
+          [concern
+           (let [with_deletions (list\fold dictionary.remove file_tracker deletions)
+                 with_creations (list\fold (function (_ [path last_modified] tracker)
+                                             (dictionary.put path last_modified tracker))
+                                           with_deletions
+                                           creations)
+                 with_modifications (list\fold (function (_ [path previous_modification current_modification] tracker)
+                                                 (dictionary.put path current_modification tracker))
+                                               with_creations
+                                               modifications)]
+             with_modifications)]]
+         [creations
+          modifications
+          deletions]])))
 
 (def: #export (polling fs)
   (-> (//.System Async) (Watcher Async))
@@ -194,23 +194,23 @@
            (do !
              [updated? (stm.commit (..update_watch! new_concern path tracker))]
              (if updated?
-               (wrap (#try.Success []))
+               (in (#try.Success []))
                (do (try.with !)
                  [file_tracker (..file_tracker fs path)]
                  (do !
                    [_ (stm.commit (stm.update (dictionary.put path [new_concern file_tracker]) tracker))]
-                   (wrap (#try.Success []))))))
-           (wrap (exception.throw ..cannot_poll_a_non_existent_directory [path])))))
+                   (in (#try.Success []))))))
+           (in (exception.except ..cannot_poll_a_non_existent_directory [path])))))
      (def: (concern path)
        (stm.commit
         (do stm.monad
           [@tracker (stm.read tracker)]
-          (wrap (case (dictionary.get path @tracker)
-                  (#.Some [concern file_tracker])
-                  (#try.Success concern)
+          (in (case (dictionary.get path @tracker)
+                (#.Some [concern file_tracker])
+                (#try.Success concern)
 
-                  #.None
-                  (exception.throw ..not_being_watched [path]))))))
+                #.None
+                (exception.except ..not_being_watched [path]))))))
      (def: (stop path)
        (stm.commit
         (do {! stm.monad}
@@ -219,10 +219,10 @@
             (#.Some [concern file_tracker])
             (do !
               [_ (stm.update (dictionary.remove path) tracker)]
-              (wrap (#try.Success concern)))
+              (in (#try.Success concern)))
 
             #.None
-            (wrap (exception.throw ..not_being_watched [path]))))))
+            (in (exception.except ..not_being_watched [path]))))))
      (def: (poll _)
        (do async.monad
          [@tracker (stm.commit (stm.read tracker))]
@@ -235,7 +235,7 @@
                                               (list\map product.left)
                                               (dictionary.of_list text.hash))
                                           tracker))]
-                (wrap (#try.Success [])))
+                (in (#try.Success [])))
             #let [[creations modifications deletions]
                   (list\fold (function (_ [_ [creations modifications deletions]]
                                           [all_creations all_modifications all_deletions])
@@ -244,14 +244,14 @@
                                 (list\compose deletions all_deletions)])
                              [(list) (list) (list)]
                              changes)]]
-           (wrap ($_ list\compose
-                     (list\map (|>> product.left [..creation]) creations)
-                     (|> modifications
-                         (list.only (function (_ [path previous_modification current_modification])
-                                      (not (instant\= previous_modification current_modification))))
-                         (list\map (|>> product.left [..modification])))
-                     (list\map (|>> [..deletion]) deletions)
-                     )))))
+           (in ($_ list\compose
+                   (list\map (|>> product.left [..creation]) creations)
+                   (|> modifications
+                       (list.only (function (_ [path previous_modification current_modification])
+                                    (not (instant\= previous_modification current_modification))))
+                       (list\map (|>> product.left [..modification])))
+                   (list\map (|>> [..deletion]) deletions)
+                   )))))
      )))
 
 (def: #export (mock separator)
@@ -389,7 +389,7 @@
                                            (recur output)))
                                        
                                        #.None
-                                       (wrap output)))))
+                                       (in output)))))
 
                                (def: (watch_events concern)
                                  (-> Concern (List Watch_Event))
@@ -423,36 +423,36 @@
                                                           [_ (async.future
                                                               (java/nio/file/WatchKey::cancel key))
                                                            _ (stm.commit (stm.update (dictionary.remove path) tracker))]
-                                                          (wrap (#try.Success concern)))
+                                                          (in (#try.Success concern)))
 
                                                         #.None
-                                                        (wrap (exception.throw ..not_being_watched [path]))))))]]
-                                   (wrap (: (Watcher Async)
-                                            (implementation
-                                             (def: (start concern path)
-                                               (do async.monad
-                                                 [?concern (stop path)]
-                                                 (do (try.with async.monad)
-                                                   [key (..default_start (..watch_events (..also (try.default ..none ?concern)
-                                                                                                 concern))
-                                                                         watcher
-                                                                         path)]
-                                                   (do async.monad
-                                                     [_ (stm.commit (stm.update (dictionary.put path [concern key]) tracker))]
-                                                     (wrap (#try.Success []))))))
-                                             (def: (concern path)
-                                               (do async.monad
-                                                 [@tracker (stm.commit (stm.read tracker))]
-                                                 (case (dictionary.get path @tracker)
-                                                   (#.Some [concern key])
-                                                   (wrap (#try.Success concern))
+                                                        (in (exception.except ..not_being_watched [path]))))))]]
+                                   (in (: (Watcher Async)
+                                          (implementation
+                                           (def: (start concern path)
+                                             (do async.monad
+                                               [?concern (stop path)]
+                                               (do (try.with async.monad)
+                                                 [key (..default_start (..watch_events (..also (try.default ..none ?concern)
+                                                                                               concern))
+                                                                       watcher
+                                                                       path)]
+                                                 (do async.monad
+                                                   [_ (stm.commit (stm.update (dictionary.put path [concern key]) tracker))]
+                                                   (in (#try.Success []))))))
+                                           (def: (concern path)
+                                             (do async.monad
+                                               [@tracker (stm.commit (stm.read tracker))]
+                                               (case (dictionary.get path @tracker)
+                                                 (#.Some [concern key])
+                                                 (in (#try.Success concern))
 
-                                                   #.None
-                                                   (wrap (exception.throw ..not_being_watched [path])))))
-                                             (def: stop stop)
-                                             (def: (poll _)
-                                               (async.future (..default_poll watcher)))
-                                             )))))
+                                                 #.None
+                                                 (in (exception.except ..not_being_watched [path])))))
+                                           (def: stop stop)
+                                           (def: (poll _)
+                                             (async.future (..default_poll watcher)))
+                                           )))))
                                )]
   (for {@.old (as_is <jvm>)
         @.jvm (as_is <jvm>)}

@@ -31,8 +31,8 @@ To find out, let's create a sample project that will have everything we need.
 These are the steps:
 
 1. Create a directory called `my_project`.
-1. Create a new project file at `my_project/project.lux`.
-1. Add this to the project file:
+2. Create a new project file at `my_project/project.lux`.
+3. Add this to the project file:
 
 ```
 {#identity ["my.group" "my_project" "0.1.0-SNAPSHOT"]
@@ -49,7 +49,7 @@ These are the steps:
 
 ```
 
-1. Create `my_project/source/main.lux` and add this code to it:
+4. Create `my_project/source/main.lux` and add this code to it:
 
 ```
 (.module:
@@ -68,7 +68,7 @@ These are the steps:
 ## Everything will be explained later in the rest of the book.
 ```
 
-1. In your terminal, go to `my_project`, and execute `lux build`.
+5. In your terminal, go to `my_project`, and execute `lux build`.
 
 When it's done, you should see a message like this:
 
@@ -81,8 +81,8 @@ Duration: +15s26ms
 
 A directory named `target` will have been created, containing everything that was compiled, alongside an executable JAR file.
 
-1. Run the program with this command: `java -jar target/jvm/program.jar`
-1. Smile :)
+6. Run the program with this command: `java -jar target/jvm/program.jar`
+7. Smile :)
 
 ## Question #4: Where can I find documentation for Lux?
 
@@ -97,5 +97,5 @@ The place to talk about Lux is at [the Lux forum](http://luxlang.freeforums.net/
 
 Now, we can proceed to the actual teaching of the language!
 
-See you in the next chapter!
+See you in [the next chapter](chapter_2.md)!
 

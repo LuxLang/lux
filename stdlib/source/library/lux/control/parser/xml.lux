@@ -18,6 +18,7 @@
   ["." //])
 
 (type: #export (Parser a)
+  {#.doc (doc "A parser of XML-encoded data.")}
   (//.Parser [Attrs (List XML)] a))
 
 (exception: #export empty_input)
@@ -43,21 +44,24 @@
     (#try.Success [[attrs' remaining] output])
     (if (list.empty? remaining)
       (#try.Success output)
-      (exception.throw ..unconsumed_inputs remaining))
+      (exception.except ..unconsumed_inputs remaining))
     
     (#try.Failure error)
     (#try.Failure error)))
 
 (def: #export (run parser documents)
+  {#.doc (doc "Applies a parser against a stream of XML documents."
+              "Verifies that all of the inputs are consumed by the parser.")}
   (All [a] (-> (Parser a) (List XML) (Try a)))
   (..run' parser /.attributes documents))
 
 (def: #export text
+  {#.doc (doc "Yields text from a text node.")}
   (Parser Text)
   (function (_ [attrs documents])
     (case documents
       #.Nil
-      (exception.throw ..empty_input [])
+      (exception.except ..empty_input [])
       
       (#.Cons head tail)
       (case head
@@ -65,58 +69,62 @@
         (#try.Success [[attrs tail] value])
         
         (#/.Node _)
-        (exception.throw ..unexpected_input [])))))
+        (exception.except ..unexpected_input [])))))
 
 (def: #export tag
+  {#.doc (doc "Yields the tag from the next node.")}
   (Parser Tag)
   (function (_ [attrs documents])
     (case documents
       #.Nil
-      (exception.throw ..empty_input [])
+      (exception.except ..empty_input [])
       
       (#.Cons head _)
       (case head
         (#/.Text _)
-        (exception.throw ..unexpected_input [])
+        (exception.except ..unexpected_input [])
         
         (#/.Node tag _ _)
         (#try.Success [[attrs documents] tag])))))
 
 (def: #export (attribute name)
+  {#.doc (doc "Yields the value of an attribute in the current node.")}
   (-> Attribute (Parser Text))
   (function (_ [attrs documents])
     (case (dictionary.get name attrs)
       #.None
-      (exception.throw ..unknown_attribute [name (dictionary.keys attrs)])
+      (exception.except ..unknown_attribute [name (dictionary.keys attrs)])
       
       (#.Some value)
       (#try.Success [[attrs documents] value]))))
 
 (def: #export (node expected parser)
+  {#.doc (doc "Parses the contents of the next node if the tag matches.")}
   (All [a] (-> Tag (Parser a) (Parser a)))
   (function (_ [attrs documents])
     (case documents
       #.Nil
-      (exception.throw ..empty_input [])
+      (exception.except ..empty_input [])
       
       (#.Cons head tail)
       (case head
         (#/.Text _)
-        (exception.throw ..unexpected_input [])
+        (exception.except ..unexpected_input [])
         
         (#/.Node actual attrs' children)
         (if (name\= expected actual)
           (|> children
               (..run' parser attrs')
               (try\map (|>> [[attrs tail]])))
-          (exception.throw ..wrong_tag [expected actual]))))))
+          (exception.except ..wrong_tag [expected actual]))))))
 
 (def: #export ignore
+  {#.doc (doc "Skips the next node.")}
   (Parser Any)
   (function (_ [attrs documents])
     (case documents
       #.Nil
-      (exception.throw ..empty_input [])
+      (exception.except ..empty_input [])
       
       (#.Cons head tail)
       (#try.Success [[attrs tail] []]))))
@@ -124,6 +132,7 @@
 (exception: #export nowhere)
 
 (def: #export (somewhere parser)
+  {#.doc (doc "Applies the parser somewhere among the remaining inputs; instead of demanding that the parser succeeds against the immediate inputs.")}
   (All [a] (-> (Parser a) (Parser a)))
   (function (recur [attrs input])
     (case (//.run parser [attrs input])
@@ -133,10 +142,10 @@
       (#try.Failure error)
       (case input
         #.Nil
-        (exception.throw ..nowhere [])
+        (exception.except ..nowhere [])
         
         (#.Cons head tail)
         (do try.monad
           [[[attrs tail'] output] (recur [attrs tail])]
-          (wrap [[attrs (#.Cons head tail')]
-                 output]))))))
+          (in [[attrs (#.Cons head tail')]
+               output]))))))

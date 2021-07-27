@@ -36,7 +36,7 @@
   (message: (count! {increment Nat} state self)
     Nat
     (let [state' (n.+ increment state)]
-      (async\wrap (#try.Success [state' state']))))
+      (async\in (#try.Success [state' state']))))
   )
 
 (def: (mailed? outcome)
@@ -52,7 +52,7 @@
      #let [as_mail (: (All [a] (-> (-> a a) (/.Mail a)))
                       (function (_ transform)
                         (function (_ state actor)
-                          (|> state transform #try.Success async\wrap))))
+                          (|> state transform #try.Success async\in))))
            inc! (: (/.Mail Nat) (as_mail inc))
            dec! (: (/.Mail Nat) (as_mail dec))]]
     (<| (_.covering /._)
@@ -69,133 +69,133 @@
                                      [actor (/.spawn! /.default 0)
                                       poisoned? (/.poison! actor)
                                       alive? (/.alive? actor)]
-                                     (wrap (and (..mailed? poisoned?)
-                                                (not alive?)))))
+                                     (in (and (..mailed? poisoned?)
+                                              (not alive?)))))
 
                            cannot_poison_more_than_once!
                            (io.run (do io.monad
                                      [actor (/.spawn! /.default 0)
                                       first_time? (/.poison! actor)
                                       second_time? (/.poison! actor)]
-                                     (wrap (and (..mailed? first_time?)
-                                                (not (..mailed? second_time?))))))]
+                                     (in (and (..mailed? first_time?)
+                                              (not (..mailed? second_time?))))))]
                        (and poisoned_actors_die!
                             cannot_poison_more_than_once!)))
 
             (let [[read write] (: [(Async Text) (Resolver Text)]
                                   (async.async []))]
-              (wrap (do async.monad
-                      [_ (async.future (do io.monad
-                                         [actor (/.spawn! (: (/.Behavior Any Any)
-                                                             {#/.on_init (|>>)
-                                                              #/.on_mail (function (_ message state self)
-                                                                           (do {! async.monad}
-                                                                             [outcome (message state self)]
-                                                                             (case outcome
-                                                                               (#try.Failure cause)
-                                                                               (do !
-                                                                                 [_ (async.future (write cause))]
-                                                                                 (wrap outcome))
-                                                                               
-                                                                               (#try.Success _)
-                                                                               (wrap outcome))))})
-                                                          [])]
-                                         (/.poison! actor)))
-                       _ (async.wait 100)
-                       result (async.future (async.poll read))]
-                      (_.cover' [/.poisoned]
-                                (case result
-                                  (#.Some error)
-                                  (exception.match? /.poisoned error)
-
-                                  #.None
-                                  false)))))
-
-            (wrap (do async.monad
-                    [sent? (async.future (do io.monad
-                                           [actor (/.spawn! /.default 0)
-                                            sent? (/.mail! inc! actor)]
-                                           (wrap (..mailed? sent?))))]
-                    (_.cover' [/.Behavior /.Mail
-                               /.default /.spawn! /.mail!]
-                              sent?)))
-
-            (wrap (do async.monad
-                    [result (async.future (do io.monad
-                                            [counter (/.spawn! /.default 0)
-                                             _ (/.poison! counter)]
-                                            (/.mail! inc! counter)))]
-                    (_.cover' [/.dead]
+              (in (do async.monad
+                    [_ (async.future (do io.monad
+                                       [actor (/.spawn! (: (/.Behavior Any Any)
+                                                           {#/.on_init (|>>)
+                                                            #/.on_mail (function (_ message state self)
+                                                                         (do {! async.monad}
+                                                                           [outcome (message state self)]
+                                                                           (case outcome
+                                                                             (#try.Failure cause)
+                                                                             (do !
+                                                                               [_ (async.future (write cause))]
+                                                                               (in outcome))
+                                                                             
+                                                                             (#try.Success _)
+                                                                             (in outcome))))})
+                                                        [])]
+                                       (/.poison! actor)))
+                     _ (async.wait 100)
+                     result (async.future (async.poll read))]
+                    (_.cover' [/.poisoned]
                               (case result
-                                (#try.Success outcome)
-                                false
+                                (#.Some error)
+                                (exception.match? /.poisoned error)
 
-                                (#try.Failure error)
-                                (exception.match? /.dead error)))))
+                                #.None
+                                false)))))
+
+            (in (do async.monad
+                  [sent? (async.future (do io.monad
+                                         [actor (/.spawn! /.default 0)
+                                          sent? (/.mail! inc! actor)]
+                                         (in (..mailed? sent?))))]
+                  (_.cover' [/.Behavior /.Mail
+                             /.default /.spawn! /.mail!]
+                            sent?)))
+
+            (in (do async.monad
+                  [result (async.future (do io.monad
+                                          [counter (/.spawn! /.default 0)
+                                           _ (/.poison! counter)]
+                                          (/.mail! inc! counter)))]
+                  (_.cover' [/.dead]
+                            (case result
+                              (#try.Success outcome)
+                              false
+
+                              (#try.Failure error)
+                              (exception.match? /.dead error)))))
 
             (let [die! (: (/.Mail Nat)
                           (function (_ state actor)
-                            (async\wrap (exception.throw ..got_wrecked []))))]
-              (wrap (do async.monad
-                      [result (async.future (do io.monad
-                                              [actor (/.spawn! /.default initial_state)
-                                               sent? (/.mail! die! actor)
-                                               alive? (/.alive? actor)
-                                               obituary (/.obituary actor)]
-                                              (wrap (#try.Success [actor sent? alive? obituary]))))]
-                      (_.cover' [/.Obituary /.obituary]
-                                (case result
-                                  (^ (#try.Success [actor sent? alive? (#.Some [error state (list single_pending_message)])]))
-                                  (and (..mailed? sent?)
-                                       (not alive?)
-                                       (exception.match? ..got_wrecked error)
-                                       (n.= initial_state state)
-                                       (is? die! single_pending_message))
-
-                                  _
-                                  false)))))
-
-            (wrap (do async.monad
-                    [counter (async.future (/.spawn! ..counter 0))
-                     result (do (try.with async.monad)
-                              [output_1 (/.tell! (count! 1) counter)
-                               output_2 (/.tell! (count! 1) counter)
-                               output_3 (/.tell! (count! 1) counter)]
-                              (wrap (and (n.= 1 output_1)
-                                         (n.= 2 output_2)
-                                         (n.= 3 output_3))))]
-                    (_.cover' [/.Message /.actor: /.message: /.tell!]
+                            (async\in (exception.except ..got_wrecked []))))]
+              (in (do async.monad
+                    [result (async.future (do io.monad
+                                            [actor (/.spawn! /.default initial_state)
+                                             sent? (/.mail! die! actor)
+                                             alive? (/.alive? actor)
+                                             obituary (/.obituary actor)]
+                                            (in (#try.Success [actor sent? alive? obituary]))))]
+                    (_.cover' [/.Obituary /.obituary]
                               (case result
-                                (#try.Success outcome)
-                                outcome
+                                (^ (#try.Success [actor sent? alive? (#.Some [error state (list single_pending_message)])]))
+                                (and (..mailed? sent?)
+                                     (not alive?)
+                                     (exception.match? ..got_wrecked error)
+                                     (n.= initial_state state)
+                                     (is? die! single_pending_message))
 
-                                (#try.Failure error)
-                                false))))
+                                _
+                                false)))))
 
-            (wrap (do async.monad
-                    [verdict (async.future
-                              (do io.monad
-                                [anonymous (/.actor {Nat
-                                                     initial_state}
-                                                    ((on_mail message state self)
-                                                     (message (inc state) self)))
-                                 sent/inc? (/.mail! inc! anonymous)
-                                 sent/dec? (/.mail! dec! anonymous)
-                                 poisoned? (/.poison! anonymous)
-                                 obituary (/.obituary anonymous)]
-                                (wrap (and (..mailed? sent/inc?)
-                                           (..mailed? sent/dec?)
-                                           (..mailed? poisoned?)
-                                           (case obituary
-                                             (^ (#.Some [error final_state (list poison_pill)]))
-                                             (and (exception.match? /.poisoned error)
-                                                  (n.= (inc (inc initial_state))
-                                                       final_state))
-                                             
-                                             _
-                                             false)))))]
-                    (_.cover' [/.actor]
-                              verdict)))
+            (in (do async.monad
+                  [counter (async.future (/.spawn! ..counter 0))
+                   result (do (try.with async.monad)
+                            [output_1 (/.tell! (count! 1) counter)
+                             output_2 (/.tell! (count! 1) counter)
+                             output_3 (/.tell! (count! 1) counter)]
+                            (in (and (n.= 1 output_1)
+                                     (n.= 2 output_2)
+                                     (n.= 3 output_3))))]
+                  (_.cover' [/.Message /.actor: /.message: /.tell!]
+                            (case result
+                              (#try.Success outcome)
+                              outcome
+
+                              (#try.Failure error)
+                              false))))
+
+            (in (do async.monad
+                  [verdict (async.future
+                            (do io.monad
+                              [anonymous (/.actor {Nat
+                                                   initial_state}
+                                                  ((on_mail message state self)
+                                                   (message (inc state) self)))
+                               sent/inc? (/.mail! inc! anonymous)
+                               sent/dec? (/.mail! dec! anonymous)
+                               poisoned? (/.poison! anonymous)
+                               obituary (/.obituary anonymous)]
+                              (in (and (..mailed? sent/inc?)
+                                       (..mailed? sent/dec?)
+                                       (..mailed? poisoned?)
+                                       (case obituary
+                                         (^ (#.Some [error final_state (list poison_pill)]))
+                                         (and (exception.match? /.poisoned error)
+                                              (n.= (inc (inc initial_state))
+                                                   final_state))
+                                         
+                                         _
+                                         false)))))]
+                  (_.cover' [/.actor]
+                            verdict)))
             
             (do !
               [num_events (\ ! map (|>> (n.% 10) inc) random.nat)
@@ -204,25 +204,25 @@
                #let [expected (list.take num_observations events)
                      sink (: (Atom (Row Nat))
                              (atom.atom row.empty))]]
-              (wrap (do async.monad
-                      [agent (async.future
-                              (do {! io.monad}
-                                [agent (/.actor {Nat 0})
-                                 _ (/.observe (function (_ event stop)
-                                                (function (_ events_seen self)
-                                                  (async.future
-                                                   (if (n.< num_observations events_seen)
-                                                     (do !
-                                                       [_ (atom.update (row.add event) sink)]
-                                                       (wrap (#try.Success (inc events_seen))))
-                                                     (do !
-                                                       [_ stop]
-                                                       (wrap (#try.Failure "YOLO")))))))
-                                              (frp.sequential 0 events)
-                                              agent)]
-                                (wrap agent)))
-                       _ (/.await agent)
-                       actual (async.future (atom.read sink))]
-                      (_.cover' [/.Stop /.observe /.await]
-                                (\ (list.equivalence n.equivalence) = expected (row.to_list actual))))))
+              (in (do async.monad
+                    [agent (async.future
+                            (do {! io.monad}
+                              [agent (/.actor {Nat 0})
+                               _ (/.observe (function (_ event stop)
+                                              (function (_ events_seen self)
+                                                (async.future
+                                                 (if (n.< num_observations events_seen)
+                                                   (do !
+                                                     [_ (atom.update (row.add event) sink)]
+                                                     (in (#try.Success (inc events_seen))))
+                                                   (do !
+                                                     [_ stop]
+                                                     (in (#try.Failure "YOLO")))))))
+                                            (frp.sequential 0 events)
+                                            agent)]
+                              (in agent)))
+                     _ (/.await agent)
+                     actual (async.future (atom.read sink))]
+                    (_.cover' [/.Stop /.observe /.await]
+                              (\ (list.equivalence n.equivalence) = expected (row.to_list actual))))))
             ))))
