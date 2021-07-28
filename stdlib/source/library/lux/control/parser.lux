@@ -90,6 +90,9 @@
       (#try.Success [input' (#.Some x)]))))
 
 (def: #export (run parser input)
+  {#.doc (doc "Executes the parser on the input."
+              "Does not verify that all of the input has been consumed by the parser."
+              "Returns both the parser's output, and a value that represents the remaining input.")}
   (All [s a]
     (-> (Parser s a) s (Try [s a])))
   (parser input))
@@ -151,7 +154,7 @@
     (-> (Parser s a) (Parser s (List a))))
   (|> (..some parser)
       (..and parser)
-      (\ ..monad map (|>> #.Cons))))
+      (\ ..monad map (|>> #.Item))))
 
 (def: #export (exactly amount parser)
   {#.doc "Parse exactly N times."}
@@ -162,7 +165,7 @@
         [x parser]
         (|> parser
             (exactly (dec amount))
-            (\ ! map (|>> (#.Cons x)))))))
+            (\ ! map (|>> (#.Item x)))))))
 
 (def: #export (at_least amount parser)
   {#.doc "Parse at least N times."}
@@ -182,7 +185,7 @@
           (#try.Success [input (list)])
 
           (#try.Success [input' x])
-          (..run (\ ..monad map (|>> (#.Cons x))
+          (..run (\ ..monad map (|>> (#.Item x))
                     (at_most (dec amount) parser))
                  input')))))
 
@@ -197,21 +200,22 @@
       (in minimum))))
 
 (def: #export (separated_by separator parser)
-  {#.doc "Parsers instances of 'parser' that are separated by instances of 'separator'."}
+  {#.doc "Parses instances of 'parser' that are separated by instances of 'separator'."}
   (All [s a b] (-> (Parser s b) (Parser s a) (Parser s (List a))))
   (do {! ..monad}
     [?x (..maybe parser)]
     (case ?x
       #.None
-      (in #.Nil)
+      (in #.End)
       
       (#.Some x)
       (|> parser
           (..and separator)
           ..some
-          (\ ! map (|>> (list\map product.right) (#.Cons x)))))))
+          (\ ! map (|>> (list\map product.right) (#.Item x)))))))
 
 (def: #export (not parser)
+  {#.doc (doc "Only succeeds when the underlying parser fails.")}
   (All [s a] (-> (Parser s a) (Parser s Any)))
   (function (_ input)
     (case (parser input)
@@ -222,11 +226,13 @@
       (#try.Failure "Expected to fail; yet succeeded."))))
 
 (def: #export (failure message)
+  {#.doc (doc "Always fail with this 'message'.")}
   (All [s a] (-> Text (Parser s a)))
   (function (_ input)
     (#try.Failure message)))
 
 (def: #export (lift operation)
+  {#.doc (doc "Lift a potentially failed computation into a parser.")}
   (All [s a] (-> (Try a) (Parser s a)))
   (function (_ input)
     (case operation
@@ -248,23 +254,26 @@
       (#try.Success [input' output]))))
 
 (def: #export remaining
+  {#.doc (doc "Yield the remaining input (without consuming it).")}
   (All [s] (Parser s s))
   (function (_ inputs)
     (#try.Success [inputs inputs])))
 
 (def: #export (rec parser)
-  {#.doc "Combinator for recursive parser."}
+  {#.doc "Combinator for recursive parsers."}
   (All [s a] (-> (-> (Parser s a) (Parser s a)) (Parser s a)))
   (function (_ inputs)
     (..run (parser (rec parser)) inputs)))
 
 (def: #export (after param subject)
+  {#.doc (doc "Run the parser after another one (whose output is ignored).")}
   (All [s _ a] (-> (Parser s _) (Parser s a) (Parser s a)))
   (do ..monad
     [_ param]
     subject))
 
 (def: #export (before param subject)
+  {#.doc (doc "Run the parser before another one (whose output is ignored).")}
   (All [s _ a] (-> (Parser s _) (Parser s a) (Parser s a)))
   (do ..monad
     [output subject
@@ -272,6 +281,7 @@
     (in output)))
 
 (def: #export (only test parser)
+  {#.doc (doc "Only succeed when the parser's output passes a test.")}
   (All [s a] (-> (-> a Bit) (Parser s a) (Parser s a)))
   (do ..monad
     [output parser
@@ -279,6 +289,7 @@
     (in output)))
 
 (def: #export (parses? parser)
+  {#.doc (doc "Ignore a parser's output and just verify that it succeeds.")}
   (All [s a] (-> (Parser s a) (Parser s Bit)))
   (function (_ input)
     (case (parser input)
@@ -289,6 +300,7 @@
       (#try.Success [input' true]))))
 
 (def: #export (parses parser)
+  {#.doc (doc "Ignore a parser's output and just execute it.")}
   (All [s a] (-> (Parser s a) (Parser s Any)))
   (function (_ input)
     (case (parser input)
@@ -299,6 +311,8 @@
       (#try.Success [input' []]))))
 
 (def: #export (speculative parser)
+  {#.doc (doc "Executes a parser, without actually consuming the input."
+              "That way, the same input can be consumed again by another parser.")}
   (All [s a] (-> (Parser s a) (Parser s a)))
   (function (_ input)
     (case (parser input)
@@ -309,6 +323,7 @@
       output)))
 
 (def: #export (codec codec parser)
+  {#.doc (doc "Decode the output of a parser using a codec.")}
   (All [s a z] (-> (Codec a z) (Parser s a) (Parser s z)))
   (function (_ input)
     (case (parser input)

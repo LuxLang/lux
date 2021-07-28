@@ -12,6 +12,7 @@
       ["." list ("#\." fold functor)]]]
     ["." macro (#+ with_gensyms)
      ["." code]
+     ["." template]
      [syntax (#+ syntax:)
       ["|.|" export]
       ["|.|" annotations]]]
@@ -61,7 +62,7 @@
   (monad.do meta.monad
     [expansion expander]
     (case expansion
-      (#.Cons singleton #.Nil)
+      (#.Item singleton #.End)
       (in singleton)
 
       _
@@ -71,6 +72,15 @@
 (syntax: #export (=> {aliases aliases^}
                      {inputs stack^}
                      {outputs stack^})
+  {#.doc (doc "Concatenative function types."
+              (=> [Nat] [Nat])
+              (All [a] (-> a (=> [] [a])))
+              (All [t] (=> [t] []))
+              (All [a b c] (=> [a b c] [b c a]))
+              (All [___a ___z]
+                (=> {then (=> ___a ___z)
+                     else (=> ___a ___z)}
+                    ___a [Bit then else] ___z)))}
   (let [de_alias (function (_ aliased)
                    (list\fold (function (_ [from to] pre)
                                 (code.replace (code.local_identifier from) to pre))
@@ -102,6 +112,13 @@
     top))
 
 (syntax: #export (||> {commands (<>.some <c>.any)})
+  {#.doc (doc "A self-contained sequence of concatenative instructions."
+              (is? value
+                   (||> (..push sample)))
+
+              (||> (push 123)
+                   dup
+                   n/=))}
   (in (list (` (|> (~! ..begin!) (~+ commands) ((~! ..end!)))))))
 
 (syntax: #export (word:
@@ -110,12 +127,21 @@
                    {annotations (<>.default |annotations|.empty |annotations|.parser)}
                    type
                    {commands (<>.some <c>.any)})
+  {#.doc (doc "A named concatenative function."
+              (word: square
+                (=> [Nat] [Nat])
+
+                dup
+                (apply/2 n.*)))}
   (in (list (` (def: (~+ (|export|.format export)) (~ (code.local_identifier name))
                  (~ (|annotations|.format annotations))
                  (~ type)
                  (|>> (~+ commands)))))))
 
 (syntax: #export (apply {arity (|> <c>.nat (<>.only (n.> 0)))})
+  {#.doc (doc "A generator for functions that turn arity N functions into arity N concatenative functions."
+              (: (=> [Nat] [Nat])
+                 ((apply 1) inc)))}
   (with_gensyms [g! g!func g!stack g!output]
     (monad.do {! meta.monad}
       [g!inputs (|> (macro.gensym "input") (list.repeat arity) (monad.seq !))]
@@ -126,70 +152,84 @@
                         (function ((~ g!) (~ (stack_fold g!inputs g!stack)))
                           [(~ g!stack) ((~ g!func) (~+ g!inputs))])))))))))
 
-(def: #export apply/1 (apply 1))
-(def: #export apply/2 (apply 2))
-(def: #export apply/3 (apply 3))
-(def: #export apply/4 (apply 4))
-(def: #export apply/5 (apply 5))
-(def: #export apply/6 (apply 6))
-(def: #export apply/7 (apply 7))
-(def: #export apply/8 (apply 8))
+(template [<arity>]
+  [(with_expansions [<name> (template.identifier ["apply/" <arity>])
+                     <doc> (template.text ["Lift a function of arity " <arity>
+                                           " into a concatenative function of arity " <arity> "."])]
+     (def: #export <name>
+       {#.doc (doc <doc>)}
+       (apply <arity>)))]
+
+  [1] [2] [3] [4]
+  [5] [6] [7] [8]
+  )
 
 (def: #export (push x)
+  {#.doc (doc "Push a value onto the stack.")}
   (All [a] (-> a (=> [] [a])))
   (function (_ stack)
     [stack x]))
 
 (def: #export drop
+  {#.doc (doc "Drop/pop a value from the top of the stack.")}
   (All [t] (=> [t] []))
   (function (_ [stack top])
     stack))
 
 (def: #export nip
+  {#.doc (doc "Drop the second-to-last value from the top of the stack.")}
   (All [_ a] (=> [_ a] [a]))
   (function (_ [[stack _] top])
     [stack top]))
 
 (def: #export dup
+  {#.doc (doc "Duplicate the top of the stack.")}
   (All [a] (=> [a] [a a]))
   (function (_ [stack top])
     [[stack top] top]))
 
 (def: #export swap
+  {#.doc (doc "Swaps the 2 topmost stack values.")}
   (All [a b] (=> [a b] [b a]))
   (function (_ [[stack l] r])
     [[stack r] l]))
 
 (def: #export rotL
+  {#.doc (doc "Rotes the 3 topmost stack values to the left.")}
   (All [a b c] (=> [a b c] [b c a]))
   (function (_ [[[stack a] b] c])
     [[[stack b] c] a]))
 
 (def: #export rotR
+  {#.doc (doc "Rotes the 3 topmost stack values to the right.")}
   (All [a b c] (=> [a b c] [c a b]))
   (function (_ [[[stack a] b] c])
     [[[stack c] a] b]))
 
 (def: #export &&
+  {#.doc (doc "Groups the 2 topmost stack values as a 2-tuple.")}
   (All [a b] (=> [a b] [(& a b)]))
   (function (_ [[stack l] r])
     [stack [l r]]))
 
 (def: #export ||L
+  {#.doc (doc "Left-injects the top into sum.")}
   (All [a b] (=> [a] [(| a b)]))
   (function (_ [stack l])
     [stack (0 #0 l)]))
 
 (def: #export ||R
+  {#.doc (doc "Right-injects the top into sum.")}
   (All [a b] (=> [b] [(| a b)]))
   (function (_ [stack r])
     [stack (0 #1 r)]))
 
 (template [<input> <output> <word> <func>]
-  [(def: #export <word>
-     (=> [<input> <input>] [<output>])
-     (function (_ [[stack subject] param])
-       [stack (<func> param subject)]))]
+  [(`` (def: #export <word>
+         {#.doc (doc (~~ (template.text [<func> " for " <input> " arithmetic."])))}
+         (=> [<input> <input>] [<output>])
+         (function (_ [[stack subject] param])
+           [stack (<func> param subject)])))]
 
   [Nat Nat  n/+  n.+]
   [Nat Nat  n/-  n.-]
@@ -237,6 +277,12 @@
   )
 
 (def: #export if
+  {#.doc (doc "If expression."
+              (is? "then"
+                   (||> (push true)
+                        (push "then")
+                        (push "else")
+                        if)))}
   (All [___a ___z]
     (=> {then (=> ___a ___z)
          else (=> ___a ___z)}
@@ -247,6 +293,7 @@
       (else stack))))
 
 (def: #export call
+  {#.doc (doc "Executes an anonymous block on the stack.")}
   (All [___a ___z]
     (=> {quote (=> ___a ___z)}
         ___a [quote] ___z))
@@ -254,6 +301,7 @@
     (quote stack)))
 
 (def: #export loop
+  {#.doc (doc "Executes a block as a loop until it yields #0 to stop.")}
   (All [___]
     (=> {test (=> ___ ___ [Bit])}
         ___ [test] ___))
@@ -264,6 +312,7 @@
         stack'))))
 
 (def: #export dip
+  {#.doc (doc "Executes a block on the stack, save for the topmost value.")}
   (All [___ a]
     (=> ___ [a (=> ___ ___)]
         ___ [a]))
@@ -271,6 +320,7 @@
     [(quote stack) a]))
 
 (def: #export dip/2
+  {#.doc (doc "Executes a block on the stack, save for the 2 topmost values.")}
   (All [___ a b]
     (=> ___ [a b (=> ___ ___)]
         ___ [a b]))
@@ -278,6 +328,12 @@
     [[(quote stack) a] b]))
 
 (def: #export do
+  {#.doc (doc "Do-while loop expression."
+              (n.= (inc sample)
+                   (||> (push sample)
+                        (push (push false))
+                        (push (|>> (push 1) n/+))
+                        do while)))}
   (All [___a ___z]
     (=> {body (=> ___a ___z)
          pred (=> ___z ___a [Bit])}
@@ -287,6 +343,14 @@
     [[(body stack) pred] body]))
 
 (def: #export while
+  {#.doc (doc "While loop expression."
+              (n.= (n.+ distance start)
+                   (||> (push start)
+                        (push (|>> dup
+                                   (push start) n/-
+                                   (push distance) n/<))
+                        (push (|>> (push 1) n/+))
+                        while)))}
   (All [___a ___z]
     (=> {body (=> ___z ___a)
          pred (=> ___a ___z [Bit])}
@@ -299,13 +363,27 @@
         stack'))))
 
 (def: #export compose
+  {#.doc (doc "Function composition."
+              (n.= (n.+ 2 sample)
+                   (||> (push sample)
+                        (push (|>> (push 1) n/+))
+                        (push (|>> (push 1) n/+))
+                        compose
+                        call)))}
   (All [___a ___ ___z]
     (=> [(=> ___a ___) (=> ___ ___z)]
         [(=> ___a ___z)]))
   (function (_ [[stack f] g])
     [stack (|>> f g)]))
 
-(def: #export curry
+(def: #export partial
+  {#.doc (doc "Partial application."
+              (n.= (n.+ sample sample)
+                   (||> (push sample)
+                        (push sample)
+                        (push n/+)
+                        partial
+                        call)))}
   (All [___a ___z a]
     (=> ___a [a (=> ___a [a] ___z)]
         ___a [(=> ___a ___z)]))
@@ -313,19 +391,21 @@
     [stack (|>> (push arg) quote)]))
 
 (word: #export when
+  {#.doc (doc "Only execute the block when #1.")}
   (All [___]
     (=> {body (=> ___ ___)}
         ___ [Bit body]
         ___))
   swap
-  (push (|>> call))
-  (push (|>> drop))
+  (push ..call)
+  (push ..drop)
   if)
 
 (word: #export ?
+  {#.doc (doc "Choose the top value when #0 and the second-to-top when #1.")}
   (All [a]
     (=> [Bit a a] [a]))
   rotL
-  (push (|>> drop))
-  (push (|>> nip))
+  (push ..drop)
+  (push ..nip)
   if)

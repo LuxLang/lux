@@ -51,12 +51,12 @@
   (loop [idx 0
          mappings (get@ [#.captured #.mappings] scope)]
     (case mappings
-      (#.Cons [_name [_source_type _source_ref]] mappings')
+      (#.Item [_name [_source_type _source_ref]] mappings')
       (if (text\= name _name)
         (#.Some [_source_type (#variable.Foreign idx)])
         (recur (inc idx) mappings'))
 
-      #.Nil
+      #.End
       #.None)))
 
 (def: (reference? name scope)
@@ -81,22 +81,22 @@
                              (get@ #.scopes)
                              (list.split_with (|>> (reference? name) not)))]
        (case outer
-         #.Nil
+         #.End
          (#.Right [state #.None])
 
-         (#.Cons top_outer _)
+         (#.Item top_outer _)
          (let [[ref_type init_ref] (maybe.default (undefined)
                                                   (..reference name top_outer))
                [ref inner'] (list\fold (: (-> Scope [Variable (List Scope)] [Variable (List Scope)])
                                           (function (_ scope ref+inner)
                                             [(#variable.Foreign (get@ [#.captured #.counter] scope))
-                                             (#.Cons (update@ #.captured
+                                             (#.Item (update@ #.captured
                                                               (: (-> Foreign Foreign)
                                                                  (|>> (update@ #.counter inc)
                                                                       (update@ #.mappings (plist.put name [ref_type (product.left ref+inner)]))))
                                                               scope)
                                                      (product.right ref+inner))]))
-                                       [init_ref #.Nil]
+                                       [init_ref #.End]
                                        (list.reverse inner))
                scopes (list\compose inner' outer)]
            (#.Right [(set@ #.scopes scopes state)
@@ -110,7 +110,7 @@
   (All [a] (-> [Text Type] (Operation a) (Operation a)))
   (function (_ [bundle state])
     (case (get@ #.scopes state)
-      (#.Cons head tail)
+      (#.Item head tail)
       (let [old_mappings (get@ [#.locals #.mappings] head)
             new_var_id (get@ [#.locals #.counter] head)
             new_head (update@ #.locals
@@ -118,12 +118,12 @@
                                  (|>> (update@ #.counter inc)
                                       (update@ #.mappings (plist.put name [type new_var_id]))))
                               head)]
-        (case (///.run' [bundle (set@ #.scopes (#.Cons new_head tail) state)]
+        (case (///.run' [bundle (set@ #.scopes (#.Item new_head tail) state)]
                         action)
           (#try.Success [[bundle' state'] output])
           (case (get@ #.scopes state')
-            (#.Cons head' tail')
-            (let [scopes' (#.Cons (set@ #.locals (get@ #.locals head) head')
+            (#.Item head' tail')
+            (let [scopes' (#.Item (set@ #.locals (get@ #.locals head) head')
                                   tail')]
               (#try.Success [[bundle' (set@ #.scopes scopes' state')]
                              output]))
@@ -159,13 +159,13 @@
   (All [a] (-> Text (Operation a) (Operation a)))
   (function (_ [bundle state])
     (let [parent_name (case (get@ #.scopes state)
-                        #.Nil
+                        #.End
                         (list)
                         
-                        (#.Cons top _)
+                        (#.Item top _)
                         (get@ #.name top))]
       (case (action [bundle (update@ #.scopes
-                                     (|>> (#.Cons (scope parent_name name)))
+                                     (|>> (#.Item (scope parent_name name)))
                                      state)])
         (#try.Success [[bundle' state'] output])
         (#try.Success [[bundle' (update@ #.scopes
@@ -184,10 +184,10 @@
   (///extension.lift
    (function (_ state)
      (case (get@ #.scopes state)
-       (#.Cons top _)
+       (#.Item top _)
        (#try.Success [state (get@ [#.locals #.counter] top)])
 
-       #.Nil
+       #.End
        (exception.except ..cannot_get_next_reference_when_there_is_no_scope [])))))
 
 (def: (ref_to_variable ref)

@@ -4,6 +4,7 @@
 
 # User/human-level
 
+1. [Securing your development environment](https://stsewd.dev/posts/securing-your-dev-environment/)
 1. [Security Checklist: Tools and resources designed to improve your online privacy, safety, and security.](https://brianlovin.com/security)
 
 # Secrets | Confidentiality

@@ -146,7 +146,9 @@ Suffice it to say that the `debug.log!` function will produce a value of type `A
 
 That `(IO Any)` value will then be run by the system at run-time, giving us the result we want.
 
+---
+
 Now that we've discussed some of the basics of what goes on inside of Lux programs, it's time for us to explore the language in a little bit more depth.
 
-See you in the next chapter!
+See you in [the next chapter](chapter_3.md)!
 
