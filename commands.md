@@ -2,6 +2,9 @@
 
 ```
 cd ~/lux/ && find . -name '*.lux' | xargs wc -l
+
+## Sorted by number of lines per file.
+cd ~/lux/ && find . -name '*.lux' | xargs wc -l | sort -rn
 ```
 
 ---

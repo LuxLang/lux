@@ -1,3 +1,7 @@
+# Debugging
+
+1. [Keynote: William Kahan - Debugging Tools for Floating-Point Code](https://www.youtube.com/watch?v=qHddEkfQBrA)
+
 # Comparison
 
 1. [Approximate Equality for Floating Point](https://github.com/apple/swift-evolution/blob/master/proposals/0259-approximately-equal.md)

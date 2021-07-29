@@ -18,7 +18,7 @@
    ["#" meta
     ["." location]]])
 
-(def: #export (expand_once syntax)
+(def: #export (single_expansion syntax)
   {#.doc (doc "Given code that requires applying a macro, does it once and returns the result."
               "Otherwise, returns the code as-is.")}
   (-> Code (Meta (List Code)))
@@ -36,7 +36,7 @@
     _
     (\ //.monad in (list syntax))))
 
-(def: #export (expand syntax)
+(def: #export (expansion syntax)
   {#.doc (doc "Given code that requires applying a macro, expands repeatedly until no more direct macro-calls are left."
               "Otherwise, returns the code as-is.")}
   (-> Code (Meta (List Code)))
@@ -46,10 +46,11 @@
       [?macro (//.macro name)]
       (case ?macro
         (#.Some macro)
-        (do //.monad
-          [expansion ((:as Macro' macro) args)
-           expansion' (monad.map //.monad expand expansion)]
-          (in (list\join expansion')))
+        (do {! //.monad}
+          [top_level_expansion ((:as Macro' macro) args)]
+          (|> top_level_expansion
+              (monad.map //.monad expansion)
+              (\ ! map list\join)))
         
         #.None
         (\ //.monad in (list syntax))))
@@ -57,7 +58,7 @@
     _
     (\ //.monad in (list syntax))))
 
-(def: #export (expand_all syntax)
+(def: #export (full_expansion syntax)
   {#.doc "Expands all macro-calls everywhere recursively, until only primitive/base code remains."}
   (-> Code (Meta (List Code)))
   (case syntax
@@ -68,23 +69,23 @@
         (#.Some macro)
         (do //.monad
           [expansion ((:as Macro' macro) args)
-           expansion' (monad.map //.monad expand_all expansion)]
+           expansion' (monad.map //.monad full_expansion expansion)]
           (in (list\join expansion')))
         
         #.None
         (do //.monad
-          [parts' (monad.map //.monad expand_all (list& (code.identifier name) args))]
+          [parts' (monad.map //.monad full_expansion (list& (code.identifier name) args))]
           (in (list (code.form (list\join parts')))))))
 
     [_ (#.Form (#.Item [harg targs]))]
     (do //.monad
-      [harg+ (expand_all harg)
-       targs+ (monad.map //.monad expand_all targs)]
+      [harg+ (full_expansion harg)
+       targs+ (monad.map //.monad full_expansion targs)]
       (in (list (code.form (list\compose harg+ (list\join (: (List (List Code)) targs+)))))))
 
     [_ (#.Tuple members)]
     (do //.monad
-      [members' (monad.map //.monad expand_all members)]
+      [members' (monad.map //.monad full_expansion members)]
       (in (list (code.tuple (list\join members')))))
 
     [_ (#.Record members)]
@@ -92,8 +93,8 @@
         (monad.map //.monad
                    (function (_ [left right])
                      (do //.monad
-                       [left (expand_all left)
-                        right (expand_all right)]
+                       [left (full_expansion left)
+                        right (full_expansion right)]
                        (case [left right]
                          [(#.Item left #.End) (#.Item right #.End)]
                          (in [left right])
@@ -154,11 +155,11 @@
     _
     (//.failure (..wrong_syntax_error (name_of ..with_gensyms)))))
 
-(def: #export (expand_1 token)
+(def: #export (one_expansion token)
   {#.doc "Works just like expand, except that it ensures that the output is a single Code token."}
   (-> Code (Meta Code))
   (do //.monad
-    [token+ (..expand token)]
+    [token+ (..expansion token)]
     (case token+
       (^ (list token'))
       (in token')
@@ -204,7 +205,7 @@
          #.None
          (//.failure (..wrong_syntax_error macro_name)))))]
 
-  [log_expand_once! ..expand_once]
-  [log_expand!      ..expand]
-  [log_expand_all!  ..expand_all]
+  [log_single_expansion! ..single_expansion]
+  [log_expansion!        ..expansion]
+  [log_full_expansion!   ..full_expansion]
   )

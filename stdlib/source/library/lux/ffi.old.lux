@@ -227,7 +227,7 @@
   (#FieldAccessDecl ImportFieldDecl))
 
 ## Utils
-(def: (manual_primitive_to_type class)
+(def: (manual_primitive_type class)
   (-> Text (Maybe Code))
   (case class
     (^template [<prim> <type>]
@@ -246,7 +246,7 @@
     _
     #.None))
 
-(def: (auto_primitive_to_type class)
+(def: (auto_primitive_type class)
   (-> Text (Maybe Code))
   (case class
     (^template [<prim> <type>]
@@ -268,26 +268,26 @@
   (-> Text Text)
   (text.replace_all "/" "."))
 
-(def: (generic_class_to_type' mode type_params in_array? name+params
-                              class_to_type')
+(def: (generic_class_type' mode type_params in_array? name+params
+                           class_type')
   (-> Primitive_Mode (List Type_Parameter) Bit [Text (List GenericType)]
       (-> Primitive_Mode (List Type_Parameter) Bit GenericType Code)
       Code)
   (case [name+params mode in_array?]
     (^multi [[prim #.End] #ManualPrM #0]
-            {(manual_primitive_to_type prim) (#.Some output)})
+            {(manual_primitive_type prim) (#.Some output)})
     output
 
     (^multi [[prim #.End] #AutoPrM #0]
-            {(auto_primitive_to_type prim) (#.Some output)})
+            {(auto_primitive_type prim) (#.Some output)})
     output
     
     [[name params] _ _]
     (let [name (safe name)
-          =params (list\map (class_to_type' mode type_params in_array?) params)]
+          =params (list\map (class_type' mode type_params in_array?) params)]
       (` (primitive (~ (code.text name)) [(~+ =params)])))))
 
-(def: (class_to_type' mode type_params in_array? class)
+(def: (class_type' mode type_params in_array? class)
   (-> Primitive_Mode (List Type_Parameter) Bit GenericType Code)
   (case class
     (#GenericTypeVar name)
@@ -299,26 +299,26 @@
       (code.identifier ["" name])
 
       (#.Some [pname pbounds])
-      (class_to_type' mode type_params in_array? (maybe.assume (list.head pbounds))))
+      (class_type' mode type_params in_array? (maybe.assume (list.head pbounds))))
     
     (#GenericClass name+params)
-    (generic_class_to_type' mode type_params in_array? name+params
-                            class_to_type')
+    (generic_class_type' mode type_params in_array? name+params
+                         class_type')
 
     (#GenericArray param)
-    (let [=param (class_to_type' mode type_params #1 param)]
+    (let [=param (class_type' mode type_params #1 param)]
       (` ((~! array.Array) (~ =param))))
 
     (^or (#GenericWildcard #.None) (#GenericWildcard (#.Some [#LowerBound _])))
     (` .Any)
 
     (#GenericWildcard (#.Some [#UpperBound upper_bound]))
-    (class_to_type' mode type_params in_array? upper_bound)
+    (class_type' mode type_params in_array? upper_bound)
     ))
 
-(def: (class_to_type mode type_params class)
+(def: (class_type mode type_params class)
   (-> Primitive_Mode (List Type_Parameter) GenericType Code)
-  (class_to_type' mode type_params #0 class))
+  (class_type' mode type_params #0 class))
 
 (def: (type_param_type$ [name bounds])
   (-> Type_Parameter Code)
@@ -333,7 +333,7 @@
                                  (code.identifier ["" pname])
 
                                  (#.Item bound1 _)
-                                 (class_to_type #ManualPrM class_params bound1))))
+                                 (class_type #ManualPrM class_params bound1))))
                           class_params)]
     (` (primitive (~ (code.text (safe class_name)))
                   [(~+ =params)]))))
@@ -384,21 +384,21 @@
       (format "[L" (simple_class$ env param) ";"))
     ))
 
-(def: (make_get_const_parser class_name field_name)
+(def: (get_const_parser class_name field_name)
   (-> Text Text (Parser Code))
   (do <>.monad
     [#let [dotted_name (format "::" field_name)]
      _ (<code>.this! (code.identifier ["" dotted_name]))]
     (in (`' ((~ (code.text (format "jvm getstatic" ":" class_name ":" field_name))))))))
 
-(def: (make_get_var_parser class_name field_name)
+(def: (get_var_parser class_name field_name)
   (-> Text Text (Parser Code))
   (do <>.monad
     [#let [dotted_name (format "::" field_name)]
      _ (<code>.this! (code.identifier ["" dotted_name]))]
     (in (`' ((~ (code.text (format "jvm getfield" ":" class_name ":" field_name))) _jvm_this)))))
 
-(def: (make_put_var_parser class_name field_name)
+(def: (put_var_parser class_name field_name)
   (-> Text Text (Parser Code))
   (do <>.monad
     [#let [dotted_name (format "::" field_name)]
@@ -424,7 +424,7 @@
     ast'
     ast'))
 
-(def: (parser_to_replacer p ast)
+(def: (parser_replacer p ast)
   (-> (Parser Code) (-> Code Code))
   (case (<>.run p (list ast))
     (#.Right [#.End ast'])
@@ -434,17 +434,17 @@
     ast
     ))
 
-(def: (field_to_parser class_name [[field_name _ _] field])
+(def: (field_parser class_name [[field_name _ _] field])
   (-> Text [Member_Declaration FieldDecl] (Parser Code))
   (case field
     (#ConstantField _)
-    (make_get_const_parser class_name field_name)
+    (get_const_parser class_name field_name)
     
     (#VariableField _)
-    (<>.either (make_get_var_parser class_name field_name)
-               (make_put_var_parser class_name field_name))))
+    (<>.either (get_var_parser class_name field_name)
+               (put_var_parser class_name field_name))))
 
-(def: (make_constructor_parser params class_name arg_decls)
+(def: (constructor_parser params class_name arg_decls)
   (-> (List Type_Parameter) Text (List ArgDecl) (Parser Code))
   (do <>.monad
     [args (: (Parser (List Code))
@@ -454,7 +454,7 @@
     (in (` ((~ (code.text (format "jvm new" ":" class_name ":" (text.join_with "," arg_decls'))))
             (~+ args))))))
 
-(def: (make_static_method_parser params class_name method_name arg_decls)
+(def: (static_method_parser params class_name method_name arg_decls)
   (-> (List Type_Parameter) Text Text (List ArgDecl) (Parser Code))
   (do <>.monad
     [#let [dotted_name (format "::" method_name "!")]
@@ -477,28 +477,28 @@
        (in (`' ((~ (code.text (format <jvm_op> ":" class_name ":" method_name ":" (text.join_with "," arg_decls'))))
                 (~' _jvm_this) (~+ args))))))]
 
-  [make_special_method_parser "jvm invokespecial"]
-  [make_virtual_method_parser "jvm invokevirtual"]
+  [special_method_parser "jvm invokespecial"]
+  [virtual_method_parser "jvm invokevirtual"]
   )
 
-(def: (method_to_parser params class_name [[method_name _ _] meth_def])
+(def: (method_parser params class_name [[method_name _ _] meth_def])
   (-> (List Type_Parameter) Text [Member_Declaration Method_Definition] (Parser Code))
   (case meth_def
     (#ConstructorMethod strict? type_vars args constructor_args return_expr exs)
-    (make_constructor_parser params class_name args)
+    (constructor_parser params class_name args)
     
     (#StaticMethod strict? type_vars args return_type return_expr exs)
-    (make_static_method_parser params class_name method_name args)
+    (static_method_parser params class_name method_name args)
     
     (^or (#VirtualMethod final? strict? type_vars self_name args return_type return_expr exs)
          (#OverridenMethod strict? owner_class type_vars self_name args return_type return_expr exs))
-    (make_special_method_parser params class_name method_name args)
+    (special_method_parser params class_name method_name args)
 
     (#AbstractMethod type_vars args return_type exs)
-    (make_virtual_method_parser params class_name method_name args)
+    (virtual_method_parser params class_name method_name args)
 
     (#NativeMethod type_vars args return_type exs)
-    (make_virtual_method_parser params class_name method_name args)))
+    (virtual_method_parser params class_name method_name args)))
 
 ## Parsers
 (def: privacy_modifier^
@@ -941,11 +941,11 @@
 ## Generators
 (def: with_parens
   (-> JVM_Code JVM_Code)
-  (text.enclose ["(" ")"]))
+  (text.enclosed ["(" ")"]))
 
 (def: with_brackets
   (-> JVM_Code JVM_Code)
-  (text.enclose ["[" "]"]))
+  (text.enclosed ["[" "]"]))
 
 (def: spaced
   (-> (List JVM_Code) JVM_Code)
@@ -1092,16 +1092,16 @@
                                                                  (~ body))))))))
     
     (#OverridenMethod strict_fp? class_decl type_vars this_name arg_decls return_type body exs)
-    (let [super_replacer (parser_to_replacer (<code>.form (do <>.monad
-                                                            [_ (<code>.this! (' ::super!))
-                                                             args (<code>.tuple (<>.exactly (list.size arg_decls) <code>.any))
-                                                             #let [arg_decls' (: (List Text) (list\map (|>> product.right (simple_class$ (list)))
-                                                                                                       arg_decls))]]
-                                                            (in (`' ((~ (code.text (format "jvm invokespecial"
-                                                                                           ":" (get@ #super_class_name super_class)
-                                                                                           ":" name
-                                                                                           ":" (text.join_with "," arg_decls'))))
-                                                                     (~' _jvm_this) (~+ args)))))))]
+    (let [super_replacer (parser_replacer (<code>.form (do <>.monad
+                                                         [_ (<code>.this! (' ::super!))
+                                                          args (<code>.tuple (<>.exactly (list.size arg_decls) <code>.any))
+                                                          #let [arg_decls' (: (List Text) (list\map (|>> product.right (simple_class$ (list)))
+                                                                                                    arg_decls))]]
+                                                         (in (`' ((~ (code.text (format "jvm invokespecial"
+                                                                                        ":" (get@ #super_class_name super_class)
+                                                                                        ":" name
+                                                                                        ":" (text.join_with "," arg_decls'))))
+                                                                  (~' _jvm_this) (~+ args)))))))]
       (with_parens
         (spaced (list "override"
                       (class_decl$ class_decl)
@@ -1210,11 +1210,11 @@
   (do meta.monad
     [current_module meta.current_module_name
      #let [fully_qualified_class_name (format (safe current_module) "." full_class_name)
-           field_parsers (list\map (field_to_parser fully_qualified_class_name) fields)
-           method_parsers (list\map (method_to_parser (product.right class_decl) fully_qualified_class_name) methods)
-           replacer (parser_to_replacer (list\fold <>.either
-                                                   (<>.failure "")
-                                                   (list\compose field_parsers method_parsers)))
+           field_parsers (list\map (field_parser fully_qualified_class_name) fields)
+           method_parsers (list\map (method_parser (product.right class_decl) fully_qualified_class_name) methods)
+           replacer (parser_replacer (list\fold <>.either
+                                                (<>.failure "")
+                                                (list\compose field_parsers method_parsers)))
            def_code (format "jvm class:"
                             (spaced (list (class_decl$ class_decl)
                                           (super_class_decl$ super)
@@ -1399,7 +1399,7 @@
                                         import_member_args))
                arg_types (list\map (: (-> [Bit GenericType] Code)
                                       (function (_ [maybe? arg])
-                                        (let [arg_type (class_to_type (get@ #import_member_mode commons) type_params arg)]
+                                        (let [arg_type (class_type (get@ #import_member_mode commons) type_params arg)]
                                           (if maybe?
                                             (` (Maybe (~ arg_type)))
                                             arg_type))))
@@ -1568,7 +1568,7 @@
       (#FieldAccessDecl fad)
       (do meta.monad
         [#let [(^open ".") fad
-               base_gtype (class_to_type import_field_mode type_params import_field_type)
+               base_gtype (class_type import_field_mode type_params import_field_type)
                classC (class_decl_type$ class)
                typeC (if import_field_maybe?
                        (` (Maybe (~ base_gtype)))
@@ -1740,7 +1740,7 @@
               (array_length my_array))}
   (in (list (` ("jvm arraylength" (~ array))))))
 
-(def: (type_to_class_name type)
+(def: (type_class_name type)
   (-> Type (Meta Text))
   (if (type\= Any type)
     (\ meta.monad in "java.lang.Object")
@@ -1754,10 +1754,10 @@
         (meta.failure (format "Cannot apply type: " (type.format F) " to " (type.format A)))
 
         (#.Some type')
-        (type_to_class_name type'))
+        (type_class_name type'))
       
       (#.Named _ type')
-      (type_to_class_name type')
+      (type_class_name type')
 
       _
       (meta.failure (format "Cannot convert to JvmType: " (type.format type))))))
@@ -1769,7 +1769,7 @@
     [_ (#.Identifier array_name)]
     (do meta.monad
       [array_type (meta.type array_name)
-       array_jvm_type (type_to_class_name array_type)]
+       array_jvm_type (type_class_name array_type)]
       (case array_jvm_type
         (^template [<type> <array_op>]
           [<type>
@@ -1798,7 +1798,7 @@
     [_ (#.Identifier array_name)]
     (do meta.monad
       [array_type (meta.type array_name)
-       array_jvm_type (type_to_class_name array_type)]
+       array_jvm_type (type_class_name array_type)]
       (case array_jvm_type
         (^template [<type> <array_op>]
           [<type>
@@ -1826,4 +1826,4 @@
   (in (list (` ("jvm object class" (~ (code.text (simple_class$ (list) type))))))))
 
 (syntax: #export (type {type (..generic_type^ (list))})
-  (in (list (..class_to_type #ManualPrM (list) type))))
+  (in (list (..class_type #ManualPrM (list) type))))

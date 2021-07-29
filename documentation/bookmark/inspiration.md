@@ -1,3 +1,7 @@
+# Feature
+
+1. [About Adding Features (part 1)](https://kele.codes/2021/07/about-adding-features-1/)
+
 # Business
 
 1. [Why Aren't There More Programming Languages Startups?](https://www.akitasoftware.com/blog-posts/why-arent-there-more-programming-languages-startups)

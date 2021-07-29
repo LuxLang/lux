@@ -219,5 +219,5 @@ Also, you might be wondering what's the difference between `List` and `list`. We
 
 Again, we haven't mentioned functions. But if you're impatient to learn about them, just click the link below.
 
-See you in the next chapter!
+See you in [the next chapter](chapter_4.md)!
 
