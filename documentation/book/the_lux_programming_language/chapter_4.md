@@ -171,5 +171,5 @@ We've also seen how to make functions, which is how you make your programs **do*
 
 Next, we'll make things more interesting, with _branching_, _loops_ and _pattern-matching_!
 
-See you in the next chapter!
+See you in [the next chapter](chapter_5.md)!
 

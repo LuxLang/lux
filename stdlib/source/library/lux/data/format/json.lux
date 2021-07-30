@@ -184,11 +184,11 @@
       (and (n.= (row.size xs) (row.size ys))
            (list\fold (function (_ idx prev)
                         (and prev
-                             (maybe.default #0
-                                            (do maybe.monad
-                                              [x' (row.nth idx xs)
-                                               y' (row.nth idx ys)]
-                                              (in (= x' y'))))))
+                             (maybe.else #0
+                                         (do maybe.monad
+                                           [x' (row.nth idx xs)
+                                            y' (row.nth idx ys)]
+                                           (in (= x' y'))))))
                       #1
                       (list.indices (row.size xs))))
       
@@ -241,22 +241,22 @@
      Text
      <token>)]
 
-  ["," separator]
+  ["," value_separator]
   [":" entry_separator]
 
-  ["[" open_array]
-  ["]" close_array]
+  ["[" array_start]
+  ["]" array_end]
 
-  ["{" open_object]
-  ["}" close_object]
+  ["{" object_start]
+  ["}" object_end]
   )
 
 (def: (array_format format)
   (-> (-> JSON Text) (-> Array Text))
   (|>> (row\map format)
        row.to_list
-       (text.join_with ..separator)
-       (text.enclosed [..open_array ..close_array])))
+       (text.join_with ..value_separator)
+       (text.enclosed [..array_start ..array_end])))
 
 (def: (kv_format format [key value])
   (-> (-> JSON Text) (-> [String JSON] Text))
@@ -270,8 +270,8 @@
   (-> (-> JSON Text) (-> Object Text))
   (|>> dictionary.entries
        (list\map (..kv_format format))
-       (text.join_with ..separator)
-       (text.enclosed [..open_object ..close_object])))
+       (text.join_with ..value_separator)
+       (text.enclosed [..object_start ..object_end])))
 
 (def: #export (format json)
   (-> JSON Text)
@@ -295,11 +295,11 @@
   (Parser Text)
   (<text>.some <text>.space))
 
-(def: separator_parser
+(def: value_separator_parser
   (Parser [Text Any Text])
   ($_ <>.and
       ..space_parser
-      (<text>.this ..separator)
+      (<text>.this ..value_separator)
       ..space_parser))
 
 (def: null_parser
@@ -330,16 +330,16 @@
   (do {! <>.monad}
     [signed? (<>.parses? (<text>.this "-"))
      digits (<text>.many <text>.decimal)
-     decimals (<>.default "0"
-                          (do !
-                            [_ (<text>.this ".")]
-                            (<text>.many <text>.decimal)))
-     exp (<>.default ""
-                     (do !
-                       [mark (<text>.one_of "eE")
-                        signed?' (<>.parses? (<text>.this "-"))
-                        offset (<text>.many <text>.decimal)]
-                       (in ($_ text\compose mark (if signed?' "-" "") offset))))]
+     decimals (<>.else "0"
+                       (do !
+                         [_ (<text>.this ".")]
+                         (<text>.many <text>.decimal)))
+     exp (<>.else ""
+                  (do !
+                    [mark (<text>.one_of "eE")
+                     signed?' (<>.parses? (<text>.this "-"))
+                     offset (<text>.many <text>.decimal)]
+                    (in ($_ text\compose mark (if signed?' "-" "") offset))))]
     (case (f\decode ($_ text\compose (if signed? "-" "") digits "." decimals exp))
       (#try.Failure message)
       (<>.failure message)
@@ -395,13 +395,13 @@
      (do <>.monad
        [_ (<text>.this <open>)
         _ space_parser
-        elems (<>.separated_by ..separator_parser <elem_parser>)
+        elems (<>.separated_by ..value_separator_parser <elem_parser>)
         _ space_parser
         _ (<text>.this <close>)]
        (in (<prep> elems))))]
 
-  [array_parser  Array  ..open_array ..close_array json_parser row.of_list]
-  [object_parser Object ..open_object ..close_object (kv_parser json_parser) (dictionary.of_list text.hash)]
+  [array_parser  Array  ..array_start ..array_end json_parser row.of_list]
+  [object_parser Object ..object_start ..object_end (kv_parser json_parser) (dictionary.of_list text.hash)]
   )
 
 (def: json_parser
