@@ -227,7 +227,7 @@
   [minimum  ..min top]
   )
 
-(def: (de_prefix input)
+(def: (decimals input)
   (-> Text Text)
   ("lux text clip" 1 (dec ("lux text size" input)) input))
 
@@ -259,7 +259,7 @@
            (if (//nat.> 1 repr_size)
              (case ("lux text char" 0 repr)
                (^ (char "."))
-               (case (\ <codec> decode (de_prefix repr))
+               (case (\ <codec> decode (..decimals repr))
                  (#try.Success output)
                  (#try.Success (.rev output))
 
@@ -285,55 +285,54 @@
 ## write the encoding/decoding algorithm once, in pure Lux, rather
 ## than having to implement it on the compiler for every platform
 ## targeted by Lux.
-(type: Digits (Array Nat))
+(type: Digits
+  (Array Nat))
 
-(def: (digits::new _)
+(def: (digits _)
   (-> Any Digits)
   (array.new //i64.width))
 
-(def: (digits::get idx digits)
+(def: (digit idx digits)
   (-> Nat Digits Nat)
-  (|> digits (array.read idx) (maybe.else 0)))
+  (|> digits
+      (array.read idx)
+      (maybe.else 0)))
 
-(def: digits::put
+(def: digits\put!
   (-> Nat Nat Digits Digits)
   array.write!)
 
-(def: (prepend left right)
-  (-> Text Text Text)
-  ("lux text concat" left right))
-
-(def: (digits::times_5! idx output)
+(def: (digits\times_5! idx output)
   (-> Nat Digits Digits)
   (loop [idx idx
          carry 0
          output output]
     (if (//int.>= +0 (.int idx))
-      (let [raw (|> (digits::get idx output)
+      (let [raw (|> (..digit idx output)
                     (//nat.* 5)
                     (//nat.+ carry))]
         (recur (dec idx)
                (//nat./ 10 raw)
-               (digits::put idx (//nat.% 10 raw) output)))
+               (digits\put! idx (//nat.% 10 raw) output)))
       output)))
 
-(def: (digits::power power)
+(def: (power_digits power)
   (-> Nat Digits)
   (loop [times power
-         output (|> (digits::new [])
-                    (digits::put power 1))]
+         output (|> (..digits [])
+                    (digits\put! power 1))]
     (if (//int.>= +0 (.int times))
       (recur (dec times)
-             (digits::times_5! power output))
+             (digits\times_5! power output))
       output)))
 
-(def: (digits::format digits)
+(def: (format digits)
   (-> Digits Text)
   (loop [idx (dec //i64.width)
          all_zeroes? true
          output ""]
     (if (//int.>= +0 (.int idx))
-      (let [digit (digits::get idx digits)]
+      (let [digit (..digit idx digits)]
         (if (and (//nat.= 0 digit)
                  all_zeroes?)
           (recur (dec idx) true output)
@@ -346,27 +345,27 @@
         "0"
         output))))
 
-(def: (digits::+ param subject)
+(def: (digits\+! param subject)
   (-> Digits Digits Digits)
   (loop [idx (dec //i64.width)
          carry 0
-         output (digits::new [])]
+         output (..digits [])]
     (if (//int.>= +0 (.int idx))
       (let [raw ($_ //nat.+
                     carry
-                    (digits::get idx param)
-                    (digits::get idx subject))]
+                    (..digit idx param)
+                    (..digit idx subject))]
         (recur (dec idx)
                (//nat./ 10 raw)
-               (digits::put idx (//nat.% 10 raw) output)))
+               (digits\put! idx (//nat.% 10 raw) output)))
       output)))
 
-(def: (text_to_digits input)
+(def: (text_digits input)
   (-> Text (Maybe Digits))
   (let [length ("lux text size" input)]
     (if (//nat.<= //i64.width length)
       (loop [idx 0
-             output (digits::new [])]
+             output (..digits [])]
         (if (//nat.< length idx)
           (case ("lux text index" 0 ("lux text clip" idx 1 input) "0123456789")
             #.None
@@ -374,39 +373,39 @@
 
             (#.Some digit)
             (recur (inc idx)
-                   (digits::put idx digit output)))
+                   (digits\put! idx digit output)))
           (#.Some output)))
       #.None)))
 
-(def: (digits::< param subject)
+(def: (digits\< param subject)
   (-> Digits Digits Bit)
   (loop [idx 0]
     (and (//nat.< //i64.width idx)
-         (let [pd (digits::get idx param)
-               sd (digits::get idx subject)]
+         (let [pd (..digit idx param)
+               sd (..digit idx subject)]
            (if (//nat.= pd sd)
              (recur (inc idx))
              (//nat.< pd sd))))))
 
-(def: (digits::-!' idx param subject)
+(def: (digits\-!' idx param subject)
   (-> Nat Nat Digits Digits)
-  (let [sd (digits::get idx subject)]
+  (let [sd (..digit idx subject)]
     (if (//nat.>= param sd)
-      (digits::put idx (//nat.- param sd) subject)
+      (digits\put! idx (//nat.- param sd) subject)
       (let [diff (|> sd
                      (//nat.+ 10)
                      (//nat.- param))]
         (|> subject
-            (digits::put idx diff)
-            (digits::-!' (dec idx) 1))))))
+            (digits\put! idx diff)
+            (digits\-!' (dec idx) 1))))))
 
-(def: (digits::-! param subject)
+(def: (digits\-! param subject)
   (-> Digits Digits Digits)
   (loop [idx (dec //i64.width)
          output subject]
     (if (//int.>= +0 (.int idx))
       (recur (dec idx)
-             (digits::-!' idx (digits::get idx param) output))
+             (digits\-!' idx (..digit idx param) output))
       output)))
 
 (implementation: #export decimal
@@ -420,16 +419,16 @@
       input
       (let [last_idx (dec //i64.width)]
         (loop [idx last_idx
-               digits (digits::new [])]
+               digits (..digits [])]
           (if (//int.>= +0 (.int idx))
             (if (//i64.set? idx input)
-              (let [digits' (digits::+ (digits::power (//nat.- idx last_idx))
+              (let [digits' (digits\+! (power_digits (//nat.- idx last_idx))
                                        digits)]
                 (recur (dec idx)
                        digits'))
               (recur (dec idx)
                      digits))
-            ("lux text concat" "." (digits::format digits))
+            ("lux text concat" "." (..format digits))
             )))))
 
   (def: (decode input)
@@ -442,17 +441,17 @@
           within_limits? (//nat.<= (inc //i64.width)
                                    ("lux text size" input))]
       (if (and dotted? within_limits?)
-        (case (text_to_digits (de_prefix input))
+        (case (|> input ..decimals ..text_digits)
           (#.Some digits)
           (loop [digits digits
                  idx 0
                  output 0]
             (if (//nat.< //i64.width idx)
-              (let [power (digits::power idx)]
-                (if (digits::< power digits)
+              (let [power (power_digits idx)]
+                (if (digits\< power digits)
                   ## Skip power
                   (recur digits (inc idx) output)
-                  (recur (digits::-! power digits)
+                  (recur (digits\-! power digits)
                          (inc idx)
                          (//i64.set (//nat.- idx (dec //i64.width)) output))))
               (#try.Success (.rev output))))

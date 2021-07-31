@@ -76,7 +76,7 @@
             ))
       ))
 
-(def: #export (un_nest fs path)
+(def: (un_rooted fs path)
   (All [!] (-> (System !) Path (Maybe [Path Text])))
   (let [/ (\ fs separator)]
     (case (text.last_index_of / path)
@@ -91,12 +91,14 @@
 
 (def: #export (parent fs path)
   (All [!] (-> (System !) Path (Maybe Path)))
-  (|> (..un_nest fs path)
+  (|> path
+      (..un_rooted fs)
       (maybe\map product.left)))
 
 (def: #export (name fs path)
   (All [!] (-> (System !) Path Text))
-  (|> (..un_nest fs path)
+  (|> path
+      (..un_rooted fs)
       (maybe\map product.right)
       (maybe.else path)))
 
@@ -134,7 +136,7 @@
              [move]))
        )))
 
-(def: #export (nest fs parent child)
+(def: #export (rooted fs parent child)
   (All [!] (-> (System !) Path Text Path))
   (format parent (\ fs separator) child))
 
@@ -1065,7 +1067,7 @@
       #.End
       (exception.except ..cannot_find_file [path]))))
 
-(def: (mock_delete! / path mock)
+(def: (delete_mock_node! / path mock)
   (-> Text Path Mock (Try Mock))
   (loop [directory mock
          trail (text.split_all_with / path)]
@@ -1100,7 +1102,7 @@
       #.End
       (exception.except ..cannot_delete [path]))))
 
-(def: (try_update! transform var)
+(def: (attempt! transform var)
   (All [a] (-> (-> a (Try a)) (Var a) (STM (Try Any))))
   (do {! stm.monad}
     [|var| (stm.read var)]
@@ -1260,35 +1262,35 @@
 
          (def: (delete path)
            (stm.commit
-            (..try_update! (..mock_delete! separator path) store)))
+            (..attempt! (..delete_mock_node! separator path) store)))
 
          (def: (modify now path)
            (stm.commit
-            (..try_update! (function (_ |store|)
-                             (do try.monad
-                               [[name file] (..retrieve_mock_file! separator path |store|)]
-                               (..update_mock_file! separator path now (get@ #mock_content file) |store|)))
-                           store)))
+            (..attempt! (function (_ |store|)
+                          (do try.monad
+                            [[name file] (..retrieve_mock_file! separator path |store|)]
+                            (..update_mock_file! separator path now (get@ #mock_content file) |store|)))
+                        store)))
 
          (def: (write content path)
            (do async.monad
              [now (async.future instant.now)]
              (stm.commit
-              (..try_update! (..update_mock_file! separator path now content) store))))
+              (..attempt! (..update_mock_file! separator path now content) store))))
 
          (def: (append content path)
            (do async.monad
              [now (async.future instant.now)]
              (stm.commit
-              (..try_update! (function (_ |store|)
-                               (do try.monad
-                                 [[name file] (..retrieve_mock_file! separator path |store|)]
-                                 (..update_mock_file! separator path now
-                                                      (\ binary.monoid compose
-                                                         (get@ #mock_content file)
-                                                         content)
-                                                      |store|)))
-                             store))))
+              (..attempt! (function (_ |store|)
+                            (do try.monad
+                              [[name file] (..retrieve_mock_file! separator path |store|)]
+                              (..update_mock_file! separator path now
+                                                   (\ binary.monoid compose
+                                                      (get@ #mock_content file)
+                                                      content)
+                                                   |store|)))
+                          store))))
 
          (def: (move destination origin)
            (stm.commit
@@ -1296,7 +1298,7 @@
               [|store| (stm.read store)]
               (case (do try.monad
                       [[name file] (..retrieve_mock_file! separator origin |store|)
-                       |store| (..mock_delete! separator origin |store|)]
+                       |store| (..delete_mock_node! separator origin |store|)]
                       (..update_mock_file! separator destination (get@ #mock_last_modified file) (get@ #mock_content file) |store|))
                 (#try.Success |store|)
                 (do !

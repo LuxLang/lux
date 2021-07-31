@@ -5,9 +5,18 @@
      [equivalence (#+ Equivalence)]
      [monoid (#+ Monoid)]
      ["." hash (#+ Hash)]]
+    [control
+     [parser
+      ["<.>" code]]]
     [data
+     ["." text
+      ["%" format (#+ format)]]
      [collection
       ["." list ("#\." functor)]]]
+    [macro
+     [syntax (#+ syntax:)]
+     ["." template]
+     ["." code]]
     ["." math
      [number
       ["n" nat]
@@ -21,7 +30,8 @@
 (def: rgb 256)
 (def: top (dec rgb))
 
-(def: rgb_factor (|> top .int int.frac))
+(def: rgb_factor
+  (|> top .int int.frac))
 
 (def: down
   (-> Nat Frac)
@@ -32,24 +42,30 @@
   (|>> (f.* rgb_factor) f.int .nat))
 
 (type: #export RGB
+  {#.doc (doc "Red-Green-Blue color format.")}
   {#red Nat
    #green Nat
    #blue Nat})
 
 (type: #export HSL
+  {#.doc (doc "Hue-Saturation-Lightness color format.")}
   [Frac Frac Frac])
 
 (type: #export CMYK
+  {#.doc (doc "Cyan-Magenta-Yellow-Key color format.")}
   {#cyan Frac
    #magenta Frac
    #yellow Frac
    #key Frac})
 
 (type: #export HSB
+  {#.doc (doc "Hue-Saturation-Brightness color format.")}
   [Frac Frac Frac])
 
 (abstract: #export Color
   RGB
+
+  {#.doc (doc "A color value, independent of color format.")}
 
   (def: #export (of_rgb [red green blue])
     (-> RGB Color)
@@ -84,11 +100,13 @@
             b))))
 
   (def: #export black
+    Color
     (..of_rgb {#red 0
                #green 0
                #blue 0}))
 
   (def: #export white
+    Color
     (..of_rgb {#red ..top
                #green ..top
                #blue ..top}))
@@ -110,6 +128,7 @@
     (|> ..top (n.- value)))
 
   (def: #export (complement color)
+    {#.doc (doc "The opposite color.")}
     (-> Color Color)
     (let [[red green blue] (:representation color)]
       (:abstraction {#red (complement' red)
@@ -316,11 +335,11 @@
      (-> Frac Color Color)
      (..interpolate ratio <target> color))]
 
-  [darker   black]
-  [brighter white]
+  [darker   ..black]
+  [brighter ..white]
   )
 
-(template [<name> <op>]
+(template [<op> <name>]
   [(def: #export (<name> ratio color)
      (-> Frac Color Color)
      (let [[hue saturation luminance] (to_hsl color)]
@@ -330,8 +349,8 @@
                     (f.min +1.0))
                 luminance])))]
 
-  [saturate    f.+]
-  [de_saturate f.-]
+  [f.+ saturate]
+  [f.- de_saturate]
   )
 
 (def: #export (gray_scale color)
@@ -341,17 +360,23 @@
              +0.0
              luminance])))
 
+(syntax: (color_scheme_documentation {name <code>.local_identifier})
+  (let [name (text.replace_all "_" "-" name)
+        g!documentation (code.text (format "A " name " color scheme."))]
+    (in (list (` {#.doc (.doc (~ g!documentation))})))))
+
 (template [<name> <1> <2>]
-  [(def: #export (<name> color)
-     (-> Color [Color Color Color])
-     (let [[hue saturation luminance] (to_hsl color)]
-       [color
-        (of_hsl [(|> hue (f.+ <1>) ..normal)
-                 saturation
-                 luminance])
-        (of_hsl [(|> hue (f.+ <2>) ..normal)
-                 saturation
-                 luminance])]))]
+  [(`` (def: #export (<name> color)
+         (~~ (..color_scheme_documentation <name>))
+         (-> Color [Color Color Color])
+         (let [[hue saturation luminance] (to_hsl color)]
+           [color
+            (of_hsl [(|> hue (f.+ <1>) ..normal)
+                     saturation
+                     luminance])
+            (of_hsl [(|> hue (f.+ <2>) ..normal)
+                     saturation
+                     luminance])])))]
 
   [triad            (|> +1.0 (f./ +3.0)) (|> +2.0 (f./ +3.0))]
   [clash            (|> +1.0 (f./ +4.0)) (|> +3.0 (f./ +4.0))]
@@ -359,19 +384,20 @@
   )
 
 (template [<name> <1> <2> <3>]
-  [(def: #export (<name> color)
-     (-> Color [Color Color Color Color])
-     (let [[hue saturation luminance] (to_hsb color)]
-       [color
-        (of_hsb [(|> hue (f.+ <1>) ..normal)
-                 saturation
-                 luminance])
-        (of_hsb [(|> hue (f.+ <2>) ..normal)
-                 saturation
-                 luminance])
-        (of_hsb [(|> hue (f.+ <3>) ..normal)
-                 saturation
-                 luminance])]))]
+  [(`` (def: #export (<name> color)
+         (~~ (..color_scheme_documentation <name>))
+         (-> Color [Color Color Color Color])
+         (let [[hue saturation luminance] (to_hsb color)]
+           [color
+            (of_hsb [(|> hue (f.+ <1>) ..normal)
+                     saturation
+                     luminance])
+            (of_hsb [(|> hue (f.+ <2>) ..normal)
+                     saturation
+                     luminance])
+            (of_hsb [(|> hue (f.+ <3>) ..normal)
+                     saturation
+                     luminance])])))]
 
   [square   (|> +1.0 (f./ +4.0))  (|> +2.0 (f./ +4.0))  (|> +3.0 (f./ +4.0))]
   [tetradic (|> +2.0 (f./ +12.0)) (|> +6.0 (f./ +12.0)) (|> +8.0 (f./ +12.0))]
@@ -383,43 +409,55 @@
 (type: #export Palette
   (-> Spread Nat Color (List Color)))
 
-(def: #export (analogous spread variations color)
-  (-> Spread Nat Color (List Color))
-  (let [[hue saturation brightness] (to_hsb color)
-        spread (..normal spread)]
-    (list\map (function (_ idx)
-                (of_hsb [(|> idx inc .int int.frac (f.* spread) (f.+ hue) ..normal)
-                         saturation
-                         brightness]))
-              (list.indices variations))))
+(syntax: (palette_documentation {name <code>.local_identifier})
+  (let [name (text.replace_all "_" "-" name)
+        g!documentation (code.text (format "A " name " palette."))]
+    (in (list (` {#.doc (.doc (~ g!documentation))})))))
 
-(def: #export (monochromatic spread variations color)
-  (-> Spread Nat Color (List Color))
-  (let [[hue saturation brightness] (to_hsb color)
-        spread (..normal spread)]
-    (|> (list.indices variations)
-        (list\map (|>> inc .int int.frac
-                       (f.* spread)
-                       (f.+ brightness)
-                       ..normal
-                       [hue saturation]
-                       of_hsb)))))
+(`` (def: #export (analogous spread variations color)
+      (~~ (..palette_documentation analogous))
+      Palette
+      (let [[hue saturation brightness] (to_hsb color)
+            spread (..normal spread)]
+        (list\map (function (_ idx)
+                    (of_hsb [(|> idx inc .int int.frac (f.* spread) (f.+ hue) ..normal)
+                             saturation
+                             brightness]))
+                  (list.indices variations)))))
+
+(`` (def: #export (monochromatic spread variations color)
+      (~~ (..palette_documentation monochromatic))
+      Palette
+      (let [[hue saturation brightness] (to_hsb color)
+            spread (..normal spread)]
+        (|> (list.indices variations)
+            (list\map (|>> inc .int int.frac
+                           (f.* spread)
+                           (f.+ brightness)
+                           ..normal
+                           [hue saturation]
+                           of_hsb))))))
 
 (type: #export Alpha
+  {#.doc (doc "The degree of transparency of a pigment.")}
   Rev)
 
 (def: #export transparent
+  {#.doc (doc "The maximum degree of transparency.")}
   Alpha
   rev\bottom)
 
 (def: #export translucent
+  {#.doc (doc "The average degree of transparency.")}
   Alpha
   .5)
 
 (def: #export opaque
+  {#.doc (doc "The minimum degree of transparency.")}
   Alpha
   rev\top)
 
 (type: #export Pigment
+  {#.doc (doc "A color with some degree of transparency.")}
   {#color Color
    #alpha Alpha})

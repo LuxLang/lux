@@ -6,8 +6,8 @@
      ["." equivalence]]
     [control
      ["." try]
-     ["p" parser
-      ["s" code (#+ Parser)]]]
+     ["<>" parser
+      ["<.>" code (#+ Parser)]]]
     [data
      ["." product]
      ["." maybe]
@@ -46,7 +46,7 @@
     (meta.failure (format "Unknown type-var " (%.nat id)))
     ))
 
-(def: (resolve_type var_name)
+(def: (implicit_type var_name)
   (-> Name (Meta Type))
   (do meta.monad
     [raw_type (meta.type var_name)
@@ -110,14 +110,14 @@
     _
     (\ meta.monad in member)))
 
-(def: (resolve_member member)
+(def: (implicit_member member)
   (-> Name (Meta [Nat Type]))
   (do meta.monad
     [member (member_name member)
      [idx tag_list sig_type] (meta.resolve_tag member)]
     (in [idx sig_type])))
 
-(def: (prepare_definitions source_module target_module constants aggregate)
+(def: (available_definitions source_module target_module constants aggregate)
   (-> Text Text (List [Text Definition]) (-> (List [Name Type]) (List [Name Type])))
   (list\fold (function (_ [name [exported? def_type def_anns def_value]] aggregate)
                (if (and (annotation.implementation? def_anns)
@@ -146,7 +146,7 @@
   (do {! meta.monad}
     [this_module_name meta.current_module_name
      definitions (meta.definitions this_module_name)]
-    (in (prepare_definitions this_module_name this_module_name definitions #.End))))
+    (in (available_definitions this_module_name this_module_name definitions #.End))))
 
 (def: imported_structs
   (Meta (List [Name Type]))
@@ -155,21 +155,23 @@
      imported_modules (meta.imported_modules this_module_name)
      accessible_definitions (monad.map ! meta.definitions imported_modules)]
     (in (list\fold (function (_ [imported_module definitions] tail)
-                     (prepare_definitions imported_module this_module_name definitions tail))
+                     (available_definitions imported_module this_module_name definitions tail))
                    #.End
                    (list.zipped/2 imported_modules accessible_definitions)))))
 
-(def: (apply_function_type func arg)
+(def: (on_argument arg func)
   (-> Type Type (Check Type))
   (case func
     (#.Named _ func')
-    (apply_function_type func' arg)
+    (on_argument arg func')
 
     (#.UnivQ _)
     (do check.monad
       [[id var] check.var]
-      (apply_function_type (maybe.assume (type.applied (list var) func))
-                           arg))
+      (|> func
+          (type.applied (list var))
+          maybe.assume
+          (on_argument arg)))
 
     (#.Function input output)
     (do check.monad
@@ -192,21 +194,17 @@
     _
     (\ check.monad in [(list) type])))
 
-(def: (check_apply member_type input_types output_type)
+(def: (ensure_function_application! member_type input_types expected_output)
   (-> Type (List Type) Type (Check []))
   (do check.monad
-    [member_type' (monad.fold check.monad
-                              (function (_ input member)
-                                (apply_function_type member input))
-                              member_type
-                              input_types)]
-    (check.check output_type member_type')))
+    [actual_output (monad.fold check.monad ..on_argument member_type input_types)]
+    (check.check expected_output actual_output)))
 
 (type: #rec Instance
   {#constructor Name
    #dependencies (List Instance)})
 
-(def: (test_provision provision context dep alts)
+(def: (candidate_provision provision context dep alts)
   (-> (-> Lux Type_Context Type (Check Instance))
       Type_Context Type (List [Name Type])
       (Meta (List Instance)))
@@ -238,9 +236,9 @@
   (-> Lux Type_Context Type (Check Instance))
   (case (meta.run compiler
                   ($_ meta.either
-                      (do meta.monad [alts ..local_env] (..test_provision provision context dep alts))
-                      (do meta.monad [alts ..local_structs] (..test_provision provision context dep alts))
-                      (do meta.monad [alts ..imported_structs] (..test_provision provision context dep alts))))
+                      (do meta.monad [alts ..local_env] (..candidate_provision provision context dep alts))
+                      (do meta.monad [alts ..local_structs] (..candidate_provision provision context dep alts))
+                      (do meta.monad [alts ..imported_structs] (..candidate_provision provision context dep alts))))
     (#.Left error)
     (check.failure error)
 
@@ -256,23 +254,23 @@
       (check.failure (format "Too many candidates for provisioning: " (%.type dep) " --- " (%.list (|>> product.left %.name) candidates))))
     ))
 
-(def: (test_alternatives sig_type member_idx input_types output_type alts)
+(def: (candidate_alternatives sig_type member_idx input_types output_type alts)
   (-> Type Nat (List Type) Type (List [Name Type]) (Meta (List Instance)))
   (do meta.monad
     [compiler meta.get_compiler
      context meta.type_context]
     (case (|> alts
               (list\map (function (_ [alt_name alt_type])
-                          (case (check.run context
-                                           (do {! check.monad}
-                                             [[tvars alt_type] (concrete_type alt_type)
-                                              #let [[deps alt_type] (type.flat_function alt_type)]
-                                              _ (check.check alt_type sig_type)
-                                              member_type (member_type member_idx alt_type)
-                                              _ (check_apply member_type input_types output_type)
-                                              context' check.context
-                                              =deps (monad.map ! (provision compiler context') deps)]
-                                             (in =deps)))
+                          (case (<| (check.run context)
+                                    (do {! check.monad}
+                                      [[tvars alt_type] (concrete_type alt_type)
+                                       #let [[deps alt_type] (type.flat_function alt_type)]
+                                       _ (check.check alt_type sig_type)
+                                       member_type (member_type member_idx alt_type)
+                                       _ (ensure_function_application! member_type input_types output_type)
+                                       context' check.context
+                                       =deps (monad.map ! (provision compiler context') deps)]
+                                      (in =deps)))
                             (#.Left error)
                             (list)
 
@@ -287,7 +285,7 @@
 
 (def: (alternatives sig_type member_idx input_types output_type)
   (-> Type Nat (List Type) Type (Meta (List Instance)))
-  (let [test (test_alternatives sig_type member_idx input_types output_type)]
+  (let [test (candidate_alternatives sig_type member_idx input_types output_type)]
     ($_ meta.either
         (do meta.monad [alts ..local_env] (test alts))
         (do meta.monad [alts ..local_structs] (test alts))
@@ -302,7 +300,7 @@
     _
     #0))
 
-(def: (join_pair [l r])
+(def: (pair_list [l r])
   (All [a] (-> [a a] (List a)))
   (list l r))
 
@@ -316,9 +314,9 @@
     (` ((~ (code.identifier constructor)) (~+ (list\map instance$ dependencies))))))
 
 (syntax: #export (\\
-                  {member s.identifier}
-                  {args (p.or (p.and (p.some s.identifier) s.end!)
-                              (p.and (p.some s.any) s.end!))})
+                  {member <code>.identifier}
+                  {args (<>.or (<>.and (<>.some <code>.identifier) <code>.end!)
+                               (<>.and (<>.some <code>.any) <code>.end!))})
   {#.doc (doc "Automatic implementation selection (for type-class style polymorphism)."
               "This feature layers type-class style polymorphism on top of Lux's signatures and implementations."
               "When calling a polymorphic function, or using a polymorphic constant,"
@@ -345,8 +343,8 @@
   (case args
     (#.Left [args _])
     (do {! meta.monad}
-      [[member_idx sig_type] (resolve_member member)
-       input_types (monad.map ! resolve_type args)
+      [[member_idx sig_type] (..implicit_member member)
+       input_types (monad.map ! ..implicit_type args)
        output_type meta.expected_type
        chosen_ones (alternatives sig_type member_idx input_types output_type)]
       (case chosen_ones
@@ -368,7 +366,7 @@
     (#.Right [args _])
     (do {! meta.monad}
       [labels (|> (macro.gensym "") (list.repeat (list.size args)) (monad.seq !))]
-      (in (list (` (let [(~+ (|> (list.zipped/2 labels args) (list\map join_pair) list\join))]
+      (in (list (` (let [(~+ (|> args (list.zipped/2 labels) (list\map ..pair_list) list\join))]
                      (..\\ (~ (code.identifier member)) (~+ labels)))))))
     ))
 
@@ -380,7 +378,7 @@
 
 (def: implicits
   (Parser (List Code))
-  (s.tuple (p.many s.any)))
+  (<code>.tuple (<>.many <code>.any)))
 
 (syntax: #export (with {implementations ..implicits} body)
   (do meta.monad

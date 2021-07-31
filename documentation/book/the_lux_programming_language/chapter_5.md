@@ -370,5 +370,5 @@ You've only seen the basics of Lux and the next chapters are going to expose som
 
 Brace yourself, great power is coming!
 
-See you in the next chapter!
+See you in [the next chapter](chapter_6.md)!
 
