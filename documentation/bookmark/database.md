@@ -188,6 +188,10 @@
 
 1. [Noria: data-flow for high-performance web applications](https://github.com/mit-pdos/noria)
 
+## Vector Database
+
+1. [What is a Vector Database?](https://www.pinecone.io/learn/vector-database/)
+
 ## Graph
 
 1. https://github.com/hugegraph/hugegraph

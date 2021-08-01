@@ -16,6 +16,7 @@
 
 # Human-machine interaction
 
+1. [Up and Down the Ladder of Abstraction: A Systematic Approach to Interactive Visualization](http://worrydream.com/LadderOfAbstraction/)
 1. [How a computer should talk to people](https://moscow.sci-hub.se/3290/2c0a7f4bb78d9f9521ad2d2e92463d5f/dean1982.pdf)
 1. [The Tyranny of the Minimum Viable User](https://old.reddit.com/r/dredmorbius/comments/69wk8y/the_tyranny_of_the_minimum_viable_user/)
 

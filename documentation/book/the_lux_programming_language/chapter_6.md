@@ -312,5 +312,5 @@ However, one of the key features of Lux is that types can be accessed and manipu
 
 In the next chapter, you'll get acquainted with one such feature.
 
-See you in the next chapter!
+See you in [the next chapter](chapter_7.md)!
 

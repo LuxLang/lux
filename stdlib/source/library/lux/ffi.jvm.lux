@@ -416,19 +416,19 @@
              (~ value)
              (~ (code.local_identifier self_name)))))))
 
-(def: (pre_walk_replace f input)
+(def: (replaced f input)
   (-> (-> Code Code) Code Code)
   (case (f input)
     (^template [<tag>]
       [[meta (<tag> parts)]
-       [meta (<tag> (list\map (pre_walk_replace f) parts))]])
+       [meta (<tag> (list\map (replaced f) parts))]])
     ([#.Form]
      [#.Tuple])
     
     [meta (#.Record pairs)]
     [meta (#.Record (list\map (: (-> [Code Code] [Code Code])
                                  (function (_ [key val])
-                                   [(pre_walk_replace f key) (pre_walk_replace f val)]))
+                                   [(replaced f key) (replaced f val)]))
                               pairs))]
     
     ast'
@@ -568,12 +568,11 @@
   (-> (-> (List (Type Var)) (Parser (Type Parameter)))
       (-> (List (Type Var)) (Parser (Type Class))))
   (do <>.monad
-    [[name parameters] (: (Parser [External (List (Type Parameter))])
+    [#let [class_name^ (..valid_class_name type_vars)]
+     [name parameters] (: (Parser [External (List (Type Parameter))])
                           ($_ <>.either
-                              (<>.and (valid_class_name type_vars)
-                                      (<>\in (list)))
-                              (<code>.form (<>.and <code>.local_identifier
-                                                   (<>.some (parameter^ type_vars))))))]
+                              (<>.and class_name^ (<>\in (list)))
+                              (<code>.form (<>.and class_name^ (<>.some (parameter^ type_vars))))))]
     (in (type.class (name.safe name) parameters))))
 
 (exception: #export (unexpected_type_variable {name Text}
@@ -1109,7 +1108,7 @@
           (~ (code.text self_name))
           [(~+ (list\map argument$ arguments))]
           [(~+ (list\map constructor_arg$ constructor_args))]
-          (~ (pre_walk_replace replacer body))
+          (~ (replaced replacer body))
           )))
     
     (#VirtualMethod final? strict_fp? type_vars self_name arguments return_type body exs)
@@ -1127,7 +1126,7 @@
           [(~+ (list\map argument$ arguments))]
           (~ (return$ return_type))
           [(~+ (list\map class$ exs))]
-          (~ (pre_walk_replace replacer body)))))
+          (~ (replaced replacer body)))))
     
     (#OverridenMethod strict_fp? declaration type_vars self_name arguments return_type body exs)
     (let [replacer (|> (list\map (field->parser fully_qualified_class_name self_name) fields)
@@ -1154,8 +1153,8 @@
           (~ (return$ return_type))
           [(~+ (list\map class$ exs))]
           (~ (|> body
-                 (pre_walk_replace replacer)
-                 (pre_walk_replace super_replacer)))
+                 (replaced replacer)
+                 (replaced super_replacer)))
           )))
 
     (#StaticMethod strict_fp? type_vars arguments return_type body exs)
@@ -1169,7 +1168,7 @@
           [(~+ (list\map argument$ arguments))]
           (~ (return$ return_type))
           [(~+ (list\map class$ exs))]
-          (~ (pre_walk_replace replacer body)))))
+          (~ (replaced replacer body)))))
 
     (#AbstractMethod type_vars arguments return_type exs)
     (` ("abstract"
@@ -1544,7 +1543,7 @@
     [(type.class box.double (list)) (type.class box.double (list)) (list) [(` (.: (.primitive (~ (code.text box.double))))) (` (.:as .Frac))]]]]
   )
 
-(def: (un_quote quoted)
+(def: (un_quoted quoted)
   (-> Code Code)
   (` ((~' ~) (~ quoted))))
 
@@ -1555,8 +1554,8 @@
       (list\map (function (_ [class [maybe? input]])
                   (|> (if maybe?
                         (` (: (.primitive (~ (code.text (..reflection class))))
-                              ((~! !!!) (~ (un_quote input)))))
-                        (un_quote input))
+                              ((~! !!!) (~ (..un_quoted input)))))
+                        (..un_quoted input))
                       [class]
                       (with_automatic_input_conversion mode))))))
 
@@ -1637,7 +1636,7 @@
                               (~ (code.text import_method_name))
                               [(~+ (list\map ..var$ (get@ #import_member_tvars commons)))]
                               (~+ (|> object_ast
-                                      (list\map ..un_quote)
+                                      (list\map ..un_quoted)
                                       (list.zipped/2 (list (type.class full_name (list))))
                                       (list\map (with_automatic_input_conversion (get@ #import_member_mode commons)))))
                               (~+ (|> (jvm_invoke_inputs (get@ #import_member_mode commons) input_jvm_types arg_function_inputs)
@@ -1674,7 +1673,7 @@
                                                 [import_field_type
                                                  (if import_field_static?
                                                    (get_static_field full_name import_field_name)
-                                                   (get_virtual_field full_name import_field_name (un_quote g!obj)))])
+                                                   (get_virtual_field full_name import_field_name (..un_quoted g!obj)))])
                                 getter_body (if import_field_maybe?
                                               (` ((~! ???) (~ getter_body)))
                                               getter_body)
@@ -1689,7 +1688,7 @@
                                (let [setter_call (if import_field_static?
                                                    (` ((~ setter_name) (~ g!value)))
                                                    (` ((~ setter_name) (~ g!value) (~ g!obj))))
-                                     setter_value (|> [import_field_type (un_quote g!value)]
+                                     setter_value (|> [import_field_type (..un_quoted g!value)]
                                                       (with_automatic_input_conversion import_field_mode))
                                      setter_value (if import_field_maybe?
                                                     (` ((~! !!!) (~ setter_value)))
@@ -1699,7 +1698,7 @@
                                      g!obj+ (: (List Code)
                                                (if import_field_static?
                                                  (list)
-                                                 (list (un_quote g!obj))))]
+                                                 (list (..un_quoted g!obj))))]
                                  (in (list (` ((~! syntax:) (~ setter_call)
                                                ((~' in) (.list (.` ((~! io.io) ((~ (code.text setter_command)) (~+ g!obj+) (~ setter_value))))))))))))
                              (in (list))))]

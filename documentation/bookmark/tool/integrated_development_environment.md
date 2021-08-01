@@ -1,3 +1,7 @@
+# Error
+
+1. [Do Developers Read Compiler Error Messages?](https://static.barik.net/barik/publications/icse2017/PID4655707.pdf)
+
 # Tools
 
 1. [Utilso: All-in-one tools for developers](https://utilso.com/)

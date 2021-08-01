@@ -124,16 +124,16 @@
   (i64.left_shifted branching_exponent 1))
 
 ## The cannonical empty node, which is just an empty #Base node.
-(def: empty
+(def: empty_node
   Node
-  (#Base clean_bitmap (array.new 0)))
+  (#Base clean_bitmap (array.empty 0)))
 
 ## Expands a copy of the array, to have 1 extra slot, which is used
 ## for storing the value.
 (def: (insert! idx value old_array)
   (All [a] (-> Index a (Array a) (Array a)))
   (let [old_size (array.size old_array)]
-    (|> (array.new (inc old_size))
+    (|> (array.empty (inc old_size))
         (array.copy! idx 0 old_array 0)
         (array.write! idx value)
         (array.copy! (n.- idx old_size) idx old_array (inc idx)))))
@@ -152,7 +152,7 @@
 (def: (remove! idx array)
   (All [a] (-> Index (Array a) (Array a)))
   (let [new_size (dec (array.size array))]
-    (|> (array.new new_size)
+    (|> (array.empty new_size)
         (array.copy! idx 0 array 0)
         (array.copy! (n.- idx new_size) (inc idx) array idx))))
 
@@ -232,7 +232,7 @@
 
 ## When #Hierarchy nodes grow too small, they're demoted to #Base
 ## nodes to save space.
-(def: (demote_hierarchy except_idx [h_size h_array])
+(def: (demotion except_idx [h_size h_array])
   (All [k v] (-> Index (Hierarchy k v) [Bit_Map (Base k v)]))
   (product.right (list\fold (function (_ idx [insertion_idx node])
                               (let [[bitmap base] node]
@@ -245,14 +245,16 @@
                                                         (array.write! insertion_idx (#.Left sub_node) base)]])
                                   )))
                             [0 [clean_bitmap
-                                (array.new (dec h_size))]]
+                                (array.empty (dec h_size))]]
                             (list.indices (array.size h_array)))))
 
 ## When #Base nodes grow too large, they're promoted to #Hierarchy to
 ## add some depth to the tree and help keep its balance.
-(def: hierarchy_indices (List Index) (list.indices hierarchy_nodes_size))
+(def: hierarchy_indices
+  (List Index)
+  (list.indices hierarchy_nodes_size))
 
-(def: (promote_base put' key_hash level bitmap base)
+(def: (promotion put' key_hash level bitmap base)
   (All [k v]
     (-> (-> Level Hash_Code k v (Hash k) (Node k v) (Node k v))
         (Hash k) Level
@@ -268,14 +270,14 @@
 
                                    (#.Some (#.Right [key' val']))
                                    (array.write! hierarchy_idx
-                                                 (put' (level_up level) (\ key_hash hash key') key' val' key_hash empty)
+                                                 (put' (level_up level) (\ key_hash hash key') key' val' key_hash empty_node)
                                                  h_array)
 
                                    #.None
                                    (undefined))]
                                 default))
                             [0
-                             (array.new hierarchy_nodes_size)]
+                             (array.empty hierarchy_nodes_size)]
                             hierarchy_indices)))
 
 ## All empty nodes look the same (a #Base node with clean bitmap is
@@ -302,7 +304,7 @@
                               [_size sub_node]
 
                               _
-                              [(inc _size) empty])]
+                              [(inc _size) empty_node])]
       (#Hierarchy _size'
                   (update! idx (put' (level_up level) hash key val key_hash sub_node)
                            hierarchy)))
@@ -333,7 +335,7 @@
                                                  ## the same, a new
                                                  ## #Collisions node
                                                  ## is added.
-                                                 (#Collisions hash (|> (array.new 2)
+                                                 (#Collisions hash (|> (array.empty 2)
                                                                        (array.write! 0 [key' val'])
                                                                        (array.write! 1 [key val])))
                                                  ## Otherwise, one can
@@ -342,7 +344,7 @@
                                                  ## add both KV-pairs
                                                  ## to the empty one.
                                                  (let [next_level (level_up level)]
-                                                   (|> empty
+                                                   (|> empty_node
                                                        (put' next_level hash' key' val' key_hash)
                                                        (put' next_level hash  key  val key_hash))))))
                                      base)))
@@ -356,9 +358,10 @@
             ## If so, promote it to a #Hierarchy node, and add the new
             ## KV-pair as a singleton node to it.
             (#Hierarchy (inc base_count)
-                        (|> (promote_base put' key_hash level bitmap base)
+                        (|> base
+                            (promotion put' key_hash level bitmap)
                             (array.write! (level_index level hash)
-                                          (put' (level_up level) hash key val key_hash empty))))
+                                          (put' (level_up level) hash key val key_hash empty_node))))
             ## Otherwise, just resize the #Base node to accommodate the
             ## new KV-pair.
             (#Base (set_bit_position bit bitmap)
@@ -381,7 +384,7 @@
       ## If the hashes are not equal, create a new #Base node that
       ## contains the old #Collisions node, plus the new KV-pair.
       (|> (#Base (bit_position level _hash)
-                 (|> (array.new 1)
+                 (|> (array.empty 1)
                      (array.write! 0 (#.Left node))))
           (put' level hash key val key_hash)))
     ))
@@ -410,7 +413,7 @@
               ## Check if it's due time for a demotion.
               (if (n.<= demotion_threshold h_size)
                 ## If so, perform it.
-                (#Base (demote_hierarchy idx [h_size h_array]))
+                (#Base (demotion idx [h_size h_array]))
                 ## Otherwise, just clear the space.
                 (#Hierarchy (dec h_size) (vacant! idx h_array)))
               ## But if the sub_removal yielded a non_empty node, then
@@ -436,7 +439,7 @@
                   ### ... figure out whether that's the only position left.
                   (if (only_bit_position? bit bitmap)
                     ## If so, removing it leaves this node empty too.
-                    empty
+                    empty_node
                     ## But if not, then just unset the position and
                     ## remove the node.
                     (#Base (unset_bit_position bit bitmap)
@@ -473,7 +476,7 @@
       (if (n.= 1 (array.size _colls))
         ## If there's only one left, then removing it leaves us with
         ## an empty node.
-        empty
+        empty_node
         ## Otherwise, just shrink the array by removing the KV-pair.
         (#Collisions _hash (remove! idx _colls))))
     ))
@@ -561,11 +564,11 @@
   (All [k v] (-> (Dictionary k v) (Hash k)))
   (get@ #..hash))
 
-(def: #export (new key_hash)
+(def: #export (empty key_hash)
   {#.doc (doc "An empty dictionary.")}
   (All [k v] (-> (Hash k) (Dictionary k v)))
   {#hash key_hash
-   #root empty})
+   #root empty_node})
 
 (def: #export (put key val dict)
   (All [k v] (-> k v (Dictionary k v) (Dictionary k v)))
@@ -632,7 +635,7 @@
   (All [k v] (-> (Hash k) (List [k v]) (Dictionary k v)))
   (list\fold (function (_ [k v] dict)
                (..put k v dict))
-             (new key_hash)
+             (empty key_hash)
              kvs))
 
 (template [<side> <name>]
@@ -647,7 +650,7 @@
   [v values]
   )
 
-(def: #export (merge dict2 dict1)
+(def: #export (merged dict2 dict1)
   {#.doc (doc "Merges 2 dictionaries."
               "If any collisions with keys occur, the values of dict2 will overwrite those of dict1.")}
   (All [k v] (-> (Dictionary k v) (Dictionary k v) (Dictionary k v)))
@@ -655,7 +658,7 @@
              dict1
              (entries dict2)))
 
-(def: #export (merge_with f dict2 dict1)
+(def: #export (merged_with f dict2 dict1)
   {#.doc (doc "Merges 2 dictionaries."
               "If any collisions with keys occur, a new value will be computed by applying 'f' to the values of dict2 and dict1.")}
   (All [k v] (-> (-> v v v) (Dictionary k v) (Dictionary k v) (Dictionary k v)))
@@ -681,7 +684,7 @@
         (remove from_key)
         (put to_key val))))
 
-(def: #export (select keys dict)
+(def: #export (sub keys dict)
   {#.doc "A sub-dictionary, with only the specified keys."}
   (All [k v] (-> (List k) (Dictionary k v) (Dictionary k v)))
   (let [[key_hash _] dict]
@@ -689,7 +692,7 @@
                  (case (get key dict)
                    #.None       new_dict
                    (#.Some val) (put key val new_dict)))
-               (new key_hash)
+               (empty key_hash)
                keys)))
 
 (implementation: #export (equivalence (^open ",\."))

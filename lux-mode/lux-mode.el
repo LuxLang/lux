@@ -325,7 +325,7 @@ Called by `imenu--generic-function'."
 							(control//logic (altRE "and" "or"))
 							(control//contract (altRE "pre" "post"))
 							;; Type
-							(type//syntax (altRE "|" "&" "->" "All" "Ex" "Rec" "primitive" "type"))
+							(type//syntax (altRE "Variant" "Or" "Tuple" "And" "->" "All" "Ex" "Rec" "primitive" "type"))
 							(type//checking (altRE ":" ":as" ":let" ":~" ":assume" ":of" ":cast" ":sharing" ":by_example" ":hole"))
 							(type//abstract (altRE "abstract:" ":abstraction" ":representation" ":transmutation" "\\^:representation"))
 							(type//unit (altRE "unit:" "scale:"))

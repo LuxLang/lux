@@ -7,15 +7,10 @@
       [indexed (#+ IxMonad)]]]
     [control
      ["." exception (#+ exception:)]
-     ["." io (#+ IO)]
-     [concurrency
-      ["." async (#+ Async)]]
      ["<>" parser
       ["<.>" code (#+ Parser)]]]
     [data
-     ["." identity (#+ Identity)]
      ["." maybe]
-     ["." product]
      [text
       ["%" format (#+ format)]]
      [collection
@@ -45,41 +40,31 @@
   (All [keys]
     (Procedure monad [permissions keys] keys value)))
 
-(implementation: (indexed Monad<m>)
-  (All [m] (-> (Monad m) (IxMonad (Procedure m))))
+(implementation: #export (monad monad)
+  (All [!] (-> (Monad !) (IxMonad (Procedure !))))
   
   (def: (in value)
     (function (_ keys)
-      (\ Monad<m> in [keys value])))
+      (\ monad in [keys value])))
 
   (def: (bind f input)
     (function (_ keysI)
-      (do Monad<m>
+      (do monad
         [[keysT value] (input keysI)]
         ((f value) keysT)))))
 
-(template [<name> <m> <monad> <execute> <lift>]
-  [(def: #export <name>
-     (IxMonad (Procedure <m>))
-     (..indexed <monad>))
+(def: #export (run monad procedure)
+  (All [! v] (-> (Monad !) (Linear ! v) (! v)))
+  (do monad
+    [[_ output] (procedure [])]
+    (in output)))
 
-   (def: #export (<execute> procedure)
-     (All [v] (-> (Linear <m> v) (<m> v)))
-     (do <monad>
-       [[_ output] (procedure [])]
-       (in output)))
-
-   (def: #export (<lift> procedure)
-     (All [v] (-> (<m> v) (Linear <m> v)))
-     (function (_ keys)
-       (do <monad>
-         [output procedure]
-         (in [keys output]))))]
-
-  [pure  Identity identity.monad run_pure  lift_pure]
-  [sync  IO       io.monad       run_sync  lift_sync]
-  [async Async    async.monad    run_async lift_async]
-  )
+(def: #export (lifted monad procedure)
+  (All [! v] (-> (Monad !) (! v) (Linear ! v)))
+  (function (_ keys)
+    (do monad
+      [output procedure]
+      (in [keys output]))))
 
 (abstract: #export Ordered Any)
 
@@ -102,31 +87,22 @@
 
   {#.doc "A value locked by a key."}
 
-  (template [<name> <m> <monad> <mode> <key>]
-    [(def: #export (<name> value)
-       (All [v] (Ex [k] (-> v (Affine <m> (Key <mode> k) (Res k v)))))
+  (template [<name> <mode> <key>]
+    [(def: #export (<name> monad value)
+       (All [! v] (Ex [k] (-> (Monad !) v (Affine ! (Key <mode> k) (Res k v)))))
        (function (_ keys)
-         (\ <monad> in [[(<key> []) keys] (:abstraction value)])))]
+         (\ monad in [[(<key> []) keys] (:abstraction value)])))]
 
-    [ordered_pure      Identity identity.monad Ordered     ordered_key]
-    [ordered_sync      IO       io.monad       Ordered     ordered_key]
-    [ordered_async     Async    async.monad  Ordered     ordered_key]
-    [commutative_sync  IO       io.monad       Commutative commutative_key]
-    [commutative_pure  Identity identity.monad Commutative commutative_key]
-    [commutative_async Async    async.monad  Commutative commutative_key]
+    [ordered     Ordered     ..ordered_key]
+    [commutative Commutative ..commutative_key]
     )
 
-  (template [<name> <m> <monad>]
-    [(def: #export (<name> resource)
-       (All [v k m]
-         (-> (Res k v) (Relevant <m> (Key m k) v)))
-       (function (_ [key keys])
-         (\ <monad> in [keys (:representation resource)])))]
-
-    [read_pure  Identity identity.monad]
-    [read_sync  IO       io.monad]
-    [read_async Async    async.monad]
-    ))
+  (def: #export (read monad resource)
+    (All [! v k m]
+      (-> (Monad !) (Res k v) (Relevant ! (Key m k) v)))
+    (function (_ [key keys])
+      (\  monad in [keys (:representation resource)])))
+  )
 
 (exception: #export (index_cannot_be_repeated {index Nat})
   (exception.report
@@ -136,7 +112,7 @@
 
 (def: indices
   (Parser (List Nat))
-  (<code>.tuple (loop [seen (set.new n.hash)]
+  (<code>.tuple (loop [seen (set.empty n.hash)]
                   (do {! <>.monad}
                     [done? <code>.end?]
                     (if done?
@@ -148,45 +124,40 @@
                          tail (recur (set.add head seen))]
                         (in (list& head tail))))))))
 
-(def: (no_op Monad<m>)
+(def: (no_op monad)
   (All [m] (-> (Monad m) (Linear m Any)))
   (function (_ context)
-    (\ Monad<m> in [context []])))
+    (\ monad in [context []])))
 
-(template [<name> <m> <monad>]
-  [(syntax: #export (<name> {swaps ..indices})
-     (macro.with_gensyms [g!_ g!context]
-       (case swaps
-         #.End
-         (in (list (` ((~! no_op) <monad>))))
+(syntax: #export (exchange {swaps ..indices})
+  (macro.with_gensyms [g!_ g!context g!!]
+    (case swaps
+      #.End
+      (in (list (` (~! no_op))))
 
-         (#.Item head tail)
-         (do {! meta.monad}
-           [#let [max_idx (list\fold n.max head tail)]
-            g!inputs (<| (monad.seq !) (list.repeat (inc max_idx)) (macro.gensym "input"))
-            #let [g!outputs (|> (monad.fold maybe.monad
-                                            (function (_ from to)
-                                              (do maybe.monad
-                                                [input (list.nth from g!inputs)]
-                                                (in (row.add input to))))
-                                            (: (Row Code) row.empty)
-                                            swaps)
-                                maybe.assume
-                                row.to_list)
-                  g!inputsT+ (list\map (|>> (~) (..Key ..Commutative) (`)) g!inputs)
-                  g!outputsT+ (list\map (|>> (~) (..Key ..Commutative) (`)) g!outputs)]]
-           (in (list (` (: (All [(~+ g!inputs) (~ g!context)]
-                             (Procedure (~! <m>)
-                                        [(~+ g!inputsT+) (~ g!context)]
-                                        [(~+ g!outputsT+) (~ g!context)]
-                                        .Any))
-                           (function ((~ g!_) [(~+ g!inputs) (~ g!context)])
-                             (\ (~! <monad>) (~' in) [[(~+ g!outputs) (~ g!context)] []]))))))))))]
-
-  [exchange_pure  Identity identity.monad]
-  [exchange_sync  IO       io.monad]
-  [exchange_async Async    async.monad]
-  )
+      (#.Item head tail)
+      (do {! meta.monad}
+        [#let [max_idx (list\fold n.max head tail)]
+         g!inputs (<| (monad.seq !) (list.repeat (inc max_idx)) (macro.gensym "input"))
+         #let [g!outputs (|> (monad.fold maybe.monad
+                                         (function (_ from to)
+                                           (do maybe.monad
+                                             [input (list.nth from g!inputs)]
+                                             (in (row.add input to))))
+                                         (: (Row Code) row.empty)
+                                         swaps)
+                             maybe.assume
+                             row.to_list)
+               g!inputsT+ (list\map (|>> (~) (..Key ..Commutative) (`)) g!inputs)
+               g!outputsT+ (list\map (|>> (~) (..Key ..Commutative) (`)) g!outputs)]]
+        (in (list (` (: (All [(~ g!!) (~+ g!inputs) (~ g!context)]
+                          (-> ((~! monad.Monad) (~ g!!))
+                              (Procedure (~ g!!)
+                                         [(~+ g!inputsT+) (~ g!context)]
+                                         [(~+ g!outputsT+) (~ g!context)]
+                                         .Any)))
+                        (function ((~ g!_) (~ g!!) [(~+ g!inputs) (~ g!context)])
+                          (\ (~ g!!) (~' in) [[(~+ g!outputs) (~ g!context)] []]))))))))))
 
 (def: amount
   (Parser Nat)
@@ -196,23 +167,22 @@
                      (n.> 0 raw))]
     (in raw)))
 
-(template [<name> <m> <monad> <from> <to>]
+(template [<name> <from> <to>]
   [(syntax: #export (<name> {amount ..amount})
-     (macro.with_gensyms [g!_ g!context]
+     (macro.with_gensyms [g!_ g!context g!!]
        (do {! meta.monad}
-         [g!keys (<| (monad.seq !) (list.repeat amount) (macro.gensym "keys"))]
-         (in (list (` (: (All [(~+ g!keys) (~ g!context)]
-                           (Procedure (~! <m>)
-                                      [<from> (~ g!context)]
-                                      [<to> (~ g!context)]
-                                      .Any))
-                         (function ((~ g!_) [<from> (~ g!context)])
-                           (\ (~! <monad>) (~' in) [[<to> (~ g!context)] []])))))))))]
+         [g!keys (|> (macro.gensym "keys")
+                     (list.repeat amount)
+                     (monad.seq !))]
+         (in (list (` (: (All [(~ g!!) (~+ g!keys) (~ g!context)]
+                           (-> ((~! monad.Monad) (~ g!!))
+                               (Procedure (~ g!!)
+                                          [<from> (~ g!context)]
+                                          [<to> (~ g!context)]
+                                          .Any)))
+                         (function ((~ g!_) (~ g!!) [<from> (~ g!context)])
+                           (\ (~ g!!) (~' in) [[<to> (~ g!context)] []])))))))))]
 
-  [group_pure     Identity identity.monad (~+ g!keys)   [(~+ g!keys)]]
-  [group_sync     IO       io.monad       (~+ g!keys)   [(~+ g!keys)]]
-  [group_async    Async    async.monad    (~+ g!keys)   [(~+ g!keys)]]
-  [un_group_pure  Identity identity.monad [(~+ g!keys)] (~+ g!keys)]
-  [un_group_sync  IO       io.monad       [(~+ g!keys)] (~+ g!keys)]
-  [un_group_async Async    async.monad    [(~+ g!keys)] (~+ g!keys)]
+  [group    (~+ g!keys)   [(~+ g!keys)]]
+  [un_group [(~+ g!keys)] (~+ g!keys)]
   )
